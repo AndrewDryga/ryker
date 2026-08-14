@@ -196,7 +196,9 @@ func TestConversationReplyReturnsToPreviouslyExitedThread(t *testing.T) {
 	defer st.Close()
 	coopClient := newFakeCoop()
 	coopClient.completeQueue = []string{
-		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":1,"contribution":"decision","material":true},"reason":"direct request","message":"hi","memory":{}}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":1,"contribution":"decision","material":true},"reason":"direct request","operations":[` +
+			`{"id":"complete","type":"complete_episode","completion":{"message":"hi",` +
+			`"completion":{"status":"decision_ready","summary":"posted the greeting"}}}]}`,
 	}
 	slack := &fakeSlack{}
 	svc := New(
@@ -440,7 +442,9 @@ func TestBoundedConversationLaneRepliesWithoutInvestigation(t *testing.T) {
 	coopClient := newFakeCoop()
 	coopClient.session.BaseCommit = "repo-commit"
 	coopClient.completeQueue = []string{
-		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":1,"contribution":"decision","material":true},"reason":"ordinary arithmetic","message":"8","memory":{}}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":1,"contribution":"decision","material":true},"reason":"ordinary arithmetic","operations":[` +
+			`{"id":"complete","type":"complete_episode","completion":{"message":"8",` +
+			`"completion":{"status":"decision_ready","summary":"answered the arithmetic question"}}}]}`,
 	}
 	slack := &fakeSlack{}
 	svc := New(
@@ -629,7 +633,9 @@ func TestConversationLaneEscalatesOperationalWorkWithoutRetryPenalty(t *testing.
 	coopClient := newFakeCoop()
 	coopClient.completeQueue = []string{
 		`{"action":"escalate","attention":{"addressee":"responder","confidence":3,"ownership":2},"reason":"requires current CI evidence","memory":{}}`,
-		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3,"contribution":"decision","material":true},"reason":"verified current state","message":"CI is green.","evidence":[],"coverage":[],"memory":{}}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3,"contribution":"decision","material":true},"reason":"verified current state","operations":[` +
+			`{"id":"complete","type":"complete_episode","completion":{"message":"CI is green.",` +
+			`"completion":{"status":"decision_ready","summary":"CI is green."}}}]}`,
 	}
 	slack := &fakeSlack{}
 	svc := New(
@@ -696,25 +702,37 @@ func TestEscalatedDeepWorkReceivesStructuredCorrection(t *testing.T) {
 	}
 	defer st.Close()
 	coopClient := newFakeCoop()
+	observedAt := time.Now().UTC().Format(time.RFC3339)
 	coopClient.completeQueue = []string{
 		`{"action":"escalate","attention":{"addressee":"responder","confidence":3,"ownership":2},"reason":"requires current production evidence","memory":{}}`,
-		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3,"contribution":"decision","material":true},"reason":"checked production","message":"Production is healthy.","evidence":[],"coverage":[],"memory":{}}`,
+		// Deliberately incomplete: a deep-work answer with no completion
+		// assessment and no claim evidence, which the host must send back.
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3,"contribution":"decision","material":true},"reason":"checked production","operations":[` +
+			`{"id":"complete","type":"complete_episode","completion":{"message":"Production is healthy."}}]}`,
 		`{
 		  "action":"reply",
 		  "attention":{"addressee":"responder","confidence":3,"ownership":3,"contribution":"decision","material":true},
 		  "reason":"completed every required check",
-		  "message":"Production is healthy across the requested scope.",
-		  "coverage":[
-		    {"layer":"change","status":"healthy","detail":"current revision verified"},
-		    {"layer":"host","status":"healthy","detail":"hosts verified"},
-		    {"layer":"runtime","status":"healthy","detail":"runtime verified"},
-		    {"layer":"workload","status":"healthy","detail":"workloads verified"},
-		    {"layer":"dependency","status":"healthy","detail":"dependencies verified"},
-		    {"layer":"application","status":"healthy","detail":"application verified"},
-		    {"layer":"slo","status":"healthy","detail":"SLO verified"}
-		  ],
-		  "completion":{"status":"decision_ready","verdict":"healthy","summary":"Production is healthy across the requested scope."},
-		  "memory":{}
+		  "operations":[
+		    {"id":"ev-change","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"the deployed revision is the intended one","observation":"the running revision matches the intended rollout","relation":"supports","health_effect":"none","source_type":"repository","source_name":"deployment manifest","observed_at":"` + observedAt + `","dimensions":{"repository":"repo","environment":"production","revision":"current"}}},
+		    {"id":"ev-host","type":"record_evidence","evidence":{"claim_id":"host.current_state","claim":"expected hosts are responsive","observation":"every expected host reports ready with no pressure","relation":"supports","health_effect":"none","source_type":"monitoring","source_name":"host inventory","observed_at":"` + observedAt + `","dimensions":{"host":"prod-1","environment":"production"}}},
+		    {"id":"ev-runtime","type":"record_evidence","evidence":{"claim_id":"runtime.current_state","claim":"required runtimes are healthy","observation":"each runtime reports current healthy state","relation":"supports","health_effect":"none","source_type":"monitoring","source_name":"runtime status","observed_at":"` + observedAt + `","dimensions":{"runtime":"container","host":"prod-1"}}},
+		    {"id":"ev-workload","type":"record_evidence","evidence":{"claim_id":"workload.desired_state","claim":"workloads run at desired capacity","observation":"every workload reports its desired replica count with no restarts","relation":"supports","health_effect":"none","source_type":"monitoring","source_name":"workload state","observed_at":"` + observedAt + `","dimensions":{"service":"api","workload":"api","environment":"production"}}},
+		    {"id":"ev-dependency","type":"record_evidence","evidence":{"claim_id":"dependency.current_health","claim":"critical dependencies are available","observation":"every dependency check succeeds within its bounds","relation":"supports","health_effect":"none","source_type":"monitoring","source_name":"dependency checks","observed_at":"` + observedAt + `","dimensions":{"dependency":"database","service":"api","environment":"production"}}},
+		    {"id":"ev-application","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"representative user paths work","observation":"the checkout and login paths return success with no error spike","relation":"supports","health_effect":"none","source_type":"monitoring","source_name":"synthetic checks","observed_at":"` + observedAt + `","dimensions":{"service":"api","endpoint":"checkout","environment":"production","window":"current"}}},
+		    {"id":"ev-slo","type":"record_evidence","evidence":{"claim_id":"impact.current","claim":"no current user impact","observation":"the current service indicator is within its objective and no alert is firing","relation":"supports","health_effect":"none","source_type":"monitoring","source_name":"service indicators","observed_at":"` + observedAt + `","dimensions":{"service":"api","indicator":"availability","environment":"production","window":"current"}}},
+		    {"id":"cov-change","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"healthy","detail":"current revision verified"}},
+		    {"id":"cov-host","type":"record_coverage","coverage":{"layer":"host","claim_ids":["host.current_state"],"status":"healthy","detail":"hosts verified"}},
+		    {"id":"cov-runtime","type":"record_coverage","coverage":{"layer":"runtime","claim_ids":["runtime.current_state"],"status":"healthy","detail":"runtime verified"}},
+		    {"id":"cov-workload","type":"record_coverage","coverage":{"layer":"workload","claim_ids":["workload.desired_state"],"status":"healthy","detail":"workloads verified"}},
+		    {"id":"cov-dependency","type":"record_coverage","coverage":{"layer":"dependency","claim_ids":["dependency.current_health"],"status":"healthy","detail":"dependencies verified"}},
+		    {"id":"cov-application","type":"record_coverage","coverage":{"layer":"application","claim_ids":["application.functional_behavior"],"status":"healthy","detail":"application verified"}},
+		    {"id":"cov-slo","type":"record_coverage","coverage":{"layer":"slo","claim_ids":["impact.current"],"status":"healthy","detail":"SLO verified"}},
+		    {"id":"complete","type":"complete_episode","completion":{
+		      "message":"Production is healthy across the requested scope.",
+		      "completion":{"status":"decision_ready","verdict":"healthy","summary":"Production is healthy across the requested scope."}
+		    }}
+		  ]
 		}`,
 	}
 	slack := &fakeSlack{}

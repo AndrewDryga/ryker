@@ -614,7 +614,9 @@ func TestAgentRunACPProcessFailureRotatesSlackInvestigationSession(t *testing.T)
 			State: "completed",
 			AssistantMessage: `{
 				"action":"reply",
-				"message":"The seven-day Cassandra CPU graph is ready."
+				"operations":[{"id":"complete","type":"complete_episode","completion":{
+					"message":"The seven-day Cassandra CPU graph is ready.",
+					"completion":{"status":"decision_ready","summary":"graph delivered"}}}]
 			}`,
 		},
 	}
@@ -692,7 +694,9 @@ func TestAgentRunMissingCoopImageRepairsAndRetriesWithoutSlackFailure(t *testing
 			State: "completed",
 			AssistantMessage: `{
 				"action":"reply",
-				"message":"Four."
+				"operations":[{"id":"complete","type":"complete_episode","completion":{
+					"message":"Four.",
+					"completion":{"status":"decision_ready","summary":"answered"}}}]
 			}`,
 		},
 	}
@@ -840,7 +844,9 @@ func TestAgentRunTranscriptOverflowRotatesSlackSession(t *testing.T) {
 			State: "completed",
 			AssistantMessage: `{
 				"action":"reply",
-				"message":"All pull zones were checked with bounded current and historical queries."
+				"operations":[{"id":"complete","type":"complete_episode","completion":{
+					"message":"All pull zones were checked with bounded current and historical queries.",
+					"completion":{"status":"decision_ready","summary":"pull zones checked"}}}]
 			}`,
 		},
 	}

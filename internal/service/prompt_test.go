@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -116,12 +117,17 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		"task lists, dividers, tables",
 		"outer JSON is only the transport envelope",
 		"do not send them outside Slack",
-		"task_title",
-		"task_repository",
+		// The prepared-fix rule survives; only its transport changed. The
+		// engineering offer is an offer_task operation now, so these pins moved
+		// with it rather than being dropped — the rule they guard is that a
+		// repository fix is offered here, with its repository and prompt, and
+		// is not handed back to the operator to start.
+		"offer_task with kind=engineering",
+		"its exact repository",
 		"inspect the most likely configured source repository",
 		"even if the broader operational assessment remains blocked by that exact defect",
 		"Do not merely describe the patch",
-		"omit task_prompt rather than guessing",
+		"omit the task offer rather than guessing",
 		"Configured repository bindings",
 		"target_is_configured_operator must be true",
 		"A dedicated incident is not required",
@@ -387,7 +393,22 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // drifted in both directions for two weeks. The prompt now carries a map
 // derived from the session's own pins, so the bytes bought a smaller total read
 // and a map that cannot go stale between deploys.
-const staticWatchPromptBytes = 49410
+// Raised by 378 on 2026-08-14 to state the result envelope once and exactly.
+// The prompt had been teaching two protocols at the same time: the operations
+// list said typed operations carry the result, and a dozen sentences around it
+// still told the model to "include task_title", "add incident_title", "omit
+// memory_offer" — the legacy top-level fields. Those sentences now name the
+// operations that carry them, and the envelope paragraph states its whole field
+// set (action, reaction, title, attention, reason, task_pull_request,
+// publication_updates, operations) instead of implying it. Part of the cost is
+// recovered: the offer contract stopped listing eight field names to say that
+// an offer is a proposal, which was the same rule stated by enumeration.
+//
+// task_pull_request is in that list deliberately. TaskOffer carries kind,
+// title, repository and prompt and nothing else, so it is the one result-shaped
+// thing with no operation to travel in, and a prompt that forbade it would
+// forbid updating an exact existing PR at all.
+const staticWatchPromptBytes = 49788
 
 // The static prompt must not grow without someone deciding it should.
 //
@@ -471,5 +492,71 @@ func TestOversizedChannelMessageSaysTheHostCutIt(t *testing.T) {
 	)
 	if strings.Contains(fitting, "the host cut the rest of this message to fit") {
 		t.Fatal("a message that fitted was marked as cut")
+	}
+}
+
+// The prompt's own worked example has to be a result the host would accept.
+//
+// A prompt that teaches one shape and demonstrates another teaches the one it
+// demonstrates. This parses every concrete envelope example the watch prompt
+// shows, through the parser a real turn goes through, and holds it to the rule
+// the prose states: operations carry the result, and no legacy result field
+// appears beside them. An example that drifts fails here rather than in a
+// channel.
+func TestWatchPromptExamplesUseTheTypedResultShape(t *testing.T) {
+	cfg := serviceConfig(t)
+	prompt, _ := (&Service{cfg: cfg}).watchPrompt(
+		core.SlackInput{
+			ChannelID: "C123ABC", MessageTS: "1700.001",
+			UserID: cfg.Slack.Operators[0], Kind: "scheduled",
+			Text: "How is the health of our infrastructure?",
+		},
+		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		decisionpkg.OperationalMemoryContext{}, "", nil, WatchPromptBudget(0),
+	)
+	// Only concrete examples. The envelope schema sketch beside them spells its
+	// action as "ignore|react|reply|incident|escalate", which is documentation
+	// of the field rather than a decision, and is not meant to parse.
+	examples := 0
+	for _, line := range strings.Split(prompt, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, `{"action":"`) {
+			continue
+		}
+		action := strings.SplitN(strings.TrimPrefix(line, `{"action":"`), `"`, 2)[0]
+		if strings.Contains(action, "|") {
+			continue
+		}
+		examples++
+		decision, err := decisionpkg.ParseWatchDecision(line, testDecodeClock)
+		if err != nil {
+			t.Fatalf("the prompt shows an example the host would reject: %v\n%s", err, line)
+		}
+		if decision.LegacyShape {
+			t.Fatalf("the prompt's example carries no operations:\n%s", line)
+		}
+		// Checked on the raw JSON, not the parsed decision: parsing projects
+		// the operations back onto the legacy fields, so the decision always
+		// looks legacy-shaped afterwards.
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(line), &raw); err != nil {
+			t.Fatalf("example is not one JSON object: %v\n%s", err, line)
+		}
+		if _, ok := raw["operations"]; !ok {
+			t.Fatalf("the prompt's example has no operations array:\n%s", line)
+		}
+		for field := range raw {
+			switch field {
+			case "action", "reaction", "title", "attention", "reason",
+				"task_pull_request", "publication_updates", "operations":
+			default:
+				t.Fatalf("the prompt's example carries the legacy result field %q "+
+					"beside its operations:\n%s", field, line)
+			}
+		}
+	}
+	if examples == 0 {
+		t.Fatal("the watch prompt shows no concrete envelope example; this guard " +
+			"would pass on a prompt that had stopped demonstrating the shape at all")
 	}
 }

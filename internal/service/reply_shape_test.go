@@ -40,8 +40,12 @@ func TestOverlongReplyIsCorrectedOnceAndThenPosted(t *testing.T) {
 				"addressee": "responder", "confidence": 3, "novelty": 2, "ownership": 3,
 				"contribution": "decision", "material": true,
 			},
-			"reason":  "answering the greeting",
-			"message": message,
+			"reason": "answering the greeting",
+			"operations": []any{map[string]any{
+				"id":         "complete",
+				"type":       "complete_episode",
+				"completion": map[string]any{"message": message},
+			}},
 		})
 		if marshalErr != nil {
 			t.Fatal(marshalErr)

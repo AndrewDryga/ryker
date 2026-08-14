@@ -273,7 +273,9 @@ func TestWatchedChannelDecisions(t *testing.T) {
 			name: "reply", kind: "message",
 			decision: `{"action":"reply","attention":{"addressee":"channel",` +
 				`"urgency":1,"confidence":3,"novelty":2,"ownership":2,"contribution":"decision","material":true},` +
-				`"message":"The deploy recovered; no action is needed."}`,
+				`"operations":[{"id":"complete","type":"complete_episode","completion":{` +
+				`"message":"The deploy recovered; no action is needed.",` +
+				`"completion":{"status":"decision_ready","summary":"the deploy recovered"}}}]}`,
 			wantState: "done", wantPosts: 1,
 		},
 		{
@@ -281,13 +283,16 @@ func TestWatchedChannelDecisions(t *testing.T) {
 			text: "Enable origin certificate verification for this pull zone.",
 			decision: `{"action":"reply","attention":{"addressee":"responder",` +
 				`"urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},` +
-				`"message":"Emisar accepted the exact request and paused it for approval.",` +
-				`"pending_approval":{"request_id":"apr_watch_1","run_id":"run_watch_1",` +
+				`"operations":[` +
+				`{"id":"appr","type":"request_approval","approval":{"request_id":"apr_watch_1","run_id":"run_watch_1",` +
 				`"operation_id":"op_watch_1","action_id":"bunny.pull_zone.update",` +
 				`"pack_ref":"bunny@1.0.0#sha256:abc","runner_ref":"prod~abc",` +
 				`"status":"pending_approval",` +
 				`"approval_url":"https://emisar.dev/app/acme/approvals/apr_watch_1",` +
-				`"expires_at":"2099-08-01T00:00:00Z"}}`,
+				`"expires_at":"2099-08-01T00:00:00Z"}},` +
+				`{"id":"complete","type":"complete_episode","completion":{` +
+				`"message":"Emisar accepted the exact request and paused it for approval.",` +
+				`"completion":{"status":"decision_ready","summary":"approval is pending"}}}]}`,
 			wantState: "done", wantPosts: 1, wantApproval: true,
 		},
 		{
@@ -300,8 +305,11 @@ func TestWatchedChannelDecisions(t *testing.T) {
 			alertPolicy: "offer",
 			decision: `{"action":"reply","attention":{"addressee":"channel",` +
 				`"urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},` +
+				`"operations":[` +
+				`{"id":"off-inc","type":"offer_task","task":{"kind":"incident","title":"Checkout error rate is elevated"}},` +
+				`{"id":"complete","type":"complete_episode","completion":{` +
 				`"message":"Checkout errors are elevated and need investigation.",` +
-				`"incident_title":"Checkout error rate is elevated"}`,
+				`"completion":{"status":"decision_ready","summary":"checkout errors need investigation"}}}]}`,
 			wantState: "done", wantPosts: 1, wantOffer: true,
 		},
 		{
@@ -309,7 +317,9 @@ func TestWatchedChannelDecisions(t *testing.T) {
 			alertPolicy: "reply",
 			decision: `{"action":"reply","attention":{"addressee":"channel",` +
 				`"urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},` +
-				`"message":"Checkout errors are elevated and need investigation."}`,
+				`"operations":[{"id":"complete","type":"complete_episode","completion":{` +
+				`"message":"Checkout errors are elevated and need investigation.",` +
+				`"completion":{"status":"decision_ready","summary":"checkout errors need investigation"}}}]}`,
 			wantState: "done", wantPosts: 1,
 		},
 		{
@@ -317,8 +327,11 @@ func TestWatchedChannelDecisions(t *testing.T) {
 			alertPolicy: "automatic",
 			decision: `{"action":"reply","attention":{"addressee":"channel",` +
 				`"urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},` +
+				`"operations":[` +
+				`{"id":"off-inc","type":"offer_task","task":{"kind":"incident","title":"Checkout error rate is elevated"}},` +
+				`{"id":"complete","type":"complete_episode","completion":{` +
 				`"message":"The alert is credible.",` +
-				`"incident_title":"Checkout error rate is elevated"}`,
+				`"completion":{"status":"decision_ready","summary":"the alert is credible"}}}]}`,
 			wantState: "done", wantPosts: 1, wantIncidents: 1,
 		},
 		{
@@ -575,18 +588,19 @@ func TestWatchedIncidentOfferRequiresOperatorAndCreatesOnce(t *testing.T) {
 	coopClient.completeOnSubmit = `{
 	  "action":"reply",
 	  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
-	  "message":"Two production runners are disconnected.",
-	  "incident_title":"Two production runners disconnected",
-	  "coverage":[
-	    {"layer":"change","status":"unknown","detail":"The deployed revision was not available"},
-	    {"layer":"host","status":"unhealthy","source":"Emisar","detail":"Two production runners are disconnected"},
-	    {"layer":"runtime","status":"unknown","detail":"Disconnected runners cannot be queried"},
-	    {"layer":"workload","status":"unknown","detail":"Workload placement was not available"},
-	    {"layer":"dependency","status":"unknown","detail":"Dependency health was not available"},
-	    {"layer":"application","status":"unknown","detail":"Application probes were not available"},
-	    {"layer":"slo","status":"unknown","detail":"Customer impact was not available"}
-	  ],
-	  "completion":{"status":"blocked","summary":"Two runners are disconnected and the production impact cannot yet be bounded.","material_gaps":["workload placement and customer impact"],"blocker_kind":"source_unavailable","attempts":["Queried the configured live source; disconnected runners could not return workload or application evidence"],"next_action":"Restore runner connectivity or provide an authoritative workload and customer-impact source"}
+	  "operations":[
+	    {"id":"cov-change","type":"record_coverage","coverage":{"layer":"change","status":"unknown","detail":"The deployed revision was not available"}},
+	    {"id":"cov-host","type":"record_coverage","coverage":{"layer":"host","status":"unhealthy","source":"Emisar","detail":"Two production runners are disconnected"}},
+	    {"id":"cov-runtime","type":"record_coverage","coverage":{"layer":"runtime","status":"unknown","detail":"Disconnected runners cannot be queried"}},
+	    {"id":"cov-workload","type":"record_coverage","coverage":{"layer":"workload","status":"unknown","detail":"Workload placement was not available"}},
+	    {"id":"cov-dependency","type":"record_coverage","coverage":{"layer":"dependency","status":"unknown","detail":"Dependency health was not available"}},
+	    {"id":"cov-application","type":"record_coverage","coverage":{"layer":"application","status":"unknown","detail":"Application probes were not available"}},
+	    {"id":"cov-slo","type":"record_coverage","coverage":{"layer":"slo","status":"unknown","detail":"Customer impact was not available"}},
+	    {"id":"off-inc","type":"offer_task","task":{"kind":"incident","title":"Two production runners disconnected"}},
+	    {"id":"complete","type":"complete_episode","completion":{
+	      "message":"Two production runners are disconnected.",
+	      "completion":{"status":"blocked","summary":"Two runners are disconnected and the production impact cannot yet be bounded.","material_gaps":["workload placement and customer impact"],"blocker_kind":"source_unavailable","attempts":["Queried the configured live source; disconnected runners could not return workload or application evidence"],"next_action":"Restore runner connectivity or provide an authoritative workload and customer-impact source"}}}
+	  ]
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -704,18 +718,22 @@ func TestWatchedScheduleAndRunbookRequestUsesEmisarAndOffersSchedule(t *testing.
 		"action":"reply",
 		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},
 		"reason":"the operator requested an Emisar runbook and recurring execution",
-		"message":"I created and published the reusable Emisar runbook deep-infrastructure-health@1. Confirm the daily schedule below.",
-		"schedule_offer":{
-			"title":"Daily deep infrastructure health review",
-			"prompt":"Execute the exact published Emisar runbook deep-infrastructure-health@1 with fresh evidence and report the result.",
-			"repository":"repo",
-			"recurrence":"daily",
-			"local_time":"09:00",
-			"timezone":"UTC",
-			"catch_up":"latest",
-			"expires_in":"365d"
-		},
-		"evidence":[{"claim":"the runbook is published","observation":"Emisar published deep-infrastructure-health@1","source_type":"emisar","source_name":"publish_runbook"}]
+		"operations":[
+			{"id":"ev-1","type":"record_evidence","evidence":{"claim_id":"task.requested_outcome","claim":"the runbook is published","observation":"Emisar published deep-infrastructure-health@1","source_type":"emisar","source_name":"publish_runbook"}},
+			{"id":"off-sched","type":"offer_schedule","schedule_offer":{
+				"title":"Daily deep infrastructure health review",
+				"prompt":"Execute the exact published Emisar runbook deep-infrastructure-health@1 with fresh evidence and report the result.",
+				"repository":"repo",
+				"recurrence":"daily",
+				"local_time":"09:00",
+				"timezone":"UTC",
+				"catch_up":"latest",
+				"expires_in":"365d"
+			}},
+			{"id":"complete","type":"complete_episode","completion":{
+				"message":"I created and published the reusable Emisar runbook deep-infrastructure-health@1. Confirm the daily schedule below.",
+				"completion":{"status":"decision_ready","summary":"the runbook is published and the schedule awaits confirmation"}}}
+		]
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -804,20 +822,27 @@ func TestActivateItReconstructsAndUpdatesDailyScheduleWithoutAnotherConfirmation
 		"action":"reply",
 		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
 		"reason":"the operator explicitly activated the established daily report",
-		"message":"Activated. The daily report will run at 09:00.",
-		"completion":{"status":"decision_ready","verdict":"completed","summary":"The daily report is active."}
+		"operations":[
+			{"id":"complete","type":"complete_episode","completion":{
+				"message":"Activated. The daily report will run at 09:00.",
+				"completion":{"status":"decision_ready","verdict":"completed","summary":"The daily report is active."}}}
+		]
 	}`, `{
 		"action":"reply",
 		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
 		"reason":"the operator explicitly activated the established daily report",
-		"message":"The daily report is ready.",
-		"schedule_offer":{
-			"prompt":"Execute whole-platform-health-review-v5@5 with fresh evidence and report actionable findings.",
-			"repository":"repo",
-			"recurrence":"daily",
-			"local_time":"09:00",
-			"catch_up":"latest"
-		}
+		"operations":[
+			{"id":"off-sched","type":"offer_schedule","schedule_offer":{
+				"prompt":"Execute whole-platform-health-review-v5@5 with fresh evidence and report actionable findings.",
+				"repository":"repo",
+				"recurrence":"daily",
+				"local_time":"09:00",
+				"catch_up":"latest"
+			}},
+			{"id":"complete","type":"complete_episode","completion":{
+				"message":"The daily report is ready.",
+				"completion":{"status":"decision_ready","summary":"the daily report schedule is ready"}}}
+		]
 	}`}
 	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
 	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT"}
@@ -880,13 +905,17 @@ func TestWatchedCompoundRequestPostsOrderedMessagesInOneThread(t *testing.T) {
 		"action":"reply",
 		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},
 		"reason":"the operator requested three independent read-only outcomes",
-		"message":"**CI:** all required checks passed for the current revision.",
-		"followup_messages":[
-			"**Deployments:** production is waiting for one approval; no failed rollout was observed.",
-			"**Incidents:** two remain open, and the database-latency incident is the higher priority."
-		],
-		"evidence":[{"claim":"CI passed","observation":"All required jobs succeeded","source_type":"other","source_name":"CI"}],
-		"coverage":[{"layer":"change","status":"healthy","source":"CI","detail":"Current revision checks passed"}]
+		"operations":[
+			{"id":"ev-1","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"CI passed","observation":"All required jobs succeeded","relation":"supports","health_effect":"none","source_type":"other","source_name":"CI","dimensions":{"repository":"repo","environment":"production","revision":"current"}}},
+			{"id":"cov-1","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"healthy","source":"CI","detail":"Current revision checks passed"}},
+			{"id":"complete","type":"complete_episode","completion":{
+				"message":"**CI:** all required checks passed for the current revision.",
+				"followup_messages":[
+					"**Deployments:** production is waiting for one approval; no failed rollout was observed.",
+					"**Incidents:** two remain open, and the database-latency incident is the higher priority."
+				],
+				"completion":{"status":"decision_ready","summary":"CI, deployments and incidents are all reported"}}}
+		]
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -952,9 +981,12 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	coopClient.completeOnSubmit = `{
 			"action":"reply",
 			"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
-			"message":"I can audit and update infra/ in a dedicated isolated working copy.",
-			"followup_messages":["I will keep unrelated application settings unchanged."],
-			"task_title":"Audit infrastructure packs"
+			"operations":[
+				{"id":"off-task","type":"offer_task","task":{"kind":"engineering","title":"Audit infrastructure packs"}},
+				{"id":"complete","type":"complete_episode","completion":{
+					"message":"I can audit and update infra/ in a dedicated isolated working copy.",
+					"followup_messages":["I will keep unrelated application settings unchanged."]}}
+			]
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -1223,9 +1255,11 @@ func TestWatchedEngineeringOfferConditionsPrimaryReplyOnConfirmation(t *testing.
 	coopClient.completeOnSubmit = `{
 		"action":"reply",
 		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
-		"message":"Yes — I’ll prepare a PR to require a sustained latency condition before this warning fires. I’ll also review the device wording.",
-		"task_title":"Reduce Cassandra disk-latency alert noise",
-		"task_repository":"repo"
+		"operations":[
+			{"id":"off-task","type":"offer_task","task":{"kind":"engineering","title":"Reduce Cassandra disk-latency alert noise","repository":"repo"}},
+			{"id":"complete","type":"complete_episode","completion":{
+				"message":"Yes — I’ll prepare a PR to require a sustained latency condition before this warning fires. I’ll also review the device wording."}}
+		]
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -1286,23 +1320,24 @@ func TestDecisionReadyDiagnosisOffersIncidentAndPreparedFix(t *testing.T) {
 	coopClient.completeOnSubmit = `{
 		"action":"reply",
 		"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},
-		"message":"LoL requests are failing because the rank decoder rejects new upstream values.",
-		"incident_title":"Coordinate LoL request degradation",
-		"task_title":"Make LoL rank decoding forward-compatible",
-		"task_repository":"repo",
-		"task_prompt":` + fmt.Sprintf("%q", taskPrompt) + `,
-		"alert_assessment":{
-			"verdict":"confirmed_issue",
-			"impact":"LoL requests fail continuously.",
-			"cause_status":"identified",
-			"cause":"The decoder rejects WOOD and SALT rank values.",
-			"immediate_action":"Treat unknown values as unranked.",
-			"verification":"Confirm the exact errors disappear after deployment.",
-			"long_term_solution":"Use forward-compatible rank decoding with telemetry."
-		},
-		"completion":{"status":"decision_ready","summary":"The failure and fix boundary are established."},
-		"evidence":[{"claim":"the decoder is strict","observation":"the repository decoder enumerates rank values","source_type":"repository","source_name":"lib/rank.ex"}],
-		"coverage":[{"layer":"application","status":"degraded","detail":"LoL requests fail on new rank values"}]
+		"operations":[
+			{"id":"ev-1","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"the decoder is strict","observation":"the repository decoder enumerates rank values","source_type":"repository","source_name":"lib/rank.ex"}},
+			{"id":"cov-1","type":"record_coverage","coverage":{"layer":"application","claim_ids":["application.functional_behavior"],"status":"degraded","detail":"LoL requests fail on new rank values"}},
+			{"id":"alert","type":"record_alert_assessment","alert_assessment":{
+				"verdict":"confirmed_issue",
+				"impact":"LoL requests fail continuously.",
+				"cause_status":"identified",
+				"cause":"The decoder rejects WOOD and SALT rank values.",
+				"immediate_action":"Treat unknown values as unranked.",
+				"verification":"Confirm the exact errors disappear after deployment.",
+				"long_term_solution":"Use forward-compatible rank decoding with telemetry."
+			}},
+			{"id":"off-inc","type":"offer_task","task":{"kind":"incident","title":"Coordinate LoL request degradation"}},
+			{"id":"off-task","type":"offer_task","task":{"kind":"engineering","title":"Make LoL rank decoding forward-compatible","repository":"repo","prompt":` + fmt.Sprintf("%q", taskPrompt) + `}},
+			{"id":"complete","type":"complete_episode","completion":{
+				"message":"LoL requests are failing because the rank decoder rejects new upstream values.",
+				"completion":{"status":"decision_ready","summary":"The failure and fix boundary are established."}}}
+		]
 	}`
 	if _, err := decisionpkg.ParseWatchDecision(coopClient.completeOnSubmit, testDecodeClock); err != nil {
 		t.Fatalf("parse diagnosis decision: %v", err)

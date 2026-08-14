@@ -882,7 +882,12 @@ func TestCustomerJourneyBareMentionAfterRetryNoticeReachesTheModelWithChannelCon
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
 	  "action":"reply",
-	  "message":"Retrying the log and Sentry check now."
+	  "operations":[
+	    {"id":"complete","type":"complete_episode","completion":{
+	      "message":"Retrying the log and Sentry check now.",
+	      "completion":{"status":"decision_ready","summary":"the log and Sentry check is running again"}
+	    }}
+	  ]
 	}`
 	input := core.SlackInput{
 		ID: "slack-bare-mention-retry", EnvelopeID: "env-bare-mention-retry",

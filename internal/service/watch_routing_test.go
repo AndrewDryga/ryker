@@ -37,8 +37,10 @@ func TestWatchedEngineeringRequestRequiresRepositoryWhenSeveralAreConfigured(t *
 	coopClient.completeOnSubmit = `{
 			"action":"reply",
 			"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
-			"message":"I can make that repository change.",
-		"task_title":"Update deployment packs"
+			"operations":[
+				{"id":"off-task","type":"offer_task","task":{"kind":"engineering","title":"Update deployment packs"}},
+				{"id":"complete","type":"complete_episode","completion":{"message":"I can make that repository change.","completion":{"status":"decision_ready","summary":"Offered the deployment pack change."}}}
+			]
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -489,7 +491,7 @@ func TestWatchedTurnResumesFromDurableState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	coopClient.complete(`{"action":"reply","attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"message":"Yes, the deploy recovered."}`)
+	coopClient.complete(`{"action":"reply","attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"operations":[{"id":"complete","type":"complete_episode","completion":{"message":"Yes, the deploy recovered.","completion":{"status":"decision_ready","summary":"The deploy recovered."}}}]}`)
 	st, err = store.Open(cfg.StateDir)
 	if err != nil {
 		t.Fatal(err)
@@ -736,7 +738,7 @@ func TestWatchedRunRepairsStaleRotatedEventCursor(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	coopClient.complete(`{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"message":"The Terraform plan is safe to apply."}`)
+	coopClient.complete(`{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"operations":[{"id":"complete","type":"complete_episode","completion":{"message":"The Terraform plan is safe to apply.","completion":{"status":"decision_ready","summary":"The plan is safe to apply."}}}]}`)
 	coopClient.session.LastEventSequence = 1
 	svc.pollAgentRuns(ctx)
 	if err := svc.processAgentRunFinalization(ctx); err != nil {

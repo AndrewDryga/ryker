@@ -557,17 +557,19 @@ pending, include the exact pending_approval object returned by Emisar as the req
 
 func WatchEnvelopePrompt() string {
 	return `The final watch response uses this outer envelope:
-{"action":"ignore|react|reply|incident|escalate","reaction":"eyes for react only","title":"incident title for incident only","attention":{"addressee":"responder|channel|human|unclear","urgency":0,"confidence":0,"novelty":0,"ownership":0,"contribution":"none|material_correction|new_evidence|decision|completed_action|necessary_question","material":false},"reason":"concise classification reason","publication_updates":[],"operations":[]}
+{"action":"ignore|react|reply|incident|escalate","reaction":"eyes for react only","title":"incident title for incident only","attention":{"addressee":"responder|channel|human|unclear","urgency":0,"confidence":0,"novelty":0,"ownership":0,"contribution":"none|material_correction|new_evidence|decision|completed_action|necessary_question","material":false},"reason":"concise classification reason","task_pull_request":"exact existing PR URL only","publication_updates":[],"operations":[]}
 
 Every attention score is an integer from 0 through 3 inclusive. For ambient messages, name the
 contribution and set material=true only when speaking changes understanding, a decision, or the next
 action. Restatements, known blockers, generic advice, and unavailable access are none/false and ignore.
 
-The outer JSON is only the transport envelope; typed operations carry the result.
+The outer JSON is only the transport envelope. Its whole field set is action, reaction, title,
+attention, reason, task_pull_request, publication_updates and operations; nothing else may appear
+beside them. Every part of a result — message, completion, evidence, coverage, memory, approvals,
+task offers, durable behavior offers — is an operation from the list below. A legacy top-level
+result field is read, then sent back once to be re-emitted as operations.
 Background learning is independent of the Slack action. Ignore may have no operations, one update_memory,
 or evidence/coverage/goal operations plus wait_external without completion. For
-react, operations must be empty. For incident, use title and no operations. For reply, put all evidence,
-progress, approvals, inert task offers, any required update_memory, and the final response in operations;
-do not duplicate their legacy top-level fields. Recording a decision as evidence is not a substitute for
-updating conversation memory. ` + ResultOperationsPrompt()
+react, operations must be empty. For incident, use title and no operations. Recording a decision as
+evidence is not a substitute for updating conversation memory. ` + ResultOperationsPrompt()
 }

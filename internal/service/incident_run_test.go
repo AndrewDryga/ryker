@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -57,18 +58,23 @@ func TestPrivateSlackReplayRunsWithoutPublicSideEffects(t *testing.T) {
 	}
 	coopClient.complete(`{
 		"action":"reply",
-		"message":"Verified privately.",
-		"memory":{
-			"knowledge":[{
-				"subject":"Symbolicator storage",
-				"kind":"decision",
-				"statement":"Use GCS with GitHub Actions WIF for symbol uploads.",
-				"status":"accepted",
-				"confidence":3,
-				"source_ref":"https://example.slack.com/archives/CREPLAY/p1700200",
-				"source_message_ts":"1700.200"
-			}]
-		}
+		"operations":[
+			{"id":"mem","type":"update_memory","memory":{
+				"knowledge":[{
+					"subject":"Symbolicator storage",
+					"kind":"decision",
+					"statement":"Use GCS with GitHub Actions WIF for symbol uploads.",
+					"status":"accepted",
+					"confidence":3,
+					"source_ref":"https://example.slack.com/archives/CREPLAY/p1700200",
+					"source_message_ts":"1700.200"
+				}]
+			}},
+			{"id":"complete","type":"complete_episode","completion":{
+				"message":"Verified privately.",
+				"completion":{"status":"decision_ready","summary":"Verified privately."}
+			}}
+		]
 	}`)
 	svc.pollAgentRuns(ctx)
 	if err := svc.processAgentRunFinalization(ctx); err != nil {
@@ -315,20 +321,30 @@ func TestExplicitMentionRepliesOutsideConfiguredChannelsWithoutCreatingIncident(
 	}
 	slackClient := &fakeSlack{}
 	coopClient := newFakeCoop()
-	coopClient.completeOnSubmit = `{
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	coopClient.completeOnSubmit = fmt.Sprintf(`{
 	  "action":"reply",
-	  "message":"I checked current infrastructure state and found no active alerts.",
-	  "coverage":[
-	    {"layer":"change","status":"healthy","source":"repository","detail":"The deployed revision matches the declared revision"},
-	    {"layer":"host","status":"healthy","source":"Emisar","detail":"All declared hosts are connected"},
-	    {"layer":"runtime","status":"healthy","source":"Emisar","detail":"The host runtimes are responsive"},
-	    {"layer":"workload","status":"healthy","source":"Emisar","detail":"All declared workloads are running"},
-	    {"layer":"dependency","status":"healthy","source":"Emisar","detail":"Declared dependencies passed their checks"},
-	    {"layer":"application","status":"healthy","source":"monitoring","detail":"Application probes are passing"},
-	    {"layer":"slo","status":"healthy","source":"monitoring","detail":"No SLO alerts are active"}
-	  ],
-	  "completion":{"status":"decision_ready","verdict":"healthy","summary":"The checked production scope is healthy."}
-	}`
+	  "operations":[
+	    {"id":"ev-change","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"the deployed revision matches the declared revision","observation":"The deployed revision matches the declared revision","relation":"supports","health_effect":"none","source_type":"repository","source_name":"infrastructure manifests","observed_at":%[1]q,"dimensions":{"repository":"repo","environment":"production","revision":"current"}}},
+	    {"id":"ev-host","type":"record_evidence","evidence":{"claim_id":"host.current_state","claim":"the declared hosts are present and responsive","observation":"All declared hosts are connected","relation":"supports","health_effect":"none","source_type":"emisar","source_name":"Emisar host inventory","observed_at":%[1]q,"dimensions":{"host":"all declared hosts","environment":"production"}}},
+	    {"id":"ev-runtime","type":"record_evidence","evidence":{"claim_id":"runtime.current_state","claim":"the host runtimes are healthy","observation":"The host runtimes are responsive","relation":"supports","health_effect":"none","source_type":"emisar","source_name":"Emisar runtime status","observed_at":%[1]q,"dimensions":{"runtime":"container runtime","host":"all declared hosts"}}},
+	    {"id":"ev-workload","type":"record_evidence","evidence":{"claim_id":"workload.desired_state","claim":"the declared workloads run at desired capacity","observation":"All declared workloads are running","relation":"supports","health_effect":"none","source_type":"emisar","source_name":"Emisar workload status","observed_at":%[1]q,"dimensions":{"service":"all declared services","workload":"all declared workloads","environment":"production"}}},
+	    {"id":"ev-dependency","type":"record_evidence","evidence":{"claim_id":"dependency.current_health","claim":"the declared dependencies are available","observation":"Declared dependencies passed their checks","relation":"supports","health_effect":"none","source_type":"emisar","source_name":"Emisar dependency checks","observed_at":%[1]q,"dimensions":{"dependency":"declared dependencies","service":"all declared services","environment":"production"}}},
+	    {"id":"ev-application","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"representative user paths work","observation":"Application probes are passing","relation":"supports","health_effect":"none","source_type":"monitoring","source_name":"application probes","observed_at":%[1]q,"dimensions":{"service":"all declared services","endpoint":"probe endpoints","environment":"production","window":"current"}}},
+	    {"id":"ev-impact","type":"record_evidence","evidence":{"claim_id":"impact.current","claim":"no active alert reports user impact","observation":"No SLO alerts are active","relation":"supports","health_effect":"none","source_type":"monitoring","source_name":"alert monitoring","observed_at":%[1]q,"dimensions":{"service":"all declared services","indicator":"active alerts","environment":"production","window":"current"}}},
+	    {"id":"cov-1","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"healthy","source":"repository","detail":"The deployed revision matches the declared revision"}},
+	    {"id":"cov-2","type":"record_coverage","coverage":{"layer":"host","claim_ids":["host.current_state"],"status":"healthy","source":"Emisar","detail":"All declared hosts are connected"}},
+	    {"id":"cov-3","type":"record_coverage","coverage":{"layer":"runtime","claim_ids":["runtime.current_state"],"status":"healthy","source":"Emisar","detail":"The host runtimes are responsive"}},
+	    {"id":"cov-4","type":"record_coverage","coverage":{"layer":"workload","claim_ids":["workload.desired_state"],"status":"healthy","source":"Emisar","detail":"All declared workloads are running"}},
+	    {"id":"cov-5","type":"record_coverage","coverage":{"layer":"dependency","claim_ids":["dependency.current_health"],"status":"healthy","source":"Emisar","detail":"Declared dependencies passed their checks"}},
+	    {"id":"cov-6","type":"record_coverage","coverage":{"layer":"application","claim_ids":["application.functional_behavior"],"status":"healthy","source":"monitoring","detail":"Application probes are passing"}},
+	    {"id":"cov-7","type":"record_coverage","coverage":{"layer":"slo","claim_ids":["impact.current"],"status":"healthy","source":"monitoring","detail":"No SLO alerts are active"}},
+	    {"id":"complete","type":"complete_episode","completion":{
+	      "message":"I checked current infrastructure state and found no active alerts.",
+	      "completion":{"status":"decision_ready","verdict":"healthy","summary":"The checked production scope is healthy."}
+	    }}
+	  ]
+	}`, observedAt)
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
 		slackui.NewSanitizer(12000), nil,
@@ -395,7 +411,12 @@ func TestExplicitMentionRepliesOutsideConfiguredChannelsWithoutCreatingIncident(
 	}
 	coopClient.completeOnSubmit = `{
 		"action":"reply",
-		"message":"I used the configured GitHub credentials and checked the current workflow run."
+		"operations":[
+			{"id":"complete","type":"complete_episode","completion":{
+				"message":"I used the configured GitHub credentials and checked the current workflow run.",
+				"completion":{"status":"decision_ready","summary":"Named the source used to verify the answer."}
+			}}
+		]
 	}`
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
@@ -1372,7 +1393,11 @@ func TestErroredAppRunIsInvestigatedInPlaceWithoutPolicyBoilerplate(t *testing.T
 	coopClient := newFakeCoop()
 	coopClient.completeQueue = []string{
 		`{"action":"incident","title":"Terraform apply run-R1FRs9QFdGmTbBUx errored after destructive changes began","reason":"A credible terminal apply failure may have left partial changes."}`,
-		`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"message":"**Apply failed after changes had started.** Five storage buckets and their IAM bindings were deleted before Terraform stopped; the runner replacement did not finish. Check the terminal Terraform error, restore any unintended deletions, then run a fresh plan and verify the runner before applying again.","evidence":[{"claim":"the apply failed after partial changes","observation":"HCP Terraform reports the run errored after five bucket deletions while the runner replacement remained incomplete","source_type":"monitoring","source_name":"HCP Terraform run run-R1FRs9QFdGmTbBUx"}],"coverage":[{"layer":"change","status":"unhealthy","source":"HCP Terraform","detail":"the apply reached a terminal error after partial destructive changes"}],"completion":{"status":"decision_ready","verdict":"failed","summary":"The apply failed after partial destructive changes and needs reconciliation before retrying."}}`,
+		`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"operations":[` +
+			`{"id":"ev-1","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"the apply failed after partial changes","observation":"HCP Terraform reports the run errored after five bucket deletions while the runner replacement remained incomplete","relation":"contradicts","health_effect":"unhealthy","source_type":"monitoring","source_name":"HCP Terraform run run-R1FRs9QFdGmTbBUx"}},` +
+			`{"id":"cov-1","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"unhealthy","source":"HCP Terraform","detail":"the apply reached a terminal error after partial destructive changes"}},` +
+			`{"id":"complete","type":"complete_episode","completion":{"message":"**Apply failed after changes had started.** Five storage buckets and their IAM bindings were deleted before Terraform stopped; the runner replacement did not finish. Check the terminal Terraform error, restore any unintended deletions, then run a fresh plan and verify the runner before applying again.","completion":{"status":"decision_ready","verdict":"failed","summary":"The apply failed after partial destructive changes and needs reconciliation before retrying."}}}` +
+			`]}`,
 	}
 	slackClient := &fakeSlack{}
 	svc := New(

@@ -248,7 +248,7 @@ Step meanings:
   back to the operator. For a real issue, identify impact, cause, immediate mitigation, durable fix,
   and verification. For a non-issue, record what disproved it. Return the same result with the
   record_alert_assessment operation. Apply the shared operational-alert writing policy to the Slack message. Choose
-  reply after useful investigation and add incident_title only when coordination is warranted; never
+  reply after useful investigation and add an incident offer_task only when coordination is warranted; never
   choose incident for a matched rule. Responder owns the temporary eyes reaction and channel policy.
 - suggest_remediation: for a confirmed issue, give the safest immediate mitigation, durable fix, and
   exact verification. Do not repeat facts already obvious in the triggering Slack card.

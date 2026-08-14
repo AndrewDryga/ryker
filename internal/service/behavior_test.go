@@ -135,8 +135,8 @@ func TestNaturalThreadPreferenceOverridesUnsupportedModelReplyAndRoutesFutureTur
 	slackClient := &fakeSlack{}
 	coopClient := newFakeCoop()
 	coopClient.completeQueue = []string{
-		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":2,"contribution":"decision","material":true},"reason":"direct preference request","message":"That durable setting is not supported.","evidence":[{"claim":"preference unsupported","observation":"no setting exists","source_type":"other","source_name":"model","target":"Responder","confidence":"low"}],"memory":{}}`,
-		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":2,"contribution":"decision","material":true},"reason":"direct follow-up","message":"I remembered the thread preference.","memory":{}}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":2,"contribution":"decision","material":true},"reason":"direct preference request","operations":[{"id":"ev-1","type":"record_evidence","evidence":{"claim_id":"task.requested_outcome","claim":"preference unsupported","observation":"no setting exists","source_type":"other","source_name":"model","target":"Responder","confidence":"low"}},{"id":"complete","type":"complete_episode","completion":{"message":"That durable setting is not supported."}}]}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":2,"contribution":"decision","material":true},"reason":"direct follow-up","operations":[{"id":"complete","type":"complete_episode","completion":{"message":"I remembered the thread preference."}}]}`,
 	}
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -212,9 +212,9 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 	coopClient := newFakeCoop()
 	observedAt := time.Now().UTC().Format(time.RFC3339)
 	coopClient.completeQueue = []string{
-		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3,"contribution":"decision","material":true},"reason":"lasting channel behavior","message":"I can remember the thread preference.","followup_messages":["This duplicate explanation must not reach Slack."],"preference_offer":{"scope":"channel","name":"response_location","value":"prefer_thread","expires_in":"90d"},"memory":{}}`,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3,"contribution":"decision","material":true},"reason":"lasting channel behavior","operations":[{"id":"off-pref","type":"offer_preference","preference_offer":{"scope":"channel","name":"response_location","value":"prefer_thread","expires_in":"90d"}},{"id":"complete","type":"complete_episode","completion":{"message":"I can remember the thread preference.","followup_messages":["This duplicate explanation must not reach Slack."]}}]}`,
 		`{"action":"incident","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"The critical checkout alert needs investigation.","title":"Critical checkout error rate","evidence":[{"claim":"checkout errors are firing","observation":"the app reports an error rate above 20 percent","source_type":"slack","source_name":"Grafana alert"}],"memory":{}}`,
-		fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"reason":"fresh repository and live evidence confirm the alert","message":"**Checkout errors are affecting current requests:** more than 20 percent are failing.\n\nRemove the unhealthy backend from service and verify the error rate falls. The durable fix is to correct the deployment regression and add a rollout guard for checkout errors.","alert_assessment":{"verdict":"confirmed_issue","impact":"More than 20 percent of current checkout requests fail.","cause_status":"identified","cause":"One load balancer backend is unhealthy after the current deployment.","cause_claim_ids":["application.functional_behavior"],"evidence_refs":["checkout-live"],"immediate_action":"Remove the unhealthy backend from service.","verification":"Confirm checkout errors return below the alert threshold after the backend is removed.","long_term_solution":"Correct the deployment regression and add a checkout-error rollout guard."},"evidence":[{"claim_id":"change.recent","claim":"checkout topology has two backends","observation":"the production manifest declares two checkout backends behind the load balancer","source_type":"repository","source_name":"infra/checkout.tf","dimensions":{"repository":"repo","environment":"production","revision":"current"}},{"id":"checkout-live","claim_id":"application.functional_behavior","claim":"checkout requests complete successfully","observation":"the live checkout error rate is 20.5 percent and one backend is unhealthy","relation":"contradicts","health_effect":"unhealthy","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","endpoint":"requests","environment":"production","window":"current"}},{"id":"checkout-impact","claim_id":"impact.current","claim":"checkout user impact is within its error budget","observation":"the current error rate is 20.5 percent","relation":"contradicts","health_effect":"degraded","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","indicator":"error_rate","environment":"production","window":"current"}}],"coverage":[{"layer":"change","claim_ids":["change.recent"],"status":"healthy","source":"infra/checkout.tf","detail":"the declared two-backend topology was reconciled"},{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unhealthy","source":"Emisar checkout health","detail":"current requests are failing"},{"layer":"slo","claim_ids":["impact.current"],"status":"degraded","source":"Emisar checkout health","detail":"error rate exceeds the alert threshold"}],"completion":{"status":"decision_ready","verdict":"unhealthy","summary":"The checkout alert is a confirmed current issue with a bounded immediate remediation."},"memory":{"situation_summary":"A critical checkout error-rate alert was confirmed from repository and live evidence.","decisions":["Continue the alert investigation in its source thread."]}}`, observedAt, observedAt),
+		fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"reason":"fresh repository and live evidence confirm the alert","operations":[{"id":"checkout-topology","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"checkout topology has two backends","observation":"the production manifest declares two checkout backends behind the load balancer","source_type":"repository","source_name":"infra/checkout.tf","dimensions":{"repository":"repo","environment":"production","revision":"current"}}},{"id":"checkout-live","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"checkout requests complete successfully","observation":"the live checkout error rate is 20.5 percent and one backend is unhealthy","relation":"contradicts","health_effect":"unhealthy","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","endpoint":"requests","environment":"production","window":"current"}}},{"id":"checkout-impact","type":"record_evidence","evidence":{"claim_id":"impact.current","claim":"checkout user impact is within its error budget","observation":"the current error rate is 20.5 percent","relation":"contradicts","health_effect":"degraded","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","indicator":"error_rate","environment":"production","window":"current"}}},{"id":"cov-1","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"healthy","source":"infra/checkout.tf","detail":"the declared two-backend topology was reconciled"}},{"id":"cov-2","type":"record_coverage","coverage":{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unhealthy","source":"Emisar checkout health","detail":"current requests are failing"}},{"id":"cov-3","type":"record_coverage","coverage":{"layer":"slo","claim_ids":["impact.current"],"status":"degraded","source":"Emisar checkout health","detail":"error rate exceeds the alert threshold"}},{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue","impact":"More than 20 percent of current checkout requests fail.","cause_status":"identified","cause":"One load balancer backend is unhealthy after the current deployment.","cause_claim_ids":["application.functional_behavior"],"evidence_refs":["checkout-live"],"immediate_action":"Remove the unhealthy backend from service.","verification":"Confirm checkout errors return below the alert threshold after the backend is removed.","long_term_solution":"Correct the deployment regression and add a checkout-error rollout guard."}},{"id":"mem","type":"update_memory","memory":{"situation_summary":"A critical checkout error-rate alert was confirmed from repository and live evidence.","decisions":["Continue the alert investigation in its source thread."]}},{"id":"complete","type":"complete_episode","completion":{"message":"**Checkout errors are affecting current requests:** more than 20 percent are failing.\n\nRemove the unhealthy backend from service and verify the error rate falls. The durable fix is to correct the deployment regression and add a rollout guard for checkout errors.","completion":{"status":"decision_ready","verdict":"unhealthy","summary":"The checkout alert is a confirmed current issue with a bounded immediate remediation."}}}]}`, observedAt, observedAt),
 	}
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -1071,13 +1071,17 @@ func TestConfirmedPreferenceReachesFutureHealthPrompt(t *testing.T) {
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
 	  "action":"reply",
-	  "message":"I can make deep health checks your operator preference.",
-	  "preference_offer":{
-	    "scope":"operator",
-	    "name":"health_check_depth",
-	    "value":"deep",
-	    "expires_in":"90d"
-	  }
+	  "operations":[
+	    {"id":"off-pref","type":"offer_preference","preference_offer":{
+	      "scope":"operator",
+	      "name":"health_check_depth",
+	      "value":"deep",
+	      "expires_in":"90d"
+	    }},
+	    {"id":"complete","type":"complete_episode","completion":{
+	      "message":"I can make deep health checks your operator preference."
+	    }}
+	  ]
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -1131,7 +1135,11 @@ func TestConfirmedPreferenceReachesFutureHealthPrompt(t *testing.T) {
 		t.Fatalf("saved preferences = %+v, %v", preferences, err)
 	}
 
-	coopClient.completeOnSubmit = `{"action":"reply","message":"Deep health check complete."}`
+	coopClient.completeOnSubmit = `{"action":"reply","operations":[
+	  {"id":"complete","type":"complete_episode","completion":{
+	    "message":"Deep health check complete."
+	  }}
+	]}`
 	health := core.SlackInput{
 		ID: "slack_deep_health", EnvelopeID: "env_deep_health",
 		EventID: "EvDeepHealth", Kind: "mention", TeamID: cfg.Slack.TeamID,
@@ -1170,13 +1178,17 @@ func TestConversationReplyConfirmsSinglePendingPreference(t *testing.T) {
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
 	  "action":"reply",
-	  "message":"I can use threads in this channel. Confirm below so I remember it.",
-	  "preference_offer":{
-	    "scope":"channel",
-	    "name":"response_location",
-	    "value":"prefer_thread",
-	    "expires_in":"90d"
-	  }
+	  "operations":[
+	    {"id":"off-pref","type":"offer_preference","preference_offer":{
+	      "scope":"channel",
+	      "name":"response_location",
+	      "value":"prefer_thread",
+	      "expires_in":"90d"
+	    }},
+	    {"id":"complete","type":"complete_episode","completion":{
+	      "message":"I can use threads in this channel. Confirm below so I remember it."
+	    }}
+	  ]
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -1254,15 +1266,19 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 	coopClient := newFakeCoop()
 	coopClient.completeOnSubmit = `{
 	  "action":"reply",
-	  "message":"I can review matching Terraform plans in this channel.",
-	  "rule_offer":{
-	    "scope":"channel",
-	    "repository":"repo",
-	    "trigger":"terraform_plan",
-	    "action":"review_terraform_plan",
-	    "source_kind":"app",
-	    "expires_in":"30d"
-	  }
+	  "operations":[
+	    {"id":"off-rule","type":"offer_rule","rule_offer":{
+	      "scope":"channel",
+	      "repository":"repo",
+	      "trigger":"terraform_plan",
+	      "action":"review_terraform_plan",
+	      "source_kind":"app",
+	      "expires_in":"30d"
+	    }},
+	    {"id":"complete","type":"complete_episode","completion":{
+	      "message":"I can review matching Terraform plans in this channel."
+	    }}
+	  ]
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -1327,7 +1343,11 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 	}
 	coopClient.completeOnSubmit = `{
 	  "action":"reply",
-	  "message":"The plan adds two resources, changes one, and destroys one. The destructive operation needs owner and state verification."
+	  "operations":[
+	    {"id":"complete","type":"complete_episode","completion":{
+	      "message":"The plan adds two resources, changes one, and destroys one. The destructive operation needs owner and state verification."
+	    }}
+	  ]
 	}`
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
@@ -1442,30 +1462,34 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 	}
 	coopClient.completeOnSubmit = `{
 	  "action":"reply",
-	  "message":"Apply failed after execution began. Do not retry it yet; inspect the exact diagnostics and reconcile state first because partial changes are still unknown.",
-	  "evidence":[{
-	    "claim_id":"change.recent",
-	    "claim":"the run reached its intended terminal state",
-	    "observation":"run-6d2hQfNJrTeyAP4T is terminally errored after apply began",
-	    "relation":"contradicts",
-	    "source_type":"emisar",
-	    "source_name":"tfc.run_details",
-	    "confidence":"high",
-	    "dimensions":{"repository":"SME-Tenant/tenant-infra","environment":"production","revision":"ddd526f"}
-	  }],
-	  "coverage":[{
-	    "layer":"change",
-	    "claim_ids":["change.recent"],
-	    "status":"unhealthy",
-	    "detail":"The exact Terraform run is terminally errored after apply began."
-	  }],
-	  "completion":{
-	    "status":"decision_ready",
-	    "verdict":"failed",
-	    "summary":"The apply failed and possible partial changes must be reconciled before retrying.",
-	    "material_gaps":["the exact partial infrastructure changes are not yet known"],
-	    "next_action":"Inspect terminal diagnostics and refresh state before any retry."
-	  }
+	  "operations":[
+	    {"id":"run-terminal","type":"record_evidence","evidence":{
+	      "claim_id":"change.recent",
+	      "claim":"the run reached its intended terminal state",
+	      "observation":"run-6d2hQfNJrTeyAP4T is terminally errored after apply began",
+	      "relation":"contradicts",
+	      "source_type":"emisar",
+	      "source_name":"tfc.run_details",
+	      "confidence":"high",
+	      "dimensions":{"repository":"SME-Tenant/tenant-infra","environment":"production","revision":"ddd526f"}
+	    }},
+	    {"id":"cov-change","type":"record_coverage","coverage":{
+	      "layer":"change",
+	      "claim_ids":["change.recent"],
+	      "status":"unhealthy",
+	      "detail":"The exact Terraform run is terminally errored after apply began."
+	    }},
+	    {"id":"complete","type":"complete_episode","completion":{
+	      "message":"Apply failed after execution began. Do not retry it yet; inspect the exact diagnostics and reconcile state first because partial changes are still unknown.",
+	      "completion":{
+	        "status":"decision_ready",
+	        "verdict":"failed",
+	        "summary":"The apply failed and possible partial changes must be reconciled before retrying.",
+	        "material_gaps":["the exact partial infrastructure changes are not yet known"],
+	        "next_action":"Inspect terminal diagnostics and refresh state before any retry."
+	      }
+	    }}
+	  ]
 	}`
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)

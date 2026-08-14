@@ -280,7 +280,25 @@ var lineBudget = map[string]int{
 	// the next change fails on this one's merits, and the pressure to bump it
 	// is highest exactly when the change is justified. The next extraction here
 	// is still result-operation application, named two entries up.
-	"service": 21950,
+	//
+	// Raised to 21965 on 2026-08-14 for the legacy-result squeeze: a watch turn
+	// that answers in the pre-operations shape is now asked once to re-emit it
+	// as typed operations. This entry did fail on its own merits first, and the
+	// change answered by leaving as little here as it could — the rule for what
+	// counts as a legacy result and the single-shot budget went to
+	// internal/decision beside the WatchTurnState field that carries it, and the
+	// correction's prompt block went to internal/agentprompt beside the other
+	// host corrections. That is 21 of the 36 lines gone from this package.
+	//
+	// The fifteen that stayed are wiring that cannot leave: one correction class
+	// and its entry in the list that keeps the reporting command honest, the
+	// read of the model's own result before host enforcement rewrites it, the
+	// rung on the correction ladder, the branch that keeps this correction out
+	// of FailureDetail (which means "rejected", and this result was accepted),
+	// the arm of the exhaustion switch that ships the answer instead of blocking
+	// it, and the audit outcome. Every one of them touches the store handle, the
+	// run record, or the ladder's local state.
+	"service": 21965,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

@@ -2236,7 +2236,10 @@ func auditTracePresentation(audit AuditRow, present func(string) string) (string
 func auditTraceWhy(audit AuditRow) string {
 	switch audit.Kind {
 	case "result.legacy_shape":
-		return "The model answered in an older result format that Responder still accepts. It was read successfully — this row exists so the count of old-format answers stays visible while the contract moves on."
+		if audit.Outcome == "legacy_corrected" {
+			return "The model first answered in an older result format, Responder asked it once to re-emit the same decision as typed operations, and this time it did. Nothing about the answer changed — only how it was carried."
+		}
+		return "The model answered in an older result format that Responder still accepts. It was read successfully, and Responder asked the model once to re-emit it as typed operations — this row means the answer stayed in the old format. The count exists so the size of the old format stays visible while the contract moves on."
 	case "coop.budget.auto_extend":
 		return "The turn ran into its token budget and Responder raised it rather than cutting the work short."
 	case "slack.paused":

@@ -37,13 +37,35 @@ func replySequenceDeliveryID(base string, index int, total int) string {
 	return fmt.Sprintf("%s_part_%03d", base, index+1)
 }
 
-func (s *Service) recordResultProtocol(ctx context.Context, runID string, legacyShape bool) {
-	if !legacyShape {
+// recordResultProtocol notes how a model result arrived, and — for a watch turn
+// that was asked once to re-emit in the typed shape — whether the ask landed.
+//
+// The kind stays `result.legacy_shape` whatever the outcome, so the count of
+// old-format answers keeps meaning the same thing while the outcome says
+// whether the squeeze is working. corrected is true only on the turn that
+// followed a legacy-shape correction:
+//
+//   - the first legacy result records legacy_only, exactly as before;
+//   - if the retry comes back typed, that lands as legacy_corrected beside it;
+//   - if the retry is legacy again, nothing new is recorded. The run already
+//     has its legacy_only row, and writing a second one would count one turn
+//     twice in the very number the deletion decision rests on.
+func (s *Service) recordResultProtocol(
+	ctx context.Context,
+	runID string,
+	legacyShape bool,
+	corrected bool,
+) {
+	outcome := "legacy_only"
+	switch {
+	case !legacyShape && corrected:
+		outcome = "legacy_corrected"
+	case !legacyShape, corrected:
 		return
 	}
 	s.audit(ctx, core.AuditEvent{
 		Kind: "result.legacy_shape", ActorID: "responder",
-		ObjectID: runID, Outcome: "legacy_only",
+		ObjectID: runID, Outcome: outcome,
 	})
 }
 

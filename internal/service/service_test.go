@@ -479,32 +479,34 @@ func TestMalformedDeepCompletionIsCorrectedAndRetried(t *testing.T) {
 		`{
 		  "action":"reply",
 		  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},
-		  "message":"Application impact still needs investigation.",
-		  "coverage":[
-		    {"layer":"change","status":"healthy","detail":"revision is current"},
-		    {"layer":"host","status":"healthy","detail":"hosts respond"},
-		    {"layer":"runtime","status":"healthy","detail":"runtime responds"},
-		    {"layer":"workload","status":"healthy","detail":"workloads run"},
-		    {"layer":"dependency","status":"healthy","detail":"dependencies respond"},
-		    {"layer":"application","status":"unknown","detail":"not queried"},
-		    {"layer":"slo","status":"unknown","detail":"not queried"}
-		  ],
-		  "completion":{"status":"blocked","summary":"Impact is unknown.","material_gaps":["application and SLO impact"],"next_action":"Query application and SLO telemetry"}
+		  "operations":[
+		    {"id":"cov-change","type":"record_coverage","coverage":{"layer":"change","status":"healthy","detail":"revision is current"}},
+		    {"id":"cov-host","type":"record_coverage","coverage":{"layer":"host","status":"healthy","detail":"hosts respond"}},
+		    {"id":"cov-runtime","type":"record_coverage","coverage":{"layer":"runtime","status":"healthy","detail":"runtime responds"}},
+		    {"id":"cov-workload","type":"record_coverage","coverage":{"layer":"workload","status":"healthy","detail":"workloads run"}},
+		    {"id":"cov-dependency","type":"record_coverage","coverage":{"layer":"dependency","status":"healthy","detail":"dependencies respond"}},
+		    {"id":"cov-application","type":"record_coverage","coverage":{"layer":"application","status":"unknown","detail":"not queried"}},
+		    {"id":"cov-slo","type":"record_coverage","coverage":{"layer":"slo","status":"unknown","detail":"not queried"}},
+		    {"id":"complete","type":"complete_episode","completion":{
+		      "message":"Application impact still needs investigation.",
+		      "completion":{"status":"blocked","summary":"Impact is unknown.","material_gaps":["application and SLO impact"],"next_action":"Query application and SLO telemetry"}}}
+		  ]
 		}`,
 		`{
 		  "action":"reply",
 		  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},
-		  "message":"Core infrastructure responds, but customer impact cannot be verified with the configured sources.",
-		  "coverage":[
-		    {"layer":"change","status":"healthy","detail":"revision is current"},
-		    {"layer":"host","status":"healthy","detail":"hosts respond"},
-		    {"layer":"runtime","status":"healthy","detail":"runtime responds"},
-		    {"layer":"workload","status":"healthy","detail":"workloads run"},
-		    {"layer":"dependency","status":"healthy","detail":"dependencies respond"},
-		    {"layer":"application","status":"unknown","detail":"the application telemetry source denied access"},
-		    {"layer":"slo","status":"unknown","detail":"the SLO telemetry source denied access"}
-		  ],
-		  "completion":{"status":"blocked","summary":"Customer impact cannot be verified because monitoring access is denied.","material_gaps":["application and SLO impact"],"blocker_kind":"access_denied","attempts":["Queried the configured application and SLO source; it returned permission denied"],"next_action":"Grant the monitoring identity read access, then retry"}
+		  "operations":[
+		    {"id":"cov-change","type":"record_coverage","coverage":{"layer":"change","status":"healthy","detail":"revision is current"}},
+		    {"id":"cov-host","type":"record_coverage","coverage":{"layer":"host","status":"healthy","detail":"hosts respond"}},
+		    {"id":"cov-runtime","type":"record_coverage","coverage":{"layer":"runtime","status":"healthy","detail":"runtime responds"}},
+		    {"id":"cov-workload","type":"record_coverage","coverage":{"layer":"workload","status":"healthy","detail":"workloads run"}},
+		    {"id":"cov-dependency","type":"record_coverage","coverage":{"layer":"dependency","status":"healthy","detail":"dependencies respond"}},
+		    {"id":"cov-application","type":"record_coverage","coverage":{"layer":"application","status":"unknown","detail":"the application telemetry source denied access"}},
+		    {"id":"cov-slo","type":"record_coverage","coverage":{"layer":"slo","status":"unknown","detail":"the SLO telemetry source denied access"}},
+		    {"id":"complete","type":"complete_episode","completion":{
+		      "message":"Core infrastructure responds, but customer impact cannot be verified with the configured sources.",
+		      "completion":{"status":"blocked","summary":"Customer impact cannot be verified because monitoring access is denied.","material_gaps":["application and SLO impact"],"blocker_kind":"access_denied","attempts":["Queried the configured application and SLO source; it returned permission denied"],"next_action":"Grant the monitoring identity read access, then retry"}}}
+		  ]
 		}`,
 	}
 	svc := New(

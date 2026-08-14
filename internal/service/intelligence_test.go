@@ -33,26 +33,31 @@ func TestWatchedStructuredReportPersistsEvidenceCoverageAndMemory(t *testing.T) 
 		  "action":"reply",
 		  "attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
 		  "reason":"The operator asked Responder for a health assessment.",
-	  "message":"**Current assessment:** declared capacity is two instances; scheduler state remains unknown.",
-	  "evidence":[{
-	    "claim":"Expected production capacity is two instances",
-	    "observation":"infra/main.tf sets target_size to 2",
-	    "source_type":"repository",
-	    "source_name":"infra/main.tf",
-	    "source_url":"https://example.test/repo/blob/main/infra/main.tf?token=secret",
-	    "target":"production-mig",
-	    "confidence":"high"
-	  }],
-	  "coverage":[{
-	    "layer":"scheduler",
-	    "status":"unknown",
-	    "detail":"No authorized Nomad observation was available"
-	  }],
-	  "memory":{
-	    "goal":"Assess production health",
-	    "topology":["Two declared production instances"],
-	    "unresolved_questions":["Nomad allocation state"]
-	  }
+	  "operations":[
+	    {"id":"declared-capacity","type":"record_evidence","evidence":{
+	      "claim_id":"scheduler.desired_state",
+	      "claim":"Expected production capacity is two instances",
+	      "observation":"infra/main.tf sets target_size to 2",
+	      "source_type":"repository",
+	      "source_name":"infra/main.tf",
+	      "source_url":"https://example.test/repo/blob/main/infra/main.tf?token=secret",
+	      "target":"production-mig",
+	      "confidence":"high"
+	    }},
+	    {"id":"cov-scheduler","type":"record_coverage","coverage":{
+	      "layer":"scheduler",
+	      "status":"unknown",
+	      "detail":"No authorized Nomad observation was available"
+	    }},
+	    {"id":"mem","type":"update_memory","memory":{
+	      "goal":"Assess production health",
+	      "topology":["Two declared production instances"],
+	      "unresolved_questions":["Nomad allocation state"]
+	    }},
+	    {"id":"complete","type":"complete_episode","completion":{
+	      "message":"**Current assessment:** declared capacity is two instances; scheduler state remains unknown."
+	    }}
+	  ]
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -116,24 +121,27 @@ func TestWatchedShadowModeRecordsWithoutPosting(t *testing.T) {
 	coopClient.completeOnSubmit = `{
 	  "action":"reply",
 	  "reason":"A direct operational question was asked.",
-	  "message":"Production is degraded.",
-	  "evidence":[{
-	    "claim":"One workload is unhealthy",
-	    "observation":"The live status is failed",
-	    "source_type":"emisar",
-	    "source_name":"status",
-	    "target":"job/api"
-	  }],
-	  "coverage":[
-	    {"layer":"change","status":"unknown","detail":"No deployment source was available"},
-	    {"layer":"host","status":"unknown","detail":"No host source was available"},
-	    {"layer":"runtime","status":"unknown","detail":"No runtime source was available"},
-	    {"layer":"workload","status":"unhealthy","source":"status","detail":"The API workload is failed"},
-	    {"layer":"dependency","status":"unknown","detail":"No dependency source was available"},
-	    {"layer":"application","status":"degraded","source":"status","detail":"The API workload cannot serve normally"},
-	    {"layer":"slo","status":"unknown","detail":"No SLO source was available"}
-	  ],
-	  "completion":{"status":"blocked","summary":"Production is degraded but impact is not fully bounded.","material_gaps":["host, dependency, and SLO evidence"],"blocker_kind":"source_unavailable","attempts":["The configured live status source exposed the workload failure but no host, dependency, or SLO telemetry"],"next_action":"Connect an authoritative host and SLO telemetry source, then rerun the assessment"}
+	  "operations":[
+	    {"id":"api-workload","type":"record_evidence","evidence":{
+	      "claim_id":"application.functional_behavior",
+	      "claim":"One workload is unhealthy",
+	      "observation":"The live status is failed",
+	      "source_type":"emisar",
+	      "source_name":"status",
+	      "target":"job/api"
+	    }},
+	    {"id":"cov-change","type":"record_coverage","coverage":{"layer":"change","status":"unknown","detail":"No deployment source was available"}},
+	    {"id":"cov-host","type":"record_coverage","coverage":{"layer":"host","status":"unknown","detail":"No host source was available"}},
+	    {"id":"cov-runtime","type":"record_coverage","coverage":{"layer":"runtime","status":"unknown","detail":"No runtime source was available"}},
+	    {"id":"cov-workload","type":"record_coverage","coverage":{"layer":"workload","status":"unhealthy","source":"status","detail":"The API workload is failed"}},
+	    {"id":"cov-dependency","type":"record_coverage","coverage":{"layer":"dependency","status":"unknown","detail":"No dependency source was available"}},
+	    {"id":"cov-application","type":"record_coverage","coverage":{"layer":"application","status":"degraded","source":"status","detail":"The API workload cannot serve normally"}},
+	    {"id":"cov-slo","type":"record_coverage","coverage":{"layer":"slo","status":"unknown","detail":"No SLO source was available"}},
+	    {"id":"complete","type":"complete_episode","completion":{
+	      "message":"Production is degraded.",
+	      "completion":{"status":"blocked","summary":"Production is degraded but impact is not fully bounded.","material_gaps":["host, dependency, and SLO evidence"],"blocker_kind":"source_unavailable","attempts":["The configured live status source exposed the workload failure but no host, dependency, or SLO telemetry"],"next_action":"Connect an authoritative host and SLO telemetry source, then rerun the assessment"}
+	    }}
+	  ]
 	}`
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,

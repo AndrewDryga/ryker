@@ -57,18 +57,29 @@ type WatchTurnState struct {
 	OfferedTaskPullRequest *core.PullRequestTarget        `json:"offered_task_pull_request,omitempty"`
 	StructuredCorrections  int                            `json:"structured_corrections,omitempty"`
 	ReplyShapeCorrections  int                            `json:"reply_shape_corrections,omitempty"`
-	PendingStatusSet       bool                           `json:"pending_status_set,omitempty"`
-	PendingStatusAt        int64                          `json:"pending_status_at,omitempty"`
-	FailureDetail          string                         `json:"failure_detail,omitempty"`
-	ApprovalContinuation   bool                           `json:"approval_continuation,omitempty"`
-	DecisionSourceID       string                         `json:"decision_source_id,omitempty"`
-	ReplyDeliveryID        string                         `json:"reply_delivery_id,omitempty"`
-	PublicationsCaptured   bool                           `json:"publications_captured,omitempty"`
-	ActivePublications     []core.PublicationContext      `json:"active_publications,omitempty"`
-	RecheckOriginRunID     string                         `json:"recheck_origin_run_id,omitempty"`
-	RecheckKey             string                         `json:"recheck_key,omitempty"`
-	RecheckAttempt         int                            `json:"recheck_attempt,omitempty"`
-	ResolvedMentionRequest *core.SlackInput               `json:"resolved_mention_request,omitempty"`
+	// LegacyShapeDetail is the one request this turn is allowed to make for its
+	// result in the typed shape, and its own record that the request was made.
+	//
+	// Deliberately not FailureDetail. That field means "the previous decision
+	// was rejected" — AlertAssessmentCorrection reads a non-empty one as proof
+	// that an alert investigation was abandoned mid-way — and this correction
+	// means the opposite: the decision was accepted and acted on, and only its
+	// transport is in question. Persisted because the correction arrives by
+	// requeue, so a marker that did not survive the round trip would ask again
+	// on every attempt and never stop.
+	LegacyShapeDetail      string                    `json:"legacy_shape_detail,omitempty"`
+	PendingStatusSet       bool                      `json:"pending_status_set,omitempty"`
+	PendingStatusAt        int64                     `json:"pending_status_at,omitempty"`
+	FailureDetail          string                    `json:"failure_detail,omitempty"`
+	ApprovalContinuation   bool                      `json:"approval_continuation,omitempty"`
+	DecisionSourceID       string                    `json:"decision_source_id,omitempty"`
+	ReplyDeliveryID        string                    `json:"reply_delivery_id,omitempty"`
+	PublicationsCaptured   bool                      `json:"publications_captured,omitempty"`
+	ActivePublications     []core.PublicationContext `json:"active_publications,omitempty"`
+	RecheckOriginRunID     string                    `json:"recheck_origin_run_id,omitempty"`
+	RecheckKey             string                    `json:"recheck_key,omitempty"`
+	RecheckAttempt         int                       `json:"recheck_attempt,omitempty"`
+	ResolvedMentionRequest *core.SlackInput          `json:"resolved_mention_request,omitempty"`
 }
 
 func (state *WatchTurnState) RemoveResolvedMentionDuplicate() {

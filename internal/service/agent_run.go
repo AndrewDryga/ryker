@@ -1100,6 +1100,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	late.WriteString("\n\n" + repositorycapability.Prompt(repositorycapability.Build(s.cfg, repositoryKey, session, repositorycapability.PinnedReadOnly)))
 	late.WriteString(publicationcontext.ActivePrompt(state.ActivePublications))
 	late.WriteString(watchDecisionCorrectionPrompt(state.FailureDetail))
+	late.WriteString(agentprompt.LegacyResultShape(state.LegacyShapeDetail))
 	episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
 	if episodeErr != nil {
 		return s.retryAgentRun(ctx, run, episodeErr)
@@ -1885,6 +1886,16 @@ const (
 	// read. That difference is why this class alone posts on the second
 	// attempt rather than blocking the turn.
 	correctionShape correctionClass = "shape"
+	// correctionLegacyShape: the answer is right, it can be read, and it
+	// arrived in the transport the typed operation stream replaced.
+	//
+	// Distinct from shape on the same line that separates shape from
+	// incomplete, one step further out: incomplete is about the answer, shape
+	// is about how it reads, and this is about neither — the host accepted the
+	// result and acted on it. It is counted separately because it measures a
+	// migration rather than a mistake, and folding it into shape would make the
+	// reply-quality rate move for a reason that has nothing to do with replies.
+	correctionLegacyShape correctionClass = "legacy_shape"
 )
 
 // CorrectionClasses lists every class a turn can be corrected under, so a
@@ -1899,6 +1910,7 @@ func CorrectionClasses() []string {
 		string(correctionIncomplete),
 		string(correctionRejected),
 		string(correctionShape),
+		string(correctionLegacyShape),
 	}
 }
 
@@ -1972,9 +1984,15 @@ func (s *Service) stageTriageTerminal(
 	input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
 	state, stateErr := decodeWatchRunContext(run)
 	decision, decisionErr := decisionpkg.ParseWatchDecision(turn.AssistantMessage, s.now())
+	// Read from the model's own result, before the host enforcement below
+	// rewrites its fields. What is being measured and corrected is what the
+	// model sent; a message policy added afterwards is not the model answering
+	// in the old shape.
+	legacyCorrection := ""
 	if decisionErr == nil {
 		s.recordResultProtocol(
-			ctx, run.ID, decision.LegacyShape)
+			ctx, run.ID, decision.LegacyShape, state.LegacyShapeDetail != "")
+		legacyCorrection = decisionpkg.LegacyShapeCorrection(decision, state.LegacyShapeDetail)
 	}
 	if inputErr != nil {
 		return true, inputErr
@@ -2164,11 +2182,23 @@ func (s *Service) stageTriageTerminal(
 				correctionKind = correctionShape
 			}
 		}
+		// Last of all, because this one is not about the answer at any level:
+		// the host read it, accepted it, and is about to act on it. Everything
+		// above has a better claim on the turn, and this asks for none of them
+		// to change.
+		if correction == "" && legacyCorrection != "" {
+			correction = legacyCorrection
+			correctionKind = correctionLegacyShape
+		}
 		if correction != "" {
 			if !consumeWatchStructuredCorrection(
 				&state, run.AttemptNumber, s.cfg.Limits.MaxAgentRunAttempts,
 			) {
-				state.FailureDetail = correction
+				if correctionKind == correctionLegacyShape {
+					state.LegacyShapeDetail = correction
+				} else {
+					state.FailureDetail = correction
+				}
 				contextJSON, marshalErr := json.Marshal(state)
 				if marshalErr != nil {
 					return true, marshalErr
@@ -2202,6 +2232,13 @@ func (s *Service) stageTriageTerminal(
 				// finish this check safely yet" over its word count would be
 				// the rule eating the answer it exists to improve.
 				s.recordUnshapedReply(ctx, run, correction)
+			case correctionLegacyShape:
+				// The furthest step of the same reasoning. This correction is
+				// asking for a different JSON shape for a result the host has
+				// already read; reaching the shared budget here means the turn
+				// spent its corrections on something that mattered more. Ship
+				// the answer. The legacy_only audit row from the top of this
+				// function already records that the old shape was used.
 			default:
 				decision = blockedWatchContinuation(run, input, state, correction, &decision)
 			}
@@ -2240,8 +2277,10 @@ func (s *Service) stageIncidentTerminal(
 ) (bool, error) {
 	report, _, reportErr := decisionpkg.ParseAgentReport(turn.AssistantMessage)
 	if reportErr == nil {
+		// Never corrected: no legacy report has been recorded on either live
+		// instance, so there is nothing here to squeeze.
 		s.recordResultProtocol(
-			ctx, run.ID, report.LegacyShape)
+			ctx, run.ID, report.LegacyShape, false)
 	}
 	if reportErr != nil {
 		correction := "the structured agent report is invalid: " + trimError(reportErr)
