@@ -1121,10 +1121,12 @@ func watchDecisionCorrectionPrompt(detail string) string {
 	return `
 
 <host-decision-correction>
-Your previous decision was rejected by Responder's deterministic conversation policy: ` +
-		detail + `. Re-evaluate the current target message. Do not reuse an answer to a different
-nearby message, and do not silently ignore work that the operator directed to Emisar. Return one
-fresh valid decision for the current target.
+Responder rejected your previous result, not your work: ` + detail + `.
+The investigation you already did stands — its tool results are in this conversation, and
+re-running them is waste. Fix exactly what the rejection names, changing the decision itself only
+when the rejection is about the decision, and re-emit the full corrected result for the same
+target, including the evidence and operations you already gathered. Do not reuse an answer to a
+different nearby message, and do not silently ignore work the operator directed to Emisar.
 </host-decision-correction>`
 }
 

@@ -235,7 +235,7 @@ func TestLocationWorkIgnoreIsRetriedAndAnswered(t *testing.T) {
 	if len(coopClient.submitPrompts) != 2 ||
 		!strings.Contains(
 			coopClient.submitPrompts[1],
-			"Your previous decision was rejected",
+			"Responder rejected your previous result, not your work",
 		) {
 		t.Fatalf("correction prompts = %+v", coopClient.submitPrompts)
 	}

@@ -1984,7 +1984,13 @@ func (s *Service) requeueWithCorrection(
 		ActorID:    "responder",
 		ObjectID:   run.ID,
 		Outcome:    string(class),
-		Detail:     s.sanitizeText(decisionpkg.BoundedField(correction, 500)),
+		// 2000, up from 500: the episode page renders this as "Correction sent
+		// to the model", and at 500 a live contradiction correction displayed
+		// amputated mid-word — an operator debugging retries was reading a
+		// different text than the model received. The full text also lives on
+		// the fixture candidate; this bound only decides how much of it the
+		// trace shows inline.
+		Detail: s.sanitizeText(decisionpkg.BoundedField(correction, 2000)),
 	})
 	// Queue the correction for review as a regression fixture. This is the
 	// whole self-improving loop in one line: the host already decided the model

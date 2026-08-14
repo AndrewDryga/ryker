@@ -43,3 +43,38 @@ func TestContradictionCorrectionNamesWhatDisagrees(t *testing.T) {
 		t.Fatalf("bare contradiction detail = %q, want the claim id alone", got)
 	}
 }
+
+// Evidence may legally carry dimensions and no observation prose, and a
+// contradiction set made only of such records rendered as nothing: a live
+// tenant correction on 2026-08-14 read "host.current_state (nomad-hst01 through
+// nomad-hst05 returned fresh snapshots… — contradicted by: )", which told the
+// model to reconcile a contradiction the host never named. There is no reply
+// that satisfies that; the episode spent its attempts against an empty clause.
+func TestAContradictionWithoutProseStillGetsNamed(t *testing.T) {
+	now := time.Date(2026, 8, 14, 19, 55, 0, 0, time.UTC)
+	view := ClaimView{
+		Requirement: ClaimRequirement{ID: "host.current_state", Layer: "host", Required: true},
+		State:       ClaimMixed,
+		Evidence: []core.Evidence{{
+			Observation: "nomad-hst01 through nomad-hst05 returned fresh snapshots.",
+			SourceName:  "Emisar five-host load and memory snapshot",
+			ObservedAt:  now.Add(-time.Minute),
+		}},
+		Contradictions: []core.Evidence{{
+			// No observation prose — dimensions-only, as ValidateEvidence allows.
+			SourceName: "nomad node status",
+			Dimensions: map[string]string{"host": "nomad-hst03", "state": "draining"},
+			ObservedAt: now.Add(-2 * time.Minute),
+		}},
+	}
+	detail := contradictionDetail(view)
+	if strings.Contains(detail, "contradicted by: )") ||
+		strings.HasSuffix(strings.TrimSpace(detail), "contradicted by:") {
+		t.Fatalf("the contradiction clause is still empty: %q", detail)
+	}
+	for _, want := range []string{"host.current_state", "nomad node status", "host=nomad-hst03"} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("contradiction detail %q does not name %q", detail, want)
+		}
+	}
+}

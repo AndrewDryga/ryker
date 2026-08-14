@@ -325,6 +325,12 @@ func contradictionDetail(view ClaimView) string {
 		return view.Requirement.ID
 	case support == "":
 		return view.Requirement.ID + " (contradicted by: " + against + ")"
+	case against == "":
+		// A contradicted claim with nothing nameable on the against side is a
+		// correction the model cannot act on; say that instead of rendering
+		// an empty clause after "contradicted by:".
+		return view.Requirement.ID + " (" + support + " — a recorded contradiction carries no " +
+			"nameable evidence; re-record the contradicting observation or supersede it)"
 	default:
 		return view.Requirement.ID + " (" + support + " — contradicted by: " + against + ")"
 	}
@@ -344,6 +350,35 @@ func firstObservation(evidence []core.Evidence) string {
 			) {
 			newest = item
 		}
+	}
+	// Evidence may legally carry dimensions and no observation prose, and a
+	// contradiction set made only of such records used to render as nothing:
+	// a live correction read "host.current_state (… snapshot] — contradicted
+	// by: )", telling the model to reconcile a contradiction the host never
+	// named. There is no reply that satisfies that. When no entry has prose,
+	// fall back to the newest entry's source and dimensions so the correction
+	// always names what disagreed.
+	if strings.TrimSpace(newest.Observation) == "" {
+		for _, item := range evidence {
+			if observationTime(item.ObservedAt, item.CreatedAt).After(
+				observationTime(newest.ObservedAt, newest.CreatedAt),
+			) || newest.SourceName == "" && newest.ID == "" {
+				newest = item
+			}
+		}
+		parts := make([]string, 0, len(newest.Dimensions))
+		for key, value := range newest.Dimensions {
+			parts = append(parts, key+"="+value)
+		}
+		sort.Strings(parts)
+		descriptor := strings.TrimSpace(newest.SourceName)
+		if descriptor == "" {
+			descriptor = strings.TrimSpace(newest.ID)
+		}
+		if len(parts) > 0 {
+			descriptor = strings.TrimSpace(descriptor + " " + strings.Join(parts, " "))
+		}
+		return descriptor
 	}
 	observation := strings.TrimSpace(newest.Observation)
 	if len([]rune(observation)) > 160 {
