@@ -341,7 +341,11 @@ var lineBudget = map[string]int{
 	// 22064 for the behavior batch later the same day: the disagreement band,
 	// glossary learning, the style-signal clause, and the unverifiable-alert
 	// rule are prompt lines, and prompt lines live in this package.
-	"service": 22064,
+	//
+	// 22079 the same evening, for the supersession guard's sibling coverage
+	// and the nudge rule — the two halves of the 2026-08-14 "What would you
+	// like me to check?" failure.
+	"service": 22079,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

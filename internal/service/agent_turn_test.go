@@ -1684,3 +1684,103 @@ func TestAttemptedRunSurvivesANewerContextualMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The guard above covers both supersession branches, because on 2026-08-14 the
+// uncovered one did exactly what the covered one used to. An operator's "Give
+// me link to it (and always do when you do that)" — five provider-rate-limit
+// attempts in — was superseded through the already-classified branch because
+// another person's unrelated chatter had been classified in the channel. The
+// operator got silence, nudged with a bare mention, and was asked "What would
+// you like me to check?" — by the same system that had his question in its
+// transcript.
+func TestAnAttemptedRunSurvivesAClassifiedBystanderMessage(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CBYSTAND"}
+	cfg.Slack.SummonChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	request := core.SlackInput{
+		ID: "slack-op-request", EnvelopeID: "env-op-request", EventID: "event-op-request",
+		Kind: "message", TeamID: cfg.Slack.TeamID, ChannelID: "CBYSTAND",
+		MessageTS: "1700.800", ThreadTS: "1700.700", UserID: "U123ABC",
+		Text: "Give me the link to it, ids are not practical",
+	}
+	if created, err := st.AdmitSlackInput(ctx, request); err != nil || !created {
+		t.Fatalf("admit request = %v, %v", created, err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{{
+		State: "completed",
+		AssistantMessage: `{"action":"ignore",
+			"attention":{"addressee":"human","urgency":0,"confidence":3,"novelty":0,"ownership":0,"contribution":"none","material":false},
+			"reason":"humans talking to each other","operations":[]}`,
+	}}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The request has attempted — the live case was five provider rate limits
+	// in when the bystander chatter arrived. Parked an hour out so the
+	// bystander's drive below cannot lease it and eat its scripted turn.
+	if retried, err := st.RetryAgentRunIfOwned(
+		ctx, run.ID, "provider rate limited the turn", time.Now().UTC().Add(time.Hour), false,
+	); err != nil || !retried {
+		t.Fatalf("retry = %v, %v", retried, err)
+	}
+
+	// A bystander's message in the same channel gets classified end to end,
+	// which writes the slack.watch audit row the supersession branch reads.
+	bystander := core.SlackInput{
+		ID: "slack-bystander", EnvelopeID: "env-bystander", EventID: "event-bystander",
+		Kind: "message", TeamID: cfg.Slack.TeamID, ChannelID: "CBYSTAND",
+		MessageTS: "1700.900", UserID: "U456DEF",
+		Text: "I'll see if I can get some of those away later",
+	}
+	if created, err := st.AdmitSlackInput(ctx, bystander); err != nil || !created {
+		t.Fatalf("admit bystander = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	classified, err := st.HasNewerWatchDecision(ctx, "CBYSTAND", request.MessageTS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !classified {
+		t.Fatal("the bystander message never registered as classified, so this " +
+			"test no longer exercises the supersession branch it was written for")
+	}
+
+	attempted, err := st.GetAgentRunBySource(ctx, "watch", request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempted.Failures == 0 {
+		t.Fatalf("the retry did not record an attempt: %+v", attempted)
+	}
+	survived := decisionpkg.WatchTurnState{}
+	decided, err := svc.admitTriageRun(ctx, attempted, request, &survived)
+	if decided {
+		t.Fatalf("an attempted operator request was dropped because a bystander's "+
+			"chatter was classified (store said: %v)", err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+}

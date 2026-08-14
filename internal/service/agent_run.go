@@ -1337,22 +1337,6 @@ func (s *Service) admitTriageRun(
 	if input.Kind == "message" && !isPrivateSlackVerificationReplay(input) &&
 		len(state.MatchedRules) == 0 &&
 		!state.ApprovalContinuation {
-		alreadyClassified, err := s.store.HasNewerWatchDecision(
-			ctx, input.ChannelID, input.MessageTS,
-		)
-		if err != nil {
-			return true, s.retryAgentRun(ctx, run, err)
-		}
-		if alreadyClassified {
-			s.audit(ctx, core.AuditEvent{
-				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
-				Outcome: "superseded",
-				Detail:  "a newer channel message was already classified",
-			})
-			return true, s.store.SupersedeAgentRun(
-				ctx, run.ID, "a newer channel message was already classified",
-			)
-		}
 		// Only while this run has done nothing yet. Superseding rests on the
 		// premise that a newer nearby message will carry the conversation, and
 		// that premise holds for a run which has not started: nothing is lost
@@ -1365,7 +1349,35 @@ func (s *Service) admitTriageRun(
 		// was dropped for a follow-up like "this started around 3pm". The
 		// successor inherits no obligation and is free to ignore, so the
 		// failure went uninvestigated and nobody was told.
+		//
+		// The guard covers BOTH supersession branches. It was added to the
+		// newer-pending-run branch below and never to this one, and on
+		// 2026-08-14 the uncovered branch did exactly what the covered one used
+		// to: an operator's "Give me link to it (and always do when you do
+		// that)" — five provider-rate-limit attempts in — was superseded
+		// because another person's unrelated chatter had been classified. The
+		// operator got silence, then nudged with a bare mention and was asked
+		// "What would you like me to check?"
 		attempted := run.Failures > 0
+		alreadyClassified := false
+		if !attempted {
+			alreadyClassified, err = s.store.HasNewerWatchDecision(
+				ctx, input.ChannelID, input.MessageTS,
+			)
+			if err != nil {
+				return true, s.retryAgentRun(ctx, run, err)
+			}
+		}
+		if alreadyClassified {
+			s.audit(ctx, core.AuditEvent{
+				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "superseded",
+				Detail:  "a newer channel message was already classified",
+			})
+			return true, s.store.SupersedeAgentRun(
+				ctx, run.ID, "a newer channel message was already classified",
+			)
+		}
 		newer := false
 		if !attempted {
 			newer, err = s.store.HasNewerSubstantivePendingAgentRun(
