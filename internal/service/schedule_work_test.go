@@ -10,6 +10,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -201,13 +202,13 @@ func TestScheduledWorkSeedsOneAgentDrainPerBackgroundWorker(t *testing.T) {
 }
 
 func TestRequestNativeStatusIsStableAndScheduleSpecific(t *testing.T) {
-	if got := requestNativeStatus("Check this in 24 hours and report again"); got != "is scheduling the follow-up..." {
+	if got := episodepkg.ActivityNativeStatus(requestEpisodeActivity("Check this in 24 hours and report again")); got != "is scheduling the follow-up..." {
 		t.Fatalf("schedule status = %q", got)
 	}
-	if got := requestNativeStatus("Check whether the deployment is healthy"); got != "is investigating..." {
+	if got := episodepkg.ActivityNativeStatus(requestEpisodeActivity("Check whether the deployment is healthy")); got != "is investigating..." {
 		t.Fatalf("investigation status = %q", got)
 	}
-	if got := requestNativeStatus("Explain the earlier answer in simple terms"); got != "is explaining the earlier answer..." {
+	if got := episodepkg.ActivityNativeStatus(requestEpisodeActivity("Explain the earlier answer in simple terms")); got != "is explaining the earlier answer..." {
 		t.Fatalf("explanation status = %q", got)
 	}
 }

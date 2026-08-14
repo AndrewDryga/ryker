@@ -17,6 +17,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/activitystore"
 	"github.com/AndrewDryga/responder/internal/store/artifactstore"
 	"github.com/AndrewDryga/responder/internal/store/behaviorstore"
+	"github.com/AndrewDryga/responder/internal/store/goalstore"
 	"github.com/AndrewDryga/responder/internal/store/incidentstore"
 	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
 	"github.com/AndrewDryga/responder/internal/store/memorystore"
@@ -69,6 +70,10 @@ type Store struct {
 	Artifacts *artifactstore.Repository
 	// Activity owns what the model did inside a turn, as Coop narrated it.
 	Activity *activitystore.Repository
+	// Goals reads what an episode said it would do. The kernel writes them,
+	// inside the transactions that record the planning; this reads them for
+	// whoever is rendering the plan.
+	Goals *goalstore.Repository
 	// Memory owns everything remembered between turns. It is a field rather
 	// than a set of methods because a delegating method still counts against
 	// the store's method budget, so extraction only reduces the surface if
@@ -1097,6 +1102,7 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.Schedules = schedulestore.New(db, clock)
 	s.Artifacts = artifactstore.New(db, clock)
 	s.Activity = activitystore.New(db, clock)
+	s.Goals = goalstore.New(db)
 	s.Memory = memorystore.New(db, clock)
 	s.Intelligence = intelligencestore.New(db, clock)
 	s.Behavior = behaviorstore.New(db, clock)

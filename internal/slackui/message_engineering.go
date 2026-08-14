@@ -455,6 +455,17 @@ func taskLedger(
 		steps[index].Glyph = "✓"
 	}
 	steps[current].Current = true
+	// The model's own plan nests under wherever the run has got to, which is
+	// the step its goals are being worked inside. It attaches after the current
+	// position is known for that reason, and to the position rather than to a
+	// label, so a plan does not follow the wrong step when the phase moves.
+	//
+	// The plan arrives on LiveTurn today because episode_goals is the only
+	// source of one. When Coop's model.plan events carry entries — the ACP plan
+	// update, kind `model.plan`, which no runtime sends today and which has
+	// never written a row — they project into the same []PlanStep and land
+	// here, rather than growing a second checklist beside this one.
+	steps[current].Children = planChildren(turn.Plan)
 	// Only when the step has nothing else to say. A step already reporting
 	// "#482 needs update" does not need a second column repeating that
 	// somebody has to act on it, and the two together squeeze both.

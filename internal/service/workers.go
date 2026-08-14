@@ -968,7 +968,9 @@ func (s *Service) incidentCard(
 	// The window onto the running turn. A read that fails costs the card its
 	// activity strip and nothing else, so it is logged rather than returned:
 	// the operator needs the card far more than it needs the detail.
-	turn, turnErr := liveturn.Fetch(ctx, s.store.Activity, s.store.Intelligence, incident)
+	turn, turnErr := liveturn.Fetch(
+		ctx, s.store.Activity, s.store.Intelligence, s.store.Goals, incident,
+	)
 	if turnErr != nil {
 		s.log.Warn("read the turn's interior for the card",
 			"incident", incident.ID, "error", trimError(turnErr))
@@ -1079,7 +1081,7 @@ func (s *Service) setNativeStatus(ctx context.Context, incident core.Incident, s
 		incident.ChannelID,
 		incident.ConversationThreadTS(),
 		status,
-		progressMilestones(status),
+		slackui.ProgressMilestones(status),
 	); err != nil {
 		s.log.Warn("set Slack thread status", "incident", incident.ID, "error", err)
 		return
@@ -1158,43 +1160,6 @@ func (s *Service) agentRunStatusIncident(
 		incident.RootTS = slackReplyThread(input)
 	}
 	return incident
-}
-
-func progressMilestones(status string) []string {
-	switch {
-	case strings.Contains(status, "explaining"):
-		return []string{
-			"Reading the earlier answer",
-			"Writing a simpler explanation",
-		}
-	case strings.Contains(status, "scheduling"):
-		return []string{
-			"Checking the requested timing",
-			"Preparing the follow-up for confirmation",
-		}
-	case strings.Contains(status, "approved action"):
-		return []string{
-			"Checking that the information is still current",
-			"Checking exactly what will change",
-			"Requesting policy authorization from Emisar",
-			"Waiting for verification",
-		}
-	case strings.Contains(status, "review"):
-		return []string{
-			"Reading the code changes",
-			"Checking whether the branch is current",
-			"Running the project's checks",
-			"Writing the review",
-		}
-	default:
-		return []string{
-			"Checking the repository setup",
-			"Checking live systems",
-			"Comparing expected and current state",
-			"Checking what remains unknown",
-			"Checking whether the result is complete",
-		}
-	}
 }
 
 func (s *Service) forgetNativeStatus(incidentID string) {

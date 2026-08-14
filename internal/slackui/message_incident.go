@@ -61,7 +61,7 @@ func IncidentCardWithPublication(
 		// One line per signal, firing first, replacing a fields grid that
 		// stated the count and never the names. Which alert is firing is the
 		// question the grid was standing in front of.
-		Ledger:   signalLedger(signals, now),
+		Ledger:   incidentLedger(signals, turn, now),
 		Actions:  buttons,
 		Overflow: overflow,
 	}
@@ -216,6 +216,29 @@ func incidentFooter(incident core.Incident, repositoryName string) string {
 // the log rule 9 forbids. Past it the count is what the reader loses, not the
 // names — thirty alertnames is not more informative than seven and a number.
 const signalStripLimit = 7
+
+// incidentLedger is the signal strip with the investigation's plan above it.
+//
+// An incident card's ledger is a list of what is firing, not a run's phases, so
+// there is no current step for a plan to nest under the way the task card has
+// one. It gets a position of its own instead, at the top, with the goals as its
+// children — the same nesting, given the parent it was missing. Above rather
+// than below because the plan is the present tense and the signals are what
+// started it.
+//
+// No goals is the card exactly as it was: one strip of signals, no parent, no
+// empty heading.
+func incidentLedger(signals []core.Signal, turn LiveTurn, now time.Time) []LedgerStep {
+	steps := signalLedger(signals, now)
+	// Seam shared with taskLedger: when Coop's `model.plan` events carry
+	// entries they project into the same []PlanStep and arrive here.
+	children := planChildren(turn.Plan)
+	if len(children) == 0 {
+		return steps
+	}
+	plan := LedgerStep{Label: "Plan", Current: true, Children: children}
+	return append([]LedgerStep{plan}, steps...)
+}
 
 // signalLedger renders the signals as one line each, firing first.
 //

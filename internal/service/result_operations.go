@@ -61,6 +61,7 @@ func (s *Service) recordResultOperationEvents(
 		}
 		return err
 	}
+	s.recordPlanAdoption(ctx, runID, episode, operations)
 	for _, operation := range operations {
 		err := s.applyResultOperation(ctx, runID, episode, operation)
 		switch {
@@ -82,6 +83,48 @@ func (s *Service) recordResultOperationEvents(
 // errEpisodeGone reports that the episode this result belongs to no longer
 // exists, so the remaining operations have nowhere to land.
 var errEpisodeGone = errors.New("work episode no longer exists")
+
+// recordPlanAdoption counts a result that planned.
+//
+// The contract now asks engineering and incident work to lay out its goals, and
+// the previous count of models doing so was zero — not low, zero, across every
+// episode ever run. An ask with no meter behind it cannot tell "the instruction
+// worked" from "nobody read it", and the decision that follows this one is
+// whether to add pressure, so the number has to exist before the argument does.
+//
+// One row per result rather than one per goal: the question is how many turns
+// plan, not how many goals a planning turn emits, and the count carries the
+// second answer anyway. Same shape as result.legacy_shape — a stable kind, the
+// run as the object, the finding in the outcome — so the two can be counted the
+// same way.
+//
+// It records what the model emitted, before any of it is applied. A plan_goal
+// the store then rejects is still a model that read the instruction and acted
+// on it, which is exactly what this is measuring; whether it landed is the
+// dropped-operation event's question, in the episode's own timeline.
+func (s *Service) recordPlanAdoption(
+	ctx context.Context,
+	runID string,
+	episode core.WorkEpisode,
+	operations []investigation.ResultOperation,
+) {
+	planned, updated := investigation.CountGoalOperations(operations)
+	if planned == 0 && updated == 0 {
+		return
+	}
+	outcome := "planned"
+	if planned == 0 {
+		outcome = "updated"
+	}
+	s.audit(ctx, core.AuditEvent{
+		Kind: "result.plan_goals", ActorID: "responder", ObjectID: runID,
+		Outcome: outcome,
+		Detail: fmt.Sprintf(
+			"%s effort planned %d and updated %d goals",
+			episode.Effort, planned, updated,
+		),
+	})
+}
 
 // recordDroppedResultOperation leaves a trace of an operation the host refused
 // to apply.

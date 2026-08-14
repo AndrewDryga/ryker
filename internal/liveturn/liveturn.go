@@ -8,8 +8,8 @@
 // the translation between the two — stored moments in, three lines and four
 // counters out.
 //
-// It reads through two interfaces narrow enough to state what it is allowed to
-// know, and it holds no clock, no Slack client and no other part of the
+// It reads through three interfaces narrow enough to state what it is allowed
+// to know, and it holds no clock, no Slack client and no other part of the
 // database. What it owns is the judgement — which moments are worth showing,
 // what a reasoning payload is allowed to say in Slack, when a second read is
 // worth making — which is the part worth testing on its own and the part that
@@ -19,6 +19,7 @@ package liveturn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -57,13 +58,32 @@ type Findings interface {
 	) (core.IncidentEvidence, error)
 }
 
+// Plan reads what the work said it would do.
+//
+// Narrow like the two above, and separate from Findings because it is a
+// different question about a different table: evidence is what the turn found,
+// and this is what it undertook to do before it found anything.
+type Plan interface {
+	GoalsForIncident(
+		ctx context.Context, incidentID string, limit int,
+	) ([]core.EpisodeGoal, error)
+}
+
+// PlanLimit is how many goals are read for a card.
+//
+// One more than the strip shows, which is what makes "… and 2 more" say two
+// rather than "more": the renderer needs to know the size of what it dropped,
+// and a plan larger than this is a plan whose exact size has stopped being the
+// interesting fact about it.
+const PlanLimit = 16
+
 // Fetch reads the card's view of the work behind it.
 //
-// At most two reads, and none at all for a card with no agent behind it: work
-// that never opened a Coop session has no narrated interior. Where there is a
-// session the tail is read whether or not a turn is running now, because the
-// totals outlive the window — they become the ledger step's receipt the moment
-// the turn stops.
+// At most three reads, and none at all for a card with no agent behind it:
+// work that never opened a Coop session has no narrated interior. Where there
+// is a session the tail is read whether or not a turn is running now, because
+// the totals outlive the window — they become the ledger step's receipt the
+// moment the turn stops, and the plan outlives it the same way.
 //
 // A read that fails returns what is known so far beside the error. The caller
 // is rendering a card, and a card missing its window is a detail short; a card
@@ -72,6 +92,7 @@ func Fetch(
 	ctx context.Context,
 	tail Tail,
 	findings Findings,
+	plan Plan,
 	incident core.Incident,
 ) (slackui.LiveTurn, error) {
 	if incident.CoopSessionID == "" {
@@ -82,14 +103,40 @@ func Fetch(
 	if err != nil {
 		return slackui.LiveTurn{Active: active}, err
 	}
-	// Nothing narrated and nothing running: there is no window to fill and no
-	// receipt to write, so the second read would answer a question this card is
-	// not going to ask.
+	// Nothing narrated and nothing running: there is no window to fill, no
+	// receipt to write and no plan to have been made, so the reads below would
+	// answer questions this card is not going to ask.
 	if moments.Recorded == 0 && !active {
 		return slackui.LiveTurn{Active: active}, nil
 	}
-	evidence, err := findings.SummarizeIncidentEvidence(ctx, incident.ID)
-	return Project(moments, evidence, active), err
+	evidence, evidenceErr := findings.SummarizeIncidentEvidence(ctx, incident.ID)
+	turn := Project(moments, evidence, active)
+	// The plan is the third read and the least load-bearing of the three, so
+	// its failure is reported beside a turn that still has its window and its
+	// counters rather than replacing them. A card missing its checklist is a
+	// card; a card that failed to render is an operator with nothing.
+	goals, planErr := plan.GoalsForIncident(ctx, incident.ID, PlanLimit)
+	turn.Plan = ProjectPlan(goals)
+	return turn, errors.Join(evidenceErr, planErr)
+}
+
+// ProjectPlan folds stored goals into the checklist a card shows.
+//
+// The state travels as the store wrote it. Choosing a glyph here would put the
+// card's vocabulary in the package that reads the database, and the renderer
+// already owns every other column of that strip.
+func ProjectPlan(goals []core.EpisodeGoal) []slackui.PlanStep {
+	if len(goals) == 0 {
+		return nil
+	}
+	plan := make([]slackui.PlanStep, 0, len(goals))
+	for _, goal := range goals {
+		plan = append(plan, slackui.PlanStep{
+			Label: firstLine(goal.RequestedOutcome),
+			State: string(goal.State),
+		})
+	}
+	return plan
 }
 
 // Project builds the card's view of the work behind it.

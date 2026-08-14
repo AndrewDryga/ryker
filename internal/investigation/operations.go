@@ -510,6 +510,24 @@ func (operation ResultOperation) Validate() error {
 	return validate(operation)
 }
 
+// CountGoalOperations counts what a result did about its plan.
+//
+// It exists so the host can meter adoption of an instruction it has just
+// started giving: plan_goal and update_goal have been valid operations since
+// this file was written and no result has ever carried one, so "did the ask
+// land" is a question with a number behind it rather than an impression.
+func CountGoalOperations(operations []ResultOperation) (planned, updated int) {
+	for _, operation := range operations {
+		switch operation.Type {
+		case "plan_goal":
+			planned++
+		case "update_goal":
+			updated++
+		}
+	}
+	return planned, updated
+}
+
 func ResultOperationsPrompt() string {
 	return `Return results as a bounded ordered operations array. Each operation has a unique stable id
 and exactly one payload matching its type. The host validates operations independently and records

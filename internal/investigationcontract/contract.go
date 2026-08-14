@@ -417,6 +417,7 @@ draft, or publication workflow. Incomplete work, an unpublished draft, pending v
 missing authorization are not operational degradation. Describe them with the contract's own result state.
 `
 	result += contract.conclusionGuidance()
+	result += contract.planGuidance()
 	result += `
 Keep the final Slack synthesis decision-first and concise. Emit only the result operations listed by the
 contract. The host validates each operation and completion against this contract.
@@ -461,6 +462,38 @@ secondary coverage is explicitly unknown but cannot reverse that negative verdic
 unknown beneath the result, record the next action, and complete with the supported verdict.
 </host-investigation-contract>`
 	return result
+}
+
+// planGuidance asks long work to say what it is going to do before it does it.
+//
+// plan_goal and update_goal have been in the operation list since the contract
+// existed and no model has ever emitted one: zero rows in episode_goals, across
+// every episode ever run. An operation named in a list and asked for nowhere is
+// an operation that does not happen, so this is the ask — instruction only, no
+// correction rung. Whether it lands is measured from the audit trail rather
+// than assumed, and if it does not, the pressure goes up from there.
+//
+// Only the two efforts whose work has steps. An engineering task and an
+// incident investigation run long enough that an operator watching the card
+// wants to know which part is finished; a question and a focused check are one
+// act, and goals on them would be a project plan for a sentence — five rows of
+// ceremony under a card whose whole work is a lookup. The boundary is stated
+// inside the text as well as enforced by this switch, because the model reading
+// it is the one deciding how far to break the work down.
+func (contract InvestigationContract) planGuidance() string {
+	switch contract.Effort {
+	case core.EffortEngineeringTask, core.EffortIncidentInvestigation:
+		return `
+Plan this work where the operator can watch it. In the first substantive result of this episode, emit
+2-5 plan_goal operations naming the steps the work breaks into, each requested_outcome under 80
+characters and each completion_contract an observable done condition. In later turns emit update_goal
+as each goal starts, completes, or blocks, so the card tracks the work instead of restating it. Plan
+once per episode: never re-plan a goal an earlier turn already opened. A question, a focused check, or
+a single lookup gets no goals at all.
+`
+	default:
+		return ""
+	}
 }
 
 func (contract InvestigationContract) conclusionGuidance() string {

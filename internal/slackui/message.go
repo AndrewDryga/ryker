@@ -302,6 +302,26 @@ type LiveTurn struct {
 	// LastActivity is the newest moment of any kind. Reasoning counts — a turn
 	// thinking hard is not a turn that stopped.
 	LastActivity time.Time
+	// Plan is what the work said it would do, in the order it said it.
+	//
+	// It sits here rather than beside it because the card already carries this
+	// one struct through both of its branches, and a plan and a window are the
+	// same kind of fact about the same episode: recorded when it happened,
+	// never generated for the card. It outlives the turn that planned it, which
+	// is why nothing here is gated on Active.
+	Plan []PlanStep
+}
+
+// PlanStep is one goal the work laid out for itself.
+//
+// State is the stored goal state verbatim — planned, ready, working, waiting,
+// completed, blocked, excluded, cancelled — rather than a rendering decision
+// made upstream. The glyph is chosen here, where the column widths and the rest
+// of the ledger's vocabulary already live, so a state this package has not seen
+// renders as pending rather than as nothing.
+type PlanStep struct {
+	Label string
+	State string
 }
 
 // Recorded reports whether the turn narrated anything at all, which is a
@@ -839,14 +859,27 @@ func activityGlyph(kind string) string {
 }
 
 // activityText is the sanitizer boundary for the live window.
-//
-// Every string here comes from an agent transcript rather than from this
-// package, so it is treated as hostile: ANSI escapes and credential shapes go
-// first, then the digest a pack ref drags behind it, then the line breaks that
-// would let one entry occupy the whole strip. Sanitizer.Text is a method on an
-// instance the renderer does not have, so the shared patterns are applied
-// directly — the renderer is the last place this text can be caught.
 func activityText(value string) string {
+	return SanitizeActivityText(value)
+}
+
+// SanitizeActivityText is the sanitizer boundary for anything read out of an
+// agent transcript.
+//
+// Every string here comes from a transcript rather than from this package, so
+// it is treated as hostile: ANSI escapes and credential shapes go first, then
+// the digest a pack ref drags behind it, then the line breaks that would let
+// one entry occupy the whole strip. Sanitizer.Text is a method on an instance
+// the renderer does not have, so the shared patterns are applied directly —
+// the renderer is the last place this text can be caught.
+//
+// It is exported because the live window is no longer the only thing rendering
+// transcript text. The assistant status derives from the same stored moments
+// and does not pass through Sanitizer.Message on its way out — a status is a
+// delivery field, not a message body — so it would otherwise have needed a
+// second copy of these three passes, and two sanitizers for one stream is one
+// sanitizer that will eventually be missing a pattern the other has.
+func SanitizeActivityText(value string) string {
 	value = ansiPattern.ReplaceAllString(value, "")
 	for _, pattern := range tokenPatterns {
 		value = pattern.ReplaceAllString(value, "[REDACTED]")

@@ -14,6 +14,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	publicationreview "github.com/AndrewDryga/responder/internal/publicationreview"
 	"github.com/AndrewDryga/responder/internal/reportcanvas"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
@@ -641,7 +642,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 					ctx,
 					incident,
 					slackReplyThread(input),
-					requestNativeStatus(text),
+					episodepkg.ActivityNativeStatus(requestEpisodeActivity(text)),
 				)
 			}
 			if err == nil {

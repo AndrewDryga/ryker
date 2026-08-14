@@ -17,6 +17,7 @@ import (
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/liveturn"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/mentioncontext"
 	"github.com/AndrewDryga/responder/internal/promptbudget"
@@ -105,7 +106,7 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 					input.ChannelID,
 					slackReplyThread(input),
 					watchPendingStatus,
-					watchProgressSteps(),
+					slackui.WatchProgressSteps(),
 				); err != nil {
 					s.log.Warn(
 						"refresh Slack status for mention-only nudge",
@@ -566,16 +567,6 @@ func operationalAlertConversationKey(conversationKey string) bool {
 			strings.Contains(conversationKey, ":alert-link:"))
 }
 
-func watchProgressSteps() []string {
-	return []string{
-		"Reading the conversation",
-		"Checking the repository setup",
-		"Checking live systems",
-		"Comparing expected and current state",
-		"Checking whether the result is complete",
-	}
-}
-
 func decodeWatchRunContext(run core.AgentRun) (decisionpkg.WatchTurnState, error) {
 	if len(run.Context) == 0 {
 		return decisionpkg.WatchTurnState{}, nil
@@ -815,7 +806,55 @@ func (s *Service) prepareIncidentAgentRun(
 	return nil
 }
 
+// agentRunNativeStatus is what the thread says Emisar is doing.
+//
+// The recorded stream answers first. Everything below it is a sentence about
+// the kind of work rather than about this work — "is gathering and reconciling
+// evidence…", refreshed every two minutes to say it again while 596 tool calls
+// went past underneath — and the stream that would have said which call is the
+// same one the card's window already reads.
+//
+// This is the only funnel: every driver that sets a running turn's status goes
+// through here, so deriving at this one point changes what the status says
+// without changing when it is written. The throttle, the coalescing and the
+// generation are untouched, and no new caller was added.
 func (s *Service) agentRunNativeStatus(ctx context.Context, run core.AgentRun) string {
+	if tail, ok := s.turnActivityTail(ctx, run); ok {
+		if status, derived := liveturn.Status(tail); derived {
+			return status
+		}
+	}
+	return s.agentRunPlannedStatus(ctx, run)
+}
+
+// turnActivityTail reads what a turn has narrated, for the two things the host
+// says about a running turn: the thread status and its own checkin row.
+//
+// A failed read is not an error worth propagating. Both callers are composing a
+// sentence they can already write without this, so the fallback is the sentence
+// they would have written anyway — and a status write abandoned because the
+// activity table was busy would be a worse outcome than a general one.
+func (s *Service) turnActivityTail(
+	ctx context.Context,
+	run core.AgentRun,
+) (core.AgentActivityTail, bool) {
+	if run.EpisodeID == "" || s.store.Activity == nil {
+		return core.AgentActivityTail{}, false
+	}
+	tail, err := s.store.Activity.TailForEpisode(ctx, run.EpisodeID, liveturn.WindowLines)
+	if err != nil {
+		s.log.Warn(
+			"read the turn's interior for what the host says about it",
+			"run", run.ID, "episode", run.EpisodeID, "error", trimError(err),
+		)
+		return core.AgentActivityTail{}, false
+	}
+	return tail, true
+}
+
+// agentRunPlannedStatus is the status from what the work is, for a turn that
+// has not yet said what it is doing.
+func (s *Service) agentRunPlannedStatus(ctx context.Context, run core.AgentRun) string {
 	if value, err := s.store.GetWorkEpisodeByRun(ctx, run.ID); err == nil {
 		if status := episodepkg.Project(value).NativeStatus; status != "" {
 			return status
@@ -823,21 +862,10 @@ func (s *Service) agentRunNativeStatus(ctx context.Context, run core.AgentRun) s
 	}
 	if run.SourceKind == "slack" {
 		if input, err := s.store.GetSlackInput(ctx, run.SourceID); err == nil {
-			return requestNativeStatus(input.Text)
+			return episodepkg.ActivityNativeStatus(requestEpisodeActivity(input.Text))
 		}
 	}
 	return "is investigating..."
-}
-
-func requestNativeStatus(text string) string {
-	switch requestEpisodeActivity(text) {
-	case core.ActivityExplaining:
-		return "is explaining the earlier answer..."
-	case core.ActivityScheduling:
-		return "is scheduling the follow-up..."
-	default:
-		return "is investigating..."
-	}
 }
 
 func relatedSituationsPrompt(situations []decisionpkg.ConversationSituationContext) string {
@@ -2860,7 +2888,7 @@ func (s *Service) ensureWatchRunPendingStatus(
 		input.ChannelID,
 		threadTS,
 		watchPendingStatus,
-		watchProgressSteps(),
+		slackui.WatchProgressSteps(),
 	); err != nil {
 		return err
 	}

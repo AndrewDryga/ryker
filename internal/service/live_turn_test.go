@@ -267,7 +267,7 @@ func TestCardAsksNothingOfWorkWithNoTurnBehindIt(t *testing.T) {
 	if len(card.Activity) != 0 || len(card.Chips) != 0 {
 		t.Fatalf("an idle card grew a live window: %+v / %+v", card.Activity, card.Chips)
 	}
-	turn, err := liveturn.Fetch(ctx, st.Activity, st.Intelligence, incident)
+	turn, err := liveturn.Fetch(ctx, st.Activity, st.Intelligence, st.Goals, incident)
 	if err != nil {
 		t.Fatal(err)
 	}

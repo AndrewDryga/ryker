@@ -8,6 +8,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
 func TestCoopInstructionsRequireClaimBasedCrossSourceEvidence(t *testing.T) {
@@ -185,7 +186,7 @@ func TestConversationPromptReusesKnownResultForSimpleExplanation(t *testing.T) {
 	if simpleExplanationRequest("Please check whether the fix is live now.") {
 		t.Fatal("fresh verification request was mistaken for a simple explanation")
 	}
-	if got := progressMilestones("is explaining the earlier answer..."); len(got) != 2 || got[0] != "Reading the earlier answer" ||
+	if got := slackui.ProgressMilestones("is explaining the earlier answer..."); len(got) != 2 || got[0] != "Reading the earlier answer" ||
 		got[1] != "Writing a simpler explanation" {
 		t.Fatalf("explanation progress = %v", got)
 	}
@@ -225,14 +226,14 @@ func TestBoundedConversationUsesTheSameHumanVoicePolicy(t *testing.T) {
 }
 
 func TestProgressCopyUsesPlainOperatorLanguage(t *testing.T) {
-	for _, progress := range append(watchProgressSteps(), progressMilestones("investigating")...) {
+	for _, progress := range append(slackui.WatchProgressSteps(), slackui.ProgressMilestones("investigating")...) {
 		for _, jargon := range []string{"topology", "reconciling", "entities", "coverage"} {
 			if strings.Contains(strings.ToLower(progress), jargon) {
 				t.Fatalf("progress %q contains internal term %q", progress, jargon)
 			}
 		}
 	}
-	if got := progressMilestones("reviewing change"); len(got) != 4 || got[0] != "Reading the code changes" || got[3] != "Writing the review" {
+	if got := slackui.ProgressMilestones("reviewing change"); len(got) != 4 || got[0] != "Reading the code changes" || got[3] != "Writing the review" {
 		t.Fatalf("review progress = %v", got)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/liveturn"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 )
 
@@ -452,6 +453,37 @@ func episodeProgressDue(interval time.Duration, now time.Time) time.Time {
 	return now.UTC().Add(interval)
 }
 
+// episodeProgressActivity is the host's own account of what a turn has done.
+//
+// It is what replaces the second clause of the checkin row. That clause used to
+// be a sentence of the same kind as the lead — "Still working; completing the
+// requested checks" — written every two minutes, byte for byte identical, so
+// two rows an hour apart could not tell a reader whether anything had happened
+// between them. That is the exact question a checkin row exists to answer.
+//
+// The model's own progress text is never touched. This composes the host's row
+// and only the host's row; a model that reported its own progress has said
+// something specific already, and the host has no standing to edit it.
+func (s *Service) episodeProgressActivity(
+	ctx context.Context,
+	run core.AgentRun,
+) string {
+	tail, ok := s.turnActivityTail(ctx, run)
+	if !ok {
+		return ""
+	}
+	evidence := 0
+	if run.IncidentID != "" && s.store.Intelligence != nil {
+		if found, err := s.store.Intelligence.SummarizeIncidentEvidence(
+			ctx, run.IncidentID,
+		); err == nil {
+			evidence = found.Count
+		}
+	}
+	progress, _ := liveturn.Progress(tail, evidence)
+	return progress
+}
+
 func (s *Service) refreshWorkEpisodeProgress(
 	ctx context.Context,
 	run core.AgentRun,
@@ -472,15 +504,9 @@ func (s *Service) refreshWorkEpisodeProgress(
 		now.Sub(episode.LastProgressAt) < interval {
 		return nil
 	}
-	summary := "Still working; completing the requested checks"
-	switch episode.Effort {
-	case core.EffortOperationalAssessment:
-		summary = "Still working; checking every required system layer"
-	case core.EffortIncidentInvestigation:
-		summary = "Still investigating; verifying impact and the safest response"
-	case core.EffortEngineeringTask:
-		summary = "Still working; implementing and validating the focused change"
-	}
+	summary := episodepkg.ProgressSummary(
+		episode.Effort, s.episodeProgressActivity(ctx, run),
+	)
 	_, err = s.store.RecordWorkEpisodeProgress(
 		ctx,
 		run.ID,

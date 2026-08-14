@@ -134,7 +134,7 @@ func TestTerminalEpisodeCancellationClearsPendingSlackStatus(t *testing.T) {
 	}
 	if err := svc.enqueueNativeStatus(
 		ctx, "", run.EpisodeID, input.ChannelID, input.MessageTS,
-		watchPendingStatus, watchProgressSteps(),
+		watchPendingStatus, slackui.WatchProgressSteps(),
 	); err != nil {
 		t.Fatal(err)
 	}
