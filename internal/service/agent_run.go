@@ -1002,6 +1002,9 @@ func (s *Service) freezeTriageContext(
 // answer for them — a retry of an old run is not the latency anyone is
 // watching — and it is a consequence worth naming rather than discovering.
 func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) error {
+	if isSessionHandoffRun(run) {
+		return s.prepareSessionHandoffTurn(ctx, run)
+	}
 	input, err := s.store.GetSlackInput(ctx, run.SourceID)
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
@@ -1862,7 +1865,7 @@ func (s *Service) pollAgentRunOnce(ctx context.Context, run core.AgentRun) error
 			}
 		}
 	}
-	if run.Mode == core.AgentRunTriage {
+	if run.Mode == core.AgentRunTriage && !isSessionHandoffRun(run) {
 		input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
 		state, stateErr := decodeWatchRunContext(run)
 		if inputErr == nil && stateErr == nil &&
@@ -2034,6 +2037,9 @@ func (s *Service) stageTriageTerminal(
 	cursor int64,
 	staged *stagedTurn,
 ) (bool, error) {
+	if isSessionHandoffRun(run) {
+		return s.handoffTurnResult(ctx, run, turn, staged)
+	}
 	input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
 	state, stateErr := decodeWatchRunContext(run)
 	decision, decisionErr := decisionpkg.ParseWatchDecision(turn.AssistantMessage, s.now())
@@ -2771,6 +2777,12 @@ func (s *Service) advanceTriageSessionEvents(
 	run core.AgentRun,
 	cursor int64,
 ) error {
+	// A handoff runs in a session the channel projection has already unbound,
+	// so there is no row for this pair to advance and asking for one fails the
+	// poll that asked.
+	if isSessionHandoffRun(run) {
+		return nil
+	}
 	state, err := decodeWatchRunContext(run)
 	if err == nil && state.Lane == "conversation" {
 		return s.store.AdvanceConversationSessionEvents(
@@ -2847,7 +2859,7 @@ func replayAgentRunInFreshSession(turn coop.Turn) bool {
 // is about to wait rather than answer, so the channel does not sit showing work
 // in progress. Failing to clear it is cosmetic and never blocks the wait.
 func (s *Service) parkWatchedStatus(ctx context.Context, run core.AgentRun, why string) {
-	if run.Mode != core.AgentRunTriage {
+	if run.Mode != core.AgentRunTriage || isSessionHandoffRun(run) {
 		return
 	}
 	if err := s.parkWatchRunPendingStatus(ctx, run); err != nil {
@@ -3094,6 +3106,9 @@ func (s *Service) stageTerminalFinalizationFailure(
 }
 
 func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun) error {
+	if isSessionHandoffRun(run) {
+		return s.finalizeSessionHandoffTurn(ctx, run)
+	}
 	input, err := s.store.GetSlackInput(ctx, run.SourceID)
 	if err != nil {
 		return err

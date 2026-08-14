@@ -77,6 +77,7 @@ func TestSchemaV63RepaintsPublicationLifecycleCards(t *testing.T) {
 		ALTER TABLE incidents DROP COLUMN changes_message_ts;
 		ALTER TABLE incidents DROP COLUMN changes_stat;
 		ALTER TABLE work_episodes DROP COLUMN last_activity_at;
+		ALTER TABLE channel_memories DROP COLUMN turns_since_memory;
 		DROP TABLE agent_activity;
 		DROP TABLE context_artifacts;
 		DROP TABLE replay_cancellations;

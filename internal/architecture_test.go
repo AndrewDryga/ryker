@@ -360,7 +360,12 @@ var lineBudget = map[string]int{
 	// blocked-completion sites. The two rounds of margin this entry carried
 	// today were both consumed by real features within hours, which is the
 	// argument for the margin, not against it.
-	"service": 22400,
+	//
+	// Raised to 22540 on 2026-08-14 for the session-rotation handoff: the
+	// retirement seam both rotation lanes now share, the handoff queue and
+	// its guards, and the six source-kind checks that keep a run nobody in
+	// Slack is waiting for out of every Slack-facing path.
+	"service": 22540,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

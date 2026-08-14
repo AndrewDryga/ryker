@@ -23,11 +23,12 @@ func (r *Repository) GetChannelMemory(ctx context.Context, channelID string) (co
 	var updated string
 	err := r.db.QueryRowContext(ctx, `
 			SELECT channel_id, repository, session_id, session_revision, generation, turn_count,
-			  coop_event_sequence, state_json, session_started_at, rotated_at, updated_at
+			  turns_since_memory, coop_event_sequence, state_json, session_started_at, rotated_at,
+			  updated_at
 			FROM channel_memories WHERE channel_id = ?`, channelID).Scan(
 		&memory.ChannelID, &memory.Repository, &memory.SessionID, &memory.SessionRevision,
-		&memory.Generation, &memory.TurnCount, &memory.CoopEventSequence,
-		&state, &started, &rotated, &updated,
+		&memory.Generation, &memory.TurnCount, &memory.TurnsSinceMemory,
+		&memory.CoopEventSequence, &state, &started, &rotated, &updated,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.ChannelMemory{}, core.ErrNotFound
@@ -462,20 +463,27 @@ func (r *Repository) ApplyWatchDecision(
 			UPDATE channel_memories
 			SET session_revision = ?, turn_count = turn_count + 1,
 			    state_json = CASE WHEN ? = '{}' THEN state_json ELSE ? END,
+			    turns_since_memory = CASE WHEN ? = '{}' THEN turns_since_memory + 1 ELSE 0 END,
 			    updated_at = ?
 			WHERE channel_id = ?`,
-			sessionRevision, string(encodedMemory), string(encodedMemory), r.nowText(), sessionChannelID,
+			sessionRevision, string(encodedMemory), string(encodedMemory),
+			string(encodedMemory), r.nowText(), sessionChannelID,
 		)
 		if err := sqlutil.ExpectOne(update, err, "apply watch decision memory"); err != nil {
 			return false, err
 		}
 		if sessionChannelID != decision.ChannelID {
+			// Reset but never increment: this channel is a delivery destination
+			// for a turn that ran in another channel's session, so it did not
+			// spend a turn of its own to fall behind by.
 			update, err = tx.ExecContext(ctx, `
 				UPDATE channel_memories
 				SET state_json = CASE WHEN ? = '{}' THEN state_json ELSE ? END,
+				    turns_since_memory = CASE WHEN ? = '{}' THEN turns_since_memory ELSE 0 END,
 				    updated_at = ?
 				WHERE channel_id = ?`,
-				string(encodedMemory), string(encodedMemory), r.nowText(), decision.ChannelID,
+				string(encodedMemory), string(encodedMemory), string(encodedMemory),
+				r.nowText(), decision.ChannelID,
 			)
 			if err := sqlutil.ExpectOne(update, err, "apply scheduled decision channel memory"); err != nil {
 				return false, err
@@ -494,9 +502,11 @@ func (r *Repository) ApplyWatchDecision(
 		update, err = tx.ExecContext(ctx, `
 			UPDATE channel_memories
 			SET state_json = CASE WHEN ? = '{}' THEN state_json ELSE ? END,
+			    turns_since_memory = CASE WHEN ? = '{}' THEN turns_since_memory + 1 ELSE 0 END,
 			    updated_at = ?
 			WHERE channel_id = ?`,
-			string(encodedMemory), string(encodedMemory), r.nowText(), decision.ChannelID,
+			string(encodedMemory), string(encodedMemory), string(encodedMemory),
+			r.nowText(), decision.ChannelID,
 		)
 		if err := sqlutil.ExpectOne(update, err, "apply conversation decision memory"); err != nil {
 			return false, err
@@ -553,6 +563,38 @@ func (r *Repository) ApplyWatchDecision(
 		}
 	}
 	return true, tx.Commit()
+}
+
+// ApplyHandoffMemory writes what a retiring session summarized into the channel
+// memory its successor reads.
+//
+// Deliberately narrower than ApplyWatchDecision: by the time a handoff turn
+// finishes, this row has already been rebound to the NEW session, so writing a
+// session revision or counting a turn here would attribute the retiring
+// session's last act to a session that has not taken a turn yet — and the
+// revision is the number the next submission freezes against.
+func (r *Repository) ApplyHandoffMemory(
+	ctx context.Context,
+	channelID string,
+	state core.AgentMemory,
+) error {
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	if string(encoded) == "{}" {
+		return nil
+	}
+	if len(encoded) > 64<<10 {
+		return errors.New("channel memory exceeds 64 KiB")
+	}
+	update, err := r.db.ExecContext(ctx, `
+		UPDATE channel_memories
+		SET state_json = ?, turns_since_memory = 0, updated_at = ?
+		WHERE channel_id = ?`,
+		string(encoded), r.nowText(), channelID,
+	)
+	return sqlutil.ExpectOne(update, err, "apply handed-off channel memory")
 }
 
 // RecordEvaluationDecision preserves a host-effective decision without applying

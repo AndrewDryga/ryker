@@ -77,29 +77,18 @@ func (s *Service) ensureWatchSessionForRepositoryAtGeneration(
 		generation++
 	}
 	if memory.SessionID != "" {
-		session, sessionErr := s.coop.GetSession(ctx, memory.SessionID)
-		if sessionErr == nil && !watchSessionTerminal(session.State) &&
-			session.ActiveTurnID == "" {
-			if _, _, closeErr := s.coop.Close(
-				ctx,
-				fmt.Sprintf("responder:watch-rotate:%s:%d", channelID, generation),
-				session.ID,
-				session.Revision,
-			); closeErr != nil {
-				return core.ChannelMemory{}, coop.Session{}, closeErr
-			}
-		}
-		if sessionErr == nil && session.ActiveTurnID == "" {
-			if cleanupErr := s.store.ScheduleCleanup(
-				ctx,
-				memory.SessionID,
-				"",
-				"rotated Slack channel memory",
-				false,
-				s.now().UTC(),
-			); cleanupErr != nil {
-				return core.ChannelMemory{}, coop.Session{}, cleanupErr
-			}
+		if err := s.retireRotatedSession(
+			ctx,
+			memory.SessionID,
+			fmt.Sprintf("responder:watch-rotate:%s:%d", channelID, generation),
+			"rotated Slack channel memory",
+			outgoingSession{
+				memoryChannelID: channelID, repository: memory.Repository,
+				lane: "investigation", turnCount: memory.TurnCount,
+				repositoryChanged: memory.Repository != repositoryKey,
+			},
+		); err != nil {
+			return core.ChannelMemory{}, coop.Session{}, err
 		}
 		if generation <= memory.Generation {
 			generation = memory.Generation + 1
@@ -199,34 +188,18 @@ func (s *Service) ensureConversationSessionAtGeneration(
 		generation++
 	}
 	if memory.SessionID != "" {
-		session, sessionErr := s.coop.GetSession(ctx, memory.SessionID)
-		if sessionErr == nil && !watchSessionTerminal(session.State) &&
-			session.ActiveTurnID == "" {
-			_, _, closeErr := s.coop.Close(
-				ctx,
-				fmt.Sprintf(
-					"responder:conversation-rotate:%s:%d",
-					channelID,
-					generation,
-				),
-				session.ID,
-				session.Revision,
-			)
-			if closeErr != nil {
-				return core.ConversationSession{}, coop.Session{}, closeErr
-			}
-		}
-		if sessionErr == nil && session.ActiveTurnID == "" {
-			if cleanupErr := s.store.ScheduleCleanup(
-				ctx,
-				memory.SessionID,
-				"",
-				"rotated Slack conversation session",
-				false,
-				s.now().UTC(),
-			); cleanupErr != nil {
-				return core.ConversationSession{}, coop.Session{}, cleanupErr
-			}
+		if err := s.retireRotatedSession(
+			ctx,
+			memory.SessionID,
+			fmt.Sprintf("responder:conversation-rotate:%s:%d", channelID, generation),
+			"rotated Slack conversation session",
+			outgoingSession{
+				memoryChannelID: channelID, repository: memory.Repository,
+				lane: "conversation", turnCount: memory.TurnCount,
+				repositoryChanged: memory.Repository != repositoryKey,
+			},
+		); err != nil {
+			return core.ConversationSession{}, coop.Session{}, err
 		}
 		if generation <= memory.Generation {
 			generation = memory.Generation + 1

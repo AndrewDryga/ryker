@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 73
+const currentSchemaVersion = 74
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -411,4 +411,20 @@ var migrations = map[int]string{
 		ALTER TABLE incidents ADD COLUMN changes_message_ts TEXT NOT NULL DEFAULT '';
 		ALTER TABLE incidents ADD COLUMN changes_stat TEXT NOT NULL DEFAULT '';
 	`,
+	// How many turns have gone by since anything was written to this channel's
+	// memory, which is the one fact rotation needs and could not ask for.
+	//
+	// turn_count answers "how long has this session run" and updated_at moves on
+	// every decision whether or not memory changed, so neither can tell a
+	// session that summarized itself on the way out from one that spent forty
+	// turns and wrote nothing. Rotation deletes the transcript either way, and
+	// only the second case loses anything — so without this column the host
+	// either hands every rotation a model turn it usually does not need, or
+	// hands none of them the one it does.
+	//
+	// It starts at zero for every existing row, which claims the memory on disk
+	// is current. That is the safe direction: the first turn after this
+	// migration sets it truthfully, and the cost of being wrong once is a
+	// handoff not taken rather than a model turn spent for nothing.
+	74: `ALTER TABLE channel_memories ADD COLUMN turns_since_memory INTEGER NOT NULL DEFAULT 0;`,
 }

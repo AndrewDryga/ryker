@@ -1001,6 +1001,7 @@ type fakeCoop struct {
 	createResultState  string
 	openAfterCreateKey string
 	submitKeys         []string
+	submitSessions     []string
 	submitPrompts      []string
 	submitArtifacts    [][]coop.InputArtifact
 	submitState        string
@@ -1134,21 +1135,26 @@ func (f *fakeCoop) PrepareSession(_ context.Context, key, sessionID string, expe
 	}
 	return f.session, nil
 }
-func (f *fakeCoop) SubmitTurn(_ context.Context, key, _ string, _ int64, prompt string) (coop.Turn, coop.Operation, error) {
+func (f *fakeCoop) SubmitTurn(_ context.Context, key, sessionID string, _ int64, prompt string) (coop.Turn, coop.Operation, error) {
 	return f.SubmitTurnWithArtifacts(
-		context.Background(), key, "", 0, prompt, nil,
+		context.Background(), key, sessionID, 0, prompt, nil,
 	)
 }
 
+// SubmitTurnWithArtifacts records the session each turn was submitted to.
+// Every other caller submits into the session the run is already bound to, so
+// the id was noise until a memory handoff had to prove it ran in the OUTGOING
+// session rather than the one rotation had just created.
 func (f *fakeCoop) SubmitTurnWithArtifacts(
 	_ context.Context,
 	key string,
-	_ string,
+	sessionID string,
 	_ int64,
 	prompt string,
 	artifacts []coop.InputArtifact,
 ) (coop.Turn, coop.Operation, error) {
 	f.submitKeys = append(f.submitKeys, key)
+	f.submitSessions = append(f.submitSessions, sessionID)
 	f.submitPrompts = append(f.submitPrompts, prompt)
 	f.submitArtifacts = append(f.submitArtifacts, artifacts)
 	if len(f.submitErrs) > 0 {

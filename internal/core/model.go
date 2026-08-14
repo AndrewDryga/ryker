@@ -928,10 +928,15 @@ type ChannelMemory struct {
 	CoopEventSequence int64
 	Generation        int
 	TurnCount         int
-	State             AgentMemory
-	SessionStarted    time.Time
-	RotatedAt         time.Time
-	UpdatedAt         time.Time
+	// TurnsSinceMemory counts finished turns that wrote nothing to State. It is
+	// zero exactly when the summary below is as current as the transcript that
+	// produced it, which is what rotation asks before spending a turn to carry
+	// the transcript forward.
+	TurnsSinceMemory int
+	State            AgentMemory
+	SessionStarted   time.Time
+	RotatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 type ConversationMemory struct {

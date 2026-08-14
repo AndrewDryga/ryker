@@ -61,6 +61,27 @@ the host when the task is complete.
 	return ""
 }
 
+// SessionHandoff asks a Coop session that is about to be retired for the one
+// thing that dies with it.
+//
+// It is the whole envelope rather than a sentence because the turn has to
+// produce a valid silent ignore — exactly one update_memory and no reply — and
+// the shortest way to be sure of that is to show the shape. Nothing is waiting
+// on this turn, so it is also told, in as few words as possible, not to do
+// anything that would make anyone wait.
+func SessionHandoff() string {
+	return `This session is being retired and its transcript will not be carried forward.
+
+Write down what the next session needs to continue this channel's work without repeating it:
+the current situation, what has been established, what is still open, and the decisions taken.
+
+Do not investigate, read anything, or reply in Slack. Answer with exactly this shape:
+
+{"action":"ignore","reason":"<what is worth carrying>","operations":[{"id":"handoff","type":"update_memory","memory":{"situation_summary":"","channel_purpose":"","open_loops":[],"decisions":[],"topology":[]}}]}
+
+Omit any memory field you have nothing durable to put in.`
+}
+
 // LegacyResultShape asks for the same decision in the typed shape, and is
 // deliberately not the correction blocks above it.
 //
