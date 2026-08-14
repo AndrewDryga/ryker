@@ -135,7 +135,9 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		"omit the task offer rather than guessing",
 		"Configured repository bindings",
 		"target_is_configured_operator must be true",
-		"A dedicated incident is not required",
+		// The stuttered twin ("A dedicated incident is not required.") next to
+		// this sentence was deleted on 2026-08-14; the rule survives here.
+		"A dedicated incident or task is not required",
 		"include the exact pending_approval object",
 		"One confirmation atomically creates up to 8 tasks",
 		"one offer per distinct",
@@ -430,7 +432,14 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // became one block, the reply bullet stopped restating it, and the plain and
 // alert style policies lost their overlap. 2,441 bytes of additions arrived
 // with 2,333 bytes of deletions.
-const staticWatchPromptBytes = 49896
+//
+// Raised by 375 on 2026-08-14, the day the prompt gate ran for the first
+// time. Its first real execution surfaced the format failures still firing:
+// a capability_unavailable blocker without capability_gaps, a pack
+// recommendation no evidence record identified, and a reply stream without
+// its complete_episode. Each is now named in the final shape check, at the
+// tail where it is the last thing read before answering.
+const staticWatchPromptBytes = 50139
 
 // The static prompt must not grow without someone deciding it should.
 //

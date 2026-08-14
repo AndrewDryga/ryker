@@ -54,7 +54,17 @@ var promptCeilings = map[string]int{
 	// wrong besides — it named nine repositories Coop never mounted and omitted
 	// six it did. 231 bytes of contract, against a file read that no longer
 	// happens and a map that can no longer disagree with the pins.
-	"watch-operator": 48 * 1024,
+	//
+	// Raised by 64 bytes on 2026-08-14, after the first real run of the prompt
+	// gate. The overhaul that unified the persona, merged every rule said twice
+	// or three times, and added the continuity, when-to-ask, and final-shape
+	// instructions landed 43 bytes over this ceiling once the gate's surviving
+	// correction classes were named in the final check. The known trims — a
+	// stuttered sentence in the governed-action policy among them — are already
+	// taken; the remainder buys the format checks that the gate's first
+	// execution showed still firing, on a transport whose cap now leaves this
+	// variant 81% of the turn for context.
+	"watch-operator": 48*1024 + 64,
 }
 
 func TestStaticPromptSizeIsBounded(t *testing.T) {

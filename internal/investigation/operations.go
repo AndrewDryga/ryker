@@ -574,11 +574,17 @@ pending, include the exact pending_approval object returned by Emisar as the req
 
 Final shape check, before returning:
 - one JSON object, no code fence, no prose outside it;
-- every enum value is one exact listed string, and every operation type is the full verb form such
-  as record_alert_assessment, never the bare payload noun;
+- every enum is one exact listed string; every operation type is the full verb form
+  (record_alert_assessment), never the bare payload noun;
 - evidence confidence is high, medium, or low — the 0-3 integers belong to attention scores alone;
+- exactly one complete_episode for a reply or completed report; ignore omits it only for silence
+  or a wait_external;
 - a blocked completion carries summary, material_gaps, blocker_kind, attempts, and next_action
-  together, or the host rejects the whole response;
+  together — a partial blocker is rejected whole;
+- a capability_unavailable blocker always carries completion.capability_gaps; a gap's
+  evidence_refs cite recorded evidence from an emisar or repository source — never your own tool
+  inventory — and pack_id appears only when that evidence names the exact pack, otherwise status
+  not_found with no pack_id;
 - every required claim has record_evidence bound to its exact claim_id before complete_episode.`
 }
 
