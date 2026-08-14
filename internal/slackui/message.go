@@ -925,14 +925,6 @@ func ConversationResponse(text string, sanitizer *Sanitizer) Message {
 	}
 }
 
-func timeLocation(name string) *time.Location {
-	location, err := time.LoadLocation(name)
-	if err != nil {
-		return time.UTC
-	}
-	return location
-}
-
 func firstNonemptyUI(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
