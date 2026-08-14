@@ -557,6 +557,19 @@ func TestWatchPromptExamplesUseTheTypedResultShape(t *testing.T) {
 		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "", nil, WatchPromptBudget(0),
 	)
+	// The bounded conversation lane's examples are held to the same bar since
+	// 2026-08-14, when its four legacy-shaped examples taught every cheap turn
+	// a dialect the host then spent a correction turn translating — a 2x turn
+	// tax on the lane that exists to be cheap.
+	conversation := (&Service{cfg: cfg}).conversationPrompt(
+		core.SlackInput{
+			ChannelID: "C123ABC", MessageTS: "1700.001",
+			UserID: "U123ABC", Text: "Did the check pass?",
+		},
+		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		decisionpkg.OperationalMemoryContext{}, "repo",
+	)
+	prompt += "\n" + conversation
 	// Only concrete examples. The envelope schema sketch beside them spells its
 	// action as "ignore|react|reply|incident|escalate", which is documentation
 	// of the field rather than a decision, and is not meant to parse.
@@ -571,13 +584,15 @@ func TestWatchPromptExamplesUseTheTypedResultShape(t *testing.T) {
 			continue
 		}
 		examples++
-		decision, err := decisionpkg.ParseWatchDecision(line, testDecodeClock)
-		if err != nil {
+		if _, err := decisionpkg.ParseWatchDecision(line, testDecodeClock); err != nil {
 			t.Fatalf("the prompt shows an example the host would reject: %v\n%s", err, line)
 		}
-		if decision.LegacyShape {
-			t.Fatalf("the prompt's example carries no operations:\n%s", line)
-		}
+		// decision.LegacyShape is not asserted here: the parser flags every
+		// empty-operations envelope as legacy-shaped, and a react or escalate
+		// example legitimately carries none ("bare envelopes with nothing in
+		// them to move", legacy_shape.go). The raw checks below hold the real
+		// contract — an operations key must be present and no legacy result
+		// field may appear beside it.
 		// Checked on the raw JSON, not the parsed decision: parsing projects
 		// the operations back onto the legacy fields, so the decision always
 		// looks legacy-shaped afterwards.
