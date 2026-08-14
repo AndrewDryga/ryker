@@ -1117,6 +1117,8 @@ func AppendFeedbackDigest(message Message, items []FeedbackSummary) Message {
 			counts = append(counts, fmt.Sprintf("%s %d", strings.ReplaceAll(category, "_", " "), count))
 		}
 	}
+	// A shelf-style summary first: how much is waiting and of what kind, in one
+	// line, so the reader can decide whether to engage with the list at all.
 	message.Sections = append(message.Sections, fmt.Sprintf(
 		"*Product feedback awaiting a decision (%d)*\n%s",
 		len(items), escapeSlackText(strings.Join(counts, " · ")),
@@ -1129,9 +1131,13 @@ func AppendFeedbackDigest(message Message, items []FeedbackSummary) Message {
 			))
 			break
 		}
+		// No leading number. The number existed only because the buttons were
+		// pooled at the bottom of the page and had to point back at a list —
+		// "Always be briefer 1" beside "Dismiss 3" beside a preference toggle,
+		// nineteen of them, none next to what it acted on. The controls sit on
+		// their item now, so the number is noise that reads like a ranking.
 		line := fmt.Sprintf(
-			"%d. %s\n_%s · %s_",
-			index+1,
+			"%s\n_%s · %s_",
 			escapeSlackText(item.Summary),
 			escapeSlackText(item.Category),
 			escapeSlackText(item.Sentiment),
@@ -1139,7 +1145,7 @@ func AppendFeedbackDigest(message Message, items []FeedbackSummary) Message {
 		if item.SourceRef != "" {
 			line += " · " + escapeSlackText(item.SourceRef)
 		}
-		message.Sections = append(message.Sections, line)
+		actions := make([]Action, 0, 3)
 		// Tone feedback is the one category a typed preference can actually
 		// express: response_detail is enforced, where guidance is only weighed.
 		// The direction is NOT inferred from the text — "be more concise" and
@@ -1147,26 +1153,27 @@ func AppendFeedbackDigest(message Message, items []FeedbackSummary) Message {
 		// how an agent starts confidently doing the opposite of what was asked.
 		// The operator picks.
 		if item.Category == "tone" {
-			message.Actions = append(message.Actions, Action{
+			actions = append(actions, Action{
 				ID:    ActionConvertFeedbackBrief,
-				Label: fmt.Sprintf("Always be briefer %d", index+1),
+				Label: "Always be briefer",
 				Value: item.ID,
 				Confirm: "Set a standing preference for briefer replies in this workspace? " +
 					"This is enforced, not a hint, and you can change it any time.",
 			})
 		}
-		message.Actions = append(message.Actions,
+		actions = append(actions,
 			Action{
-				ID: ActionConvertFeedback, Label: fmt.Sprintf("Make it guidance %d", index+1),
+				ID: ActionConvertFeedback, Label: "Make it guidance",
 				Value: item.ID, Style: "primary",
 				Confirm: "Turn this feedback into durable guidance? You will confirm the exact " +
 					"wording before anything is saved.",
 			},
 			Action{
-				ID: ActionDismissFeedback, Label: fmt.Sprintf("Dismiss %d", index+1),
+				ID: ActionDismissFeedback, Label: "Dismiss",
 				Value: item.ID,
 			},
 		)
+		message = AppendRow(message, line, actions)
 	}
 	return message
 }
@@ -1202,7 +1209,10 @@ func AppendFixtureReview(message Message, items []FixtureCandidateSummary) Messa
 			"becomes a regression test so the mistake cannot return. Discard it if it "+
 			"was situational.",
 	)
-	for _, item := range items {
+	// Three, then a count. Judging a lesson is slow work and nobody does five of
+	// them in a sitting, so the fourth onward is a queue rather than a prompt —
+	// and each one costs two blocks on a surface with a hard ceiling.
+	for _, item := range items[:min(len(items), 3)] {
 		line := escapeSlackText(truncateUTF8(correctionSummary(item.Correction), 300))
 		if item.Capability != "" {
 			line += " · " + escapeSlackText(item.Capability)
@@ -1222,6 +1232,11 @@ func AppendFixtureReview(message Message, items []FixtureCandidateSummary) Messa
 				Value: item.ID,
 			},
 		})
+	}
+	if extra := len(items) - 3; extra > 0 {
+		message.Context = append(message.Context, fmt.Sprintf(
+			"%d more corrections are waiting to be judged.", extra,
+		))
 	}
 	return message
 }

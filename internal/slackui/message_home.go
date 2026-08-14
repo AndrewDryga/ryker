@@ -3,6 +3,7 @@ package slackui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 )
@@ -33,65 +34,21 @@ func OperationsHome(
 	// workspace is configured, and which of Responder's own mistakes to pin as
 	// tests — with nothing marking where one ended and the next began. Four
 	// jobs in one scroll reads as a mess of text and buttons no matter how well
-	// each line is written, so the page now leads with the answer, and the two
-	// secondary jobs sit below it under their own headings.
-	needs := commitmentActive
-	state := "Nothing needs you"
-	if needs > 0 {
-		state = fmt.Sprintf("%d need%s you",
-			needs, map[bool]string{true: "", false: "s"}[needs != 1])
-	}
-	// Everything the page is not about, on one line, each with the command that
-	// opens it. These were nine tiles and a paragraph-length banner competing
-	// with the work for the reader's attention.
-	elsewhere := make([]string, 0, 4)
-	if failedWork > 0 {
-		elsewhere = append(elsewhere, fmt.Sprintf("%d failed · `/responder failures`", failedWork))
-	}
-	if cleanupBlocked > 0 {
-		elsewhere = append(elsewhere, fmt.Sprintf("%d retained workspaces · `/responder sessions`", cleanupBlocked))
-	}
-	if publishedPRs > 0 {
-		elsewhere = append(elsewhere, fmt.Sprintf("%d draft PRs", publishedPRs))
-	}
-	if scheduleActive > 0 {
-		label := "tasks"
-		if scheduleActive == 1 {
-			label = "task"
-		}
-		elsewhere = append(elsewhere, fmt.Sprintf(
-			"%d scheduled %s · `/responder schedules`", scheduleActive, label,
-		))
-	}
-	elsewhere = append(elsewhere, "`/responder status` for everything in flight")
+	// each line is written, so the page now leads with the answer and every
+	// secondary job is demoted to a counted line pointing at the command that
+	// opens it.
+	//
+	// RENDERING CONSTRAINT — this surface is published with views.publish, and
+	// Slack validates the whole view: one illegal block blanks the entire tab
+	// with no error anyone sees. That failure sat unnoticed for two days once
+	// (the fields-chunking comment in message.go records it). So the "In flight"
+	// strip below is deliberately ordinary mrkdwn section text, NOT a
+	// rich_text_preformatted block and NOT Message.Ledger or Message.Activity.
+	// Do not "upgrade" it: the monospace strip those produce is a message-card
+	// affordance, and the App Home is the one surface where getting a block
+	// wrong costs the reader everything rather than one card. Message-channel
+	// cards are unaffected by this rule.
 
-	message := Message{
-		Text: fmt.Sprintf(
-			"Emisar: %s. %d failed work items.", state, failedWork,
-		),
-		Header:   "Emisar",
-		Sections: []string{"*" + state + "*"},
-		Context:  []string{strings.Join(elsewhere, "\n")},
-	}
-	if len(incidents) > 0 {
-		var current strings.Builder
-		current.WriteString("*Current work*\n")
-		for _, incident := range incidents[:min(len(incidents), 8)] {
-			room := "#" + displayOr(incident.ChannelName, "room pending")
-			if incident.ChannelID != "" && incident.ChannelWritable() {
-				room = "<#" + incident.ChannelID + ">"
-			}
-			fmt.Fprintf(
-				&current,
-				"\n- **%s** - %s - %s - %s",
-				escapeSlackText(incident.Title),
-				incidentDirectoryStatus(incident),
-				room,
-				signalStateSummary(incident),
-			)
-		}
-		message.Sections = append(message.Sections, current.String())
-	}
 	// Only work a person can move. A failed run belongs to the retry machinery
 	// and to the failure count, not to a list titled with what is owed to the
 	// team — that framing put a Coop idempotency conflict in front of an
@@ -114,33 +71,99 @@ func OperationsHome(
 		seenHeadline[key] = true
 		owedItems = append(owedItems, commitment)
 	}
-	if len(owedItems) > 0 {
-		message.Sections = append(message.Sections, "*Needs a decision from you*")
-		for _, commitment := range owedItems[:min(len(owedItems), 5)] {
-			headline := commitmentHeadline(commitment.Title)
-			line := "*" + headline + "*"
-			if count := repeats[headline]; count > 1 {
-				line += fmt.Sprintf(" ×%d", count)
-			}
-			if commitment.ChannelID != "" {
-				line += " · <#" + commitment.ChannelID + ">"
-			}
-			// What to do, not why Responder stopped. The status paragraph is
-			// Responder reasoning about itself; five of them made a wall to mine
-			// for the one line that was an instruction. It stays in the thread,
-			// and is used here only when there is no next action to show.
-			switch {
-			case !genericProgressText(commitment.NextAction):
-				line += "\n" + escapeSlackText(shortInstruction(commitment.NextAction))
-			case !genericProgressText(commitment.Status):
-				line += "\n" + escapeSlackText(shortInstruction(commitment.Status))
-			}
-			message = AppendRow(message, line, openThreadAction(commitment))
+
+	// The count in the header is the count of rows below it. It used to be
+	// commitmentActive, which counts every active commitment including the ones
+	// this page deliberately does not list and the duplicates it collapses — so
+	// the headline promised seven things and showed four, and a page whose first
+	// line does not survive contact with its own body teaches the reader to
+	// distrust the rest of it.
+	needs := len(owedItems)
+	state := "Nothing needs you"
+	if needs > 0 {
+		thing := "things"
+		verb := "need"
+		if needs == 1 {
+			thing, verb = "thing", "needs"
 		}
-		if extra := len(owedItems) - 5; extra > 0 {
-			message.Sections = append(message.Sections,
-				fmt.Sprintf("_and %d more — `/responder status`_", extra))
+		state = fmt.Sprintf("✋ %d %s %s you", needs, thing, verb)
+	}
+
+	message := Message{
+		// State word first: notifications and the sidebar strip the glyph, so
+		// the fallback has to carry the answer in words.
+		Text:   strings.TrimPrefix(state, "✋ ") + " — Emisar operations",
+		Header: state,
+	}
+
+	// The ask, before anything else on the page. These are rows anchored at
+	// After 0, which Blocks renders ahead of every section — that is what keeps
+	// them above the coverage-gap warning AppendCoverageGaps prepends later.
+	for _, commitment := range owedItems[:min(len(owedItems), 5)] {
+		headline := commitmentHeadline(commitment.Title)
+		line := "*" + headline + "*"
+		if count := repeats[headline]; count > 1 {
+			line += fmt.Sprintf(" ×%d", count)
 		}
+		if commitment.ChannelID != "" {
+			line += " · <#" + commitment.ChannelID + ">"
+		}
+		// What to do, not why Responder stopped. The status paragraph is
+		// Responder reasoning about itself; five of them made a wall to mine
+		// for the one line that was an instruction. It stays in the thread,
+		// and is used here only when there is no next action to show.
+		switch {
+		case !genericProgressText(commitment.NextAction):
+			line += "\n" + escapeSlackText(shortInstruction(commitment.NextAction))
+		case !genericProgressText(commitment.Status):
+			line += "\n" + escapeSlackText(shortInstruction(commitment.Status))
+		}
+		message = AppendRow(message, line, openThreadAction(commitment))
+	}
+	// The overflow note is a footer line rather than a section, because a
+	// section here would land between the rows and the coverage-gap warning
+	// that has to sit directly beneath them.
+	if extra := len(owedItems) - 5; extra > 0 {
+		message.Context = append(message.Context,
+			fmt.Sprintf("%d more need you — `/responder work`", extra))
+	}
+
+	// In flight: what Responder is carrying, so the reader can tell an idle
+	// system from a busy one without opening anything. One line per task —
+	// glyph, title, room, age — and the whole strip is one section block, which
+	// is the difference between eight blocks and one on a page with a ceiling.
+	if len(incidents) > 0 {
+		shown := incidents[:min(len(incidents), 8)]
+		var current strings.Builder
+		fmt.Fprintf(&current, "*In flight* — %d open", max(openIncidents, len(shown)))
+		if openIncidents > len(shown) {
+			fmt.Fprintf(&current, ", showing %d", len(shown))
+		}
+		now := time.Now()
+		for _, incident := range shown {
+			room := "#" + displayOr(incident.ChannelName, "room pending")
+			if incident.ChannelID != "" && incident.ChannelWritable() {
+				room = "<#" + incident.ChannelID + ">"
+			}
+			// Never colour alone, and never glyph alone either: the state word
+			// comes from incidentDirectoryStatus so the line still reads when
+			// the glyph does not render.
+			// commitmentHeadline escapes what it returns, so this must not escape
+			// it again: a title carrying an ampersand would reach the reader as
+			// "&amp;" rather than as "&".
+			fmt.Fprintf(
+				&current,
+				"\n%s *%s* · %s · %s",
+				incidentCardState(incident).Glyph,
+				commitmentHeadline(incident.Title),
+				room,
+				incidentDirectoryStatus(incident),
+			)
+			if !incident.CreatedAt.IsZero() {
+				fmt.Fprintf(&current, " · %s", compactDuration(now.Sub(incident.CreatedAt)))
+			}
+		}
+		message.Sections = append(message.Sections, current.String())
 	}
 
 	// A channel with no summary and no goal has nothing to report, and
@@ -155,15 +178,15 @@ func OperationsHome(
 	}
 	if len(described) > 0 {
 		var current strings.Builder
-		current.WriteString("*Channel situations*\n")
-		for _, situation := range described[:min(len(described), 5)] {
+		current.WriteString("*Channel situations*")
+		for _, situation := range described[:min(len(described), 3)] {
 			summary := strings.TrimSpace(situation.State.SituationSummary)
 			if summary == "" {
 				summary = strings.TrimSpace(situation.State.Goal)
 			}
 			fmt.Fprintf(
 				&current,
-				"\n- <#%s> - %s",
+				"\n<#%s> · %s",
 				situation.ChannelID,
 				escapeSlackText(summary),
 			)
@@ -172,43 +195,10 @@ func OperationsHome(
 				if count == 1 {
 					suffix = ""
 				}
-				fmt.Fprintf(&current, "\n  %d open loop%s", count, suffix)
+				fmt.Fprintf(&current, " · %d open loop%s", count, suffix)
 			}
-			fmt.Fprintf(
-				&current,
-				"\n  Updated %s",
-				situation.UpdatedAt.UTC().Format("2006-01-02 15:04 UTC"),
-			)
 		}
 		message.Sections = append(message.Sections, current.String())
-	}
-	if len(memories) > 0 {
-		var saved strings.Builder
-		saved.WriteString("*Operational memory*\n")
-		for index, entry := range memories[:min(len(memories), 6)] {
-			fmt.Fprintf(
-				&saved,
-				"\n%d. **%s** `%s` `%s`\n   %s scope; expires %s",
-				index+1,
-				escapeSlackText(entry.SubjectKey),
-				entry.Predicate,
-				entry.Value,
-				entry.ScopeKind,
-				expiryStamp(entry.ExpiresAt, "2006-01-02"),
-			)
-			message.Actions = append(message.Actions, Action{
-				ID:      ActionForgetMemory,
-				Label:   fmt.Sprintf("Forget memory %d", index+1),
-				Value:   entry.ID,
-				Style:   "danger",
-				Confirm: "Permanently forget this saved memory? The audit trail will retain only the entry ID and outcome, not its value.",
-			})
-		}
-		message.Sections = append(message.Sections, saved.String())
-		message.Context = append(
-			message.Context,
-			"Saved memory is an operator-confirmed hint, never current health evidence. Fresh live observations and repository state take precedence.",
-		)
 	}
 	if len(preferences) > 0 {
 		message.Sections = append(message.Sections, "*Settings* — how Responder behaves here")
@@ -252,20 +242,102 @@ func OperationsHome(
 			), ruleRowActions(rule))
 		}
 	}
+
+	// The shelf: where everything this page is not about actually lives.
+	//
+	// It replaces the inline lists that used to be rendered in full here. Twenty
+	// saved memories emitted twenty sections and twenty danger buttons, which by
+	// itself is a quarter of Slack's 100-block view ceiling for content nobody
+	// opened this page to read — and a page that renders nothing because it
+	// exceeded the ceiling answers no questions at all.
+	//
+	// Each entry names its command rather than carrying a button. That is not a
+	// stylistic choice: a Block Kit action on the App Home arrives with no
+	// channel (Slack sends a view container, not a conversation), so the slash
+	// path has nowhere to post an answer and repaints this same page instead —
+	// see finishSlashMessage in internal/service/slash.go and the test
+	// TestChannellessInteractionRepaintsTheAppHomeInsteadOfFailing. A "Manage"
+	// button here would look like navigation and silently do nothing. The
+	// buttons that DO remain on this page — toggle, edit, delete, keep, dismiss
+	// — all change state and then repaint, which is the one thing this surface
+	// can honestly offer. Give the shelf real buttons when it can open a modal.
+	shelf := make([]string, 0, 3)
+	// memoryActive is the true total; memories is the page-sized sample the
+	// caller already had in hand. They come from two separate queries, so
+	// prefer the count and fall back rather than report zero beside a list.
+	if saved := max(memoryActive, len(memories)); saved > 0 {
+		shelf = append(shelf, fmt.Sprintf(
+			"*Memory* · %d saved · `/responder memory`", saved,
+		))
+	}
+	if preferenceActive > 0 || ruleActive > 0 {
+		shelf = append(shelf, fmt.Sprintf(
+			"*Settings & rules* · %d %s · %d standing %s · `/responder preferences`",
+			preferenceActive, pluralize(preferenceActive, "setting", "settings"),
+			ruleActive, pluralize(ruleActive, "rule", "rules"),
+		))
+	}
+	if scheduleActive > 0 {
+		shelf = append(shelf, fmt.Sprintf(
+			"*Schedules* · %d scheduled %s · `/responder schedules`",
+			scheduleActive, pluralize(scheduleActive, "task", "tasks"),
+		))
+	}
+	if len(shelf) > 0 {
+		message.Sections = append(message.Sections,
+			"*Everything else*\n"+strings.Join(shelf, "\n"))
+	}
+
+	// The footer. Everything the page is not about, on one line, each with a
+	// command that exists — `/responder failures` and `/responder sessions` were
+	// printed here for months and neither has ever been a subcommand, so both
+	// answered "Unknown `/responder` subcommand" to anyone who followed the
+	// advice this page gave them.
+	elsewhere := make([]string, 0, 4)
+	if failedWork > 0 {
+		elsewhere = append(elsewhere, fmt.Sprintf("%d failed", failedWork))
+	}
+	if cleanupBlocked > 0 {
+		elsewhere = append(elsewhere, fmt.Sprintf("%d retained workspaces", cleanupBlocked))
+	}
+	if publishedPRs > 0 {
+		elsewhere = append(elsewhere, fmt.Sprintf("%d draft PRs", publishedPRs))
+	}
+	elsewhere = append(elsewhere, "`/responder status` for everything in flight")
+	message.Context = append(message.Context, strings.Join(elsewhere, " · "))
+
+	if memoryActive > 0 || len(memories) > 0 {
+		message.Context = append(
+			message.Context,
+			"Saved memory is an operator-confirmed hint, never current health evidence. Fresh live observations and repository state take precedence.",
+		)
+	}
 	return message
 }
 
+func pluralize(count int, singular, plural string) string {
+	if count == 1 {
+		return singular
+	}
+	return plural
+}
+
+// OperationsHomeRestricted is the page for a reader who cannot see this one.
+//
+// It is a refusal, and a refusal is short: what is withheld, what is still
+// available, and who can change it. Two sections and a paragraph each was the
+// same answer given twice at the length of a page that had something to show —
+// and nothing here is waiting on the reader, so the header states what this is
+// rather than raising a hand.
 func OperationsHomeRestricted() Message {
 	return Message{
-		Text:   "Responder operations access is limited to configured operators.",
-		Header: "Emisar",
+		Text:   "Operations access is limited to configured operators — Emisar.",
+		Header: "Operations access is restricted",
 		Sections: []string{
-			"*Operations dashboard access is restricted*\n" +
-				"Incident titles, active work, failures, and session state are visible only to " +
-				"configured Responder operators.",
-			"You can still ask Responder read-only operational questions in a channel or direct " +
-				"message where the app is available. Incident, engineering, publication, and " +
-				"configuration controls require operator access.",
+			"Incident titles, active work, failures, and session state are visible only to " +
+				"configured Responder operators.\n" +
+				"You can still ask Responder read-only operational questions in a channel or " +
+				"direct message where the app is available.",
 		},
 		Context: []string{
 			"An administrator can grant access by adding your Slack user ID to `slack.operators` and restarting Responder.",
@@ -400,9 +472,17 @@ func shortInstruction(value string) string {
 // state for two days — configured proactive, absent, and invisible from both
 // sides.
 //
-// It goes at the top of the App Home rather than the bottom, because it says
-// Responder is not doing what the operator believes it is doing, and that
-// outranks everything else the page reports.
+// It outranks everything else the page reports, because it says Responder is
+// not doing what the operator believes it is doing — a whole channel's worth of
+// alerts reaching nobody outranks any single one of them. The one thing it does
+// not outrank is the direct ask: a named decision with somebody waiting on it is
+// still the more urgent of the two, and the reader who scrolls past their own
+// name to read a configuration warning has been served the page backwards.
+//
+// So it lands as the first section, which Blocks renders after the rows
+// anchored at After 0 — the needs-you items — and before every other section.
+// That severity argument is the reason this is a prepend rather than an append;
+// keep it if the insertion point moves again.
 func AppendCoverageGaps(message Message, channelIDs []string) Message {
 	rooms := make([]string, 0, len(channelIDs))
 	for index, channelID := range channelIDs {
@@ -432,5 +512,16 @@ func AppendCoverageGaps(message Message, channelIDs []string) Message {
 		strings.Join(rooms, " · "),
 		subject,
 	)}, message.Sections...)
+	// A row remembers its position as the number of sections that preceded it,
+	// so inserting a section at the front silently moves every row one heading
+	// further down: "Settings" would be followed by a standing rule, and the
+	// last heading on the page would be followed by nothing. The rows anchored
+	// at 0 stay at 0 — they belong above the insert, which is the whole point of
+	// putting them there.
+	for index, row := range message.Rows {
+		if row.After > 0 {
+			message.Rows[index].After = row.After + 1
+		}
+	}
 	return message
 }

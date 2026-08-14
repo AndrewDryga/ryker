@@ -861,10 +861,18 @@ func TestOperationsHomeDoesNotExposeWorkToNonOperators(t *testing.T) {
 		t.Fatalf("homes = %+v", slackClient.homes)
 	}
 	home := slackClient.homes[0].message
-	rendered := strings.Join(home.Sections, "\n")
-	if !strings.Contains(rendered, "dashboard access is restricted") ||
-		strings.Contains(rendered, "Current work") {
+	// The refusal now leads in the header, and the body says what is withheld.
+	rendered := home.Header + "\n" + strings.Join(home.Sections, "\n")
+	if !strings.Contains(rendered, "access is restricted") ||
+		!strings.Contains(rendered, "visible only to configured Responder operators") {
 		t.Fatalf("restricted home = %+v", home)
+	}
+	// Nothing operational reaches a reader who is not an operator: not the work
+	// in flight, not the shelf that counts what the workspace has configured.
+	for _, leaked := range []string{"In flight", "Everything else", "Channel situations"} {
+		if strings.Contains(rendered, leaked) {
+			t.Fatalf("restricted home leaked %q: %+v", leaked, home)
+		}
 	}
 }
 

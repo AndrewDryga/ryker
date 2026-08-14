@@ -28,8 +28,11 @@ func TestOnlyToneFeedbackOffersATypedPreference(t *testing.T) {
 				{ID: "fb_1", Category: testCase.category, Sentiment: "suggestion",
 					Summary: "replies are long"},
 			})
+			// cardActions rather than message.Actions: the digest attaches each
+			// item's controls to that item's row now, so a button pooled at the
+			// bottom of the page would be the bug, not the expectation.
 			var offered bool
-			for _, action := range message.Actions {
+			for _, action := range cardActions(message) {
 				if action.ID == ActionConvertFeedbackBrief {
 					offered = true
 				}
@@ -53,7 +56,7 @@ func TestTypedPreferenceButtonStatesDirectionAndEnforcement(t *testing.T) {
 	message := AppendFeedbackDigest(Message{}, []FeedbackSummary{
 		{ID: "fb_1", Category: "tone", Sentiment: "suggestion", Summary: "too long"},
 	})
-	for _, action := range message.Actions {
+	for _, action := range cardActions(message) {
 		if action.ID != ActionConvertFeedbackBrief {
 			continue
 		}

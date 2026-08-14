@@ -437,9 +437,11 @@ func TestOpeningAnAgentSurfaceQueuesNoWorkAndTheHomeStillPublishes(t *testing.T)
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// The header is the answer, not the product name: an empty workspace opens
+	// the tab and reads that nothing is waiting on them.
 	if len(slackClient.homes) != 1 ||
 		slackClient.homes[0].thread != "U123ABC" ||
-		slackClient.homes[0].message.Header != "Emisar" {
+		slackClient.homes[0].message.Header != "Nothing needs you" {
 		t.Fatalf("operations home = %+v", slackClient.homes)
 	}
 }
