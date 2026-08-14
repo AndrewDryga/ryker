@@ -241,6 +241,47 @@ type Chip struct {
 	Live  bool   `json:"live,omitempty"`
 }
 
+// LiveTurn is what a card knows about the turn running behind it.
+//
+// It is the answer to the failure this design was built from: a 57-minute turn
+// that made 119 tool calls while the card said "Still working" twice, byte for
+// byte, because the only account of the work was the model's summary of
+// itself. Everything here was already recorded at the moment it happened, and
+// none of it is generated for the card.
+//
+// The zero value is a card with no turn behind it, which is most cards.
+type LiveTurn struct {
+	// Active is whether a turn is running now. It decides whether the card
+	// shows a window at all: the window is the present tense, and a finished
+	// turn's last three lines would be a claim that it is still going.
+	Active bool
+	// Lines are newest first. The renderer keeps three.
+	Lines []ActivityLine
+	// ToolCalls and Evidence are the whole turn, not the window. The gap
+	// between them and the three lines above is the point.
+	ToolCalls int
+	Evidence  int
+	// Claim is the most recent recorded evidence claim, written once when it
+	// was recorded and never re-summarized: a finding must not drift because a
+	// card refreshed.
+	Claim string
+	// LastActivity is the newest moment of any kind. Reasoning counts — a turn
+	// thinking hard is not a turn that stopped.
+	LastActivity time.Time
+}
+
+// Recorded reports whether the turn narrated anything at all, which is a
+// different question from whether it narrated anything worth showing.
+//
+// LastActivity is included deliberately. A turn that has so far only reasoned
+// has no lines and no tool calls and is emphatically not idle; "last activity
+// 3s ago · 0 tool calls" is the truth about it, and suppressing the whole strip
+// would leave the operator with the one thing this design exists to remove — a
+// card that says nothing while the work says plenty.
+func (l LiveTurn) Recorded() bool {
+	return l.ToolCalls > 0 || len(l.Lines) > 0 || !l.LastActivity.IsZero()
+}
+
 // Row is one item in a list, with the controls that act on that item.
 //
 // After records how many Sections existed when the row was appended, so rows

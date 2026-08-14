@@ -240,7 +240,15 @@ var lineBudget = map[string]int{
 	// Events and what it now delegates to are cohesive and roughly 120 lines —
 	// but it needs an interface over a dozen store methods, and rebuilding the
 	// path that just failed in production is not work to bundle into its fix.
-	"service": 21889,
+	// Raised to 21895 on 2026-08-13 for the live activity window. The cohesive
+	// area did leave: the projection — which recorded moments a card shows,
+	// what a reasoning payload may say in Slack, when the second read is worth
+	// making — is internal/liveturn, and it took roughly 120 lines with it.
+	// The six that stayed are the wiring that cannot: a throttle field, the
+	// refresh call in the poll loop, and the fetch at the one place a card is
+	// composed. Moving those would shuffle lines between packages without
+	// moving a decision, which is the thing this number exists to notice.
+	"service": 21895,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -323,7 +331,13 @@ var lineBudget = map[string]int{
 	// belongs beside the other agent_runs state transitions: what makes it
 	// correct is that it leaves state and failure_count alone, which is only
 	// checkable next to the paths that do change them.
-	"store":      11397,
+	// Raised to 11399 on 2026-08-13 for work_episodes.last_activity_at: the
+	// v72 DDL and the one line that scans it. Two lines, and by the same
+	// argument as the entry above them — schema definition cannot leave the
+	// package that owns migrations, and a column's scan cannot leave the
+	// function that reads the row. The card bump this column arrived with did
+	// leave, to taskcardstore, which already owns card_version.
+	"store":      11399,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

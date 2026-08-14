@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 71
+const currentSchemaVersion = 72
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -383,4 +383,13 @@ var migrations = map[int]string{
 		CREATE INDEX agent_activity_episode_idx
 		  ON agent_activity(episode_id, sequence);
 	`,
+	// When the turn last narrated anything, as against last_progress_at, which
+	// is when the model last wrote prose about itself. A real 57-minute turn
+	// made 119 tool calls and reported "Still working" twice, byte for byte,
+	// so the two columns disagree exactly when it matters: the watchdog that
+	// reads only the prose accuses a run that never stopped working.
+	//
+	// Nullable rather than defaulted: an episode that has narrated nothing has
+	// no last activity, and a zero timestamp would claim 1970.
+	72: `ALTER TABLE work_episodes ADD COLUMN last_activity_at TEXT;`,
 }

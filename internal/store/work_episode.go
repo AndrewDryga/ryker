@@ -25,7 +25,7 @@ const workEpisodeColumns = `
 	agent_run_id, effort, authority, activity, lifecycle_state, objective,
 	required_coverage_json, completion_criteria_json, phase, status, next_action,
 	event_sequence, progress_sequence, last_progress_at, progress_due_at, created_at, updated_at,
-	completed_at`
+	completed_at, last_activity_at`
 
 func defaultWorkEpisode(run core.AgentRun) core.WorkEpisode {
 	episode := core.WorkEpisode{
@@ -274,7 +274,7 @@ func (s *Store) ensureWorkEpisodeTx(
 func scanWorkEpisode(row interface{ Scan(...any) error }) (core.WorkEpisode, error) {
 	var item core.WorkEpisode
 	var requiredJSON, criteriaJSON string
-	var lastProgress, progressDue, completed sql.NullString
+	var lastProgress, progressDue, completed, lastActivity sql.NullString
 	var created, updated string
 	err := row.Scan(
 		&item.ID, &item.WorkspaceID, &item.ParentEpisodeID, &item.Mode,
@@ -287,7 +287,7 @@ func scanWorkEpisode(row interface{ Scan(...any) error }) (core.WorkEpisode, err
 		&item.State,
 		&item.Objective, &requiredJSON, &criteriaJSON, &item.Phase, &item.Status,
 		&item.NextAction, &item.EventSequence, &item.ProgressSequence, &lastProgress, &progressDue,
-		&created, &updated, &completed,
+		&created, &updated, &completed, &lastActivity,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.WorkEpisode{}, ErrNotFound
@@ -302,6 +302,7 @@ func scanWorkEpisode(row interface{ Scan(...any) error }) (core.WorkEpisode, err
 		return core.WorkEpisode{}, fmt.Errorf("decode work episode criteria: %w", err)
 	}
 	item.LastProgressAt = sqlutil.ScanTime(lastProgress)
+	item.LastActivityAt = sqlutil.ScanTime(lastActivity)
 	item.ProgressDueAt = sqlutil.ScanTime(progressDue)
 	item.CreatedAt = sqlutil.ParseTime(created)
 	item.UpdatedAt = sqlutil.ParseTime(updated)

@@ -30,6 +30,22 @@ const (
 	historyTTL         = 5 * time.Minute
 	historyEntries     = 256
 	statusRepeat       = time.Minute
+	// CardActivityInterval is how often a turn's narration may rewrite its
+	// card.
+	//
+	// Slack tolerates roughly one chat.update per second per channel, and a
+	// busy turn narrates far faster than that: the run this design was built
+	// from made 119 tool calls in 57 minutes and its bursts were tighter than
+	// a second. Spending the channel's whole write budget on one card would
+	// stall the replies queued behind it for nothing a reader can use.
+	//
+	// Fifteen seconds is also all the card can honestly promise. It is
+	// rewritten, never extended — three lines replace three lines — so a
+	// refresh ten times as often would show the same three-line strip with
+	// different words in it, while the counters and the freshness chip, which
+	// are the numbers the operator is actually reading, move slowly enough
+	// that no edit is wasted at this rate.
+	CardActivityInterval = 15 * time.Second
 )
 
 type cachedSlackHistory struct {
@@ -134,6 +150,48 @@ func (t *NativeStatusTracker) Record(key, status string, now time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.state[key] = nativeStatusState{text: status, at: now}
+}
+
+// CardRefreshThrottle bounds how often narration may mark a card stale.
+//
+// Advisory, like everything here. Losing it on restart costs one extra card
+// edit, and the card is idempotent: it is composed from stored state every
+// time, so an edit too many says the same thing twice rather than saying
+// something wrong. What it protects is the channel's Slack write budget, which
+// is shared with every reply queued behind the card.
+type CardRefreshThrottle struct {
+	mu       sync.Mutex
+	interval time.Duration
+	last     map[string]time.Time
+}
+
+func NewCardRefreshThrottle(interval time.Duration) *CardRefreshThrottle {
+	return &CardRefreshThrottle{interval: interval, last: map[string]time.Time{}}
+}
+
+// Allow reports whether subject may refresh now, and claims the slot when it
+// may.
+//
+// Test-and-claim in one call under one lock. Two poll loops narrating the same
+// incident are ordinary — a turn's events arrive on whichever worker leased the
+// run — and a caller that asked first and recorded afterwards would let both
+// through the gap between.
+func (t *CardRefreshThrottle) Allow(subject string, now time.Time) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if last, ok := t.last[subject]; ok && now.Sub(last) < t.interval {
+		return false
+	}
+	t.last[subject] = now
+	return true
+}
+
+// Forget drops a subject that has stopped running, so the next turn on the
+// same card is not throttled against the last one's final moment.
+func (t *CardRefreshThrottle) Forget(subject string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.last, subject)
 }
 
 // ForgetIncident drops every thread tracked for an incident that is closing.

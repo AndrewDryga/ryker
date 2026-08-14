@@ -9,6 +9,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/liveturn"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -961,6 +962,14 @@ func (s *Service) incidentCard(ctx context.Context, incident core.Incident) (sla
 			codeChangesKnown = true
 		}
 	}
+	// The window onto the running turn. A read that fails costs the card its
+	// activity strip and nothing else, so it is logged rather than returned:
+	// the operator needs the card far more than it needs the detail.
+	turn, turnErr := liveturn.Fetch(ctx, s.store.Activity, s.store.Intelligence, incident)
+	if turnErr != nil {
+		s.log.Warn("read the turn's interior for the card",
+			"incident", incident.ID, "error", trimError(turnErr))
+	}
 	return slackui.IncidentCardWithPublication(
 		incident,
 		s.repositoryName(incident.Repository),
@@ -970,6 +979,7 @@ func (s *Service) incidentCard(ctx context.Context, incident core.Incident) (sla
 		publication,
 		followup,
 		lifecycle,
+		turn,
 	), nil
 }
 
@@ -1186,6 +1196,10 @@ func progressMilestones(status string) []string {
 
 func (s *Service) forgetNativeStatus(incidentID string) {
 	s.nativeStatus.ForgetIncident(incidentID)
+	// The activity throttle is keyed by the same incident and goes with it.
+	// Left behind it would both grow without bound in a long-lived process and
+	// charge a future turn on this card for the last one's final moment.
+	s.cardActivity.Forget(incidentID)
 }
 
 func (s *Service) enqueue(

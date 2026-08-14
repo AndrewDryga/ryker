@@ -42,11 +42,13 @@ func engineeringTaskCard(
 	publication core.Publication,
 	followup core.PublicationFollowup,
 	lifecycle core.PublicationLifecycleEvent,
+	live ...LiveTurn,
 ) Message {
 	now := time.Now()
+	turn := firstLiveTurn(live)
 	state := taskCardState(task, hasCodeChanges, codeChangesKnown, publication, followup)
 	ask := taskAsk(state, task, hasCodeChanges, codeChangesKnown, publication)
-	ledger := taskLedger(task, state, hasCodeChanges, publication, now)
+	ledger := taskLedger(task, state, hasCodeChanges, publication, turn, now)
 	actions, overflow := taskActions(
 		task, state, hasCodeChanges, codeChangesKnown, publication, followup,
 	)
@@ -79,6 +81,19 @@ func engineeringTaskCard(
 			[]Action{{ID: ActionFullRequest, Label: "Full request", Value: task.ID}},
 		)
 	}
+	// Directly above the model's own summary, because it is the same subject
+	// told two ways and the recorded one is the one that cannot be wrong.
+	working := state.Word == "Working" && task.ActiveTurnID != ""
+	message = withLiveTurn(message, turn, working, now)
+	// Beside the other counters rather than in the state line, because it is a
+	// count of the same run and because a card that already says "Working"
+	// does not need a second sentence about it. Only where the counters are:
+	// what the fork holds is answered by the buttons once the turn stops.
+	if len(message.Chips) > 0 {
+		if chip, ok := changesChip(hasCodeChanges, codeChangesKnown); ok {
+			message.Chips = append(message.Chips, chip)
+		}
+	}
 	// The model's own summary of its turn. Between activity windows it is the
 	// only account of what actually happened, so it keeps its own section.
 	if strings.TrimSpace(task.LatestUpdate) != "" {
@@ -99,6 +114,76 @@ func engineeringTaskCard(
 		message.Sections = append(message.Sections, outcome)
 	}
 	return message
+}
+
+func firstLiveTurn(live []LiveTurn) LiveTurn {
+	if len(live) == 0 {
+		return LiveTurn{}
+	}
+	return live[0]
+}
+
+// withLiveTurn puts the running turn's interior on a card: the window, then
+// the counters, then the one finding worth stating.
+//
+// Only while a turn runs, and that is the whole discipline. The window is
+// present tense — three lines saying what is happening — and leaving it up
+// after the turn ended would make a stopped card the most reassuring one on
+// the screen. When it comes down the counters go with it; the ledger step
+// keeps the totals, because by then they are a receipt rather than news.
+//
+// The fallback Text is deliberately untouched. A notification that woke
+// somebody should say what state the work is in, not that the agent read a
+// file; activity is visual detail for a card already open in front of you.
+func withLiveTurn(message Message, turn LiveTurn, active bool, now time.Time) Message {
+	if !active || !turn.Recorded() {
+		return message
+	}
+	message.Activity = turn.Lines
+	// Freshness first. It is the one counter that answers "is this stuck",
+	// which is the question the card is being looked at to answer.
+	if !turn.LastActivity.IsZero() {
+		message.Chips = append(message.Chips, Chip{
+			Label: "last activity",
+			Value: compactDuration(now.Sub(turn.LastActivity)) + " ago",
+			Live:  true,
+		})
+	}
+	message.Chips = append(message.Chips, Chip{
+		Value: fmt.Sprintf("%d tool calls", turn.ToolCalls),
+	})
+	if turn.Evidence > 0 {
+		message.Chips = append(message.Chips, Chip{
+			Value: fmt.Sprintf("%d evidence", turn.Evidence),
+		})
+	}
+	// The claim as it was written when it was recorded. Re-summarizing model
+	// text on every refresh would let a finding drift without anything having
+	// been found.
+	if claim := strings.TrimSpace(turn.Claim); claim != "" {
+		message.Sections = append(
+			message.Sections,
+			"*Found so far*\n"+truncateUTF8(escapeSlackText(singleLine(claim)), 600),
+		)
+	}
+	return message
+}
+
+// changesChip states what the fork holds, and says nothing when nobody has
+// asked it.
+//
+// Unknown is a real third state here: while a publication runs the caller has
+// not inspected the fork, and rendering that as "none yet" would tell an
+// operator their work is gone.
+func changesChip(hasChanges, known bool) (Chip, bool) {
+	switch {
+	case !known:
+		return Chip{}, false
+	case hasChanges:
+		return Chip{Label: "changes", Value: "present"}, true
+	default:
+		return Chip{Label: "changes", Value: "none yet"}, true
+	}
 }
 
 // taskCardState maps every combination the old switch enumerated onto one of
@@ -236,6 +321,7 @@ func taskLedger(
 	state cardState,
 	hasCodeChanges bool,
 	publication core.Publication,
+	turn LiveTurn,
 	now time.Time,
 ) []LedgerStep {
 	if state.Custody == custodyNobody && state.Word != "Parked" {
@@ -270,6 +356,19 @@ func taskLedger(
 		// The only per-step timestamp the record actually holds. Inventing the
 		// other four from the task's updated_at would be four confident lies.
 		steps[0].When = compactDuration(now.Sub(task.CreatedAt)) + " ago"
+	}
+	// What the window was showing, once there is no window.
+	//
+	// The turn's work does not stop being true when the turn ends; it stops
+	// being news. So it moves from three live lines to one number on the step
+	// that did it — the same fact at the weight it now deserves, and the only
+	// place a reader can later find out that "Investigate the trigger" meant
+	// 119 tool calls rather than two.
+	if !turn.Active && turn.ToolCalls > 0 {
+		steps[1].Detail = fmt.Sprintf("%d calls", turn.ToolCalls)
+		if turn.Evidence > 0 {
+			steps[1].Detail += fmt.Sprintf(" · %d evidence", turn.Evidence)
+		}
 	}
 	// One word each. The detail column is the first to give way when a line
 	// runs long, and "needs a…" is not a state anybody can act on — the state

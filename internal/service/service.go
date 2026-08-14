@@ -85,6 +85,7 @@ type Service struct {
 	// truth, and each piece owns its own lock.
 	channelWrites *localstate.ChannelWriteSlots
 	nativeStatus  *localstate.NativeStatusTracker
+	cardActivity  *localstate.CardRefreshThrottle
 	historyCache  *localstate.SlackHistoryCache
 	runCancels    *localstate.RunCancellations
 	replayControl replaycontrol.Controller
@@ -190,6 +191,7 @@ func New(
 		publisher:     publisher.New(cfg.GitHub),
 		channelWrites: localstate.NewChannelWriteSlots(localstate.SlackWriteInterval),
 		nativeStatus:  localstate.NewNativeStatusTracker(),
+		cardActivity:  localstate.NewCardRefreshThrottle(localstate.CardActivityInterval),
 		historyCache:  localstate.NewSlackHistoryCache(),
 		runCancels:    localstate.NewRunCancellations(),
 	}

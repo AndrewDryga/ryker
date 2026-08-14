@@ -69,9 +69,10 @@ func TestMigrationCoversEveryTimestampColumn(t *testing.T) {
 	dir := t.TempDir()
 	st := openAt(t, dir)
 	born := tablesCreatedAfterV46(t)
+	added := columnsAddedAfterV46(t)
 	for _, column := range timestampColumns(t, st.db) {
 		table, name, _ := strings.Cut(column, ".")
-		if born[table] {
+		if born[table] || added[column] {
 			continue
 		}
 		needle := fmt.Sprintf("UPDATE %s SET %s =", table, name)
@@ -83,6 +84,38 @@ func TestMigrationCoversEveryTimestampColumn(t *testing.T) {
 			)
 		}
 	}
+}
+
+// columnsAddedAfterV46 is every column a later migration adds to a table that
+// already existed, as `table.column`.
+//
+// Exempt for exactly the reason a new table is, and the argument does not
+// weaken by being applied one column at a time: migration 46 rewrote values
+// already stored in the variable-width format, and a column that does not
+// exist when 46 runs holds no such values. Everything written to it afterwards
+// goes through timestampFormat, and a later migration that backfills one from
+// an older column reads a column 46 has already normalized. Naming it in
+// timestampColumnsAtV46 would not fix a value; it would break the upgrade,
+// because a host coming from 45 would run the UPDATE before the ALTER that
+// creates the column.
+//
+// Derived from the migration statements for the same reason the table list is:
+// a hand-written exemption list is one nobody updates.
+func columnsAddedAfterV46(t *testing.T) map[string]bool {
+	t.Helper()
+	pattern := regexp.MustCompile(
+		`(?i)ALTER\s+TABLE\s+"?([A-Za-z_][A-Za-z0-9_]*)"?\s+ADD\s+COLUMN\s+"?([A-Za-z_][A-Za-z0-9_]*)"?`,
+	)
+	added := map[string]bool{}
+	for version, statement := range migrations {
+		if version <= 46 {
+			continue
+		}
+		for _, match := range pattern.FindAllStringSubmatch(statement, -1) {
+			added[match[1]+"."+match[2]] = true
+		}
+	}
+	return added
 }
 
 // tablesCreatedAfterV46 is every table a later migration brings into existence.

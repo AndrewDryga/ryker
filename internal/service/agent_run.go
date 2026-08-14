@@ -1768,7 +1768,13 @@ func (s *Service) pollAgentRunOnce(ctx context.Context, run core.AgentRun) error
 		// sequences a turn's narration under its terminal event precisely so
 		// that a page containing both delivers the work before the verdict.
 		if coop.IsActivity(event.Type) {
-			s.recordAgentActivity(ctx, run, event)
+			// The card is a window onto this stream, so a moment that was
+			// stored is a card that is now out of date. Only a new moment
+			// earns the refresh — a rewound cursor redelivers ones already on
+			// the card.
+			if s.recordAgentActivity(ctx, run, event) {
+				s.refreshCardForActivity(ctx, run)
+			}
 			continue
 		}
 		switch event.Type {

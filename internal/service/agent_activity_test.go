@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -171,5 +172,59 @@ func TestPollIgnoresActivityFromAnotherTurn(t *testing.T) {
 	}
 	if len(moments) != 0 {
 		t.Fatalf("another turn's work was attributed to this run: %+v", moments)
+	}
+}
+
+// The poll stamps the episode with when the turn last did something.
+//
+// last_progress_at answers a different question — when the model last wrote
+// prose about itself — and the run this design was built from is why the two
+// have to be separate columns: it worked for 57 minutes, made 119 tool calls,
+// and reported "Still working" twice, byte for byte. A watchdog reading only
+// the prose accused a turn that had never stopped. This column is what it will
+// read instead.
+func TestPollStampsTheEpisodeWithItsLastNarratedMoment(t *testing.T) {
+	ctx, st, svc, coopClient, run := activityRunFixture(t)
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !episode.LastActivityAt.IsZero() {
+		t.Fatalf("an episode that has narrated nothing claims a last activity: %v",
+			episode.LastActivityAt)
+	}
+	moment := time.Date(2026, 8, 13, 19, 42, 0, 0, time.UTC)
+	event := activityEvent(1, run.CoopTurnID, "tool.started",
+		`{"tool_call_id":"t1","title":"Read traefik.nomad.hcl","kind":"read"}`)
+	event.OccurredAt = moment
+	coopClient.events = append(coopClient.events, event)
+	svc.pollAgentRuns(ctx)
+
+	episode, err = st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !episode.LastActivityAt.Equal(moment) {
+		t.Fatalf("last activity = %v, want the moment Coop narrated: %v",
+			episode.LastActivityAt, moment)
+	}
+
+	// A rewound cursor redelivers moments from earlier in the same turn. The
+	// stamp must not follow them backwards, or a working turn reads as stalled.
+	if err := st.AdvanceAgentRunEvents(ctx, run.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	earlier := activityEvent(2, run.CoopTurnID, "model.thought", `{"text":"Earlier."}`)
+	earlier.OccurredAt = moment.Add(-10 * time.Minute)
+	coopClient.events = append(coopClient.events, earlier)
+	svc.pollAgentRuns(ctx)
+
+	episode, err = st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !episode.LastActivityAt.Equal(moment) {
+		t.Fatalf("a replayed earlier moment moved freshness backwards: %v",
+			episode.LastActivityAt)
 	}
 }

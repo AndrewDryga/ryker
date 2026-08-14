@@ -941,6 +941,42 @@ func (r *Repository) ListCoverage(
 	return result, rows.Err()
 }
 
+// SummarizeIncidentEvidence is what a card says about findings so far: how
+// many claims the work has recorded, and the most recent one.
+//
+// The card needs both and needs them consistent, so they come from one
+// statement. ListEvidence would answer this by returning up to two hundred
+// full rows — dimensions, metadata and all — to render one sentence and a
+// number, on a card that rewrites itself every fifteen seconds.
+//
+// The claim is stored as it was written at recording time and is returned
+// unchanged: re-summarizing model text on every refresh would let a finding
+// drift without anything having been found.
+func (r *Repository) SummarizeIncidentEvidence(
+	ctx context.Context,
+	incidentID string,
+) (core.IncidentEvidence, error) {
+	var summary core.IncidentEvidence
+	if strings.TrimSpace(incidentID) == "" {
+		return summary, nil
+	}
+	// created_at then id, because evidence is recorded in batches that share a
+	// timestamp and the tie has to break the same way twice or the card's
+	// "Found so far" would alternate between two claims on consecutive edits.
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*), COALESCE((
+		  SELECT claim FROM evidence WHERE incident_id = ?
+		  ORDER BY created_at DESC, id DESC LIMIT 1
+		), '')
+		FROM evidence WHERE incident_id = ?`,
+		incidentID, incidentID,
+	).Scan(&summary.Count, &summary.Claim)
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.IncidentEvidence{}, nil
+	}
+	return summary, err
+}
+
 // ListEpisodeEvidence returns evidence recorded by this episode and its
 // correlation ancestry. Related alert updates are separate immutable episodes,
 // but they reason over one accumulated claim ledger instead of repeatedly

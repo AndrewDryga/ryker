@@ -18,11 +18,17 @@ func IncidentCardWithPublication(
 	publication core.Publication,
 	followup core.PublicationFollowup,
 	lifecycle core.PublicationLifecycleEvent,
+	// live is variadic because the live window exists only while a turn runs,
+	// and most callers — an offer, a replay, a card composed from stored state
+	// with nothing running behind it — have no turn to describe. Naming an
+	// empty one at every such call site would state a fact none of them holds.
+	live ...LiveTurn,
 ) Message {
+	turn := firstLiveTurn(live)
 	if incident.IsEngineeringTask() {
 		return engineeringTaskCard(
 			incident, repositoryName, signals, hasCodeChanges, codeChangesKnown,
-			publication, followup, lifecycle,
+			publication, followup, lifecycle, turn,
 		)
 	}
 	now := time.Now()
@@ -69,6 +75,10 @@ func IncidentCardWithPublication(
 	if known := incidentKnown(incident, signal, hasSignal); known != "" {
 		message.Sections = append(message.Sections, known)
 	}
+	// An incident is investigated by the same kind of turn a task is, so it
+	// gets the same window onto it. Only while one runs: a firing incident
+	// with nobody working on it is the state this must not be confused with.
+	message = withLiveTurn(message, turn, incident.ActiveTurnID != "", now)
 	// Coverage — which layers were checked and which were never looked at — is
 	// the strip this card most wants and cannot have: core.Coverage never
 	// reaches this function, and the signature is shared with every caller.

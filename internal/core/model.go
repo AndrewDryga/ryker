@@ -1090,10 +1090,15 @@ type WorkEpisode struct {
 	EventSequence      int
 	ProgressSequence   int
 	LastProgressAt     time.Time
-	ProgressDueAt      time.Time
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	CompletedAt        time.Time
+	// LastActivityAt is when the turn last narrated anything, as against
+	// LastProgressAt, which is when the model last wrote prose about itself.
+	// The two answer different questions and a long turn separates them: a run
+	// that made 119 tool calls reported "Still working" twice.
+	LastActivityAt time.Time
+	ProgressDueAt  time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	CompletedAt    time.Time
 }
 
 type EpisodeGoalState string
@@ -1465,6 +1470,39 @@ type AgentActivity struct {
 	Status     string
 	Detail     json.RawMessage
 	OccurredAt time.Time
+}
+
+// AgentActivityTail is a turn's interior as a card needs it: the newest few
+// moments worth showing, what they add up to, and when the last of anything
+// happened.
+//
+// It exists because the card asks four questions of the same table and a
+// running turn asks them every fifteen seconds. Four reads would be four
+// chances for the counts and the lines to disagree about which moment was
+// last; one read answers all four from one snapshot.
+type AgentActivityTail struct {
+	// Lines are newest first and displayable only — the kinds a reader can act
+	// on seeing. Completions, plans, permission decisions and elisions are
+	// counted below but never shown: a completion repeats the line its start
+	// already put on the card.
+	Lines []AgentActivity
+	// ToolCalls counts tool.started, which is the number the operator means by
+	// "what has it been doing".
+	ToolCalls int
+	// Recorded counts every kind, so "no activity at all" is distinguishable
+	// from "nothing displayable yet".
+	Recorded int
+	// LastActivity is the newest OccurredAt across every kind. A turn spent
+	// entirely in reasoning is still working, and freshness that only counted
+	// tool calls would call it stalled.
+	LastActivity time.Time
+}
+
+// IncidentEvidence is what a card says about the findings so far: how many
+// pieces of evidence the work has recorded, and the most recent claim.
+type IncidentEvidence struct {
+	Count int
+	Claim string
 }
 
 type AgentRun struct {
