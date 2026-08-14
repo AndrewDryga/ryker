@@ -171,6 +171,113 @@ func TestDroppedContextLayersReachTheAttemptManifest(t *testing.T) {
 	}
 }
 
+// Fixtures are harvested from context_manifests.submitted_prompt, which the
+// repository treats as "the prompt that produced this result". For every
+// corrected turn the column held the FIRST prompt: the attempt's manifest was
+// written once, on the first prepare, and the retry that actually carried the
+// <host-structured-correction> block reused it untouched. So the exact prompt
+// that produced a broken production result was NOT on disk anywhere — the
+// stored result_json was the corrected turn's and the stored prompt was the
+// rejected turn's — and corrections are precisely the turns worth replaying.
+// That pairing is the assumption the whole eval-fixture pipeline rests on.
+func TestACorrectedRetryRecordsThePromptItActuallySent(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Limits.MaxAgentRunAttempts = 3
+	cfg.Slack.SummonChannels = []string{"CFOLLOW"}
+	cfg.Slack.WatchChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	// One envelope, twice: the first copy has its claim_id stripped so the host
+	// refuses it, the second is the accepted original. Only the second prompt
+	// can carry a correction block, so the two are trivially told apart.
+	const evidence = `{"claim":"checkout latency cause",` +
+		`"observation":"p99 write latency is 40ms on va1-cass-3","relation":"supports",` +
+		`"health_effect":"risk","source_type":"monitoring","source_name":"grafana",` +
+		`"confidence":"high","freshness":"live query",` +
+		`"dimensions":{"service":"checkout","environment":"production"}}`
+	envelope := func(evidenceJSON string) string {
+		return `{"action":"reply",
+			"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":2},
+			"reason":"direct question with evidence",
+			"operations":[
+				{"id":"ev-1","type":"record_evidence","evidence":` + evidenceJSON + `},
+				{"id":"complete","type":"complete_episode","completion":{"message":"Checkout is slow because va1-cass-3 writes at 40ms p99.","completion":{"status":"decision_ready","summary":"cause identified"}}}]}`
+	}
+	coopClient := newFakeCoop()
+	coopClient.completeQueue = []string{
+		envelope(evidence),
+		envelope(`{"claim_id":"application.functional_behavior",` + evidence[1:]),
+	}
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+
+	if created, err := st.AdmitSlackInput(ctx, core.SlackInput{
+		ID: "slack-corrected-prompt", EnvelopeID: "env-corrected-prompt",
+		EventID: "event-corrected-prompt", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CFOLLOW", MessageTS: "1700.100", UserID: "U123ABC",
+		Text: "<@U999BOT> why is checkout slow?",
+	}); err != nil || !created {
+		t.Fatalf("admit = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	run, err := st.GetAgentRunBySource(ctx, "watch", "slack-corrected-prompt")
+	if err != nil || run.State != core.AgentRunPending || run.Failures != 1 {
+		t.Fatalf("the first turn was not corrected, so this test no longer "+
+			"exercises a correction retry: run = %+v, %v", run, err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+
+	if len(coopClient.submitPrompts) != 2 {
+		t.Fatalf("expected a rejected turn and its corrected retry, got %d prompts",
+			len(coopClient.submitPrompts))
+	}
+	const marker = "<host-structured-correction>"
+	if strings.Contains(coopClient.submitPrompts[0], marker) {
+		t.Fatal("the first prompt already carries a correction block; the two " +
+			"submitted prompts are no longer distinguishable by it")
+	}
+	if !strings.Contains(coopClient.submitPrompts[1], marker) {
+		t.Fatalf("the retry carried no correction block:\n%.2000s",
+			coopClient.submitPrompts[1])
+	}
+	latest, err := st.GetLatestContextManifest(ctx, run.EpisodeID)
+	if err != nil {
+		t.Fatalf("load the episode's latest context manifest: %v", err)
+	}
+	if !strings.Contains(latest.SubmittedPrompt, marker) {
+		t.Fatalf("the recorded prompt is not the one that produced the stored "+
+			"result: the manifest holds the rejected turn's prompt, so this "+
+			"episode's fixture would replay a prompt the model never answered:\n%.2000s",
+			latest.SubmittedPrompt)
+	}
+	if latest.SubmittedPrompt != coopClient.submitPrompts[1] {
+		t.Fatal("the recorded prompt is not byte-identical to the one submitted")
+	}
+	if latest.Version != 2 || latest.ParentManifestID == "" {
+		t.Fatalf("the corrected retry did not extend the first manifest: "+
+			"version = %d, parent = %q", latest.Version, latest.ParentManifestID)
+	}
+	first, err := st.GetContextManifest(ctx, latest.ParentManifestID)
+	if err != nil {
+		t.Fatalf("load the parent context manifest: %v", err)
+	}
+	if first.Version != 1 || first.SubmittedPrompt != coopClient.submitPrompts[0] {
+		t.Fatalf("the first manifest no longer holds the rejected turn's prompt: "+
+			"version = %d", first.Version)
+	}
+}
+
 // The transport cuts the middle out of an oversized prompt. Before this the
 // only trace was a process-local counter that knew how many prompts had been
 // cut and never which episode's, so an operator holding one bad answer could

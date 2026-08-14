@@ -432,7 +432,19 @@ var lineBudget = map[string]int{
 	// at, and the two writers that clear it and set the stat. The ts is only
 	// knowable where the delivery completes and the column is only readable
 	// where incidents are scanned, so neither half can live anywhere else.
-	"store":      11420,
+	//
+	// Raised to 11424 on 2026-08-14 for the one statement that releases an
+	// attempt's frozen context manifest when a requeue is about to rebuild its
+	// prompt. Without it context_manifests.submitted_prompt held the FIRST
+	// prompt of every corrected turn while agent_runs.result_json held the
+	// SECOND turn's answer, so the prompt that produced a broken production
+	// result was on disk nowhere — and that pairing is what the eval fixture
+	// pipeline harvests. Four lines, and they cannot leave this package: the
+	// clear has to land in the same transaction as the requeue it belongs to,
+	// or a crash between the two leaves an attempt that will record a prompt
+	// it never sent. The extraction the notes above keep asking for is still
+	// what brings this number down.
+	"store":      11424,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

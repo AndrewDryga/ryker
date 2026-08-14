@@ -1345,6 +1345,23 @@ func (s *Store) RequeueAgentRun(
 	); err != nil {
 		return err
 	}
+	// Release the frozen context envelope, because the next attempt does not
+	// send the prompt this one froze. A correction retry adds a block naming
+	// exactly what the host refused, and the host records a prompt only when
+	// the attempt is not already pointing at a manifest — so every corrected
+	// turn stored its FIRST prompt beside its SECOND turn's result, and the
+	// prompt that actually produced the recorded answer was on disk nowhere.
+	// Eval fixtures are harvested from that pairing, and a corrected turn is
+	// exactly the kind worth replaying. Cleared here rather than in the state
+	// write above, which every requeue path shares: only this one is followed
+	// by a rebuilt prompt. The next prepare writes a new manifest version whose
+	// parent is this one, so the lineage still shows what the attempt read on
+	// the way here. updated_at is left to that state write, which stamps this
+	// same row in this same transaction.
+	if _, err := tx.ExecContext(ctx, `UPDATE episode_attempts
+		SET context_manifest_id = '' WHERE agent_run_id = ?`, id); err != nil {
+		return err
+	}
 	if incidentID.Valid {
 		result, err := tx.ExecContext(ctx, `
 			UPDATE incidents
