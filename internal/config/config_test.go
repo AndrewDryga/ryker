@@ -89,6 +89,7 @@ webhooks:
 		cfg.Limits.ControlWorkers != 2 ||
 		cfg.Limits.BackgroundWorkers != 3 ||
 		cfg.Limits.MaintenanceWorkers != 1 ||
+		cfg.Limits.MaxAutoPromotedFixturesPerWeek != 5 ||
 		cfg.Retention.ConversationMemory.Duration != 90*24*time.Hour ||
 		!cfg.Memory.DreamingEnabled ||
 		cfg.Memory.DreamingInterval.Duration != 6*time.Hour ||
@@ -328,6 +329,11 @@ webhooks:
 		},
 		"too many background workers": func(s string) string {
 			return s + "limits:\n  background_workers: 33\n"
+		},
+		// A promotion rate nobody could review in a week is the demotion review
+		// stamped rather than performed.
+		"too many automatic promotions": func(s string) string {
+			return s + "limits:\n  max_auto_promoted_fixtures_per_week: 21\n"
 		},
 		"memory scope exceeds total": func(s string) string {
 			return s + "limits:\n  max_memory_entries: 100\n  max_memory_entries_per_scope: 101\n"

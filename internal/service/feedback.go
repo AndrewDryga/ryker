@@ -428,7 +428,16 @@ func (s *Service) handleConvertFeedback(ctx context.Context, input core.SlackInp
 		Predicate:      "guidance",
 		Value:          core.BoundedText(item.Summary, 1000),
 		VisibilityKind: scopeKind, VisibilityID: scopeKey,
-		ExpiresAt: s.now().UTC().Add(memorypkg.DefaultTTL),
+		// Permanent, like any other guidance an operator gives.
+		//
+		// This route hard-coded DefaultTTL while every other one could offer
+		// permanence — so the single path that begins with a person saying "you
+		// got this wrong, do it this way" was the one that deleted the
+		// instruction thirty days later, on a schedule, without asking. The
+		// pressure the clock provided is kept rather than dropped: a permanent
+		// entry that goes ReviewStaleAfter unrecalled surfaces in the memory
+		// review queue, which asks whether it still holds.
+		ExpiresAt: memorypkg.ExpiryFrom(s.now().UTC(), memorypkg.PermanentTTL),
 		SourceRef: "feedback:" + item.ID,
 		ActorID:   input.UserID,
 	}

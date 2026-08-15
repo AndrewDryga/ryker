@@ -85,29 +85,13 @@ func runPromoteFixtures(args []string, stdout, stderr io.Writer) error {
 			continue
 		}
 		present[candidate.EpisodeID] = true
-		// Candidates queued before the recording site labeled them carry no
-		// capability at all. Promoting one as-is is what produced the four
-		// fixtures tagged "capability:", so an unlabeled candidate takes the
-		// same conservative default the recording site now uses — and says so,
-		// because a default nobody is told about is how the empty tag survived
-		// a hand review of sixteen corrections.
-		capability := strings.TrimSpace(candidate.Capability)
-		if capability == "" {
-			capability = core.DefaultFixtureCapability()
-			fmt.Fprintf(stderr,
-				"%s was queued before corrections were labeled; tagging it %q — "+
-					"sharpen it in the diff if the episode proves something more specific\n",
-				candidate.EpisodeID, capability,
-			)
-		}
-		fixture, err := recordEpisodeFixture(
-			ctx, storeEpisodeSource{store: st}, cfg, candidate.EpisodeID, capability, "",
+		fixture, err := buildPromotedFixture(
+			ctx, storeEpisodeSource{store: st}, cfg, candidate, stderr,
 		)
 		if err != nil {
 			fmt.Fprintf(stderr, "skipped %s: %v\n", candidate.EpisodeID, err)
 			continue
 		}
-		fixture = withCorrectionAssertion(fixture, candidate.CorrectionClass, candidate.Correction)
 		encoded, err := json.Marshal(fixture)
 		if err != nil {
 			return err
@@ -130,6 +114,47 @@ func runPromoteFixtures(args []string, stdout, stderr io.Writer) error {
 		"Promoted %d correction(s) into %s.\nReview the diff before committing: "+
 			"a fixture is a claim about what Responder must always do.\n", written, *corpusPath)
 	return nil
+}
+
+// buildPromotedFixture turns one kept correction into the corpus line it would
+// become.
+//
+// Shared by the operator's promote-fixtures command and the maintenance drain
+// on purpose. The two differ in when they run and in what they are allowed to
+// spend, and must not differ in what a promoted fixture is: the capability
+// default, the source reference, the sanitization and the correction assertion
+// are the same claim about the same episode either way.
+func buildPromotedFixture(
+	ctx context.Context,
+	source episodeSource,
+	cfg config.Config,
+	candidate core.FixtureCandidate,
+	notes io.Writer,
+) (evaluation.EvaluationCase, error) {
+	// Candidates queued before the recording site labeled them carry no
+	// capability at all. Promoting one as-is is what produced the four fixtures
+	// tagged "capability:", so an unlabeled candidate takes the same
+	// conservative default the recording site now uses — and says so, because a
+	// default nobody is told about is how the empty tag survived a hand review
+	// of sixteen corrections.
+	capability := strings.TrimSpace(candidate.Capability)
+	if capability == "" {
+		capability = core.DefaultFixtureCapability()
+		fmt.Fprintf(notes,
+			"%s was queued before corrections were labeled; tagging it %q — "+
+				"sharpen it in the diff if the episode proves something more specific\n",
+			candidate.EpisodeID, capability,
+		)
+	}
+	fixture, err := recordEpisodeFixture(
+		ctx, source, cfg, candidate.EpisodeID, capability, "",
+	)
+	if err != nil {
+		return evaluation.EvaluationCase{}, err
+	}
+	return withCorrectionAssertion(
+		fixture, candidate.CorrectionClass, candidate.Correction,
+	), nil
 }
 
 // withCorrectionAssertion turns a correction class into something checkable.

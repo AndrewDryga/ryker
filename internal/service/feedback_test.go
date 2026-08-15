@@ -353,6 +353,21 @@ func TestFeedbackConvertsToGuidanceAndDismisses(t *testing.T) {
 		guidance.Value != "answer with the decision first, then the detail" {
 		t.Fatalf("guidance entry = %+v", guidance)
 	}
+	// It outlives thirty days, like any other guidance.
+	//
+	// Conversion hard-coded DefaultTTL while every other route to a guidance
+	// entry could offer permanence, so the one path that starts from a person
+	// saying "you got this wrong, do it this way" was the one that deleted the
+	// instruction after a month — silently, and without ever asking. Permanence
+	// is not the absence of pressure: an entry nothing recalls for
+	// ReviewStaleAfter surfaces in the memory review queue, which asks whether
+	// it still holds. Questioned forever, deleted never.
+	if !core.IsPermanentExpiry(guidance.ExpiresAt) {
+		t.Fatalf(
+			"converted guidance expires at %s; an instruction is not a fact with a shelf life",
+			guidance.ExpiresAt,
+		)
+	}
 
 	if err := svc.handleDismissFeedback(ctx, admittedAction(
 		t, ctx, st, cfg, "slack_dismiss", slackui.ActionDismissFeedback, "fb_dismiss", operator,

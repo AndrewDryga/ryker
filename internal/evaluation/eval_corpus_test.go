@@ -1,6 +1,8 @@
 package evaluation
 
 import (
+	"bytes"
+	"encoding/json"
 	"io/fs"
 	"os"
 	gopath "path"
@@ -231,6 +233,82 @@ func TestEveryCorpusIsRunBySomeTarget(t *testing.T) {
 				"a corpus nobody runs looks exactly like a gate and is not one",
 			rel,
 		)
+	}
+}
+
+// committedBaselines maps each reviewed baseline to the corpus it grades.
+//
+// The file is named for the make target that records it — the same prefix its
+// results carry in EVAL_HISTORY, so `make eval-baseline-update` can find the
+// newest run — and a target's name is not always its corpus's, so the pairing
+// is declared rather than guessed. A baseline with no entry here fails below:
+// an ungraded file in that directory is a number nothing is held to.
+var committedBaselines = map[string]string{
+	"regressions": "regressions.jsonl",
+}
+
+// A committed baseline must still name cases the corpus has.
+//
+// The gate joins a run to its baseline by case name, so a case that was renamed
+// or deleted takes its recorded rate with it and fails model-release-check —
+// an hour of credentialed evaluation to be told about an edit that was visible
+// the moment it was made. Corpus growth is deliberately not a failure here:
+// promotion adds cases, and a baseline that had to be rewritten every time the
+// corrections loop worked would be rewritten without being read.
+func TestACommittedBaselineNamesCasesTheCorpusStillHas(t *testing.T) {
+	root := filepath.Join("..", "..", "testdata", "eval")
+	entries, err := os.ReadDir(filepath.Join(root, "baselines"))
+	if os.IsNotExist(err) {
+		t.Skip("no baseline has been recorded yet")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		name := strings.TrimSuffix(entry.Name(), ".json")
+		corpus, declared := committedBaselines[name]
+		if !declared {
+			t.Errorf(
+				"baseline %s names no corpus in committedBaselines, so nothing checks it",
+				entry.Name(),
+			)
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, "baselines", entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var baseline EvaluationBaseline
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&baseline); err != nil {
+			t.Fatalf("decode %s: %v", entry.Name(), err)
+		}
+		if baseline.Version != 1 || len(baseline.CasePassRates) == 0 {
+			t.Fatalf("%s records no case rates: %+v", entry.Name(), baseline)
+		}
+		file, err := os.Open(filepath.Join(root, corpus))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cases, err := decodeEvaluationCases(file)
+		file.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		present := make(map[string]bool, len(cases))
+		for _, testCase := range cases {
+			present[testCase.Name] = true
+		}
+		for name := range baseline.CasePassRates {
+			if !present[name] {
+				t.Errorf(
+					"%s grades case %q, which %s no longer has; record a new baseline "+
+						"with `make eval-baseline-update` from a run of the corpus as it is now",
+					entry.Name(), name, corpus,
+				)
+			}
+		}
 	}
 }
 

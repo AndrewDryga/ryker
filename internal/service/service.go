@@ -44,6 +44,7 @@ type treeResolverAPI interface {
 }
 
 type EmisarAPI = serviceport.Emisar
+type FixturePromotion = serviceport.FixturePromotion
 type Socket = serviceport.Socket
 
 func (s *Service) SetPublisher(value PublicationAPI) {
@@ -85,6 +86,16 @@ type Service struct {
 	// managers over one root would be two things cloning and swapping the same
 	// directories.
 	Mirrors *repomirror.Manager
+
+	// FixturePromotion drains the corrections an operator kept into the
+	// regression corpus, and is nil on every deployment that has no checkout of
+	// the repository the corpus lives in.
+	//
+	// A field for the same reason Mirrors is one, and assigned after New for the
+	// same reason the publisher is: building the drain needs a store that is
+	// open and a corpus that exists, which is knowledge the process start-up
+	// already has and 191 callers of New should not have to supply.
+	FixturePromotion FixturePromotion
 
 	identity    slackui.Identity
 	initialized atomic.Bool

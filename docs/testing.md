@@ -139,8 +139,21 @@ pass rate of 1 across both. `DEPLOYMENT` selects the corpus and must match the c
 ### Promoted corrections
 
 When the host corrects a model result, the correction is queued as a fixture candidate. An operator
-keeps or discards each one in App Home or the control plane, and `make promote-corrections` turns
-the kept ones into replay fixtures in `testdata/eval/regressions.jsonl`. Replay them with:
+keeps or discards each one in App Home or the control plane, and the kept ones become replay
+fixtures in `testdata/eval/regressions.jsonl`.
+
+Keeping one is the decision; copying it into the corpus is not, and the copying is what stopped
+happening — the pipeline produced three fixtures in its life because `make promote-corrections` had
+to be remembered after every review. So the maintenance lane drains kept corrections itself, at most
+`limits.max_auto_promoted_fixtures_per_week` (default 5), into whichever configured repository
+already contains the corpus. Nothing is promoted before the corpus has been re-parsed with the new
+fixture in place; one that would not decode, or whose name is already taken, is held back instead
+and appears on the control plane's Decisions page, where it waits for a person rather than being
+retried. `make promote-corrections` still exists and does the same thing on demand, with the
+credentialed gate on both sides of it.
+
+The human's remaining job is demotion: read the diff the drain leaves in the checkout, and revert
+what should not have been kept. Replay the corpus with:
 
 ```bash
 make eval-regressions CONFIG=../emisar/.responder/responder.yaml
@@ -274,9 +287,10 @@ responder eval --config ../emisar/.responder/responder.yaml \
   --max-regression 0.1
 ```
 
-Baselines and detailed result reports are written mode `0600`. They contain a canonical corpus
-digest; adding or editing a case invalidates the old baseline instead of silently comparing
-different tests.
+A baseline written this way, and every detailed result report, is written mode `0600` as private
+state. Cases are compared by name: one the baseline does not know is not a regression, so a corpus
+that grew by promotion is still compared rather than refused, and one the baseline knows that is
+missing from the run fails — deleting a fixture must not be a way to make its regression disappear.
 
 ### The trend
 
@@ -302,8 +316,28 @@ are written mode `0600`. Nothing prunes it automatically — deleting evaluation
 would destroy the only record of when a regression started — so it grows by about one file per
 model evaluation and is pruned by hand.
 
-For enforcement rather than observation, `--baseline` with `--max-regression` still fails a run that
-drops against a recorded baseline. The trend is the record; the baseline is the ratchet.
+For enforcement rather than observation, the reviewed baselines are committed under
+`testdata/eval/baselines/`, named for the target that records them, and every target in
+`model-release-check` passes the one that exists. The run fails when a case, the overall pass rate,
+or the mean judge score drops beyond `--max-regression` (a rate, 0 to 1) or
+`--max-quality-regression` (judge points, 1 to 5 — the judge's scale is not a rate, and one knob for
+both would be either meaningless for the rate or unusable for the score). A corpus with no committed
+baseline yet runs its ordinary thresholds and nothing else.
+
+Recording one is deliberately a separate act:
+
+```bash
+make model-release-check CONFIG=../emisar/.responder/responder.yaml
+make eval-trend
+make eval-baseline-update CORPUS=quality
+git diff testdata/eval/baselines
+```
+
+The update reads the newest result the corpus already filed in `$(EVAL_HISTORY)` rather than
+re-running it, and refuses a run with a failed or unevaluated case — a baseline records what a clean
+run achieved. It writes a file and stops, because a baseline that refreshed itself after every green
+run is how a quality floor walks downhill one acceptable step at a time. The trend is the record;
+the committed baseline is the ratchet, and the diff is where it is approved.
 
 Run the complete credentialed model gate before changing the production model, prompt, tools, or
 Coop policy:

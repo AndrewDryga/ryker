@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "corpus_digest": "106bb6a99e5a67957e72828bae638ae72d33e4f213117fd18e67979340c8831a",
+  "overall_pass_rate": 1,
+  "case_pass_rates": {
+    "Create reusable deep infrastructure health review runbook": 1,
+    "Use the published Emisar runbook `whole-platform-health-review-v5@3` as the preferred reproducible baseline. If that exact version is unavailable, use a published read-only sema...": 1,
+    "`@U0BL8MNPUSY` feedback: 1. i told you to answer in thread; 2. i told you to update channel memory/settings/rules so that you do what i've said when you see terraform notificati...": 1
+  },
+  "proactivity": {},
+  "quality": {}
+}

@@ -17,6 +17,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/activitystore"
 	"github.com/AndrewDryga/responder/internal/store/artifactstore"
 	"github.com/AndrewDryga/responder/internal/store/behaviorstore"
+	"github.com/AndrewDryga/responder/internal/store/fixturepromotionstore"
 	"github.com/AndrewDryga/responder/internal/store/goalstore"
 	"github.com/AndrewDryga/responder/internal/store/incidentstore"
 	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
@@ -117,6 +118,10 @@ type Store struct {
 	// SelfReport counts the week the weekly digest reports, and remembers when
 	// that digest last went out.
 	SelfReport *selfreportstore.Repository
+	// FixturePromotions records which approved corrections the promotion drain
+	// has already answered for, and whether the answer was the corpus or
+	// quarantine.
+	FixturePromotions *fixturepromotionstore.Repository
 }
 
 type Metrics struct {
@@ -1128,6 +1133,7 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.PauseCleanup = pausecleanupstore.New(db)
 	s.ReplayCancellations = replaycancelstore.New(db, clock)
 	s.SelfReport = selfreportstore.New(db)
+	s.FixturePromotions = fixturepromotionstore.New(db)
 }
 
 // SetClock replaces the store clock. It exists for tests.

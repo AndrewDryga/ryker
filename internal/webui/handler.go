@@ -937,6 +937,8 @@ func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 	var failed problems
 	corrections, err := h.reader.Corrections(ctx)
 	failed.note("corrections", err)
+	promotions, err := h.reader.Promotions(ctx)
+	failed.note("promotions", err)
 	total := h.reader.Count(ctx, countTerminalRuns)
 	rates := []rate{}
 	for _, class := range []string{"unreadable", "incomplete", "rejected"} {
@@ -974,6 +976,7 @@ func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 	h.page(w, r, "decisions", "decisions", struct {
 		Rates            []rate
 		Corrections      []CorrectionGroup
+		Promotions       []Promotion
 		Waiting          int
 		Feedback, Praise []Feedback
 		Praised, Reacted int
@@ -981,7 +984,7 @@ func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 		Errs             problems
 		CanAct           bool
 	}{
-		rates, corrections, waiting, feedback, praise,
+		rates, corrections, promotions, waiting, feedback, praise,
 		praised, praised + complained, percent(praised, praised+complained),
 		failed, h.CanAct(),
 	})

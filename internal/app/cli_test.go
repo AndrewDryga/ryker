@@ -103,6 +103,141 @@ func TestEvaluationBaselineRoundTripAndRejection(t *testing.T) {
 	}
 }
 
+// A release fails when the corpus does worse than the baseline says it did.
+//
+// This is the whole point of the slice and it is checked end to end through the
+// command, not through the gate function: MaxBaselineRegression had existed for
+// months and no target passed --baseline, so the plumbing between the flag and
+// the exit code was the part that had never run. Offline by construction — the
+// replay corpus carries its own recorded outputs, so a gate that fails on
+// quality needs no model to prove it.
+func TestAReplayThatDoesWorseThanItsBaselineFailsTheCommand(t *testing.T) {
+	dir := t.TempDir()
+	corpus := filepath.Join(dir, "corpus.jsonl")
+	// Shaped like testdata/eval/golden.jsonl: a recorded model answer and the
+	// action it has to produce.
+	clean := []string{
+		`{"name":"answers","kind":"watch","want_action":"reply","output":` +
+			`"{\"action\":\"reply\",\"reason\":\"the operator asked directly\",\"message\":\"It is up.\"}"}`,
+		`{"name":"stays quiet","kind":"watch","want_action":"ignore","output":` +
+			`"{\"action\":\"ignore\",\"reason\":\"two people are talking to each other\"}"}`,
+	}
+	if err := os.WriteFile(corpus, []byte(strings.Join(clean, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	baseline := filepath.Join(dir, "baseline.json")
+	var out, errOut bytes.Buffer
+	if err := runEval([]string{
+		"--replay", "--input", corpus, "--write-baseline", baseline,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("clean replay: %v (%s)", err, out.String())
+	}
+
+	// The same corpus, one case now answering the way it used to be corrected
+	// for. Nothing about the thresholds changed; only the baseline knows.
+	regressed := append([]string(nil), clean...)
+	regressed[1] = `{"name":"stays quiet","kind":"watch","want_action":"ignore","output":` +
+		`"{\"action\":\"reply\",\"reason\":\"joining in\",\"message\":\"Sure!\"}"}`
+	if err := os.WriteFile(corpus, []byte(strings.Join(regressed, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	err := runEval([]string{
+		"--replay", "--input", corpus,
+		"--baseline", baseline, "--max-regression", "0.1", "--min-case-pass-rate", "0.4",
+	}, &out, &errOut)
+	if err == nil {
+		t.Fatalf("a regressed corpus passed its baseline: %s", out.String())
+	}
+	printed := out.String()
+	if !strings.Contains(printed, "GATE:") ||
+		!strings.Contains(printed, "regressed") {
+		t.Fatalf("the failure did not name the regression: %v\n%s", err, printed)
+	}
+}
+
+// A baseline records the newest clean run and refuses everything else.
+//
+// Both halves matter. Reading the newest is what lets an operator record a
+// baseline from an hour of credentialed evaluation that already happened
+// instead of paying for it twice, and refusing a run with a failure in it is
+// what stops "the release is allowed to be this bad" from being written down by
+// accident on the one afternoon the provider was struggling.
+func TestABaselineIsRecordedFromTheNewestCleanRun(t *testing.T) {
+	history := t.TempDir()
+	write := func(name string, summary evaluation.EvaluationSummary) {
+		t.Helper()
+		encoded, err := json.Marshal(summary)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(history, name), encoded, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	clean := evaluation.EvaluationSummary{
+		CorpusDigest: "digest", Total: 2, Passed: 2,
+		Cases: []evaluation.CaseAggregate{
+			{Name: "answers", Samples: 1, Passed: 1, PassRate: 1},
+			{Name: "stays quiet", Samples: 1, Passed: 1, PassRate: 1},
+		},
+		Results: []evaluation.EvaluationResult{
+			{Name: "answers", CaseName: "answers", Passed: true},
+			{Name: "stays quiet", CaseName: "stays quiet", Passed: true},
+		},
+	}
+	older := clean
+	older.CorpusDigest = "older digest"
+	write("regressions-20260810T000000Z.json", older)
+	write("regressions-20260811T000000Z.json", clean)
+
+	target := filepath.Join(t.TempDir(), "baselines", "regressions.json")
+	var out, errOut bytes.Buffer
+	if err := runEvalBaseline([]string{
+		"--history", history, "--corpus", "regressions", "--write", target,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("record baseline: %v (%s)", err, errOut.String())
+	}
+	recorded, err := readEvaluationBaseline(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recorded.CorpusDigest != "digest" || recorded.CasePassRates["answers"] != 1 {
+		t.Fatalf("recorded the wrong run: %+v", recorded)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o644 {
+		t.Fatalf("baseline permissions = %o, want 644; it is committed and reviewed", mode)
+	}
+
+	failed := clean
+	failed.Passed = 1
+	failed.Failed = 1
+	failed.Results[1].Passed = false
+	write("regressions-20260812T000000Z.json", failed)
+	if err := runEvalBaseline([]string{
+		"--history", history, "--corpus", "regressions", "--write", target,
+	}, &out, &errOut); err == nil {
+		t.Fatal("a run with a failed case was recorded as the baseline")
+	}
+	unevaluated := clean
+	unevaluated.Unevaluated = 2
+	write("regressions-20260813T000000Z.json", unevaluated)
+	if err := runEvalBaseline([]string{
+		"--history", history, "--corpus", "regressions", "--write", target,
+	}, &out, &errOut); err == nil {
+		t.Fatal("a run the provider refused was recorded as the baseline")
+	}
+	// The refusals must not have overwritten the good one.
+	again, err := readEvaluationBaseline(target)
+	if err != nil || again.CorpusDigest != "digest" {
+		t.Fatalf("a refused run still rewrote the baseline: %+v, %v", again, err)
+	}
+}
+
 // Two Responder processes sharing a state directory would corrupt each other's
 // leases, so the lock is the thing that makes a single-writer design safe.
 func TestProcessLockIsExclusive(t *testing.T) {

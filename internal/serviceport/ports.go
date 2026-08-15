@@ -4,6 +4,7 @@ package serviceport
 
 import (
 	"context"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -42,6 +43,17 @@ type Publication interface {
 
 type Emisar interface {
 	WaitForRun(context.Context, string) (emisar.RunState, error)
+}
+
+// FixturePromotion writes the corrections an operator kept into the regression
+// corpus on a schedule, so that keeping one is the last human step rather than
+// the second-to-last.
+//
+// A port because the corpus is a file in a checkout and the fixture is built by
+// the same code the promote-fixtures command runs: the coordinator's part is
+// deciding that the maintenance sweep is the moment to try, and nothing else.
+type FixturePromotion interface {
+	PromoteApprovedFixtures(ctx context.Context, now time.Time) error
 }
 
 type Socket interface {

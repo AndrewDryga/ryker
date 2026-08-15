@@ -600,10 +600,16 @@ var lineBudget = map[string]int{
 	// atomic publication/close exclusion. Keeping both claim directions here is
 	// what prevents a close and a publication from starting concurrently; the
 	// independent receipt decoder and restart recovery live elsewhere.
-	"publicationstore":     575,
-	"pausecleanupstore":    70,
-	"promptbudget":         60,
-	"repositorycapability": 105,
+	"publicationstore":  575,
+	"pausecleanupstore": 70,
+	// fixturepromotionstore holds the receipts the automatic promotion drain
+	// writes: whether a kept correction reached the corpus, whether it was held
+	// back, and how many reached it inside the week. They are audit rows because
+	// every automatic act here has to be auditable anyway, and two records of
+	// one event can disagree.
+	"fixturepromotionstore": 110,
+	"promptbudget":          60,
+	"repositorycapability":  105,
 	// decision owns the shapes a model result arrives in and the rules for
 	// reading one, so the evaluation family can reach them without the runtime.
 	//
@@ -686,18 +692,23 @@ var lineBudget = map[string]int{
 // internal packages it must never import, keeping the layering acyclic and
 // stopping the domain and persistence layers from depending on presentation.
 var forbiddenImports = map[string][]string{
-	"core":                  {"config", "coop", "emisar", "publisher", "service", "slackui", "store", "webhook", "httpapi", "app"},
-	"store":                 {"service", "slackui", "publisher", "httpapi", "app", "emisar"},
-	"slackui":               {"service", "store", "httpapi", "app", "publisher"},
-	"coop":                  {"service", "store", "slackui", "httpapi", "app"},
-	"replaycontrol":         {"service", "store", "slackui", "httpapi", "app"},
-	"replayinterrupt":       {"service", "store", "slackui", "httpapi", "app"},
-	"replaycancelstore":     {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar"},
-	"serviceport":           {"service", "store", "httpapi", "app"},
-	"emisar":                {"service", "store", "slackui", "httpapi", "app"},
-	"webhook":               {"service", "store", "slackui", "httpapi", "app"},
-	"episode":               {"service", "store", "slackui", "httpapi", "app"},
-	"pausecleanupstore":     {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar"},
+	"core":              {"config", "coop", "emisar", "publisher", "service", "slackui", "store", "webhook", "httpapi", "app"},
+	"store":             {"service", "slackui", "publisher", "httpapi", "app", "emisar"},
+	"slackui":           {"service", "store", "httpapi", "app", "publisher"},
+	"coop":              {"service", "store", "slackui", "httpapi", "app"},
+	"replaycontrol":     {"service", "store", "slackui", "httpapi", "app"},
+	"replayinterrupt":   {"service", "store", "slackui", "httpapi", "app"},
+	"replaycancelstore": {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar"},
+	"serviceport":       {"service", "store", "httpapi", "app"},
+	"emisar":            {"service", "store", "slackui", "httpapi", "app"},
+	"webhook":           {"service", "store", "slackui", "httpapi", "app"},
+	"episode":           {"service", "store", "slackui", "httpapi", "app"},
+	"pausecleanupstore": {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar"},
+	// The receipts are rows. Which correction deserves promoting, what a fixture
+	// is, and where the corpus lives are decisions that belong to the caller —
+	// this package must never learn how to build one, or the drain and the
+	// promote-fixtures command would have two answers.
+	"fixturepromotionstore": {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "evaluation"},
 	"promptbudget":          {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "core"},
 	"repositorycapability":  {"service", "store", "slackui", "httpapi", "app", "publisher", "emisar", "decision", "investigation"},
 	"investigation":         {"service", "store", "slackui", "httpapi", "app"},

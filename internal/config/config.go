@@ -583,6 +583,11 @@ type Limits struct {
 	// Responder-managed clone, and how long a clone may go unfetched before the
 	// prepare path pays for a fetch itself.
 	RepositoryFetchInterval Duration `yaml:"repository_fetch_interval"`
+	// MaxAutoPromotedFixturesPerWeek bounds how many corrections an operator
+	// kept may reach the regression corpus without anyone running a command.
+	// Zero switches the drain off; it does nothing anyway on a deployment whose
+	// configured repositories do not include the checkout the corpus lives in.
+	MaxAutoPromotedFixturesPerWeek int `yaml:"max_auto_promoted_fixtures_per_week"`
 }
 
 func defaults() Config {
@@ -698,6 +703,7 @@ func defaults() Config {
 			WorkLease:                        Duration{3 * time.Minute},
 			WorkerStallAfter:                 Duration{2 * time.Minute},
 			RepositoryFetchInterval:          Duration{15 * time.Minute},
+			MaxAutoPromotedFixturesPerWeek:   5,
 		},
 	}
 }
@@ -1208,6 +1214,18 @@ func (c Config) validateLimits() error {
 		if err := bound.check(); err != nil {
 			return err
 		}
+	}
+	// Zero is meaningful — it is how automatic promotion is switched off — so
+	// this is checked outside the table above, which has no way to express a
+	// lower bound that is also a disabled state. The ceiling is a rate a human
+	// can still review in a week: the corpus is what a release is held to, and
+	// promoting faster than anyone reads the diff turns the demotion review this
+	// is built around back into a rubber stamp.
+	if limits.MaxAutoPromotedFixturesPerWeek < 0 ||
+		limits.MaxAutoPromotedFixturesPerWeek > 20 {
+		return errors.New(
+			"limits.max_auto_promoted_fixtures_per_week must be between 0 and 20",
+		)
 	}
 	// The lease must outlive the stall deadline, or a worker could still be
 	// inside a work item when another worker reclaims its lease.

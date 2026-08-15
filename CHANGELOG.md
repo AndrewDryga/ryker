@@ -2,6 +2,20 @@
 
 ## 0.1.0
 
+- **A kept correction promotes itself, and quality can fail a release.** Reviewing a correction was
+  never the bottleneck: an operator clicked Keep in App Home and then `make promote-corrections` had
+  to be run by hand in a checkout, which is the step that stopped happening — three fixtures in the
+  pipeline's whole life. The maintenance lane now drains approved candidates into
+  `testdata/eval/regressions.jsonl` itself, bounded by
+  `limits.max_auto_promoted_fixtures_per_week` (5), writing only into a configured repository that
+  already holds the corpus, and only after re-parsing the corpus with the new fixture in place. One
+  that fails that check is held back rather than retried, and says so on the Decisions page — the
+  human's remaining job is demotion, not admission. Separately, `make model-release-check` can now
+  fail because quality dropped: baselines are committed files under `testdata/eval/baselines/`,
+  compared per case, on the overall pass rate, and on the mean judge score, with
+  `make eval-baseline-update CORPUS=<name>` recording a new one from a run that already happened so
+  a regression is always a diff somebody approved.
+
 - **Responder keeps its own repositories current.** There was no `git fetch` anywhere in this
   product, so "current repository content" — second in the evidence hierarchy, above configuration
   and confirmed memory — meant whatever a human last remembered to pull. Declare a repository with

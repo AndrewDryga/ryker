@@ -357,8 +357,17 @@ func TestConfigurationAndDecisionsReadWhatTheRuleAndThePraiseProduced(t *testing
 		   'User reacted positively to a Responder message', ?, 'ep_praised',
 		   'noted', ?, ?),
 		  ('fb_bad', 'T1', 'C1', 'U1', 'model_sentiment', 'correctness', 'negative',
-		   'that was the wrong repository', ?, '', 'open', ?, ?);`,
+		   'that was the wrong repository', ?, '', 'open', ?, ?);
+		INSERT INTO audit_events
+		  (id, kind, actor_id, object_id, outcome, detail, created_at)
+		VALUES
+		  ('fixpromo_fixcand_2', 'fixture.promotion', 'responder', 'fixcand_2',
+		   'promoted', 'ep_2: assess the checkout rollout', ?),
+		  ('fixpromo_fixcand_3', 'fixture.promotion', 'responder', 'fixcand_3',
+		   'quarantined',
+		   'ep_3: another case in the corpus already answers to this name', ?);`,
 		now, later, now, now, []byte("{}"), now, now, []byte("{}"), now, now,
+		now, now,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -424,6 +433,14 @@ func TestConfigurationAndDecisionsReadWhatTheRuleAndThePraiseProduced(t *testing
 		"/episodes/ep_praised",
 		// And the complaint stays in the complaints list.
 		"that was the wrong repository",
+		// A fixture the drain held back is on the page rather than only in a
+		// log line. Automating promotion moves the human from admitting a
+		// lesson to noticing one that did not make it, and this row is the
+		// entire notification.
+		"Kept corrections that promoted themselves",
+		"held back",
+		"already answers to this name",
+		"/episodes/ep_3",
 	} {
 		if !strings.Contains(decisions, expected) {
 			t.Errorf("decisions does not show %q: %s", expected, decisions)
@@ -474,6 +491,24 @@ func TestReadersScanTheColumnsTheySelect(t *testing.T) {
 	}
 	if len(feedback) != 1 {
 		t.Fatalf("Feedback returned %d rows, want 1", len(feedback))
+	}
+
+	// Held back first, and with the episode split out of the receipt: a
+	// promotion nobody has to act on must not push the one that needs a person
+	// off the top of the list.
+	promotions, err := reader.Promotions(ctx)
+	if err != nil {
+		t.Fatalf("Promotions: %v", err)
+	}
+	if len(promotions) != 2 {
+		t.Fatalf("Promotions returned %d rows, want 2", len(promotions))
+	}
+	if !promotions[0].Quarantined || promotions[0].Episode != "ep_3" ||
+		!strings.HasPrefix(promotions[0].Detail, "another case") {
+		t.Errorf("the held-back promotion did not read back: %+v", promotions[0])
+	}
+	if promotions[1].Quarantined || promotions[1].Candidate != "fixcand_2" {
+		t.Errorf("the completed promotion did not read back: %+v", promotions[1])
 	}
 
 	entries, err := reader.MemoryEntries(ctx)
@@ -535,6 +570,19 @@ func seededReader(t *testing.T) *Reader {
 		  VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
 			[]any{"fixcand_1", "ep_1", "run_1", "unreadable",
 				"the structured Slack response is invalid", now, later, now}},
+		// One promotion the drain performed and one it held back. The held-back
+		// row is the reason this page grew the section: the drain never retries
+		// a quarantined candidate, so a lesson stopping there is invisible
+		// everywhere else.
+		{`INSERT INTO audit_events
+		    (id, kind, actor_id, object_id, outcome, detail, created_at)
+		  VALUES (?, 'fixture.promotion', 'responder', 'fixcand_2', 'promoted', ?, ?)`,
+			[]any{"fixpromo_fixcand_2", "ep_2: assess the checkout rollout", now}},
+		{`INSERT INTO audit_events
+		    (id, kind, actor_id, object_id, outcome, detail, created_at)
+		  VALUES (?, 'fixture.promotion', 'responder', 'fixcand_3', 'quarantined', ?, ?)`,
+			[]any{"fixpromo_fixcand_3",
+				"ep_3: another case in the corpus already answers to this name", now}},
 		{`INSERT INTO feedback_items
 		    (id, workspace_id, channel_id, user_id, source, category, sentiment,
 		     summary, context_json, status, created_at, updated_at)

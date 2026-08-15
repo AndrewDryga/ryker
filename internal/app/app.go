@@ -59,6 +59,8 @@ func Run(args []string, stdout, stderr io.Writer, buildVersion string) error {
 		return runReplay(args[1:], stdout, stderr)
 	case "eval":
 		return runEval(args[1:], stdout, stderr)
+	case "eval-baseline":
+		return runEvalBaseline(args[1:], stdout, stderr)
 	case "record-episode":
 		return runRecordEpisode(args[1:], stdout, stderr)
 	case "audit-result-protocol":
@@ -151,6 +153,11 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 		slackui.NewSanitizer(cfg.Limits.MaxAssistantBytes, redactions...), logger,
 	)
 	coopClient.SetTruncationObserver(svc.RecordPromptTruncation)
+	// Nil unless this deployment has a checkout of the repository the regression
+	// corpus lives in, which is the only place the drain could write.
+	if promoter := newFixturePromoter(cfg, st, logger); promoter != nil {
+		svc.FixturePromotion = promoter
+	}
 	svc.SetPublisher(githubPublisher)
 	svc.SetEmisar(emisar.New(emisarHTTP, cfg.Coop.EmisarURL, emisarToken))
 	if cfg.Coop.Supervise {
@@ -732,6 +739,7 @@ Usage:
   responder retry          Requeue one failed work item while Responder is stopped
   responder replay slack   Privately reprocess a saved Slack message; --publish sends the result
   responder eval           Run the real configured model against the evaluation corpus
+  responder eval-baseline  Record a committed quality baseline from a run that already happened
   responder record-episode Turn a completed episode into a sanitized replay fixture
   responder promote-fixtures
                            Write approved corrections into the regression corpus

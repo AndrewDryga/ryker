@@ -115,7 +115,13 @@ type EvaluationGateOptions struct {
 	EnforceFalseInterruption bool
 	MinMeanQuality           float64
 	MaxBaselineRegression    float64
-	Baseline                 *EvaluationBaseline
+	// MaxQualityRegression is the judge-score half of the baseline comparison,
+	// measured in judge points rather than in the 0-to-1 currency every rate
+	// threshold above uses. The judge scores 1 to 5, so a single knob for both
+	// would have to be either far too loose for a pass rate or tight enough that
+	// ordinary judge variance fails a release.
+	MaxQualityRegression float64
+	Baseline             *EvaluationBaseline
 }
 
 type EvaluationBaseline struct {
@@ -749,23 +755,76 @@ func ApplyEvaluationGates(
 		)
 	}
 	if options.Baseline != nil {
-		if options.Baseline.CorpusDigest != "" &&
-			options.Baseline.CorpusDigest != summary.CorpusDigest {
-			fail("baseline corpus digest does not match this corpus")
-		} else {
-			for _, item := range summary.Cases {
-				baseline, ok := options.Baseline.CasePassRates[item.Name]
-				if ok && baseline-item.PassRate > options.MaxBaselineRegression {
-					fail(
-						"case %q regressed %.3f from baseline",
-						item.Name,
-						baseline-item.PassRate,
-					)
-				}
-			}
-		}
+		compareWithBaseline(summary, options, overall, fail)
 	}
 	summary.Gate = gate
+}
+
+// compareWithBaseline judges this run against the numbers a reviewer approved.
+//
+// Cases are joined by name rather than by a whole-corpus digest. The digest
+// comparison this replaces answered a corpus that had grown with "baseline
+// corpus digest does not match this corpus" and failed the release for it —
+// and the regression corpus grows by promotion, which is the entire point of
+// the corrections loop. So a case the baseline does not know is not a
+// regression, a case the baseline knows is compared, and a case the baseline
+// knows that is missing from this run is reported: deleting a fixture must not
+// be a way to make its regression disappear.
+//
+// The two aggregates are compared as recorded. A newly promoted case that fails
+// does pull the overall rate down and does fail this gate, which is the correct
+// answer to "is the product worse than the baseline a human approved" — the
+// remedies are to quarantine the fixture or to record a new baseline, and both
+// of those are deliberate acts that leave a diff.
+func compareWithBaseline(
+	summary *EvaluationSummary,
+	options EvaluationGateOptions,
+	overall float64,
+	fail func(string, ...any),
+) {
+	baseline := options.Baseline
+	present := make(map[string]bool, len(summary.Cases))
+	for _, item := range summary.Cases {
+		present[item.Name] = true
+		recorded, ok := baseline.CasePassRates[item.Name]
+		if ok && recorded-item.PassRate > options.MaxBaselineRegression {
+			fail(
+				"case %q regressed %.3f from baseline",
+				item.Name,
+				recorded-item.PassRate,
+			)
+		}
+	}
+	for name := range baseline.CasePassRates {
+		if !present[name] {
+			fail(
+				"case %q is in the baseline and not in this corpus: "+
+					"a deleted case takes its regression with it",
+				name,
+			)
+		}
+	}
+	if summary.Total > 0 && baseline.OverallPassRate-overall > options.MaxBaselineRegression {
+		fail(
+			"overall pass rate regressed %.3f from baseline (%.3f to %.3f)",
+			baseline.OverallPassRate-overall,
+			baseline.OverallPassRate,
+			overall,
+		)
+	}
+	// Only when both runs were judged. An unjudged run reports a mean score of
+	// zero, which against a baseline of 4.6 is the largest regression the
+	// arithmetic can produce — it would fail every unjudged corpus in
+	// model-release-check on the day a baseline was first committed.
+	if summary.Quality.Evaluated > 0 && baseline.Quality.Evaluated > 0 &&
+		baseline.Quality.MeanScore-summary.Quality.MeanScore > options.MaxQualityRegression {
+		fail(
+			"mean judge score regressed %.2f from baseline (%.2f to %.2f)",
+			baseline.Quality.MeanScore-summary.Quality.MeanScore,
+			baseline.Quality.MeanScore,
+			summary.Quality.MeanScore,
+		)
+	}
 }
 
 func BaselineFromSummary(summary EvaluationSummary) EvaluationBaseline {

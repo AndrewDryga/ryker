@@ -446,6 +446,26 @@ copy.</p>
   {{end}}
 </div>
 {{else}}<p class="empty">Nothing waiting.</p>{{end}}
+
+{{if .Promotions}}
+<h2>Kept corrections that promoted themselves</h2>
+<p class="note">Keeping one is the decision; copying it into the regression corpus is not, so the
+maintenance lane does that on a weekly budget. A held-back one reached a check it could not pass
+and will not be retried — it is waiting for a person, and this is the only place it says so.</p>
+<div class="rows">
+  {{range .Promotions}}
+  <div class="row">
+    <div class="title">
+      <span class="pill{{if .Quarantined}} bad{{else}} good{{end}}">{{if .Quarantined}}held back{{else}}promoted{{end}}</span>
+      {{truncate 200 .Detail}}
+    </div>
+    <div class="meta">
+      {{since .At}}{{if .Episode}} · <a href="/episodes/{{.Episode}}">the episode it came from →</a>{{end}}
+    </div>
+  </div>
+  {{end}}
+</div>
+{{end}}
 {{end}}
 
 {{define "memory"}}

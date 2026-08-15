@@ -26,6 +26,12 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 	if err := s.postWeeklySelfReport(ctx, now); err != nil && ctx.Err() == nil {
 		s.log.Warn("weekly self report failed", "error", err)
 	}
+	if s.FixturePromotion != nil {
+		if err := s.FixturePromotion.PromoteApprovedFixtures(ctx, now); err != nil &&
+			ctx.Err() == nil {
+			s.log.Warn("automatic fixture promotion failed", "error", err)
+		}
+	}
 	grace := s.cfg.Retention.ClosedSessionGrace.Duration
 	if err := s.reconcileOrphanedResponderSessions(ctx, now.Add(-grace), now); err != nil &&
 		ctx.Err() == nil {

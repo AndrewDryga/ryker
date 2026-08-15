@@ -310,6 +310,14 @@ limits:
   # for a bounded fetch itself. A fetch that fails degrades to recorded staleness on the
   # attempt's context manifest; it never blocks a turn and never counts as failed work.
   repository_fetch_interval: 15m
+  # How many corrections an operator kept in App Home may reach
+  # testdata/eval/regressions.jsonl per week without anyone running
+  # `make promote-corrections`. The manual step is the one that stopped
+  # happening, so the drain runs on the maintenance lane instead; the review
+  # that remains is reading the diff it leaves in the checkout. It only ever
+  # writes into a repository declared under `repositories:` that already
+  # contains the corpus, and 0 switches it off entirely.
+  max_auto_promoted_fixtures_per_week: 5
 
 # Accepted and refused. This key must be empty, and nothing reads it.
 #

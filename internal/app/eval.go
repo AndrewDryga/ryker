@@ -51,6 +51,7 @@ type evalOptions struct {
 	baselinePath          *string
 	writeBaselinePath     *string
 	maxRegression         *float64
+	maxQualityRegression  *float64
 }
 
 func defineEvalFlags(flags *flag.FlagSet) *evalOptions {
@@ -165,6 +166,11 @@ func defineEvalFlags(flags *flag.FlagSet) *evalOptions {
 		0,
 		"maximum allowed per-case pass-rate regression from baseline",
 	)
+	maxQualityRegression := flags.Float64(
+		"max-quality-regression",
+		0,
+		"maximum allowed mean judge-score regression from baseline, in judge points",
+	)
 	return &evalOptions{
 		inputPath:             inputPath,
 		jsonOutput:            jsonOutput,
@@ -190,6 +196,7 @@ func defineEvalFlags(flags *flag.FlagSet) *evalOptions {
 		baselinePath:          baselinePath,
 		writeBaselinePath:     writeBaselinePath,
 		maxRegression:         maxRegression,
+		maxQualityRegression:  maxQualityRegression,
 	}
 }
 
@@ -221,6 +228,11 @@ func (options *evalOptions) validate(flags *flag.FlagSet) (bool, error) {
 	}
 	if *options.minMeanQuality < 0 || *options.minMeanQuality > 5 {
 		return false, errors.New("eval --min-mean-quality must be between 0 and 5")
+	}
+	// Judge points, not a rate: the score runs 1 to 5, so this one is checked
+	// against the judge's scale rather than with the ratios above.
+	if *options.maxQualityRegression < 0 || *options.maxQualityRegression > 5 {
+		return false, errors.New("eval --max-quality-regression must be between 0 and 5")
 	}
 	modeCount := 0
 	for _, enabled := range []bool{*options.replay, *options.episodeReplay, *options.scenarios, *options.calibrateJudge} {
@@ -429,6 +441,7 @@ func runEval(args []string, stdout, stderr io.Writer) (resultErr error) {
 		EnforceFalseInterruption: enforceFalseInterruption,
 		MinMeanQuality:           *minMeanQuality,
 		MaxBaselineRegression:    *maxRegression,
+		MaxQualityRegression:     *options.maxQualityRegression,
 		Baseline:                 baseline,
 	})
 	if *writeBaselinePath != "" {

@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: eval-prompts findings-coverage watchdog-check promote-corrections build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-memory eval-episode-replay eval-regressions eval-live-canary eval-trend model-release-check eval-replay customer-check focus dev-workflow-check dev-check candidate canary promote quality-watch-check eval-trend-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
+.PHONY: eval-prompts findings-coverage watchdog-check promote-corrections build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-memory eval-episode-replay eval-regressions eval-live-canary eval-trend eval-baseline-update model-release-check eval-replay customer-check focus dev-workflow-check dev-check candidate canary promote quality-watch-check eval-trend-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/AndrewDryga/responder/internal/version.Version=$(VERSION)
@@ -39,6 +39,29 @@ EVAL_HISTORY ?= $(HOME)/.local/state/responder/eval-history
 # eight credentialed evaluations and can run for an hour — would file every one
 # of them under the same instant and lose the order they actually ran in.
 history = --results "$(EVAL_HISTORY)/$(1)-$$(date -u +%Y%m%dT%H%M%SZ).json"
+
+# Where the reviewed numbers live, and how a run is held to them.
+#
+# eval-trend prints a table; a table is not a gate. MaxBaselineRegression had
+# existed in EvaluationGateOptions for months with no target passing --baseline,
+# so nothing in this repository could fail because quality dropped — only
+# because it fell under an absolute floor that was set once and never moved.
+#
+# A baseline is a committed file, so a regression is a diff someone approved and
+# never drift. $(call baseline,NAME) is empty when testdata/eval/baselines/NAME.json
+# does not exist yet, which is how a corpus that has never recorded one still
+# runs its ordinary thresholds instead of failing to open a missing file.
+# TestACommittedBaselineNamesCasesTheCorpusStillHas keeps a recorded one honest
+# offline, so a stale baseline is a dev-check failure rather than an hour of
+# credentialed evaluation ending in "corpus digest does not match".
+#
+# Two tolerances because they are two units. Pass rates are 0 to 1; the judge
+# scores 1 to 5, and 0.05 of a judge point is noise rather than a regression.
+EVAL_BASELINES = testdata/eval/baselines
+MAX_REGRESSION ?= 0.1
+MAX_QUALITY_REGRESSION ?= 0.3
+baseline = $(if $(wildcard $(EVAL_BASELINES)/$(1).json),--baseline $(EVAL_BASELINES)/$(1).json \
+	--max-regression $(MAX_REGRESSION) --max-quality-regression $(MAX_QUALITY_REGRESSION))
 
 $(EVAL_HISTORY):
 	@mkdir -p "$@"
@@ -86,39 +109,50 @@ eval-health: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" --input testdata/eval/health-verdict.jsonl --judge \
 		$(call history,health-$(DEPLOYMENT))
 
+# A tolerance is set per target because the repeats are set per target.
+#
+# One sample of a two-repeat case is half its rate, so a per-case comparison at
+# 0.1 fails the release for the ordinary run-to-run variance REGRESSION_REPEAT
+# exists to absorb. On the judged corpora the signal that survives that noise is
+# the judge mean over every sample, which is why those targets carry a loose
+# rate tolerance and lean on --max-quality-regression; the unjudged corpora run
+# one sample per case, where a rate that moved is a case that flipped.
+eval-quality: MAX_REGRESSION = 0.5
 eval-quality: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" \
 		--input testdata/eval/live.jsonl --judge --repeat 2 \
 		--min-overall-pass-rate 0.90 --min-case-pass-rate 0.50 --min-mean-quality 4 \
-		$(call history,quality)
+		$(call baseline,quality) $(call history,quality)
 
 eval-judge-calibration: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" \
 		--input testdata/eval/quality-calibration.jsonl --calibrate-judge \
 		--min-overall-pass-rate 1 --min-case-pass-rate 1 \
-		$(call history,judge-calibration)
+		$(call baseline,judge-calibration) $(call history,judge-calibration)
 
+eval-proactive: MAX_REGRESSION = 0.34
 eval-proactive: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" \
 		--input testdata/eval/proactive.jsonl --repeat "$(EVAL_REPEAT)" \
 		--min-overall-pass-rate 0.90 --min-case-pass-rate 0.67 \
 		--min-proactive-precision 0.90 --min-proactive-recall 0.90 \
 		--max-false-interruption-rate 0.10 \
-		$(call history,proactive)
+		$(call baseline,proactive) $(call history,proactive)
 
+eval-scenarios: MAX_REGRESSION = 0.5
 eval-scenarios: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" \
 		--input testdata/eval/scenarios.jsonl --scenarios --judge --repeat 2 \
 		--min-overall-pass-rate 0.90 --min-case-pass-rate 0.50 \
 		--min-proactive-precision 0.90 --min-proactive-recall 0.90 \
 		--max-false-interruption-rate 0.10 --min-mean-quality 4 \
-		$(call history,scenarios)
+		$(call baseline,scenarios) $(call history,scenarios)
 
 eval-evidence: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" \
 		--input testdata/eval/evidence.jsonl --judge --verify-evidence \
 		--min-overall-pass-rate 1 --min-case-pass-rate 1 --min-mean-quality 4 \
-		$(call history,evidence)
+		$(call baseline,evidence) $(call history,evidence)
 
 # Every case names the responder repository, which neither live deployment
 # configures today, so this needs a config that does. Declared rather than
@@ -133,11 +167,12 @@ eval-productivity: | $(EVAL_HISTORY)
 		--min-overall-pass-rate 1 --min-case-pass-rate 1 --min-mean-quality 4 \
 		$(call history,productivity)
 
+eval-memory: MAX_REGRESSION = 0.5
 eval-memory: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" \
 		--input testdata/eval/memory.jsonl --judge --verify-evidence --repeat 2 \
 		--min-overall-pass-rate 0.90 --min-case-pass-rate 0.50 --min-mean-quality 4 \
-		$(call history,memory)
+		$(call baseline,memory) $(call history,memory)
 
 # One corpus per deployment, replayed against that deployment's config.
 #
@@ -153,7 +188,7 @@ DEPLOYMENT ?= tenant
 eval-episode-replay: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" --episode-replay \
 		--input testdata/eval/episode-replay/$(DEPLOYMENT).jsonl --min-overall-pass-rate 1 \
-		$(call history,episode-replay-$(DEPLOYMENT))
+		$(call baseline,episode-replay-$(DEPLOYMENT)) $(call history,episode-replay-$(DEPLOYMENT))
 
 # Replay the corrections an operator kept. This is the only thing that can fail
 # because a promoted lesson stopped holding.
@@ -162,6 +197,7 @@ eval-episode-replay: | $(EVAL_HISTORY)
 # fixture never names a repository — the recorder does not write that field —
 # so nothing in this corpus needs one deployment's configuration over another's.
 # TestThePromotedCorpusBindsNoRepository holds that invariant so this stays true.
+eval-regressions: MAX_REGRESSION = 0.34
 eval-regressions: | $(EVAL_HISTORY)
 	@if [ ! -f "$(REGRESSION_CORPUS)" ]; then \
 		echo "$(REGRESSION_CORPUS) does not exist: no correction has ever been promoted,"; \
@@ -172,7 +208,7 @@ eval-regressions: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" --episode-replay \
 		--input "$(REGRESSION_CORPUS)" --repeat $(REGRESSION_REPEAT) \
 		--min-case-pass-rate $(REGRESSION_CASE_RATE) \
-		$(call history,regressions)
+		$(call baseline,regressions) $(call history,regressions)
 
 # Does the prompt let the model produce a result Responder can use?
 #
@@ -214,12 +250,38 @@ eval-prompts-smoke: | $(EVAL_HISTORY)
 eval-live-canary: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" --input testdata/eval/live.jsonl --canary \
 		--min-overall-pass-rate 1 --min-case-pass-rate 1 \
-		$(call history,live-canary)
+		$(call baseline,live-canary) $(call history,live-canary)
 
 # Read back what the judges scored. This is the only thing that answers "is it
 # getting better?", and until the results were written down nothing could.
 eval-trend:
 	scripts/eval-trend.sh "$(EVAL_HISTORY)"
+
+# Record the numbers this release is allowed to hold, from the run that just
+# happened.
+#
+# The workflow, deliberately manual in both directions:
+#
+#   1. make model-release-check          — every corpus runs and files a result
+#   2. make eval-trend                   — read whether it moved, and which way
+#   3. make eval-baseline-update CORPUS=quality
+#   4. git diff testdata/eval/baselines  — the numbers a release will be held to
+#   5. commit it, or do not
+#
+# Step 4 is the point. Rebaselining automatically after a green run is how a
+# quality floor walks downhill one acceptable step at a time, so this writes a
+# file and stops. It reads the newest result the corpus recorded rather than
+# re-running it: the run already happened, and for the credentialed corpora
+# re-running costs an hour of model calls to measure what is already on disk.
+#
+# A promoted fixture changes the corpus, and the gate compares by case name, so
+# growth needs no new baseline — only a rename or a deletion does, and
+# TestACommittedBaselineNamesCasesTheCorpusStillHas says so offline.
+CORPUS ?=
+eval-baseline-update:
+	@test -n "$(CORPUS)" || { echo "CORPUS must name a corpus, e.g. CORPUS=regressions"; exit 2; }
+	go run ./cmd/responder eval-baseline --history "$(EVAL_HISTORY)" \
+		--corpus "$(CORPUS)" --write "$(EVAL_BASELINES)/$(CORPUS).json"
 
 model-release-check: eval-judge-calibration eval-quality eval-proactive eval-scenarios eval-evidence eval-memory eval-episode-replay eval-regressions eval-live-canary
 

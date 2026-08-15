@@ -878,6 +878,63 @@ func (r *Reader) Corrections(ctx context.Context) ([]CorrectionGroup, error) {
 	return groups, nil
 }
 
+// Promotion is one automatic answer to a correction an operator kept.
+//
+// Quarantined is the state this page exists to show. A promotion that succeeds
+// leaves a fixture in a diff somebody reads; one that is held back leaves
+// nothing anywhere, and the drain deliberately never retries it — so without a
+// row here a kept lesson could stop at a failed check and no one would ever be
+// told, which is the silent failure automating this step could most easily
+// introduce.
+type Promotion struct {
+	Candidate   string
+	Episode     string
+	Detail      string
+	At          time.Time
+	Quarantined bool
+}
+
+// Promotions lists what the maintenance drain did with the kept corrections.
+func (r *Reader) Promotions(ctx context.Context) ([]Promotion, error) {
+	if !r.live() {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+	  SELECT object_id, outcome, detail, created_at
+	  FROM audit_events WHERE kind = 'fixture.promotion'
+	  ORDER BY created_at DESC LIMIT 50`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	promotions := []Promotion{}
+	for rows.Next() {
+		var candidate, outcome, detail, created string
+		if err := rows.Scan(&candidate, &outcome, &detail, &created); err != nil {
+			return nil, err
+		}
+		// The receipt records "<episode>: <what happened>" in one field, because
+		// an audit row has one place to say what it is about beyond its object.
+		episode, text, found := strings.Cut(detail, ": ")
+		if !found {
+			episode, text = "", detail
+		}
+		promotions = append(promotions, Promotion{
+			Candidate: candidate, Episode: episode, Detail: text,
+			At: parseStamp(created), Quarantined: outcome == "quarantined",
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Held-back promotions first: they are the only ones anybody has to do
+	// something about, and they are the rarer of the two.
+	sort.SliceStable(promotions, func(i, j int) bool {
+		return promotions[i].Quarantined && !promotions[j].Quarantined
+	})
+	return promotions, nil
+}
+
 type ChannelMemoryRow struct {
 	Channel   string
 	Summary   string

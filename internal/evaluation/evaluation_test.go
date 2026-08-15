@@ -885,6 +885,146 @@ func TestEvaluationMetricsAndRegressionGate(t *testing.T) {
 	}
 }
 
+// baselineSummary builds a finished run over two cases with judge scores, so a
+// baseline comparison has both numbers a release cares about: how often the
+// answer was right, and how good the answer was.
+func baselineSummary(passed bool, quality float64) EvaluationSummary {
+	summary := EvaluationSummary{
+		CorpusDigest: "digest",
+		Total:        2,
+		Passed:       2,
+		Results: []EvaluationResult{
+			{Name: "answer", CaseName: "answer", Passed: true},
+			{Name: "silence", CaseName: "silence", Passed: passed},
+		},
+	}
+	if !passed {
+		summary.Passed = 1
+		summary.Failed = 1
+	}
+	for index := range summary.Results {
+		summary.Results[index].Quality = QualityAssessment{
+			Evaluated: true, Passed: true, MeanScore: quality,
+		}
+	}
+	// A baseline is taken from a finished run, and the per-case rates and the
+	// judge mean only exist once the results have been aggregated.
+	summarizeEvaluation(&summary)
+	return summary
+}
+
+// TestTheGateFailsWhenTheOverallPassRateFallsBelowTheBaseline holds the reason
+// the baseline exists at all.
+//
+// `EvaluationGateOptions.MaxBaselineRegression` shipped comparing per-case rates
+// and nothing else, and no target passed --baseline, so a release could lose a
+// tenth of its answers and every gate would still be green — the trend was a
+// table somebody read afterwards rather than a thing that could fail.
+func TestTheGateFailsWhenTheOverallPassRateFallsBelowTheBaseline(t *testing.T) {
+	summary := baselineSummary(false, 4.5)
+	baseline := BaselineFromSummary(baselineSummary(true, 4.5))
+	ApplyEvaluationGates(&summary, EvaluationGateOptions{
+		Baseline: &baseline, MaxBaselineRegression: 0.1,
+	})
+	if summary.Gate.Passed ||
+		!strings.Contains(strings.Join(summary.Gate.Failures, "\n"), "overall pass rate regressed") {
+		t.Fatalf("overall regression gate = %+v", summary.Gate)
+	}
+}
+
+// TestTheGateFailsWhenTheMeanJudgeScoreFallsBelowTheBaseline covers the other
+// half: every answer still passes its assertions and every one of them got
+// worse. The judge scores 1 to 5, so its tolerance is in judge points and not
+// the 0-to-1 currency the rate thresholds use — one knob for both units would
+// be either meaningless for the rate or unusable for the score.
+func TestTheGateFailsWhenTheMeanJudgeScoreFallsBelowTheBaseline(t *testing.T) {
+	summary := baselineSummary(true, 3.5)
+	baseline := BaselineFromSummary(baselineSummary(true, 4.6))
+	ApplyEvaluationGates(&summary, EvaluationGateOptions{
+		Baseline:              &baseline,
+		MaxBaselineRegression: 0.1,
+		MaxQualityRegression:  0.5,
+	})
+	if summary.Gate.Passed ||
+		!strings.Contains(strings.Join(summary.Gate.Failures, "\n"), "mean judge score regressed") {
+		t.Fatalf("judge regression gate = %+v", summary.Gate)
+	}
+	within := baselineSummary(true, 4.3)
+	ApplyEvaluationGates(&within, EvaluationGateOptions{
+		Baseline:              &baseline,
+		MaxBaselineRegression: 0.1,
+		MaxQualityRegression:  0.5,
+	})
+	if !within.Gate.Passed {
+		t.Fatalf("a drop inside the tolerance failed: %+v", within.Gate)
+	}
+}
+
+// TestAnUnjudgedRunIsNotComparedAgainstAJudgedBaseline stops the comparison
+// from reading "nobody judged this run" as "every answer collapsed".
+//
+// A run without --judge reports mean_score 0. Against a baseline of 4.6 that is
+// the largest regression the arithmetic can produce, and it would fail every
+// unjudged corpus in model-release-check the day a baseline was committed.
+func TestAnUnjudgedRunIsNotComparedAgainstAJudgedBaseline(t *testing.T) {
+	summary := baselineSummary(true, 0)
+	for index := range summary.Results {
+		summary.Results[index].Quality = QualityAssessment{}
+	}
+	baseline := BaselineFromSummary(baselineSummary(true, 4.6))
+	ApplyEvaluationGates(&summary, EvaluationGateOptions{
+		Baseline: &baseline, MaxBaselineRegression: 0.1, MaxQualityRegression: 0.5,
+	})
+	if !summary.Gate.Passed {
+		t.Fatalf("an unjudged run was compared as a regression: %+v", summary.Gate)
+	}
+}
+
+// TestAGrownCorpusIsComparedRatherThanRefused is what makes a committed
+// baseline survive its own pipeline.
+//
+// The corpus this gate protects grows by promotion — that is the point of the
+// corrections loop — and a whole-corpus digest equality check answers a promoted
+// fixture with "baseline corpus digest does not match this corpus", which fails
+// the release for the corpus having done its job. Cases are joined by name: the
+// ones the baseline knows are compared, a new one is not a regression, and a
+// case that vanished is reported rather than quietly skipped.
+func TestAGrownCorpusIsComparedRatherThanRefused(t *testing.T) {
+	baseline := BaselineFromSummary(baselineSummary(true, 4.5))
+	grown := baselineSummary(true, 4.5)
+	grown.CorpusDigest = "a different corpus"
+	grown.Total = 3
+	grown.Passed = 3
+	grown.Results = append(grown.Results, EvaluationResult{
+		Name: "promoted lesson", CaseName: "promoted lesson", Passed: true,
+		Quality: QualityAssessment{Evaluated: true, Passed: true, MeanScore: 4.5},
+	})
+	ApplyEvaluationGates(&grown, EvaluationGateOptions{
+		Baseline: &baseline, MaxBaselineRegression: 0.1, MaxQualityRegression: 0.5,
+	})
+	if !grown.Gate.Passed {
+		t.Fatalf("a grown corpus was refused rather than compared: %+v", grown.Gate)
+	}
+}
+
+// TestABaselineCaseMissingFromTheRunFailsTheGate is the other side of joining
+// by name: deleting a fixture must not be a way to make its regression
+// disappear, which is exactly what skipping unknown names would allow.
+func TestABaselineCaseMissingFromTheRunFailsTheGate(t *testing.T) {
+	baseline := BaselineFromSummary(baselineSummary(true, 4.5))
+	shrunk := EvaluationSummary{
+		CorpusDigest: "digest", Total: 1, Passed: 1,
+		Results: []EvaluationResult{{Name: "answer", CaseName: "answer", Passed: true}},
+	}
+	ApplyEvaluationGates(&shrunk, EvaluationGateOptions{
+		Baseline: &baseline, MaxBaselineRegression: 0.1,
+	})
+	if shrunk.Gate.Passed ||
+		!strings.Contains(strings.Join(shrunk.Gate.Failures, "\n"), `"silence"`) {
+		t.Fatalf("a vanished case passed its baseline: %+v", shrunk.Gate)
+	}
+}
+
 func TestEvaluationGateCanRequireZeroFalseInterruptions(t *testing.T) {
 	summary := EvaluationSummary{
 		Total:  1,
