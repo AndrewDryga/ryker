@@ -566,7 +566,16 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // identified or bounded — and the model could only learn it by paying the
 // correction, which production did twice on tenant and the full gate once.
 // 62 bytes to state the condition where the field is named.
-const staticWatchPromptBytes = 48431
+//
+// 48446 the same evening, reshaping those 62 bytes: the condition was first
+// written INSIDE the example's JSON value, a full English sentence where
+// every other value is a short placeholder, and the next two runs of the
+// direct-answer smoke case both returned syntactically broken JSON. Maybe
+// coincidence — that case's flake is documented — but an example teaching
+// prose-in-values is the wrong shape regardless, so the value is back to
+// "identified|bounded" and the condition is prose after the example, the
+// same dash the other rows annotate with.
+const staticWatchPromptBytes = 48446
 
 // The static prompt must not grow without someone deciding it should.
 //
