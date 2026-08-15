@@ -1304,10 +1304,15 @@ than starting.
 
 Two holes remain in the routing item. `status` and `reaction` deliveries are
 exempt from the binding check deliberately, and a delivery enqueued with no
-episode is invisible to both the enqueue check and the supersession sweep — seven
-of the thirteen non-test enqueue sites pass no episode, so a card or file queued
-before a destination change still posts to the surface the episode has left.
-That is the second exit criterion, and it is the failure it names. Separately,
+episode is invisible to both the enqueue check and the supersession sweep,
+because both clauses begin at an episode id. Seven call sites enqueue that way,
+the incident card among them, so a card queued before a destination change still
+posts to the surface the episode has left. That is the second exit criterion
+failing in the shape it names. The seven are counted by
+`TestASlackDeliveryWithoutAnEpisodeEscapesTheDestinationBinding` rather than
+stated here, because this paragraph first said seven when the number was eight —
+the difference being a status delivery that is exempt on purpose, which is
+exactly the kind of error a sentence cannot catch and a budget can. Separately,
 `bindEpisodeDestination` moves the episode to wherever the service decided to
 post instead of refusing the disagreement, so a per-delivery divergence bumps the
 revision rather than being caught by it.

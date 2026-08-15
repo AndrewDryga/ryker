@@ -10,11 +10,13 @@
 package internal_test
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -893,6 +895,129 @@ var forbiddenImports = map[string][]string{
 		"service", "slackui", "httpapi", "app", "publisher", "coop", "emisar",
 		"config", "decision",
 	},
+}
+
+// unboundSlackDeliveryBudget caps how many places may enqueue a Slack delivery
+// without naming the episode it belongs to.
+//
+// The episode binding is only enforced where there is an episode to enforce it
+// against. EnqueueSlackDelivery refuses a delivery whose channel, thread, or
+// expected revision disagrees with the episode, and LeaseSlackDelivery
+// supersedes a queued one when the binding moves under it — but both clauses
+// begin at an episode id, so a delivery enqueued without one is checked by
+// neither. It posts wherever its caller decided, including to a surface the
+// episode has since left.
+//
+// That is migration phase 2's second exit criterion, "acknowledgement and
+// subsequent work never split across surfaces accidentally", and it is failing
+// in the shape the criterion names. The number is here rather than in prose
+// because prose drifts: the design document said seven, the AST said eight, and
+// the difference was a status delivery that is exempt on purpose.
+//
+// Status and reaction deliveries are excluded below, not counted and forgiven.
+// They are exempt in the store for a reason that is written there — a native
+// status belongs to the conversation the operator is looking at, not to the
+// episode's bound destination — so counting them would make this number
+// unreachable and therefore meaningless.
+//
+// Lower it as call sites gain an episode. Do not raise it.
+const unboundSlackDeliveryBudget = 7
+
+// enqueuesWithoutAnEpisode returns "file:line kind" for every EnqueueSlackDelivery
+// call whose delivery literal names no EpisodeID, skipping the status and
+// reaction operations the store exempts by design.
+func enqueuesWithoutAnEpisode(t *testing.T) []string {
+	t.Helper()
+	var unbound []string
+	for _, files := range goPackages(t) {
+		for _, path := range files {
+			fileSet := token.NewFileSet()
+			parsed, err := parser.ParseFile(fileSet, path, nil, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ast.Inspect(parsed, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				selector, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || selector.Sel.Name != "EnqueueSlackDelivery" || len(call.Args) < 2 {
+					return true
+				}
+				literal, ok := call.Args[1].(*ast.CompositeLit)
+				if !ok {
+					return true
+				}
+				episode, operation, kind := false, "", ""
+				for _, element := range literal.Elts {
+					pair, ok := element.(*ast.KeyValueExpr)
+					if !ok {
+						continue
+					}
+					key, ok := pair.Key.(*ast.Ident)
+					if !ok {
+						continue
+					}
+					value := ""
+					if basic, ok := pair.Value.(*ast.BasicLit); ok {
+						value = strings.Trim(basic.Value, `"`)
+					}
+					switch key.Name {
+					case "EpisodeID":
+						episode = true
+					case "Operation":
+						operation = value
+					case "Kind":
+						kind = value
+					}
+				}
+				if episode || operation == "status" || operation == "reaction" {
+					return true
+				}
+				position := fileSet.Position(call.Pos())
+				relative, err := filepath.Rel(repoRoot(t), position.Filename)
+				if err != nil {
+					relative = position.Filename
+				}
+				if kind == "" {
+					kind = "?"
+				}
+				unbound = append(unbound, fmt.Sprintf("%s:%d %s", relative, position.Line, kind))
+				return true
+			})
+		}
+	}
+	sort.Strings(unbound)
+	return unbound
+}
+
+// A Slack delivery that names no episode escapes the destination binding.
+//
+// Counted rather than described. The episode-kernel migration's phase 2 is
+// otherwise landed — the binding is stored, enforced at enqueue, and superseded
+// at lease when it moves — and this is the hole left in it, so the honest
+// measure of that phase is how many callers still post without saying whose work
+// they are posting. A new one is a regression against an exit criterion, and
+// would otherwise arrive looking like an ordinary delivery.
+func TestASlackDeliveryWithoutAnEpisodeEscapesTheDestinationBinding(t *testing.T) {
+	unbound := enqueuesWithoutAnEpisode(t)
+	if len(unbound) > unboundSlackDeliveryBudget {
+		t.Errorf(
+			"%d Slack deliveries are enqueued with no episode, over the budget of %d:\n  %s\n"+
+				"Pass the episode that owns the message, so the destination binding can "+
+				"correct it when the episode moves.",
+			len(unbound), unboundSlackDeliveryBudget, strings.Join(unbound, "\n  "),
+		)
+	}
+	if len(unbound) < unboundSlackDeliveryBudget {
+		t.Errorf(
+			"only %d Slack deliveries are enqueued with no episode, under the budget of %d:\n  %s\n"+
+				"Lower unboundSlackDeliveryBudget to %d in this commit; a budget above its own "+
+				"count stops measuring the thing it was written for.",
+			len(unbound), unboundSlackDeliveryBudget, strings.Join(unbound, "\n  "), len(unbound),
+		)
+	}
 }
 
 func repoRoot(t *testing.T) string {
