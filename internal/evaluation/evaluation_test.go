@@ -1380,6 +1380,39 @@ const handoffRepliedInsteadOfHandingOver = `{
 			"completion":{"status":"decision_ready","summary":"answered"}}}]
 }`
 
+// A contract addition with no corpus case reaches production read by nobody
+// but its author.
+//
+// request_record is the whole answer to "give me a handoff summary" now that
+// the slash spelling is gone, and the failure it prevents is invisible from the
+// host side: a model that writes the summary itself returns a perfectly valid
+// result, passes every deterministic test in this repository, and hands the
+// operator its own recollection of the work in place of the record. Only a case
+// that runs a real model against the real prompt can tell the two apart.
+func TestTheRecordRequestContractHasACorpusCase(t *testing.T) {
+	file, err := os.Open(filepath.Join("..", "..", "testdata", "eval", "prompts.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	cases, err := decodeEvaluationCases(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked := 0
+	for _, testCase := range cases {
+		if slices.Contains(testCase.WantOperations, "request_record") {
+			asked++
+		}
+	}
+	if asked == 0 {
+		t.Fatal(
+			"no prompts case requires request_record; the operation the four durable " +
+				"reports depend on would be exercised by nothing",
+		)
+	}
+}
+
 // eval-prompts must submit the host's own handoff prompt, not a paraphrase and
 // not a paraphrase wrapped in scaffolding.
 //

@@ -1626,7 +1626,8 @@ func foldResultOperations(
 		case "report_progress":
 			// Progress is projected from the episode event stream. It is not copied
 			// into the final Slack report.
-		case "plan_goal", "update_goal", "request_operator_input", "wait_external", "record_feedback":
+		case "plan_goal", "update_goal", "request_operator_input", "wait_external",
+			"record_feedback", "request_record":
 			// These operations project from the episode event stream rather than
 			// becoming fields in the final Slack response.
 		case "request_approval":

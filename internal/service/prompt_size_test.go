@@ -56,7 +56,22 @@ var promptCeilings = map[string]int{
 	// about 1 KiB.
 	// Merged 2026-08-15: 39 KiB after the diet plus the 471-byte grant bullet
 	// measures 38,811; 39 KiB + 256 keeps roughly 1 KiB of ratchet room.
-	"watch": 39*1024 + 256,
+	//
+	// Raised again on 2026-08-15 for request_record. The four durable reports
+	// lost their `/responder` spelling, and the obvious replacement — let the
+	// model write the summary when somebody asks for one — is the expensive
+	// mistake: a handoff is exactly the document an operator reads instead of
+	// the record, and a model writing one writes its own account of what it
+	// remembers. The bullet and its one instruction line buy back every one of
+	// those, and the alternative was cheaper only in bytes.
+	//
+	// Re-measured on the merged tree rather than added to the old number: the
+	// entry above was written against 38,811 and the tree it lands on carries
+	// the knowledge offers and the supersedes field as well, so the variant is
+	// 39,921 bytes. 40 KiB restores the roughly 1 KiB of margin the paragraph
+	// above says this entry wants; 39 KiB + 256 would have left 271 bytes,
+	// which is the tripwire that note is about.
+	"watch": 40 * 1024,
 
 	// The ambient measurement above is the cheap case, and for a while it was
 	// the only one — so this test reported "37% left for context" while an
@@ -117,7 +132,13 @@ var promptCeilings = map[string]int{
 	// number moved, by shortening the example key and folding three sentences
 	// into one. 45 KiB + 512 leaves 375 bytes of headroom, so the entry is a
 	// ratchet again rather than a tripwire.
-	"watch-operator": 45*1024 + 512,
+	//
+	// And again on 2026-08-15 for request_record — see the watch entry above.
+	// The operator variant pays for the same contract, because the operation
+	// list is inside the policy block both variants carry; it is the same
+	// instruction either way. Measured 46,525 on the merged tree, which left
+	// the previous 45 KiB + 512 with 67 bytes; 46 KiB + 512 is a ratchet again.
+	"watch-operator": 46*1024 + 512,
 
 	// The expensive turn, kept measured on purpose. Conditional inclusion means
 	// the two entries above now describe turns that skip 5,391 bytes of rules,
@@ -125,8 +146,10 @@ var promptCeilings = map[string]int{
 	// actually runs out of context unbounded — which is the mistake that made
 	// the watch-operator entry necessary in the first place. This one asks for
 	// all three back.
-	// Measured 49,357 on landing with the grant bullet aboard; 49 KiB + 512.
-	"watch-operator-alert": 49*1024 + 512,
+	// Measured 49,357 on landing with the grant bullet aboard; 49 KiB + 512,
+	// and re-measured here with request_record aboard as well: 50,467, which
+	// left the old number 221 bytes. 50 KiB + 512 on 2026-08-15.
+	"watch-operator-alert": 50*1024 + 512,
 }
 
 func TestStaticPromptSizeIsBounded(t *testing.T) {

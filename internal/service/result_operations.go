@@ -12,6 +12,7 @@ import (
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/fanout"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/reportcanvas"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -245,6 +246,11 @@ func (s *Service) applyResultOperation(
 		kind = episodepkg.EventOperatorInputAsked
 	case "record_feedback":
 		kind = "feedback.recorded"
+	case "request_record":
+		if err := s.publishRequestedRecord(ctx, runID, operation); err != nil {
+			return err
+		}
+		return nil
 	case "wait_external":
 		wait := operation.ExternalWait
 		dueAt, parseErr := parseOptionalOperationTime(wait.DueAt)
@@ -296,6 +302,63 @@ func (s *Service) applyResultOperation(
 		return err
 	}
 	return nil
+}
+
+// publishRequestedRecord answers "give me a handoff summary" with the same
+// document the card's Record menu produces.
+//
+// The model asks; the host renders. Nothing about the report comes from the
+// turn — not a sentence of it — because the four reports are the durable
+// account of what happened and a model-written timeline is the model's account
+// of what it remembers. Both spellings reach reportcanvas.For, so there is one
+// renderer and one thing to be wrong.
+//
+// A run with no work behind it has nothing to report on, and that is a
+// permanent property of a result already written down, so it is dropped with a
+// trace rather than retried forever.
+func (s *Service) publishRequestedRecord(
+	ctx context.Context,
+	runID string,
+	operation investigation.ResultOperation,
+) error {
+	kind := strings.ToLower(strings.TrimSpace(operation.Record.Kind))
+	run, err := s.store.GetAgentRun(ctx, runID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(run.IncidentID) == "" {
+		return fmt.Errorf(
+			"result operation %q asks for the %s record of work that has none: %w",
+			operation.ID, kind, store.ErrNotFound,
+		)
+	}
+	incident, err := s.store.GetIncident(ctx, run.IncidentID)
+	if err != nil {
+		return fmt.Errorf("result operation %q: %w", operation.ID, err)
+	}
+	record, err := s.store.LoadRemediationRecord(ctx, incident.ID)
+	if err != nil {
+		return err
+	}
+	report, ok := reportcanvas.For(kind, record)
+	if !ok {
+		return fmt.Errorf(
+			"result operation %q names record %q, which nothing renders: %w",
+			operation.ID, kind, store.ErrNotFound,
+		)
+	}
+	// The canvas is made here rather than by the delivery worker, for the same
+	// reason the closing postmortem makes its own: the worker retries, and a
+	// retry that also remade the canvas would leave one abandoned document per
+	// attempt.
+	return s.enqueue(
+		ctx,
+		"out_record_"+kind+"_"+runID,
+		incident,
+		kind,
+		incident.ConversationThreadTS(),
+		reportcanvas.Publish(ctx, s.slack, s.log, incident.ChannelID, report),
+	)
 }
 
 func (s *Service) enqueueEpisodeWakeup(ctx context.Context, wakeup core.EpisodeWakeup) error {

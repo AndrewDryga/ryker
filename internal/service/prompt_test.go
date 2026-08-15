@@ -519,7 +519,17 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // 355; the hard ceiling in TestStaticPromptSizeIsBounded refused it, and the
 // example key and three sentences were cut down until what remained was the
 // field, its shape, and the one fact a model cannot infer.
-const staticWatchPromptBytes = 47144
+//
+// Raised on 2026-08-15 for request_record: the operation line and the one
+// sentence that says the four durable reports are the host's to render and
+// never the model's to write. `/responder handoff` was deleted the same day,
+// and without this the model would have answered "give me a handoff summary"
+// out of its own context — which is the account of the work that the record
+// exists to replace. Re-measured against the merged prompt rather than added
+// to the number this branch was written against: 47,144 plus the 308 bytes of
+// request_record is 47,452, and this pin is two-sided, so it is the exact
+// measurement and not a bound.
+const staticWatchPromptBytes = 47452
 
 // The static prompt must not grow without someone deciding it should.
 //

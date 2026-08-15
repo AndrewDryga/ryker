@@ -159,6 +159,23 @@ type FeedbackOperation struct {
 	FollowupQuestion string `json:"followup_question,omitempty"`
 }
 
+// RecordKinds are the durable reads the host renders from the stored
+// remediation record. They are named here rather than in the host so the
+// rejection can quote the set back to a model that asked for "summary".
+var RecordKinds = []string{"timeline", "evidence", "handoff", "postmortem"}
+
+// RecordRequestOperation asks the host to publish one of its own reports.
+//
+// It carries no content, and that is the point. "Give me a handoff summary" is
+// a request for the record, and a model answering it in prose writes a
+// plausible timeline from whatever is in its context — which is the model's
+// account of the work rather than the work's own. The host renders these four
+// from the durable record, the same renderer the card's Record menu reaches, so
+// asking in words and pressing the button produce the identical document.
+type RecordRequestOperation struct {
+	Kind string `json:"kind"`
+}
+
 // MaxRepositoryContentsBytes bounds the repository map to one readable line per
 // repository. The map's job is to route a question to the repository that owns
 // it, and a paragraph does that no better than a sentence while costing every
@@ -200,6 +217,7 @@ type ResultOperation struct {
 	OperatorInput   *OperatorInputOperation `json:"operator_input,omitempty"`
 	ExternalWait    *ExternalWaitOperation  `json:"external_wait,omitempty"`
 	Feedback        *FeedbackOperation      `json:"feedback,omitempty"`
+	Record          *RecordRequestOperation `json:"record,omitempty"`
 	Approval        *core.EmisarApproval    `json:"approval,omitempty"`
 	Task            *TaskOffer              `json:"task,omitempty"`
 	Visual          *core.GeneratedVisual   `json:"visual,omitempty"`
@@ -294,6 +312,7 @@ var resultOperationPayloads = []func(ResultOperation) bool{
 	func(o ResultOperation) bool { return o.Approval != nil },
 	func(o ResultOperation) bool { return o.Task != nil },
 	func(o ResultOperation) bool { return o.Feedback != nil },
+	func(o ResultOperation) bool { return o.Record != nil },
 	func(o ResultOperation) bool { return o.Visual != nil },
 	func(o ResultOperation) bool { return o.Memory != nil },
 	func(o ResultOperation) bool { return o.MemoryOffer != nil },
@@ -470,6 +489,7 @@ var resultOperationValidators = map[string]func(ResultOperation) error{
 			(o.ExternalWait.DueAt != "" || o.ExternalWait.PollAfter != "")
 	}),
 	"record_feedback":            validateFeedbackOperation,
+	"request_record":             validateRecordRequestOperation,
 	"offer_task":                 validateTaskOperation,
 	"request_approval":           requirePayload("approval", func(o ResultOperation) bool { return o.Approval != nil }),
 	"attach_visual":              requirePayload("a visual artifact", func(o ResultOperation) bool { return o.Visual != nil && strings.TrimSpace(o.Visual.Artifact) != "" }),
@@ -576,6 +596,25 @@ func validateGrantPromotionOperation(o ResultOperation) error {
 	return nil
 }
 
+// validateRecordRequestOperation checks the one enum a record request carries.
+//
+// The rejection lists the four kinds because there is no partial credit here:
+// an unrecognised kind renders nothing, and a model that guessed "summary" has
+// no way to learn the real set from silence.
+func validateRecordRequestOperation(operation ResultOperation) error {
+	if operation.Record == nil {
+		return fmt.Errorf("result operation %q requires a record request", operation.ID)
+	}
+	kind := strings.ToLower(strings.TrimSpace(operation.Record.Kind))
+	if !slices.Contains(RecordKinds, kind) {
+		return fmt.Errorf(
+			"result operation %q requests record %q, which is not one of: %s",
+			operation.ID, operation.Record.Kind, strings.Join(RecordKinds, ", "),
+		)
+	}
+	return nil
+}
+
 // validateFeedbackOperation checks the enums that only feedback carries.
 func validateFeedbackOperation(operation ResultOperation) error {
 	if operation.Feedback == nil || strings.TrimSpace(operation.Feedback.Summary) == "" {
@@ -666,6 +705,7 @@ accepted operations in the episode event stream.
 - update_goal: {"id":"goal-done-1","type":"update_goal","goal_state":{"goal_id":"goal-1","state":"ready|working|waiting|completed|blocked|excluded|cancelled","detail":"optional blocker"}}
 - request_operator_input: {"id":"input-1","type":"request_operator_input","operator_input":{"question":"one exact question","choices":["optional choice"]}}
 - wait_external: {"id":"wait-1","type":"wait_external","external_wait":{"id":"wakeup-1","kind":"github_checks|deployment|terraform_run|emisar_approval|scheduled_verification|other","event_matcher":{"provider":"github","pr":42},"poll_after":"RFC3339","deadline":"RFC3339"}}
+- request_record: {"id":"record-1","type":"request_record","record":{"kind":"timeline|evidence|handoff|postmortem"}}
 - record_feedback: {"id":"feedback-1","type":"record_feedback","feedback":{"category":"ux|correctness|tone|latency|reliability|feature_request|other","sentiment":"negative|positive|suggestion|mixed","summary":"one actionable sentence","details":"optional concise context","target_message_ts":"optional target reply timestamp","needs_followup":false,"followup_question":"required when needs_followup"}}
 - request_approval: {"id":"approval-1","type":"request_approval","approval":{...exact Emisar approval...}}
 - offer_task: {"id":"task-1","type":"offer_task","task":{"kind":"engineering|incident","title":"...","repository":"...","prompt":"..."}}
@@ -692,6 +732,8 @@ an exact pending Emisar run. Use offer_task only for inert engineering or incide
 an engineering task, a concrete repository change recommendation MUST include an engineering offer_task
 with repository and a bounded edit-and-validation prompt; do not merely tell the operator to start one.
 Emisar MCP/control-plane operations such as runbook publication are not engineering tasks.
+Asked for the timeline, evidence, a handoff or a postmortem, emit request_record and say nothing
+else about it; the host renders those four from the durable record. Never write one yourself.
 report_progress is for meaningful findings, never hidden reasoning or status noise. Exactly one complete_episode operation is
 required for a reply or completed task report. A silent external wait uses ignore with
 wait_external and no completion. Every non-conversational contract with required_claims

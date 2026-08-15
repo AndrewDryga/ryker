@@ -881,7 +881,16 @@ var lineBudget = map[string]int{
 	// can judge alone. 44 of the 108 lines were paid for by deleting
 	// firstObservation, which lost its last caller when 79445e8 replaced it
 	// with quotedStatements.
-	"investigation": 1970,
+	//
+	// Raised to 2010 on 2026-08-15 for request_record, the operation by which
+	// asking for a handoff in words reaches the same renderer the card's Record
+	// menu reaches. Twelve lines: the kind list, the payload, its slot in the
+	// exactly-one-payload rule, a validator that quotes the four kinds back at
+	// an unrecognised one, and a prompt bullet. The entry above stood at the
+	// measurement of the change that set it, which is the tripwire the note at
+	// the top of this map describes: this landed two lines over a number that
+	// had no margin at all, so the raise restores one.
+	"investigation": 2010,
 	// These packages own policy and data transformations that used to sit in
 	// the broad service, store, decision, and investigation packages. Register
 	// every extraction here so moving code cannot evade the architecture ratchet.

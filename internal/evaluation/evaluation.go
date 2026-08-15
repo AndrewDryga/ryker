@@ -50,42 +50,50 @@ type EvaluationCase struct {
 	MinAttentionScore      int                       `json:"min_attention_score,omitempty"`
 	WantOffer              string                    `json:"want_offer,omitempty"`
 	WantOffers             []string                  `json:"want_offers,omitempty"`
-	WantMemoryContains     []string                  `json:"want_memory_contains,omitempty"`
-	WantMessageContains    []string                  `json:"want_message_contains,omitempty"`
-	ForbidMessageContains  []string                  `json:"forbid_message_contains,omitempty"`
-	WantReasonContains     []string                  `json:"want_reason_contains,omitempty"`
-	ForbidReasonContains   []string                  `json:"forbid_reason_contains,omitempty"`
-	WantEvidenceSources    []string                  `json:"want_evidence_sources,omitempty"`
-	ForbidEvidenceSources  []string                  `json:"forbid_evidence_sources,omitempty"`
-	WantCoverageLayers     []string                  `json:"want_coverage_layers,omitempty"`
-	WantCoverage           map[string]string         `json:"want_coverage,omitempty"`
-	WantAlertAssessment    bool                      `json:"want_alert_assessment,omitempty"`
-	WantAlertVerdict       string                    `json:"want_alert_verdict,omitempty"`
-	WantImmediateAction    bool                      `json:"want_immediate_action,omitempty"`
-	WantLongTermSolution   bool                      `json:"want_long_term_solution,omitempty"`
-	RequireCompletion      bool                      `json:"require_completion,omitempty"`
-	WantCompletionStatus   string                    `json:"want_completion_status,omitempty"`
-	WantCompletionVerdict  string                    `json:"want_completion_verdict,omitempty"`
-	WantPendingApproval    *bool                     `json:"want_pending_approval,omitempty"`
-	MinEvidence            int                       `json:"min_evidence,omitempty"`
-	MaxEvidence            *int                      `json:"max_evidence,omitempty"`
-	MinFreshEvidence       int                       `json:"min_fresh_evidence,omitempty"`
-	MaxEvidenceAgeSeconds  int                       `json:"max_evidence_age_seconds,omitempty"`
-	MinCoverage            int                       `json:"min_coverage,omitempty"`
-	MaxCoverage            *int                      `json:"max_coverage,omitempty"`
-	MinReplyMessages       int                       `json:"min_reply_messages,omitempty"`
-	MaxMessageBytes        int                       `json:"max_message_bytes,omitempty"`
-	MaxDurationMS          int64                     `json:"max_duration_ms,omitempty"`
-	ProactiveLabel         string                    `json:"proactive_label,omitempty"`
-	Judge                  bool                      `json:"judge,omitempty"`
-	VerifyEvidence         bool                      `json:"verify_evidence,omitempty"`
-	MinQualityScore        float64                   `json:"min_quality_score,omitempty"`
-	CoopPolicy             string                    `json:"coop_policy,omitempty"`
-	WantCommittedChanges   *bool                     `json:"want_committed_changes,omitempty"`
-	WantChangedPaths       []string                  `json:"want_changed_paths,omitempty"`
-	ForbidChangedPaths     []string                  `json:"forbid_changed_paths,omitempty"`
-	WantReviewPublishable  *bool                     `json:"want_review_publishable,omitempty"`
-	WantReviewGate         string                    `json:"want_review_gate,omitempty"`
+	// WantOperations names result operations the answer must contain, by type.
+	//
+	// The offer fields above read the folded decision, which is the right level
+	// for anything that becomes a field on it. An operation that stays an
+	// operation — request_record is the first — has nowhere to appear there,
+	// and a case that could not name it could not tell "the model asked the
+	// host for the handoff" from "the model wrote a handoff".
+	WantOperations        []string          `json:"want_operations,omitempty"`
+	WantMemoryContains    []string          `json:"want_memory_contains,omitempty"`
+	WantMessageContains   []string          `json:"want_message_contains,omitempty"`
+	ForbidMessageContains []string          `json:"forbid_message_contains,omitempty"`
+	WantReasonContains    []string          `json:"want_reason_contains,omitempty"`
+	ForbidReasonContains  []string          `json:"forbid_reason_contains,omitempty"`
+	WantEvidenceSources   []string          `json:"want_evidence_sources,omitempty"`
+	ForbidEvidenceSources []string          `json:"forbid_evidence_sources,omitempty"`
+	WantCoverageLayers    []string          `json:"want_coverage_layers,omitempty"`
+	WantCoverage          map[string]string `json:"want_coverage,omitempty"`
+	WantAlertAssessment   bool              `json:"want_alert_assessment,omitempty"`
+	WantAlertVerdict      string            `json:"want_alert_verdict,omitempty"`
+	WantImmediateAction   bool              `json:"want_immediate_action,omitempty"`
+	WantLongTermSolution  bool              `json:"want_long_term_solution,omitempty"`
+	RequireCompletion     bool              `json:"require_completion,omitempty"`
+	WantCompletionStatus  string            `json:"want_completion_status,omitempty"`
+	WantCompletionVerdict string            `json:"want_completion_verdict,omitempty"`
+	WantPendingApproval   *bool             `json:"want_pending_approval,omitempty"`
+	MinEvidence           int               `json:"min_evidence,omitempty"`
+	MaxEvidence           *int              `json:"max_evidence,omitempty"`
+	MinFreshEvidence      int               `json:"min_fresh_evidence,omitempty"`
+	MaxEvidenceAgeSeconds int               `json:"max_evidence_age_seconds,omitempty"`
+	MinCoverage           int               `json:"min_coverage,omitempty"`
+	MaxCoverage           *int              `json:"max_coverage,omitempty"`
+	MinReplyMessages      int               `json:"min_reply_messages,omitempty"`
+	MaxMessageBytes       int               `json:"max_message_bytes,omitempty"`
+	MaxDurationMS         int64             `json:"max_duration_ms,omitempty"`
+	ProactiveLabel        string            `json:"proactive_label,omitempty"`
+	Judge                 bool              `json:"judge,omitempty"`
+	VerifyEvidence        bool              `json:"verify_evidence,omitempty"`
+	MinQualityScore       float64           `json:"min_quality_score,omitempty"`
+	CoopPolicy            string            `json:"coop_policy,omitempty"`
+	WantCommittedChanges  *bool             `json:"want_committed_changes,omitempty"`
+	WantChangedPaths      []string          `json:"want_changed_paths,omitempty"`
+	ForbidChangedPaths    []string          `json:"forbid_changed_paths,omitempty"`
+	WantReviewPublishable *bool             `json:"want_review_publishable,omitempty"`
+	WantReviewGate        string            `json:"want_review_gate,omitempty"`
 	// ReplyPlacement is where this reply actually landed — "thread", "channel",
 	// or "" when the fixture does not model delivery. WantReplyPlacement is
 	// where it belonged, and defaults to whatever the trigger asked for.
@@ -359,6 +367,7 @@ type evaluationObservation struct {
 	reaction          string
 	offer             string
 	offers            []string
+	operations        []string
 	evidence          []core.Evidence
 	coverage          []core.Coverage
 	completion        *service.CompletionAssessment
@@ -489,6 +498,14 @@ func evaluationExpectationMismatch(
 	if testCase.WantOffer != "" && observed.offer != testCase.WantOffer {
 		return fmt.Sprintf("offer = %q, want %q", observed.offer, testCase.WantOffer)
 	}
+	for _, expected := range testCase.WantOperations {
+		if !containsExact(observed.operations, expected) {
+			return fmt.Sprintf(
+				"operations = %q, want one of them to be %q",
+				observed.operations, expected,
+			)
+		}
+	}
 	if len(observed.evidence) < testCase.MinEvidence {
 		return fmt.Sprintf(
 			"evidence = %d, want at least %d", len(observed.evidence), testCase.MinEvidence,
@@ -611,6 +628,7 @@ func evaluateCaseWithConfig(
 	var action string
 	var offer string
 	var offers []string
+	var operations []string
 	var message string
 	var replyMessageCount int
 	var reason string
@@ -682,6 +700,7 @@ func evaluateCaseWithConfig(
 		coverage = decision.Coverage
 		assessment = decision.AlertAssessment
 		completion = decision.Completion
+		operations = operationTypes(decision.AppliedOperations)
 		strictOperations = len(decision.AppliedOperations) > 0
 	case "handoff":
 		// A retiring session's turn is graded exactly where the host reads it.
@@ -810,7 +829,8 @@ func evaluateCaseWithConfig(
 	}
 	if detail := evaluationExpectationMismatch(testCase, evaluationObservation{
 		action: action, message: message, reason: reason, reaction: reaction,
-		offer: offer, offers: offers, evidence: evidence, coverage: coverage,
+		offer: offer, offers: offers, operations: operations,
+		evidence: evidence, coverage: coverage,
 		completion: completion, assessment: assessment, attention: attention,
 		memory:            memory,
 		replyMessageCount: replyMessageCount, pendingApproval: pendingApproval,
@@ -886,6 +906,14 @@ func hostedWatchDecisionOffers(
 		}
 	}
 	return result
+}
+
+func operationTypes(operations []investigation.ResultOperation) []string {
+	types := make([]string, 0, len(operations))
+	for _, operation := range operations {
+		types = append(types, operation.Type)
+	}
+	return types
 }
 
 func watchDecisionOffers(decision decisionpkg.WatchDecision) []string {
