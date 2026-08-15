@@ -688,7 +688,10 @@ var lineBudget = map[string]int{
 	// standingassignmentstore. The package had reached its cap to the line
 	// twice that day, so the shadow ledger could not have been added here at
 	// all — which is the ratchet doing exactly what it is for.
-	"store":      11320,
+	//
+	// 11323 after the retry-identity landing crossed the assignment
+	// extraction's lowered number; 11340 keeps the same thin margin.
+	"store":      11340,
 	"localstate": 400,
 	"provider":   120,
 	// Raised from 400 to 460 on 2026-08-14 for recalling past episodes into
