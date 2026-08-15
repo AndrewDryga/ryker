@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/investigation"
@@ -202,5 +203,70 @@ func TestCorrectionIsWithheldWhereTheTypedShapeChangesTheDecision(t *testing.T) 
 	if LegacyShapeCorrection(silent, "") == "" {
 		t.Fatal("an ignore that learned something drew no correction; that is the " +
 			"largest legacy population on the live instances")
+	}
+}
+
+// The dialect flag must read the transport, not the payload size.
+//
+// A typed react or escalate legitimately answers with `"operations": []`, and
+// counting that as legacy made legacy_only unfalsifiable: it flagged the exact
+// shape the migration teaches, so the countdown the stage-2 deletion rests on
+// could never reach zero (2026-08-14 envelope-dialect stage 2 gate). Key
+// present and empty is the typed dialect saying "nothing to move"; only an
+// absent key is the old shape.
+func TestTypedEmptyOperationsArrayIsNotTheLegacyDialect(t *testing.T) {
+	for _, raw := range []string{
+		`{"action":"react","reaction":"eyes","reason":"seen and fine","operations":[]}`,
+		`{"action":"escalate","reason":"needs an operator decision","operations":[]}`,
+	} {
+		decision, err := ParseWatchDecision(raw, time.Now().UTC())
+		if err != nil {
+			t.Fatalf("parse %s: %v", raw, err)
+		}
+		if !decision.OperationsKeyPresent {
+			t.Fatalf("operations key not seen as present: %s", raw)
+		}
+		if decision.LegacyShape {
+			t.Fatalf("typed empty operations read as the legacy dialect: %s", raw)
+		}
+	}
+}
+
+func TestAbsentOperationsKeyIsTheLegacyDialect(t *testing.T) {
+	decision, err := ParseWatchDecision(
+		`{"action":"react","reaction":"eyes","reason":"seen"}`, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.OperationsKeyPresent {
+		t.Fatal("absent operations key read as present")
+	}
+	if !decision.LegacyShape {
+		t.Fatal("an envelope without an operations key is the legacy dialect and " +
+			"must keep saying so, or legacy_only stops measuring the migration")
+	}
+}
+
+// An empty typed stream beside envelope content is still the legacy transport:
+// the model acknowledged operations and then put its result somewhere else. The
+// correction must keep firing there, or fixing the audit would silently stop
+// the squeeze on the one key-present shape that still needs it.
+func TestEmptyOperationsBesideContentIsStillCorrected(t *testing.T) {
+	decision := WatchDecision{
+		Action: "reply", Message: "the answer",
+		OperationsKeyPresent: true,
+	}
+	if correction := LegacyShapeCorrection(decision, ""); correction == "" {
+		t.Fatal("envelope content beside an empty typed stream drew no correction")
+	}
+}
+
+func TestAgentReportTypedEmptyOperationsIsNotTheLegacyDialect(t *testing.T) {
+	report, err := DecodeAgentReport(`{"message":"done","operations":[]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.LegacyShape {
+		t.Fatal("typed empty operations on an agent report read as the legacy dialect")
 	}
 }

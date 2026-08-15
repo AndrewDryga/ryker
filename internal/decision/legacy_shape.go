@@ -94,7 +94,15 @@ const LegacyShapeCorrectionPrefix = "the result was read and accepted, but it ca
 // retry. The rule lives beside the field that carries it so the two cannot
 // drift.
 func LegacyShapeCorrection(decision WatchDecision, sent string) string {
-	if !decision.LegacyShape || sent != "" {
+	// The legacy TRANSPORT is what draws the correction, and it has two forms:
+	// no operations key at all (LegacyShape), or an acknowledged-but-empty
+	// stream beside envelope content — the model knew the dialect and still put
+	// its result somewhere else. A typed result whose operations were folded
+	// back into the envelope fields for rendering is neither, and the fields
+	// check below cannot tell it apart on its own.
+	legacyTransport := decision.LegacyShape ||
+		(decision.OperationsKeyPresent && len(decision.Operations) == 0)
+	if !legacyTransport || sent != "" {
 		return ""
 	}
 	fields := LegacyResultFields(decision)

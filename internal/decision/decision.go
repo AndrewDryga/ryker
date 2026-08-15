@@ -113,6 +113,15 @@ type WatchDecision struct {
 	// See AgentReport: these record whether the typed protocol was actually
 	// used, so the legacy path can be deleted on evidence rather than hope.
 	LegacyShape bool `json:"-"`
+
+	// OperationsKeyPresent records whether the envelope carried an
+	// `operations` key at all, empty or not. An empty array is the typed
+	// dialect saying "nothing to move" — react and escalate answer that way by
+	// design — while an absent key is the legacy shape. Folding both into
+	// LegacyShape made legacy_only count the exact shape the migration
+	// teaches, so the number the stage-2 deletion rests on could never reach
+	// zero.
+	OperationsKeyPresent bool `json:"-"`
 }
 
 // MarshalWatchDecisionResult persists the same transport shape accepted from
@@ -262,6 +271,7 @@ func DecodeWatchDecision(message string, now time.Time) (WatchDecision, error) {
 	if err := DecodeStrictJSON(normalized, &decision); err != nil {
 		return WatchDecision{}, err
 	}
+	decision.OperationsKeyPresent = operationsKeyPresent(normalized)
 	if err := ApplyWatchResultOperations(&decision); err != nil {
 		return WatchDecision{}, err
 	}
@@ -794,6 +804,10 @@ type AgentReport struct {
 	// to answer one question before the legacy path is deleted: does anything
 	// still depend on it?
 	LegacyShape bool `json:"-"`
+
+	// OperationsKeyPresent distinguishes an empty typed stream from an absent
+	// one; see WatchDecision.OperationsKeyPresent.
+	OperationsKeyPresent bool `json:"-"`
 }
 
 func NormalizeReplySequence(message string, followups []string) (string, []string, error) {
@@ -941,6 +955,7 @@ func DecodeAgentReport(message string) (AgentReport, error) {
 	if err := DecodeStrictJSON(normalized, &report); err != nil {
 		return AgentReport{}, fmt.Errorf("decode structured agent response: %w", err)
 	}
+	report.OperationsKeyPresent = operationsKeyPresent(normalized)
 	if err := ApplyAgentResultOperations(&report); err != nil {
 		return AgentReport{}, err
 	}
@@ -1243,9 +1258,24 @@ const MaxResultOperations = 100
 // second way and leave the model believing its operations were accepted.
 var ErrInvalidOperations = errors.New("invalid typed operation stream")
 
+// operationsKeyPresent reports whether the raw envelope carried an
+// `operations` key at all. json.Unmarshal cannot say — an absent key and an
+// empty array decode identically — and the difference is a dialect signal:
+// an empty array is the typed shape saying "nothing to move", an absent key
+// is the legacy shape. See WatchDecision.OperationsKeyPresent.
+func operationsKeyPresent(raw []byte) bool {
+	var probe struct {
+		Operations json.RawMessage `json:"operations"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return false
+	}
+	return len(probe.Operations) > 0
+}
+
 func ApplyAgentResultOperations(report *AgentReport) error {
 	if len(report.Operations) == 0 {
-		report.LegacyShape = true
+		report.LegacyShape = !report.OperationsKeyPresent
 		return nil
 	}
 	// Operations are the authoritative transport. Models sometimes repeat their
@@ -1281,7 +1311,7 @@ func ApplyAgentResultOperations(report *AgentReport) error {
 
 func ApplyWatchResultOperations(decision *WatchDecision) error {
 	if len(decision.Operations) == 0 {
-		decision.LegacyShape = true
+		decision.LegacyShape = !decision.OperationsKeyPresent
 		return nil
 	}
 	if decision.Action == "ignore" {
