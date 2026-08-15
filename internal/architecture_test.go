@@ -438,7 +438,12 @@ var lineBudget = map[string]int{
 	// 22900, measured once against the tree that exists. Five same-day raises
 	// is the strongest argument yet for the Phase 9 split — after the kernel
 	// cutover stabilizes ownership, per the migration plan's own ordering.
-	"service": 22900,
+	//
+	// Lowered to 22860 on 2026-08-14 when the legacy result dialect stopped
+	// being read: the correction rung, the audit, and the shipped-anyway arm
+	// left with it. Actual is 22830; lowering after a deletion is the ratchet
+	// working in the direction it was built for.
+	"service": 22860,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
