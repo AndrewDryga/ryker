@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
@@ -62,18 +63,27 @@ func (s *Store) RequeueRateLimitedAgentRun(
 		return err
 	}
 	defer tx.Rollback()
-	// coop_turn_id is dropped because the turn it names is dead, and keeping
-	// it made the park permanent: the next lease polled the dead turn, re-read
-	// its stale refusal, and parked again. run_d55f248a rode that loop for 3.5
-	// hours on 2026-08-15 — its session had rotated to a healthy provider rung
-	// at 00:42 and no new turn was ever submitted to it. Released, the next
-	// attempt submits fresh into the same session and takes whatever rung the
-	// ladder is on now.
+	// coop_turn_id and the idempotency key are dropped TOGETHER because they
+	// are one binding: the turn that died and the operation that created it.
+	// Kept, they made the park permanent twice over. The kept turn id had the
+	// next lease re-polling the dead turn and re-reading its stale refusal —
+	// run_d55f248a rode that for 3.5 hours on 2026-08-15 while its session
+	// sat on a healthy rotated rung. Then the turn release shipped alone, and
+	// the kept KEY had Coop replaying the recorded 00:41 SubmitTurn operation
+	// — same stale refusal, no turn created — every five minutes; with a
+	// drifted prompt the same reuse surfaced as idempotency_conflict (409) on
+	// four other runs the same night. Rotated, the next attempt is a genuinely
+	// new submission into the same session, on whatever rung the ladder holds.
+	recoveryID, err := core.NewID("recovery")
+	if err != nil {
+		return fmt.Errorf("generate rate-limited requeue identity: %w", err)
+	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
-		SET state = 'pending', coop_turn_id = '',
+		SET state = 'pending', coop_turn_id = '', idempotency_key = ?,
 		    last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state IN ('preparing', 'running', 'finalizing')`,
+		"responder:run:"+id+":"+recoveryID,
 		sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat),
 		s.nowText(), id,
 	)

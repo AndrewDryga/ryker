@@ -50,6 +50,31 @@ func TouchAgentRun(t *testing.T, stateDir, sourceKind, sourceID string) {
 	}
 }
 
+// MakeAgentRunDue pulls one run's next_attempt_at into the past, so a test
+// can walk a backoff without a settable store clock. The service clock is
+// injectable but the lease predicate compares next_attempt_at against the
+// store's own now, so advancing the service clock alone leaves a requeued run
+// unleasable for its full real-time backoff. Same direct-SQL residence rule
+// as TouchAgentRun above.
+func MakeAgentRunDue(t *testing.T, stateDir, sourceKind, sourceID string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatalf("open the database under test: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`PRAGMA busy_timeout = 5000;`); err != nil {
+		t.Fatalf("apply connection pragmas: %v", err)
+	}
+	if _, err := db.Exec(`
+		UPDATE agent_runs SET next_attempt_at = ?
+		WHERE source_kind = ? AND source_id = ?`,
+		time.Now().Add(-time.Minute).UTC().Format(core.TimestampFormat), sourceKind, sourceID,
+	); err != nil {
+		t.Fatalf("make agent run due: %v", err)
+	}
+}
+
 // DB returns a connection to a freshly migrated database.
 //
 // The schema comes from the real store rather than a fixture, so a repository

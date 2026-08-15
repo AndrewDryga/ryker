@@ -1946,6 +1946,33 @@ func TestARateLimitedRunReleasesItsDeadTurn(t *testing.T) {
 			"will re-read the corpse and defer again instead of submitting fresh",
 			run.CoopTurnID)
 	}
+
+	// Releasing the turn without rotating the idempotency key is the same
+	// wedge one layer down: the fresh submission replays the recorded 00:41
+	// operation and its rate-limited outcome verbatim, no turn is created,
+	// and the run parks again — which is exactly what run_d55f248a did every
+	// five minutes after the turn-release fix deployed. A drifted prompt
+	// makes it a 409 idempotency_conflict instead, which four other runs hit
+	// the same night. The release and the key rotation are one repair.
+	storetest.MakeAgentRunDue(t, cfg.StateDir, "watch", input.ID)
+	// Coop clears a session's active turn when the turn reaches a terminal
+	// state; the fake keeps whatever the submit wrote, so mirror the cleanup
+	// or the re-lease parks on "waiting for the previous agent run" instead
+	// of reaching the submission under test.
+	coopClient.session.ActiveTurnID = ""
+	coopClient.submitTurns = []coop.Turn{{ID: "turn_fresh", State: "running"}}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.submitKeys) != 2 {
+		after, _ := st.GetAgentRunBySource(ctx, "watch", input.ID)
+		t.Fatalf("the released run submitted %d turns, want a second fresh submission "+
+			"(state %q, error %q)", len(coopClient.submitKeys), after.State, after.LastError)
+	}
+	if coopClient.submitKeys[1] == coopClient.submitKeys[0] {
+		t.Fatalf("the fresh submission reused idempotency key %q; Coop will replay the "+
+			"dead operation instead of creating a turn", coopClient.submitKeys[1])
+	}
 }
 
 // Channel serialization exists so answers land in order, and tonight it starved
