@@ -575,7 +575,20 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // prose-in-values is the wrong shape regardless, so the value is back to
 // "identified|bounded" and the condition is prose after the example, the
 // same dash the other rows annotate with.
-const staticWatchPromptBytes = 48446
+//
+// 48698 that night, for the terminal-app-event eval case that had failed
+// every full run but one since it was written: a success report ("Run
+// Applied") got a reply with no completion assessment, because the ignore
+// bullet calls successful notifications noise and nothing said a reply that
+// reports a terminal event still closes an episode. The host never enforced
+// it either — ExternalAppEventRequiresDecision matches only failure words —
+// so the model could not even learn it from a correction. The first wording
+// named the concept ("close with a completion assessment") and the model
+// still omitted it; what stuck was naming the exact shape — the decision-
+// ready complete_episode with its nested status and verdict. One sentence on
+// the reply bullet; the two kept app-event fixture candidates are its
+// production twins.
+const staticWatchPromptBytes = 48698
 
 // The static prompt must not grow without someone deciding it should.
 //
