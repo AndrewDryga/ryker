@@ -244,8 +244,10 @@ A configured operator creates a schedule by mentioning Emisar with a task and ti
 
 Responder asks the model only to normalize an explicit request into a typed offer. The host checks
 the repository, recurrence, timestamp, IANA timezone, interval, task size, expiry, operator, and
-credential-like content. An operator must click **Schedule this** before a row is created. Use
-`/responder schedules` in the destination channel to run, pause, resume, replace, or delete tasks.
+credential-like content. An operator must click **Schedule this** before a row is created. App Home
+and the web control plane pause, resume, and delete a task afterwards. Neither offers an edit,
+because a schedule's definition has no update path anywhere in the product: changing one means
+describing the replacement and confirming it through the same typed parser.
 
 One-time schedules require an exact future instant. Interval schedules may omit a start instant and
 then begin after one interval. Daily, weekly, and monthly schedules use the operator's Slack profile
@@ -437,10 +439,9 @@ Operator-confirmed durable memory is a separate bounded facility. Responder offe
 configured operator explicitly asks to remember or save an alias, channel repository binding,
 evidence route, entity relationship, or open-ended collaboration guidance.
 The button shows the scope and expiry before writing. Entries are unique by scope, subject, and
-predicate, so a correction replaces the prior value rather than creating a duplicate. App Home
-shows workspace-visible and operator-visible entries; `/responder memory` shows the exact entries
-visible in the current channel, memory capacity, recall activity, and consolidation status.
-`/responder memory review` presents stale or duplicate candidates one at a time. No review mutates
+predicate, so a correction replaces the prior value rather than creating a duplicate. App Home and
+the web control plane list active entries with an individual forget confirmation on each, and both
+present stale or duplicate candidates one at a time. No review mutates
 memory until a full workspace operator chooses keep, merge, or forget. Forgotten values are
 removed; audit records retain only the entry ID, scope, predicate, actor, and outcome. Replacement
 history stores hashes rather than old memory values.
@@ -485,7 +486,7 @@ Operator-confirmed behavior is stored separately from factual operational memory
 
 Natural-language requests only create inert offers. The confirmation card shows the normalized
 entry, scope, expiry, and safety boundary; a configured full workspace operator must confirm it
-before the host writes state. `/responder preferences` and `/responder rules` provide enable,
+before the host writes state. App Home and the web control plane provide enable,
 disable, edit, and delete controls. Editing asks for a replacement natural-language request because
 the replacement must pass the same typed parser and confirmation boundary. Confirmed guidance can
 enter model context as advice, but arbitrary prose is never an executable trigger or authority. An
@@ -506,10 +507,12 @@ and repository reconciliation removes orphaned repository preferences.
 `responder.yaml` remains the deployment default. `/responder proactive` writes audited overrides
 to the owner-private database. Resolution order is channel override, workspace override, then the
 static `slack.watch_channels` list. `inherit` deletes an override instead of copying a stale
-default. `/responder turn-limit` stores capacity-ceiling overrides in the same table with the same
-precedence. `/responder shadow` stores dry-run evaluation overrides with the same precedence;
+default. `/responder shadow` stores dry-run evaluation overrides with the same precedence;
 shadow mode still performs read-only classification and evidence collection, but cannot post,
-offer, or create an incident. Back up these settings with the rest of `responder.db`.
+offer, or create an incident. Proactive and shadow are the only two settings Slack can write.
+A `turn_limit` row left in the same table by an older deployment is still read at the same
+precedence, but nothing in Slack creates or changes one. Back up these settings with the rest of
+`responder.db`.
 
 Proactive turns return an addressee and four `0..3` interruption dimensions: urgency, confidence,
 novelty, and ownership. The host sums those dimensions after parsing. Ambient replies below
@@ -519,10 +522,10 @@ Higher values make a deployment quieter. Explicit requests bypass the score, whi
 ambient messages remain suppressed.
 
 Accepted model-backed work is recorded in `commitments` at queue time and projected from
-`agent_runs`, which remains the execution authority. `/responder work`, conversational requests
-such as `what are you working on?`, and App Home expose queued, working, finishing, blocked, and
-cancelled state. Maintenance does not create a second work lifecycle: commitment retention follows
-the underlying agent run.
+`agent_runs`, which remains the execution authority. App Home, the web control plane, and
+conversational requests such as `what are you working on?` expose queued, working, finishing,
+blocked, and cancelled state. Maintenance does not create a second work lifecycle: commitment
+retention follows the underlying agent run.
 
 ## Evidence
 
@@ -530,8 +533,10 @@ Agent prose is not the evidence ledger. Structured observations record claim, ob
 type and name, target, freshness, confidence, optional HTTPS source URL, and observation time.
 Coverage records whether hardware, host, runtime, scheduler, workload, dependency, application,
 SLO, and recent-change layers are healthy, degraded, unhealthy, unknown, or not applicable.
-`/responder evidence`, `/responder timeline`, `/responder handoff`, and `/responder postmortem` read
-these durable records. The remediation timeline is a deterministic chronological projection over
+The **Record** row on a pinned incident or task card reads these durable records as a timeline, an
+evidence ledger, a handoff summary, or a postmortem draft. All four are host-rendered from the
+stored rows, never model-authored.
+The remediation timeline is a deterministic chronological projection over
 signals, agent runs, explicit operator and lifecycle events, proposals, Emisar approval-bound runs,
 and draft-PR publication. Those source rows remain canonical, so retries cannot create a second
 version of an approval or executed action in the incident record. Closing an incident posts a
@@ -602,12 +607,18 @@ incident and operator work.
 
 Responder automatically adds Coop capacity when an authorized request reaches an exhausted session.
 `coop.extend_turns` is the internal allocation chunk; it is not an operator-facing estimate.
-`coop.turn_limit` is the default lifetime safety ceiling, measured in accepted requests rather than
-tool calls or investigation steps. The shipped default is 1000. Authorized operators can inspect or
-override it per channel or workspace with `/responder turn-limit`; channel override, workspace
-override, then deployment configuration is the precedence order. At the ceiling, the pending
-request, session, and fork are preserved, and raising the ceiling resumes incident work. Coop's
-policy and service-wide hard limits remain authoritative.
+`coop.turn_limit` is the lifetime safety ceiling, measured in accepted requests rather than
+tool calls or investigation steps. The shipped default is 1000. Raising it is a deployment change:
+edit `responder.yaml` and restart. Nothing in Slack writes it, and there is no web editor for it
+either. A `turn_limit` row left in `slack_settings` by an older deployment still wins at channel,
+then workspace, then deployment precedence.
+
+At the ceiling the pending request, Coop session, and fork are preserved. The blocked request is
+deferred and retried rather than failed, so a raised ceiling lets it proceed on the next retry after
+the restart without anyone re-asking. The cost of removing the Slack control is that clearing this
+during an incident now needs someone who can edit the configuration and redeploy — which is the
+intended trade, because a session that has spent a thousand accepted requests is usually looping
+rather than short of room. Coop's policy and service-wide hard limits remain authoritative.
 
 `limits.max_webhook_attempts`, `limits.max_slack_input_attempts`,
 `limits.max_delivery_attempts`, and `limits.max_agent_run_attempts` independently bound poison work.
@@ -756,10 +767,10 @@ closed work, then episode history, then audit.
 
 Expiring a rule run never erases what it proved. `standing_rules` carries `trigger_count` beside
 `acted_count` and `quiet_count`, written in the same transaction as the run, so the Configuration
-page and `/responder rules` can say how many fires produced something and how many produced nothing
-long after the individual rows are gone. The two tallies count only fires recorded since the tally
-existed and deliberately do not add up to `trigger_count` on an older rule; the surfaces state the
-recorded total rather than dividing by the fire count.
+page and App Home's standing-rule rows can say how many fires produced something and how many
+produced nothing long after the individual rows are gone. The two tallies count only fires recorded
+since the tally existed and deliberately do not add up to `trigger_count` on an older rule; the
+surfaces state the recorded total rather than dividing by the fire count.
 
 No horizon deletes an episode that a pending or approved correction, open feedback, a live wakeup, a
 non-terminal child, an unfinished run, or an open incident still depends on — including the
@@ -783,8 +794,9 @@ accepts clean unpublished commits only after a second exact Coop plan and still 
 Deleting or archiving a Slack incident room does not delete or close the incident record. Responder
 stores the room as `deleted` or `archived`, retains its channel ID and name, blocks an open incident,
 preserves the Coop session and isolated fork, and makes pending room deliveries terminal instead of
-retrying a destination that cannot accept them. The incident directory labels the unavailable room
-without emitting a broken Slack channel mention.
+retrying a destination that cannot accept them. App Home labels the unavailable room with its
+retained `#channel-name` and a plain-language lifecycle word instead of emitting a Slack channel
+mention that would render as a broken link.
 
 Slack lifecycle events are authoritative for deletion. Periodic channel inspection can mark a room
 `unreachable` when Slack returns `channel_not_found`, but that state deliberately means unavailable

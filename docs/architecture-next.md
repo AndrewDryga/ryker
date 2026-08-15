@@ -689,9 +689,9 @@ Trigger deduplication and correlation are deterministic. The assignment grants i
 its scope, never permission beyond the current Responder, Coop, and Emisar policies.
 
 Conversational setup proposes the typed assignment and renders a confirmation card showing trigger,
-scope, output, expiry, budget, and authority boundary. Slash commands and App Home provide a reliable
-management surface for review, pause, edit, history, and deletion rather than a second configuration
-model.
+scope, output, expiry, budget, and authority boundary. App Home and the web control plane provide a
+reliable management surface for review, pause, edit, history, and deletion rather than a second
+configuration model.
 
 ### 13.4 Approval behavior
 
@@ -1182,7 +1182,7 @@ Expand the gate only when a new check has demonstrated signal and acceptable sta
 | Attachments and screenshots | Content-addressed manifest references with visibility |
 | Generated charts and files | Upload-before-claim invariant and retryable artifact state |
 | Channel setup and conversational configuration | Typed wizard or proposal state attached to an episode |
-| Slash commands and App Home | Management views over the same typed configuration and episode state |
+| App Home and the web control plane | Management views over the same typed configuration and episode state; the four slash verbs stay the no-model recovery path |
 | Durable preferences and rules | Typed, confirmed, scoped, expiring records |
 | Freeform operator guidance | Confirmed, provenance-bearing, non-executable guidance notes |
 | Cross-channel memory | Public organizational recall with strict privacy intersection |

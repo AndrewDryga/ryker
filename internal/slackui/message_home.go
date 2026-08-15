@@ -125,7 +125,7 @@ func OperationsHome(
 	// that has to sit directly beneath them.
 	if extra := len(owedItems) - 5; extra > 0 {
 		message.Context = append(message.Context,
-			fmt.Sprintf("%d more need you — `/responder work`", extra))
+			fmt.Sprintf("%d more need you — scroll for the rest", extra))
 	}
 
 	// In flight: what Responder is carrying, so the reader can tell an idle
@@ -267,19 +267,19 @@ func OperationsHome(
 	// prefer the count and fall back rather than report zero beside a list.
 	if saved := max(memoryActive, len(memories)); saved > 0 {
 		shelf = append(shelf, fmt.Sprintf(
-			"*Memory* · %d saved · `/responder memory`", saved,
+			"*Memory* · %d saved · listed below", saved,
 		))
 	}
 	if preferenceActive > 0 || ruleActive > 0 {
 		shelf = append(shelf, fmt.Sprintf(
-			"*Settings & rules* · %d %s · %d standing %s · `/responder preferences`",
+			"*Settings & rules* · %d %s · %d standing %s · listed below",
 			preferenceActive, pluralize(preferenceActive, "setting", "settings"),
 			ruleActive, pluralize(ruleActive, "rule", "rules"),
 		))
 	}
 	if scheduleActive > 0 {
 		shelf = append(shelf, fmt.Sprintf(
-			"*Schedules* · %d scheduled %s · `/responder schedules`",
+			"*Schedules* · %d scheduled %s · listed below",
 			scheduleActive, pluralize(scheduleActive, "task", "tasks"),
 		))
 	}
@@ -288,11 +288,15 @@ func OperationsHome(
 			"*Everything else*\n"+strings.Join(shelf, "\n"))
 	}
 
-	// The footer. Everything the page is not about, on one line, each with a
-	// command that exists — `/responder failures` and `/responder sessions` were
-	// printed here for months and neither has ever been a subcommand, so both
-	// answered "Unknown `/responder` subcommand" to anyone who followed the
-	// advice this page gave them.
+	// The footer. Everything the page is not about, on one line.
+	//
+	// It used to name a subcommand per item, and the subcommands did not exist:
+	// `/responder failures` and `/responder sessions` were printed here for
+	// months and neither has ever been one, so both answered "Unknown
+	// `/responder` subcommand" to anyone who followed the advice this page
+	// gave them. That failure is now structural rather than a matter of care —
+	// `/responder` is a closed handful of verbs, and the only one this page has
+	// any business naming is the one it names.
 	elsewhere := make([]string, 0, 4)
 	if failedWork > 0 {
 		elsewhere = append(elsewhere, fmt.Sprintf("%d failed", failedWork))

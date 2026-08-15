@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -17,7 +16,7 @@ type automaticTurnLimitError struct {
 
 func (e *automaticTurnLimitError) Error() string {
 	return fmt.Sprintf(
-		"automatic turn ceiling %d reached; use /responder turn-limit with a higher value to continue",
+		"automatic turn ceiling %d reached; raise coop.turn_limit in responder.yaml to continue",
 		e.Limit,
 	)
 }
@@ -72,55 +71,12 @@ func (s *Service) ensureTurnCapacity(
 func turnLimitReachedMessage(limit int) string {
 	return fmt.Sprintf(
 		turnLimitReachedPrefix+" of %d agent requests. "+
-			"The pending request and Coop session are preserved. An authorized operator can "+
-			"raise it with `/responder turn-limit %d` or inspect the current policy with "+
-			"`/responder turn-limit`. This ceiling counts accepted requests, not tool calls or "+
+			"The pending request and Coop session are preserved. The ceiling is "+
+			"`coop.turn_limit` in responder.yaml; raising it needs a deployment change, "+
+			"because a session that has spent %d accepted requests is usually looping "+
+			"rather than short of room. This counts accepted requests, not tool calls or "+
 			"investigation steps within a request.",
 		limit,
-		min(limit+500, 10000),
+		limit,
 	)
-}
-
-func (s *Service) resumeTurnLimitBlockedIncidents(
-	ctx context.Context,
-	scope string,
-	channelID string,
-) error {
-	const pageSize = 100
-	for offset := 0; ; offset += pageSize {
-		incidents, total, err := s.store.ListIncidentPage(ctx, true, pageSize, offset)
-		if err != nil {
-			return err
-		}
-		for _, incident := range incidents {
-			if scope == "channel" && incident.ChannelID != channelID {
-				continue
-			}
-			if incident.Workflow != core.WorkflowBlocked ||
-				!strings.HasPrefix(incident.LastError, turnLimitReachedPrefix) ||
-				incident.CoopSessionID == "" {
-				continue
-			}
-			session, err := s.coop.GetSession(ctx, incident.CoopSessionID)
-			if err != nil {
-				return err
-			}
-			limit, err := s.effectiveTurnLimit(ctx, incident.ChannelID)
-			if err != nil {
-				return err
-			}
-			if session.State == "closed" ||
-				(session.State == "exhausted" && session.MaxTurns >= limit) {
-				continue
-			}
-			if err := s.store.SetIncidentError(
-				ctx, incident.ID, core.WorkflowParked, "",
-			); err != nil {
-				return err
-			}
-		}
-		if offset+len(incidents) >= total {
-			return nil
-		}
-	}
 }

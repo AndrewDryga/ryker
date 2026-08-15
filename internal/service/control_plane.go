@@ -71,11 +71,11 @@ func (s *Service) ControlPlaneAct(ctx context.Context, action, id, actor string)
 	}
 }
 
-// ControlPlaneChannelSetting writes a participation override the way the
-// /responder slash command writes it: the same store call, the same three
-// values, and "inherit" deleting the row rather than storing the word — an
-// override that stored "inherit" would shadow the workspace default it is
-// meant to defer to.
+// ControlPlaneChannelSetting writes a participation override the way
+// `/responder proactive` and `/responder shadow` write it: the same store call,
+// the same three values, and "inherit" deleting the row rather than storing the
+// word — an override that stored "inherit" would shadow the workspace default
+// it is meant to defer to.
 //
 // Only the two overrides are offered. The channel-setup flow that writes
 // channel_configurations is a guided Slack conversation with a repository

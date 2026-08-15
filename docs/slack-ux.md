@@ -9,7 +9,7 @@ or implementation. It should answer, in this order:
 2. **What that means for Responder's observable behavior.**
 3. **Where the behavior applies and what takes precedence.**
 4. **Whether work, code, infrastructure, or incident state changed.**
-5. **What the operator can do next, using the exact Slack command when appropriate.**
+5. **What the operator can do next, naming the exact card control or Slack command.**
 
 User-facing copy translates internal workflow values such as `parked`, configuration inheritance,
 and Coop session mechanics into plain operational language. Internal names may appear only when
@@ -165,8 +165,8 @@ invitations only. It never authorizes repository changes, Emisar approvals, depl
 infrastructure mutations.
 
 Channel setup is more specific than the workspace override and deployment default, while an
-explicit per-channel `/responder` override remains the emergency override. Confirmed channel
-deletion removes its membership observation, setup sessions, and saved configuration.
+explicit per-channel `/responder proactive` override remains the emergency override. Confirmed
+channel deletion removes its membership observation, setup sessions, and saved configuration.
 
 `slack.watch_channels` is the static default list for shared operational feeds such as
 `#infra-alerts`. Responder must be invited to every configured channel, and `responder doctor`
@@ -228,7 +228,7 @@ request such as `remember that when you explain fixes to me, start with a plain-
 produces a confirmation card with the exact guidance, scope, and expiry. Personal guidance follows
 that operator across channels; an explicit channel or team convention uses channel or workspace
 visibility. Until the button is confirmed, nothing is stored. A later request with the same topic
-replaces the logical entry. App Home and `/responder memory` list active memory with individual
+replaces the logical entry. App Home and the web control plane list active memory with individual
 forget confirmations. Guidance is advisory: it cannot trigger work, count as evidence, authorize an
 incident or change, approve an action, or override the current request or host safety policy.
 Operational mappings are likewise never presented as live health or authority; future
@@ -337,9 +337,12 @@ An approved or permitted incident decision retains the original Slack message as
 acknowledges the source thread, and enters the same channel, root-card, isolated-fork, and
 policy-controlled investigation workflow as webhook and manual incidents. Every admitted watched
 message is one accepted request in its channel's ordered triage session. Responder extends exhausted
-watched and incident sessions automatically up to the effective `coop.turn_limit`. Operators can
-inspect or change that safety ceiling with `/responder turn-limit`; Coop policy and service-wide
-limits remain authoritative.
+watched and incident sessions automatically up to the effective `coop.turn_limit`. That ceiling is a
+deployment value in `responder.yaml` and no Slack control raises it. The reasoning is that a session
+which has spent a thousand accepted requests is looping rather than short of room, and the card says
+so; the cost is that an operator who reaches the ceiling mid-incident cannot clear it from Slack and
+needs someone who can edit the configuration and redeploy. Coop policy and service-wide limits remain
+authoritative.
 
 An explicit mention in a summon-enabled watched channel is routed through the same read-only triage
 session and gets responder-targeting priority. Only explicit incident wording bypasses
@@ -349,74 +352,77 @@ the `app_mention` event.
 
 ## Slash command
 
-The shipped Slack app registers one command with deterministic subcommands:
+The shipped Slack app registers one command, and this is the whole of it:
 
 ```text
 /responder status
-/responder work
-/responder commitments
-/responder incidents
-/responder incidents open [page]
-/responder incidents all [page]
 /responder proactive on|off|inherit
 /responder proactive global on|off|inherit
 /responder shadow on|off|inherit
 /responder shadow global on|off|inherit
-/responder turn-limit
-/responder turn-limit 100..10000|inherit
-/responder turn-limit global 100..10000|inherit
-/responder timeline
-/responder evidence
-/responder handoff
-/responder memory
-/responder preferences
-/responder rules
-/responder update
-/responder changes
-/responder review
-/responder stop
-/responder close
+/responder assignments [list|create|pause|resume|delete]
 /responder help
 ```
 
-Slack does not provide application-defined autocomplete for text after a slash command. The
-manifest therefore uses a short `help | status | incidents | schedules` usage hint instead of
-putting every argument in the picker. Running `/responder` without arguments or selecting `help`
-returns an interactive guide with read-only buttons for channel status, open incidents, and all
-incident history.
+`settings` and `config` are accepted spellings of `status`, `watch` of `proactive`, and
+`assignment` of `assignments`.
 
-No phrase table sits beside it. A keyword router used to rewrite plain operator messages into these
-same subcommands, and it read every message in a proactive channel: "shadow traffic is on the new
+There were twenty-odd. The catalogue grew a verb every time the product grew a capability, on the
+assumption that anything worth doing is worth typing, and the result was a second interface to
+everything: `incidents` paged a directory App Home already showed, `work` printed the commitment
+card, and `memory`, `preferences`, `rules`, and `schedules` each managed a facility that is created
+by conversation and confirmed on a card. Slack does not tell a slash command which thread the
+composer is sitting in, so the verbs that mattered most during an engineering task — `update`,
+`changes`, `stop`, `close` — resolved by channel and answered about the wrong work.
+
+Four of those are the emergency kit: they reach no model and need no Coop session, so they answer
+while an agent run is stuck or looping, and they answer privately to the operator who typed them.
+`status` says what Responder is doing in this channel and why. `proactive` and `shadow` change what
+the channel is read for. Those are the controls an operator needs when a room will not stop talking
+and the ordinary conversational path is the thing that is broken.
+
+`assignments` is the fifth and it is on borrowed time. A standing assignment is created by typing
+one because the `offer_assignment` confirm card that would show its normalized bounds has not been
+built; deleting the verb before that card exists would delete the only way to create the thing. It
+leaves this list the day the card lands, and the App Home and web control plane already read the
+assignments back.
+
+Everything else moved to a surface that can reach further than the composer can. A removed verb
+answers with the one line naming where it went, plus the whole of what is left. It does not answer
+"unknown subcommand": an operator who typed a verb that worked last week did not misspell it, and
+the capability still exists somewhere.
+
+| Typed | Where it lives now |
+| --- | --- |
+| `incidents`, `work`, `commitments` | App Home's **In flight** and needs-you rows, the web control plane, or ask in the channel |
+| `memory`, `preferences`, `rules`, `schedules` | App Home and the web control plane manage them; creating one stays conversational and is confirmed on a card |
+| `feedback` | Say it. Feedback is recorded from what was said |
+| `timeline`, `evidence`, `handoff`, `postmortem` | The **Record** row on the pinned incident or task card |
+| `update`, `changes`, `review`, `publish`, `stop`, `close` | The buttons already on the pinned card, or ask in the thread |
+| `extend` | Nothing. Responder allocates session capacity automatically |
+| `turn-limit` | `coop.turn_limit` in `responder.yaml`, which is a deployment change |
+
+Slack does not provide application-defined autocomplete for text after a slash command, so the
+manifest carries one short static usage hint and the whole guide lives behind `help`. The hint names
+the four emergency verbs only, because it is a picker and not a catalogue. Running `/responder` with
+no arguments returns the full guide: every verb that exists, one line on why there are so few, and a
+read-only button for channel status.
+
+No phrase table sits beside it. A keyword router used to rewrite plain operator messages into slash
+subcommands, and it read every message in a proactive channel: "shadow traffic is on the new
 cluster, ignore it" turned the channel silent, and "hey bob what are you working on?" posted the
 commitment card at the room. Free text is now classified by the model and executed by the host, and
 `@Emisar reconfigure this channel` is the one request still read from text — it has to survive the
 model being unavailable, and it is read only when Responder is addressed.
 
-`incidents` lists open incidents newest first. Each compact entry contains the title, a native
-Slack channel mention, plain-language activity, firing-alert count, incident ID, repository, and
-start time. Archived, deleted, or unreachable rooms use their retained `#channel-name` plus a
-plain-language lifecycle label instead of a broken channel mention. `incidents all` includes closed
-history. Pagination and history use read-only buttons, private-channel access remains enforced by
-Slack, and the response is visible only to the requesting operator.
-
 `status` leads with effective behavior, explains why that behavior won the precedence chain,
 describes proactive and shadow behavior, explains mention handling, translates each override layer,
 and documents any incident attached to the channel. It never relies on raw values such as
 `inherit`, `parked`, or `responder.yaml` to explain behavior. Proactive and shadow changes are
-durable and audited. Incident-control acknowledgements
-describe the requested effect and direct the operator to the pinned incident thread for the
-authoritative result. Slash commands and button controls run in the control lane, so an off or stop
-command does not wait behind a running agent run.
-
-`work` and its `commitments` alias list every active request accepted by Emisar, newest first.
-Each item names the request, source conversation, queued/working/finishing/blocked state, current
-status, and next operator action. The list is a projection of the durable agent-run scheduler, so
-restart or delivery retry cannot make promised work disappear.
-
-`preferences` lists the effective operator, channel, repository, and workspace investigation
-defaults. `rules` lists this channel's standing rules, source filters, expiry, last run, and run
-count. Both directories expose state-aware enable, disable, edit, and delete controls. App Home
-shows the same bounded controls for current behavior entries.
+durable and audited. A pressed incident control acknowledges the requested effect and directs the
+operator to the pinned incident thread for the authoritative result. Slash commands and button
+controls both run in the control lane, so `proactive off` or **Stop current run** does not wait
+behind a running agent run.
 
 ## Controls
 
@@ -445,8 +451,9 @@ host rejects them for nonoperators before any repository or session mutation:
   current task tree before review or publication;
 - published draft PR: **Open PR** and **Check delivery** remain available independently of a
   transient Coop inspection failure;
-- safety-ceiling blocked: **Close incident**, an action-needed explanation with the exact
-  `/responder turn-limit` command, and change controls only when Coop reports changed files;
+- safety-ceiling blocked: **Close incident**, an action-needed explanation naming `coop.turn_limit`
+  and saying plainly that raising it needs a deployment change, and change controls only when Coop
+  reports changed files;
 - closed: read-only change controls only when the preserved working copy contains changed files;
   otherwise no controls.
 
@@ -485,6 +492,24 @@ host rejects them for nonoperators before any repository or session mutation:
   confirmation authorizes Coop to delete clean committed work after an exact discard-plan check.
   Dirty uncommitted files are still refused.
 
+A **Record** row sits on every card that has a record behind it, carrying an overflow menu with
+**Timeline**, **Evidence**, **Handoff summary**, and **Postmortem draft**. It is a separate row
+rather than four more options in the card's own overflow because Block Kit rejects a message whose
+menu holds more than five options, and the lifecycle controls already there vary with card state, so
+folding these in silently drops whichever the renderer reaches last.
+
+**Timeline** presents the chronological remediation record: alerts, agent runs, operator and
+lifecycle events, Emisar approvals and terminal run results, and draft-PR publication. It derives
+these entries from their canonical rows rather than copying them. **Evidence** shows the latest
+source ledger and material unknowns. **Handoff summary** prepares an evidence-backed shift summary.
+**Postmortem draft** regenerates the post-incident draft that closing also posts, including after
+the incident has closed; it does not invent impact, root cause, owners, or corrective actions. All
+four are host-rendered from the stored record — the model never writes a timeline.
+
+These four were slash subcommands. A button carries the work it belongs to in its own value, so a
+task thread can ask for its own handoff; the slash spelling resolved an incident by channel and
+could not name a thread at all.
+
 Routine evidence-backed replies lead with the concise conclusion and use plain professional
 language instead of making the reader decode internal architecture, schemas, or workflow terms.
 Necessary technical terms are explained when first used. Simple explanation, summary, and rephrase
@@ -498,14 +523,6 @@ a forced joke. Incident response, customer impact, failures, security, approvals
 risk, and uncertain operational states remain straightforward. Humor never appears in evidence,
 memory, titles, controls, approval text, timelines, or technical identifiers, and never targets a
 person or their mistake.
-`/responder timeline` presents the chronological remediation record: alerts, agent runs, operator
-and lifecycle events, Emisar approvals and terminal run results, and
-draft-PR publication. It derives these entries from their canonical rows rather than copying them.
-`/responder evidence` shows the latest source ledger and material unknowns.
-`/responder handoff` prepares an evidence-backed shift summary. Closing also posts a post-incident
-draft that does not invent impact, root cause, owners, or corrective actions. `/responder
-postmortem` regenerates that draft for the latest incident attached to the room, including after it
-has closed.
 
 Automatic, inferred, and model-proposed operational mutation is not exposed through Slack. In any
 Slack conversation, a configured operator can directly request one exact operational action.

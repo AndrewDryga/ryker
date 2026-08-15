@@ -24,7 +24,7 @@ It runs on one trusted host and:
   governed operational actions restricted to configured operators;
 - parks between turns, resumes the same agent conversation, and survives process restarts;
 - tracks every accepted investigation or engineering promise as durable work, and exposes it in
-  App Home and through `/responder work`;
+  the App Home and the web control plane;
 - exposes an App Home, Agent Messages tab, message shortcut, semantic progress, lightweight
   acknowledgements, and
   deterministic controls for status, evidence, handoff, changes, review, draft PR publication,
@@ -320,29 +320,26 @@ deployment defaults and `/responder` remains the recovery surface:
 
 ```text
 /responder status
-/responder work
-/responder incidents
-/responder incidents all
-/responder proactive on
-/responder proactive off
-/responder proactive inherit
-/responder proactive global on
-/responder proactive global off
-/responder proactive global inherit
-/responder shadow on
-/responder shadow off
-/responder shadow inherit
-/responder timeline
-/responder evidence
-/responder handoff
-/responder postmortem
-/responder memory
-/responder preferences
-/responder rules
-/responder turn-limit
-/responder turn-limit 1000
-/responder turn-limit global 1000
+/responder proactive on|off|inherit
+/responder proactive global on|off|inherit
+/responder shadow on|off|inherit
+/responder shadow global on|off|inherit
+/responder assignments [list|create|pause|resume|delete]
+/responder help
 ```
+
+That list is the whole of it. `/responder` used to carry more than twenty subcommands —
+directories, record reads, lifecycle controls, a turn ceiling — which made it a second product
+surface that drifted from the conversational one beside it. Two months of audit found it used for
+one deliberate `proactive on` per deployment and otherwise only for its own failures. What is left
+is what has to work when nothing else does: no model runs, no Coop session is needed, and the answer
+is private to whoever typed it. Everything else is a conversation, a button on a pinned card, the
+App Home, or the web control plane — all of which can reach a task thread, which a command typed
+into the channel composer cannot.
+
+`assignments` is the exception and it is a temporary one: a standing assignment can only be created
+by typing it, because the `offer_assignment` confirm card that will replace the verb does not exist
+yet. It leaves this list the day that card lands.
 
 The effective order is explicit channel override, confirmed channel setup, workspace override, then
 `responder.yaml`. Global `on`

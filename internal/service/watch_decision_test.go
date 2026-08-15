@@ -1110,12 +1110,6 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 		incidents[0].OriginThreadTS != source.MessageTS {
 		t.Fatalf("engineering task scope = %+v", incidents[0])
 	}
-	directoryEntry := incidentDirectoryEntry(incidents[0])
-	if !strings.Contains(directoryEntry, "engineering task") ||
-		!strings.Contains(directoryEntry, "repository work") ||
-		strings.Contains(directoryEntry, "alert firing") {
-		t.Fatalf("engineering task directory entry = %q", directoryEntry)
-	}
 	if len(slackClient.posts) != 1 {
 		t.Fatalf("engineering task added standalone acknowledgement = %+v", slackClient.posts)
 	}

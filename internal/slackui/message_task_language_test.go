@@ -254,10 +254,10 @@ func TestABlockedStatusPointsAtASectionOnlyWhenThereIsOne(t *testing.T) {
 	})
 }
 
-// `/responder timeline`, `evidence`, `handoff`, and `postmortem` all resolve
-// through the channel's latest room-scoped work item, and an engineering room
-// holds an engineering task — so all four were reporting on an outage that
-// never happened.
+// The timeline, evidence, handoff and postmortem reports all resolve through
+// the work item they were asked for, and an engineering room holds an
+// engineering task — so all four were reporting on an outage that never
+// happened.
 func TestTheRecordReportsNameTheWorkTheyWereBuiltFrom(t *testing.T) {
 	taskRecord := core.RemediationRecord{Incident: taskLanguageRoomTask()}
 	incidentRecord := core.RemediationRecord{Incident: taskLanguageIncident()}

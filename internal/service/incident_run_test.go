@@ -996,7 +996,7 @@ func TestIncidentChannelReconciliationDistinguishesArchiveAndUnreachable(t *test
 	}
 }
 
-func TestSlashPostmortemReadsLatestClosedIncidentRecord(t *testing.T) {
+func TestThePostmortemButtonReadsTheLatestClosedIncidentRecord(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -1039,10 +1039,10 @@ func TestSlashPostmortemReadsLatestClosedIncidentRecord(t *testing.T) {
 		slackui.NewSanitizer(12000), nil,
 	)
 	input := core.SlackInput{
-		ID: "slash-postmortem", EnvelopeID: "env-slash-postmortem",
-		EventID: "event-slash-postmortem", Kind: "slash", TeamID: cfg.Slack.TeamID,
+		ID: "record-postmortem", EnvelopeID: "env-record-postmortem",
+		EventID: "event-record-postmortem", Kind: "action", TeamID: cfg.Slack.TeamID,
 		ChannelID: "CPOSTMORTEM", UserID: "U123ABC",
-		Text: "postmortem", ActionID: "/responder",
+		ActionID: slackui.ActionRecordPostmortem, ActionValue: incident.ID,
 	}
 	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
 		t.Fatalf("admit command = %v, %v", created, err)
@@ -1121,71 +1121,6 @@ func TestSlashStatusExplainsIncidentRoomBehavior(t *testing.T) {
 		}
 	}
 }
-
-func TestSlashIncidentDirectoryLinksChannelsAndIncludesClosedHistory(t *testing.T) {
-	ctx := context.Background()
-	cfg := serviceConfig(t)
-	st, err := store.Open(cfg.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	incident := createBoundIncident(t, ctx, st)
-	if err := st.CloseIncident(ctx, incident.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.SetIncidentChannelState(
-		ctx, incident.ChannelID, core.ChannelDeleted, time.Now().UTC(),
-	); err != nil {
-		t.Fatal(err)
-	}
-	slackClient := &fakeSlack{}
-	svc := New(
-		cfg, st, newFakeCoop(), slackClient, nil,
-		slackui.NewSanitizer(12000), nil,
-	)
-	run := func(id, text string) slackui.Message {
-		t.Helper()
-		input := core.SlackInput{
-			ID: id, EnvelopeID: "env-" + id, EventID: "event-" + id,
-			Kind: "slash", TeamID: cfg.Slack.TeamID, ChannelID: "CCONTROL",
-			UserID: "U123ABC", Text: text, ActionID: "/responder",
-		}
-		if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
-			t.Fatalf("admit %s = %v, %v", id, created, err)
-		}
-		if err := svc.processSlackInput(ctx); err != nil {
-			t.Fatalf("process %s: %v", id, err)
-		}
-		return slackClient.ephemerals[len(slackClient.ephemerals)-1].message
-	}
-	open := run("slash-open-incidents", "incidents")
-	if open.Header != "No open incidents" ||
-		!strings.Contains(strings.Join(open.Sections, "\n"), "`/responder incidents all`") {
-		t.Fatalf("open incident directory = %+v", open)
-	}
-	all := run("slash-all-incidents", "incidents all")
-	content := all.Text + "\n" + strings.Join(all.Sections, "\n")
-	for _, required := range []string{
-		"All incidents (1)",
-		slackui.ShortID(incident.ID),
-		"API unavailable",
-		"#inc-api (Slack room deleted)",
-		"Closed",
-		"1 alert firing",
-	} {
-		if !strings.Contains(all.Header+"\n"+content, required) {
-			t.Fatalf("all incident directory lacks %q: %+v", required, all)
-		}
-	}
-	if strings.Contains(content, "slack.com/app_redirect") {
-		t.Fatalf("incident directory uses a redirect instead of a channel mention: %+v", all)
-	}
-	if strings.Contains(content, "<#CINCIDENT>") {
-		t.Fatalf("deleted incident directory contains a broken channel mention: %+v", all)
-	}
-}
-
 func TestClosedIncidentControlsResolveByIDAndHideWithoutChanges(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

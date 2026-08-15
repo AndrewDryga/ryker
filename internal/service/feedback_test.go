@@ -248,60 +248,6 @@ func TestFeedbackFollowupIsIncludedOnce(t *testing.T) {
 	}
 }
 
-func TestSlashArgumentPreservesFeedbackText(t *testing.T) {
-	if got := slashArgument("feedback   Keep progress visible while working"); got != "Keep progress visible while working" {
-		t.Fatalf("argument = %q", got)
-	}
-}
-
-func TestOrdinaryWorkspaceMemberCanSubmitButNotBrowseFeedback(t *testing.T) {
-	ctx := context.Background()
-	cfg := serviceConfig(t)
-	st, err := store.Open(cfg.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	slackClient := &fakeSlack{}
-	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
-
-	submit := core.SlackInput{
-		ID: "feedback-submit", EnvelopeID: "feedback-submit-envelope",
-		EventID: "feedback-submit-event", Kind: "slash", TeamID: cfg.Slack.TeamID,
-		ChannelID: "C123ABC", UserID: "U456MEMBER",
-		Text: "feedback Keep the progress status visible",
-	}
-	if created, err := st.AdmitSlackInput(ctx, submit); err != nil || !created {
-		t.Fatalf("admit feedback = %v, %v", created, err)
-	}
-	if err := svc.processSlackInput(ctx); err != nil {
-		t.Fatal(err)
-	}
-	items, err := st.ListOpenFeedback(ctx, cfg.Slack.TeamID, 20)
-	if err != nil || len(items) != 1 || items[0].UserID != submit.UserID {
-		t.Fatalf("items = %#v, err = %v", items, err)
-	}
-
-	browse := core.SlackInput{
-		ID: "feedback-browse", EnvelopeID: "feedback-browse-envelope",
-		EventID: "feedback-browse-event", Kind: "slash", TeamID: cfg.Slack.TeamID,
-		ChannelID: "C123ABC", UserID: "U456MEMBER", Text: "feedback",
-	}
-	if created, err := st.AdmitSlackInput(ctx, browse); err != nil || !created {
-		t.Fatalf("admit browse = %v, %v", created, err)
-	}
-	if err := svc.processSlackInput(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if len(slackClient.ephemerals) != 2 ||
-		!strings.Contains(slackClient.ephemerals[1].message.Text, "cannot run Responder commands") {
-		t.Fatalf("ephemeral responses = %#v", slackClient.ephemerals)
-	}
-}
-
-// Feedback that is captured and never acted on is worse than feedback that was
-// never captured: the person sees their input accepted and nothing change.
-// These cover the two ways an item can leave the queue.
 func TestFeedbackConvertsToGuidanceAndDismisses(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

@@ -423,27 +423,19 @@ func TestSlashHelpButtonsRouteToReadOnlyCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	help := slackClient.ephemerals[len(slackClient.ephemerals)-1].message
-	if help.Header != "Responder command guide" || len(help.Actions) != 3 ||
-		help.Actions[0].ID != slackui.ActionCommandStatus ||
-		help.Actions[1].ID != slackui.ActionCommandOpenIncidents ||
-		help.Actions[2].ID != slackui.ActionCommandAllIncidents {
+	if help.Header != "Responder command guide" || len(help.Actions) != 1 ||
+		help.Actions[0].ID != slackui.ActionCommandStatus {
 		t.Fatalf("interactive help = %+v", help)
 	}
 	helpContent := strings.Join(help.Sections, "\n")
 	for _, command := range []string{
-		"`/responder preferences`",
-		"`/responder rules`",
+		"`/responder status`",
+		"`/responder proactive on|off|inherit`",
+		"`/responder shadow on|off|inherit`",
 	} {
 		if !strings.Contains(helpContent, command) {
 			t.Fatalf("interactive help lacks %s: %+v", command, help)
 		}
-	}
-	actionIDs := make(map[string]bool)
-	for _, action := range help.Actions {
-		if actionIDs[action.ID] {
-			t.Fatalf("interactive help repeats action ID %q: %+v", action.ID, help)
-		}
-		actionIDs[action.ID] = true
 	}
 	action := core.SlackInput{
 		ID: "action-status", EnvelopeID: "env-action-status",

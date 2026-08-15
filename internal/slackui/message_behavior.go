@@ -404,7 +404,7 @@ func SchedulesSavedMessage(tasks []core.ScheduledTask) Message {
 			fmt.Sprintf("Scheduled %d follow-up checks.", len(tasks)),
 			"Scheduled.",
 			fmt.Sprintf("%d follow-up checks.", len(tasks)),
-			[]string{"Manage or run them early with `/responder schedules`."},
+			[]string{"Manage or run them early from the App Home."},
 		)
 		for _, task := range tasks[:min(len(tasks), directoryRowLimit)] {
 			message = AppendRow(message, joinFacts([]string{
@@ -415,7 +415,7 @@ func SchedulesSavedMessage(tasks []core.ScheduledTask) Message {
 		}
 		if extra := len(tasks) - directoryRowLimit; extra > 0 {
 			message.Context = append(message.Context, fmt.Sprintf(
-				"and %d more — `/responder schedules` lists them all.", extra,
+				"and %d more — the App Home lists them all.", extra,
 			))
 		}
 		return message
@@ -1126,7 +1126,7 @@ func AppendFeedbackDigest(message Message, items []FeedbackSummary) Message {
 	for index, item := range items {
 		if index >= 5 {
 			message.Context = append(message.Context, fmt.Sprintf(
-				"%d more feedback items are open; use `/responder feedback` to see them.",
+				"%d more feedback items are open; the App Home lists them.",
 				len(items)-5,
 			))
 			break

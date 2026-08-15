@@ -215,99 +215,6 @@ func TestProductJourneyClosedTaskCanDiscardRetainedWork(t *testing.T) {
 	}
 }
 
-func TestProductJourneyIncidentDirectoryButtonsPageBothDirections(t *testing.T) {
-	ctx := context.Background()
-	cfg := serviceConfig(t)
-	cfg.Limits.MaxOpenIncidents = 50
-	st, err := store.Open(cfg.StateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	for index := range incidentPageSize + 3 {
-		_, _, err := st.CreateManualIncident(
-			ctx,
-			"repo",
-			fmt.Sprintf("incident_%02d", index),
-			fmt.Sprintf("Test incident %02d", index),
-			"Acceptance paging",
-			cfg.Slack.Operators[0],
-			"CTEST",
-			fmt.Sprintf("1700.%03d", index),
-			cfg.Limits.MaxOpenIncidents,
-		)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	slackClient := &fakeSlack{}
-	svc := New(
-		cfg,
-		st,
-		newFakeCoop(),
-		slackClient,
-		nil,
-		slackui.NewSanitizer(12000),
-		nil,
-	)
-
-	run := func(id, kind, actionID, actionValue, text string) slackui.Message {
-		t.Helper()
-		input := core.SlackInput{
-			ID: id, EnvelopeID: "env_" + id, EventID: "event_" + id,
-			Kind: kind, TeamID: cfg.Slack.TeamID, ChannelID: "CTEST",
-			UserID: cfg.Slack.Operators[0], ActionID: actionID,
-			ActionValue: actionValue, Text: text,
-			ReceivedAt: time.Now().UTC(),
-		}
-		if admitted, err := st.AdmitSlackInput(ctx, input); err != nil || !admitted {
-			t.Fatalf("admit %s = %t, %v", id, admitted, err)
-		}
-		if err := svc.processSlackInput(ctx); err != nil {
-			t.Fatalf("process %s: %v", id, err)
-		}
-		return slackClient.ephemerals[len(slackClient.ephemerals)-1].message
-	}
-
-	first := run(
-		"incidents_first",
-		"slash",
-		"/responder",
-		"",
-		"incidents open",
-	)
-	next := findMessageAction(first, slackui.ActionCommandNextIncidents)
-	if next.ID == "" || next.Value != "open:2" ||
-		findMessageAction(first, slackui.ActionCommandPreviousIncidents).ID != "" {
-		t.Fatalf("first incident page controls = %+v", first.Actions)
-	}
-	second := run(
-		"incidents_second",
-		"action",
-		next.ID,
-		next.Value,
-		"",
-	)
-	previous := findMessageAction(second, slackui.ActionCommandPreviousIncidents)
-	if previous.ID == "" || previous.Value != "open:1" ||
-		findMessageAction(second, slackui.ActionCommandNextIncidents).ID != "" {
-		t.Fatalf("second incident page controls = %+v", second.Actions)
-	}
-	if !strings.Contains(renderedSlackMessage(second), "page 2 of 2") {
-		t.Fatalf("second incident page copy = %+v", second)
-	}
-	back := run(
-		"incidents_back",
-		"action",
-		previous.ID,
-		previous.Value,
-		"",
-	)
-	if !strings.Contains(renderedSlackMessage(back), "page 1 of 2") {
-		t.Fatalf("previous incident page copy = %+v", back)
-	}
-}
-
 // A message in a task thread is a conversation, not a control.
 //
 // An unadvertised `!respond <verb>` router read every message in a thread that
@@ -815,11 +722,12 @@ func TestAControlThatStoppedNothingTellsThePresserNotTheRoom(t *testing.T) {
 // Refusing a command and then reporting it as submitted is two answers, and
 // the second one is wrong.
 //
-// "/responder stop" appends a receipt to whatever the control did: "this
+// "/responder stop" appended a receipt to whatever the control did: "this
 // command will cancel the active agent turn". Run against an idle incident it
 // arrived directly beneath "Nothing was stopped", describing work that had just
-// been declined.
-func TestARefusedSlashControlIsNotAlsoReportedAsSubmitted(t *testing.T) {
+// been declined. That spelling is gone; the button it always shared a handler
+// with is not, and it is the one an operator actually presses.
+func TestARefusedControlIsNotAlsoReportedAsSubmitted(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -831,15 +739,16 @@ func TestARefusedSlashControlIsNotAlsoReportedAsSubmitted(t *testing.T) {
 	slackClient := &fakeSlack{}
 	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
 
-	typed := core.SlackInput{
-		ID: "slash_stop_idle", EnvelopeID: "env_slash_stop_idle",
-		EventID: "event_slash_stop_idle", Kind: "slash",
+	clicked := core.SlackInput{
+		ID: "stop_idle", EnvelopeID: "env_stop_idle",
+		EventID: "event_stop_idle", Kind: "action",
 		TeamID: cfg.Slack.TeamID, ChannelID: incident.ChannelID,
-		UserID: cfg.Slack.Operators[0], Text: "stop",
+		MessageTS: incident.RootTS, UserID: cfg.Slack.Operators[0],
+		ActionID: slackui.ActionStop, ActionValue: incident.ID,
 		ReceivedAt: time.Now().UTC(),
 	}
-	if admitted, err := st.AdmitSlackInput(ctx, typed); err != nil || !admitted {
-		t.Fatalf("admit slash stop = %t, %v", admitted, err)
+	if admitted, err := st.AdmitSlackInput(ctx, clicked); err != nil || !admitted {
+		t.Fatalf("admit stop = %t, %v", admitted, err)
 	}
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)

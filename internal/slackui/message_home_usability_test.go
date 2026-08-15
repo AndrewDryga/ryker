@@ -128,9 +128,11 @@ func TestSecondaryNumbersAreOneLineNotAGridOfTiles(t *testing.T) {
 			t.Errorf("context is missing %q:\n%s", expected, context)
 		}
 	}
-	// A schedule count is a shelf entry, beside the command that opens it.
+	// A schedule count is a shelf entry. It used to name `/responder schedules`
+	// beside the count; that command is gone, and the entries it opened are on
+	// this page.
 	shelf := strings.Join(message.Sections, "\n")
-	for _, expected := range []string{"1 scheduled task", "/responder schedules"} {
+	for _, expected := range []string{"1 scheduled task", "listed below"} {
 		if !strings.Contains(shelf, expected) {
 			t.Errorf("the shelf is missing %q:\n%s", expected, shelf)
 		}

@@ -2,7 +2,8 @@
 
 The Responder service powers the self-hosted **Emisar** Slack app over Socket Mode. Slack users see
 the app and bot as `Emisar` and mention it as `@Emisar`; the existing `/responder` command remains
-the stable administrative control surface. The shipped manifest is complete for the features the
+the deterministic recovery surface for the few settings that must work when nothing else does. The
+shipped manifest is complete for the features the
 runtime implements: app presentation, bot identity, App Home state, bot scopes, event
 subscriptions, interactive controls, hosting mode, organization deployment, Slack MCP, incoming
 webhooks, and token rotation.
@@ -59,11 +60,13 @@ Slack response can be reconciled without a duplicate upload. Images are presenta
 charts do not become evidence unless their underlying observations are separately sourced.
 
 Slack displays only the manifest's static slash-command usage hint; it does not ask the app for
-dynamic subcommand completions. Keep the hint short. Responder provides the full command guide and
-read-only discovery buttons after `/responder` or `/responder help`, including a paginated incident
-directory with native Slack channel mentions. `/responder turn-limit` reports or changes the
-automatic session safety ceiling; detailed arguments remain in the interactive guide because Slack
-does not provide app-defined subcommand autocomplete.
+dynamic subcommand completions. Keep the hint short, and keep it to verbs that exist. The hint names
+the emergency kit — `status`, `proactive`, `shadow`, and `help` — and the full guide comes from
+`/responder` or `/responder help` rather than from the picker. `assignments` is the one verb the
+guide carries that the hint does not: it is a temporary creation surface for standing assignments,
+kept only until an `offer_assignment` confirm card exists. Anything else the command used to do is
+now on App Home, on a pinned card's buttons, in the web control plane, or in `responder.yaml`; a
+retired verb answers with the one line naming which.
 
 Inviting `@Emisar` to a channel first offers safe mention-only and proactive defaults plus a
 **Customize** path. Customize starts a four-question setup conversation. A configured operator chooses
@@ -106,7 +109,7 @@ Operators can ask Responder to remember only typed behavior. A supported prefere
 investigation depth or response detail; a supported standing rule subscribes one channel to
 read-only Terraform-plan review, deployment verification, or alert triage. Responder first renders
 the normalized behavior, scope, expiry, source filter, and safety boundary for confirmation.
-`/responder preferences` and `/responder rules` provide state-aware management. Matching rules can
+App Home and the web control plane provide state-aware management. Matching rules can
 operate when broad proactive triage is off, but never create an incident or authorize a mutation.
 A match asks the model to evaluate the event instead of forcing a reply: it can ignore intermediate
 or duplicate lifecycle events, react when sufficient, or reply in the source thread when useful.
@@ -118,8 +121,8 @@ native progress indicators.
 Direct messages always start read-only triage even when normal-channel proactive mode
 is off. The **Investigate message** shortcut does the same for one selected message.
 App Home summarizes current incidents, active sessions, failed durable work, current channel
-situations, and the commitments Emisar owes the team. `/responder work` exposes the same active
-commitments. These surfaces do not weaken operator authorization or incident-creation rules.
+situations, and the commitments Emisar owes the team; the web control plane shows the same records
+with more history. These surfaces do not weaken operator authorization or incident-creation rules.
 
 An explicit repository-change request can return a concise **Start task** confirmation.
 Confirmation by any active full workspace member starts an engineering task in the source Slack

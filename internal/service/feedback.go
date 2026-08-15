@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/core"
@@ -241,40 +240,6 @@ func exactSlackMessageLink(input core.SlackInput, messageTS string) string {
 	input.ThreadTS = ""
 	input.MessageTS = messageTS
 	return SlackMessageLink(input)
-}
-
-func (s *Service) finishSlashFeedback(ctx context.Context, input core.SlackInput, text string) error {
-	text = strings.TrimSpace(text)
-	if text != "" {
-		if err := s.recordExplicitFeedback(ctx, input, text); err != nil {
-			return err
-		}
-		return s.finishSlashMessage(ctx, input, slackui.Notice(
-			"Thanks. I saved that with the nearby conversation so the team can reproduce and improve it.",
-		))
-	}
-	items, err := s.store.ListOpenFeedback(ctx, s.cfg.Slack.TeamID, 20)
-	if err != nil {
-		return err
-	}
-	if len(items) == 0 {
-		return s.finishSlashMessage(ctx, input, slackui.Notice(
-			"No open feedback yet. Use `/responder feedback <what should change>` to add one.",
-		))
-	}
-	sections := make([]string, 0, len(items))
-	for _, item := range items {
-		line := fmt.Sprintf("*%s* · %s · <@%s>\n%s", item.Category, item.Source, item.UserID, item.Summary)
-		if item.SourceRef != "" {
-			line += "\n<" + item.SourceRef + "|Open context>"
-		}
-		sections = append(sections, line)
-	}
-	return s.finishSlashMessage(ctx, input, slackui.Message{
-		Text: "Open Responder feedback", Header: "Open Responder feedback",
-		Sections: sections,
-		Context:  []string{"Showing the 20 newest open items. Context is stored in this workspace's local state."},
-	})
 }
 
 // openFeedbackSummaries lists product feedback still awaiting an operator

@@ -1112,7 +1112,7 @@ func (h *Handler) channel(w http.ResponseWriter, r *http.Request) {
 		Setup: Unwired{
 			Tag: "Changed in Slack",
 			Needs: "The repository binding, alert policy, and participation mode are set in the " +
-				"channel setup conversation. Run /responder setup in the channel to change them.",
+				"channel setup conversation. Say `@Emisar reconfigure this channel` there to change them.",
 		},
 	})
 }

@@ -70,8 +70,8 @@ var routedActionIDs = map[string]bool{
 	ActionSetupAlertReply: true, ActionSetupAlertOffer: true,
 	ActionSetupAlertAutomatic: true, ActionSetupOperatorsOnly: true,
 	ActionSetupIncludeMe: true, ActionCommandStatus: true,
-	ActionCommandOpenIncidents: true, ActionCommandAllIncidents: true,
-	ActionCommandPreviousIncidents: true, ActionCommandNextIncidents: true,
+	ActionRecordTimeline: true, ActionRecordEvidence: true,
+	ActionRecordHandoff: true, ActionRecordPostmortem: true,
 }
 
 // Every option in every ⋯ menu production can render reaches a handler.
@@ -146,10 +146,17 @@ func TestEveryOverflowOptionDecodesToARoutedAction(t *testing.T) {
 		// Every entry the constructor put in a menu has to have shipped. A
 		// guard that silently swallowed the whole menu would otherwise read as
 		// a pass here, which is the failure this test exists to catch.
-		wanted := card.message.Overflow
+		// Render order, not declaration order: every row menu is emitted while
+		// the sections are walked, and the card's own menu joins its buttons,
+		// which come after them either way — ActionsEarly moves the button
+		// block ahead of the ledger and the footer, not ahead of the rows.
+		// Pairing an option with the wrong entry is what this comparison is
+		// for, so the order it compares in has to be the wire's.
+		var wanted []Action
 		for _, row := range card.message.Rows {
 			wanted = append(wanted, row.Overflow...)
 		}
+		wanted = append(wanted, card.message.Overflow...)
 		if len(options) != len(wanted) {
 			t.Fatalf("%s: rendered %d overflow options for %d menu entries",
 				card.name, len(options), len(wanted))

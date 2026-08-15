@@ -95,7 +95,7 @@ func IncidentCardWithPublication(
 		}
 	}
 	message.Context = append(message.Context, incidentFooter(incident, repositoryName))
-	return message
+	return AppendRecordRow(message, incident.ID)
 }
 
 // incidentCardState resolves an incident on two axes at once.
@@ -327,6 +327,41 @@ func signalWhere(signal core.Signal) string {
 // overflow one dialog for all of its options — so the menu takes the read-only
 // remainder, and the primary style survives only where the ball is actually
 // with the operator.
+// RecordControls are the four durable reads of a piece of work.
+//
+// They are on every card that has a record behind it, in the overflow menu,
+// because they are the answer to "what happened here" and that question is
+// asked from wherever the work is — including a task thread, which the slash
+// spelling they replace could not reach. Each is host-rendered from the stored
+// remediation record: the model never writes a timeline.
+func RecordControls(workID string) []Action {
+	if strings.TrimSpace(workID) == "" {
+		return nil
+	}
+	return []Action{
+		{ID: ActionRecordTimeline, Label: "Timeline", Value: workID},
+		{ID: ActionRecordEvidence, Label: "Evidence", Value: workID},
+		{ID: ActionRecordHandoff, Label: "Handoff summary", Value: workID},
+		{ID: ActionRecordPostmortem, Label: "Postmortem draft", Value: workID},
+	}
+}
+
+// AppendRecordRow puts the four reads on their own labelled row.
+//
+// Not into the card's own ⋯: Block Kit allows five options in one menu and
+// rejects the whole message over that, and the controls already there depend on
+// card state, so folding four more in silently drops whichever the renderer
+// reaches last. The row also reads better — a menu beside the word "Record" is
+// obviously about the record, where a "Timeline" option buried under a ⋯ full
+// of lifecycle controls is not.
+func AppendRecordRow(message Message, workID string) Message {
+	controls := RecordControls(workID)
+	if len(controls) == 0 {
+		return message
+	}
+	return AppendRowMenu(message, "*Record* · what happened here", nil, controls)
+}
+
 func incidentControls(state cardState, actions []Action) ([]Action, []Action) {
 	if len(actions) == 0 {
 		return nil, nil
@@ -400,7 +435,7 @@ func IncidentEvidenceResponse(
 	message.Text = truncateUTF8("Investigation update: "+message.Text, 4000)
 	message.Context = append(
 		message.Context,
-		"Use `/responder evidence` for the detailed source ledger. Internal tool output and hidden reasoning are omitted.",
+		"The card's ⋯ menu has the detailed source ledger. Internal tool output and hidden reasoning are omitted.",
 	)
 	return message
 }
@@ -908,7 +943,7 @@ func IncidentStatusMessage(incident core.Incident) Message {
 	case core.WorkflowHolding:
 		next = "Responder will start when capacity is available. Close another work item if this is urgent."
 	case core.WorkflowInvestigating:
-		next = "An agent turn is running or queued. Wait for its update, or use `/responder stop` to cancel it."
+		next = "An agent turn is running or queued. Wait for its update, or press Stop on the card to cancel it."
 		if incident.IsEngineeringTask() {
 			next = "An agent turn is running or queued. Wait for its update; a configured operator can use *Stop* on the current task card."
 		}
@@ -958,7 +993,8 @@ func IncidentStatusMessage(incident core.Incident) Message {
 // That sentence was the whole problem with a prose postmortem: it asked a
 // reader to do the tracking, in a document nobody re-opens, at the end of the
 // week the incident happened. Every episode this incident ran already produced
-// a commitment — the same rows the App Home and `/responder commitments` read —
+// a commitment — the same rows the App Home reads, and the ones the retired
+// `/responder commitments` used to print —
 // with a title somebody wrote, a state the lifecycle maintains, and a thread
 // the work is still in. Listing those is the difference between an action item
 // and an action.

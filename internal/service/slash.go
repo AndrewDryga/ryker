@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/assignments"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -19,7 +17,6 @@ import (
 const proactiveSettingName = "proactive"
 const shadowSettingName = "shadow"
 const turnLimitSettingName = "turn_limit"
-const incidentPageSize = 8
 
 type proactiveStatus struct {
 	Enabled           bool
@@ -222,21 +219,24 @@ func parseTurnLimit(value string) (int, error) {
 	return limit, nil
 }
 
+// processSlashInput runs the emergency kit.
+//
+// `/responder` used to carry more than twenty subcommands, which made it a
+// second product surface: everything Responder could do had a spelling here
+// and a conversational path beside it, and the two drifted. Two months of
+// audit found the slash surface used for one deliberate `proactive on` per
+// deployment and otherwise only for its own failures.
+//
+// What is left is what has to work when nothing else does — when Coop is down,
+// when the model is looping, when a room needs to go quiet now. Those are
+// deterministic, reach no model, and answer privately. `assignments` is the one
+// verb here that is none of those things; it stays because it is currently the
+// only way to create a standing assignment, and it goes when `offer_assignment`
+// lands. Everything else is a conversation, a card button, or the App Home, and
+// the default branch says so by name rather than printing a usage message for a
+// verb that is gone.
 func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) error {
 	fields := strings.Fields(strings.ToLower(strings.TrimSpace(input.Text)))
-	if len(fields) > 0 && fields[0] == "feedback" && slashArgument(input.Text) != "" {
-		allowed, err := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
-		if err != nil {
-			return err
-		}
-		if !allowed {
-			return s.refuseSlashInput(
-				ctx, input,
-				"Only active full members of this Slack workspace can submit feedback.",
-			)
-		}
-		return s.finishSlashFeedback(ctx, input, slashArgument(input.Text))
-	}
 	if !s.cfg.IsOperator(input.UserID) {
 		return s.refuseSlashInput(
 			ctx, input,
@@ -269,61 +269,35 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 			return s.refuseSlashInput(ctx, input, slashUsage("status"))
 		}
 		return s.finishSlashStatus(ctx, input)
-	case "incidents":
-		return s.finishSlashIncidents(ctx, input, fields[1:])
-	case "work", "commitments":
-		if len(fields) != 1 {
-			return s.refuseSlashInput(ctx, input, slashUsage("work"))
-		}
-		return s.finishSlashCommitments(ctx, input)
-	case "feedback":
-		return s.finishSlashFeedback(ctx, input, slashArgument(input.Text))
-	case "memory":
-		if len(fields) > 2 || (len(fields) == 2 && fields[1] != "review") {
-			return s.refuseSlashInput(ctx, input, slashUsage("memory"))
-		}
-		if len(fields) == 2 {
-			return s.finishMemoryReview(ctx, input)
-		}
-		return s.finishSlashMemory(ctx, input)
-	case "preferences", "preference":
-		if len(fields) != 1 {
-			return s.refuseSlashInput(ctx, input, slashUsage("preferences"))
-		}
-		return s.finishSlashPreferences(ctx, input)
-	case "rules", "rule":
-		if len(fields) != 1 {
-			return s.refuseSlashInput(ctx, input, slashUsage("rules"))
-		}
-		return s.finishSlashRules(ctx, input)
-	case "schedules", "schedule", "reminders":
-		if len(fields) != 1 {
-			return s.refuseSlashInput(ctx, input, slashUsage("schedules"))
-		}
-		return s.finishSlashSchedules(ctx, input)
+	// assignments is the one family that stays against the rule the rest of
+	// this deletion follows, because slash is currently its ONLY creation
+	// surface: standing assignments landed with a slash spelling and no
+	// `offer_assignment` result operation behind it, so deleting the verb
+	// would delete the feature. It goes the moment `offer_assignment` exists
+	// and a normalized-bounds confirm card can carry a create — the App Home
+	// and web UI already read them back. Until then a kept verb is the only
+	// thing standing between an operator and an unreachable capability.
+	//
+	// The raw text, not the lower-cased fields every other subcommand reads:
+	// a repository name, a path glob and the words of a signal are all
+	// case-sensitive, and an assignment normalized to lower case is a grant
+	// over something that does not exist.
 	case "assignments", "assignment":
-		// The raw text, not the lower-cased fields every other subcommand
-		// reads: a repository name, a path glob and the words of a signal are
-		// all case-sensitive, and an assignment normalized to lower case is a
-		// grant over something that does not exist.
 		return s.finishSlashAssignments(ctx, input, strings.Fields(slashArgument(input.Text)))
 	case "proactive", "watch":
 		return s.configureProactive(ctx, input, fields[1:])
 	case "shadow":
 		return s.configureShadow(ctx, input, fields[1:])
-	case "turn-limit", "turns":
-		return s.configureTurnLimit(ctx, input, fields[1:])
-	case "timeline", "evidence", "handoff", "postmortem":
-		if len(fields) != 1 {
-			return s.refuseSlashInput(ctx, input, slashUsage(fields[0]))
-		}
-		return s.finishIncidentIntelligence(ctx, input, fields[0])
-	case "update", "changes", "review", "publish", "stop", "extend", "close":
-		if len(fields) != 1 {
-			return s.refuseSlashInput(ctx, input, slashUsage(fields[0]))
-		}
-		return s.runSlashIncidentControl(ctx, input, fields[0])
 	default:
+		if pointer, ok := retiredSlashSubcommands[fields[0]]; ok {
+			return s.refuseSlashInput(
+				ctx, input,
+				fmt.Sprintf(
+					"`/responder %s` is gone. %s\n\n%s",
+					fields[0], pointer, slashKit,
+				),
+			)
+		}
 		return s.refuseSlashInput(
 			ctx, input,
 			fmt.Sprintf("Unknown `/responder` subcommand `%s`.\n\n%s", fields[0], slashHelp()),
@@ -331,106 +305,65 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 	}
 }
 
-func (s *Service) finishSlashCommitments(
-	ctx context.Context,
-	input core.SlackInput,
-) error {
-	items, err := s.store.ListActiveCommitments(ctx, 20)
-	if err != nil {
-		return err
-	}
-	return s.finishSlashMessage(
-		ctx,
-		input,
-		slackui.CommitmentDirectoryMessage(items),
-	)
+// slashKit is the one line that follows every refusal: whatever you typed, here
+// is the whole of what this command still does.
+const slashKit = "`/responder` is the emergency kit now: `status`, " +
+	"`proactive on|off|inherit`, `shadow on|off|inherit`, `assignments`, and `help`."
+
+// retiredSlashSubcommands names where each removed verb went.
+//
+// A removed verb answers with its replacement for one release and then stops
+// being recognised at all. The alternative — falling through to "unknown
+// subcommand" plus a help card — tells an operator who typed a verb that
+// worked last week that they typed it wrong, which is both false and useless:
+// the thing they wanted still exists, somewhere else. Every alias spelling is
+// listed, because an operator who learned `preference` is no better served by
+// silence than one who learned `preferences`.
+var retiredSlashSubcommands = map[string]string{
+	"incidents":   "Open the App Home for what is in flight, or ask in the channel.",
+	"work":        "Open the App Home for what is in flight, or ask in the channel.",
+	"commitments": "Open the App Home for what is in flight, or ask in the channel.",
+	"memory":      "Open the App Home, or ask about what is remembered here.",
+	"preferences": "Open the App Home, or say what you want changed and confirm the offer.",
+	"preference":  "Open the App Home, or say what you want changed and confirm the offer.",
+	"rules":       "Open the App Home, or say what you want changed and confirm the offer.",
+	"rule":        "Open the App Home, or say what you want changed and confirm the offer.",
+	"schedules":   "Open the App Home, or ask for the schedule you want and confirm it.",
+	"schedule":    "Open the App Home, or ask for the schedule you want and confirm it.",
+	"reminders":   "Open the App Home, or ask for the schedule you want and confirm it.",
+	"feedback":    "Just say it here. Feedback is recorded from the conversation.",
+	"timeline":    "Use the buttons on the pinned card, or ask for it in the incident room.",
+	"evidence":    "Use the buttons on the pinned card, or ask for it in the incident room.",
+	"handoff":     "Use the buttons on the pinned card, or ask for it in the incident room.",
+	"postmortem":  "Use the buttons on the pinned card, or ask for it in the incident room.",
+	"update":      "Use the buttons on the pinned card, or ask in the thread.",
+	"changes":     "Use the buttons on the pinned card, or ask in the thread.",
+	"review":      "Use the buttons on the pinned card, or ask in the thread.",
+	"publish":     "Use the buttons on the pinned card, or ask in the thread.",
+	"stop":        "Use the buttons on the pinned card, or ask in the thread.",
+	"extend":      "Responder allocates capacity automatically; nothing needed extending.",
+	"close":       "Use the buttons on the pinned card, or ask in the thread.",
+	"turn-limit":  "The ceiling is `coop.turn_limit` in responder.yaml; operators never estimate turns.",
+	"turns":       "The ceiling is `coop.turn_limit` in responder.yaml; operators never estimate turns.",
 }
 
-func (s *Service) finishSlashMemory(
-	ctx context.Context,
-	input core.SlackInput,
-) error {
-	repository, err := s.effectiveRepository(
-		ctx, input.ChannelID, input.UserID, s.cfg.Slack.DefaultRepository,
-	)
-	if err != nil {
-		return err
-	}
-	entries, err := s.store.Memory.ListMemoryForContext(
-		ctx,
-		s.cfg.Slack.TeamID,
-		input.ChannelID,
-		repository,
-		input.UserID,
-		20,
-	)
-	if err != nil {
-		return err
-	}
-	health, err := s.store.Memory.MemoryHealth(ctx)
-	if err != nil {
-		return err
-	}
-	rollups, err := s.store.Memory.ListMemoryRollupsForContext(
-		ctx, input.ChannelID, repository, 4,
-	)
-	if err != nil {
-		return err
-	}
-	return s.finishSlashMessage(
-		ctx, input, slackui.MemoryHealthMessage(entries, rollups, health),
-	)
+// recordControlCommands maps the four record buttons to the report each one
+// renders. The button carries the work it belongs to in its value, which is how
+// a task thread can ask for its own handoff — the slash spelling these replace
+// resolved an incident by channel and could not name a thread at all.
+var recordControlCommands = map[string]string{
+	slackui.ActionRecordTimeline:   "timeline",
+	slackui.ActionRecordEvidence:   "evidence",
+	slackui.ActionRecordHandoff:    "handoff",
+	slackui.ActionRecordPostmortem: "postmortem",
 }
 
-func (s *Service) finishSlashPreferences(
-	ctx context.Context,
-	input core.SlackInput,
-) error {
-	repository, err := s.effectiveRepository(
-		ctx, input.ChannelID, input.UserID, s.cfg.Slack.DefaultRepository,
-	)
-	if err != nil {
-		return err
+func (s *Service) handleRecordControl(ctx context.Context, input core.SlackInput) error {
+	command, ok := recordControlCommands[slackui.BaseActionID(input.ActionID)]
+	if !ok {
+		return fmt.Errorf("unknown record control %q", input.ActionID)
 	}
-	preferences, err := s.store.Behavior.ListPreferencesForContext(
-		ctx,
-		s.cfg.Slack.TeamID,
-		input.ChannelID,
-		repository,
-		input.UserID,
-		false,
-		20,
-	)
-	if err != nil {
-		return err
-	}
-	return s.finishSlashMessage(
-		ctx, input, slackui.PreferenceDirectoryMessage(preferences),
-	)
-}
-
-func (s *Service) finishSlashRules(
-	ctx context.Context,
-	input core.SlackInput,
-) error {
-	rules, err := s.store.Behavior.ListStandingRulesForChannel(
-		ctx, input.ChannelID, false, 20,
-	)
-	if err != nil {
-		return err
-	}
-	return s.finishSlashMessage(ctx, input, slackui.RuleDirectoryMessage(rules))
-}
-
-func (s *Service) finishSlashSchedules(
-	ctx context.Context,
-	input core.SlackInput,
-) error {
-	tasks, err := s.store.Schedules.ListScheduledTasksForChannel(ctx, input.ChannelID, 20)
-	if err != nil {
-		return err
-	}
-	return s.finishSlashMessage(ctx, input, slackui.ScheduleDirectoryMessage(tasks))
+	return s.finishIncidentIntelligence(ctx, input, command)
 }
 
 // finishSlashAssignments runs the standing-assignment family.
@@ -457,25 +390,43 @@ func (s *Service) finishIncidentIntelligence(
 	input core.SlackInput,
 	command string,
 ) error {
+	if id := strings.TrimSpace(input.ActionValue); id != "" {
+		incident, err := s.store.GetIncident(ctx, id)
+		if err == nil {
+			return s.publishIncidentRecord(ctx, input, incident, command)
+		}
+		if !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+	}
 	incident, err := s.store.FindLatestIncidentByChannel(ctx, input.ChannelID)
 	if errors.Is(err, store.ErrNotFound) {
 		return s.refuseSlashInput(
 			ctx, input,
-			"*There is no incident attached to this channel.* `timeline`, `evidence`, "+
-				"`handoff`, and `postmortem` read the durable record for the latest incident room. Use "+
-				"`/responder incidents` to find one.",
+			"*There is no incident attached to this channel.* The timeline, evidence, "+
+				"handoff, and postmortem records read the durable record for the latest "+
+				"incident room. Open the App Home to find one.",
 		)
 	}
 	if err != nil {
 		return err
 	}
+	return s.publishIncidentRecord(ctx, input, incident, command)
+}
+
+func (s *Service) publishIncidentRecord(
+	ctx context.Context,
+	input core.SlackInput,
+	incident core.Incident,
+	command string,
+) error {
 	record, err := s.store.LoadRemediationRecord(ctx, incident.ID)
 	if err != nil {
 		return err
 	}
 	report, ok := reportcanvas.For(command, record)
 	if !ok {
-		return errors.New("unknown incident intelligence command")
+		return errors.New("unknown incident record")
 	}
 	return s.finishSlashMessage(ctx, input, reportcanvas.Publish(
 		ctx, s.slack, s.log, input.ChannelID, report,
@@ -553,88 +504,17 @@ func (s *Service) configureShadow(
 	)
 }
 
-func (s *Service) configureTurnLimit(
-	ctx context.Context,
-	input core.SlackInput,
-	args []string,
-) error {
-	if len(args) == 0 {
-		status, err := s.turnLimitStatus(ctx, input.ChannelID)
-		if err != nil {
-			return err
-		}
-		return s.finishSlashMessage(ctx, input, turnLimitStatusMessage(status))
-	}
-	scope := "channel"
-	channelID := input.ChannelID
-	value := ""
-	switch {
-	case len(args) == 1:
-		value = args[0]
-	case len(args) == 2 && args[0] == "global":
-		scope = "global"
-		channelID = ""
-		value = args[1]
-	default:
-		return s.refuseSlashInput(ctx, input, slashUsage("turn-limit"))
-	}
-	if value != "inherit" {
-		limit, err := parseTurnLimit(value)
-		if err != nil {
-			return s.refuseSlashInput(ctx, input, slashUsage("turn-limit"))
-		}
-		value = strconv.Itoa(limit)
-	}
-	if value == "inherit" {
-		if err := s.store.DeleteSlackSetting(
-			ctx, scope, channelID, turnLimitSettingName,
-		); err != nil {
-			return err
-		}
-	} else if err := s.store.SetSlackSetting(
-		ctx, scope, channelID, turnLimitSettingName, value, input.UserID,
-	); err != nil {
-		return err
-	}
-	s.audit(ctx, core.AuditEvent{
-		Kind: "slack.settings", ActorID: input.UserID,
-		ObjectID: scope + ":" + core.FirstNonempty(channelID, "workspace"),
-		Outcome:  "updated", Detail: "turn_limit=" + value,
-	})
-	status, err := s.turnLimitStatus(ctx, input.ChannelID)
-	if err != nil {
-		return err
-	}
-	if err := s.resumeTurnLimitBlockedIncidents(ctx, scope, channelID); err != nil {
-		return err
-	}
-	return s.finishSlashMessage(
-		ctx, input, turnLimitChangeMessage(scope, value, status),
-	)
-}
-
+// slashTextForCommandAction routes the help card's one remaining button.
+//
+// It used to route four: the incident directory's open, all, previous and next
+// pages were clicks that re-entered the subcommand router as text. The
+// directory is the App Home's job now, so the paging round trip went with it
+// and what is left is the button that answers the same question `status` does.
 func slashTextForCommandAction(input core.SlackInput) (string, bool) {
-	switch {
-	case input.ActionID == slackui.ActionCommandStatus && input.ActionValue == "status":
+	if input.ActionID == slackui.ActionCommandStatus && input.ActionValue == "status" {
 		return "status", true
-	case input.ActionID == slackui.ActionCommandOpenIncidents && input.ActionValue == "open":
-		return "incidents open", true
-	case input.ActionID == slackui.ActionCommandAllIncidents && input.ActionValue == "all":
-		return "incidents all", true
-	case input.ActionID == slackui.ActionCommandPreviousIncidents ||
-		input.ActionID == slackui.ActionCommandNextIncidents:
-		fields := strings.Split(input.ActionValue, ":")
-		if len(fields) != 2 || (fields[0] != "open" && fields[0] != "all") {
-			return "", false
-		}
-		page, err := strconv.Atoi(fields[1])
-		if err != nil || page < 1 {
-			return "", false
-		}
-		return fmt.Sprintf("incidents %s %d", fields[0], page), true
-	default:
-		return "", false
 	}
+	return "", false
 }
 
 func (s *Service) configureProactive(
@@ -694,33 +574,6 @@ func (s *Service) configureProactive(
 	}
 	return s.finishSlashMessage(
 		ctx, input, proactiveChangeMessage(scope, value, status),
-	)
-}
-
-func (s *Service) finishSlashIncidents(
-	ctx context.Context,
-	input core.SlackInput,
-	args []string,
-) error {
-	openOnly, page, ok := parseIncidentListArgs(args)
-	if !ok {
-		return s.refuseSlashInput(ctx, input, slashUsage("incidents"))
-	}
-	incidents, total, err := s.store.ListIncidentPage(
-		ctx,
-		openOnly,
-		incidentPageSize,
-		(page-1)*incidentPageSize,
-	)
-	if err != nil {
-		return err
-	}
-	return s.finishSlashMessage(
-		ctx,
-		input,
-		incidentDirectoryMessage(
-			incidents, total, page, openOnly,
-		),
 	)
 }
 
@@ -801,106 +654,34 @@ func (s *Service) finishSlashStatus(ctx context.Context, input core.SlackInput) 
 	} else if !errors.Is(configuredErr, store.ErrNotFound) {
 		return configuredErr
 	}
-	if input.Kind == "conversation_command" {
-		message.Context = []string{
-			"This is the effective channel configuration. Setting changes are durable and audited.",
-		}
-	}
 	return s.finishSlashMessage(ctx, input, message)
-}
-
-func (s *Service) runSlashIncidentControl(
-	ctx context.Context,
-	input core.SlackInput,
-	command string,
-) error {
-	incident, err := s.store.FindIncidentByChannel(ctx, input.ChannelID)
-	if errors.Is(err, store.ErrNotFound) {
-		return s.refuseSlashInput(
-			ctx, input,
-			"*There is no incident to control in this channel.*\n\n"+
-				"`update`, `changes`, `review`, `publish`, `stop`, and `close` operate on the "+
-				"incident attached to the current channel. To create one, explicitly ask "+
-				"`@Emisar open an incident for <summary>` in a mention-enabled channel. "+
-				"Use `/responder status` there to check how mentions are handled.",
-		)
-	}
-	if err != nil {
-		return err
-	}
-	control := map[string]string{
-		"update":  slackui.ActionUpdate,
-		"changes": slackui.ActionChanges,
-		"review":  slackui.ActionReview,
-		"publish": slackui.ActionPublishPR,
-		"stop":    slackui.ActionStop,
-		"extend":  slackui.ActionExtend,
-		"close":   slackui.ActionResolve,
-	}[command]
-	if err := s.handleControl(ctx, input, incident, control); err != nil {
-		// A refused control already answered this operator, and the receipt
-		// below would contradict it: "this command will cancel the active agent
-		// turn" reads as confirmation of work that was just declined.
-		if errors.Is(err, errControlRefused) {
-			return s.finishSlackInput(ctx, input)
-		}
-		return err
-	}
-	return s.finishSlashInput(
-		ctx,
-		input,
-		slashControlReceipt(command, slackui.ShortID(incident.ID)),
-	)
 }
 
 // refuseSlashInput turns a command down to the person who ran it.
 //
-// The permission refusals it was written for name one Slack account and nothing
-// else: you are not in `slack.operators`, this account is a guest or a bot, only
-// full members may leave feedback. Nobody else in the room can add anyone to
-// that setting, so nobody else can act on reading it.
-//
-// A real slash command already refuses privately, because Slack makes those
-// answers private and finishSlashMessage follows. The same refusal typed as
-// "@Emisar status" arrives as a conversation_command, and that branch posts to
-// the channel — so the identical sentence about the identical person became a
-// public callout depending only on which spelling they used, once per attempt.
-// The rule was already the private one; this makes it survive both spellings.
-//
-// Every other refusal on this path now comes through here too: mistyped usage,
-// an unknown subcommand, no incident attached to this channel, a channel the
-// bot has not been invited to. The line is whether the message carries the
-// thing that was asked for. An answer does — status, help, the incident
-// directory, a timeline — and stays public, because it was asked in the open.
-// A refusal carries only "no", addressed to one person, and typing
-// "@Emisar frobnicate" should not put a usage message in front of a room.
+// It is a thin wrapper now, and it is kept as its own name because the reason
+// it exists is not visible at the call sites. Every refusal on this path — you
+// are not in `slack.operators`, this account is a guest, mistyped usage, a verb
+// that no longer exists — names one Slack account and nothing else, and nobody
+// else in the room can act on reading it. A slash command answers privately
+// because Slack makes slash replies private; when a second spelling of these
+// commands existed it did not, and the identical sentence about the identical
+// person became a public callout depending only on which spelling they used.
+// The second spelling is gone. The name stays so the next surface that reaches
+// for this path inherits the rule rather than rediscovering it.
 func (s *Service) refuseSlashInput(
 	ctx context.Context,
 	input core.SlackInput,
 	text string,
 	threadTS ...string,
 ) error {
-	if input.Kind != "conversation_command" ||
-		input.ChannelID == "" || input.UserID == "" {
-		return s.finishSlashInput(ctx, input, text, threadTS...)
-	}
-	if err := s.slack.PostEphemeral(
-		ctx,
-		input.ChannelID,
-		input.UserID,
-		privateReplyThread(input, threadTS),
-		s.sanitizeMessage(slackui.Notice(text)),
-	); err != nil {
-		return s.retrySlackInput(ctx, input, err)
-	}
-	return s.store.FinishSlackInput(ctx, input.ID)
+	return s.finishSlashInput(ctx, input, text, threadTS...)
 }
 
 // privateReplyThread decides which thread a private answer belongs in.
 //
 // The default mirrors postInputMessage exactly: the same input answered out
-// loud and answered privately must land in the same place, or the two spellings
-// of one command disagree about where the conversation is. An explicit override
+// loud and answered privately must land in the same place. An explicit override
 // exists for the incident-scoped controls, whose public answers are threaded on
 // the task rather than on the click — see controlReplyThread.
 func privateReplyThread(input core.SlackInput, override []string) string {
@@ -926,14 +707,6 @@ func (s *Service) finishSlashMessage(
 	threadTS ...string,
 ) error {
 	message = s.sanitizeMessage(message)
-	if input.Kind == "conversation_command" {
-		if err := s.postInputMessage(
-			ctx, "conversation_command_"+input.ID, input, message,
-		); err != nil {
-			return err
-		}
-		return s.store.FinishSlackInput(ctx, input.ID)
-	}
 	// An App Home interaction has no channel — its container is a view, so
 	// Slack sends neither container.channel_id nor channel.id — and an
 	// ephemeral message has nowhere to go without one. Repainting the App Home
@@ -989,52 +762,57 @@ func (s *Service) finishSlashMessage(
 	return s.store.FinishSlackInput(ctx, input.ID)
 }
 
+// slashArgument returns everything after the subcommand, untouched. Only
+// `assignments` still needs it: its bounds are case-sensitive, so it reads the
+// raw text rather than the lower-cased fields the kill switches parse.
+func slashArgument(text string) string {
+	text = strings.TrimSpace(text)
+	if index := strings.IndexAny(text, " \t\r\n"); index >= 0 {
+		return strings.TrimSpace(text[index+1:])
+	}
+	return ""
+}
+
 func slashHelp() string {
 	return strings.Join(slashHelpSections(), "\n\n")
 }
 
+// slashHelpSections is the whole command guide, and it is the emergency kit.
+//
+// It used to be six sections and about thirty spellings, which is what a
+// command surface looks like when everything the product does has to have one.
+// Help that long is not read; it is scrolled past by somebody who already knows
+// what they want. What is here is what `/responder` still does, and one line
+// naming where the rest went, so an operator who came looking for `incidents`
+// leaves knowing to open the App Home rather than believing it broke.
 func slashHelpSections() []string {
 	return []string{
-		"*Find work*\n" +
-			"`/responder status` - explain Responder's behavior in this channel\n" +
-			"`/responder work` - show what Emisar owes the team\n" +
-			"`/responder incidents` - show open incidents and engineering tasks\n" +
-			"`/responder incidents all [page]` - include closed work history\n" +
-			"`/responder memory` - inspect saved memory and consolidation health\n" +
-			"`/responder memory review` - review stale or redundant saved memory\n" +
-			"`/responder preferences` - manage investigation and response defaults\n" +
-			"`/responder rules` - manage typed read-only channel automations\n" +
-			"`/responder schedules` - manage recurring and one-time tasks in this channel\n`/responder assignments` - manage scoped authority to open a pull request",
-		"*Improve Responder*\n" +
-			"`/responder feedback <what should change>` - save feedback with nearby conversation context\n" +
-			"`/responder feedback` - list the 20 newest open feedback items",
-		"*Control listening*\n" +
-			"`/responder proactive on|off|inherit` - change this channel\n" +
+		"*The emergency kit*\n" +
+			"`/responder status` - what Responder is doing in this channel and why\n" +
+			"`/responder proactive on|off|inherit` - change what this channel is read for\n" +
 			"`/responder proactive global on|off|inherit` - change the workspace default\n" +
 			"`/responder shadow on|off|inherit` - evaluate without posting or opening incidents\n" +
 			"`inherit` removes the Slack override and follows the next configured default.",
-		"*Automatic work capacity*\n" +
-			"`/responder turn-limit` - explain this channel's safety ceiling\n" +
-			"`/responder turn-limit 100..10000|inherit` - change this channel\n" +
-			"`/responder turn-limit global 100..10000|inherit` - change the workspace default\n" +
-			"Responder extends sessions automatically; operators never estimate turns for a task.",
-		"*Control active work*\n" +
-			"`/responder timeline` reads the durable event history; `/responder evidence` shows " +
-			"cited observations and coverage; `/responder handoff` prepares a current shift " +
-			"summary; `/responder postmortem` generates the current evidence-grounded draft. " +
-			"`/responder update` starts an evidence-based agent update; " +
-			"`/responder changes` reads the isolated diff; `/responder review` compares a proposed " +
-			"change with the current repository and runs rebase, validation, and policy checks; " +
-			"`/responder stop` preserves and stops the active turn; `/responder close` preserves " +
-			"the working copy and closes the session. Incident closure also posts an evidence-grounded postmortem draft.",
-		"An explicit repository-change request in shared-channel triage can offer a concise *Start task* button. Any active full workspace member may confirm it and collaborate in the writable isolated fork in that same thread. Incident rooms and attached task threads remain conversational even when proactive triage is off. Slash commands " +
-			"run from the channel composer and cannot select a task thread; use that thread's task-card buttons instead.",
+		// assignments is here on borrowed time: it is the only way to create a
+		// standing assignment until `offer_assignment` exists, so it is listed
+		// where an operator will look rather than left working and unmentioned.
+		"*Standing assignments*\n" +
+			"`/responder assignments` - manage scoped authority to open a pull request\n" +
+			"Creating one is still typed because the confirm card for it has not been " +
+			"built yet; everything else about them is readable in the App Home.",
+		"*Why so little*\nThese work when nothing else does: no model runs, no Coop " +
+			"session is needed, and the answer is private to you. Everything else is a " +
+			"conversation with Responder, a button on a pinned card, or the App Home — " +
+			"which can reach a task thread, and a command typed into the channel " +
+			"composer cannot.",
+		"Ask for what you want in your own words and Responder will show you exactly " +
+			"what it is about to save, change, or start before it does it.",
 	}
 }
 
 func slashHelpMessage() slackui.Message {
 	return slackui.Message{
-		Text:     "Responder command guide. Use status, incidents, proactive settings, or incident controls.",
+		Text:     "Responder command guide: status, proactive, shadow, help.",
 		Header:   "Responder command guide",
 		Sections: slashHelpSections(),
 		Actions: []slackui.Action{
@@ -1042,74 +820,15 @@ func slashHelpMessage() slackui.Message {
 				ID: slackui.ActionCommandStatus, Label: "Status here",
 				Value: "status", Style: "primary",
 			},
-			{
-				ID: slackui.ActionCommandOpenIncidents, Label: "Open incidents",
-				Value: "open",
-			},
-			{
-				ID: slackui.ActionCommandAllIncidents, Label: "All incidents",
-				Value: "all",
-			},
 		},
 		Context: []string{
-			"These buttons are read-only. Configuration and lifecycle commands require explicit text or pinned-card confirmation.",
+			"This button is read-only. Configuration and lifecycle changes require explicit text or pinned-card confirmation.",
 		},
 	}
 }
 
 func slashUsage(command string) string {
 	switch command {
-	case "work":
-		return "*Inspect unfinished Emisar commitments.*\n\n" +
-			"`/responder work` shows queued, active, finishing, and blocked agent work. " +
-			"Each item identifies its originating channel, current state, and next action."
-	case "feedback":
-		return "*Send product feedback with useful context.*\n\n" +
-			"`/responder feedback <what should change>` saves your suggestion with a bounded copy " +
-			"of the nearby Slack conversation. `/responder feedback` lists open feedback."
-	case "incidents":
-		return "*Browse the incident directory.*\n\n" +
-			"`/responder incidents` lists currently open incidents. " +
-			"`/responder incidents open [page]` selects another open-incident page. " +
-			"`/responder incidents all [page]` includes closed history. Pages start at 1, and " +
-			"each incident includes a clickable Slack channel link when its room is ready."
-	case "timeline", "evidence", "handoff", "postmortem":
-		return "*Read the current incident record.*\n\n" +
-			"`/responder timeline` shows alert, agent-run, approval, action, and publication history. " +
-			"`/responder evidence` shows cited observations and coverage gaps. " +
-			"`/responder handoff` prepares a concise shift summary. " +
-			"`/responder postmortem` generates an evidence-grounded draft from recorded actions."
-	case "memory":
-		return "*Inspect operational memory visible here.*\n\n" +
-			"`/responder memory` lists active operator-confirmed hints matching this channel, " +
-			"its configured repository, workspace visibility, or your operator visibility. " +
-			"It also reports conversation-summary and continuity-rollup health. " +
-			"`/responder memory review` opens one stale or duplicate review at a time; Responder " +
-			"does not rewrite confirmed memory automatically. Each entry has an explicit forget " +
-			"control. Saved memory never establishes current " +
-			"health or authorizes a change; live evidence and current repository state win."
-	case "preferences":
-		return "*Manage durable Responder preferences.*\n\n" +
-			"`/responder preferences` lists enabled and disabled preferences that match this " +
-			"operator, channel, repository, or workspace. Use the buttons to enable, disable, " +
-			"replace, or permanently delete them.\n\n" +
-			"Preferences change investigation depth or presentation only. Ask Responder in " +
-			"natural language for a lasting behavior; it will show the exact normalized value, " +
-			"scope, and expiry before saving."
-	case "rules":
-		return "*Manage standing rules for this channel.*\n\n" +
-			"`/responder rules` lists typed read-only subscriptions and their run counts. Use " +
-			"the buttons to enable, disable, replace, or permanently delete them.\n\n" +
-			"An enabled rule can read only its matching messages even when broad proactive " +
-			"triage is off. It replies in the source thread and cannot create incidents, edit " +
-			"files, deploy, approve, or mutate infrastructure."
-	case "schedules":
-		return "*Manage scheduled tasks for this channel.*\n\n" +
-			"`/responder schedules` lists one-time and recurring tasks with run-now, pause, " +
-			"replace, and delete controls. Create one conversationally, for example: " +
-			"`@Emisar every Monday at 09:00 UTC, summarize production health`.\n\n" +
-			"Nothing is saved until a configured operator confirms the normalized schedule. " +
-			"Every occurrence rechecks current Coop, repository, tool, and Emisar policy."
 	case "proactive":
 		return "*Choose what Responder should read.*\n\n" +
 			"`/responder proactive on|off|inherit` changes only this channel. " +
@@ -1117,16 +836,6 @@ func slashUsage(command string) string {
 			"`on` reads and triages new messages, `off` ignores ordinary messages, and " +
 			"`inherit` removes that Slack override so the next default applies. Use " +
 			"`/responder status` to preview the current effective behavior."
-	case "turn-limit":
-		return "*Set an automatic session safety ceiling.*\n\n" +
-			"`/responder turn-limit` shows the effective value for this channel. " +
-			"`/responder turn-limit 1000` changes only this channel. " +
-			"`/responder turn-limit global 1000` changes the workspace default. " +
-			"Use a value between `100` and `10000`, or use `inherit` instead of a number " +
-			"to remove that override.\n\n" +
-			"The value is the maximum number of accepted agent requests over a session's " +
-			"lifetime. It does not limit tool calls or investigation steps inside one request. " +
-			"Responder allocates capacity automatically until this ceiling."
 	case "assignments":
 		return assignments.Usage()
 	case "shadow":
@@ -1136,254 +845,8 @@ func slashUsage(command string) string {
 			"Shadow mode still runs read-only classification and records its decision, evidence, " +
 			"and coverage, but it never posts, offers, or creates an incident."
 	default:
-		return "Run `/responder " + command + "` without additional text. Use " +
-			"`/responder help` to see what this command does before running it."
+		return "Run `/responder " + command + "` without additional text. " + slashKit
 	}
-}
-
-func slashArgument(text string) string {
-	text = strings.TrimSpace(text)
-	if index := strings.IndexAny(text, " \t\r\n"); index >= 0 {
-		return strings.TrimSpace(text[index+1:])
-	}
-	return ""
-}
-
-func parseIncidentListArgs(args []string) (bool, int, bool) {
-	openOnly := true
-	page := 1
-	if len(args) == 0 {
-		return openOnly, page, true
-	}
-	if len(args) > 2 || (args[0] != "open" && args[0] != "all") {
-		return false, 0, false
-	}
-	openOnly = args[0] == "open"
-	if len(args) == 2 {
-		parsed, err := strconv.Atoi(args[1])
-		if err != nil || parsed < 1 {
-			return false, 0, false
-		}
-		page = parsed
-	}
-	return openOnly, page, true
-}
-
-func incidentDirectoryMessage(
-	incidents []core.Incident,
-	total int,
-	page int,
-	openOnly bool,
-) slackui.Message {
-	scope := "open"
-	if !openOnly {
-		scope = "all"
-	}
-	if total == 0 {
-		if openOnly {
-			return slackui.Message{
-				Text:   "There are no open incidents.",
-				Header: "No open incidents",
-				Sections: []string{
-					"Responder has no active, recovery-monitoring, or resolved-but-not-closed " +
-						"incidents. Use `/responder incidents all` to browse closed history.",
-				},
-				Context: []string{"Only you can see this incident directory."},
-			}
-		}
-		return slackui.Message{
-			Text:   "Responder has not recorded any incidents.",
-			Header: "No incidents recorded",
-			Sections: []string{
-				"The incident database is empty. New alert-driven or Slack-created incidents " +
-					"will appear here after Responder accepts them.",
-			},
-			Context: []string{"Only you can see this incident directory."},
-		}
-	}
-	pageCount := (total + incidentPageSize - 1) / incidentPageSize
-	if page > pageCount {
-		return slackui.Message{
-			Text: fmt.Sprintf(
-				"Incident page %d does not exist. There are %d pages.",
-				page, pageCount,
-			),
-			Header: "Incident page not found",
-			Sections: []string{
-				fmt.Sprintf(
-					"`/responder incidents %s %d` opens the last available page.",
-					scope, pageCount,
-				),
-			},
-			Context: []string{"No incident state was changed."},
-		}
-	}
-	first := (page-1)*incidentPageSize + 1
-	last := first + len(incidents) - 1
-	header := fmt.Sprintf(
-		"%s incidents (%d)",
-		upperFirst(scope),
-		total,
-	)
-	if pageCount > 1 {
-		header += fmt.Sprintf(" - page %d of %d", page, pageCount)
-	}
-	message := slackui.Message{
-		Text: fmt.Sprintf(
-			"Showing %d-%d of %d %s incidents.",
-			first, last, total, scope,
-		),
-		Header: header,
-		Context: []string{
-			"Newest first. Only you can see this directory.",
-		},
-	}
-	for _, incident := range incidents {
-		message.Sections = append(
-			message.Sections,
-			incidentDirectoryEntry(incident),
-		)
-	}
-	if page > 1 {
-		message.Actions = append(message.Actions, slackui.Action{
-			ID: slackui.ActionCommandPreviousIncidents, Label: "Previous page",
-			Value: fmt.Sprintf("%s:%d", scope, page-1),
-		})
-	}
-	if page < pageCount {
-		message.Actions = append(message.Actions, slackui.Action{
-			ID: slackui.ActionCommandNextIncidents, Label: "Next page",
-			Value: fmt.Sprintf("%s:%d", scope, page+1),
-		})
-	}
-	if openOnly {
-		message.Actions = append(message.Actions, slackui.Action{
-			ID: slackui.ActionCommandAllIncidents, Label: "Closed history", Value: "all",
-		})
-	} else {
-		message.Actions = append(message.Actions, slackui.Action{
-			ID: slackui.ActionCommandOpenIncidents, Label: "Open incidents", Value: "open",
-		})
-	}
-	return message
-}
-
-func incidentDirectoryEntry(incident core.Incident) string {
-	title := strings.Join(strings.Fields(incident.Title), " ")
-	runes := []rune(title)
-	if len(runes) > 180 {
-		title = string(runes[:177]) + "..."
-	}
-	fallbackTitle := "Untitled incident"
-	channel := "Incident room is being prepared"
-	workKind := ""
-	if incident.IsEngineeringTask() {
-		fallbackTitle = "Untitled engineering task"
-		if incident.IsThreadScoped() {
-			channel = "Task thread is being prepared"
-		} else {
-			channel = "Engineering room is being prepared"
-		}
-		workKind = "`engineering task` | "
-	}
-	title = escapeSlackDirectoryText(core.FirstNonempty(title, fallbackTitle))
-	repository := escapeSlackDirectoryText(incident.Repository)
-	if incident.ChannelID != "" {
-		switch incident.ChannelState {
-		case core.ChannelArchived:
-			if incident.IsThreadScoped() {
-				channel = "Source Slack channel archived"
-			} else {
-				channel = "#" + escapeSlackDirectoryText(incident.ChannelName) + " (archived)"
-			}
-		case core.ChannelDeleted:
-			if incident.IsThreadScoped() {
-				channel = "Source Slack channel deleted"
-			} else {
-				channel = "#" + escapeSlackDirectoryText(incident.ChannelName) + " (Slack room deleted)"
-			}
-		case core.ChannelUnreachable:
-			if incident.IsThreadScoped() {
-				channel = "Source Slack channel unavailable"
-			} else {
-				channel = "#" + escapeSlackDirectoryText(incident.ChannelName) + " (room unavailable)"
-			}
-		default:
-			channel = "<#" + incident.ChannelID + ">"
-		}
-	}
-	metadata := fmt.Sprintf(
-		"`%s` | `%s` | started %s",
-		slackui.ShortID(incident.ID),
-		repository,
-		incident.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"),
-	)
-	if incident.Severity != "" {
-		metadata += " | " + escapeSlackDirectoryText(incident.Severity)
-	}
-	return fmt.Sprintf(
-		"*%s*\n%s | %s | %s\n%s",
-		title, channel, incidentDirectoryState(incident),
-		workKind+incidentSignalSummary(incident), metadata,
-	)
-}
-
-func incidentDirectoryState(incident core.Incident) string {
-	switch incident.Status {
-	case core.IncidentMonitoring:
-		return "Monitoring recovery"
-	case core.IncidentResolved:
-		return "Resolved"
-	case core.IncidentClosed:
-		return "Closed"
-	}
-	return incidentDirectoryActivity(incident.Workflow)
-}
-
-func incidentDirectoryActivity(workflow core.WorkflowState) string {
-	switch workflow {
-	case core.WorkflowProvisioningChannel:
-		return "Creating room"
-	case core.WorkflowProvisioningSession:
-		return "Preparing workspace"
-	case core.WorkflowHolding:
-		return "Queued for capacity"
-	case core.WorkflowInvestigating:
-		return "Investigating"
-	case core.WorkflowParked:
-		return "Waiting for input"
-	case core.WorkflowBlocked:
-		return "Needs operator action"
-	case core.WorkflowClosed:
-		return "Session closed"
-	default:
-		return "Unknown activity"
-	}
-}
-
-func incidentSignalSummary(incident core.Incident) string {
-	if incident.IsEngineeringTask() {
-		return "repository work"
-	}
-	if incident.FiringCount == 0 {
-		return "no alerts firing"
-	}
-	if incident.SignalCount == 1 {
-		return "1 alert firing"
-	}
-	return fmt.Sprintf(
-		"%d of %d alerts firing",
-		incident.FiringCount,
-		incident.SignalCount,
-	)
-}
-
-func escapeSlackDirectoryText(value string) string {
-	return strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-	).Replace(value)
 }
 
 func onOff(value bool) string {
@@ -1437,72 +900,6 @@ func proactiveChangeMessage(
 	}
 }
 
-func turnLimitStatusMessage(status turnLimitStatus) slackui.Message {
-	return slackui.Message{
-		Text: fmt.Sprintf(
-			"Responder automatically manages session capacity up to %d agent requests in this channel.",
-			status.Limit,
-		),
-		Header: fmt.Sprintf("Automatic turn ceiling: %d", status.Limit),
-		Sections: []string{
-			"*What this means*\nResponder extends a Coop session automatically when more " +
-				"authorized work arrives. Operators do not choose how many turns an " +
-				"investigation needs. One turn is one accepted request; tool calls and " +
-				"investigation steps inside that request are not counted separately.",
-			"*Why this value applies*\n" + turnLimitReason(status) + ". The ceiling prevents " +
-				"an accidentally unbounded session; Coop policy and service-wide limits can " +
-				"still enforce a lower hard maximum.",
-			"*Change or reset it*\nUse `/responder turn-limit 1000` for this channel, " +
-				"`/responder turn-limit global 1000` for the workspace default, or replace " +
-				"the number with `inherit` to remove that Slack override.",
-		},
-		Context: []string{
-			"Changing this ceiling does not revoke capacity already allocated to an existing Coop session.",
-		},
-	}
-}
-
-func turnLimitChangeMessage(
-	scope string,
-	value string,
-	status turnLimitStatus,
-) slackui.Message {
-	target := "this channel"
-	if scope == "global" {
-		target = "the workspace default"
-	}
-	change := "Removed the automatic turn-ceiling override for " + target + "."
-	if value != "inherit" {
-		change = fmt.Sprintf("Set the automatic turn ceiling for %s to %s.", target, value)
-	}
-	message := turnLimitStatusMessage(status)
-	message.Header = change
-	message.Text = fmt.Sprintf(
-		"%s The effective ceiling in this channel is now %d agent requests.",
-		change, status.Limit,
-	)
-	message.Sections[1] = "*Effective result*\n" + turnLimitReason(status) +
-		fmt.Sprintf(". Responder will allocate capacity automatically up to %d requests.", status.Limit)
-	return message
-}
-
-func turnLimitReason(status turnLimitStatus) string {
-	switch status.EffectiveSource {
-	case "channel override":
-		return fmt.Sprintf("A channel-specific Slack setting sets the ceiling to %d", status.Limit)
-	case "workspace override":
-		return fmt.Sprintf(
-			"No channel override is present, so the Slack workspace default sets the ceiling to %d",
-			status.Limit,
-		)
-	default:
-		return fmt.Sprintf(
-			"No Slack override is present, so the deployment default sets the ceiling to %d",
-			status.Limit,
-		)
-	}
-}
-
 func slashStatusMessage(
 	status proactiveStatus,
 	shadow shadowStatus,
@@ -1532,8 +929,7 @@ func slashStatusMessage(
 				"*Durable behavior*\n%d enabled preference%s affect investigation method or "+
 					"presentation. %d enabled standing rule%s can admit only their typed "+
 					"matching messages and run read-only threaded checks, even when broad "+
-					"proactive triage is off. Use `/responder preferences` or "+
-					"`/responder rules` to inspect exact entries.",
+					"proactive triage is off. The App Home lists the exact entries.",
 				preferenceCount,
 				map[bool]string{true: "", false: "s"}[preferenceCount == 1],
 				ruleCount,
@@ -1560,9 +956,9 @@ func slashStatusMessage(
 	message.Sections = append(
 		message.Sections,
 		incidentStatusDescription(*incident),
-		"*What you can do now*\nReply normally anywhere in this incident channel to collaborate. "+
-			"Use `/responder update` for a fresh evidence-based summary, `/responder changes` "+
-			"for the isolated diff, or `/responder help` for every control.",
+		"*What you can do now*\nReply normally anywhere in this incident channel to collaborate, "+
+			"or ask for an update, the diff, or the record. The pinned card carries the "+
+			"controls as buttons.",
 	)
 	return message
 }
@@ -1696,33 +1092,4 @@ func incidentStatusDescription(incident core.Incident) string {
 		"*Attached incident `%s` is %s.* %s",
 		slackui.ShortID(incident.ID), status, activity,
 	)
-}
-
-func slashControlReceipt(command, incidentID string) string {
-	effect := map[string]string{
-		"update":  "ask the agent to inspect current evidence and post a concise update",
-		"changes": "inspect the isolated fork and post its current code diff. This is read-only and does not merge, sign, push, or deploy",
-		"review":  "run Coop's read-only fix review against the isolated fork. A passing review is evidence, not permission to merge or deploy",
-		"publish": "run a fresh readiness review and create or update a lease-protected draft PR containing the exact approved tree. Responder cannot merge or deploy it",
-		"stop":    "cancel the active agent turn while preserving the fork, collected evidence, and queued work",
-		"extend":  "explain the automatic session capacity policy. Manual turn allocation is no longer required",
-		"close":   "close the incident session while preserving its isolated fork for later review or cleanup",
-	}[command]
-	return fmt.Sprintf(
-		"*Request submitted for incident `%s`.*\n\nThis command will %s. "+
-			"The pinned incident thread will show the authoritative result because the incident "+
-			"state may have changed while this command was being processed.",
-		incidentID, effect,
-	)
-}
-
-// upperFirst capitalises the first rune of a label. Slicing the first byte
-// would be correct only while every label is ASCII, which is not a property
-// worth relying on for display text.
-func upperFirst(value string) string {
-	if value == "" {
-		return value
-	}
-	first, size := utf8.DecodeRuneInString(value)
-	return string(unicode.ToUpper(first)) + value[size:]
 }

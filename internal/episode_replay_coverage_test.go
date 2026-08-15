@@ -42,7 +42,7 @@ var acknowledgedCoverageGaps = map[string]string{
 	"attachments-and-screenshots":                    "needs a sanitized manifest recording",
 	"generated-charts-and-files":                     "needs a recorded upload, including one that failed",
 	"channel-setup-and-conversational-configuration": "needs a recorded wizard transcript",
-	"slash-commands-and-app-home":                    "needs recorded management-view interactions",
+	"app-home-and-the-web-control-plane":             "needs recorded management-view interactions",
 	"durable-preferences-and-rules":                  "needs a recorded confirmed preference",
 	"freeform-operator-guidance":                     "needs a recorded guidance note with provenance",
 	"cross-channel-memory":                           "needs a recall pair across two channels with a privacy boundary",

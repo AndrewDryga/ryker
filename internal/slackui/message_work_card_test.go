@@ -318,19 +318,31 @@ func TestConfirmableActionsNeverReachTheOverflowMenu(t *testing.T) {
 				t.Fatalf("%s: overflow holds a confirmable action: %+v", card.name, action)
 			}
 		}
+		for _, row := range card.message.Rows {
+			for _, action := range row.Overflow {
+				if action.Confirm != "" {
+					t.Fatalf("%s: a row menu holds a confirmable action: %+v", card.name, action)
+				}
+			}
+		}
 		// What was asserted on the struct has to be what shipped, so the
 		// rendered payload is read back rather than trusted.
-		options := renderedOverflowOptions(t, card.message)
-		if len(options) > 5 {
-			t.Fatalf("%s: overflow renders %d options, over Slack's limit of 5",
-				card.name, len(options))
+		owned := append([]Action{}, card.message.Overflow...)
+		for _, row := range card.message.Rows {
+			owned = append(owned, row.Overflow...)
 		}
-		for _, value := range options {
-			if !slices.ContainsFunc(card.message.Overflow, func(action Action) bool {
-				return OverflowOptionValue(action) == value
-			}) {
-				t.Fatalf("%s: rendered an overflow option no Overflow entry owns: %q",
-					card.name, value)
+		for _, menu := range renderedOverflowMenus(t, card.message) {
+			if len(menu) > 5 {
+				t.Fatalf("%s: one menu renders %d options, over Slack's limit of 5",
+					card.name, len(menu))
+			}
+			for _, value := range menu {
+				if !slices.ContainsFunc(owned, func(action Action) bool {
+					return OverflowOptionValue(action) == value
+				}) {
+					t.Fatalf("%s: rendered an overflow option no menu entry owns: %q",
+						card.name, value)
+				}
 			}
 		}
 		// Rule 6: the bottom row is a few controls worth pressing, not the
@@ -874,6 +886,43 @@ func findAction(actions []Action, id string) (Action, bool) {
 
 // renderedOverflowOptions reads the option values back out of the payload
 // Slack would actually receive.
+// renderedOverflowMenus is renderedOverflowOptions without the flattening.
+// Slack's five-option limit is per menu, so a card with a card-level menu and a
+// row menu is inside the limit at four options each and outside it if the two
+// are counted together.
+func renderedOverflowMenus(t *testing.T, message Message) [][]string {
+	t.Helper()
+	var menus [][]string
+	for _, block := range message.Blocks() {
+		raw, err := json.Marshal(block)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var probe struct {
+			Elements []struct {
+				Type    string `json:"type"`
+				Options []struct {
+					Value string `json:"value"`
+				} `json:"options"`
+			} `json:"elements"`
+		}
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			t.Fatal(err)
+		}
+		for _, element := range probe.Elements {
+			if element.Type != "overflow" {
+				continue
+			}
+			menu := make([]string, 0, len(element.Options))
+			for _, option := range element.Options {
+				menu = append(menu, option.Value)
+			}
+			menus = append(menus, menu)
+		}
+	}
+	return menus
+}
+
 func renderedOverflowOptions(t *testing.T, message Message) []string {
 	t.Helper()
 	var values []string

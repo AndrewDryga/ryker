@@ -194,8 +194,10 @@ Important routing behavior:
 - When Slack reports that the bot joined a channel, Responder opens one durable setup conversation.
   Operator answers advance a host-owned typed draft; a confirmation button bound to the stored
   session ID is required before settings change.
-- Supported conversational controls are normalized into the same command handlers as
-  `/responder`. Read results are threaded publicly; slash results remain ephemeral.
+- A plain channel message is never a command. The model classifies intent and the host executes the
+  typed result; there is no keyword table rewriting free text into a subcommand. Conversational
+  results are threaded publicly, while the four `/responder` verbs answer only the operator who
+  typed them.
 - An explicit `@mention` always summons read-only triage in any channel where Emisar is a member.
   Proactive participation, shadow evaluation, and app-alert policy remain channel-configured.
 - A successfully delivered triage reply opens a 30-minute continuation window at that channel or
@@ -692,7 +694,7 @@ flowchart TB
   Approvals --> Remediation
   Publication --> Remediation
   PublicationEvents --> Timeline
-  Remediation --> SlackViews["timeline / handoff / postmortem"]
+  Remediation --> SlackViews["card Record row:<br/>timeline / evidence / handoff / postmortem"]
 
   ChannelMemory[("channel_memories")] --> Evaluation
   ConversationMemory[("conversation_memories")] --> PromptContext

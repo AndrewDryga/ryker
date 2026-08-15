@@ -117,7 +117,7 @@ func engineeringTaskCard(
 	if outcome := taskOutcome(state, publication, followup); outcome != "" {
 		message.Sections = append(message.Sections, outcome)
 	}
-	return message
+	return AppendRecordRow(message, task.ID)
 }
 
 func firstLiveTurn(live []LiveTurn) LiveTurn {

@@ -72,8 +72,10 @@ func reportFixture(
 	return st, svc, slackClient, incident
 }
 
-// askForReport runs one `/responder <report>` through the durable input lane,
-// which is the only way these four commands are ever reached.
+// askForReport presses one of the card's four record controls and drives it
+// through the durable input lane, which is the only way these reports are ever
+// reached. They were `/responder timeline|evidence|handoff|postmortem` until
+// 2026-08-15; the renderers did not change, the way in did.
 func askForReport(
 	t *testing.T,
 	ctx context.Context,
@@ -83,13 +85,22 @@ func askForReport(
 	command string,
 ) {
 	t.Helper()
+	actionID := map[string]string{
+		"timeline":   slackui.ActionRecordTimeline,
+		"evidence":   slackui.ActionRecordEvidence,
+		"handoff":    slackui.ActionRecordHandoff,
+		"postmortem": slackui.ActionRecordPostmortem,
+	}[command]
+	if actionID == "" {
+		t.Fatalf("no record control renders %q", command)
+	}
 	if created, err := st.AdmitSlackInput(ctx, core.SlackInput{
-		ID: "slash-" + command, EnvelopeID: "env-slash-" + command,
-		EventID: "event-slash-" + command, Kind: "slash",
+		ID: "record-" + command, EnvelopeID: "env-record-" + command,
+		EventID: "event-record-" + command, Kind: "action",
 		TeamID: svc.cfg.Slack.TeamID, ChannelID: incident.ChannelID,
-		UserID: "U123ABC", Text: command, ActionID: "/responder",
+		UserID: "U123ABC", ActionID: actionID, ActionValue: incident.ID,
 	}); err != nil || !created {
-		t.Fatalf("admit /responder %s = %v, %v", command, created, err)
+		t.Fatalf("admit %s = %v, %v", command, created, err)
 	}
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
@@ -221,18 +232,18 @@ func TestEveryLongFormReportEscalatesToACanvas(t *testing.T) {
 			askForReport(t, ctx, st, svc, incident, command)
 
 			if len(slackClient.canvases) != 1 {
-				t.Fatalf("/responder %s canvases = %+v, want exactly one",
+				t.Fatalf("the %s control canvases = %+v, want exactly one",
 					command, slackClient.canvases)
 			}
 			canvas := slackClient.canvases[0]
 			if strings.TrimSpace(canvas.title) == "" {
-				t.Fatalf("/responder %s made an untitled canvas: %+v", command, canvas)
+				t.Fatalf("the %s control made an untitled canvas: %+v", command, canvas)
 			}
 			if strings.TrimSpace(canvas.markdown) == "" {
-				t.Fatalf("/responder %s made an empty canvas: %+v", command, canvas)
+				t.Fatalf("the %s control made an empty canvas: %+v", command, canvas)
 			}
 			if len(slackClient.ephemerals) != 1 {
-				t.Fatalf("/responder %s replies = %+v", command, slackClient.ephemerals)
+				t.Fatalf("the %s control replies = %+v", command, slackClient.ephemerals)
 			}
 			message := slackClient.ephemerals[0].message
 			opened := false
@@ -242,7 +253,7 @@ func TestEveryLongFormReportEscalatesToACanvas(t *testing.T) {
 				}
 			}
 			if !opened {
-				t.Fatalf("/responder %s card has no way into its canvas: %+v",
+				t.Fatalf("the %s control card has no way into its canvas: %+v",
 					command, message.Actions)
 			}
 		})

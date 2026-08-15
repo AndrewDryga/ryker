@@ -133,10 +133,14 @@ func TestIncidentCardHasVisibleStateAndDeterministicControls(t *testing.T) {
 			}
 		}
 	}
+	// Two action blocks: the record row's menu, and the card's own controls.
+	// The record row is four read-only options behind a labelled menu and does
+	// not compete with the button an operator is looking for.
+	//
 	// Stop is neutral now. It preserves the fork and the queued work, so it
 	// destroys nothing, and red is reserved for the controls that do — a red
 	// button on every running card is how red stops meaning anything.
-	if actionBlocks != 1 || card.Actions[0].ID != ActionStop ||
+	if actionBlocks != 2 || card.Actions[0].ID != ActionStop ||
 		card.Actions[0].Label != "Stop current run" ||
 		card.Actions[0].Style != "" || card.Actions[0].Confirm == "" {
 		t.Fatalf("card lacks compact safe stop action: %+v", card.Actions)
@@ -916,8 +920,8 @@ func TestHelpExplainsControlEffectsAndSafety(t *testing.T) {
 	content := helpSurface(t, message)
 	for _, required := range []string{
 		"no `@mention` needed",
-		"/responder changes",
-		"the working copy's diff",
+		"the card",
+		"stop · diff · publish · close",
 		"never merge, sign, or deploy",
 	} {
 		if !strings.Contains(content, required) {
@@ -926,13 +930,14 @@ func TestHelpExplainsControlEffectsAndSafety(t *testing.T) {
 	}
 }
 
-// The thread variant names the card, not the composer.
+// Help names the card, in every variant, because the card is what is there.
 //
-// Slash controls resolve through FindIncidentByChannel, which filters
-// work_scope = 'room', so `/responder changes` typed at a task thread can never
-// select that task. The old help printed the command list to both variants and
-// then explained, four sections later, that it did not apply here.
-func TestThreadHelpNamesTheCardBecauseSlashCommandsCannotReachIt(t *testing.T) {
+// It used to print four slash commands to the channel variant and the card to
+// the thread variant, on the grounds that those commands resolved through
+// FindIncidentByChannel — which filters work_scope = 'room', so typing one at a
+// task thread could never select that task. The commands are gone now, so both
+// variants say the same true thing.
+func TestHelpNamesTheCardRatherThanACommand(t *testing.T) {
 	message := HelpMessage(core.Incident{
 		ID: "inc_1234567890abcdef", WorkKind: core.WorkKindEngineeringTask,
 		WorkScope: core.WorkScopeThread,
@@ -941,6 +946,7 @@ func TestThreadHelpNamesTheCardBecauseSlashCommandsCannotReachIt(t *testing.T) {
 	for _, required := range []string{
 		"*Just reply in this thread*",
 		"stop · diff · publish · close",
+		"timeline · evidence · handoff",
 	} {
 		if !strings.Contains(content, required) {
 			t.Fatalf("thread help lacks %q: %+v", required, message)

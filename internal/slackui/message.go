@@ -108,11 +108,18 @@ const (
 	ActionSetupOperatorsOnly      = "responder_setup_audience_operators"
 	ActionSetupIncludeMe          = "responder_setup_audience_include_me"
 
-	ActionCommandStatus            = "responder_command_status"
-	ActionCommandOpenIncidents     = "responder_command_incidents_open"
-	ActionCommandAllIncidents      = "responder_command_incidents_all"
-	ActionCommandPreviousIncidents = "responder_command_incidents_previous"
-	ActionCommandNextIncidents     = "responder_command_incidents_next"
+	ActionCommandStatus = "responder_command_status"
+
+	// The four durable reads of a piece of work, which used to be reachable
+	// only by typing `/responder timeline|evidence|handoff|postmortem` into the
+	// channel composer — a surface that resolves an incident by channel and so
+	// could not name a task thread at all. They are host-rendered from the
+	// stored record, never written by the model, and they change nothing, so
+	// they live in the card's overflow menu rather than spending a button.
+	ActionRecordTimeline   = "responder_record_timeline"
+	ActionRecordEvidence   = "responder_record_evidence"
+	ActionRecordHandoff    = "responder_record_handoff"
+	ActionRecordPostmortem = "responder_record_postmortem"
 
 	// ActionOverflow is the id every overflow menu carries. One id for every
 	// menu on purpose: Slack reports the menu, never the option object, so both
@@ -1713,34 +1720,30 @@ func safeInlineCode(value string) string {
 // and a router reading every thread message for one is a way to run a control
 // nobody asked for.
 func HelpMessage(incident core.Incident) Message {
-	// Slash controls resolve through the incident attached to a *channel*
-	// (FindIncidentByChannel filters work_scope = 'room'), so a thread-scoped
-	// task cannot be selected from the composer at all. Printing
-	// `/responder changes` to a task thread would be an instruction that
-	// silently targets the wrong thing, so the thread's strip names the card.
+	// The strip named four slash commands until 2026-08-15, when they were
+	// removed. It had already been wrong for the thread-scoped case — those
+	// commands resolved the incident attached to a *channel*
+	// (FindIncidentByChannel filters work_scope = 'room'), so a thread task
+	// could not be selected from the composer at all, and printing
+	// `/responder changes` to a task thread was an instruction that silently
+	// targeted the wrong thing. Every case names the card now, which is the
+	// thing that was true in the thread case all along.
 	conversation := "*Just reply in this channel* — no `@mention` needed; every message here " +
 		"continues the same incident conversation."
 	if incident.IsEngineeringTask() {
-		// A room-scoped engineering task has a room and the slash controls
-		// resolve in it, so the only thing wrong with this strip was the noun.
 		conversation = "*Just reply in this channel* — no `@mention` needed; every message here " +
 			"continues the same engineering task."
 	}
 	reference := []LedgerStep{
 		// A blank glyph: these are label/value rows, not steps of a run.
-		{Glyph: " ", Label: "/responder update", Detail: "fresh evidence summary"},
-		{Glyph: " ", Label: "/responder changes", Detail: "the working copy's diff"},
-		{Glyph: " ", Label: "/responder review", Detail: "is it ready"},
-		{Glyph: " ", Label: "/responder publish", Detail: "operator opens draft PR"},
+		{Glyph: " ", Label: "the card", Detail: "stop · diff · publish · close"},
+		{Glyph: " ", Label: "its ⋯ menu", Detail: "timeline · evidence · handoff"},
+		{Glyph: " ", Label: "ask here", Detail: "anything else"},
 	}
-	summary := "just reply here; slash commands run the controls."
+	summary := "just reply here; the card above has the controls."
 	if incident.IsThreadScoped() {
 		conversation = "*Just reply in this thread* — no `@mention` needed; every authorized reply " +
 			"continues the same isolated session."
-		reference = []LedgerStep{
-			{Glyph: " ", Label: "the card", Detail: "stop · diff · publish · close"},
-		}
-		summary = "just reply here; the card above has the controls."
 	}
 	return Message{
 		Text:     "Help — " + summary,

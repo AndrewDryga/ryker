@@ -290,7 +290,8 @@ episode.
 
 - Effective configuration per deployment, and which file each value came from
 - Channels: participation mode, proactive, shadow, repository binding, alert
-  policy — currently only reachable through a slash command per channel
+  policy — proactive and shadow are the only two a slash command still sets, and
+  the rest are set by the channel setup conversation in that channel
 - Preferences and standing rules with scope and expiry
 - Schedules, with next occurrence and catch-up policy
 - Session policies and the target ladder, per repository

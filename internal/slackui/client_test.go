@@ -529,7 +529,11 @@ func TestShippedManifestDescribesSupportedSlackApp(t *testing.T) {
 		command.UsageHint == "" || command.ShouldEscape == nil || *command.ShouldEscape {
 		t.Fatalf("manifest slash command = %+v", command)
 	}
-	if command.UsageHint != "help | status | incidents | schedules" ||
+	// The hint is the only completion Slack offers — it does not ask the app
+	// for dynamic subcommands — so it is the one place a verb that no longer
+	// exists is advertised to every operator every time they type the command.
+	// It said "incidents | schedules" for a day after both were deleted.
+	if command.UsageHint != "status | proactive | shadow | help" ||
 		len(command.UsageHint) > 60 {
 		t.Fatalf("manifest usage hint must remain short and discoverable: %q", command.UsageHint)
 	}

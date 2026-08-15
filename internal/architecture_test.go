@@ -571,7 +571,25 @@ var lineBudget = map[string]int{
 	// came down. This package's own extraction is still owed, and the candidate
 	// has not changed since the paragraph above named it — the offline
 	// evaluation family behind the decision domain.
-	"service": 23505,
+	//
+	// LOWERED to 22770 on 2026-08-15 when `/responder` became the emergency
+	// kit. 753 lines came out — the incident directory and its paging, the
+	// commitment, memory, preference, rule and schedule readers, the turn-limit
+	// writer and its blocked-work resume, the slash lifecycle controls and
+	// their receipt, the slash feedback path, and the conversation_command
+	// branches that gave every one of them a second spelling. The package
+	// measured 23345 against the entry above and measures 22592 now; the
+	// remeasure is what sets this number, not arithmetic on the old one.
+	//
+	// Most of the deletion is locked in and about a quarter comes back as
+	// margin, the same trade the action-proposal deletion made above: the
+	// record buttons and the typed operations that replace what was removed
+	// still have to land, and a ratchet that re-arms at zero fails the next
+	// change on the merits of this one. `assignments` did NOT go with the rest
+	// — slash is that feature's only creation surface until `offer_assignment`
+	// exists — so its reader is still counted here, and the number comes down
+	// again when the confirm card replaces it.
+	"service": 22770,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

@@ -87,6 +87,10 @@ var slackActionRoutes = map[string]func(*Service, context.Context, core.SlackInp
 	slackui.ActionRunSchedule:             (*Service).handleRunScheduleNow,
 	slackui.ActionEditSchedule:            (*Service).handleEditSchedule,
 	slackui.ActionDeleteSchedule:          (*Service).handleDeleteSchedule,
+	slackui.ActionRecordTimeline:          (*Service).handleRecordControl,
+	slackui.ActionRecordEvidence:          (*Service).handleRecordControl,
+	slackui.ActionRecordHandoff:           (*Service).handleRecordControl,
+	slackui.ActionRecordPostmortem:        (*Service).handleRecordControl,
 }
 
 // acknowledgeLinkAction completes a button whose entire job is its URL.
@@ -1495,8 +1499,8 @@ func (s *Service) explainAutomaticCapacity(
 		"*Manual turn allocation is no longer required.* Responder automatically adds "+
 			"session capacity when authorized work arrives, up to this channel's safety "+
 			"ceiling of %d accepted requests. Tool calls and investigation steps inside a "+
-			"request are not counted separately. Use `/responder turn-limit` to inspect or "+
-			"change the ceiling.",
+			"request are not counted separately. The ceiling is `coop.turn_limit` in "+
+			"responder.yaml.",
 		limit,
 	))
 }
