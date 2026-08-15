@@ -1,6 +1,9 @@
 package investigation
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // Schema fragments for the correction classes that are about format.
 //
@@ -99,6 +102,17 @@ var schemaFragments = []schemaFragment{
 			`"attempts":["Emisar nomad snapshot"],"next_action":"Restore the Nomad API route."}`,
 	},
 	{
+		matches: []string{"schedule_offer"},
+		field:   "offer_schedule",
+		shape: `{"id":<string>,"type":"offer_schedule","schedule_offer":{"title":<string>,` +
+			`"prompt":<string>,"repository":<string>,"recurrence":"once"|"interval"|"daily"|` +
+			`"weekly"|"monthly","start_at":<RFC3339>,"local_time":"HH:MM","timezone":<IANA name>}}`,
+		example: `{"id":"schedule-1","type":"offer_schedule","schedule_offer":{"title":` +
+			`"Daily platform health report","prompt":"Run the published whole-platform health ` +
+			`review and report the verdict here.","repository":"tenant-infra","recurrence":"daily",` +
+			`"local_time":"09:00","timezone":"America/Merida"}}`,
+	},
+	{
 		matches: []string{"update_memory", "memory"},
 		field:   "update_memory",
 		shape:   `{"id":<string>,"type":"update_memory","memory":{...}}`,
@@ -125,15 +139,76 @@ const legacyOperationsExample = `{"operations":[{"id":"complete-1","type":"compl
 	`"completion":{"message":"Slack Markdown answer","completion":{"status":"decision_ready",` +
 	`"summary":"concise decision"}}},{"id":"memory-1","type":"update_memory","memory":{...}}]}`
 
+// unknownFieldPattern pulls the field name out of a strict-decoder rejection.
+// It is the one parse failure that names something.
+var unknownFieldPattern = regexp.MustCompile(`unknown field "([^"]+)"`)
+
+// unknownFieldOperations maps a name no schema carries onto the fragment that
+// answers what it was reaching for.
+//
+// tenant run_a162e8457a76089aa94ea5264cc1e61c spent five correction rounds
+// inside two minutes on the first six entries: `frequency`, `schedule_type`,
+// `cadence`, `schedule`, then `daily`, each one throwing the whole envelope
+// away and handing back the name of the guess. Every one of them wanted
+// offer_schedule, and the run finished with failure_count 9 on an answer whose
+// substance never changed between rounds.
+//
+// Entries are only for names that can mean one operation. `summary` is
+// deliberately absent — progress and completion both carry one — and so is
+// every real payload key, which fails for being in the wrong place rather than
+// for existing. claim_id and confidence are here to keep by intent what the
+// substring table below was doing by accident.
+var unknownFieldOperations = map[string]string{
+	"schedule": "offer_schedule", "schedule_type": "offer_schedule",
+	"recurrence": "offer_schedule", "cadence": "offer_schedule",
+	"frequency": "offer_schedule", "daily": "offer_schedule",
+	"material_gaps": "completion blocked fields", "next_action": "completion blocked fields",
+	"blocker_kind": "completion blocked fields", "attempts": "completion blocked fields",
+	"message": "complete_episode", "answer": "complete_episode",
+	"claim_id": "evidence.claim_id", "confidence": "evidence.confidence",
+}
+
+// unknownFieldAnswer names the invented field and, where it can only have meant
+// one operation, shows that operation's shape.
+//
+// 79445e8 excluded these on the reasoning that "an unknown field has no schema
+// by definition". True of the field and false of the answer: the model is
+// reaching for a real capability under the wrong name, and the host knows both
+// the name it used and the operation that carries it. An unmapped field still
+// gets no schema — a fragment for the wrong field reads as the host having
+// identified the problem — but it is told the field exists nowhere, which is
+// the fact that stops the next round being another guess.
+func unknownFieldAnswer(detail string) string {
+	match := unknownFieldPattern.FindStringSubmatch(detail)
+	if match == nil {
+		return ""
+	}
+	field := match[1]
+	preface := `no result operation carries a field named "` + field + `"`
+	target, mapped := unknownFieldOperations[field]
+	if !mapped {
+		return "\n\n<host-unknown-field name=\"" + field + "\">\n" + preface +
+			". Use the operation from the contract's result_operations list that carries what " +
+			"you meant, under that operation's own payload key.\n</host-unknown-field>"
+	}
+	for _, fragment := range schemaFragments {
+		if fragment.field == target {
+			return renderSchemaFragment(
+				target, preface+"; "+target+" does.\n"+fragment.shape, fragment.example,
+			)
+		}
+	}
+	return ""
+}
+
 // SchemaFragmentForCorrection returns the schema for exactly the field a
 // format correction names, with one minimal valid example, or "" when the
 // class is not about format or no field can be located.
 //
 // Guessing is refused on purpose. `unexpected EOF` and `invalid character '{'
 // looking for beginning of object key string` are both recorded, and neither
-// names a field that could be shown; an unknown field has no schema by
-// definition. A fragment for the wrong field is worse than none, because it
-// reads as the host having identified the problem.
+// names a field that could be shown. A fragment for the wrong field is worse
+// than none, because it reads as the host having identified the problem.
 func SchemaFragmentForCorrection(correctionClass, detail string) string {
 	if !formatCorrectionClasses[correctionClass] || strings.TrimSpace(detail) == "" {
 		return ""
@@ -143,6 +218,11 @@ func SchemaFragmentForCorrection(correctionClass, detail string) string {
 		return renderSchemaFragment(
 			"operations", legacyOperationsFragment, legacyOperationsExample,
 		)
+	}
+	// Before the substring table, so a named field is answered by the name the
+	// decoder printed rather than by whatever phrase it happens to contain.
+	if answer := unknownFieldAnswer(detail); answer != "" {
+		return answer
 	}
 	for _, fragment := range schemaFragments {
 		for _, match := range fragment.matches {

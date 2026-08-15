@@ -921,7 +921,19 @@ var lineBudget = map[string]int{
 	// more in the comment that says why operational_health is not on its list
 	// than in the switch, which is the right ratio for a rule whose last
 	// version was two lists nobody could see at once.
-	"investigation": 2030,
+	//
+	// Raised to 2080 the same day for the unknown-field answer. 79445e8 sent no
+	// schema with a parse error on the reasoning that "an unknown field has no
+	// schema by definition"; true of the field, false of the answer, and tenant
+	// run_a162e8457a76089aa94ea5264cc1e61c paid for the difference with five
+	// correction rounds in two minutes guessing the name of a recurrence —
+	// frequency, schedule_type, cadence, schedule, daily — each round throwing
+	// the whole envelope away to hand back the name of the guess. 49 lines
+	// measured at 2066: the name-to-operation table, the offer_schedule
+	// fragment nothing had yet, and the sentence that tells an unmapped field
+	// it exists nowhere. The table is the expensive half and it is data, so the
+	// next recorded guess is one line rather than a function.
+	"investigation": 2080,
 	// These packages own policy and data transformations that used to sit in
 	// the broad service, store, decision, and investigation packages. Register
 	// every extraction here so moving code cannot evade the architecture ratchet.
