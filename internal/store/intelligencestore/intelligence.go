@@ -715,6 +715,10 @@ func (r *Repository) RecordEvidence(ctx context.Context, evidence []core.Evidenc
 		if err != nil {
 			return nil, err
 		}
+		supersedes, err := json.Marshal(item.Supersedes)
+		if err != nil {
+			return nil, err
+		}
 		relation := strings.ToLower(strings.TrimSpace(item.Relation))
 		if relation == "" {
 			relation = "supports"
@@ -745,7 +749,7 @@ func (r *Repository) RecordEvidence(ctx context.Context, evidence []core.Evidenc
 		// retry. The investigation had already succeeded; the answer was
 		// complete, correct, and never reached Slack, because an episode from
 		// the day before owned the id.
-		inserted, err := insertEvidenceTx(ctx, tx, item, dimensions, metadata)
+		inserted, err := insertEvidenceTx(ctx, tx, item, dimensions, metadata, supersedes)
 		if err != nil {
 			return nil, err
 		}
@@ -760,7 +764,7 @@ func (r *Repository) RecordEvidence(ctx context.Context, evidence []core.Evidenc
 				// Deriving the id from the source makes it unique per episode
 				// while still landing a retry of this turn on the same row.
 				item.ID = sourceScopedEvidenceID(item.SourceInput, item.ID)
-				if _, err := insertEvidenceTx(ctx, tx, item, dimensions, metadata); err != nil {
+				if _, err := insertEvidenceTx(ctx, tx, item, dimensions, metadata, supersedes); err != nil {
 					return nil, err
 				}
 			}
@@ -791,17 +795,17 @@ func insertEvidenceTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	item core.Evidence,
-	dimensions, metadata []byte,
+	dimensions, metadata, supersedes []byte,
 ) (bool, error) {
 	insert, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO evidence
 		  (id, incident_id, channel_id, source_input, claim_id, claim, observation, relation, health_effect, source_type,
 		   source_id, source_name, source_url, target, scope_note, freshness, confidence, observed_at,
-		   valid_until, dimensions_json, metadata_json, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		   valid_until, dimensions_json, metadata_json, supersedes_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		item.ID, item.IncidentID, item.ChannelID, item.SourceInput, item.ClaimID, item.Claim,
 		item.Observation, item.Relation, item.HealthEffect, item.SourceType, item.SourceID, item.SourceName, item.SourceURL, item.Target, item.ScopeNote,
-		item.Freshness, item.Confidence, sqlutil.TimeText(item.ObservedAt), sqlutil.TimeText(item.ValidUntil), dimensions, metadata,
+		item.Freshness, item.Confidence, sqlutil.TimeText(item.ObservedAt), sqlutil.TimeText(item.ValidUntil), dimensions, metadata, supersedes,
 		item.CreatedAt.UTC().Format(core.TimestampFormat),
 	)
 	if err != nil {
@@ -902,7 +906,7 @@ func (r *Repository) ListEvidence(
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, incident_id, channel_id, source_input, claim_id, claim, observation, relation, health_effect, source_type,
 		  source_id, source_name, source_url, target, scope_note, freshness, confidence, observed_at, valid_until,
-		  dimensions_json, metadata_json, created_at
+		  dimensions_json, metadata_json, supersedes_json, created_at
 		FROM evidence
 		WHERE (? != '' AND incident_id = ?) OR (? = '' AND channel_id = ?)
 		ORDER BY created_at DESC LIMIT ?`,
@@ -916,13 +920,13 @@ func (r *Repository) ListEvidence(
 	for rows.Next() {
 		var item core.Evidence
 		var observed, validUntil sql.NullString
-		var dimensions, metadata []byte
+		var dimensions, metadata, supersedes []byte
 		var created string
 		if err := rows.Scan(
 			&item.ID, &item.IncidentID, &item.ChannelID, &item.SourceInput, &item.ClaimID, &item.Claim,
 			&item.Observation, &item.Relation, &item.HealthEffect, &item.SourceType, &item.SourceID, &item.SourceName, &item.SourceURL,
 			&item.Target, &item.ScopeNote, &item.Freshness, &item.Confidence, &observed, &validUntil,
-			&dimensions, &metadata, &created,
+			&dimensions, &metadata, &supersedes, &created,
 		); err != nil {
 			return nil, err
 		}
@@ -930,6 +934,9 @@ func (r *Repository) ListEvidence(
 			return nil, err
 		}
 		if err := json.Unmarshal(metadata, &item.Metadata); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(supersedes, &item.Supersedes); err != nil {
 			return nil, err
 		}
 		item.ObservedAt = sqlutil.ScanTime(observed)
@@ -1057,7 +1064,7 @@ func (r *Repository) ListEpisodeEvidence(
 		SELECT id, incident_id, channel_id, source_input, claim_id, claim, observation,
 		  relation, health_effect, source_type, source_id, source_name, source_url,
 		  target, scope_note, freshness, confidence, observed_at, valid_until,
-		  dimensions_json, metadata_json, created_at
+		  dimensions_json, metadata_json, supersedes_json, created_at
 		FROM evidence
 		WHERE source_input IN (SELECT id FROM source_inputs)
 		   OR incident_id IN (SELECT id FROM incident_ids)
@@ -1070,14 +1077,15 @@ func (r *Repository) ListEpisodeEvidence(
 	for rows.Next() {
 		var item core.Evidence
 		var observed, validUntil sql.NullString
-		var dimensions, metadata []byte
+		var dimensions, metadata, supersedes []byte
 		var created string
 		if err := rows.Scan(
 			&item.ID, &item.IncidentID, &item.ChannelID, &item.SourceInput,
 			&item.ClaimID, &item.Claim, &item.Observation, &item.Relation,
 			&item.HealthEffect, &item.SourceType, &item.SourceID, &item.SourceName,
 			&item.SourceURL, &item.Target, &item.ScopeNote, &item.Freshness,
-			&item.Confidence, &observed, &validUntil, &dimensions, &metadata, &created,
+			&item.Confidence, &observed, &validUntil, &dimensions, &metadata,
+			&supersedes, &created,
 		); err != nil {
 			return nil, err
 		}
@@ -1085,6 +1093,11 @@ func (r *Repository) ListEpisodeEvidence(
 			return nil, err
 		}
 		if err := json.Unmarshal(metadata, &item.Metadata); err != nil {
+			return nil, err
+		}
+		// The retirement has to survive the turn that declared it: the round
+		// that quotes a conflict reads this list, not the model's last answer.
+		if err := json.Unmarshal(supersedes, &item.Supersedes); err != nil {
 			return nil, err
 		}
 		item.ObservedAt = sqlutil.ScanTime(observed)

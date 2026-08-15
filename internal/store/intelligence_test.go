@@ -542,6 +542,65 @@ func TestRecordEvidenceStoresASlugAnEarlierEpisodeAlreadyClaimed(t *testing.T) {
 	}
 }
 
+// A retirement outlives the turn that declared it.
+//
+// The correction that quotes a conflict reads the episode's STORED evidence,
+// not the model's last answer, so a supersedes kept only in memory would be
+// forgotten by the round that needs it: the model would be told to retire a
+// record it had already retired, which is the loop the whole supersession rule
+// exists to end, arriving one turn later than before. That is also why this is
+// a column and not a metadata key — evidence metadata is bounded by iterating
+// the map and stopping at thirty keys, so a reserved key would be dropped in
+// map order.
+func TestASupersessionSurvivesTheTurnThatDeclaredIt(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	if _, err := st.Intelligence.RecordEvidence(ctx, []core.Evidence{
+		{
+			IncidentID: "inc_supersede", ChannelID: "COPS", SourceInput: "slack_1",
+			ID: "evidence-change-repo", ClaimID: "change.recent", Relation: "contradicts",
+			Claim:       "The declared topology does not match the live backend.",
+			Observation: "The declared URL map names a different readiness generation.",
+			SourceType:  "repository", SourceName: "Emisar infra load-balancer configuration",
+		},
+		{
+			IncidentID: "inc_supersede", ChannelID: "COPS", SourceInput: "slack_1",
+			ID: "evidence-change-repo-superseded", ClaimID: "change.recent", Relation: "supports",
+			Claim:       "The declared topology matches the live backend.",
+			Observation: "Supersedes evidence-change-repo. Re-read at the same commit, they agree.",
+			SourceType:  "repository", SourceName: "Emisar infra load-balancer configuration",
+			Supersedes: []string{"evidence-change-repo"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := st.Intelligence.ListEvidence(ctx, "inc_supersede", "", 10)
+	if err != nil || len(stored) != 2 {
+		t.Fatalf("stored evidence = %+v, %v", stored, err)
+	}
+	retired := map[string][]string{}
+	for _, item := range stored {
+		retired[item.ID] = item.Supersedes
+	}
+	if len(retired["evidence-change-repo-superseded"]) != 1 ||
+		retired["evidence-change-repo-superseded"][0] != "evidence-change-repo" {
+		t.Fatalf(
+			"the retirement did not survive the write, so the next correction round "+
+				"re-opens the conflict: %+v",
+			retired,
+		)
+	}
+	if len(retired["evidence-change-repo"]) != 0 {
+		t.Fatalf("a record that retires nothing came back naming one: %+v", retired)
+	}
+}
+
 func TestDetachChannelSessionPreservesDurableMemory(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 78
+const currentSchemaVersion = 79
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -440,4 +440,17 @@ var migrations = map[int]string{
 	// A standing assignment records what it would have done, without doing it.
 	// The DDL and its reasoning live in migrationddl.V78.
 	78: migrationddl.V78,
+	// Which recorded statements a later one retires.
+	//
+	// A column rather than a metadata key, which was the cheaper option and the
+	// wrong one: SanitizeEvidence bounds evidence metadata by iterating the map
+	// and stopping at thirty keys, so a reserved key would be dropped in map
+	// order — a nondeterministic loss of exactly the field whose whole job is to
+	// close a correction loop.
+	//
+	// It has to persist at all because the correction round that quotes a
+	// conflict reads the episode's STORED evidence: a retirement kept only for
+	// the turn that declared it would be forgotten by the round that needs it,
+	// and the loop this field exists to end would come back one turn later.
+	79: `ALTER TABLE evidence ADD COLUMN supersedes_json TEXT NOT NULL DEFAULT '[]';`,
 }

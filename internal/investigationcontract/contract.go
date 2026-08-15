@@ -402,10 +402,11 @@ fresh operational evidence proves current behavior.
 When a claim conflicts with something already recorded, do not rephrase the claim. Rewording it only
 moves the conflict to the next recorded statement, and the host will name that one instead. Pick the
 losing side and retire it explicitly, exactly one of three ways: retract it, supersede it with a
-record_evidence observed AFTER the record it replaces and naming that record's evidence id, or
-reconcile both with new evidence that names both evidence ids and says how they fit together. The
-host's correction lists every conflicting statement with its evidence id, so the record to retire is
-always named; say which one you are retiring and why.
+record_evidence carrying supersedes:[its evidence id] and a later observed_at — only that field
+retires a record, prose naming it does not — or reconcile both with new evidence that names both
+evidence ids and says how they fit together. The host's correction lists every conflicting statement
+with its evidence id, so the record to retire is always named; say which one you are retiring and
+why.
 
 One evidence record must describe one source. When a conclusion compares repository intent with live
 state, emit separate repository and operational evidence records rather than combining their observations

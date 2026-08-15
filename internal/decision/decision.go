@@ -1120,6 +1120,12 @@ func SanitizeEvidence(
 		item.Freshness = BoundedField(item.Freshness, 120)
 		item.Confidence = BoundedField(item.Confidence, 40)
 		item.SourceURL = SafeEvidenceURL(item.SourceURL)
+		// Bounded like every other id list here. The ledger refuses a supersedes
+		// naming a record it does not hold, so a truncated one is refused out
+		// loud rather than retiring something at random.
+		item.Supersedes = BoundedUniqueFields(
+			item.Supersedes, investigation.MaxSupersededRecords, 120,
+		)
 		item.Metadata = BoundedMetadata(item.Metadata)
 		item.Dimensions = BoundedMetadata(item.Dimensions)
 		if !evidencepolicy.ValidSourceType(item.SourceType) {

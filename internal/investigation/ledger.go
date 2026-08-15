@@ -20,17 +20,28 @@ const (
 )
 
 type ClaimView struct {
-	Requirement       ClaimRequirement `json:"requirement"`
-	State             ClaimState       `json:"state"`
-	Confidence        string           `json:"confidence,omitempty"`
-	Evidence          []core.Evidence  `json:"evidence,omitempty"`
-	Contradictions    []core.Evidence  `json:"contradictions,omitempty"`
-	StaleEvidence     []core.Evidence  `json:"stale_evidence,omitempty"`
-	MissingDimensions []string         `json:"missing_dimensions,omitempty"`
-	Stale             bool             `json:"stale"`
-	Resolved          bool             `json:"resolved"`
-	CoverageStatus    string           `json:"coverage_status,omitempty"`
-	Detail            string           `json:"detail,omitempty"`
+	Requirement    ClaimRequirement `json:"requirement"`
+	State          ClaimState       `json:"state"`
+	Confidence     string           `json:"confidence,omitempty"`
+	Evidence       []core.Evidence  `json:"evidence,omitempty"`
+	Contradictions []core.Evidence  `json:"contradictions,omitempty"`
+	StaleEvidence  []core.Evidence  `json:"stale_evidence,omitempty"`
+	// Superseded is every record another record on this claim retired, and
+	// SupersededBy names the record that retired each. They are kept rather than
+	// dropped so a correction can say the retirement landed: a model that cannot
+	// see its own accepted repair makes it again, which cost four of the
+	// nineteen rounds in 79445e8's replay.
+	Superseded   []core.Evidence   `json:"superseded,omitempty"`
+	SupersededBy map[string]string `json:"superseded_by,omitempty"`
+	// SupersessionRefusals are the retirements this ledger would not honour,
+	// each saying which record and why. Refusing in silence would rebuild the
+	// original defect on top of a typed field.
+	SupersessionRefusals []string `json:"supersession_refusals,omitempty"`
+	MissingDimensions    []string `json:"missing_dimensions,omitempty"`
+	Stale                bool     `json:"stale"`
+	Resolved             bool     `json:"resolved"`
+	CoverageStatus       string   `json:"coverage_status,omitempty"`
+	Detail               string   `json:"detail,omitempty"`
 }
 
 type Ledger struct {
@@ -132,6 +143,15 @@ func BuildLedgerForChain(
 				view.Evidence = append(view.Evidence, item)
 			}
 		}
+		retired, refusals := supersessions(
+			append(append([]core.Evidence{}, view.Evidence...), view.Contradictions...),
+		)
+		view.SupersessionRefusals = refusals
+		if len(retired) > 0 {
+			view.SupersededBy = retired
+			view.Evidence = retireInto(&view.Superseded, view.Evidence, retired)
+			view.Contradictions = retireInto(&view.Superseded, view.Contradictions, retired)
+		}
 		view.Stale = len(view.StaleEvidence) > 0 &&
 			len(view.Evidence) == 0 && len(view.Contradictions) == 0
 		for _, dimension := range requirement.Dimensions {
@@ -156,6 +176,88 @@ func BuildLedgerForChain(
 		ledger.Claims[requirement.ID] = view
 	}
 	return ledger
+}
+
+// MaxSupersededRecords bounds how many records one statement may retire. Ten is
+// well past anything recorded — the worst live case retired two — and stops one
+// operation from rewriting a whole claim's history in a single line.
+const MaxSupersededRecords = 10
+
+// supersessions reads the retirements a claim's own records declare, and the
+// ones it will not honour.
+//
+// This is the rule the correction has been prescribing since 79445e8 without
+// anything implementing it. Told to "supersede it with a record_evidence
+// observed AFTER the record it retires", the live model did exactly that on the
+// alert-triage case — two records whose observations open "Supersedes
+// evidence-change-repo." — and the ledger, which had no notion of supersession
+// at all, went on quoting both originals as live contradictions and refusing
+// the completion until the retry budget ran out. A prescribed move the
+// receiving side does not implement is worse than no move: the model spends
+// every attempt it has making it.
+//
+// Explicit and typed, never inferred from order. "Observed after" alone would
+// let any later reading silently retire a disagreement it never mentioned, and
+// an investigation records dozens of observations against one claim. The
+// retiring record must NAME the id. The prose is not parsed either: "Supersedes
+// evidence-change-repo" is a sentence written for an operator, and reading
+// structure out of it is how a paraphrase becomes a silent retraction.
+//
+// Refusals are returned rather than swallowed, because a retirement dropped in
+// silence is the original defect wearing a typed field.
+func supersessions(items []core.Evidence) (map[string]string, []string) {
+	observed := make(map[string]time.Time, len(items))
+	for _, item := range items {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			observed[id] = observationTime(item.ObservedAt, item.CreatedAt)
+		}
+	}
+	var retired map[string]string
+	var refusals []string
+	for _, item := range items {
+		id := strings.TrimSpace(item.ID)
+		at := observationTime(item.ObservedAt, item.CreatedAt)
+		for index, target := range item.Supersedes {
+			target = strings.TrimSpace(target)
+			if index >= MaxSupersededRecords || target == "" || target == id || id == "" {
+				continue
+			}
+			earlier, held := observed[target]
+			switch {
+			case !held:
+				refusals = append(refusals, id+" supersedes "+target+
+					", which is not a record on this claim; supersedes names the exact "+
+					"evidence id of a statement quoted above, bound to this same claim_id")
+			case at.IsZero() || earlier.IsZero() || !earlier.Before(at):
+				refusals = append(refusals, id+" supersedes "+target+
+					", so its observed_at must be strictly later than the record it retires")
+			default:
+				if retired == nil {
+					retired = make(map[string]string, len(items))
+				}
+				retired[target] = id
+			}
+		}
+	}
+	sort.Strings(refusals)
+	return retired, refusals
+}
+
+// retireInto moves every record another statement retired out of a live set.
+func retireInto(
+	gone *[]core.Evidence,
+	items []core.Evidence,
+	retired map[string]string,
+) []core.Evidence {
+	live := make([]core.Evidence, 0, len(items))
+	for _, item := range items {
+		if _, dead := retired[strings.TrimSpace(item.ID)]; dead {
+			*gone = append(*gone, item)
+			continue
+		}
+		live = append(live, item)
+	}
+	return live
 }
 
 func latestEvidenceObservationTimes(items []core.Evidence) map[string]time.Time {
@@ -382,10 +484,19 @@ func claimResolution(
 // thirteen rounds of tenant run_3a615b9db, each colliding with a different
 // recorded statement, none of them retiring anything. Rephrasing is the one
 // move that cannot work, so it is named and refused here.
+//
+// The supersession clause names the FIELD rather than describing the move,
+// because describing it is what failed next: told to "supersede it with a
+// record_evidence observed AFTER the record it retires", the live model wrote
+// two records whose observations open "Supersedes evidence-change-repo." and
+// the host had nothing that read them. An instruction a model can satisfy in
+// prose, against a host that only accepts structure, spends the whole budget.
 const conflictResolutions = "Resolve each one exactly one of three ways: retract the losing " +
-	"statement, supersede it with a record_evidence observed AFTER the record it retires, or " +
-	"reconcile both with new evidence naming both evidence ids. Do not rephrase the claim: a " +
-	"reworded claim collides with the next recorded statement instead."
+	"statement, supersede it with a record_evidence carrying supersedes:[\"<the id it " +
+	"retires>\"] and an observed_at after that record, or reconcile both with new evidence " +
+	"naming both evidence ids. Naming the retired record in the observation prose does " +
+	"nothing; only the supersedes field retires it. Do not rephrase the claim: a reworded " +
+	"claim collides with the next recorded statement instead."
 
 // coverageResolutions states the moves that close a claim nothing disagrees
 // with. It is deliberately the opposite instruction to conflictResolutions,
@@ -483,6 +594,25 @@ func contradictionDetail(view ClaimView) (string, bool) {
 			"    and %d further conflicting statement(s) on this claim", extra,
 		))
 	}
+	// What the model already retired, said back to it. Without this a claim that
+	// still holds one live conflict reads exactly like a claim whose
+	// supersessions were all ignored, so the next round repeats a repair the
+	// host accepted instead of addressing the record that is actually open —
+	// four of the recorded nineteen rounds went that way.
+	for index, item := range view.Superseded {
+		if index == maximumQuotedConflicts {
+			break
+		}
+		if line := statementLine(item); line != "" {
+			statements = append(statements, "    superseded by "+
+				view.SupersededBy[strings.TrimSpace(item.ID)]+", already retired: "+line)
+		}
+	}
+	// And what it tried to retire and could not. A supersedes dropped in silence
+	// is the defect this rule was written to end, one layer further in.
+	for _, refusal := range view.SupersessionRefusals {
+		statements = append(statements, "    not retired: "+refusal)
+	}
 	if len(against) == 0 {
 		// A contradiction with nothing quotable — no id, source, time,
 		// observation or dimension — cannot be retracted, superseded or
@@ -559,60 +689,6 @@ func statementLine(item core.Evidence) string {
 		return observation
 	}
 	return strings.TrimSpace(observation+" ") + " [" + strings.Join(facts, " | ") + "]"
-}
-
-// firstObservation is the newest observation in a set, bounded so a correction
-// stays readable when the evidence body does not.
-func firstObservation(evidence []core.Evidence) string {
-	newest := core.Evidence{}
-	for _, item := range evidence {
-		if strings.TrimSpace(item.Observation) == "" {
-			continue
-		}
-		if newest.Observation == "" ||
-			observationTime(item.ObservedAt, item.CreatedAt).After(
-				observationTime(newest.ObservedAt, newest.CreatedAt),
-			) {
-			newest = item
-		}
-	}
-	// Evidence may legally carry dimensions and no observation prose, and a
-	// contradiction set made only of such records used to render as nothing:
-	// a live correction read "host.current_state (… snapshot] — contradicted
-	// by: )", telling the model to reconcile a contradiction the host never
-	// named. There is no reply that satisfies that. When no entry has prose,
-	// fall back to the newest entry's source and dimensions so the correction
-	// always names what disagreed.
-	if strings.TrimSpace(newest.Observation) == "" {
-		for _, item := range evidence {
-			if observationTime(item.ObservedAt, item.CreatedAt).After(
-				observationTime(newest.ObservedAt, newest.CreatedAt),
-			) || newest.SourceName == "" && newest.ID == "" {
-				newest = item
-			}
-		}
-		parts := make([]string, 0, len(newest.Dimensions))
-		for key, value := range newest.Dimensions {
-			parts = append(parts, key+"="+value)
-		}
-		sort.Strings(parts)
-		descriptor := strings.TrimSpace(newest.SourceName)
-		if descriptor == "" {
-			descriptor = strings.TrimSpace(newest.ID)
-		}
-		if len(parts) > 0 {
-			descriptor = strings.TrimSpace(descriptor + " " + strings.Join(parts, " "))
-		}
-		return descriptor
-	}
-	observation := strings.TrimSpace(newest.Observation)
-	if len([]rune(observation)) > 160 {
-		observation = string([]rune(observation)[:157]) + "..."
-	}
-	if source := strings.TrimSpace(newest.SourceName); source != "" && observation != "" {
-		return observation + " [" + source + "]"
-	}
-	return observation
 }
 
 // contradictionsPredateSupport reports whether every contradiction is strictly

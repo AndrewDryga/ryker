@@ -408,10 +408,44 @@ func validateRepositoryContentsOperation(o ResultOperation) error {
 	return nil
 }
 
+// validateEvidenceOperation checks the record and the ids it retires.
+//
+// supersedes is the typed form of the move the contradiction correction
+// prescribes, so its shape is refused where the model reads the answer. What
+// this cannot check is whether the named record exists: one operation does not
+// see the ledger. That half belongs to BuildLedger, which names the refusal in
+// the correction rather than dropping it in silence.
+func validateEvidenceOperation(o ResultOperation) error {
+	if o.Evidence == nil {
+		return fmt.Errorf("result operation %q requires evidence", o.ID)
+	}
+	if len(o.Evidence.Supersedes) > MaxSupersededRecords {
+		return fmt.Errorf(
+			"result operation %q supersedes %d records; one statement retires at most %d",
+			o.ID, len(o.Evidence.Supersedes), MaxSupersededRecords,
+		)
+	}
+	for _, id := range o.Evidence.Supersedes {
+		if strings.TrimSpace(id) == "" {
+			return fmt.Errorf(
+				"result operation %q supersedes an unnamed record; supersedes carries the "+
+					"exact evidence id of every record it retires",
+				o.ID,
+			)
+		}
+		if strings.TrimSpace(id) == strings.TrimSpace(o.ID) {
+			return fmt.Errorf(
+				"result operation %q supersedes itself; supersedes names an earlier record "+
+					"and never this one",
+				o.ID,
+			)
+		}
+	}
+	return nil
+}
+
 var resultOperationValidators = map[string]func(ResultOperation) error{
-	"record_evidence": requirePayload("evidence", func(o ResultOperation) bool {
-		return o.Evidence != nil
-	}),
+	"record_evidence": validateEvidenceOperation,
 	"record_coverage": validateCoverageOperation,
 	"report_progress": requirePayload("progress phase and summary", func(o ResultOperation) bool {
 		return o.Progress != nil && strings.TrimSpace(o.Progress.Phase) != "" &&
@@ -625,7 +659,7 @@ func ResultOperationsPrompt() string {
 and exactly one payload matching its type. The host validates operations independently and records
 accepted operations in the episode event stream.
 
-- record_evidence: {"id":"evidence-1","type":"record_evidence","evidence":{"claim_id":"exact required_claims id from the host contract, or a short stable slug when no listed claim applies","claim":"short claim","observation":"what the source established","relation":"supports|contradicts","health_effect":"none|risk|degraded|unhealthy|unknown","source_type":"repository|emisar|monitoring|slack|other","source_id":"stable provider or result id","source_name":"human-readable source","observed_at":"RFC3339 source time","freshness":"source-relative age or revision","confidence":"high|medium|low","dimensions":{"service":"api","environment":"production","replicas":3},"scope_note":"optional bounded limitation"}}
+- record_evidence: {"id":"evidence-1","type":"record_evidence","evidence":{"claim_id":"exact required_claims id from the host contract, or a short stable slug when no listed claim applies","claim":"short claim","observation":"what the source established","relation":"supports|contradicts","health_effect":"none|risk|degraded|unhealthy|unknown","source_type":"repository|emisar|monitoring|slack|other","source_id":"stable provider or result id","source_name":"human-readable source","observed_at":"RFC3339 source time","freshness":"source-relative age or revision","confidence":"high|medium|low","dimensions":{"service":"api","environment":"production","replicas":3},"supersedes":["evidence id this record retires"],"scope_note":"optional bounded limitation"}}
 - record_coverage: {"id":"coverage-host","type":"record_coverage","coverage":{"layer":"host","claim_ids":["host.current_state"],"status":"healthy|degraded|unhealthy|unknown|not_applicable","source":"short source label","detail":"bounded assessment","observed_at":"RFC3339 source time"}}
 - report_progress: {"id":"progress-1","type":"report_progress","progress":{"phase":"investigating","summary":"meaningful operator-facing update","next_due_at":"optional RFC3339"}}
 - plan_goal: {"id":"goal-plan-1","type":"plan_goal","goal":{"id":"goal-1","kind":"check|engineering|operation|schedule","requested_outcome":"...","completion_contract":"observable done condition","required":true,"prerequisite_goal_ids":[],"authority":"read_only|repository_write|governed_operation"}}
@@ -649,7 +683,9 @@ Use record_repository_contents only for a repository you read this turn, and onl
 of the product it holds; it never expires, so it carries no version, health, or ownership claim. Send
 it when the repository set marks one undescribed, or when what you read contradicts what it shows.
 
-Use record_evidence once per atomic claim and record_coverage once per assessed claim group. Put
+Use record_evidence once per atomic claim and record_coverage once per assessed claim group. Only
+supersedes retires a recorded statement, naming its exact id on the same claim with a later
+observed_at; saying so in the observation does not. Put
 each memory update, visual, durable behavior offer, and alert assessment in its own
 operation so one rejected item does not discard other accepted work. Use request_approval only for
 an exact pending Emisar run. Use offer_task only for inert engineering or incident transitions. Outside

@@ -170,14 +170,17 @@ func Clusters(ledger investigation.Ledger) []Cluster {
 // claimTargets names what a claim is about, and reports whether anything was
 // actually observed.
 //
-// Stale evidence counts. An observation that has aged out still says which host
-// it was about, and dropping it would send a claim whose target is perfectly
-// well known back to its layer identity — splitting one investigation into two
+// Stale evidence counts, and so does a superseded record, for the same reason.
+// An observation that has aged out or been retired still says which host it was
+// about, and dropping it would send a claim whose target is perfectly well
+// known back to its layer identity — splitting one investigation into two
 // branches that go and look at the same machine.
 func claimTargets(view investigation.ClaimView) ([]string, bool) {
 	seen := make(map[string]bool, 4)
 	targets := make([]string, 0, 4)
-	for _, set := range [][]core.Evidence{view.Evidence, view.Contradictions, view.StaleEvidence} {
+	for _, set := range [][]core.Evidence{
+		view.Evidence, view.Contradictions, view.StaleEvidence, view.Superseded,
+	} {
 		for _, item := range set {
 			target := strings.ToLower(strings.TrimSpace(item.Target))
 			if target == "" || seen[target] {

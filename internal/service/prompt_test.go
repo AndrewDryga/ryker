@@ -508,7 +508,18 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // The hard ceiling in TestStaticPromptSizeIsBounded is the bound that actually
 // refused this twice; both bullets were cut down until it passed rather than
 // being allowed to spend context the conversation needs.
-const staticWatchPromptBytes = 46946
+//
+// 47144 the same day for the supersedes field, crossing the raise above: 198
+// bytes, one key in the record_evidence example and one sentence saying what
+// retires a record and what does not. The host has told the model to "supersede
+// the losing statement" since 79445e8 and had no rule implementing it, so the
+// live model wrote the retirement into its observation prose — the only place
+// the vocabulary left for it — and the alert-triage episode was corrected with
+// the same sentence every round until its budget ran out. The first draft cost
+// 355; the hard ceiling in TestStaticPromptSizeIsBounded refused it, and the
+// example key and three sentences were cut down until what remained was the
+// field, its shape, and the one fact a model cannot infer.
+const staticWatchPromptBytes = 47144
 
 // The static prompt must not grow without someone deciding it should.
 //

@@ -105,7 +105,19 @@ var promptCeilings = map[string]int{
 	// 50,335 bytes to 44,944. This entry had 97 bytes of headroom, which is a
 	// ceiling that fails the next honest sentence rather than the next
 	// unjustified paragraph.
-	"watch-operator": 45 * 1024,
+	//
+	// Which is what happened, the same day: the knowledge-offer bullets left
+	// this variant 59 bytes clear, and the next honest sentence was the
+	// supersedes field — 196 bytes for the one operation payload that lets a
+	// model retire a contradicted statement at all. The host had prescribed
+	// that move since 79445e8 with no field behind it, and the live model
+	// answered in prose, which retires nothing; an alert-triage episode spent
+	// every correction turn it had being told to do it again. Cut first, then
+	// raised: the field's own text went from 355 bytes to 196 before this
+	// number moved, by shortening the example key and folding three sentences
+	// into one. 45 KiB + 512 leaves 375 bytes of headroom, so the entry is a
+	// ratchet again rather than a tripwire.
+	"watch-operator": 45*1024 + 512,
 
 	// The expensive turn, kept measured on purpose. Conditional inclusion means
 	// the two entries above now describe turns that skip 5,391 bytes of rules,

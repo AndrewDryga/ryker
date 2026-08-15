@@ -786,7 +786,22 @@ var lineBudget = map[string]int{
 	// literally the rule the operator's confirmation click is measured against.
 	// Two copies of a slug pattern would have been an offer accepted at result
 	// time and refused at confirm time for a reason nobody was ever told.
-	"investigation": 1890,
+	//
+	// Raised to 1970 on 2026-08-15 for supersession, crossing the raise above.
+	// Since 79445e8 the contradiction correction has told the model to
+	// "supersede the losing statement with a record observed AFTER the record
+	// it retires" and the ledger had no rule implementing it — `grep supersed
+	// ledger.go` matched the correction string and nothing else. The live model
+	// obeyed exactly, in the only place the vocabulary allowed, by opening two
+	// observations with "Supersedes evidence-change-repo."; the host re-read
+	// both retired records back as live conflicts every round until the
+	// episode's budget was gone. What landed here is the rule (a retirement is
+	// explicit, typed and named, never inferred from order), the refusals it
+	// will not honour, and the operation validator for the shapes one operation
+	// can judge alone. 44 of the 108 lines were paid for by deleting
+	// firstObservation, which lost its last caller when 79445e8 replaced it
+	// with quotedStatements.
+	"investigation": 1970,
 	// These packages own policy and data transformations that used to sit in
 	// the broad service, store, decision, and investigation packages. Register
 	// every extraction here so moving code cannot evade the architecture ratchet.

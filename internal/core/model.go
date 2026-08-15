@@ -319,7 +319,17 @@ type Evidence struct {
 	ValidUntil   time.Time         `json:"valid_until,omitempty"`
 	Dimensions   map[string]string `json:"dimensions,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
-	CreatedAt    time.Time         `json:"created_at,omitempty"`
+	// Supersedes names the evidence ids this record retires. It is the typed
+	// form of the move the host's contradiction correction has prescribed since
+	// 79445e8 — "supersede the losing statement with a record observed after it"
+	// — which until now the ledger had no rule for, so a model that obeyed the
+	// instruction exactly changed nothing and was corrected again.
+	//
+	// Ids rather than prose. The live model wrote "Supersedes evidence-change-repo."
+	// as the first sentence of two observations, and reading a retraction out of
+	// a sentence is how a paraphrase becomes a silent one.
+	Supersedes []string  `json:"supersedes,omitempty"`
+	CreatedAt  time.Time `json:"created_at,omitempty"`
 }
 
 // confidenceBand reads a confidence written as a band or as a number.
@@ -374,7 +384,7 @@ func (item *Evidence) UnmarshalJSON(data []byte) error {
 		"summary": {}, "statement": {},
 		"target": {}, "scope_note": {}, "freshness": {}, "confidence": {},
 		"observed_at": {}, "valid_until": {}, "dimensions": {}, "metadata": {},
-		"created_at": {},
+		"supersedes": {}, "created_at": {},
 	}
 	for key := range fields {
 		if _, ok := allowed[key]; !ok {

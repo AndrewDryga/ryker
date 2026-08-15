@@ -150,3 +150,56 @@ func TestOperationNamedAfterItsPayloadResolves(t *testing.T) {
 		t.Fatalf("an unknown type became %q", got)
 	}
 }
+
+// The vocabulary must carry supersedes, and the validator must refuse the two
+// shapes it can judge on its own.
+//
+// The field exists because the correction prescribing supersession had nothing
+// implementing it: the live model wrote the retirement into its observation
+// prose and the host, which reads only structure, corrected it again every
+// round until the episode's budget was gone. A field the prompt never mentions
+// leaves the model in exactly that position, so the prompt is part of the fix
+// rather than documentation of it.
+func TestRecordEvidenceOffersSupersedesAndRefusesTheShapesItCanJudge(t *testing.T) {
+	prompt := ResultOperationsPrompt()
+	for _, want := range []string{
+		`"supersedes"`, "Only\nsupersedes retires a recorded statement",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("the operations vocabulary does not offer %q:\n%s", want, prompt)
+		}
+	}
+
+	valid := ResultOperation{
+		ID: "evidence-2", Type: "record_evidence",
+		Evidence: &core.Evidence{
+			ClaimID: "change.recent", Observation: "The topologies agree.",
+			SourceType: "repository", SourceName: "infra", Supersedes: []string{"evidence-1"},
+		},
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("a well-formed retirement was refused: %v", err)
+	}
+
+	// Whether the named record exists is the ledger's question — one operation
+	// cannot see the others. What this validator can judge is a retirement that
+	// names nothing, and one that names itself.
+	for _, testCase := range []struct{ name, supersedes, want string }{
+		{"an unnamed record", "", "supersedes an unnamed record"},
+		{"itself", "evidence-2", "supersedes itself"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			operation := valid
+			evidence := *valid.Evidence
+			evidence.Supersedes = []string{testCase.supersedes}
+			operation.Evidence = &evidence
+			err := operation.Validate()
+			if err == nil {
+				t.Fatalf("a record superseding %s was accepted", testCase.name)
+			}
+			if !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("refusal does not say %q: %v", testCase.want, err)
+			}
+		})
+	}
+}

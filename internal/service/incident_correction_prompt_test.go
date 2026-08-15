@@ -171,7 +171,11 @@ func TestAnIncidentContinuationCarriesTheConflictItWasRefusedFor(t *testing.T) {
 		replaySupportingID,
 		hostConflictingID,
 		hostSupportingID,
-		"supersede it with a record_evidence observed AFTER the record it retires",
+		// The resolution names the field that performs it. Describing the move
+		// instead was the next failure: the live model wrote "Supersedes
+		// evidence-change-repo." into its observation prose, which retires
+		// nothing, and looped to its budget being told to do it again.
+		`supersedes:["<the id it retires>"]`,
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("the retry prompt for a refused contradiction omits %q.\n"+
