@@ -1784,3 +1784,29 @@ func TestAnAttemptedRunSurvivesAClassifiedBystanderMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The channel projection can rotate to a new session while a turn from the old
+// one is still running — session handoff retires sessions on exactly that
+// schedule. The cursor row belongs to the channel's CURRENT session, so once
+// the channel moves on there is nothing for the old run to advance; before
+// this, the miss failed the whole poll. run_68972d3 looped "advance channel
+// Coop events: conflict" at failure count 9 on the evening the handoff landed,
+// holding its channel's queue behind a bookkeeping write aimed at a row that
+// no longer existed.
+func TestARunWhoseSessionTheChannelLeftBehindStillPolls(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	run := core.AgentRun{
+		ID: "run_rotated_away", Mode: core.AgentRunTriage,
+		ChannelID: "CROTATED", SessionID: "ses_the_channel_left_behind",
+	}
+	if err := svc.advanceTriageSessionEvents(ctx, run, 7); err != nil {
+		t.Fatalf("advancing a left-behind session's cursor failed the poll: %v", err)
+	}
+}

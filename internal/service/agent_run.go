@@ -2785,17 +2785,36 @@ func (s *Service) advanceTriageSessionEvents(
 	}
 	state, err := decodeWatchRunContext(run)
 	if err == nil && state.Lane == "conversation" {
-		return s.store.AdvanceConversationSessionEvents(
+		return benignlyUnboundSessionCursor(s.store.AdvanceConversationSessionEvents(
 			ctx, run.ChannelID, run.SessionID, cursor,
-		)
+		))
 	}
 	sessionChannelID := run.ChannelID
 	if err == nil {
 		sessionChannelID = core.FirstNonempty(state.SessionChannelID, run.ChannelID)
 	}
-	return s.store.Intelligence.AdvanceChannelEvents(
+	return benignlyUnboundSessionCursor(s.store.Intelligence.AdvanceChannelEvents(
 		ctx, sessionChannelID, run.SessionID, cursor,
-	)
+	))
+}
+
+// benignlyUnboundSessionCursor treats "no row for this channel and session" as
+// the bookkeeping no-op it is.
+//
+// The channel projection can rotate to a new session while a turn from the old
+// one is still running — session handoff retires sessions on exactly that
+// schedule. The cursor row belongs to the channel's CURRENT session; once the
+// channel has moved on there is nothing left for the old run to advance, and
+// the run's own cursor in agent_runs was already written by the caller. Before
+// this, the miss failed the whole poll: run_68972d3 looped "advance channel
+// Coop events: conflict" every backoff interval on the evening the handoff
+// landed, holding its channel's queue behind a bookkeeping write aimed at a
+// row that no longer existed.
+func benignlyUnboundSessionCursor(err error) error {
+	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	return err
 }
 
 func replayAgentRunFailure(

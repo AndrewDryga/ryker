@@ -235,13 +235,13 @@ func (s *Store) CreateEpisodeGoal(ctx context.Context, goal core.EpisodeGoal) (c
 		goal.AuthorityRequirement = core.AuthorityReadOnly
 	}
 	if !validAuthority(string(goal.AuthorityRequirement)) {
-		return core.EpisodeGoal{}, fmt.Errorf("unsupported goal authority %q", goal.AuthorityRequirement)
+		return core.EpisodeGoal{}, fmt.Errorf("unsupported goal authority %q: %w", goal.AuthorityRequirement, ErrEpisodeOperationConflict)
 	}
 	if goal.State == "" {
 		goal.State = core.GoalPlanned
 	}
 	if !validGoalState(goal.State) {
-		return core.EpisodeGoal{}, fmt.Errorf("unsupported goal state %q", goal.State)
+		return core.EpisodeGoal{}, fmt.Errorf("unsupported goal state %q: %w", goal.State, ErrEpisodeOperationConflict)
 	}
 	goal.PrerequisiteGoalIDs = normalizedUniqueStrings(goal.PrerequisiteGoalIDs, 32)
 	goal.ReadOnlyRepositories = normalizedUniqueStrings(goal.ReadOnlyRepositories, 32)
@@ -265,7 +265,7 @@ func (s *Store) CreateEpisodeGoal(ctx context.Context, goal core.EpisodeGoal) (c
 			if err != nil {
 				return core.EpisodeGoal{}, err
 			}
-			return core.EpisodeGoal{}, fmt.Errorf("goal prerequisite %q is not in episode", prerequisiteID)
+			return core.EpisodeGoal{}, fmt.Errorf("goal prerequisite %q is not in episode: %w", prerequisiteID, ErrEpisodeOperationConflict)
 		}
 	}
 	now := s.now().UTC()
@@ -335,7 +335,7 @@ func (s *Store) SetEpisodeGoalState(
 	blocker string,
 ) error {
 	if !validGoalState(state) {
-		return fmt.Errorf("unsupported goal state %q", state)
+		return fmt.Errorf("unsupported goal state %q: %w", state, ErrEpisodeOperationConflict)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -356,7 +356,7 @@ func (s *Store) SetEpisodeGoalState(
 				return err
 			}
 			if prerequisiteState != core.GoalCompleted && prerequisiteState != core.GoalExcluded {
-				return fmt.Errorf("goal %s cannot complete before prerequisite %s", goal.ID, prerequisiteID)
+				return fmt.Errorf("goal %s cannot complete before prerequisite %s: %w", goal.ID, prerequisiteID, ErrEpisodeOperationConflict)
 			}
 		}
 	}

@@ -136,6 +136,60 @@ func TestAReusedWakeupIdCostsItsOperationNotTheTurn(t *testing.T) {
 	}
 }
 
+// The prerequisite variant of the same wedge, caught live the same evening the
+// wakeup variant was fixed: run_dba732ef poll-looped on `goal prerequisite
+// "goal-impact" is not in episode` — a plan_goal referencing a goal the model
+// never planned — with four runs serialized behind it. Every deterministic
+// kernel rejection of a result operation is the same disease and takes the
+// same cure: the operation drops with a trace, the completion beside it lands.
+func TestADanglingGoalPrerequisiteCostsItsOperationNotTheTurn(t *testing.T) {
+	ctx, st, svc, _, run := activityRunFixture(t)
+
+	if err := svc.recordResultOperationEvents(ctx, run.ID, []investigation.ResultOperation{
+		{
+			ID: "goal-plan-cause", Type: "plan_goal",
+			Goal: &investigation.GoalOperation{
+				ID: "goal-cause", Kind: "check",
+				RequestedOutcome:    "Name the cause",
+				CompletionContract:  "A cause is named and evidenced",
+				Required:            true,
+				PrerequisiteGoalIDs: []string{"goal-impact"},
+				Authority:           core.AuthorityReadOnly,
+			},
+		},
+		{
+			ID: "complete-the-episode", Type: "complete_episode",
+			Completion: &investigation.CompleteEpisode{
+				Message: "Impact is bounded; cause identified in the thread.",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("a dangling goal prerequisite failed the whole result = %v, want nil", err)
+	}
+
+	events, err := st.ListWorkEpisodeEvents(ctx, run.ID, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dropped, completed := false, false
+	for _, event := range events {
+		switch event.Kind {
+		case episodepkg.EventOperationDropped:
+			dropped = true
+		case episodepkg.EventCompletionSubmitted:
+			completed = true
+		}
+	}
+	if !completed {
+		t.Fatalf("the completion beside the dangling prerequisite was never recorded; got %v",
+			episodeEventKinds(events))
+	}
+	if !dropped {
+		t.Fatalf("the dangling prerequisite was dropped without a trace; got %v",
+			episodeEventKinds(events))
+	}
+}
+
 // A goal that was planned still closes. The tolerance above is for a reference
 // to nothing, not a licence to drop bookkeeping that has somewhere to land.
 func TestPlannedGoalStillClosesFromAResultOperation(t *testing.T) {
