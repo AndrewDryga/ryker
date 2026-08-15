@@ -1079,6 +1079,17 @@ func (s *Store) RetryAgentRun(
 		state = core.AgentRunFailed
 		completedAt = s.nowText()
 	}
+	// A retry rebuilds its request — a fresh revision, a grown timeline — so
+	// it needs a fresh idempotency key, exactly as the correction and weather
+	// requeues mint one. Kept, the old key made the retry impossible: Coop
+	// answered "idempotency key is bound to another request" (409) for every
+	// resubmission after a revision conflict, and run_c6423317 burned its
+	// attempts on that answer and failed without ever running — the first
+	// organic message after a night of repairs, dropped on the floor.
+	retryID, err := core.NewID("retry")
+	if err != nil {
+		return fmt.Errorf("generate agent run retry identity: %w", err)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -1087,9 +1098,12 @@ func (s *Store) RetryAgentRun(
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = ?, failure_count = failure_count + 1, last_error = ?,
+		    idempotency_key = ?, coop_turn_id = '',
 		    next_attempt_at = ?, completed_at = ?, updated_at = ?
 		WHERE id = ? AND state IN ('preparing', 'finalizing')`,
-		state, sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat),
+		state, sqlutil.BoundedError(detail),
+		"responder:run:"+id+":"+retryID,
+		next.UTC().Format(timestampFormat),
 		completedAt, s.nowText(), id)
 	if err := sqlutil.ExpectOne(result, err, "retry agent run"); err != nil {
 		return err
