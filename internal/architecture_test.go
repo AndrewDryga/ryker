@@ -629,7 +629,14 @@ var lineBudget = map[string]int{
 	// Raised to 11500 on 2026-08-14 for fixturepromotionstore's attachment:
 	// the sub-repository field and its wiring in attachRepositories — five
 	// lines landing beside the fairness raise measured on a different branch.
-	"store":      11500,
+	//
+	// Raised to 11520 on 2026-08-15 for the fairness clause reading a slow
+	// correction loop: two lines of COALESCE, because json_extract on a key
+	// that omitempty leaves absent returns NULL, and NULL through the NOT
+	// EXISTS would have stopped every old healthy blocker from serializing
+	// its channel — the literal spec was the bug, and the fourth scenario
+	// pins the fix.
+	"store":      11520,
 	"localstate": 400,
 	"provider":   120,
 	// Raised from 400 to 460 on 2026-08-14 for recalling past episodes into
