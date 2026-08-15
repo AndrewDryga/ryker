@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -47,6 +48,13 @@ func watchTurnUnderProfile(t *testing.T, watchPolicy string) routedTurn {
 			`"reason":"humans talking to each other","operations":[]}`,
 	}
 	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	// Both turns of the byte-identity comparison read one frozen instant. The
+	// prompt embeds current_time_utc at whole seconds, and two builds that
+	// straddled a boundary differed by exactly one byte at offset ~16565 —
+	// a flake in the one test whose whole claim is "not one byte".
+	svc.SetClock(func() time.Time {
+		return time.Date(2026, time.August, 15, 6, 0, 0, 0, time.UTC)
+	})
 	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
 	input := core.SlackInput{
 		ID: "slack-routed", EnvelopeID: "env-routed", EventID: "event-routed",
