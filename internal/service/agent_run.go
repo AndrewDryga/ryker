@@ -1406,7 +1406,13 @@ func (s *Service) admitTriageRun(
 		// because another person's unrelated chatter had been classified. The
 		// operator got silence, then nudged with a bare mention and was asked
 		// "What would you like me to check?"
-		attempted := run.Failures > 0
+		// Corrections count here even though they no longer count as failures.
+		// This guard asks "has this run produced anything yet", and a run that
+		// has been corrected has: it answered, and the host sent the answer
+		// back. Reading failure_count alone once corrections left it would have
+		// re-opened the exact hole the comment above describes, for the loop
+		// that generates the most requeues of any kind.
+		attempted := run.Failures > 0 || state.StructuredCorrections > 0
 		alreadyClassified := false
 		if !attempted {
 			alreadyClassified, err = s.store.HasNewerWatchDecision(
@@ -2077,7 +2083,10 @@ func (s *Service) requeueWithCorrection(
 	correction string,
 	cursor int64,
 ) error {
-	if err := s.store.RequeueAgentRun(ctx, run.ID, correction, cursor, s.now()); err != nil {
+	// Not an attempt. The model answered and the host refused the answer; the
+	// correction budget in the run's context envelope is what bounds this, and
+	// failure_count is left to mean provider attrition alone.
+	if err := s.store.RequeueAgentRun(ctx, run.ID, correction, cursor, s.now(), false); err != nil {
 		return err
 	}
 	s.audit(ctx, core.AuditEvent{
@@ -2161,7 +2170,9 @@ func (s *Service) stageTriageTerminal(
 	}
 	input = mentioncontext.Apply(input, state.ResolvedMentionRequest)
 	if decisionErr != nil {
-		correction := "the structured Slack response is invalid: " + trimError(decisionErr)
+		invalid := trimError(decisionErr)
+		correction := "the structured Slack response is invalid: " + invalid +
+			investigation.SchemaFragmentForCorrection(string(correctionUnreadable), invalid)
 		if !consumeWatchStructuredCorrection(
 			&state, run.AttemptNumber, s.cfg.Limits.MaxAgentRunAttempts,
 		) {
@@ -2306,6 +2317,7 @@ func (s *Service) stageTriageTerminal(
 					decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", s.now()),
 					decision.Completion,
 					s.now(),
+					run.StartedAt,
 					len(decision.AppliedOperations) > 0,
 				)
 				if episodeErr != nil {
@@ -2417,10 +2429,14 @@ func (s *Service) stageIncidentTerminal(
 ) (bool, error) {
 	report, _, reportErr := decisionpkg.ParseAgentReport(turn.AssistantMessage)
 	if reportErr != nil {
-		correction := "the structured agent report is invalid: " + trimError(reportErr)
-		if !terminalStructuredCorrection(
-			run.Failures+1, run.AttemptNumber, s.cfg.Limits.MaxAgentRunAttempts,
-		) {
+		invalid := trimError(reportErr)
+		correction := "the structured agent report is invalid: " + invalid +
+			investigation.SchemaFragmentForCorrection(string(correctionUnreadable), invalid)
+		spent, spendErr := s.spendStructuredCorrection(ctx, run)
+		if spendErr != nil {
+			return true, spendErr
+		}
+		if !spent {
 			if err := s.requeueWithCorrection(
 				ctx, run, correctionUnreadable, correction, cursor,
 			); err != nil {
@@ -2484,6 +2500,7 @@ func (s *Service) stageIncidentTerminal(
 				decisionpkg.SanitizeCoverage(report.Coverage, "", "", "", s.now()),
 				report.Completion,
 				s.now(),
+				run.StartedAt,
 				len(report.AppliedOperations) > 0,
 			)
 			if episodeErr != nil {
@@ -2500,9 +2517,11 @@ func (s *Service) stageIncidentTerminal(
 			}
 		}
 		if correction != "" {
-			if !terminalStructuredCorrection(
-				run.Failures+1, run.AttemptNumber, s.cfg.Limits.MaxAgentRunAttempts,
-			) {
+			spent, spendErr := s.spendStructuredCorrection(ctx, run)
+			if spendErr != nil {
+				return true, spendErr
+			}
+			if !spent {
 				if err := s.requeueWithCorrection(
 					ctx, run, correctionKind, correction, cursor,
 				); err != nil {
@@ -2648,7 +2667,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 		// make the correction rate track infrastructure health instead of
 		// answer quality.
 		if err := s.store.RequeueAgentRun(
-			ctx, run.ID, reason, cursor, s.now(),
+			ctx, run.ID, reason, cursor, s.now(), true,
 		); err != nil {
 			return err
 		}
@@ -2729,37 +2748,58 @@ func (s *Service) retryMalformedIncidentReport(
 	run core.AgentRun,
 	reportErr error,
 ) (bool, error) {
-	// If the context does not decode there is nowhere to record the correction,
-	// and writing a fresh one would replace the run's assembled context —
-	// repository, captured situations, and the task-changes fingerprint the
-	// publication staleness check depends on — with zeros. Better to stop and
-	// tell the operator than to silently destroy the turn's context.
-	assembled, ok := decodeAssembledAgentContext(run.Context)
-	if !ok {
-		return false, nil
-	}
-	assembled.StructuredCorrections++
-	if terminalStructuredCorrection(
-		assembled.StructuredCorrections, run.AttemptNumber, s.cfg.Limits.MaxAgentRunAttempts,
-	) {
-		return false, nil
-	}
-	contextJSON, err := json.Marshal(assembled)
-	if err != nil {
+	spent, err := s.spendStructuredCorrection(ctx, run)
+	if err != nil || spent {
 		return false, err
 	}
-	if err := s.store.SetAgentRunContext(ctx, run.ID, contextJSON); err != nil {
-		return false, err
-	}
-	correction := "the structured response is invalid: " + trimError(reportErr) +
+	invalid := trimError(reportErr)
+	correction := "the structured response is invalid: " + invalid +
 		"\n\nReturn the same result in the documented structured format. " +
-		"Keep the evidence and conclusions you already have; only the envelope was wrong."
+		"Keep the evidence and conclusions you already have; only the envelope was wrong." +
+		investigation.SchemaFragmentForCorrection(string(correctionUnreadable), invalid)
 	if err := s.requeueWithCorrection(
 		ctx, run, correctionUnreadable, correction, run.CoopEventSequence,
 	); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// spendStructuredCorrection records one correction round against this run and
+// reports whether the budget is now spent.
+//
+// The count lives in the run's own context envelope because failure_count no
+// longer carries it: a correction is not a failed attempt, and the two numbers
+// stopped being the same number. Every incident and engineering-task
+// correction has to come through here, or the loop is unbounded — that budget
+// used to ride on failure_count, and removing corrections from failure_count
+// without this would have turned a nineteen-round loop into an endless one.
+//
+// A context that will not decode is treated as spent rather than rewritten.
+// There is nowhere to record the correction, and writing a fresh envelope
+// would replace the run's assembled context — repository, captured situations,
+// and the task-changes fingerprint the publication staleness check depends on
+// — with zeros. Better to stop and tell the operator than to silently destroy
+// the turn's context in order to keep looping.
+func (s *Service) spendStructuredCorrection(
+	ctx context.Context,
+	run core.AgentRun,
+) (bool, error) {
+	assembled, ok := decodeAssembledAgentContext(run.Context)
+	if !ok {
+		return true, nil
+	}
+	assembled.StructuredCorrections++
+	if terminalStructuredCorrection(
+		assembled.StructuredCorrections, run.AttemptNumber, s.cfg.Limits.MaxAgentRunAttempts,
+	) {
+		return true, nil
+	}
+	contextJSON, err := json.Marshal(assembled)
+	if err != nil {
+		return true, err
+	}
+	return false, s.store.SetAgentRunContext(ctx, run.ID, contextJSON)
 }
 
 // terminalStructuredCorrection reports that this turn may not be corrected

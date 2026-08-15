@@ -232,7 +232,10 @@ func TestACorrectedRetryRecordsThePromptItActuallySent(t *testing.T) {
 	}
 	finishQueuedAgentRun(t, ctx, svc)
 	run, err := st.GetAgentRunBySource(ctx, "watch", "slack-corrected-prompt")
-	if err != nil || run.State != core.AgentRunPending || run.Failures != 1 {
+	// Failures stays 0: a correction round is not a failed attempt, so the
+	// pending state and the recorded correction are what say a retry is queued.
+	if err != nil || run.State != core.AgentRunPending || run.Failures != 0 ||
+		run.LastError == "" {
 		t.Fatalf("the first turn was not corrected, so this test no longer "+
 			"exercises a correction retry: run = %+v, %v", run, err)
 	}

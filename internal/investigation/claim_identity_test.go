@@ -109,7 +109,7 @@ func TestClaimCorrectionAcceptsTheOneSpellingTheLayerCanMean(t *testing.T) {
 		Status: "decision_ready", Summary: "The runbook exists as a validated draft.",
 	}
 	if got := ClaimCorrection(
-		episode, "reply", evidence, coverage, completion, now, true,
+		episode, "reply", evidence, coverage, completion, now, now, true,
 	); got != "" {
 		t.Fatalf("an unambiguous claim spelling was rejected: %q", got)
 	}
@@ -130,7 +130,7 @@ func TestClaimCorrectionNamesTheClaimIDsItWants(t *testing.T) {
 	got := ClaimCorrection(episode, "reply", nil, []core.Coverage{
 		{Layer: "application", Status: "degraded", Detail: "Rivals endpoints fail."},
 		{Layer: "slo", Status: "degraded", Detail: "No formal SLO exists."},
-	}, completion, now, true)
+	}, completion, now, now, true)
 	if !strings.Contains(got, "no typed evidence") {
 		t.Fatalf("a completion with no evidence was accepted: %q", got)
 	}

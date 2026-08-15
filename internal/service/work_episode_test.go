@@ -526,6 +526,7 @@ func TestTypedTaskCoverageCompletesFocusedArtifactAssessment(t *testing.T) {
 		decision.Coverage,
 		decision.Completion,
 		time.Date(2026, 8, 3, 15, 5, 0, 0, time.UTC),
+		time.Date(2026, 8, 3, 15, 5, 0, 0, time.UTC),
 		true,
 	); correction != "" {
 		t.Fatalf("claim correction = %q", correction)
@@ -610,7 +611,7 @@ func TestEpisodeClaimCorrectionRequiresTypedEvidenceAndCoverageBinding(t *testin
 	coverage := []core.Coverage{{
 		Layer: "change", Status: "healthy", Detail: "Current repository manuals define the validation commands.",
 	}}
-	if got := investigation.ClaimCorrection(episode, "reply", nil, coverage, completion, now, true); !strings.Contains(got, "no typed evidence") {
+	if got := investigation.ClaimCorrection(episode, "reply", nil, coverage, completion, now, now, true); !strings.Contains(got, "no typed evidence") {
 		t.Fatalf("missing evidence correction = %q", got)
 	}
 	evidence := []core.Evidence{{
@@ -618,11 +619,11 @@ func TestEpisodeClaimCorrectionRequiresTypedEvidenceAndCoverageBinding(t *testin
 		Observation: "The repository defines ./run gate all.", ObservedAt: now, Confidence: "high",
 		Dimensions: map[string]string{"repository": "emisar", "environment": "checkout", "revision": "current"},
 	}}
-	if got := investigation.ClaimCorrection(episode, "reply", evidence, coverage, completion, now, true); !strings.Contains(got, "must include its exact claim_id") {
+	if got := investigation.ClaimCorrection(episode, "reply", evidence, coverage, completion, now, now, true); !strings.Contains(got, "must include its exact claim_id") {
 		t.Fatalf("unbound coverage correction = %q", got)
 	}
 	coverage[0].ClaimIDs = []string{"change.recent"}
-	if got := investigation.ClaimCorrection(episode, "reply", evidence, coverage, completion, now, true); got != "" {
+	if got := investigation.ClaimCorrection(episode, "reply", evidence, coverage, completion, now, now, true); got != "" {
 		t.Fatalf("bound evidence rejected = %q", got)
 	}
 }

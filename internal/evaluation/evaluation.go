@@ -791,7 +791,10 @@ func evaluateCaseWithConfig(
 			return result
 		}
 		if correction := investigation.ClaimCorrection(
-			*episode, completionAction, evidence, coverage, completion, now, strictOperations,
+			// A replayed case is the first round of its own chain, so the chain
+			// clock and the case clock are the same instant.
+			*episode, completionAction, evidence, coverage, completion, now, now,
+			strictOperations,
 		); correction != "" {
 			result.Detail = "unsupported completion: " + correction
 			return result

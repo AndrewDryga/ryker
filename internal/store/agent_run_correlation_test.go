@@ -39,7 +39,7 @@ func TestRequeueAgentRunUsesUniqueTransportIdentityAfterCounterRepair(t *testing
 		if err := st.MarkAgentRunSubmitted(ctx, leased.ID, turnID, 1, 0); err != nil {
 			t.Fatal(err)
 		}
-		if err := st.RequeueAgentRun(ctx, leased.ID, "retry", 0, time.Now().UTC()); err != nil {
+		if err := st.RequeueAgentRun(ctx, leased.ID, "retry", 0, time.Now().UTC(), true); err != nil {
 			t.Fatal(err)
 		}
 		stored, err := st.GetAgentRun(ctx, leased.ID)

@@ -621,7 +621,8 @@ func TestCustomerJourneyActivatesExistingScheduleInsideEngineeringTask(t *testin
 	}
 	finishQueuedAgentRun(t, ctx, svc)
 	run, err := st.GetAgentRunBySource(ctx, "slack", input.ID)
-	if err != nil || run.State != core.AgentRunPending || run.Failures != 1 ||
+	// Failures stays 0: a correction round is not a failed attempt.
+	if err != nil || run.State != core.AgentRunPending || run.Failures != 0 ||
 		!strings.Contains(run.LastError, "typed schedule_offer") {
 		t.Fatalf("plain task activation claim was not corrected = %+v, %v", run, err)
 	}

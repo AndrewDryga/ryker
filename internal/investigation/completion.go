@@ -653,6 +653,7 @@ func ClaimCorrection(
 	coverage []core.Coverage,
 	completion *CompletionAssessment,
 	now time.Time,
+	chainStartedAt time.Time,
 	strict bool,
 ) string {
 	if action != "reply" || completion == nil || completion.Status == "blocked" {
@@ -692,7 +693,7 @@ func ClaimCorrection(
 			return "coverage for required claim " + requirement.ID + " must include its exact claim_id"
 		}
 	}
-	ledger := BuildLedger(contract, evidence, coverage, now.UTC())
+	ledger := BuildLedgerForChain(contract, evidence, coverage, now.UTC(), chainStartedAt.UTC())
 	return ledger.CompletionCorrectionFor(completion.Status, completion.Verdict)
 }
 

@@ -38,7 +38,56 @@ type Ledger struct {
 	Claims   map[string]ClaimView  `json:"claims"`
 }
 
-func BuildLedger(contract InvestigationContract, evidence []core.Evidence, coverage []core.Coverage, now time.Time) Ledger {
+// BuildLedger indexes the recorded evidence against the contract's claims,
+// judging freshness against the wall clock. This is the read-only form: what
+// an operator reading a stored assessment wants to know is whether the
+// evidence is fresh now.
+func BuildLedger(
+	contract InvestigationContract,
+	evidence []core.Evidence,
+	coverage []core.Coverage,
+	now time.Time,
+) Ledger {
+	return BuildLedgerForChain(contract, evidence, coverage, now, time.Time{})
+}
+
+// BuildLedgerForChain is BuildLedger with contract freshness anchored to the
+// moment the attempt chain began — the run's first transition into running,
+// which a correction requeue never clears. Evidence that was fresh when the
+// model took it stays fresh for every correction round of the same chain. A
+// zero chain start falls back to the wall clock.
+//
+// The correction loop may not be the thing that expires the evidence it is
+// waiting on. tenant run_3a615b9db spent four of its nineteen rounds on
+// "required claims do not have fresh supporting evidence": the chain started
+// at 03:21:49Z, the model read the cluster at 03:28:47Z, and the contradiction
+// rounds burned enough wall clock that a ten-minute window had closed by round
+// 19. The model watched its own readings expire and renamed the rows to match
+// — the harvested evidence is literally `evidence-host-expired` and
+// `evidence-workload-expired`, each observation explaining that the snapshot
+// is "now outside the required ten-minute window". Two validators ping-ponged:
+// fixing a contradiction aged the evidence, refreshing the evidence resurfaced
+// the contradiction.
+//
+// Deliberately not a wider window, which was the considered and rejected
+// alternative: a first try quoting an hour-old reading is genuinely stale and
+// still hears so. Only the rounds of one chain share the chain's own clock.
+//
+// ValidUntil is left on the wall clock on purpose. Contract MaxAge is a host
+// policy about how recent operational evidence must be, and the host is what
+// spent the time; ValidUntil is the model's own assertion that a reading has a
+// shelf life in the world, and honouring it late is correct.
+func BuildLedgerForChain(
+	contract InvestigationContract,
+	evidence []core.Evidence,
+	coverage []core.Coverage,
+	now time.Time,
+	chainStartedAt time.Time,
+) Ledger {
+	freshnessNow := now
+	if !chainStartedAt.IsZero() && chainStartedAt.Before(now) {
+		freshnessNow = chainStartedAt
+	}
 	ledger := Ledger{Contract: contract, Claims: make(map[string]ClaimView, len(contract.Claims))}
 	byLayer := make(map[string]core.Coverage, len(coverage))
 	for _, item := range coverage {
@@ -69,7 +118,8 @@ func BuildLedger(contract InvestigationContract, evidence []core.Evidence, cover
 			stale := observationTime(item.ObservedAt, item.CreatedAt).Before(
 				latestEvidence[evidenceObservationKey(item)],
 			) || requirement.Freshness.MaxAge > 0 &&
-				(item.ObservedAt.IsZero() || now.Sub(item.ObservedAt) > requirement.Freshness.MaxAge)
+				(item.ObservedAt.IsZero() ||
+					freshnessNow.Sub(item.ObservedAt) > requirement.Freshness.MaxAge)
 			stale = stale || (!item.ValidUntil.IsZero() && now.After(item.ValidUntil))
 			if stale {
 				view.StaleEvidence = append(view.StaleEvidence, item)
@@ -210,7 +260,12 @@ func (ledger Ledger) CompletionCorrectionFor(status, verdict string) string {
 			return ""
 		}
 		sort.Strings(contradicted)
-		return "required claims still contain unresolved contradictions: " + strings.Join(contradicted, ", ")
+		// One block per claim on its own lines, and the resolutions once at the
+		// top. Joined with ", " these ran together into a paragraph an operator
+		// could not read either — the episode page showed a live one amputated
+		// mid-word.
+		return "required claims still contain unresolved contradictions. " +
+			conflictResolutions + "\n\n" + strings.Join(contradicted, "\n")
 	}
 	if len(missing) > 0 {
 		if ledger.negativeVerdictIsDecisive(verdict) {
@@ -305,35 +360,142 @@ func claimResolution(
 	}
 }
 
-// contradictionDetail names the observations that disagree.
+// conflictResolutions states the moves that actually close a conflict.
+//
+// Without them the model's only visible option is to restate the claim, which
+// is exactly what it did: nine distinct rewordings of change.recent across
+// thirteen rounds of tenant run_3a615b9db, each colliding with a different
+// recorded statement, none of them retiring anything. Rephrasing is the one
+// move that cannot work, so it is named and refused here.
+const conflictResolutions = "Resolve each one exactly one of three ways: retract the losing " +
+	"statement, supersede it with a record_evidence observed AFTER the record it retires, or " +
+	"reconcile both with new evidence naming both evidence ids. Do not rephrase the claim: a " +
+	"reworded claim collides with the next recorded statement instead."
+
+// maximumQuotedConflicts bounds how many conflicting statements one claim
+// quotes. Six is past the worst recorded case — no claim in the loop ever held
+// more than three at once — and keeps a correction readable when a long
+// investigation has recorded dozens of observations against one claim.
+const maximumQuotedConflicts = 6
+
+// contradictionDetail quotes both sides of the disagreement, whole, with the
+// evidence id of every record involved.
 //
 // The correction used to be the claim id and nothing else: "required claims
-// still contain unresolved contradictions: change.recent". The model was told
-// that two of its own observations conflicted and not which two, so it had to
-// guess which one to supersede — and guessing wrong costs a whole turn. Thirty
-// of these were recorded in two days, and the episodes carrying them spent
-// every attempt they had before failing.
+// still contain unresolved contradictions: change.recent". Naming one
+// observation per side came next, and it was still not enough — tenant
+// run_3a615b9db spent nineteen rounds and twenty-two minutes against it. The
+// text quoted ONE contradicting observation, cut at 160 runes mid-word, and
+// carried no evidence id at all, so the model could not say which record it
+// was retiring. It rewrote the claim instead, the checker found a different
+// pairwise conflict, and the host quoted that one: whack-a-mole by
+// construction, one collision per round, at ~146KB of briefing per round.
 //
-// It follows what the missing-evidence branch above already does, which states
-// the exact dimension keys the host is waiting for rather than leaving the
-// model to infer them.
+// So: every conflicting statement, not the newest one. The id of each, because
+// "retract the losing side" is unanswerable without a name for it. And the
+// resolutions themselves, which the model was never told.
 func contradictionDetail(view ClaimView) string {
-	against := firstObservation(view.Contradictions)
-	support := firstObservation(view.Evidence)
-	switch {
-	case against == "" && support == "":
-		return view.Requirement.ID
-	case support == "":
-		return view.Requirement.ID + " (contradicted by: " + against + ")"
-	case against == "":
-		// A contradicted claim with nothing nameable on the against side is a
-		// correction the model cannot act on; say that instead of rendering
-		// an empty clause after "contradicted by:".
-		return view.Requirement.ID + " (" + support + " — a recorded contradiction carries no " +
-			"nameable evidence; re-record the contradicting observation or supersede it)"
-	default:
-		return view.Requirement.ID + " (" + support + " — contradicted by: " + against + ")"
+	statements := make([]string, 0, len(view.Contradictions)+1)
+	if support := quotedStatements(view.Evidence, maximumQuotedConflicts); len(support) > 0 {
+		for _, line := range support {
+			statements = append(statements, "    asserted: "+line)
+		}
+	} else if len(view.Contradictions) > 0 {
+		// Four recorded rounds — 13, 14, 16 and 17 — rendered as
+		// "change.recent (contradicted by: …)" with nothing on the asserted
+		// side, because the model had already replaced its own support while
+		// chasing the conflict. Read plainly that says "your claim conflicts
+		// with this"; what it means is "nothing supports this claim at all".
+		// Those are different repairs and the model made neither.
+		statements = append(
+			statements,
+			"    no supporting statement is recorded for this claim; record one bound to "+
+				"this exact claim_id, or retract the claim",
+		)
 	}
+	against := quotedStatements(view.Contradictions, maximumQuotedConflicts)
+	for _, line := range against {
+		statements = append(statements, "    contradicted by: "+line)
+	}
+	if extra := len(view.Contradictions) - len(against); extra > 0 {
+		statements = append(statements, fmt.Sprintf(
+			"    and %d further conflicting statement(s) on this claim", extra,
+		))
+	}
+	if len(statements) == 0 {
+		return view.Requirement.ID
+	}
+	if len(against) == 0 {
+		// A contradicted claim with nothing nameable on the against side is a
+		// correction the model cannot act on; say that instead of rendering an
+		// empty clause after "contradicted by:".
+		statements = append(
+			statements,
+			"    a recorded contradiction carries no nameable evidence; re-record the "+
+				"contradicting observation or supersede it",
+		)
+	}
+	return view.Requirement.ID + "\n" + strings.Join(statements, "\n")
+}
+
+// quotedStatements renders each recorded observation as a quotable line
+// carrying its evidence id, source and observation time — the three facts that
+// let a model name the record it is retiring.
+func quotedStatements(evidence []core.Evidence, limit int) []string {
+	lines := make([]string, 0, min(len(evidence), limit))
+	for _, item := range evidence {
+		if line := statementLine(item); line != "" {
+			lines = append(lines, line)
+		}
+		if len(lines) == limit {
+			break
+		}
+	}
+	return lines
+}
+
+// statementLine is one recorded observation, quoted.
+//
+// The observation is bounded generously rather than at the old 160 runes: the
+// point of quoting is that the model can tell two of its own statements apart,
+// and the recorded corrections cut them off inside the shared prefix — three
+// different observations that all began "tenant-infra run-o2BA7juuNF9VKQCV
+// applied, while va1-apps…" were indistinguishable in the text the model got.
+func statementLine(item core.Evidence) string {
+	observation := strings.TrimSpace(item.Observation)
+	if len([]rune(observation)) > 600 {
+		observation = string([]rune(observation)[:597]) + "..."
+	}
+	facts := make([]string, 0, 3)
+	if id := strings.TrimSpace(item.ID); id != "" {
+		facts = append(facts, id)
+	}
+	if source := strings.TrimSpace(item.SourceName); source != "" {
+		facts = append(facts, source)
+	}
+	if at := observationTime(item.ObservedAt, item.CreatedAt); !at.IsZero() {
+		facts = append(facts, "observed "+at.UTC().Format(time.RFC3339))
+	}
+	if observation == "" {
+		// Evidence may legally carry dimensions and no observation prose, and a
+		// set made only of such records used to render as nothing: a live
+		// correction read "host.current_state (… snapshot] — contradicted by:
+		// )", telling the model to reconcile a contradiction the host never
+		// named. There is no reply that satisfies that.
+		dimensions := make([]string, 0, len(item.Dimensions))
+		for key, value := range item.Dimensions {
+			dimensions = append(dimensions, key+"="+value)
+		}
+		sort.Strings(dimensions)
+		if len(dimensions) == 0 && len(facts) == 0 {
+			return ""
+		}
+		observation = strings.Join(dimensions, " ")
+	}
+	if len(facts) == 0 {
+		return observation
+	}
+	return strings.TrimSpace(observation+" ") + " [" + strings.Join(facts, " | ") + "]"
 }
 
 // firstObservation is the newest observation in a set, bounded so a correction

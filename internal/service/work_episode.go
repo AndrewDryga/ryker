@@ -400,6 +400,7 @@ func (s *Service) episodeClaimCorrectionWithHistory(
 	coverage []core.Coverage,
 	completion *CompletionAssessment,
 	now time.Time,
+	chainStartedAt time.Time,
 	strict bool,
 ) (string, error) {
 	priorEvidence, err := s.store.Intelligence.ListEpisodeEvidence(ctx, episode.ID, 200)
@@ -417,6 +418,7 @@ func (s *Service) episodeClaimCorrectionWithHistory(
 		append(priorCoverage, currentCoverage(coverage, now)...),
 		completion,
 		now,
+		chainStartedAt,
 		strict,
 	), nil
 }

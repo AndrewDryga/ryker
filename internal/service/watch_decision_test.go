@@ -859,7 +859,9 @@ func TestActivateItReconstructsAndUpdatesDailyScheduleWithoutAnotherConfirmation
 	}
 	finishQueuedAgentRun(t, ctx, svc)
 	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
-	if err != nil || run.State != core.AgentRunPending || run.Failures != 1 ||
+	// Failures stays 0: a correction round is not a failed attempt. The
+	// LastError beside it is what proves the correction happened.
+	if err != nil || run.State != core.AgentRunPending || run.Failures != 0 ||
 		!strings.Contains(run.LastError, "typed schedule_offer") {
 		t.Fatalf("plain activation claim was not corrected = %+v, %v", run, err)
 	}

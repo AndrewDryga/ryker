@@ -82,7 +82,10 @@ func TestOverlongReplyIsCorrectedOnceAndThenPosted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run.State != core.AgentRunPending || run.Failures != 1 {
+	// Failures stays 0: a correction round is not a failed attempt. The shape
+	// correction on the row is what proves the answer went back.
+	if run.State != core.AgentRunPending || run.Failures != 0 ||
+		!strings.Contains(run.LastError, "over the 60-word bound") {
 		t.Fatalf("a 245-word answer to \"hi\" was accepted as written: %+v", run)
 	}
 	if len(slack.posts) != 0 {

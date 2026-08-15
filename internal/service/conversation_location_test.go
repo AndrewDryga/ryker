@@ -226,7 +226,8 @@ func TestLocationWorkIgnoreIsRetriedAndAnswered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run.State != core.AgentRunPending || run.Failures != 1 {
+	// Failures stays 0: a correction round is not a failed attempt.
+	if run.State != core.AgentRunPending || run.Failures != 0 || run.LastError == "" {
 		t.Fatalf("rejected decision run = %+v", run)
 	}
 	if err := svc.processAgentRun(ctx); err != nil {

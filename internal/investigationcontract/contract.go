@@ -395,9 +395,16 @@ func (contract InvestigationContract) Prompt() string {
 This contract controls effort, never permission. Investigate each required claim with the strongest
 available repository and live evidence. Keep evidence atomic and bind it to claim_id, a dimensions
 object carrying a key for every dimension that required claim lists, source time, freshness,
-confidence, and whether it supports or contradicts the claim. Reconcile
-contradictions instead of silently choosing a source. Repository state proves declared intent; only
+confidence, and whether it supports or contradicts the claim. Repository state proves declared intent; only
 fresh operational evidence proves current behavior.
+
+When a claim conflicts with something already recorded, do not rephrase the claim. Rewording it only
+moves the conflict to the next recorded statement, and the host will name that one instead. Pick the
+losing side and retire it explicitly, exactly one of three ways: retract it, supersede it with a
+record_evidence observed AFTER the record it replaces and naming that record's evidence id, or
+reconcile both with new evidence that names both evidence ids and says how they fit together. The
+host's correction lists every conflicting statement with its evidence id, so the record to retire is
+always named; say which one you are retiring and why.
 
 One evidence record must describe one source. When a conclusion compares repository intent with live
 state, emit separate repository and operational evidence records rather than combining their observations

@@ -763,7 +763,10 @@ func TestEscalatedDeepWorkReceivesStructuredCorrection(t *testing.T) {
 	}
 	svc.pollAgentRuns(ctx)
 	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
-	if err != nil || run.State != core.AgentRunPending || run.Failures != 1 {
+	// Failures stays 0: a correction round is not a failed attempt. The
+	// correction itself is what proves the answer went back.
+	if err != nil || run.State != core.AgentRunPending || run.Failures != 0 ||
+		!strings.Contains(run.LastError, "no completion assessment") {
 		t.Fatalf("corrected deep run = %+v, %v", run, err)
 	}
 	if len(slack.posts) != 0 {

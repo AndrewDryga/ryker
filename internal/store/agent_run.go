@@ -1301,12 +1301,33 @@ func (s *Store) RepairAgentRunEventCursor(
 	return tx.Commit()
 }
 
+// RequeueAgentRun sends a run back to pending with the reason it is going
+// again.
+//
+// spendsAttempt separates the two reasons that happens, because they are not
+// the same event and one number cannot mean both. Infrastructure attrition — a
+// rotated session, a dropped stream, a provider refusal — spends an attempt,
+// and failure_count is the ladder that eventually stops it. A host correction
+// does not: the model answered, the host refused the answer, and it is going
+// back to say so.
+//
+// Counting corrections here is what made tenant run_3a615b9db finish with
+// failure_count 19 on nineteen correction rounds in twenty-two minutes. The
+// episode page read "failures=19" — "the model was wrong nineteen times" — for
+// a loop in which the host argued with itself, and every report built on
+// failure_count read it as provider attrition. The correction count lives in
+// the run's context envelope, where the budget that bounds it already reads it.
+//
+// started_at is untouched either way. It is set once on the first transition
+// into running and never cleared, which is what keeps scripts/watchdog.sh able
+// to see a run cycling corrections at failure_count 0 as a stall.
 func (s *Store) RequeueAgentRun(
 	ctx context.Context,
 	id string,
 	detail string,
 	eventSequence int64,
 	next time.Time,
+	spendsAttempt bool,
 ) error {
 	recoveryID, err := core.NewID("recovery")
 	if err != nil {
@@ -1330,7 +1351,10 @@ func (s *Store) RequeueAgentRun(
 		}
 		return err
 	}
-	attempt := failures + 1
+	attempt := failures
+	if spendsAttempt {
+		attempt++
+	}
 	now := s.nowText()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
