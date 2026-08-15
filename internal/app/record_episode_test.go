@@ -223,6 +223,28 @@ func TestRecordingRefusesWhenTheTriggerTextIsGone(t *testing.T) {
 	}
 }
 
+// A control click is a real recorded trigger with no prose: the interaction IS
+// the ask. Refusing it left the controls capabilities structurally
+// unrecordable — the diff-and-draft-pr-controls material on the emisar
+// deployment is exactly a Publish click whose input row carries ActionID and
+// no text (2026-08-14 fixture sprint). The synthesized trigger renders only
+// what the durable row already records, so it is harvested, not invented.
+func TestAControlClickTriggerIsRenderedFromItsRecordedAction(t *testing.T) {
+	source := recordingFixtureSource("none")
+	source.input.Text = "  "
+	source.input.Kind = "action"
+	source.input.ActionID = "publish_draft_pr"
+	fixture, err := recordEpisodeFixture(
+		context.Background(), source, config.Config{}, "ep_1", "diff-and-draft-pr-controls", "",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fixture.Input != "[control] publish_draft_pr" {
+		t.Fatalf("fixture input = %q", fixture.Input)
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

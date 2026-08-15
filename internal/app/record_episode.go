@@ -126,6 +126,15 @@ func episodeTriggerText(
 	}
 	text := strings.TrimSpace(input.Text)
 	if text == "" {
+		// A control click records no prose; the interaction itself is the
+		// trigger, and its ActionID is already durable on the row. Rendering
+		// it keeps the fixture harvested rather than invented — refusing these
+		// left every controls capability structurally unrecordable, because
+		// the episodes that exercise controls are exactly the ones that start
+		// from a click.
+		if control := strings.TrimSpace(input.ActionID); control != "" {
+			return "[control] " + control, nil
+		}
 		return "", fmt.Errorf("source input %s has no text", run.SourceID)
 	}
 	return text, nil
