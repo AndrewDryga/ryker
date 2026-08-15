@@ -10,6 +10,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
+	"github.com/AndrewDryga/responder/internal/fanout"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -72,7 +73,21 @@ func (s *Service) recordResultOperationEvents(
 		return err
 	}
 	s.recordPlanAdoption(ctx, runID, episode, operations)
+	branchGoal := s.branches.GoalOf(ctx, runID, episode)
 	for _, operation := range operations {
+		if branchGoal != "" && !fanout.BranchMayApply(operation.Type) {
+			// Kept, not discarded. A branch that decided the incident was over
+			// may well have settled its own cluster correctly, and throwing away
+			// the turn would throw away the evidence the synthesis is waiting
+			// for. Only the conclusion drawn from a third of the incident is
+			// refused, and the refusal lands on the branch's own timeline where
+			// somebody asking why it did not complete will look.
+			s.recordDroppedResultOperation(
+				ctx, runID, episode, operation,
+				errors.New(fanout.BranchCompletionRefusal(branchGoal)),
+			)
+			continue
+		}
 		err := s.applyResultOperation(ctx, runID, episode, operation)
 		switch {
 		case err == nil:

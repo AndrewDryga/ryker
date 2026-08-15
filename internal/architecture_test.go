@@ -540,7 +540,15 @@ var lineBudget = map[string]int{
 	// in internal/knowledgeoffer as pure functions with table tests and no
 	// database; the tool call is in internal/emisar; the cards are in
 	// internal/slackui.
-	"service": 23260,
+	// 23285 for wiring parallel investigation. The 307-line orchestration went
+	// to internal/branching rather than here, which is what the extraction rule
+	// asks for; what is left is the four call sites that cannot live anywhere
+	// else — the hook after a lead's result is applied, the branch's own Coop
+	// fork at prepare time, the branch's terminal that never posts, and the
+	// operation filter that stops a branch completing the episode. The package
+	// was at its cap to the line, so this feature could not have been added
+	// inside it at all, which is the ratchet doing what it is for.
+	"service": 23285,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -691,9 +699,27 @@ var lineBudget = map[string]int{
 	//
 	// 11323 after the retry-identity landing crossed the assignment
 	// extraction's lowered number; 11340 keeps the same thin margin.
-	"store":      11340,
+	//
+	// 11365 for the fourth serializer of parallel investigation. Two SQL
+	// changes and a repository field: the agent-run lease stops consulting the
+	// incident's active turn for a branch, because that column describes the
+	// lead's Coop session and a branch runs in a fork of its own; and restart
+	// recovery stops handing a branch the incident's session for the same
+	// reason. The reads that go with them are in fanoutstore, not here.
+	"store":      11365,
 	"localstate": 400,
 	"provider":   120,
+	// branching opens the branches a fan-out was granted and closes them. It is
+	// separate from fanout because fanout must stay unable to reach a database
+	// — a gate that exists to refuse spending needs refusals testable without
+	// one — and separate from service because service was at its cap. Every
+	// rule in it is about one distinction: what a branch may do that a lead may
+	// not, and the reverse.
+	"branching": 380,
+	// fanoutstore reads the shape of a fan-out back: the branch children of a
+	// lead, and what the investigation has spent. A package rather than three
+	// more methods on Store for the reason goalstore is one.
+	"fanoutstore": 100,
 	// Raised from 400 to 460 on 2026-08-14 for recalling past episodes into
 	// triage. A new package was the obvious move and is the wrong one: the
 	// scorer has to use the same stopword list and three-character rule the
@@ -956,6 +982,11 @@ var forbiddenImports = map[string][]string{
 		"service", "store", "slackui", "httpapi", "app", "publisher", "coop",
 		"emisar", "config", "webhook",
 	},
+	// branching may reach the store and Coop — opening a branch is a write and
+	// a session — but never Slack or the service. A branch does not post, and
+	// the whole reason it is a package is that "a branch never posts" is a rule
+	// the compiler can hold rather than one the incident path has to remember.
+	"branching": {"service", "slackui", "httpapi", "app", "publisher", "webui"},
 	// audition counts what already happened and returns a report. It reads a
 	// database handle it was given and never opens one, and it must stay unable
 	// to promote, route or demote anything: the whole design of this report is

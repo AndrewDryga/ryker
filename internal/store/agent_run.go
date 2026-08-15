@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/fanout"
 	"github.com/AndrewDryga/responder/internal/store/lifecyclecheck"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
@@ -600,7 +601,21 @@ func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
 		      SELECT 1 FROM incidents AS incident
 		      WHERE incident.id = candidate.incident_id
 		        AND incident.coop_session_id != ''
-		        AND incident.active_turn_id = ''
+		        -- active_turn_id names the turn running on the incident's own
+		        -- Coop session, and that session belongs to the lead. It is
+		        -- therefore a per-session gate wearing a per-incident column,
+		        -- which is invisible until something else runs under the same
+		        -- incident: a fan-out's branches share the incident and each
+		        -- hold their own fork session, so the first branch to submit
+		        -- would park every sibling behind a turn on a session none of
+		        -- them use. Branches are exempted here and serialized instead
+		        -- by their own conversation key, one live run per branch
+		        -- session, which is the same discipline stated against the
+		        -- session that actually runs the turn.
+		        AND (
+		          incident.active_turn_id = ''
+		          OR instr(candidate.conversation_key, '`+fanout.BranchMarker+`') > 0
+		        )
 		        AND incident.workflow NOT IN ('closed', 'blocked')
 		    )
 		  )

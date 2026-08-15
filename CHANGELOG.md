@@ -2,6 +2,30 @@
 
 ## 0.1.0
 
+- **An ambiguous incident stops walking its hypotheses one at a time.** The gate that decides
+  whether an investigation has earned parallel branches landed pure and unwired; this connects it,
+  as child episodes under the lead's incident. After a lead sweep's result is applied, the host
+  recomputes claim clusters from the ledger the turn just wrote and answers the lead's own
+  `plan_goal` proposals: admitted, each goal becomes a read-only child episode sharing the lead's
+  incident — which is what makes the ledger shared for free, since `ListEpisodeEvidence` unions an
+  incident's evidence into every episode under it — and refused, the reason lands on the lead's
+  timeline as a sentence, because a trace that ran serially cannot otherwise be told from a broken
+  feature. Branches record evidence, coverage and goal state; a branch completion completes only
+  its own child and never the lead, and the branch's own turn is kept rather than discarded because
+  the evidence the synthesis is waiting for is in it. The last branch to stop queues the lead's
+  synthesis on the merged ledger, and only the lead completes the work. No migration:
+  `work_episodes.parent_episode_id` has existed since v47.
+
+  The fourth serializer is the one this had to defeat. `incidents.active_turn_id` reads as a
+  per-incident gate and is really a per-session one — that column describes the lead's Coop session
+  — so the first branch to submit would have parked every sibling behind a turn on a session none
+  of them use. Branches are exempted from it in the lease and given forks of their own, serialized
+  instead by the branch conversation key that already defeats the other two layers; restart
+  recovery stops handing a branch the incident's session for the same reason. The 307-line
+  orchestration is `internal/branching` and the reads are `internal/store/fanoutstore`, so
+  `internal/service` grows by 25 lines of call sites and the gate itself still needs no database to
+  test its refusals.
+
 - **A verified fix stops evaporating.** Phase 1 made a finished episode recallable; the knowledge in
   it still died with the thread. A completed episode whose closing assessment named how the fix was
   checked — `episode_outcomes.verified`, the same field the remediation ladder counts, not a second

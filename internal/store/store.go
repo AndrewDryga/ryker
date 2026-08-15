@@ -14,10 +14,12 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/fanout"
 	"github.com/AndrewDryga/responder/internal/store/activitystore"
 	"github.com/AndrewDryga/responder/internal/store/artifactstore"
 	"github.com/AndrewDryga/responder/internal/store/behaviorstore"
 	"github.com/AndrewDryga/responder/internal/store/changestore"
+	"github.com/AndrewDryga/responder/internal/store/fanoutstore"
 	"github.com/AndrewDryga/responder/internal/store/fixturepromotionstore"
 	"github.com/AndrewDryga/responder/internal/store/goalstore"
 	"github.com/AndrewDryga/responder/internal/store/grantstore"
@@ -101,6 +103,11 @@ type Store struct {
 	// inside the transactions that record the planning; this reads them for
 	// whoever is rendering the plan.
 	Goals *goalstore.Repository
+	// Branches reads the child episodes a parallel investigation fanned out
+	// into, and what the investigation has spent. The gate that decides whether
+	// to fan out at all is a pure function in internal/fanout and never reaches
+	// a database, which is what keeps its refusals testable.
+	Branches *fanoutstore.Repository
 	// Memory owns everything remembered between turns. It is a field rather
 	// than a set of methods because a delegating method still counts against
 	// the store's method budget, so extraction only reduces the surface if
@@ -669,6 +676,15 @@ func (s *Store) RecoverInterrupted(ctx context.Context) error {
 		  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 		  WHERE incident_id IS NOT NULL
 		    AND session_id = ''
+		    -- Not a branch. This backfill repairs a run that lost the session it
+		    -- was already using, and the session it reaches for is the
+		    -- incident's — which is the lead's. A fan-out's branches share the
+		    -- incident and each run in a fork of their own, so handing one this
+		    -- session would resume it inside the lead's, against the very
+		    -- serializer the branch conversation key exists to keep it out of.
+		    -- A branch binds its fork when it prepares, so the honest repair for
+		    -- an interrupted branch is to leave the field empty.
+		    AND instr(conversation_key, '`+fanout.BranchMarker+`') = 0
 		    AND state IN ('preparing', 'running', 'applying', 'finalizing')
 		    AND EXISTS (
 		      SELECT 1 FROM incidents
@@ -1147,6 +1163,7 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.Artifacts = artifactstore.New(db, clock)
 	s.Activity = activitystore.New(db, clock)
 	s.Goals = goalstore.New(db)
+	s.Branches = fanoutstore.New(db)
 	s.Memory = memorystore.New(db, clock)
 	s.Intelligence = intelligencestore.New(db, clock)
 	s.Behavior = behaviorstore.New(db, clock)

@@ -201,6 +201,10 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		}
 	}
 
+	if len(page.Branches) > 0 {
+		add(branchesStep(page.Branches))
+	}
+
 	if page.Source.ID != "" {
 		details := []TraceDetail{{Label: "Slack message", Body: present(page.Source.Text), Kind: "text", Open: true}}
 		if strings.TrimSpace(page.Source.Attachments) != "" && page.Source.Attachments != "[]" &&

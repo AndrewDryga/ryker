@@ -521,8 +521,11 @@ type episodePage struct {
 	Delivered  []Delivery
 	Effects    []SideEffect
 	Audit      []AuditRow
-	Errs       problems
-	Spent      EpisodeTokens
+	// Branches are the child episodes this one fanned out into, empty for every
+	// investigation that ran serially — which is almost all of them.
+	Branches []BranchRow
+	Errs     problems
+	Spent    EpisodeTokens
 	// Outcome is this episode's own row in the recall corpus: what a later
 	// incident will be told about this one, present only once it has finished
 	// in a state recall accepts.
@@ -585,6 +588,8 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	}
 	page.Claims, err = h.reader.Claims(ctx, id)
 	page.Errs.note("claims", err)
+	page.Branches, err = h.reader.Branches(ctx, id)
+	page.Errs.note("parallel branches", err)
 	page.Evidence, err = h.reader.Evidence(ctx, id)
 	page.Errs.note("evidence", err)
 	page.Coverage, err = h.reader.Coverage(ctx, id)

@@ -16,11 +16,18 @@ import (
 // what shape its evidence must take.
 const BranchAttemptLimit = 3
 
-// branchMarker separates the episode's conversation from the goal a branch is
+// BranchMarker separates the episode's conversation from the goal a branch is
 // running. It is a marker rather than a separate column because the key has to
 // change anyway — see BranchConversationKey — and a binding that falls out of
 // the fix is one that cannot drift away from it.
-const branchMarker = "#branch:"
+//
+// Exported because the fourth serializer is defeated in SQL. The agent-run
+// lease has to tell a branch from a lead before any Go code sees the row, and
+// the only thing on agent_runs that says so is this substring of the
+// conversation key — there is no kind column. A second copy of "#branch:"
+// written into that query would be a second definition of what a branch is,
+// living in the one place nobody greps.
+const BranchMarker = "#branch:"
 
 // BranchConversationKey mints the conversation a branch runs under.
 //
@@ -38,10 +45,10 @@ const branchMarker = "#branch:"
 // branch cannot be minted from a branch and produce a key that parses to the
 // wrong goal.
 func BranchConversationKey(base, goalID string) string {
-	if index := strings.Index(base, branchMarker); index >= 0 {
+	if index := strings.Index(base, BranchMarker); index >= 0 {
 		base = base[:index]
 	}
-	return base + branchMarker + goalID
+	return base + BranchMarker + goalID
 }
 
 // IsBranch reports whether a conversation belongs to a branch rather than the
@@ -57,11 +64,11 @@ func IsBranch(conversationKey string) bool {
 // It takes the first marker, not the last, so a goal id that itself contains
 // the marker round-trips: the outermost separator is the one the host wrote.
 func GoalOf(conversationKey string) (string, bool) {
-	index := strings.Index(conversationKey, branchMarker)
+	index := strings.Index(conversationKey, BranchMarker)
 	if index < 0 {
 		return "", false
 	}
-	goalID := conversationKey[index+len(branchMarker):]
+	goalID := conversationKey[index+len(BranchMarker):]
 	if strings.TrimSpace(goalID) == "" {
 		return "", false
 	}

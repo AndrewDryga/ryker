@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/branching"
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -65,6 +66,7 @@ type Service struct {
 	// exercise the schema, not a mock of it. See docs/testing.md for when that
 	// trade would be worth revisiting.
 	store             *store.Store
+	branches          *branching.Runner
 	coop              CoopAPI
 	repairCoopRuntime func(context.Context) error
 	coopRepairHealth  func() (int, error)
@@ -243,6 +245,7 @@ func New(
 	// svc.now is a method value, so it follows a clock installed later by
 	// SetClock.
 	svc.slack = localstate.PaceChannelWrites(slackClient, svc.channelWrites, svc.now)
+	svc.branches = branching.New(st, coopClient, cfg, svc.now, logger)
 	svc.replayControl = replaycontrol.Controller{
 		CancelReplay: func(ctx context.Context, id, runKey, detail string) (core.AgentRun, bool, bool, error) {
 			return store.CancelSlackReplay(ctx, st, id, runKey, detail)

@@ -17,6 +17,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
+	"github.com/AndrewDryga/responder/internal/fanout"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/liveturn"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
@@ -643,7 +644,15 @@ func (s *Service) prepareIncidentAgentRun(
 	// that forks a fortnight-old checkout writes its patch against code that
 	// has moved, and the reviewer finds out at rebase time.
 	s.refreshRepositoryForTurn(ctx, incident.Repository)
-	session, err := s.coop.GetSession(ctx, incident.CoopSessionID)
+	// A branch investigates in a fork of its own. The incident's session and its
+	// single active turn belong to the lead, and a branch that borrowed them
+	// would share one transcript with every sibling.
+	var session coop.Session
+	if fanout.IsBranch(run.ConversationKey) {
+		session, err = s.branches.Session(ctx, run, incident)
+	} else {
+		session, err = s.coop.GetSession(ctx, incident.CoopSessionID)
+	}
 	if err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, !coop.Retryable(err))
 	}
@@ -2600,6 +2609,13 @@ func (s *Service) stageIncidentTerminal(
 			ctx, run.ID, report.AppliedOperations,
 		); err != nil {
 			return true, err
+		} else if err := s.branches.Open(
+			ctx, run, report.AppliedOperations,
+		); err != nil {
+			// After the operations are applied, never before: the ambiguity a
+			// branch is funded against is measured from the ledger this turn
+			// just finished writing into.
+			return true, err
 		}
 	}
 	if err := staged.setResult(resultwire.AgentReport(report)); err != nil {
@@ -3598,6 +3614,9 @@ func (s *Service) finalizeIncidentAgentRun(
 	ctx context.Context,
 	run core.AgentRun,
 ) error {
+	if fanout.IsBranch(run.ConversationKey) {
+		return s.branches.Finish(ctx, run)
+	}
 	incident, err := s.store.GetIncident(ctx, run.IncidentID)
 	if err != nil {
 		return err
