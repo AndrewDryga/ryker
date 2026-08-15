@@ -253,3 +253,27 @@ func TestMetricsRenderPromptTruncationCounters(t *testing.T) {
 		t.Fatalf("max prompt gauge missing or wrong:\n%s", body)
 	}
 }
+
+// On 2026-08-15 the tenant workers seized for ten minutes while /readyz kept
+// saying ready, and the only diagnostic was SIGQUIT — killing the process to
+// ask it a question. The goroutine profile answers the same question over the
+// loopback listener without taking anything down.
+func TestARunningProcessAnswersForItsOwnStacks(t *testing.T) {
+	cfg := testConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	handler := New(cfg, st, service.New(cfg, st, nil, nil, nil, nil, nil), nil, nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(
+		"GET", "/debug/pprof/goroutine?debug=1", nil,
+	))
+	if response.Code != http.StatusOK {
+		t.Fatalf("goroutine profile = %d, want 200", response.Code)
+	}
+	if !strings.Contains(response.Body.String(), "goroutine") {
+		t.Fatal("the profile answered without any stacks in it")
+	}
+}

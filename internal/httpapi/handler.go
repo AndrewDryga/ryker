@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/http/pprof"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -135,6 +136,16 @@ func (h *Handler) mux() *http.ServeMux {
 	mux.HandleFunc("GET /readyz", h.ready)
 	mux.HandleFunc("GET /metrics", h.metrics)
 	mux.HandleFunc("POST /v1/hooks/{route}", h.webhook)
+	// The runtime's own stacks, on the loopback-only listener beside the
+	// dashboard. On 2026-08-15 the tenant workers seized for ten minutes while
+	// /readyz kept saying ready, and the only way to see where they stood was
+	// SIGQUIT — which takes the process down to ask it a question. A stall
+	// with pprof mounted is one curl; a stall without it is archaeology on a
+	// corpse. The listener binds 127.0.0.1 in every deployment, so this
+	// exposes nothing a local shell could not already take.
+	mux.HandleFunc("GET /debug/pprof/", pprof.Index)
+	mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
 	// The control plane, when the database can be opened for reading. A
 	// dashboard that cannot start must not stop the service from answering
 	// Slack, so a failure here is logged and the rest of the API serves on.
