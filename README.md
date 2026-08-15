@@ -145,14 +145,39 @@ Coop moves a rate-limited session to the next rung and re-delivers the same turn
 mid-incident costs a retry rather than the investigation. Sign in every rung — `responder doctor`
 checks all of them, not just the one sessions start on.
 
-The policy repositories must already be canonical Git worktrees owned by or writable to
-`responder`; cloning them as that account under `/srv/repos` is the simplest setup:
+Declare each repository by slug and Responder owns the checkout:
+
+```yaml
+repositories:
+  infrastructure:
+    coop_policy: infrastructure-observe
+    github: example/infrastructure
+```
+
+`responder bootstrap-coop` clones it into `<state_dir>/repos/example/infrastructure`, the
+maintenance lane keeps it current with `git fetch` plus a fast-forward on the default branch
+(`limits.repository_fetch_interval`, 15m by default), and a turn whose clone has lapsed pays for a
+bounded fetch before its session forks. Responder never modifies the work tree. Every attempt's
+context manifest records the revision and the time it was last fetched, so "how old was the code
+the model read" has an answer; a fetch that fails degrades to recorded staleness rather than
+blocking a turn, and shows up in `responder doctor` and on `/metrics` as
+`responder_repository_fetch_failures`.
+
+The GitHub credential stays host-side. It reaches `git` as a per-invocation HTTP header and never a
+file, an argument, a Coop policy, or anything projected into an agent box — the same hermetic path
+draft-PR publication uses. The agent box still reads code with no GitHub credential inside it.
+
+An operator-maintained checkout still works and is what a repository outside GitHub should use.
+Exactly one of `path:` and `github:` is required per repository, because both answer "which
+directory is this" and a session policy can name only one:
 
 ```bash
 sudo install -d -o responder -g responder -m 0700 /srv/repos
 sudo -u responder git clone <infrastructure-repository-url> /srv/repos/infrastructure
 sudo -u responder git clone <backend-repository-url> /srv/repos/backend
 ```
+
+Nothing fetches those, which is the reason for slugs.
 
 For a one-command foreground trial, set `coop.supervise: true` in Responder's configuration. Both
 `doctor` and `serve` then launch Coop with the configured binary, state, policies, socket, and

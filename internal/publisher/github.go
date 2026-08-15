@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -22,9 +21,10 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/hermeticgit"
 )
 
-const maxCommandOutput = 1 << 20
+const maxCommandOutput = hermeticgit.MaxOutput
 const maxPullRequestDiff = 2 << 20
 
 var unsafeSlug = regexp.MustCompile(`[^a-z0-9]+`)
@@ -365,7 +365,7 @@ func (g *GitHub) Publish(ctx context.Context, request Request) (Result, error) {
 		return result, err
 	}
 	run := func(input []byte, args ...string) (string, error) {
-		return runGit(ctx, work, nil, input, args...)
+		return hermeticgit.Run(ctx, work, "", nil, input, args...)
 	}
 	if _, err := run(nil, "init", "--quiet"); err != nil {
 		return result, err
@@ -403,7 +403,9 @@ func (g *GitHub) Publish(ctx context.Context, request Request) (Result, error) {
 	}
 	message := safeTitle(request.Incident.Title) + "\n\n" +
 		"Prepared by Emisar Responder from Coop review " + request.Review.OperationID + "."
-	if _, err := runGit(ctx, work, commitEnv, nil, "commit", "--quiet", "-m", message); err != nil {
+	if _, err := hermeticgit.Run(
+		ctx, work, "", commitEnv, nil, "commit", "--quiet", "-m", message,
+	); err != nil {
 		return result, fmt.Errorf("create reviewed publication commit: %w", err)
 	}
 	commit, err := run(nil, "rev-parse", "HEAD")
@@ -439,9 +441,9 @@ func (g *GitHub) Publish(ctx context.Context, request Request) (Result, error) {
 		)
 	default:
 		lease := "refs/heads/" + branch + ":" + request.Existing.RemoteSHA
-		env := gitAuthEnv(token)
-		if _, err := runGit(
-			ctx, work, env, nil, "push", "--quiet",
+		env := hermeticgit.AuthEnv(token)
+		if _, err := hermeticgit.Run(
+			ctx, work, "", env, nil, "push", "--quiet",
 			"--force-with-lease="+lease,
 			remoteURL, result.CommitSHA+":refs/heads/"+branch,
 		); err != nil {
@@ -611,13 +613,22 @@ func (g *GitHub) commitChecks(
 	return result, nil
 }
 
-func (g *GitHub) token(ctx context.Context) (string, error) {
-	if g.cfg.TokenEnv != "" {
-		if token := strings.TrimSpace(os.Getenv(g.cfg.TokenEnv)); token != "" {
+func (g *GitHub) token(ctx context.Context) (string, error) { return Token(ctx, g.cfg) }
+
+// Token reads the GitHub credential the configuration names.
+//
+// Exported because internal/repomirror fetches managed clones with the same
+// credential and must read it the same way. Two readers of one secret is one
+// thing; two rules for where that secret lives is how a deployment that moved
+// from an environment variable to the gh CLI keeps publishing and quietly stops
+// fetching.
+func Token(ctx context.Context, cfg config.GitHubConfig) (string, error) {
+	if cfg.TokenEnv != "" {
+		if token := strings.TrimSpace(os.Getenv(cfg.TokenEnv)); token != "" {
 			return token, nil
 		}
 	}
-	if g.cfg.UseCLIAuth {
+	if cfg.UseCLIAuth {
 		command := exec.CommandContext(ctx, "gh", "auth", "token", "--hostname", "github.com")
 		output, err := command.Output()
 		if err != nil {
@@ -627,7 +638,7 @@ func (g *GitHub) token(ctx context.Context) (string, error) {
 			return token, nil
 		}
 	}
-	return "", fmt.Errorf("GitHub credential environment variable %s is not set", g.cfg.TokenEnv)
+	return "", fmt.Errorf("GitHub credential environment variable %s is not set", cfg.TokenEnv)
 }
 
 func (g *GitHub) branchName(incident core.Incident) string {
@@ -656,100 +667,6 @@ func validRefComponent(value string) bool {
 		!strings.ContainsAny(value, " ~^:?*[\\\r\n\t")
 }
 
-func gitAuthEnv(token string) []string {
-	value := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-	return []string{
-		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=http.https://github.com/.extraheader",
-		"GIT_CONFIG_VALUE_0=AUTHORIZATION: basic " + value,
-		"GIT_TERMINAL_PROMPT=0",
-	}
-}
-
-// gitPassthroughEnv names the only ambient variables a hermetic git invocation
-// inherits. Everything else is withheld so the publication checkout cannot see
-// Slack, Coop, Emisar, GitHub, or webhook secrets from the service environment.
-var gitPassthroughEnv = []string{
-	"PATH",
-	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
-	"http_proxy", "https_proxy", "no_proxy",
-	"SSL_CERT_FILE", "SSL_CERT_DIR",
-	"GIT_SSL_CAINFO", "GIT_SSL_CAPATH",
-}
-
-// gitEnv builds a hermetic environment for git. Global and system gitconfig are
-// pinned to /dev/null so an operator's `core.hooksPath` or `init.templateDir`
-// cannot inject code into the isolated publication checkout, and HOME points at
-// that checkout so nothing resolves a real dotfile.
-func gitEnv(work string, extra ...string) []string {
-	env := make([]string, 0, len(gitPassthroughEnv)+len(extra)+6)
-	for _, name := range gitPassthroughEnv {
-		if value, ok := os.LookupEnv(name); ok {
-			env = append(env, name+"="+value)
-		}
-	}
-	env = append(env,
-		"HOME="+work,
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_CONFIG_SYSTEM=/dev/null",
-		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_TERMINAL_PROMPT=0",
-		"LC_ALL=C",
-	)
-	return append(env, extra...)
-}
-
-// boundedBuffer stops accumulating past limit so a runaway subprocess cannot
-// grow the buffer without bound. Checking the size after the process exits
-// would already have paid the memory cost.
-type boundedBuffer struct {
-	buf      bytes.Buffer
-	limit    int
-	overflow bool
-}
-
-func (b *boundedBuffer) Write(p []byte) (int, error) {
-	if remaining := b.limit - b.buf.Len(); remaining > 0 {
-		if len(p) > remaining {
-			b.buf.Write(p[:remaining])
-			b.overflow = true
-		} else {
-			b.buf.Write(p)
-		}
-	} else if len(p) > 0 {
-		b.overflow = true
-	}
-	// Report a full write so git is never signalled a broken pipe.
-	return len(p), nil
-}
-
-func (b *boundedBuffer) String() string { return b.buf.String() }
-
-func runGit(
-	ctx context.Context,
-	work string,
-	extraEnv []string,
-	input []byte,
-	args ...string,
-) (string, error) {
-	command := exec.CommandContext(ctx, "git", append([]string{"-C", work}, args...)...)
-	command.Env = gitEnv(work, extraEnv...)
-	if input != nil {
-		command.Stdin = bytes.NewReader(input)
-	}
-	output := &boundedBuffer{limit: maxCommandOutput}
-	command.Stdout = output
-	command.Stderr = output
-	err := command.Run()
-	if output.overflow {
-		return "", errors.New("git output exceeded 1 MiB")
-	}
-	if err != nil {
-		return "", fmt.Errorf("git %s: %s", args[0], strings.TrimSpace(output.String()))
-	}
-	return output.String(), nil
-}
-
 // ResolveTree returns the tree object ID for commit in the checkout at path. It
 // is the one supported way to ask git a question about a repository outside the
 // publication flow, so every git invocation stays hermetic and every object ID
@@ -761,8 +678,8 @@ func (g *GitHub) ResolveTree(ctx context.Context, path, commit string) (string, 
 	if !fullGitOID.MatchString(commit) {
 		return "", fmt.Errorf("%q is not a full Git object ID", commit)
 	}
-	output, err := runGit(
-		ctx, path, nil, nil,
+	output, err := hermeticgit.Run(
+		ctx, path, "", nil, nil,
 		"rev-parse", "--verify", "--end-of-options", commit+"^{tree}",
 	)
 	if err != nil {
@@ -782,8 +699,8 @@ func (g *GitHub) remoteRef(
 	remoteURL string,
 	branch string,
 ) (string, error) {
-	output, err := runGit(
-		ctx, work, gitAuthEnv(token), nil,
+	output, err := hermeticgit.Run(
+		ctx, work, "", hermeticgit.AuthEnv(token), nil,
 		"ls-remote", "--heads", remoteURL, "refs/heads/"+branch,
 	)
 	if err != nil {

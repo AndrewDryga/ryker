@@ -68,7 +68,13 @@ type serviceStatus struct {
 	reason            string
 	promptTruncations uint64
 	promptMaxBytes    uint64
-	err               error
+	// repositoryFetchFailures is how many Responder-managed clones could not be
+	// refreshed on the last attempt. It is a gauge and it is deliberately not
+	// part of anything that reads as work movement: the watchdog pages when due
+	// work stops moving, and a GitHub outage is stale evidence, not a stalled
+	// scheduler.
+	repositoryFetchFailures int
+	err                     error
 }
 
 func (h *Handler) now() time.Time {
@@ -95,6 +101,9 @@ func (h *Handler) serviceStatus(ctx context.Context) serviceStatus {
 	if status.err == nil {
 		status.ready, status.reason = h.service.Ready(ctx)
 		status.promptTruncations, status.promptMaxBytes = h.service.PromptTruncationMetrics()
+		if h.service.Mirrors != nil {
+			status.repositoryFetchFailures = h.service.Mirrors.FetchFailures()
+		}
 	}
 	h.status = status
 	h.statusUntil = h.now().Add(statusTTL)
@@ -673,6 +682,12 @@ func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprintln(w, "# HELP responder_coop_prompt_truncations_total Prompts the Coop transport had to elide.")
 	fmt.Fprintf(w, "# TYPE responder_coop_prompt_truncations_total counter\nresponder_coop_prompt_truncations_total %d\n", status.promptTruncations)
+	// A gauge of degraded evidence, not of failed work. It is written here
+	// rather than folded into responder_work_failed on purpose: the watchdog
+	// alerts on due work not moving, and a fetch failure that counted as
+	// stalled work would page a person about GitHub's outage.
+	fmt.Fprintln(w, "# HELP responder_repository_fetch_failures Managed repository clones whose last fetch failed; their evidence is stale, not their work stalled.")
+	fmt.Fprintf(w, "# TYPE responder_repository_fetch_failures gauge\nresponder_repository_fetch_failures %d\n", status.repositoryFetchFailures)
 	fmt.Fprintln(w, "# HELP responder_coop_prompt_max_bytes Largest prompt composed, before any elision.")
 	fmt.Fprintf(w, "# TYPE responder_coop_prompt_max_bytes gauge\nresponder_coop_prompt_max_bytes %d\n", status.promptMaxBytes)
 	fmt.Fprintf(w, "# TYPE responder_webhooks_accepted_total counter\nresponder_webhooks_accepted_total %d\n", h.accepted.Load())

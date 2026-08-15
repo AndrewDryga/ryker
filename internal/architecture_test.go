@@ -391,7 +391,28 @@ var lineBudget = map[string]int{
 	// it. The real split of this package stays owned by the kernel migration's
 	// Phase 9 — extracting mid-cutover would preserve the bugs the cutover
 	// exists to delete.
-	"service": 22620,
+	//
+	// Raised to 22700 on 2026-08-14 for repositories Responder keeps current.
+	// There was no `git fetch` anywhere in this product — not in Go, not in a
+	// script — so "current repository content", which the evidence hierarchy
+	// ranks above configuration and confirmed memory, meant whatever a human
+	// last remembered to pull.
+	//
+	// The cohesive area did leave, and took the interesting decisions with it:
+	// internal/repomirror owns where a slug becomes a directory, what a fetch
+	// failure means, when a clone is too old to be called current, and the
+	// words a manifest uses to say so. What stayed is 64 lines of wiring that
+	// cannot: the two prepare-path calls that must sit before a session forks
+	// the checkout, the maintenance-lane arm that must return ErrNotFound so a
+	// GitHub outage never reads as stalled work, and three path resolutions
+	// (publication, closed-fork verification, policy) that each hold the
+	// service's config and a client at once.
+	//
+	// 22700 was that raise measured against its own branch; merged beside the
+	// thread-surround and readiness landings the count is 22703, so the merged
+	// budget is 22740 — the same thin margin, measured once against the tree
+	// that actually exists.
+	"service": 22740,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -614,6 +635,18 @@ var lineBudget = map[string]int{
 	"retrydelay":        40,
 	"schemaassets":      1050,
 	"triageoutcome":     50,
+	// hermeticgit is the git-subprocess discipline internal/publisher grew
+	// around the only GitHub push credential Responder has, extracted the day
+	// it gained a second caller. It should stay this size: a second copy of an
+	// environment scrub is a second place for one of its rules to stop
+	// applying, and that is the whole reason it is a package.
+	"hermeticgit": 110,
+	// repomirror owns every Responder-managed clone: where a slug becomes a
+	// directory, what a fetch failure means, and when a clone is too old to be
+	// called current. It is a package rather than a corner of the service
+	// because none of that needs a database, a Slack client or a Coop session,
+	// and its tests run against real git against local fixtures.
+	"repomirror": 520,
 }
 
 // forbiddenImports records the dependency direction. Each package maps to the
@@ -662,9 +695,24 @@ var forbiddenImports = map[string][]string{
 	"memory":                   {"service", "httpapi", "app", "coop", "publisher", "slackui"},
 	"channelsetup":             {"service", "store", "httpapi", "app", "coop", "publisher"},
 	"publisher":                {"service", "store", "slackui", "httpapi", "app"},
-	"localstate":               {"service", "store", "httpapi", "app", "publisher", "coop", "config"},
-	"provider":                 {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "core"},
-	"recall":                   {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config"},
+	// hermeticgit knows about git and nothing else. It must not learn about
+	// configuration either: the moment it can read a config it can grow a rule
+	// about which repositories it will run for, and that rule belongs where the
+	// paths are decided.
+	"hermeticgit": {
+		"service", "store", "slackui", "httpapi", "app", "publisher", "coop",
+		"emisar", "config", "core", "decision", "investigation",
+	},
+	// repomirror may read configuration — a slug and a state directory come
+	// from there and nowhere else — and must never reach the database, Slack,
+	// Coop, or the publisher. It is below all of them.
+	"repomirror": {
+		"service", "store", "slackui", "httpapi", "app", "publisher", "coop",
+		"emisar", "decision", "investigation",
+	},
+	"localstate": {"service", "store", "httpapi", "app", "publisher", "coop", "config"},
+	"provider":   {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "core"},
+	"recall":     {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config"},
 }
 
 func repoRoot(t *testing.T) string {

@@ -34,6 +34,7 @@ coop:
 repositories:
   repo:
     coop_policy: repo-observe
+    path: /srv/repos/repo
 webhooks:
   grafana:
     kind: grafana
@@ -265,6 +266,7 @@ coop:
 repositories:
   repo:
     coop_policy: repo-observe
+    path: /srv/repos/repo
 webhooks:
   grafana:
     kind: grafana
@@ -300,6 +302,7 @@ coop: {}
 repositories:
   repo:
     coop_policy: repo-observe
+    path: /srv/repos/repo
 webhooks:
   grafana:
     kind: grafana
@@ -385,6 +388,7 @@ coop: {}
 repositories:
   repo:
     coop_policy: repo-observe
+    path: /srv/repos/repo
 webhooks:
   grafana:
     kind: grafana

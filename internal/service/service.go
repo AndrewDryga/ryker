@@ -17,6 +17,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/localstate"
 	"github.com/AndrewDryga/responder/internal/publisher"
 	"github.com/AndrewDryga/responder/internal/replaycontrol"
+	"github.com/AndrewDryga/responder/internal/repomirror"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/serviceport"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -72,6 +73,18 @@ type Service struct {
 	log               *slog.Logger
 	publisher         PublicationAPI
 	emisar            EmisarAPI
+
+	// Mirrors keeps repositories declared by slug current, and is exported for
+	// the same reason store.Memory is a field rather than a delegating method:
+	// an extracted area is reached through the thing that owns it, and a
+	// passthrough method here would make the extraction invisible to the
+	// architecture budget while costing the same slot in it. /metrics reads the
+	// fetch-failure gauge from here.
+	//
+	// One per state directory, which the process lock already guarantees: two
+	// managers over one root would be two things cloning and swapping the same
+	// directories.
+	Mirrors *repomirror.Manager
 
 	identity    slackui.Identity
 	initialized atomic.Bool
@@ -204,6 +217,15 @@ func New(
 		historyCache:  localstate.NewSlackHistoryCache(),
 		runCancels:    localstate.NewRunCancellations(),
 	}
+	// Built here rather than injected, the way the publisher is: the manager
+	// needs the state directory and the same GitHub credential the publisher
+	// reads, both of which are already in cfg, and 191 callers of New should
+	// not have to pass a repository manager to get a service.
+	svc.Mirrors = repomirror.New(cfg, logger, repomirror.WithToken(
+		func(ctx context.Context) (string, error) {
+			return publisher.Token(ctx, cfg.GitHub)
+		},
+	))
 	// The service holds a paced Slack client, so every write is visible to the
 	// pacer rather than only the queued ones. See localstate.PaceChannelWrites;
 	// the alternative was remembering to record at twenty scattered call sites.

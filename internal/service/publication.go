@@ -243,8 +243,15 @@ func (s *Service) publishDraftPR(
 		return err
 	}
 
+	// The publication checkout fetches the reviewed parent commit from a local
+	// path, so a repository declared by slug has to arrive here carrying the
+	// managed clone rather than the empty string it configures.
+	publishing := repository
+	if checkout, err := ManagedRepositoryPath(s.cfg, repository); err == nil && checkout != "" {
+		publishing.Path = checkout
+	}
 	result, publishErr := s.publisher.Publish(ctx, publisher.Request{
-		StateDir: s.cfg.StateDir, Incident: incident, Repository: repository,
+		StateDir: s.cfg.StateDir, Incident: incident, Repository: publishing,
 		Review: review, Existing: existing,
 	})
 	receiptCtx, cancelReceipt := publicationPersistenceContext(ctx)

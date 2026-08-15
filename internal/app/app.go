@@ -24,6 +24,8 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/emisar"
 	"github.com/AndrewDryga/responder/internal/httpapi"
+	"github.com/AndrewDryga/responder/internal/publisher"
+	"github.com/AndrewDryga/responder/internal/repomirror"
 	"github.com/AndrewDryga/responder/internal/service"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -371,7 +373,90 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 		fmt.Fprintln(stdout, "Coop accounts   every session policy target is signed in")
 	}
 	fmt.Fprintf(stdout, "GitHub          %s\n", checks["github_publisher"])
+	for _, line := range managedRepositoryReport(ctx, cfg, logger) {
+		fmt.Fprintf(stdout, "Repository      %s\n", line)
+		checks["repository:"+line] = "reported"
+	}
 	return nil
+}
+
+// managedRepositoryReport is doctor's answer to "how old is the code the model
+// reads, and could Responder refresh it if it had to".
+//
+// Three facts per repository, because three different things go wrong and they
+// look identical from outside: the clone may not be there, it may be there and
+// old, and it may be there and current while the credential that keeps it that
+// way has quietly expired. The last one is why this asks the remote — a token
+// that stopped working is invisible until the next fetch, and the next fetch is
+// during an incident.
+//
+// Reported, never fatal. A stale clone still answers turns.
+func managedRepositoryReport(
+	ctx context.Context,
+	cfg config.Config,
+	logger *slog.Logger,
+) []string {
+	slugs := repomirror.Slugs(cfg)
+	if len(slugs) == 0 {
+		return nil
+	}
+	mirrors := repomirror.New(cfg, logger, repomirror.WithToken(
+		func(ctx context.Context) (string, error) {
+			return publisher.Token(ctx, cfg.GitHub)
+		},
+	))
+	lines := make([]string, 0, len(slugs))
+	for _, slug := range slugs {
+		status := mirrors.Inspect(ctx, slug)
+		switch {
+		case !status.Present:
+			lines = append(lines, fmt.Sprintf(
+				"%s NOT CLONED — run `responder bootstrap-coop`", slug,
+			))
+			continue
+		case status.Stale:
+			lines = append(lines, fmt.Sprintf(
+				"%s STALE — last fetched %s (%s ago), at %s",
+				slug, formatFetchTime(status.FetchedAt), fetchAge(status.FetchedAt),
+				shortRevision(status.Revision),
+			))
+		default:
+			lines = append(lines, fmt.Sprintf(
+				"%s fresh — %s at %s, fetched %s ago",
+				slug, status.Branch, shortRevision(status.Revision), fetchAge(status.FetchedAt),
+			))
+		}
+		dryRunCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		err := mirrors.DryRunFetch(dryRunCtx, slug)
+		cancel()
+		if err != nil {
+			lines = append(lines, fmt.Sprintf(
+				"%s CANNOT FETCH (%s) — %v", slug, repomirror.Classify(err), err,
+			))
+		}
+	}
+	return lines
+}
+
+func shortRevision(revision string) string {
+	if len(revision) < 12 {
+		return "an unknown revision"
+	}
+	return core.TruncateUTF8(revision, 12)
+}
+
+func formatFetchTime(at time.Time) string {
+	if at.IsZero() {
+		return "never"
+	}
+	return at.UTC().Format(time.RFC3339)
+}
+
+func fetchAge(at time.Time) string {
+	if at.IsZero() {
+		return "forever"
+	}
+	return time.Since(at).Round(time.Second).String()
 }
 
 func probeResponderReady(ctx context.Context, listen string) error {

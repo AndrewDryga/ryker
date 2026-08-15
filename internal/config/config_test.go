@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -29,6 +30,7 @@ repositories:
   emisar:
     display_name: Emisar
     coop_policy: emisar-observe
+    path: /srv/repos/repo
     conversation_policy: emisar-conversation
 webhooks:
   grafana:
@@ -169,6 +171,7 @@ coop: {}
 repositories:
   emisar:
     coop_policy: emisar-observe
+    path: /srv/repos/repo
 repository_sets:
   platform:
     display_name: Platform
@@ -232,6 +235,7 @@ coop: {}
 repositories:
   emisar:
     coop_policy: observe
+    path: /srv/repos/repo
 webhooks:
   grafana:
     kind: grafana
@@ -367,6 +371,7 @@ coop: {}
 repositories:
   emisar:
     coop_policy: observe
+    path: /srv/repos/repo
 actions:
   restart_allocation:
     description: Restart one failed allocation.
@@ -458,6 +463,7 @@ repositories:
   emisar:
     display_name: Emisar
     coop_policy: emisar-observe
+    path: /srv/repos/repo
 webhooks:
   grafana:
     kind: grafana
@@ -565,5 +571,151 @@ func TestPriceTableIsRejectedWhenItCannotBeTrusted(t *testing.T) {
 		Currency: "USD", Models: map[string]ModelPrice{"claude:opus-4.5": {Input: 5, Output: 25}},
 	}); err != nil {
 		t.Fatalf("a table with an unset cached-input rate was rejected: %v", err)
+	}
+}
+
+// A repository declares its host path exactly once.
+//
+// Before slugs, `path:` was optional and a repository that named neither a path
+// nor anything else was accepted — the Coop policy file was left to supply the
+// path, silently, from a file config validation never reads. Two declarations
+// are worse: `path:` and `github:` would be two sources of truth for one
+// directory, and nothing would say which one the session policy got.
+//
+// The slug is pattern-validated for the same reason a path must be absolute and
+// clean: a repository binding is the only authority for a host path in this
+// product, so "org/name" with a host in it, a traversal, or a second slash is
+// how a host path arrives from somewhere that is not this file.
+func TestRepositoryDeclaresItsHostPathExactlyOnce(t *testing.T) {
+	base := `version: 1
+state_dir: /tmp/responder-repository-declaration-test
+slack:
+  team_id: T123ABC
+  default_repository: emisar
+  operators: [U123ABC]
+coop: {}
+repositories:
+  emisar:
+    coop_policy: emisar-observe
+%s
+webhooks:
+  grafana:
+    kind: grafana
+    auth: bearer
+    secret_env: GRAFANA_TOKEN
+    repository: emisar
+`
+	for name, testCase := range map[string]struct {
+		declaration string
+		accepted    bool
+	}{
+		"a path alone":                {declaration: "    path: /srv/repos/emisar", accepted: true},
+		"a slug alone":                {declaration: "    github: AndrewDryga/emisar", accepted: true},
+		"a slug with dots and dashes": {declaration: "    github: some-org/emisar.core_v2", accepted: true},
+		"neither":                     {declaration: "    display_name: Emisar"},
+		"both":                        {declaration: "    path: /srv/repos/emisar\n    github: AndrewDryga/emisar"},
+		"a slug with no owner":        {declaration: "    github: emisar"},
+		"a slug with a host":          {declaration: "    github: github.com/AndrewDryga/emisar"},
+		"a slug that traverses":       {declaration: "    github: ../../etc/emisar"},
+		"a slug that is a URL":        {declaration: "    github: https://github.com/AndrewDryga/emisar.git"},
+		"a slug with a space":         {declaration: "    github: AndrewDryga/emisar core"},
+		"a slug naming the parent":    {declaration: "    github: ../emisar"},
+		"an absolute slug":            {declaration: "    github: /srv/repos/emisar"},
+	} {
+		path := filepath.Join(t.TempDir(), "responder.yaml")
+		if err := os.WriteFile(
+			path, fmt.Appendf(nil, base, testCase.declaration), 0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Load(path)
+		if testCase.accepted && err != nil {
+			t.Fatalf("%s was rejected: %v", name, err)
+		}
+		if !testCase.accepted && err == nil {
+			t.Fatalf("%s was accepted", name)
+		}
+	}
+}
+
+// A slug repository publishes to the repository it was cloned from, and needs
+// no second checkout to do it.
+//
+// github_repository stays writable because a fork may publish elsewhere, but an
+// operator made to spell the same "org/name" twice is how the two drift — and
+// the failure that produces is a draft PR pushed to a repository the agent
+// never read. The path requirement is satisfied the same way: Responder's own
+// clone is the checkout the publication commit is built from, which is the
+// whole point of managing one.
+func TestSlugRepositoryDefaultsItsPublishingBinding(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "responder.yaml")
+	body := `version: 1
+state_dir: /tmp/responder-slug-publishing-test
+slack:
+  team_id: T123ABC
+  default_repository: emisar
+  operators: [U123ABC]
+coop: {}
+github:
+  enabled: true
+  token_env: GITHUB_TOKEN
+repositories:
+  emisar:
+    coop_policy: emisar-observe
+    github: AndrewDryga/emisar
+webhooks:
+  grafana:
+    kind: grafana
+    auth: bearer
+    secret_env: GRAFANA_TOKEN
+    repository: emisar
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("a slug repository was refused a publishing checkout: %v", err)
+	}
+	repository, ok := cfg.RepositoryContext("emisar")
+	if !ok {
+		t.Fatal("repository did not resolve")
+	}
+	if repository.GitHubRepository != "AndrewDryga/emisar" {
+		t.Fatalf("publishing binding = %q, want the declared slug", repository.GitHubRepository)
+	}
+	if repository.Path != "" {
+		t.Fatalf("a slug repository carried a configured path %q", repository.Path)
+	}
+}
+
+// The maintenance lane's fetch interval is bounded on both sides. A fetch per
+// repository every few seconds is a rate limit waiting to happen, and half a
+// day is not freshness — evidence precedence puts "current repository content"
+// above config, and this is the number that makes "current" mean something.
+func TestRepositoryFetchIntervalIsBounded(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		interval time.Duration
+		accepted bool
+	}{
+		"the default":     {interval: defaults().Limits.RepositoryFetchInterval.Duration, accepted: true},
+		"one minute":      {interval: time.Minute, accepted: true},
+		"six hours":       {interval: 6 * time.Hour, accepted: true},
+		"thirty seconds":  {interval: 30 * time.Second},
+		"a day":           {interval: 24 * time.Hour},
+		"zero":            {interval: 0},
+		"negative":        {interval: -time.Minute},
+		"twelve hours":    {interval: 12 * time.Hour},
+		"fifty-nine secs": {interval: 59 * time.Second},
+	} {
+		cfg := defaults()
+		cfg.Limits.RepositoryFetchInterval = Duration{testCase.interval}
+		err := cfg.validateLimits()
+		if testCase.accepted && err != nil {
+			t.Fatalf("%s was rejected: %v", name, err)
+		}
+		if !testCase.accepted && err == nil {
+			t.Fatalf("%s was accepted", name)
+		}
 	}
 }

@@ -2,6 +2,22 @@
 
 ## 0.1.0
 
+- **Responder keeps its own repositories current.** There was no `git fetch` anywhere in this
+  product, so "current repository content" — second in the evidence hierarchy, above configuration
+  and confirmed memory — meant whatever a human last remembered to pull. Declare a repository with
+  `github: owner/name` and Responder clones it into `<state_dir>/repos/owner/name` on
+  `bootstrap-coop`, refreshes it on the maintenance lane every
+  `limits.repository_fetch_interval` (15m), and pays for a bounded fetch before a turn whose clone
+  has lapsed. It never modifies the work tree: updates are fetch plus fast-forward, a dirty clone is
+  reported rather than reset, and a corrupt one is re-cloned beside and swapped in at the same path.
+  Each attempt's context manifest now records the revision and when it was last fetched, so how old
+  the code the model read was finally has an answer. A fetch that fails degrades to recorded
+  staleness — never a blocked turn — and surfaces in `responder doctor` and as
+  `responder_repository_fetch_failures` on `/metrics`, deliberately outside every signal that means
+  "work is not moving". The GitHub credential stays host-side on the hermetic path publication
+  already used: a per-invocation header, never a file, an argument, a Coop policy, or anything
+  inside an agent box. `path:` still works; exactly one of the two is now required.
+
 - **Fast development and exact candidate proof.** `make focus` formats changed Go files and runs
   only their owning package tests, while the deterministic batch and full gates parallelize
   independent checks and shard the large service race suite. A committed binary is now proven once

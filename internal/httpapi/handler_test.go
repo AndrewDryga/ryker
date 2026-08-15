@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/responder/internal/repomirror"
 	"github.com/AndrewDryga/responder/internal/service"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -161,6 +163,7 @@ coop: {}
 repositories:
   repo:
     coop_policy: repo-observe
+    path: /srv/repos/repo
 webhooks:
   grafana:
     kind: grafana
@@ -251,6 +254,74 @@ func TestMetricsRenderPromptTruncationCounters(t *testing.T) {
 	}
 	if !strings.Contains(body, "responder_coop_prompt_max_bytes 90000") {
 		t.Fatalf("max prompt gauge missing or wrong:\n%s", body)
+	}
+}
+
+// A repository Responder could not refresh is degraded evidence, and it has to
+// be visible somewhere.
+//
+// A gauge on /metrics, deliberately, and not a failed work item. The watchdog
+// alerts on due work not moving; a fetch failure counted as stalled work would
+// page a person at three in the morning about GitHub's outage, and the failure
+// this exists to surface — a token that quietly expired — would then be
+// indistinguishable from an outage nobody needs to be woken for.
+func TestMetricsRenderRepositoryFetchFailuresWithoutTouchingWorkMovement(t *testing.T) {
+	cfg := testConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	inner := &Handler{
+		cfg: cfg, store: st,
+		service: service.New(cfg, st, nil, nil, nil, nil, nil),
+		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	handler := securityHeaders(inner.mux())
+	svc := inner.service
+	// The status answer is cached for a second. Stepping the clock between
+	// scrapes is what makes the second one a fresh read rather than the first
+	// one again.
+	base := time.Unix(1700000000, 0).UTC()
+	inner.statusClock = func() time.Time { return base }
+
+	// A deployment with no managed repositories reports a clean zero rather
+	// than nothing, so an alert on the gauge can be written before the first
+	// repository is migrated.
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := recorder.Body.String()
+	if !strings.Contains(body, "responder_repository_fetch_failures 0") {
+		t.Fatalf("fetch-failure gauge missing:\n%s", body)
+	}
+	if !strings.Contains(body, "# TYPE responder_repository_fetch_failures gauge") {
+		t.Fatalf("fetch-failure metric is not declared a gauge:\n%s", body)
+	}
+
+	// A repository that cannot be reached moves the gauge and nothing else. The
+	// remote is a directory that is not a repository, which is what an
+	// unreachable host looks like to git locally.
+	svc.Mirrors = repomirror.New(cfg, nil, repomirror.WithRemoteURL(
+		func(string) string { return filepath.Join(t.TempDir(), "gone") },
+	))
+	if _, err := svc.Mirrors.Update(context.Background(), "example/backend"); err == nil {
+		t.Fatal("a clone from a missing remote reported success")
+	}
+	inner.statusClock = func() time.Time { return base.Add(2 * statusTTL) }
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body = recorder.Body.String()
+	if !strings.Contains(body, "responder_repository_fetch_failures 1") {
+		t.Fatalf("a failed fetch did not reach the gauge:\n%s", body)
+	}
+	// And it stayed out of every signal that means "work is not moving".
+	if !strings.Contains(body, "responder_work_failed 0") {
+		t.Fatalf("a fetch failure was counted as failed durable work:\n%s", body)
+	}
+	for _, lane := range []string{"control", "background", "maintenance"} {
+		if !strings.Contains(body, `responder_scheduler_work_failed{lane="`+lane+`"} 0`) {
+			t.Fatalf("a fetch failure reached the %s lane's failure count:\n%s", lane, body)
+		}
 	}
 }
 

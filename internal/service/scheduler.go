@@ -27,6 +27,7 @@ const (
 	workEmisarApproval   = "emisar_approval"
 	workCoopPoll         = "coop_poll"
 	workMaintenance      = "maintenance"
+	workRepositoryFetch  = "repository_fetch"
 	workScheduledTask    = "scheduled_task"
 	workEpisodeWakeup    = "episode_wakeup"
 	workPublicationTrack = "publication_followup"
@@ -99,6 +100,10 @@ func (s *Service) seedScheduledWork(ctx context.Context) error {
 		{Kind: workPublicationTrack, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 47},
 		{Kind: workCoopPoll, SubjectID: schedulerSingletonID, Lane: store.WorkLaneBackground, Priority: 60},
 		{Kind: workMaintenance, SubjectID: schedulerSingletonID, Lane: store.WorkLaneMaintenance, Priority: 10},
+		// Behind the retention sweep on purpose: a repository fetch is the
+		// slowest thing on this lane and the least urgent, and it must not
+		// delay the work that expires rows.
+		{Kind: workRepositoryFetch, SubjectID: schedulerSingletonID, Lane: store.WorkLaneMaintenance, Priority: 15},
 	}
 	// Agent submission and finalization are independently lease-safe. Seed one
 	// drain per configured background worker so the configured concurrency is
@@ -281,6 +286,7 @@ func recurringScheduledWork(kind string) bool {
 		workAgentFinalize,
 		workCoopPoll,
 		workMaintenance,
+		workRepositoryFetch,
 		workScheduledTask,
 		workEpisodeWakeup,
 		workPublicationTrack,
@@ -302,6 +308,8 @@ func (s *Service) scheduledIdleDelay(kind string) time.Duration {
 		return s.cfg.GitHub.FollowupInterval.Duration
 	case workMaintenance:
 		return s.cfg.Retention.MaintenanceInterval.Duration
+	case workRepositoryFetch:
+		return s.cfg.Limits.RepositoryFetchInterval.Duration
 	case workLegacyPause:
 		return time.Minute
 	default:
@@ -342,6 +350,15 @@ func (s *Service) runScheduledWork(
 		return store.ErrNotFound
 	case workMaintenance:
 		s.runMaintenance(ctx)
+		return store.ErrNotFound
+	case workRepositoryFetch:
+		s.fetchManagedRepositories(ctx)
+		// ErrNotFound, never an error, whatever the fetches did. A failed fetch
+		// is degraded evidence, not stalled work: returning an error here would
+		// retry the item on the failure schedule, count against
+		// responder_work_failed, and make a GitHub outage look — to the
+		// watchdog that reads work movement — exactly like Responder's
+		// scheduler having stopped.
 		return store.ErrNotFound
 	case workLegacyPause:
 		return s.processLegacyPauseCleanup(ctx)

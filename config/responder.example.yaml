@@ -169,9 +169,29 @@ repositories:
     coop_policy: backend-observe
     contributor_policy: backend-contributor
     conversation_policy: backend-conversation
-    path: /srv/repositories/backend
-    github_repository: example/backend
+    # Declare the repository by slug and Responder owns the checkout: it clones into
+    # <state_dir>/repos/example/backend on the first `responder bootstrap-coop`, keeps it
+    # current with fetch + fast-forward on the maintenance lane, and never modifies the
+    # work tree. `path:` and `github:` are the two ways to answer "which directory is
+    # this", so exactly one of them is required.
+    #
+    # The GitHub credential stays host-side, exactly as it does for draft-PR publishing:
+    # it reaches git as a per-invocation header and never a file, an argument, a Coop
+    # policy, or anything projected into an agent box. The box still reads code with no
+    # GitHub credential in it — that property is what the local checkout was for, and it
+    # is preserved. What ends is the operator being the clone daemon.
+    #
+    # github_repository defaults to this slug, so publishing needs no second copy of it.
+    github: example/backend
     github_base_branch: main
+  # An operator-maintained checkout still works, and is what a repository that is not on
+  # GitHub — or one an operator deliberately pins — should use.
+  # legacy:
+  #   display_name: Legacy
+  #   coop_policy: legacy-observe
+  #   path: /srv/repositories/legacy
+  #   github_repository: example/legacy
+  #   github_base_branch: main
 
 repository_sets:
   # Slack selects this logical context. The matching Coop policy below owns all host paths.
@@ -266,6 +286,11 @@ limits:
   worker_interval: 250ms
   work_lease: 3m
   worker_stall_after: 2m
+  # How often the maintenance lane fetches every Responder-managed clone (repositories
+  # declared with `github:` below), and how stale one may be before the prepare path pays
+  # for a bounded fetch itself. A fetch that fails degrades to recorded staleness on the
+  # attempt's context manifest; it never blocks a turn and never counts as failed work.
+  repository_fetch_interval: 15m
 
 # Accepted and refused. This key must be empty, and nothing reads it.
 #

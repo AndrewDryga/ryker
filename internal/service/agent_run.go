@@ -635,6 +635,10 @@ func (s *Service) prepareIncidentAgentRun(
 			true,
 		)
 	}
+	// Before the session is read and any turn is submitted. An engineering task
+	// that forks a fortnight-old checkout writes its patch against code that
+	// has moved, and the reviewer finds out at rebase time.
+	s.refreshRepositoryForTurn(ctx, incident.Repository)
 	session, err := s.coop.GetSession(ctx, incident.CoopSessionID)
 	if err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, !coop.Retryable(err))
@@ -1039,6 +1043,12 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			repositorycapability.AccessQuestion(input.Text),
 		)
 	}
+	// Before the session, because a session forks the repository as it stands
+	// at that moment. Bounded and non-blocking: a fetch that cannot finish
+	// leaves the turn running against what is on disk, with the age recorded.
+	s.refreshRepositoryForTurn(
+		ctx, core.FirstNonempty(state.Repository, s.cfg.Slack.DefaultRepository),
+	)
 	resolved, err := s.resolveTriageSession(ctx, run, input, &state, repository)
 	if err != nil {
 		return err

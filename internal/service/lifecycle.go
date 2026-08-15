@@ -383,14 +383,21 @@ func (s *Service) verifyPublishedCleanupTree(
 		return fmt.Errorf("verify current GitHub publication: %w", err)
 	}
 	repository, ok := s.cfg.RepositoryContext(incident.Repository)
-	if !ok || repository.Path == "" {
+	if !ok {
+		return errors.New("publication repository checkout is unavailable")
+	}
+	// Through the one resolution point: a repository declared by slug has no
+	// configured path, and reading Path directly would refuse to verify a
+	// closed fork for every managed repository.
+	checkout, err := ManagedRepositoryPath(s.cfg, repository)
+	if err != nil || checkout == "" {
 		return errors.New("publication repository checkout is unavailable")
 	}
 	resolver, ok := s.publisher.(treeResolverAPI)
 	if !ok {
 		return errors.New("publication tree resolver is unavailable")
 	}
-	tree, err := resolver.ResolveTree(ctx, repository.Path, plan.Plan.Workspace.Head)
+	tree, err := resolver.ResolveTree(ctx, checkout, plan.Plan.Workspace.Head)
 	if err != nil {
 		return fmt.Errorf("resolve closed fork tree: %w", err)
 	}

@@ -237,9 +237,24 @@ type Repository struct {
 	ContributorPolicy  string `yaml:"contributor_policy"`
 	ConversationPolicy string `yaml:"conversation_policy"`
 	Path               string `yaml:"path"`
-	GitHubRepository   string `yaml:"github_repository"`
-	GitHubBaseBranch   string `yaml:"github_base_branch"`
+	// GitHub declares a repository by slug and hands the checkout to Responder.
+	//
+	// The alternative — and what every deployment did before this — is `path:`,
+	// an operator-maintained clone that nothing ever fetched. Evidence
+	// precedence ranks current repository content second, above config and
+	// confirmed memory, while the directory behind it aged for as long as
+	// nobody happened to pull; on the operator's machine that was 88 GB across
+	// 426 git directories, all of it kept fresh by hand.
+	//
+	// Exactly one of Path and GitHub, never both: they are two answers to
+	// "which directory is this", and a session policy can only name one.
+	GitHub           string `yaml:"github"`
+	GitHubRepository string `yaml:"github_repository"`
+	GitHubBaseBranch string `yaml:"github_base_branch"`
 }
+
+// Managed reports whether Responder owns this repository's checkout.
+func (r Repository) Managed() bool { return strings.TrimSpace(r.GitHub) != "" }
 
 // RepositorySet is a Slack-visible repository context. Primary identifies the only repository
 // whose changes Responder may review or publish. The resolved Coop policy owns any companion host
@@ -435,6 +450,10 @@ type Limits struct {
 	WorkerInterval                   Duration `yaml:"worker_interval"`
 	WorkLease                        Duration `yaml:"work_lease"`
 	WorkerStallAfter                 Duration `yaml:"worker_stall_after"`
+	// RepositoryFetchInterval is how often the maintenance lane refreshes every
+	// Responder-managed clone, and how long a clone may go unfetched before the
+	// prepare path pays for a fetch itself.
+	RepositoryFetchInterval Duration `yaml:"repository_fetch_interval"`
 }
 
 func defaults() Config {
@@ -549,6 +568,7 @@ func defaults() Config {
 			WorkerInterval:                   Duration{250 * time.Millisecond},
 			WorkLease:                        Duration{3 * time.Minute},
 			WorkerStallAfter:                 Duration{2 * time.Minute},
+			RepositoryFetchInterval:          Duration{15 * time.Minute},
 		},
 	}
 }
@@ -622,6 +642,12 @@ func Load(path string) (Config, error) {
 	for name, repository := range cfg.Repositories {
 		if repository.GitHubBaseBranch == "" {
 			repository.GitHubBaseBranch = "main"
+		}
+		// A slug already names the repository publication pushes to. Requiring
+		// it twice is how the two drift, and the failure that produces is a
+		// draft PR opened against a repository the agent never read.
+		if repository.GitHubRepository == "" && repository.Managed() {
+			repository.GitHubRepository = strings.TrimSpace(repository.GitHub)
 		}
 		cfg.Repositories[name] = repository
 	}
@@ -726,14 +752,40 @@ func (c Config) validateRepositories() error {
 			(!filepath.IsAbs(repo.Path) || filepath.Clean(repo.Path) != repo.Path) {
 			return fmt.Errorf("repository %q path must be an absolute clean path", name)
 		}
+		// One declaration, and only one. `path:` and `github:` both answer
+		// "which directory is this repository", a session policy can name only
+		// one of them, and nothing downstream would say which one it got.
+		// Neither is the older failure: the path then came from the Coop policy
+		// file, which config validation never reads, so a repository pointing
+		// at nothing validated cleanly and failed at session time.
+		switch {
+		case repo.Path != "" && repo.Managed():
+			return fmt.Errorf(
+				"repository %q sets both path and github; declare the checkout once",
+				name,
+			)
+		case repo.Path == "" && !repo.Managed():
+			return fmt.Errorf(
+				"repository %q must declare either github: owner/name for a Responder-managed "+
+					"clone or path: for an operator-maintained checkout",
+				name,
+			)
+		case repo.Managed() && !ValidGitHubRepository(repo.GitHub):
+			return fmt.Errorf(
+				"repository %q github must be owner/name, with no host, scheme, or path separator",
+				name,
+			)
+		}
 		if repo.GitHubBaseBranch == "" {
 			repo.GitHubBaseBranch = "main"
 		}
 		if c.GitHub.Enabled {
-			if repo.Path == "" {
+			// A managed repository has a checkout by construction — Responder's
+			// own clone — so it needs no configured path to publish from.
+			if repo.Path == "" && !repo.Managed() {
 				return fmt.Errorf("repository %q path is required when GitHub publishing is enabled", name)
 			}
-			if !validGitHubRepository(repo.GitHubRepository) {
+			if !ValidGitHubRepository(repo.GitHubRepository) {
 				return fmt.Errorf("repository %q github_repository must be owner/name", name)
 			}
 			if strings.TrimSpace(repo.GitHubBaseBranch) == "" ||
@@ -986,6 +1038,15 @@ func (c Config) validateLimits() error {
 			min: c.Coop.RequestTimeout.Duration, max: time.Hour,
 			label: "must be at least coop.request_timeout and no more than 1h",
 		},
+		// Bounded on both sides because both ends are a real failure. Below a
+		// minute this is a git fetch per repository per minute against one
+		// remote, which is how a token gets rate limited; above six hours the
+		// word "current" in the evidence hierarchy stops meaning anything, and
+		// silently, which is the defect this whole knob exists to close.
+		{
+			name: "repository_fetch_interval", value: limits.RepositoryFetchInterval.Duration,
+			min: time.Minute, max: 6 * time.Hour,
+		},
 	} {
 		if err := bound.check(); err != nil {
 			return err
@@ -999,7 +1060,14 @@ func (c Config) validateLimits() error {
 	return nil
 }
 
-func validGitHubRepository(value string) bool {
+// ValidGitHubRepository reports whether value is exactly "owner/name".
+//
+// Exported because internal/repomirror turns one of these into a directory
+// under the state directory and a remote URL, and both of those are places a
+// host path must never arrive from anywhere but this file. The rejections that
+// matter are the ones that would otherwise escape: a second slash, a host, a
+// scheme, and "." or ".." in either half.
+func ValidGitHubRepository(value string) bool {
 	owner, name, ok := strings.Cut(value, "/")
 	return ok && owner != "" && name != "" && !strings.Contains(name, "/") &&
 		githubNamePattern.MatchString(owner) && githubNamePattern.MatchString(name) &&

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/responder/internal/repomirror"
 	"gopkg.in/yaml.v3"
 )
 
@@ -276,12 +277,22 @@ func managedCoopCommand(cfg config.Config, args ...string) (*exec.Cmd, error) {
 	return command, nil
 }
 
+// managedCoopRepository is the checkout the box-image preflight runs in.
+//
+// Through the one resolution point, so a repository declared by slug — which
+// has no configured path at all — resolves to Responder's own clone instead of
+// the empty string, which reached the operator as "default repository has no
+// path" and named nothing they could act on.
 func managedCoopRepository(cfg config.Config) string {
 	repository, ok := cfg.RepositoryContext(cfg.Slack.DefaultRepository)
 	if !ok {
 		return ""
 	}
-	return strings.TrimSpace(repository.Path)
+	path, err := repomirror.RepositoryPath(cfg.StateDir, repository)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(path)
 }
 
 func startManagedCoop(

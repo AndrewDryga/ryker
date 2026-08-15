@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -62,6 +63,18 @@ func runBootstrap(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 	fmt.Fprintf(stdout, "Wrote private Coop session configuration to %s\n", cfg.Coop.BootstrapDir)
+	// Clones come from here. This command is an operator running something and
+	// waiting for it, which is the right place to pay for a first clone; the
+	// prepare path only ever fetches, and only for seconds.
+	paths, err := ensureManagedRepositories(
+		context.Background(), cfg, stdout, newLogger(stderr, cfg.LogLevel),
+	)
+	if err != nil {
+		return err
+	}
+	if err := writeSessionPolicies(cfg, paths, stdout); err != nil {
+		return err
+	}
 	fmt.Fprintf(stdout, "Start Coop with COOP_CONFIG_DIR=%s\n", cfg.Coop.BootstrapDir)
 	return nil
 }

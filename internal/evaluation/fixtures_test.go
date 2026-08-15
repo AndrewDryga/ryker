@@ -31,6 +31,7 @@ repositories:
   repo:
     display_name: Repository
     coop_policy: repo-observe
+    path: /srv/repos/repo
     contributor_policy: repo-contributor
 webhooks:
   grafana:

@@ -87,6 +87,14 @@ func (s *Service) ensureAttemptContextManifest(
 		manifest.References = append(manifest.References, core.ContextReference{
 			Kind: "repository", SourceRef: "repository:" + run.Repository,
 			SourceRevision: sourceRevision, Visibility: "eligible",
+			// How old the code the model read actually was. The revision alone
+			// never answered that: a commit id looks equally current whether
+			// the checkout behind it was refreshed a minute ago or last month,
+			// and until Responder owned the clone nothing anywhere knew which.
+			// Recorded on the reference that already exists rather than in a
+			// new column, so the trace page's manifest panel gains an answer
+			// without the schema gaining a table.
+			Metadata: s.repositoryFreshness(ctx, run.Repository),
 		})
 	}
 	manifest.References = append(manifest.References, taskpr.CompanionReferences(session, run.Repository)...)
