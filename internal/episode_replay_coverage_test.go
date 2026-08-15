@@ -17,6 +17,7 @@ package internal_test
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -54,6 +55,203 @@ var acknowledgedCoverageGaps = map[string]string{
 	"multi-repository-work":                          "needs a recorded parent episode with child goals",
 	"model-choice-and-byoc":                          "needs recordings across two execution profiles",
 	"cleanup":                                        "needs a recorded retention pass",
+}
+
+// deletedLegacyPath is one legacy path the migration has already removed, and
+// the single capability whose fixture permitted removing it.
+type deletedLegacyPath struct {
+	// Capability is the matrix slug the deletion rests on. It must be proven by
+	// the corpus, not merely present in the matrix.
+	Capability string
+	// Symbol is an identifier that must no longer appear in non-test source.
+	// This is what makes the marker a check rather than a note: the claim
+	// "this path is gone" is re-verified on every run.
+	Symbol string
+	// Note says what the path was, for whoever finds the entry later.
+	Note string
+}
+
+// deletedLegacyPaths records every legacy path deleted under section 24's
+// per-capability rule.
+//
+// Section 24 used to be read as one gate over the whole migration: nothing may
+// be deleted until everything is proven. That reading made the least-covered
+// capability in a phase hold the other twenty-three shut, and the corpus only
+// grows at the speed of real usage, so the wait had no end anyone could name.
+// The rule now counts proof and deletion the same way — per capability — and
+// this list is where a deletion says which proof it stands on.
+//
+// An entry is rejected three ways, and each corresponds to a mistake that would
+// otherwise read as progress:
+//
+//   - naming a capability the corpus does not prove is the deletion section 24
+//     forbids, wearing a marker as if it were permission;
+//   - naming a capability still listed in acknowledgedCoverageGaps is the same
+//     mistake with the evidence sitting twenty lines above it;
+//   - naming a symbol that is still in the tree is a deletion that did not
+//     happen, or one that grew back — and a legacy path that grows back is
+//     exactly the dual write the migration rules forbid, now with a test
+//     asserting it is gone.
+//
+// Shared plumbing does not belong here. A path several capabilities route
+// through is proven only when every one of them is proven; deleting it on one
+// fixture removes the others untested, which is the neighbour's-proof deletion
+// section 24 rules out.
+var deletedLegacyPaths = []deletedLegacyPath{}
+
+// deletionObjections returns every reason a marker is not permitted, in the
+// words the reader needs to act on. Empty means the deletion stands.
+//
+// Split from the test so the rule itself can be tested against a synthetic
+// marker: the real list is expected to pass, and a rule that is only ever
+// exercised by inputs that pass it is a rule nobody has seen work.
+func deletionObjections(
+	entry deletedLegacyPath,
+	matrix map[string]bool,
+	covered map[string][]string,
+	gaps map[string]string,
+	stillPresentIn []string,
+) []string {
+	var objections []string
+	if !matrix[entry.Capability] {
+		objections = append(objections, fmt.Sprintf(
+			"capability %q is not in the matrix in section 24", entry.Capability,
+		))
+	}
+	if reason, gap := gaps[entry.Capability]; gap {
+		objections = append(objections, fmt.Sprintf(
+			"capability %q is an acknowledged gap (%q); section 24 permits deleting a legacy "+
+				"path only for a capability the corpus proves",
+			entry.Capability, reason,
+		))
+	}
+	if len(covered[entry.Capability]) == 0 {
+		objections = append(objections, fmt.Sprintf(
+			"no replay fixture proves capability %q, so deleting %s removed behavior nothing "+
+				"replays",
+			entry.Capability, entry.Symbol,
+		))
+	}
+	if len(stillPresentIn) > 0 {
+		objections = append(objections, fmt.Sprintf(
+			"%s is recorded as deleted but still appears in %s", entry.Symbol, strings.Join(stillPresentIn, ", "),
+		))
+	}
+	return objections
+}
+
+// nonTestSourceMentioning returns the non-test source files that mention a
+// symbol, repo-relative.
+func nonTestSourceMentioning(t *testing.T, symbol string) []string {
+	t.Helper()
+	root := repoRoot(t)
+	var found []string
+	for _, dir := range []string{"internal", "cmd"} {
+		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			if strings.Contains(string(data), symbol) {
+				relative, err := filepath.Rel(root, path)
+				if err != nil {
+					relative = path
+				}
+				found = append(found, relative)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	sort.Strings(found)
+	return found
+}
+
+// Every deleted legacy path names one capability the corpus proves, and is
+// actually gone.
+//
+// This is the enforcing half of the section 24 amendment. The prose permits
+// deleting capability by capability; without this the permission would be
+// self-certified, which is how the rule was enforced before the ratchet existed
+// — by whoever remembered it.
+func TestDeletedLegacyPathsRestOnAProvenCapability(t *testing.T) {
+	covered := coveredCapabilities(t)
+	matrix := make(map[string]bool)
+	for _, capability := range matrixCapabilities(t) {
+		matrix[capability] = true
+	}
+	for _, entry := range deletedLegacyPaths {
+		objections := deletionObjections(
+			entry, matrix, covered, acknowledgedCoverageGaps, nonTestSourceMentioning(t, entry.Symbol),
+		)
+		for _, objection := range objections {
+			t.Errorf("deleted legacy path %q (%s): %s", entry.Symbol, entry.Note, objection)
+		}
+	}
+}
+
+// The marker rejects the deletions section 24 forbids.
+//
+// Exercised against synthetic entries because the real list must always pass:
+// a guard whose failing branch has never run is a guard nobody has seen work,
+// and this one exists to stop a deletion that would otherwise look like
+// progress in a diff.
+func TestADeletionNamingAnUnprovenCapabilityIsRejected(t *testing.T) {
+	matrix := map[string]bool{"incidents": true, "reactions": true}
+	covered := map[string][]string{"incidents": {"case incidents"}}
+	gaps := map[string]string{"reactions": "needs a recorded reaction-only signal"}
+
+	for _, testCase := range []struct {
+		name    string
+		entry   deletedLegacyPath
+		present []string
+		want    string
+	}{
+		{
+			name:  "capability outside the matrix",
+			entry: deletedLegacyPath{Capability: "invented", Symbol: "legacyThing"},
+			want:  "not in the matrix",
+		},
+		{
+			name:  "capability still an acknowledged gap",
+			entry: deletedLegacyPath{Capability: "reactions", Symbol: "legacyThing"},
+			want:  "acknowledged gap",
+		},
+		{
+			name:    "path recorded as deleted but still present",
+			entry:   deletedLegacyPath{Capability: "incidents", Symbol: "legacyThing"},
+			present: []string{"internal/store/legacy.go"},
+			want:    "still appears in",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			objections := deletionObjections(testCase.entry, matrix, covered, gaps, testCase.present)
+			if len(objections) == 0 {
+				t.Fatalf("deletion %+v was permitted; section 24 forbids it", testCase.entry)
+			}
+			if !slices.ContainsFunc(objections, func(o string) bool {
+				return strings.Contains(o, testCase.want)
+			}) {
+				t.Fatalf("objections %q do not say %q", objections, testCase.want)
+			}
+		})
+	}
+
+	permitted := deletedLegacyPath{Capability: "incidents", Symbol: "legacyThing"}
+	if objections := deletionObjections(permitted, matrix, covered, gaps, nil); len(objections) > 0 {
+		t.Fatalf(
+			"deleting a proven capability's path was objected to (%q); the amendment permits it",
+			objections,
+		)
+	}
 }
 
 // capabilitySlug normalizes a matrix row or a fixture tag to one spelling.

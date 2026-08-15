@@ -1204,6 +1204,21 @@ Expand the gate only when a new check has demonstrated signal and acceptable sta
 No migration may remove a capability because its replacement package exists but its behavior is not
 yet proven.
 
+Proof is counted per capability, and so is deletion. A legacy path may be deleted once a replay
+fixture proves the capability that path carries, and only the paths belonging to that capability may
+go with it. Every other capability keeps its legacy path until its own fixture exists. A phase is
+therefore never held shut as a whole by the least-covered capability inside it, and no capability is
+ever deleted on the strength of a neighbour's proof.
+
+A deletion that cannot name the one capability it rests on is not a per-capability deletion. Shared
+plumbing — a path several capabilities route through — is proven only when every capability routing
+through it is proven, because deleting it on one capability's fixture removes the others untested.
+
+Each deletion is recorded where the proof is checked rather than where it is remembered:
+`internal/episode_replay_coverage_test.go` carries a marker per deleted legacy path naming its
+capability, and fails if that capability is an acknowledged gap, if it is absent from the corpus, or
+if the deleted path reappears in the tree.
+
 ## 25. Migration plan
 
 The migration fixes user-visible invariants before extracting packages.
@@ -1367,7 +1382,9 @@ Exit criteria:
 - Migrate one invariant at a time and keep each change deployable.
 - Add the historical failure fixture before changing its behavior.
 - Do not extract packages while the underlying ownership is still duplicated.
-- Do not dual-write indefinitely; compare projections, cut over, then delete the legacy path.
+- Do not dual-write indefinitely; compare projections, cut over, then delete the legacy path — one
+  capability at a time, each deletion resting on that capability's own fixture and recorded by the
+  marker section 24 requires.
 - Preserve unrelated work and repository policy during schema and fork migrations.
 - Include restart, retry, stale-input, and cleanup tests in every lifecycle change.
 - Record schema, prompt, contract, and adapter versions required to replay pre-migration episodes.
