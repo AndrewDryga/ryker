@@ -85,6 +85,7 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		nil,
 		nil,
 		decisionpkg.OperationalMemoryContext{},
+		nil,
 		"",
 		nil,
 		WatchPromptBudget(0),
@@ -469,7 +470,7 @@ func TestStaticWatchPromptSizeIsPinned(t *testing.T) {
 			Text: "How is the health of our infrastructure?",
 		},
 		"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, "", nil, WatchPromptBudget(0),
+		decisionpkg.OperationalMemoryContext{}, nil, "", nil, WatchPromptBudget(0),
 	)
 	switch {
 	case len(prompt) > staticWatchPromptBytes:
@@ -518,7 +519,7 @@ func TestOversizedChannelMessageSaysTheHostCutIt(t *testing.T) {
 			UserID: "U123ABC", Text: instruction,
 		},
 		"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, "", nil, WatchPromptBudget(0),
+		decisionpkg.OperationalMemoryContext{}, nil, "", nil, WatchPromptBudget(0),
 	)
 	if !strings.Contains(prompt, "the host cut the rest of this message to fit") {
 		t.Fatal("an oversized channel message was cut without saying so")
@@ -532,7 +533,7 @@ func TestOversizedChannelMessageSaysTheHostCutIt(t *testing.T) {
 			UserID: "U123ABC", Text: "is checkout slow?",
 		},
 		"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, "", nil, WatchPromptBudget(0),
+		decisionpkg.OperationalMemoryContext{}, nil, "", nil, WatchPromptBudget(0),
 	)
 	if strings.Contains(fitting, "the host cut the rest of this message to fit") {
 		t.Fatal("a message that fitted was marked as cut")
@@ -556,7 +557,7 @@ func TestWatchPromptExamplesUseTheTypedResultShape(t *testing.T) {
 			Text: "How is the health of our infrastructure?",
 		},
 		"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, "", nil, WatchPromptBudget(0),
+		decisionpkg.OperationalMemoryContext{}, nil, "", nil, WatchPromptBudget(0),
 	)
 	// The bounded conversation lane's examples are held to the same bar since
 	// 2026-08-14, when its four legacy-shaped examples taught every cheap turn

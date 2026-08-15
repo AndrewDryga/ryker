@@ -121,6 +121,10 @@ var Policies = []Policy{
 		"one try at an episode; deleted with work_episodes or with the agent run it executed on"},
 	{"episode_goals", Cascade,
 		"what an episode was aiming at; deleted with work_episodes"},
+	{"episode_outcomes", Cascade,
+		"what a finished episode amounted to, flattened so a later incident can be told about " +
+			"it; deleted with work_episodes, because a recalled outcome that outlived the trace " +
+			"proving it would be an unfalsifiable claim about a past nobody can open"},
 	{"episode_wakeups", Cascade,
 		"a scheduled resume for an episode; deleted with work_episodes, which retention refuses " +
 			"to expire while a wakeup is still pending or leased"},

@@ -725,6 +725,10 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		})
 	}
 
+	if page.Outcome.EpisodeID != "" {
+		add(recallProjectionStep(page.Outcome, present))
+	}
+
 	for index, effect := range page.Effects {
 		body := present(effect.Detail)
 		if effect.Before != "" || effect.After != "" {
@@ -2365,6 +2369,12 @@ func promptContextDetails(prompt string, present func(string) string, trimmed ma
 		{[]string{"prior_operational_context"}, []string{"current_incidents", "open_commitments", "pending_approvals", "operator_confirmed_memory", "confirmed_memory", "automatically_synthesized_continuity", "recent_same_channel_evidence", "responder_preferences"}, []string{"prior_evidence", "dreamed_memory", "confirmed_memory", "prior_operational_context"}, "Operational memory", "Operational memory", "Current commitments, confirmed guidance, preferences, and recent evidence selected for this work."},
 		{[]string{"structured_memory", "conversation_situation"}, []string{"goal", "situation_summary", "channel_purpose", "topology", "decisions", "constraints", "unresolved_questions", "evidence_refs"}, []string{"channel_knowledge", "channel_situation"}, "Conversation memory", "Conversation memory", "A compact summary of the exact thread when available, otherwise the channel's continuity summary."},
 		{[]string{"related_situations"}, nil, []string{"related_situations"}, "Related conversation summaries", "Related conversations", "Up to six relevant summaries selected from the workspace's recent conversation memory."},
+		// Its own group rather than a line inside operational memory: this is
+		// the only layer on the page that is about a different, finished
+		// incident, it is the first one the budget drops, and a reader who
+		// cannot see that separation cannot tell recalled history from what the
+		// host currently knows about this channel.
+		{[]string{similarPastEpisodesLayer}, nil, []string{similarPastEpisodesLayer}, "Recalled past episodes", "Recalled past episodes", "Resolved past episodes the host matched to this symptom, carried as history to check rather than as evidence."},
 	} {
 		key, raw := firstPromptField(envelope, layer.keys...)
 		for _, alias := range layer.keys {
@@ -2444,6 +2454,10 @@ var trimmedLayerLabel = map[string]string{
 	"channel_knowledge":         "Conversation memory · Knowledge",
 	"channel_situation":         "Conversation memory · Situation summary",
 	"related_situations":        "Related conversation summaries",
+	// Paired with the layer above: a kind named here is routed into its own
+	// section instead of the flat leftover list, and one that is named without
+	// a section to route it to would vanish from the page entirely.
+	similarPastEpisodesLayer: "Recalled past episodes",
 }
 
 // trimmedRows renders the budget's cuts inside the category they were cut
@@ -2542,6 +2556,7 @@ func promptSelectionDescription(key string, included bool) string {
 		"channel_context":               {"Channel metadata used to understand where the conversation is happening.", "No additional channel metadata was needed."},
 		"channel_id":                    {"The Slack channel that scopes conversation and channel memory.", "The prompt did not retain a channel identifier."},
 		"prior_operational_context":     {"Operational state selected by recency, scope, provenance, and relevance.", "No current operational memory was relevant to this turn."},
+		similarPastEpisodesLayer:        {"At most 3 resolved past episodes, ranked by alert group, shared services, and symptom overlap. History to check first; it never proves current state.", "No resolved past episode matched this symptom."},
 		"structured_memory":             {"The exact thread summary when available; otherwise the compact channel summary.", "No compact conversation summary was available for this turn."},
 		"conversation_situation":        {"The exact thread summary when available; otherwise the compact channel summary.", "No compact conversation summary was available for this turn."},
 		"related_situations":            {"At most 6 relevance-ranked summaries selected from up to 40 recent candidates.", "None of the recent conversation summaries were relevant enough to include."},
@@ -3046,6 +3061,7 @@ func skipJSONSpaceBackward(raw string, i int) int {
 func promptFieldPresentation(key string) (string, string) {
 	if value, ok := map[string][2]string{
 		"prior_operational_context":        {"Operational memory", "operational"},
+		similarPastEpisodesLayer:           {"Recalled past episodes", "operational"},
 		"structured_memory":                {"Conversation memory", "conversation"},
 		"conversation_situation":           {"Conversation memory", "conversation"},
 		"related_situations":               {"Related conversation summaries", "related"},
@@ -3098,6 +3114,13 @@ func contextReferenceDetails(refs []ContextRef, present func(string) string, sto
 				if ref.Kind == "artifact" && stored[ref.FullDigest] {
 					row.Href = template.URL("/artifacts/" + url.PathEscape(ref.FullDigest))
 				}
+				// The recalled episode has a whole trace of its own, and it is
+				// the first thing anyone asks for: the row says a past incident
+				// shaped this prompt, and the only way to judge that claim is to
+				// read what the past incident actually concluded.
+				if ref.Kind == similarEpisodeRefKind && ref.Episode != "" {
+					row.Href = template.URL("/episodes/" + url.PathEscape(ref.Episode))
+				}
 				runtime = append(runtime, row)
 			}
 		}
@@ -3137,11 +3160,20 @@ func contextReferenceTableRow(ref ContextRef, present func(string) string) Trace
 	if ref.Kind == "artifact" && ref.Digest != "" {
 		revision = ref.Digest
 	}
+	// The name cell holds the past episode's objective, which does not say
+	// which episode it is; the id column does, and it is what the link goes to.
+	if ref.Kind == similarEpisodeRefKind && ref.Episode != "" {
+		revision = truncate(ref.Episode, 20)
+	}
 	role := map[string]string{
 		"repository":        "The bound repository, checked out for the model through Coop",
 		"execution_policy":  "Controls tools and whether files can change",
 		"execution_profile": "The lane this turn was routed as, before Coop picked a rung",
 		"artifact":          "Exact file handed to the model for this turn",
+		// Spelled out because a section headed "root cause" sitting beside live
+		// evidence is an invitation to skip the checking, and the checking is
+		// the product. This row is a finished, different incident.
+		similarEpisodeRefKind: "History the host recalled by symptom overlap — not evidence of current health, and not authorization",
 	}[ref.Kind]
 	if ref.Kind == "repository" && ref.Visibility == "companion" {
 		kind = "Companion repository"
@@ -3525,6 +3557,7 @@ func contextLabel(kind string) string {
 		"source_input": "Source message", "compiled_prompt": "Prompt replay fingerprint",
 		"assembled_context": "Context replay fingerprint", "repository": "Repository snapshot",
 		"execution_policy": "Execution policy", "artifact": "Attached artifact",
+		similarEpisodeRefKind: "Recalled past episode",
 	}[kind]
 }
 

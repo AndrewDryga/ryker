@@ -191,6 +191,7 @@ func TestPublicationControlMigrationDirtiesExistingTaskCard(t *testing.T) {
 		ALTER TABLE channel_memories DROP COLUMN turns_since_memory;
 		DROP TABLE agent_activity;
 		DROP TABLE context_artifacts;
+		DROP TABLE episode_outcomes;
 		DROP TABLE replay_cancellations;`); err != nil {
 		t.Fatal(err)
 	}

@@ -522,6 +522,10 @@ type episodePage struct {
 	Audit      []AuditRow
 	Errs       problems
 	Spent      EpisodeTokens
+	// Outcome is this episode's own row in the recall corpus: what a later
+	// incident will be told about this one, present only once it has finished
+	// in a state recall accepts.
+	Outcome OutcomeRow
 	// StoredArtifacts marks which artifact digests have a retained body, so
 	// the trace links only artifacts that will actually open.
 	StoredArtifacts map[string]bool
@@ -589,6 +593,8 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	if len(page.Manifests) > 0 {
 		page.Manifest = page.Manifests[len(page.Manifests)-1]
 	}
+	page.Outcome, err = h.reader.EpisodeOutcome(ctx, id)
+	page.Errs.note("recall projection", err)
 	page.Attempts, err = h.reader.Attempts(ctx, id)
 	page.Errs.note("attempts", err)
 	page.Rejections, err = h.reader.Rejections(ctx, id)

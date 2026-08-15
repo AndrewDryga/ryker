@@ -866,6 +866,11 @@ type ContextRef struct {
 	// FullDigest keeps the untruncated hash for lookups — the retained
 	// artifact body is keyed by it — while Digest stays display-short.
 	FullDigest string
+	// Episode is the recalled past episode a similar_past_episode reference
+	// points at, kept beside the description rather than parsed back out of it:
+	// What is prose an operator reads, and this is what the trace links to.
+	// Empty for every other kind.
+	Episode string
 }
 
 // ManifestRow is the frozen context envelope for the episode's latest attempt.
@@ -945,6 +950,9 @@ func (r *Reader) manifestRefs(ctx context.Context, manifestID string) ([]Context
 				&item.FullDigest, &item.Omitted, &metadata)
 			item.Digest = truncate(item.FullDigest, 12)
 			item.What = r.describeRef(ctx, item.Kind, ref, revision, metadata)
+			if item.Kind == similarEpisodeRefKind {
+				item.Episode = strings.TrimPrefix(ref, "episode:")
+			}
 			return item, err
 		}, manifestID)
 }
@@ -955,10 +963,11 @@ func (r *Reader) manifestRefs(ctx context.Context, manifestID string) ([]Context
 // bare channel id says nothing at all.
 func (r *Reader) describeRef(ctx context.Context, kind, ref, revision, metadata string) string {
 	var meta struct {
-		ChannelID string `json:"channel_id"`
-		ThreadTS  string `json:"thread_ts"`
-		Name      string `json:"name"`
-		MediaType string `json:"media_type"`
+		ChannelID     string `json:"channel_id"`
+		ThreadTS      string `json:"thread_ts"`
+		Name          string `json:"name"`
+		MediaType     string `json:"media_type"`
+		TerminalState string `json:"terminal_state"`
 	}
 	_ = json.Unmarshal([]byte(metadata), &meta)
 	scheme, rest, found := strings.Cut(ref, ":")
@@ -988,6 +997,8 @@ func (r *Reader) describeRef(ctx context.Context, kind, ref, revision, metadata 
 			return meta.Name + " (" + meta.MediaType + ")"
 		}
 		return rest
+	case similarEpisodeRefKind:
+		return r.recalledEpisodeName(ctx, rest, meta.TerminalState)
 	default:
 		return rest
 	}

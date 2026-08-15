@@ -65,6 +65,8 @@ func Run(args []string, stdout, stderr io.Writer, buildVersion string) error {
 		return runAuditResultProtocol(args[1:], stdout, stderr)
 	case "correction-rate":
 		return runCorrectionRate(args[1:], stdout, stderr)
+	case "backfill-outcomes":
+		return runBackfillOutcomes(args[1:], stdout, stderr)
 	case "migration-check":
 		return runMigrationCheck(args[1:], stdout, stderr)
 	case "lifecycle-divergence":
@@ -739,6 +741,11 @@ Usage:
                            Report how often the host had to correct the model
   responder audit-result-protocol
                            Replay stored results to measure the legacy fallback path
+  responder backfill-outcomes
+                           Project finished episodes that predate the recall corpus into it.
+                           Migrates and writes, so stop Responder first; --dry-run previews
+                           against a copy and reports how many rows fall back to a weaker
+                           symptom than the operator's own words
   responder version        Print the build version
 
 Every command accepts --help. The default config is ~/.config/responder/responder.yaml.`)

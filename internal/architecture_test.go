@@ -412,7 +412,33 @@ var lineBudget = map[string]int{
 	// thread-surround and readiness landings the count is 22703, so the merged
 	// budget is 22740 — the same thin margin, measured once against the tree
 	// that actually exists.
-	"service": 22740,
+	//
+	// Raised to 22780 on 2026-08-14 so one episode can finally inform another.
+	// Responder held hundreds of fully traced episodes and every new incident
+	// still started from zero; the single highest-value senior-SRE behaviour —
+	// "this is the July checkout episode, the cause was pool exhaustion, the
+	// fix took ten minutes" — was structurally impossible.
+	//
+	// Thirteen of the two hundred are not this change: the count was already
+	// 22593 against a budget of 22580 when this branch started, because the
+	// thread-surround landing raised the budget to the line it had reached and
+	// the next merge spent it. That is the tripwire this map warns about four
+	// paragraphs up, arriving exactly as described.
+	//
+	// The rest is wiring, and it is wiring on purpose. The projection is in
+	// internal/store/intelligencestore, the scoring in internal/recall, the DDL
+	// in internal/store/migrationddl; what stayed here is the layer's prompt
+	// text, its slot in the two drop orders, and the four lines that gate
+	// recall on an episode's effort contract — none of which can live anywhere
+	// the prompt assembler cannot see. internal/service/episode_recall.go is a
+	// candidate for extraction the day a second caller needs it.
+	//
+	// 22780 was that raise against its own branch. Merged beside the routing
+	// profiles and the day's other landings the count is 22862; the budget is
+	// 22900, measured once against the tree that exists. Five same-day raises
+	// is the strongest argument yet for the Phase 9 split — after the kernel
+	// cutover stabilizes ownership, per the migration plan's own ordering.
+	"service": 22900,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -543,7 +569,14 @@ var lineBudget = map[string]int{
 	"store":      11470,
 	"localstate": 400,
 	"provider":   120,
-	"recall":     400,
+	// Raised from 400 to 460 on 2026-08-14 for recalling past episodes into
+	// triage. A new package was the obvious move and is the wrong one: the
+	// scorer has to use the same stopword list and three-character rule the
+	// memory ranking already uses, and a second copy of a tokenizer is a second
+	// place for a projection written on Monday to drift out of scoring range of
+	// a query built on Tuesday. Sharing searchTerms is the whole reason this
+	// belongs here.
+	"recall": 460,
 	// channelsetup reads what an operator is asking for about a channel.
 	"channelsetup": 235,
 	// memory owns what may be remembered, for how long, and who may see it.

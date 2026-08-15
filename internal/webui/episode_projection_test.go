@@ -1587,6 +1587,7 @@ func TestEpisodeProjectionInventoryCoversEveryEpisodeLinkedTable(t *testing.T) {
 		"conversation_memory_changes": "memory changes",
 		"episode_attempts":            "attempts and corrections",
 		"episode_goals":               "durable records",
+		"episode_outcomes":            "recall projection",
 		"episode_wakeups":             "automatic follow-ups",
 		"feedback_items":              "durable records",
 		"fixture_candidates":          "durable records",

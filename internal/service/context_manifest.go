@@ -117,6 +117,9 @@ func (s *Service) ensureAttemptContextManifest(
 			Visibility: "private",
 		})
 	}
+	manifest.References = append(manifest.References, similarEpisodeReferences(
+		carriedSimilarEpisodes(run.Context), omissions,
+	)...)
 	if session.PolicyDigest != "" {
 		manifest.References = append(manifest.References, core.ContextReference{
 			Kind: "execution_policy", SourceRef: "coop-policy:" + session.Policy,

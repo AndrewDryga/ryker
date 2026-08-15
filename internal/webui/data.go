@@ -36,6 +36,11 @@ type Reader struct {
 	disk       WorkspaceDisk
 	channels   sync.Map
 	identities sync.Map
+	// outcomes caches the recall corpus's headline per episode id. A manifest
+	// carries up to three recalled episodes per attempt and the page renders
+	// every attempt, so the uncached version is a query per reference for a row
+	// that is written once, when the episode finished, and never changes after.
+	outcomes sync.Map
 }
 
 // OpenCoopSessions attaches Coop's own session store, read-only.

@@ -14,6 +14,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/store/attemptstore"
+	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
@@ -696,6 +697,18 @@ func (s *Store) appendEpisodeEventTx(
 	)
 	if err := sqlutil.ExpectOne(result, err, "append work episode event"); err != nil {
 		return core.WorkEpisodeEvent{}, err
+	}
+	// The recall projection rides the transition that produced it. Written
+	// afterwards it could simply be absent, and the failure is invisible: a
+	// later incident is never told about this episode and nobody learns that it
+	// should have been. Every state change is offered, and intelligencestore
+	// decides — a conclusion is projected, anything else withdraws the row.
+	if next.State != current.State {
+		if err := intelligencestore.ProjectEpisodeOutcomeTx(
+			ctx, tx, current.ID, string(next.State), event.CreatedAt,
+		); err != nil {
+			return core.WorkEpisodeEvent{}, err
+		}
 	}
 	return event, nil
 }

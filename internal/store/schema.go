@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 74
+const currentSchemaVersion = 75
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -427,4 +427,7 @@ var migrations = map[int]string{
 	// migration sets it truthfully, and the cost of being wrong once is a
 	// handoff not taken rather than a model turn spent for nothing.
 	74: `ALTER TABLE channel_memories ADD COLUMN turns_since_memory INTEGER NOT NULL DEFAULT 0;`,
+	// What a finished episode amounts to, so the next incident can be told
+	// about it. The DDL and its reasoning live in migrationddl.V75.
+	75: migrationddl.V75,
 }

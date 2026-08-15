@@ -687,6 +687,15 @@ func (s *Service) prepareIncidentAgentRun(
 				ChannelID: incident.ChannelID, Repository: incident.Repository,
 				RepositoryPinned: true,
 				OperatorID:       run.UserID, SourceInputID: run.SourceID,
+				// An escalated incident has no Slack message of its own to
+				// recall against — the run is filed under the webhook event —
+				// so its title and the alert's stable group key are what the
+				// symptom is. An engineering task is deliberately left out:
+				// past outages do not inform a code change.
+				Effort:           incidentEffort(incident),
+				AlertGroupKey:    incident.SourceIncidentID,
+				RecallText:       incident.Title,
+				ExcludeEpisodeID: run.EpisodeID,
 			},
 		)
 		if err != nil {
@@ -728,6 +737,9 @@ func (s *Service) prepareIncidentAgentRun(
 	run.SessionID = session.ID
 	run.CoopEventSequence = incident.CoopEventSequence
 	promptSections := []promptbudget.Section{
+		// First in the list is first to be dropped. Recalled history is the
+		// only layer here that is about a different incident.
+		{Name: similarPastEpisodesLayer, Text: prefixedPrompt(similarPastEpisodesPrompt(assembled.SimilarPastEpisodes)), Reason: droppedSimilarPastEpisodes},
 		{Name: "prior_operational_context", Text: prefixedPrompt(operationalMemoryPrompt(assembled.Prior)), Reason: "older operational memory was omitted to fit the turn"},
 		{Name: "channel_situation", Text: prefixedPrompt(agentcontext.SituationPrompt(assembled.Situation)), Reason: "the compact channel situation was omitted to fit the turn"},
 		{Name: "related_situations", Text: prefixedPrompt(relatedSituationsPrompt(assembled.RelatedSituations)), Reason: "related conversation summaries were omitted to fit the turn"},
@@ -934,10 +946,18 @@ func (s *Service) retryIncidentAgentRun(
 // on.
 func (s *Service) freezeTriageContext(
 	ctx context.Context,
+	run core.AgentRun,
 	state *decisionpkg.WatchTurnState,
 	input core.SlackInput,
 ) error {
 	if !state.ContextCaptured || !state.PriorCaptured {
+		// The episode's own effort contract, read rather than re-derived: it is
+		// what decides whether this turn is entitled to recall past outcomes,
+		// and admission already committed to one.
+		episode, err := s.store.GetWorkEpisodeByRun(ctx, run.ID)
+		if err != nil {
+			return err
+		}
 		assembled, err := s.assembleAgentContext(
 			ctx,
 			agentContextRequest{
@@ -953,6 +973,8 @@ func (s *Service) freezeTriageContext(
 				ReferencedThreadTS:  state.ReferencedThreadTS,
 				ReferencedMessageTS: state.ReferencedMessageTS,
 				IncludeRecent:       true,
+				Effort:              episode.Effort,
+				ExcludeEpisodeID:    episode.ID,
 			},
 		)
 		if err != nil {
@@ -965,6 +987,7 @@ func (s *Service) freezeTriageContext(
 		state.RelatedSituations = assembled.RelatedSituations
 		state.ReferencedThread = assembled.ReferencedThread
 		state.Prior = assembled.Prior
+		state.SimilarPastEpisodes = assembled.SimilarPastEpisodes
 		state.Repository = assembled.Repository
 		state.ContextCaptured = true
 		state.PriorCaptured = true
@@ -1027,7 +1050,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	if decided, err := s.admitTriageRun(ctx, run, input, &state); decided {
 		return err
 	}
-	if err := s.freezeTriageContext(ctx, &state, input); err != nil {
+	if err := s.freezeTriageContext(ctx, run, &state, input); err != nil {
 		return s.retryAgentRun(ctx, run, err)
 	}
 	repository, ok := s.cfg.RepositoryContext(
@@ -1186,6 +1209,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			state.RelatedSituations,
 			state.ReferencedThread,
 			state.Prior,
+			state.SimilarPastEpisodes,
 			core.FirstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
 			state.MatchedRules,
 			WatchPromptBudget(early.Len()+late.Len()),
@@ -1217,7 +1241,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			input, s.identity.BotUserID, state.ConversationFollowup,
 			state.RecentMessages, state.ChannelAroundRoot,
 			state.Memory, state.RelatedSituations,
-			state.ReferencedThread, state.Prior,
+			state.ReferencedThread, state.Prior, state.SimilarPastEpisodes,
 			core.FirstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
 			state.MatchedRules,
 			WatchPromptBudget(early.Len()+late.Len()+len(artifactPrompt)),

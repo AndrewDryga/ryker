@@ -28,6 +28,17 @@ type agentContextRequest struct {
 	ReferencedThreadTS  string
 	ReferencedMessageTS string
 	IncludeRecent       bool
+	// Effort gates episode recall. Only an assessment or an investigation is
+	// helped by what a past incident turned out to be.
+	Effort core.EffortContract
+	// AlertGroupKey is the firing alert's stable identity when the turn has
+	// one, and the strongest signal recall has.
+	AlertGroupKey string
+	// RecallText is what to recall against when there is no Slack message to
+	// read it from, which is every escalated incident.
+	RecallText string
+	// ExcludeEpisodeID keeps an episode from recalling itself.
+	ExcludeEpisodeID string
 }
 
 type assembledAgentContext struct {
@@ -38,6 +49,7 @@ type assembledAgentContext struct {
 	RecentMessages                []decisionpkg.WatchContextMessage          `json:"recent_messages_around_target,omitempty"`
 	ChannelAroundRoot             []decisionpkg.WatchContextMessage          `json:"channel_messages_around_thread_root,omitempty"`
 	ReferencedThread              *decisionpkg.ReferencedThreadContext       `json:"referenced_thread,omitempty"`
+	SimilarPastEpisodes           []core.SimilarEpisode                      `json:"similar_past_episodes,omitempty"`
 	InitialTaskChangesFingerprint string                                     `json:"initial_task_changes_fingerprint,omitempty"`
 	// StructuredCorrections counts how many times this run has been sent back
 	// to the model because its result could not be read. The watch path has
@@ -80,10 +92,12 @@ func (s *Service) assembleAgentContext(
 	if err != nil {
 		return assembledAgentContext{}, err
 	}
+	request.Repository = repository
 	result := assembledAgentContext{
-		Repository: repository,
-		Prior:      prior,
-		CapturedAt: s.now().UTC(),
+		Repository:          repository,
+		Prior:               prior,
+		SimilarPastEpisodes: s.similarPastEpisodes(ctx, request, memoryQuery+" "+request.RecallText),
+		CapturedAt:          s.now().UTC(),
 	}
 	sinceTS := ""
 	if request.ChannelID != "" {
