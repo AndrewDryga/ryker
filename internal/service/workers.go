@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/liveturn"
@@ -555,6 +556,14 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 			"repository contributor policy is not configured",
 		)
 	}
+	// After the contributor check, never before it: a profile chooses which
+	// rung answers, and it must not be able to supply a writable policy for a
+	// repository whose contributor lane an operator never configured.
+	sessionProfile := config.ProfileInvestigate
+	if incident.IsEngineeringTask() {
+		sessionProfile = config.ProfileEngineer
+	}
+	sessionPolicy = repository.SessionProfilePolicy(sessionProfile, sessionPolicy)
 	var sessionSources []coop.SessionSource
 	client, _ := s.publisher.(taskpr.Inspector)
 	resolver := s.taskPullRequestResolver(client)

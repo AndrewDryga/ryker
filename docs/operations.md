@@ -364,6 +364,42 @@ standing-rule alerts, and other tool-backed work escalate to the repository or r
 managed Coop so new or rotated sessions bind the updated target. There is intentionally no Slack
 command that lets a channel member change the provider account or model policy.
 
+### Execution profiles
+
+A repository may bind named execution profiles, each naming one of its own Coop session policies:
+
+```yaml
+repositories:
+  infrastructure:
+    coop_policy: infrastructure-observe
+    conversation_policy: infrastructure-conversation
+    contributor_policy: infrastructure-contributor
+    profiles:
+      watch:
+        policy: infrastructure-watch
+```
+
+Responder decides which profile a turn asks for before any model runs, from the effort contract the
+turn was admitted under, the authority it may use, and whether anybody addressed Responder:
+
+| Profile | Work | Policy it replaces when configured |
+| --- | --- | --- |
+| `chat` | conversation and small focused checks addressed to Responder | `conversation_policy` |
+| `investigate` | operational assessments and incident rooms | `coop_policy` |
+| `engineer` | writable engineering tasks | `contributor_policy`, or `coop_policy` for an operator's own task |
+| `watch` | the attention decision on a message nobody addressed | `coop_policy` |
+
+A profile names a policy and nothing else, so the ladder, reasoning effort and budget stay in the
+owner-private policy file where every other target lives. A profile that is left out keeps the
+policy its lane already used: a configuration with no `profiles:` block asks Coop for exactly the
+policies it asked for before profiles existed. `bootstrap-coop` generates and `responder doctor`
+checks a profile policy like any other, and a profile can never widen authority — a contributor
+task on a repository with no `contributor_policy` is refused whatever its `engineer` profile says.
+
+Each turn's requested profile is recorded on its context manifest beside the provider, model and
+reasoning effort that actually answered, so attribution survives a ladder rotation and the trace
+page can say which lane asked for the rung that ran.
+
 The corresponding owner-private Coop policy is the only place that binds companion aliases to host
 paths:
 

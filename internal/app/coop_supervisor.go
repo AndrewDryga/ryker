@@ -398,7 +398,7 @@ func validateConversationPrewarmPolicies(cfg config.Config) error {
 		if !ok {
 			continue
 		}
-		policyName := strings.TrimSpace(repository.ConversationPolicy)
+		policyName := conversationPolicyName(repository)
 		if policyName == "" {
 			continue
 		}

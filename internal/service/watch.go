@@ -10,6 +10,7 @@ import (
 	"time"
 
 	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
@@ -104,7 +105,7 @@ func (s *Service) ensureWatchSessionForRepositoryAtGeneration(
 	session, generation, err := s.createWatchSession(
 		ctx,
 		channelID,
-		repository.CoopPolicy,
+		repository.SessionProfilePolicy(config.ProfileWatch, repository.CoopPolicy),
 		generation,
 	)
 	if err != nil {

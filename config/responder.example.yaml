@@ -164,6 +164,25 @@ repositories:
     path: /srv/repositories/infrastructure
     github_repository: example/infrastructure
     github_base_branch: main
+    # Optional execution profiles. Responder decides which one a turn asks for before any
+    # model runs — from the effort contract, the authority boundary, and whether anybody
+    # addressed Responder — and records it on the turn's context manifest beside the model
+    # that actually answered. A profile names one of this repository's Coop session
+    # policies; the policy owns the target ladder, reasoning effort, and budget, so routing
+    # never names a provider or a model here.
+    #
+    #   chat        conversation and small focused checks addressed to Responder
+    #   investigate deep read-only operational work with tools
+    #   engineer    writable repository work in an isolated fork
+    #   watch       the attention decision on a message nobody addressed to Responder
+    #
+    # Anything left out keeps the policy that lane already used (coop_policy,
+    # conversation_policy, contributor_policy), so omitting this whole block is exactly the
+    # behavior of a deployment from before profiles existed. Point one lane at a cheaper
+    # policy at a time, and check the split on the usage page before moving the next.
+    # profiles:
+    #   watch:
+    #     policy: infrastructure-watch
   backend:
     display_name: Backend
     coop_policy: backend-observe

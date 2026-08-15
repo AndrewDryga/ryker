@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/agentprompt"
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
@@ -173,7 +174,10 @@ func (s *Service) prepareSessionHandoffTurn(ctx context.Context, run core.AgentR
 		return s.abandonSessionHandoff(ctx, run, err)
 	}
 	if _, err := s.ensureAttemptContextManifest(
-		ctx, run, session, run.Prompt, nil, nil,
+		// A handoff asks a session that is being retired to summarize itself.
+		// Nobody is waiting on it and it uses no tools, so it is chat-shaped
+		// work whatever lane's session it is closing.
+		ctx, run, session, config.ProfileChat, run.Prompt, nil, nil,
 	); err != nil {
 		return s.abandonSessionHandoff(ctx, run, err)
 	}

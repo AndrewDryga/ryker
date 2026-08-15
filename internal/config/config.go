@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
@@ -251,10 +252,126 @@ type Repository struct {
 	GitHub           string `yaml:"github"`
 	GitHubRepository string `yaml:"github_repository"`
 	GitHubBaseBranch string `yaml:"github_base_branch"`
+	// Profiles points a named execution profile at a Coop session policy of
+	// this repository's own. Anything left out keeps the policy the lane used
+	// before profiles existed, which is why a file with no profiles in it is
+	// the file it was yesterday.
+	Profiles map[string]SessionProfile `yaml:"profiles"`
 }
 
 // Managed reports whether Responder owns this repository's checkout.
 func (r Repository) Managed() bool { return strings.TrimSpace(r.GitHub) != "" }
+
+// SessionProfile binds one named execution profile to the Coop session policy
+// that runs it.
+//
+// Responder names no provider and no model, here or anywhere: a profile names a
+// policy, and the policy owns the ladder, the reasoning effort and the budget.
+// That is what keeps routing something an operator can read and change without
+// a deployment, and what stops a second routing brain growing beside Coop's.
+//
+// The binding is per repository because a session policy already names one
+// repository's checkout and mounts. A single global profile table would have to
+// name one repository's policy for every repository's work.
+//
+// A struct rather than a bare policy name because a profile selects more than a
+// policy in the target architecture, and the decoder runs with KnownFields
+// (true): every field added later to a map of strings would be a breaking
+// change to a file an operator already wrote.
+type SessionProfile struct {
+	Policy string `yaml:"policy"`
+}
+
+// The named execution profiles, one per kind of work the host can already tell
+// apart before any model runs.
+const (
+	// ProfileChat is conversation and small focused checks addressed to
+	// Responder.
+	ProfileChat = "chat"
+	// ProfileInvestigate is deep read-only operational work with tools.
+	ProfileInvestigate = "investigate"
+	// ProfileEngineer is writable repository work in an isolated fork.
+	ProfileEngineer = "engineer"
+	// ProfileWatch is the attention decision on a message nobody addressed to
+	// Responder. It is its own profile because it is the only lane whose cost
+	// scales with how much Responder watches rather than with how much work it
+	// is asked to do.
+	ProfileWatch = "watch"
+)
+
+// KnownSessionProfile reports whether name is a profile Responder routes to.
+//
+// A misspelled profile configures nothing and says nothing, which is the shape
+// of a setting an operator can write and reasonably believe in.
+func KnownSessionProfile(name string) bool {
+	switch name {
+	case ProfileChat, ProfileInvestigate, ProfileEngineer, ProfileWatch:
+		return true
+	default:
+		return false
+	}
+}
+
+// SessionProfileFor is the execution profile a turn asks for, decided from what
+// the host already knew before any model ran: the effort contract it committed
+// to, the authority boundary it may use, and whether anybody addressed
+// Responder at all.
+//
+// The lane enters through addressed. The bounded conversation lane only ever
+// accepts targeted input, so it is addressed by construction; an unaddressed
+// turn is the proactive watch lane, whichever lane record carries it.
+//
+// Deterministic and total on purpose. This is the routing key, and a routing
+// key that depends on a model's answer would be a second decision to explain
+// when a turn runs on the wrong rung.
+func SessionProfileFor(
+	effort core.EffortContract,
+	authority core.AuthorityBoundary,
+	addressed bool,
+) string {
+	switch {
+	case authority == core.AuthorityRepositoryWrite ||
+		effort == core.EffortEngineeringTask:
+		return ProfileEngineer
+	case effort == core.EffortOperationalAssessment ||
+		effort == core.EffortIncidentInvestigation:
+		return ProfileInvestigate
+	case !addressed:
+		return ProfileWatch
+	default:
+		return ProfileChat
+	}
+}
+
+// SessionProfilePolicy returns the Coop session policy a named profile runs
+// under, or fallback when this deployment has not configured that profile.
+//
+// The fallback is the policy the lane already used, so a configuration with no
+// profiles in it asks Coop for exactly the policies it asked for yesterday.
+// That property is the whole point of the mechanism: routing arrives switched
+// off, and an operator turns one lane on at a time.
+func (r Repository) SessionProfilePolicy(profile, fallback string) string {
+	if configured, ok := r.Profiles[profile]; ok {
+		if policy := strings.TrimSpace(configured.Policy); policy != "" {
+			return policy
+		}
+	}
+	return fallback
+}
+
+// SessionProfilePolicies lists the distinct policies this repository's profiles
+// name, so bootstrap and doctor check the same files a routed turn will use.
+func (r Repository) SessionProfilePolicies() []string {
+	policies := make([]string, 0, len(r.Profiles))
+	for _, profile := range r.Profiles {
+		if policy := strings.TrimSpace(profile.Policy); policy != "" &&
+			!slices.Contains(policies, policy) {
+			policies = append(policies, policy)
+		}
+	}
+	slices.Sort(policies)
+	return policies
+}
 
 // RepositorySet is a Slack-visible repository context. Primary identifies the only repository
 // whose changes Responder may review or publish. The resolved Coop policy owns any companion host
@@ -265,6 +382,9 @@ type RepositorySet struct {
 	CoopPolicy         string `yaml:"coop_policy"`
 	ContributorPolicy  string `yaml:"contributor_policy"`
 	ConversationPolicy string `yaml:"conversation_policy"`
+	// Profiles overrides the primary repository's profile bindings, one named
+	// profile at a time, the way every policy field above it does.
+	Profiles map[string]SessionProfile `yaml:"profiles"`
 }
 
 func (c Config) RepositoryContext(name string) (Repository, bool) {
@@ -284,6 +404,15 @@ func (c Config) RepositoryContext(name string) (Repository, bool) {
 		}
 		if strings.TrimSpace(set.ConversationPolicy) != "" {
 			primary.ConversationPolicy = set.ConversationPolicy
+		}
+		if len(set.Profiles) > 0 {
+			// Copied, never written through: primary is a copy of the struct but
+			// its map is the repository's own, and merging in place would give
+			// every other context that repository's set-specific routing.
+			merged := make(map[string]SessionProfile, len(primary.Profiles)+len(set.Profiles))
+			maps.Copy(merged, primary.Profiles)
+			maps.Copy(merged, set.Profiles)
+			primary.Profiles = merged
 		}
 		return primary, true
 	}
@@ -745,6 +874,9 @@ func (c Config) validateRepositories() error {
 		if strings.TrimSpace(repo.CoopPolicy) == "" {
 			return fmt.Errorf("repository %q coop_policy is required", name)
 		}
+		if err := validateSessionProfiles(repo.Profiles); err != nil {
+			return fmt.Errorf("repository %q %w", name, err)
+		}
 		if repo.DisplayName == "" {
 			repo.DisplayName = name
 		}
@@ -820,6 +952,31 @@ func (c Config) validateRepositories() error {
 				"repository set %q requires coop_policy or a primary repository policy",
 				name,
 			)
+		}
+		if err := validateSessionProfiles(set.Profiles); err != nil {
+			return fmt.Errorf("repository set %q %w", name, err)
+		}
+	}
+	return nil
+}
+
+// validateSessionProfiles refuses a profile Responder would never route to and
+// a binding that names no policy.
+//
+// Both are settings an operator writes, believes, and never hears about again:
+// the first routes nothing because no lane asks for that name, and the second
+// falls back to the lane policy, so a deployment that meant to move its watch
+// lane onto a cheaper rung would keep paying for the old one silently.
+func validateSessionProfiles(profiles map[string]SessionProfile) error {
+	for _, name := range slices.Sorted(maps.Keys(profiles)) {
+		if !KnownSessionProfile(name) {
+			return fmt.Errorf(
+				"names unknown execution profile %q; use chat, investigate, engineer, or watch",
+				name,
+			)
+		}
+		if strings.TrimSpace(profiles[name].Policy) == "" {
+			return fmt.Errorf("profile %q requires a policy", name)
 		}
 	}
 	return nil

@@ -212,6 +212,66 @@ func TestGenerationNeverOverwritesAFileItAlreadyWrote(t *testing.T) {
 	}
 }
 
+// A profile policy is a policy: bootstrap writes it, and review names it when
+// it is missing.
+//
+// Left out of this list, a deployment that routes its watch lane to a cheaper
+// rung gets a policy nothing generates and nothing checks — and finds out at
+// session creation, in a channel, with a message naming neither the profile nor
+// the file. The conversation lane's own policy follows the chat profile for the
+// same reason: prewarming refuses to start unless that exact policy sets a
+// warm_idle_timeout, so the generated file has to know which one the lane will
+// ask for.
+func TestAProfilePolicyIsGeneratedAndReviewedLikeEveryOtherPolicy(t *testing.T) {
+	cfg := managedConfig(t)
+	repository := cfg.Repositories["backend"]
+	repository.Profiles = map[string]config.SessionProfile{
+		config.ProfileWatch: {Policy: "backend-watch"},
+		config.ProfileChat:  {Policy: "backend-chat"},
+	}
+	cfg.Repositories["backend"] = repository
+
+	if err := writeSessionPolicies(cfg, nil, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(cfg.Coop.Policies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Policies map[string]struct {
+			Repository      string `yaml:"repository"`
+			WarmIdleTimeout string `yaml:"warm_idle_timeout"`
+		} `yaml:"policies"`
+	}
+	if err := yaml.Unmarshal(body, &file); err != nil {
+		t.Fatalf("generated policies do not parse: %v\n%s", err, body)
+	}
+	for _, name := range []string{"backend-watch", "backend-chat"} {
+		if _, ok := file.Policies[name]; !ok {
+			t.Fatalf("profile policy %q was not generated:\n%s", name, body)
+		}
+	}
+	// The bounded lane runs under the chat profile's policy now, so that is the
+	// one that has to carry the timeout prewarming demands.
+	if file.Policies["backend-chat"].WarmIdleTimeout == "" {
+		t.Fatalf("the routed conversation policy has no warm_idle_timeout:\n%s", body)
+	}
+
+	// Reviewing an operator's own file names the profile policy it lacks.
+	if err := os.WriteFile(cfg.Coop.Policies, []byte("version: 1\npolicies: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	if err := writeSessionPolicies(cfg, nil, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "backend-watch") {
+		t.Fatalf("a routed profile policy missing from the file was not reported:\n%s",
+			stdout.String())
+	}
+}
+
 // The policies file holds every host path this deployment reads code from, and
 // is written owner-private like everything else bootstrap projects.
 func TestGeneratedPoliciesAreOwnerPrivate(t *testing.T) {

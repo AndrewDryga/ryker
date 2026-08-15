@@ -18,6 +18,11 @@ const (
 	responderPromptVersion       = "responder-prompt-v3"
 	investigationContractVersion = "investigation-contract-v1"
 	resultOperationsVersion      = "result-operations-v2"
+	// executionProfileKind carries the requested profile on a reference row
+	// rather than a column of its own. The manifest tables are the busiest
+	// migration surface in the product and a reference already has everything
+	// this needs; a column can follow when a profile is more than a name.
+	executionProfileKind = "execution_profile"
 )
 
 // ensureAttemptContextManifest freezes the exact context envelope used by a
@@ -32,10 +37,18 @@ const (
 // reports that nothing has ever been left out of any prompt, which is not what
 // happened — the budget path has been trimming context for as long as it has
 // existed, and no path recorded a word of it.
+//
+// profile is the execution profile this turn ASKED for, which is not always the
+// one that answered: a profile selects a session policy, sessions outlive the
+// turn that created them, and Coop's ladder rotates underneath both. Recording
+// the request beside the effective provider, model and preset is what makes
+// "why did this run on that model" answerable at all — the effective columns
+// alone say what ran and never what was wanted.
 func (s *Service) ensureAttemptContextManifest(
 	ctx context.Context,
 	run core.AgentRun,
 	session coop.Session,
+	profile string,
 	prompt string,
 	artifacts []coop.InputArtifact,
 	omissions []core.ContextOmission,
@@ -98,6 +111,12 @@ func (s *Service) ensureAttemptContextManifest(
 		})
 	}
 	manifest.References = append(manifest.References, taskpr.CompanionReferences(session, run.Repository)...)
+	if profile != "" {
+		manifest.References = append(manifest.References, core.ContextReference{
+			Kind: executionProfileKind, SourceRef: "profile:" + profile,
+			Visibility: "private",
+		})
+	}
 	if session.PolicyDigest != "" {
 		manifest.References = append(manifest.References, core.ContextReference{
 			Kind: "execution_policy", SourceRef: "coop-policy:" + session.Policy,
@@ -163,8 +182,13 @@ func mergeContextReferences(
 	// trimmed once would read as trimmed on every later attempt, including the
 	// ones that had room for it in full — which turns the record of what was
 	// missing into a reason to distrust the record.
+	//
+	// The requested profile is the same kind of fact, and it moves: an attempt
+	// the conversation lane escalated asks for a different profile than the one
+	// before it. Carried forward, the manifest of the escalated attempt would
+	// list both and say which was asked for by ordinal.
 	for _, ref := range previous {
-		if ref.OmittedReason == "" {
+		if ref.OmittedReason == "" && ref.Kind != executionProfileKind {
 			add(ref)
 		}
 	}

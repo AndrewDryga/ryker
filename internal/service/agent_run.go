@@ -774,8 +774,11 @@ func (s *Service) prepareIncidentAgentRun(
 		return s.retryIncidentAgentRun(ctx, run, incident,
 			fmt.Errorf("assemble complete engineering prompt: %w", err), true)
 	}
+	// Addressed by construction: an incident room and an engineering task are
+	// work somebody opened, never a message Responder noticed going past.
 	if _, err := s.ensureAttemptContextManifest(
-		ctx, run, session, submissionPrompt, artifacts, omissions,
+		ctx, run, session, config.SessionProfileFor(episode.Effort, episode.Authority, true),
+		submissionPrompt, artifacts, omissions,
 	); err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, false)
 	}
@@ -1238,8 +1241,14 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	if len(prompt) > coop.MaxPromptBytes {
 		return s.retryAgentRun(ctx, run, errRequiredPromptTooLarge)
 	}
+	// Whether anyone addressed Responder is the same question the conversation
+	// lane was chosen on, asked again here because it is half the routing key:
+	// an unaddressed turn is the watch lane, whichever lane record carries it.
+	profile := config.SessionProfileFor(
+		episode.Effort, episode.Authority, decisionpkg.WatchInputTargeted(input, state),
+	)
 	if _, err := s.ensureAttemptContextManifest(
-		ctx, run, session, prompt, artifacts, omissions,
+		ctx, run, session, profile, prompt, artifacts, omissions,
 	); err != nil {
 		return s.retryAgentRun(ctx, run, err)
 	}
@@ -1512,7 +1521,9 @@ func (s *Service) resolveTriageSession(
 				ctx,
 				input.ChannelID,
 				state.Repository,
-				repository.ConversationPolicy,
+				repository.SessionProfilePolicy(
+					config.ProfileChat, repository.ConversationPolicy,
+				),
 				max(state.Generation, 1),
 			)
 		if conversationErr != nil {

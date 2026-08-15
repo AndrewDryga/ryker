@@ -440,11 +440,16 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 			)
 			continue
 		}
+		// Whether the channel has a bounded lane at all is conversation_policy's
+		// answer, above; which policy that lane runs under is the chat profile's.
+		// Prewarming under a different policy than the lane asks for would build
+		// a session the first message rotates away.
+		conversationPolicy := repository.SessionProfilePolicy(config.ProfileChat, repository.ConversationPolicy)
 		memory, session, err := s.ensureConversationSession(
 			ctx,
 			channelID,
 			repositoryKey,
-			repository.ConversationPolicy,
+			conversationPolicy,
 		)
 		if err == nil {
 			_, err = s.coop.PrepareSession(
@@ -476,7 +481,7 @@ func (s *Service) prewarmConversationSessions(ctx context.Context) {
 					ctx,
 					channelID,
 					repositoryKey,
-					repository.ConversationPolicy,
+					conversationPolicy,
 					memory.Generation+1,
 				)
 			}

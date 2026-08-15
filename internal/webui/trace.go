@@ -3138,9 +3138,10 @@ func contextReferenceTableRow(ref ContextRef, present func(string) string) Trace
 		revision = ref.Digest
 	}
 	role := map[string]string{
-		"repository":       "The bound repository, checked out for the model through Coop",
-		"execution_policy": "Controls tools and whether files can change",
-		"artifact":         "Exact file handed to the model for this turn",
+		"repository":        "The bound repository, checked out for the model through Coop",
+		"execution_policy":  "Controls tools and whether files can change",
+		"execution_profile": "The lane this turn was routed as, before Coop picked a rung",
+		"artifact":          "Exact file handed to the model for this turn",
 	}[ref.Kind]
 	if ref.Kind == "repository" && ref.Visibility == "companion" {
 		kind = "Companion repository"
