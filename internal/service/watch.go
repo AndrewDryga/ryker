@@ -945,7 +945,7 @@ func (s *Service) applyWatchDecision(
 	// reply someone is waiting for — proactive work is what Responder does with
 	// the conclusion afterwards.
 	if err := s.considerProactiveWork(
-		ctx, input, decision.Completion, decision.Evidence,
+		ctx, input, episodeID, decision.Completion, decision.Evidence,
 	); err != nil {
 		// A standing assignment failing is not a reason to fail the turn that
 		// already answered. Log it and finish.

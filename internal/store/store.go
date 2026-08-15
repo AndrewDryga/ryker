@@ -33,6 +33,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/selfreportstore"
 	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
+	"github.com/AndrewDryga/responder/internal/store/standingassignmentstore"
 	"github.com/AndrewDryga/responder/internal/store/taskcardstore"
 	_ "modernc.org/sqlite"
 )
@@ -143,6 +144,10 @@ type Store struct {
 	// Grants owns the remediation trust ladder: which exact Emisar action an
 	// operator confirmed may be offered for which exact alert, and until when.
 	Grants *grantstore.Repository
+	// StandingAssignments owns scoped authority to open a pull request without
+	// a per-action click: the grant, the claim that spends its budget, and the
+	// ledger of what its gate decided about each signal.
+	StandingAssignments *standingassignmentstore.Repository
 }
 
 type Metrics struct {
@@ -1157,6 +1162,7 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.FixturePromotions = fixturepromotionstore.New(db)
 	s.Changes = changestore.New(db, clock)
 	s.Grants = grantstore.New(db, clock)
+	s.StandingAssignments = standingassignmentstore.New(db, clock)
 }
 
 // SetClock replaces the store clock. It exists for tests.

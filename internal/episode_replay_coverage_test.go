@@ -46,15 +46,26 @@ var acknowledgedCoverageGaps = map[string]string{
 	"durable-preferences-and-rules":                  "needs a recorded confirmed preference",
 	"freeform-operator-guidance":                     "needs a recorded guidance note with provenance",
 	"cross-channel-memory":                           "needs a recall pair across two channels with a privacy boundary",
-	"standing-assignments":                           "needs a recorded assignment through pause and expiry",
-	"diff-and-draft-pr-controls":                     "needs recorded revision-bound controls",
-	"contextual-next-step-controls":                  "needs a recorded stale-control replacement",
-	"pr-checks-merge-deployment-verification":        "needs a recorded follow-through with a missing webhook",
-	"emisar-actions-and-approvals":                   "needs a recorded approval without an incident room",
-	"scheduled-and-recurring-work":                   "needs a recorded schedule firing a child episode",
-	"multi-repository-work":                          "needs a recorded parent episode with child goals",
-	"model-choice-and-byoc":                          "needs recordings across two execution profiles",
-	"cleanup":                                        "needs a recorded retention pass",
+	// Still a gap on purpose, and now for a different reason. Until 2026-08-15
+	// there was no way to create a standing assignment at all: both deployments
+	// held zero rows, so no episode had ever exercised one and no fixture could
+	// be harvested from history that did not exist. The creation path and the
+	// shadow ledger land in that commit, and the evaluation is appended to the
+	// episode's own event stream — which is the only thing record-episode
+	// reads — so the recording is possible now rather than merely wanted.
+	// It stays listed because fixtures are harvested and not invented: this
+	// closes when a real assignment has run through pause and expiry on a
+	// deployment and `responder record-episode --capability
+	// standing-assignments` has captured it.
+	"standing-assignments":                    "needs a recorded assignment through pause and expiry",
+	"diff-and-draft-pr-controls":              "needs recorded revision-bound controls",
+	"contextual-next-step-controls":           "needs a recorded stale-control replacement",
+	"pr-checks-merge-deployment-verification": "needs a recorded follow-through with a missing webhook",
+	"emisar-actions-and-approvals":            "needs a recorded approval without an incident room",
+	"scheduled-and-recurring-work":            "needs a recorded schedule firing a child episode",
+	"multi-repository-work":                   "needs a recorded parent episode with child goals",
+	"model-choice-and-byoc":                   "needs recordings across two execution profiles",
+	"cleanup":                                 "needs a recorded retention pass",
 }
 
 // deletedLegacyPath is one legacy path the migration has already removed, and

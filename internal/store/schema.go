@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 77
+const currentSchemaVersion = 78
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -437,4 +437,7 @@ var migrations = map[int]string{
 	// for which exact alert, until when. The DDL and its reasoning live in
 	// migrationddl.V77.
 	77: migrationddl.V77,
+	// A standing assignment records what it would have done, without doing it.
+	// The DDL and its reasoning live in migrationddl.V78.
+	78: migrationddl.V78,
 }

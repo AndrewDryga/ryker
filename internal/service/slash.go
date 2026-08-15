@@ -9,6 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/AndrewDryga/responder/internal/assignments"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/reportcanvas"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -300,6 +301,12 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 			return s.refuseSlashInput(ctx, input, slashUsage("schedules"))
 		}
 		return s.finishSlashSchedules(ctx, input)
+	case "assignments", "assignment":
+		// The raw text, not the lower-cased fields every other subcommand
+		// reads: a repository name, a path glob and the words of a signal are
+		// all case-sensitive, and an assignment normalized to lower case is a
+		// grant over something that does not exist.
+		return s.finishSlashAssignments(ctx, input, strings.Fields(slashArgument(input.Text)))
 	case "proactive", "watch":
 		return s.configureProactive(ctx, input, fields[1:])
 	case "shadow":
@@ -424,6 +431,25 @@ func (s *Service) finishSlashSchedules(
 		return err
 	}
 	return s.finishSlashMessage(ctx, input, slackui.ScheduleDirectoryMessage(tasks))
+}
+
+// finishSlashAssignments runs the standing-assignment family.
+//
+// Operator-only, by the check every slash command already passed above, and
+// that gate is the whole authorization story here: an assignment is a grant of
+// unattended pull-request authority, so it belongs to the same audience as the
+// memory and preference offers rather than to any full workspace member.
+func (s *Service) finishSlashAssignments(
+	ctx context.Context, input core.SlackInput, args []string,
+) error {
+	result, err := assignments.Run(ctx, s.store.StandingAssignments, args, input, s.now().UTC())
+	if err != nil {
+		return s.refuseSlashInput(ctx, input, err.Error())
+	}
+	if result.Audit.Kind != "" {
+		s.audit(ctx, result.Audit)
+	}
+	return s.finishSlashMessage(ctx, input, result.Message)
 }
 
 func (s *Service) finishIncidentIntelligence(
@@ -978,7 +1004,7 @@ func slashHelpSections() []string {
 			"`/responder memory review` - review stale or redundant saved memory\n" +
 			"`/responder preferences` - manage investigation and response defaults\n" +
 			"`/responder rules` - manage typed read-only channel automations\n" +
-			"`/responder schedules` - manage recurring and one-time tasks in this channel",
+			"`/responder schedules` - manage recurring and one-time tasks in this channel\n`/responder assignments` - manage scoped authority to open a pull request",
 		"*Improve Responder*\n" +
 			"`/responder feedback <what should change>` - save feedback with nearby conversation context\n" +
 			"`/responder feedback` - list the 20 newest open feedback items",
@@ -1101,6 +1127,8 @@ func slashUsage(command string) string {
 			"The value is the maximum number of accepted agent requests over a session's " +
 			"lifetime. It does not limit tool calls or investigation steps inside one request. " +
 			"Responder allocates capacity automatically until this ceiling."
+	case "assignments":
+		return assignments.Usage()
 	case "shadow":
 		return "*Evaluate Responder without channel output.*\n\n" +
 			"`/responder shadow on|off|inherit` changes this channel. " +

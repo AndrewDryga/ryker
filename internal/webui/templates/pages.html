@@ -599,6 +599,12 @@ be what runs tonight.</p>
     <span class="set-what">What it reacts to automatically, without being addressed.</span>
     <span class="set-health{{if .IdleRules}} bad{{end}}">{{if .IdleRules}}{{.IdleRules}} firing but never acting{{else if .Rules}}all acting{{else}}none set{{end}}</span>
   </a>
+  <a class="set-card" href="/assignments">
+    <span class="set-name">Standing assignments</span>
+    <span class="set-count">{{len .Assignments}}</span>
+    <span class="set-what">Authority to open a pull request without a click. Every one is in shadow.</span>
+    <span class="set-health{{if .ShadowedAssignments}} warn{{end}}">{{if .ShadowedAssignments}}{{.ShadowedAssignments}} opening nothing{{else if .Assignments}}granted{{else}}none set{{end}}</span>
+  </a>
 </div>
 
 <h2>Turn budget</h2>
@@ -722,6 +728,44 @@ matches or remove it.</p>
 {{else}}
 <p class="empty">No standing rule is set, so Responder starts nothing on its own in any
 channel. Ask it in a channel to watch for something there.</p>
+{{end}}
+{{end}}
+
+{{define "assignments"}}
+{{template "problems" .Errs}}
+<p class="note">Scoped authority to open a pull request without a per-action click: one signal,
+one repository, one class of change, a daily budget, an expiry. Every assignment is created in
+shadow &mdash; the same gate a live one would face runs, the verdict is recorded, and nothing
+opens a task, creates a branch, or writes to GitHub. The tally below is the evidence that grant
+would be argued from.</p>
+
+{{if .Assignments}}
+<div class="rows">
+  {{range .Assignments}}
+  <div class="row episode-row" data-state="{{if .Idle}}idle{{else if eq .State "shadow"}}enabled{{else if eq .State "live"}}enabled{{else}}disabled{{end}}">
+    <span class="episode-dot" aria-hidden="true"></span>
+    <span class="episode-title">{{.Covers}}</span>
+    <span class="episode-answer">{{.Worth}}</span>
+    <span class="episode-facts">
+      <span class="episode-state">{{.State}}</span>
+      <span class="mono">{{.ID}}</span>
+      {{if .Actor}}<span>granted by {{.Actor}}</span>{{end}}
+      {{if .Evaluated}}<span>evaluated {{.Evaluated}}</span><span>would have opened {{.Eligible}}</span><span>refused {{.Declined}}</span>{{end}}
+      {{if not .LastEvaluated.IsZero}}<span>last looked {{since .LastEvaluated}}</span>{{end}}
+      {{if not .Expires.IsZero}}<span>expires {{until .Expires}}</span>{{end}}
+    </span>
+  </div>
+  {{end}}
+</div>
+<p class="note">An assignment that has evaluated signals and reached the bar on none of them
+would change nothing if it were granted; one that reaches it often is the argument for granting
+it. Clearing the shadow flag is not a control on this page, and not a Slack button either.
+Create, pause and delete one with <span class="mono">/responder assignments</span> in its
+channel.</p>
+{{else}}
+<p class="empty">No standing assignment exists, so Responder opens no pull request anywhere
+without being asked for that one. Create one with <span class="mono">/responder assignments
+create</span> in the channel it should watch.</p>
 {{end}}
 {{end}}
 

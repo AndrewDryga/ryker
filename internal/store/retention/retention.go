@@ -226,6 +226,11 @@ var Policies = []Policy{
 		"a per-thread counter that stops a stale status update from overwriting a newer one. " +
 			"Once the thread has been quiet past the operational horizon there is no delivery " +
 			"left for a restarted counter to race"},
+	{"standing_assignment_evaluations", Cascade,
+		"what one standing assignment's gate decided about one signal, and why — including the " +
+			"refusals, which are the half that says whether the grant is worth making. Deleted " +
+			"with standing_assignments rather than on a horizon: an assignment stops producing " +
+			"these at its own expiry, so the evidence outlives the question it answers"},
 	{"standing_assignment_actions", Cascade,
 		"what one standing assignment actually did, and the daily budget it spent doing it; " +
 			"deleted with standing_assignments"},

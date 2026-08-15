@@ -55,7 +55,12 @@ var methodBudget = map[string]int{
 	// (age, mark running, set failures, touch). They exist so the starvation
 	// test can shape a cycling blocker without exporting a settable clock;
 	// each writes one column and nothing calls them outside _test files.
-	"Store": 234,
+	//
+	// Lowered from 234 to 225 on 2026-08-15 when standing assignments moved to
+	// standingassignmentstore. Nine methods went with them and nothing was left
+	// behind to delegate, which is the only way an extraction reduces this
+	// number: a passthrough would still be a method on Store.
+	"Store": 225,
 }
 
 // lineBudget caps non-test source lines per package.
@@ -662,7 +667,12 @@ var lineBudget = map[string]int{
 	// Raised to 11540 on 2026-08-15 for grantstore's attachment beside the
 	// remediation ladder: the sub-repository field and its wiring, four
 	// lines, with the ladder itself in its own budgeted package.
-	"store":      11540,
+	//
+	// Lowered to 11320 the same day when standing assignments left for
+	// standingassignmentstore. The package had reached its cap to the line
+	// twice that day, so the shadow ledger could not have been added here at
+	// all — which is the ratchet doing exactly what it is for.
+	"store":      11320,
 	"localstate": 400,
 	"provider":   120,
 	// Raised from 400 to 460 on 2026-08-14 for recalling past episodes into
@@ -833,6 +843,17 @@ var lineBudget = map[string]int{
 	// grantstore owns the remediation_grants table and the one query a promotion
 	// is graded on. It decides nothing — see the package comment.
 	"grantstore": 210,
+	// assignments owns what a standing assignment means — the brief an
+	// unattended task works from, the words that create one, the verdict its
+	// gate produced. None of it needs a database, a Slack client or a Coop
+	// session, and all of it is the part worth testing; internal/service keeps
+	// only the wiring.
+	"assignments": 320,
+	// standingassignmentstore owns scoped authority to open a pull request
+	// without a per-action click: the grant, the claim that spends its budget,
+	// and the ledger of what the gate decided about each signal. It came out of
+	// internal/store, which was at its cap to the line.
+	"standingassignmentstore": 470,
 }
 
 // forbiddenImports records the dependency direction. Each package maps to the

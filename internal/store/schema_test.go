@@ -192,6 +192,8 @@ func TestPublicationControlMigrationDirtiesExistingTaskCard(t *testing.T) {
 		DROP TABLE agent_activity;
 		DROP TABLE context_artifacts;
 		DROP TABLE change_events;
+		DROP TABLE standing_assignment_evaluations;
+		ALTER TABLE standing_assignments DROP COLUMN shadow;
 		DROP TABLE episode_outcomes;
 		DROP TABLE remediation_grants;
 		DROP TABLE replay_cancellations;`); err != nil {

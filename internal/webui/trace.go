@@ -1973,19 +1973,20 @@ func eventIcon(kind string) string {
 
 func artifactIcon(kind string) string {
 	if icon, ok := map[string]string{
-		"commitment":                 "flag",
-		"progress":                   "milestone",
-		"goal":                       "target",
-		"scheduled_run":              "clock",
-		"evaluation":                 "branch",
-		"standing_rule_run":          "shield",
-		"standing_assignment_action": "shield",
-		"feedback":                   "message",
-		"replay_candidate":           "bookmark",
-		"incident_timeline":          "flag",
-		"publication_lifecycle":      "branch",
-		"publication":                "branch",
-		"quality_finding":            "search",
+		"commitment":                     "flag",
+		"progress":                       "milestone",
+		"goal":                           "target",
+		"scheduled_run":                  "clock",
+		"evaluation":                     "branch",
+		"standing_rule_run":              "shield",
+		"standing_assignment_action":     "shield",
+		"standing_assignment_evaluation": "shield",
+		"feedback":                       "message",
+		"replay_candidate":               "bookmark",
+		"incident_timeline":              "flag",
+		"publication_lifecycle":          "branch",
+		"publication":                    "branch",
+		"quality_finding":                "search",
 	}[kind]; ok {
 		return icon
 	}
@@ -3729,7 +3730,8 @@ func artifactStage(kind string) string {
 		return "Plan"
 	case "scheduled_run":
 		return "Schedule"
-	case "evaluation", "standing_rule_run", "standing_assignment_action":
+	case "evaluation", "standing_rule_run", "standing_assignment_action",
+		"standing_assignment_evaluation":
 		return "Decision"
 	case "feedback", "replay_candidate":
 		return "Review"
@@ -3771,6 +3773,8 @@ func artifactDetailLabel(kind string) string {
 		return "Rule result"
 	case "standing_assignment_action":
 		return "Assignment result"
+	case "standing_assignment_evaluation":
+		return "Assignment verdict"
 	case "feedback":
 		return "Feedback details"
 	case "replay_candidate":
@@ -3798,6 +3802,10 @@ func artifactWhy(kind string) string {
 		return "A confirmed channel rule matched this event and started its work."
 	case "standing_assignment_action":
 		return "A confirmed autonomous assignment matched this event and started its bounded work."
+	case "standing_assignment_evaluation":
+		return "A standing assignment weighed this signal against the scope it was granted. " +
+			"While it is shadowed the verdict is all that happens: nothing opens a task, " +
+			"creates a branch, or writes to GitHub."
 	case "replay_candidate":
 		return "Kept for human review; it can become a regression test."
 	case "quality_finding":

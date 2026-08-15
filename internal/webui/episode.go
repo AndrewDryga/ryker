@@ -1257,6 +1257,37 @@ func (r *Reader) Artifacts(ctx context.Context, episodeID string) ([]EpisodeArti
 		return item, err
 	}, episodeID)
 
+	appendCollected("standing assignment evaluations", `
+	  SELECT ae.id, ae.assignment_id, sa.signal_pattern, sa.change_class, sa.repository,
+	         ae.verdict, ae.reason, ae.shadow, ae.created_at
+	  FROM standing_assignment_evaluations AS ae
+	  JOIN standing_assignments AS sa ON sa.id = ae.assignment_id
+	  WHERE ae.episode_id = ?
+	  ORDER BY ae.created_at`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var assignmentID, signal, changeClass, repository, reason, at string
+		var shadow int
+		err := rows.Scan(&item.ID, &assignmentID, &signal, &changeClass, &repository,
+			&item.State, &reason, &shadow, &at)
+		item.Kind, item.Title = "standing_assignment_evaluation", "Standing assignment decided"
+		item.At = parseStamp(at)
+		// The reason is the row. A verdict without it says an assignment was
+		// quiet and nothing about whether the scope is wrong or the traffic
+		// simply did not deserve a change, and those want opposite responses.
+		outcome := "would have opened a pull request"
+		if item.State != "eligible" {
+			outcome = "declined: " + reason
+		}
+		if shadow == 1 {
+			outcome += " — shadowed, so nothing was opened"
+		}
+		item.Summary = "Weighed " + signal + " and " + outcome + "."
+		item.Stats = []ArtifactStat{{"Assignment", assignmentID}, {"Signal", signal},
+			{"Change class", changeClass}, {"Repository", repository},
+			{"Verdict", item.State}, {"Reason", reason}}
+		return item, err
+	}, episodeID)
+
 	appendCollected("feedback", `
 	  SELECT id, category, sentiment, summary, details, user_id, source, status,
 	         channel_id, message_ts, target_message_ts, created_at

@@ -80,6 +80,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /configuration", h.configuration)
 	mux.HandleFunc("GET /preferences", h.preferences)
 	mux.HandleFunc("GET /rules", h.rules)
+	mux.HandleFunc("GET /assignments", h.assignments)
 	mux.HandleFunc("GET /rules/{id}", h.rule)
 	mux.HandleFunc("GET /channels", h.channels)
 	mux.HandleFunc("GET /channels/{id}", h.channel)
@@ -1119,6 +1120,8 @@ func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
 	failed.note("preferences", err)
 	rules, err := h.reader.StandingRuleDetails(ctx)
 	failed.note("standing rules", err)
+	assignments, err := h.reader.StandingAssignments(ctx)
+	failed.note("standing assignments", err)
 	budget, err := h.reader.TurnBudget(ctx)
 	failed.note("turn budget", err)
 	models, err := h.reader.Models(ctx)
@@ -1144,24 +1147,36 @@ func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
 			idle++
 		}
 	}
+	// Counted as the reassuring number rather than the alarming one. Every
+	// assignment being shadowed is the intended state of this feature today,
+	// and the card says so out loud because the alternative reading — a grant
+	// that opens pull requests unattended — is the one worth never assuming.
+	shadowed := 0
+	for _, assignment := range assignments {
+		if assignment.Shadow {
+			shadowed++
+		}
+	}
 	h.page(w, r, "configuration", "configuration", struct {
-		Channels     []ChannelConfigRow
-		Schedules    []Schedule
-		Preferences  []PreferenceDetail
-		Rules        []RuleDetail
-		Budget       TurnBudget
-		Deployment   Deployment
-		Unconfigured int
-		Paused       int
-		IdleRules    int
-		Errs         problems
+		Channels            []ChannelConfigRow
+		Schedules           []Schedule
+		Preferences         []PreferenceDetail
+		Rules               []RuleDetail
+		Assignments         []AssignmentDetail
+		Budget              TurnBudget
+		Deployment          Deployment
+		Unconfigured        int
+		Paused              int
+		IdleRules           int
+		ShadowedAssignments int
+		Errs                problems
 	}{
-		channels, schedules, preferences, rules, budget,
+		channels, schedules, preferences, rules, assignments, budget,
 		Deployment{
 			Name: h.deployment, Schema: h.schema, Binary: h.binary,
 			Models: models, Coop: h.reader.CoopRepositories(),
 		},
-		unconfigured, paused, idle, failed,
+		unconfigured, paused, idle, shadowed, failed,
 	})
 }
 

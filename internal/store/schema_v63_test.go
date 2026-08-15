@@ -82,6 +82,8 @@ func TestSchemaV63RepaintsPublicationLifecycleCards(t *testing.T) {
 		DROP TABLE context_artifacts;
 		DROP TABLE replay_cancellations;
 		DROP TABLE change_events;
+		DROP TABLE standing_assignment_evaluations;
+		ALTER TABLE standing_assignments DROP COLUMN shadow;
 		DROP TABLE episode_outcomes;
 		DROP TABLE remediation_grants;
 		UPDATE schema_version SET version = 62;

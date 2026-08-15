@@ -1978,24 +1978,83 @@ var StandingAssignmentChangeClasses = []string{
 // to a bounded shape of work. Every field except the identifiers is a bound on
 // what that agreement covers.
 type StandingAssignment struct {
-	ID            string    `json:"id"`
-	ChannelID     string    `json:"channel_id"`
-	SignalPattern string    `json:"signal_pattern"`
-	Repository    string    `json:"repository"`
-	PathGlobs     []string  `json:"path_globs,omitempty"`
-	ChangeClass   string    `json:"change_class"`
-	DailyBudget   int       `json:"daily_budget"`
-	ActorID       string    `json:"actor_id"`
-	Enabled       bool      `json:"enabled"`
-	ConfirmedAt   time.Time `json:"confirmed_at"`
-	ExpiresAt     time.Time `json:"expires_at"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            string   `json:"id"`
+	ChannelID     string   `json:"channel_id"`
+	SignalPattern string   `json:"signal_pattern"`
+	Repository    string   `json:"repository"`
+	PathGlobs     []string `json:"path_globs,omitempty"`
+	ChangeClass   string   `json:"change_class"`
+	DailyBudget   int      `json:"daily_budget"`
+	ActorID       string   `json:"actor_id"`
+	Enabled       bool     `json:"enabled"`
+	// Shadow withholds the authority the rest of this struct describes.
+	//
+	// A shadowed assignment is evaluated by the same gate a live one is, and
+	// the verdict is recorded, but nothing opens a task, creates a branch, or
+	// writes to GitHub. It is the per-assignment form on purpose rather than a
+	// global setting: an operator should be able to trust one assignment
+	// before the next, and a single switch would make the first grant decide
+	// for all of them.
+	Shadow      bool      `json:"shadow"`
+	ConfirmedAt time.Time `json:"confirmed_at"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Live reports whether an assignment may act right now.
+//
+// Shadow is deliberately not consulted here. The eligibility gate calls this,
+// and a shadowed assignment has to pass the identical gate a live one would or
+// the recorded verdicts are not the decisions the live feature would have made
+// — which is the only thing the shadow period is for.
 func (a StandingAssignment) Live(now time.Time) bool {
 	return a.Enabled && a.ExpiresAt.After(now)
+}
+
+// StandingAssignmentEvaluation is one signal offered to one assignment, and
+// what the gate said about it.
+//
+// The declines are the interesting half. "Responder did nothing" is the hardest
+// behaviour to debug from Slack, and a shadow period whose record held only the
+// signals that passed could not answer the question it exists to answer: of the
+// signals this assignment would have acted on, how many deserved a pull
+// request.
+type StandingAssignmentEvaluation struct {
+	ID           string    `json:"id"`
+	AssignmentID string    `json:"assignment_id"`
+	InputID      string    `json:"input_id"`
+	EpisodeID    string    `json:"episode_id,omitempty"`
+	Signal       string    `json:"signal"`
+	Shadow       bool      `json:"shadow"`
+	Verdict      string    `json:"verdict"`
+	Reason       string    `json:"reason"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// StandingAssignmentEvaluationVerdicts is the closed set a verdict can be.
+var StandingAssignmentEvaluationVerdicts = []string{"eligible", "declined"}
+
+// StandingAssignmentTally is what a shadow period amounts to for one
+// assignment.
+//
+// Eligible is the count that matters: those are the signals on which this
+// assignment would have opened a pull request. Declined is the count that makes
+// it readable, because an assignment that evaluated forty signals and passed
+// two is a different proposition from one that passed two out of three.
+type StandingAssignmentTally struct {
+	AssignmentID  string    `json:"assignment_id"`
+	Evaluated     int       `json:"evaluated"`
+	Eligible      int       `json:"eligible"`
+	Declined      int       `json:"declined"`
+	LastEvaluated time.Time `json:"last_evaluated,omitempty"`
+	LastEligible  time.Time `json:"last_eligible,omitempty"`
+	// TopDecline is the reason the gate gave most often. A count of refusals
+	// says an assignment is quiet; the reason says whether it is misconfigured
+	// or whether the traffic simply did not deserve a pull request, and those
+	// call for opposite responses.
+	TopDecline      string `json:"top_decline,omitempty"`
+	TopDeclineCount int    `json:"top_decline_count,omitempty"`
 }
 
 // FixtureCandidate is a correction waiting to become a regression fixture.

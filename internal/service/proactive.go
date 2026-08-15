@@ -2,14 +2,12 @@ package service
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/assignments"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
-	"github.com/AndrewDryga/responder/internal/store"
 )
 
 // proactiveRecurrenceWindow is how far back a signal counts as recurring.
@@ -26,12 +24,19 @@ const proactiveRecurrenceWindow = 14 * 24 * time.Hour
 // understood the problem is the difference between a useful pull request and a
 // guess in someone's review queue.
 //
-// Every refusal is silent to the channel and recorded in the audit log. An
-// operator who granted this authority should be able to see why it did not
-// fire; everyone else should not have to read about work that did not happen.
+// Every refusal is silent to the channel and recorded. An operator who granted
+// this authority should be able to see why it did not fire; everyone else
+// should not have to read about work that did not happen.
+//
+// The shadow check sits between the gate and the action, and nowhere else.
+// There is deliberately no second eligibility path for shadowed assignments:
+// the entire value of the record is that the decisions in it are the ones the
+// live feature would have made, and a cheaper gate for the rehearsal would
+// produce evidence about a feature nobody is going to ship.
 func (s *Service) considerProactiveWork(
 	ctx context.Context,
 	input core.SlackInput,
+	episodeID string,
 	completion *investigation.CompletionAssessment,
 	evidence []core.Evidence,
 ) error {
@@ -39,23 +44,23 @@ func (s *Service) considerProactiveWork(
 		return nil
 	}
 	now := s.now().UTC()
-	assignments, err := s.store.ListLiveStandingAssignments(ctx, input.ChannelID, now)
-	if err != nil || len(assignments) == 0 {
+	live, err := s.store.StandingAssignments.ListLive(ctx, input.ChannelID, now)
+	if err != nil || len(live) == 0 {
 		return err
 	}
 	conversationKey := watchConversationKey(input)
-	recurrences, err := s.store.CountCorrelatedEpisodes(
+	recurrences, err := s.store.StandingAssignments.CountCorrelatedEpisodes(
 		ctx, conversationKey, now.Add(-proactiveRecurrenceWindow),
 	)
 	if err != nil {
 		return err
 	}
-	for _, assignment := range assignments {
+	for _, assignment := range live {
 		eligibility := decisionpkg.ProactiveEligible(
 			assignment, input, recurrences, completion, evidence, now,
 		)
-		if !eligibility.Eligible {
-			s.auditProactive(ctx, assignment, input, "declined", eligibility.Reason)
+		s.recordProactiveEvaluation(ctx, assignment, input, episodeID, eligibility)
+		if !eligibility.Eligible || assignment.Shadow {
 			continue
 		}
 		if err := s.startProactiveWork(ctx, assignment, input, conversationKey, completion); err != nil {
@@ -78,71 +83,64 @@ func (s *Service) startProactiveWork(
 	conversationKey string,
 	completion *investigation.CompletionAssessment,
 ) error {
-	actionID, err := s.store.ClaimStandingAssignmentAction(
+	actionID, err := s.store.StandingAssignments.ClaimAction(
 		ctx, assignment.ID, conversationKey, s.now().UTC(),
 	)
-	switch {
-	case errors.Is(err, store.ErrAssignmentAlreadyActed):
-		s.auditProactive(ctx, assignment, input, "declined", "already acted on this signal")
+	if refusal := assignments.ClaimRefusal(err); refusal != "" {
+		s.audit(ctx, assignments.AuditEvent(assignment.ID, input.ID, "declined", refusal))
 		return nil
-	case errors.Is(err, store.ErrAssignmentBudgetSpent):
-		s.auditProactive(ctx, assignment, input, "declined", "daily budget spent")
-		return nil
-	case err != nil:
+	}
+	if err != nil {
 		return err
 	}
-
-	title := core.BoundedText("Recurring: "+completion.Summary, 200)
-	objective := proactiveObjective(assignment, completion)
+	title, objective := assignments.Task(assignment, completion.Summary)
 	if err := s.createWatchedEngineeringTask(
 		ctx, input, input, title, assignment.Repository, objective, nil,
 	); err != nil {
 		// The claim stays. Releasing it on failure would let the next
 		// occurrence try again immediately, and a task that fails to start
 		// twice in a row is a reason to look, not to retry harder.
-		s.auditProactive(ctx, assignment, input, "failed", trimError(err))
+		s.audit(ctx, assignments.AuditEvent(assignment.ID, input.ID, "failed", trimError(err)))
 		return err
 	}
-	s.auditProactive(ctx, assignment, input, "started", "opened an engineering task")
-	return s.store.CompleteStandingAssignmentAction(ctx, actionID, "", "started")
+	s.audit(ctx, assignments.AuditEvent(assignment.ID, input.ID, "started", "opened a task"))
+	return s.store.StandingAssignments.CompleteAction(ctx, actionID, "", "started")
 }
 
-// proactiveObjective is the brief the engineering task works from.
+// recordProactiveEvaluation writes what the gate decided, twice over.
 //
-// It states the change class as a boundary rather than a suggestion, because
-// this task runs without anyone watching it start, and the scope the operator
-// agreed to is the only thing standing between a narrow fix and a rewrite.
-func proactiveObjective(
-	assignment core.StandingAssignment,
-	completion *investigation.CompletionAssessment,
-) string {
-	objective := fmt.Sprintf(
-		"A recurring problem in %s was investigated and reached this conclusion:\n\n%s\n\n"+
-			"Open a draft pull request that addresses it, limited to a %s change. "+
-			"Do not change behaviour beyond that class. If the fix requires anything "+
-			"broader, stop and say so instead of widening the change.",
-		assignment.Repository, completion.Summary, assignment.ChangeClass,
-	)
-	if len(assignment.PathGlobs) > 0 {
-		objective += fmt.Sprintf(
-			"\n\nOnly these paths are in scope: %v. Touching anything else is out of scope "+
-				"for this assignment, however reasonable it looks.",
-			assignment.PathGlobs,
+// The durable row is the shadow period's evidence and outlives the audit
+// horizon; the audit event is where an operator already looks when Responder
+// did nothing. The reason is stored exactly as the gate produced it, not
+// annotated with the shadow state, because the tally groups refusals by that
+// string to find the one that repeats — and a reason decorated per assignment
+// would split one recurring refusal into two rarer-looking ones.
+//
+// A failure here does not stop the turn: this runs after the answer has been
+// delivered, and losing the record of work that did not happen must not lose
+// the reply that did.
+func (s *Service) recordProactiveEvaluation(
+	ctx context.Context, assignment core.StandingAssignment, input core.SlackInput,
+	episodeID string, eligibility decisionpkg.ProactiveEligibility,
+) {
+	evaluation := assignments.Evaluation(assignment, input.ID, episodeID, input.Text, eligibility)
+	if _, err := s.store.StandingAssignments.RecordEvaluation(
+		ctx, evaluation,
+	); err != nil && ctx.Err() == nil && s.log != nil {
+		s.log.Warn(
+			"record standing assignment evaluation", "assignment", assignment.ID,
+			"input", input.ID, "verdict", evaluation.Verdict, "error", err,
 		)
 	}
-	return objective
-}
-
-func (s *Service) auditProactive(
-	ctx context.Context,
-	assignment core.StandingAssignment,
-	input core.SlackInput,
-	outcome string,
-	detail string,
-) {
-	s.audit(ctx, core.AuditEvent{
-		Kind: "proactive.assignment", ActorID: "responder",
-		ObjectID: assignment.ID, Outcome: outcome,
-		Detail: decisionpkg.BoundedField(detail+" · input="+input.ID, 500),
-	})
+	if episodeID != "" {
+		// Best effort, and after the row: the ledger is the durable evidence
+		// and the event is what makes it harvestable into a replay fixture.
+		// Losing the second must not cost the first, and neither may cost the
+		// reply this turn already delivered.
+		_, _ = s.store.AppendEpisodeEvent(ctx, episodeID, assignments.EpisodeEvent(evaluation))
+	}
+	s.audit(ctx, assignments.AuditEvent(
+		assignment.ID, input.ID, evaluation.Verdict,
+		assignments.AuditDetail(assignment, evaluation.Reason),
+	))
 }
