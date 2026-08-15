@@ -2338,6 +2338,20 @@ func (s *Service) stageTriageTerminal(
 				decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", s.now()),
 				checkedCompletion,
 			)
+			if correction == "" && checkedCompletion != nil {
+				// Asked here rather than left to the kernel's completion
+				// guard: that guard fires at finalization, after the result
+				// is accepted, and its refusal reached nobody — run_dab83e5b
+				// retried finalization forty times over three hours against
+				// a required goal one of its own turns had planned.
+				goals, goalsErr := s.store.Goals.ListForEpisode(ctx, episode.ID, 200)
+				if goalsErr != nil {
+					return true, goalsErr
+				}
+				correction = investigation.OpenRequiredGoalCorrection(
+					goals, decision.AppliedOperations, checkedCompletion,
+				)
+			}
 			if correction == "" {
 				correction = investigation.ConclusionLanguageCorrection(
 					episode, decision.Action, decision.Message,

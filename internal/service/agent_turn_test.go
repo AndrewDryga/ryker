@@ -1884,6 +1884,111 @@ func TestASilentTurnIsCancelledInsteadOfHoldingItsChannel(t *testing.T) {
 	}
 }
 
+// A completion that leaves a required goal open must come back to the model as
+// a correction, not sink into a finalization retry loop. run_dab83e5b closed
+// the VA1 bond0 investigation with a sound answer at 03:13Z on 2026-08-15 and
+// then retried finalization every five minutes for three hours — forty
+// attempts — against a required goal one of its own earlier turns had planned;
+// the kernel's refusal was a store error nobody relayed to anyone.
+func TestACompletionOverAnOpenRequiredGoalIsSentBackNotDeferred(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"COPENGOAL"}
+	cfg.Slack.WatchChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack-open-goal", EnvelopeID: "env-open-goal", EventID: "event-open-goal",
+		Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPENGOAL", MessageTS: "1700.720", UserID: "U123ABC",
+		Text: "<@U999BOT> is bond0 on nomad-hst03 saturated?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit Slack input = %v, %v", created, err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{
+		// The first answer plans a required goal and declares itself done in
+		// the same breath — the shape the wedged episode's first turn had.
+		{
+			State: "completed",
+			AssistantMessage: `{
+				"action":"reply",
+				"operations":[
+					{"id":"plan-traffic","type":"plan_goal","goal":{"id":"goal-traffic","kind":"check",
+					 "requested_outcome":"Verify actual VA1 network and storage load",
+					 "completion_contract":"a fresh interface counter sample","required":true,
+					 "authority":"read_only"}},
+					{"id":"complete","type":"complete_episode","completion":{
+						"message":"bond0 on nomad-hst03 is healthy; the saturation alerts were a duplicate exporter target.",
+						"completion":{"status":"decision_ready","summary":"bond0 healthy, duplicate exporter"}}}]
+			}`,
+		},
+		// Told which goal it left open, the corrected answer closes it.
+		{
+			State: "completed",
+			AssistantMessage: `{
+				"action":"reply",
+				"operations":[
+					{"id":"traffic-done","type":"update_goal","goal_state":{"goal_id":"goal-traffic","state":"completed","detail":"counters sampled: 4% of line rate"}},
+					{"id":"complete","type":"complete_episode","completion":{
+						"message":"bond0 on nomad-hst03 is healthy at 4% of line rate; the saturation alerts were a duplicate exporter target.",
+						"completion":{"status":"decision_ready","summary":"bond0 healthy, duplicate exporter"}}}]
+			}`,
+		},
+	}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil && !errors.Is(err, store.ErrNotFound) {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.State == core.AgentRunApplying || run.State == core.AgentRunFinalizing {
+		t.Fatalf("the completion sat in %q behind the kernel's goal guard (last error %q); "+
+			"the model was never told which goal it left open", run.State, run.LastError)
+	}
+	if run.State != core.AgentRunPending {
+		t.Fatalf("a completion over an open required goal ended as %q, want pending with a correction "+
+			"(last error %q)", run.State, run.LastError)
+	}
+	if !strings.Contains(run.LastError, "goal-traffic") ||
+		!strings.Contains(run.LastError, "update_goal") {
+		t.Fatalf("the correction does not name the open goal and the way to close it: %q", run.LastError)
+	}
+
+	// The corrected answer, which closes the goal, finalizes cleanly.
+	storetest.MakeAgentRunDue(t, cfg.StateDir, "watch", input.ID)
+	coopClient.session.ActiveTurnID = ""
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil && !errors.Is(err, store.ErrNotFound) {
+		t.Fatal(err)
+	}
+	run, err = st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.State != core.AgentRunCompleted {
+		t.Fatalf("the corrected answer that closed the goal ended as %q (last error %q), want completed",
+			run.State, run.LastError)
+	}
+}
+
 // Coop marks a turn "interrupted" when its daemon restarts under a running
 // turn — a distinct terminal from cancelled and failed. The poll handled the
 // other two and skipped this one, so a run whose turn was interrupted at

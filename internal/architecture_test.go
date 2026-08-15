@@ -708,7 +708,14 @@ var lineBudget = map[string]int{
 	"decision": 2440,
 	// investigation owns the contract and, since the completion validators moved
 	// beside it, the rules that check a result against that contract.
-	"investigation": 1800,
+	//
+	// Raised to 1880 on 2026-08-15 for the open-goal completion check. The
+	// kernel refuses to complete an episode over a required goal that is still
+	// planned; asked only at finalization, the refusal was a store error nobody
+	// relayed and a sound answer retried finalization forty times over three
+	// hours. The same invariant asked at staging is a correction the model can
+	// act on, and it belongs beside the other completion validators.
+	"investigation": 1880,
 	// These packages own policy and data transformations that used to sit in
 	// the broad service, store, decision, and investigation packages. Register
 	// every extraction here so moving code cannot evade the architecture ratchet.
