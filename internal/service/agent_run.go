@@ -3741,6 +3741,7 @@ func (s *Service) finalizeIncidentAgentRun(
 				incident.ChannelID,
 				run.ID,
 				run.UserID,
+				run.EpisodeID,
 			)
 			if err != nil {
 				return err

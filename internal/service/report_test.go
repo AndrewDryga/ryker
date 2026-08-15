@@ -434,6 +434,7 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 		incident.ChannelID,
 		"slack_approval_1",
 		cfg.Slack.Operators[0],
+		"episode_run_incident",
 	)
 	if err != nil || report.PendingApproval == nil {
 		t.Fatalf("persist pending approval = %+v, %v", report, err)
@@ -455,6 +456,7 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 		incident.ChannelID,
 		"slack_approval_2",
 		cfg.Slack.Operators[0],
+		"episode_run_incident",
 	)
 	if err != nil || report.PendingApproval != nil {
 		t.Fatalf("foreign approval escaped validation = %+v, %v", report, err)
@@ -474,6 +476,7 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 		incident.ChannelID,
 		"initial_turn",
 		"",
+		"episode_run_incident",
 	)
 	if err != nil || report.PendingApproval != nil {
 		t.Fatalf("non-operator approval escaped validation = %+v, %v", report, err)
@@ -490,6 +493,7 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 		"CSHARED",
 		"slack_shared_approval",
 		cfg.Slack.Operators[0],
+		"episode_run_shared_thread",
 	)
 	if err != nil || report.PendingApproval == nil ||
 		report.PendingApproval.IncidentID != "" ||
@@ -499,6 +503,15 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 	stored, err = st.Approvals.Get(ctx, shared.RequestID)
 	if err != nil || stored.IncidentID != "" || stored.ChannelID != "CSHARED" {
 		t.Fatalf("stored shared conversation approval = %+v, %v", stored, err)
+	}
+	// No incident, and still an owner. This is the row phase 5 exists for: the
+	// projections keyed on incident_id cannot see it, and the one keyed on the
+	// episode can.
+	if stored.EpisodeID != "episode_run_shared_thread" {
+		t.Fatalf(
+			"shared conversation approval episode = %q, want the turn's episode",
+			stored.EpisodeID,
+		)
 	}
 }
 

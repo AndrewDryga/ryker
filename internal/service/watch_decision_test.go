@@ -436,6 +436,21 @@ func TestWatchedChannelDecisions(t *testing.T) {
 					approval.MessageTS == "" {
 					t.Fatalf("shared conversation approval = %+v, %v", approval, err)
 				}
+				// The approval has no incident and must still name its owner.
+				// source_input is a slack_inputs id and expires on the
+				// operational horizon; the episode is what the completion path,
+				// the remediation record and the trace page can still reach a
+				// day later.
+				run, runErr := st.GetAgentRunBySource(ctx, "watch", input.ID)
+				if runErr != nil || run.EpisodeID == "" {
+					t.Fatalf("watch run for the approval = %+v, %v", run, runErr)
+				}
+				if approval.EpisodeID != run.EpisodeID {
+					t.Fatalf(
+						"approval episode = %q, want the turn's episode %q",
+						approval.EpisodeID, run.EpisodeID,
+					)
+				}
 			}
 			if test.name == "malformed" {
 				run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)

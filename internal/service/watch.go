@@ -747,6 +747,7 @@ func (s *Service) applyWatchDecision(
 		input.ChannelID,
 		sourceInput,
 		input.UserID,
+		episodeID,
 	)
 	if err != nil {
 		return err

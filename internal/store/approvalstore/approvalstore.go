@@ -42,8 +42,12 @@ func (r *Repository) nowText() string {
 	return r.now().Format(core.TimestampFormat)
 }
 
+// columns keeps episode_id beside incident_id rather than in place of it. The
+// incident id is presentation — which room, if any, showed this card — and the
+// episode id is ownership. Phase 5 moves the projections onto the second while
+// the first stays readable for the rooms that do exist.
 const columns = `
-	request_id, COALESCE(incident_id, ''), channel_id, source_input,
+	request_id, COALESCE(incident_id, ''), episode_id, channel_id, source_input,
 	requested_by, delivery_id, message_ts, run_id, operation_id, action_id,
 	pack_ref, runner_ref, status, approval_url, run_url, last_error,
 	failure_count, continuation_queued, next_check_at, expires_at,
@@ -74,13 +78,13 @@ func (r *Repository) Record(
 	}
 	result, err := r.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO emisar_approvals (
-		  request_id, incident_id, channel_id, source_input,
+		  request_id, incident_id, episode_id, channel_id, source_input,
 		  requested_by, delivery_id, message_ts, run_id, operation_id, action_id,
 		  pack_ref, runner_ref, status, approval_url, run_url, last_error,
 		  failure_count, continuation_queued, next_check_at, expires_at,
 		  terminal_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		item.RequestID, incidentID, item.ChannelID, item.SourceInput,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.RequestID, incidentID, item.EpisodeID, item.ChannelID, item.SourceInput,
 		item.RequestedBy, item.DeliveryID, item.MessageTS, item.RunID,
 		item.OperationID, item.ActionID, item.PackRef, item.RunnerRef,
 		item.Status, item.ApprovalURL, item.RunURL, item.LastError,
@@ -101,7 +105,8 @@ func (r *Repository) Record(
 	if err != nil {
 		return core.EmisarApproval{}, false, err
 	}
-	if stored.IncidentID != item.IncidentID || stored.ChannelID != item.ChannelID ||
+	if stored.IncidentID != item.IncidentID || stored.EpisodeID != item.EpisodeID ||
+		stored.ChannelID != item.ChannelID ||
 		stored.SourceInput != item.SourceInput || stored.RequestedBy != item.RequestedBy ||
 		stored.RunID != item.RunID || stored.OperationID != item.OperationID ||
 		stored.ActionID != item.ActionID || stored.PackRef != item.PackRef ||
@@ -187,6 +192,28 @@ func (r *Repository) ListForIncident(
 		ORDER BY created_at, request_id`, incidentID)
 }
 
+// ListForEpisode is ListForIncident's question asked of the work rather than
+// the room. An approval requested from an ordinary thread has no incident at
+// all, so no amount of correctness in ListForIncident can make it visible
+// there; this is where a thread-scoped approval is found.
+//
+// The empty-id guard is load-bearing. Rows the v81 backfill could not resolve
+// — approvals whose originating run was pruned before the migration ran — carry
+// the empty string, and a query for "" would return all of them as if they were
+// one episode's.
+func (r *Repository) ListForEpisode(
+	ctx context.Context,
+	episodeID string,
+) ([]core.EmisarApproval, error) {
+	if episodeID == "" {
+		return []core.EmisarApproval{}, nil
+	}
+	return r.list(ctx, `
+		SELECT `+columns+`
+		FROM emisar_approvals WHERE episode_id = ?
+		ORDER BY created_at, request_id`, episodeID)
+}
+
 func (r *Repository) ListMonitorable(
 	ctx context.Context,
 	limit int,
@@ -229,7 +256,7 @@ func scan(row interface{ Scan(...any) error }) (core.EmisarApproval, error) {
 	var next, expires, created, updated string
 	var terminal sql.NullString
 	err := row.Scan(
-		&item.RequestID, &item.IncidentID, &item.ChannelID,
+		&item.RequestID, &item.IncidentID, &item.EpisodeID, &item.ChannelID,
 		&item.SourceInput, &item.RequestedBy, &item.DeliveryID, &item.MessageTS,
 		&item.RunID, &item.OperationID, &item.ActionID, &item.PackRef,
 		&item.RunnerRef, &item.Status, &item.ApprovalURL, &item.RunURL,

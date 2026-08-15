@@ -1728,8 +1728,12 @@ type RemediationRecord struct {
 }
 
 type EmisarApproval struct {
-	RequestID          string    `json:"request_id"`
-	IncidentID         string    `json:"incident_id,omitempty"`
+	RequestID  string `json:"request_id"`
+	IncidentID string `json:"incident_id,omitempty"`
+	// EpisodeID is which work asked for this action. It is host-resolved and
+	// overwritten on every persist, exactly like IncidentID, so nothing a model
+	// writes here can bind an approval to somebody else's episode.
+	EpisodeID          string    `json:"episode_id,omitempty"`
 	ChannelID          string    `json:"channel_id,omitempty"`
 	SourceInput        string    `json:"source_input,omitempty"`
 	RequestedBy        string    `json:"requested_by,omitempty"`

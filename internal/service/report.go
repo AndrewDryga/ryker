@@ -44,6 +44,7 @@ func (s *Service) persistAgentReport(
 	channelID string,
 	sourceInput string,
 	requestedBy string,
+	episodeID string,
 ) (decisionpkg.AgentReport, error) {
 	if s.sanitizer != nil {
 		report.Message = s.sanitizer.Text(report.Message)
@@ -203,6 +204,7 @@ func (s *Service) persistAgentReport(
 		report.PendingApproval = s.prepareEmisarApproval(
 			*report.PendingApproval,
 			incident,
+			episodeID,
 			channelID,
 			sourceInput,
 			requestedBy,
@@ -261,6 +263,7 @@ func (s *Service) persistAgentReport(
 func (s *Service) prepareEmisarApproval(
 	item core.EmisarApproval,
 	incident core.Incident,
+	episodeID string,
 	channelID string,
 	sourceInput string,
 	requestedBy string,
@@ -291,6 +294,10 @@ func (s *Service) prepareEmisarApproval(
 		return nil
 	}
 	item.IncidentID = incident.ID
+	// Host-resolved and unconditional, exactly like the incident id beside it.
+	// The episode is what owns the approval; the incident is which room, if any,
+	// showed the card.
+	item.EpisodeID = episodeID
 	item.ChannelID = channelID
 	item.SourceInput = sourceInput
 	item.RequestedBy = requestedBy

@@ -1631,6 +1631,7 @@ func TestEpisodeProjectionInventoryCoversEveryEpisodeLinkedTable(t *testing.T) {
 		"episode_attempts":                "attempts and corrections",
 		"episode_goals":                   "durable records",
 		"episode_outcomes":                "recall projection",
+		"emisar_approvals":                "Emisar approvals",
 		"episode_wakeups":                 "automatic follow-ups",
 		"feedback_items":                  "durable records",
 		"fixture_candidates":              "durable records",

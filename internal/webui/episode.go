@@ -1333,6 +1333,28 @@ func (r *Reader) Artifacts(ctx context.Context, episodeID string) ([]EpisodeArti
 		return item, err
 	}, episodeID)
 
+	// Approvals hang off the episode rather than the room, which is the only
+	// way a thread-scoped approval reaches this page at all: an episode with no
+	// incident collects no incidentArtifacts, so before phase 5 the operator's
+	// trace of "I pressed approve and then what happened" was empty for exactly
+	// the conversations where the approval is hardest to follow.
+	appendCollected("emisar approvals", `
+	  SELECT request_id, action_id, runner_ref, status, run_url, last_error,
+	         COALESCE(incident_id, ''), created_at
+	  FROM emisar_approvals WHERE episode_id = ?
+	  ORDER BY created_at`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var actionID, runnerRef, runURL, incidentID, at string
+		err := rows.Scan(&item.ID, &actionID, &runnerRef, &item.State, &runURL,
+			&item.Detail, &incidentID, &at)
+		item.Kind, item.Title, item.At = "emisar_approval", "Emisar action requested", parseStamp(at)
+		item.DetailKind, item.Summary = "error", actionID+" on "+runnerRef
+		item.Stats = []ArtifactStat{{"Request", item.ID}, {"Action", actionID},
+			{"Runner", runnerRef}, {"Run", fallback(runURL, "not started")},
+			{"Room", fallback(incidentID, "none — ordinary thread")}}
+		return item, err
+	}, episodeID)
+
 	incidentIDs, err := r.episodeIncidentIDs(ctx, episodeID)
 	if err != nil {
 		projectionErrors = append(projectionErrors, fmt.Errorf("incidents: %w", err))
