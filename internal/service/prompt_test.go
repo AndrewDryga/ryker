@@ -560,7 +560,13 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // words and the flat-string rule cost 206 bytes, against a strict-decode
 // rejection and a correction turn every time a schedule is offered from
 // guesswork.
-const staticWatchPromptBytes = 48369
+//
+// 48431 later the same day: "when required" on cause_status never said when.
+// The rule lives in the validator — confirmed or likely verdicts must carry
+// identified or bounded — and the model could only learn it by paying the
+// correction, which production did twice on tenant and the full gate once.
+// 62 bytes to state the condition where the field is named.
+const staticWatchPromptBytes = 48431
 
 // The static prompt must not grow without someone deciding it should.
 //
