@@ -33,6 +33,22 @@ func BoundedText(value string, limit int) string {
 	return TruncateUTF8(strings.TrimSpace(value), limit)
 }
 
+// CorrectionTextLimit bounds a host correction on its way to the model, and it
+// is deliberately much larger than the general error bound.
+//
+// A correction is not an error string. Since 79445e8 the contradiction one
+// quotes both sides of every conflict whole, each with its evidence id, source
+// and observation time, because a model cannot retract a record the host will
+// not name — that is what nineteen rounds of tenant run_3a615b9db cost. One
+// contradicted claim renders at about 1.1KB and two at about 1.6KB, so the
+// general 1000-byte bound on a stored error cut the ids out of the very text
+// that exists to carry them.
+//
+// 4000 covers the realistic one-to-two claim refusal with room, and still
+// bounds the column. It is nothing beside the ~146KB briefing the same retry
+// resubmits: the expensive part of a correction round was never the correction.
+const CorrectionTextLimit = 4000
+
 // TruncateUTF8WithSuffix bounds value to limit bytes including suffix, which is
 // appended only when the value actually had to be shortened.
 func TruncateUTF8WithSuffix(value string, limit int, suffix string) string {

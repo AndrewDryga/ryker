@@ -25,12 +25,17 @@ blocker.
 func Continuation(run core.AgentRun) string {
 	lower := strings.ToLower(run.LastError)
 	if decisionpkg.StructuredResultFailure(run.LastError) {
+		// core.CorrectionTextLimit rather than the 1200 this carried while a
+		// correction was one validator sentence. A refused completion's
+		// correction quotes both sides of every conflict with their evidence
+		// ids, and the ids are last on each line: bounding at 1200 cut the
+		// answer out of the question on a two-claim refusal.
 		return `
 
 <host-structured-correction>
 The previous turn completed its work, but Responder rejected only its final structured report.
 Preserve the work and verified result. Return a corrected report that fixes this exact host validation
-error: ` + decisionpkg.BoundedField(run.LastError, 1200) + `
+error: ` + decisionpkg.BoundedField(run.LastError, core.CorrectionTextLimit) + `
 Do not repeat the investigation or drop completed work merely to repair the response envelope.
 </host-structured-correction>`
 	}

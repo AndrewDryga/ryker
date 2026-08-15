@@ -1385,7 +1385,14 @@ func (s *Store) RequeueAgentRun(
 		attempt,
 		fmt.Sprintf("responder:run:%s:%s", id, recoveryID),
 		eventSequence,
-		sqlutil.BoundedError(detail),
+		// The correction bound, not the error bound. On this one path last_error
+		// is not a record of what went wrong — it is the question the next
+		// attempt is asked, read back out by agentprompt.Continuation. At the
+		// general 1000 bytes a two-claim contradiction correction lost the
+		// evidence ids off its end, which are the only part the model can act
+		// on. The attempt's failure_class below keeps the ordinary bound: that
+		// one really is a record.
+		core.BoundedText(detail, core.CorrectionTextLimit),
 		next.UTC().Format(timestampFormat),
 		now,
 		id,

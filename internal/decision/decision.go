@@ -169,7 +169,42 @@ func WatchDecisionHasEvidenceSource(evidence []core.Evidence, sourceType string)
 	return false
 }
 
+// ClaimsCorrection recognises what the claim ledger refuses an answer for.
+//
+// These are the richest corrections the host writes. 79445e8 made the
+// contradiction one quote both sides of every conflict with their evidence
+// ids, because a model cannot retract a record the host will not name — the
+// old text quoted one observation, cut mid-word, with no id, and tenant
+// run_3a615b9db spent nineteen rounds guessing at it.
+//
+// It is its own class rather than four more phrases in the list below because
+// the two predicates are asked different questions. StructuredResultFailure
+// asks "did the host refuse this answer, or did the transport die"; this asks
+// "was it the ledger that refused it". The claims family is the one that grows
+// — every new required claim adds a way to be refused — and keeping it named
+// means the next one is added in a place that says what it is for.
+func ClaimsCorrection(detail string) bool {
+	detail = strings.ToLower(strings.TrimSpace(detail))
+	return strings.Contains(detail, "required claims still contain unresolved contradictions") ||
+		strings.Contains(detail, "required claims do not have fresh supporting evidence") ||
+		strings.Contains(detail, "no typed evidence bound to a required claim")
+}
+
+// StructuredResultFailure reports whether the host refused a well-formed answer
+// rather than the transport failing to deliver one. The two are shown to
+// different audiences in different words: a host refusal is already phrased for
+// its reader and goes through verbatim, while a transport error goes through
+// provider.Classify first.
+//
+// The claims arm is not decoration. Without it a contradiction correction on
+// the incident and engineering-task path fell off the end of this predicate,
+// agentprompt.Continuation dropped the whole correction block, and the model
+// was re-asked with no idea what had been wrong — on exactly the corrections
+// 79445e8 had just made worth reading.
 func StructuredResultFailure(detail string) bool {
+	if ClaimsCorrection(detail) {
+		return true
+	}
 	detail = strings.ToLower(strings.TrimSpace(detail))
 	return strings.Contains(detail, "structured slack response is invalid") ||
 		strings.Contains(detail, "structured agent report is invalid") ||
