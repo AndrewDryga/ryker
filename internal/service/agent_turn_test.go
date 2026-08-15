@@ -1883,6 +1883,71 @@ func TestASilentTurnIsCancelledInsteadOfHoldingItsChannel(t *testing.T) {
 	}
 }
 
+// A provider refusal defers the run, and on 2026-08-15 the deferral kept the
+// dead turn: run_d55f248a's turn failed rate_limited at 00:41Z and every
+// backoff expiry for the next 3.5 hours re-polled that same corpse, re-read
+// its stale refusal, and deferred again — no new turn was ever submitted,
+// while the session it sat on had long rotated to a healthy provider rung.
+// A run the weather parked must let go of the turn the weather killed, so the
+// next attempt is a fresh submission instead of an eternal re-read.
+func TestARateLimitedRunReleasesItsDeadTurn(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CWEDGE"}
+	cfg.Slack.WatchChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{{ID: "turn_dead", State: "running"}}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+
+	input := core.SlackInput{
+		ID: "slack-dead-turn", EnvelopeID: "env-dead-turn", EventID: "event-dead-turn",
+		Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWEDGE", MessageTS: "1700.700", UserID: "U123ABC",
+		Text: "<@U999BOT> is the deploy finished?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// The provider refuses the turn after it was created: the exact shape
+	// recorded on turn_22f1bc41, whose event payload was
+	// {"detail":"provider rate limited the turn","error_code":"rate_limited"}.
+	coopClient.turn = coop.Turn{
+		ID: "turn_dead", SessionID: "ses_1", State: "failed",
+		ErrorCode: "rate_limited", ErrorDetail: "provider rate limited the turn",
+	}
+	svc.pollAgentRuns(ctx)
+
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.State != core.AgentRunPending {
+		t.Fatalf("a refused run is %q, want pending without spending an attempt (last error %q)",
+			run.State, run.LastError)
+	}
+	if run.Failures != 0 {
+		t.Fatalf("a refusal spent %d attempts, want none", run.Failures)
+	}
+	if run.CoopTurnID != "" {
+		t.Fatalf("a weather-deferred run still holds its dead turn %q; every future poll "+
+			"will re-read the corpse and defer again instead of submitting fresh",
+			run.CoopTurnID)
+	}
+}
+
 // Channel serialization exists so answers land in order, and tonight it starved
 // a sibling instead: run_b7e4a0f — an operator-facing lifecycle event from
 // 00:24 — waited more than two hours behind run_e3cec200, which was cycling

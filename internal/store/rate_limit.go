@@ -62,9 +62,17 @@ func (s *Store) RequeueRateLimitedAgentRun(
 		return err
 	}
 	defer tx.Rollback()
+	// coop_turn_id is dropped because the turn it names is dead, and keeping
+	// it made the park permanent: the next lease polled the dead turn, re-read
+	// its stale refusal, and parked again. run_d55f248a rode that loop for 3.5
+	// hours on 2026-08-15 — its session had rotated to a healthy provider rung
+	// at 00:42 and no new turn was ever submitted to it. Released, the next
+	// attempt submits fresh into the same session and takes whatever rung the
+	// ladder is on now.
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
-		SET state = 'pending', last_error = ?, next_attempt_at = ?, updated_at = ?
+		SET state = 'pending', coop_turn_id = '',
+		    last_error = ?, next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state IN ('preparing', 'running', 'finalizing')`,
 		sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat),
 		s.nowText(), id,
