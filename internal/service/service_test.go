@@ -432,6 +432,10 @@ func TestSlashHelpButtonsRouteToReadOnlyCommands(t *testing.T) {
 		"`/responder status`",
 		"`/responder proactive on|off|inherit`",
 		"`/responder shadow on|off|inherit`",
+		// The one verb in the guide that is not an emergency control, and the
+		// one an operator cannot reach any other way until `offer_assignment`
+		// exists: a guide that omits it hides the only way to create one.
+		"`/responder assignments`",
 	} {
 		if !strings.Contains(helpContent, command) {
 			t.Fatalf("interactive help lacks %s: %+v", command, help)

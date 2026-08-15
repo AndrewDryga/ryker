@@ -109,11 +109,12 @@ func TestChannelSituationsWithoutASummaryAreOmitted(t *testing.T) {
 // with the work. Nine tiles, most of them zero or restating the heading, were
 // most of what made the page read as a mess.
 //
-// Every command this page prints must exist. `/responder failures` and
+// The page prints one command, and it is a kept one. `/responder failures` and
 // `/responder sessions` were printed here for months and neither has ever been
 // a subcommand — an operator who followed the page's own advice got "Unknown
-// `/responder` subcommand" — so this test now guards their absence as
-// deliberately as it used to assert their presence.
+// `/responder` subcommand" — so this test guards their absence as deliberately
+// as it used to assert their presence. Everything else the shelf used to name a
+// command for is on this page, which is why the shelf now says so.
 func TestSecondaryNumbersAreOneLineNotAGridOfTiles(t *testing.T) {
 	message := OperationsHome(0, 0, 0, 100, 3, 0, 30, 0, 0, 0, 1, 0, nil, nil, nil, nil, nil, nil)
 
@@ -154,42 +155,76 @@ func TestSecondaryNumbersAreOneLineNotAGridOfTiles(t *testing.T) {
 	}
 }
 
-// Every command any Home surface prints has to be one the slash router accepts.
+// Nothing prints a slash spelling except the kept kit.
 //
-// This is the guard for the class of defect above rather than for the two
-// instances of it: the page's whole secondary layer is now "a count and the
-// command that opens it", so a command that does not exist is the one way that
-// layer can lie, and it lies silently — the operator types it and is told the
-// subcommand is unknown, which reads as their mistake.
-func TestEveryCommandTheHomeNamesIsARealSubcommand(t *testing.T) {
+// This started as "every command this page names must exist", which was the
+// guard for a page naming two subcommands that never existed. The list it
+// checked against was the whole router — thirty-odd verbs — and that made it a
+// spell-checker rather than a bound: a surface could advertise any of them and
+// pass.
+//
+// The router is a closed handful now, and the removed twenty-six each have
+// somewhere else to be: the App Home, a button on a pinned card, the web
+// control plane, responder.yaml, or a sentence said to Responder. A surface
+// that prints one of them is telling an operator to use a surface the product
+// deliberately retired, and it lies silently — they type it and are told the
+// subcommand is unknown, which reads as their mistake. So the assertion is
+// inverted: the set is closed, and anything outside it fails whether or not it
+// once worked.
+func TestNoSurfacePrintsASlashSpellingBeyondTheKeptKit(t *testing.T) {
 	message := busiestHome()
 	surface := homeContent(message) + "\n" + strings.Join(message.Context, "\n")
 	assertOnlyRealSubcommands(t, "the Home", surface)
+
+	// The assignment cards are checked here for the same reason the Home is:
+	// they are the only cards that print a slash spelling on purpose, and they
+	// print the one verb whose retirement is scheduled rather than done. When
+	// `offer_assignment` lands and the verb goes, this is the assertion that
+	// says which cards still tell an operator to type it.
+	empty := AssignmentDirectoryMessage(nil, nil)
+	assertOnlyRealSubcommands(
+		t, "the assignment directory",
+		homeContent(empty)+"\n"+strings.Join(empty.Context, "\n"),
+	)
+	saved := AssignmentSavedMessage(core.StandingAssignment{
+		ID: "asg_1", Repository: "AndrewDryga/responder", ChangeClass: "dependency_bump",
+		SignalPattern: "renovate", DailyBudget: 2, Shadow: true,
+	})
+	assertOnlyRealSubcommands(
+		t, "the assignment receipt",
+		homeContent(saved)+"\n"+strings.Join(saved.Context, "\n"),
+	)
 }
 
 var slashCommandPattern = regexp.MustCompile(`/responder ([a-z-]+)`)
 
 // realSlashSubcommands is the switch in internal/service/slash.go
-// processSlashInput, transcribed. Anything a surface prints that is not in here
-// fails as the operator's mistake — they are told the subcommand is unknown.
+// processSlashInput, transcribed. It is meant to stay this short: a verb added
+// back here is a verb added back to the second product surface that
+// `/responder` used to be.
+//
+// `assignments` is in it and is the one entry that is not an emergency verb.
+// Standing assignments have no `offer_assignment` result operation yet, so
+// slash is their only creation surface and deleting the spelling would delete
+// the feature; it leaves this map, and the router, the day that confirm card
+// lands.
 var realSlashSubcommands = map[string]bool{
 	"help": true, "status": true, "settings": true, "config": true,
-	"incidents": true, "work": true, "commitments": true, "feedback": true,
-	"memory": true, "preferences": true, "preference": true, "rules": true,
-	"rule": true, "schedules": true, "schedule": true, "reminders": true,
-	"proactive": true, "watch": true, "shadow": true, "turn-limit": true,
-	"turns": true, "timeline": true, "evidence": true, "handoff": true,
-	"postmortem": true, "update": true, "changes": true, "review": true,
-	"publish": true, "stop": true, "extend": true, "close": true,
+	"proactive": true, "watch": true, "shadow": true,
+	"assignments": true, "assignment": true,
 }
 
 // assertOnlyRealSubcommands is the guard any surface that names commands can
-// reuse: the Home, and now the help card, which exists to be typed from.
+// reuse: the Home, and the help card, which exists to be typed from.
 func assertOnlyRealSubcommands(t *testing.T, surfaceName, content string) {
 	t.Helper()
 	for _, match := range slashCommandPattern.FindAllStringSubmatch(content, -1) {
 		if !realSlashSubcommands[match[1]] {
-			t.Errorf("%s names `/responder %s`, which the slash router refuses", surfaceName, match[1])
+			t.Errorf(
+				"%s names `/responder %s`, which the slash router refuses; "+
+					"the kit is status, proactive, shadow, assignments and help",
+				surfaceName, match[1],
+			)
 		}
 	}
 }
