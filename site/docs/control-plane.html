@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The control plane — Responder docs</title>
+<meta name="description" content="The local web UI: episodes and full traces, the decisions queue, findings, the review ledger, and audit.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body class="doc-page">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="wordmark" href="../index.html">
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><rect width="14" height="14" rx="4" fill="#36e6a5"></rect></svg>
+      Responder
+    </a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="../index.html#how">How it works</a>
+      <a href="../index.html#trust">Trust</a>
+      <a href="index.html" class="on">Docs</a>
+      <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+    </nav>
+    <details class="nav-menu">
+      <summary aria-label="Menu">Menu</summary>
+      <div class="nav-drawer">
+        <a href="../index.html#how">How it works</a>
+        <a href="../index.html#trust">Trust</a>
+        <a href="index.html">Docs</a>
+        <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+      </div>
+    </details>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="docs">
+
+  <aside class="docs-nav">
+    <details>
+      <summary>Documentation</summary>
+      <div>
+        <nav aria-label="Documentation">
+          <p class="grp">Start</p>
+          <ul>
+            <li><a href="index.html">What Responder is</a></li>
+            <li><a href="getting-started.html">Run it</a></li>
+          </ul>
+          <p class="grp">Using it</p>
+          <ul>
+            <li><a href="slack.html">Working in Slack</a></li>
+            <li><a href="actions.html">Governed action</a></li>
+            <li><a href="memory.html">Memory and recall</a></li>
+          </ul>
+          <p class="grp">Operating it</p>
+          <ul>
+            <li><a href="control-plane.html" class="on" aria-current="page">The control plane</a></li>
+            <li><a href="operations.html">Running it</a></li>
+          </ul>
+        </nav>
+      </div>
+    </details>
+  </aside>
+
+  <main class="doc" id="main">
+    <p class="crumb"><a href="../index.html">Responder</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>The control plane</span></p>
+
+    <details class="doc-toc">
+      <summary>On this page</summary>
+      <ul>
+        <li><a href="#what">What it is</a></li>
+        <li><a href="#pages">The pages</a></li>
+        <li><a href="#trace">An episode trace</a></li>
+        <li><a href="#fingerprints">Replay fingerprints</a></li>
+        <li><a href="#refusals">Refusals and corrections</a></li>
+        <li><a href="#measurement">Measurement, and the refusal to guess</a></li>
+        <li><a href="#decisions">The decisions queue</a></li>
+        <li><a href="#findings">Findings</a></li>
+        <li><a href="#review">The review ledger</a></li>
+        <li><a href="#audit">Audit</a></li>
+        <li><a href="#failures">Failures and workspaces</a></li>
+        <li><a href="#non-goals">What it will not become</a></li>
+      </ul>
+    </details>
+
+    <h1>The control plane</h1>
+
+    <p class="lede">Every episode has a full trace, and the trace is on a web UI served by the same binary, on the same host, over loopback. This is where “it shows its work” stops being a slogan and becomes a page you can open.</p>
+
+    <h2 id="what">What it is</h2>
+
+    <p>The control plane is served by the Responder process itself, from Go templates, with no build step. It is bound to loopback along with everything else. There are no accounts, no roles, and no invitations, because <strong>the loopback interface is the authentication.</strong> If you can reach it, you are already on the host.</p>
+
+    <p>Three properties are worth stating because they were chosen, not inherited:</p>
+
+    <ul>
+      <li><strong>No JavaScript at all.</strong> The content security policy has no script source. Every confirmation is a native two-step disclosure that posts a form; every chart is inline SVG computed on the server. A confirm dialog that needs a script is a confirm dialog that silently does nothing when the policy blocks it — which is exactly what happened once, and why this rule exists.</li>
+      <li><strong>No external assets.</strong> No CDN fonts, no analytics, no telemetry. The page must render with the network off, and nothing about production work should leave the machine.</li>
+      <li><strong>Nothing here mutates infrastructure.</strong> Emisar remains the only path. The control plane can retry work, keep a correction, publish a reviewed tree, or resolve a memory review. It cannot run an action.</li>
+    </ul>
+
+    <p>Every write is a POST, attributed to the control plane as an actor, and its store transition and its audit row commit together.</p>
+
+    <h2 id="pages">The pages</h2>
+
+    <p>Twelve pages in three groups, and each one states the question it answers. A section that cannot say what it is for is usually one that should not exist.</p>
+
+    <h3 id="operate">Operate</h3>
+
+    <dl>
+      <div><dt>Overview</dt><dd>What is happening right now?</dd></div>
+      <div><dt>Episodes</dt><dd>What did it do, and why?</dd></div>
+      <div><dt>Schedules</dt><dd>What runs on its own, and did it?</dd></div>
+      <div><dt>Channels</dt><dd>Where is Responder, and what is set up there?</dd></div>
+      <div><dt>Failures</dt><dd>What is broken, and can I retry it?</dd></div>
+      <div><dt>Workspaces</dt><dd>What is still held, and why?</dd></div>
+    </dl>
+
+    <h3 id="improve">Improve</h3>
+
+    <dl>
+      <div><dt>Decisions</dt><dd>What did it choose, and was it right?</dd></div>
+      <div><dt>Findings</dt><dd>What is wrong with Responder itself?</dd></div>
+      <div><dt>Memory</dt><dd>What does it believe, and where did that come from?</dd></div>
+    </dl>
+
+    <h3 id="system">System</h3>
+
+    <dl>
+      <div><dt>Audit</dt><dd>Who did what, and what came of it?</dd></div>
+      <div><dt>Configuration</dt><dd>How is it set up?</dd></div>
+      <div><dt>Usage</dt><dd>What is it spending?</dd></div>
+    </dl>
+
+    <p>Detail routes hang off these: one episode, one schedule, one incident, one failure, one conversation, one channel, one rule, plus preferences, assignments, and stored artifacts.</p>
+
+    <p>Filters and time windows are links, not controls. A filtered list stays a URL — bookmarkable, and pasteable into an incident thread — with no client state to keep in sync.</p>
+
+    <h2 id="trace">An episode trace</h2>
+
+    <p>The episode page is the centre of the product. It is not a collection of reports; it is one execution story. A summary answers “how did it go?”, and a rail below it answers “what happened, in order, and why?” — cut into chapters a stranger can follow, with a time bar showing where the wall clock actually went.</p>
+
+    <h3 id="input">The exact model input</h3>
+
+    <p>The prompt is shown as it was submitted, grouped by what it was made of: the Slack conversation (the target message, the messages around it, any referenced thread, attachments, channel context), operational memory, conversation memory, related conversations, recalled past episodes, recent changes, and the workspace and prompt controls.</p>
+
+    <p><strong>Every slot renders a row whether or not it was filled.</strong> That is the design. A layer that was included says why. A layer that was absent says why it was absent — and critically, a layer the budget <em>cut</em> is labelled as trimmed, never as “nothing was relevant”. Those are different facts and reading one as the other sends you debugging the wrong thing.</p>
+
+    <p>Each omission carries its own reason, in the words the host used at the time: earlier evidence records were omitted to fit the turn; related conversation summaries were omitted to fit the turn; the referenced transcript was cut back to fit the turn; operator-confirmed memory was omitted to fit the turn. A layer is reported the first time anything is taken from it, not when it reaches empty — a turn that dropped 389 of 400 channel messages and fitted at eleven used to say nothing at all, staying silent for precisely the prompts that lost the most.</p>
+
+    <p>Omissions do not travel forward. When a later attempt extends a manifest, a layer trimmed once would otherwise read as trimmed forever, including on the attempts that carried it in full.</p>
+
+    <h3 id="fingerprints">Replay fingerprints</h3>
+
+    <p>Two SHA-256 digests are recorded on every context manifest: a <strong>prompt replay fingerprint</strong> over the exact submitted bytes, and a <strong>context replay fingerprint</strong> over the assembled context. Alongside them the manifest freezes the prompt version, the contract version, the tool schema version, and the provider, model and reasoning effort that <em>actually</em> answered — after any ladder rotation, not the one that was requested.</p>
+
+    <div class="callout">
+      <p class="lbl">The two-clock prompt</p>
+      <p>The submitted prompt is transport state and expires on the short operational horizon. A sanitized archive copy lives on the much longer episode horizon. Before that second copy existed, only 428 of 1221 manifests still held a prompt, and every one was from the previous two days — the harvest was never limited by a code path, it was limited to yesterday.</p>
+      <p>The trace prefers the submitted bytes. When only the archive remains it labels it <em>Redacted archive</em> and says in as many words that it will not hash to the fingerprint printed below it.</p>
+    </div>
+
+    <h3 id="refusals">Refusals and corrections</h3>
+
+    <p>When the host refuses a model answer, that refusal is a step on the rail like any other: “the result did not fit the required format, so Responder sent a correction back instead of acting on it.” The exact correction text is written to the audit log and shown here.</p>
+
+    <p>Four correction classes: <code>unreadable</code>, <code>incomplete</code>, <code>rejected</code>, and <code>shape</code>. The last is the only one that posts on a second attempt rather than blocking the turn — right content, wrong form.</p>
+
+    <h3 id="measurement">Measurement, and the refusal to guess</h3>
+
+    <p>Two habits run through every number on this UI.</p>
+
+    <p><strong>Measured and zero are different.</strong> Usage and latency both carry an explicit “was this recorded?” flag, so nobody ever renders an unmeasured turn as free or instant — down to the trend, where a day of unmeasured attempts gets its own mark rather than a missing bar.</p>
+
+    <p><strong>Wall clock is three spans, not one duration.</strong> Queued is Coop holding a turn before a provider picked it up. Provider is the provider working. Host is Responder not yet having noticed the turn finished, because it polls — that gap is real, is nobody else’s, and is the one span this codebase can fix on its own. Provider time is deliberately <em>not</em> split into inference and tool calls, because the underlying record does not hold that split, and an invented split in a latency report is a guess wearing a measurement’s clothes.</p>
+
+    <p>Cost follows the same rule. Provider-reported amounts are shown directly and never re-priced. An optional local price table fills in providers that report tokens but no money — and a model with no rate reports <em>no estimate</em>, never a zero that reads as “free”. Reported and estimated are printed on separate lines and never summed.</p>
+
+    <p>Panels that are not wired to anything say so, in a designed marker that states both why it is empty and what would fill it. It never renders a zero, and never an estimate dressed as a measurement.</p>
+
+    <h2 id="decisions">The decisions queue</h2>
+
+    <p>This is where the product improves on the record.</p>
+
+    <p>Every host refusal queues a <strong>fixture candidate</strong> — the host has already decided the model was wrong and said why, so the label is free. Candidates carry the episode, the run, the capability, the correction class and the correction text, and they expire after fourteen days if nobody looks.</p>
+
+    <p>You keep or discard each one, here or from App Home. A kept candidate is promoted into the regression corpus at <code>testdata/eval/regressions.jsonl</code>, inside whichever configured repository already contains that file — deliberately not a configurable path, which makes it impossible to point auto-promotion at the wrong tree.</p>
+
+    <p>Promotion runs on the maintenance lane, bounded to a small number per week, because the manual step is the one that stopped happening. Before anything is appended, the whole corpus is re-parsed with the new fixture in place; one that would not decode, or whose name is taken, is held in quarantine and surfaced here rather than retried into a corrupt file.</p>
+
+    <p>The result is the property the whole project rests on: a real production failure becomes a recorded real model answer that replays offline, with no credentials and no model call, on every commit.</p>
+
+    <p>The Decisions page also carries the watch decisions themselves — what Responder chose to do with each message, its attention scores, and the reason it recorded — plus correction rates, judged evaluation results, feedback, and the model audition panel.</p>
+
+    <div class="callout">
+      <p class="lbl">Why the audition panel has two halves that never join</p>
+      <p>One half is live traffic: provider, model, effort, usage, corrections, cost. The other is recorded evaluation: gate-pass rate, judge mean, case count. Evaluation results record no provider and no model, and live traffic has no gate to pass. A grid keyed by both would be inventing an attribution neither source holds, so the two are shown side by side and left alone.</p>
+    </div>
+
+    <h2 id="findings">Findings</h2>
+
+    <p>A <strong>finding</strong> is a proposed defect in Responder itself, not in your infrastructure. A read-only assessor reads terminal episodes out of process and proposes one; a second, independent read-only reviewer then tries to disprove it. Both verdicts are shown.</p>
+
+    <p>That challenger is not decoration. In its first week it overturned 23 of 83 proposals. A page that showed only the assessor would have shown a 28% false-positive rate as a to-do list.</p>
+
+    <p>Each finding carries a verdict, a disposition, a severity, what was expected, the evidence, the components involved, and whether it is a regression. Findings and their transcripts expire together on a configurable horizon. A companion report lists every confirmed finding whose suggested regression test does not yet exist, so the backlog is a number that can reach zero rather than one that drifts.</p>
+
+    <p>There is an experimental automatic fixer, and it is off by default because it did not work: of 84 proposed defects, the challenger rejected 23, 48 of the remaining 59 failed the full gate across 81 distinct broken tests, 10 of the 11 survivors were rejected by the final reviewer, and the single approved patch failed to install. Nothing landed. That outcome is recorded rather than quietly deleted, which is the same standard the product holds itself to everywhere else.</p>
+
+    <h2 id="review">The review ledger</h2>
+
+    <p>Separate from findings, a daily pass reviews how individual episodes <em>ended</em>. Its ledger carries two independent flags rather than one status, because an episode whose ending moved after it was reviewed is simultaneously reviewed — of an ending that no longer exists — and awaiting review. Collapsing those into one state would lose the only interesting case. Work still running is neither.</p>
+
+    <h2 id="audit">Audit</h2>
+
+    <p>The audit page answers who did what, and what came of it. Denied and privileged actions, correction events, memory reviews, publications, discards.</p>
+
+    <p>One detail is a good example of the house style: the actor column names a <em>kind</em> — a person, an app, the host, this dashboard — beside the raw Slack ID. There is no user directory, and inventing a display name would be worse than showing the ID.</p>
+
+    <p>Audit runs on its own retention horizon, which is never shorter than the episode horizon and can be configured far longer. Forgotten memory values are not copied into audit state; only the entry ID, scope, predicate, actor and outcome are kept, with replacement history stored as hashes.</p>
+
+    <h2 id="failures">Failures and workspaces</h2>
+
+    <p>The Failures page lists terminal work with its retained error and whether it can be retried. A retry puts the run back to pending with a <em>fresh</em> Coop idempotency key and reopens its episode. Only the latest attempt qualifies — a superseded run names the attempt that replaced it instead of offering a button the store would refuse.</p>
+
+    <p>The Workspaces page mirrors the Slack admission gate exactly: publish and discard call the identical service handlers the Slack buttons call, including the Coop review, the verified discard plan, the audit record and the Slack notice. Closed work refuses to publish here too. A session with no work record says plainly that no safe discard path exists for it yet, rather than inventing one.</p>
+
+    <h2 id="non-goals">What it will not become</h2>
+
+    <ul>
+      <li>Multiple users, accounts, or roles.</li>
+      <li>Editing prompts or policies in the browser. Those are code and config, reviewed in git.</li>
+      <li>Anything that mutates infrastructure. Emisar remains the only path.</li>
+      <li>A replacement for the Slack App Home.</li>
+      <li>Public exposure. Binding it even to a private network was considered and rejected: tagged service devices would then reach production episode content, evidence, and prompts.</li>
+    </ul>
+
+    <p>One last detail that tells you what kind of surface this is: the schema version it shows is read from the database, not from a constant in the binary — so the page reports the schema actually in use rather than the one this build expects. Those differ exactly when something is wrong.</p>
+
+    <nav class="doc-next" aria-label="Page navigation">
+      <a href="memory.html"><span class="k">Previous</span><span class="t">← Memory and recall</span></a>
+      <a class="next" href="operations.html"><span class="k">Next</span><span class="t">Running it →</span></a>
+    </nav>
+  </main>
+
+  <nav class="toc" aria-label="On this page">
+    <p class="lbl">On this page</p>
+    <ul>
+      <li><a href="#what">What it is</a></li>
+      <li><a href="#pages">The pages</a></li>
+      <li><a href="#trace">An episode trace</a></li>
+      <li><a href="#fingerprints">Replay fingerprints</a></li>
+      <li><a href="#refusals">Refusals and corrections</a></li>
+      <li><a href="#measurement">Measurement, and the refusal to guess</a></li>
+      <li><a href="#decisions">The decisions queue</a></li>
+      <li><a href="#findings">Findings</a></li>
+      <li><a href="#review">The review ledger</a></li>
+      <li><a href="#audit">Audit</a></li>
+      <li><a href="#failures">Failures and workspaces</a></li>
+      <li><a href="#non-goals">What it will not become</a></li>
+    </ul>
+  </nav>
+
+</div>
+</div>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span class="state"><span class="dot good"></span>Responder</span>
+    <span class="sep">·</span>
+    <span>design-partner preview</span>
+    <nav aria-label="Footer">
+      <a href="index.html">Docs</a>
+      <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+      <a href="https://github.com/AndrewDryga/responder/blob/main/SECURITY.md">Security</a>
+    </nav>
+  </div>
+  <div class="wrap foot-sub">
+    <a href="https://github.com/AndrewDryga/responder/blob/main/LICENSE">MIT license</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/AndrewDryga/responder/releases">Releases</a>
+  </div>
+</footer>
+
+<script src="../assets/site.js" defer></script>
+</body>
+</html>

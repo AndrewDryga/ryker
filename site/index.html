@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Responder — the first responder that shows its work</title>
+<meta name="description" content="Responder is an AI teammate for on-call and infrastructure teams. It lives in Slack, watches your alerts, and investigates with real evidence. Every claim names its source. Every risky action asks a person first.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="wordmark" href="index.html">
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false">
+        <rect width="14" height="14" rx="4" fill="#36e6a5"></rect>
+      </svg>
+      Responder
+    </a>
+
+    <nav class="nav-links" aria-label="Main">
+      <a href="#how">How it works</a>
+      <a href="#trust">Trust</a>
+      <a href="docs/index.html">Docs</a>
+      <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+    </nav>
+
+    <details class="nav-menu">
+      <summary aria-label="Menu">Menu</summary>
+      <div class="nav-drawer">
+        <a href="#how">How it works</a>
+        <a href="#trust">Trust</a>
+        <a href="docs/index.html">Docs</a>
+        <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+      </div>
+    </details>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- Hero ---------------------------------------------------------------- -->
+  <section class="hero">
+    <div class="wrap hero-in">
+      <div class="hero-say">
+        <p class="hero-eyebrow"><span>AI SRE</span> <span><i>·&#160;</i>Slack-native</span> <span><i>·&#160;</i>self-hosted</span> <span><i>·&#160;</i>design-partner preview</span></p>
+
+        <h1 class="display">The first responder that shows its work.</h1>
+
+        <p class="hero-sub">Responder is an AI teammate for on-call and infrastructure teams. It lives in Slack, watches your alerts, and investigates with real evidence. <strong>Every claim names its source. Every risky action asks a person first.</strong></p>
+
+        <div class="btn-row">
+          <a class="btn go" href="docs/index.html">Read the docs</a>
+          <a class="btn" href="https://github.com/AndrewDryga/responder">View on GitHub</a>
+        </div>
+      </div>
+
+      <!-- The signature surface. Built from the same parts an episode is
+           built from, so nothing here can be true on the site and false in
+           the product. It is the live moment of one incident — 14:03, two
+           minutes after the alert — and the Slack mock in step 01 is the
+           same moment. The assessment in step 03 is the same episode after
+           the alert cleared, at 14:18. One incident, three clocks. -->
+      <figure class="vignette" aria-labelledby="vig-cap">
+        <figcaption id="vig-cap" class="vh">An episode trace, live at 14:03: an alert arrives, four evidence rows are recorded with their sources and observation times, and a verdict is returned.</figcaption>
+
+        <div class="vig-head" aria-hidden="true">
+          <span class="pill warn">episode</span>
+          <span class="who">ep_4c8a11e0</span>
+          <span>#ops-payments</span>
+          <span class="right"><span>attempt 1</span><span>·</span><span>41s</span><span>·</span><time datetime="2026-08-15T14:03:02Z">14:03:02Z</time></span>
+        </div>
+
+        <div class="vig-body stagger" aria-hidden="true">
+          <div class="vig-alert">
+            <span class="dot bad"></span>
+            <span class="txt">
+              <b>Checkout p99 latency above 800&#8202;ms for 5 minutes</b>
+              <span>grafana · fingerprint 9b2e4c71 · firing 14:01:38Z</span>
+            </span>
+          </div>
+
+          <p class="vig-label">Evidence</p>
+
+          <div class="vig-rows">
+            <div class="vig-row">
+              <span class="dot good"></span>
+              <span class="claim">checkout reports 6 of 6 replicas ready</span>
+              <span class="src"><em>emisar</em> <time datetime="2026-08-15T14:02:11Z">14:02:11Z</time></span>
+            </div>
+            <div class="vig-row">
+              <span class="dot idle"></span>
+              <span class="claim">release 4f21c9 rolled out 11 minutes before the alert</span>
+              <span class="src"><em>change ledger</em> <time datetime="2026-08-15T13:51:04Z">13:51:04Z</time></span>
+            </div>
+            <div class="vig-row">
+              <span class="dot good"></span>
+              <span class="claim">error rate is 0.2%, down from a 3.1% peak at 13:58</span>
+              <span class="src"><em>grafana</em> <time datetime="2026-08-15T14:02:09Z">14:02:09Z</time></span>
+            </div>
+            <div class="vig-row">
+              <span class="dot idle"></span>
+              <span class="claim">upstream gateway latency — no authorized source, not checked</span>
+              <span class="src"><em>unverified</em> <span>—</span></span>
+            </div>
+          </div>
+
+          <div class="vig-verdict warn">
+            <span class="dot warn"></span>
+            <span>
+              <p><b>Degraded, recovering</b> — error rate 0.2% and falling, release 4f21c9 implicated.</p>
+              <span class="then">not verified · upstream gateway latency · said here rather than assumed</span>
+            </span>
+          </div>
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <!-- Credo --------------------------------------------------------------- -->
+  <section class="credo">
+    <div class="wrap">
+      <p>It would rather say <span class="said">“I could not verify this”</span> than&#160;guess.</p>
+    </div>
+  </section>
+
+  <!-- Pillars ------------------------------------------------------------- -->
+  <section class="band" aria-labelledby="pillars-h">
+    <div class="wrap">
+      <h2 id="pillars-h" class="vh">What Responder is built on</h2>
+      <div class="pillars">
+
+        <article class="pillar">
+          <span class="n">01</span>
+          <h3>Answers built from evidence</h3>
+          <p>Every answer is assembled from recorded observations: what was checked, where, and when. If Responder cannot verify a claim, it says so plainly instead of guessing.</p>
+        </article>
+
+        <article class="pillar">
+          <span class="n">02</span>
+          <h3>Power only with permission</h3>
+          <p>There is no production shell. Responder discovers typed actions from a trusted catalog. Policy decides what runs and what waits for a person. Every action is audited. It cannot merge, deploy, or skip an approval.</p>
+        </article>
+
+        <article class="pillar">
+          <span class="n">03</span>
+          <h3>An AI held to a standard</h3>
+          <p>The host checks every model answer against hard rules before anyone sees it. Weak answers are refused and corrected. Real failures become permanent tests. It gets better, on&#160;the&#160;record.</p>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -------------------------------------------------------- -->
+  <section class="band" id="how" aria-labelledby="how-h">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">How it works</p>
+        <h2 id="how-h">Four things happen, in this order, every time.</h2>
+        <p>There is no other path. A scheduled check, a webhook, and a question typed at 3am all become the same kind of work, with the same record behind it.</p>
+      </div>
+
+      <div class="steps">
+
+        <!-- 1 -->
+        <article class="step">
+          <div class="step-text">
+            <p class="step-num">Step 01</p>
+            <h3>It watches</h3>
+            <p>Responder joins your alert and ops channels. It knows when to stay silent, when one emoji is enough, when to answer, and when an alert deserves an incident room.</p>
+          </div>
+
+          <div class="mock" aria-hidden="true">
+            <div class="mock-head"><span class="dot warn"></span><span>#ops-payments</span><span class="right">watching · 14:03</span></div>
+            <div class="mock-body">
+              <div class="msg">
+                <span class="av">AT</span>
+                <span>
+                  <span class="nm">Ana Torres <time>13:49</time></span>
+                  <span class="tx">shipping the coupon fix in a minute</span>
+                  <span class="rx"><span class="dot idle"></span>ignored · routine</span>
+                </span>
+              </div>
+              <div class="msg">
+                <span class="av">PR</span>
+                <span>
+                  <span class="nm">Priya Rao <time>14:02</time></span>
+                  <span class="tx">is checkout ok? I’m seeing 500s from the app</span>
+                  <span class="rx"><span class="dot warn"></span>reacted · looking into it</span>
+                </span>
+              </div>
+              <div class="msg bot">
+                <span class="av">R</span>
+                <span>
+                  <span class="nm">Responder <span class="bt">app</span> <time>14:03</time></span>
+                  <span class="tx"><b>Degraded, recovering.</b> Error rate peaked at 3.1% and is back to 0.2%. Release 4f21c9 went out 11 minutes before the alert.</span>
+                </span>
+              </div>
+            </div>
+            <p class="mock-note"><span class="tag">ignore · react · reply · incident</span> <span class="note">one rung, per message</span></p>
+          </div>
+        </article>
+
+        <!-- 2 -->
+        <article class="step flip">
+          <div class="step-text">
+            <p class="step-num">Step 02</p>
+            <h3>It investigates</h3>
+            <p>It reads the topology declared in your repositories and checks it against live evidence: hosts, workloads, dependencies, application behavior, and impact. Layer by layer.</p>
+          </div>
+
+          <div class="mock" aria-hidden="true">
+            <div class="mock-head"><span class="dot good"></span><span>coverage</span><span class="right">7 layers · 1 unverified</span></div>
+            <div class="mock-body">
+              <div class="layers">
+                <div class="layer">
+                  <span class="dot good"></span><span class="nm">change</span>
+                  <span class="tx">one release in the last 6 hours: 4f21c9</span><span class="st">ledger</span>
+                </div>
+                <div class="layer">
+                  <span class="dot good"></span><span class="nm">host</span>
+                  <span class="tx">3 nodes ready, no pressure conditions</span><span class="st">emisar</span>
+                </div>
+                <div class="layer">
+                  <span class="dot good"></span><span class="nm">runtime</span>
+                  <span class="tx">container runtime healthy on all nodes</span><span class="st">emisar</span>
+                </div>
+                <div class="layer">
+                  <span class="dot good"></span><span class="nm">workload</span>
+                  <span class="tx">6 of 6 replicas ready, 0 restarts in 1h</span><span class="st">emisar</span>
+                </div>
+                <div class="layer unverified">
+                  <span class="dot idle"></span><span class="nm">dependency</span>
+                  <span class="tx">upstream gateway — no authorized source</span><span class="st">unverified</span>
+                </div>
+                <div class="layer">
+                  <span class="dot good"></span><span class="nm">application</span>
+                  <span class="tx">error rate 0.2%, p99 back under 400&#8202;ms</span><span class="st">grafana</span>
+                </div>
+                <div class="layer">
+                  <span class="dot good"></span><span class="nm">impact</span>
+                  <span class="tx">checkout completing; no failed orders since 14:00</span><span class="st">grafana</span>
+                </div>
+              </div>
+            </div>
+            <p class="mock-note"><span class="tag">rule</span> <span class="note">missing evidence alone is not degradation</span></p>
+          </div>
+        </article>
+
+        <!-- 3 -->
+        <article class="step">
+          <div class="step-text">
+            <p class="step-num">Step 03</p>
+            <h3>It answers</h3>
+            <p>The verdict comes first — healthy, degraded, or unhealthy — then what it means, the evidence behind it, and the next useful step. Missing evidence is named, never papered over.</p>
+          </div>
+
+          <div class="mock" aria-hidden="true">
+            <div class="mock-head"><span class="dot good"></span><span>assessment</span><span class="right">after clear · 14:18</span></div>
+            <div class="mock-body">
+              <div class="verdict-mock">
+                <div class="verdict-head">
+                  <span class="dot good"></span>
+                  <b>Healthy</b>
+                  <span class="tag">3 sources · 0 stale</span>
+                </div>
+                <dl>
+                  <div class="vfield"><dt>Impact</dt><dd>None now. About 40 checkouts failed between 13:58 and 14:00.</dd></div>
+                  <div class="vfield"><dt>Cause</dt><dd>Release 4f21c9 shipped a slow coupon lookup. It warmed after 2 minutes.</dd></div>
+                  <div class="vfield"><dt>Do now</dt><dd>Nothing. The alert cleared on its own.</dd></div>
+                  <div class="vfield"><dt>Verify</dt><dd>Watch p99 through the next coupon batch at 15:00.</dd></div>
+                  <div class="vfield"><dt>Long term</dt><dd>Cache the coupon lookup, or precompute it at deploy.</dd></div>
+                  <div class="vfield"><dt>Unverified</dt><dd><em>Upstream gateway latency. No authorized source for it.</em></dd></div>
+                </dl>
+                <!-- The header tag claims three sources and none stale. This
+                     is that claim's receipt: the three it read, and when. -->
+                <p class="vsrc">emisar <i>·</i> change ledger <i>·</i> grafana <span>re-read 14:17, none stale</span></p>
+              </div>
+            </div>
+            <p class="mock-note"><span class="tag">refused twice</span> <span class="note">the first answer named a cause with no evidence row behind it</span></p>
+          </div>
+        </article>
+
+        <!-- 4 -->
+        <article class="step flip">
+          <div class="step-text">
+            <p class="step-num">Step 04</p>
+            <h3>It remembers</h3>
+            <p>It recalls how similar incidents ended, what deployed recently, and what your team told it. Always as history to check. Never as proof.</p>
+          </div>
+
+          <div class="mock" aria-hidden="true">
+            <div class="mock-head"><span class="dot good"></span><span>recall</span><span class="right">history to check</span></div>
+            <div class="mock-body">
+              <div class="mem">
+                <div class="mem-row">
+                  <span class="dot idle"></span>
+                  <span>
+                    <span class="k">past episode · 2 of 3</span>
+                    <span class="v">Same alert group on 12 Jun. Resolved by a coupon-cache rollback. <i>closed · not current state</i></span>
+                  </span>
+                </div>
+                <div class="mem-row">
+                  <span class="dot idle"></span>
+                  <span>
+                    <span class="k">change ledger</span>
+                    <span class="v">release 4f21c9 · 13:51Z · payments <i>correlation to check</i></span>
+                  </span>
+                </div>
+                <div class="mem-row">
+                  <span class="dot good"></span>
+                  <span>
+                    <span class="k">confirmed preference</span>
+                    <span class="v">response_detail = concise <i>channel · expires in 78 days</i></span>
+                  </span>
+                </div>
+                <div class="mem-row">
+                  <span class="dot good"></span>
+                  <span>
+                    <span class="k">standing rule</span>
+                    <span class="v">deployment → verify_deployment <i>read-only · this channel</i></span>
+                  </span>
+                </div>
+              </div>
+            </div>
+            <p class="mock-note"><span class="tag">boundary</span> <span class="note">memory advises. It never authorizes.</span></p>
+          </div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Features ------------------------------------------------------------ -->
+  <section class="band" id="features" aria-labelledby="features-h">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Surfaces</p>
+        <h2 id="features-h">Six places it lives</h2>
+        <p>One product, six surfaces — and one record behind all of them.</p>
+      </div>
+
+      <div class="cards">
+        <article class="card">
+          <p class="tag">slack</p>
+          <h3>Slack</h3>
+          <p>Questions answered in place, alerts triaged, silence when silence is right.</p>
+        </article>
+        <article class="card">
+          <p class="tag">rooms</p>
+          <h3>Incident rooms</h3>
+          <p>One channel, one pinned card, one timeline per incident.</p>
+        </article>
+        <article class="card">
+          <p class="tag">control-plane</p>
+          <h3>The control plane</h3>
+          <p>Every episode, every trace, every refusal — on a page you host.</p>
+        </article>
+        <article class="card">
+          <p class="tag">forks</p>
+          <h3>Isolated forks</h3>
+          <p>Engineering work lands as a reviewed draft PR. A person merges.</p>
+        </article>
+        <article class="card">
+          <p class="tag">emisar</p>
+          <h3>Emisar</h3>
+          <p>Typed actions, owned approvals, an audit trail that outlives the work.</p>
+        </article>
+        <article class="card">
+          <p class="tag">memory</p>
+          <h3>Memory</h3>
+          <p>Recall, the change ledger, confirmed preferences — advice, never authority.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Capability index ----------------------------------------------------- -->
+  <section class="band" id="capabilities" aria-labelledby="cap-h">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">The index</p>
+        <h2 id="cap-h">Everything Responder does</h2>
+        <p>One honest line each. Nothing here is a roadmap item; if it is listed, it is in the binary you can clone today.</p>
+      </div>
+
+      <div class="index-groups">
+
+        <section class="index-group">
+          <header>
+            <h3>In Slack <span class="n">— 16</span></h3>
+            <p>The whole surface an on-call engineer touches.</p>
+          </header>
+          <ul class="index-list">
+            <li><span><b>Mention answers in place.</b> Ask in a channel or thread; the answer lands there, with no incident created.</span></li>
+            <li><span><b>Thread-aware reads.</b> The thread root, the replies nearest the message, and the channel above the thread.</span></li>
+            <li><span><b>The watch ladder.</b> Ignore, react, reply, incident — one rung chosen per message, with separate thresholds.</span></li>
+            <li><span><b>Alert triage with typed assessments.</b> Verdict, impact, cause, immediate action, verification, and long-term fix.</span></li>
+            <li><span><b>Incident rooms.</b> One channel per occurrence, private by default, with a pinned investigation card that updates in place.</span></li>
+            <li><span><b>Engineering tasks in isolated forks.</b> A “Start task” button turns a request into writable work in the same thread.</span></li>
+            <li><span><b>Host-rendered records.</b> Timeline, evidence, handoff, and postmortem, derived from stored facts rather than prose.</span></li>
+            <li><span><b>Delta updates on repeat alerts.</b> A reply about a still-firing alert is held to what changes the decision, not the whole story again.</span></li>
+            <li><span><b>Closure for cleared alerts.</b> A short close that links the alert it closes. Nothing at all for noise.</span></li>
+            <li><span><b>Guided channel setup.</b> One-click safe defaults, or four questions covering listening, repository, alerts, and audience.</span></li>
+            <li><span><b>App Home and the agent view.</b> Open work, incidents, memory, and suggested prompts, without typing a command.</span></li>
+            <li><span><b>A message shortcut.</b> “Investigate message” runs a read-only investigation even where listening is off.</span></li>
+            <li><span><b>The <code>/responder</code> recovery command.</b> Status, proactive, shadow, assignments, help — what has to work when nothing else does.</span></li>
+            <li><span><b>Reactions as acknowledgement.</b> One emoji when a reply would be noise but silence would be rude.</span></li>
+            <li><span><b>Charts and visuals on request.</b> Bounded, evidence-backed images returned into the same conversation.</span></li>
+            <li><span><b>Feedback capture.</b> React to a reply, or just say what was wrong. It is stored for review and never fed back into a prompt.</span></li>
+          </ul>
+        </section>
+
+        <section class="index-group">
+          <header>
+            <h3>Investigation and memory <span class="n">— 12</span></h3>
+            <p>What it knows, where it got it, and how long that is good for.</p>
+          </header>
+          <ul class="index-list">
+            <li><span><b>An evidence ledger.</b> Each row carries its claim, source, observation time, freshness, and confidence.</span></li>
+            <li><span><b>Supersession.</b> A newer observation replaces an older one on the record instead of quietly overwriting it.</span></li>
+            <li><span><b>Layered coverage.</b> Host, runtime, workload, dependency, application, and impact — each reported separately.</span></li>
+            <li><span><b>Recall of resolved past episodes.</b> Up to three, ranked by alert group, shared services, and symptom overlap.</span></li>
+            <li><span><b>A change ledger.</b> Deploys, merges, and applies inside the change window, offered as correlation to check.</span></li>
+            <li><span><b>Thread and channel conversation memory.</b> Purpose, goal, open loops, decisions, and unresolved questions.</span></li>
+            <li><span><b>Related-conversation summaries.</b> Continuity across channels, with private rooms held behind a membership proof.</span></li>
+            <li><span><b>Contradiction handling.</b> When two sources disagree, it quotes both rather than picking the convenient one.</span></li>
+            <li><span><b>Operator-confirmed preferences.</b> Typed defaults such as check depth and reply detail, resolved by scope.</span></li>
+            <li><span><b>Standing read-only rules.</b> Typed channel subscriptions that show exact scope, expiry, and safety boundary before saving.</span></li>
+            <li><span><b>A memory review queue.</b> Keep, merge, or forget. Nothing edits confirmed memory silently.</span></li>
+            <li><span><b>Session rotation that carries memory.</b> A long-running channel starts a fresh session without losing its summary.</span></li>
+          </ul>
+        </section>
+
+        <section class="index-group">
+          <header>
+            <h3>Governed action <span class="n">— 10</span></h3>
+            <p>The parts that can change something, and the gates in front of them.</p>
+          </header>
+          <ul class="index-list">
+            <li><span><b>Typed Emisar actions.</b> Discovered from trusted catalogs. No free-form command ever reaches a host.</span></li>
+            <li><span><b>Re-validation at the edge.</b> An outbound-only runner re-checks action, arguments, limits, and pack hash on the target.</span></li>
+            <li><span><b>Approvals owned and audited.</b> Slack shows a link to the exact pending request; the decision is made in Emisar.</span></li>
+            <li><span><b>Runbook drafts.</b> A verified fix can be offered to Emisar as an unpublished runbook draft. Emisar decides if it is ever published.</span></li>
+            <li><span><b>Grant promotions.</b> One rung at a time, earned by verified successes the host counts itself.</span></li>
+            <li><span><b>Standing assignments.</b> Five change classes, a daily budget, an expiry — and shadow only, for now.</span></li>
+            <li><span><b>Schedules.</b> Recurring and one-time checks that produce full episodes, in your timezone, never overlapping.</span></li>
+            <li><span><b>Waits on external events.</b> CI checks, deployments, Terraform runs, and approvals, with durable wakeups.</span></li>
+            <li><span><b>Draft-PR publication.</b> The pushed tree must match the reviewed tree exactly, or it is not published.</span></li>
+            <li><span><b>Verified discard plans.</b> Cleanup touches only sessions Responder recorded, and never dirty or unpublished work.</span></li>
+          </ul>
+        </section>
+
+        <section class="index-group">
+          <header>
+            <h3>Platform and trust <span class="n">— 13</span></h3>
+            <p>What you run, and what you can check afterwards.</p>
+          </header>
+          <ul class="index-list">
+            <li><span><b>An episode kernel.</b> Attempts, goals, context manifests, and replay fingerprints, on one append-only stream.</span></li>
+            <li><span><b>A full-trace control plane.</b> The exact model input, every context layer with its why and why-not, and every trim.</span></li>
+            <li><span><b>Refusals on the record.</b> When the host rejects an answer, the rejection and the exact correction sent are both kept.</span></li>
+            <li><span><b>Corrections become fixtures.</b> A kept correction turns into a permanent regression test that replays with no model.</span></li>
+            <li><span><b>Decisions and findings queues.</b> The work the machine owes a human, in one list, with the evidence attached.</span></li>
+            <li><span><b>Model routing profiles.</b> Bring your own model through Coop, with an escalation ladder across providers.</span></li>
+            <li><span><b>One Go binary, one SQLite file.</b> No cluster, no broker, no second datastore.</span></li>
+            <li><span><b>Slack socket mode.</b> No inbound ports required. The service listens on loopback.</span></li>
+            <li><span><b>Bounded webhooks.</b> Grafana and mapped JSON, size-capped, authenticated, deduplicated by delivery identity.</span></li>
+            <li><span><b>Automatic repository mirrors.</b> Declared by slug, kept current in the background, and never modified.</span></li>
+            <li><span><b>Restart-safe.</b> It parks between turns, resumes the same conversation, and survives a process restart.</span></li>
+            <li><span><b>Retention with a long tail.</b> Message bodies expire in a day; episode history and audit are kept far longer.</span></li>
+            <li><span><b>A watchdog.</b> Because the failure no test catches is the one where the machine simply stopped.</span></li>
+          </ul>
+        </section>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Trust ---------------------------------------------------------------- -->
+  <section class="band" id="trust" aria-labelledby="trust-h">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Trust</p>
+        <h2 id="trust-h">Built to be doubted</h2>
+        <p>Responder assumes you will check its work — and makes checking easy.</p>
+      </div>
+
+      <div class="trust-grid">
+        <div>
+          <ul class="checks">
+            <li>Every evidence row carries its source and its observed-at time.</li>
+            <li>Every episode keeps its exact model input, fingerprinted for replay.</li>
+            <li>The host refuses answers that break its rules, and shows you the refusal.</li>
+            <li>Silence is a feature: cleared alerts get a short closure, noise gets nothing.</li>
+          </ul>
+        </div>
+
+        <div class="cannot">
+          <h3>What it cannot do</h3>
+          <ul>
+            <li>Merge or deploy</li>
+            <li>Run untyped commands in production</li>
+            <li>Act past its approval</li>
+            <li>Widen its own authority</li>
+            <li>Hide a failed check</li>
+          </ul>
+          <p><strong>These are not missing features.</strong> Each one is a boundary the host enforces, and each one is the reason the rest can be trusted.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Final CTA ------------------------------------------------------------ -->
+  <section class="band cta">
+    <div class="wrap cta-in">
+      <div>
+        <h2>Run it on one host.<br>Point it at one channel.<br><span>Doubt everything it says — it can take it.</span></h2>
+        <div class="btn-row">
+          <a class="btn" href="docs/index.html">Read the docs</a>
+        </div>
+      </div>
+
+      <!-- The real commands, from the repository README. The copy button is
+           added by script; with no script this is still two selectable lines,
+           which is the only reason it is safe to show them here. -->
+      <div class="install">
+        <p class="code-label">install</p>
+        <pre><code><span class="tok-x">git</span> <span class="tok-v">clone https://github.com/AndrewDryga/responder</span>
+<span class="tok-x">cd</span> <span class="tok-v">responder</span> <span class="tok-p">&amp;&amp;</span> <span class="tok-x">make</span> <span class="tok-v">install</span></code></pre>
+        <p class="install-note">One binary in <code>~/.local/bin</code>. A Unix host and Go are all it assumes.</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span class="state"><span class="dot good"></span>Responder</span>
+    <span class="sep">·</span>
+    <span>design-partner preview</span>
+    <nav aria-label="Footer">
+      <a href="docs/index.html">Docs</a>
+      <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+      <a href="https://github.com/AndrewDryga/responder/blob/main/SECURITY.md">Security</a>
+    </nav>
+  </div>
+  <div class="wrap foot-sub">
+    <a href="https://github.com/AndrewDryga/responder/blob/main/LICENSE">MIT license</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/AndrewDryga/responder/releases">Releases</a>
+  </div>
+</footer>
+
+<script src="assets/site.js" defer></script>
+</body>
+</html>

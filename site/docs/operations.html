@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Running it — Responder docs</title>
+<meta name="description" content="Deploys and restarts, retention, backups, webhooks, repository mirrors, routing profiles, offline evals, and the watchdog.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body class="doc-page">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="wordmark" href="../index.html">
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><rect width="14" height="14" rx="4" fill="#36e6a5"></rect></svg>
+      Responder
+    </a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="../index.html#how">How it works</a>
+      <a href="../index.html#trust">Trust</a>
+      <a href="index.html" class="on">Docs</a>
+      <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+    </nav>
+    <details class="nav-menu">
+      <summary aria-label="Menu">Menu</summary>
+      <div class="nav-drawer">
+        <a href="../index.html#how">How it works</a>
+        <a href="../index.html#trust">Trust</a>
+        <a href="index.html">Docs</a>
+        <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+      </div>
+    </details>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="docs">
+
+  <aside class="docs-nav">
+    <details>
+      <summary>Documentation</summary>
+      <div>
+        <nav aria-label="Documentation">
+          <p class="grp">Start</p>
+          <ul>
+            <li><a href="index.html">What Responder is</a></li>
+            <li><a href="getting-started.html">Run it</a></li>
+          </ul>
+          <p class="grp">Using it</p>
+          <ul>
+            <li><a href="slack.html">Working in Slack</a></li>
+            <li><a href="actions.html">Governed action</a></li>
+            <li><a href="memory.html">Memory and recall</a></li>
+          </ul>
+          <p class="grp">Operating it</p>
+          <ul>
+            <li><a href="control-plane.html">The control plane</a></li>
+            <li><a href="operations.html" class="on" aria-current="page">Running it</a></li>
+          </ul>
+        </nav>
+      </div>
+    </details>
+  </aside>
+
+  <main class="doc" id="main">
+    <p class="crumb"><a href="../index.html">Responder</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Running it</span></p>
+
+    <details class="doc-toc">
+      <summary>On this page</summary>
+      <ul>
+        <li><a href="#restarts">Deploys and restarts</a></li>
+        <li><a href="#state">State is one file — back it up</a></li>
+        <li><a href="#retention">Retention</a></li>
+        <li><a href="#webhooks">Webhooks and dedup</a></li>
+        <li><a href="#mirrors">Repository mirrors</a></li>
+        <li><a href="#routing">Routing profiles</a></li>
+        <li><a href="#evals">The eval idea</a></li>
+        <li><a href="#watchdog">The watchdog</a></li>
+        <li><a href="#commands">Day to day</a></li>
+        <li><a href="#capacity">Capacity and limits</a></li>
+      </ul>
+    </details>
+
+    <h1>Running it</h1>
+
+    <p class="lede">Responder is meant to be boring to operate: one process, one file, one lock. This page covers the parts you will actually touch — restarts, backups, retention, and the two mechanisms that tell you when something is wrong.</p>
+
+    <h2 id="restarts">Deploys and restarts</h2>
+
+    <p>Responder parks between turns. A restart converts interrupted leases back into their correct recoverable states, rehydrates approval monitors from the database, and resumes the same agent conversations. Scheduler leases carry random owner tokens, so an expired lease can be reclaimed while the process is running and the stale owner can no longer complete or retry the work that replaced it.</p>
+
+    <p>Waiting costs nothing. An episode waiting on an Emisar approval occupies no Slack conversation lane and no model turn.</p>
+
+    <div class="callout warn">
+      <p class="lbl">Stop it before a migrating upgrade</p>
+      <p>Startup holds the process lock, creates and verifies a pre-migration snapshot, and only then migrates. Two processes racing that would be bad, so a second one exits instead of competing — but stop the running service first anyway.</p>
+    </div>
+
+    <p>With the split systemd units, <code>responder.service</code> requires the Coop unit and starts it first. Only the Coop unit holds the <code>docker</code> group; the Responder process never does. The unit runs <code>doctor</code> as a pre-start check, so a broken configuration fails to start rather than starting and failing quietly.</p>
+
+    <p>For self-deployment there is a three-step chain: build and prove the exact commit, roll one deployment as a canary, then promote the rest — and the promotion only proceeds after confirming the canary is still running the binary it was given. A proof is content-bound; it can never be reused for a different commit or a different binary.</p>
+
+    <p>Release archives are verified <em>cosign first</em>: authenticate the checksum manifest against its signature bundle, then check the sums, then verify build provenance. Comparing checksums against an unauthenticated manifest proves nothing at all.</p>
+
+    <h2 id="state">State is one file — back it up</h2>
+
+    <p>Everything durable lives in one owner-private SQLite database in your state directory: Slack inputs, webhook events, deliveries, agent runs, episodes and their event streams, evidence, coverage, memory, approvals, timelines, evaluation decisions, audit records, and the scheduler’s work index.</p>
+
+    <p>It runs in WAL mode with full synchronous writes, foreign keys on, and exactly one writer connection. One process owns a state directory at a time, enforced by a lock file.</p>
+
+    <p>Before any schema upgrade, Responder writes a verified snapshot into <code>backups/</code>, checks it, and confirms it still carries the <em>source</em> schema version — aborting before migrating if any step fails. It keeps the three newest of its own snapshots. The cleanup glob is deliberately narrow, so a snapshot you took by hand is never collected by it. That also means hand-taken copies are yours to prune.</p>
+
+    <p>For a point-in-time backup: stop Responder, copy the database to a directory Responder does not own — explicitly not <code>backups/</code> — and restart. Coop’s state and its forks are separate. Never restore one side without the other, and run <code>doctor</code>, <code>status</code>, and <code>failures</code> after any recovery.</p>
+
+    <h2 id="retention">Retention</h2>
+
+    <p>Bounded retention removes expired payloads on short horizons and keeps the record on long ones. The defaults:</p>
+
+    <table>
+      <thead><tr><th>Setting</th><th>Default</th><th>What it bounds</th></tr></thead>
+      <tbody>
+        <tr><td><code>operational_data</code></td><td>24h</td><td>Completed Slack inputs, webhook payloads, deliveries, and the assembled prompt context inside finished runs</td></tr>
+        <tr><td><code>closed_work</code></td><td>7d</td><td>Closed incidents and their evidence and coverage</td></tr>
+        <tr><td><code>episode_history</code></td><td>30d</td><td>The episode record: events, attempts, context manifests, claim assessments, goals</td></tr>
+        <tr><td><code>audit_data</code></td><td>30d</td><td>Audit facts for denied and privileged actions</td></tr>
+        <tr><td><code>conversation_memory</code></td><td>90d</td><td>Compact channel and thread summaries, and their rollups</td></tr>
+        <tr><td><code>closed_session_grace</code></td><td>15m</td><td>How long a closed Coop session waits before cleanup considers it</td></tr>
+      </tbody>
+    </table>
+
+    <p>The ordering is <em>validated</em>, not merely documented: each class must be at least as long as the one before it, so operational data cannot outlive closed work, which cannot outlive episode history, which cannot outlive audit. Audit can be configured out to five years. Episode history caps at one, and it exists on that horizon deliberately: a correction queued on day thirteen has to be reviewed against an episode that still exists.</p>
+
+    <p>Some things are simply not deleted, and shortening a horizon does not relax it. No horizon removes an episode that a pending or approved correction, open feedback, a live wakeup, a non-terminal child, an unfinished run, or an open incident still depends on. On the operational horizon, a run a wakeup could still resume from, one the control plane could still retry, or one whose answer somebody reacted positively to is also protected — a praised reply is only an example of good behavior while the question that produced it is still beside it.</p>
+
+    <p>Maintenance checkpoints the write-ahead log and optimizes the database after pruning.</p>
+
+    <h2 id="webhooks">Webhooks and dedup</h2>
+
+    <p>Routes accept POSTs of JSON under a size cap, on loopback, published through your proxy. Two auth modes: a bearer token, or an HMAC signature over the timestamp, the event ID, and the raw body within a five-minute window. Every secret is at least 16 bytes.</p>
+
+    <p>Delivery identity is the <code>X-Responder-Event-ID</code> header when you send one, and a digest of the body when you do not. The body digest is stored either way. Reusing an event ID with <em>different</em> content returns <code>409</code> rather than silently accepting one of the two.</p>
+
+    <p>That identity is derived before normalization on purpose. It is the identity the signature binds, and a change route takes its ledger identity from it — so a redelivery records one change, and a replay under a new event ID fails the signature.</p>
+
+    <p>Grafana routes read fingerprints and group keys natively. Generic routes use small dot-path mappings, with no jq, CEL, templates, or scripting of any kind. A change route’s kind must be inside the closed vocabulary; a value outside it is rejected with a <code>400</code> rather than quietly recorded as a deploy, because a mapping typo should stop where you can see it.</p>
+
+    <p>Socket Mode does not replay events from while you were offline, so there is a bounded startup catch-up window — 15 minutes by default, up to 24 hours, and zero to disable. It re-reads app notifications only. Human conversation is never replayed by catch-up.</p>
+
+    <h2 id="mirrors">Repository mirrors</h2>
+
+    <p>Declare a repository by slug and Responder owns the clone. It lives under your state directory, keyed by owner and name, and there is exactly one place in the product that constructs that path.</p>
+
+    <p>The maintenance lane fetches and fast-forwards every managed clone on an interval that defaults to fifteen minutes. It <strong>never modifies the work tree</strong>. A turn whose clone has lapsed pays for a bounded fetch before its session forks.</p>
+
+    <p>A fetch that fails degrades to <em>recorded staleness</em> rather than blocking a turn: every context manifest records the revision and when it was last fetched, so “how old was the code the model read” has an answer. Failures show up in <code>doctor</code> and as a gauge on <code>/metrics</code>, named to say what it means — the clones whose evidence is stale, not whose work is stalled.</p>
+
+    <h2 id="routing">Routing profiles</h2>
+
+    <p>A Coop session policy names one target, or an ordered ladder of up to four that may cross providers. When a session is rate-limited, Coop rotates to the next rung that is not cooling and re-delivers the same turn itself, so Responder sees an ordinary completion on a different model. A rate limit is not a failure and never spends an attempt.</p>
+
+    <p>Crossing providers drops the model’s own in-session history. That costs its prior reasoning and nothing the run depends on, because Responder restates durable context in every prompt. Only when every rung is cooling does the turn fail as rate-limited, and it then waits on the reported reset instant, re-checking at least every half hour.</p>
+
+    <p>Four execution profiles let one repository route its lanes at different policies:</p>
+
+    <dl>
+      <div><dt><code>chat</code></dt><dd>Conversation and small focused checks addressed to Responder.</dd></div>
+      <div><dt><code>investigate</code></dt><dd>Deep read-only operational work with tools.</dd></div>
+      <div><dt><code>engineer</code></dt><dd>Writable repository work in an isolated fork.</dd></div>
+      <div><dt><code>watch</code></dt><dd>The attention decision on a message nobody addressed to Responder.</dd></div>
+    </dl>
+
+    <p>Responder decides which profile a turn asks for <em>before</em> any model runs, and records it on the manifest beside the model that actually answered. A profile names a policy and nothing else — the ladder, the reasoning effort and the budget stay in the owner-private policy file, and a profile can never widen authority. Omitting the block entirely behaves exactly like a deployment from before profiles existed. Move one lane at a time and check the split on the Usage page before moving the next.</p>
+
+    <p>There is deliberately no Slack command that changes a provider account or a model policy.</p>
+
+    <h2 id="evals">The eval idea</h2>
+
+    <p>The rule underneath all of this: <strong>no test in the fast gate may call a model.</strong></p>
+
+    <p>Almost every defect in a system like this is the host mishandling a well-formed answer — suppression rebuilding a reply it had just cleared, a conflict response read as “this work is finished”, a whole result discarded because a confidence field held a number instead of a word. None of those need a model to reproduce. They need the exact answer that broke production, and that answer is already on disk.</p>
+
+    <p>So there are two kinds of check, and knowing which one you need is the diagnosis:</p>
+
+    <dl>
+      <div><dt>The host mishandled a valid answer</dt><dd>An ordinary Go test beside the code, plus a recorded fixture. Deterministic, offline, no credentials, about a second. This runs on every commit.</dd></div>
+      <div><dt>The model produced an unusable answer</dt><dd>A prompt problem, and no amount of host testing fixes it. That needs the real-model evaluation, and it is run when prompts, contracts, or operation schemas change.</dd></div>
+    </dl>
+
+    <p>The offline replay is the day-to-day gate: recorded real answers pushed through the strict production parsers, so a prompt, model or schema change fails the build when it breaks an accepted contract. A broader deterministic gate adds the customer journeys with fake Slack, Coop, Emisar and GitHub boundaries — it uses no credentials, calls no model, creates no channels, and touches no infrastructure.</p>
+
+    <p>The real-model evaluation is the other half. Each case runs through its own isolated Coop session using the production prompts and tool configuration, and the workspace is discarded only after Coop proves it is clean — a dirty workspace fails the case and keeps the session. Results are recorded, so a release can say whether answers are <em>improving</em>, not merely that a gate passed.</p>
+
+    <p>Two things about that corpus are worth copying if you build something similar. Cases are compared by name: a case the baseline does not know is not a regression, but a case the baseline knows that has gone missing is a failure — deleting a fixture must not be a way to make its regression disappear. And there are two separate regression knobs, a pass rate and a judge score, because a judge’s five-point scale is not a rate and one knob for both would be useless for one of them.</p>
+
+    <div class="callout good">
+      <p class="lbl">Fixtures are harvested, never invented</p>
+      <p>Hundreds of real model answers are already recorded, alongside the prompts that produced them. The exact result that broke production is on disk. A fix without the test that would have caught it is a fix with a scheduled return date.</p>
+    </div>
+
+    <h2 id="watchdog">The watchdog</h2>
+
+    <p>Some failures no test catches, because the machine simply stopped. On one occasion the Docker daemon died, Coop’s control API kept answering, <code>/readyz</code> kept reporting ready, every turn died inside execution, and the operator found out by noticing that Slack had gone quiet.</p>
+
+    <p>So the watchdog’s primary signal is not a health endpoint. It is <strong>whether due work has moved</strong>. A queue that is not draining is the one symptom every outage shares. It checks readiness too, because that catches a disconnected socket on an idle afternoon.</p>
+
+    <p>It reads each deployment’s database read-only and immutable — a watchdog that trips on its own lock is worse than none — and reports an unreadable database as unreadable, never as zero. It alarms after a sustained stall across several consecutive checks, so a few seconds of unreadiness during a deploy passes silently.</p>
+
+    <p>Two details earn their place. It distinguishes <em>provider-limited</em> — every stalled run parked on a rate-limit retry — from <em>unexplained</em>, because “waiting on rate limits” and “wedged” look identical otherwise. And it alarms through a desktop notification, a log file, <em>and</em> a Slack DM to the deployment’s first configured operator, added after a queue sat wedged for eleven hours behind a notification nobody saw. The bot token is the right transport for that, because the Slack app outlives the process using it.</p>
+
+    <p>Recovery has to show real movement. A momentarily empty queue is not an all-clear; a backoff phase once produced a cheerful “queue is moving again” on a stall that then ran another two hours. And it writes a heartbeat first thing on every run, because this script is silent when everything is well and also silent when it is dead.</p>
+
+    <p>It is exercised by the fast gate on every change, deliberately: the only way to know it still fires is to break something on purpose every time the tree moves.</p>
+
+    <h2 id="commands">Day to day</h2>
+
+    <p class="code-label">shell</p>
+    <pre><code><span class="tok-c"># counters, and the bounded incident directory</span>
+<span class="tok-x">responder</span> <span class="tok-v">status</span> <span class="tok-k">--config</span> <span class="tok-v">/etc/responder/responder.yaml</span> <span class="tok-k">--json</span>
+
+<span class="tok-c"># what failed, and whether it can be retried</span>
+<span class="tok-x">responder</span> <span class="tok-v">failures</span> <span class="tok-k">--config</span> <span class="tok-v">/etc/responder/responder.yaml</span>
+
+<span class="tok-c"># put exactly one item back on the queue</span>
+<span class="tok-x">responder</span> <span class="tok-v">retry</span> <span class="tok-k">--config</span> <span class="tok-v">/etc/responder/responder.yaml</span> <span class="tok-p">\</span>
+  <span class="tok-y">delivery delivery_9b2e4c71</span>
+
+<span class="tok-c"># re-run a saved Slack message, privately</span>
+<span class="tok-x">responder</span> <span class="tok-v">replay slack</span> <span class="tok-k">--url</span> <span class="tok-y">&lt;slack-permalink&gt;</span>
+
+<span class="tok-c"># the process can use its database</span>
+<span class="tok-x">curl</span> <span class="tok-k">-f</span> <span class="tok-v">http://127.0.0.1:8080/healthz</span>
+<span class="tok-c"># …and Slack, Coop, and every lane are alive</span>
+<span class="tok-x">curl</span> <span class="tok-k">-f</span> <span class="tok-v">http://127.0.0.1:8080/readyz</span>
+<span class="tok-x">curl</span> <span class="tok-k">-f</span> <span class="tok-v">http://127.0.0.1:8080/metrics</span></code></pre>
+
+    <p><code>status</code> and <code>failures</code> open the current schema <em>without migrating it</em> and need neither Slack nor Coop, so they work when the service does not.</p>
+
+    <p><code>retry</code> takes exactly one item, preserves its original payload, frozen revision and idempotency key, resets the failure budget, and appends an audit event. It refuses to run while Responder owns the state directory. There is deliberately no bulk retry.</p>
+
+    <p><code>replay slack</code> is the post-fix verification tool. It clones the saved text, attachments, actor, channel, thread and timestamp behind a permalink, gives the clone a fresh identity, and queues it through the running service. Replays are <strong>private by default</strong>: the real model and tool path runs, but Slack status, reactions, messages, offers, schedules, tasks and incidents are all suppressed. Add <code>--publish</code> only when another real response in that conversation is intentional. If the command hits its timeout it cancels the durable run and interrupts the exact Coop turn — and if it cannot confirm that immediately, it says so rather than reporting a clean stop.</p>
+
+    <h2 id="capacity">Capacity and limits</h2>
+
+    <p>The knobs you are most likely to touch:</p>
+
+    <dl>
+      <div><dt>Incidents</dt><dd>One limit bounds concurrently active incidents (and therefore open Coop sessions); another bounds all non-closed incidents and is enforced transactionally before a channel is created. Set the second above the first.</dd></div>
+      <div><dt>Member tasks</dt><dd>Per-member open-task caps, a creation cooldown, and a reserved pool of slots so contributor work cannot crowd out incidents and operator work.</dd></div>
+      <div><dt>Turn ceiling</dt><dd>A lifetime safety ceiling measured in accepted requests, not tool calls, defaulting to 1000. Responder allocates capacity automatically as authorized requests arrive; operators never estimate how many turns an investigation needs. At the ceiling the pending request, session and fork are preserved and deferred, not failed.</dd></div>
+      <div><dt>Retry budgets</dt><dd>Four independent ones — webhooks, Slack inputs, deliveries, agent runs. Scheduling deferrals and progress polls do not consume them.</dd></div>
+      <div><dt>Worker lanes</dt><dd>Control, background, and maintenance, sized separately. Slack controls stay on the control lane while long turns stay on background, so an approval or a stop is never blocked behind an investigation.</dd></div>
+    </dl>
+
+    <p>Secrets are read at startup and rotated by restart. The Emisar key needs a little more care: park the work, stop Coop and Responder, update the environment, rerun <code>bootstrap-coop</code>, restart. <code>bootstrap-coop</code> refuses to rewrite configuration while the Coop socket is still accepting connections, and it never prints the key.</p>
+
+    <nav class="doc-next" aria-label="Page navigation">
+      <a href="control-plane.html"><span class="k">Previous</span><span class="t">← The control plane</span></a>
+      <a class="next" href="index.html"><span class="k">Back to</span><span class="t">Docs home →</span></a>
+    </nav>
+  </main>
+
+  <nav class="toc" aria-label="On this page">
+    <p class="lbl">On this page</p>
+    <ul>
+      <li><a href="#restarts">Deploys and restarts</a></li>
+      <li><a href="#state">State is one file — back it up</a></li>
+      <li><a href="#retention">Retention</a></li>
+      <li><a href="#webhooks">Webhooks and dedup</a></li>
+      <li><a href="#mirrors">Repository mirrors</a></li>
+      <li><a href="#routing">Routing profiles</a></li>
+      <li><a href="#evals">The eval idea</a></li>
+      <li><a href="#watchdog">The watchdog</a></li>
+      <li><a href="#commands">Day to day</a></li>
+      <li><a href="#capacity">Capacity and limits</a></li>
+    </ul>
+  </nav>
+
+</div>
+</div>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span class="state"><span class="dot good"></span>Responder</span>
+    <span class="sep">·</span>
+    <span>design-partner preview</span>
+    <nav aria-label="Footer">
+      <a href="index.html">Docs</a>
+      <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+      <a href="https://github.com/AndrewDryga/responder/blob/main/SECURITY.md">Security</a>
+    </nav>
+  </div>
+  <div class="wrap foot-sub">
+    <a href="https://github.com/AndrewDryga/responder/blob/main/LICENSE">MIT license</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/AndrewDryga/responder/releases">Releases</a>
+  </div>
+</footer>
+
+<script src="../assets/site.js" defer></script>
+</body>
+</html>

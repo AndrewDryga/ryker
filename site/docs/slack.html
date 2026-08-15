@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Working in Slack — Responder docs</title>
+<meta name="description" content="Mentions, the watch ladder, alert triage, incident rooms, engineering tasks, records, and every control Responder exposes in Slack.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body class="doc-page">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="wordmark" href="../index.html">
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><rect width="14" height="14" rx="4" fill="#36e6a5"></rect></svg>
+      Responder
+    </a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="../index.html#how">How it works</a>
+      <a href="../index.html#trust">Trust</a>
+      <a href="index.html" class="on">Docs</a>
+      <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+    </nav>
+    <details class="nav-menu">
+      <summary aria-label="Menu">Menu</summary>
+      <div class="nav-drawer">
+        <a href="../index.html#how">How it works</a>
+        <a href="../index.html#trust">Trust</a>
+        <a href="index.html">Docs</a>
+        <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+      </div>
+    </details>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="docs">
+
+  <aside class="docs-nav">
+    <details>
+      <summary>Documentation</summary>
+      <div>
+        <nav aria-label="Documentation">
+          <p class="grp">Start</p>
+          <ul>
+            <li><a href="index.html">What Responder is</a></li>
+            <li><a href="getting-started.html">Run it</a></li>
+          </ul>
+          <p class="grp">Using it</p>
+          <ul>
+            <li><a href="slack.html" class="on" aria-current="page">Working in Slack</a></li>
+            <li><a href="actions.html">Governed action</a></li>
+            <li><a href="memory.html">Memory and recall</a></li>
+          </ul>
+          <p class="grp">Operating it</p>
+          <ul>
+            <li><a href="control-plane.html">The control plane</a></li>
+            <li><a href="operations.html">Running it</a></li>
+          </ul>
+        </nav>
+      </div>
+    </details>
+  </aside>
+
+  <main class="doc" id="main">
+    <p class="crumb"><a href="../index.html">Responder</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Working in Slack</span></p>
+
+    <details class="doc-toc">
+      <summary>On this page</summary>
+      <ul>
+        <li><a href="#ask">Asking it something</a></li>
+        <li><a href="#ladder">The watch ladder</a></li>
+        <li><a href="#triage">Alert triage</a></li>
+        <li><a href="#incidents">Incident rooms</a></li>
+        <li><a href="#tasks">Engineering tasks</a></li>
+        <li><a href="#records">Records, rendered by the host</a></li>
+        <li><a href="#progress">Progress, receipts, and questions</a></li>
+        <li><a href="#home">App Home and the agent view</a></li>
+        <li><a href="#shortcut">The message shortcut</a></li>
+        <li><a href="#command">The /responder command</a></li>
+        <li><a href="#reactions">Reactions and feedback</a></li>
+        <li><a href="#visuals">Charts and visuals</a></li>
+        <li><a href="#who">Who can do what</a></li>
+      </ul>
+    </details>
+
+    <h1>Working in Slack</h1>
+
+    <p class="lede">Slack is not a front end bolted onto Responder. It is where the work happens. This page covers every surface it exposes there: how to ask it something, how it decides whether to speak, what an alert answer contains, and every control on every card.</p>
+
+    <h2 id="ask">Asking it something</h2>
+
+    <p>Mention it in any channel it has been invited to. It investigates and replies <strong>in that thread</strong>, and creates no incident.</p>
+
+    <p class="code-label">slack</p>
+    <pre><code><span class="tok-y">@Responder</span> <span class="tok-v">investigate elevated checkout latency in production</span></code></pre>
+
+    <p>The reply lands where you were speaking: a top-level mention is answered at top level, a mention inside a thread is answered in that thread. The one phrase that jumps this path is an explicit incident request — “open an incident for…”, “treat this as an incident” — and only from a configured operator.</p>
+
+    <p>The conversational surface is primary. You ask in your own words, the model classifies what you meant, and the host executes it deterministically. Nothing is matched on substrings: a plain sentence in a channel is never a command, whatever words are in it.</p>
+
+    <h3 id="reading">What it actually reads</h3>
+
+    <p>Every decision gets a fresh chronological transcript centred on the target message. The default window is 20 messages — configurable from 10 to 50 — and it includes the thread root, the replies nearest the target, the target itself, and up to three messages that arrived immediately after it. A top-level request gets the equivalent channel window.</p>
+
+    <p>Two extras matter more than they sound:</p>
+
+    <ul>
+      <li><strong>The channel above a thread.</strong> Slack’s thread API returns the thread and nothing else, so Responder performs a second read of the channel messages around the thread root. It exists because somebody wrote “see in the channel above” and pointed at messages that were not in the prompt.</li>
+      <li><strong>Referenced threads.</strong> Paste a Slack permalink and the thread behind it is hydrated into its own field, never merged into the transcript. A link to a different channel is followed only for a configured operator, and only into a channel that is already configured, watched, or summonable.</li>
+    </ul>
+
+    <p>Responder reads human and external-app messages in Slack timestamp order, and waits a short settling delay before deciding, so a nearby human reply is visible before it acts.</p>
+
+    <h3 id="window">Staying in the conversation</h3>
+
+    <p>After Responder delivers an answer, that location stays open for follow-ups without another mention, for a configurable window that defaults to 30 minutes. It is anchored to the last successfully delivered reply — silence does not extend it.</p>
+
+    <p>A reply <em>inside</em> a thread where Responder already answered continues that conversation indefinitely. Threads are conversations; channels time out. Inside an incident room, configured operators can talk to it anywhere without repeating a mention.</p>
+
+    <h2 id="ladder">The watch ladder</h2>
+
+    <p>In a channel where proactive participation is on, Responder sees every message and picks exactly one rung. It is worth understanding what each one means, because the quiet rungs are the ones that make the loud ones bearable.</p>
+
+    <dl>
+      <div><dt>Ignore</dt><dd>“shipping the coupon fix in a minute.” Routine, ambient, or a duplicate. No reply, no reaction. The decision is still recorded and auditable.</dd></div>
+      <div><dt>React</dt><dd>“I’ll take a look at the queue depth after standup.” Acknowledged with a single emoji. A reply would be noise; silence would be rude.</dd></div>
+      <div><dt>Reply</dt><dd>“is checkout ok? I’m seeing 500s.” An evidence-backed answer in the thread where you asked.</dd></div>
+      <div><dt>Incident</dt><dd>A credible, unresolved monitoring alert on a service that matters — or an operator asking for a room in words.</dd></div>
+    </dl>
+
+    <h3 id="thresholds">How the rung is chosen</h3>
+
+    <p>The model scores four dimensions from 0 to 3 each — <strong>urgency</strong>, <strong>confidence</strong>, <strong>novelty</strong>, <strong>ownership</strong> — and classifies the addressee as <code>responder</code>, <code>channel</code>, <code>human</code>, or <code>unclear</code>. The <em>host</em> sums the four and compares them to your thresholds. Replying defaults to 7 out of 12; reacting defaults to 4. Raise them to make it quieter.</p>
+
+    <p>The score is necessary, not sufficient. An ambient reply must also be marked material, and must be one of five contributions: a material correction, new evidence, a decision, a completed action, or a necessary question. A message aimed at a specific human, or a thread where two people are talking to each other, can only be interrupted by a material correction — or by new evidence when the work is already decision-ready. A message addressed to a human is never reacted to at all.</p>
+
+    <p>Direct requests bypass all of this. If you mention it, it answers.</p>
+
+    <div class="callout">
+      <p class="lbl">Shadow mode</p>
+      <p>Point it at a channel in shadow and it runs the entire triage path — classification, evidence, coverage — and posts nothing. Use it to measure how it would behave in a room before you let it speak there. <code>/responder shadow on</code>.</p>
+    </div>
+
+    <h2 id="triage">Alert triage</h2>
+
+    <p>When a monitoring app posts, Responder does not summarize the alert back to you. It reconciles the topology declared in your repository with fresh live evidence, and returns a typed assessment the host validates before you see it.</p>
+
+    <p>The assessment carries a verdict — internally <code>confirmed_issue</code>, <code>likely_issue</code>, <code>not_issue</code>, or <code>unverified</code> — plus impact, cause, whether that cause is <code>identified</code> or merely <code>bounded</code>, the immediate action, how to verify it, and the long-term fix. A confirmed or likely issue must carry <em>all</em> of impact, cause, immediate action, verification, and long-term solution, or the host refuses the answer and asks again.</p>
+
+    <div class="callout good">
+      <p class="lbl">Written for people, typed for the host</p>
+      <p>Those verdict labels are for the machine. A reply that says “confirmed issue” back to you is rejected and rewritten in plain condition language. The structure is enforced; the jargon is not shipped. Monitoring shorthand and more than one unexplained technical term per alert reply are refused too.</p>
+    </div>
+
+    <p>Nothing may be named as a cause unless a recorded evidence row supports it. A cause has to cite the claims it rests on, every cited row must belong to a named claim, and every named claim must be cited. This is checked on the assertion, not the verdict — so an alert that already recovered still cannot be given a made-up root cause.</p>
+
+    <h3 id="delta">Repeat alerts get the delta</h3>
+
+    <p>When an alert is still firing and Responder speaks again, the reply is held to what changes the decision: current impact, the evidence that moves it, a known fix or rollout if one is relevant, and only the action needed now. Background healthy evidence stays in the ledger where it belongs. An over-long answer to an active alert is refused and rewritten.</p>
+
+    <p>Non-actionable lifecycle noise from external apps — created, planning, applying — is ignored deterministically, and the reason is recorded rather than lost.</p>
+
+    <h3 id="closure">Cleared alerts get a closure, noise gets nothing</h3>
+
+    <p>When a signal resolves, Responder posts a short closure and links the alert it is closing — and if the model forgets the link, the host appends it. A closure that runs long is refused: this is a sentence, not a report.</p>
+
+    <p>There is a guard here worth knowing about. If an alert has already cleared and no fresh evidence shows active degradation, a “confirmed issue” verdict is rejected. It exists because Responder once recommended halting a rollout for a condition that had already recovered. Equally, it may not simply ignore a resolution that closes an alert it investigated — it owes you one closure, and that closure must distinguish a metric recovering from a service recovering.</p>
+
+    <h2 id="incidents">Incident rooms</h2>
+
+    <p>An incident gets one channel, one pinned card, and one timeline. Channels are named <code>&lt;prefix&gt;-MMDD-&lt;title&gt;-&lt;id&gt;</code> using your configured prefix, which defaults to <code>ems</code>. They are private by default, and every configured operator is invited automatically.</p>
+
+    <p>The pinned card is the control surface. It updates in place with alert evidence, investigation state, and <strong>only the controls that are currently valid</strong> — a button that would be refused is not rendered. Operators steer by talking in the room; no mention needed.</p>
+
+    <p>Incidents are created from exactly three things: a credible unresolved app alert under the channel’s confirmed policy, an explicit human request, or an operator approving an <strong>Open incident room</strong> offer after reading the findings. A human message never becomes an incident on its own.</p>
+
+    <p>A resolved-but-unclosed incident can reactivate in its existing channel. A signal that fires again after a manual close creates a new occurrence, with a new channel and a new fork — the old record is immutable.</p>
+
+    <h2 id="tasks">Engineering tasks</h2>
+
+    <p>When somebody explicitly asks for a repository change, the reply can carry a <strong>Start task</strong> button instead of sending them to another tool. Confirming it creates an isolated writable Coop fork bound to that exact Slack thread, where Responder can read, edit, test, and commit under the configured repository policy.</p>
+
+    <p>When a diagnosis establishes a narrow repository fix, a <strong>Prepare code fix</strong> button can appear beside <strong>Open incident room</strong>. The two are independent: the room coordinates operations, the task edits code. The fix button creates no pull request by itself.</p>
+
+    <p>Later messages in that thread continue the same session without a mention. Unrelated channel messages stay in read-only triage — conversation lookup requires both the channel and the thread, so nothing wanders into a writable session.</p>
+
+    <dl>
+      <div><dt>Any active full workspace member</dt><dd>Can start a task, collaborate in its thread, read the diff, ask for an update, run the readiness check, and review the work.</dd></div>
+      <div><dt>A configured operator</dt><dd>Must press <strong>Create draft PR</strong>, and is the only one who can stop the task, close it, or discard retained work.</dd></div>
+      <div><dt>Guests and Slack Connect</dt><dd>Denied. So are bots and deactivated accounts.</dd></div>
+    </dl>
+
+    <p>A member’s task offer exposes only the repository assigned to that channel. Changing that boundary is an operator-owned channel setting, not something a request can widen. Member tasks also have their own capacity and rate limits, and a number of open slots is reserved so contributor work cannot crowd out incidents.</p>
+
+    <p>Diffs are paged inside one message — Previous, Next and Refresh edit that same message rather than posting five more. Every page carries the complete patch digest and byte range, and a change in the fork restarts at page one instead of splicing an old snapshot onto a new one.</p>
+
+    <h2 id="records">Records, rendered by the host</h2>
+
+    <p>Four records are available from the pinned card or by asking in words: <strong>timeline</strong>, <strong>evidence</strong>, <strong>handoff</strong>, and <strong>postmortem</strong>.</p>
+
+    <p>All four are rendered from stored facts — the alert, the agent runs, the evidence ledger, the coverage rows, the Emisar approvals, the draft-PR state. The model never writes a timeline. This is why asking for a handoff in words and pressing the handoff button produce the identical document, and why closing an incident posts the same evidence-grounded draft the postmortem control regenerates.</p>
+
+    <p>When the workspace supports it, long records are published as a Slack canvas rather than a wall of message text. Feature detection is the attempt itself, exactly once, and a half-made canvas is deleted rather than left behind.</p>
+
+    <h2 id="progress">Progress, receipts, and questions</h2>
+
+    <p>Long work keeps Slack’s native agent status until a reply, an explicit silence decision, a handoff, or a clear failure is durably handled. The status line says plainly that broad checks can take a few minutes, and Slack rotates a set of honest milestones beneath it — reading the conversation, checking the repository setup, checking live systems, comparing expected and current state, checking whether the result is complete. Review work and approved actions have their own sets.</p>
+
+    <p>A <strong>turn receipt</strong> card is built entirely from durable records: how long the turn took, how many tool calls it made, what it actually did. It exists because a real 57-minute turn told a room “still working” twice and nothing else.</p>
+
+    <p>When Responder needs a decision from you, it can render its question as buttons — up to three choices it already wrote down — so you click instead of retyping an answer it has already framed. Run checks on Terraform plans and CI come back as a typed card with five host-derived outcomes: clean, review, failed, running, stopped. A paragraph can be right, and it can also be confident and wrong, and neither reads differently.</p>
+
+    <p>Replies have length budgets, enforced by the host and retried when exceeded. A greeting gets 60 words. A short question gets more. A deep investigation gets more again, and asking explicitly for depth removes the bound entirely. When several distinct outcomes are easier to scan apart, one turn may post a primary message plus up to five ordered follow-ups — but host-owned controls, approvals and offers only ever appear on the final part. A reply sequence creates no additional authority.</p>
+
+    <h2 id="home">App Home and the agent view</h2>
+
+    <p>App Home opens with one question answered: <em>does anything need me?</em> The header is either “Nothing needs you” or a count, followed by up to five operator-actionable rows, each with a deep link straight to its thread. Beneath that: open incidents, open sessions, failed work, published PRs, pending cleanup, and the counts of active memory, preferences, rules, schedules and commitments. Archived or deleted incident rooms keep their name as plain text rather than a Slack mention that would render as a broken link.</p>
+
+    <p>The agent view ships three suggested prompts — production health, explain an alert, open work — and three actions: investigate production, explain alert, prepare handoff. They are declared statically in the app manifest, so opening that tab costs no Slack call at all.</p>
+
+    <h2 id="shortcut">The message shortcut</h2>
+
+    <p>Any message has an <strong>Investigate message</strong> shortcut. It runs the same read-only, evidence-backed investigation and replies in that message’s thread — and it works even in a channel where ordinary proactive listening is off. It is the way to point at one thing without turning listening on for everything.</p>
+
+    <h2 id="command">The <code>/responder</code> command</h2>
+
+    <p>This is the emergency kit, and it is deliberately small:</p>
+
+    <p class="code-label">slack</p>
+    <pre><code><span class="tok-x">/responder</span> <span class="tok-v">status</span>
+<span class="tok-x">/responder</span> <span class="tok-v">proactive</span> <span class="tok-k">on|off|inherit</span> <span class="tok-c"># add `global` for the workspace</span>
+<span class="tok-x">/responder</span> <span class="tok-v">shadow</span> <span class="tok-k">on|off|inherit</span>
+<span class="tok-x">/responder</span> <span class="tok-v">assignments</span> <span class="tok-k">[list|pause|resume|delete]</span>
+<span class="tok-x">/responder</span> <span class="tok-v">help</span></code></pre>
+
+    <p>That list is the whole of it. The command used to carry more than twenty subcommands, which made it a second product surface drifting away from the conversational one beside it. Two months of audit found it used for one deliberate <code>proactive on</code> per deployment, and otherwise only for its own failures.</p>
+
+    <p>What is left is what has to work when nothing else does. No model runs. No Coop session is needed. It runs on the control lane, so it never queues behind a long investigation, and the answer is private to whoever typed it. Slash text is parsed by the host as an exact command and is never sent to a model.</p>
+
+    <p>Retired spellings are not met with “unknown subcommand”. Type <code>/responder timeline</code> and it tells you where that capability went. Creating a standing assignment left the command too: say what you want watched — “review every Terraform plan here and open PRs for the drift, 2 a day, for 30 days” — and Responder answers with a confirmation card showing the normalized bounds it would grant.</p>
+
+    <p>The effective precedence for listening is: explicit channel override, then confirmed channel setup, then workspace override, then <code>responder.yaml</code>. <code>inherit</code> removes the Slack override rather than copying a stale value into it.</p>
+
+    <h2 id="reactions">Reactions and feedback</h2>
+
+    <p>Responder’s own reaction is chosen by the model, one per message, validated by the host and rejected if it is not a single well-formed emoji name. There is no allowlist and no “acknowledgement emoji” setting — the only knob is the threshold that decides whether to react at all. A reaction acknowledges. It never claims verification, approval, or remediation, and it can never authorize anything.</p>
+
+    <p>Your reactions on <em>its</em> messages are graded feedback. A thumbs-up, a tada, a fire, a heart read as positive; a thumbs-down, a confused face, a disappointed face read as negative. Skin-tone modifiers are stripped. Removing the reaction withdraws the feedback. Deliberately excluded as ambiguous: the check mark and the eyes — those mean “seen”, not “right”.</p>
+
+    <p>Or just say it. Tell Responder what was wrong in words and it records typed feedback with a category and a sentiment. There is no feedback button and no feedback command.</p>
+
+    <div class="callout good">
+      <p class="lbl">Why feedback never loops back</p>
+      <p>Raw feedback is stored and surfaced on App Home for an operator to dismiss or convert into durable guidance. It never re-enters a prompt on its own. Otherwise anyone could reshape how the agent works by typing a complaint into a channel.</p>
+    </div>
+
+    <h2 id="visuals">Charts and visuals</h2>
+
+    <p>Ask for a chart and you can get one, when the configured agent has a suitable tool. The visual policy is injected into the prompt <em>only</em> when the request is classified as asking for one — visuals are never volunteered.</p>
+
+    <p>A chart must use verified data, label its axes and units, and explain its source, time range, freshness and gaps in the message or the evidence beside it. The rule stated in the policy itself: <strong>the chart is not the evidence.</strong> Up to four images per response, capped at 8 MiB each. Every file is re-fetched from the completed turn and verified against its content digest before upload, and every one needs a title and real alt text.</p>
+
+    <p>Lighter images are allowed in a relaxed conversation and banned outright during an incident, an outage, a security or privacy event, an approval, a failed change, or anything customer-impacting.</p>
+
+    <h2 id="who">Who can do what</h2>
+
+    <table>
+      <thead><tr><th>Action</th><th>Who</th></tr></thead>
+      <tbody>
+        <tr><td>Ask a question, get an investigation</td><td>Anyone in the channel</td></tr>
+        <tr><td>Start and collaborate on an engineering task</td><td>Any active full workspace member</td></tr>
+        <tr><td>Steer an incident, approve an incident offer</td><td>Configured operator</td></tr>
+        <tr><td>Request an operational change</td><td>Configured operator</td></tr>
+        <tr><td>Save memory, a preference, a rule, or a schedule</td><td>Configured operator</td></tr>
+        <tr><td>Publish a draft PR, stop, close, discard work</td><td>Configured operator</td></tr>
+        <tr><td>Anything at all</td><td>Not guests, bots, deactivated accounts, or Slack Connect identities</td></tr>
+      </tbody>
+    </table>
+
+    <nav class="doc-next" aria-label="Page navigation">
+      <a href="getting-started.html"><span class="k">Previous</span><span class="t">← Run it</span></a>
+      <a class="next" href="actions.html"><span class="k">Next</span><span class="t">Governed action →</span></a>
+    </nav>
+  </main>
+
+  <nav class="toc" aria-label="On this page">
+    <p class="lbl">On this page</p>
+    <ul>
+      <li><a href="#ask">Asking it something</a></li>
+      <li><a href="#ladder">The watch ladder</a></li>
+      <li><a href="#triage">Alert triage</a></li>
+      <li><a href="#incidents">Incident rooms</a></li>
+      <li><a href="#tasks">Engineering tasks</a></li>
+      <li><a href="#records">Records, rendered by the host</a></li>
+      <li><a href="#progress">Progress, receipts, and questions</a></li>
+      <li><a href="#home">App Home and the agent view</a></li>
+      <li><a href="#shortcut">The message shortcut</a></li>
+      <li><a href="#command">The /responder command</a></li>
+      <li><a href="#reactions">Reactions and feedback</a></li>
+      <li><a href="#visuals">Charts and visuals</a></li>
+      <li><a href="#who">Who can do what</a></li>
+    </ul>
+  </nav>
+
+</div>
+</div>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span class="state"><span class="dot good"></span>Responder</span>
+    <span class="sep">·</span>
+    <span>design-partner preview</span>
+    <nav aria-label="Footer">
+      <a href="index.html">Docs</a>
+      <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+      <a href="https://github.com/AndrewDryga/responder/blob/main/SECURITY.md">Security</a>
+    </nav>
+  </div>
+  <div class="wrap foot-sub">
+    <a href="https://github.com/AndrewDryga/responder/blob/main/LICENSE">MIT license</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/AndrewDryga/responder/releases">Releases</a>
+  </div>
+</footer>
+
+<script src="../assets/site.js" defer></script>
+</body>
+</html>

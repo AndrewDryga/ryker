@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What Responder is — Responder docs</title>
+<meta name="description" content="The five-minute mental model: episodes, evidence, corrections, and the autonomy ladder.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body class="doc-page">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="wordmark" href="../index.html">
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><rect width="14" height="14" rx="4" fill="#36e6a5"></rect></svg>
+      Responder
+    </a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="../index.html#how">How it works</a>
+      <a href="../index.html#trust">Trust</a>
+      <a href="index.html" class="on">Docs</a>
+      <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+    </nav>
+    <details class="nav-menu">
+      <summary aria-label="Menu">Menu</summary>
+      <div class="nav-drawer">
+        <a href="../index.html#how">How it works</a>
+        <a href="../index.html#trust">Trust</a>
+        <a href="index.html">Docs</a>
+        <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+      </div>
+    </details>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="docs">
+
+  <!-- Sidebar ------------------------------------------------------------- -->
+  <aside class="docs-nav">
+    <details>
+      <summary>Documentation</summary>
+      <div>
+        <nav aria-label="Documentation">
+          <p class="grp">Start</p>
+          <ul>
+            <li><a href="index.html" class="on" aria-current="page">What Responder is</a></li>
+            <li><a href="getting-started.html">Run it</a></li>
+          </ul>
+          <p class="grp">Using it</p>
+          <ul>
+            <li><a href="slack.html">Working in Slack</a></li>
+            <li><a href="actions.html">Governed action</a></li>
+            <li><a href="memory.html">Memory and recall</a></li>
+          </ul>
+          <p class="grp">Operating it</p>
+          <ul>
+            <li><a href="control-plane.html">The control plane</a></li>
+            <li><a href="operations.html">Running it</a></li>
+          </ul>
+        </nav>
+      </div>
+    </details>
+  </aside>
+
+  <!-- Content ------------------------------------------------------------- -->
+  <main class="doc" id="main">
+    <p class="crumb"><a href="../index.html">Responder</a> <span>/</span> <span>Docs</span></p>
+
+    <details class="doc-toc">
+      <summary>On this page</summary>
+      <ul>
+        <li><a href="#shape">The shape of it</a></li>
+        <li><a href="#episodes">Idea one: everything is an episode</a></li>
+        <li><a href="#evidence">Idea two: answers are assembled from evidence</a></li>
+        <li><a href="#corrections">Idea three: the host checks the model’s answer</a></li>
+        <li><a href="#ladder">Idea four: the autonomy ladder</a></li>
+        <li><a href="#cannot">What it cannot do</a></li>
+        <li><a href="#next">Where to go next</a></li>
+      </ul>
+    </details>
+
+    <h1>What Responder is</h1>
+
+    <p class="lede">Responder is an AI SRE first responder that lives in Slack. It answers questions, investigates alerts, and prepares code — and it keeps a full record of how it reached every answer. This page is the whole mental model. Five minutes, four ideas.</p>
+
+    <div class="callout">
+      <p class="lbl">Status</p>
+      <p>Design-partner preview. It runs in production on the author’s own infrastructure. It assumes an operator who is comfortable with a Unix host, a YAML file, and a systemd unit.</p>
+    </div>
+
+    <h2 id="shape">The shape of it</h2>
+
+    <p>Responder runs as one Go binary on one host you control. It connects to Slack over socket mode, so it needs no inbound port. It reads your repositories to learn what your systems are <em>supposed</em> to look like. It checks that against live evidence through Emisar, the infrastructure authority. Then it says what it found.</p>
+
+    <p>It talks to a model through <a href="https://github.com/AndrewDryga/coop">Coop</a>, which owns the isolated session and the fork the model works in. You bring your own model and your own account. Responder has no second model runtime and no direct provider client.</p>
+
+    <p>Three layers, three owners, and the split is the point:</p>
+
+    <table>
+      <thead><tr><th>Concern</th><th>Owner</th></tr></thead>
+      <tbody>
+        <tr><td>Slack identity, correlation, the durable record, delivery</td><td>Responder</td></tr>
+        <tr><td>Repository allowlist, model target, budgets, the fork and the box</td><td>Coop</td></tr>
+        <tr><td>Infrastructure identity, policy, approval, execution, audit</td><td>Emisar</td></tr>
+        <tr><td>Merge, signing, deployment</td><td>A person, outside all three</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="episodes">Idea one: everything is an episode</h2>
+
+    <p>Every accepted unit of work is an <strong>episode</strong>. A question in a thread is an episode. An alert that fires at 3am is an episode. A scheduled morning health check is an episode. There is no second path and no lightweight path.</p>
+
+    <p>An episode owns four things:</p>
+
+    <dl>
+      <div><dt>Goals</dt><dd>What outcome was requested, and the observable condition that would mean it is done.</dd></div>
+      <div><dt>Attempts</dt><dd>One model execution each. An episode that was refused and retried has several.</dd></div>
+      <div><dt>Context manifests</dt><dd>An immutable record of exactly what context each attempt was given, and what was left out.</dd></div>
+      <div><dt>An event stream</dt><dd>Append-only. Every visible state — working, blocked, waiting for approval, verifying — is a projection of it, not a flag somebody set.</dd></div>
+    </dl>
+
+    <p>An episode moves through states you can name: <code>accepted</code>, <code>acknowledged</code>, <code>planning</code>, <code>working</code>, <code>blocked</code>, <code>waiting_operator</code>, <code>waiting_external</code>, <code>waiting_approval</code>, <code>retrying</code>, <code>verifying</code>, and then one terminal state. Because the stream is the truth, an episode survives a restart. It parks between turns and picks the same conversation back up.</p>
+
+    <p>Every episode has a full trace on the control plane you run yourself: the exact model input, each context layer with why it was included or left out, what the budget trimmed, and every answer the host refused. See <a href="control-plane.html">the control plane</a>.</p>
+
+    <h2 id="evidence">Idea two: answers are assembled from evidence</h2>
+
+    <p>Responder does not write a paragraph and then look for support. It records observations, and the answer is built from what it recorded.</p>
+
+    <p>Each evidence row carries its <strong>claim</strong> (what was being checked), its <strong>observation</strong> (what was seen), its <strong>source</strong> (where it came from — repository, Emisar, monitoring, Slack), its <strong>observed-at</strong> time, its <strong>freshness</strong>, and its <strong>confidence</strong>. Confidence is one of <code>high</code>, <code>medium</code>, or <code>low</code>, and the weakest row wins: a claim is only high-confidence when every row behind it is.</p>
+
+    <p>A row can also <em>contradict</em> a claim rather than support it. When two sources disagree, Responder quotes both, with their identifiers and their observation times, and asks you to decide. It does not silently prefer the convenient one.</p>
+
+    <p>Coverage is reported layer by layer: <code>change</code>, <code>host</code>, <code>runtime</code>, <code>workload</code>, <code>dependency</code>, <code>application</code>, and impact — with <code>hardware</code>, <code>scheduler</code> and <code>task</code> added when the work calls for them. Each layer gets one of <code>healthy</code>, <code>degraded</code>, <code>unhealthy</code>, <code>unknown</code>, or <code>not_applicable</code>.</p>
+
+    <div class="callout good">
+      <p class="lbl">The rule that matters most</p>
+      <p>“Missing evidence alone is not degradation, and healthy infrastructure alone does not prove application health.”</p>
+      <p>A layer nobody could check is <code>unknown</code>, and it says so. It is not quietly called healthy, and it is not alarmingly called degraded. A verdict may only be degraded or unhealthy when a recorded observation carries that effect.</p>
+    </div>
+
+    <p>For an operational health question the verdict is <code>healthy</code>, <code>degraded</code>, or <code>unhealthy</code>. Other kinds of work have their own verdict sets — a change review ends <code>succeeded</code>, <code>failed</code>, <code>needs_review</code>, <code>in_progress</code>, or <code>inconclusive</code>; a factual question ends <code>confirmed</code>, <code>not_confirmed</code>, or <code>inconclusive</code>. A question that has no verdict is not forced to invent one.</p>
+
+    <p>An episode ends either <code>decision_ready</code> or <code>blocked</code>. A blocked ending must name its blocker from a fixed list — <code>source_unavailable</code>, <code>access_denied</code>, <code>operator_input_required</code>, <code>authority_boundary</code>, <code>tool_failure</code>, <code>capability_unavailable</code> — along with what it tried and what happens next. A partial blocker is rejected whole. “Somebody should query the metrics” is unfinished work, not a blocker, and the host sends it back.</p>
+
+    <h2 id="corrections">Idea three: the host checks the model’s answer</h2>
+
+    <p>The model’s answer is an <em>input</em>, not a result. Before anyone sees it, the host parses it against a hard contract and can refuse it. A refused answer goes back to the model with an exact correction and the episode tries again.</p>
+
+    <p>There are four kinds of refusal:</p>
+
+    <dl>
+      <div><dt><code>unreadable</code></dt><dd>It did not parse at all.</dd></div>
+      <div><dt><code>incomplete</code></dt><dd>It parsed, but the host would not accept it — a missing verdict, an unexplained coverage row, a cause with no evidence behind it.</dd></div>
+      <div><dt><code>rejected</code></dt><dd>The conclusion was fine, but something attached to it — an offer, a proposed grant — could not be accepted.</dd></div>
+      <div><dt><code>shape</code></dt><dd>Right content, wrong form: too long, or handing the question back instead of answering it.</dd></div>
+    </dl>
+
+    <p>Every refusal is written to the audit log with the exact correction text, and shown on the episode page. Nothing about this is hidden from you: a bad first answer is part of the record, not something scrubbed out of it.</p>
+
+    <p>Then the part that compounds. A refusal becomes a <strong>fixture candidate</strong>. You keep it or discard it from App Home or the control plane. A kept one is appended to a corpus of recorded real model answers that replay offline as ordinary tests — no credentials, no model call, about a second. The bug that reached production last week is the test that runs on every commit this week.</p>
+
+    <h2 id="ladder">Idea four: the autonomy ladder</h2>
+
+    <p>Responder does not have one volume knob. For every message it sees, it picks a rung:</p>
+
+    <dl>
+      <div><dt>Ignore</dt><dd>Routine noise, chatter, a duplicate, a success notification. The kind of message a teammate would read and say nothing about. The decision is still recorded.</dd></div>
+      <div><dt>React</dt><dd>One emoji. When a reply would be noise but silence would be rude.</dd></div>
+      <div><dt>Reply</dt><dd>An evidence-backed answer, posted where the person was speaking.</dd></div>
+      <div><dt>Incident</dt><dd>A dedicated room. Only from a credible unresolved app alert, or an explicit human request.</dd></div>
+    </dl>
+
+    <p>The model scores each message on four dimensions — urgency, confidence, novelty, ownership — from 0 to 3 each, and classifies who it was addressed to. The <em>host</em> adds them up and applies your configured thresholds. Replying takes more than reacting. Higher thresholds make it quieter.</p>
+
+    <p>Score alone is never enough. An ambient reply must also be <em>material</em>, and must be one of: a correction, new evidence, a decision, a completed action, or a necessary question. Two people talking to each other can only be interrupted by a material correction. A message addressed to a specific human is never reacted to at all.</p>
+
+    <p>Human messages do not become incidents on their own. Responder answers in place and may attach an <strong>Open incident room</strong> button; only a configured operator can press it.</p>
+
+    <h2 id="cannot">What it cannot do</h2>
+
+    <p>This list is a feature. Each line is a boundary the host enforces, not an unfinished corner.</p>
+
+    <ul>
+      <li>It cannot merge, deploy from repository changes, or sign a commit.</li>
+      <li>It cannot run a free-form command on a host. There is no shell path. Actions are typed and discovered from a trusted catalog.</li>
+      <li>It cannot approve its own action, act past an approval, or repeat a mutation while verifying one.</li>
+      <li>It cannot widen its own authority. A proposed promotion that skips a rung, or exceeds what the host itself counted, is refused.</li>
+      <li>It cannot push an arbitrary branch, open a non-draft pull request, or publish changes to a companion repository.</li>
+      <li>It cannot write memory, a preference, or a standing rule. It can only propose one for a person to confirm.</li>
+      <li>It cannot discard dirty work. Not through cleanup, not through Slack, not through the control plane.</li>
+      <li>It cannot hide a failed check. A refusal, a stale source, and an unverified layer all appear in the answer.</li>
+    </ul>
+
+    <h2 id="next">Where to go next</h2>
+
+    <div class="next-grid">
+      <a href="getting-started.html"><span class="t">Run it</span><p>One binary, one config file, one Slack app. What the first hour looks like.</p></a>
+      <a href="slack.html"><span class="t">Working in Slack</span><p>Mentions, the ladder, incident rooms, records, and every control.</p></a>
+      <a href="actions.html"><span class="t">Governed action</span><p>Typed actions, approvals, assignments, schedules, and draft PRs.</p></a>
+      <a href="memory.html"><span class="t">Memory and recall</span><p>What it remembers, how it ranks it, and why it never counts as proof.</p></a>
+      <a href="control-plane.html"><span class="t">The control plane</span><p>Full traces, the decisions queue, findings, and audit.</p></a>
+      <a href="operations.html"><span class="t">Running it</span><p>Deploys, retention, backups, webhooks, evals, and the watchdog.</p></a>
+    </div>
+
+    <nav class="doc-next" aria-label="Page navigation">
+      <a class="next" href="getting-started.html"><span class="k">Next</span><span class="t">Run it →</span></a>
+    </nav>
+  </main>
+
+  <!-- On this page -------------------------------------------------------- -->
+  <nav class="toc" aria-label="On this page">
+    <p class="lbl">On this page</p>
+    <ul>
+      <li><a href="#shape">The shape of it</a></li>
+      <li><a href="#episodes">Idea one: everything is an episode</a></li>
+      <li><a href="#evidence">Idea two: answers are assembled from evidence</a></li>
+      <li><a href="#corrections">Idea three: the host checks the model’s answer</a></li>
+      <li><a href="#ladder">Idea four: the autonomy ladder</a></li>
+      <li><a href="#cannot">What it cannot do</a></li>
+      <li><a href="#next">Where to go next</a></li>
+    </ul>
+  </nav>
+
+</div>
+</div>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span class="state"><span class="dot good"></span>Responder</span>
+    <span class="sep">·</span>
+    <span>design-partner preview</span>
+    <nav aria-label="Footer">
+      <a href="index.html">Docs</a>
+      <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+      <a href="https://github.com/AndrewDryga/responder/blob/main/SECURITY.md">Security</a>
+    </nav>
+  </div>
+  <div class="wrap foot-sub">
+    <a href="https://github.com/AndrewDryga/responder/blob/main/LICENSE">MIT license</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/AndrewDryga/responder/releases">Releases</a>
+  </div>
+</footer>
+
+<script src="../assets/site.js" defer></script>
+</body>
+</html>

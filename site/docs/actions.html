@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Governed action — Responder docs</title>
+<meta name="description" content="Typed actions, approvals, runbook drafts, grant promotions, standing assignments, schedules, external waits, and draft-PR publication.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body class="doc-page">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="wordmark" href="../index.html">
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><rect width="14" height="14" rx="4" fill="#36e6a5"></rect></svg>
+      Responder
+    </a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="../index.html#how">How it works</a>
+      <a href="../index.html#trust">Trust</a>
+      <a href="index.html" class="on">Docs</a>
+      <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+    </nav>
+    <details class="nav-menu">
+      <summary aria-label="Menu">Menu</summary>
+      <div class="nav-drawer">
+        <a href="../index.html#how">How it works</a>
+        <a href="../index.html#trust">Trust</a>
+        <a href="index.html">Docs</a>
+        <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+      </div>
+    </details>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="docs">
+
+  <aside class="docs-nav">
+    <details>
+      <summary>Documentation</summary>
+      <div>
+        <nav aria-label="Documentation">
+          <p class="grp">Start</p>
+          <ul>
+            <li><a href="index.html">What Responder is</a></li>
+            <li><a href="getting-started.html">Run it</a></li>
+          </ul>
+          <p class="grp">Using it</p>
+          <ul>
+            <li><a href="slack.html">Working in Slack</a></li>
+            <li><a href="actions.html" class="on" aria-current="page">Governed action</a></li>
+            <li><a href="memory.html">Memory and recall</a></li>
+          </ul>
+          <p class="grp">Operating it</p>
+          <ul>
+            <li><a href="control-plane.html">The control plane</a></li>
+            <li><a href="operations.html">Running it</a></li>
+          </ul>
+        </nav>
+      </div>
+    </details>
+  </aside>
+
+  <main class="doc" id="main">
+    <p class="crumb"><a href="../index.html">Responder</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Governed action</span></p>
+
+    <details class="doc-toc">
+      <summary>On this page</summary>
+      <ul>
+        <li><a href="#emisar">Emisar, in one paragraph</a></li>
+        <li><a href="#typed">Typed actions and discovery</a></li>
+        <li><a href="#approvals">Approvals</a></li>
+        <li><a href="#cannot">What it cannot do</a></li>
+        <li><a href="#runbooks">Runbook drafts</a></li>
+        <li><a href="#grants">Grant promotions</a></li>
+        <li><a href="#assignments">Standing assignments</a></li>
+        <li><a href="#schedules">Schedules</a></li>
+        <li><a href="#waits">External waits and wakeups</a></li>
+        <li><a href="#publication">Draft-PR publication</a></li>
+        <li><a href="#discard">Verified discard</a></li>
+      </ul>
+    </details>
+
+    <h1>Governed action</h1>
+
+    <p class="lede">Responder has no production shell. Everything it can change runs through a gate it does not own. This page is that gate, end to end: how an action is found, who approves it, what it can earn, and where the boundary is drawn every time.</p>
+
+    <h2 id="emisar">Emisar, in one paragraph</h2>
+
+    <p>Emisar is the infrastructure authority. It publishes a catalog of <em>typed</em> actions in signed packs, decides by policy what may run, what must wait for a person, and what is denied, and it owns approval, execution and audit. As the Slack app description puts it, an outbound-only runner validates the action, its arguments, its limits, and the trusted pack hash again on the target host before execution. Responder is a client of that system. It can discover an action and submit one; it cannot approve one, and it holds no infrastructure credential of its own.</p>
+
+    <div class="callout good">
+      <p class="lbl">The shape of the boundary</p>
+      <p>Model-proposed, inferred, and autonomous operational mutation is disabled. A configured operator may directly request <em>one exact action</em> in any Slack conversation. An incident room is coordination context — it is not an authorization boundary, and it is not required.</p>
+    </div>
+
+    <h2 id="typed">Typed actions and discovery</h2>
+
+    <p>An action has an immutable identity of three parts: the action, the pack it came from, and the runner that would execute it. All three are required, and they are compared as opaque identifiers — trimmed, never case-folded, because Emisar assigned them. A pack reference carries both a version and a digest, so <code>nomad@1.4.0+sha256:…</code> names one exact pack and no other.</p>
+
+    <p>Discovery is a real contract, not a convention. At startup Responder initializes the Emisar tool catalog and refuses to run if any of <code>find_actions</code>, <code>get_action</code>, <code>list_runners</code> or <code>run_action</code> is missing. It also checks the server identity and protocol version. This validates authentication and the catalog <em>without executing anything</em>.</p>
+
+    <p>The model must find the action; it may not invent one. And it may not claim a capability does not exist without first listing every pack, including the ones not currently available. “There is no action for that” is a finding that has to be earned.</p>
+
+    <p>Authority is stored on the work itself, in three values: <code>read_only</code>, <code>repository_write</code>, and <code>governed_operation</code>. Effort never grants authority. A deep health review stays read-only; a narrowly scoped governed operation can require approval without becoming an incident.</p>
+
+    <h2 id="approvals">Approvals</h2>
+
+    <p>When Emisar answers <code>pending_approval</code>, Responder copies the exact run, operation, pack and runner references, the approval request, its URL and its expiry — and then checks all of it before anything reaches Slack.</p>
+
+    <p>The envelope is accepted only when the requester is a configured operator, every identifier is present, the status is exactly <code>pending_approval</code>, and the expiry is set and still in the future. The URL is checked harder than that:</p>
+
+    <ul>
+      <li>The scheme must be <code>https</code>, with a host, and with no userinfo, no query string, and no fragment.</li>
+      <li>The host must match your configured Emisar endpoint. Same origin, or it is dropped.</li>
+      <li>The path must begin <code>/app/</code>, contain <code>/approvals/</code>, and end with the escaped request ID it claims to be for.</li>
+    </ul>
+
+    <p>Anything else yields an empty URL, and an empty URL drops the whole pending approval rather than rendering a link nobody checked.</p>
+
+    <p>Slack then shows exactly one control: <strong>Review approval in Emisar</strong>. There is no approve button and no reject button. They were not hidden behind a permission check — nothing in the product composes them any more. The decision is made in Emisar, by a person, under Emisar’s policy, and recorded in Emisar’s audit.</p>
+
+    <p>The card carries a blast-radius strip of three fields: the action, the runner, and the pack. It shows no target row and no policy row, because those were never recorded — and a blast-radius strip that guesses the blast radius is worse than one that stops at what it knows.</p>
+
+    <p>Responder watches that exact run in the background, updating the card as it progresses, and posts the terminal result plus read-only verification into the same conversation. Waiting consumes no model turn and survives a restart. On every poll it re-checks the immutable identity: if the run, operation, action, pack or runner has drifted, it refuses rather than following the new thing. Emisar reports fourteen distinct run statuses; Slack renders them as three answers, and <code>denied</code> is rendered grey rather than red — an operator declining a change is the control working, not a failure.</p>
+
+    <h3 id="verification">Approval is not success</h3>
+
+    <p>This is the part most systems get wrong. An approval resolves the waiting episode and <strong>queues a separate verification episode</strong>. Approval is authorization to dispatch, never proof that the requested effect happened.</p>
+
+    <p>During verification, Responder cannot run the action again, and cannot substitute a different run. The continuation prompt forbids it outright. Verification is read-only, and it is a different episode with its own record — which is also what funds the trust ladder below.</p>
+
+    <h2 id="cannot">What it cannot do</h2>
+
+    <ul>
+      <li><strong>Merge, deploy from repository changes, or sign a commit.</strong> No operation for these exists.</li>
+      <li><strong>Submit unattended.</strong> The “may submit without a person” decision is false in every branch of this build.</li>
+      <li><strong>Approve, or act past an approval.</strong> Including repeating the mutation while verifying it.</li>
+      <li><strong>Widen its own authority.</strong> An offer that skips a rung, or claims more successes than the host counted, is refused.</li>
+      <li><strong>Push an arbitrary branch</strong>, open a non-draft pull request, or publish changes to a companion repository.</li>
+      <li><strong>Archive a Slack channel.</strong></li>
+      <li><strong>Turn a reaction into authority.</strong> A reaction never authorizes an approval, a change, an incident, or an action.</li>
+      <li><strong>Write memory, a preference, or a rule.</strong> It can only propose one for a person to confirm.</li>
+      <li><strong>Discard dirty work.</strong> Not the janitor, not Slack, not the control plane.</li>
+    </ul>
+
+    <div class="callout">
+      <p class="lbl">One precise nuance</p>
+      <p>“Cannot deploy” means it cannot deploy from repository changes. An approved Emisar action can absolutely change running infrastructure — that is the point of the approval. The change ledger records such a run as a configuration change, deliberately not as a deploy.</p>
+    </div>
+
+    <h2 id="runbooks">Runbook drafts</h2>
+
+    <p>When an episode ends with a <em>verified</em> remediation, Responder can offer to write it down as an Emisar runbook draft. Be precise about what that means: Responder creates one unpublished draft. It does not validate, publish, or execute runbooks. Emisar alone decides whether a draft is ever published.</p>
+
+    <p>The offer is refused unless two things are true: the episode’s outcome is recorded as verified, and the action named is one this same episode ran successfully. The step is rebuilt from the <em>recorded</em> action reference, not from anything the model typed — even on an exact match, the stored row is the one that is used. There is no path by which a byte a model wrote reaches Emisar.</p>
+
+    <p>The generated draft is deliberately incomplete. Its arguments, outputs, success conditions and waits are empty, because a step whose arguments were invented would be worse than a step a human has to fill in. If Emisar echoes back a different slug than the one requested, that is a hard refusal.</p>
+
+    <p>A sibling offer writes a knowledge-base card into your repository instead — an ordinary engineering task that ends as a draft pull request nobody is obliged to merge.</p>
+
+    <h2 id="grants">Grant promotions</h2>
+
+    <p>Trust here is earned in a countable way, one rung at a time, for one exact action in one exact situation.</p>
+
+    <dl>
+      <div><dt><code>observe</code></dt><dd>It may look, and say what it would do.</dd></div>
+      <div><dt><code>propose</code></dt><dd>It may put the exact action in front of you.</dd></div>
+      <div><dt><code>one_click</code></dt><dd>The ceiling in this build. A <em>latency</em> rung, not an authority rung: Emisar still approves every run.</dd></div>
+      <div><dt><code>auto</code></dt><dd>Specified, and not implemented. A stored value is clamped down and the reason says so.</dd></div>
+    </dl>
+
+    <p>Promotion needs <strong>three verified successes</strong> — three because it is the smallest number that is not a coincidence — and every grant expires, with a default of thirty days. Authority is never granted permanently.</p>
+
+    <p>The count is not the model’s. The host recomputes it from its own records: Emisar approvals that succeeded, joined to the runs they caused, joined to episodes whose outcome was verified, scoped to the exact channel, alert group and repository. A claim larger than that recomputed number is refused. So is a promotion that skips a rung, or one that widens the grant it says it is extending.</p>
+
+    <p>Three parties, none of them skippable: the model proposes, the host recomputes, the operator confirms. The evaluated grant comes back with no granter recorded, so it cannot validate until a click supplies one. There is deliberately no decline button — ignoring the card is declining it.</p>
+
+    <p>Demotion is automatic, immediate, and drops exactly one rung while zeroing the count. It fires on a failed verification, an expiry, a changed target contract, or an operator saying so, and it applies to every situation holding that action. A pack upgrade or a different runner starts trust counting from zero, because it is not the same thing any more.</p>
+
+    <h2 id="assignments">Standing assignments</h2>
+
+    <p>A standing assignment is an operator delegating one narrow class of change, watched for by a signal pattern, bounded by a daily budget and an expiry date.</p>
+
+    <p>The change classes are a closed allowlist of five, and the set is closed because free text means Responder may change anything:</p>
+
+    <ul>
+      <li><code>dependency_upgrade</code></li>
+      <li><code>alert_threshold</code></li>
+      <li><code>flaky_test_quarantine</code></li>
+      <li><code>observability</code></li>
+      <li><code>documentation</code></li>
+    </ul>
+
+    <p>The daily budget runs from 1 to 20, defaulting to 1. The expiry runs from 1 to 90 days, defaulting to 14. Up to ten path globs may narrow it further, and a glob containing <code>..</code> is refused.</p>
+
+    <div class="callout warn">
+      <p class="lbl">Shadow only, in this build</p>
+      <p>Every standing assignment is created in shadow, and the store refuses to create one that is not. It evaluates real signals and records exactly what it would have done — and nothing opens. Clearing that flag is a separate decision with no operator surface yet. Read the shadow ledger before you ask for more.</p>
+    </div>
+
+    <p>The gate runs cheapest-check-first and is identical in shadow and live: the assignment must be live, in this channel, with every word of its signal pattern present in the message. The same issue must have recurred at least three times in a fourteen-day window. The investigation must have finished <code>decision_ready</code> with zero material gaps. And at least one evidence row must come from Emisar, monitoring, or GitHub — because a change justified solely by reading the repository is a change justified by what somebody intended.</p>
+
+    <p>Every evaluation is recorded three ways: a durable row, an audit event, and an episode event that a replay fixture can contain. Declines are recorded too, with the reason. Two store invariants do the real work: a uniqueness constraint on the assignment and the issue makes “one pull request per issue” structural rather than careful, and counting today’s rows <em>is</em> the budget. It claims before it acts, so a crash leaves an issue handled rather than handled twice.</p>
+
+    <p>Creating one is a conversation. Say what you want watched and Responder answers with a confirmation card showing the normalized bounds — repository, change class, daily budget, expiry, path globs, signal. The typed <code>create</code> subcommand was retired: it was a nine-key line where a miscounted path list was a repository-wide grant that read as a narrow one. The button carries only <em>which offer</em>; the bounds are re-read from the record at confirm time, and a card clicked in a different channel than it was issued for is refused.</p>
+
+    <h2 id="schedules">Schedules</h2>
+
+    <p>Ask in ordinary language — “every weekday at 09:00 check production health”, “on the first of each month prepare an SRE review” — and a configured operator gets a confirmation card. Nothing runs until it is confirmed.</p>
+
+    <p>Five recurrences: <code>once</code>, <code>interval</code>, <code>daily</code>, <code>weekly</code>, <code>monthly</code>. Intervals run from five minutes to a year. Times are IANA timezones, and a wall-clock time that does not exist on a spring daylight-saving transition is <strong>skipped rather than silently shifted</strong>. Nothing schedules permanently: a task expires after 7, 30, 90 or 365 days.</p>
+
+    <p>The card shows your request quoted back, the title, the cadence and next run in the task’s own timezone, the destination, the repository, and the boundary in plain words: each occurrence re-runs the request through current policy, it cannot reuse an old approval, and overlapping occurrences are skipped. Batch offers are all-or-none.</p>
+
+    <p>After downtime, <code>catch_up</code> decides between running the single latest missed occurrence and skipping it, bounded by a misfire grace period. The scheduler records each occurrence before dispatch, and never overlaps two copies of the same task.</p>
+
+    <p>The most important sentence about schedules is that they are not an execution engine. A scheduled occurrence creates an ordinary Slack input and runs the ordinary pipeline — the same conversation serialization, Coop policy, memory assembly, tool projection, Slack status, evidence contract, and approval continuation an operator message gets. A schedule is a durable wake-up, not stored authority.</p>
+
+    <h2 id="waits">External waits and wakeups</h2>
+
+    <p>Work often has to stop and watch something else finish. Responder makes that a first-class state instead of a polling loop.</p>
+
+    <p>A turn can declare a wait with a kind — <code>github_checks</code>, <code>deployment</code>, <code>terraform_run</code>, <code>emisar_approval</code>, <code>scheduled_verification</code>, or <code>other</code> — an event matcher naming the exact thing to watch, and when to look again. The wakeup is durable: it has its own state, its own lease with a fencing token, and its own deadline, and it survives a restart.</p>
+
+    <p>While waiting, nothing is posted. The turn returns silence with a declared wait rather than a heartbeat message. When the wakeup fires it becomes one bounded re-check, carrying the frozen prior context. A wakeup may never widen the audience — it falls back to the thread that scheduled it rather than posting to the channel, because the loudest possible reading of missing information is the wrong one.</p>
+
+    <p>Terraform is the worked example, and the rules are enforced by the host, not suggested to the model. A run that is not yet terminal <em>must</em> declare a wait naming the exact run ID, with both a next-poll time and a deadline. A verdict of “needs review” must carry the canonical provider run URL and fresh evidence about the affected scope, so an operator can see whether production is safe before the change.</p>
+
+    <h2 id="publication">Draft-PR publication</h2>
+
+    <p>Engineering work ends as a reviewed draft pull request from an isolated fork. A person merges. The publication path is where Responder is most paranoid, because it is the one place it writes to something you keep.</p>
+
+    <ol>
+      <li>Coop returns a complete reviewed patch, the exact parent commit, and the candidate tree it approved.</li>
+      <li>Responder builds a throwaway private checkout, fetches that exact parent, and applies the patch.</li>
+      <li>It runs <code>git write-tree</code>. If the result does not equal Coop’s candidate tree <strong>byte for byte</strong>, publication is refused and the message names both hashes.</li>
+      <li>It pushes a deterministic Responder-owned branch with <code>--force-with-lease</code>, leased against the SHA it recorded. A branch that already exists and was not recorded is not overwritten. A branch that changed outside Responder is refused, naming expected and found.</li>
+      <li>It creates or updates a <em>draft</em> pull request, then verifies the PR still preserves the branch at the pushed SHA.</li>
+    </ol>
+
+    <p>The GitHub credential never enters the agent box. It reaches <code>git</code> as a per-invocation configuration header: never a URL, never an argument visible in a process table, never a credential helper file on disk. The agent reads your code with no GitHub credential inside its box at all.</p>
+
+    <p>Your repository gate is validation evidence, not publication authority. A missing gate, a failed gate, a gate that would not start, or a gate that modified tracked files becomes a warning on the draft PR — and gate-authored changes are discarded rather than smuggled into the diff. Rebase conflicts, a moving source branch, an incomplete reviewed patch, and policy findings all still block publication outright.</p>
+
+    <p>After publication, a host-owned follower polls for check, close and merge transitions and writes deduplicated updates back to the original task thread. A Slack message can contribute a deployment or Terraform event to that record only when it names an exact recorded PR number, branch, head SHA or merge SHA. The model cannot broaden that binding.</p>
+
+    <h2 id="discard">Verified discard</h2>
+
+    <p>Cleanup is ownership-based, never name-based. Responder records the exact Coop session ID, then asks for a discard plan, and that plan pins the revision, the workspace identity, the branch, the head, a status digest, whether the tree is dirty, whether it is unmerged, and whether anything is still running.</p>
+
+    <p>The rules on top of that plan are short:</p>
+
+    <ul>
+      <li>The session must be closed, with no active turn and nothing queued.</li>
+      <li><strong>Dirty work is never discarded.</strong> Not automatically, not from Slack, not from the control plane.</li>
+      <li>Unmerged work is discarded only after its reviewed tree is durable in a draft PR — and then only when a second, explicitly acknowledged plan comes back still clean.</li>
+      <li>Deleting a Slack room does not discard the work behind it.</li>
+      <li>Forks Responder did not record are outside its cleanup set entirely.</li>
+    </ul>
+
+    <nav class="doc-next" aria-label="Page navigation">
+      <a href="slack.html"><span class="k">Previous</span><span class="t">← Working in Slack</span></a>
+      <a class="next" href="memory.html"><span class="k">Next</span><span class="t">Memory and recall →</span></a>
+    </nav>
+  </main>
+
+  <nav class="toc" aria-label="On this page">
+    <p class="lbl">On this page</p>
+    <ul>
+      <li><a href="#emisar">Emisar, in one paragraph</a></li>
+      <li><a href="#typed">Typed actions and discovery</a></li>
+      <li><a href="#approvals">Approvals</a></li>
+      <li><a href="#cannot">What it cannot do</a></li>
+      <li><a href="#runbooks">Runbook drafts</a></li>
+      <li><a href="#grants">Grant promotions</a></li>
+      <li><a href="#assignments">Standing assignments</a></li>
+      <li><a href="#schedules">Schedules</a></li>
+      <li><a href="#waits">External waits and wakeups</a></li>
+      <li><a href="#publication">Draft-PR publication</a></li>
+      <li><a href="#discard">Verified discard</a></li>
+    </ul>
+  </nav>
+
+</div>
+</div>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span class="state"><span class="dot good"></span>Responder</span>
+    <span class="sep">·</span>
+    <span>design-partner preview</span>
+    <nav aria-label="Footer">
+      <a href="index.html">Docs</a>
+      <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+      <a href="https://github.com/AndrewDryga/responder/blob/main/SECURITY.md">Security</a>
+    </nav>
+  </div>
+  <div class="wrap foot-sub">
+    <a href="https://github.com/AndrewDryga/responder/blob/main/LICENSE">MIT license</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/AndrewDryga/responder/releases">Releases</a>
+  </div>
+</footer>
+
+<script src="../assets/site.js" defer></script>
+</body>
+</html>

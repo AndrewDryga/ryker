@@ -1,0 +1,1959 @@
+/* Responder — product site.
+   One hand-written stylesheet. No framework, no CDN, no runtime request: the
+   site must render with the network off, from file:// or any static host.
+
+   The system is the control plane's own (internal/webui/static/app.css) —
+   the zinc scale, the emerald logo green, and the rules that surface learned
+   by screenshotting itself:
+
+   - Accent means "you can go somewhere or do something". Nothing else is
+     allowed to glow, or nothing reads as actionable.
+   - State is a colored dot beside quiet text, not a filled badge.
+   - Hairlines over borders. Cards barely lift off the page.
+   - Mono is for identifiers, sources, and timestamps — the things you read
+     token by token rather than as a sentence.
+
+   ---------------------------------------------------------------------------
+   THE RHYTHM SYSTEM, in one place, because everything below depends on it.
+
+   1. SPACE is strictly 8px. Every margin, padding, gap, and section band in
+      this file is a multiple of --u (8px), fluid bands included: their clamp
+      endpoints are 8px multiples too.
+   2. LEADING is on a 4px sub-grid — 20/24/28/32 — because a 16-17px body
+      column cannot be set at 1.65 line-height and land on 8px (24px is 1.41,
+      32px is 1.88; both are wrong for reading). Two lines of body text
+      therefore measure 56px, exactly seven baseline units, so a paragraph
+      with an even line count returns to the grid.
+   3. DISPLAY type is optically set, not grid set. It is fluid via clamp(),
+      so a px leading is not expressible; it takes a ratio and the opsz axis.
+
+   A heading owns the space above it: --space-above is 2x --space-below at
+   every level, so a section reads as a block that begins at its title rather
+   than a title floating between two equal gaps.
+   --------------------------------------------------------------------------- */
+
+/* Fonts ------------------------------------------------------------------- */
+
+/* Inter v4 variable, self-hosted. Carries the opsz axis, so display sizes
+   tighten their own spacing and body sizes open up — done by the font rather
+   than by a table of letter-spacing overrides. */
+@font-face {
+  font-family: "InterVariable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/InterVariable.woff2") format("woff2");
+}
+
+/* Tokens ------------------------------------------------------------------ */
+
+:root {
+  /* Palette — reused exactly from the control plane. */
+  --bg: #09090b;          /* zinc-950 */
+  --panel: #131316;       /* between 950 and 900: cards barely lift off the page */
+  --panel-2: #18181b;     /* zinc-900, hover */
+  --line: #27272a;        /* zinc-800 */
+  --line-2: #1e1e21;      /* hairlines inside components */
+  --ink: #f4f4f5;         /* zinc-100 */
+  --ink-2: #d4d4d8;       /* zinc-300, long-form body */
+  --dim: #a1a1aa;         /* zinc-400 */
+  --faint: #71717a;       /* zinc-500 — marks only: dots, rules, borders */
+  --quiet: #52525b;       /* zinc-600, the quietest legible mark */
+
+  /* Marks and glyphs are not the same thing. A 7px dot at 2.6:1 reads as a
+     deliberate whisper; a 12px mono label at 2.6:1 reads as a rendering bug,
+     and fails WCAG AA outright. So the two quiet steps are split: --faint and
+     --quiet keep the marks where they were, and every use that sets TEXT
+     takes the -t token beside it. Measured against every surface this site
+     paints on — bg, panel, panel-2, and the #0e0e11 code block:
+       --quiet-t  5.11 / 4.76 / 4.55 / 4.95
+       --faint-t  5.90 / 5.50 / 5.25 / 5.71
+     All AA at any size. The marks are unchanged. */
+  --faint-t: #8b8b95;     /* text that wants to be as quiet as --faint  */
+  --quiet-t: #80808d;     /* text that wants to be as quiet as --quiet  */
+  --accent: #36e6a5;      /* brand-400, the logo green */
+  --accent-dim: #14cf8d;  /* brand-500, resting fills */
+  --accent-ghost: rgb(54 230 165 / .07);
+  --warn: #fbbf24;        /* amber-400 */
+  --bad: #fb7185;         /* rose-400 */
+  --good: #36e6a5;
+
+  --sans: "InterVariable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Space: one unit, eight pixels. Nothing in this file is spaced off it. */
+  --u: 8px;
+  --s-1: 8px;
+  --s-2: 16px;
+  --s-3: 24px;
+  --s-4: 32px;
+  --s-5: 40px;
+  --s-6: 48px;
+  --s-7: 64px;
+  --s-8: 80px;
+  --s-9: 96px;
+  --s-10: 120px;
+  --s-11: 160px;
+
+  /* The section band: 72px on a phone, 160px on a desktop. Both multiples. */
+  --band: clamp(4.5rem, 2.5rem + 8vw, 10rem);
+
+  /* Type scale — a major third (1.25) held loosely, every step fluid.
+     Named by job, not by size, so a heading can be re-ranked without a
+     find-and-replace through six files. */
+  --t-micro: 0.6875rem;                                   /* 11px  mono tags   */
+  --t-mini: 0.75rem;                                      /* 12px  eyebrows    */
+  --t-meta: 0.8125rem;                                    /* 13px  meta, dates */
+  --t-small: 0.875rem;                                    /* 14px  captions    */
+  --t-body: clamp(1rem, 0.965rem + 0.16vw, 1.0625rem);    /* 16 → 17           */
+  --t-body-lg: clamp(1.0625rem, 1rem + 0.28vw, 1.1875rem);/* 17 → 19           */
+  --t-lead: clamp(1.125rem, 1.02rem + 0.47vw, 1.3125rem); /* 18 → 21           */
+  --t-lead-lg: clamp(1.25rem, 1.09rem + 0.7vw, 1.5rem);   /* 20 → 24           */
+  --t-h4: clamp(1.0625rem, 1.03rem + 0.16vw, 1.125rem);   /* 17 → 18           */
+  --t-h3: clamp(1.1875rem, 1.08rem + 0.47vw, 1.375rem);   /* 19 → 22           */
+  --t-h2: clamp(1.625rem, 1.29rem + 1.5vw, 2.25rem);      /* 26 → 36           */
+  --t-h1: clamp(2rem, 1.6rem + 1.8vw, 2.75rem);           /* 32 → 44  doc h1   */
+  /* 34 → 64. The old floor of 42px set the hero headline to break "The first
+     / responder that / shows its work." on every phone — the noun split from
+     its own relative clause, three lines deep. Two lines and a smaller size
+     read better than three lines and a bigger one, and above 1200 the
+     side-by-side hero sets its own size against its own column. */
+  --t-display: clamp(2.125rem, 1.32rem + 3.58vw, 4rem);   /* 34 → 64  hero h1  */
+
+  /* Leading, on the 4px sub-grid. */
+  --lh-tight: 24px;
+  --lh-body: 28px;
+  --lh-loose: 32px;
+
+  /* Measure. Prose never exceeds this; it is the whole reason the docs page
+     has a third column instead of a wider second one. */
+  --measure: 68ch;
+  --measure-narrow: 60ch;
+  --wrap: 1120px;
+  --nav-h: 64px;
+}
+
+/* The docs shell is wider than the marketing page, and it has to be. Three
+   columns at 1120 left the middle one 496px wide while a line of the example
+   YAML wants 562px, so every long comment was cut mid-word inside a scroll
+   region nobody could see. Widening the whole page — nav, content and footer
+   together, so the wordmark still sits over the sidebar — buys the content
+   column 648px. */
+body.doc-page { --wrap: 1240px; }
+
+/* Base -------------------------------------------------------------------- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink-2);
+  font-family: var(--sans);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  font-optical-sizing: auto;
+  /* liga/calt/kern are table stakes; cv11 gives the single-storey a, and ss03
+     rounds the quotes and commas — this copy is set with real curly quotes
+     throughout, so the punctuation is worth choosing. */
+  font-feature-settings: "liga" 1, "calt" 1, "kern" 1, "cv11" 1, "ss03" 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-wrap: break-word;
+}
+
+::selection { background: rgb(54 230 165 / .25); color: var(--ink); }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Thin theme scrollbars: the OS default fat grey bar reads as a foreign
+   widget inside a dark surface. */
+* { scrollbar-width: thin; scrollbar-color: #3f3f46 transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 9999px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+a { color: var(--accent-dim); text-decoration: none; }
+a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+
+img, svg { max-width: 100%; }
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 620;
+  text-wrap: balance;
+}
+
+p { margin: 0; }
+p, li { text-wrap: pretty; }
+
+code, kbd, samp, pre { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+hr {
+  height: 0;
+  margin: var(--s-6) 0;
+  border: 0;
+  border-top: 1px solid var(--line-2);
+}
+
+/* Anything numeric or clock-shaped lines up. */
+time, .num, .mono, .tag, table td.num, table th.num { font-variant-numeric: tabular-nums; }
+
+.skip {
+  position: absolute;
+  left: var(--s-2);
+  top: calc(var(--s-1) * -8);
+  z-index: 100;
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid var(--accent-dim);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: var(--t-meta);
+  transition: top .14s ease;
+}
+.skip:focus { top: var(--s-2); text-decoration: none; }
+
+.vh {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The signature motif ----------------------------------------------------- */
+
+/* A status dot beside quiet text, and a monospaced source tag. It is the
+   atom of the hero vignette, and it is deliberately repeated as the mark on
+   every section eyebrow and every docs callout, so the page and the product
+   are visibly the same object. */
+
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+.dot.good { background: var(--good); box-shadow: 0 0 8px rgb(54 230 165 / .55); }
+.dot.warn { background: var(--warn); box-shadow: 0 0 8px rgb(251 191 36 / .5); }
+.dot.bad  { background: var(--bad);  box-shadow: 0 0 8px rgb(251 113 133 / .5); }
+.dot.idle { background: var(--quiet); }
+
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  margin: 0 0 var(--s-3);
+  color: var(--dim);
+  font-size: var(--t-mini);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.eyebrow::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+}
+.eyebrow.plain::before { display: none; }
+
+.tag {
+  display: inline-block;
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  font-weight: 500;
+  letter-spacing: .01em;
+  white-space: nowrap;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.pill.good::before { background: var(--good); }
+.pill.warn::before { background: var(--warn); }
+.pill.bad::before  { background: var(--bad); }
+.pill.good { color: var(--good); }
+.pill.warn { color: var(--warn); }
+.pill.bad  { color: var(--bad); }
+
+/* Layout ------------------------------------------------------------------ */
+
+.wrap {
+  width: 100%;
+  max-width: var(--wrap);
+  margin-inline: auto;
+  padding-inline: var(--s-3);
+}
+
+@media (min-width: 720px) {
+  .wrap { padding-inline: var(--s-5); }
+}
+
+.band { padding-block: var(--band); }
+.band-tight { padding-block: calc(var(--band) * .62); }
+
+/* A hairline is the only thing that ever separates two sections. */
+.band + .band, .band-tight + .band, .band + .band-tight { border-top: 1px solid var(--line-2); }
+
+.section-head { max-width: 46ch; margin-bottom: var(--s-8); }
+.section-head h2 {
+  font-size: var(--t-h2);
+  line-height: 1.16;
+  letter-spacing: -.025em;
+}
+.section-head p {
+  margin-top: var(--s-3);
+  max-width: var(--measure);
+  color: var(--dim);
+  font-size: var(--t-body-lg);
+  line-height: var(--lh-loose);
+}
+
+/* Nav --------------------------------------------------------------------- */
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  border-bottom: 1px solid transparent;
+  transition: background .18s ease, border-color .18s ease;
+}
+/* The hairline and the backdrop arrive only once the page has moved, so the
+   header is part of the hero at rest and part of the chrome in use. */
+.nav.is-stuck {
+  border-bottom-color: var(--line-2);
+  background: rgb(9 9 11 / .82);
+  backdrop-filter: saturate(140%) blur(12px);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
+}
+
+.nav-in {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  height: var(--nav-h);
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--ink);
+  font-size: 0.9375rem;
+  font-weight: 640;
+  letter-spacing: -.012em;
+}
+.wordmark:hover { color: var(--ink); text-decoration: none; }
+.wordmark svg { display: block; }
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  margin-left: auto;
+}
+.nav-links a {
+  color: var(--dim);
+  font-size: var(--t-small);
+  font-weight: 500;
+  transition: color .12s ease;
+}
+.nav-links a:hover { color: var(--ink); text-decoration: none; }
+.nav-links a.on { color: var(--ink); }
+
+.nav-menu { margin-left: auto; display: none; }
+.nav-menu > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-1) 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: var(--t-meta);
+  font-weight: 500;
+  line-height: var(--lh-tight);
+  list-style: none;
+  cursor: pointer;
+}
+.nav-menu > summary::-webkit-details-marker { display: none; }
+.nav-menu > summary::after { content: "+"; color: var(--faint-t); font-family: var(--mono); }
+.nav-menu[open] > summary::after { content: "\2212"; }
+.nav-menu[open] > summary { border-color: var(--faint); color: var(--ink); }
+
+.nav-drawer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  padding: var(--s-2) var(--s-3) var(--s-3);
+  border-block: 1px solid var(--line-2);
+  background: var(--bg);
+}
+.nav-drawer a {
+  display: block;
+  padding: var(--s-1) 0;
+  color: var(--ink-2);
+  font-size: var(--t-body);
+  line-height: var(--lh-loose);
+  border-bottom: 1px solid var(--line-2);
+}
+.nav-drawer a:last-child { border-bottom: 0; }
+.nav-drawer a:hover { color: var(--accent); text-decoration: none; }
+
+@media (max-width: 780px) {
+  .nav-links { display: none; }
+  .nav-menu { display: block; }
+}
+
+/* Buttons ----------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 11px 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--ink);
+  font-size: var(--t-small);
+  font-weight: 550;
+  line-height: var(--lh-tight);
+  letter-spacing: -.005em;
+  white-space: nowrap;
+  transition: transform .12s ease, border-color .12s ease, background .12s ease;
+}
+.btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--faint);
+  color: var(--ink);
+  text-decoration: none;
+}
+.btn.go {
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
+  color: #09090b;
+  font-weight: 650;
+}
+.btn.go:hover { background: var(--accent); border-color: var(--accent); color: #09090b; }
+.btn .arr { color: currentColor; opacity: .55; }
+
+.btn-row { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+
+/* Hero -------------------------------------------------------------------- */
+
+/* One ambient glow behind the top of the page, at four percent. Depth, not
+   decoration — the same device the control plane uses, at the same weight.
+   It has to survive a squint test as "the room is lit from up there", never
+   as "there is a colored shape here". */
+/* The fold has to earn its keep: at a 900px-tall window the alert row and the
+   first evidence rows must be on screen, because the vignette is the argument
+   and a hero that only shows the claim is asking to be believed. */
+.hero {
+  position: relative;
+  padding-block: clamp(4rem, 2rem + 4.5vw, 6rem) var(--band);
+  overflow: hidden;
+}
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: -160px 0 auto;
+  height: 620px;
+  pointer-events: none;
+  background:
+    radial-gradient(620px 300px at 20% 0, rgb(54 230 165 / .05), transparent 70%),
+    radial-gradient(760px 340px at 88% 40px, rgb(96 165 250 / .035), transparent 70%);
+}
+
+.hero-in { position: relative; }
+
+/* At 1200 and up the claim and the receipt sit side by side.
+   Stacked, the vignette began below a 520x480 hole beside the headline and
+   its verdict landed under the fold — a hero that shows only the claim is
+   asking to be believed, which is the one thing this product does not do.
+   Above 1200 the wrap is already at its 1120 maximum, so the two columns
+   are the same width at every larger viewport: 416 for the sentence, 576
+   for the trace. The display size steps down to fit its narrower column;
+   it is still four times the body. */
+@media (min-width: 1200px) {
+  .hero-in {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 37.5rem);
+    gap: var(--s-6);
+    align-items: center;
+  }
+  .hero-in h1.display { font-size: 3.25rem; max-width: 15ch; }
+  .hero-in .hero-sub { max-width: 36ch; font-size: var(--t-body-lg); line-height: var(--lh-loose); }
+  .hero-in .vignette { margin-top: 0; }
+}
+
+/* Four items now, and at a narrow hero column they wrap. Set as a flex row
+   the wrap left a separator hanging at the end of a line with nothing after
+   it. Each separator is glued to the word that follows it by a no-break
+   space instead, so a break can only ever happen before a "·", never after
+   one — the continuation line opens with the separator, which is how a
+   continued list is supposed to read. */
+.hero-eyebrow {
+  margin-bottom: var(--s-3);
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: var(--t-mini);
+  font-weight: 550;
+  line-height: var(--lh-tight);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  text-wrap: pretty;
+}
+.hero-eyebrow span { white-space: nowrap; }
+.hero-eyebrow i { font-style: normal; color: var(--quiet-t); }
+
+h1.display {
+  max-width: 17ch;
+  font-size: var(--t-display);
+  font-weight: 640;
+  line-height: 1.04;
+  letter-spacing: -.037em;
+  text-wrap: balance;
+  /* Open digits and case-sensitive forms at display size; the em dash and the
+     numerals in a headline are set, not defaulted. */
+  font-feature-settings: "liga" 1, "calt" 1, "kern" 1, "cv11" 1, "ss03" 1, "ss01" 1, "case" 1;
+}
+
+.hero-sub {
+  max-width: 58ch;
+  margin-top: var(--s-3);
+  color: var(--dim);
+  font-size: var(--t-lead);
+  line-height: 1.55;
+  letter-spacing: -.01em;
+}
+.hero-sub strong { color: var(--ink-2); font-weight: 550; }
+
+.hero .btn-row { margin-top: var(--s-4); }
+
+/* The episode-trace vignette --------------------------------------------- */
+
+/* Not an illustration. This is the product surface, built out of the same
+   parts the control plane builds an episode from: a header that names the
+   run, an alert, evidence rows that each carry a source and an observed-at
+   time, and a verdict. If it is wrong here it is wrong there. */
+
+/* The side margins are set because this is a <figure>, and the UA gives one
+   40px of margin-inline. Left alone it pushed the card past the viewport on a
+   phone, widened the document, and took the whole page's centring with it —
+   including the nav button that had been sitting off-screen to the right. */
+.vignette {
+  margin: calc(var(--u) * 7) 0 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #17171b, var(--panel) 55%);
+  overflow: hidden;
+  box-shadow: 0 1px 0 rgb(255 255 255 / .03) inset, 0 24px 60px -40px rgb(0 0 0 / .9);
+}
+
+.vig-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  padding: 12px var(--s-3);
+  border-bottom: 1px solid var(--line-2);
+  background: rgb(255 255 255 / .012);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  line-height: 16px;
+  color: var(--faint-t);
+}
+.vig-head .who { color: var(--dim); }
+.vig-head .right { margin-left: auto; display: flex; align-items: center; gap: var(--s-1); }
+
+.vig-body { padding: var(--s-2); }
+
+.vig-alert {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 12px var(--s-2);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background: rgb(251 113 133 / .045);
+}
+.vig-alert .dot { margin-top: 8px; }
+.vig-alert .txt { min-width: 0; }
+.vig-alert b {
+  display: block;
+  color: var(--ink);
+  font-size: var(--t-small);
+  font-weight: 600;
+  line-height: 20px;
+}
+.vig-alert span {
+  display: block;
+  margin-top: 2px;
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  line-height: 20px;
+}
+
+.vig-label {
+  margin: var(--s-2) 0 var(--s-1);
+  line-height: 16px;
+  color: var(--quiet-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.vig-rows { display: grid; }
+
+.vig-row {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--s-2);
+  padding: var(--s-1) 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.vig-row .dot { align-self: center; }
+.vig-row .claim { color: var(--ink-2); font-size: var(--t-small); line-height: var(--lh-tight); }
+.vig-row .src {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  line-height: var(--lh-tight);
+  white-space: nowrap;
+}
+.vig-row .src em { font-style: normal; color: var(--quiet-t); }
+
+.vig-verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-top: var(--s-2);
+  padding: 14px var(--s-2);
+  border: 1px solid rgb(54 230 165 / .22);
+  border-radius: 10px;
+  background: var(--accent-ghost);
+}
+.vig-verdict .dot { margin-top: 7px; }
+.vig-verdict b { color: var(--good); font-size: var(--t-small); font-weight: 650; }
+.vig-verdict p {
+  color: var(--ink-2);
+  font-size: var(--t-small);
+  line-height: var(--lh-tight);
+}
+.vig-verdict .then {
+  display: block;
+  margin-top: 6px;
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+}
+/* Degraded is amber, and the panel says so as quietly as the healthy one
+   says the opposite: a tinted hairline and a 6% wash, never a filled badge. */
+.vig-verdict.warn {
+  border-color: rgb(251 191 36 / .22);
+  background: rgb(251 191 36 / .06);
+}
+.vig-verdict.warn b { color: var(--warn); }
+
+/* The stagger. Each part arrives in the order the episode produced it, which
+   is the only reason the motion is here: it is a sequence, not an entrance. */
+@media (prefers-reduced-motion: no-preference) {
+  .stagger > * {
+    opacity: 0;
+    animation: rise .5s cubic-bezier(.22, .8, .3, 1) forwards;
+  }
+  .stagger > *:nth-child(1) { animation-delay: .10s; }
+  .stagger > *:nth-child(2) { animation-delay: .28s; }
+  .stagger > *:nth-child(3) { animation-delay: .46s; }
+  .stagger > *:nth-child(4) { animation-delay: .64s; }
+  .stagger > *:nth-child(5) { animation-delay: .82s; }
+  .stagger > *:nth-child(6) { animation-delay: 1.00s; }
+  .stagger > *:nth-child(7) { animation-delay: 1.18s; }
+  .stagger > *:nth-child(8) { animation-delay: 1.36s; }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: none; }
+  }
+}
+
+/* Credo ------------------------------------------------------------------- */
+
+/* This is the sentence the whole product is an argument for. Set as a stray
+   left-aligned paragraph it read as a caption between two sections; at
+   heading scale, centred, with a band deep enough to leave it alone, it
+   reads as the claim it is. */
+.credo {
+  border-top: 1px solid var(--line-2);
+  border-bottom: 1px solid var(--line-2);
+  padding-block: calc(var(--band) * .55);
+  text-align: center;
+}
+/* A block, not a flex row. As a flex container the two bare text nodes either
+   side of the quoted phrase became flex items of their own, so the 14px gap
+   was added on top of the ordinary word space and the line read
+   "say · · “…” · · than" with doubled gaps. The dot leads the line from
+   above instead, which is also the only place it can sit once the line is
+   centred and two lines deep. */
+.credo p {
+  margin-inline: auto;
+  color: var(--dim);
+  font-size: var(--t-h2);
+  line-height: 1.24;
+  letter-spacing: -.024em;
+  text-wrap: balance;
+}
+.credo p::before {
+  content: "";
+  display: block;
+  width: 7px;
+  height: 7px;
+  margin: 0 auto var(--s-3);
+  border-radius: 50%;
+  background: var(--accent-dim);
+  box-shadow: 0 0 10px rgb(54 230 165 / .45);
+}
+/* The quoted phrase is set in ink rather than in italics. Inter ships no true
+   italic here, and a synthesised oblique at 21px opens a visible gap on each
+   side of the curly quotes — the sentence read as three pieces. Colour does
+   the same job and keeps the line one object. */
+/* And it is never broken open. "I could / not verify this" split the one
+   phrase the sentence exists to quote. */
+.credo .said { color: var(--ink); font-weight: 550; white-space: nowrap; }
+
+/* Pillars ----------------------------------------------------------------- */
+
+/* Three or one, never two-and-a-stray. auto-fit with a 260px minimum fitted
+   exactly two columns through the whole tablet range, orphaning pillar 03
+   on a row of its own beside 400px of nothing. */
+.pillars {
+  display: grid;
+  gap: var(--s-6);
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 900px) {
+  .pillars { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+.pillar { border-top: 1px solid var(--line); padding-top: var(--s-3); }
+.pillar .n {
+  display: block;
+  margin-bottom: var(--s-2);
+  color: var(--quiet-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: .08em;
+}
+.pillar h3 {
+  font-size: var(--t-h3);
+  line-height: 1.25;
+  letter-spacing: -.022em;
+}
+.pillar p {
+  margin-top: var(--s-2);
+  max-width: 44ch;
+  color: var(--dim);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+}
+
+/* Steps ------------------------------------------------------------------- */
+
+.steps { display: grid; gap: var(--s-10); }
+
+/* Centred, not top-aligned. The text column is three or four lines and the
+   mock beside it is ten or more, so `start` left an L-shaped hole under
+   every short column — the page read as four half-empty rows. */
+.step {
+  display: grid;
+  gap: var(--s-5) var(--s-7);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+}
+
+/* The text column is the narrow one on both sides. Flipping with `order`
+   alone moved the mock into the 27rem column and gave the prose the wide
+   one — the opposite of the intent, and the two steps stopped matching. The
+   template mirrors with the content. */
+@media (min-width: 900px) {
+  .step { grid-template-columns: minmax(0, 27rem) minmax(0, 1fr); }
+  .step.flip { grid-template-columns: minmax(0, 1fr) minmax(0, 27rem); }
+  .step.flip > .step-text { order: 2; }
+  .step.flip > .mock { order: 1; }
+}
+
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: var(--s-2);
+  color: var(--accent-dim);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  font-weight: 650;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.step-num::after { content: ""; width: var(--s-3); height: 1px; background: var(--line); }
+
+.step-text h3 {
+  font-size: var(--t-h2);
+  line-height: 1.18;
+  letter-spacing: -.028em;
+}
+.step-text p {
+  margin-top: var(--s-3);
+  max-width: 46ch;
+  color: var(--dim);
+  font-size: var(--t-body-lg);
+  line-height: var(--lh-loose);
+}
+
+/* Mock panels ------------------------------------------------------------- */
+
+.mock {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #17171b, var(--panel) 60%);
+  overflow: hidden;
+}
+.mock-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 11px var(--s-2);
+  border-bottom: 1px solid var(--line-2);
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+}
+.mock-head .right { margin-left: auto; color: var(--quiet-t); }
+.mock-body { padding: var(--s-2); display: grid; gap: var(--s-1); }
+
+/* Slack-thread mock */
+.msg { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 10px; padding: 6px 0; }
+.msg .av {
+  width: 26px; height: 26px;
+  border-radius: 7px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: .02em;
+}
+.msg.bot .av { border-color: rgb(54 230 165 / .35); background: var(--accent-ghost); color: var(--accent); }
+.msg .nm {
+  display: flex; align-items: baseline; gap: var(--s-1);
+  color: var(--ink);
+  font-size: var(--t-meta);
+  font-weight: 620;
+  line-height: var(--lh-tight);
+}
+.msg .nm time { color: var(--quiet-t); font-family: var(--mono); font-size: var(--t-micro); font-weight: 400; }
+.msg .nm .bt {
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.msg .tx { display: block; color: var(--ink-2); font-size: var(--t-meta); line-height: var(--lh-tight); }
+.msg .tx b { color: var(--ink); font-weight: 600; }
+.msg .rx {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-top: 6px;
+  padding: 1px 7px 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+}
+.msg .rx .dot { width: 6px; height: 6px; }
+
+.mock-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px var(--s-2);
+  padding: 10px var(--s-2);
+  border-top: 1px solid var(--line-2);
+  color: var(--quiet-t);
+  font-size: var(--t-meta);
+  line-height: var(--lh-tight);
+}
+/* The mono label and the sentence beside it are close in size and weight, so
+   the gap is the only thing separating them. Eight pixels read as one run-on
+   string; sixteen reads as a label and its note. */
+.mock-note .tag { flex: none; color: var(--faint-t); }
+/* On a phone the note wrapped inside itself — "one rung, / per / message" —
+   because it was sharing a row with a label that would not shrink. Below 480
+   it takes its own line whole. */
+@media (max-width: 480px) {
+  .mock-note .note { flex: 1 0 100%; }
+}
+
+/* Evidence-layers mock */
+.layers { display: grid; }
+.layer {
+  display: grid;
+  grid-template-columns: 7px 8.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.layer:last-child { border-bottom: 0; }
+.layer .nm { color: var(--dim); font-family: var(--mono); font-size: var(--t-micro); letter-spacing: .02em; }
+.layer .tx { color: var(--ink-2); font-size: var(--t-meta); line-height: var(--lh-tight); min-width: 0; }
+.layer .st { color: var(--faint-t); font-family: var(--mono); font-size: var(--t-micro); white-space: nowrap; }
+/* The dot carries the state; the text stays quiet. An amber "unverified"
+   word made the same fact shout here and whisper in the assessment mock two
+   steps down — one treatment, everywhere. */
+.layer.unverified .tx { color: var(--faint-t); }
+.layer.unverified .st { color: var(--faint-t); }
+
+@media (max-width: 560px) {
+  .layer { grid-template-columns: 7px minmax(0, 1fr) auto; }
+  .layer .nm { grid-column: 2; }
+  .layer .tx { grid-column: 2 / -1; grid-row: 2; }
+}
+
+/* Verdict mock */
+.verdict-mock { display: grid; gap: var(--s-2); }
+.verdict-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: var(--s-2);
+  border-bottom: 1px solid var(--line-2);
+}
+.verdict-head .dot { align-self: center; }
+.verdict-head b { color: var(--good); font-size: var(--t-body); font-weight: 650; letter-spacing: -.01em; }
+.verdict-head .tag { margin-left: auto; }
+.vfield { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: var(--s-2); padding: 5px 0; }
+.vfield dt {
+  color: var(--quiet-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  line-height: var(--lh-tight);
+}
+.vfield dd { margin: 0; color: var(--ink-2); font-size: var(--t-meta); line-height: var(--lh-tight); }
+.vfield dd em { font-style: normal; color: var(--faint-t); }
+
+@media (max-width: 480px) {
+  .vfield { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+
+/* "3 sources · 0 stale" is a claim, and a claim on this site names its
+   sources. This is the receipt for the tag above it. */
+.vsrc {
+  padding-top: var(--s-1);
+  border-top: 1px solid var(--line-2);
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  line-height: var(--lh-tight);
+}
+.vsrc i, .vsrc span { font-style: normal; color: var(--quiet-t); }
+
+/* Memory mock */
+.mem { display: grid; gap: 2px; }
+.mem-row {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.mem-row:last-child { border-bottom: 0; }
+.mem-row .dot { align-self: start; margin-top: 5px; }
+.mem-row .k {
+  display: block;
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.mem-row .v { display: block; margin-top: 2px; color: var(--ink-2); font-size: var(--t-meta); line-height: var(--lh-tight); }
+/* The qualifier gets its own line. Inline, it wrapped mid-phrase — "closed ·"
+   ending one line and "not current state" starting the next, which is the one
+   part of the row that has to read as a single caveat. */
+.mem-row .v i {
+  display: block;
+  margin-top: 3px;
+  font-style: normal;
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+}
+
+/* Features ---------------------------------------------------------------- */
+
+.cards {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--line);
+  overflow: hidden;
+}
+.card {
+  padding: var(--s-4) var(--s-3);
+  background: var(--panel);
+  transition: background .14s ease;
+}
+.card:hover { background: var(--panel-2); }
+.card .tag { display: flex; align-items: center; gap: 7px; margin-bottom: var(--s-2); }
+.card .tag::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--quiet); }
+.card h3 { font-size: var(--t-h4); line-height: var(--lh-tight); letter-spacing: -.018em; }
+.card p {
+  margin-top: 10px;
+  max-width: 34ch;
+  color: var(--dim);
+  font-size: var(--t-meta);
+  line-height: var(--lh-tight);
+  text-wrap: balance;
+}
+
+/* Capability index -------------------------------------------------------- */
+
+.index-groups { display: grid; gap: var(--s-9); }
+
+/* Fifty-one one-line facts is a long scroll, and it was undifferentiated:
+   every row the same weight, every group header the same weight as the rows
+   under it. The header column gives up 2rem and the column gap 16px, which
+   is 56px more measure per column — enough to pull the worst two-word last
+   lines back up. */
+.index-group {
+  display: grid;
+  gap: var(--s-3) var(--s-5);
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 900px) {
+  .index-group { grid-template-columns: 12rem minmax(0, 1fr); }
+}
+
+.index-group > header { position: sticky; top: calc(var(--nav-h) + var(--s-3)); align-self: start; }
+@media (max-width: 899px) { .index-group > header { position: static; } }
+
+.index-group h3 {
+  font-size: var(--t-h3);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -.022em;
+}
+/* The count is a machine fact, so it is set in mono, one step down, and it
+   is there to tell you how much of this group is left. */
+.index-group h3 .n {
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: var(--t-meta);
+  font-weight: 500;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.index-group header p {
+  margin-top: 10px;
+  color: var(--faint-t);
+  font-size: var(--t-meta);
+  line-height: var(--lh-tight);
+}
+
+/* Two quiet columns of one-line facts. Column rules are hairlines, and each
+   row carries the same dot the vignette uses. */
+.index-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  columns: 1;
+}
+@media (min-width: 640px) { .index-list { columns: 2; column-gap: var(--s-5); } }
+
+/* Balanced, not ragged. A three-line fact that ended on "a command." read as
+   a mistake fifty rows into a list of them. */
+.index-list li span { text-wrap: balance; }
+
+.index-list li {
+  break-inside: avoid;
+  display: grid;
+  grid-template-columns: 6px minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line-2);
+  color: var(--ink-2);
+  font-size: var(--t-meta);
+  line-height: var(--lh-tight);
+}
+.index-list li::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  margin-top: 8px;
+  border-radius: 50%;
+  background: var(--quiet);
+}
+.index-list li b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.index-list li span { display: block; color: var(--faint-t); }
+
+/* Trust ------------------------------------------------------------------- */
+
+.trust-grid {
+  display: grid;
+  gap: var(--s-8) var(--s-7);
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 880px) { .trust-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); } }
+
+.checks { margin: 0; padding: 0; list-style: none; display: grid; }
+.checks li {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr);
+  gap: 14px;
+  align-items: baseline;
+  padding: var(--s-2) 0;
+  border-bottom: 1px solid var(--line-2);
+  color: var(--ink-2);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+}
+.checks li::before {
+  content: "";
+  width: 7px; height: 7px;
+  margin-top: 10px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  box-shadow: 0 0 8px rgb(54 230 165 / .4);
+}
+
+.cannot {
+  padding: var(--s-4) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.cannot h3 { font-size: var(--t-h4); line-height: var(--lh-tight); letter-spacing: -.018em; }
+.cannot ul { margin: var(--s-3) 0 0; padding: 0; list-style: none; display: grid; }
+.cannot li {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-2);
+  color: var(--ink-2);
+  font-size: var(--t-meta);
+  line-height: var(--lh-tight);
+}
+.cannot li::before {
+  content: "\2715";
+  color: var(--quiet-t);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: var(--lh-tight);
+}
+.cannot > p {
+  margin-top: var(--s-3);
+  color: var(--faint-t);
+  font-size: var(--t-meta);
+  line-height: var(--lh-tight);
+}
+.cannot > p strong { color: var(--dim); font-weight: 600; }
+
+/* Final CTA --------------------------------------------------------------- */
+
+.cta { border-top: 1px solid var(--line-2); }
+.cta h2 {
+  max-width: 20ch;
+  font-size: clamp(1.875rem, 1.3rem + 2.5vw, 3.25rem);
+  line-height: 1.08;
+  letter-spacing: -.032em;
+}
+.cta h2 span { display: block; color: var(--dim); }
+.cta .btn-row { margin-top: var(--s-6); }
+
+/* The last thing on the page used to be two buttons, one of which repeated
+   the nav. The right half now carries the actual first two commands, so the
+   page ends with the thing it has been describing rather than a link to it. */
+.cta-in {
+  display: grid;
+  gap: var(--s-7);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+}
+@media (min-width: 1200px) {
+  .cta-in { grid-template-columns: minmax(0, 1fr) minmax(0, 31rem); }
+  /* The headline gives up a step so "Point it at one channel." stays one
+     line beside the install block. */
+  .cta-in h2 { font-size: 2.5rem; }
+}
+
+.install {
+  min-width: 0;
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.install > .code-label { margin-bottom: var(--s-2); }
+.install pre {
+  margin: 0;
+  padding: var(--s-2);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: #0e0e11;
+  color: var(--ink-2);
+  font-size: .8125rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+@supports (text-indent: -16px each-line) {
+  .install pre { padding-left: calc(var(--s-2) * 2); text-indent: -16px each-line; }
+}
+.install-note {
+  margin-top: var(--s-2);
+  color: var(--faint-t);
+  font-size: var(--t-meta);
+  line-height: var(--lh-tight);
+}
+/* A path, not a chip. The boxed variant opened a visible gap before the
+   following period — "~/.local/bin . A Unix host" — and one line of caption
+   does not need a second box inside a box. */
+.install-note code { color: var(--dim); font-size: .9375em; }
+
+/* Copy buttons ------------------------------------------------------------ */
+
+/* Built by script, so a page with no script never shows a button that does
+   nothing. The code is selectable either way. */
+.copy-wrap { position: relative; }
+.copy {
+  position: absolute;
+  top: var(--s-1);
+  right: var(--s-1);
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: .04em;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .12s ease, color .12s ease, border-color .12s ease;
+}
+.copy-wrap:hover .copy,
+.copy:focus-visible { opacity: 1; }
+.copy:hover { color: var(--ink); border-color: var(--faint); }
+.copy.done { color: var(--accent); border-color: var(--accent-dim); opacity: 1; }
+/* Touch has no hover, so there the button is simply always there. */
+@media (hover: none) {
+  .copy { opacity: 1; }
+}
+
+/* Footer ------------------------------------------------------------------ */
+
+.foot {
+  border-top: 1px solid var(--line-2);
+  padding-block: var(--s-6);
+  color: var(--faint-t);
+  font-size: var(--t-meta);
+  line-height: var(--lh-tight);
+}
+.foot-in { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
+.foot .sep { color: var(--quiet-t); }
+.foot a { color: var(--dim); }
+.foot a:hover { color: var(--accent); }
+/* The site signs its own name in ink. Set in --faint it was quieter than the
+   nav links beside it, which is the wrong order of importance. */
+.foot .state { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-weight: 550; }
+.foot nav { margin-left: auto; display: flex; flex-wrap: wrap; gap: var(--s-3); }
+/* One quiet row under the rest: the licence and the releases are facts a
+   self-hosted tool owes the reader, and neither is a navigation choice. */
+.foot-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-1);
+  margin-top: var(--s-2);
+  color: var(--quiet-t);
+  font-size: var(--t-meta);
+}
+.foot-sub a { color: var(--quiet-t); }
+.foot-sub a:hover { color: var(--accent); }
+
+/* Docs shell -------------------------------------------------------------- */
+
+.docs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0 var(--s-6);
+  align-items: start;
+}
+/* Two columns, and the sidebar gives up 3rem of its own width and 8px of
+   gutter: this is the one band with no room to spare, and the content column
+   needs 72 monospace characters before the example YAML starts wrapping. */
+@media (min-width: 900px) {
+  .docs { grid-template-columns: 12rem minmax(0, 1fr); gap: 0 var(--s-5); }
+}
+@media (min-width: 1180px) {
+  .docs { grid-template-columns: 15rem minmax(0, 1fr) 11rem; gap: 0 var(--s-6); }
+  .doc-toc { display: none; }
+}
+
+.docs-nav {
+  padding-block: var(--s-6) var(--s-4);
+  align-self: start;
+}
+/* Full viewport height, not content height — the same shape the control
+   plane's sidebar has. A border-right on a box that ends where its list ends
+   draws a hairline that stops halfway down the page and reads as a mistake. */
+@media (min-width: 900px) {
+  .docs-nav {
+    position: sticky;
+    top: var(--nav-h);
+    height: calc(100vh - var(--nav-h));
+    overflow-y: auto;
+    border-right: 1px solid var(--line-2);
+    padding-right: var(--s-3);
+  }
+}
+
+.docs-nav .grp {
+  margin: var(--s-4) 0 var(--s-1);
+  color: var(--quiet-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  font-weight: 650;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.docs-nav .grp:first-child { margin-top: 0; }
+.docs-nav ul { margin: 0; padding: 0; list-style: none; }
+.docs-nav a {
+  display: block;
+  padding: 6px 0 6px 14px;
+  border-left: 2px solid var(--line-2);
+  color: var(--dim);
+  font-size: var(--t-meta);
+  line-height: var(--lh-tight);
+  transition: color .12s ease, border-color .12s ease;
+}
+.docs-nav a:hover { color: var(--ink); border-left-color: var(--faint); text-decoration: none; }
+.docs-nav a.on {
+  color: var(--ink);
+  border-left-color: var(--accent);
+  font-weight: 550;
+}
+
+/* On small screens the whole sidebar collapses into one disclosure so the
+   page still opens at its own first heading. */
+.docs-nav > details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: var(--t-meta);
+  font-weight: 550;
+  list-style: none;
+  cursor: pointer;
+}
+.docs-nav > details > summary::-webkit-details-marker { display: none; }
+.docs-nav > details > summary::after { content: "\25BE"; color: var(--faint-t); font-size: 10px; }
+.docs-nav > details[open] > summary::after { transform: rotate(180deg); }
+.docs-nav > details > div { padding-top: var(--s-2); }
+
+/* On desktop the disclosure is not a disclosure: the list is always open and
+   the summary is gone. Hiding the summary alone is not enough — a closed
+   <details> hides its own content, so the content has to be forced back.
+   Both rules are needed: older engines hid the non-summary children directly,
+   newer ones hide them through ::details-content. */
+@media (min-width: 900px) {
+  .docs-nav > details > summary { display: none; }
+  .docs-nav > details > div { display: block; padding-top: 0; }
+  .docs-nav > details::details-content { content-visibility: visible; block-size: auto; }
+}
+
+/* Docs content ------------------------------------------------------------ */
+
+.doc {
+  min-width: 0;
+  padding-block: var(--s-6) var(--s-10);
+  max-width: 72ch;
+}
+
+.crumb {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-1);
+  margin-bottom: var(--s-3);
+  color: var(--quiet-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: .04em;
+}
+.crumb a { color: var(--faint-t); }
+.crumb a:hover { color: var(--accent); }
+
+.doc > h1 {
+  font-size: var(--t-h1);
+  line-height: 1.1;
+  letter-spacing: -.032em;
+}
+
+.doc > .lede {
+  margin-top: var(--s-3);
+  max-width: var(--measure);
+  color: var(--dim);
+  font-size: var(--t-lead);
+  line-height: 1.5;
+  letter-spacing: -.011em;
+}
+
+/* One flow rule, not a margin per element. A heading takes twice the space
+   above it that it gives below, so the section owns its title. */
+.doc > * + * { margin-top: var(--s-3); }
+.doc > * + h2 { margin-top: var(--s-8); }   /* 80 above … */
+.doc > h2 + * { margin-top: var(--s-5); }   /* … 40 below: exactly 2×  */
+.doc > * + h3 { margin-top: var(--s-6); }   /* 48 above … */
+.doc > h3 + * { margin-top: var(--s-3); }   /* … 24 below              */
+.doc > * + h4 { margin-top: var(--s-4); }   /* 32 above … */
+.doc > h4 + * { margin-top: var(--s-2); }   /* … 16 below              */
+
+.doc h2 {
+  font-size: var(--t-h2);
+  line-height: 1.18;
+  letter-spacing: -.028em;
+  scroll-margin-top: calc(var(--nav-h) + var(--s-4));
+}
+.doc h3 {
+  font-size: var(--t-h3);
+  line-height: 1.28;
+  letter-spacing: -.02em;
+  scroll-margin-top: calc(var(--nav-h) + var(--s-4));
+}
+.doc h4 {
+  font-size: var(--t-h4);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: -.014em;
+  color: var(--ink);
+  scroll-margin-top: calc(var(--nav-h) + var(--s-4));
+}
+
+/* A heading links to itself, from a hash that is invisible until you go
+   looking for it — on hover, or on keyboard focus, which is the case a
+   hover-only affordance always forgets. */
+.doc h2 .anchor,
+.doc h3 .anchor {
+  margin-left: .4em;
+  color: var(--quiet-t);
+  font-family: var(--mono);
+  font-size: .7em;
+  font-weight: 400;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity .12s ease, color .12s ease;
+}
+.doc h2:hover .anchor,
+.doc h3:hover .anchor,
+.doc .anchor:focus-visible { opacity: 1; }
+.doc .anchor:hover { color: var(--accent); text-decoration: none; }
+
+.doc p { max-width: var(--measure); font-size: var(--t-body); line-height: var(--lh-body); }
+.doc p strong, .doc li strong { color: var(--ink); font-weight: 600; }
+.doc p em, .doc li em { color: var(--ink-2); font-style: italic; }
+
+/* Hanging bullets: the marker sits in the gutter and the text keeps one
+   straight left edge with the paragraphs above it. */
+/* Only the bottom margin is zeroed. `margin-block: 0` here ties on specificity
+   with the flow rule above and, coming later, silently won — every list sat
+   flush against the heading that introduced it. */
+.doc ul, .doc ol {
+  max-width: var(--measure);
+  margin-bottom: 0;
+  padding-left: 0;
+  list-style: none;
+}
+.doc li {
+  position: relative;
+  padding-left: var(--s-3);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+}
+.doc li + li { margin-top: var(--s-1); }
+.doc ul > li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 12px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--quiet);
+}
+.doc ol { counter-reset: n; }
+.doc ol > li { counter-increment: n; padding-left: var(--s-4); }
+.doc ol > li::before {
+  content: counter(n) ".";
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: var(--t-meta);
+  font-variant-numeric: tabular-nums;
+}
+.doc li > ul { margin-top: var(--s-1); }
+
+/* Definition rows: the shape most of these pages actually want — a term on
+   the left, its one honest line on the right. */
+.doc dl {
+  max-width: var(--measure);
+  margin-bottom: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.doc dl > div {
+  display: grid;
+  grid-template-columns: 12rem minmax(0, 1fr);
+  gap: var(--s-2);
+  padding: var(--s-2) 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.doc dl > div:first-child { border-top: 1px solid var(--line-2); }
+.doc dt {
+  color: var(--ink);
+  font-size: var(--t-meta);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+.doc dt code { font-size: var(--t-meta); }
+.doc dd {
+  margin: 0;
+  color: var(--dim);
+  font-size: var(--t-meta);
+  line-height: var(--lh-tight);
+}
+@media (max-width: 620px) {
+  .doc dl > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}
+
+/* A link inside running prose is underlined at rest. Colour alone is not an
+   affordance — it fails for anyone who cannot separate emerald from zinc, and
+   at 13-17px on black the hue shift is slight even for those who can. The
+   rule stays out of the card links (.doc-next, .next-grid), which are already
+   whole clickable surfaces. */
+.doc a { text-underline-offset: 3px; }
+.doc p:not(.crumb):not(.code-label) a,
+.doc li a,
+.doc dd a,
+.doc dt a,
+.doc td a,
+.doc > .lede a,
+.callout a {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: rgb(20 207 141 / .45);
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  transition: text-decoration-color .12s ease, color .12s ease;
+}
+.doc p:not(.crumb):not(.code-label) a:hover,
+.doc li a:hover,
+.doc dd a:hover,
+.doc dt a:hover,
+.doc td a:hover,
+.doc > .lede a:hover,
+.callout a:hover { text-decoration-color: currentColor; }
+
+/* Tight inline padding. At 5px the chip's own box opened a visible gap before
+   a following comma or period — "find_actions ," — which reads as a typo in
+   prose that is otherwise carefully spaced. */
+.doc code {
+  padding: 1px 3px;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: #1c1c21;
+  color: var(--ink-2);
+  font-size: .875em;
+}
+
+/* Code blocks. Line-height 1.7 on the 4px sub-grid (12.5px mono is set at
+   21px), comfortable padding, and the tinting is four hand-applied classes —
+   no highlighter, because a highlighter would need a script. */
+.doc pre {
+  max-width: 78ch;
+  margin: 0;
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #0e0e11;
+  color: var(--ink-2);
+  font-size: .8125rem;
+  line-height: 1.7;
+  overflow-x: auto;
+  tab-size: 2;
+  /* A code block never hides a character. Where the column is wide enough it
+     prints its longest line; where it is not — a phone, the two-column band —
+     it wraps rather than scrolling something off the right edge, because a
+     clipped comment inside a scroll region with no visible scrollbar reads as
+     a shorter comment. */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* And when it does wrap, it says so: the continuation is indented under its
+   own line instead of impersonating the next one. */
+@supports (text-indent: -16px each-line) {
+  .doc pre {
+    padding-left: calc(var(--s-3) + var(--s-2));
+    text-indent: -16px each-line;
+  }
+}
+.doc pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+  color: inherit;
+}
+
+.tok-c { color: var(--quiet-t); }               /* comment */
+.tok-k { color: var(--dim); }                 /* key, flag, structure */
+.tok-v { color: var(--ink-2); }               /* value you can leave alone */
+.tok-y { color: var(--accent); }              /* value YOU must supply */
+.tok-p { color: var(--quiet-t); }               /* punctuation */
+.tok-x { color: var(--ink); font-weight: 550; } /* the command itself */
+
+.code-label {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  margin-bottom: var(--s-1);
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: .04em;
+}
+.code-label .warn-t { color: var(--warn); }
+
+/* Callouts carry the motif: a dot, a mono label, quiet text. */
+.callout {
+  max-width: var(--measure);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line-2);
+  border-left: 2px solid var(--quiet);
+  border-radius: 0 10px 10px 0;
+  background: rgb(255 255 255 / .015);
+}
+.callout > .lbl {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  font-weight: 650;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.callout > .lbl::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--quiet); }
+/* Prose size, not caption size. At 13px against 17px body the callouts read
+   as footnotes, and the callouts are carrying the rules that matter most. */
+.callout p { color: var(--dim); font-size: var(--t-body); line-height: var(--lh-body); }
+.callout p + p { margin-top: var(--s-2); }
+.callout.good { border-left-color: var(--accent-dim); }
+.callout.good > .lbl { color: var(--accent-dim); }
+.callout.good > .lbl::before { background: var(--accent-dim); }
+.callout.warn { border-left-color: var(--warn); }
+.callout.warn > .lbl { color: var(--warn); }
+.callout.warn > .lbl::before { background: var(--warn); }
+
+.doc table {
+  width: 100%;
+  max-width: 78ch;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--panel);
+  font-size: var(--t-meta);
+}
+.doc th {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--faint-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  text-align: left;
+}
+.doc td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line-2);
+  color: var(--ink-2);
+  line-height: var(--lh-tight);
+  vertical-align: top;
+}
+.doc tr:last-child td { border-bottom: 0; }
+
+/* Prose takes the 68ch measure. Code and tables are not prose: they are laid
+   out, not read left to right, and they are the two blocks that cannot be
+   re-wrapped to fit a narrower column. So they break the measure by exactly
+   the column's own padding on each side and take the gutters back. */
+@media (min-width: 720px) {
+  .doc pre,
+  .doc table {
+    max-width: none;
+    width: calc(100% + var(--s-3) * 2);
+    margin-inline: calc(var(--s-3) * -1);
+  }
+  /* A table that has stepped outside the column has to put its first column
+     back on the column's left edge, or the page grows a second left margin
+     ten pixels off the first one. */
+  .doc table th:first-child,
+  .doc table td:first-child { padding-left: var(--s-3); }
+  .doc table th:last-child,
+  .doc table td:last-child { padding-right: var(--s-3); }
+}
+
+.doc-next {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-9);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line-2);
+}
+/* flex-basis 0, not 16rem. At 16rem two cards whose basis exceeded the row
+   wrapped into two stacked full-width slabs — the pager stopped reading as
+   "back / forward" and started reading as two more sections. */
+.doc-next a {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 14px var(--s-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  transition: transform .12s ease, border-color .12s ease;
+}
+.doc-next a:hover { transform: translateY(-1px); border-color: var(--faint); text-decoration: none; }
+.doc-next .k {
+  display: block;
+  color: var(--quiet-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.doc-next .t { display: block; margin-top: 4px; font-size: var(--t-meta); font-weight: 550; }
+.doc-next a.next { text-align: right; }
+
+/* On this page ------------------------------------------------------------ */
+
+/* Below 1180 the rail is gone, and a docs page with no rail had no on-page
+   navigation at all — a phone reader got 4000px of scroll and a back button.
+   Same list, same labels, folded into a disclosure. It is hidden the moment
+   the real rail appears, so the page never carries two of them. */
+.doc-toc {
+  max-width: var(--measure);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.doc-toc > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: 10px 14px;
+  color: var(--ink-2);
+  font-size: var(--t-meta);
+  font-weight: 550;
+  line-height: var(--lh-tight);
+  list-style: none;
+  cursor: pointer;
+}
+.doc-toc > summary::-webkit-details-marker { display: none; }
+.doc-toc > summary::after { content: "\25BE"; color: var(--faint-t); font-size: 10px; }
+.doc-toc[open] > summary { border-bottom: 1px solid var(--line-2); }
+.doc-toc[open] > summary::after { transform: rotate(180deg); }
+.doc-toc ul { margin: 0; padding: var(--s-1) 14px var(--s-2); list-style: none; max-width: none; }
+.doc-toc li { padding-left: 0; font-size: var(--t-meta); line-height: var(--lh-tight); }
+.doc-toc li + li { margin-top: 0; }
+.doc-toc ul > li::before { display: none; }
+.doc-toc li a {
+  display: block;
+  padding: 5px 0;
+  color: var(--dim);
+  text-decoration: none;
+}
+.doc-toc li a:hover { color: var(--ink); text-decoration: none; }
+
+.toc { display: none; }
+@media (min-width: 1180px) {
+  .toc {
+    display: block;
+    position: sticky;
+    top: var(--nav-h);
+    max-height: calc(100vh - var(--nav-h));
+    overflow-y: auto;
+    padding-block: var(--s-6) var(--s-4);
+  }
+}
+.toc .lbl {
+  margin-bottom: var(--s-2);
+  color: var(--quiet-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  font-weight: 650;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.toc ul { margin: 0; padding: 0; list-style: none; }
+.toc a {
+  display: block;
+  padding: 5px 0 5px 12px;
+  border-left: 1px solid var(--line-2);
+  color: var(--faint-t);
+  font-size: var(--t-meta);
+  line-height: var(--lh-tight);
+}
+.toc a:hover { color: var(--ink-2); border-left-color: var(--faint); text-decoration: none; }
+.toc a.on { color: var(--accent-dim); border-left-color: var(--accent-dim); }
+
+/* Doc-page index cards ---------------------------------------------------- */
+
+.next-grid {
+  display: grid;
+  gap: var(--s-2);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  max-width: 78ch;
+}
+.next-grid a {
+  padding: var(--s-2) var(--s-3) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  transition: transform .12s ease, border-color .12s ease, background .12s ease;
+}
+.next-grid a:hover {
+  transform: translateY(-1px);
+  border-color: var(--faint);
+  background: var(--panel-2);
+  text-decoration: none;
+}
+.next-grid .t {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--t-meta);
+  font-weight: 600;
+}
+.next-grid .t::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-dim); }
+.next-grid p { margin-top: 6px; color: var(--dim); font-size: var(--t-meta); line-height: var(--lh-tight); }
+
+/* Small screens ----------------------------------------------------------- */
+
+/* A table is the one block here that cannot be made narrower than its
+   content. Below this width it becomes its own scroll region rather than
+   widening the document and taking the page's centring with it. */
+@media (max-width: 560px) {
+  .doc table { display: block; overflow-x: auto; }
+}
+
+@media (max-width: 480px) {
+  .btn { width: 100%; justify-content: center; }
+  .btn-row { gap: var(--s-1); }
+  .vig-row { grid-template-columns: 7px minmax(0, 1fr); }
+  .vig-row .src { grid-column: 2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .stagger > * { opacity: 1 !important; transform: none !important; }
+}
+
+@media print {
+  .nav, .toc, .docs-nav, .doc-next { display: none; }
+  body { background: #fff; color: #000; }
+}

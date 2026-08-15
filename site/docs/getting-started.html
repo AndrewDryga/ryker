@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run it — Responder docs</title>
+<meta name="description" content="One binary, one config file, one Slack app. What the first hour of running Responder looks like.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body class="doc-page">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="wordmark" href="../index.html">
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><rect width="14" height="14" rx="4" fill="#36e6a5"></rect></svg>
+      Responder
+    </a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="../index.html#how">How it works</a>
+      <a href="../index.html#trust">Trust</a>
+      <a href="index.html" class="on">Docs</a>
+      <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+    </nav>
+    <details class="nav-menu">
+      <summary aria-label="Menu">Menu</summary>
+      <div class="nav-drawer">
+        <a href="../index.html#how">How it works</a>
+        <a href="../index.html#trust">Trust</a>
+        <a href="index.html">Docs</a>
+        <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+      </div>
+    </details>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="docs">
+
+  <aside class="docs-nav">
+    <details>
+      <summary>Documentation</summary>
+      <div>
+        <nav aria-label="Documentation">
+          <p class="grp">Start</p>
+          <ul>
+            <li><a href="index.html">What Responder is</a></li>
+            <li><a href="getting-started.html" class="on" aria-current="page">Run it</a></li>
+          </ul>
+          <p class="grp">Using it</p>
+          <ul>
+            <li><a href="slack.html">Working in Slack</a></li>
+            <li><a href="actions.html">Governed action</a></li>
+            <li><a href="memory.html">Memory and recall</a></li>
+          </ul>
+          <p class="grp">Operating it</p>
+          <ul>
+            <li><a href="control-plane.html">The control plane</a></li>
+            <li><a href="operations.html">Running it</a></li>
+          </ul>
+        </nav>
+      </div>
+    </details>
+  </aside>
+
+  <main class="doc" id="main">
+    <p class="crumb"><a href="../index.html">Responder</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Run it</span></p>
+
+    <details class="doc-toc">
+      <summary>On this page</summary>
+      <ul>
+        <li><a href="#requirements">What you need</a></li>
+        <li><a href="#install">1. Install the binary</a></li>
+        <li><a href="#configure">2. Write the config</a></li>
+        <li><a href="#slack-app">3. Create the Slack app</a></li>
+        <li><a href="#coop">4. Point Coop at a model</a></li>
+        <li><a href="#check">5. Prove it works before Slack sees it</a></li>
+        <li><a href="#invite">6. Invite it to one channel</a></li>
+        <li><a href="#webhooks">7. Send it alerts</a></li>
+        <li><a href="#not">What this is not, yet</a></li>
+      </ul>
+    </details>
+
+    <h1>Run it</h1>
+
+    <p class="lede">Responder is one Go binary and one SQLite file on one host you control. There is no cluster, no broker, and no second datastore. This page walks the first hour: install, configure, connect Slack, prove it works, then let it into a channel.</p>
+
+    <div class="callout warn">
+      <p class="lbl">Be honest with yourself first</p>
+      <p>This is a design-partner preview. It assumes an operator who is comfortable with a Unix host, a YAML file, a systemd unit, and a reverse proxy. There is no hosted option and no installer. If that is not you today, read <a href="index.html">what Responder is</a> and come back.</p>
+    </div>
+
+    <h2 id="requirements">What you need</h2>
+
+    <ul>
+      <li>A Linux or macOS host you trust, and Go 1.26 or newer to build from source — or a released binary.</li>
+      <li><a href="https://github.com/AndrewDryga/coop">Coop</a>, running its local session API. Coop owns the model session, the isolated fork, and the box the agent runs in.</li>
+      <li>A model account Coop can sign into. Bring your own; several providers work, and you can list more than one.</li>
+      <li>A Slack workspace where you can create an app.</li>
+      <li>An observe-scoped Emisar API key, for live infrastructure evidence.</li>
+      <li>A TLS reverse proxy, only if you want to receive webhooks from outside the host.</li>
+    </ul>
+
+    <h2 id="install">1. Install the binary</h2>
+
+    <p>From source, for your own user:</p>
+
+    <p class="code-label">shell</p>
+    <pre><code><span class="tok-x">make</span> <span class="tok-v">install</span>
+<span class="tok-c"># writes ~/.local/bin/responder</span>
+<span class="tok-c"># set INSTALL_DIR to put it elsewhere</span></code></pre>
+
+    <p>For a service installation, build once and install it system-wide, then create a locked-down service account and directories. The repository ships the exact commands, plus systemd units in <code>deploy/systemd/</code>. Two units, deliberately: only the Coop unit gets the <code>docker</code> group, so the Responder process never holds it.</p>
+
+    <p>Release archives carry a signed checksum manifest and build provenance. Verify the manifest with <code>cosign</code> before you check the sums — comparing checksums against an unauthenticated manifest proves nothing.</p>
+
+    <h2 id="configure">2. Write the config</h2>
+
+    <p>One YAML file. Below is a short illustrative shape, not a complete one — the repository ships <code>config/responder.example.yaml</code> with every key and a comment explaining why it exists.</p>
+
+    <p class="code-label">responder.yaml <span class="warn-t">· illustrative, not complete</span></p>
+    <pre><code><span class="tok-k">version</span><span class="tok-p">:</span> <span class="tok-v">1</span>
+<span class="tok-k">listen</span><span class="tok-p">:</span> <span class="tok-v">127.0.0.1:8080</span>       <span class="tok-c"># loopback is enforced, not advised</span>
+<span class="tok-k">state_dir</span><span class="tok-p">:</span> <span class="tok-v">/var/lib/responder</span>
+
+<span class="tok-k">slack</span><span class="tok-p">:</span>
+  <span class="tok-k">bot_token_env</span><span class="tok-p">:</span> <span class="tok-v">SLACK_BOT_TOKEN</span>
+  <span class="tok-k">app_token_env</span><span class="tok-p">:</span> <span class="tok-v">SLACK_APP_TOKEN</span>
+  <span class="tok-k">team_id</span><span class="tok-p">:</span> <span class="tok-y">T0123456789</span>
+  <span class="tok-k">operators</span><span class="tok-p">:</span> <span class="tok-p">[</span><span class="tok-y">U0123456789</span><span class="tok-p">]</span>   <span class="tok-c"># who may steer, approve, and publish</span>
+  <span class="tok-k">default_repository</span><span class="tok-p">:</span> <span class="tok-v">infrastructure</span>
+  <span class="tok-k">channel_prefix</span><span class="tok-p">:</span> <span class="tok-v">ems</span>          <span class="tok-c"># incident rooms are named ems-MMDD-...</span>
+
+<span class="tok-k">coop</span><span class="tok-p">:</span>
+  <span class="tok-k">supervise</span><span class="tok-p">:</span> <span class="tok-v">true</span>              <span class="tok-c"># one process; false uses the split units</span>
+  <span class="tok-k">binary</span><span class="tok-p">:</span> <span class="tok-v">/usr/local/bin/coop</span>
+  <span class="tok-k">policies</span><span class="tok-p">:</span> <span class="tok-v">/etc/responder/session-policies.yaml</span>
+  <span class="tok-k">emisar_token_env</span><span class="tok-p">:</span> <span class="tok-v">EMISAR_API_KEY</span>
+
+<span class="tok-k">repositories</span><span class="tok-p">:</span>
+  <span class="tok-k">infrastructure</span><span class="tok-p">:</span>
+    <span class="tok-k">coop_policy</span><span class="tok-p">:</span> <span class="tok-v">infrastructure-observe</span>
+    <span class="tok-k">github</span><span class="tok-p">:</span> <span class="tok-y">example/infrastructure</span>  <span class="tok-c"># Responder owns this clone</span>
+
+<span class="tok-k">webhooks</span><span class="tok-p">:</span>
+  <span class="tok-k">grafana</span><span class="tok-p">:</span>
+    <span class="tok-k">kind</span><span class="tok-p">:</span> <span class="tok-v">grafana</span>
+    <span class="tok-k">auth</span><span class="tok-p">:</span> <span class="tok-v">bearer</span>
+    <span class="tok-k">secret_env</span><span class="tok-p">:</span> <span class="tok-v">GRAFANA_WEBHOOK_TOKEN</span>
+    <span class="tok-k">repository</span><span class="tok-p">:</span> <span class="tok-v">infrastructure</span>
+    <span class="tok-k">group_by_labels</span><span class="tok-p">:</span> <span class="tok-p">[</span><span class="tok-v">cluster, namespace, service</span><span class="tok-p">]</span></code></pre>
+
+    <p>Secrets never live in this file. Each one names an environment variable, and every configured secret must be at least 16 bytes. Use independently generated random values for the webhook secrets.</p>
+
+    <p>Declare a repository with <code>github:</code> and Responder owns the checkout: it clones into <code>&lt;state_dir&gt;/repos/&lt;owner&gt;/&lt;repo&gt;</code>, keeps it current with a fetch and a fast-forward every fifteen minutes, and <em>never</em> modifies the work tree. The GitHub credential stays host-side and reaches <code>git</code> as a per-invocation header — never a file, never an argument, never anything projected into the agent box. Use <code>path:</code> instead for a repository you maintain yourself or one that is not on GitHub. Exactly one of the two is required.</p>
+
+    <h2 id="slack-app">3. Create the Slack app</h2>
+
+    <p>Create the app from <code>deploy/slack-app-manifest.yaml</code>. The manifest holds the complete supported event, scope, interactivity, and presentation configuration, and it enables socket mode — so Slack connects outward to you and you publish no request URL.</p>
+
+    <ol>
+      <li>Create the app from the manifest, and upload <code>deploy/slack-app-icon.png</code>.</li>
+      <li>Install it to the workspace and take the bot token (<code>xoxb-…</code>) as <code>SLACK_BOT_TOKEN</code>.</li>
+      <li>Create an app-level token with <code>connections:write</code> and use that <code>xapp-…</code> value as <code>SLACK_APP_TOKEN</code>.</li>
+    </ol>
+
+    <div class="callout">
+      <p class="lbl">Note</p>
+      <p>Slack does not accept socket-mode apps in its Marketplace; a published app needs public HTTP request URLs. That is a fine trade for a self-hosted tool, and it is worth knowing before you plan a distribution path.</p>
+    </div>
+
+    <h2 id="coop">4. Point Coop at a model</h2>
+
+    <p>Write Coop’s private projection, then sign the agent account in to that same dedicated configuration:</p>
+
+    <p class="code-label">shell</p>
+    <pre><code><span class="tok-x">responder</span> <span class="tok-v">bootstrap-coop</span> <span class="tok-k">--config</span> <span class="tok-v">/etc/responder/responder.yaml</span>
+<span class="tok-x">coop</span> <span class="tok-v">login</span> <span class="tok-y">codex@oncall</span></code></pre>
+
+    <p>A session policy names one target, or an ordered ladder of up to four that may cross providers:</p>
+
+    <p class="code-label">session-policies.yaml <span class="warn-t">· illustrative</span></p>
+    <pre><code>    <span class="tok-k">target</span><span class="tok-p">:</span> <span class="tok-p">[</span><span class="tok-v">codex:gpt-5.6/medium@oncall, claude@oncall</span><span class="tok-p">]</span></code></pre>
+
+    <p>When a session hits a usage limit, Coop moves it to the next rung and re-delivers the same turn. A rate limit mid-incident costs a retry, not the investigation. Sign in on <em>every</em> rung — <code>responder doctor</code> checks all of them, not only the one sessions start on.</p>
+
+    <p>Responder never sends the Slack or Emisar tokens through Coop’s session API. <code>bootstrap-coop</code> writes the Emisar key into Coop’s owner-private environment file, and <code>mcp.json</code> refers to it by variable name.</p>
+
+    <h2 id="check">5. Prove it works before Slack sees it</h2>
+
+    <p class="code-label">shell</p>
+    <pre><code><span class="tok-x">responder</span> <span class="tok-v">doctor</span> <span class="tok-k">--config</span> <span class="tok-v">/etc/responder/responder.yaml</span></code></pre>
+
+    <p><code>doctor</code> checks the database, the Coop bootstrap content, your bot scopes, every configured operator and channel, an actual socket-mode handshake, and an authenticated Emisar catalog including the tools Responder depends on. It validates all of that <strong>without executing an infrastructure action</strong>. Then start it:</p>
+
+    <p class="code-label">shell</p>
+    <pre><code><span class="tok-x">responder</span> <span class="tok-v">serve</span> <span class="tok-k">--config</span> <span class="tok-v">/etc/responder/responder.yaml</span>
+<span class="tok-x">curl</span> <span class="tok-k">-f</span> <span class="tok-v">http://127.0.0.1:8080/readyz</span></code></pre>
+
+    <p><code>/readyz</code> means more than “the process is up”: the database answers, Slack and Coop are ready, every scheduler lane has a fresh heartbeat, and no due or running work has exceeded the stall threshold. Health and metrics stay on loopback. They are unauthenticated, so do not publish them.</p>
+
+    <h2 id="invite">6. Invite it to one channel</h2>
+
+    <p>Invite the bot to a channel. It introduces itself with three buttons rather than a form:</p>
+
+    <dl>
+      <div><dt>Use safe defaults</dt><dd>Mentions only, the deployment repository, in-place replies to app alerts, and no additional incident invitees.</dd></div>
+      <div><dt>Be proactive</dt><dd>The same, but it reads every message in the channel and decides for itself whether to speak.</dd></div>
+      <div><dt>Customize</dt><dd>Four questions.</dd></div>
+    </dl>
+
+    <p>The four questions are: how it should participate (mentions only, proactive, or shadow); which repository or repository set gives it code context; what to do with app alerts (reply here, offer an incident button, or open one automatically); and who else joins an incident room besides your configured operators, who are always invited.</p>
+
+    <p>The setup conversation lasts thirty minutes and prints its own expiry. The final card shows the normalized typed values and the safety boundary, and it opens with the words <em>“Nothing is saved yet.”</em> A configured operator has to confirm before anything changes. Say <code>@Responder reconfigure this channel</code> to run it again — that one phrase is read from plain text, so it still works when the model is unavailable.</p>
+
+    <p>Then try it. Mention it on something real:</p>
+
+    <p class="code-label">slack</p>
+    <pre><code><span class="tok-y">@Responder</span> <span class="tok-v">investigate elevated checkout latency in production</span></code></pre>
+
+    <p>It replies in that thread and creates no incident. To get an incident room, ask for one in words, or press the button it offers you.</p>
+
+    <h2 id="webhooks">7. Send it alerts</h2>
+
+    <p>The service listens on loopback. Publish only <code>/v1/hooks/</code> through your TLS reverse proxy; the shipped nginx config returns 404 for everything else.</p>
+
+    <p class="code-label">shell</p>
+    <pre><code><span class="tok-x">curl</span> <span class="tok-k">-f</span> <span class="tok-p">\</span>
+  <span class="tok-k">-H</span> <span class="tok-v">Content-Type:&#32;application/json</span> <span class="tok-p">\</span>
+  <span class="tok-k">-H</span> <span class="tok-v">Authorization:&#32;Bearer&#32;</span><span class="tok-y">$GRAFANA_WEBHOOK_TOKEN</span> <span class="tok-p">\</span>
+  <span class="tok-k">-H</span> <span class="tok-v">X-Responder-Event-ID:&#32;grafana-delivery-123</span> <span class="tok-p">\</span>
+  <span class="tok-k">--data-binary</span> <span class="tok-v">@grafana-alert.json</span> <span class="tok-p">\</span>
+  <span class="tok-v">http://127.0.0.1:8080/v1/hooks/grafana</span></code></pre>
+
+    <p>Two route kinds carry alerts. <strong>Grafana</strong> routes read the payload natively: the alert fingerprint is the signal identity and <code>groupKey</code> is the preferred correlation key, with your configured labels as the fallback. <strong>Generic</strong> routes take a small dot-path mapping — <code>event_id</code>, <code>status</code> and <code>title</code> are required — and deliberately execute no jq, no CEL, no templates, and no user scripts. A third kind, <code>change</code>, records what changed without opening anything; see <a href="memory.html#changes">the change ledger</a>.</p>
+
+    <p>Deliveries are deduplicated by the <code>X-Responder-Event-ID</code> header, or by a digest of the body when you send none. Reusing an event ID with different content is a <code>409</code>, not a silent overwrite. Both auth modes are supported: a bearer token, or an HMAC signature over the timestamp, event ID and raw body with a five-minute window.</p>
+
+    <h2 id="not">What this is not, yet</h2>
+
+    <ul>
+      <li><strong>One workspace, one host.</strong> One Responder process, one state directory, one Slack credential pair, one Emisar identity per workspace. Sharing any of those across workspaces is unsupported.</li>
+      <li><strong>One repository context per incident</strong> — or one repository set: one primary writable repository plus up to 32 read-only companions pinned at session creation.</li>
+      <li><strong>No autonomous mutation.</strong> Model-proposed, inferred, and automatic operational changes are disabled. A configured operator asks for one exact action, and Emisar decides.</li>
+      <li><strong>No hosted control plane.</strong> The web UI binds to loopback and has no accounts, because the loopback interface <em>is</em> the authentication.</li>
+    </ul>
+
+    <nav class="doc-next" aria-label="Page navigation">
+      <a href="index.html"><span class="k">Previous</span><span class="t">← What Responder is</span></a>
+      <a class="next" href="slack.html"><span class="k">Next</span><span class="t">Working in Slack →</span></a>
+    </nav>
+  </main>
+
+  <nav class="toc" aria-label="On this page">
+    <p class="lbl">On this page</p>
+    <ul>
+      <li><a href="#requirements">What you need</a></li>
+      <li><a href="#install">1. Install the binary</a></li>
+      <li><a href="#configure">2. Write the config</a></li>
+      <li><a href="#slack-app">3. Create the Slack app</a></li>
+      <li><a href="#coop">4. Point Coop at a model</a></li>
+      <li><a href="#check">5. Prove it works before Slack sees it</a></li>
+      <li><a href="#invite">6. Invite it to one channel</a></li>
+      <li><a href="#webhooks">7. Send it alerts</a></li>
+      <li><a href="#not">What this is not, yet</a></li>
+    </ul>
+  </nav>
+
+</div>
+</div>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span class="state"><span class="dot good"></span>Responder</span>
+    <span class="sep">·</span>
+    <span>design-partner preview</span>
+    <nav aria-label="Footer">
+      <a href="index.html">Docs</a>
+      <a href="https://github.com/AndrewDryga/responder">GitHub</a>
+      <a href="https://github.com/AndrewDryga/responder/blob/main/SECURITY.md">Security</a>
+    </nav>
+  </div>
+  <div class="wrap foot-sub">
+    <a href="https://github.com/AndrewDryga/responder/blob/main/LICENSE">MIT license</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/AndrewDryga/responder/releases">Releases</a>
+  </div>
+</footer>
+
+<script src="../assets/site.js" defer></script>
+</body>
+</html>
