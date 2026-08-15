@@ -67,10 +67,16 @@ func correctedRetryPrompts(
 		t.Fatal(err)
 	}
 	finishQueuedAgentRun(t, ctx, svc)
+	// A correction is proved by the correction text the host recorded, not by
+	// failure_count: correction rounds stopped spending failures on 2026-08-14,
+	// so the counter that used to be the proxy now says nothing about whether
+	// this turn was sent back.
 	run, err := st.GetAgentRunBySource(ctx, "watch", "slack-delta-turn")
-	if err != nil || run.State != core.AgentRunPending || run.Failures != 1 {
+	if err != nil || run.State != core.AgentRunPending ||
+		!strings.Contains(run.LastError, "the structured Slack response is invalid") {
 		t.Fatalf("the first turn was not corrected, so this test no longer "+
-			"exercises a follow-up into a live session: run = %+v, %v", run, err)
+			"exercises a follow-up into a live session: state = %s, last error = %q, %v",
+			run.State, run.LastError, err)
 	}
 	if betweenTurns != nil {
 		betweenTurns(coopClient)
