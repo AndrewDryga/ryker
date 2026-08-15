@@ -106,6 +106,15 @@ type EvaluationCase struct {
 	// never says where its answer goes. Only the case can.
 	ReplyPlacement     string `json:"reply_placement,omitempty"`
 	WantReplyPlacement string `json:"want_reply_placement,omitempty"`
+	// CarriedEvidence and CarriedCoverage are what earlier correction rounds of
+	// this same case already had accepted. The live loop replaces Output with
+	// each corrected response and re-scores it, so without these the harness
+	// judges a correction round exactly the way the host used to — by the
+	// fragment the model resubmitted — and reports a case as failed for coverage
+	// its first round supplied. Not read from the corpus: only the correction
+	// loop fills them.
+	CarriedEvidence []core.Evidence `json:"-"`
+	CarriedCoverage []core.Coverage `json:"-"`
 }
 
 type EvaluationRecordedEvent struct {
@@ -777,6 +786,9 @@ func evaluateCaseWithConfig(
 		result.Detail = "kind must be watch, incident, task, or handoff"
 		return result
 	}
+	// Everything this case has established, not just the round being scored.
+	evidence = decisionpkg.CarryEvidence(testCase.CarriedEvidence, evidence)
+	coverage = decisionpkg.CarryCoverage(testCase.CarriedCoverage, coverage)
 	if cfg != nil {
 		evidence = decisionpkg.SanitizeEvidence(evidence, "eval", "CEVALUATION", "", now)
 		coverage = decisionpkg.SanitizeCoverage(coverage, "eval", "CEVALUATION", "", now)

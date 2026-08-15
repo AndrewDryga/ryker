@@ -86,6 +86,64 @@ type WatchTurnState struct {
 	RecheckKey             string                    `json:"recheck_key,omitempty"`
 	RecheckAttempt         int                       `json:"recheck_attempt,omitempty"`
 	ResolvedMentionRequest *core.SlackInput          `json:"resolved_mention_request,omitempty"`
+	// CarriedEvidence and CarriedCoverage are what this run has already had
+	// accepted, kept so a correction round is judged against the investigation
+	// rather than against the fragment of it that round resubmitted. See
+	// CarryEvidence.
+	CarriedEvidence []core.Evidence `json:"carried_evidence,omitempty"`
+	CarriedCoverage []core.Coverage `json:"carried_coverage,omitempty"`
+}
+
+// CarryEvidence and CarryCoverage fold a round's rows into what the run already
+// established, newest row winning for the same id or layer.
+//
+// A correction round returns only the operations the correction named — ids
+// literally suffixed "-corrected" — and drops the record_evidence and
+// record_coverage rows an earlier round emitted and the host accepted. Nothing
+// persists those rows: a correction requeues the run before the decision is
+// applied, so the store holds nothing and every validator that reads
+// accumulated state sees one round's fragment.
+//
+// The result is a loop where each round answers the last complaint and
+// manufactures the next. One recorded episode ran it three times: round 1 was
+// told its change coverage did not establish change.recent, round 2 dropped
+// every operation but the completion and was told it had no
+// record_alert_assessment, round 3 restored the assessment citing
+// evidence-current-metrics and evidence-user-paths by the exact ids round 1 had
+// recorded, and was told the active issue "cites absent or unrelated cause
+// evidence". Three chronically flappy eval cases spent a day failing on the
+// coverage half of the same defect, "has not assessed required coverage layers:
+// change, application, slo", a complaint round 1 had already answered.
+func CarryEvidence(prior, current []core.Evidence) []core.Evidence {
+	return carryForward(prior, current, func(item core.Evidence) string { return item.ID })
+}
+
+func CarryCoverage(prior, current []core.Coverage) []core.Coverage {
+	return carryForward(prior, current, func(item core.Coverage) string { return item.Layer })
+}
+
+func carryForward[T any](prior, current []T, key func(T) string) []T {
+	merged := make([]T, 0, len(prior)+len(current))
+	at := make(map[string]int, len(prior)+len(current))
+	for _, item := range append(append([]T{}, prior...), current...) {
+		identity := key(item)
+		// An item with no stable identity is never folded into another. Two
+		// observations may support one claim without being the same row, and
+		// keying those together silently deleted one of every such pair — three
+		// golden corpus cases went to "evidence = 1, want at least 2" the first
+		// time this keyed on the claim as well as the id.
+		if identity == "" {
+			merged = append(merged, item)
+			continue
+		}
+		if index, ok := at[identity]; ok {
+			merged[index] = item
+			continue
+		}
+		at[identity] = len(merged)
+		merged = append(merged, item)
+	}
+	return merged
 }
 
 func (state *WatchTurnState) RemoveResolvedMentionDuplicate() {

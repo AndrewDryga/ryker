@@ -75,6 +75,12 @@ type assembledAgentContext struct {
 	CorrectionClasses map[string]int `json:"correction_classes,omitempty"`
 	MinTargetIndex    int            `json:"min_target_index,omitempty"`
 	CapturedAt        time.Time      `json:"captured_at"`
+	// CarriedEvidence and CarriedCoverage are this run's accepted rows, the
+	// incident-side half of decision.CarryEvidence: a correction round returns
+	// only the operations the correction named, and nothing persists what the
+	// rounds before it established.
+	CarriedEvidence []core.Evidence `json:"carried_evidence,omitempty"`
+	CarriedCoverage []core.Coverage `json:"carried_coverage,omitempty"`
 }
 
 func (s *Service) assembleAgentContext(

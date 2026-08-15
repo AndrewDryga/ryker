@@ -163,11 +163,17 @@ func EvaluateLiveJSONL(
 		CorpusDigest: evaluationCorpusDigest(cases),
 	}
 	ordinal := 0
-	for _, testCase := range cases {
+	for _, corpusCase := range cases {
 		for repetition := 1; repetition <= options.Repeat; repetition++ {
 			if err := ctx.Err(); err != nil {
 				return summary, err
 			}
+			// A fresh copy per repetition. The correction loop accumulates this
+			// run's accepted evidence and coverage onto the case, and a repeat is
+			// a new run of the case, not a continuation of the last one — sharing
+			// it would credit repetition 2 with coverage repetition 1 recorded,
+			// which is exactly the confusion this whole change exists to remove.
+			testCase := corpusCase
 			ordinal++
 			name := testCase.Name
 			if options.Repeat > 1 {
@@ -183,7 +189,7 @@ func EvaluateLiveJSONL(
 				caseCtx,
 				cfg,
 				client,
-				testCase,
+				&testCase,
 				caseID,
 				options.PollInterval,
 				options.TaskPolicy,
@@ -848,11 +854,14 @@ func filterEvaluationCases(
 // the one class of run error that must still read as a failure.
 var errEvaluationCaseInvalid = errors.New("invalid evaluation case")
 
+// testCase is a pointer because the correction loop accumulates this case's
+// accepted evidence and coverage onto it, and the caller scores the final
+// response against that accumulation.
 func runLiveEvaluationCase(
 	ctx context.Context,
 	cfg config.Config,
 	client serviceport.Coop,
-	testCase EvaluationCase,
+	testCase *EvaluationCase,
 	caseID string,
 	pollInterval time.Duration,
 	taskPolicy string,
@@ -941,12 +950,12 @@ func runLiveEvaluationCase(
 			)
 		}
 	}
-	prompt, err := liveEvaluationPrompt(cfg, testCase, repositoryKey, caseID)
+	prompt, err := liveEvaluationPrompt(cfg, *testCase, repositoryKey, caseID)
 	if err != nil {
 		return "", sessionID, 0, WorkspaceAssessment{}, 0, err
 	}
 	if episodeReplay {
-		prompt, err = deterministicEpisodeReplayPrompt(prompt, testCase)
+		prompt, err = deterministicEpisodeReplayPrompt(prompt, *testCase)
 		if err != nil {
 			return "", sessionID, 0, WorkspaceAssessment{}, 0, err
 		}
@@ -966,9 +975,16 @@ func runLiveEvaluationCase(
 	for correctionIndex := 1; correctionIndex <= 3; correctionIndex++ {
 		referenceTime := time.Now().UTC()
 		if episodeReplay {
-			referenceTime = evaluationReferenceTime(testCase, referenceTime)
+			referenceTime = evaluationReferenceTime(*testCase, referenceTime)
 		}
-		correction := evaluationStructuredCorrection(cfg, testCase, response, referenceTime)
+		// Fold this round in before judging it, so a corrected round is measured
+		// against everything the case has established rather than against the
+		// operations it happened to resubmit. Without this the harness reports a
+		// case as failed for coverage its own first round supplied, which is what
+		// made three cases flap for a day; the carry is idempotent, so folding
+		// the round being judged is safe.
+		carryEvaluationRound(testCase, response, referenceTime)
+		correction := evaluationStructuredCorrection(cfg, *testCase, response, referenceTime)
 		if correction == "" {
 			break
 		}
@@ -1002,10 +1018,32 @@ typed operations and contract fields exactly. Do not describe this correction pr
 		ctx,
 		client,
 		sessionID,
-		testCase,
+		*testCase,
 		caseID,
 	)
 	return response, sessionID, modelCalls, artifacts, turnDuration, artifactErr
+}
+
+// carryEvaluationRound folds a round's own evidence and coverage into what this
+// case has already established. It is the harness half of decision.CarryEvidence:
+// the live loop replaces the response with each corrected one and re-scores it,
+// so without this the harness reproduces the exact host defect it exists to
+// catch, and the flappy cases keep flapping after the host is fixed.
+func carryEvaluationRound(testCase *EvaluationCase, response string, now time.Time) {
+	var evidence []core.Evidence
+	var coverage []core.Coverage
+	switch testCase.Kind {
+	case "incident", "task":
+		if report, _, err := decisionpkg.ParseAgentReport(response); err == nil {
+			evidence, coverage = report.Evidence, report.Coverage
+		}
+	case "watch":
+		if decision, err := decisionpkg.ParseWatchDecision(response, now); err == nil {
+			evidence, coverage = decision.Evidence, decision.Coverage
+		}
+	}
+	testCase.CarriedEvidence = decisionpkg.CarryEvidence(testCase.CarriedEvidence, evidence)
+	testCase.CarriedCoverage = decisionpkg.CarryCoverage(testCase.CarriedCoverage, coverage)
 }
 
 func evaluationStructuredCorrection(
@@ -1043,7 +1081,10 @@ func evaluationStructuredCorrection(
 					investigation.CompletionCorrection(
 						*episode,
 						decision.Action,
-						decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", now),
+						decisionpkg.SanitizeCoverage(
+							decisionpkg.CarryCoverage(testCase.CarriedCoverage, decision.Coverage),
+							"", "", "", now,
+						),
 						decision.Completion,
 					),
 				} {

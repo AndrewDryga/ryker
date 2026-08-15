@@ -2341,6 +2341,19 @@ func (s *Service) stageTriageTerminal(
 				return true, err
 			}
 		}
+		// Validation reads the investigation, not this round's fragment of it.
+		// A correction round resubmits only the operations the correction named
+		// and drops the evidence and coverage an earlier round already had
+		// accepted, so `validated` carries both forward; see decision.CarryEvidence
+		// for the loop this closes. `decision` itself is left alone, because what
+		// is applied and delivered is still only what this round returned.
+		state.CarriedEvidence = decisionpkg.CarryEvidence(state.CarriedEvidence,
+			decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", s.now()))
+		state.CarriedCoverage = decisionpkg.CarryCoverage(state.CarriedCoverage,
+			currentCoverage(decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", s.now()), s.now()))
+		evidence, coverage := state.CarriedEvidence, state.CarriedCoverage
+		validated := decision
+		validated.Evidence, validated.Coverage = evidence, coverage
 		correction := lifecycleContinuationCorrection
 		// The default class; a rejected artifact overrides it below.
 		correctionKind := correctionIncomplete
@@ -2356,10 +2369,10 @@ func (s *Service) stageTriageTerminal(
 			}
 		}
 		if correction == "" {
-			correction = decisionpkg.WatchDecisionCorrection(input, state, decision, OperationalCorrelationKey)
+			correction = decisionpkg.WatchDecisionCorrection(input, state, validated, OperationalCorrelationKey)
 		}
 		if correction == "" {
-			correction = decisionpkg.AlertReplyLanguageCorrectionWithContext(input, state, decision)
+			correction = decisionpkg.AlertReplyLanguageCorrectionWithContext(input, state, validated)
 		}
 		if correction == "" {
 			correction = ExternalLifecycleReplyLanguageCorrection(input, decision)
@@ -2380,7 +2393,7 @@ func (s *Service) stageTriageTerminal(
 			correction = investigation.CompletionCorrection(
 				episode,
 				checkedAction,
-				decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", s.now()),
+				coverage,
 				checkedCompletion,
 			)
 			if correction == "" && checkedCompletion != nil {
@@ -2404,8 +2417,7 @@ func (s *Service) stageTriageTerminal(
 			}
 			if correction == "" {
 				correction = unsupportedOperationalClaimCorrection(
-					decision.Action, decision.Message,
-					decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", s.now()),
+					decision.Action, decision.Message, evidence,
 				)
 			}
 			if correction == "" {
@@ -2413,8 +2425,8 @@ func (s *Service) stageTriageTerminal(
 					ctx,
 					episode,
 					decision.Action,
-					decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", s.now()),
-					decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", s.now()),
+					evidence,
+					coverage,
 					decision.Completion,
 					s.now(),
 					run.StartedAt,
@@ -2431,9 +2443,7 @@ func (s *Service) stageTriageTerminal(
 			}
 			if correction == "" {
 				correction = decisionpkg.EpisodeDiagnosisCorrection(
-					episode, decision.Action,
-					decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", s.now()),
-					decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", s.now()),
+					episode, decision.Action, evidence, coverage,
 					decision.AlertAssessment,
 					decision.Completion,
 				)
@@ -2532,7 +2542,8 @@ func (s *Service) stageIncidentTerminal(
 		invalid := trimError(reportErr)
 		correction := "the structured agent report is invalid: " + invalid +
 			investigation.SchemaFragmentForCorrection(string(correctionUnreadable), invalid)
-		spent, spendErr := s.spendStructuredCorrection(ctx, run)
+		// Nothing parsed, so this round establishes nothing to carry.
+		spent, spendErr := s.spendStructuredCorrection(ctx, run, nil, nil)
 		if spendErr != nil {
 			return true, spendErr
 		}
@@ -2556,6 +2567,14 @@ func (s *Service) stageIncidentTerminal(
 		correction := ""
 		correctionKind := correctionIncomplete
 		trigger := ""
+		// The same accumulation the watch path does above: an incident correction
+		// round drops the rows it was not asked about, and validating its stream
+		// alone refuses it for what this run already established.
+		carried, _ := decodeAssembledAgentContext(run.Context)
+		evidence := decisionpkg.CarryEvidence(carried.CarriedEvidence,
+			decisionpkg.SanitizeEvidence(report.Evidence, "", "", "", s.now()))
+		coverage := decisionpkg.CarryCoverage(carried.CarriedCoverage,
+			currentCoverage(decisionpkg.SanitizeCoverage(report.Coverage, "", "", "", s.now()), s.now()))
 		if run.SourceKind == "slack" {
 			input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
 			if inputErr != nil {
@@ -2574,10 +2593,7 @@ func (s *Service) stageIncidentTerminal(
 		}
 		if correction == "" {
 			correction = investigation.CompletionCorrection(
-				episode,
-				"reply",
-				decisionpkg.SanitizeCoverage(report.Coverage, "", "", "", s.now()),
-				report.Completion,
+				episode, "reply", coverage, report.Completion,
 			)
 		}
 		if correction == "" {
@@ -2587,8 +2603,7 @@ func (s *Service) stageIncidentTerminal(
 		}
 		if correction == "" {
 			correction = unsupportedOperationalClaimCorrection(
-				"reply", report.Message,
-				decisionpkg.SanitizeEvidence(report.Evidence, "", "", "", s.now()),
+				"reply", report.Message, evidence,
 			)
 		}
 		if correction == "" {
@@ -2596,8 +2611,8 @@ func (s *Service) stageIncidentTerminal(
 				ctx,
 				episode,
 				"reply",
-				decisionpkg.SanitizeEvidence(report.Evidence, "", "", "", s.now()),
-				decisionpkg.SanitizeCoverage(report.Coverage, "", "", "", s.now()),
+				evidence,
+				coverage,
 				report.Completion,
 				s.now(),
 				run.StartedAt,
@@ -2617,7 +2632,7 @@ func (s *Service) stageIncidentTerminal(
 			}
 		}
 		if correction != "" {
-			spent, spendErr := s.spendStructuredCorrection(ctx, run)
+			spent, spendErr := s.spendStructuredCorrection(ctx, run, evidence, coverage)
 			if spendErr != nil {
 				return true, spendErr
 			}
@@ -2855,7 +2870,7 @@ func (s *Service) retryMalformedIncidentReport(
 	run core.AgentRun,
 	reportErr error,
 ) (bool, error) {
-	spent, err := s.spendStructuredCorrection(ctx, run)
+	spent, err := s.spendStructuredCorrection(ctx, run, nil, nil)
 	if err != nil || spent {
 		return false, err
 	}
@@ -2891,12 +2906,16 @@ func (s *Service) retryMalformedIncidentReport(
 func (s *Service) spendStructuredCorrection(
 	ctx context.Context,
 	run core.AgentRun,
+	evidence []core.Evidence,
+	coverage []core.Coverage,
 ) (bool, error) {
 	assembled, ok := decodeAssembledAgentContext(run.Context)
 	if !ok {
 		return true, nil
 	}
 	assembled.StructuredCorrections++
+	assembled.CarriedEvidence = decisionpkg.CarryEvidence(assembled.CarriedEvidence, evidence)
+	assembled.CarriedCoverage = decisionpkg.CarryCoverage(assembled.CarriedCoverage, coverage)
 	if terminalStructuredCorrection(
 		assembled.StructuredCorrections, run.AttemptNumber, s.cfg.Limits.MaxAgentRunAttempts,
 	) {
