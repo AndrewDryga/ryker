@@ -1828,16 +1828,30 @@ func (s *Service) pollAgentRuns(ctx context.Context) {
 // silentTurnDeadline is how long a running turn may say nothing before the
 // host asks Coop to cancel it. Real investigations speak — tool activity
 // advances the event cursor and touches the run row — so total silence past
-// the deadline is a dead transport, not a thinking model. It was fifteen
-// minutes for one evening, and the first rate-limit storm showed the gap in
-// that number: a turn crawling through provider 429 backoff inside Coop is
-// also silent, and cancelling it buys a fresh session that inherits the same
-// throttle — a cancel-replay loop that burns the attempt budget and answers
-// nothing. Forty-five minutes clears any provider backoff worth waiting out
-// while still converting the class this exists for, restart-orphaned zombies,
-// within the hour. The durable fix is Coop emitting a backoff heartbeat event
-// so throttle is audible and the deadline can return to minutes; it is filed.
-const silentTurnDeadline = 45 * time.Minute
+// the deadline is a dead transport, not a thinking model.
+//
+// It was fifteen minutes for one evening, and the first rate-limit storm showed
+// the gap in that number: a turn crawling through provider 429 backoff inside
+// Coop was also silent, and cancelling it bought a fresh session that inherited
+// the same throttle — a cancel-replay loop that burned the attempt budget and
+// answered nothing. Forty-five minutes was the stopgap, and it cost a
+// restart-orphaned zombie three quarters of an hour of its channel instead of
+// a quarter.
+//
+// Fifteen again, because the premise the stopgap was priced against is gone.
+// Coop narrates both halves of a throttle now: provider.backoff when its own
+// ladder acts on a proven limit, and provider.alive — the frame-level pulse, at
+// most one a minute — when a provider CLI is retrying 429s inside itself and
+// nothing else about the turn is moving. Either one advances the event cursor,
+// and the advance stamps the poll clock this deadline measures against, so a
+// throttled turn is no longer a silent one. Both halves had to exist: the
+// backoff event alone left a single-rung or internally-retrying turn quiet
+// between rotations, which is why the restore waited for the second.
+//
+// Restoring the number without both is how the cancel-replays come back, and
+// TestASilentTurnDiesInFifteenMinutesOnceThrottleIsAudible holds that shut from
+// both sides.
+const silentTurnDeadline = 15 * time.Minute
 
 // pollAgentRun advances one running turn, holding a failing run off the poll
 // until its backoff expires.

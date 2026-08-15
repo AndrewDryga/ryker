@@ -2356,3 +2356,85 @@ func TestAStarvedSiblingLeasesPastACyclingBlocker(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// silentTurnFixture drives one watched mention to a running Coop turn and hands
+// back the clock, so a test can decide what "silent" costs without rebuilding
+// the same seven steps twice.
+func silentTurnFixture(
+	t *testing.T, channel, inputID string,
+) (context.Context, *Service, *fakeCoop, func(time.Duration)) {
+	t.Helper()
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{channel}
+	cfg.Slack.WatchChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{{ID: "turn_silent", State: "running"}}
+	// Above any sequence this test delivers, so a cursor that has moved is not
+	// mistaken for one that outran its session and repaired back to zero.
+	coopClient.session.LastEventSequence = 99
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	base := time.Now().UTC()
+	svc.clock = func() time.Time { return base }
+
+	input := core.SlackInput{
+		ID: inputID, EnvelopeID: "env-" + inputID, EventID: "event-" + inputID,
+		Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: channel, MessageTS: "1700.901", UserID: "U123ABC",
+		Text: "<@U999BOT> how is the rollout going?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return ctx, svc, coopClient, func(d time.Duration) { base = base.Add(d) }
+}
+
+// Twenty minutes of nothing is a dead transport again.
+//
+// The deadline was fifteen minutes until the 2026-08-15 rate-limit storm, when
+// it cancel-replayed turns that were crawling through provider 429 backoff into
+// fresh sessions that inherited the same throttle — so it was widened to
+// forty-five as a stopgap, and a restart-orphaned zombie held its channel for
+// three quarters of an hour instead of a quarter. The stopgap was priced
+// against a turn that could not speak. Coop speaks now: provider.backoff for
+// its own ladder and provider.alive for the throttle inside a provider CLI,
+// and either one advances the cursor, which stamps the poll clock this deadline
+// reads. So a turn silent for twenty minutes is dead again, and a throttled
+// turn is not silent — both halves are asserted here, because restoring the
+// number without the second half is how the cancel-replays come back.
+func TestASilentTurnDiesInFifteenMinutesOnceThrottleIsAudible(t *testing.T) {
+	ctx, svc, coopClient, advance := silentTurnFixture(t, "CSILENT15", "slack-silent-15")
+	advance(20 * time.Minute)
+	svc.pollAgentRuns(ctx)
+	if coopClient.cancelCalls != 1 {
+		t.Fatalf("a turn silent for 20 minutes was cancelled %d times, want once — "+
+			"the deadline is still priced for a turn that cannot speak",
+			coopClient.cancelCalls)
+	}
+
+	ctx, svc, coopClient, advance = silentTurnFixture(t, "CALIVE15", "slack-alive-15")
+	advance(10 * time.Minute)
+	coopClient.events = append(coopClient.events, activityEvent(
+		1, "turn_silent", "provider.alive", `{"frames":41,"bytes":8192}`,
+	))
+	svc.pollAgentRuns(ctx)
+	advance(10 * time.Minute)
+	svc.pollAgentRuns(ctx)
+	if coopClient.cancelCalls != 0 {
+		t.Fatalf("a turn whose provider pulse arrived 10 minutes ago was cancelled "+
+			"%d times; the heartbeat is not resetting the deadline it paid for",
+			coopClient.cancelCalls)
+	}
+}
