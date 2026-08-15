@@ -175,33 +175,56 @@
             <p>Responder joins your alert and ops channels. It knows when to stay silent, when one emoji is enough, when to answer, and when an alert deserves an incident room.</p>
           </div>
 
-          <div class="mock" aria-hidden="true">
-            <div class="mock-head"><span class="dot warn"></span><span>#ops-payments</span><span class="right">watching · 14:03</span></div>
-            <div class="mock-body">
-              <div class="msg">
-                <span class="av">AT</span>
-                <span>
-                  <span class="nm">Ana Torres <time>13:49</time></span>
-                  <span class="tx">shipping the coupon fix in a minute</span>
-                  <span class="rx"><span class="dot idle"></span>ignored · routine</span>
-                </span>
+          <!-- The only mock on this page that depicts Slack, so it is built as
+               Slack: Slack's own colors, its message row, its APP badge, its
+               reaction pill, its message box. Everything the ladder teaches is
+               said from outside the window, because inside it there is nothing
+               to see — Slack puts no mark whatsoever on a message that was
+               ignored, and an emoji pill on one that was reacted to. Chips
+               reading "ignored · routine" under a message were the one thing
+               on this page claiming a screen looks like something it does not. -->
+          <div class="mock-slack" aria-hidden="true">
+            <div class="slack-annotated">
+
+              <div class="slack-frame">
+                <div class="slack-head">
+                  <b>#ops-payments</b>
+                  <span>payments alerts and rollouts</span>
+                </div>
+
+                <div class="slack-msg">
+                  <span class="slack-av av-at">AT</span>
+                  <div class="slack-said">
+                    <p class="slack-meta"><span class="slack-who">Ana Torres</span> <span class="slack-ts">1:49 PM</span></p>
+                    <p class="slack-text">shipping the coupon fix in a minute</p>
+                  </div>
+                </div>
+
+                <div class="slack-msg">
+                  <span class="slack-av av-pr">PR</span>
+                  <div class="slack-said">
+                    <p class="slack-meta"><span class="slack-who">Priya Rao</span> <span class="slack-ts">2:02 PM</span></p>
+                    <p class="slack-text">is checkout ok? I’m seeing 500s from the app</p>
+                    <p class="slack-reacts"><span class="slack-react"><span class="e">👀</span>1</span></p>
+                  </div>
+                </div>
+
+                <div class="slack-msg">
+                  <span class="slack-av av-app">R</span>
+                  <div class="slack-said">
+                    <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">2:03 PM</span></p>
+                    <p class="slack-text"><strong>Degraded, recovering.</strong> Error rate peaked at 3.1% and is back to 0.2%. Release 4f21c9 went out 11 minutes before the alert.</p>
+                  </div>
+                </div>
+
+                <p class="slack-compose">Message #ops-payments</p>
               </div>
-              <div class="msg">
-                <span class="av">PR</span>
-                <span>
-                  <span class="nm">Priya Rao <time>14:02</time></span>
-                  <span class="tx">is checkout ok? I’m seeing 500s from the app</span>
-                  <span class="rx"><span class="dot warn"></span>reacted · looking into it</span>
-                </span>
-              </div>
-              <div class="msg bot">
-                <span class="av">R</span>
-                <span>
-                  <span class="nm">Responder <span class="bt">app</span> <time>14:03</time></span>
-                  <span class="tx"><b>Degraded, recovering.</b> Error rate peaked at 3.1% and is back to 0.2%. Release 4f21c9 went out 11 minutes before the alert.</span>
-                </span>
-              </div>
+
+              <p class="slack-note"><b>ignored</b> <i>—</i> nothing posted</p>
+              <p class="slack-note"><b>react</b> <i>—</i> 👀, nothing said</p>
+              <p class="slack-note"><b>reply</b> <i>—</i> verdict first</p>
             </div>
+
             <p class="mock-note"><span class="tag">ignore · react · reply · incident</span> <span class="note">one rung, per message</span></p>
           </div>
         </article>
