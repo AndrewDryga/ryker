@@ -57,6 +57,13 @@ var (
 	ErrCapacity            = errors.New("incident capacity reached")
 	ErrMemberTaskCapacity  = errors.New("member engineering task capacity reached")
 	ErrMemberTaskRateLimit = errors.New("member engineering task creation rate reached")
+	// ErrEpisodeAttemptSuperseded marks a reopen refused because the episode
+	// is terminal and a newer attempt owns it. Deterministic like the conflict
+	// below: the run asking is history, and retrying the reopen can only be
+	// refused again — which the poll did every fifteen seconds for six hours
+	// on 2026-08-15 for run_e3cec200, whose starved sibling had leased past it
+	// and finished the episode while its own turn sat interrupted.
+	ErrEpisodeAttemptSuperseded = errors.New("a newer attempt owns the terminal episode")
 	// ErrEpisodeOperationConflict marks a deterministic kernel rejection of a
 	// result operation: a durable id (goal, wakeup) reused with different
 	// semantics, a prerequisite that is not in the episode, an unsupported

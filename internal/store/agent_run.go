@@ -1442,7 +1442,28 @@ func (s *Store) RequeueAgentRun(
 		"Continue unfinished work", time.Time{},
 		fmt.Sprintf("agent-run:%s:%s", id, recoveryID),
 	); err != nil {
-		return err
+		if !errors.Is(err, ErrEpisodeAttemptSuperseded) {
+			return err
+		}
+		// The episode is finished and a newer attempt finished it; a replay
+		// of this run has nothing left to do and the reopen was rightly
+		// refused. Returned as an error, that refusal was retried by every
+		// poll: run_e3cec200 sat running for six hours on 2026-08-15 behind
+		// it. The run is history and is recorded as such, in the same
+		// transaction that would otherwise have requeued it.
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE agent_runs
+			SET state = 'superseded', completed_at = ?,
+			    last_error = 'newer episode attempt owns finalization', updated_at = ?
+			WHERE id = ?`, now, now, id); err != nil {
+			return err
+		}
+		if err := s.setEpisodeAttemptStateTx(
+			ctx, tx, id, core.AttemptCancelled,
+			"newer episode attempt owns finalization", false,
+		); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

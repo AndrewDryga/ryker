@@ -742,7 +742,8 @@ func (s *Store) setWorkEpisodePhaseTx(
 	}
 	if episodepkg.Terminal(currentState) && !episodepkg.Terminal(state) {
 		if latestRunID != runID {
-			return fmt.Errorf("terminal episode's latest attempt is %q, not %q", latestRunID, runID)
+			return fmt.Errorf("terminal episode's latest attempt is %q, not %q: %w",
+				latestRunID, runID, ErrEpisodeAttemptSuperseded)
 		}
 		reopened, err := episodepkg.Encode(episodepkg.Transition{
 			State: core.EpisodeAccepted, Phase: "accepted", Status: "Accepted",
