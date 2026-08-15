@@ -804,17 +804,21 @@ func DecodeStrictJSON(data []byte, target any) error {
 }
 
 type AgentReport struct {
-	Message           string                              `json:"message"`
-	FollowupMessages  []string                            `json:"followup_messages,omitempty"`
-	Visuals           []core.GeneratedVisual              `json:"visuals,omitempty"`
-	Evidence          []core.Evidence                     `json:"evidence,omitempty"`
-	Coverage          []core.Coverage                     `json:"coverage,omitempty"`
-	Memory            core.AgentMemory                    `json:"memory,omitempty"`
-	MemoryOffer       *core.MemoryOffer                   `json:"memory_offer,omitempty"`
-	PreferenceOffer   *core.PreferenceOffer               `json:"preference_offer,omitempty"`
-	RuleOffer         *core.RuleOffer                     `json:"rule_offer,omitempty"`
-	ScheduleOffer     *core.ScheduleOffer                 `json:"schedule_offer,omitempty"`
-	ScheduleOffers    []*core.ScheduleOffer               `json:"schedule_offers,omitempty"`
+	Message          string                 `json:"message"`
+	FollowupMessages []string               `json:"followup_messages,omitempty"`
+	Visuals          []core.GeneratedVisual `json:"visuals,omitempty"`
+	Evidence         []core.Evidence        `json:"evidence,omitempty"`
+	Coverage         []core.Coverage        `json:"coverage,omitempty"`
+	Memory           core.AgentMemory       `json:"memory,omitempty"`
+	MemoryOffer      *core.MemoryOffer      `json:"memory_offer,omitempty"`
+	PreferenceOffer  *core.PreferenceOffer  `json:"preference_offer,omitempty"`
+	RuleOffer        *core.RuleOffer        `json:"rule_offer,omitempty"`
+	ScheduleOffer    *core.ScheduleOffer    `json:"schedule_offer,omitempty"`
+	ScheduleOffers   []*core.ScheduleOffer  `json:"schedule_offers,omitempty"`
+	// GrantOffer is a proposal that one exact Emisar action earned the next
+	// rung of the remediation trust ladder. It reaches the service as a claim
+	// and nothing more: the host recomputes the count before anything is shown.
+	GrantOffer        *core.GrantPromotionOffer           `json:"grant_promotion,omitempty"`
 	PendingApproval   *core.EmisarApproval                `json:"pending_approval,omitempty"`
 	Completion        *investigation.CompletionAssessment `json:"completion,omitempty"`
 	Operations        []investigation.ResultOperation     `json:"operations,omitempty"`
@@ -1279,6 +1283,7 @@ func ApplyAgentResultOperations(report *AgentReport) error {
 	report.ScheduleOffers = nil
 	report.PendingApproval = nil
 	report.Completion = nil
+	report.GrantOffer = nil
 	err := FoldResultOperations(report.Operations, OperationTargets{
 		message: &report.Message, followups: &report.FollowupMessages, visuals: &report.Visuals,
 		evidence: &report.Evidence, coverage: &report.Coverage, memory: &report.Memory,
@@ -1287,6 +1292,7 @@ func ApplyAgentResultOperations(report *AgentReport) error {
 		scheduleOffers: &report.ScheduleOffers,
 		approval:       &report.PendingApproval,
 		completion:     &report.Completion,
+		grantOffer:     &report.GrantOffer,
 	}, &report.AppliedOperations)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidOperations, err)
@@ -1550,6 +1556,10 @@ type OperationTargets struct {
 	approval        **core.EmisarApproval
 	alert           **AlertAssessment
 	completion      **investigation.CompletionAssessment
+	// grantOffer is optional: only the agent-report path collects it, because a
+	// promotion is proposed by the episode that verified the remediation, not by
+	// the watch turn that classified a message.
+	grantOffer **core.GrantPromotionOffer
 	// repositoryContents is optional: only the watch path collects it.
 	repositoryContents *[]investigation.RepositoryContentsOperation
 	incidentTitle      *string
@@ -1654,6 +1664,14 @@ func foldResultOperations(
 				return fmt.Errorf("result operation %q duplicates offer_rule", operation.ID)
 			}
 			*target.ruleOffer = operation.RuleOffer
+		case "offer_grant_promotion":
+			if target.grantOffer == nil {
+				break
+			}
+			if *target.grantOffer != nil {
+				return fmt.Errorf("result operation %q duplicates offer_grant_promotion", operation.ID)
+			}
+			*target.grantOffer = operation.GrantOffer
 		case "offer_schedule":
 			if *target.scheduleOffer == nil {
 				*target.scheduleOffer = operation.ScheduleOffer

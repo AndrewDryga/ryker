@@ -213,6 +213,12 @@ type ResultOperation struct {
 	// in this repository", it is one permanent row per repository, and writing
 	// it again replaces the previous sentence rather than accumulating.
 	RepositoryContents *RepositoryContentsOperation `json:"repository_contents,omitempty"`
+	// GrantOffer is the payload of offer_grant_promotion: a proposal that one
+	// exact Emisar action has earned the next rung of the trust ladder. It
+	// proposes and nothing more — the host recomputes the evidence and an
+	// operator confirms. See core.GrantPromotionOffer for what it deliberately
+	// cannot say.
+	GrantOffer *core.GrantPromotionOffer `json:"grant_promotion,omitempty"`
 	// Proposal is the payload of propose_action, which no longer exists.
 	//
 	// The operation is out of the prompt and the host has nothing left to do
@@ -287,6 +293,7 @@ var resultOperationPayloads = []func(ResultOperation) bool{
 	func(o ResultOperation) bool { return o.ScheduleOffer != nil },
 	func(o ResultOperation) bool { return o.AlertAssessment != nil },
 	func(o ResultOperation) bool { return o.RepositoryContents != nil },
+	func(o ResultOperation) bool { return o.GrantOffer != nil },
 	func(o ResultOperation) bool { return len(o.Proposal) > 0 },
 	func(o ResultOperation) bool { return o.Completion != nil },
 }
@@ -428,6 +435,14 @@ var resultOperationValidators = map[string]func(ResultOperation) error{
 	"offer_schedule":             requirePayload("a schedule offer", func(o ResultOperation) bool { return o.ScheduleOffer != nil }),
 	"record_alert_assessment":    requirePayload("an alert assessment", func(o ResultOperation) bool { return o.AlertAssessment != nil }),
 	"record_repository_contents": validateRepositoryContentsOperation,
+	// offer_grant_promotion is the one operation whose payload the host treats
+	// as an argument rather than a result. Everything it claims is recomputed —
+	// see internal/remediation.EvaluateOffer — and everything it does not say,
+	// which is the whole scope, the expiry and the operator, the host fills in
+	// itself. The validator's job is only to make sure the offer names one
+	// complete immutable action identity and one reachable rung, so the deeper
+	// refusals are about evidence rather than spelling.
+	"offer_grant_promotion": validateGrantPromotionOperation,
 	// propose_action is refused rather than absent. The operation is gone from
 	// ResultOperationsPrompt, so a model working from the current contract will
 	// not emit one; a model working from anything older would otherwise get a
@@ -448,6 +463,60 @@ var resultOperationValidators = map[string]func(ResultOperation) error{
 	"complete_episode": requirePayload("a completion message", func(o ResultOperation) bool {
 		return o.Completion != nil && strings.TrimSpace(o.Completion.Message) != ""
 	}),
+}
+
+// validateGrantPromotionOperation checks that a promotion offer names one
+// complete, immutable Emisar identity and one reachable rung.
+//
+// It is strict about the action ref for the reason the whole ladder is: a grant
+// is authority over exactly one action id, from exactly one pack, on exactly one
+// runner, and an offer missing any of the three would either be refused later or
+// — worse — be stored as a grant that matches whatever else is missing the same
+// field. The rejection names the missing part so the next turn can supply it
+// rather than guess.
+//
+// The rung check refuses "auto" here rather than deeper in, because that is
+// where the model reads the answer. The auto rung is specified and not built,
+// and a model that keeps asking for it should be told why once, in the
+// correction it actually reads, instead of having the offer accepted and
+// silently downgraded.
+func validateGrantPromotionOperation(o ResultOperation) error {
+	if o.GrantOffer == nil {
+		return fmt.Errorf("result operation %q requires a grant promotion offer", o.ID)
+	}
+	offer := o.GrantOffer
+	for _, part := range []struct{ name, value string }{
+		{"action_id", offer.ActionID},
+		{"pack_ref", offer.PackRef},
+		{"runner_ref", offer.RunnerRef},
+	} {
+		if strings.TrimSpace(part.value) == "" {
+			return fmt.Errorf(
+				"result operation %q requires %s; a grant covers one exact Emisar action "+
+					"identity — action id, pack ref and runner ref together — and never a "+
+					"partial one",
+				o.ID, part.name,
+			)
+		}
+	}
+	switch strings.TrimSpace(offer.Rung) {
+	case "propose", "one_click":
+	case "auto":
+		return fmt.Errorf(
+			"result operation %q asks for the auto rung, which this host cannot supervise; "+
+				"the highest rung an operator can be offered is one_click",
+			o.ID,
+		)
+	default:
+		return fmt.Errorf(
+			"result operation %q has unsupported rung %q; offer propose or one_click",
+			o.ID, offer.Rung,
+		)
+	}
+	if offer.VerifiedSuccesses < 0 {
+		return fmt.Errorf("result operation %q reports a negative verified success count", o.ID)
+	}
+	return nil
 }
 
 // validateFeedbackOperation checks the enums that only feedback carries.
@@ -545,6 +614,7 @@ accepted operations in the episode event stream.
 - offer_task: {"id":"task-1","type":"offer_task","task":{"kind":"engineering|incident","title":"...","repository":"...","prompt":"..."}}
 - record_alert_assessment: {"id":"alert-1","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue|likely_issue|not_issue|unverified","impact":"current impact","cause_status":"identified|bounded when required","cause":"bounded cause","cause_claim_ids":["claim_id"],"evidence_refs":["evidence id for claim"],"immediate_action":"safe next step","verification":"success check","long_term_solution":"durable fix"}}
 - record_repository_contents: {"id":"repo-contents-1","type":"record_repository_contents","repository_contents":{"repository":"exact alias from the repository set","contents":"one sentence naming which part of the product lives there"}}
+- offer_grant_promotion: {"id":"grant-1","type":"offer_grant_promotion","grant_promotion":{"action_id":"exact Emisar action id","pack_ref":"exact pack ref","runner_ref":"exact runner ref","rung":"propose|one_click","verified_successes":3,"rationale":"one sentence for the operator"}} — only for an action YOU ran through Emisar and verified. It proposes; the host recomputes the count, refuses what it cannot reproduce, sets the scope itself, and an operator confirms.
 - attach_visual{visual}, update_memory{memory}: one payload under the braced key. Offers use offer_memory{memory_offer: scope,subject,predicate,value,visibility}, offer_preference{preference_offer: scope,name,value}, offer_rule{rule_offer: scope,repository,trigger,action}, offer_schedule{schedule_offer: title,prompt,repository,recurrence,start_at}.
 - complete_episode decision-ready example: {"id":"complete-1","type":"complete_episode","completion":{"message":"Slack Markdown answer","followup_messages":[],"completion":{"status":"decision_ready","verdict":"one exact completion.allowed_verdicts value when required","summary":"concise decision"}}}
 - complete_episode blocked example: {"id":"complete-1","type":"complete_episode","completion":{"message":"exact blocker and useful result so far","coverage":[{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unknown","detail":"exact evidence gap"}],"completion":{"status":"blocked","summary":"what cannot yet be decided","material_gaps":["missing material claim"],"blocker_kind":"source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure|capability_unavailable","attempts":["route already attempted"],"next_action":"exact action that unblocks it","capability_gaps":[{"capability":"GitHub Actions run and job inspection","status":"not_installed|not_trusted|not_advertised|incompatible|not_found","pack_id":"github-cli when an evidence source identifies it; omit for not_found","pack_ref":"optional observed immutable ref","evidence_refs":["source_id or source_name from a record_evidence operation"],"recommendation":"one concise operator-facing installation, trust, deployment, or compatibility step"}],"recheck":{"key":"provider:capability:identifier","reason":"why this exact external condition is expected to change shortly","after_seconds":120,"additional_attempts":3}}}}

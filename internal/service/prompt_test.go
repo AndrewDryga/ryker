@@ -462,7 +462,16 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // nothing else may appear beside it. Nothing replaced it: an envelope carrying
 // its result is now unreadable, and the rejection says which fields and which
 // operations carry them on the one turn that needs to hear it.
-const staticWatchPromptBytes = 51262
+// Raised by 471 on 2026-08-15 for offer_grant_promotion — the operation a model
+// uses to propose that an action has earned a rung of remediation authority.
+// It is the most expensive single bullet per byte in the list and the easiest
+// to justify: every other operation reports what happened, and this one asks
+// for permission. The bytes buy the exact action identity (id, pack and runner
+// together, which is what a grant is scoped to) and one sentence saying the
+// host recomputes the count, fixes the scope itself, and ends at an operator's
+// confirmation — so a model cannot read the operation as a way to grant itself
+// anything.
+const staticWatchPromptBytes = 51733
 
 // The static prompt must not grow without someone deciding it should.
 //

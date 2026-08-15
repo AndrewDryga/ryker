@@ -37,7 +37,15 @@ var promptCeilings = map[string]int{
 	// unverifiable-alert rule rides the standing-rule block. ~950 bytes for
 	// four behaviors, with margin left so the ceiling stays a ratchet rather
 	// than a tripwire.
-	"watch": 43 * 1024,
+	// And to 43 KiB + 256 on 2026-08-15 for offer_grant_promotion, the one
+	// operation by which a model can ask for AUTHORITY rather than report a
+	// result. 170 bytes, and they are the bytes that keep the ask well-formed:
+	// the payload names the exact action identity a grant is scoped to, and the
+	// clause after it says plainly that the host recomputes the count, sets the
+	// scope itself, and ends at an operator's confirmation. An offer that
+	// arrives malformed is refused, which costs a correction turn; an offer that
+	// arrives believing it grants something is worse.
+	"watch": 43*1024 + 256,
 
 	// The ambient measurement above is the cheap case, and for a while it was
 	// the only one — so this test reported "37% left for context" while an
@@ -79,7 +87,9 @@ var promptCeilings = map[string]int{
 	// same four behaviors plus the style-signal clause on the offer_memory
 	// gate (an operator who asks for brevity twice gets offered a guidance
 	// memory capturing it, instead of asking a third time).
-	"watch-operator": 49*1024 + 256,
+	// And to 49 KiB + 640 on 2026-08-15 for the same offer_grant_promotion
+	// entry, which lands in both variants.
+	"watch-operator": 49*1024 + 640,
 }
 
 func TestStaticPromptSizeIsBounded(t *testing.T) {

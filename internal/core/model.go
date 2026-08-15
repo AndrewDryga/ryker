@@ -553,6 +553,53 @@ func (offer *MemoryOffer) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// GrantPromotionOffer is a model's proposal that one exact Emisar action has
+// earned the next rung of the remediation trust ladder.
+//
+// Look at what is NOT here. There is no channel, no repository and no alert
+// group: the host fills the whole trigger class from the episode it is already
+// handling, so a proposal cannot reach into another room, another service or
+// another alert. There is no expiry, because the host's policy sets it and
+// "permanent" must not be expressible. What is left is the narrowest thing a
+// model can usefully say — this exact action, one rung up, and here is my count
+// — and even the count is only ever checked against the host's own.
+//
+// VerifiedSuccesses is therefore a claim, not an input. The host recomputes it
+// from episode_outcomes and refuses any offer it cannot reproduce, which is the
+// whole reason the field is on the wire at all: an offer that overstates its
+// evidence is worth seeing and refusing, rather than silently correcting.
+type GrantPromotionOffer struct {
+	ActionID  string `json:"action_id"`
+	PackRef   string `json:"pack_ref"`
+	RunnerRef string `json:"runner_ref"`
+	// Rung is the rung being asked for, and it must be exactly one above the
+	// one on file. The host checks that; the model may not skip.
+	Rung              string `json:"rung"`
+	VerifiedSuccesses int    `json:"verified_successes"`
+	// Rationale is one operator-facing sentence for the card. It is prose and
+	// is treated as prose — it authorizes nothing.
+	Rationale string `json:"rationale,omitempty"`
+}
+
+// UnmarshalJSON accepts the two names a model is most likely to reach for
+// instead of the exact ones. Both name one real field and nothing else in a
+// promotion offer could be meant.
+func (offer *GrantPromotionOffer) UnmarshalJSON(data []byte) error {
+	type wire GrantPromotionOffer
+	var value wire
+	if err := DecodeModelObject(data, map[string]string{
+		"action":          "action_id",
+		"verified_runs":   "verified_successes",
+		"successful_runs": "verified_successes",
+		"requested_rung":  "rung",
+		"reason":          "rationale",
+	}, &value); err != nil {
+		return err
+	}
+	*offer = GrantPromotionOffer(value)
+	return nil
+}
+
 type MemoryEntry struct {
 	ID             string    `json:"id"`
 	ScopeKind      string    `json:"scope_kind"`

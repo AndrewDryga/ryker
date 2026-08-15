@@ -46,7 +46,11 @@ var routedActionIDs = map[string]bool{
 	// nothing would leave the work parked on a question the operator believes
 	// they have already answered.
 	ActionOperatorChoice: true,
-	ActionRememberMemory: true, ActionForgetMemory: true,
+	// The one click that grants Responder authority to offer an action. Routed
+	// like any other control, and refused by the handler unless the presser is a
+	// configured operator with active full workspace membership.
+	ActionConfirmGrantPromotion: true,
+	ActionRememberMemory:        true, ActionForgetMemory: true,
 	ActionForgetMemoryRollup: true, ActionDismissFeedback: true,
 	ActionConvertFeedback: true, ActionConvertFeedbackBrief: true,
 	ActionKeepFixtureCandidate: true, ActionDiscardFixtureCandidate: true,

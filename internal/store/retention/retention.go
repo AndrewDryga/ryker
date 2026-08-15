@@ -174,6 +174,13 @@ var Policies = []Policy{
 		"a confirmed or rejected finding about Responder's own answers, with what was done about " +
 			"it. scripts/quality-watch.sh writes these and expires them on its own retention_days " +
 			"window, so Prune does not touch them"},
+	{"remediation_grants", Kept,
+		"which exact Emisar action an operator confirmed Responder may offer for which exact " +
+			"alert, and until when. Kept rather than swept even once it lapses: the row IS the " +
+			"authority record, an expired one is what makes \"why did Responder stop offering " +
+			"this\" answerable, and the volume is one row per alert-and-action pair a person " +
+			"deliberately confirmed. Expiry is enforced by the matcher reading expires_at, never " +
+			"by deleting the evidence that the grant existed"},
 	{"replay_cancellations", Operational,
 		"the bookkeeping for cancelling one Coop replay. A completed row is a receipt and " +
 			"expires on the operational horizon; a pending one is work still owed to Coop and is " +

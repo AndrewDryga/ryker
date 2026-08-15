@@ -20,6 +20,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/changestore"
 	"github.com/AndrewDryga/responder/internal/store/fixturepromotionstore"
 	"github.com/AndrewDryga/responder/internal/store/goalstore"
+	"github.com/AndrewDryga/responder/internal/store/grantstore"
 	"github.com/AndrewDryga/responder/internal/store/incidentstore"
 	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
 	"github.com/AndrewDryga/responder/internal/store/memorystore"
@@ -139,6 +140,9 @@ type Store struct {
 	// Changes owns the ledger of what changed — deploys, merges, applies —
 	// which is the first question of every real incident.
 	Changes *changestore.Repository
+	// Grants owns the remediation trust ladder: which exact Emisar action an
+	// operator confirmed may be offered for which exact alert, and until when.
+	Grants *grantstore.Repository
 }
 
 type Metrics struct {
@@ -1152,6 +1156,7 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.SelfReport = selfreportstore.New(db)
 	s.FixturePromotions = fixturepromotionstore.New(db)
 	s.Changes = changestore.New(db, clock)
+	s.Grants = grantstore.New(db, clock)
 }
 
 // SetClock replaces the store clock. It exists for tests.

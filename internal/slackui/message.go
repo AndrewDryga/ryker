@@ -40,15 +40,19 @@ const (
 	ActionOpenIncident  = "responder_open_incident"
 	// A link out to the conversation an item lives in, so the page that says
 	// something needs a decision can also get the reader to it.
-	ActionOpenWorkThread     = "responder_open_work_thread"
-	ActionStartTask          = "responder_start_engineering_task"
-	ActionReviewPullRequest  = "responder_review_pull_request"
-	ActionOpenApproval       = "responder_open_emisar_approval"
-	ActionRememberMemory     = "responder_remember_memory"
-	ActionForgetMemory       = "responder_forget_memory"
-	ActionForgetMemoryRollup = "responder_forget_memory_rollup"
-	ActionDismissFeedback    = "responder_dismiss_feedback"
-	ActionConvertFeedback    = "responder_convert_feedback"
+	ActionOpenWorkThread    = "responder_open_work_thread"
+	ActionStartTask         = "responder_start_engineering_task"
+	ActionReviewPullRequest = "responder_review_pull_request"
+	ActionOpenApproval      = "responder_open_emisar_approval"
+	ActionRememberMemory    = "responder_remember_memory"
+	// ActionConfirmGrantPromotion confirms one rung of the remediation trust
+	// ladder. It grants Responder permission to OFFER an action; it is not an
+	// approval of any run, and Emisar remains the only thing that approves.
+	ActionConfirmGrantPromotion = "responder_confirm_grant_promotion"
+	ActionForgetMemory          = "responder_forget_memory"
+	ActionForgetMemoryRollup    = "responder_forget_memory_rollup"
+	ActionDismissFeedback       = "responder_dismiss_feedback"
+	ActionConvertFeedback       = "responder_convert_feedback"
 	// ActionConvertFeedbackBrief turns tone feedback into a typed response_detail
 	// preference rather than guidance. Guidance is advisory — the model weighs
 	// it. A preference is enforced by the host. "Be more concise", said three

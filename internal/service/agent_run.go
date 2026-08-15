@@ -25,6 +25,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/publicationcontext"
 	"github.com/AndrewDryga/responder/internal/recall"
+	"github.com/AndrewDryga/responder/internal/remediation"
 	"github.com/AndrewDryga/responder/internal/repositorycapability"
 	"github.com/AndrewDryga/responder/internal/resultwire"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
@@ -3660,6 +3661,23 @@ func (s *Service) finalizeIncidentAgentRun(
 		} else {
 			episodeCompletion = report.Completion
 			episodeOperations = report.AppliedOperations
+			// A model may propose that an action earned the next rung. It is a
+			// proposal and nothing else: the host recomputes the count from its
+			// own outcomes, refuses anything it cannot reproduce, fills the whole
+			// trigger class itself, and still ends at a card only an operator can
+			// press. Logged rather than returned, because a promotion offer is an
+			// addition to a report that has already been produced.
+			if offer := report.GrantOffer; offer != nil {
+				if err := s.offerGrantPromotion(
+					ctx, incident.ID, incident.ChannelID, "grant_offer_"+run.ID,
+					remediation.ActionRef{
+						ActionID: offer.ActionID, PackRef: offer.PackRef, RunnerRef: offer.RunnerRef,
+					},
+					remediation.Rung(offer.Rung), offer.VerifiedSuccesses, offer.Rationale,
+				); err != nil && ctx.Err() == nil {
+					s.log.Warn("offer remediation grant promotion", "run", run.ID, "error", err)
+				}
+			}
 			if conversation && s.cfg.IsOperator(conversationInput.UserID) {
 				offers, acknowledgement, replaced := normalizedOffers(
 					conversationInput,

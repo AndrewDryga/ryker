@@ -499,7 +499,24 @@ var lineBudget = map[string]int{
 	// so the budget is 23030 — measured once against what exists. Every
 	// same-day entry above says the same thing in different words: the split
 	// this package needs is the kernel migration's Phase 9, and it is next.
-	"service": 23030,
+	//
+	// Raised to 23260 for the remediation trust ladder's host half — 208 lines
+	// that grade a promotion, take a rung back on a failed run, and answer the
+	// one click that grants authority. This is the largest single raise in a
+	// while and it is worth saying exactly what did NOT come here, because that
+	// is the argument for it: the ladder itself, the deterministic matcher, the
+	// promotion arithmetic, the demotion rules, the Emisar-run-status mapping and
+	// the confirmation payload are all in internal/remediation as pure functions
+	// over values, with table tests and no database; the rows are in
+	// internal/store/grantstore; the copy and the cards are in internal/slackui.
+	// What is left in this package is what genuinely cannot leave it — reading
+	// the incident to build a trigger class, recomputing the count through the
+	// store, re-authorizing the operator against config and Slack, the audit
+	// events, and the two deliveries. Every one of those needs four Service
+	// internals at once, and putting them behind an interface would move lines
+	// between packages without moving a decision, which this file already warns
+	// is how a budget stops measuring anything.
+	"service": 23260,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -789,6 +806,19 @@ var lineBudget = map[string]int{
 	// lifecycle transition and the change event it implies have to be one
 	// transaction.
 	"changestore": 175,
+	// remediation owns the trust ladder: which exact Emisar action may be
+	// offered for which exact alert, what a rung costs, and what takes one away.
+	// It is a package rather than a corner of the service for the reason
+	// authority decisions in particular deserve — every function here is pure
+	// over values, so the questions that matter ("can this offer widen a grant",
+	// "does a denied run demote") are answered by table tests with no database,
+	// no Slack client and no model. Keep it that way: anything here that needs
+	// to read a row belongs in grantstore, and anything that needs to render
+	// belongs in slackui.
+	"remediation": 400,
+	// grantstore owns the remediation_grants table and the one query a promotion
+	// is graded on. It decides nothing — see the package comment.
+	"grantstore": 210,
 }
 
 // forbiddenImports records the dependency direction. Each package maps to the
@@ -894,6 +924,20 @@ var forbiddenImports = map[string][]string{
 	"changestore": {
 		"service", "slackui", "httpapi", "app", "publisher", "coop", "emisar",
 		"config", "decision",
+	},
+	// grantstore is a store repository and answers to the same direction as its
+	// siblings.
+	"grantstore": {
+		"service", "slackui", "httpapi", "app", "publisher", "coop", "emisar",
+		"config", "decision",
+	},
+	// remediation decides what authority a grant carries, and it decides it from
+	// values alone. The store is on this list beside the usual outward-facing
+	// packages: the moment this one can read a row, the ladder stops being
+	// answerable by a table test, which is the only reason it is a package.
+	"remediation": {
+		"service", "slackui", "httpapi", "app", "publisher", "coop", "emisar",
+		"config", "decision", "store", "grantstore",
 	},
 }
 

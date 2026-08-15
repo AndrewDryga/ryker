@@ -11,6 +11,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/emisar"
+	"github.com/AndrewDryga/responder/internal/remediation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -184,6 +185,22 @@ func (s *Service) finishTerminalEmisarApproval(
 		Outcome:    updated.Status,
 		Detail:     updated.ActionID + " run=" + updated.RunID,
 	})
+	// The trust ladder moves on the same terminal fact, in both directions. A
+	// run that did not work takes a rung back immediately and asks nobody; a run
+	// that did may have earned the next one, and that only ever becomes an offer
+	// for a person to confirm.
+	s.demoteGrantsForRun(ctx, updated)
+	if updated.Status == "success" {
+		action := remediation.ActionRef{
+			ActionID: updated.ActionID, PackRef: updated.PackRef, RunnerRef: updated.RunnerRef,
+		}
+		if err := s.offerGrantPromotion(
+			ctx, updated.IncidentID, updated.ChannelID,
+			"grant_offer_"+updated.RequestID, action, "", 0, "",
+		); err != nil && ctx.Err() == nil {
+			s.log.Warn("offer remediation grant promotion", "run", updated.RunID, "error", err)
+		}
+	}
 	return nil
 }
 
