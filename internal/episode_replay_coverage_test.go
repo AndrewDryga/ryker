@@ -62,7 +62,6 @@ var acknowledgedCoverageGaps = map[string]string{
 	"contextual-next-step-controls":           "needs a recorded stale-control replacement",
 	"pr-checks-merge-deployment-verification": "needs a recorded follow-through with a missing webhook",
 	"emisar-actions-and-approvals":            "needs a recorded approval without an incident room",
-	"scheduled-and-recurring-work":            "needs a recorded schedule firing a child episode",
 	"multi-repository-work":                   "needs a recorded parent episode with child goals",
 	"model-choice-and-byoc":                   "needs recordings across two execution profiles",
 	"cleanup":                                 "needs a recorded retention pass",

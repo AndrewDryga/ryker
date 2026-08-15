@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -1126,6 +1127,13 @@ func SanitizeEvidence(
 		item.Supersedes = BoundedUniqueFields(
 			item.Supersedes, investigation.MaxSupersededRecords, 120,
 		)
+		// A self-reference is dropped, not refused: re-emitting an id already
+		// replaces the older record, so "supersedes myself" states the implicit
+		// rule out loud. Stored, it would read as a retirement in every
+		// correction that quotes the record; refused, it cost eight episodes a
+		// correction round each on 2026-08-15.
+		item.Supersedes = slices.DeleteFunc(item.Supersedes,
+			func(id string) bool { return strings.TrimSpace(id) == strings.TrimSpace(item.ID) })
 		item.Metadata = BoundedMetadata(item.Metadata)
 		item.Dimensions = BoundedMetadata(item.Dimensions)
 		if !evidencepolicy.ValidSourceType(item.SourceType) {

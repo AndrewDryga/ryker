@@ -16,6 +16,12 @@ Ground rules for the whole pass:
 - Live DBs are read-only from the shell: `sqlite3 "file:<db>?mode=ro&immutable=1"`.
   Paths: tenant `~/Projects/tenant/.responder/state/responder.db`, emisar
   `~/Projects/os/emisar/.responder/state/responder.db`. Timestamps are UTC.
+  `immutable=1` snapshots the file and never sees the live WAL, so a read taken
+  right after one of your own POSTs can show the old state — verify writes and
+  build act-on-id lists with plain `mode=ro` (still read-only), and keep
+  `immutable=1` for bulk stable scans. The first pass lost a batch to this:
+  a stale pending-list re-sent already-actioned ids and the refusal stopped
+  the whole batch.
 - Every WRITE goes through a sanctioned path: the control plane's POST actions on
   loopback (they call the same service handlers as the Slack buttons and write their
   own audit rows), the `responder` CLI, or code changes through the normal gate.
@@ -51,10 +57,11 @@ before their 14-day TTL.
 - The stale/duplicate review queue: control plane Memory page (keep and dismiss are
   wired), or `/responder memory review` in Slack.
 - Also read the current memory_entries and conversation rollups with fresh eyes:
-  `SELECT subject, predicate, value, scope, expires_at, recall_count FROM
-  memory_entries ORDER BY recall_count DESC`. Entries recalled often but wrong are
-  worse than entries never recalled — verify the top-recalled ones against reality
-  (the repo, the live config, Emisar) and forget or supersede what drifted.
+  `SELECT subject_key, predicate, substr(value_json,1,80), scope_kind, expires_at,
+  recall_count FROM memory_entries ORDER BY recall_count DESC`. Entries recalled
+  often but wrong are worse than entries never recalled — verify the top-recalled
+  ones against reality (the repo, the live config, Emisar) and forget or supersede
+  what drifted.
 - Never edit operator-confirmed memory silently; use the review actions so the
   supersession trail stays honest.
 

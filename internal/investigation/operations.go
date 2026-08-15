@@ -462,13 +462,12 @@ func validateEvidenceOperation(o ResultOperation) error {
 				o.ID,
 			)
 		}
-		if strings.TrimSpace(id) == strings.TrimSpace(o.ID) {
-			return fmt.Errorf(
-				"result operation %q supersedes itself; supersedes names an earlier record "+
-					"and never this one",
-				o.ID,
-			)
-		}
+		// A record naming ITSELF is deliberately not an error. Re-emitting an
+		// id already replaces the older record, so the self-entry is redundant
+		// rather than wrong — and rejecting the whole response for it cost
+		// eight tenant episodes a correction round each on 2026-08-15, every
+		// one of them renaming an id to unsay a sentence the ledger was going
+		// to skip anyway. SanitizeEvidence drops the entry before it persists.
 	}
 	return nil
 }

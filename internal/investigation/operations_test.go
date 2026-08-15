@@ -183,10 +183,9 @@ func TestRecordEvidenceOffersSupersedesAndRefusesTheShapesItCanJudge(t *testing.
 
 	// Whether the named record exists is the ledger's question — one operation
 	// cannot see the others. What this validator can judge is a retirement that
-	// names nothing, and one that names itself.
+	// names nothing.
 	for _, testCase := range []struct{ name, supersedes, want string }{
 		{"an unnamed record", "", "supersedes an unnamed record"},
-		{"itself", "evidence-2", "supersedes itself"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			operation := valid
@@ -201,5 +200,28 @@ func TestRecordEvidenceOffersSupersedesAndRefusesTheShapesItCanJudge(t *testing.
 				t.Fatalf("refusal does not say %q: %v", testCase.want, err)
 			}
 		})
+	}
+}
+
+// A record that names itself in supersedes is stating out loud what re-emitting
+// an id already does: the carry rule keeps the newest record per id, and the
+// ledger's supersessions() has skipped self-references since the field landed.
+// The validator nevertheless rejected the WHOLE response for it — on 2026-08-15
+// eight tenant episodes each spent a full correction round renaming an id so a
+// redundant sentence could be unsaid. The self-entry is dropped in sanitize;
+// it must never again cost the turn.
+func TestASelfSupersedingRecordIsRedundantNotFatal(t *testing.T) {
+	operation := ResultOperation{
+		// The shape from the recorded corrections, verbatim: the live model
+		// re-emitted its round-one id and named the same id as superseded.
+		ID: "evidence-host", Type: "record_evidence",
+		Evidence: &core.Evidence{
+			ClaimID: "host.current_state", Observation: "The host recovered after the restart.",
+			SourceType: "emisar", SourceName: "Emisar",
+			Supersedes: []string{"evidence-host"},
+		},
+	}
+	if err := operation.Validate(); err != nil {
+		t.Fatalf("a redundant self-supersession cost the whole response: %v", err)
 	}
 }
