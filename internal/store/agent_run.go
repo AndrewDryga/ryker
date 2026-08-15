@@ -615,8 +615,27 @@ func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
 		      -- event waited nearly three hours behind a sibling cycling through
 		      -- provider-throttled retries. Ordering a reply behind a blocker
 		      -- that cannot finish is not ordering, it is silence.
+		      --
+		      -- Cycling is counted on both ledgers. Correction rounds moved off
+		      -- failure_count and onto the context envelope, where a nineteen-round
+		      -- loop sits at failure_count 0 — so a correction loop slower than an
+		      -- hour would hold its channel and read as healthy. Both envelopes
+		      -- serialize structured_corrections, and neither arm bypasses without
+		      -- the age check.
+		      --
+		      -- COALESCE is load-bearing, not decoration: the key is omitempty, so
+		      -- it is absent on every run that has never been corrected — which is
+		      -- almost all of them. Without it json_extract returns NULL, the OR
+		      -- goes NULL rather than false, NOT NULL is NULL, and the active row
+		      -- drops out of the subquery entirely: every blocker older than an
+		      -- hour would stop serializing its channel, healthy or not.
 		      AND NOT (
-		        active.failure_count >= 3
+		        (
+		          active.failure_count >= 3
+		          OR COALESCE(
+		            json_extract(active.context_json, '$.structured_corrections'), 0
+		          ) >= 3
+		        )
 		        AND julianday(active.created_at) < julianday(?) - 1.0/24.0
 		      )
 		  )

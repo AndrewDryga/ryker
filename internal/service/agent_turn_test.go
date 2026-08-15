@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -2045,10 +2046,18 @@ func TestARateLimitedRunReleasesItsDeadTurn(t *testing.T) {
 // through provider-throttled retries the whole time. Ordering a reply behind a
 // blocker that cannot finish is not ordering, it is silence. A blocker that is
 // old and visibly cycling stops excluding its channel's waiters.
+//
+// Cycling is read off two ledgers, because there are two of them: 79445e8 moved
+// correction rounds off failure_count and onto the context envelope, so the
+// nineteen-round loop it was named for sits at failure_count 0 and would have
+// held its channel forever had it run past the hour. The four scenarios below
+// are the whole predicate — failures, corrections, and both ways of being
+// neither — and the last one exists because the obvious spelling of the
+// corrections arm silently frees every blocker older than an hour.
 func TestAStarvedSiblingLeasesPastACyclingBlocker(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
-	cfg.Slack.WatchChannels = []string{"CSTARVE", "CSTARVE2"}
+	cfg.Slack.WatchChannels = []string{"CSTARVE", "CSTARVE2", "CSTARVE3", "CSTARVE4"}
 	cfg.Slack.SummonChannels = nil
 	st, err := store.Open(cfg.StateDir)
 	if err != nil {
@@ -2146,6 +2155,128 @@ func TestAStarvedSiblingLeasesPastACyclingBlocker(t *testing.T) {
 	}
 	if leased, err := st.LeaseAgentRun(ctx); err == nil {
 		t.Fatalf("a fresh blocker's sibling was leased: %q", leased.SourceID)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		t.Fatal(err)
+	}
+
+	// A correction loop cycles without ever failing. 79445e8 moved correction
+	// rounds off failure_count and onto the context envelope, which is correct
+	// accounting and left this clause reading a number that no longer moves:
+	// tenant run_3a615b9db spent nineteen rounds at failure_count 0. Both
+	// recorded loops finished inside half an hour, so no sibling has been
+	// starved by one yet — a slower one would hold its channel forever, which
+	// is the case 9451ca3 already decided was silence rather than ordering.
+	correcting := core.SlackInput{
+		ID: "slack-correcting-blocker", EnvelopeID: "env-correcting-blocker",
+		EventID: "event-correcting-blocker",
+		Kind:    "message", TeamID: cfg.Slack.TeamID, ChannelID: "CSTARVE3",
+		MessageTS: "1700.500", UserID: "U123ABC", Text: "and the checkout alert?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, correcting); err != nil || !created {
+		t.Fatalf("admit correcting blocker = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	correctingRun, err := st.GetAgentRunBySource(ctx, "watch", correcting.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var turnState decisionpkg.WatchTurnState
+	if len(correctingRun.Context) > 0 {
+		if err := json.Unmarshal(correctingRun.Context, &turnState); err != nil {
+			t.Fatal(err)
+		}
+	}
+	turnState.StructuredCorrections = 3
+	correctedContext, err := json.Marshal(turnState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAgentRunContext(ctx, correctingRun.ID, correctedContext); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AgeAgentRunForTest(ctx, correctingRun.ID, 2*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunRunningForTest(ctx, correctingRun.ID); err != nil {
+		t.Fatal(err)
+	}
+	blocked, err := st.GetAgentRun(ctx, correctingRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blocked.Failures != 0 {
+		t.Fatalf("the correcting blocker has %d failures; the whole point is "+
+			"that a correction loop never touches that number", blocked.Failures)
+	}
+
+	correctingSibling := core.SlackInput{
+		ID: "slack-correcting-sibling", EnvelopeID: "env-correcting-sibling",
+		EventID: "event-correcting-sibling",
+		Kind:    "message", TeamID: cfg.Slack.TeamID, ChannelID: "CSTARVE3",
+		MessageTS: "1700.600", UserID: "U123ABC", Text: "it recovered, stop",
+	}
+	if created, err := st.AdmitSlackInput(ctx, correctingSibling); err != nil || !created {
+		t.Fatalf("admit correcting sibling = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	leased, err = st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatalf("the sibling of a slow correction loop was not leased: %v", err)
+	}
+	if leased.SourceID != correctingSibling.ID {
+		t.Fatalf("leased %q, want the correction loop's starved sibling %q",
+			leased.SourceID, correctingSibling.ID)
+	}
+
+	// Age alone still buys nothing. structured_corrections is omitempty, so it
+	// is simply absent from the envelope of every run that has never been
+	// corrected — which is almost all of them — and an unguarded json_extract
+	// answers NULL there rather than 0. NULL propagates through the OR, the
+	// AND and the NOT until the active row drops out of the subquery
+	// altogether, and then every blocker older than an hour stops serializing
+	// its channel whether or not anything is wrong with it. A long
+	// investigation is not a cycling one.
+	slow := core.SlackInput{
+		ID: "slack-slow-blocker", EnvelopeID: "env-slow-blocker",
+		EventID: "event-slow-blocker",
+		Kind:    "message", TeamID: cfg.Slack.TeamID, ChannelID: "CSTARVE4",
+		MessageTS: "1700.700", UserID: "U123ABC", Text: "deploy status?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, slow); err != nil || !created {
+		t.Fatalf("admit slow blocker = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	slowRun, err := st.GetAgentRunBySource(ctx, "watch", slow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AgeAgentRunForTest(ctx, slowRun.ID, 2*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunRunningForTest(ctx, slowRun.ID); err != nil {
+		t.Fatal(err)
+	}
+	slowSibling := core.SlackInput{
+		ID: "slack-slow-sibling", EnvelopeID: "env-slow-sibling",
+		EventID: "event-slow-sibling",
+		Kind:    "message", TeamID: cfg.Slack.TeamID, ChannelID: "CSTARVE4",
+		MessageTS: "1700.800", UserID: "U123ABC", Text: "still there?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, slowSibling); err != nil || !created {
+		t.Fatalf("admit slow sibling = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if leased, err := st.LeaseAgentRun(ctx); err == nil {
+		t.Fatalf("an old but healthy blocker stopped serializing its channel: "+
+			"leased %q", leased.SourceID)
 	} else if !errors.Is(err, store.ErrNotFound) {
 		t.Fatal(err)
 	}
