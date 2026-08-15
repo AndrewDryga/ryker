@@ -864,7 +864,10 @@ var lineBudget = map[string]int{
 	//
 	// Lowered to 2440 on 2026-08-09 when the proposals target came out of the
 	// result-operation fold.
-	"decision": 2440,
+	// 2441 after the consumer landing declared the escalation envelope keys
+	// (DisallowUnknownFields makes undeclared keys a poll-killer, so the two
+	// fields had to live here); 2470 keeps a real margin.
+	"decision": 2470,
 	// investigation owns the contract and, since the completion validators moved
 	// beside it, the rules that check a result against that contract.
 	//
