@@ -1877,11 +1877,11 @@ func (s *Service) pollAgentRunOnce(ctx context.Context, run core.AgentRun) error
 	// the replay path already treats as an interruption, which requeues triage
 	// work in a fresh session, bounded by the ordinary attempt budget.
 	if len(events) == 0 && run.CoopTurnID != "" &&
-		s.now().Sub(run.UpdatedAt) >= silentTurnDeadline {
+		s.now().Sub(run.NextAttemptAt) >= silentTurnDeadline {
 		s.log.Warn(
 			"cancelling a turn that has been silent past the deadline",
 			"run", run.ID, "session", run.SessionID, "turn", run.CoopTurnID,
-			"silent_for", s.now().Sub(run.UpdatedAt).Round(time.Second),
+			"silent_for", s.now().Sub(run.NextAttemptAt).Round(time.Second),
 		)
 		turn, _, cancelErr := s.coop.Cancel(
 			ctx, "silent-turn-cancel:"+run.ID+":"+run.CoopTurnID,
@@ -1906,6 +1906,16 @@ func (s *Service) pollAgentRunOnce(ctx context.Context, run core.AgentRun) error
 	if cursor > run.CoopEventSequence {
 		if err := s.store.AdvanceAgentRunEvents(ctx, run.ID, cursor); err != nil {
 			return err
+		}
+		// The advance is also the turn's proof of life, stamped where only
+		// real poll outcomes write. The deadline first keyed on updated_at,
+		// and updated_at turned out to be touched by cosmetic writes — card
+		// refreshes, episode progress — every minute: run_dba732ef sat with
+		// an 87-minute-old poll stamp and a 70-second-old updated_at, shielded
+		// from the exact deadline built for it.
+		if err := s.store.HoldOffAgentRunPoll(ctx, run.ID, "", s.now()); err != nil &&
+			ctx.Err() == nil && s.log != nil {
+			s.log.Warn("could not stamp turn liveness", "run", run.ID, "error", err)
 		}
 		if run.Mode == core.AgentRunTriage {
 			if err := s.advanceTriageSessionEvents(ctx, run, cursor); err != nil {

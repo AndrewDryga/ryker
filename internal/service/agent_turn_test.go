@@ -1859,6 +1859,15 @@ func TestASilentTurnIsCancelledInsteadOfHoldingItsChannel(t *testing.T) {
 		t.Fatalf("a turn inside the deadline was cancelled after %d calls", coopClient.cancelCalls)
 	}
 
+	// A cosmetic row touch — card refreshes and episode progress write
+	// updated_at every minute in production — must not read as liveness.
+	// run_dba732ef sat with an 87-minute-old poll stamp and a 70-second-old
+	// updated_at, shielded from the first version of this deadline, which
+	// keyed on the column everything touches.
+	if err := st.TouchAgentRunForTest(ctx, "watch", input.ID); err != nil {
+		t.Fatal(err)
+	}
+
 	base = base.Add(silentTurnDeadline + time.Minute)
 	svc.pollAgentRuns(ctx)
 	if coopClient.cancelCalls != 1 {
