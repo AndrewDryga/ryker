@@ -705,7 +705,14 @@ var lineBudget = map[string]int{
 	// one event can disagree.
 	"fixturepromotionstore": 110,
 	"promptbudget":          60,
-	"repositorycapability":  105,
+	// promptscope answers which conditional instruction blocks a turn carries.
+	// It came out of watch.go on 2026-08-15 rather than going into agentprompt,
+	// which had nineteen lines of headroom: the predicates are a cohesive area
+	// and this file says to split one rather than raise a budget for it. They
+	// are pure functions of a sender type and a Slack message, which is what
+	// lets their table be a list of real corpus strings and no Service at all.
+	"promptscope":          145,
+	"repositorycapability": 105,
 	// decision owns the shapes a model result arrives in and the rules for
 	// reading one, so the evaluation family can reach them without the runtime.
 	//
@@ -850,6 +857,13 @@ var forbiddenImports = map[string][]string{
 	// promote-fixtures command would have two answers.
 	"fixturepromotionstore": {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "evaluation"},
 	"promptbudget":          {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "core"},
+	// promptscope reads a sender type and a message and returns which blocks
+	// apply. It takes decision for the alert vocabulary the host corrections
+	// already use — the block and the correction that enforces it must agree on
+	// what an alert is — and replypolicy for the two reply policies it chooses
+	// between. Nothing else: a predicate that could reach the store or the
+	// config is a predicate whose answer depends on where it ran.
+	"promptscope":           {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "investigation"},
 	"repositorycapability":  {"service", "store", "slackui", "httpapi", "app", "publisher", "emisar", "decision", "investigation"},
 	"investigation":         {"service", "store", "slackui", "httpapi", "app"},
 	"investigationcontract": {"service", "store", "slackui", "httpapi", "app", "decision", "investigation"},

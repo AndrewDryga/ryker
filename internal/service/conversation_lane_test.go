@@ -473,7 +473,12 @@ func TestBoundedConversationLaneRepliesWithoutInvestigation(t *testing.T) {
 		!strings.Contains(coopClient.submitPrompts[0], "bounded conversation turn") ||
 		!strings.Contains(coopClient.submitPrompts[0], "<trusted-responder-repository-capabilities>") ||
 		!strings.Contains(coopClient.submitPrompts[0], `"access_mode":"pinned_read_only"`) ||
-		strings.Contains(coopClient.submitPrompts[0], "Run independent read-only") {
+		// Which lane ran, told by a line only the full watch prompt carries.
+		// This was the compound-request policy until 2026-08-15, when that
+		// block became conditional on the message carrying more than one
+		// instruction — so its absence stopped meaning "the bounded lane ran"
+		// and started meaning "the question was short".
+		strings.Contains(coopClient.submitPrompts[0], "Choose exactly one action:") {
 		t.Fatalf("conversation prompt = %q", coopClient.submitPrompts)
 	}
 	if len(slack.posts) != 1 ||
@@ -559,7 +564,7 @@ func TestRepositoryAccessQuestionUsesPinnedSessionCapabilities(t *testing.T) {
 	}
 	prompt := coopClient.submitPrompts[0]
 	for _, required := range []string{
-		"Run independent read-only",
+		"Choose exactly one action:",
 		"<trusted-responder-repository-capabilities>",
 		`"key":"tenant-core","display_name":"Tenant Core","role":"companion","access_mode":"pinned_read_only","pinned_commit":"core-commit","can_publish":false`,
 		`"key":"tenant-flutter","display_name":"Tenant Flutter","role":"companion","access_mode":"pinned_read_only","pinned_commit":"flutter-commit","can_publish":false`,
@@ -613,7 +618,7 @@ func TestSlackVerificationReplayBypassesBoundedConversationLane(t *testing.T) {
 	}
 	if len(coopClient.submitPrompts) != 1 ||
 		!strings.Contains(coopClient.submitPrompts[0], "explicit host verification replay") ||
-		!strings.Contains(coopClient.submitPrompts[0], "Run independent read-only") ||
+		!strings.Contains(coopClient.submitPrompts[0], "Choose exactly one action:") ||
 		strings.Contains(coopClient.submitPrompts[0], "bounded conversation turn") {
 		t.Fatalf("verification replay prompt = %q", coopClient.submitPrompts)
 	}
@@ -681,7 +686,7 @@ func TestConversationLaneEscalatesOperationalWorkWithoutRetryPenalty(t *testing.
 	}
 	if len(coopClient.submitPrompts) != 2 ||
 		!strings.Contains(coopClient.submitPrompts[1], "full evidence-backed work") ||
-		!strings.Contains(coopClient.submitPrompts[1], "Run independent read-only") {
+		!strings.Contains(coopClient.submitPrompts[1], "Choose exactly one action:") {
 		t.Fatalf("investigation prompt = %q", coopClient.submitPrompts)
 	}
 	if len(slack.posts) != 1 ||

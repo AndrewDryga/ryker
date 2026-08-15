@@ -16,6 +16,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/promptscope"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -2144,10 +2145,20 @@ context for comparison only; they must not cause action=ignore or replace the re
 	publicationCorrelationPolicy := includeWhen(
 		target.SenderType == "external_app", publicationCorrelationPolicyText,
 	)
-	// Visual generation depends on a tool the policy may not grant.
+	// Visual generation depends on a tool the policy may not grant, and on a
+	// turn that asked for something to look at.
 	generatedVisualPolicy := includeWhen(
-		s.cfg.Limits.MaxGeneratedVisuals > 0, generatedVisualPolicyText,
+		s.cfg.Limits.MaxGeneratedVisuals > 0 && promptscope.VisualRequest(target.Text),
+		generatedVisualPolicyText,
 	)
+	// One instruction needs no rules for handling several.
+	compoundRequests := includeWhen(
+		promptscope.CompoundRequest(target.SenderType, target.Text), compoundRequestPolicy,
+	)
+	// The alert-language rules govern the difference between an app's
+	// notification state and the actual service state, which only a turn
+	// answering an app or alert message can use.
+	replyPolicy := promptscope.ReplyPolicy(target.SenderType, target.Text)
 	// Durable behavior and governed actions both require a configured
 	// operator, and the prompt says so itself further down. Sending the full
 	// rules to a turn that cannot use them spends context explaining a door
@@ -2325,9 +2336,7 @@ approvals or mutations. Reuse immutable repository facts and anchored Slack hist
 but refresh live infrastructure, deployment, alert, and health evidence for every current-state
 claim.
 
-` + compoundRequestPolicy + `
-
-Configured repository bindings:
+` + compoundRequests + `Configured repository bindings:
 <trusted-responder-configuration>
 ` + string(repositoryCatalog) + `
 </trusted-responder-configuration>
@@ -2355,7 +2364,7 @@ engineering task with offer_memory, offer_preference, or offer_rule, and do not 
 offer with any durable behavior offer. Emisar runbook management is MCP tool work, not an
 engineering task.
 
-` + slackReplyFormattingPolicy + `
+` + replyPolicy + `
 
 ` + generatedVisualPolicy + `Choose exactly one action:
 - ignore: routine noise, informational chatter, successful or recovered notifications, duplicates, or messages where a human teammate would reasonably stay silent.

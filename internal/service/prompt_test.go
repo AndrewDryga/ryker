@@ -64,9 +64,10 @@ func TestCoopInstructionsRequireClaimBasedCrossSourceEvidence(t *testing.T) {
 
 // The policy text below must survive every edit to the prompt. Some of it is
 // conditional now, so this builds the turn that enables everything — an
-// operator's scheduled occurrence — and asserts the wording is intact.
-// TestPromptSectionsAppearOnlyWhenTheyApply owns the separate question of which
-// blocks reach which turn.
+// operator's scheduled occurrence, whose prompt names an alert, asks for a
+// chart, and carries two instructions — and asserts the wording is intact.
+// TestPromptSectionsAppearOnlyWhenTheyApply and the three block tests beside it
+// own the separate question of which blocks reach which turn.
 func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 	cfg := serviceConfig(t)
 	prompt, _ := (&Service{cfg: cfg}).watchPrompt(
@@ -75,7 +76,8 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 			MessageTS: "1700.001",
 			UserID:    cfg.Slack.Operators[0],
 			Kind:      "scheduled",
-			Text:      "How is the health of our infrastructure?",
+			Text: "The checkout latency alert is still firing. Chart the p99 " +
+				"for the last hour and tell me whether it recovered.",
 		},
 		"U999BOT",
 		false,
@@ -321,8 +323,15 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 	}
 }
 
-// staticWatchPromptBytes is the size of the instruction block on the turn that
-// enables every conditional section — the largest the static prompt gets.
+// staticWatchPromptBytes is the size of the instruction block on an ordinary
+// operator turn: a scheduled occurrence asking one plain question.
+//
+// It used to be the largest the static prompt gets, and it is not any more. As
+// of 2026-08-15 three blocks are keyed on the target's text rather than on the
+// lane, so "How is the health of our infrastructure?" no longer carries the
+// alert-language, generated-visual or compound-request rules. The turn that
+// still carries all three is measured by promptCeilings["watch-operator-alert"]
+// in prompt_size_test.go; this one measures what a normal turn costs.
 //
 // It is pinned because the number is a budget, not a curiosity. The transport
 // caps a prompt at coop.MaxPromptBytes and elides the middle of anything over,
@@ -471,7 +480,26 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // host recomputes the count, fixes the scope itself, and ends at an operator's
 // confirmation — so a model cannot read the operation as a way to grant itself
 // anything.
-const staticWatchPromptBytes = 51733
+//
+// Lowered by 5,391 on 2026-08-15, and no rule was removed to do it. Three
+// blocks now ride the turns that can use them: the operational-alert language
+// rules (2,650 bytes) when the target is an app message or carries alert text,
+// the generated-visual rules (1,194) when a visual tool exists and the ask
+// names a chart, image or meme, and the compound-request rules (1,543) when the
+// message carries more than one instruction. Measured over the replay corpora,
+// that is 66% of turns without the alert block, every turn without the visual
+// block, and 75% without the compound block.
+//
+// The risk this trades against is a wrong predicate silently dropping a rule
+// the turn needed, so each block has a table beside
+// TestPromptSectionsAppearOnlyWhenTheyApply asserting both directions on real
+// corpus text. Every predicate is biased toward inclusion for the same reason:
+// a false positive costs the bytes back, a false negative costs a behaviour and
+// shows up nowhere.
+//
+// 46342 on landing: the two changes above crossed — 45871 after the diet, plus
+// the 471-byte offer_grant_promotion bullet — and the pin is the measured sum.
+const staticWatchPromptBytes = 46342
 
 // The static prompt must not grow without someone deciding it should.
 //

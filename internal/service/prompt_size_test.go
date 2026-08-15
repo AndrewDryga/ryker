@@ -45,7 +45,18 @@ var promptCeilings = map[string]int{
 	// scope itself, and ends at an operator's confirmation. An offer that
 	// arrives malformed is refused, which costs a correction turn; an offer that
 	// arrives believing it grants something is worse.
-	"watch": 43*1024 + 256,
+	//
+	// Lowered to 39 KiB on 2026-08-15 when the alert-language, generated-visual
+	// and compound-request blocks became conditional. This turn — "check the
+	// api", from nobody in particular — is not an alert, asks for nothing to
+	// look at, and carries one instruction, so it now carries none of the three
+	// and measures 38,340 bytes against the 43,731 it carried the day before.
+	// It had 301 bytes of headroom under the old number; a ceiling that close
+	// is the tripwire this file warns about, so the margin is deliberately
+	// about 1 KiB.
+	// Merged 2026-08-15: 39 KiB after the diet plus the 471-byte grant bullet
+	// measures 38,811; 39 KiB + 256 keeps roughly 1 KiB of ratchet room.
+	"watch": 39*1024 + 256,
 
 	// The ambient measurement above is the cheap case, and for a while it was
 	// the only one — so this test reported "37% left for context" while an
@@ -89,7 +100,21 @@ var promptCeilings = map[string]int{
 	// memory capturing it, instead of asking a third time).
 	// And to 49 KiB + 640 on 2026-08-15 for the same offer_grant_promotion
 	// entry, which lands in both variants.
-	"watch-operator": 49*1024 + 640,
+	//
+	// Lowered to 45 KiB on 2026-08-15 by the same three conditional blocks:
+	// 50,335 bytes to 44,944. This entry had 97 bytes of headroom, which is a
+	// ceiling that fails the next honest sentence rather than the next
+	// unjustified paragraph.
+	"watch-operator": 45 * 1024,
+
+	// The expensive turn, kept measured on purpose. Conditional inclusion means
+	// the two entries above now describe turns that skip 5,391 bytes of rules,
+	// so on their own they would ratchet the cheap case and leave the case that
+	// actually runs out of context unbounded — which is the mistake that made
+	// the watch-operator entry necessary in the first place. This one asks for
+	// all three back.
+	// Measured 49,357 on landing with the grant bullet aboard; 49 KiB + 512.
+	"watch-operator-alert": 49*1024 + 512,
 }
 
 func TestStaticPromptSizeIsBounded(t *testing.T) {
@@ -123,11 +148,22 @@ func TestStaticPromptSectionSizes(t *testing.T) {
 	}
 	sections := []section{
 		{"operationalMemoryPolicy", len(operationalMemoryPolicy)},
-		{"behaviorOfferPolicy", len(behaviorOfferPolicy)},
-		{"compoundRequestPolicy", len(compoundRequestPolicy)},
-		{"emisarGovernedActionPolicy", len(emisarGovernedActionPolicy)},
-		{"slackReplyFormattingPolicy", len(slackReplyFormattingPolicy)},
+		{"slackReplyShapePolicy", len(slackReplyShapePolicy)},
 		{"investigation.ResultOperationsPrompt", len(investigation.ResultOperationsPrompt())},
+	}
+	// What the measured turn does not carry. Two of these have been conditional
+	// for a while and were being counted against a prompt that never held them,
+	// which overstated the named blocks by 6.5 KiB and understated the inline
+	// scaffolding by the same amount; the last three joined them on 2026-08-15.
+	// A diet reads this table to choose a target, so it has to say which side of
+	// the line each block is on.
+	conditional := []section{
+		{"behaviorOfferPolicy", len(behaviorOfferPolicy)},
+		{"emisarGovernedActionPolicy", len(emisarGovernedActionPolicy)},
+		{"slackOperationalAlertLanguagePolicy",
+			len(slackReplyFormattingPolicy) - len(slackReplyShapePolicy)},
+		{"compoundRequestPolicy", len(compoundRequestPolicy)},
+		{"generatedVisualPolicyText", len(generatedVisualPolicyText)},
 	}
 	total := staticPromptSizes(t)["watch"]
 	accounted := 0
@@ -139,23 +175,40 @@ func TestStaticPromptSectionSizes(t *testing.T) {
 	}
 	t.Logf("%-40s %6d bytes", "named policy blocks, total", accounted)
 	t.Logf("%-40s %6d bytes", "inline instructions and scaffolding", total-accounted)
+	sort.Slice(conditional, func(i, j int) bool { return conditional[i].bytes > conditional[j].bytes })
+	for _, item := range conditional {
+		t.Logf("%-40s %6d bytes (conditional; not in this turn)", item.name, item.bytes)
+	}
 }
 
 func staticPromptSizes(t *testing.T) map[string]int {
 	t.Helper()
 	cfg := serviceConfig(t)
 	svc := &Service{cfg: cfg}
-	measure := func(userID string) int {
+	measure := func(input core.SlackInput) int {
 		return len(svc.unboundedWatchPrompt(
-			core.SlackInput{ChannelID: "C1", Text: "check the api", UserID: userID},
+			input,
 			"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
 			decisionpkg.OperationalMemoryContext{}, nil, nil, "emisar", nil,
 			nil,
 		))
 	}
 	return map[string]int{
-		"watch":          measure(""),
-		"watch-operator": measure(cfg.Slack.Operators[0]),
+		"watch": measure(core.SlackInput{ChannelID: "C1", Text: "check the api"}),
+		"watch-operator": measure(core.SlackInput{
+			ChannelID: "C1", Text: "check the api", UserID: cfg.Slack.Operators[0],
+		}),
+		// The turn that switches every text-keyed block on at once: an operator
+		// asking, about an alert, for a chart, in two instructions. Without it
+		// the ceilings above would measure only the turns the diet made cheap,
+		// which is exactly the hole this file already fell into once — see the
+		// watch-operator entry, added because the ambient measurement was
+		// reporting 37% left for context while the expensive turn had 27%.
+		"watch-operator-alert": measure(core.SlackInput{
+			ChannelID: "C1", UserID: cfg.Slack.Operators[0],
+			Text: "The checkout latency alert is still firing. Chart the p99 " +
+				"for the last hour and tell me whether it recovered.",
+		}),
 	}
 }
 
@@ -302,12 +355,7 @@ func TestPromptSectionsAppearOnlyWhenTheyApply(t *testing.T) {
 	svc := &Service{cfg: cfg}
 	operator := cfg.Slack.Operators[0]
 
-	build := func(input core.SlackInput) string {
-		return svc.unboundedWatchPrompt(
-			input, "U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-			decisionpkg.OperationalMemoryContext{}, nil, nil, "emisar", nil, nil,
-		)
-	}
+	build := func(input core.SlackInput) string { return watchPromptFor(svc, input) }
 
 	ambient := build(core.SlackInput{ChannelID: "C1", Text: "is checkout slow?"})
 	for _, absent := range []struct{ name, marker string }{
@@ -346,6 +394,290 @@ func TestPromptSectionsAppearOnlyWhenTheyApply(t *testing.T) {
 	}
 	t.Logf("ambient turn %d bytes, operator turn %d bytes, saving %d",
 		len(ambient), len(fromOperator), len(fromOperator)-len(ambient))
+}
+
+// watchPromptFor builds the static watch prompt for one target message.
+func watchPromptFor(svc *Service, input core.SlackInput) string {
+	return svc.unboundedWatchPrompt(
+		input, "U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
+		decisionpkg.OperationalMemoryContext{}, nil, nil, "emisar", nil, nil,
+	)
+}
+
+// The three tables below guard the blocks that became conditional on
+// 2026-08-15, and they exist because those blocks are gated on the target's
+// TEXT rather than on its lane.
+//
+// The four blocks in the test above key on sender_type or on a host fact, so
+// their predicate is either right or obviously wrong. These read a Slack message
+// and decide. A predicate that is wrong in the present direction costs the bytes
+// back on one turn; a predicate that is wrong in the absent direction removes a
+// rule the turn needed and appears in no diff, no gate, and no log — the model
+// simply answers an alert without ever having been told that a RESOLVED card is
+// not a recovery. 5,391 bytes came off an ordinary turn for this, which is why
+// both directions are asserted, on text harvested from the replay corpora rather
+// than on sentences written to pass.
+//
+// The reply shape rules are checked as present throughout. They are not
+// conditional, and a turn that lost them has lost the reply contract rather than
+// saved 2,650 bytes.
+const replyShapeMarker = "Default to natural, plain English"
+
+func TestAlertLanguageRulesRideAnAppOrAlertTurn(t *testing.T) {
+	const marker = "separate the app's notification state from the actual service state"
+	svc := &Service{cfg: serviceConfig(t)}
+	for _, testCase := range []struct {
+		name  string
+		input core.SlackInput
+		want  bool
+	}{
+		{
+			name: "monitoring alert posted by an app",
+			input: core.SlackInput{
+				ChannelID: "C1", Kind: "bot_message", UserID: "U0APP",
+				Text: "*<https://console.cloud.google.com/monitoring/alerting/alerts/" +
+					"0.obeaujx8bfxn|Emisar: Load Balancer 5xx Ratio High>*\n" +
+					"Alert status\nAlert open\nNo severity",
+			},
+			want: true,
+		},
+		{
+			// An app message with no alert vocabulary at all. The block's first
+			// bullet is about acknowledgement and lifecycle cards, so it belongs
+			// to every app message, not only to the ones that say "firing".
+			name: "terraform run notification posted by an app",
+			input: core.SlackInput{
+				ChannelID: "C1", Kind: "bot_message", UserID: "U0APP",
+				Text: "Run notification for SME-Tenant/tenant-infra\n" +
+					"Run run-UBwFpsiiVMtXwtbi\nRun Planned - Needs Confirmation",
+			},
+			want: true,
+		},
+		{
+			// Both of these arrive as human messages in the replay corpus: a
+			// person forwards the card into the channel. The rules apply to the
+			// reply, not to the transport that carried the alert.
+			name: "person pastes a firing card",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "[VA1 FIRING:1] WARNING | Cassandra Reaper schedule unfulfilled"},
+			want: true,
+		},
+		{
+			name: "person pastes a resolution",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "Automatically resolved Grafana: VA1: Cloud SQL slot watcher " +
+					"expired for tolgee"},
+			want: true,
+		},
+		{
+			name: "plain operational question",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "What is the disk usage on nomad-hst03 right now?"},
+			want: false,
+		},
+		{
+			name: "repository change request",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "The retry backoff in the worker looks wrong to me — can you fix it?"},
+			want: false,
+		},
+		{
+			name: "runbook request",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "Create reusable deep infrastructure health review runbook"},
+			want: false,
+		},
+		{
+			name: "health question",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "Is production infrastructure healthy right now?"},
+			want: false,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			prompt := watchPromptFor(svc, testCase.input)
+			if got := strings.Contains(prompt, marker); got != testCase.want {
+				t.Errorf("alert-language rules present = %t, want %t", got, testCase.want)
+			}
+			if !strings.Contains(prompt, replyShapeMarker) {
+				t.Error("the turn lost the reply shape rules, which are not conditional")
+			}
+		})
+	}
+}
+
+func TestGeneratedVisualRulesRideATurnThatAskedForOne(t *testing.T) {
+	const marker = "When a user asks for a chart, image, or meme"
+	cfg := serviceConfig(t)
+	if cfg.Limits.MaxGeneratedVisuals <= 0 {
+		t.Fatal("the test config grants no visual tool; this test would prove nothing")
+	}
+	withoutTool := cfg
+	withoutTool.Limits.MaxGeneratedVisuals = 0
+	for _, testCase := range []struct {
+		name   string
+		input  core.SlackInput
+		noTool bool
+		want   bool
+	}{
+		{
+			name: "asks for a chart",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "Chart the checkout p99 for the last hour."},
+			want: true,
+		},
+		{
+			name: "asks for a graph",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "Can you make a graph of the error rate since the rollout?"},
+			want: true,
+		},
+		{
+			name: "asks for a meme",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "post a meme, we survived the migration"},
+			want: true,
+		},
+		{
+			// The capability gate is the older half of this predicate and still
+			// wins: a deployment with no visual tool must not be told how to
+			// label axes.
+			name: "asks for a chart with no visual tool configured",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "Chart the checkout p99 for the last hour."},
+			noTool: true,
+			want:   false,
+		},
+		{
+			name: "plain operational question",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "What is the disk usage on nomad-hst03 right now?"},
+			want: false,
+		},
+		{
+			name: "compound read-only request",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "Check whether the latest emisar terraform change applied and " +
+					"tell me what changed."},
+			want: false,
+		},
+		{
+			name: "recurring health check",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "Every morning, check production health for me."},
+			want: false,
+		},
+		{
+			name: "app alert",
+			input: core.SlackInput{ChannelID: "C1", Kind: "bot_message", UserID: "U0APP",
+				Text: "FIRING: production API returns HTTP 503 for 38% of requests"},
+			want: false,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			svc := &Service{cfg: cfg}
+			if testCase.noTool {
+				svc = &Service{cfg: withoutTool}
+			}
+			prompt := watchPromptFor(svc, testCase.input)
+			if got := strings.Contains(prompt, marker); got != testCase.want {
+				t.Errorf("generated-visual rules present = %t, want %t", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestCompoundRequestRulesRideAMessageWithMoreThanOneInstruction(t *testing.T) {
+	const marker = "Handle every explicit instruction in the current user message."
+	svc := &Service{cfg: serviceConfig(t)}
+	for _, testCase := range []struct {
+		name  string
+		input core.SlackInput
+		want  bool
+	}{
+		{
+			name: "two outcomes joined by and",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "Check whether the latest emisar terraform change applied and " +
+					"tell me what changed."},
+			want: true,
+		},
+		{
+			name: "verify then record",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "Confirm the current uptime of nomad-hst03 and record what you observed."},
+			want: true,
+		},
+		{
+			name: "fix and open a pull request",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "Fix one genuine typo in this repository and open a focused draft PR."},
+			want: true,
+		},
+		{
+			// Two questions sharing one question mark, and neither half is
+			// imperative. This is why the auxiliary that opens a question counts
+			// as an instruction opener.
+			name: "two questions in one sentence",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "Did the GitHub Actions restart finish, and was the earlier failure " +
+					"a Docker push networking timeout?"},
+			want: true,
+		},
+		{
+			// The production feedback message. Numbered items carry the compound
+			// ask that no verb test finds: neither clause opens with a verb.
+			name: "numbered list of corrections",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "feedback: 1. i told you to answer in thread; 2. i told you to " +
+					"update channel memory so you do it next time"},
+			want: true,
+		},
+		{
+			name: "single question",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "What is the disk usage on nomad-hst03 right now?"},
+			want: false,
+		},
+		{
+			name: "single explicit instruction",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "Open an incident for the recurring checkout 503 reports."},
+			want: false,
+		},
+		{
+			name: "single instruction with no verb repetition",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "Create reusable deep infrastructure health review runbook"},
+			want: false,
+		},
+		{
+			name: "recurring single instruction",
+			input: core.SlackInput{ChannelID: "C1", UserID: "U123ABC",
+				Text: "Every morning, check production health for me."},
+			want: false,
+		},
+		{
+			// An app issues no instructions, and this card would otherwise read
+			// as three: every one of its lines opens with the verb `Run`. The
+			// sender check is what keeps a Terraform notification from paying
+			// 1,543 bytes to be told how to handle a compound request.
+			name: "terraform run notification posted by an app",
+			input: core.SlackInput{
+				ChannelID: "C1", Kind: "bot_message", UserID: "U0APP",
+				Text: "Run notification for SME-Tenant/tenant-infra\n" +
+					"Run run-UBwFpsiiVMtXwtbi\nRun Planned - Needs Confirmation",
+			},
+			want: false,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			prompt := watchPromptFor(svc, testCase.input)
+			if got := strings.Contains(prompt, marker); got != testCase.want {
+				t.Errorf("compound-request rules present = %t, want %t", got, testCase.want)
+			}
+		})
+	}
 }
 
 // The watch section is budgeted against what follows it, not a fixed guess.
