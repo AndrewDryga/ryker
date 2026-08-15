@@ -379,7 +379,15 @@ var lineBudget = map[string]int{
 	// stayed is the second bounded read and its own prompt section — the read
 	// holds the Slack client, the history cache, the bot identity and the
 	// logger at once, and the section is prompt lines, which live here.
-	"service": 22580,
+	// Raised to 22620 on 2026-08-14 for the day's parallel landings arriving
+	// together: the coop_image_unbuildable readiness veto (an unbuildable
+	// image ran 75 minutes with /readyz green), and the failure cards that
+	// now take the incident so a task can be told it is a task. Each branch
+	// carried headroom against the budget it saw; three same-day merges spent
+	// it. The real split of this package stays owned by the kernel migration's
+	// Phase 9 — extracting mid-cutover would preserve the bugs the cutover
+	// exists to delete.
+	"service": 22620,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
