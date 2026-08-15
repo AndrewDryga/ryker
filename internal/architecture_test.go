@@ -757,8 +757,15 @@ var lineBudget = map[string]int{
 	// a query built on Tuesday. Sharing searchTerms is the whole reason this
 	// belongs here.
 	"recall": 460,
-	// channelsetup reads what an operator is asking for about a channel.
-	"channelsetup": 235,
+	// channelsetup reads which wizard control an operator clicked.
+	//
+	// Lowered from 235 to 90 on 2026-08-15 with the keyword router. The table
+	// that rewrote plain operator messages into slash subcommands was 70 of
+	// this package's 155 lines and the largest thing in it; what is left is
+	// action-id decoding and one addressed sentence. A budget left at 235 would
+	// have re-admitted the router without anything failing, which is the whole
+	// job of this number.
+	"channelsetup": 90,
 	// memory owns what may be remembered, for how long, and who may see it.
 	"memory": 364,
 	// schedule owns recurrence arithmetic and schedule validation.

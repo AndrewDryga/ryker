@@ -74,10 +74,12 @@ typed configuration and safety boundary. No setting changes until an operator se
 configuration**. Slack user mentions are membership-checked, user groups are resolved through
 Slack, and action payloads contain only the stored setup ID.
 
-The conversational surface is primary. Operators can ask `@Emisar how are you configured here?`,
-`show open incidents`, `show preferences`, `enable proactive mode`, or `reconfigure this channel`.
-The host maps supported phrases to the same deterministic handlers used by `/responder`; the slash
-command remains a compatibility and recovery surface rather than a second configuration system.
+The conversational surface is primary. Operators ask in their own words; the model classifies the
+intent and the host executes it deterministically. There is no phrase table — a plain channel
+message is never a command, whichever words are in it. `@Emisar reconfigure this channel` is the
+one request still read from text, because channel setup has to work when the model is unavailable,
+and it is read only when Responder is addressed. The slash command remains a recovery surface
+rather than a second configuration system.
 
 The icon is the 512 by 512 Emisar mark on its native `#0A0B0D` background. Its SHA-256 checksum is:
 

@@ -385,12 +385,12 @@ putting every argument in the picker. Running `/responder` without arguments or 
 returns an interactive guide with read-only buttons for channel status, open incidents, and all
 incident history.
 
-The same handler is conversationally reachable for supported operator requests. For example,
-`@Emisar how are you configured here?`, `show open incidents`, `show evidence`, `enable proactive
-mode`, and `reconfigure this channel` map to the existing typed status, directory, intelligence,
-setting, and setup handlers. Conversational results are posted in the request thread; slash results
-remain ephemeral. Unsupported or ambiguous operational questions continue through normal
-evidence-backed triage rather than being guessed into a command.
+No phrase table sits beside it. A keyword router used to rewrite plain operator messages into these
+same subcommands, and it read every message in a proactive channel: "shadow traffic is on the new
+cluster, ignore it" turned the channel silent, and "hey bob what are you working on?" posted the
+commitment card at the room. Free text is now classified by the model and executed by the host, and
+`@Emisar reconfigure this channel` is the one request still read from text — it has to survive the
+model being unavailable, and it is read only when Responder is addressed.
 
 `incidents` lists open incidents newest first. Each compact entry contains the title, a native
 Slack channel mention, plain-language activity, firing-alert count, incident ID, repository, and

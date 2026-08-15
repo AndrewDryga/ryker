@@ -221,7 +221,7 @@ func ChannelSetupSaved(
 			"- **Repository access:** " + repositoryAccessSummary(repository) + "\n" +
 			"- **App alerts:** " + setupAlertLabel(configuration.AlertPolicy) + "\n" +
 			"- **Incident audience:** " + audience + "\n\n" +
-			"Ask `@Emisar how are you configured here?` at any time. A configured operator can " +
+			"Ask `@Emisar` about this channel at any time. A configured operator can " +
 			"say `@Emisar reconfigure this channel` to run this setup again.",
 	}
 }

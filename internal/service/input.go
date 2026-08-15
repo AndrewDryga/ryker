@@ -228,9 +228,9 @@ func (s *Service) routeSlackInputKind(
 
 // handleConversationPrefix answers the parts of an ordinary message that are
 // resolved before any incident lookup: an in-flight configuration or preference
-// reply, a retained visual retry, and the deterministic channel-setup and
-// conversational commands. It also drops an empty channel message that never
-// addressed Responder. It reports whether the input was consumed.
+// reply, a retained visual retry, and an addressed request to set this channel
+// up. It also drops an empty channel message that never addressed Responder.
+// It reports whether the input was consumed.
 func (s *Service) handleConversationPrefix(
 	ctx context.Context,
 	input core.SlackInput,
@@ -275,30 +275,35 @@ func (s *Service) handleConversationPrefix(
 		input.Kind == "message" {
 		return true, s.finishSlackInput(ctx, input)
 	}
-	if input.Kind == "mention" || input.Kind == "direct" ||
-		(input.Kind == "message" && s.cfg.IsOperator(input.UserID)) {
-		if channelsetup.ExplicitChannelConfigurationRequest(text) {
-			if !s.cfg.IsOperator(input.UserID) {
-				return true, s.finishSlashInput(
-					ctx, input,
-					"**Only a configured operator can change channel behavior.** No settings were changed.",
-				)
-			}
-			if err := s.startChannelConfiguration(ctx, input); err != nil {
-				return true, s.retrySlackInput(ctx, input, err)
-			}
-			return true, nil
+	// A sentence nobody addressed to Responder is never a command. What used to
+	// stand here read every plain operator message through a keyword table and
+	// rewrote the matches into slash subcommands, so "shadow traffic is on the
+	// new cluster, ignore it" turned the channel silent. Intent on free text is
+	// the model's job now; the one text decision left has to survive the model
+	// being down, so it stays here behind the addressed guard.
+	if channelsetup.ExplicitChannelConfigurationRequest(
+		text, addressedToResponder(input),
+	) {
+		if !s.cfg.IsOperator(input.UserID) {
+			return true, s.finishSlashInput(
+				ctx, input,
+				"**Only a configured operator can change channel behavior.** No settings were changed.",
+			)
 		}
-		if command, ok := channelsetup.ConversationalCommand(text); ok {
-			input.Kind = "conversation_command"
-			input.Text = command
-			if err := s.processSlashInput(ctx, input); err != nil {
-				return true, s.retrySlackInput(ctx, input, err)
-			}
-			return true, nil
+		if err := s.startChannelConfiguration(ctx, input); err != nil {
+			return true, s.retrySlackInput(ctx, input, err)
 		}
+		return true, nil
 	}
 	return false, nil
+}
+
+// addressedToResponder reports whether a message was aimed at Responder rather
+// than at the room it was posted in. A mention names it and a direct message
+// has nobody else in it; a plain channel message is a conversation Responder
+// is only listening to.
+func addressedToResponder(input core.SlackInput) bool {
+	return input.Kind == "mention" || input.Kind == "direct"
 }
 
 // handleUnboundConversation decides whether a message with no incident behind

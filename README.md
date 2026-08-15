@@ -311,10 +311,12 @@ the audience step either adds no one else or accepts member and user-group menti
 invitees. Emisar follows the operator between the channel and known setup threads, including
 explicit `switch to a thread` and `back to the channel` requests, throughout the 30-minute setup.
 
-The conversational surface is primary: ask `@Emisar how are you configured here?`, `show open
-incidents`, `enable proactive mode`, or `reconfigure this channel`. Those phrases use the same
-validated handlers below. `slack.watch_channels` supplies deployment defaults and `/responder`
-remains the compatibility and recovery surface:
+The conversational surface is primary: ask `@Emisar` in your own words and the model classifies what
+you meant, then the host executes it deterministically. Nothing is matched on substrings — a plain
+sentence in a channel is never a command, whichever words are in it. The one exception is
+`@Emisar reconfigure this channel`, which is read from text so it still works when the model is
+unavailable, and it is read only when Responder is addressed. `slack.watch_channels` supplies
+deployment defaults and `/responder` remains the recovery surface:
 
 ```text
 /responder status

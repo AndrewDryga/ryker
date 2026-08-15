@@ -247,7 +247,7 @@ func TestChannelJoinCanUseProactiveDefaultsWithoutFullWizard(t *testing.T) {
 	}
 }
 
-func TestConfigurationAnswersRequireOperatorAndConversationCommandsUseSharedHandlers(t *testing.T) {
+func TestConfigurationAnswersRequireAnOperator(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -285,34 +285,6 @@ func TestConfigurationAnswersRequireOperatorAndConversationCommandsUseSharedHand
 		ctx, unauthorized,
 	); err != nil || admit {
 		t.Fatalf("unauthorized setup answer admitted = %v, %v", admit, err)
-	}
-
-	if err := st.FinishConfigurationSession(
-		ctx, session.ID, session.Revision, "cancelled",
-	); err != nil {
-		t.Fatal(err)
-	}
-	command := core.SlackInput{
-		ID: "conversation-status", EnvelopeID: "conversation-status-env",
-		EventID: "conversation-status-event", Kind: "mention",
-		TeamID: cfg.Slack.TeamID, ChannelID: "CNEW",
-		MessageTS: "1700.3", UserID: "U123ABC",
-		Text: "<@U999BOT> how are you configured here?",
-	}
-	if _, err := st.AdmitSlackInput(ctx, command); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.processSlackInput(ctx); err != nil {
-		t.Fatal(err)
-	}
-	drainSlackDeliveries(t, ctx, svc)
-	last := slack.posts[len(slack.posts)-1]
-	if last.thread != "" ||
-		last.message.Header != "Responder is passive in this channel" {
-		t.Fatalf("conversational status = %+v", last)
-	}
-	if len(slack.ephemerals) != 0 {
-		t.Fatalf("conversational command was ephemeral = %+v", slack.ephemerals)
 	}
 }
 
