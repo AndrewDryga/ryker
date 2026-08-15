@@ -71,7 +71,8 @@ seed() {
   rm -f "$db"
   /usr/bin/sqlite3 "$db" "
     CREATE TABLE agent_runs (id TEXT, state TEXT, failure_count INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT, next_attempt_at TEXT, started_at TEXT, completed_at TEXT);
+      created_at TEXT, next_attempt_at TEXT, started_at TEXT, completed_at TEXT,
+      last_error TEXT NOT NULL DEFAULT '');
     INSERT INTO agent_runs (id, state, failure_count, created_at, next_attempt_at)
     VALUES
       ('run_stalled', '$1', ${3:-0}, strftime('%Y-%m-%dT%H:%M:%f', 'now', '-$2 minutes'),
@@ -91,6 +92,12 @@ backoff() {
 # and come back to pending: the shape a deferral leaves behind.
 attempted() {
   /usr/bin/sqlite3 "$db" "UPDATE agent_runs SET started_at = created_at;"
+}
+
+# rate_limited stamps the seeded run with the provider-throttle error the real
+# retry path records, so the classifier has the same evidence production gives it.
+rate_limited() {
+  /usr/bin/sqlite3 "$db" "UPDATE agent_runs SET last_error = 'provider rate limited the turn';"
 }
 
 # due_again brings the run back out of backoff at the age the log recorded, so
@@ -124,6 +131,17 @@ fi
 second=$(run)
 check "a persistent stall raises the alarm" "ALERT Responder probe is not working" "$second"
 check "the alarm says what is wrong" "queued 12m without moving" "$second"
+
+# Provider weather is named, not disguised as a host stall. On 2026-08-15 the
+# alarm said "178m without moving" for three hours of rate limiting — true,
+# useless, and indistinguishable from the wedges fixed the same evening.
+rm -rf "$WATCHDOG_STATE"; seed pending 12 3
+rate_limited
+run >/dev/null
+weather=$(run)
+check "a rate-limited stall names the weather" "waiting on provider rate limits" "$weather"
+check "the weather alarm blames the quota, not the host" "the host is healthy, the quota is not" "$weather"
+refute "the weather alarm does not read as an unexplained stall" "without moving" "$weather"
 
 # Recovery: the queue drains. The endpoint is still unreachable, so this also
 # proves an unreachable deployment is reported rather than passed over.

@@ -135,6 +135,41 @@ stalled_minutes() {
   " 2>/dev/null || echo "unreadable"
 }
 
+# stall_reason distinguishes provider weather from an unexplained stall.
+#
+# On 2026-08-15 the alarm said "work has been queued 178m without moving" for
+# three hours of provider rate limiting — true, useless, and indistinguishable
+# from the wedges fixed the same evening. An operator reading the alarm could
+# not tell whether to debug the host or wait out a quota. The classification
+# reads what the stalled runs themselves recorded: when every stalled run is
+# parked on a rate-limit retry, the weather is named; anything else stays
+# unexplained, which is the alarm that means "go look".
+stall_reason() {
+  local db="$1"
+  [[ -f $db ]] || { echo "unexplained"; return; }
+  local total limited
+  total=$(/usr/bin/sqlite3 -readonly "file:$db?immutable=1" "
+    SELECT COUNT(*) FROM agent_runs
+    WHERE state IN ('pending', 'preparing')
+      AND (next_attempt_at IS NULL OR next_attempt_at = '' OR next_attempt_at <= strftime('%Y-%m-%dT%H:%M:%f', 'now')
+           OR failure_count > 0
+           OR (started_at IS NOT NULL AND started_at != ''))
+  " 2>/dev/null) || { echo "unexplained"; return; }
+  limited=$(/usr/bin/sqlite3 -readonly "file:$db?immutable=1" "
+    SELECT COUNT(*) FROM agent_runs
+    WHERE state IN ('pending', 'preparing')
+      AND (next_attempt_at IS NULL OR next_attempt_at = '' OR next_attempt_at <= strftime('%Y-%m-%dT%H:%M:%f', 'now')
+           OR failure_count > 0
+           OR (started_at IS NOT NULL AND started_at != ''))
+      AND (last_error LIKE '%rate limited%' OR last_error LIKE '%rate_limited%')
+  " 2>/dev/null) || { echo "unexplained"; return; }
+  if [[ -n $total && $total -gt 0 && $total == "$limited" ]]; then
+    echo "provider-limited"
+  else
+    echo "unexplained"
+  fi
+}
+
 # movement_marker is the latest moment any run started or finished: the only
 # evidence this script accepts that the deployment is doing work.
 #
@@ -213,7 +248,11 @@ for plist in "$agents"/ai.emisar.responder.*.plist; do
     no-db) trouble="no database at $db" ;;
     unreadable) trouble="database unreadable" ;;
     *) if [[ $stalled -ge $stall_minutes ]]; then
-         trouble="work has been queued ${stalled}m without moving"
+         if [[ $(stall_reason "$db") == "provider-limited" ]]; then
+           trouble="waiting on provider rate limits — oldest run queued ${stalled}m; the host is healthy, the quota is not"
+         else
+           trouble="work has been queued ${stalled}m without moving"
+         fi
          queue_stalled=1
        fi ;;
   esac
