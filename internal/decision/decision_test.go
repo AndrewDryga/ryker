@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/investigation"
 )
 
 func TestParseWatchDecisionAcceptsSeveralScheduleOffers(t *testing.T) {
@@ -79,5 +82,65 @@ func TestParseWatchDecisionReportsTheSchemaFaultNotTheFence(t *testing.T) {
 	parsed, err := ParseWatchDecision(good, time.Now().UTC())
 	if err != nil || parsed.Action != "reply" {
 		t.Fatalf("fenced valid reply = %+v, %v", parsed, err)
+	}
+}
+
+// Every refusal the claim ledger writes must survive this predicate, because
+// StructuredResultFailure is the only thing that puts a correction back in
+// front of the model. A ledger correction it does not recognise makes
+// agentprompt.Continuation return the empty string, and the model is re-asked
+// with no idea what was wrong — 79445e8's comment records that happening once
+// already, on the incident and engineering-task path.
+//
+// The coverage arm is the one added on 2026-08-15. A claim whose every
+// recorded statement supports it was being refused with the contradiction
+// text, which names moves that do not exist when nothing disagrees; splitting
+// it into its own sentence would have silently dropped it here.
+func TestEveryClaimLedgerRefusalSurvivesIntoTheRetryPrompt(t *testing.T) {
+	now := time.Date(2026, 8, 15, 6, 42, 0, 0, time.UTC)
+	contract := investigation.InvestigationContract{
+		Claims: []investigation.ClaimRequirement{{
+			ID: "change.recent", Layer: "change", Required: true,
+		}},
+		Completion: investigation.CompletionRule{ConclusionKind: "operational_health"},
+	}
+	supporting := core.Evidence{
+		ID: "evidence-topology", ClaimID: "change.recent", Relation: "supports",
+		Observation: "the live backend matches the declared topology",
+		SourceType:  "repository", SourceName: "Emisar infra configuration",
+		ObservedAt: now, Confidence: "high",
+	}
+	conflicting := core.Evidence{
+		ID: "evidence-drift", ClaimID: "change.recent", Relation: "contradicts",
+		Observation: "the running revision is not the declared one",
+		SourceType:  "emisar", SourceName: "Nomad allocation events",
+		ObservedAt: now, Confidence: "high",
+	}
+	unknownCoverage := []core.Coverage{{
+		Layer: "change", ClaimIDs: []string{"change.recent"}, Status: "unknown",
+		Detail: "the exact deployed commit remains unknown", ObservedAt: now,
+	}}
+
+	for name, refusal := range map[string]string{
+		"supported but not established by coverage": investigation.BuildLedger(
+			contract, []core.Evidence{supporting}, unknownCoverage, now,
+		).CompletionCorrectionFor("decision_ready", "healthy"),
+		"contradicted": investigation.BuildLedger(
+			contract, []core.Evidence{supporting, conflicting}, unknownCoverage, now,
+		).CompletionCorrectionFor("decision_ready", "healthy"),
+		"no fresh supporting evidence": investigation.BuildLedger(
+			contract, nil, unknownCoverage, now,
+		).CompletionCorrectionFor("decision_ready", "healthy"),
+	} {
+		if refusal == "" {
+			t.Fatalf("the %s ledger no longer refuses, so this test proves nothing", name)
+		}
+		if !ClaimsCorrection(refusal) {
+			t.Fatalf(
+				"the %s refusal is not recognised as a claims correction, so the retry "+
+					"prompt drops it and the model is re-asked blind:\n%s",
+				name, refusal,
+			)
+		}
 	}
 }

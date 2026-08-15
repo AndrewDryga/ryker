@@ -186,6 +186,7 @@ func WatchDecisionHasEvidenceSource(evidence []core.Evidence, sourceType string)
 func ClaimsCorrection(detail string) bool {
 	detail = strings.ToLower(strings.TrimSpace(detail))
 	return strings.Contains(detail, "required claims still contain unresolved contradictions") ||
+		strings.Contains(detail, "required claims are not established by their coverage") ||
 		strings.Contains(detail, "required claims do not have fresh supporting evidence") ||
 		strings.Contains(detail, "no typed evidence bound to a required claim")
 }

@@ -26,7 +26,10 @@ func TestContradictionCorrectionNamesWhatDisagrees(t *testing.T) {
 			SourceName:  "emisar", ObservedAt: now.Add(-30 * time.Minute),
 		}},
 	}
-	detail := contradictionDetail(view)
+	detail, nameable := contradictionDetail(view)
+	if !nameable {
+		t.Fatalf("a quotable disagreement was judged unnameable: %+v", view)
+	}
 	for _, want := range []string{
 		"change.recent", "deployed revision matches", "contradicted by",
 		"still report the previous revision", "emisar",
@@ -36,11 +39,12 @@ func TestContradictionCorrectionNamesWhatDisagrees(t *testing.T) {
 		}
 	}
 
-	// With nothing recorded to quote, it falls back to the claim id rather than
-	// producing a sentence with a hole in it.
+	// With nothing recorded to quote there is no conflict to describe, so it
+	// says so and the caller states the claim's coverage instead of producing a
+	// sentence with a hole in it.
 	bare := ClaimView{Requirement: ClaimRequirement{ID: "slo.error_budget"}, State: ClaimMixed}
-	if got := contradictionDetail(bare); got != "slo.error_budget" {
-		t.Fatalf("bare contradiction detail = %q, want the claim id alone", got)
+	if got, nameable := contradictionDetail(bare); nameable {
+		t.Fatalf("a claim with nothing recorded produced a conflict clause: %q", got)
 	}
 }
 
@@ -67,7 +71,10 @@ func TestAContradictionWithoutProseStillGetsNamed(t *testing.T) {
 			ObservedAt: now.Add(-2 * time.Minute),
 		}},
 	}
-	detail := contradictionDetail(view)
+	detail, nameable := contradictionDetail(view)
+	if !nameable {
+		t.Fatalf("a dimensions-only conflicting record was judged unnameable: %+v", view)
+	}
 	if strings.Contains(detail, "contradicted by: )") ||
 		strings.HasSuffix(strings.TrimSpace(detail), "contradicted by:") {
 		t.Fatalf("the contradiction clause is still empty: %q", detail)

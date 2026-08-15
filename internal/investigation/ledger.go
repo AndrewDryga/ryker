@@ -210,6 +210,7 @@ func (ledger Ledger) CompletionCorrectionFor(status, verdict string) string {
 	}
 	missing := make([]string, 0)
 	contradicted := make([]string, 0)
+	unresolved := make([]string, 0)
 	for _, requirement := range ledger.Contract.Claims {
 		if !requirement.Required {
 			continue
@@ -235,7 +236,9 @@ func (ledger Ledger) CompletionCorrectionFor(status, verdict string) string {
 				}
 				missing = append(missing, requirement.ID+" ("+detail+")")
 			} else if !view.Resolved {
-				contradicted = append(contradicted, contradictionDetail(view))
+				// ClaimSupported means zero contradictions by construction, so
+				// this claim is held open by its coverage row and nothing else.
+				unresolved = append(unresolved, unresolvedClaimDetail(view))
 			}
 		case ClaimNotApplicable:
 			if requirement.Layer != "slo" || !ledger.Contract.Completion.AllowUnknownSLO {
@@ -251,7 +254,11 @@ func (ledger Ledger) CompletionCorrectionFor(status, verdict string) string {
 			}
 		case ClaimContradicted, ClaimMixed:
 			if !view.Resolved {
-				contradicted = append(contradicted, contradictionDetail(view))
+				if detail, nameable := contradictionDetail(view); nameable {
+					contradicted = append(contradicted, detail)
+				} else {
+					unresolved = append(unresolved, unresolvedClaimDetail(view))
+				}
 			}
 		}
 	}
@@ -266,6 +273,14 @@ func (ledger Ledger) CompletionCorrectionFor(status, verdict string) string {
 		// mid-word.
 		return "required claims still contain unresolved contradictions. " +
 			conflictResolutions + "\n\n" + strings.Join(contradicted, "\n")
+	}
+	if len(unresolved) > 0 {
+		if ledger.negativeVerdictIsDecisive(verdict) {
+			return ""
+		}
+		sort.Strings(unresolved)
+		return "required claims are not established by their coverage. " +
+			coverageResolutions + "\n\n" + strings.Join(unresolved, "\n")
 	}
 	if len(missing) > 0 {
 		if ledger.negativeVerdictIsDecisive(verdict) {
@@ -372,6 +387,47 @@ const conflictResolutions = "Resolve each one exactly one of three ways: retract
 	"reconcile both with new evidence naming both evidence ids. Do not rephrase the claim: a " +
 	"reworded claim collides with the next recorded statement instead."
 
+// coverageResolutions states the moves that close a claim nothing disagrees
+// with. It is deliberately the opposite instruction to conflictResolutions,
+// because the two were sent as one and the wrong one closes nothing.
+//
+// A supported claim holds no contradiction — ClaimSupported means exactly
+// that — so a correction naming retraction and supersession describes moves
+// that are unavailable, and the model spends turns looking for a conflict the
+// host cannot name. What is actually open is the coverage row.
+const coverageResolutions = "Emit record_coverage for the named layer with the status its " +
+	"recorded evidence establishes, or return completion.status blocked naming the exact gap. " +
+	"Do not retract, supersede or re-record the evidence: nothing the host holds disagrees " +
+	"with it."
+
+// unresolvedClaimDetail names the coverage row holding a claim open.
+//
+// Harvested from the eval-prompts case "alert triage returns an alert
+// assessment" on 2026-08-15: three supporting statements on change.recent,
+// each with its evidence id, and a change coverage row reading status
+// "unknown" because the model could not map a Sentry release to a commit. The
+// host read the three statements back and demanded a retraction, three
+// correction turns running, then failed the episode. The row was the whole
+// blocker and the correction never mentioned it.
+func unresolvedClaimDetail(view ClaimView) string {
+	layer := view.Requirement.Layer
+	state := "coverage for layer " + layer + " records status \"" + view.CoverageStatus +
+		"\", which does not establish this claim"
+	switch {
+	case strings.TrimSpace(view.CoverageStatus) == "":
+		state = "no coverage row is recorded for layer " + layer
+	case strings.TrimSpace(view.Detail) == "":
+		state = "coverage for layer " + layer + " records no detail, so it establishes nothing"
+	}
+	lines := []string{view.Requirement.ID, "    " + state}
+	if len(view.Contradictions) == 0 {
+		// Said outright, because the previous text implied the opposite and the
+		// model went looking for a conflict that was never there.
+		lines = append(lines, "    nothing recorded against this claim contradicts it")
+	}
+	return strings.Join(lines, "\n")
+}
+
 // maximumQuotedConflicts bounds how many conflicting statements one claim
 // quotes. Six is past the worst recorded case — no claim in the loop ever held
 // more than three at once — and keeps a correction readable when a long
@@ -394,7 +450,12 @@ const maximumQuotedConflicts = 6
 // So: every conflicting statement, not the newest one. The id of each, because
 // "retract the losing side" is unanswerable without a name for it. And the
 // resolutions themselves, which the model was never told.
-func contradictionDetail(view ClaimView) string {
+//
+// It reports false when it cannot name a single conflicting record, which is a
+// host defect rather than anything the model can repair; the caller states the
+// claim's coverage instead. Only a view with at least one contradiction may be
+// passed here.
+func contradictionDetail(view ClaimView) (string, bool) {
 	statements := make([]string, 0, len(view.Contradictions)+1)
 	if support := quotedStatements(view.Evidence, maximumQuotedConflicts); len(support) > 0 {
 		for _, line := range support {
@@ -422,20 +483,22 @@ func contradictionDetail(view ClaimView) string {
 			"    and %d further conflicting statement(s) on this claim", extra,
 		))
 	}
-	if len(statements) == 0 {
-		return view.Requirement.ID
-	}
 	if len(against) == 0 {
-		// A contradicted claim with nothing nameable on the against side is a
-		// correction the model cannot act on; say that instead of rendering an
-		// empty clause after "contradicted by:".
-		statements = append(
-			statements,
-			"    a recorded contradiction carries no nameable evidence; re-record the "+
-				"contradicting observation or supersede it",
-		)
+		// A contradiction with nothing quotable — no id, source, time,
+		// observation or dimension — cannot be retracted, superseded or
+		// reconciled, so every resolution this correction offers is
+		// unavailable. The host used to print "a recorded contradiction carries
+		// no nameable evidence; re-record the contradicting observation or
+		// supersede it", which named no record and closed nothing: the live
+		// alert-triage case burned three correction turns on it.
+		//
+		// ValidateEvidence requires an observation or dimensions, and the typed
+		// operation path assigns the operation id as the evidence id, so this
+		// is unreachable today. If it becomes reachable it is a host bug to
+		// report, not a sentence to send a model.
+		return "", false
 	}
-	return view.Requirement.ID + "\n" + strings.Join(statements, "\n")
+	return view.Requirement.ID + "\n" + strings.Join(statements, "\n"), true
 }
 
 // quotedStatements renders each recorded observation as a quotable line

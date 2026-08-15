@@ -163,7 +163,10 @@ func TestAClaimWithNoSupportingStatementSaysSoRatherThanQuotingOnlyTheConflict(t
 			SourceName: replayConflictingSource, ObservedAt: now.Add(-20 * time.Minute),
 		}},
 	}
-	detail := contradictionDetail(view)
+	detail, nameable := contradictionDetail(view)
+	if !nameable {
+		t.Fatalf("a conflicting record carrying an id and prose was judged unnameable: %+v", view)
+	}
 	if !strings.Contains(detail, replayConflictingID) {
 		t.Fatalf("the sole conflicting record is not named by id:\n%s", detail)
 	}
@@ -329,6 +332,150 @@ func TestTheRecordedNineteenRoundLoopClosesInOneRoundWithTheFullConflict(t *test
 			"one supersession did not close the recorded conflict, so the correction "+
 				"still does not say enough to finish in one round: %q",
 			got,
+		)
+	}
+}
+
+// alertTriageSupportedClaimLedger is the recorded change.recent ledger of the
+// eval-prompts case "alert triage returns an alert assessment", harvested from
+// Coop session remote_e93f7939726a490bd2165ff7ba9111a0 turn 3 on 2026-08-15.
+//
+// Every statement is `supports`, each carrying the operation id the host
+// assigns as the ledger identity. Nothing contradicts anything. The one thing
+// holding the claim open is the coverage row: layer change recorded status
+// "unknown" — honestly, since the model could not map a Sentry release to a
+// commit — and a supported claim resolves only on "healthy".
+func alertTriageSupportedClaimLedger() Ledger {
+	observed := time.Date(2026, 8, 15, 6, 40, 0, 0, time.UTC)
+	contract := Compile(core.WorkEpisode{
+		Effort: core.EffortIncidentInvestigation, RequiredCoverage: []string{"change"},
+	})
+	dimensions := func(revision string) map[string]string {
+		return map[string]string{
+			"repository": "emisar", "environment": "production", "revision": revision,
+		}
+	}
+	evidence := []core.Evidence{
+		{
+			ID: "evidence-topology", ClaimID: "change.recent", Relation: "supports",
+			Observation: "At repository commit cd8c8a1dce9ea29b57666f4621418c1a51999d7d, " +
+				"Terraform declares the global `emisar-https` URL map with an " +
+				"`emisar-<readiness_generation>-backend` regional MIG backend.",
+			SourceType: "repository", SourceName: "Emisar infra load-balancer configuration",
+			ObservedAt: observed, Confidence: "high", HealthEffect: "none",
+			Dimensions: dimensions("cd8c8a1dce9ea29b57666f4621418c1a51999d7d"),
+		},
+		{
+			ID: "evidence-release", ClaimID: "change.recent", Relation: "supports",
+			Observation: "Sentry listed 0.39.0 as the newest release signal, created " +
+				"2026-08-12T03:09:00Z; no later release appeared through 2026-08-15T06:38:23Z.",
+			SourceType: "emisar", SourceName: "Sentry releases via Emisar",
+			ObservedAt: observed.Add(-97 * time.Second), Confidence: "medium",
+			HealthEffect: "none", Dimensions: dimensions("0.39.0"),
+		},
+		{
+			ID: "evidence-change-reconcile", ClaimID: "change.recent", Relation: "supports",
+			Observation: "This reconciles evidence-topology and evidence-release: the commit " +
+				"identifies checked-out repository intent, while `0.39.0` is Sentry " +
+				"application-version telemetry, so the values cannot be compared.",
+			SourceType: "repository", SourceName: "Emisar repository revision inspection",
+			ObservedAt: observed.Add(time.Minute), Confidence: "high", HealthEffect: "unknown",
+			Dimensions: dimensions("deployed revision unresolved"),
+		},
+	}
+	coverage := []core.Coverage{{
+		Layer: "change", Status: "unknown", ClaimIDs: []string{"change.recent"},
+		Detail: "The live backend matches the declared topology and no recent Sentry release " +
+			"signal coincides with the alert. The exact deployed commit remains unknown.",
+		ObservedAt: observed.Add(time.Minute),
+	}}
+	return BuildLedger(contract, evidence, coverage, observed.Add(2*time.Minute))
+}
+
+// A claim nothing disagrees with is never corrected as a contradiction.
+//
+// The alert-triage case had passed 3/3 in the three previous recorded full
+// runs and went 2/3 the day the conflict-quoting correction landed, spending
+// three correction turns and failing the episode. The host read three
+// supporting statements back to the model, told it to "retract the losing
+// statement, supersede it … naming both evidence ids", and then — having no
+// contradicting record to name — printed "a recorded contradiction carries no
+// nameable evidence; re-record the contradicting observation or supersede it".
+// There is no reply that satisfies that. change.recent held no contradiction
+// at all: ClaimSupported means zero contradictions by construction, and the
+// supported-but-unresolved arm of the correction was routed into the
+// contradiction bucket anyway.
+func TestAClaimNothingContradictsIsNeverCorrectedAsAContradiction(t *testing.T) {
+	ledger := alertTriageSupportedClaimLedger()
+	if view := ledger.Claims["change.recent"]; len(view.Contradictions) > 0 {
+		t.Fatalf(
+			"the harvested envelope records a contradiction, so the replay is not the "+
+				"recorded shape: %+v",
+			view.Contradictions,
+		)
+	}
+	correction := ledger.CompletionCorrectionFor("decision_ready", "healthy")
+	if correction == "" {
+		t.Fatal("the recorded answer was accepted; the replay no longer reproduces the loop")
+	}
+
+	// Every move the contradiction correction prescribes is unavailable here, so
+	// sending it costs a whole turn and cannot close the claim. Neither may the
+	// host print the fallback it reaches when it has no conflict to name.
+	for _, forbidden := range []string{
+		"unresolved contradictions", conflictResolutions, "nameable",
+	} {
+		if strings.Contains(correction, forbidden) {
+			t.Fatalf(
+				"a claim with no contradicting statement was corrected with %q, which it "+
+					"cannot act on:\n%s",
+				forbidden, correction,
+			)
+		}
+	}
+
+	// What actually holds the claim open, in the words of the operation that
+	// clears it — and the fact that sent three turns hunting a conflict that
+	// was never recorded.
+	for _, want := range []string{
+		"record_coverage", `coverage for layer change records status "unknown"`,
+		"nothing recorded against this claim contradicts it",
+	} {
+		if !strings.Contains(correction, want) {
+			t.Fatalf(
+				"the correction does not say %q, so it never names what would close the "+
+					"claim:\n%s",
+				want, correction,
+			)
+		}
+	}
+}
+
+// An unnameable contradiction is a host bug report, not a sentence for the
+// model.
+//
+// ValidateEvidence refuses a record with neither observation nor dimensions,
+// and the typed operation path assigns the operation id as the evidence id, so
+// a contradiction with nothing quotable should be unreachable. If it ever
+// becomes reachable again the host must say what it can act on rather than
+// asking the model to re-record a record the host never named.
+func TestAnUnnameableContradictionNeverBecomesAModelInstruction(t *testing.T) {
+	now := time.Date(2026, 8, 15, 6, 42, 0, 0, time.UTC)
+	contract := InvestigationContract{
+		Claims:     []ClaimRequirement{{ID: "host.current_state", Layer: "host", Required: true}},
+		Completion: CompletionRule{ConclusionKind: "operational_health"},
+	}
+	evidence := []core.Evidence{{ClaimID: "host.current_state", Relation: "contradicts"}}
+	coverage := []core.Coverage{{
+		Layer: "host", ClaimIDs: []string{"host.current_state"}, Status: "unknown",
+		Detail: "the host sample did not complete", ObservedAt: now,
+	}}
+	correction := BuildLedger(contract, evidence, coverage, now).
+		CompletionCorrectionFor("decision_ready", "healthy")
+	if strings.Contains(correction, "nameable") {
+		t.Fatalf(
+			"the host told the model to re-record a contradiction it never named:\n%s",
+			correction,
 		)
 	}
 }
