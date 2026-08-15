@@ -36,6 +36,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/taskcard"
 	"github.com/AndrewDryga/responder/internal/taskpr"
 	"github.com/AndrewDryga/responder/internal/triageoutcome"
+	"github.com/AndrewDryga/responder/internal/turndelta"
 )
 
 func (s *Service) queueIncidentAgentRun(
@@ -1117,6 +1118,11 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			fmt.Errorf("watch channel Coop session has unsupported state %q", session.State),
 		)
 	}
+	// Before the bind below overwrites run.SessionID and run.CoopEventSequence
+	// with the projection's values, which is what makes the run's own cursor a
+	// statement about a turn it delivered rather than a copy of where the
+	// channel already was.
+	standing := s.standingBriefing(ctx, run, session, generation, eventSequence, state)
 	state.SessionID = session.ID
 	state.Repository = repositoryKey
 	state.Generation = generation
@@ -1173,10 +1179,8 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		early.WriteString("\n\n<emisar-run-continuation>\n" + run.Prompt +
 			"\n</emisar-run-continuation>")
 	}
-	if state.Lane != "conversation" && state.EscalationReason != "" {
-		late.WriteString("\n\n<host-escalation>\nThe bounded conversation lane escalated this " +
-			"request because: " + boundedOperatorText(state.EscalationReason) +
-			". Perform the full evidence-backed work now.\n</host-escalation>")
+	if state.Lane != "conversation" {
+		late.WriteString(turndelta.Escalation(boundedOperatorText(state.EscalationReason)))
 	}
 	late.WriteString("\n\n" + repositorycapability.Prompt(repositorycapability.Build(s.cfg, repositoryKey, session, repositorycapability.PinnedReadOnly)))
 	late.WriteString(publicationcontext.ActivePrompt(state.ActivePublications))
@@ -1260,6 +1264,22 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			WatchPromptBudget(early.Len()+late.Len()+len(artifactPrompt)),
 		)
 		prompt += early.String() + late.String()
+	}
+	// The swap comes after the full prompt is assembled, so that every doubt in
+	// standingBriefing lands on the prompt this function has always built,
+	// byte for byte. It comes BEFORE the artifact check below because a delta
+	// leaves room a briefing did not: measuring artifacts against a prompt that
+	// is no longer being sent would drop a PR diff that fits, and tell the model
+	// it was dropped to fit.
+	if standing.Delta {
+		prompt = s.deltaTurnPrompt(ctx, run, input, state, episode, standing)
+		// Replaced, not appended. The omissions above describe layers the budget
+		// loop trimmed out of a prompt that is no longer being sent, and
+		// recording "the channel transcript was cut to fit the turn" against a
+		// twelve-kilobyte message would send whoever reads that manifest looking
+		// for a budget problem this turn never had. What this prompt actually
+		// left out is the briefing, and it says which one.
+		omissions = []core.ContextOmission{standingBriefingOmission(standing)}
 	}
 	// Artifacts are dropped as one unit rather than trimmed. A PR diff is the
 	// only unbounded thing in the suffix, and half a diff is worse than none:

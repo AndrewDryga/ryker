@@ -468,7 +468,36 @@ var lineBudget = map[string]int{
 	// zero for the reason four paragraphs up — a budget standing exactly at the
 	// count is a tripwire that fails the next legitimate feature whatever its
 	// merit — and it does not buy room for the Phase 9 split to keep waiting.
-	"service": 22930,
+	//
+	// RAISED to 22960 on 2026-08-15 for the delta turn: a follow-up attempt into
+	// a Coop session that already holds its briefing now sends the new message,
+	// the episode delta and one line saying the standing briefing applies,
+	// instead of the briefing again. Measured on tenant over 2026-08-14 and the
+	// first five hours of 2026-08-15, 201 follow-up attempts resubmitted
+	// 30,258,462 bytes into such sessions and 99.22% of those bytes were
+	// byte-identical to the message before them. Replayed through the delta,
+	// those turns send 2,464,614 bytes instead — 8.35 million of 9.1 million
+	// uncached input tokens never leave the host.
+	//
+	// The decision itself is NOT here: internal/turndelta is a pure predicate
+	// over (session, attempt, standing briefing, contract) with its own table
+	// tests, which is the shape this budget is supposed to force. What landed in
+	// this package is the 94 lines that cannot leave — reading the attempt, the
+	// previous manifest and the resolved session out of the store, and the two
+	// call sites in prepareTriageAgentRun. One escalation block was deduplicated
+	// into turndelta on the way, so both prompt shapes say it in the same words.
+	//
+	// This is a raise for real capability and it buys the package no room for
+	// anything else. The extraction this note has named twice — the Phase 9
+	// split, after the kernel cutover stabilizes ownership — is still the only
+	// thing that brings the number down, and it is still next.
+	//
+	// 22960 was that raise against its own branch; merged beside the change
+	// ledger's 62 lines and the interrupted-turn replay, the tree is 22995,
+	// so the budget is 23030 — measured once against what exists. Every
+	// same-day entry above says the same thing in different words: the split
+	// this package needs is the kernel migration's Phase 9, and it is next.
+	"service": 23030,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -714,6 +743,12 @@ var lineBudget = map[string]int{
 	"retrydelay":        40,
 	"schemaassets":      1050,
 	"triageoutcome":     50,
+	// turndelta is the lease-time predicate for a follow-up turn: may this
+	// attempt speak into the session that already holds its briefing, or must it
+	// restate one. 135 today. It is deliberately a pile of veto clauses over a
+	// pure input, so it grows by one clause when a new doubt is found, not by
+	// gaining the ability to look one up.
+	"turndelta": 160,
 	// hermeticgit is the git-subprocess discipline internal/publisher grew
 	// around the only GitHub push credential Responder has, extracted the day
 	// it gained a second caller. It should stay this size: a second copy of an
@@ -784,11 +819,21 @@ var forbiddenImports = map[string][]string{
 	// to be stated or it will drift back into one package that does both. The
 	// composer knows nothing about either: give it a counted week and it
 	// returns Markdown, which is what lets its tests be a table of strings.
-	"selfreport":               {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "investigation"},
-	"selfreportstore":          {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "investigation"},
-	"retrydelay":               {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
-	"schemaassets":             {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation", "core"},
-	"triageoutcome":            {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "investigation"},
+	"selfreport":      {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "investigation"},
+	"selfreportstore": {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "investigation"},
+	"retrydelay":      {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
+	"schemaassets":    {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation", "core"},
+	"triageoutcome":   {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "investigation"},
+	// turndelta decides whether a follow-up may lean on the briefing already in
+	// its Coop session. It must stay unable to look anything up: the decision is
+	// only trustworthy if every fact it used was handed to it, because the one
+	// way it can do harm is by answering "delta" about a session it guessed at.
+	// It imports nothing but strings today, and this is the list that keeps it
+	// that way.
+	"turndelta": {
+		"service", "store", "slackui", "httpapi", "app", "publisher", "coop",
+		"emisar", "config", "decision", "investigation", "core",
+	},
 	"publication":              {"service", "httpapi", "app", "coop", "decision"},
 	"publicationcontext":       {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},
 	"publicationrecord":        {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},
