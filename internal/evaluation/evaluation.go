@@ -252,6 +252,20 @@ func decodeEvaluationCases(reader io.Reader) ([]EvaluationCase, error) {
 }
 
 func validateEvaluationCase(testCase EvaluationCase) error {
+	// Kind routes both halves of a case — which prompt is submitted and which
+	// dialect the answer is graded in — so a kind nothing runs is a case that
+	// exists and proves nothing. It is checked here, with the other enumerated
+	// fields, because the alternative is finding the typo halfway through a
+	// half-hour credentialed run. The empty kind is accepted because a scenario
+	// step declares its expectations before the runner stamps them "watch".
+	switch testCase.Kind {
+	case "", "watch", "incident", "task", "handoff":
+	default:
+		return fmt.Errorf(
+			"kind %q is not run by anything; use watch, incident, task, or handoff",
+			testCase.Kind,
+		)
+	}
 	switch testCase.Lane {
 	case "", "conversation", "investigation":
 	default:
@@ -664,6 +678,48 @@ func evaluateCaseWithConfig(
 		assessment = decision.AlertAssessment
 		completion = decision.Completion
 		strictOperations = len(decision.AppliedOperations) > 0
+	case "handoff":
+		// A retiring session's turn is graded exactly where the host reads it.
+		// finalizeSessionHandoffTurn parses the watch dialect and hands
+		// decision.Memory.WithoutThreadScope() to ApplyHandoffMemory; nothing
+		// else about the answer is ever used, because no reply is delivered, no
+		// correction is sent back, and the session is retired either way.
+		decision, err := decisionpkg.ParseWatchDecision(testCase.Output, now)
+		if err != nil {
+			result.Detail = "handoff result is not in the watch dialect: " + err.Error()
+			return result
+		}
+		types := make([]string, 0, len(decision.AppliedOperations))
+		for _, operation := range decision.AppliedOperations {
+			types = append(types, operation.Type)
+		}
+		// This is also where "do not investigate, read anything, or reply in
+		// Slack" is measured: a handoff that went off and worked comes back
+		// carrying record_evidence and complete_episode beside its memory, and
+		// the host's silent-ignore path accepts none of it.
+		if len(types) != 1 || types[0] != "update_memory" {
+			result.Detail = fmt.Sprintf(
+				"handoff operations = %v, want exactly one update_memory", types,
+			)
+			return result
+		}
+		// ApplyHandoffMemory writes nothing when the memory marshals to "{}",
+		// and WithoutThreadScope drops the goal before it gets there. So a
+		// handoff that fills in only a goal, or nothing at all, spends the one
+		// turn this session gets and leaves its successor reading exactly the
+		// stale memory the rotation was supposed to refresh.
+		memory = decision.Memory.WithoutThreadScope()
+		encoded, err := json.Marshal(memory)
+		if err != nil {
+			result.Detail = "encode handed-off memory: " + err.Error()
+			return result
+		}
+		if string(encoded) == "{}" {
+			result.Detail = "the handoff carried no channel memory forward"
+			return result
+		}
+		action = decision.Action
+		reason = decision.Reason
 	case "incident", "task":
 		report, structured, err := decisionpkg.ParseAgentReport(testCase.Output)
 		if err != nil {
@@ -694,7 +750,7 @@ func evaluateCaseWithConfig(
 			)
 		}
 	default:
-		result.Detail = "kind must be watch, incident, or task"
+		result.Detail = "kind must be watch, incident, task, or handoff"
 		return result
 	}
 	if cfg != nil {

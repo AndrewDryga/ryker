@@ -2,6 +2,7 @@ package evaluation
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/agentprompt"
 	"github.com/AndrewDryga/responder/internal/coop"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -1165,5 +1167,242 @@ func TestRateLimitedCasesFailAsUnrunRatherThanAsRegressions(t *testing.T) {
 	}
 	if strings.Contains(joined, "pass rate") {
 		t.Errorf("gate blamed the corpus for a provider refusal: %q", joined)
+	}
+}
+
+// The shape the host accepts back from a retiring session: a silent ignore
+// carrying exactly one update_memory. Harvested from the handoff path's own
+// tests (internal/service/session_handoff_test.go), so what the corpus grades
+// against is the same string the landed feature was proven with.
+const handoffCarriesMemoryForward = `{
+	"action":"ignore",
+	"reason":"carrying this session's context into the next one",
+	"operations":[{"id":"handoff","type":"update_memory","memory":{
+		"situation_summary":"Checkout latency was traced to cache warmup after the rollout.",
+		"open_loops":["Confirm the rollout guard landed."],
+		"decisions":["Keep watching checkout p99 for the next deploy."]}}]
+}`
+
+// The same turn deciding to answer instead. It is what a session that ignored
+// "do not investigate, read anything, or reply in Slack" comes back with, and
+// the host's silent-ignore path accepts none of it.
+const handoffRepliedInsteadOfHandingOver = `{
+	"action":"reply",
+	"operations":[
+		{"id":"mem","type":"update_memory","memory":{
+			"situation_summary":"Checkout latency recovered after the cache rollout."}},
+		{"id":"complete","type":"complete_episode","completion":{
+			"message":"Checkout latency is back inside its budget.",
+			"completion":{"status":"decision_ready","summary":"answered"}}}]
+}`
+
+// eval-prompts must submit the host's own handoff prompt, not a paraphrase and
+// not a paraphrase wrapped in scaffolding.
+//
+// agentprompt.SessionHandoff() is the entire turn in production: rotation asks
+// the session it is retiring for the summary that dies with its transcript, and
+// prepareSessionHandoffTurn adds no watch instructions, no episode contract and
+// no structured-response suffix to it. There is also no correction ladder behind
+// the answer and no second attempt, so whatever the prompt gets first time is
+// what the next session inherits. A corpus that assembled a different turn
+// around the same words would report a pass for something the host never sends.
+func TestTheHandoffCorpusCaseSubmitsTheProductionHandoffTurn(t *testing.T) {
+	file, err := os.Open(filepath.Join("..", "..", "testdata", "eval", "prompts.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	cases, err := decodeEvaluationCases(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var handoffs []EvaluationCase
+	smoke := false
+	for _, testCase := range cases {
+		if testCase.Kind != "handoff" {
+			continue
+		}
+		handoffs = append(handoffs, testCase)
+		smoke = smoke || slices.Contains(testCase.Tags, "smoke")
+	}
+	if len(handoffs) == 0 {
+		t.Fatal(
+			"no prompts case exercises agentprompt.SessionHandoff(); a prompt string with " +
+				"no case reaches production having been read by nobody but its author",
+		)
+	}
+	if !smoke {
+		t.Error(
+			"no handoff case carries the smoke tag, so the five-minute tier that gates a " +
+				"wording deploy never runs one and only the half-hour tier would notice",
+		)
+	}
+	if strings.TrimSpace(handoffs[0].Input) == "" {
+		t.Fatal("a handoff case with no input asks the model to summarize nothing")
+	}
+
+	cfg := serviceConfig(t)
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = handoffCarriesMemoryForward
+	encoded, err := json.Marshal(handoffs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary, err := EvaluateLiveJSONL(
+		context.Background(),
+		strings.NewReader(string(encoded)),
+		cfg,
+		coopClient,
+		LiveEvaluationOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Passed != 1 || summary.Total != 1 {
+		t.Fatalf("the corpus handoff case did not pass its own harness: %+v", summary.Results)
+	}
+	// One call, not one plus a correction round: the host would never send the
+	// second, so a corpus that did would be grading a turn production cannot run.
+	if summary.ModelCalls != 1 || len(coopClient.submitPrompts) != 1 {
+		t.Fatalf(
+			"handoff took %d model calls over %d turns, want exactly one of each",
+			summary.ModelCalls, len(coopClient.submitPrompts),
+		)
+	}
+	submitted := coopClient.submitPrompts[0]
+	if !strings.HasSuffix(submitted, agentprompt.SessionHandoff()) {
+		t.Fatalf("the submitted turn is not the host's handoff prompt: %q", submitted)
+	}
+	transcript, _, _ := strings.Cut(handoffs[0].Input, "\n")
+	if !strings.Contains(submitted, transcript) {
+		t.Errorf(
+			"the retiring transcript never reached the turn, so the model was asked to "+
+				"hand forward an empty session: %q",
+			submitted,
+		)
+	}
+	for _, scaffolding := range []string{
+		"shared Slack operations feed",
+		"The final watch response uses this outer envelope",
+		"<host-investigation-contract>",
+	} {
+		if strings.Contains(submitted, scaffolding) {
+			t.Errorf(
+				"the handoff turn was assembled with %s, which no handoff in production carries",
+				scaffolding,
+			)
+		}
+	}
+	if coopClient.discardCalls != 1 {
+		t.Errorf("handoff evaluation left its session behind: discards = %d", coopClient.discardCalls)
+	}
+}
+
+// A handoff passes only when the channel is left holding something it did not
+// have before.
+//
+// Every rejection here is a turn the host would spend and throw away.
+// finalizeSessionHandoffTurn parses the watch dialect, hands
+// decision.Memory.WithoutThreadScope() to ApplyHandoffMemory, retires the
+// session and never asks again — and ApplyHandoffMemory writes nothing at all
+// when that memory marshals to "{}". So a handoff that answers in prose, that
+// replies instead of staying silent, or that fills in only a goal reads as a
+// completed run in every log and leaves the next session on exactly the stale
+// summary the rotation existed to refresh.
+func TestAHandoffPassesOnlyWhenItCarriesMemoryForward(t *testing.T) {
+	accepted := EvaluationCase{
+		Name:       "a rotated session hands its memory forward",
+		Kind:       "handoff",
+		Output:     handoffCarriesMemoryForward,
+		WantAction: "ignore",
+	}
+	if result := evaluateCase(accepted); !result.Passed {
+		t.Fatalf("the shape the host applies was rejected: %+v", result)
+	}
+
+	for _, testCase := range []struct {
+		name   string
+		output string
+		detail string
+	}{
+		{
+			name:   "replied instead of handing over",
+			output: handoffRepliedInsteadOfHandingOver,
+			detail: "want exactly one update_memory",
+		},
+		{
+			// Held to the shape the prompt printed rather than to the widest
+			// shape the parser tolerates. The host would apply this one, but
+			// everywhere else a legacy result gets LegacyResultShape and another
+			// turn to re-emit it typed, and a handoff has no second turn to be
+			// asked in. The prompt shows exactly one shape for that reason, so
+			// the corpus grades exactly one shape.
+			name: "answered in the shape the prompt did not print",
+			output: `{"action":"ignore","reason":"carrying this session's context",` +
+				`"memory":{"situation_summary":"Checkout latency was traced to cache warmup."}}`,
+			detail: "handoff operations = [], want exactly one update_memory",
+		},
+		{
+			name: "wrote the memory down twice",
+			output: `{"action":"reply","operations":[` +
+				`{"id":"one","type":"update_memory","memory":{"situation_summary":"cache warmup"}},` +
+				`{"id":"two","type":"update_memory","memory":{"open_loops":["guard"]}}]}`,
+			detail: "duplicates update_memory",
+		},
+		{
+			name: "handed forward an empty memory",
+			output: `{"action":"ignore","reason":"nothing worth carrying",` +
+				`"operations":[{"id":"handoff","type":"update_memory","memory":{}}]}`,
+			detail: "carried no channel memory forward",
+		},
+		{
+			// The subtle one. This memory is not empty, and it is still dropped:
+			// WithoutThreadScope clears the goal before the write because a
+			// channel does not have an objective, so ApplyHandoffMemory sees "{}"
+			// and returns without touching the row.
+			name: "carried only a goal the channel does not keep",
+			output: `{"action":"ignore","reason":"carrying the objective",` +
+				`"operations":[{"id":"handoff","type":"update_memory","memory":{` +
+				`"goal":"Explain why checkout p99 doubled after the rollout."}}]}`,
+			detail: "carried no channel memory forward",
+		},
+		{
+			name:   "answered in prose",
+			output: "The session is retiring. Checkout latency was traced to cache warmup.",
+			detail: "not in the watch dialect",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			rejected := accepted
+			rejected.Output = testCase.output
+			result := evaluateCase(rejected)
+			if result.Passed || !strings.Contains(result.Detail, testCase.detail) {
+				t.Fatalf(
+					"handoff %q = passed %t, detail %q, want a failure naming %q",
+					testCase.name, result.Passed, result.Detail, testCase.detail,
+				)
+			}
+		})
+	}
+}
+
+// A kind nothing runs must not survive the loader.
+//
+// Kind routes both halves of a case: which prompt is submitted and which
+// dialect the answer is graded in. A typo in it produces a corpus that decodes
+// cleanly, ships, and then fails one credentialed case at a time half an hour
+// into a run nobody wants to be debugging JSON inside of — which is the exact
+// failure the offline corpus checks were written for.
+func TestTheLoaderRefusesACaseNothingCanRun(t *testing.T) {
+	if _, err := decodeEvaluationCases(strings.NewReader(
+		`{"name":"handoff","kind":"handoff","input":"session working notes","want_action":"ignore"}`,
+	)); err != nil {
+		t.Fatalf("the loader refused the handoff kind the prompts corpus ships: %v", err)
+	}
+	_, err := decodeEvaluationCases(strings.NewReader(
+		`{"name":"typo","kind":"handof","input":"session working notes"}`,
+	))
+	if err == nil || !strings.Contains(err.Error(), "is not run by anything") {
+		t.Fatalf("a kind nothing runs decoded cleanly: %v", err)
 	}
 }

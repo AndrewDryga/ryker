@@ -318,6 +318,19 @@ func renderEvaluationMessage(
 				decision.Action,
 			)
 		}
+	case "handoff":
+		// Nothing a handoff says reaches Slack. finalizeSessionHandoffTurn
+		// applies its memory and retires the session without delivering
+		// anything, so there is no rendering to assess — but the action still
+		// comes back, because a handoff that decided to speak is the failure
+		// this case is looking for.
+		decision, err := decisionpkg.ParseWatchDecision(output, time.Now().UTC())
+		if err != nil {
+			return slackui.Message{}, "", err
+		}
+		return slackui.Message{
+			Text: "No Slack message is emitted for a session handoff.",
+		}, decision.Action, nil
 	case "incident", "task":
 		report, structured, err := decisionpkg.ParseAgentReport(output)
 		if err != nil {
@@ -347,7 +360,7 @@ func renderEvaluationMessage(
 		}
 		return message, "reply", nil
 	default:
-		return slackui.Message{}, "", errors.New("kind must be watch, incident, or task")
+		return slackui.Message{}, "", errors.New("kind must be watch, incident, task, or handoff")
 	}
 }
 

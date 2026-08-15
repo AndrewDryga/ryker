@@ -1262,6 +1262,15 @@ func liveEvaluationPrompt(
 			service.WatchPromptBudget(0),
 		)
 		return watch + "\n\n" + service.WorkEpisodePrompt(*episode), nil
+	case "handoff":
+		// prepareSessionHandoffTurn submits this string and nothing else: no
+		// watch context, no episode, no structured-response suffix. The
+		// transcript the retiring session is summarizing is already in the
+		// session, which an evaluation session does not have, so the case input
+		// stands in for it — in the order the model meets it in production, the
+		// work first and the instruction to hand it over last.
+		return agentprompt.BoundedOperatorText(testCase.Input) + "\n\n" +
+			agentprompt.SessionHandoff(), nil
 	case "incident", "task":
 		incident := core.Incident{
 			ID:         caseID,
@@ -1300,7 +1309,7 @@ func liveEvaluationPrompt(
 		return prompt + "\n\n" + service.StructuredResponseInstructions() +
 			"\n\n" + service.WorkEpisodePrompt(*episode), nil
 	default:
-		return "", errors.New("live case kind must be watch, incident, or task")
+		return "", errors.New("live case kind must be watch, incident, task, or handoff")
 	}
 }
 
