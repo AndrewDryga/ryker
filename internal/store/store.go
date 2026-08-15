@@ -16,6 +16,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/fanout"
 	"github.com/AndrewDryga/responder/internal/store/activitystore"
+	"github.com/AndrewDryga/responder/internal/store/approvalstore"
 	"github.com/AndrewDryga/responder/internal/store/artifactstore"
 	"github.com/AndrewDryga/responder/internal/store/behaviorstore"
 	"github.com/AndrewDryga/responder/internal/store/changestore"
@@ -155,6 +156,9 @@ type Store struct {
 	// a per-action click: the grant, the claim that spends its budget, and the
 	// ledger of what its gate decided about each signal.
 	StandingAssignments *standingassignmentstore.Repository
+	// Approvals owns the Emisar approval record: what was requested, by whom,
+	// for which work, and what Emisar finally said about the run.
+	Approvals *approvalstore.Repository
 }
 
 type Metrics struct {
@@ -1180,6 +1184,7 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.Changes = changestore.New(db, clock)
 	s.Grants = grantstore.New(db, clock)
 	s.StandingAssignments = standingassignmentstore.New(db, clock)
+	s.Approvals = approvalstore.New(db, clock)
 }
 
 // SetClock replaces the store clock. It exists for tests.

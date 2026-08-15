@@ -241,7 +241,7 @@ func (s *Service) persistAgentReport(
 		}
 	}
 	if report.PendingApproval != nil {
-		approval, _, err := s.store.RecordEmisarApproval(ctx, *report.PendingApproval)
+		approval, _, err := s.store.Approvals.Record(ctx, *report.PendingApproval)
 		if err != nil {
 			return decisionpkg.AgentReport{}, err
 		}

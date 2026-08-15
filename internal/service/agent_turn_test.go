@@ -38,7 +38,7 @@ func TestEmisarApprovalMonitorUpdatesCardAndQueuesOneContinuation(t *testing.T) 
 	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
 		t.Fatalf("admit input = %t, %v", created, err)
 	}
-	approval, created, err := st.RecordEmisarApproval(ctx, core.EmisarApproval{
+	approval, created, err := st.Approvals.Record(ctx, core.EmisarApproval{
 		RequestID: "apr_monitor", ChannelID: input.ChannelID,
 		SourceInput: input.ID, RequestedBy: input.UserID,
 		RunID: "run_monitor", OperationID: "op_monitor",
@@ -64,7 +64,7 @@ func TestEmisarApprovalMonitorUpdatesCardAndQueuesOneContinuation(t *testing.T) 
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.BindEmisarApprovalDelivery(ctx, approval.RequestID, deliveryID); err != nil {
+	if _, err := st.Approvals.BindDelivery(ctx, approval.RequestID, deliveryID); err != nil {
 		t.Fatal(err)
 	}
 	slackClient := &fakeSlack{}
@@ -83,7 +83,7 @@ func TestEmisarApprovalMonitorUpdatesCardAndQueuesOneContinuation(t *testing.T) 
 	if err := svc.processEmisarApproval(ctx, approval.RequestID); err != nil {
 		t.Fatal(err)
 	}
-	stored, err := st.GetEmisarApproval(ctx, approval.RequestID)
+	stored, err := st.Approvals.Get(ctx, approval.RequestID)
 	if err != nil || stored.Status != "success" || !stored.ContinuationQueued ||
 		stored.MessageTS == "" || stored.RunURL == "" {
 		t.Fatalf("monitored approval = %+v, %v", stored, err)
@@ -125,7 +125,7 @@ func TestEmisarApprovalMonitorFailsClosedOnIdentityMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	approval, _, err := st.RecordEmisarApproval(ctx, core.EmisarApproval{
+	approval, _, err := st.Approvals.Record(ctx, core.EmisarApproval{
 		RequestID: "apr_mismatch", ChannelID: "CWATCH",
 		SourceInput: "slack_mismatch", RequestedBy: "U123ABC",
 		RunID: "run_mismatch", OperationID: "op_expected",
@@ -147,7 +147,7 @@ func TestEmisarApprovalMonitorFailsClosedOnIdentityMismatch(t *testing.T) {
 		!strings.Contains(err.Error(), "immutable identity") {
 		t.Fatalf("identity mismatch error = %v", err)
 	}
-	stored, err := st.GetEmisarApproval(ctx, approval.RequestID)
+	stored, err := st.Approvals.Get(ctx, approval.RequestID)
 	if err != nil || stored.Status != "pending_approval" || stored.ContinuationQueued {
 		t.Fatalf("mismatched approval was advanced = %+v, %v", stored, err)
 	}
@@ -161,7 +161,7 @@ func TestEmisarApprovalMonitorPersistsProgressWithoutQueueingContinuation(t *tes
 		t.Fatal(err)
 	}
 	defer st.Close()
-	approval, _, err := st.RecordEmisarApproval(ctx, core.EmisarApproval{
+	approval, _, err := st.Approvals.Record(ctx, core.EmisarApproval{
 		RequestID: "apr_running", ChannelID: "CWATCH",
 		SourceInput: "slack_running", RequestedBy: "U123ABC",
 		RunID: "run_running", OperationID: "op_running",
@@ -184,7 +184,7 @@ func TestEmisarApprovalMonitorPersistsProgressWithoutQueueingContinuation(t *tes
 	if err := svc.processEmisarApproval(ctx, approval.RequestID); err != nil {
 		t.Fatal(err)
 	}
-	stored, err := st.GetEmisarApproval(ctx, approval.RequestID)
+	stored, err := st.Approvals.Get(ctx, approval.RequestID)
 	if err != nil || stored.Status != "running" || stored.ContinuationQueued ||
 		stored.RunURL == "" || !stored.NextCheckAt.After(stored.UpdatedAt) {
 		t.Fatalf("running approval = %+v, %v", stored, err)
@@ -206,7 +206,7 @@ func TestEmisarApprovalSchedulerRecoversPersistedTerminalRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	approval, _, err := st.RecordEmisarApproval(ctx, core.EmisarApproval{
+	approval, _, err := st.Approvals.Record(ctx, core.EmisarApproval{
 		RequestID: "apr_restart", ChannelID: "CWATCH",
 		SourceInput: "slack_restart", RequestedBy: "U123ABC",
 		RunID: "run_restart", OperationID: "op_restart",
@@ -218,7 +218,7 @@ func TestEmisarApprovalSchedulerRecoversPersistedTerminalRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	approval, _, err = st.AdvanceEmisarApproval(
+	approval, _, err = st.Approvals.Advance(
 		ctx,
 		approval.RequestID,
 		"success",
@@ -978,7 +978,7 @@ func TestOperatorRequestedEmisarApprovalReachesIncidentThread(t *testing.T) {
 		post.message.Actions[0].URL != "https://emisar.dev/app/acme/approvals/apr_123" {
 		t.Fatalf("approval thread card = %+v", post)
 	}
-	stored, err := st.GetEmisarApproval(ctx, "apr_123")
+	stored, err := st.Approvals.Get(ctx, "apr_123")
 	if err != nil || stored.RunID != "run_123" {
 		t.Fatalf("stored approval = %+v, %v", stored, err)
 	}

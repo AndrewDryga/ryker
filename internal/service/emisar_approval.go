@@ -14,10 +14,11 @@ import (
 	"github.com/AndrewDryga/responder/internal/remediation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/store/approvalstore"
 )
 
 func (s *Service) seedEmisarApprovalWork(ctx context.Context) error {
-	items, err := s.store.ListMonitorableEmisarApprovals(ctx, 1000)
+	items, err := s.store.Approvals.ListMonitorable(ctx, 1000)
 	if err != nil {
 		return err
 	}
@@ -49,7 +50,7 @@ func (s *Service) bindAndScheduleEmisarApproval(
 	if approval == nil {
 		return nil
 	}
-	bound, err := s.store.BindEmisarApprovalDelivery(
+	bound, err := s.store.Approvals.BindDelivery(
 		ctx,
 		approval.RequestID,
 		deliveryID,
@@ -65,7 +66,7 @@ func (s *Service) processEmisarApproval(
 	ctx context.Context,
 	requestID string,
 ) error {
-	approval, err := s.store.GetEmisarApproval(ctx, requestID)
+	approval, err := s.store.Approvals.Get(ctx, requestID)
 	if err != nil {
 		return err
 	}
@@ -79,13 +80,13 @@ func (s *Service) processEmisarApproval(
 	if s.emisar == nil {
 		return errors.New("Emisar approval monitor is unavailable")
 	}
-	if emisarRunTerminal(approval.Status) {
+	if approvalstore.RunTerminal(approval.Status) {
 		return s.finishTerminalEmisarApproval(ctx, approval)
 	}
 	state, err := s.emisar.WaitForRun(ctx, approval.RunID)
 	if err != nil {
 		next := s.queueDelay(approval.FailureCount + 1)
-		if retryErr := s.store.RetryEmisarApproval(
+		if retryErr := s.store.Approvals.Retry(
 			ctx,
 			approval.RequestID,
 			trimError(err),
@@ -112,7 +113,7 @@ func (s *Service) processEmisarApproval(
 		return err
 	}
 	next := now.Add(s.cfg.Coop.ApprovalPoll.Duration)
-	updated, changed, err := s.store.AdvanceEmisarApproval(
+	updated, changed, err := s.store.Approvals.Advance(
 		ctx,
 		approval.RequestID,
 		state.Status,
@@ -123,7 +124,7 @@ func (s *Service) processEmisarApproval(
 	if err != nil {
 		return err
 	}
-	if !emisarRunTerminal(updated.Status) {
+	if !approvalstore.RunTerminal(updated.Status) {
 		if changed && updated.MessageTS != "" {
 			if err := s.enqueueEmisarApprovalCardUpdate(
 				ctx,
@@ -160,7 +161,7 @@ func (s *Service) finishTerminalEmisarApproval(
 	if err := s.enqueueEmisarApprovalCardUpdate(ctx, updated, true); err != nil {
 		return err
 	}
-	if err := s.store.MarkEmisarApprovalContinuationQueued(
+	if err := s.store.Approvals.MarkContinuationQueued(
 		ctx,
 		updated.RequestID,
 	); err != nil {
@@ -217,7 +218,7 @@ func validateEmisarApprovalRun(
 			approval.RequestID,
 		)
 	}
-	if !validEmisarRunStatus(state.Status) {
+	if !approvalstore.ValidRunStatus(state.Status) {
 		return fmt.Errorf("Emisar run returned unsupported status %q", state.Status)
 	}
 	return nil
@@ -329,25 +330,4 @@ status from any independently verified live effect, and name any remaining evide
 		approval.ActionID,
 		approval.Status,
 	)
-}
-
-func validEmisarRunStatus(status string) bool {
-	switch status {
-	case "pending", "pending_approval", "sent", "running", "cancelling",
-		"success", "failed", "error", "validation_failed", "unknown_action",
-		"cancelled", "timed_out", "refused", "denied":
-		return true
-	default:
-		return false
-	}
-}
-
-func emisarRunTerminal(status string) bool {
-	switch status {
-	case "success", "failed", "error", "validation_failed", "unknown_action",
-		"cancelled", "timed_out", "refused", "denied":
-		return true
-	default:
-		return false
-	}
 }

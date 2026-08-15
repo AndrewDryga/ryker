@@ -912,7 +912,7 @@ func TestLoadRemediationRecordAssemblesCanonicalIncidentState(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	if _, _, err := st.RecordEmisarApproval(ctx, core.EmisarApproval{
+	if _, _, err := st.Approvals.Record(ctx, core.EmisarApproval{
 		RequestID: "req_1", IncidentID: incident.ID, ChannelID: "CINCIDENT",
 		SourceInput: run.ID, RequestedBy: "UOP", RunID: "emisar_run_1",
 		OperationID: "op_1", ActionID: "service.restart", PackRef: "service@1",

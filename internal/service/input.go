@@ -745,7 +745,7 @@ func (s *Service) handleOpenEmisarApproval(
 	ctx context.Context,
 	input core.SlackInput,
 ) error {
-	approval, err := s.store.GetEmisarApproval(ctx, input.ActionValue)
+	approval, err := s.store.Approvals.Get(ctx, input.ActionValue)
 	if errors.Is(err, store.ErrNotFound) {
 		return s.finishSlackInput(ctx, input)
 	}

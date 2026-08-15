@@ -24,7 +24,7 @@ func approvalReachingStatus(
 	status string,
 ) {
 	t.Helper()
-	approval, _, err := st.RecordEmisarApproval(ctx, core.EmisarApproval{
+	approval, _, err := st.Approvals.Record(ctx, core.EmisarApproval{
 		RequestID: requestID, IncidentID: incidentID, ChannelID: "CINCIDENT",
 		SourceInput: "slack_" + requestID, RequestedBy: "U123ABC",
 		RunID: "run_" + requestID, OperationID: "op_" + requestID,

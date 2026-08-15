@@ -438,7 +438,7 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 	if err != nil || report.PendingApproval == nil {
 		t.Fatalf("persist pending approval = %+v, %v", report, err)
 	}
-	stored, err := st.GetEmisarApproval(ctx, pending.RequestID)
+	stored, err := st.Approvals.Get(ctx, pending.RequestID)
 	if err != nil || stored.RunID != pending.RunID ||
 		stored.ApprovalURL != pending.ApprovalURL || !stored.ExpiresAt.Equal(expires) {
 		t.Fatalf("stored pending approval = %+v, %v", stored, err)
@@ -459,7 +459,7 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 	if err != nil || report.PendingApproval != nil {
 		t.Fatalf("foreign approval escaped validation = %+v, %v", report, err)
 	}
-	if _, err := st.GetEmisarApproval(ctx, foreign.RequestID); err != store.ErrNotFound {
+	if _, err := st.Approvals.Get(ctx, foreign.RequestID); err != store.ErrNotFound {
 		t.Fatalf("foreign approval persisted: %v", err)
 	}
 
@@ -496,7 +496,7 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 		report.PendingApproval.ChannelID != "CSHARED" {
 		t.Fatalf("shared conversation approval = %+v, %v", report, err)
 	}
-	stored, err = st.GetEmisarApproval(ctx, shared.RequestID)
+	stored, err = st.Approvals.Get(ctx, shared.RequestID)
 	if err != nil || stored.IncidentID != "" || stored.ChannelID != "CSHARED" {
 		t.Fatalf("stored shared conversation approval = %+v, %v", stored, err)
 	}

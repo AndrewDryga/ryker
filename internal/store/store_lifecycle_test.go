@@ -624,7 +624,7 @@ func TestEmisarApprovalLifecycleBindsDeliveryAndSurvivesTerminalReplay(t *testin
 	}
 	defer st.Close()
 	now := time.Now().UTC()
-	approval, created, err := st.RecordEmisarApproval(ctx, core.EmisarApproval{
+	approval, created, err := st.Approvals.Record(ctx, core.EmisarApproval{
 		RequestID: "apr_lifecycle", ChannelID: "C123",
 		SourceInput: "slack_lifecycle", RequestedBy: "U123",
 		RunID: "run_lifecycle", OperationID: "op_lifecycle",
@@ -642,7 +642,7 @@ func TestEmisarApprovalLifecycleBindsDeliveryAndSurvivesTerminalReplay(t *testin
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.BindEmisarApprovalDelivery(
+	if _, err := st.Approvals.BindDelivery(
 		ctx,
 		approval.RequestID,
 		"delivery_lifecycle",
@@ -656,12 +656,12 @@ func TestEmisarApprovalLifecycleBindsDeliveryAndSurvivesTerminalReplay(t *testin
 	if err := st.FinishSlackDelivery(ctx, leased.ID, "1700.2", "sending"); err != nil {
 		t.Fatal(err)
 	}
-	approval, err = st.GetEmisarApproval(ctx, approval.RequestID)
+	approval, err = st.Approvals.Get(ctx, approval.RequestID)
 	if err != nil || approval.MessageTS != "1700.2" ||
 		approval.DeliveryID != "delivery_lifecycle" {
 		t.Fatalf("bound approval = %+v, %v", approval, err)
 	}
-	approval, changed, err := st.AdvanceEmisarApproval(
+	approval, changed, err := st.Approvals.Advance(
 		ctx,
 		approval.RequestID,
 		"running",
@@ -673,7 +673,7 @@ func TestEmisarApprovalLifecycleBindsDeliveryAndSurvivesTerminalReplay(t *testin
 		!approval.TerminalAt.IsZero() {
 		t.Fatalf("running approval = %+v, %t, %v", approval, changed, err)
 	}
-	approval, changed, err = st.AdvanceEmisarApproval(
+	approval, changed, err = st.Approvals.Advance(
 		ctx,
 		approval.RequestID,
 		"success",
@@ -684,14 +684,14 @@ func TestEmisarApprovalLifecycleBindsDeliveryAndSurvivesTerminalReplay(t *testin
 	if err != nil || !changed || approval.TerminalAt.IsZero() {
 		t.Fatalf("terminal approval = %+v, %t, %v", approval, changed, err)
 	}
-	if err := st.MarkEmisarApprovalContinuationQueued(ctx, approval.RequestID); err != nil {
+	if err := st.Approvals.MarkContinuationQueued(ctx, approval.RequestID); err != nil {
 		t.Fatal(err)
 	}
-	items, err := st.ListMonitorableEmisarApprovals(ctx, 10)
+	items, err := st.Approvals.ListMonitorable(ctx, 10)
 	if err != nil || len(items) != 0 {
 		t.Fatalf("monitorable approvals = %+v, %v", items, err)
 	}
-	if _, _, err := st.AdvanceEmisarApproval(
+	if _, _, err := st.Approvals.Advance(
 		ctx,
 		approval.RequestID,
 		"failed",

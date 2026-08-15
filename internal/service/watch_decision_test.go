@@ -429,7 +429,7 @@ func TestWatchedChannelDecisions(t *testing.T) {
 					strings.Contains(strings.Join(message.Sections, "\n"), "pinned card") {
 					t.Fatalf("shared conversation approval card = %+v", message)
 				}
-				approval, err := st.GetEmisarApproval(ctx, "apr_watch_1")
+				approval, err := st.Approvals.Get(ctx, "apr_watch_1")
 				if err != nil || approval.IncidentID != "" ||
 					approval.ChannelID != input.ChannelID || approval.SourceInput != input.ID ||
 					approval.RequestedBy != input.UserID || approval.DeliveryID == "" ||
