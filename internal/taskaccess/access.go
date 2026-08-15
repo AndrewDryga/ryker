@@ -290,31 +290,13 @@ func Create(
 	)
 }
 
-func Command(text string) (string, bool) {
-	switch strings.TrimSpace(strings.ToLower(text)) {
-	case "!respond status":
-		return "status", true
-	case "!respond update":
-		return slackui.ActionUpdate, true
-	case "!respond changes":
-		return slackui.ActionChanges, true
-	case "!respond review":
-		return slackui.ActionReview, true
-	case "!respond publish":
-		return slackui.ActionPublishPR, true
-	case "!respond stop":
-		return slackui.ActionStop, true
-	case "!respond extend":
-		return slackui.ActionExtend, true
-	case "!respond close":
-		return slackui.ActionResolve, true
-	case "!respond help":
-		return slackui.ActionHelp, true
-	default:
-		return "", false
-	}
-}
-
+// MemberControlAllowed says which controls a workspace member who is not a
+// configured operator may run on a contributor task.
+//
+// It used to gate a second caller: an unadvertised `!respond <verb>` router
+// that read every message in a task thread. That router is gone — a message in
+// a thread is a conversation, and a control is a button on the card above it —
+// so this now answers only for clicks.
 func MemberControlAllowed(control string) bool {
 	switch slackui.BaseActionID(control) {
 	case "status", slackui.ActionHelp, slackui.ActionUpdate,

@@ -954,10 +954,11 @@ func TestThreadHelpNamesTheCardBecauseSlashCommandsCannotReachIt(t *testing.T) {
 // Help is read in a hurry by somebody who has forgotten one command.
 //
 // It used to answer six questions at once — Conversation, Read-only inspection,
-// Lifecycle controls, Automatic capacity, Thread scope, and a paragraph about
-// the `!respond` spellings — posted into a thread that already carried the task
-// card. That is a wall. It is now lead, reference, limit: one section, one
-// monospace strip, one context line, and nothing else.
+// Lifecycle controls, Automatic capacity, Thread scope, and a paragraph about a
+// second `!respond <verb>` spelling of every control — posted into a thread
+// that already carried the task card. That is a wall. It is now lead,
+// reference, limit: one section, one monospace strip, one context line, and
+// nothing else.
 func TestHelpIsOneSentenceOneStripAndOneBoundary(t *testing.T) {
 	for _, variant := range []struct {
 		name     string
@@ -1024,8 +1025,8 @@ func TestHelpIsOneSentenceOneStripAndOneBoundary(t *testing.T) {
 				}
 			}
 
-			// The six sections are gone, and the legacy spellings keep working
-			// without being advertised.
+			// The six sections are gone, and so is the second spelling the
+			// paragraph advertised.
 			content := helpSurface(t, message)
 			for _, dead := range []string{
 				"Lifecycle controls", "Automatic capacity", "Thread scope",

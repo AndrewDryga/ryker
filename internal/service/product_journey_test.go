@@ -308,7 +308,17 @@ func TestProductJourneyIncidentDirectoryButtonsPageBothDirections(t *testing.T) 
 	}
 }
 
-func TestProductJourneyTextControlsExplainHelpAndAutomaticCapacity(t *testing.T) {
+// A message in a task thread is a conversation, not a control.
+//
+// An unadvertised `!respond <verb>` router read every message in a thread that
+// carried an incident and matched eight verbs against it, so typing "!respond
+// stop" — or quoting somebody who had — cancelled the running turn. The card
+// above the thread already carries stop, diff, publish and close as buttons
+// that name what they do and refuse the people who may not press them; the
+// text spelling was a second way to reach the same lifecycle with none of that
+// in front of it, and nothing in Slack advertised it, so nobody could have
+// asked for it deliberately.
+func TestATaskThreadMessageIsAConversationNotAControl(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -331,10 +341,7 @@ func TestProductJourneyTextControlsExplainHelpAndAutomaticCapacity(t *testing.T)
 		t.Fatal(err)
 	}
 	if err := st.SetChannel(
-		ctx,
-		incident.ID,
-		"CCONTROLS",
-		"ems-acceptance-controls",
+		ctx, incident.ID, "CCONTROLS", "ems-acceptance-controls",
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -347,67 +354,48 @@ func TestProductJourneyTextControlsExplainHelpAndAutomaticCapacity(t *testing.T)
 	}
 	slackClient := &fakeSlack{}
 	svc := New(
-		cfg,
-		st,
-		newFakeCoop(),
-		slackClient,
-		nil,
-		slackui.NewSanitizer(12000),
-		nil,
+		cfg, st, newFakeCoop(), slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
 	)
 
-	run := func(label, command string) slackui.Message {
-		t.Helper()
+	for index, spelling := range []string{
+		"!respond stop", "!respond close", "!respond publish", "!respond help",
+	} {
+		label := fmt.Sprintf("%d", index)
 		input := core.SlackInput{
 			ID: "control_" + label, EnvelopeID: "env_control_" + label,
 			EventID: "event_control_" + label, Kind: "message",
 			TeamID: cfg.Slack.TeamID, ChannelID: incident.ChannelID,
-			MessageTS: "1700." + label, ThreadTS: incident.ConversationThreadTS(),
-			UserID: cfg.Slack.Operators[0], Text: command,
+			MessageTS: "1700.30" + label,
+			ThreadTS:  incident.ConversationThreadTS(),
+			UserID:    cfg.Slack.Operators[0], Text: spelling,
 			ReceivedAt: time.Now().UTC(),
 		}
 		if admitted, err := st.AdmitSlackInput(ctx, input); err != nil || !admitted {
-			t.Fatalf("admit %s = %t, %v", label, admitted, err)
+			t.Fatalf("admit %q = %t, %v", spelling, admitted, err)
 		}
 		if err := svc.processSlackInput(ctx); err != nil {
-			t.Fatalf("process %s: %v", label, err)
+			t.Fatalf("process %q: %v", spelling, err)
 		}
 		drainSlackDeliveries(t, ctx, svc)
-		return slackClient.posts[len(slackClient.posts)-1].message
-	}
 
-	// `!respond help` still answers. The legacy spellings keep working; help
-	// simply stopped advertising them, along with the five other sections it
-	// used to open with.
-	help := renderedSlackMessage(run("help", "!respond help"))
-	for _, expected := range []string{
-		"Just reply in this channel",
-		"/responder update",
-		"/responder changes",
-		"never merge, sign, or deploy",
-	} {
-		if !strings.Contains(help, expected) {
-			t.Fatalf("help does not explain %q: %s", expected, help)
+		run, err := st.GetAgentRunBySource(ctx, "slack", input.ID)
+		if err != nil {
+			t.Fatalf("%q did not reach the conversation: %v", spelling, err)
 		}
-	}
-	if strings.Contains(help, "Lifecycle controls") || strings.Contains(help, "!respond") {
-		t.Fatalf("help is a wall again: %s", help)
-	}
-	// "!respond help" is a question asked in the open and keeps its channel
-	// answer. "!respond extend" allocates nothing — the explanation belongs to
-	// the one person who typed a control that no longer does anything.
-	posted := len(slackClient.posts)
-	run("extend", "!respond extend")
-	if len(slackClient.posts) != posted {
-		t.Fatalf("the capacity explanation was posted to the room = %+v", slackClient.posts[posted:])
-	}
-	if len(slackClient.ephemerals) != 1 {
-		t.Fatalf("automatic capacity explanation = %+v", slackClient.ephemerals)
-	}
-	capacity := renderedSlackMessage(slackClient.ephemerals[0].message)
-	if !strings.Contains(capacity, "Manual turn allocation is no longer required") ||
-		!strings.Contains(capacity, "/responder turn-limit") {
-		t.Fatalf("automatic capacity explanation = %s", capacity)
+		if !strings.Contains(run.Prompt, spelling) {
+			t.Fatalf("%q was rewritten before the model saw it: %s", spelling, run.Prompt)
+		}
+		current, err := st.GetIncident(ctx, incident.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if current.Status != incident.Status {
+			t.Fatalf(
+				"%q moved the incident from %q to %q",
+				spelling, incident.Status, current.Status,
+			)
+		}
 	}
 }
 

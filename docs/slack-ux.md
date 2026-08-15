@@ -514,24 +514,14 @@ approval, the current conversation receives an **Approval required in
 Emisar** card with the exact action, immutable runner and pack references, expiry, and a **Review
 approval in Emisar** link. Opening the link is navigation, not approval; no action has run, and the
 decision remains in Emisar's authenticated console and audit trail.
-The exact whole-message command equivalents, including legacy and help controls, are:
+There is no text spelling of a control. An unadvertised `!respond <verb>` router used to read every
+message in a thread carrying an incident and match eight verbs against it; it was removed on
+2026-08-15. The pinned card above the thread carries stop, diff, publish and close as buttons that
+name what they do and refuse the people who may not press them, and a slash command run from the
+composer cannot select a thread at all.
 
-```text
-!respond status
-!respond update
-!respond changes
-!respond review
-!respond stop
-!respond extend
-!respond close
-!respond help
-```
-
-`!respond extend` remains accepted for compatibility, but it only explains automatic capacity and
-the `/responder turn-limit` command; it does not allocate a manually chosen number of turns.
-
-Natural-language approximations do not execute controls. A message such as “maybe stop after this”
-is an operator turn, not a cancellation.
+No message executes a control. A message such as “maybe stop after this” — or “!respond stop”, or
+anything else — is an operator turn, not a cancellation.
 
 ## Authorization
 

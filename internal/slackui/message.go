@@ -1702,15 +1702,16 @@ func safeInlineCode(value string) string {
 // press — for a reader who is in a hurry and has forgotten one command.
 //
 // It used to answer six: Conversation, Read-only inspection, Lifecycle
-// controls, Automatic capacity, Thread scope, and a paragraph advertising the
-// `!respond` spellings. In a thread that already carries the task card that is
-// a wall, and the operator who opened it wanted one line of it. So it is now
-// one sentence about replying, one monospace strip of controls, and one line of
-// boundary: lead, reference, limit.
+// controls, Automatic capacity, Thread scope, and a paragraph advertising a
+// second `!respond <verb>` spelling of every control. In a thread that already
+// carries the task card that is a wall, and the operator who opened it wanted
+// one line of it. So it is now one sentence about replying, one monospace strip
+// of controls, and one line of boundary: lead, reference, limit.
 //
-// The `!respond` commands still work. They are simply no longer advertised —
-// nobody arrives at Slack needing the second spelling of a control the card
-// already shows.
+// Un-advertising the second spelling came first; deleting it followed. Nobody
+// arrives at Slack needing a text spelling of a control the card already shows,
+// and a router reading every thread message for one is a way to run a control
+// nobody asked for.
 func HelpMessage(incident core.Incident) Message {
 	// Slash controls resolve through the incident attached to a *channel*
 	// (FindIncidentByChannel filters work_scope = 'room'), so a thread-scoped

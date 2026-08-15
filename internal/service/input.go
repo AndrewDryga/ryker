@@ -626,49 +626,37 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		if input.Kind == "mention" || hasMention {
 			text = s.stripBotMention(text)
 		}
-		if command, ok := taskaccess.Command(text); ok {
-			if contributorTask && !s.cfg.IsOperator(input.UserID) &&
-				!taskaccess.MemberControlAllowed(command) {
-				s.denyInput(
-					ctx, input,
-					"Workspace members can collaborate on the code and review it here, but a configured operator must publish, stop, close, or discard task work.",
-				)
-			} else {
-				err = s.handleControl(ctx, input, incident, command)
-			}
-		} else {
-			if text == "" {
-				text = "Please inspect the attached file."
-			}
-			prompt := taskprompt.ForConversation(
-				input.UserID, text, direct, incident.IsEngineeringTask(), contributorTask,
+		if text == "" {
+			text = "Please inspect the attached file."
+		}
+		prompt := taskprompt.ForConversation(
+			input.UserID, text, direct, incident.IsEngineeringTask(), contributorTask,
+		)
+		_, _, err = s.queueIncidentAgentRun(
+			ctx, incident, "slack", input.ID, input.UserID, prompt,
+		)
+		if err == nil && direct {
+			s.setNativeStatusForThread(
+				ctx,
+				incident,
+				slackReplyThread(input),
+				episodepkg.ActivityNativeStatus(requestEpisodeActivity(text)),
 			)
-			_, _, err = s.queueIncidentAgentRun(
-				ctx, incident, "slack", input.ID, input.UserID, prompt,
-			)
-			if err == nil && direct {
-				s.setNativeStatusForThread(
-					ctx,
-					incident,
-					slackReplyThread(input),
-					episodepkg.ActivityNativeStatus(requestEpisodeActivity(text)),
-				)
+		}
+		if err == nil {
+			kind := "operator.message"
+			title := "Operator requested investigation"
+			if incident.IsEngineeringTask() {
+				kind = "teammate.message"
+				title = "Teammate requested engineering work"
 			}
-			if err == nil {
-				kind := "operator.message"
-				title := "Operator requested investigation"
-				if incident.IsEngineeringTask() {
-					kind = "teammate.message"
-					title = "Teammate requested engineering work"
-				}
-				s.recordTimeline(ctx, core.TimelineEvent{
-					ID:         "tl_input_" + input.ID,
-					IncidentID: incident.ID, ChannelID: incident.ChannelID,
-					Kind: kind, ActorID: input.UserID,
-					Title:  title,
-					Detail: decisionpkg.BoundedField(text, 2000), CreatedAt: input.ReceivedAt,
-				})
-			}
+			s.recordTimeline(ctx, core.TimelineEvent{
+				ID:         "tl_input_" + input.ID,
+				IncidentID: incident.ID, ChannelID: incident.ChannelID,
+				Kind: kind, ActorID: input.UserID,
+				Title:  title,
+				Detail: decisionpkg.BoundedField(text, 2000), CreatedAt: input.ReceivedAt,
+			})
 		}
 	}
 	if err != nil && !errors.Is(err, errControlRefused) {

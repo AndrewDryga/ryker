@@ -16,7 +16,6 @@ import (
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
-	"github.com/AndrewDryga/responder/internal/taskaccess"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
@@ -509,24 +508,6 @@ func TestRepeatedFiringRefreshUpdatesCardAndAgentWithoutRawThreadPost(t *testing
 	submission, err := st.GetAgentRunBySource(ctx, "webhook", event.ID+":"+incident.ID)
 	if err != nil || !strings.Contains(submission.Prompt, "still timing out") {
 		t.Fatalf("agent did not receive firing refresh: %+v, %v", submission, err)
-	}
-}
-
-func TestCommandsRequireExactWholeMessage(t *testing.T) {
-	for _, command := range []string{
-		"!respond status", "!respond update", "!respond changes", "!respond review",
-		"!respond stop", "!respond extend", "!respond close", "!respond help",
-	} {
-		if _, ok := taskaccess.Command(command); !ok {
-			t.Fatalf("command %q was not recognized", command)
-		}
-	}
-	for _, prose := range []string{
-		"please !respond stop", "!respond stop after the test", "maybe close this",
-	} {
-		if _, ok := taskaccess.Command(prose); ok {
-			t.Fatalf("prose %q executed as a control", prose)
-		}
 	}
 }
 
