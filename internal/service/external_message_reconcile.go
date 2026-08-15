@@ -111,16 +111,21 @@ func TerraformLifecycleContinuationCorrection(
 	state decisionpkg.WatchTurnState,
 	decision decisionpkg.WatchDecision,
 ) string {
-	now := input.ReceivedAt.UTC()
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
+	// Freshness is measured against when the turn ran, not when the card
+	// arrived. It used to be input.ReceivedAt, and a card processed late — a
+	// retry after a credential outage, a starved channel — could then never
+	// satisfy the post-apply rule: evidence gathered when the model finally
+	// ran read as observed hours in the future and was discarded, and the
+	// same correction fired verbatim on every round. run_15d4bde1 (received
+	// 00:49Z, retried 05:15Z) recorded ten health samples at 05:18Z and was
+	// told twice to record fresh evidence. The communication check beside
+	// this one already reads the wall clock.
 	return lifecycle.TerraformContinuationCorrection(lifecycle.TerraformContinuationInput{
 		InputKind: input.Kind,
 		Text:      input.Text,
 		Rules:     state.MatchedRules,
 		Decision:  decision,
-		Now:       now,
+		Now:       time.Now().UTC(),
 	})
 }
 

@@ -676,6 +676,44 @@ func TestTerraformLifecycleContinuationRequiresExactDurableWait(t *testing.T) {
 	}
 }
 
+// A card processed hours after it arrived is still verifiable. The freshness
+// clock for a Terraform apply was the card's own arrival time, so evidence the
+// model gathered when it finally ran read as "observed in the future" and was
+// discarded: run_15d4bde1 (Run Applied, received 00:49Z, retried 05:15Z after
+// a credential outage) recorded ten /healthz samples at 05:18Z and was told
+// twice, verbatim, to record fresh evidence — a correction nothing it could
+// send would satisfy. Freshness is measured against when the turn ran.
+func TestALateProcessedApplyIsVerifiedByEvidenceGatheredWhenItRan(t *testing.T) {
+	arrived := time.Now().UTC().Add(-4 * time.Hour).Truncate(time.Second)
+	gathered := time.Now().UTC().Truncate(time.Second)
+	input := core.SlackInput{
+		Kind:       "bot_message",
+		Text:       "Run notification for acme/infra\nRun run-late\nRun Applied",
+		ReceivedAt: arrived,
+	}
+	state := decisionpkg.WatchTurnState{MatchedRules: []core.StandingRule{{
+		Trigger: "terraform_lifecycle", Action: "monitor_terraform_lifecycle",
+	}}}
+	verified := decisionpkg.WatchDecision{
+		Action:  "reply",
+		Message: "Portal is on the applied revision and serving normally.",
+		Evidence: []core.Evidence{{
+			Claim: "the rollout is healthy", Observation: "ten /healthz samples report the applied revision",
+			SourceType: "monitoring", SourceName: "emisar.dev health", ObservedAt: gathered,
+		}},
+		Coverage: []core.Coverage{{
+			Layer: "workload", Status: "healthy", Source: "emisar.dev health",
+			Detail: "ten /healthz samples report the applied revision", ObservedAt: gathered,
+		}},
+		Completion: &CompletionAssessment{
+			Status: "decision_ready", Verdict: "succeeded", Summary: "Applied and verified.",
+		},
+	}
+	if correction := TerraformLifecycleContinuationCorrection(input, state, verified); correction != "" {
+		t.Fatalf("evidence gathered when the late turn ran was rejected as not fresh: %s", correction)
+	}
+}
+
 func TestSuccessfulLifecycleDoesNotParaphraseVisibleStatusOrOldPlanContext(t *testing.T) {
 	now := time.Now().UTC()
 	decision := EnforceExternalLifecycleCommunication(core.SlackInput{
