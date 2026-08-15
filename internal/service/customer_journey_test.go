@@ -951,6 +951,116 @@ func TestCustomerJourneyBareMentionAfterRetryNoticeReachesTheModelWithChannelCon
 	}
 }
 
+// On 2026-08-13 in #infra-alerts an operator asked inside a thread to "see in
+// the channel above" and got back "the channel history above it isn't in my
+// view. Link or paste the alert and I'll dig in." The referent was the alert
+// sitting at channel level directly above the thread root, and the turn fetched
+// history from inside the thread only, so nothing the operator was pointing at
+// was ever in the prompt. The model answered correctly for what it was given.
+//
+// "See above", "^", and answering a bot notice that said "reply in this thread"
+// all resolve just outside the thread, so the cost of not carrying this is one
+// wasted turn plus an operator retyping context the host could already read.
+func TestCustomerJourneyThreadFollowupSeesTheChannelAroundItsRoot(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	const alertText = "Emisar: Load Balancer 5xx Ratio High — ratio is above the " +
+		"threshold of 0.050 with a value of 0.273"
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{
+	  "action":"reply",
+	  "operations":[
+	    {"id":"complete","type":"complete_episode","completion":{
+	      "message":"The 5xx ratio alert above the thread is still open; checking the backends now.",
+	      "completion":{"status":"decision_ready","summary":"answered about the alert above the thread"}
+	    }}
+	  ]
+	}`
+	input := core.SlackInput{
+		ID: "slack-thread-deixis", EnvelopeID: "env-thread-deixis",
+		EventID: "EvThreadDeixis", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "C000CHANNEL",
+		ThreadTS: "1702.100", MessageTS: "1702.300",
+		UserID: cfg.Slack.Operators[0], Text: "<@U999BOT> see in the channel above",
+	}
+	slackClient := &fakeSlack{
+		// What conversations.replies returns: the bare mention that opened the
+		// thread, and the follow-up being answered.
+		history: []slackui.HistoryMessage{
+			{
+				Timestamp: "1702.100", ThreadTS: "1702.100",
+				UserID: cfg.Slack.Operators[0], Text: "<@U999BOT>",
+			},
+			{
+				Timestamp: input.MessageTS, ThreadTS: input.ThreadTS,
+				UserID: input.UserID, Text: input.Text,
+			},
+		},
+		// What conversations.history returns around the root: the alert the
+		// operator is pointing at, and the root as the channel shows it.
+		channelHistory: []slackui.HistoryMessage{
+			{Timestamp: "1702.050", BotID: "BALERT", Text: alertText},
+			{
+				Timestamp: "1702.100", ThreadTS: "1702.100",
+				UserID: cfg.Slack.Operators[0], Text: "<@U999BOT>",
+			},
+		},
+	}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	if admitted, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !admitted {
+		t.Fatalf("admit thread deixis follow-up = %v, %v", admitted, admitErr)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+
+	if len(coopClient.submitPrompts) != 1 {
+		t.Fatalf("submitted prompts = %d", len(coopClient.submitPrompts))
+	}
+	prompt := coopClient.submitPrompts[0]
+	if !strings.Contains(prompt, alertText) {
+		t.Fatalf(
+			"the channel message the operator pointed at never reached the model = %q",
+			prompt,
+		)
+	}
+	// Separated, not merged: the model has to be able to tell "in this thread"
+	// from "in the channel around it", and the in-thread transcript keeps its
+	// capture-once semantics only while nothing is appended to it.
+	label := strings.Index(prompt, `"channel_messages_around_thread_root"`)
+	if label < 0 {
+		t.Fatalf("channel surround has no section of its own = %q", prompt)
+	}
+	if strings.Index(prompt, alertText) < label {
+		t.Fatalf("channel message was merged into the in-thread transcript = %q", prompt)
+	}
+	if count := strings.Count(prompt, alertText); count != 1 {
+		t.Fatalf("channel message appears in %d sections, want exactly 1", count)
+	}
+	if followup := strings.Index(prompt, "see in the channel above"); followup < 0 ||
+		followup > label {
+		t.Fatalf("in-thread follow-up is missing or filed under the channel = %q", prompt)
+	}
+	// The root is already in the thread transcript; repeating it in the surround
+	// spends budget to say the same thing twice.
+	if strings.Count(prompt, `"message_ts":"1702.100"`) != 1 {
+		t.Fatalf("thread root was carried twice = %q", prompt)
+	}
+}
+
 // An empty direct message is still a request. It queues a model run that reads
 // the direct-message conversation context rather than being answered by a
 // host-written clarifying question.

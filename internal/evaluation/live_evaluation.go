@@ -1021,7 +1021,7 @@ func evaluationStructuredCorrection(
 			if len(cfg.Slack.Operators) > 0 {
 				operatorID = cfg.Slack.Operators[0]
 			}
-			input, recent, contextErr := liveEvaluationWatchContext(
+			input, recent, _, contextErr := liveEvaluationWatchContext(
 				testCase, "evaluation-correction", operatorID,
 			)
 			if contextErr == nil {
@@ -1186,7 +1186,7 @@ func liveEvaluationPrompt(
 		if len(cfg.Slack.Operators) > 0 {
 			operatorID = cfg.Slack.Operators[0]
 		}
-		input, recent, err := liveEvaluationWatchContext(
+		input, recent, around, err := liveEvaluationWatchContext(
 			testCase,
 			caseID,
 			operatorID,
@@ -1251,6 +1251,7 @@ func liveEvaluationPrompt(
 			"UEVALBOT",
 			false,
 			recent,
+			around,
 			core.AgentMemory{},
 			nil,
 			nil,
@@ -1317,7 +1318,7 @@ func liveEvaluationWatchContext(
 	testCase EvaluationCase,
 	caseID string,
 	operatorID string,
-) (core.SlackInput, []decisionpkg.WatchContextMessage, error) {
+) (core.SlackInput, []decisionpkg.WatchContextMessage, []decisionpkg.WatchContextMessage, error) {
 	kind := "message"
 	userID := operatorID
 	switch strings.TrimSpace(testCase.SenderType) {
@@ -1327,7 +1328,7 @@ func liveEvaluationWatchContext(
 		case "member":
 			userID = "UEVALMEMBER"
 		default:
-			return core.SlackInput{}, nil, fmt.Errorf(
+			return core.SlackInput{}, nil, nil, fmt.Errorf(
 				"unsupported sender_role %q",
 				testCase.SenderRole,
 			)
@@ -1341,7 +1342,7 @@ func liveEvaluationWatchContext(
 	case "operator_schedule":
 		kind = "scheduled"
 	default:
-		return core.SlackInput{}, nil, fmt.Errorf(
+		return core.SlackInput{}, nil, nil, fmt.Errorf(
 			"unsupported sender_type %q", testCase.SenderType,
 		)
 	}
@@ -1371,7 +1372,7 @@ func liveEvaluationWatchContext(
 			operatorID,
 		)
 		if err != nil {
-			return core.SlackInput{}, nil, fmt.Errorf("recent message %d: %w", index+1, err)
+			return core.SlackInput{}, nil, nil, fmt.Errorf("recent message %d: %w", index+1, err)
 		}
 		item.MessageLink = service.SlackMessageLink(core.SlackInput{
 			TeamID: "TEVALUATION", ChannelID: input.ChannelID, MessageTS: item.MessageTS,
@@ -1387,7 +1388,7 @@ func liveEvaluationWatchContext(
 			operatorID,
 		)
 		if err != nil {
-			return core.SlackInput{}, nil, fmt.Errorf(
+			return core.SlackInput{}, nil, nil, fmt.Errorf(
 				"following message %d: %w",
 				index+1,
 				err,
@@ -1398,7 +1399,52 @@ func liveEvaluationWatchContext(
 		})
 		recent = append(recent, item)
 	}
-	return input, recent, nil
+	around, err := liveEvaluationChannelAroundRoot(testCase, input, operatorID)
+	if err != nil {
+		return core.SlackInput{}, nil, nil, err
+	}
+	// A surround only exists for a turn inside a thread, so a case that supplies
+	// one is staged as that turn: the oldest supplied message is the root the
+	// follow-up hangs from, and every supplied message belongs to the thread.
+	if len(around) > 0 && len(recent) > 1 {
+		input.ThreadTS = recent[0].MessageTS
+		for index := range recent {
+			recent[index].ThreadTS = input.ThreadTS
+		}
+	}
+	return input, recent, around, nil
+}
+
+// liveEvaluationChannelAroundRoot builds the channel-level transcript a threaded
+// case sits under.
+//
+// Its timestamps run before the thread's on purpose: these messages were posted
+// above the root, and a case that numbered them alongside the thread's own
+// messages would pose the deictic question ("see above") against a transcript
+// where nothing is above.
+func liveEvaluationChannelAroundRoot(
+	testCase EvaluationCase,
+	input core.SlackInput,
+	operatorID string,
+) ([]decisionpkg.WatchContextMessage, error) {
+	if len(testCase.ChannelAroundRoot) == 0 {
+		return nil, nil
+	}
+	around := make(
+		[]decisionpkg.WatchContextMessage, 0, len(testCase.ChannelAroundRoot),
+	)
+	for index, message := range testCase.ChannelAroundRoot {
+		item, err := liveEvaluationContextMessage(message, index+1, operatorID)
+		if err != nil {
+			return nil, fmt.Errorf("channel message around the root %d: %w", index+1, err)
+		}
+		item.MessageTS = fmt.Sprintf("1699.%06d", index+1)
+		item.MessageLink = service.SlackMessageLink(core.SlackInput{
+			TeamID: input.TeamID, ChannelID: input.ChannelID, MessageTS: item.MessageTS,
+		})
+		around = append(around, item)
+	}
+	return around, nil
 }
 
 func liveEvaluationContextMessage(

@@ -252,7 +252,7 @@ func renderEvaluationMessage(
 				if len(cfg.Slack.Operators) > 0 {
 					operatorID = cfg.Slack.Operators[0]
 				}
-				input, _, err := liveEvaluationWatchContext(testCase, "eval", operatorID)
+				input, _, _, err := liveEvaluationWatchContext(testCase, "eval", operatorID)
 				if err != nil {
 					return slackui.Message{}, decision.Action, err
 				}

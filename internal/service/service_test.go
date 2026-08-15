@@ -1385,6 +1385,7 @@ type fakeSlack struct {
 	dedupePosts        bool
 	createChannelCalls int
 	history            []slackui.HistoryMessage
+	channelHistory     []slackui.HistoryMessage
 	historyErr         error
 	historyRequests    []slackHistoryRequest
 	channels           []slackui.Channel
@@ -1626,6 +1627,14 @@ func (f *fakeSlack) RecentMessages(
 	f.historyRequests = append(f.historyRequests, slackHistoryRequest{
 		channel: channel, thread: thread, target: target, since: since, limit: limit,
 	})
+	// Slack answers a thread read and a channel read from different endpoints,
+	// and this fake answered both with the same slice — which is why a turn that
+	// could only see inside its thread looked identical to one that could see the
+	// channel around it. channelHistory, when a test sets it, is what
+	// conversations.history returns; history stays the in-thread answer.
+	if thread == "" && f.channelHistory != nil {
+		return slices.Clone(f.channelHistory), f.historyErr
+	}
 	return slices.Clone(f.history), f.historyErr
 }
 func (f *fakeSlack) FindDeliveryMessage(

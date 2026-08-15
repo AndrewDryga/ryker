@@ -331,7 +331,7 @@ func TestWatchPromptsDefineAmbientKnowledgeAndConfidenceGate(t *testing.T) {
 			input, "U999BOT", false, nil, core.AgentMemory{}, nil, nil, decisionpkg.OperationalMemoryContext{}, "repo",
 		),
 		"full": svc.unboundedWatchPrompt(
-			input, "U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+			input, "U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
 			decisionpkg.OperationalMemoryContext{}, "repo", nil,
 			nil,
 		),
@@ -351,7 +351,7 @@ func TestWatchPromptsDefineAmbientKnowledgeAndConfidenceGate(t *testing.T) {
 		}
 	}
 	full := svc.unboundedWatchPrompt(
-		input, "U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		input, "U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
 		nil,
 	)

@@ -321,7 +321,7 @@ func TestEvaluationProjectsRecoveredAlertLinkFromRecentContext(t *testing.T) {
 			Text:       "[VA1 FIRING:1] WARNING | Cassandra repair overdue",
 		}},
 	}
-	input, recent, err := liveEvaluationWatchContext(testCase, "eval", "UEVALOPERATOR")
+	input, recent, _, err := liveEvaluationWatchContext(testCase, "eval", "UEVALOPERATOR")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +533,7 @@ func TestLiveConversationEvaluationPreparesSessionBeforeMeasuredTurn(t *testing.
 
 func TestLiveEvaluationContextPreservesMessagesAfterTarget(t *testing.T) {
 	cfg := serviceConfig(t)
-	input, recent, err := liveEvaluationWatchContext(
+	input, recent, _, err := liveEvaluationWatchContext(
 		EvaluationCase{
 			Input:      "FIRING alert_id=42",
 			SenderType: "external_app",
@@ -561,9 +561,53 @@ func TestLiveEvaluationContextPreservesMessagesAfterTarget(t *testing.T) {
 	}
 }
 
+// A case that stages a thread turn has to reach the model as one.
+//
+// channel_around_root is the only way a case can pose a reference that resolves
+// outside its own thread — "see above", "^", a reply to a notice that asked for
+// one — and a field the prompt builder quietly ignored would be a gate that
+// looks like a gate and is not. That has happened here before: the prompts
+// corpus shipped six cases naming a sender_type the harness never accepted, and
+// nothing offline said so.
+func TestAThreadSurroundCaseReachesThePromptAsAThreadTurn(t *testing.T) {
+	cfg := serviceConfig(t)
+	testCase := EvaluationCase{
+		Kind: "watch", Input: "see in the channel above", MentionsResponder: true,
+		RecentMessages: []EvaluationMessage{{
+			SenderType: "human", SenderRole: "operator", Text: "<@UEVALBOT>",
+		}},
+		ChannelAroundRoot: []EvaluationMessage{{
+			SenderType: "external_app", Text: "5xx ratio is above the threshold",
+		}},
+	}
+	prompt, err := liveEvaluationPrompt(cfg, testCase, "repo", "eval_thread_surround")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, `"channel_messages_around_thread_root"`) ||
+		!strings.Contains(prompt, "5xx ratio is above the threshold") {
+		t.Fatalf("thread surround did not reach the prompt: %q", prompt)
+	}
+	input, recent, around, err := liveEvaluationWatchContext(
+		testCase, "eval_thread_surround", "UEVALOPERATOR",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Above the root, not inside the thread: a surround numbered alongside the
+	// thread's own messages would pose "see above" against a transcript where
+	// nothing is above.
+	if input.ThreadTS == "" || input.ThreadTS != recent[0].MessageTS {
+		t.Fatalf("surround case was not staged inside a thread: %+v", input)
+	}
+	if len(around) != 1 || around[0].MessageTS >= recent[0].MessageTS {
+		t.Fatalf("channel surround does not sit above the root: %+v", around)
+	}
+}
+
 func TestLiveEvaluationContextPreservesResponderMessages(t *testing.T) {
 	cfg := serviceConfig(t)
-	_, recent, err := liveEvaluationWatchContext(
+	_, recent, _, err := liveEvaluationWatchContext(
 		EvaluationCase{
 			Input: "Did it pass?",
 			RecentMessages: []EvaluationMessage{{

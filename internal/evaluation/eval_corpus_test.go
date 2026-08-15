@@ -107,7 +107,7 @@ func TestEveryEvaluationCorpusIsValid(t *testing.T) {
 					// The gate looked like a gate from the day it landed and
 					// was not one.
 					if testCase.Kind == "watch" {
-						if _, _, err := liveEvaluationWatchContext(
+						if _, _, _, err := liveEvaluationWatchContext(
 							testCase, "corpus-check", "UEVALOPERATOR",
 						); err != nil {
 							t.Errorf("case %q cannot reach the live harness: %v",

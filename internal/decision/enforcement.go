@@ -21,17 +21,24 @@ import (
 // without importing the runtime.
 
 type WatchTurnState struct {
-	Lane                   string                         `json:"lane,omitempty"`
-	AlertPolicy            string                         `json:"alert_policy,omitempty"`
-	SessionID              string                         `json:"session_id"`
-	SessionChannelID       string                         `json:"session_channel_id,omitempty"`
-	Repository             string                         `json:"repository,omitempty"`
-	RepositoryPinned       bool                           `json:"repository_pinned,omitempty"`
-	Generation             int                            `json:"generation,omitempty"`
-	ExpectedRevision       int64                          `json:"expected_revision,omitempty"`
-	TurnID                 string                         `json:"turn_id,omitempty"`
-	ContextCaptured        bool                           `json:"context_captured,omitempty"`
-	RecentMessages         []WatchContextMessage          `json:"recent_messages,omitempty"`
+	Lane             string                `json:"lane,omitempty"`
+	AlertPolicy      string                `json:"alert_policy,omitempty"`
+	SessionID        string                `json:"session_id"`
+	SessionChannelID string                `json:"session_channel_id,omitempty"`
+	Repository       string                `json:"repository,omitempty"`
+	RepositoryPinned bool                  `json:"repository_pinned,omitempty"`
+	Generation       int                   `json:"generation,omitempty"`
+	ExpectedRevision int64                 `json:"expected_revision,omitempty"`
+	TurnID           string                `json:"turn_id,omitempty"`
+	ContextCaptured  bool                  `json:"context_captured,omitempty"`
+	RecentMessages   []WatchContextMessage `json:"recent_messages,omitempty"`
+	// ChannelAroundRoot is the channel-level transcript around a thread's root,
+	// carried beside the in-thread one rather than inside it. A thread turn can
+	// otherwise see nothing outside its own thread, and "see above" resolves
+	// exactly there. Separate from RecentMessages on purpose: that list is
+	// captured once and deduplicated against the resolved mention, and neither
+	// rule should ever be applied to messages from outside the thread.
+	ChannelAroundRoot      []WatchContextMessage          `json:"channel_around_root,omitempty"`
 	Memory                 core.AgentMemory               `json:"memory,omitempty"`
 	RelatedSituations      []ConversationSituationContext `json:"related_situations,omitempty"`
 	ReferencedThread       *ReferencedThreadContext       `json:"referenced_thread,omitempty"`

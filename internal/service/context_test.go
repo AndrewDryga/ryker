@@ -193,6 +193,7 @@ func TestWatchPromptExplainsCrossConversationMemoryBoundary(t *testing.T) {
 		"UBOT",
 		false,
 		nil,
+		nil,
 		core.AgentMemory{SituationSummary: "Current thread summary"},
 		[]decisionpkg.ConversationSituationContext{{
 			ChannelID: "CDEPLOY", Repository: "emisar",
@@ -228,7 +229,7 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 		MessageTS: "1700.2", UserID: "U1", Text: "Check production health",
 	}
 	prompt, _ := svc.watchPrompt(
-		input, "UBOT", false, nil, core.AgentMemory{}, nil, nil,
+		input, "UBOT", false, nil, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
 		WatchPromptBudget(0),
 	)
@@ -245,7 +246,7 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 
 	input.EnvelopeID = "env:ordinary"
 	ordinary, _ := svc.watchPrompt(
-		input, "UBOT", false, nil, core.AgentMemory{}, nil, nil,
+		input, "UBOT", false, nil, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
 		WatchPromptBudget(0),
 	)
@@ -274,7 +275,7 @@ func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
 	}
 	svc := &Service{}
 	raw := svc.unboundedWatchPrompt(
-		input, "UBOT", false, recent, core.AgentMemory{}, nil, nil,
+		input, "UBOT", false, recent, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
 		nil,
 	)
@@ -282,7 +283,7 @@ func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
 		t.Fatalf("test prompt did not exceed assembly bound: %d", len(raw))
 	}
 	prompt, _ := svc.watchPrompt(
-		input, "UBOT", false, recent, core.AgentMemory{}, nil, nil,
+		input, "UBOT", false, recent, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "repo", nil,
 		WatchPromptBudget(0),
 	)
@@ -294,6 +295,90 @@ func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
 	}
 	if strings.LastIndex(prompt, `"target_message"`) < strings.LastIndex(prompt, `"recent_channel_messages"`) {
 		t.Fatal("current target is not serialized after disposable recent context")
+	}
+}
+
+// The channel around a thread's root is the first conversation layer the budget
+// takes, and it says so when it does.
+//
+// It is context for a reference the operator may not have made; the thread is
+// the conversation actually being answered. A budget that trimmed the thread
+// first to keep messages from outside it would answer a question nobody asked
+// with the evidence for one they did — so the surround goes entirely, oldest
+// first, before a single in-thread message is dropped, and the omission is
+// recorded rather than left as a silently thinner prompt.
+func TestTheChannelAroundTheRootIsDroppedBeforeAnyThreadMessage(t *testing.T) {
+	fill := func(prefix string, index int, size int) string {
+		unit := fmt.Sprintf("%s-%02d ", prefix, index)
+		return strings.Repeat(unit, size/len(unit))
+	}
+	recent := make([]decisionpkg.WatchContextMessage, 0, 12)
+	for index := range 12 {
+		recent = append(recent, decisionpkg.WatchContextMessage{
+			MessageTS: fmt.Sprintf("1700.%06d", index),
+			ThreadTS:  "1700.000000",
+			SenderID:  "U123ABC", SenderType: "human",
+			Text: fill("in-thread", index, 200),
+		})
+	}
+	around := make([]decisionpkg.WatchContextMessage, 0, 6)
+	for index := range 6 {
+		around = append(around, decisionpkg.WatchContextMessage{
+			MessageTS: fmt.Sprintf("1699.%06d", index),
+			SenderID:  "B_GRAFANA", SenderType: "external_app",
+			Text: fill("around-root", index, 2048),
+		})
+	}
+	input := core.SlackInput{
+		ID: "target-followup", Kind: "mention", ChannelID: "CALERTS",
+		ThreadTS: "1700.000000", MessageTS: "1700.999999", UserID: "U123ABC",
+		Text: "CURRENT TARGET: see in the channel above",
+	}
+	svc := &Service{}
+	assembled := func(around []decisionpkg.WatchContextMessage) int {
+		return len(svc.unboundedWatchPrompt(
+			input, "UBOT", false, recent, around, core.AgentMemory{}, nil, nil,
+			decisionpkg.OperationalMemoryContext{}, "repo", nil, nil,
+		))
+	}
+	// Budgeted so that dropping exactly the oldest channel message fits, with
+	// room for the omission note the drop itself adds. Anything the assembler
+	// takes beyond that one message is a layer it should not have reached.
+	budget := assembled(around[1:]) + 512
+	if assembled(around) <= budget {
+		t.Fatalf("the fixture fits with nothing dropped: %d bytes", assembled(around))
+	}
+	prompt, omitted := svc.watchPrompt(
+		input, "UBOT", false, recent, around, core.AgentMemory{}, nil, nil,
+		decisionpkg.OperationalMemoryContext{}, "repo", nil,
+		budget,
+	)
+	if len(prompt) > budget {
+		t.Fatalf("watch prompt bytes = %d, budget %d", len(prompt), budget)
+	}
+	if strings.Contains(prompt, "around-root-00") {
+		t.Fatal("the oldest channel message around the root survived the budget")
+	}
+	if !strings.Contains(prompt, "around-root-05") {
+		t.Fatal("the channel messages nearest the root were dropped before the oldest")
+	}
+	if !strings.Contains(prompt, "in-thread-00") {
+		t.Fatal("an in-thread message was dropped while the channel around it was still carried")
+	}
+	var reason string
+	for _, omission := range omitted {
+		if omission.Kind == "channel_around_thread_root" {
+			reason = omission.Reason
+		}
+		if omission.Kind == "channel_history" {
+			t.Fatalf("the thread transcript was trimmed too: %+v", omitted)
+		}
+	}
+	if reason == "" {
+		t.Fatalf("the channel around the root was dropped silently: %+v", omitted)
+	}
+	if !strings.Contains(prompt, reason) {
+		t.Fatalf("the model was not told what it is missing: %q", reason)
 	}
 }
 
@@ -419,9 +504,19 @@ func TestAssembleAgentContextUsesConversationSummaryAsThreadCursor(t *testing.T)
 		"The deploy is paused pending database verification." {
 		t.Fatalf("conversation summary = %+v", assembled.Situation)
 	}
-	if len(slack.historyRequests) != 1 ||
+	if len(slack.historyRequests) != 2 ||
+		slack.historyRequests[0].thread != target.ThreadTS ||
 		slack.historyRequests[0].since != "1700.000020" ||
 		slack.historyRequests[0].target != target.MessageTS {
 		t.Fatalf("history request = %+v", slack.historyRequests)
+	}
+	// The second read is the channel around the thread's root, and the cursor
+	// does not travel with it: "the last message this thread saw" says nothing
+	// about the channel above it, and applying it there would return an empty
+	// surround for every thread Responder has already answered in.
+	surround := slack.historyRequests[1]
+	if surround.thread != "" || surround.target != target.ThreadTS ||
+		surround.since != "" {
+		t.Fatalf("channel-around-root request = %+v", surround)
 	}
 }

@@ -146,7 +146,7 @@ func TestDroppedContextLayersReachTheAttemptManifest(t *testing.T) {
 			UserID: cfg.Slack.Operators[0], Kind: "message",
 			Text: "How is the health of our infrastructure?",
 		},
-		"U999BOT", false, recent, core.AgentMemory{}, nil, nil,
+		"U999BOT", false, recent, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "", nil, WatchPromptBudget(0),
 	)
 	if len(omitted) == 0 {

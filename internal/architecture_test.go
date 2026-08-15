@@ -365,7 +365,21 @@ var lineBudget = map[string]int{
 	// retirement seam both rotation lanes now share, the handoff queue and
 	// its guards, and the six source-kind checks that keep a run nobody in
 	// Slack is waiting for out of every Slack-facing path.
-	"service": 22540,
+	//
+	// Raised to 22580 on 2026-08-14 so a turn inside a thread can see the
+	// channel around its root. A follow-up that says "see the channel above"
+	// or "^" was answered from conversations.replies alone, which is the
+	// thread and nothing else, so the alert the operator was pointing at was
+	// never in the prompt — the model said so, correctly, and the turn was
+	// spent.
+	//
+	// The decision left: which messages are the channel around a root rather
+	// than the thread itself is agentcontext.AroundThreadRoot, beside
+	// MergeSlackContext and the same-conversation rule it belongs with. What
+	// stayed is the second bounded read and its own prompt section — the read
+	// holds the Slack client, the history cache, the bot identity and the
+	// logger at once, and the section is prompt lines, which live here.
+	"service": 22580,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

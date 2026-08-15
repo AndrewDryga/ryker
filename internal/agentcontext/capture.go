@@ -113,6 +113,36 @@ func MergeSlackContext(
 	return targetCentered(result, target, limit)
 }
 
+// AroundThreadRoot selects the channel-level messages that sit around a
+// thread's root, given the channel history read at that anchor and the
+// transcript the thread itself already supplies.
+//
+// The root and every reply hanging from it are the thread, not the channel
+// around it, and carrying them twice spends the turn's budget saying the same
+// thing in two sections. Anything the in-thread transcript already holds goes
+// for the same reason — the host may have merged a channel-level message into
+// it from durable admission, and the model reading one message as two nearby
+// events is worse than not having the surround at all.
+func AroundThreadRoot(
+	history []slackui.HistoryMessage,
+	rootTS string,
+	inThread []core.SlackInput,
+) []slackui.HistoryMessage {
+	carried := make(map[string]bool, len(inThread))
+	for _, input := range inThread {
+		carried[input.MessageTS] = true
+	}
+	around := make([]slackui.HistoryMessage, 0, len(history))
+	for _, message := range history {
+		if message.Timestamp == rootTS || message.ThreadTS == rootTS ||
+			carried[message.Timestamp] {
+			continue
+		}
+		around = append(around, message)
+	}
+	return around
+}
+
 func sameConversation(input core.SlackInput, target core.SlackInput) bool {
 	if target.ThreadTS == "" {
 		return input.ThreadTS == ""

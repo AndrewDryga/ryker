@@ -953,6 +953,7 @@ func (s *Service) freezeTriageContext(
 		}
 		state.RecentMessages = assembled.RecentMessages
 		state.RemoveResolvedMentionDuplicate()
+		state.ChannelAroundRoot = assembled.ChannelAroundRoot
 		state.Memory = assembled.Situation
 		state.RelatedSituations = assembled.RelatedSituations
 		state.ReferencedThread = assembled.ReferencedThread
@@ -1167,6 +1168,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			s.identity.BotUserID,
 			state.ConversationFollowup,
 			state.RecentMessages,
+			state.ChannelAroundRoot,
 			state.Memory,
 			state.RelatedSituations,
 			state.ReferencedThread,
@@ -1200,7 +1202,8 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	} else {
 		prompt, omissions = s.watchPrompt(
 			input, s.identity.BotUserID, state.ConversationFollowup,
-			state.RecentMessages, state.Memory, state.RelatedSituations,
+			state.RecentMessages, state.ChannelAroundRoot,
+			state.Memory, state.RelatedSituations,
 			state.ReferencedThread, state.Prior,
 			core.FirstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
 			state.MatchedRules,

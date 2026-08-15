@@ -36,6 +36,7 @@ type assembledAgentContext struct {
 	Situation                     core.AgentMemory                           `json:"conversation_situation,omitempty"`
 	RelatedSituations             []decisionpkg.ConversationSituationContext `json:"related_situations,omitempty"`
 	RecentMessages                []decisionpkg.WatchContextMessage          `json:"recent_messages_around_target,omitempty"`
+	ChannelAroundRoot             []decisionpkg.WatchContextMessage          `json:"channel_messages_around_thread_root,omitempty"`
 	ReferencedThread              *decisionpkg.ReferencedThreadContext       `json:"referenced_thread,omitempty"`
 	InitialTaskChangesFingerprint string                                     `json:"initial_task_changes_fingerprint,omitempty"`
 	// StructuredCorrections counts how many times this run has been sent back
@@ -186,6 +187,14 @@ func (s *Service) assembleAgentContext(
 			*request.TargetInput,
 			s.identity.BotUserID,
 		)
+		if request.TargetInput.ThreadTS != "" {
+			result.ChannelAroundRoot = s.channelAroundThreadRoot(
+				ctx,
+				request.ChannelID,
+				request.TargetInput.ThreadTS,
+				recent,
+			)
+		}
 	}
 	referencedChannelID := core.FirstNonempty(request.ReferencedChannelID, request.ChannelID)
 	if request.ReferencedThreadTS != "" &&
@@ -249,6 +258,51 @@ func (s *Service) assembleAgentContext(
 		result.ReferencedThread = referenced
 	}
 	return result, nil
+}
+
+// channelAroundThreadRoot reads the channel-level messages sitting around a
+// thread's root — the ones a person scrolling above the thread sees, and the
+// ones a thread turn never could.
+//
+// A turn inside a thread fetches conversations.replies, which is the thread and
+// nothing else, so "see in the channel above", "^", and answering a bot notice
+// that said "reply in this thread" all pointed at messages that were not in the
+// prompt. On 2026-08-13 in #infra-alerts that cost a turn: the thread root was a
+// bare mention with no text, the referent was the alert directly above it at
+// channel level, and the model correctly reported it could not see what it was
+// being pointed at.
+//
+// It is deliberately a second read carried in its own field rather than a merge
+// into the recent transcript: the in-thread transcript is captured once and
+// deduplicated against the resolved mention, and channel-level messages have no
+// business inside either rule.
+//
+// A failed read returns nothing rather than failing the turn. The surround is an
+// addition to what a thread turn already had, so losing it must cost no more
+// than the answer this code was written to improve.
+func (s *Service) channelAroundThreadRoot(
+	ctx context.Context,
+	channelID string,
+	rootTS string,
+	inThread []core.SlackInput,
+) []decisionpkg.WatchContextMessage {
+	history, err := s.recentMessages(
+		ctx, channelID, "", rootTS, "", s.cfg.Slack.WatchContext,
+	)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.log.Warn(
+				"read the channel around a thread root",
+				"channel", channelID, "thread", rootTS, "error", err,
+			)
+		}
+		return nil
+	}
+	return historyWatchContext(
+		agentcontext.AroundThreadRoot(history, rootTS, inThread),
+		channelID,
+		s.identity.BotUserID,
+	)
 }
 
 // markRecalled records that conversation memories were used. It is telemetry

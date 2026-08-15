@@ -80,6 +80,7 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		"U999BOT",
 		false,
 		nil,
+		nil,
 		core.AgentMemory{},
 		nil,
 		nil,
@@ -467,7 +468,7 @@ func TestStaticWatchPromptSizeIsPinned(t *testing.T) {
 			UserID: cfg.Slack.Operators[0], Kind: "scheduled",
 			Text: "How is the health of our infrastructure?",
 		},
-		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "", nil, WatchPromptBudget(0),
 	)
 	switch {
@@ -516,7 +517,7 @@ func TestOversizedChannelMessageSaysTheHostCutIt(t *testing.T) {
 			ChannelID: "C123ABC", MessageTS: "1700.001", Kind: "message",
 			UserID: "U123ABC", Text: instruction,
 		},
-		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "", nil, WatchPromptBudget(0),
 	)
 	if !strings.Contains(prompt, "the host cut the rest of this message to fit") {
@@ -530,7 +531,7 @@ func TestOversizedChannelMessageSaysTheHostCutIt(t *testing.T) {
 			ChannelID: "C123ABC", MessageTS: "1700.002", Kind: "message",
 			UserID: "U123ABC", Text: "is checkout slow?",
 		},
-		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "", nil, WatchPromptBudget(0),
 	)
 	if strings.Contains(fitting, "the host cut the rest of this message to fit") {
@@ -554,7 +555,7 @@ func TestWatchPromptExamplesUseTheTypedResultShape(t *testing.T) {
 			UserID: cfg.Slack.Operators[0], Kind: "scheduled",
 			Text: "How is the health of our infrastructure?",
 		},
-		"U999BOT", false, nil, core.AgentMemory{}, nil, nil,
+		"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, "", nil, WatchPromptBudget(0),
 	)
 	// The bounded conversation lane's examples are held to the same bar since

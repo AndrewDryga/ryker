@@ -475,7 +475,7 @@ func liveScenarioPrompt(
 	if len(cfg.Slack.Operators) > 0 {
 		operatorID = cfg.Slack.Operators[0]
 	}
-	input, recent, err := liveEvaluationWatchContext(
+	input, recent, _, err := liveEvaluationWatchContext(
 		testCase,
 		caseID,
 		operatorID,
@@ -530,6 +530,7 @@ func liveScenarioPrompt(
 		"UEVALBOT",
 		current.Answered,
 		history,
+		nil,
 		current.Memory,
 		related,
 		nil,

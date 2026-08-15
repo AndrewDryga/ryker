@@ -21,17 +21,22 @@ import (
 )
 
 type EvaluationCase struct {
-	Name                   string                    `json:"name"`
-	Tags                   []string                  `json:"tags,omitempty"`
-	Kind                   string                    `json:"kind"`
-	Lane                   string                    `json:"lane,omitempty"`
-	Input                  string                    `json:"input,omitempty"`
-	Repository             string                    `json:"repository,omitempty"`
-	SenderType             string                    `json:"sender_type,omitempty"`
-	SenderRole             string                    `json:"sender_role,omitempty"`
-	MentionsResponder      bool                      `json:"mentions_responder,omitempty"`
-	RecentMessages         []EvaluationMessage       `json:"recent_messages,omitempty"`
-	FollowingMessages      []EvaluationMessage       `json:"following_messages,omitempty"`
+	Name              string              `json:"name"`
+	Tags              []string            `json:"tags,omitempty"`
+	Kind              string              `json:"kind"`
+	Lane              string              `json:"lane,omitempty"`
+	Input             string              `json:"input,omitempty"`
+	Repository        string              `json:"repository,omitempty"`
+	SenderType        string              `json:"sender_type,omitempty"`
+	SenderRole        string              `json:"sender_role,omitempty"`
+	MentionsResponder bool                `json:"mentions_responder,omitempty"`
+	RecentMessages    []EvaluationMessage `json:"recent_messages,omitempty"`
+	FollowingMessages []EvaluationMessage `json:"following_messages,omitempty"`
+	// ChannelAroundRoot stages the case as a turn inside a thread, with these
+	// messages sitting at channel level above the thread's root. It is the only
+	// way a case can pose a reference that resolves outside its own thread —
+	// "see above", "^", a reply to a notice that asked for one.
+	ChannelAroundRoot      []EvaluationMessage       `json:"channel_around_root,omitempty"`
 	Memories               []EvaluationMemory        `json:"memories,omitempty"`
 	Preferences            []EvaluationPreference    `json:"preferences,omitempty"`
 	StandingRules          []EvaluationStandingRule  `json:"standing_rules,omitempty"`
@@ -632,7 +637,7 @@ func evaluateCaseWithConfig(
 			if len(cfg.Slack.Operators) > 0 {
 				operatorID = cfg.Slack.Operators[0]
 			}
-			input, recent, contextErr := liveEvaluationWatchContext(
+			input, recent, _, contextErr := liveEvaluationWatchContext(
 				testCase,
 				"eval",
 				operatorID,
@@ -824,7 +829,7 @@ func hostedWatchDecisionOffers(
 	if len(cfg.Slack.Operators) > 0 {
 		operatorID = cfg.Slack.Operators[0]
 	}
-	input, _, err := liveEvaluationWatchContext(testCase, "eval", operatorID)
+	input, _, _, err := liveEvaluationWatchContext(testCase, "eval", operatorID)
 	if err != nil {
 		return []string{"invalid"}
 	}
