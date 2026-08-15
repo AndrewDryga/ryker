@@ -363,6 +363,89 @@ func TestClosedWorkPruneKeepsEpisodesACorrectionStillNeeds(t *testing.T) {
 
 // The assembled prompt input is emptied out of runs that are over, and left
 // alone on every run something can still read it back from.
+// The fuel line, and the reason it was empty.
+//
+// The prompt text was being written for every attempt and then emptied
+// twenty-four hours later alongside the agent run context it shared a clock
+// with. On the tenant database that left 428 of 1221 manifests holding a prompt,
+// every one of them from the previous two days — so record-episode and
+// promote-fixtures were not limited to some particular code path, they were
+// limited to yesterday, and a correction reviewed on Monday for a Friday turn
+// had nothing left to harvest. A fixture_candidate pins its episode precisely
+// because it wants the evidence, while the evidence was already gone.
+//
+// So the two copies keep two clocks. The submitted column is transport and is
+// spent with the turn; the sanitized copy is the account of the turn and lives
+// as long as the episode does.
+func TestTheRetainedPromptOutlivesTheTurnThatSubmittedIt(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, episode := finishKernelEpisode(t, st, "message-1", core.EpisodeCompleted, 48*time.Hour)
+	const archived = "SYSTEM: kept for as long as the episode, with [REDACTED] where a secret was"
+	manifest, err := st.CreateContextManifest(ctx, core.ContextManifest{
+		EpisodeID: episode.ID, AttemptID: run.AttemptID,
+		PromptVersion: "p1", ContractVersion: "c1", ToolSchemaVersion: "t1",
+		SubmittedPrompt: "SYSTEM: retained only while the operational trace is live",
+		RetainedPrompt:  archived,
+		References: []core.ContextReference{{
+			Kind: "compiled_prompt", SourceRef: "agent-run:" + run.ID + ":prompt",
+			ContentDigest: "prompt-digest-1", Visibility: "private",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aged := time.Now().UTC().Add(-48 * time.Hour).Format(timestampFormat)
+	if _, err := st.db.Exec(
+		`UPDATE context_manifests SET created_at = ? WHERE id = ?`, aged, manifest.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(
+		`UPDATE context_manifest_texts SET created_at = ? WHERE manifest_id = ?`, aged, manifest.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if _, err := st.Prune(
+		ctx, now.Add(-24*time.Hour), now.Add(-90*24*time.Hour),
+		now.Add(-7*24*time.Hour), now.Add(-30*24*time.Hour), now.Add(-30*24*time.Hour),
+	); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetContextManifest(ctx, manifest.ID)
+	if err != nil {
+		t.Fatalf("the manifest was deleted rather than emptied: %v", err)
+	}
+	// The assertion this test exists for. The contrast beside it is what makes
+	// it mean anything: a pass that came from nothing being swept at all would
+	// satisfy the first check and fail the second.
+	if stored.RetainedPrompt != archived {
+		t.Fatalf("the archive copy was swept with the transport copy: %q", stored.RetainedPrompt)
+	}
+	if stored.SubmittedPrompt != "" {
+		t.Fatalf("the transport copy outlived the operational horizon: %q", stored.SubmittedPrompt)
+	}
+	// And it goes when the episode does, which is the horizon it was moved to
+	// rather than a promise that it is kept forever.
+	if _, err := st.db.Exec(`DELETE FROM work_episodes WHERE id = ?`, episode.ID); err != nil {
+		t.Fatal(err)
+	}
+	var orphans int
+	if err := st.db.QueryRow(
+		`SELECT COUNT(*) FROM context_manifest_texts WHERE manifest_id = ?`, manifest.ID,
+	).Scan(&orphans); err != nil {
+		t.Fatal(err)
+	}
+	if orphans != 0 {
+		t.Fatalf("%d retained prompts survived their episode, so the table has no horizon", orphans)
+	}
+}
+
 func TestPruneEmptiesOnlySpentAgentRunContext(t *testing.T) {
 	ctx := context.Background()
 	setContext := func(t *testing.T, st *Store, runID string) {

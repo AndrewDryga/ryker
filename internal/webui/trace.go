@@ -301,7 +301,17 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 			Stats: []TraceStat{{"Provider", fallback(manifest.Provider, "not recorded")}, {"Model", fallback(manifest.Model, "not recorded")}, {"Reasoning", fallback(manifest.Effort, "not recorded")}, {"Preset", fallback(manifest.Preset, "none")}, {"Run", fallback(manifest.RunID, "not recorded")}},
 		})
 
-		prompt := manifest.SubmittedPrompt
+		// The exact submitted bytes first, because the digest under Replay
+		// verification was taken over those and a reader comparing the two has
+		// to be able to. They survive a day. After that the sanitized archive
+		// copy is what is left, and it is shown with a line saying so rather
+		// than swapped in silently — a panel that quietly renders different
+		// text than the fingerprint beside it describes is worse than one that
+		// admits which copy it has.
+		prompt, redacted := manifest.SubmittedPrompt, false
+		if prompt == "" && manifest.RetainedPrompt != "" {
+			prompt, redacted = manifest.RetainedPrompt, true
+		}
 		if prompt == "" {
 			if turn, ok := turnByRun(page.Turns, manifest.RunID); ok {
 				prompt = turn.Prompt
@@ -325,6 +335,16 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 		promptDetails := []TraceDetail{}
 		memoryLayers := 0
 		if prompt != "" {
+			if redacted {
+				promptDetails = append(promptDetails, TraceDetail{
+					Label: "Retained copy", Inert: true, Kind: "context", Tone: "muted",
+					Status: "Redacted archive",
+					Body: "The transport copy of this prompt expired with the turn. What follows is the " +
+						"copy kept for the episode's lifetime, with any credential this process knows " +
+						"about replaced by [REDACTED] — so it will not hash to the fingerprint under " +
+						"Replay verification below.",
+				})
+			}
 			components, layers := promptContextDetails(prompt, present, trimmedByKind)
 			memoryLayers = layers
 			promptDetails = append(promptDetails, components...)

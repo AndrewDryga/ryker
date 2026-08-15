@@ -99,9 +99,18 @@ var Policies = []Policy{
 			"every prompt that referenced it has itself been emptied"},
 	{"context_manifest_refs", Cascade,
 		"one line of a manifest's inventory; deleted with context_manifests"},
+	{"context_manifest_texts", Cascade,
+		"the sanitized prompt a turn was given, deleted with its manifest and so with the " +
+			"episode — the episode-history horizon, which is the long one. It is a separate " +
+			"table from the submitted_prompt column beside it precisely so the two can expire " +
+			"on different clocks: the column is the transport copy and is spent in a day, this " +
+			"is the account of the turn and is what record-episode, promote-fixtures and any " +
+			"later export read. While they shared a clock, every harvest could reach only the " +
+			"turns that had happened yesterday"},
 	{"context_manifests", Cascade,
 		"what a turn was actually given; deleted with the attempt or episode it describes. Its " +
-			"prompt text is emptied earlier, on the operational horizon, leaving the digest"},
+			"submitted_prompt column is emptied earlier, on the operational horizon, leaving " +
+			"the digest; the sanitized copy in context_manifest_texts is what outlives it"},
 	{"conversation_memories", Memory,
 		"the per-channel memory of an ongoing conversation, expiring on the conversation-memory " +
 			"horizon"},

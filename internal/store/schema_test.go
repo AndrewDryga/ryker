@@ -192,6 +192,7 @@ func TestPublicationControlMigrationDirtiesExistingTaskCard(t *testing.T) {
 		ALTER TABLE evidence DROP COLUMN supersedes_json;
 		DROP TABLE agent_activity;
 		DROP TABLE context_artifacts;
+		DROP TABLE context_manifest_texts;
 		DROP TABLE change_events;
 		DROP TABLE standing_assignment_evaluations;
 		ALTER TABLE standing_assignments DROP COLUMN shadow;

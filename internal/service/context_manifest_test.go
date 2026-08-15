@@ -297,3 +297,77 @@ func TestAnElidedPromptIsRecordedAgainstTheAttemptThatSufferedIt(t *testing.T) {
 		t.Fatalf("a prompt that fits claimed it was elided: %+v", fits)
 	}
 }
+
+// A prompt carries whatever the turn was assembled from, and this process knows
+// its own credentials. The archive copy is the one an export would hand over —
+// record-episode already refuses to write a fixture without running every
+// string through the production sanitizer first, and the copy that now outlives
+// the turn answers to the same rule or the discipline is one table wide.
+//
+// Redaction happens BEFORE the write, never on the way out, because a database
+// that has held a secret has held it: a reader with a sqlite3 binary does not
+// pass through the code that would have cleaned it.
+func TestTheRetainedPromptIsRedactedBeforeItIsWritten(t *testing.T) {
+	const secret = "xoxb-9911-not-a-real-token"
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{"action":"reply","message":"Rotated."}`
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000, secret), nil)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	if created, err := st.AdmitSlackInput(ctx, core.SlackInput{
+		ID: "slack_secret", EnvelopeID: "env_secret", EventID: "EvSecret",
+		Kind: "mention", TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
+		MessageTS: "1700.400", UserID: cfg.Slack.Operators[0],
+		Text: "<@U999BOT> the deploy is failing with " + secret + " in the log",
+	}); err != nil || !created {
+		t.Fatalf("admit mention = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+
+	run, err := st.GetAgentRunBySource(ctx, "watch", "slack_secret")
+	if err != nil {
+		t.Fatalf("load the agent run: %v", err)
+	}
+	latest, err := st.GetLatestContextManifest(ctx, run.EpisodeID)
+	if err != nil {
+		t.Fatalf("load the attempt context manifest: %v", err)
+	}
+	manifest, err := st.GetContextManifest(ctx, latest.ID)
+	if err != nil {
+		t.Fatalf("re-read the manifest: %v", err)
+	}
+	if manifest.RetainedPrompt == "" {
+		t.Fatal("no prompt was retained for the attempt, so nothing outlives the turn")
+	}
+	if strings.Contains(manifest.RetainedPrompt, secret) {
+		t.Fatal("the retained prompt still carries the credential it was assembled with")
+	}
+	if !strings.Contains(manifest.RetainedPrompt, "[REDACTED]") {
+		t.Fatalf("the retained prompt was not sanitized at all: %d bytes with no redaction",
+			len(manifest.RetainedPrompt))
+	}
+	// The archive is a redaction OF the submitted prompt, not an alias for it.
+	// Were these two ever the same string, the assertions above would pass just
+	// as happily on a sanitizer that had been handed no secrets at all.
+	if !strings.Contains(manifest.SubmittedPrompt, secret) {
+		t.Fatal("the submitted prompt lost the credential too, so this test proves nothing " +
+			"about the archive copy in particular")
+	}
+	// The service sanitizer bounds Slack messages at MaxAssistantBytes. Reaching
+	// for it directly would quietly cut a real 175 KB prompt down to twelve
+	// kilobytes and stamp "_Response truncated._" on the end of the archive.
+	if strings.Contains(manifest.RetainedPrompt, "_Response truncated._") {
+		t.Fatal("the retained prompt was truncated by the Slack-sized sanitizer")
+	}
+}

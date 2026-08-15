@@ -23,6 +23,28 @@ func NewSanitizer(maxBytes int, secrets ...string) *Sanitizer {
 	return &Sanitizer{maxBytes: maxBytes, secrets: filtered}
 }
 
+// Unbounded is this sanitizer's redaction rules without its size limit, for the
+// callers that are writing to disk rather than to Slack.
+//
+// The limit exists because a Slack message has one; a retained prompt does not,
+// and running one through the service's own sanitizer would silently cut a
+// 175 KB archive down to MaxAssistantBytes and stamp "_Response truncated._" on
+// the end of it. The alternative was threading a second sanitizer through
+// service.New, whose signature 191 callers already depend on, to carry a secret
+// list the first one is holding.
+// It is nil-safe for the same reason Service.sanitizeText is: tests build
+// Service literals, and the fallback has to be a sanitizer that still strips
+// control characters rather than a nil that panics on the write path.
+func (s *Sanitizer) Unbounded() *Sanitizer {
+	switch {
+	case s == nil:
+		return &Sanitizer{}
+	case s.maxBytes == 0:
+		return s
+	}
+	return &Sanitizer{secrets: s.secrets}
+}
+
 // safeActionURL drops anything that is not an ordinary web link. Slack renders
 // a button URL directly, so a non-HTTPS scheme would be an unreviewed escape
 // from the host-owned control surface.

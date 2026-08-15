@@ -81,6 +81,7 @@ func TestSchemaV63RepaintsPublicationLifecycleCards(t *testing.T) {
 		ALTER TABLE evidence DROP COLUMN supersedes_json;
 		DROP TABLE agent_activity;
 		DROP TABLE context_artifacts;
+		DROP TABLE context_manifest_texts;
 		DROP TABLE replay_cancellations;
 		DROP TABLE change_events;
 		DROP TABLE standing_assignment_evaluations;

@@ -489,6 +489,19 @@ func (s *Store) CreateContextManifest(
 	); err != nil {
 		return core.ContextManifest{}, err
 	}
+	// The archive copy, in the same transaction as the manifest it describes so
+	// a turn can never end up with one and not the other. Written only when the
+	// caller sanitized something: an empty row would claim a prompt was kept and
+	// found to be blank, which is a different fact from no prompt at all.
+	if manifest.RetainedPrompt != "" {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO context_manifest_texts (manifest_id, prompt, created_at)
+			VALUES (?, ?, ?)`,
+			manifest.ID, manifest.RetainedPrompt, manifest.CreatedAt.Format(timestampFormat),
+		); err != nil {
+			return core.ContextManifest{}, err
+		}
+	}
 	for index := range manifest.References {
 		ref := &manifest.References[index]
 		if ref.ID == "" {
@@ -607,7 +620,9 @@ func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core
 		       usage_input_tokens, usage_cached_input_tokens,
 		       usage_output_tokens, usage_reasoning_tokens, usage_cost_usd,
 		       usage_costed_turns,
-		       usage_timed_turns, usage_queued_ms, usage_provider_ms, usage_host_ms
+		       usage_timed_turns, usage_queued_ms, usage_provider_ms, usage_host_ms,
+		       COALESCE((SELECT t.prompt FROM context_manifest_texts AS t
+		                 WHERE t.manifest_id = context_manifests.id), '')
 		FROM context_manifests WHERE id = ?`, manifestID).Scan(
 		&item.ID, &item.EpisodeID, &item.AttemptID, &item.ParentManifestID,
 		&item.Version, &item.PromptVersion, &item.ContractVersion,
@@ -617,6 +632,7 @@ func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core
 		&item.Usage.OutputTokens, &item.Usage.ReasoningTokens,
 		&item.Usage.CostUSD, &item.Usage.CostedTurns,
 		&item.Latency.Turns, &queuedMS, &providerMS, &hostMS,
+		&item.RetainedPrompt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.ContextManifest{}, ErrNotFound

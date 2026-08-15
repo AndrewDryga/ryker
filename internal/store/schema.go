@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 79
+const currentSchemaVersion = 80
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -453,4 +453,8 @@ var migrations = map[int]string{
 	// the turn that declared it would be forgotten by the round that needs it,
 	// and the loop this field exists to end would come back one turn later.
 	79: `ALTER TABLE evidence ADD COLUMN supersedes_json TEXT NOT NULL DEFAULT '[]';`,
+	// The sanitized prompt, kept for as long as the episode it belongs to
+	// rather than for the day the transport did. The DDL and the measured cost
+	// of keeping it live in migrationddl.V80.
+	80: migrationddl.V80,
 }

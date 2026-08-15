@@ -879,10 +879,16 @@ type ManifestRow struct {
 	Provider, Model, Effort, PromptVersion string
 	Contract, ToolSchema, Preset           string
 	SubmittedPrompt                        string
-	Version, AttemptNumber                 int
-	Created                                time.Time
-	Refs                                   []ContextRef
-	Omissions                              []string
+	// RetainedPrompt is the sanitized archive copy, which outlives
+	// SubmittedPrompt by the difference between a day and the episode's life.
+	// Both are read because they are different claims: the submitted column is
+	// the exact bytes the digest below the panel was taken over, and the
+	// retained one is those bytes with the secrets taken out.
+	RetainedPrompt         string
+	Version, AttemptNumber int
+	Created                time.Time
+	Refs                   []ContextRef
+	Omissions              []string
 }
 
 func (r *Reader) Manifest(ctx context.Context, episodeID string) (ManifestRow, error) {
@@ -908,9 +914,10 @@ func (r *Reader) Manifests(ctx context.Context, episodeID string) ([]ManifestRow
 	         COALESCE(m.provider,''), COALESCE(m.model,''), COALESCE(m.reasoning_effort,''),
 	         COALESCE(m.prompt_version,''), COALESCE(m.contract_version,''),
 	         COALESCE(m.tool_schema_version,''), COALESCE(m.preset,''),
-	         COALESCE(m.submitted_prompt,''), m.version,
+	         COALESCE(m.submitted_prompt,''), COALESCE(x.prompt,''), m.version,
 	         COALESCE(m.omissions_json,'[]'), m.created_at
 	  FROM context_manifests AS m
+	  LEFT JOIN context_manifest_texts AS x ON x.manifest_id = m.id
 	  JOIN episode_attempts AS t ON t.id = m.attempt_id
 	  JOIN agent_runs AS a ON a.id = t.agent_run_id
 	  WHERE m.episode_id = ? OR a.episode_id = ?
@@ -920,7 +927,7 @@ func (r *Reader) Manifests(ctx context.Context, episodeID string) ([]ManifestRow
 		err := rows.Scan(&row.ID, &row.RunID, &row.AttemptID, &row.AttemptNumber,
 			&row.Provider, &row.Model, &row.Effort, &row.PromptVersion,
 			&row.Contract, &row.ToolSchema, &row.Preset, &row.SubmittedPrompt,
-			&row.Version, &omissions, &created)
+			&row.RetainedPrompt, &row.Version, &omissions, &created)
 		row.Created = parseStamp(created)
 		_ = json.Unmarshal([]byte(omissions), &row.Omissions)
 		return row, err

@@ -86,7 +86,10 @@ func (s *Service) ensureAttemptContextManifest(
 		Model:           model,
 		ReasoningEffort: effort,
 		SubmittedPrompt: prompt,
-		Omissions:       core.ContextOmissionReasons(omissions),
+		// Redacted before the write, never after: this copy outlives the turn
+		// and is the one an export carries. The raw column above is transport.
+		RetainedPrompt: s.sanitizer.Unbounded().Text(prompt),
+		Omissions:      core.ContextOmissionReasons(omissions),
 		References: []core.ContextReference{
 			contextReference("source_input", run.SourceKind+":"+run.SourceID, nil, "eligible", map[string]string{
 				"channel_id": run.ChannelID,

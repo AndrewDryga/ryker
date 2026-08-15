@@ -936,6 +936,49 @@ USER: check this`,
 	t.Fatal("trace has no prompt step")
 }
 
+// A day after the turn, the transport copy of the prompt is gone and the panel
+// used to say "the exact prompt text was not kept for this attempt" — which was
+// true of the column it was reading and false of the database, once the archive
+// copy started being written. The panel reads the copy that is still there.
+//
+// It says which copy, too. The digest under Replay verification was taken over
+// the submitted bytes, so a reader who hashes the redacted text and finds it
+// disagrees has to be told why before they conclude the trace is lying.
+func TestAnExpiredPromptStillRendersFromTheRetainedCopy(t *testing.T) {
+	page := episodePage{Manifest: ManifestRow{
+		Version: 1,
+		RetainedPrompt: `SYSTEM: inspect the request
+<untrusted-slack-context>{"target_message":{"text":"check [REDACTED] this"}}</untrusted-slack-context>
+USER: check this`,
+	}}
+
+	trace := buildEpisodeTrace(config.Pricing{}, page, nil)
+	for _, step := range trace.Steps {
+		if step.ID != "prompt" {
+			continue
+		}
+		joined, said := "", false
+		for _, detail := range step.Details {
+			joined += detail.Label + "\n" + detail.Body + "\n"
+			if detail.Status == "Redacted archive" {
+				said = true
+			}
+		}
+		if strings.Contains(joined, "was not kept for this attempt") {
+			t.Fatal("the panel reported no prompt text while the retained copy was sitting in the row")
+		}
+		if !strings.Contains(joined, "check [REDACTED] this") {
+			t.Fatalf("the retained prompt was not rendered into the panel's sections:\n%s", joined)
+		}
+		if !said {
+			t.Fatal("the panel showed the redacted archive as though it were the submitted bytes " +
+				"the fingerprint below it was taken over")
+		}
+		return
+	}
+	t.Fatal("trace has no prompt step")
+}
+
 func TestPromptContextDetailsExplainSlackAndOperationalMemory(t *testing.T) {
 	prompt := `SYSTEM
 <untrusted-slack-context>

@@ -297,12 +297,39 @@ provider-reported USD cost are durable per turn when Coop receives them. An
 adapter may report tokens without money, or neither; those gaps remain explicit
 instead of being rendered as zero spend.
 
-### The compiled prompt — kept as a digest, not as text
+### The compiled prompt — kept as text, on the episode's clock
 
-The context manifest records a sha256 of the compiled prompt, and only the
-engineering-task path keeps the text itself. Twelve of 647 turns on a production
-database can be read back; the rest can only be compared between attempts. The
-digest is shown where the text is not, so the page says which of the two it has.
+Two copies, deliberately, because they answer different questions and expire on
+different clocks.
+
+`context_manifests.submitted_prompt` is the exact submitted bytes, and the
+`compiled_prompt` reference records a sha256 over them. It is transport state:
+Prune empties it on the operational horizon, twenty-four hours, alongside the
+agent run context it rides with.
+
+`context_manifest_texts.prompt` is the same prompt after the production
+sanitizer, cascading from the manifest and so from the episode — the
+episode-history horizon, thirty days by default, and longer while anything pins
+the episode. It is what record-episode, promote-fixtures and any later export
+read.
+
+Before the second copy existed there was only the first, and the survivorship
+said what that cost: 428 of 1221 manifests on the tenant database still held a
+prompt, and every one of them was from the previous two days. The harvest was
+never limited to a code path, it was limited to yesterday.
+
+The trace page prefers the submitted bytes while they exist, because the digest
+beside them was taken over those. When only the archive copy is left it renders
+that instead and labels it "Redacted archive", saying in as many words that the
+text will not hash to the fingerprint below it. Neither copy is silently
+substituted for the other.
+
+What it costs, measured on both deployments before it shipped: tenant freezes
+~142 manifests a day at ~132 KB of prompt each — ~19 MB a day, ~131 MB a week,
+~560 MB once the thirty-day horizon fills. emisar, ~26 a day, is ~2 MB a day and
+~60 MB filled. Prompts are bounded by `coop.MaxPromptBytes` at 256 KiB, not by
+the 60 KiB `agentprompt` applies to its own; the measured p50 is 139 KB and the
+p90 175 KB.
 
 ### Prompt composition — needs a size per reference
 

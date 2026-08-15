@@ -1254,11 +1254,20 @@ type ContextManifest struct {
 	Model             string
 	ReasoningEffort   string
 	SubmittedPrompt   string
-	Omissions         []string
-	CreatedAt         time.Time
-	References        []ContextReference
-	Usage             ContextUsage
-	Latency           ContextLatency
+	// RetainedPrompt is the same prompt after the production sanitizer, kept in
+	// its own table on the episode's clock instead of the turn's. It exists
+	// because SubmittedPrompt is transport state that Prune empties at
+	// twenty-four hours, which left every harvest — record-episode,
+	// promote-fixtures, any future export — able to read only the turns that
+	// happened yesterday. It is deliberately not populated by
+	// GetLatestContextManifest: the delta-turn decision reads that path on every
+	// turn and has no use for a hundred kilobytes of archive.
+	RetainedPrompt string
+	Omissions      []string
+	CreatedAt      time.Time
+	References     []ContextReference
+	Usage          ContextUsage
+	Latency        ContextLatency
 }
 
 // ContextArtifact is the retained body of one bounded input artifact handed
