@@ -3739,6 +3739,14 @@ func (s *Service) finalizeIncidentAgentRun(
 			s.offerEpisodeKnowledge(
 				ctx, run, incident.ID, incident.ChannelID, episodeOperations,
 			)
+			// And once more for the offer that asks for the most: standing
+			// authority to open pull requests for a recurring signal without
+			// anyone clicking again. Same shape, same silence when the bounds
+			// cannot be normalized, and the same rule that nothing exists
+			// before the operator's click.
+			s.offerStandingAssignment(
+				ctx, run, incident.ID, incident.ChannelID, episodeOperations,
+			)
 			if conversation && s.cfg.IsOperator(conversationInput.UserID) {
 				offers, acknowledgement, replaced := normalizedOffers(
 					conversationInput,

@@ -49,3 +49,52 @@ func TestTheWorthSentenceSaysWhenNothingWasProved(t *testing.T) {
 		t.Errorf("worth sentence does not say when it last would have acted:\n%s", proved)
 	}
 }
+
+// The offer card carries one control, and the dialog on it names what is being
+// agreed to rather than asking "are you sure".
+//
+// This is the moment an operator hands Responder the authority to open pull
+// requests without being asked again, and it is the only moment they see the
+// bounds. So the button is a confirmation with a dialog, the dialog states the
+// class and the repository in the same sentence as the word "without asking
+// again", and the card says both that nothing is granted yet and that what the
+// click grants is still shadowed. A neutral button here would be the one
+// control in this product where a mis-click costs the most.
+func TestTheAssignmentOfferCardConfirmsWhatIsBeingGranted(t *testing.T) {
+	message := WithAssignmentOffer(Message{}, core.StandingAssignment{
+		Repository: "AndrewDryga/responder", ChangeClass: "dependency_upgrade",
+		SignalPattern: "renovate failure", DailyBudget: 2,
+		PathGlobs: []string{"go.mod"}, ExpiresAt: time.Now().Add(720 * time.Hour),
+	}, 30, `{"version":1}`, "")
+
+	actions := allActions(message)
+	if len(actions) != 1 {
+		t.Fatalf("the offer card carries %d controls, want exactly one", len(actions))
+	}
+	if actions[0].ID != ActionConfirmAssignmentOffer {
+		t.Fatalf("control is %q, want %q", actions[0].ID, ActionConfirmAssignmentOffer)
+	}
+	if actions[0].Confirm == "" {
+		t.Fatal("the widest grant in the product is one unconfirmed click away")
+	}
+	for _, required := range []string{"without asking again", "dependency upgrade", "shadow"} {
+		if !strings.Contains(actions[0].Confirm, required) {
+			t.Errorf("the dialog does not say %q:\n%s", required, actions[0].Confirm)
+		}
+	}
+	rendered := strings.Join(append(message.Sections, message.Context...), "\n")
+	for _, row := range message.Rows {
+		rendered += "\n" + row.Text
+	}
+	for _, required := range []string{
+		"Nothing is granted yet", "shadow, opens nothing",
+		// The expiry is a span rather than a date on this card alone: it is
+		// read before the grant exists, and a date would be the one it would
+		// have expired on had the button been pressed the instant it was posted.
+		"expires 30 days after confirmation",
+	} {
+		if !strings.Contains(rendered, required) {
+			t.Errorf("the offer card does not say %q:\n%s", required, rendered)
+		}
+	}
+}

@@ -63,8 +63,8 @@ Slack displays only the manifest's static slash-command usage hint; it does not 
 dynamic subcommand completions. Keep the hint short, and keep it to verbs that exist. The hint names
 the emergency kit — `status`, `proactive`, `shadow`, and `help` — and the full guide comes from
 `/responder` or `/responder help` rather than from the picker. `assignments` is the one verb the
-guide carries that the hint does not: it is a temporary creation surface for standing assignments,
-kept only until an `offer_assignment` confirm card exists. Anything else the command used to do is
+guide carries that the hint does not: it reads a channel's standing grants and pauses, resumes or
+deletes one. Creating one is `offer_assignment` and its confirmation card, not a verb. Anything else the command used to do is
 now on App Home, on a pinned card's buttons, in the web control plane, or in `responder.yaml`; a
 retired verb answers with the one line naming which.
 

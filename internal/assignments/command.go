@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
 // Repository is the store surface this command family needs, named here so the
@@ -30,10 +28,21 @@ const directoryLimit = 20
 // operator who mistyped and one who typed nothing want the same answer.
 var errUsage = errors.New(Usage())
 
-// Result is what a command produced: the message to post, and the audit line if
-// it changed something.
+// Result is what a command produced: what to render, and the audit line if it
+// changed something.
+//
+// It carries values rather than a rendered card so this package never imports
+// the presentation layer. That was a convenience while `create` lived here, and
+// it stopped being one the moment internal/investigation needed the same
+// validator the confirmation click is measured against — a domain package the
+// operation contract imports must not drag Slack rendering in behind it.
 type Result struct {
-	Message slackui.Message
+	Directory []core.StandingAssignment
+	Tallies   map[string]core.StandingAssignmentTally
+	// Changed and Verb are set only by pause, resume and delete. An empty Verb
+	// means this result is the directory.
+	Changed core.StandingAssignment
+	Verb    string
 	Audit   core.AuditEvent
 }
 
@@ -43,12 +52,19 @@ type Result struct {
 // branch of it is a decision about scoped authority — what a grant covers, what
 // it may not, when it lapses — and none of it needs Slack, Coop or a clock the
 // caller does not already have.
+//
+// `create` is not a branch any more. It is the one verb in this family that
+// GRANTED authority rather than reading or revoking it, and it is now the
+// offer_assignment operation: an operator says what they want watched, the host
+// normalizes the bounds, and a confirmation card shows the normalized grant
+// before anything exists. The verb still answers — it points at that
+// conversation — because an operator who typed a command that worked last week
+// did not typo, and "unknown subcommand" would tell them they did.
 func Run(
 	ctx context.Context,
 	repository Repository,
 	args []string,
 	input core.SlackInput,
-	now time.Time,
 ) (Result, error) {
 	channelID, actorID := input.ChannelID, input.UserID
 	if len(args) == 0 {
@@ -58,7 +74,9 @@ func Run(
 	case "list":
 		return list(ctx, repository, channelID)
 	case "create", "add", "new":
-		return create(ctx, repository, args[1:], channelID, actorID, now)
+		return Result{}, errors.New(
+			"`/responder assignments " + args[0] + "` is gone. " + CreationPointer,
+		)
 	case "pause", "resume", "delete":
 		return manage(ctx, repository, args[0], args[1:], channelID, actorID)
 	default:
@@ -79,36 +97,26 @@ func list(ctx context.Context, repository Repository, channelID string) (Result,
 		}
 		tallies[assignment.ID] = tally
 	}
-	return Result{Message: slackui.AssignmentDirectoryMessage(found, tallies)}, nil
+	return Result{Directory: found, Tallies: tallies}, nil
 }
 
-func create(
-	ctx context.Context,
-	repository Repository,
-	args []string,
-	channelID string,
-	actorID string,
-	now time.Time,
-) (Result, error) {
-	request, err := ParseCreate(args, channelID, actorID, now)
-	if err != nil {
-		return Result{}, err
+// CreatedAudit is the ledger line for a confirmed offer.
+//
+// It lives here rather than at the confirmation's call site so the sentence an
+// operator reads back — what class, in which repository, watching what, how
+// often — is written once and stays beside everything else this feature says
+// about itself. "shadow" leads it because that is the difference between a
+// grant and a rehearsal.
+func CreatedAudit(assignment core.StandingAssignment, actorID string) core.AuditEvent {
+	return core.AuditEvent{
+		Kind: "proactive.assignment", ActorID: actorID, ObjectID: assignment.ID,
+		Outcome: "created",
+		Detail: fmt.Sprintf(
+			"shadow · %s in %s · %s · up to %d a day",
+			assignment.ChangeClass, assignment.Repository,
+			assignment.SignalPattern, assignment.DailyBudget,
+		),
 	}
-	saved, err := repository.Create(ctx, request.Assignment)
-	if err != nil {
-		return Result{}, err
-	}
-	return Result{
-		Message: slackui.AssignmentSavedMessage(saved),
-		Audit: core.AuditEvent{
-			Kind: "proactive.assignment", ActorID: actorID, ObjectID: saved.ID,
-			Outcome: "created",
-			Detail: fmt.Sprintf(
-				"shadow · %s in %s · %s · up to %d a day",
-				saved.ChangeClass, saved.Repository, saved.SignalPattern, saved.DailyBudget,
-			),
-		},
-	}, nil
 }
 
 // manage pauses, resumes or deletes one assignment.
@@ -148,7 +156,7 @@ func manage(
 		return Result{}, err
 	}
 	return Result{
-		Message: slackui.AssignmentChangedMessage(assignment, past),
+		Changed: assignment, Verb: past,
 		Audit: core.AuditEvent{
 			Kind: "proactive.assignment", ActorID: actorID, ObjectID: assignment.ID,
 			Outcome: past, Detail: assignment.SignalPattern + " in " + assignment.Repository,

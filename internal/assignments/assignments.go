@@ -1,36 +1,29 @@
-// Package assignments owns what a standing assignment means: the brief an
-// unattended task works from, the words an operator uses to create one, and the
-// sentence that says whether a shadow period has proved anything.
+// Package assignments owns what a standing assignment means: the bounds an
+// offer must name, the normalized grant an operator confirms, the brief an
+// unattended task works from, and the sentence that says whether a shadow
+// period has proved anything.
 //
 // It is a package rather than a corner of internal/service because none of it
 // needs a database, a Slack client or a Coop session, and all of it is the part
 // worth testing. The service half is the wiring — read the rows, hand them
 // here, post what comes back.
+//
+// It imports no presentation, and that is now load-bearing rather than tidy:
+// internal/investigation validates offer_assignment through ValidateOffer here,
+// so the rule a model reads in a correction is literally the rule the
+// operator's confirmation click will be measured against. Two copies of a
+// bound is two chances for an offer to be accepted at result time and refused
+// at confirm time for a reason nobody was ever told.
 package assignments
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/store/standingassignmentstore"
 )
-
-// maxExpiry is the longest grant this command will write.
-//
-// Ninety days is already long for authority nobody re-confirms; the point of an
-// expiry is that a forgotten assignment decays rather than running forever, and
-// an expiry beyond the horizon anybody plans on is an expiry in name only.
-const maxExpiry = 90 * 24 * time.Hour
-
-// defaultExpiry is what an operator gets for not saying. Short enough that a
-// first assignment is a trial rather than a standing arrangement.
-const defaultExpiry = 14 * 24 * time.Hour
 
 // Objective is the brief the engineering task works from.
 //
@@ -63,21 +56,29 @@ func Objective(assignment core.StandingAssignment, conclusion string) string {
 // gate produced it: the tally groups refusals by that string to find the one
 // that repeats, and a reason decorated per assignment would split one recurring
 // refusal into two rarer-looking ones.
+//
+// It takes the gate's two values rather than internal/decision's
+// ProactiveEligibility because this package is now imported by
+// internal/investigation, and internal/decision imports internal/investigation
+// through the evidence policy. The eligibility struct is exactly a bool and a
+// string, so nothing is lost but the name, and what is bought is that the
+// operation contract can reach the offer validator at all.
 func Evaluation(
 	assignment core.StandingAssignment,
 	inputID string,
 	episodeID string,
 	signal string,
-	eligibility decision.ProactiveEligibility,
+	eligible bool,
+	reason string,
 ) core.StandingAssignmentEvaluation {
 	verdict := "declined"
-	if eligibility.Eligible {
+	if eligible {
 		verdict = "eligible"
 	}
 	return core.StandingAssignmentEvaluation{
 		AssignmentID: assignment.ID, InputID: inputID, EpisodeID: episodeID,
 		Signal: signal, Shadow: assignment.Shadow,
-		Verdict: verdict, Reason: eligibility.Reason,
+		Verdict: verdict, Reason: reason,
 	}
 }
 
@@ -114,7 +115,7 @@ func AuditEvent(assignmentID, inputID, outcome, detail string) core.AuditEvent {
 	return core.AuditEvent{
 		Kind: "proactive.assignment", ActorID: "responder",
 		ObjectID: assignmentID, Outcome: outcome,
-		Detail: decision.BoundedField(detail+" · input="+inputID, 500),
+		Detail: core.BoundedText(detail+" · input="+inputID, 500),
 	}
 }
 
@@ -158,21 +159,22 @@ func AuditDetail(assignment core.StandingAssignment, reason string) string {
 	return reason
 }
 
-// Request is a create command an operator typed, normalized.
-type Request struct {
-	Assignment core.StandingAssignment
-}
-
 // Usage is the help for the whole family. It lives here rather than in the
 // slash package's usage table so that the grammar and its documentation cannot
 // drift apart while sitting in two files.
+//
+// Creation is not in it, and the sentence that replaces it is doing work.
+// `create` was a nine-key `key=value` line an operator had to compose without
+// ever seeing what it would produce, and every key in it was a bound on
+// unattended pull-request authority; a miscounted `paths=` was a
+// repository-wide grant that read as a narrow one. Asking in words and reading
+// the normalized bounds off a card is not a nicer spelling of that command, it
+// is the only spelling where the operator confirms the thing that gets stored.
 func Usage() string {
 	return "*Manage standing assignments for this channel.*\n\n" +
 		"`/responder assignments` lists them with what each has decided so far. " +
 		"`/responder assignments pause <id>`, `resume <id>` and `delete <id>` manage one.\n\n" +
-		"`/responder assignments create repo=<repository> class=<" +
-		strings.Join(core.StandingAssignmentChangeClasses, "|") + "> " +
-		"budget=<1-20> days=<1-90> paths=<glob,glob> signal=<words to watch for>`\n\n" +
+		CreationPointer + "\n\n" +
 		"A standing assignment is scoped authority to open a pull request without a " +
 		"per-action click. Every one is created in shadow: it is evaluated by the real " +
 		"gate — the signal must match, have recurred three times in fourteen days, and " +
@@ -181,98 +183,14 @@ func Usage() string {
 		"Read the tally before asking for the flag to be cleared."
 }
 
-// ParseCreate turns the words an operator typed into a scoped grant.
+// CreationPointer is what `/responder assignments create` answers with.
 //
-// key=value rather than positional arguments: every field here is a bound on
-// unattended work, and an operator who miscounted positions would be granting
-// something other than what they read back. Unknown keys are refused rather
-// than ignored for the same reason — a typo in `paths=` that silently became no
-// path restriction is a repository-wide grant nobody asked for.
-func ParseCreate(
-	args []string,
-	channelID string,
-	actorID string,
-	now time.Time,
-) (Request, error) {
-	assignment := core.StandingAssignment{
-		ChannelID: channelID, ActorID: actorID, DailyBudget: 1, Shadow: true,
-		ExpiresAt: now.Add(defaultExpiry),
-	}
-	var signal []string
-	for index, arg := range args {
-		key, value, found := strings.Cut(arg, "=")
-		if !found {
-			// Everything after signal= is the pattern, so an operator can write
-			// words the way they read them in the channel.
-			if len(signal) > 0 {
-				signal = append(signal, arg)
-				continue
-			}
-			return Request{}, fmt.Errorf(
-				"`%s` is not `key=value`; every field of an assignment is a bound on "+
-					"unattended work, so none of them are positional", arg,
-			)
-		}
-		if err := applyField(&assignment, &signal, key, value, now); err != nil {
-			return Request{}, err
-		}
-		_ = index
-	}
-	assignment.SignalPattern = strings.Join(signal, " ")
-	if strings.TrimSpace(assignment.SignalPattern) == "" {
-		return Request{}, errors.New(
-			"an assignment needs `signal=<words>` naming what it watches for; without it " +
-				"the grant covers every message in the channel",
-		)
-	}
-	return Request{Assignment: assignment}, nil
-}
-
-func applyField(
-	assignment *core.StandingAssignment,
-	signal *[]string,
-	key string,
-	value string,
-	now time.Time,
-) error {
-	switch key {
-	case "repo", "repository":
-		assignment.Repository = value
-	case "class", "change":
-		assignment.ChangeClass = value
-	case "budget":
-		budget, err := strconv.Atoi(value)
-		if err != nil {
-			return fmt.Errorf("`budget=%s` is not a number of pull requests a day", value)
-		}
-		assignment.DailyBudget = budget
-	case "days":
-		days, err := strconv.Atoi(value)
-		if err != nil || days < 1 {
-			return fmt.Errorf("`days=%s` is not a number of days this grant lasts", value)
-		}
-		expiry := time.Duration(days) * 24 * time.Hour
-		if expiry > maxExpiry {
-			return errors.New(
-				"a standing assignment lasts at most 90 days; authority nobody " +
-					"re-confirms is authority nobody is deciding about",
-			)
-		}
-		assignment.ExpiresAt = now.Add(expiry)
-	case "paths", "path":
-		for _, glob := range strings.Split(value, ",") {
-			if trimmed := strings.TrimSpace(glob); trimmed != "" {
-				assignment.PathGlobs = append(assignment.PathGlobs, trimmed)
-			}
-		}
-	case "signal", "signals":
-		*signal = append(*signal, value)
-	default:
-		return fmt.Errorf(
-			"`%s=` is not a field of a standing assignment. A key this command does not "+
-				"know is a bound it did not apply, so it refuses rather than granting "+
-				"something wider than what was typed", key,
-		)
-	}
-	return nil
-}
+// It names the surface AND gives the sentence, because the retired verb's
+// replacement is a conversation and an operator who has only ever typed
+// `create repo=... class=...` has no reason to guess that plain English reaches
+// further than the grammar did. Every bound the command took is in the example,
+// so the pointer doubles as the documentation the key list used to be.
+const CreationPointer = "*Ask for it in the channel instead.* Say what you want watched and " +
+	"what may change — \"review every terraform plan in AndrewDryga/responder and open PRs " +
+	"for drift, 2 a day, for 30 days\" — and Responder shows you the exact normalized " +
+	"bounds on a confirmation card before anything is granted."

@@ -189,7 +189,7 @@ func Compile(episode core.WorkEpisode) InvestigationContract {
 			"offer_task", "attach_visual", "update_memory", "offer_memory", "offer_preference",
 			"offer_rule", "offer_schedule", "record_alert_assessment",
 			"record_repository_contents", "offer_grant_promotion",
-			"offer_runbook_draft", "offer_kb_card", "complete_episode",
+			"offer_runbook_draft", "offer_kb_card", "offer_assignment", "complete_episode",
 		},
 	}
 	switch conclusionKind {

@@ -71,7 +71,17 @@ var promptCeilings = map[string]int{
 	// 39,921 bytes. 40 KiB restores the roughly 1 KiB of margin the paragraph
 	// above says this entry wants; 39 KiB + 256 would have left 271 bytes,
 	// which is the tripwire that note is about.
-	"watch": 40 * 1024,
+	//
+	// And again on 2026-08-15 for offer_assignment, which replaced
+	// `/responder assignments create` — the last slash verb that GRANTED
+	// authority, and one an operator had to compose as nine key=value bounds
+	// without ever seeing what they would produce. 521 bytes buys the
+	// conversational path and the closed change-class set the model has to
+	// choose from; the operation list is inside the policy block every variant
+	// carries, so all three entries here pay for it. Measured 40,531, which
+	// left the previous 40 KiB with 429 bytes — the tripwire again. 40 KiB +
+	// 512 restores the roughly 1 KiB this entry says it wants.
+	"watch": 40*1024 + 512,
 
 	// The ambient measurement above is the cheap case, and for a while it was
 	// the only one — so this test reported "37% left for context" while an
@@ -138,7 +148,11 @@ var promptCeilings = map[string]int{
 	// list is inside the policy block both variants carry; it is the same
 	// instruction either way. Measured 46,525 on the merged tree, which left
 	// the previous 45 KiB + 512 with 67 bytes; 46 KiB + 512 is a ratchet again.
-	"watch-operator": 46*1024 + 512,
+	//
+	// And once more the same day for offer_assignment, again the same 521 bytes
+	// in the same shared block. Measured 47,135, leaving 46 KiB + 512 with 481
+	// bytes; 47 KiB is 993, which is the margin these entries are written to.
+	"watch-operator": 47 * 1024,
 
 	// The expensive turn, kept measured on purpose. Conditional inclusion means
 	// the two entries above now describe turns that skip 5,391 bytes of rules,
@@ -149,7 +163,10 @@ var promptCeilings = map[string]int{
 	// Measured 49,357 on landing with the grant bullet aboard; 49 KiB + 512,
 	// and re-measured here with request_record aboard as well: 50,467, which
 	// left the old number 221 bytes. 50 KiB + 512 on 2026-08-15.
-	"watch-operator-alert": 50*1024 + 512,
+	// And 51,077 with offer_assignment aboard the same day, which left that
+	// number 635 bytes. 51 KiB is 1,147 — the margin the entries above are
+	// written to, on the variant that has the least of it to spare.
+	"watch-operator-alert": 51 * 1024,
 }
 
 func TestStaticPromptSizeIsBounded(t *testing.T) {

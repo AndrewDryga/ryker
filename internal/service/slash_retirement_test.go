@@ -83,8 +83,7 @@ func TestARetiredSubcommandAnswersWithWhereItWent(t *testing.T) {
 			}
 			// Whatever they typed, the answer states the whole of what is left,
 			// `assignments` included: a pointer that names four of five verbs
-			// sends an operator looking for the fifth in the App Home, where
-			// nothing can create one.
+			// sends an operator looking for the fifth somewhere it is not.
 			for _, kept := range keptSlashKit {
 				if !strings.Contains(answer, kept) {
 					t.Fatalf(
@@ -101,13 +100,20 @@ func TestARetiredSubcommandAnswersWithWhereItWent(t *testing.T) {
 //
 // Four of them are the emergency kit — they reach no model, need no Coop
 // session, and answer privately, so they work when the conversational path is
-// the thing that is broken. `assignments` is the fifth and does not belong to
-// that argument at all: it is here because standing assignments have no
-// `offer_assignment` result operation behind them yet, so slash is the ONLY
-// surface that can create one, and retiring the spelling on schedule would have
-// retired the feature with it. When the confirm card lands, this entry, the
-// router case, the help section and the docs go together — and the retirement
-// list below gains `assignments` and `assignment`.
+// the thing that is broken. `assignments` is the fifth and belongs to that
+// argument for half of what it does: reading a channel's standing grants and
+// taking one back are exactly the things an operator needs when the model is
+// the thing misbehaving.
+//
+// Its CREATION verb was here too, for a day and a half, and for a different
+// reason: standing assignments landed with no `offer_assignment` result
+// operation behind them, so slash was the only surface that could grant one and
+// retiring the spelling on schedule would have retired the feature with it. That
+// operation landed on 2026-08-15, so `create`, `add` and `new` now answer with
+// the conversation instead — see TestTheRetiredAssignmentCreateVerbAnswersWith
+// TheConversation. The family stays in this list because the reading half of it
+// is still routed; a future move of list/pause/resume/delete to the App Home is
+// what would take this entry out.
 var keptSlashKit = []string{"status", "proactive", "shadow", "assignments", "help"}
 
 // Every alias spelling of a removed verb is removed too.

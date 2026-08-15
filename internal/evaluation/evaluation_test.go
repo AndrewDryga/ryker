@@ -1413,6 +1413,48 @@ func TestTheRecordRequestContractHasACorpusCase(t *testing.T) {
 	}
 }
 
+// The same rule, for the operation that asks for AUTHORITY.
+//
+// offer_assignment replaced `/responder assignments create` on 2026-08-15, and
+// both of its failure modes are invisible from the host side. A model that
+// agrees in prose — "sure, I'll watch for that" — returns a perfectly valid
+// result, passes every deterministic test here, and promises an operator
+// unattended work that nothing will ever do. A model that emits the operation
+// alone repeats the pairing failure request_record's first live gate run
+// produced on both of its cases the same day. Only a real model against the
+// real prompt tells either apart from a correct answer.
+func TestTheAssignmentOfferContractHasACorpusCase(t *testing.T) {
+	file, err := os.Open(filepath.Join("..", "..", "testdata", "eval", "prompts.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	cases, err := decodeEvaluationCases(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, testCase := range cases {
+		if !slices.Contains(testCase.WantOperations, "offer_assignment") {
+			continue
+		}
+		// The pairing half. A case that wanted the operation and did not
+		// require a completion beside it would pass on exactly the result the
+		// prompt's BESIDE sentence exists to prevent.
+		if !testCase.RequireCompletion {
+			t.Errorf(
+				"case %q wants offer_assignment without requiring a completion beside it, "+
+					"so the pairing rule the prompt states is exercised by nothing",
+				testCase.Name,
+			)
+		}
+		return
+	}
+	t.Fatal(
+		"no prompts case requires offer_assignment; the only surface that grants " +
+			"standing pull-request authority would be exercised by nothing",
+	)
+}
+
 // eval-prompts must submit the host's own handoff prompt, not a paraphrase and
 // not a paraphrase wrapped in scaffolding.
 //

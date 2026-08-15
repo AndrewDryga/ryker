@@ -34,8 +34,9 @@ func AssignmentDirectoryMessage(
 			"No standing assignments are configured in this channel.",
 			"A standing assignment is scoped authority to open a pull request without a " +
 				"per-action click: one signal, one repository, one class of change, a daily " +
-				"budget and an expiry. Create one with `/responder assignments create " +
-				"repo=<repository> class=<change class> signal=<words to watch for>`.",
+				"budget and an expiry. Ask for one in your own words — \"watch for renovate " +
+				"failures here and open dependency PRs, 2 a day, for 30 days\" — and Responder " +
+				"will show you the exact normalized bounds to confirm.",
 		}
 		message.Context = []string{
 			"Every assignment is created in shadow: it is evaluated by the real gate and " +
@@ -85,6 +86,71 @@ func assignmentPathFact(assignment core.StandingAssignment) string {
 	return "paths " + strings.Join(assignment.PathGlobs, ", ")
 }
 
+// assignmentOfferContext is the boundary line every assignment card carries.
+//
+// Both halves are load-bearing. Nothing exists until the button is pressed —
+// which is the claim the whole offer discipline rests on — and what the button
+// creates is still shadowed, because an operator reading "scoped authority to
+// open pull requests" and pressing a primary-styled button is entitled to know
+// that the first thing it does is rehearse rather than act.
+const assignmentOfferContext = "Nothing is granted yet. Confirming creates this in shadow: " +
+	"it is evaluated by the real gate and records what it would have done, and opens nothing " +
+	"until the shadow flag is cleared as a separate decision."
+
+// WithAssignmentOffer asks an operator to grant one standing assignment, and
+// shows them the grant rather than the request.
+//
+// Every fact on this card is the NORMALIZED value — the repository as it will
+// be stored, the change class as the allowlist spells it, the daily budget and
+// the expiry the host filled in when the sentence did not say, the path globs
+// after the empty ones were dropped. That is the entire reason this card
+// replaced a typed `create` command: the old grammar asked an operator to
+// compose nine key=value bounds and then confirmed the ones they typed, so a
+// miscounted `paths=` was a repository-wide grant that read as a narrow one.
+// Here the operator confirms the row.
+//
+// One control, and it is a confirmation with a dialog. Declining is not
+// pressing it.
+func WithAssignmentOffer(
+	message Message,
+	assignment core.StandingAssignment,
+	expiryDays int,
+	actionValue string,
+	rationale string,
+) Message {
+	quote := "Let me watch for this and open the pull requests myself."
+	if text := externalText(rationale); text != "" {
+		quote = text
+	}
+	class := strings.ReplaceAll(assignment.ChangeClass, "_", " ")
+	return offerCard(message, assignmentOfferContext, offerProposal{
+		Quote: quote,
+		// The expiry is a duration here and a date on every other assignment
+		// surface, and that is deliberate: this card is read before the grant
+		// exists, so a date would be the date it would have expired had the
+		// button been pressed the instant it was posted. The row records the
+		// instant; the operator agrees to the span.
+		Facts: joinFacts([]string{
+			"Watches *" + externalText(assignment.SignalPattern) + "* in this channel",
+			"Repository `" + safeInlineCode(assignment.Repository) + "`",
+			"Change class " + externalText(class),
+			fmt.Sprintf("up to %d a day", assignment.DailyBudget),
+			assignmentPathFact(assignment),
+			fmt.Sprintf("expires %d days after confirmation", expiryDays),
+			"shadow, opens nothing",
+		}),
+		Actions: []Action{{
+			ID:    ActionConfirmAssignmentOffer,
+			Label: "Grant this assignment",
+			Value: actionValue,
+			Style: "primary",
+			Confirm: "Let Responder decide, without asking again, whether to open a " + class +
+				" pull request in " + assignment.Repository + "? It is created in shadow and " +
+				"opens nothing until that is cleared.",
+		}},
+	})
+}
+
 // AssignmentSavedMessage is the receipt for a grant that was just written.
 //
 // It restates the scope rather than confirming an action, because the operator
@@ -108,6 +174,30 @@ func AssignmentSavedMessage(assignment core.StandingAssignment) Message {
 		},
 	)
 }
+
+// The refusals an assignment confirmation can answer with.
+//
+// Each says the same last thing — nothing was granted — because that is the
+// only fact an operator who pressed a button and read an error needs before
+// deciding whether to press it again. They are separate sentences because they
+// have different remedies: a configuration list, a Slack account's standing,
+// and a card that has outlived the conversation it was offered in.
+const AssignmentOperatorOnly = "*Only configured Responder operators can grant a standing " +
+	"assignment.* Nothing was granted."
+
+const AssignmentMembershipRequired = "*This Slack account cannot grant a standing assignment.* " +
+	"Active full workspace membership is required. Nothing was granted."
+
+const AssignmentConfirmationStale = "*This confirmation is invalid or stale.* Nothing was " +
+	"granted. Ask again in the channel and use the new confirmation button."
+
+// AssignmentRefusedNotice is what an operator reads when the host can no longer
+// normalize the bounds it offered — an offer written by an older binary against
+// a class or a range this one no longer allows.
+const AssignmentRefusedNotice = "*Responder refused this.* The bounds it offered are not ones " +
+	"it can grant now. Nothing was granted; ask again and confirm the new card."
+
+const AssignmentGrantFailed = "*Responder could not create this standing assignment.* "
 
 // AssignmentChangedMessage is the receipt for pausing, resuming or deleting
 // one.

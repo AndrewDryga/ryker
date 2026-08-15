@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/AndrewDryga/responder/internal/assignments"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/knowledgeoffer"
 	"slices"
@@ -246,6 +247,14 @@ type ResultOperation struct {
 	// its own approval rows, and an operator confirms before anything exists.
 	RunbookOffer *core.RunbookDraftOffer  `json:"runbook_draft,omitempty"`
 	CardOffer    *core.KnowledgeCardOffer `json:"kb_card,omitempty"`
+	// AssignmentOffer is the payload of offer_assignment, and it asks for more
+	// than any other payload in this struct: standing authority to open pull
+	// requests in one repository without a per-action click. It is a proposal
+	// of BOUNDS and nothing else — the host normalizes every one of them, sets
+	// shadow itself, derives the expiry from its own clock, and shows the
+	// operator the normalized grant rather than these words. See
+	// core.StandingAssignmentOffer for what it deliberately cannot say.
+	AssignmentOffer *core.StandingAssignmentOffer `json:"assignment,omitempty"`
 	// Proposal is the payload of propose_action, which no longer exists.
 	//
 	// The operation is out of the prompt and the host has nothing left to do
@@ -324,6 +333,7 @@ var resultOperationPayloads = []func(ResultOperation) bool{
 	func(o ResultOperation) bool { return o.GrantOffer != nil },
 	func(o ResultOperation) bool { return o.RunbookOffer != nil },
 	func(o ResultOperation) bool { return o.CardOffer != nil },
+	func(o ResultOperation) bool { return o.AssignmentOffer != nil },
 	func(o ResultOperation) bool { return len(o.Proposal) > 0 },
 	func(o ResultOperation) bool { return o.Completion != nil },
 }
@@ -520,6 +530,15 @@ var resultOperationValidators = map[string]func(ResultOperation) error{
 	"offer_kb_card": func(o ResultOperation) error {
 		return knowledgeoffer.ValidateCardOffer(o.ID, o.CardOffer)
 	},
+	// offer_assignment delegates for the same reason, and the stakes make it
+	// the least optional of the three. Every field it carries is a bound on
+	// unattended pull-request authority, so a bound checked here and normalized
+	// differently in internal/assignments would be an offer an operator
+	// confirmed and a grant that says something else. One validator, reached by
+	// the result, the card and the click.
+	"offer_assignment": func(o ResultOperation) error {
+		return assignments.ValidateOffer(o.ID, o.AssignmentOffer)
+	},
 	// propose_action is refused rather than absent. The operation is gone from
 	// ResultOperationsPrompt, so a model working from the current contract will
 	// not emit one; a model working from anything older would otherwise get a
@@ -714,7 +733,8 @@ accepted operations in the episode event stream.
 - offer_grant_promotion: {"id":"grant-1","type":"offer_grant_promotion","grant_promotion":{"action_id":"exact Emisar action id","pack_ref":"exact pack ref","runner_ref":"exact runner ref","rung":"propose|one_click","verified_successes":3,"rationale":"one sentence for the operator"}} — the host sets the scope itself and never widens it.
 - offer_runbook_draft: {"id":"rb-1","type":"offer_runbook_draft","runbook_draft":{"title":"<=80 chars","slug":"lowercase-slug","summary":"when to run it","action_id":"exact Emisar action id","pack_ref":"exact pack ref","runner_ref":"exact runner ref"}} — the host rebuilds the step from its own approval record.
 - offer_kb_card: {"id":"kb-1","type":"offer_kb_card","kb_card":{"slug":"lowercase-slug","title":"<=80 chars","body":"Markdown <4096 bytes, no top heading"}} — durable behavior; confirmed, it becomes a draft PR nobody merges.
-Those three propose only, for work THIS episode ran and verified: the host recomputes the evidence, refuses what it cannot reproduce, and an operator confirms. Each takes an optional rationale.
+- offer_assignment: {"id":"assign-1","type":"offer_assignment","assignment":{"repository":"exact alias","change_class":"dependency_upgrade|alert_threshold|flaky_test_quarantine|observability|documentation","signal_pattern":"words to watch for","path_globs":["optional, <=10"],"daily_budget":1-20,"expiry_days":1-90}} — ONLY when an operator asks for standing unattended work; emit it BESIDE your one complete_episode whose message says the card follows.
+Those four propose only — the host recomputes or normalizes, refuses what it cannot reproduce, and an operator confirms; each takes an optional rationale. The first three are for work THIS episode ran and verified; an assignment is always created shadowed.
 - attach_visual{visual}, update_memory{memory}: one payload under the braced key. Offers use offer_memory{memory_offer: scope,subject,predicate,value,visibility}, offer_preference{preference_offer: scope,name,value}, offer_rule{rule_offer: scope,repository,trigger,action}, offer_schedule{schedule_offer: title,prompt,repository,recurrence,start_at}.
 - complete_episode decision-ready example: {"id":"complete-1","type":"complete_episode","completion":{"message":"Slack Markdown answer","followup_messages":[],"completion":{"status":"decision_ready","verdict":"one exact completion.allowed_verdicts value when required","summary":"concise decision"}}}
 - complete_episode blocked example: {"id":"complete-1","type":"complete_episode","completion":{"message":"exact blocker and useful result so far","coverage":[{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unknown","detail":"exact evidence gap"}],"completion":{"status":"blocked","summary":"what cannot yet be decided","material_gaps":["missing material claim"],"blocker_kind":"source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure|capability_unavailable","attempts":["route already attempted"],"next_action":"exact action that unblocks it","capability_gaps":[{"capability":"GitHub Actions run and job inspection","status":"not_installed|not_trusted|not_advertised|incompatible|not_found","pack_id":"github-cli when an evidence source identifies it; omit for not_found","pack_ref":"optional observed immutable ref","evidence_refs":["source_id or source_name from a record_evidence operation"],"recommendation":"one concise operator-facing installation, trust, deployment, or compatibility step"}],"recheck":{"key":"provider:capability:identifier","reason":"why this exact external condition is expected to change shortly","after_seconds":120,"additional_attempts":3}}}}

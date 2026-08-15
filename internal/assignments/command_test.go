@@ -1,4 +1,13 @@
-package assignments
+// This file is an EXTERNAL test package on purpose.
+//
+// internal/investigation imports internal/assignments so that offer_assignment
+// is validated by the same function the confirmation click is measured against.
+// internal/store reaches internal/investigation through the service's fanout,
+// so an in-package test that opened a real database would be an import cycle.
+// The external package is Go's own answer to exactly this, and the tests keep
+// their real store rather than being rewritten against a fake — the invariants
+// here are about what survives a round trip through SQLite.
+package assignments_test
 
 import (
 	"context"
@@ -7,7 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/assignments"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/standingassignmentstore"
 )
@@ -22,65 +33,70 @@ func openRepository(t *testing.T) *standingassignmentstore.Repository {
 	return st.StandingAssignments
 }
 
-func run(t *testing.T, repository Repository, command string) (Result, error) {
+func run(t *testing.T, repository assignments.Repository, command string) (
+	assignments.Result, error,
+) {
 	t.Helper()
-	return Run(
+	return assignments.Run(
 		context.Background(), repository, strings.Fields(command),
 		core.SlackInput{ChannelID: "CALERTS", UserID: "UOPERATOR"},
-		time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC),
 	)
 }
 
-// The creation path exists, and what it creates cannot act.
+// seed writes a grant the way the confirmation click does, so the management
+// verbs are tested against a row nothing in this package created.
+func seed(t *testing.T, repository assignments.Repository) core.StandingAssignment {
+	t.Helper()
+	assignment, err := assignments.Normalize(core.StandingAssignmentOffer{
+		Repository: "payments-api", ChangeClass: "observability",
+		SignalPattern: "sentry timeout", PathGlobs: []string{"src/payments/**"},
+		DailyBudget: 2, ExpiryDays: 30,
+	}, "CALERTS", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment.ActorID = "UOPERATOR"
+	saved, err := repository.Create(context.Background(), assignment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return saved
+}
+
+// The retired create verb answers with the conversation that replaced it.
 //
-// The consumption half of standing assignments has been complete and gated
-// since migration 43 and has never once run, because nothing could create one:
-// CreateStandingAssignment had no caller outside tests and both deployments
-// held zero rows. This is the missing half, and the whole point of landing it
-// this way is that it does not also grant the authority — the row it writes is
-// shadowed, and the flag survives the round trip so the gate reads it back.
-func TestCreatingAnAssignmentPersistsItWithTheGrantWithheld(t *testing.T) {
-	ctx := context.Background()
+// `/responder assignments create repo=... class=... signal=...` was the ONLY
+// way to grant a standing assignment for the day and a half that feature
+// existed, so it is the one verb in this family an operator has muscle memory
+// for. "Unknown subcommand" would tell somebody who typed a command that worked
+// last week that they typed it wrong, which is both false and useless: the
+// capability still exists, it is just no longer a command. The pointer carries
+// a worked example because the replacement is a sentence, and the operator who
+// learned six key=value bounds has no reason to guess that plain English
+// reaches further than the grammar did.
+func TestTheRetiredCreateVerbPointsAtTheConversation(t *testing.T) {
 	repository := openRepository(t)
-
-	result, err := run(t, repository,
-		"create repo=payments-api class=observability budget=2 days=30 "+
-			"paths=src/payments/** signal=sentry payments timeout")
-	if err != nil {
-		t.Fatalf("create: %v", err)
+	for _, verb := range []string{"create", "add", "new"} {
+		t.Run(verb, func(t *testing.T) {
+			_, err := run(t, repository, verb+" repo=payments-api class=observability signal=x")
+			if err == nil {
+				t.Fatal("the retired create verb still granted a standing assignment")
+			}
+			for _, required := range []string{"is gone", "Ask for it in the channel", "confirmation card"} {
+				if !strings.Contains(err.Error(), required) {
+					t.Errorf("the refusal does not say %q:\n%s", required, err)
+				}
+			}
+		})
 	}
-	if result.Audit.Kind != "proactive.assignment" || result.Audit.Outcome != "created" ||
-		result.Audit.ActorID != "UOPERATOR" {
-		t.Fatalf("creation was not audited as an operator's grant: %+v", result.Audit)
-	}
-	if !strings.Contains(result.Audit.Detail, "shadow") {
-		t.Fatalf("the audit line does not say the grant was withheld: %q", result.Audit.Detail)
-	}
-
-	saved, err := repository.ListForChannel(ctx, "CALERTS", 20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(saved) != 1 {
-		t.Fatalf("stored %d assignments, want one", len(saved))
-	}
-	if !saved[0].Shadow {
-		t.Fatal("the created assignment may act unattended; shadow must be the default")
-	}
-	if saved[0].Repository != "payments-api" || saved[0].DailyBudget != 2 ||
-		saved[0].SignalPattern != "sentry payments timeout" {
-		t.Fatalf("the stored grant is not the one that was typed: %+v", saved[0])
-	}
-	// The receipt restates the scope, because agreeing once to unattended work
-	// means this is the only moment anybody checks what was agreed to.
-	receipt, err := json.Marshal(result.Message)
+	// And it granted nothing on the way past. A refusal that had already
+	// written the row would be the worst of both surfaces.
+	stored, err := repository.ListForChannel(context.Background(), "CALERTS", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"shadow", "payments-api", "src/payments/**"} {
-		if !strings.Contains(string(receipt), required) {
-			t.Errorf("the creation receipt does not restate %q", required)
-		}
+	if len(stored) != 0 {
+		t.Fatalf("the retired verb created %d assignments", len(stored))
 	}
 }
 
@@ -92,18 +108,10 @@ func TestCreatingAnAssignmentPersistsItWithTheGrantWithheld(t *testing.T) {
 func TestManagingAnAssignmentStaysInsideItsOwnChannel(t *testing.T) {
 	ctx := context.Background()
 	repository := openRepository(t)
-	if _, err := run(t, repository,
-		"create repo=payments-api class=observability signal=sentry timeout"); err != nil {
-		t.Fatal(err)
-	}
-	saved, err := repository.ListForChannel(ctx, "CALERTS", 20)
-	if err != nil || len(saved) != 1 {
-		t.Fatalf("setup: %v %d", err, len(saved))
-	}
-	id := saved[0].ID
+	id := seed(t, repository).ID
 
-	if _, err := Run(ctx, repository, []string{"pause", id},
-		core.SlackInput{ChannelID: "CELSEWHERE", UserID: "UOPERATOR"}, time.Now().UTC()); err == nil {
+	if _, err := assignments.Run(ctx, repository, []string{"pause", id},
+		core.SlackInput{ChannelID: "CELSEWHERE", UserID: "UOPERATOR"}); err == nil {
 		t.Fatal("a command in another channel paused this channel's assignment")
 	}
 	if _, err := run(t, repository, "pause "+id); err != nil {
@@ -138,20 +146,15 @@ func TestManagingAnAssignmentStaysInsideItsOwnChannel(t *testing.T) {
 func TestTheListingCarriesTheTallyThatDecidesTheGrant(t *testing.T) {
 	ctx := context.Background()
 	repository := openRepository(t)
-	if _, err := run(t, repository,
-		"create repo=payments-api class=observability signal=sentry timeout"); err != nil {
-		t.Fatal(err)
-	}
-	saved, err := repository.ListForChannel(ctx, "CALERTS", 20)
-	if err != nil || len(saved) != 1 {
-		t.Fatalf("setup: %v %d", err, len(saved))
-	}
+	saved := seed(t, repository)
 
 	empty, err := run(t, repository, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := json.Marshal(empty.Message)
+	rendered, err := json.Marshal(
+		slackui.AssignmentDirectoryMessage(empty.Directory, empty.Tallies),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +164,7 @@ func TestTheListingCarriesTheTallyThatDecidesTheGrant(t *testing.T) {
 
 	for index := 0; index < 3; index++ {
 		if _, err := repository.RecordEvaluation(ctx, core.StandingAssignmentEvaluation{
-			AssignmentID: saved[0].ID, InputID: "in", Signal: "sentry timeout", Shadow: true,
+			AssignmentID: saved.ID, InputID: "in", Signal: "sentry timeout", Shadow: true,
 			Verdict: "declined", Reason: "this has not happened often enough to be a pattern yet",
 		}); err != nil {
 			t.Fatal(err)
@@ -171,7 +174,9 @@ func TestTheListingCarriesTheTallyThatDecidesTheGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err = json.Marshal(listed.Message)
+	rendered, err = json.Marshal(
+		slackui.AssignmentDirectoryMessage(listed.Directory, listed.Tallies),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

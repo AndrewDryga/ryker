@@ -204,10 +204,12 @@ var slashCommandPattern = regexp.MustCompile(`/responder ([a-z-]+)`)
 // `/responder` used to be.
 //
 // `assignments` is in it and is the one entry that is not an emergency verb.
-// Standing assignments have no `offer_assignment` result operation yet, so
-// slash is their only creation surface and deleting the spelling would delete
-// the feature; it leaves this map, and the router, the day that confirm card
-// lands.
+// It routes the reading half of that family — list, pause, resume, delete. Its
+// `create` verb was routed here too until 2026-08-15, when `offer_assignment`
+// and its normalized-bounds confirmation card replaced it; the verb still
+// answers, with a pointer to that conversation, which is why `assignments` is
+// still a real subcommand and why no surface may print `/responder assignments
+// create` again.
 var realSlashSubcommands = map[string]bool{
 	"help": true, "status": true, "settings": true, "config": true,
 	"proactive": true, "watch": true, "shadow": true,

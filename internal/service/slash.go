@@ -230,9 +230,12 @@ func parseTurnLimit(value string) (int, error) {
 // What is left is what has to work when nothing else does — when Coop is down,
 // when the model is looping, when a room needs to go quiet now. Those are
 // deterministic, reach no model, and answer privately. `assignments` is the one
-// verb here that is none of those things; it stays because it is currently the
-// only way to create a standing assignment, and it goes when `offer_assignment`
-// lands. Everything else is a conversation, a card button, or the App Home, and
+// verb here that is none of those things; it stays for reading a channel's
+// standing grants and taking one back, which is the half of that family an
+// operator wants reachable when the conversational path is what is broken.
+// Creating one left on 2026-08-15 with `offer_assignment`: the verb that
+// GRANTED authority is a confirmation card now, and `create` answers by saying
+// so. Everything else is a conversation, a card button, or the App Home, and
 // the default branch says so by name rather than printing a usage message for a
 // verb that is gone.
 func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) error {
@@ -269,19 +272,16 @@ func (s *Service) processSlashInput(ctx context.Context, input core.SlackInput) 
 			return s.refuseSlashInput(ctx, input, slashUsage("status"))
 		}
 		return s.finishSlashStatus(ctx, input)
-	// assignments is the one family that stays against the rule the rest of
-	// this deletion follows, because slash is currently its ONLY creation
-	// surface: standing assignments landed with a slash spelling and no
-	// `offer_assignment` result operation behind it, so deleting the verb
-	// would delete the feature. It goes the moment `offer_assignment` exists
-	// and a normalized-bounds confirm card can carry a create — the App Home
-	// and web UI already read them back. Until then a kept verb is the only
-	// thing standing between an operator and an unreachable capability.
+	// assignments stays for list, pause, resume and delete. It stayed for
+	// `create` too until 2026-08-15, when slash was its only creation surface
+	// and deleting the verb would have deleted the feature; `offer_assignment`
+	// now carries that, so the one branch of this family that granted authority
+	// is a normalized-bounds confirmation card and the typed verb answers with
+	// a pointer to it.
 	//
 	// The raw text, not the lower-cased fields every other subcommand reads:
-	// a repository name, a path glob and the words of a signal are all
-	// case-sensitive, and an assignment normalized to lower case is a grant
-	// over something that does not exist.
+	// an assignment id is case-sensitive, and so were the repository, globs and
+	// signal words the retired `create` took.
 	case "assignments", "assignment":
 		return s.finishSlashAssignments(ctx, input, strings.Fields(slashArgument(input.Text)))
 	case "proactive", "watch":
@@ -366,23 +366,32 @@ func (s *Service) handleRecordControl(ctx context.Context, input core.SlackInput
 	return s.finishIncidentIntelligence(ctx, input, command)
 }
 
-// finishSlashAssignments runs the standing-assignment family.
+// finishSlashAssignments runs what is left of the standing-assignment family:
+// reading them, and pausing, resuming or deleting one.
 //
 // Operator-only, by the check every slash command already passed above, and
-// that gate is the whole authorization story here: an assignment is a grant of
-// unattended pull-request authority, so it belongs to the same audience as the
-// memory and preference offers rather than to any full workspace member.
+// that gate is the whole authorization story here. Creation is no longer in it
+// — `offer_assignment` and its confirmation card own that — so every branch
+// reachable from this method now either reads a grant or takes one away, which
+// is the class of thing an emergency kit is allowed to hold.
+//
+// The rendering is here rather than in internal/assignments because that
+// package is imported by the operation contract and may not reach Slack.
 func (s *Service) finishSlashAssignments(
 	ctx context.Context, input core.SlackInput, args []string,
 ) error {
-	result, err := assignments.Run(ctx, s.store.StandingAssignments, args, input, s.now().UTC())
+	result, err := assignments.Run(ctx, s.store.StandingAssignments, args, input)
 	if err != nil {
 		return s.refuseSlashInput(ctx, input, err.Error())
 	}
 	if result.Audit.Kind != "" {
 		s.audit(ctx, result.Audit)
 	}
-	return s.finishSlashMessage(ctx, input, result.Message)
+	message := slackui.AssignmentDirectoryMessage(result.Directory, result.Tallies)
+	if result.Verb != "" {
+		message = slackui.AssignmentChangedMessage(result.Changed, result.Verb)
+	}
+	return s.finishSlashMessage(ctx, input, message)
 }
 
 func (s *Service) finishIncidentIntelligence(
@@ -793,13 +802,16 @@ func slashHelpSections() []string {
 			"`/responder proactive global on|off|inherit` - change the workspace default\n" +
 			"`/responder shadow on|off|inherit` - evaluate without posting or opening incidents\n" +
 			"`inherit` removes the Slack override and follows the next configured default.",
-		// assignments is here on borrowed time: it is the only way to create a
-		// standing assignment until `offer_assignment` exists, so it is listed
-		// where an operator will look rather than left working and unmentioned.
+		// assignments is listed because taking a grant back is the emergency
+		// half of it, and an operator looking for that will look here. Creating
+		// one is named in the same breath and pointed elsewhere: it is the only
+		// thing this kit ever did that handed out authority, and the sentence
+		// that replaces it has to reach the operator who learned the command.
 		"*Standing assignments*\n" +
-			"`/responder assignments` - manage scoped authority to open a pull request\n" +
-			"Creating one is still typed because the confirm card for it has not been " +
-			"built yet; everything else about them is readable in the App Home.",
+			"`/responder assignments` - read this channel's grants, and `pause`, `resume` " +
+			"or `delete` one\n" +
+			"Creating one is a conversation now: say what you want watched and Responder " +
+			"shows you the exact bounds to confirm.",
 		"*Why so little*\nThese work when nothing else does: no model runs, no Coop " +
 			"session is needed, and the answer is private to you. Everything else is a " +
 			"conversation with Responder, a button on a pinned card, or the App Home — " +

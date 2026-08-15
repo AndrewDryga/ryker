@@ -360,7 +360,7 @@ The shipped Slack app registers one command, and this is the whole of it:
 /responder proactive global on|off|inherit
 /responder shadow on|off|inherit
 /responder shadow global on|off|inherit
-/responder assignments [list|create|pause|resume|delete]
+/responder assignments [list|pause|resume|delete]
 /responder help
 ```
 
@@ -381,11 +381,17 @@ while an agent run is stuck or looping, and they answer privately to the operato
 the channel is read for. Those are the controls an operator needs when a room will not stop talking
 and the ordinary conversational path is the thing that is broken.
 
-`assignments` is the fifth and it is on borrowed time. A standing assignment is created by typing
-one because the `offer_assignment` confirm card that would show its normalized bounds has not been
-built; deleting the verb before that card exists would delete the only way to create the thing. It
-leaves this list the day the card lands, and the App Home and web control plane already read the
-assignments back.
+`assignments` is the fifth, and what is left of it belongs to the same argument: reading a channel's
+standing grants and taking one back are what an operator reaches for when Responder itself is the
+problem. Its `create` verb did not belong, and it left on 2026-08-15. A standing assignment is
+scoped authority to open pull requests without a per-action click, and `create` asked an operator to
+compose that as six `key=value` bounds and confirmed nothing but their own typing — a miscounted
+`paths=` was a repository-wide grant that read as a narrow one. Asking in words now produces an
+`offer_assignment` operation, and the host answers with a card stating the NORMALIZED bounds it
+would store: repository, change class, daily budget, expiry, path globs, signal. Nothing exists
+until the button is pressed, the click re-authorizes and re-reads the recorded offer, and what it
+creates is still shadowed — the grant is evaluated by the real gate and opens nothing until that
+flag is cleared as a separate decision. The typed verb answers with a pointer to that conversation.
 
 Everything else moved to a surface that can reach further than the composer can. A removed verb
 answers with the one line naming where it went, plus the whole of what is left. It does not answer
@@ -401,6 +407,7 @@ the capability still exists somewhere.
 | `update`, `changes`, `review`, `publish`, `stop`, `close` | The buttons already on the pinned card, or ask in the thread |
 | `extend` | Nothing. Responder allocates session capacity automatically |
 | `turn-limit` | `coop.turn_limit` in `responder.yaml`, which is a deployment change |
+| `assignments create` | Ask for the standing work in words; the `offer_assignment` card shows the normalized bounds and grants nothing until confirmed |
 
 Slack does not provide application-defined autocomplete for text after a slash command, so the
 manifest carries one short static usage hint and the whole guide lives behind `help`. The hint names

@@ -596,9 +596,26 @@ var lineBudget = map[string]int{
 	// still have to land, and a ratchet that re-arms at zero fails the next
 	// change on the merits of this one. `assignments` did NOT go with the rest
 	// — slash is that feature's only creation surface until `offer_assignment`
-	// exists — so its reader is still counted here, and the number comes down
-	// again when the confirm card replaces it.
-	"service": 22770,
+	// exists — so its reader is still counted here.
+	//
+	// Raised to 23050 on 2026-08-15 for offer_assignment, which is the last of
+	// "the typed operations that replace what was removed" the paragraph above
+	// reserved margin for — and the margin was already spent by the four that
+	// landed first, so the package measured 22,770 to the line, which is the
+	// tripwire this file warns about rather than a ratchet. What it buys is 110
+	// lines of confirmation wiring: post the card, re-authorize the click,
+	// re-read the recorded offer, re-normalize it, create the shadowed row.
+	//
+	// It stays in internal/service for the reason knowledge_offer.go does. Every
+	// line of it needs the store, the Slack client, the config's operator list
+	// and the clock at once, and the decisions it makes — what a bound means,
+	// what a stale confirmation is — are already extracted into
+	// internal/assignments, which is where they are tested. The extraction this
+	// package still owes is the offline evaluation family, unchanged.
+	//
+	// 154 lines of margin, deliberately thin: this package should be shrinking,
+	// and the same note on internal/store calls 161 on 11,000 "a small margin".
+	"service": 23050,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -1031,12 +1048,20 @@ var lineBudget = map[string]int{
 	// grantstore owns the remediation_grants table and the one query a promotion
 	// is graded on. It decides nothing — see the package comment.
 	"grantstore": 210,
-	// assignments owns what a standing assignment means — the brief an
-	// unattended task works from, the words that create one, the verdict its
-	// gate produced. None of it needs a database, a Slack client or a Coop
-	// session, and all of it is the part worth testing; internal/service keeps
-	// only the wiring.
-	"assignments": 320,
+	// assignments owns what a standing assignment means — the bounds an offer
+	// must name, the normalized grant an operator confirms, the brief an
+	// unattended task works from, the verdict its gate produced. None of it
+	// needs a database, a Slack client or a Coop session, and all of it is the
+	// part worth testing; internal/service keeps only the wiring.
+	//
+	// Raised to 440 on 2026-08-15 for offer_assignment. It is a net addition of
+	// 74 lines against a retired `key=value` parser it replaced, and the trade
+	// is the point: the parser turned an operator's typing into a row, and this
+	// turns a model's proposal into the grant a card shows and a click stores.
+	// The same size as knowledgeoffer, and for the same reason — a payload
+	// somebody will later trust enough to act on deserves table tests, not an
+	// integration test.
+	"assignments": 440,
 	// standingassignmentstore owns scoped authority to open a pull request
 	// without a per-action click: the grant, the claim that spends its budget,
 	// and the ledger of what the gate decided about each signal. It came out of
@@ -1082,9 +1107,27 @@ var forbiddenImports = map[string][]string{
 	"repositorycapability":  {"service", "store", "slackui", "httpapi", "app", "publisher", "emisar", "decision", "investigation"},
 	"investigation":         {"service", "store", "slackui", "httpapi", "app"},
 	"investigationcontract": {"service", "store", "slackui", "httpapi", "app", "decision", "investigation"},
-	"decision":              {"service", "store", "httpapi", "app", "publisher", "coop"},
-	"evaluation":            {"httpapi", "app", "webhook"},
-	"agentcontext":          {"service", "store", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
+	// assignments is imported BY internal/investigation, which is what this
+	// entry is protecting. offer_assignment's operation validator is
+	// assignments.ValidateOffer, so the rule a model reads in a correction is
+	// the rule the operator's confirmation click is measured against — and the
+	// price of that is that everything this package can reach, the operation
+	// contract can reach too.
+	//
+	// slackui and decision are the two it lost to get here. The card lived in
+	// this package until 2026-08-15 and the eligibility struct was a parameter
+	// on Evaluation; the first would have put Slack rendering behind the
+	// contract, and the second was an outright import cycle, because decision
+	// reaches investigation through the evidence policy. Neither may come back:
+	// Result carries values for the caller to render, and Evaluation takes the
+	// gate's bool and string.
+	"assignments": {
+		"service", "slackui", "httpapi", "app", "publisher", "coop", "emisar",
+		"decision", "investigation", "evaluation",
+	},
+	"decision":     {"service", "store", "httpapi", "app", "publisher", "coop"},
+	"evaluation":   {"httpapi", "app", "webhook"},
+	"agentcontext": {"service", "store", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
 	// fanout answers "has this investigation earned a second turn running beside
 	// the first". It reads the ledger and returns a decision; it starts nothing,
 	// stores nothing, and posts nothing, and the direction is stated here so it

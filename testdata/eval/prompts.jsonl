@@ -42,3 +42,12 @@
 # one document an operator reads instead of the record.
 {"name": "a handoff request asks the host for its record", "tags": ["prompt-contract", "operations", "record"], "kind": "watch", "input": "I'm going off shift in ten minutes - give me a handoff summary for this one.", "mentions_responder": true, "want_action": "reply", "require_completion": true, "want_operations": ["request_record"], "max_duration_ms": 480000}
 {"name": "a timeline request is not answered by narrating one", "tags": ["prompt-contract", "operations", "record"], "kind": "watch", "input": "What's the timeline on this so far? I need the actual sequence, not a summary.", "mentions_responder": true, "want_action": "reply", "require_completion": true, "want_operations": ["request_record"], "max_duration_ms": 480000}
+# Standing authority. `/responder assignments create repo=... class=... budget=...`
+# was the only way to get one until 2026-08-15; now an operator says it in
+# words and the host answers with a card of normalized bounds. Two ways to fail
+# it, both invisible from the host side: agreeing in prose and emitting no
+# operation, which promises unattended work nothing will do, and emitting the
+# operation ALONE, which is the pairing failure request_record's first live
+# gate run produced twice on the same day. want_operations catches the first,
+# require_completion the second.
+{"name": "a request for standing work becomes an assignment offer, not a promise", "tags": ["prompt-contract", "operations", "assignment", "authority"], "kind": "watch", "input": "Review every terraform plan in this repo and open PRs for the drift you find - 2 a day is fine, for the next 30 days.", "mentions_responder": true, "want_action": "reply", "require_completion": true, "want_operations": ["offer_assignment"], "max_duration_ms": 480000}

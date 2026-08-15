@@ -45,52 +45,141 @@ func TestProactiveObjectiveStatesItsBoundary(t *testing.T) {
 	}
 }
 
-// A typed command grants exactly what was typed, and refuses the rest.
+// A normalized offer grants exactly the bounds it names, and nothing wider.
 //
-// Every field of an assignment is a bound on unattended work. A key this
-// command does not recognize is a bound it did not apply — a mistyped `paths=`
-// silently becoming no path restriction is a repository-wide grant nobody
-// asked for — so an unknown key is a refusal rather than something skipped.
-func TestACreateCommandGrantsOnlyWhatWasTyped(t *testing.T) {
+// This is the invariant the retired `/responder assignments create` grammar
+// carried and the one that matters most now that a model writes the proposal
+// rather than an operator: every field is a bound on unattended pull-request
+// authority, so a value the host cannot store must be refused where the model
+// can read the refusal, and a value it can store must survive normalization
+// unchanged in meaning. The card an operator confirms renders exactly what this
+// returns, so a bound lost here is a bound nobody was shown.
+func TestANormalizedOfferGrantsOnlyTheBoundsItNames(t *testing.T) {
 	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
-	request, err := ParseCreate(strings.Fields(
-		"repo=payments-api class=observability budget=2 days=30 paths=src/payments/**,docs/** "+
-			"signal=sentry payments timeout",
-	), "CALERTS", "UOPERATOR", now)
+	got, err := Normalize(core.StandingAssignmentOffer{
+		// Deliberately the shapes an operator's own sentence produces: the
+		// class spelled with a space, whitespace around the repository, a
+		// duplicate and an empty glob from a trailing comma, and a signal with
+		// a line break in it.
+		Repository: " payments-api ", ChangeClass: "Dependency Upgrade",
+		SignalPattern: "sentry payments\n  timeout",
+		PathGlobs:     []string{"src/payments/**", " ", "docs/**", "src/payments/**"},
+		DailyBudget:   2, ExpiryDays: 30,
+	}, "CALERTS", now)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("normalize: %v", err)
 	}
-	got := request.Assignment
-	if got.Repository != "payments-api" || got.ChangeClass != "observability" ||
-		got.DailyBudget != 2 || got.ChannelID != "CALERTS" || got.ActorID != "UOPERATOR" {
-		t.Fatalf("parsed assignment lost a bound: %+v", got)
+	if got.Repository != "payments-api" || got.ChangeClass != "dependency_upgrade" ||
+		got.DailyBudget != 2 || got.ChannelID != "CALERTS" {
+		t.Fatalf("normalized assignment lost a bound: %+v", got)
 	}
 	if got.SignalPattern != "sentry payments timeout" {
-		t.Fatalf("signal = %q, want every word after signal=", got.SignalPattern)
+		t.Fatalf("signal = %q, want the words collapsed to one line", got.SignalPattern)
 	}
 	if len(got.PathGlobs) != 2 {
-		t.Fatalf("path globs = %v, want both", got.PathGlobs)
+		t.Fatalf("path globs = %v, want the empty and the duplicate dropped", got.PathGlobs)
 	}
 	if !got.ExpiresAt.Equal(now.Add(30 * 24 * time.Hour)) {
 		t.Fatalf("expiry = %s, want thirty days on", got.ExpiresAt)
 	}
-	// The default that matters. Shadow is a Go bool: a parser that simply did
-	// not mention it would hand the store live authority by saying nothing.
+	// The default that matters. Shadow is a Go bool: a normalizer that simply
+	// did not mention it would hand the store live authority by saying nothing,
+	// and the store's refusal would then be the only thing between a model's
+	// sentence and unattended pull requests.
 	if !got.Shadow {
-		t.Fatal("a typed create command produced an assignment that may act unattended")
+		t.Fatal("a confirmed offer would produce an assignment that may act unattended")
 	}
+	// An offer that says nothing about how much gets the cautious answer, not
+	// the permissive one.
+	quiet, err := Normalize(core.StandingAssignmentOffer{
+		Repository: "payments-api", ChangeClass: "documentation", SignalPattern: "renovate",
+	}, "CALERTS", now)
+	if err != nil {
+		t.Fatalf("normalize without budget or expiry: %v", err)
+	}
+	if quiet.DailyBudget != 1 || !quiet.ExpiresAt.Equal(now.Add(14*24*time.Hour)) {
+		t.Fatalf("unstated bounds did not default cautiously: %+v", quiet)
+	}
+}
 
-	for _, refusal := range []struct{ name, command string }{
-		{"an unknown key", "repo=x class=observability signal=timeout mode=live"},
-		{"a positional argument", "payments-api class=observability signal=timeout"},
-		{"no signal at all", "repo=payments-api class=observability budget=1"},
-		{"authority for longer than anybody plans", "repo=x class=observability days=400 signal=t"},
+// Bounds the host cannot grant are refused where the model reads the refusal.
+//
+// The slash grammar refused an unknown key rather than skipping it, because a
+// mistyped `paths=` silently becoming no path restriction was a
+// repository-wide grant nobody asked for. A model writing free text can make
+// every one of those mistakes and several the grammar could not — inventing a
+// change class, asking for a year, asking for fifty pull requests a day — and
+// the operation validator is where it finds out, because it is the only place
+// a correction turn can act on.
+func TestAnUngrantableBoundIsRefusedByTheOperationValidator(t *testing.T) {
+	for _, refusal := range []struct {
+		name  string
+		offer core.StandingAssignmentOffer
+		says  string
+	}{
+		{
+			"a change class nobody allowlisted",
+			core.StandingAssignmentOffer{
+				Repository: "payments-api", ChangeClass: "refactor", SignalPattern: "timeout",
+			},
+			"dependency_upgrade",
+		},
+		{
+			"authority for longer than anybody plans",
+			core.StandingAssignmentOffer{
+				Repository: "payments-api", ChangeClass: "observability",
+				SignalPattern: "timeout", ExpiryDays: 400,
+			},
+			"at most 90",
+		},
+		{
+			"more pull requests a day than a reviewer reads",
+			core.StandingAssignmentOffer{
+				Repository: "payments-api", ChangeClass: "observability",
+				SignalPattern: "timeout", DailyBudget: 50,
+			},
+			"range is 1 to 20",
+		},
+		{
+			"no signal at all, which is every message in the channel",
+			core.StandingAssignmentOffer{
+				Repository: "payments-api", ChangeClass: "observability",
+			},
+			"signal_pattern",
+		},
+		{
+			"no repository, which is whichever one is default",
+			core.StandingAssignmentOffer{
+				ChangeClass: "observability", SignalPattern: "timeout",
+			},
+			"requires a repository",
+		},
+		{
+			"a path pattern that leaves the repository it is scoped to",
+			core.StandingAssignmentOffer{
+				Repository: "payments-api", ChangeClass: "observability",
+				SignalPattern: "timeout", PathGlobs: []string{"../other-repo/**"},
+			},
+			"traverses upward",
+		},
 	} {
 		t.Run(refusal.name, func(t *testing.T) {
-			if _, err := ParseCreate(
-				strings.Fields(refusal.command), "CALERTS", "UOPERATOR", now,
-			); err == nil {
-				t.Fatal("accepted a command that grants more than it says")
+			err := ValidateOffer("assign-1", &refusal.offer)
+			if err == nil {
+				t.Fatal("accepted an offer that grants more than the host can store")
+			}
+			if !strings.Contains(err.Error(), refusal.says) {
+				t.Fatalf(
+					"the refusal does not tell the model what to write instead: %v", err,
+				)
+			}
+			// And the refusal holds on the path the operator's click takes, not
+			// only on the path the model's result takes. An offer accepted at
+			// result time and refused at confirmation time is a broken promise;
+			// one accepted at confirmation time and refused by the store is a
+			// stack trace where a sentence belongs.
+			if _, err := Normalize(refusal.offer, "CALERTS", time.Now().UTC()); err == nil {
+				t.Fatal("normalization granted bounds the validator refused")
 			}
 		})
 	}

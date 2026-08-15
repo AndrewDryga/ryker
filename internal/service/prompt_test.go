@@ -532,7 +532,24 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // 47541 after the request_record pairing rule: the first live gate run
 // proved "say nothing else" and "exactly one complete_episode" fought, and
 // the model obeyed the nearer sentence. 89 bytes to end the fight.
-const staticWatchPromptBytes = 47541
+//
+// 48062 on 2026-08-15 for offer_assignment, the operation that replaced
+// `/responder assignments create`. 521 bytes, and they are the most expensive
+// bytes in this file per operation for the same reason offer_grant_promotion's
+// were: this is the model asking for AUTHORITY rather than reporting a result,
+// and an offer that arrives malformed costs a correction turn while one that
+// arrives believing it grants something is worse. Of the 521, roughly 90 are
+// the closed change-class set, which is not compressible — a model told to
+// choose from a list it cannot see is the exact shape of the worst recorded
+// correction loop, 6.6 repeats on one episode picking from an empty list of
+// verdicts — and the pairing clause is 9275b18's lesson applied before rather
+// than after its own first live gate run.
+//
+// The first draft cost 629. It was cut to 521 before this number moved, by
+// folding the assignment into the shared "these propose only, an operator
+// confirms" sentence below the list instead of restating it, and by dropping
+// the rationale key the same sentence already covers for all four offers.
+const staticWatchPromptBytes = 48062
 
 // The static prompt must not grow without someone deciding it should.
 //

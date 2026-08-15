@@ -45,7 +45,14 @@ const (
 	// the confirmation click reads the offer back from here rather than from
 	// the button: a knowledge card's body does not fit in a Slack action value,
 	// and an identity that does is the only thing worth trusting one for.
-	EventKnowledgeOffered    = "knowledge_offered"
+	EventKnowledgeOffered = "knowledge_offered"
+	// EventAssignmentOffered records a proposal that Responder be granted
+	// standing authority to open pull requests for a recurring signal. It
+	// carries the whole operation for the same reason the knowledge offer does,
+	// and one more: the confirmation click normalizes the recorded bounds
+	// again, so what is granted is what the host recorded the model proposing
+	// rather than anything that survived a round trip through a browser.
+	EventAssignmentOffered   = "assignment_offered"
 	EventCompletionSubmitted = "completion_submitted"
 	EventCompletionAccepted  = "completion_accepted"
 	EventDeliveryProjected   = "delivery_projected"

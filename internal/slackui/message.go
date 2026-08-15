@@ -55,10 +55,16 @@ const (
 	// same discipline behind it and the kind is in the payload; two ids would be
 	// two confirmation paths to keep in step.
 	ActionConfirmKnowledgeOffer = "responder_confirm_knowledge_offer"
-	ActionForgetMemory          = "responder_forget_memory"
-	ActionForgetMemoryRollup    = "responder_forget_memory_rollup"
-	ActionDismissFeedback       = "responder_dismiss_feedback"
-	ActionConvertFeedback       = "responder_convert_feedback"
+	// ActionConfirmAssignmentOffer grants a standing assignment: scoped
+	// authority to open pull requests in one repository without a per-action
+	// click. It is the largest thing a single click in this product does, and
+	// it still creates the grant in shadow — the confirmation buys the bounds,
+	// and clearing shadow is a separate decision with an audit behind it.
+	ActionConfirmAssignmentOffer = "responder_confirm_assignment_offer"
+	ActionForgetMemory           = "responder_forget_memory"
+	ActionForgetMemoryRollup     = "responder_forget_memory_rollup"
+	ActionDismissFeedback        = "responder_dismiss_feedback"
+	ActionConvertFeedback        = "responder_convert_feedback"
 	// ActionConvertFeedbackBrief turns tone feedback into a typed response_detail
 	// preference rather than guidance. Guidance is advisory — the model weighs
 	// it. A preference is enforced by the host. "Be more concise", said three

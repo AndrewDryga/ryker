@@ -123,7 +123,9 @@ func (s *Service) recordProactiveEvaluation(
 	ctx context.Context, assignment core.StandingAssignment, input core.SlackInput,
 	episodeID string, eligibility decisionpkg.ProactiveEligibility,
 ) {
-	evaluation := assignments.Evaluation(assignment, input.ID, episodeID, input.Text, eligibility)
+	evaluation := assignments.Evaluation(
+		assignment, input.ID, episodeID, input.Text, eligibility.Eligible, eligibility.Reason,
+	)
 	if _, err := s.store.StandingAssignments.RecordEvaluation(
 		ctx, evaluation,
 	); err != nil && ctx.Err() == nil && s.log != nil {

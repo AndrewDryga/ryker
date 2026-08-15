@@ -324,7 +324,7 @@ deployment defaults and `/responder` remains the recovery surface:
 /responder proactive global on|off|inherit
 /responder shadow on|off|inherit
 /responder shadow global on|off|inherit
-/responder assignments [list|create|pause|resume|delete]
+/responder assignments [list|pause|resume|delete]
 /responder help
 ```
 
@@ -337,9 +337,12 @@ is private to whoever typed it. Everything else is a conversation, a button on a
 App Home, or the web control plane — all of which can reach a task thread, which a command typed
 into the channel composer cannot.
 
-`assignments` is the exception and it is a temporary one: a standing assignment can only be created
-by typing it, because the `offer_assignment` confirm card that will replace the verb does not exist
-yet. It leaves this list the day that card lands.
+`assignments` is the exception, and it is now half an exception. Reading a channel's standing grants
+and taking one back are things an operator wants reachable when the conversational path is what is
+broken, so `list`, `pause`, `resume` and `delete` stay. Creating one left on 2026-08-15: say what you
+want watched — "review every terraform plan here and open PRs for the drift, 2 a day, for 30 days" —
+and Responder answers with a confirmation card showing the normalized bounds it would grant. The
+typed `create` still answers, with a pointer to that conversation.
 
 The effective order is explicit channel override, confirmed channel setup, workspace override, then
 `responder.yaml`. Global `on`

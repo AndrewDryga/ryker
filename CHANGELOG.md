@@ -2,6 +2,36 @@
 
 ## 0.1.0
 
+- **Standing authority stops being something you type.** `/responder assignments create
+  repo=... class=... budget=... days=... paths=... signal=...` was the only way to grant a standing
+  assignment, and it was the last verb in the emergency kit that handed out authority rather than
+  reading or revoking it. It asked an operator to compose six bounds on unattended pull-request work
+  without ever seeing what they would produce, and then confirmed their typing rather than the
+  grant: a miscounted `paths=` was a repository-wide grant that read as a narrow one. It is now
+  `offer_assignment`, a typed operation the model emits when an operator asks for standing work in
+  words. The host normalizes every bound — the repository trimmed, the change class folded onto the
+  closed allowlist, the budget and expiry filled in when the sentence did not say, the empty and
+  duplicate path globs dropped, the signal collapsed to one line — and posts a confirmation card
+  stating the normalized grant. Nothing exists before the click.
+
+  The confirmation carries the memory-offer discipline in full, because this is the widest authority
+  a single button in this product grants. Operator-only and workspace-membership checked again at
+  the click rather than assumed from the card; the button value carries an episode id and an
+  operation id and no bounds at all, so the offer is read back out of the episode's own event stream
+  and re-validated through the validator that accepted it; a payload issued in another channel or
+  more than twenty-four hours ago grants nothing. And what it creates is still shadowed — v78's
+  refusal stands, `internal/assignments.Normalize` is the only constructor of the value the store
+  would refuse, and clearing the flag remains a separate decision with an audit behind it.
+
+  `assignments` stays a kept verb for `list`, `pause`, `resume` and `delete`: reading a channel's
+  grants and taking one back are what an operator reaches for when Responder is the problem.
+  `create`, `add` and `new` answer with a worked example of the sentence that replaced them, because
+  an operator who typed a command that worked last week did not typo. `internal/assignments` lost
+  its Slack import and its dependency on `internal/decision` to get here — `internal/investigation`
+  validates the operation through `assignments.ValidateOffer`, so the bound a model reads in a
+  correction is the bound the operator's click is measured against, rather than two copies that can
+  disagree about what was granted.
+
 - **An ambiguous incident stops walking its hypotheses one at a time.** The gate that decides
   whether an investigation has earned parallel branches landed pure and unwired; this connects it,
   as child episodes under the lead's incident. After a lead sweep's result is applied, the host
