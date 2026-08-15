@@ -99,6 +99,7 @@ func (s *Service) evaluateGrantPromotion(
 func (s *Service) offerGrantPromotion(
 	ctx context.Context,
 	incidentID string,
+	episodeID string,
 	channelID string,
 	deliveryID string,
 	action remediation.ActionRef,
@@ -130,6 +131,7 @@ func (s *Service) offerGrantPromotion(
 	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
 		ID:          deliveryID,
 		IncidentID:  incidentID,
+		EpisodeID:   episodeID,
 		Operation:   "post",
 		Kind:        "grant_promotion",
 		ChannelID:   channelID,
@@ -180,6 +182,7 @@ func (s *Service) demoteGrantsForRun(ctx context.Context, approval core.EmisarAp
 		if _, err := s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
 			ID:         "grant_demoted_" + grant.ID + "_" + approval.RequestID,
 			IncidentID: approval.IncidentID,
+			EpisodeID:  s.approvalEpisodeID(ctx, approval),
 			Operation:  "post", Kind: "grant_demotion", ChannelID: approval.ChannelID, Body: body,
 		}); err != nil {
 			s.log.Warn("post remediation demotion notice", "grant", grant.ID, "error", err)
@@ -270,4 +273,19 @@ func (s *Service) authorizeGrantAction(
 		)
 	}
 	return true, nil
+}
+
+// approvalEpisodeID resolves the episode an Emisar approval belongs to through
+// the watch run its source input started, the same route the continuation
+// attempt takes. Empty when the origin is gone: a notice with no episode is
+// still delivered, and the binding ratchet counts it, which is the point.
+func (s *Service) approvalEpisodeID(ctx context.Context, approval core.EmisarApproval) string {
+	if approval.SourceInput == "" {
+		return ""
+	}
+	origin, err := s.store.GetAgentRunBySource(ctx, "watch", approval.SourceInput)
+	if err != nil {
+		return ""
+	}
+	return origin.EpisodeID
 }

@@ -3669,7 +3669,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			// addition to a report that has already been produced.
 			if offer := report.GrantOffer; offer != nil {
 				if err := s.offerGrantPromotion(
-					ctx, incident.ID, incident.ChannelID, "grant_offer_"+run.ID,
+					ctx, incident.ID, run.EpisodeID, incident.ChannelID, "grant_offer_"+run.ID,
 					remediation.ActionRef{
 						ActionID: offer.ActionID, PackRef: offer.PackRef, RunnerRef: offer.RunnerRef,
 					},

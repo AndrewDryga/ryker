@@ -516,7 +516,10 @@ var lineBudget = map[string]int{
 	// internals at once, and putting them behind an interface would move lines
 	// between packages without moving a decision, which this file already warns
 	// is how a budget stops measuring anything.
-	"service": 23260,
+	// +10 on landing: the two grant deliveries the ladder posts are bound to
+	// their episode (the binding ratchet caught them the hour it landed), and
+	// the resolver that finds an approval's episode is four lines here.
+	"service": 23270,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -655,7 +658,11 @@ var lineBudget = map[string]int{
 	// EXISTS would have stopped every old healthy blocker from serializing
 	// its channel — the literal spec was the bug, and the fourth scenario
 	// pins the fix.
-	"store":      11520,
+	//
+	// Raised to 11540 on 2026-08-15 for grantstore's attachment beside the
+	// remediation ladder: the sub-repository field and its wiring, four
+	// lines, with the ladder itself in its own budgeted package.
+	"store":      11540,
 	"localstate": 400,
 	"provider":   120,
 	// Raised from 400 to 460 on 2026-08-14 for recalling past episodes into

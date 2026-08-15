@@ -195,7 +195,7 @@ func (s *Service) finishTerminalEmisarApproval(
 			ActionID: updated.ActionID, PackRef: updated.PackRef, RunnerRef: updated.RunnerRef,
 		}
 		if err := s.offerGrantPromotion(
-			ctx, updated.IncidentID, updated.ChannelID,
+			ctx, updated.IncidentID, s.approvalEpisodeID(ctx, updated), updated.ChannelID,
 			"grant_offer_"+updated.RequestID, action, "", 0, "",
 		); err != nil && ctx.Err() == nil {
 			s.log.Warn("offer remediation grant promotion", "run", updated.RunID, "error", err)
