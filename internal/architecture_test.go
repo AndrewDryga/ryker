@@ -566,7 +566,11 @@ var lineBudget = map[string]int{
 	// blocker with three failures stop excluding its channel. The hooks exist
 	// because the scenario needs a run aged, failed, and marked running without
 	// threading test clocks through the lease path itself.
-	"store":      11470,
+	//
+	// Raised to 11500 on 2026-08-14 for fixturepromotionstore's attachment:
+	// the sub-repository field and its wiring in attachRepositories — five
+	// lines landing beside the fairness raise measured on a different branch.
+	"store":      11500,
 	"localstate": 400,
 	"provider":   120,
 	// Raised from 400 to 460 on 2026-08-14 for recalling past episodes into
