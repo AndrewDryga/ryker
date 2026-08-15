@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/knowledgeoffer"
 	"slices"
 )
 
@@ -219,6 +220,14 @@ type ResultOperation struct {
 	// operator confirms. See core.GrantPromotionOffer for what it deliberately
 	// cannot say.
 	GrantOffer *core.GrantPromotionOffer `json:"grant_promotion,omitempty"`
+	// RunbookOffer and CardOffer are the payloads of offer_runbook_draft and
+	// offer_kb_card: proposals that a verified remediation should outlive the
+	// episode that produced it, as an Emisar runbook draft or a committed
+	// knowledge card. Both propose and nothing more — the host checks the
+	// episode actually verified, rebuilds the runbook's action identity from
+	// its own approval rows, and an operator confirms before anything exists.
+	RunbookOffer *core.RunbookDraftOffer  `json:"runbook_draft,omitempty"`
+	CardOffer    *core.KnowledgeCardOffer `json:"kb_card,omitempty"`
 	// Proposal is the payload of propose_action, which no longer exists.
 	//
 	// The operation is out of the prompt and the host has nothing left to do
@@ -294,6 +303,8 @@ var resultOperationPayloads = []func(ResultOperation) bool{
 	func(o ResultOperation) bool { return o.AlertAssessment != nil },
 	func(o ResultOperation) bool { return o.RepositoryContents != nil },
 	func(o ResultOperation) bool { return o.GrantOffer != nil },
+	func(o ResultOperation) bool { return o.RunbookOffer != nil },
+	func(o ResultOperation) bool { return o.CardOffer != nil },
 	func(o ResultOperation) bool { return len(o.Proposal) > 0 },
 	func(o ResultOperation) bool { return o.Completion != nil },
 }
@@ -443,6 +454,18 @@ var resultOperationValidators = map[string]func(ResultOperation) error{
 	// complete immutable action identity and one reachable rung, so the deeper
 	// refusals are about evidence rather than spelling.
 	"offer_grant_promotion": validateGrantPromotionOperation,
+	// The two knowledge offers delegate to internal/knowledgeoffer rather than
+	// checking their shapes here, so the rule a model reads in a correction is
+	// literally the rule the operator's confirmation click will be measured
+	// against. Two copies of a slug pattern is two chances for an offer to be
+	// accepted at result time and refused at confirm time for a reason nobody
+	// was ever told.
+	"offer_runbook_draft": func(o ResultOperation) error {
+		return knowledgeoffer.ValidateRunbookOffer(o.ID, o.RunbookOffer)
+	},
+	"offer_kb_card": func(o ResultOperation) error {
+		return knowledgeoffer.ValidateCardOffer(o.ID, o.CardOffer)
+	},
 	// propose_action is refused rather than absent. The operation is gone from
 	// ResultOperationsPrompt, so a model working from the current contract will
 	// not emit one; a model working from anything older would otherwise get a
@@ -614,7 +637,10 @@ accepted operations in the episode event stream.
 - offer_task: {"id":"task-1","type":"offer_task","task":{"kind":"engineering|incident","title":"...","repository":"...","prompt":"..."}}
 - record_alert_assessment: {"id":"alert-1","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue|likely_issue|not_issue|unverified","impact":"current impact","cause_status":"identified|bounded when required","cause":"bounded cause","cause_claim_ids":["claim_id"],"evidence_refs":["evidence id for claim"],"immediate_action":"safe next step","verification":"success check","long_term_solution":"durable fix"}}
 - record_repository_contents: {"id":"repo-contents-1","type":"record_repository_contents","repository_contents":{"repository":"exact alias from the repository set","contents":"one sentence naming which part of the product lives there"}}
-- offer_grant_promotion: {"id":"grant-1","type":"offer_grant_promotion","grant_promotion":{"action_id":"exact Emisar action id","pack_ref":"exact pack ref","runner_ref":"exact runner ref","rung":"propose|one_click","verified_successes":3,"rationale":"one sentence for the operator"}} — only for an action YOU ran through Emisar and verified. It proposes; the host recomputes the count, refuses what it cannot reproduce, sets the scope itself, and an operator confirms.
+- offer_grant_promotion: {"id":"grant-1","type":"offer_grant_promotion","grant_promotion":{"action_id":"exact Emisar action id","pack_ref":"exact pack ref","runner_ref":"exact runner ref","rung":"propose|one_click","verified_successes":3,"rationale":"one sentence for the operator"}} — the host sets the scope itself and never widens it.
+- offer_runbook_draft: {"id":"rb-1","type":"offer_runbook_draft","runbook_draft":{"title":"<=80 chars","slug":"lowercase-slug","summary":"when to run it","action_id":"exact Emisar action id","pack_ref":"exact pack ref","runner_ref":"exact runner ref"}} — the host rebuilds the step from its own approval record.
+- offer_kb_card: {"id":"kb-1","type":"offer_kb_card","kb_card":{"slug":"lowercase-slug","title":"<=80 chars","body":"Markdown <4096 bytes, no top heading"}} — durable behavior; confirmed, it becomes a draft PR nobody merges.
+Those three propose only, for work THIS episode ran and verified: the host recomputes the evidence, refuses what it cannot reproduce, and an operator confirms. Each takes an optional rationale.
 - attach_visual{visual}, update_memory{memory}: one payload under the braced key. Offers use offer_memory{memory_offer: scope,subject,predicate,value,visibility}, offer_preference{preference_offer: scope,name,value}, offer_rule{rule_offer: scope,repository,trigger,action}, offer_schedule{schedule_offer: title,prompt,repository,recurrence,start_at}.
 - complete_episode decision-ready example: {"id":"complete-1","type":"complete_episode","completion":{"message":"Slack Markdown answer","followup_messages":[],"completion":{"status":"decision_ready","verdict":"one exact completion.allowed_verdicts value when required","summary":"concise decision"}}}
 - complete_episode blocked example: {"id":"complete-1","type":"complete_episode","completion":{"message":"exact blocker and useful result so far","coverage":[{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unknown","detail":"exact evidence gap"}],"completion":{"status":"blocked","summary":"what cannot yet be decided","material_gaps":["missing material claim"],"blocker_kind":"source_unavailable|access_denied|operator_input_required|authority_boundary|tool_failure|capability_unavailable","attempts":["route already attempted"],"next_action":"exact action that unblocks it","capability_gaps":[{"capability":"GitHub Actions run and job inspection","status":"not_installed|not_trusted|not_advertised|incompatible|not_found","pack_id":"github-cli when an evidence source identifies it; omit for not_found","pack_ref":"optional observed immutable ref","evidence_refs":["source_id or source_name from a record_evidence operation"],"recommendation":"one concise operator-facing installation, trust, deployment, or compatibility step"}],"recheck":{"key":"provider:capability:identifier","reason":"why this exact external condition is expected to change shortly","after_seconds":120,"additional_attempts":3}}}}

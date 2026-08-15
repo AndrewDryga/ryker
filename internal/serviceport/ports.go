@@ -43,6 +43,7 @@ type Publication interface {
 
 type Emisar interface {
 	WaitForRun(context.Context, string) (emisar.RunState, error)
+	CreateRunbookDraft(context.Context, map[string]any) (emisar.DraftState, error)
 }
 
 // FixturePromotion writes the corrections an operator kept into the regression

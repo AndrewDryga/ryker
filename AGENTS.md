@@ -60,7 +60,7 @@ zero rather than one that drifts.
 - **The machine stopped working** → no test catches this. `scripts/watchdog.sh` does.
 
 The full eval-prompts run takes half an hour and must never queue a deploy. For a prompt
-WORDING change, `make eval-prompts-smoke` (~5 minutes, four smoke-tagged cases) gates the
+WORDING change, `make eval-prompts-smoke` (~5 minutes, five smoke-tagged cases) gates the
 deploy; the full run follows after the deploy as information. The full run gates only
 contract, schema, or operation-list changes, and releases. A live fix waits for dev-check
 and nothing else.

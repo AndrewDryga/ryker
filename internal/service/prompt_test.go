@@ -499,7 +499,16 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 //
 // 46342 on landing: the two changes above crossed — 45871 after the diet, plus
 // the 471-byte offer_grant_promotion bullet — and the pin is the measured sum.
-const staticWatchPromptBytes = 46342
+//
+// 46946 on 2026-08-15 for offer_runbook_draft and offer_kb_card: 604 bytes for
+// two operations, which is 302 each against the 471 the single grant bullet
+// cost, because the sentence all three of them needed — these propose, the host
+// recomputes, an operator confirms — was written once below the list instead of
+// three times inside it. That rewrite paid for about a third of the new text.
+// The hard ceiling in TestStaticPromptSizeIsBounded is the bound that actually
+// refused this twice; both bullets were cut down until it passed rather than
+// being allowed to spend context the conversation needs.
+const staticWatchPromptBytes = 46946
 
 // The static prompt must not grow without someone deciding it should.
 //

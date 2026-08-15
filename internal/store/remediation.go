@@ -37,6 +37,14 @@ func (s *Store) LoadRemediationRecord(
 	if record.Approvals, err = s.ListEmisarApprovalsForIncident(ctx, incidentID); err != nil {
 		return core.RemediationRecord{}, err
 	}
+	// The follow-up section used to be five static checkboxes ending in "assign
+	// remaining corrective actions and owners", which is a sentence asking
+	// somebody to do the tracking by hand. Every episode this incident ran
+	// already has a commitment row with a state and a thread; loading them is
+	// what turns that section from a suggestion into a record.
+	if record.Commitments, err = listIncidentCommitments(ctx, s.db, incidentID, 25); err != nil {
+		return core.RemediationRecord{}, err
+	}
 	record.Publication, err = s.GetPublication(ctx, incidentID)
 	if errors.Is(err, ErrNotFound) {
 		err = nil

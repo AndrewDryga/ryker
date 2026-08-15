@@ -18,6 +18,7 @@ import (
 	publicationreview "github.com/AndrewDryga/responder/internal/publicationreview"
 	"github.com/AndrewDryga/responder/internal/reportcanvas"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
+	"github.com/AndrewDryga/responder/internal/slackfile"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
@@ -60,6 +61,7 @@ var slackActionRoutes = map[string]func(*Service, context.Context, core.SlackInp
 	slackui.ActionOpenCanvas:              (*Service).acknowledgeLinkAction,
 	slackui.ActionRememberMemory:          (*Service).handleRememberMemory,
 	slackui.ActionConfirmGrantPromotion:   (*Service).handleConfirmGrantPromotion,
+	slackui.ActionConfirmKnowledgeOffer:   (*Service).handleConfirmKnowledgeOffer,
 	slackui.ActionForgetMemory:            (*Service).handleForgetMemory,
 	slackui.ActionForgetMemoryRollup:      (*Service).handleForgetMemoryRollup,
 	slackui.ActionDismissFeedback:         (*Service).handleDismissFeedback,
@@ -1833,7 +1835,7 @@ func (s *Service) incidentControlMatchesMessage(
 	}
 	var message slackui.Message
 	if delivery.Operation == "file" {
-		file, decodeErr := decodeSlackFileDelivery(delivery.Body)
+		file, decodeErr := slackfile.DecodeDelivery(delivery.Body)
 		if decodeErr != nil {
 			return false, fmt.Errorf("decode Slack control delivery %q: %w", delivery.ID, decodeErr)
 		}

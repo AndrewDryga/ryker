@@ -2,6 +2,7 @@ package slackui
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 	"unicode"
@@ -606,7 +607,7 @@ func PostmortemDraft(record core.RemediationRecord) Message {
 			)
 		}
 	}
-	body.WriteString("\n- [ ] Assign remaining corrective actions and owners\n")
+	writePostmortemCommitments(&body, record.Commitments)
 	message := EvidenceResponse(
 		body.String(), nil, record.Coverage[:min(len(record.Coverage), 12)],
 		NewSanitizer(30000),
@@ -949,4 +950,61 @@ func IncidentStatusMessage(incident core.Incident) Message {
 		}}
 	}
 	return message
+}
+
+// writePostmortemCommitments replaces the line that used to read
+// "- [ ] Assign remaining corrective actions and owners".
+//
+// That sentence was the whole problem with a prose postmortem: it asked a
+// reader to do the tracking, in a document nobody re-opens, at the end of the
+// week the incident happened. Every episode this incident ran already produced
+// a commitment — the same rows the App Home and `/responder commitments` read —
+// with a title somebody wrote, a state the lifecycle maintains, and a thread
+// the work is still in. Listing those is the difference between an action item
+// and an action.
+//
+// Done work is rendered as a ticked box rather than dropped. A postmortem that
+// showed only what is outstanding would answer "what is left" and lose "what we
+// did", and the second is most of what a reader came for.
+//
+// The closing line stays when there is nothing to list. An incident that
+// produced no tracked work still needs somebody to say whether anything is
+// owed, and a silent section reads as "nothing is owed".
+func writePostmortemCommitments(body *strings.Builder, commitments []core.Commitment) {
+	if len(commitments) == 0 {
+		body.WriteString("\n- [ ] Assign remaining corrective actions and owners\n")
+		return
+	}
+	for _, commitment := range commitments {
+		box := "[ ]"
+		if commitment.State == core.CommitmentDone {
+			box = "[x]"
+		}
+		fmt.Fprintf(
+			body, "\n- %s %s — `%s`", box,
+			truncateUTF8(escapeSlackText(commitment.Title), 200),
+			safeInlineCode(string(commitment.State)),
+		)
+		if link := commitmentThreadURL(commitment); link != "" {
+			fmt.Fprintf(body, " ([thread](%s))", link)
+		}
+	}
+	body.WriteString("\n")
+}
+
+// commitmentThreadURL is the episode link an action item carries.
+//
+// app_redirect rather than a workspace permalink, matching the App Home: it
+// needs no team domain, which this process does not store, and Slack resolves
+// it to the same message. A commitment with no channel gets no link rather than
+// a broken one.
+func commitmentThreadURL(commitment core.Commitment) string {
+	if strings.TrimSpace(commitment.ChannelID) == "" {
+		return ""
+	}
+	link := "https://slack.com/app_redirect?channel=" + url.QueryEscape(commitment.ChannelID)
+	if anchor := strings.TrimSpace(commitment.ThreadTS); anchor != "" {
+		link += "&message_ts=" + url.QueryEscape(anchor)
+	}
+	return link
 }

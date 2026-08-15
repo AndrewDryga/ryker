@@ -49,6 +49,12 @@ const (
 	// ladder. It grants Responder permission to OFFER an action; it is not an
 	// approval of any run, and Emisar remains the only thing that approves.
 	ActionConfirmGrantPromotion = "responder_confirm_grant_promotion"
+	// ActionConfirmKnowledgeOffer confirms that a verified remediation should
+	// outlive its episode — as an Emisar runbook draft or a committed knowledge
+	// card. One action id for both, because both are the same decision with the
+	// same discipline behind it and the kind is in the payload; two ids would be
+	// two confirmation paths to keep in step.
+	ActionConfirmKnowledgeOffer = "responder_confirm_knowledge_offer"
 	ActionForgetMemory          = "responder_forget_memory"
 	ActionForgetMemoryRollup    = "responder_forget_memory_rollup"
 	ActionDismissFeedback       = "responder_dismiss_feedback"

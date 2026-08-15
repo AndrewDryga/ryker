@@ -13,6 +13,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/publisher"
+	"github.com/AndrewDryga/responder/internal/slackfile"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskpr"
@@ -275,7 +276,7 @@ func TestSlackAttachmentDownloadRejectsUnsafeOrMismatchedContent(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("download error = %v, want %q", err, test.want)
 			}
-			if !permanentSlackAttachmentError(err) {
+			if !slackfile.PermanentInputError(err) {
 				t.Fatalf("invalid attachment was treated as retryable: %v", err)
 			}
 		})

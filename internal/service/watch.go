@@ -19,6 +19,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/promptscope"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
+	"github.com/AndrewDryga/responder/internal/slackfile"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskaccess"
@@ -1779,7 +1780,7 @@ func WatchPromptMessage(
 	attachments := make([]decisionpkg.WatchContextAttachment, 0, len(input.Attachments))
 	for _, attachment := range input.Attachments {
 		attachments = append(attachments, decisionpkg.WatchContextAttachment{
-			Name:      safeAttachmentName(attachment.Name, attachment.ID),
+			Name:      slackfile.SafeName(attachment.Name, attachment.ID),
 			MediaType: attachment.MediaType,
 			Size:      attachment.Size,
 		})

@@ -1701,6 +1701,11 @@ type RemediationRecord struct {
 	Events      []TimelineEvent
 	Approvals   []EmisarApproval
 	Publication Publication
+	// Commitments is every promise this incident's episodes created, in every
+	// state. The postmortem's follow-up section is built from it rather than
+	// from a checklist, so an action item leaves the draft with an id, a state
+	// and a thread instead of a checkbox nobody owns.
+	Commitments []Commitment
 }
 
 type EmisarApproval struct {

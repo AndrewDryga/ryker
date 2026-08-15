@@ -12,6 +12,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/liveturn"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
+	"github.com/AndrewDryga/responder/internal/slackfile"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskaccess"
@@ -290,7 +291,7 @@ func (s *Service) processSlackDelivery(ctx context.Context, cooling []string) er
 		)
 	}
 	var timestamp string
-	var fileDelivery *slackFileDelivery
+	var fileDelivery *slackfile.Delivery
 	switch item.Operation {
 	case "post", "update":
 		message, decodeErr := slackui.Decode(item.Body)
@@ -348,7 +349,7 @@ func (s *Service) processSlackDelivery(ctx context.Context, cooling []string) er
 			err = fmt.Errorf("unsupported Slack reaction action %q", item.Kind)
 		}
 	case "file":
-		file, decodeErr := decodeSlackFileDelivery(item.Body)
+		file, decodeErr := slackfile.DecodeDelivery(item.Body)
 		if decodeErr != nil {
 			err = decodeErr
 			break
@@ -370,7 +371,7 @@ func (s *Service) processSlackDelivery(ctx context.Context, cooling []string) er
 	if err != nil {
 		terminal := retrydelay.Exhausted(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts)
 		uncertain := item.Operation == "post" || item.Operation == "file"
-		if item.Operation == "file" && permanentSlackFileDeliveryError(err) {
+		if item.Operation == "file" && slackfile.PermanentDeliveryError(err) {
 			terminal = true
 			uncertain = false
 		}
@@ -447,14 +448,14 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 		)
 	}
 	var timestamp string
-	var fileDelivery *slackFileDelivery
+	var fileDelivery *slackfile.Delivery
 	if item.Operation == "file" {
-		file, decodeErr := decodeSlackFileDelivery(item.Body)
+		file, decodeErr := slackfile.DecodeDelivery(item.Body)
 		if decodeErr != nil {
 			return s.store.RetryUncertainSlackDelivery(ctx, item.ID, trimError(decodeErr), s.now(), true)
 		}
 		fileDelivery = &file
-		if permanentSlackFileDeliveryError(errors.New(item.LastError)) {
+		if slackfile.PermanentDeliveryError(errors.New(item.LastError)) {
 			if retryErr := s.store.RetryUncertainSlackDelivery(
 				ctx, item.ID, item.LastError, s.now(), true,
 			); retryErr != nil {

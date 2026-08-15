@@ -40,6 +40,12 @@ const (
 	EventEpisodeCancelled    = "episode_cancelled"
 	EventEpisodeRefused      = "episode_refused"
 	EventTaskOffered         = "task_offered"
+	// EventKnowledgeOffered records a proposal that a verified remediation
+	// should outlive its episode. The event carries the whole operation because
+	// the confirmation click reads the offer back from here rather than from
+	// the button: a knowledge card's body does not fit in a Slack action value,
+	// and an identity that does is the only thing worth trusting one for.
+	EventKnowledgeOffered    = "knowledge_offered"
 	EventCompletionSubmitted = "completion_submitted"
 	EventCompletionAccepted  = "completion_accepted"
 	EventDeliveryProjected   = "delivery_projected"

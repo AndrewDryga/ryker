@@ -31,6 +31,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/retrydelay"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
+	"github.com/AndrewDryga/responder/internal/slackfile"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/standingrule"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -774,7 +775,7 @@ func (s *Service) prepareIncidentAgentRun(
 	artifacts, err := s.agentRunArtifacts(ctx, run)
 	if err != nil {
 		return s.retryIncidentAgentRun(
-			ctx, run, incident, err, permanentSlackAttachmentError(err),
+			ctx, run, incident, err, slackfile.PermanentInputError(err),
 		)
 	}
 	provisionalPrompt := run.Prompt
@@ -1742,7 +1743,7 @@ func (s *Service) retryAgentRun(
 	if errors.As(cause, &apiErr) && !apiErr.Retryable() && !isCoopRevisionConflict(cause) {
 		terminal = true
 	}
-	if permanentSlackAttachmentError(cause) || permanentPreparationError(cause) {
+	if slackfile.PermanentInputError(cause) || permanentPreparationError(cause) {
 		terminal = true
 	}
 	if run.Mode == core.AgentRunTriage && terminal {
@@ -3678,6 +3679,13 @@ func (s *Service) finalizeIncidentAgentRun(
 					s.log.Warn("offer remediation grant promotion", "run", run.ID, "error", err)
 				}
 			}
+			// The same shape one line up, for the other thing a verified fix
+			// can become. Read from the operations rather than a folded field:
+			// an episode may propose a runbook AND a card, and they are two
+			// decisions rather than one.
+			s.offerEpisodeKnowledge(
+				ctx, run, incident.ID, incident.ChannelID, episodeOperations,
+			)
 			if conversation && s.cfg.IsOperator(conversationInput.UserID) {
 				offers, acknowledgement, replaced := normalizedOffers(
 					conversationInput,

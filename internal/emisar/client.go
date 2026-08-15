@@ -47,29 +47,37 @@ func New(client HTTPDoer, endpoint string, token string) *Client {
 	return &Client{http: client, url: endpoint, token: token}
 }
 
-func (c *Client) WaitForRun(ctx context.Context, runID string) (RunState, error) {
+// call performs one MCP tools/call and returns its structured content.
+//
+// Every hardening rule this client has lives here, once: the bearer header and
+// protocol version, the 2 MiB read ceiling applied to a LimitReader rather than
+// to a Content-Length nobody has to send honestly, the HTTP status check, and
+// the two error channels — JSON-RPC's and the tool's own — which are different
+// failures and are reported as different failures. A second tool that copied
+// eighty lines of this would be a second place for one of them to be dropped.
+//
+// isError is returned rather than interpreted: whether an error result is fatal
+// depends on what the caller asked for, and only the caller knows the tool's
+// own result shape.
+func (c *Client) call(
+	ctx context.Context,
+	tool string,
+	arguments map[string]any,
+) (json.RawMessage, bool, error) {
 	if c == nil || c.http == nil {
-		return RunState{}, errors.New("Emisar HTTP client is unavailable")
+		return nil, false, errors.New("Emisar HTTP client is unavailable")
 	}
-	if strings.TrimSpace(c.url) == "" || strings.TrimSpace(c.token) == "" ||
-		strings.TrimSpace(runID) == "" {
-		return RunState{}, errors.New("Emisar run lookup is incomplete")
+	if strings.TrimSpace(c.url) == "" || strings.TrimSpace(c.token) == "" {
+		return nil, false, errors.New("Emisar endpoint is not configured")
 	}
-	payload := map[string]any{
+	body, err := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
 		"id":      c.next.Add(1),
 		"method":  "tools/call",
-		"params": map[string]any{
-			"name": "wait_for_run",
-			"arguments": map[string]any{
-				"run_id":  runID,
-				"timeout": "0",
-			},
-		},
-	}
-	body, err := json.Marshal(payload)
+		"params":  map[string]any{"name": tool, "arguments": arguments},
+	})
 	if err != nil {
-		return RunState{}, err
+		return nil, false, err
 	}
 	request, err := http.NewRequestWithContext(
 		ctx,
@@ -78,7 +86,7 @@ func (c *Client) WaitForRun(ctx context.Context, runID string) (RunState, error)
 		bytes.NewReader(body),
 	)
 	if err != nil {
-		return RunState{}, err
+		return nil, false, err
 	}
 	request.Header.Set("Authorization", "Bearer "+c.token)
 	request.Header.Set("Content-Type", "application/json")
@@ -87,18 +95,18 @@ func (c *Client) WaitForRun(ctx context.Context, runID string) (RunState, error)
 	request.Header.Set("User-Agent", "responder")
 	response, err := c.http.Do(request)
 	if err != nil {
-		return RunState{}, err
+		return nil, false, err
 	}
 	defer response.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(response.Body, responseLimit+1))
 	if err != nil {
-		return RunState{}, err
+		return nil, false, err
 	}
 	if len(data) > responseLimit {
-		return RunState{}, errors.New("Emisar response exceeds 2 MiB")
+		return nil, false, errors.New("Emisar response exceeds 2 MiB")
 	}
 	if response.StatusCode != http.StatusOK {
-		return RunState{}, fmt.Errorf("Emisar HTTP %d", response.StatusCode)
+		return nil, false, fmt.Errorf("Emisar HTTP %d", response.StatusCode)
 	}
 	var rpc struct {
 		Result json.RawMessage `json:"result"`
@@ -108,27 +116,41 @@ func (c *Client) WaitForRun(ctx context.Context, runID string) (RunState, error)
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(data, &rpc); err != nil {
-		return RunState{}, fmt.Errorf("decode Emisar JSON-RPC response: %w", err)
+		return nil, false, fmt.Errorf("decode Emisar JSON-RPC response: %w", err)
 	}
 	if rpc.Error != nil {
-		return RunState{}, fmt.Errorf(
+		return nil, false, fmt.Errorf(
 			"Emisar JSON-RPC error %d: %s",
 			rpc.Error.Code,
 			rpc.Error.Message,
 		)
 	}
 	if len(rpc.Result) == 0 {
-		return RunState{}, errors.New("Emisar JSON-RPC response has no result")
+		return nil, false, errors.New("Emisar JSON-RPC response has no result")
 	}
-	var tool struct {
+	var envelope struct {
 		IsError           bool            `json:"isError"`
 		StructuredContent json.RawMessage `json:"structuredContent"`
 	}
-	if err := json.Unmarshal(rpc.Result, &tool); err != nil {
-		return RunState{}, fmt.Errorf("decode Emisar tool result: %w", err)
+	if err := json.Unmarshal(rpc.Result, &envelope); err != nil {
+		return nil, false, fmt.Errorf("decode Emisar tool result: %w", err)
 	}
-	if len(tool.StructuredContent) == 0 {
-		return RunState{}, errors.New("Emisar wait_for_run returned no structured content")
+	if len(envelope.StructuredContent) == 0 {
+		return nil, envelope.IsError, fmt.Errorf("Emisar %s returned no structured content", tool)
+	}
+	return envelope.StructuredContent, envelope.IsError, nil
+}
+
+func (c *Client) WaitForRun(ctx context.Context, runID string) (RunState, error) {
+	if strings.TrimSpace(runID) == "" {
+		return RunState{}, errors.New("Emisar run lookup is incomplete")
+	}
+	content, isError, err := c.call(ctx, "wait_for_run", map[string]any{
+		"run_id":  runID,
+		"timeout": "0",
+	})
+	if err != nil {
+		return RunState{}, err
 	}
 	var result struct {
 		OK    bool `json:"ok"`
@@ -147,10 +169,10 @@ func (c *Client) WaitForRun(ctx context.Context, runID string) (RunState, error)
 			ErrorMessage string `json:"error_message"`
 		} `json:"run"`
 	}
-	if err := json.Unmarshal(tool.StructuredContent, &result); err != nil {
+	if err := json.Unmarshal(content, &result); err != nil {
 		return RunState{}, fmt.Errorf("decode Emisar wait_for_run content: %w", err)
 	}
-	if tool.IsError || !result.OK {
+	if isError || !result.OK {
 		if result.Error != nil {
 			return RunState{}, fmt.Errorf(
 				"Emisar wait_for_run %s: %s",

@@ -150,3 +150,45 @@ func (s *Store) CountActiveCommitments(ctx context.Context) (int, error) {
 	).Scan(&count)
 	return count, err
 }
+
+// listIncidentCommitments is every promise this incident's work created.
+//
+// A package function rather than a method on Store, because Store's exported
+// surface is at its budget and this has exactly one caller: the remediation
+// record the postmortem is rendered from. It is also the honest shape — this is
+// part of loading one incident's canonical snapshot, not a general capability.
+//
+// Every state, including finished and cancelled ones, unlike the active list.
+// A postmortem's follow-up section is a record of what was promised and what
+// became of it; hiding the closed ones would turn "we said we would check the
+// export job" into a blank line.
+func listIncidentCommitments(
+	ctx context.Context,
+	db *sql.DB,
+	incidentID string,
+	limit int,
+) ([]core.Commitment, error) {
+	if strings.TrimSpace(incidentID) == "" {
+		return nil, nil
+	}
+	rows, err := db.QueryContext(ctx, `
+		SELECT `+commitmentProjectionColumns+`
+		FROM commitments AS c
+		JOIN work_episodes AS e ON e.id = c.episode_id
+		JOIN agent_runs AS r ON r.id = e.agent_run_id
+		WHERE r.incident_id = ?
+		ORDER BY r.created_at ASC LIMIT ?`, incidentID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]core.Commitment, 0)
+	for rows.Next() {
+		item, err := scanCommitment(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}

@@ -1,21 +1,16 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"mime"
-	"net/http"
-	"net/url"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/slackfile"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/taskpr"
 )
@@ -30,7 +25,7 @@ func (s *Service) downloadSlackArtifacts(
 		return nil, nil
 	}
 	if len(input.Attachments) > s.cfg.Limits.MaxSlackFiles {
-		return nil, invalidSlackAttachment(
+		return nil, slackfile.InvalidInput(
 			"Slack message has %d files; the configured limit is %d",
 			len(input.Attachments), s.cfg.Limits.MaxSlackFiles,
 		)
@@ -43,25 +38,25 @@ func (s *Service) downloadSlackArtifacts(
 			if err != nil {
 				return nil, fmt.Errorf("resolve Slack file %q: %w", attachment.ID, err)
 			}
-			attachment = mergeSlackAttachment(attachment, resolved)
+			attachment = slackfile.Merge(attachment, resolved)
 		}
 		if attachment.Size < 0 || attachment.Size > int64(s.cfg.Limits.MaxSlackFileBytes) {
-			return nil, invalidSlackAttachment(
+			return nil, slackfile.InvalidInput(
 				"Slack file %q exceeds the configured %d-byte limit",
 				attachment.Name, s.cfg.Limits.MaxSlackFileBytes,
 			)
 		}
-		if err := validateSlackFileURL(attachment.URLPrivate); err != nil {
-			return nil, invalidSlackAttachment("Slack file %q: %v", attachment.Name, err)
+		if err := slackfile.ValidateURL(attachment.URLPrivate); err != nil {
+			return nil, slackfile.InvalidInput("Slack file %q: %v", attachment.Name, err)
 		}
-		mediaType, err := canonicalSlackMediaType(attachment.MediaType)
+		mediaType, err := slackfile.CanonicalMediaType(attachment.MediaType)
 		if err != nil {
-			return nil, invalidSlackAttachment("Slack file %q: %v", attachment.Name, err)
+			return nil, slackfile.InvalidInput("Slack file %q: %v", attachment.Name, err)
 		}
-		writer := &boundedArtifactWriter{limit: s.cfg.Limits.MaxSlackFileBytes}
+		writer := slackfile.NewBoundedWriter(s.cfg.Limits.MaxSlackFileBytes)
 		if err := s.slack.DownloadFile(ctx, attachment.URLPrivate, writer); err != nil {
-			if errors.Is(err, errArtifactTooLarge) {
-				return nil, invalidSlackAttachment(
+			if errors.Is(err, slackfile.ErrTooLarge) {
+				return nil, slackfile.InvalidInput(
 					"Slack file %q exceeds the configured %d-byte limit",
 					attachment.Name, s.cfg.Limits.MaxSlackFileBytes,
 				)
@@ -70,68 +65,29 @@ func (s *Service) downloadSlackArtifacts(
 		}
 		data := writer.Bytes()
 		if len(data) == 0 {
-			return nil, invalidSlackAttachment("Slack file %q is empty", attachment.Name)
+			return nil, slackfile.InvalidInput("Slack file %q is empty", attachment.Name)
 		}
 		if total > s.cfg.Limits.MaxSlackFileTotalBytes-len(data) {
-			return nil, invalidSlackAttachment(
+			return nil, slackfile.InvalidInput(
 				"Slack files exceed the configured %d-byte total limit",
 				s.cfg.Limits.MaxSlackFileTotalBytes,
 			)
 		}
 		total += len(data)
-		if !slackMediaMatches(mediaType, data) {
-			return nil, invalidSlackAttachment(
+		if !slackfile.MatchesMediaType(mediaType, data) {
+			return nil, slackfile.InvalidInput(
 				"Slack file %q content does not match declared media type %q",
 				attachment.Name, mediaType,
 			)
 		}
 		digest := sha256.Sum256(data)
 		artifacts = append(artifacts, coop.InputArtifact{
-			Name:      safeAttachmentName(attachment.Name, attachment.ID),
+			Name:      slackfile.SafeName(attachment.Name, attachment.ID),
 			MediaType: mediaType, SHA256: hex.EncodeToString(digest[:]),
 			Data: append([]byte(nil), data...),
 		})
 	}
 	return artifacts, nil
-}
-
-func mergeSlackAttachment(
-	attachment core.SlackAttachment,
-	resolved slackui.HistoryFile,
-) core.SlackAttachment {
-	if resolved.ID != "" && attachment.ID == "" {
-		attachment.ID = resolved.ID
-	}
-	if resolved.Name != "" {
-		attachment.Name = resolved.Name
-	}
-	if resolved.MediaType != "" {
-		attachment.MediaType = resolved.MediaType
-	}
-	if resolved.Size != 0 {
-		attachment.Size = resolved.Size
-	}
-	if resolved.URLPrivate != "" {
-		attachment.URLPrivate = resolved.URLPrivate
-	}
-	return attachment
-}
-
-type slackAttachmentInputError struct {
-	detail string
-}
-
-func (e *slackAttachmentInputError) Error() string {
-	return e.detail
-}
-
-func invalidSlackAttachment(format string, args ...any) error {
-	return &slackAttachmentInputError{detail: fmt.Sprintf(format, args...)}
-}
-
-func permanentSlackAttachmentError(err error) bool {
-	var target *slackAttachmentInputError
-	return errors.As(err, &target)
 }
 
 func (s *Service) agentRunArtifacts(
@@ -206,14 +162,14 @@ func (s *Service) latestHumanThreadAttachments(
 		}
 		mediaType := file.MediaType
 		if mediaType != "" {
-			canonical, err := canonicalSlackMediaType(mediaType)
+			canonical, err := slackfile.CanonicalMediaType(mediaType)
 			if err != nil {
 				continue
 			}
 			mediaType = canonical
 		}
 		if file.URLPrivate != "" {
-			if err := validateSlackFileURL(file.URLPrivate); err != nil {
+			if err := slackfile.ValidateURL(file.URLPrivate); err != nil {
 				continue
 			}
 		}
@@ -227,82 +183,4 @@ func (s *Service) latestHumanThreadAttachments(
 		})
 	}
 	return attachments
-}
-
-func validateSlackFileURL(raw string) error {
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme != "https" || parsed.User != nil ||
-		parsed.Fragment != "" {
-		return errors.New("private download URL is invalid")
-	}
-	host := strings.ToLower(parsed.Hostname())
-	if host != "files.slack.com" && !strings.HasSuffix(host, ".files.slack.com") {
-		return errors.New("private download URL is outside Slack file hosting")
-	}
-	return nil
-}
-
-func canonicalSlackMediaType(raw string) (string, error) {
-	value, _, err := mime.ParseMediaType(strings.TrimSpace(raw))
-	if err != nil {
-		return "", errors.New("declared media type is invalid")
-	}
-	value = strings.ToLower(value)
-	switch value {
-	case "image/png", "image/jpeg", "image/webp", "image/gif",
-		"text/plain", "text/markdown", "text/csv", "application/json",
-		"application/yaml", "application/x-yaml", "application/pdf":
-		return value, nil
-	default:
-		return "", fmt.Errorf("media type %q is not supported", value)
-	}
-}
-
-func slackMediaMatches(mediaType string, data []byte) bool {
-	switch mediaType {
-	case "image/png", "image/jpeg", "image/gif":
-		return http.DetectContentType(data) == mediaType
-	case "image/webp":
-		return len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP"
-	case "application/pdf":
-		return len(data) >= 5 && string(data[:5]) == "%PDF-"
-	default:
-		return utf8.Valid(data) && !bytes.ContainsRune(data, 0)
-	}
-}
-
-func safeAttachmentName(name, fallback string) string {
-	name = strings.TrimSpace(name)
-	var clean strings.Builder
-	for _, r := range name {
-		if r == '/' || r == '\\' || unicode.IsControl(r) {
-			clean.WriteByte('_')
-		} else {
-			clean.WriteRune(r)
-		}
-	}
-	value := strings.Trim(clean.String(), " .")
-	if value == "" {
-		value = "attachment-" + fallback
-	}
-	value = core.TruncateUTF8(value, 255)
-	return value
-}
-
-var errArtifactTooLarge = errors.New("artifact exceeds byte limit")
-
-type boundedArtifactWriter struct {
-	buffer bytes.Buffer
-	limit  int
-}
-
-func (w *boundedArtifactWriter) Write(data []byte) (int, error) {
-	if w.buffer.Len() > w.limit-len(data) {
-		return 0, errArtifactTooLarge
-	}
-	return w.buffer.Write(data)
-}
-
-func (w *boundedArtifactWriter) Bytes() []byte {
-	return w.buffer.Bytes()
 }

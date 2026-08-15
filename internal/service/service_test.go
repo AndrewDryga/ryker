@@ -884,11 +884,33 @@ type fakeEmisar struct {
 	state emisar.RunState
 	err   error
 	calls int
+	// drafts records every create_runbook_draft argument map this fake was
+	// handed. Tests assert on it directly: "no runbook draft was created" is the
+	// claim an unconfirmed offer has to satisfy, and a counter that only went up
+	// would not distinguish "nothing was sent" from "something wrong was".
+	drafts   []map[string]any
+	draft    emisar.DraftState
+	draftErr error
 }
 
 func (f *fakeEmisar) WaitForRun(context.Context, string) (emisar.RunState, error) {
 	f.calls++
 	return f.state, f.err
+}
+
+func (f *fakeEmisar) CreateRunbookDraft(
+	_ context.Context,
+	arguments map[string]any,
+) (emisar.DraftState, error) {
+	f.drafts = append(f.drafts, arguments)
+	if f.draftErr != nil {
+		return emisar.DraftState{}, f.draftErr
+	}
+	if f.draft.Slug == "" {
+		slug, _ := arguments["slug"].(string)
+		return emisar.DraftState{Slug: slug, DefinitionSHA256: "sha-" + slug}, nil
+	}
+	return f.draft, nil
 }
 
 func createBoundIncident(t *testing.T, ctx context.Context, st *store.Store) core.Incident {

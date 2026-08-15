@@ -524,7 +524,23 @@ var lineBudget = map[string]int{
 	// +10 on landing: the two grant deliveries the ladder posts are bound to
 	// their episode (the binding ratchet caught them the hour it landed), and
 	// the resolver that finds an approval's episode is four lines here.
-	"service": 23270,
+	//
+	// LOWERED to 23260 on 2026-08-15 for the knowledge offers — the first time
+	// in a while this number has gone down while a feature landed, which is the
+	// only way it was allowed to land at all. The package had one line of
+	// headroom, so 186 lines left first: everything in this package that decided
+	// what Responder will accept as a Slack file, how it names one and how much
+	// of one it reads went to internal/slackfile, unchanged, as pure functions
+	// that never needed the coordinator. The 175 that arrived are the two
+	// knowledge offers' host half — post the card, read the offer back,
+	// re-authorize the click, and hand the confirmed artefact to Emisar or to
+	// the engineering-task path. What did NOT come here is the argument for the
+	// rest: the validators, the grading against the record, the confirmation
+	// payload, the Emisar runbook-definition builder and the card document are
+	// in internal/knowledgeoffer as pure functions with table tests and no
+	// database; the tool call is in internal/emisar; the cards are in
+	// internal/slackui.
+	"service": 23260,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -758,7 +774,16 @@ var lineBudget = map[string]int{
 	// relayed and a sound answer retried finalization forty times over three
 	// hours. The same invariant asked at staging is a correction the model can
 	// act on, and it belongs beside the other completion validators.
-	"investigation": 1880,
+	//
+	// Raised to 1890 the same day for offer_runbook_draft and offer_kb_card:
+	// two payload fields, two entries in the exactly-one-payload list, two
+	// validator entries and two prompt bullets. Thirteen lines, and the reason
+	// it is only thirteen is that neither validator is here — both delegate to
+	// internal/knowledgeoffer, so the rule a model reads in a correction is
+	// literally the rule the operator's confirmation click is measured against.
+	// Two copies of a slug pattern would have been an offer accepted at result
+	// time and refused at confirm time for a reason nobody was ever told.
+	"investigation": 1890,
 	// These packages own policy and data transformations that used to sit in
 	// the broad service, store, decision, and investigation packages. Register
 	// every extraction here so moving code cannot evade the architecture ratchet.
@@ -840,6 +865,19 @@ var lineBudget = map[string]int{
 	// to read a row belongs in grantstore, and anything that needs to render
 	// belongs in slackui.
 	"remediation": 400,
+	// knowledgeoffer decides what a verified remediation may become, and it
+	// decides it from values alone: the offer's shape, whether the episode
+	// verified anything, and whether the action it names is one the host
+	// recorded running. The Emisar runbook-definition builder is here for the
+	// same reason the promotion arithmetic is in remediation — a payload that
+	// will be executed by somebody else's control plane deserves a table test,
+	// not an integration test.
+	"knowledgeoffer": 420,
+	// slackfile owns what Responder will accept as a Slack file, what it will
+	// call one, and how much of one it will read. Extracted whole from
+	// internal/service on 2026-08-15; every rule in it is a refusal about bytes
+	// somebody else controls, and none of them ever needed the coordinator.
+	"slackfile": 230,
 	// grantstore owns the remediation_grants table and the one query a promotion
 	// is graded on. It decides nothing — see the package comment.
 	"grantstore": 210,

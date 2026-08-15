@@ -260,6 +260,8 @@ func (s *Service) applyResultOperation(
 		kind = episodepkg.EventApprovalRequested
 	case "offer_task":
 		kind = episodepkg.EventTaskOffered
+	case "offer_runbook_draft", "offer_kb_card":
+		kind = episodepkg.EventKnowledgeOffered
 	case "complete_episode":
 		kind = episodepkg.EventCompletionSubmitted
 	default:

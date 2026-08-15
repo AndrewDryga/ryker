@@ -14,6 +14,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/slackfile"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/slack-go/slack/slackevents"
@@ -1343,7 +1344,7 @@ func TestIncidentControlMatchesMessageEmbeddedInDeliveredVisual(t *testing.T) {
 	}}}
 	data := []byte("\x89PNG\r\n\x1a\nchart")
 	digest := sha256.Sum256(data)
-	body, err := json.Marshal(slackFileDelivery{
+	body, err := json.Marshal(slackfile.Delivery{
 		Filename: "result.png", Title: "Result", AltText: "Result chart",
 		MediaType: "image/png", SHA256: hex.EncodeToString(digest[:]), Data: data, Message: &message,
 	})

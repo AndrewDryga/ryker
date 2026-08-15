@@ -2,6 +2,26 @@
 
 ## 0.1.0
 
+- **A verified fix stops evaporating.** Phase 1 made a finished episode recallable; the knowledge in
+  it still died with the thread. A completed episode whose closing assessment named how the fix was
+  checked — `episode_outcomes.verified`, the same field the remediation ladder counts, not a second
+  definition of the word — may now carry two new typed offers. `offer_runbook_draft` proposes that
+  an Emisar action this episode ran and verified become an unpublished runbook draft;
+  `offer_kb_card` proposes a `.agent/kb/` card for durable behaviour that is not an action at all.
+  Both propose and nothing more. The host refuses any offer whose episode did not verify anything,
+  and refuses a runbook naming an action identity it has no successful approval row for — then
+  builds the draft from the ROW rather than the claim, so no byte a model typed reaches Emisar. The
+  confirmation button carries an identity and no content: the offer is read back out of the
+  episode's own event stream and re-validated through the same validator that accepted it, the
+  operator is re-authorized on both axes, and a payload older than a day or clicked in another
+  channel creates nothing. Confirmed, a runbook becomes a draft Emisar holds and publishes only for
+  a human, and a card becomes an engineering task on the existing propose-to-PR path, ending at a
+  draft pull request Responder never merges. Postmortem drafts now list their incident's tracked
+  commitments — title, lifecycle state and a link to the thread — in place of the checkbox reading
+  "assign remaining corrective actions and owners". The decisions are pure functions in
+  `internal/knowledgeoffer` with table tests and no database; `internal/service` ends this change
+  186 lines smaller than it started, with its Slack-file policy extracted to `internal/slackfile`.
+
 - **An incident is told what changed.** It is the first question of every real outage and Responder
   could not answer it, while the facts went past its own hands three times a day: a deploy
   notification arriving on a webhook became a signal or nothing at all, the publication follower

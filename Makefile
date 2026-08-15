@@ -233,9 +233,10 @@ eval-prompts: | $(EVAL_HISTORY)
 
 # The deploy-speed tier. The full gate above runs ten live investigations and
 # takes half an hour, which is the wrong price for a wording change — on
-# 2026-08-14 an operator's fix sat behind it and the operator said so. Four
+# 2026-08-14 an operator's fix sat behind it and the operator said so. Five
 # smoke-tagged cases (~five minutes) cover the envelope, the operations
-# schema, the conversation dialect, and the session handoff; run this before
+# schema, the conversation dialect, the session handoff, and the knowledge
+# offers; run this before
 # deploying a prompt WORDING change. The full run stays for contract, schema,
 # or operation-list changes and for release checks, and may run after a deploy
 # as information rather than in front of it as a queue.
