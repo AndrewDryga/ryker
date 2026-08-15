@@ -1,0 +1,125 @@
+---
+name: self-improve
+description: Walk every queue in this repo that needs judgment — pending corrections, memory review, quality findings, blocked decisions, uncovered findings, eval health — decide each item, fix confirmed bugs test-first, and finish by deploying. Run periodically with a frontier model.
+---
+
+# Self-improve: the deliberate pass over everything awaiting judgment
+
+You are running the periodic self-improvement session for Responder. The instruments
+already collect; your job is to DECIDE and to FIX. Work the sections in order — each
+ends with a concrete action, never just a summary. Respect CLAUDE.md throughout
+(test-first with a red run, fixtures harvested never invented, dev-check before
+commits, finish by deploying, say plainly what is running).
+
+Ground rules for the whole pass:
+
+- Live DBs are read-only from the shell: `sqlite3 "file:<db>?mode=ro&immutable=1"`.
+  Paths: tenant `~/Projects/tenant/.responder/state/responder.db`, emisar
+  `~/Projects/os/emisar/.responder/state/responder.db`. Timestamps are UTC.
+- Every WRITE goes through a sanctioned path: the control plane's POST actions on
+  loopback (they call the same service handlers as the Slack buttons and write their
+  own audit rows), the `responder` CLI, or code changes through the normal gate.
+  Never write to the DBs directly.
+- The control plane is at the deployment's `listen:` address (see each
+  responder.yaml). `curl` GETs freely; POSTs are the two-step confirm forms — read
+  the page's form fields first.
+- A decision you cannot make from the evidence is written down as a decision card
+  (a `50_blocked/` task with decision.md), not guessed.
+
+## 1. Pending corrections — keep or discard, with the episode open
+
+Corrections the host issued that are waiting to become regression fixtures. Approved
+ones promote themselves (bounded weekly); YOUR job is the judgment on pending ones
+before their 14-day TTL.
+
+- List: `sqlite3 <db> "SELECT id, class, detail, created_at FROM fixture_candidates
+  WHERE status='pending' ORDER BY created_at"` on both DBs.
+- For each: open its episode on the control plane (Decisions page shows the pairing;
+  `/episodes/<id>` shows the full trace — what the model saw, what the host refused,
+  what happened next). Ask: would this exact pairing make a good permanent test, or
+  does it encode a bug that has since been fixed, or model behavior we no longer
+  want to pin?
+- Act via the Decisions page keep/discard actions. Record a one-line reason per
+  decision in your session notes; batch-summarize at the end.
+- If the same correction class repeats across many candidates, that is a finding,
+  not N separate keeps: diagnose which side of the CLAUDE.md split it is on
+  (host bug the model cannot satisfy vs prompt the model did not satisfy) and open
+  a task with the evidence.
+
+## 2. Memory review — keep, merge, forget
+
+- The stale/duplicate review queue: control plane Memory page (keep and dismiss are
+  wired), or `/responder memory review` in Slack.
+- Also read the current memory_entries and conversation rollups with fresh eyes:
+  `SELECT subject, predicate, value, scope, expires_at, recall_count FROM
+  memory_entries ORDER BY recall_count DESC`. Entries recalled often but wrong are
+  worse than entries never recalled — verify the top-recalled ones against reality
+  (the repo, the live config, Emisar) and forget or supersede what drifted.
+- Never edit operator-confirmed memory silently; use the review actions so the
+  supersession trail stays honest.
+
+## 3. Quality findings — the watcher's confirmed defects
+
+- Findings page on the control plane (or `SELECT * FROM quality_findings ORDER BY
+  created_at DESC` on tenant). Each row survived an adversarial challenger.
+- For each unaddressed finding: reproduce it (the row names file/symbol evidence and
+  the episodes it came from), then fix it the repo's way — the failing test FIRST,
+  watched red on the pre-fix code, then the fix, then the gate.
+- `make findings-coverage` lists confirmed findings whose suggested test does not
+  exist. Write the missing tests or claim renamed specs with `// Covers:` lines.
+  The backlog must be a number that reaches zero, not one that drifts.
+
+## 4. Blocked decisions and stale queue state
+
+- `coop tasks decisions` lists every open decision card with its recommendation.
+  Decide each one you have the evidence for; write the Resolution and unblock.
+  Genuinely-operator-only calls (spending, external accounts, visible-behavior
+  changes the operator has not sanctioned) stay blocked — but tighten their
+  decision.md with anything learned since.
+- Skim `10_in_progress/` for tasks whose agent died or whose work landed without
+  close-out; reconcile against `git log` before assuming anything is undone.
+- Groom `xx_backlog/`: promote what became urgent, close what shipped by other
+  means (verify against the tree first — several backlog items have been
+  superseded within days of filing).
+
+## 5. Eval and cost health — is it getting better?
+
+- `responder audition --config <deployment yaml>` — corrections-per-attempt and
+  cost per lane per model. A lane whose rate jumped is a regression to diagnose
+  (host-vs-prompt split again); a lane whose cost dwarfs its quality difference is
+  a routing decision to propose.
+- `responder correction-rate --days 7` on both DBs; compare against the last pass.
+- `make eval-trend` for the recorded corpus history; if a case flaps run-to-run,
+  either fix the prompt ambiguity it exposes or mark the flake with evidence —
+  never let a flaky case train everyone to ignore the gate.
+- Chronic failures in `testdata/eval/` cases: decide prompt-side vs host-side and
+  open the task on the right side.
+
+## 6. Episodes with fresh eyes — the unprompted review
+
+Pick the last few days of terminal episodes (`SELECT id, effort, lifecycle_state,
+completed_at FROM work_episodes WHERE completed_at > datetime('now','-3 days')`)
+and read a sample of traces end-to-end on the control plane — especially blocked
+ones and ones with many attempts. You are looking for what the watcher's rubric
+misses: answers that were accepted but unhelpful, corrections that fired repeatedly
+on one episode, context the budget dropped that would have changed the answer
+(the trace shows omissions), recall/change-ledger layers that surfaced the wrong
+thing. Each concrete defect becomes a task with the episode id as evidence.
+
+## 7. Record what only now exists
+
+Check `internal/episode_replay_coverage_test.go`'s acknowledged gaps against the
+last few days of real history. Retention prunes fast — if a gap's real occurrence
+happened recently (a room-less approval, a standing-assignment evaluation, a
+completed schedule run), record it NOW with
+`responder record-episode --config <yaml> --episode <id> --capability <slug>`,
+append to the corpus, delete the gap line, and let the ratchet climb.
+
+## 8. Close the loop
+
+- Land every fix through the gate (dev-check; the full `make check` and
+  `eval-prompts` tiers per CLAUDE.md's rules for what changed).
+- Deploy with `scripts/deploy.sh` and say what is running.
+- Update the weekly picture: what was decided, what was fixed, what was deferred
+  and why — a short digest in the session, and durable notes only where the repo's
+  own records (task states, decision cards, audit rows) don't already carry it.
