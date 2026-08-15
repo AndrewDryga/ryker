@@ -120,7 +120,7 @@ func TestRecalledEpisodesRenderAsTheirOwnPromptLayer(t *testing.T) {
 	  {"episode_id":"episode-past","past_root_cause":"The registry pod was OOM killed.","matched_on":["same alert group"]},
 	  {"episode_id":"episode-blocked","past_root_cause":"The pool was exhausted.","matched_on":["shared service checkout"]}
 	],`)
-	details, layers := promptContextDetails(prompt, func(value string) string { return value }, nil)
+	details, layers := promptContextDetails(prompt, func(value string) string { return value }, nil, "incident_investigation")
 
 	var recalled *TraceDetail
 	for index, detail := range details {
@@ -173,7 +173,7 @@ func TestADroppedRecallLayerIsNeverShownAsNothingMatched(t *testing.T) {
 
 	cut, _ := promptContextDetails(prompt, present, map[string][]string{
 		"similar_past_episodes": {dropped},
-	})
+	}, "operational_assessment")
 	joined := ""
 	for _, detail := range cut {
 		joined += detail.Label + " · " + detail.Status + " · " + detail.Description + "\n"
@@ -185,7 +185,7 @@ func TestADroppedRecallLayerIsNeverShownAsNothingMatched(t *testing.T) {
 		t.Fatalf("a layer the budget cut claimed the corpus was empty:\n%s", joined)
 	}
 
-	quiet, _ := promptContextDetails(prompt, present, nil)
+	quiet, _ := promptContextDetails(prompt, present, nil, "operational_assessment")
 	empty := ""
 	for _, detail := range quiet {
 		empty += detail.Label + " · " + detail.Status + " · " + detail.Description + "\n"
@@ -301,6 +301,104 @@ func TestABlockedOutcomeIsNeverShownAsAVerifiedFix(t *testing.T) {
 	if !strings.Contains(absent["Remediation"], "No remediation was recorded") ||
 		!strings.Contains(absent["Verification"], "No verification step was recorded") {
 		t.Fatalf("blocked projection absences = %+v, want each empty field to say so", absent)
+	}
+}
+
+// A group header that says "1 item" over a single row reading "Not sent" is
+// counting its own placeholder. episode_run_225513b54c5e8c2c8478869e3f17596f
+// rendered exactly that for both recall groups on the first day the layers
+// shipped: the count is a claim that content was sent, and an inert row is the
+// absence of content.
+func TestAGroupOfNothingAdvertisesNoItemCount(t *testing.T) {
+	details, _ := promptContextDetails(recallPrompt(""),
+		func(value string) string { return value }, nil, "operational_assessment")
+
+	counts := map[string]int{}
+	for _, detail := range details {
+		if detail.Group != "" {
+			counts[detail.Group] = detail.GroupCount
+		}
+	}
+	for _, quiet := range []string{"Recalled past episodes", "Recent changes"} {
+		if _, marked := counts[quiet]; !marked {
+			t.Fatalf("no %q group in %+v", quiet, counts)
+		}
+		if counts[quiet] != 0 {
+			t.Fatalf("%q holds only an inert placeholder yet advertises %d items", quiet, counts[quiet])
+		}
+	}
+	// The rule must not silence groups that carry content, or every header
+	// loses its count and the change reads as a regression.
+	if counts["Operational memory"] == 0 {
+		t.Fatalf("operational memory sent content yet counts 0 items in %+v", counts)
+	}
+}
+
+// "No resolved past episode matched this symptom" claims a search that, on a
+// conversational or engineering turn, never ran: recall and the change ledger
+// are gated to assessments and investigations (changeledger.RecalledBy, and the
+// same pair in the service's similarPastEpisodes). The first conversational
+// trace to render the layers claimed a recall miss, which sends an operator
+// hunting for a corpus gap that does not exist.
+func TestALaneWithoutRecallNeverClaimsNothingMatched(t *testing.T) {
+	notes := func(effort string) map[string]string {
+		details, _ := promptContextDetails(recallPrompt(""),
+			func(value string) string { return value }, nil, effort)
+		byLabel := map[string]string{}
+		for _, detail := range details {
+			byLabel[detail.Label] = detail.Description
+		}
+		return byLabel
+	}
+
+	for _, lane := range []string{"conversational", "focused_check", "engineering_task"} {
+		byLabel := notes(lane)
+		if !strings.Contains(byLabel["Recalled past episodes"], "the corpus was not searched") {
+			t.Fatalf("%s recall note = %q, want it to say the search never ran",
+				lane, byLabel["Recalled past episodes"])
+		}
+		if !strings.Contains(byLabel["Recent changes"], "no correlation was attempted") {
+			t.Fatalf("%s change note = %q, want it to say the ledger was never read",
+				lane, byLabel["Recent changes"])
+		}
+	}
+	// The lanes that do recall keep the miss reading: there, quiet genuinely
+	// means the search ran and found nothing.
+	for _, lane := range []string{"operational_assessment", "incident_investigation", ""} {
+		byLabel := notes(lane)
+		if byLabel["Recalled past episodes"] != "No resolved past episode matched this symptom." {
+			t.Fatalf("%q recall note = %q, want the genuine miss reading",
+				lane, byLabel["Recalled past episodes"])
+		}
+	}
+}
+
+// The lane has to survive the whole render: the effort contract lives on the
+// episode row, the layer notes are built from the retained prompt, and the two
+// meet only if the page actually reads work_episodes.effort into the trace.
+func TestAFocusedCheckTraceSaysRecallWasNotSearched(t *testing.T) {
+	fixture := newEpisodeProjectionFixture(t)
+	stamp := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	fixture.exec(`INSERT INTO episode_attempts
+	  (id, episode_id, agent_run_id, attempt_number, state, context_manifest_id,
+	   completed_at, created_at, updated_at)
+	  VALUES ('attempt-1','episode-1','run-1',1,'succeeded','manifest-1',?,?,?)`,
+		stamp, stamp, stamp)
+	fixture.exec(`INSERT INTO context_manifests
+	  (id, episode_id, attempt_id, version, provider, model, reasoning_effort,
+	   prompt_version, contract_version, tool_schema_version, preset, submitted_prompt, created_at)
+	  VALUES ('manifest-1','episode-1','attempt-1',1,'claude','opus','high',
+	          'responder-prompt-v2','investigation-contract-v1','result-operations-v2',
+	          'emisar-conversation',?,?)`, recallPrompt(""), stamp)
+	reader := fixture.reader()
+	defer reader.Close()
+
+	body := servePage(t, reader, "/episodes/episode-1")
+	if strings.Contains(body, "No resolved past episode matched this symptom.") {
+		t.Fatal("a focused_check trace claimed a recall search came up empty")
+	}
+	if !strings.Contains(body, "the corpus was not searched") {
+		t.Fatal("a focused_check trace does not say recall was skipped on this lane")
 	}
 }
 

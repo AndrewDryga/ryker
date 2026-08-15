@@ -150,6 +150,14 @@ type Item struct {
 	Model    string
 	Effort   string
 
+	// EffortContract is the episode's lane — conversational, focused_check,
+	// operational_assessment, incident_investigation, engineering_task — as
+	// distinct from Effort above, which is the model's reasoning setting on the
+	// last attempt. The trace needs it because what the host does for a turn
+	// (recall history, read the change ledger) is decided by lane, and a page
+	// that does not know the lane cannot say why a layer is quiet.
+	EffortContract string
+
 	// Answer is what the episode concluded, in the model's own words. A list
 	// that shows only what came in makes every alert-driven row look the same
 	// as the last one and says nothing about what Responder did with it.
@@ -195,7 +203,7 @@ func (i Item) Answered() string {
 const episodeSelect = `
   SELECT e.id, COALESCE(c.title, ''), e.lifecycle_state, COALESCE(r.mode, ''),
          COALESCE(r.channel_id, ''), COALESCE(e.status, ''), COALESCE(e.next_action, ''),
-         e.created_at, e.updated_at,
+         e.created_at, e.updated_at, e.effort,
          COALESCE((SELECT m.provider FROM context_manifests m
                    WHERE m.episode_id = e.id ORDER BY m.version DESC LIMIT 1), ''),
          COALESCE((SELECT m.model FROM context_manifests m
@@ -229,7 +237,7 @@ func (r *Reader) scanItems(ctx context.Context, query string, args ...any) ([]It
 		var created, updated, result, lastError string
 		if err := rows.Scan(&item.ID, &item.Title, &item.State, &item.Kind,
 			&item.Channel, &item.Status, &item.Next, &created, &updated,
-			&item.Provider, &item.Model, &item.Effort,
+			&item.EffortContract, &item.Provider, &item.Model, &item.Effort,
 			&item.Answer, &item.Replied, &item.Attempts, &result, &lastError); err != nil {
 			return nil, err
 		}

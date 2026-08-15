@@ -998,7 +998,7 @@ USER: check this`
 	details, layers := promptContextDetails(prompt, present, map[string][]string{
 		"prior_evidence":     {"earlier evidence records from this channel were omitted to fit the turn"},
 		"related_situations": {"summaries of related conversations were omitted to fit the turn"},
-	})
+	}, "operational_assessment")
 	if layers != 2 {
 		t.Fatalf("memory layers = %d, want 2", layers)
 	}

@@ -11,6 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/AndrewDryga/responder/internal/changeledger"
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -349,7 +350,7 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 						"Replay verification below.",
 				})
 			}
-			components, layers := promptContextDetails(prompt, present, trimmedByKind)
+			components, layers := promptContextDetails(prompt, present, trimmedByKind, page.EffortContract)
 			memoryLayers = layers
 			promptDetails = append(promptDetails, components...)
 		} else {
@@ -2353,7 +2354,7 @@ func slackReactionDisplay(name string) string {
 // operator can answer "which memory influenced this turn?" without searching
 // a wall of instructions. It deliberately does not infer a layer when the
 // prompt predates retention or when a field is absent.
-func promptContextDetails(prompt string, present func(string) string, trimmed map[string][]string) ([]TraceDetail, int) {
+func promptContextDetails(prompt string, present func(string) string, trimmed map[string][]string, effort string) ([]TraceDetail, int) {
 	envelope, ok := promptEnvelope(prompt)
 	if !ok {
 		return nil, 0
@@ -2424,6 +2425,9 @@ func promptContextDetails(prompt string, present func(string) string, trimmed ma
 			rows = memoryLayerDetails(raw, key, layer.label, layer.priority, present)
 		case len(cut) == 0:
 			rows = []TraceDetail{missingMemoryDetail(layer.label, layer.keys[0])}
+			if note := recallSkipNote(layer.keys[0], effort); note != "" {
+				rows[0].Description = note
+			}
 		}
 		// When a layer is absent because the budget cut it, the trimmed rows
 		// carry the story; a quiet "nothing was relevant" row would be false.
@@ -2578,6 +2582,28 @@ func promptFieldDetail(key string, raw json.RawMessage, present func(string) str
 func promptTone(key string) string {
 	_, tone := promptFieldPresentation(key)
 	return tone
+}
+
+// recallSkipNote is what a quiet recall layer says on a lane that never runs
+// the search. "No resolved past episode matched" is a claim that a search
+// happened; recall and the change ledger are gated to assessments and
+// investigations (changeledger.RecalledBy, and the same pair in the service's
+// similarPastEpisodes), so on a conversational or engineering turn that note
+// sends an operator hunting for a corpus gap that does not exist. An unknown
+// lane keeps the miss reading rather than inventing a gate the host may not
+// have applied.
+func recallSkipNote(key, effort string) string {
+	if effort == "" || changeledger.RecalledBy(core.EffortContract(effort)) {
+		return ""
+	}
+	lane := strings.ReplaceAll(effort, "_", " ")
+	switch key {
+	case similarPastEpisodesLayer:
+		return "This " + lane + " turn does not recall past episodes; the corpus was not searched. Only operational assessments and incident investigations recall history."
+	case recentChangesLayer:
+		return "This " + lane + " turn does not read the change ledger; no correlation was attempted. Only operational assessments and incident investigations read it."
+	}
+	return ""
 }
 
 func promptSelectionDescription(key string, included bool) string {
@@ -3184,7 +3210,15 @@ func markDetailGroup(details []TraceDetail, label, description string) []TraceDe
 	}
 	details[0].Group = label
 	details[0].GroupDetail = description
-	details[0].GroupCount = len(details)
+	// The header count claims content. An inert row is the absence of it — a
+	// quiet slot's placeholder or a budget cut — and a group holding only
+	// those must not introduce itself as "1 item" over a line saying nothing
+	// was sent. A zero count renders as no count at all.
+	for _, detail := range details {
+		if !detail.Inert {
+			details[0].GroupCount++
+		}
+	}
 	return details
 }
 
