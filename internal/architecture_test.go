@@ -647,6 +647,12 @@ var lineBudget = map[string]int{
 	// the broad service, store, decision, and investigation packages. Register
 	// every extraction here so moving code cannot evade the architecture ratchet.
 	"agentcontext": 200,
+	// fanout owns whether an investigation has earned parallel branches, and the
+	// identities that stop the queue from serializing the branches it grants.
+	// Every decision in it is a pure function over the claims ledger, which is
+	// deliberate: the gate exists to refuse spending, and a gate that needs a
+	// database and a Coop session to test is a gate whose refusals go untested.
+	"fanout": 385,
 	// agentprompt kept the turn-conduct policies and the prompt assembly; the
 	// Slack reply-shape prose moved beside its measured enforcement in
 	// replypolicy on 2026-08-12, and the budget follows the lines down.
@@ -720,9 +726,18 @@ var forbiddenImports = map[string][]string{
 	"decision":              {"service", "store", "httpapi", "app", "publisher", "coop"},
 	"evaluation":            {"httpapi", "app", "webhook"},
 	"agentcontext":          {"service", "store", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
-	"agentprompt":           {"service", "store", "slackui", "httpapi", "app", "publisher", "config"},
-	"evidencepolicy":        {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},
-	"replypolicy":           {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
+	// fanout answers "has this investigation earned a second turn running beside
+	// the first". It reads the ledger and returns a decision; it starts nothing,
+	// stores nothing, and posts nothing, and the direction is stated here so it
+	// stays that way. A gate that could reach the store would be a gate whose
+	// refusals are only reproducible against a database.
+	"fanout": {
+		"service", "store", "slackui", "httpapi", "app", "publisher", "coop",
+		"emisar", "config", "webhook",
+	},
+	"agentprompt":    {"service", "store", "slackui", "httpapi", "app", "publisher", "config"},
+	"evidencepolicy": {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},
+	"replypolicy":    {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
 	// The digest reads the database and writes into Slack, so the direction has
 	// to be stated or it will drift back into one package that does both. The
 	// composer knows nothing about either: give it a counted week and it
