@@ -97,14 +97,26 @@ before their 14-day TTL.
 
 ## 6. Episodes with fresh eyes — the unprompted review
 
-Pick the last few days of terminal episodes (`SELECT id, effort, lifecycle_state,
-completed_at FROM work_episodes WHERE completed_at > datetime('now','-3 days')`)
-and read a sample of traces end-to-end on the control plane — especially blocked
-ones and ones with many attempts. You are looking for what the watcher's rubric
+The host keeps the review ledger, so this section never re-reads an ending it has
+already judged. Walk `GET /episodes?review=pending` on each deployment's control
+plane: every terminal episode with no review row, plus any whose ending MOVED
+since its last review (a blocked episode that revived and completed, a new
+attempt) — the fingerprint brings those back by itself, so never re-open reviewed
+episodes "just in case". Oldest first, and drain the queue: the pass is daily and
+the queue only stays short if every run empties it.
+
+Read each pending trace end-to-end. You are looking for what the watcher's rubric
 misses: answers that were accepted but unhelpful, corrections that fired repeatedly
 on one episode, context the budget dropped that would have changed the answer
 (the trace shows omissions), recall/change-ledger layers that surfaced the wrong
 thing. Each concrete defect becomes a task with the episode id as evidence.
+
+Then mark the episode reviewed — defects found or not — via the episode page's
+review form (`POST /actions/episodes/review`, two-step confirm like every control
+plane write), with a one-line verdict as the note: what the episode did, and
+either "no defect" or the task id you filed. The note is the review journal. An
+episode left unmarked is an episode the next pass pays to read again, and a mark
+without a note is a review that cannot be audited.
 
 ## 7. Record what only now exists
 
