@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -226,5 +227,49 @@ func TestPollStampsTheEpisodeWithItsLastNarratedMoment(t *testing.T) {
 	if !episode.LastActivityAt.Equal(moment) {
 		t.Fatalf("a replayed earlier moment moved freshness backwards: %v",
 			episode.LastActivityAt)
+	}
+}
+
+// A rate limit is a moment in the episode, not a gap in it.
+//
+// On 2026-08-15 a turn spent hours inside provider 429 backoff and the episode
+// timeline showed nothing at all between its last tool call and its terminal —
+// an operator reading that page could not tell a throttled turn from a wedged
+// one, and neither could the deadline that cancel-replayed them, which is why
+// it was widened to 45m. Coop narrates both halves now; this asserts the host
+// files them like any other narrated moment, with the label the timeline shows.
+func TestAThrottledTurnIsFiledAsNarrationRatherThanSilence(t *testing.T) {
+	ctx, st, svc, coopClient, run := activityRunFixture(t)
+	coopClient.events = append(coopClient.events,
+		activityEvent(1, run.CoopTurnID, "provider.backoff",
+			`{"attempt":2,"target":"codex@work","next_target":"claude@oncall",`+
+				`"retry_after_seconds":3600,"reset_at":"2026-08-15T04:00:00Z"}`),
+		activityEvent(2, run.CoopTurnID, "provider.alive", `{"frames":41,"bytes":8192}`),
+		activityEvent(3, run.CoopTurnID, "turn.completed", `{"stop_reason":"end_turn"}`),
+	)
+	svc.pollAgentRuns(ctx)
+
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	moments, err := st.Activity.ListForEpisode(ctx, episode.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moments) != 2 {
+		t.Fatalf("want both provider moments stored, got %d: %+v", len(moments), moments)
+	}
+	if moments[0].Kind != "provider.backoff" || moments[1].Kind != "provider.alive" {
+		t.Fatalf("provider narration was not filed: %+v", moments)
+	}
+	if moments[0].Title != "rate limited on codex@work, retrying in 3600s (attempt 2)" {
+		t.Fatalf("the backoff row does not name the weather: %q", moments[0].Title)
+	}
+	if moments[1].Title != "provider streaming, 41 frames" {
+		t.Fatalf("the pulse row does not name the transport: %q", moments[1].Title)
+	}
+	if !strings.Contains(string(moments[0].Detail), "claude@oncall") {
+		t.Fatalf("the backoff row does not say where the ladder went: %s", moments[0].Detail)
 	}
 }

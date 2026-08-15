@@ -836,3 +836,74 @@ func TestOversizedPromptIsReportedAndBounded(t *testing.T) {
 		t.Fatalf("observer fired %d times for an in-budget prompt", calls)
 	}
 }
+
+// A throttled turn is narration, not silence.
+//
+// During the 2026-08-15 rate-limit storm a turn crawling through provider 429
+// backoff produced no events Responder recognised, so the timeline showed a gap
+// and the silent-turn deadline cancel-replayed work that was making progress
+// into a fresh session that inherited the same throttle. Coop now says both
+// halves out loud — `provider.backoff` when its own ladder acts on a limit and
+// `provider.alive` when the provider CLI is retrying 429s inside itself — and
+// they are worth nothing to an operator unless this host files them beside the
+// tool calls. Both must be activity: that is the one predicate that decides
+// whether the moment is persisted and whether the poll cursor's advance is
+// treated as proof of life.
+func TestAThrottledTurnNarratesItsBackoffAndItsPulse(t *testing.T) {
+	for _, eventType := range []string{EventProviderBackoff, EventProviderAlive} {
+		if !IsActivity(eventType) {
+			t.Errorf("IsActivity(%q) = false, so the moment is never stored", eventType)
+		}
+	}
+
+	backoff, ok := DecodeActivity(json.RawMessage(
+		`{"attempt":2,"target":"codex@work","next_target":"claude@oncall",` +
+			`"retry_after_seconds":3600,"reset_at":"2026-08-15T04:00:00Z"}`,
+	))
+	if !ok {
+		t.Fatal("a provider.backoff payload did not decode")
+	}
+	if backoff.Attempt != 2 || backoff.Target != "codex@work" ||
+		backoff.NextTarget != "claude@oncall" || backoff.RetryAfterSeconds != 3600 {
+		t.Fatalf("backoff decoded as %#v", backoff)
+	}
+	if label := backoff.Label(EventProviderBackoff); label !=
+		"rate limited on codex@work, retrying in 3600s (attempt 2)" {
+		t.Fatalf("backoff label = %q", label)
+	}
+	detail := backoff.Detail(EventProviderBackoff)
+	for _, want := range []string{"next_target", "claude@oncall", "reset_at"} {
+		if !strings.Contains(string(detail), want) {
+			t.Fatalf("backoff detail %s omits %q", detail, want)
+		}
+	}
+
+	alive, ok := DecodeActivity(json.RawMessage(`{"frames":41,"bytes":8192}`))
+	if !ok {
+		t.Fatal("a provider.alive payload did not decode")
+	}
+	if alive.Frames != 41 || alive.Bytes != 8192 {
+		t.Fatalf("alive decoded as %#v", alive)
+	}
+	if label := alive.Label(EventProviderAlive); label != "provider streaming, 41 frames" {
+		t.Fatalf("alive label = %q", label)
+	}
+	if !strings.Contains(string(alive.Detail(EventProviderAlive)), "8192") {
+		t.Fatalf("alive detail %s omits the byte count", alive.Detail(EventProviderAlive))
+	}
+
+	// The exhausted-ladder backoff carries no next rung and says when the whole
+	// ladder comes back, which is the one an operator waits on.
+	exhausted, _ := DecodeActivity(json.RawMessage(
+		`{"attempt":3,"target":"codex@work","retry_after_seconds":900,` +
+			`"all_limited_until":"2026-08-15T05:00:00Z"}`,
+	))
+	if exhausted.AllLimitedUntil != "2026-08-15T05:00:00Z" {
+		t.Fatalf("exhausted backoff decoded as %#v", exhausted)
+	}
+	if !strings.Contains(
+		string(exhausted.Detail(EventProviderBackoff)), "all_limited_until",
+	) {
+		t.Fatal("an exhausted ladder does not say when it comes back")
+	}
+}

@@ -298,13 +298,28 @@ const (
 	EventModelThought   = "model.thought"
 	EventPermission     = "permission.decided"
 	EventActivityElided = "activity.elided"
+	// EventProviderBackoff is Coop's own ladder acting on a proven rate limit:
+	// one event per rung, carrying which target was limited and for how long.
+	EventProviderBackoff = "provider.backoff"
+	// EventProviderAlive is the transport's pulse, at most one a minute, for
+	// the throttle Coop cannot see — a provider CLI retrying 429s inside
+	// itself narrates nothing else while frames keep arriving.
+	EventProviderAlive = "provider.alive"
 )
 
 // IsActivity reports whether an event narrates work inside a turn.
+//
+// The two provider events are here rather than beside the lifecycle cases
+// because they are the same kind of fact as a tool call: something happened
+// inside the turn, and the host's only job is to file it. Membership is also
+// what makes a throttled turn count as alive — the poll stamps liveness when
+// the cursor advances, and until these matched, a turn crawling through 429
+// backoff looked exactly like a dead transport (2026-08-15).
 func IsActivity(eventType string) bool {
 	switch eventType {
 	case EventToolStarted, EventToolCompleted, EventModelPlan,
-		EventModelThought, EventPermission, EventActivityElided:
+		EventModelThought, EventPermission, EventActivityElided,
+		EventProviderBackoff, EventProviderAlive:
 		return true
 	}
 	return false
@@ -326,6 +341,22 @@ type Activity struct {
 	OptionKind string      `json:"option_kind,omitempty"`
 	Dropped    int         `json:"dropped,omitempty"`
 	Reason     string      `json:"reason,omitempty"`
+	// The provider fields. Attempt numbers the limits from 1 within the turn,
+	// Target is the rung the provider limited, and NextTarget is where the
+	// ladder rotated — absent on the last backoff of an exhausted ladder,
+	// which carries AllLimitedUntil instead. The two instants stay strings
+	// because nothing here does arithmetic on them: they are shown, and a
+	// parse failure would cost the whole moment rather than one field.
+	Attempt           int    `json:"attempt,omitempty"`
+	Target            string `json:"target,omitempty"`
+	NextTarget        string `json:"next_target,omitempty"`
+	RetryAfterSeconds int    `json:"retry_after_seconds,omitempty"`
+	ResetAt           string `json:"reset_at,omitempty"`
+	AllLimitedUntil   string `json:"all_limited_until,omitempty"`
+	// Frames and Bytes are cumulative for the turn, so a re-read cursor tells
+	// new progress from a redelivered event by the numbers, not the timestamp.
+	Frames int `json:"frames,omitempty"`
+	Bytes  int `json:"bytes,omitempty"`
 }
 
 type PlanEntry struct {
@@ -371,8 +402,29 @@ func (a Activity) Label(eventType string) string {
 		return "Permission decided"
 	case EventActivityElided:
 		return "Activity not recorded"
+	case EventProviderBackoff:
+		return backoffLabel(a)
+	case EventProviderAlive:
+		return fmt.Sprintf("provider streaming, %d frames", a.Frames)
 	}
 	return ""
+}
+
+// backoffLabel is the one line a timeline row gets for a rate limit, written
+// so the operator's question — is this the host or the quota, and how long —
+// is answered without opening the detail.
+func backoffLabel(a Activity) string {
+	label := "rate limited"
+	if a.Target != "" {
+		label += " on " + a.Target
+	}
+	if a.RetryAfterSeconds > 0 {
+		label += fmt.Sprintf(", retrying in %ds", a.RetryAfterSeconds)
+	}
+	if a.Attempt > 0 {
+		label += fmt.Sprintf(" (attempt %d)", a.Attempt)
+	}
+	return label
 }
 
 // Detail is the part of the payload a timeline renders beyond the columns
@@ -403,6 +455,29 @@ func (a Activity) Detail(eventType string) json.RawMessage {
 		}
 	case EventActivityElided:
 		detail = map[string]any{"dropped": a.Dropped, "reason": a.Reason}
+	case EventProviderBackoff:
+		// Only what the label left out. The rung and the wait are already the
+		// row's own text; where the ladder went next, and when it comes back,
+		// are the parts an operator opens the row to find.
+		fields := map[string]any{}
+		for key, value := range map[string]string{
+			"next_target":       a.NextTarget,
+			"reset_at":          a.ResetAt,
+			"all_limited_until": a.AllLimitedUntil,
+		} {
+			if value != "" {
+				fields[key] = value
+			}
+		}
+		if len(fields) == 0 {
+			return nil
+		}
+		detail = fields
+	case EventProviderAlive:
+		if a.Bytes == 0 {
+			return nil
+		}
+		detail = map[string]any{"bytes": a.Bytes}
 	default:
 		return nil
 	}
