@@ -502,40 +502,35 @@ func TestPendingEmisarApprovalRequiresOperatorAndAuthoritativeURL(t *testing.T) 
 	}
 }
 
-// The typed operation stream is now the only authoritative reading. A response
-// that carries no operations at all is still accepted — plain prose is a valid
-// reply — but a malformed operation stream is a loud failure rather than a
-// silent fall back to whatever prose happened to sit beside it.
+// The typed operation stream is the only authoritative reading of an agent
+// report. A response that carries no operations at all is still accepted —
+// plain prose is a valid report, and the incident lane never spoke the retired
+// watch dialect at all — but a malformed operation stream is a loud failure
+// rather than a silent fall back to whatever prose happened to sit beside it.
 //
 // Silently reading the same turn two ways was the thing worth deleting: nobody
 // downstream could tell which reading they got.
-func TestResultProtocolShapeIsRecorded(t *testing.T) {
-	// A response with no operations at all never used the typed protocol.
-	legacyOnly, _, err := decisionpkg.ParseAgentReport(`{"message":"plain prose answer"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !legacyOnly.LegacyShape {
-		t.Fatal("a prose-only reply was not recorded as legacy shape")
+func TestAgentReportPreferedTheTypedStreamOverProseBesideIt(t *testing.T) {
+	// A response with no operations at all is still a usable report.
+	prose, _, err := decisionpkg.ParseAgentReport(`{"message":"plain prose answer"}`)
+	if err != nil || prose.Message != "plain prose answer" {
+		t.Fatalf("prose-only report = %+v, %v", prose, err)
 	}
 
-	// A well-formed typed response used it, so neither flag is set.
+	// A well-formed typed response reads its answer out of the operation.
 	typed, _, err := decisionpkg.ParseAgentReport(`{"message":"","operations":[
 		{"id":"c1","type":"complete_episode","completion":{"message":"answered"}}]}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if typed.LegacyShape {
-		t.Fatal("a typed report was recorded as legacy shape")
+	if err != nil || typed.Message != "answered" {
+		t.Fatalf("typed report = %+v, %v", typed, err)
 	}
 
-	// A malformed operation stream is now rejected even when usable prose sits
+	// A malformed operation stream is rejected even when usable prose sits
 	// beside it. Accepting the prose would mean the same turn could be read two
 	// ways with nobody told which happened — and the model would never learn
 	// that its operation stream was wrong.
 	_, _, err = decisionpkg.ParseAgentReport(`{"message":"usable prose","operations":[
 		{"id":"bad","type":"complete_episode"}]}`)
 	if err == nil {
-		t.Fatal("a malformed operation stream was silently accepted beside legacy prose")
+		t.Fatal("a malformed operation stream was silently accepted beside prose")
 	}
 }

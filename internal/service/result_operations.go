@@ -104,9 +104,8 @@ var errEpisodeGone = errors.New("work episode no longer exists")
 //
 // One row per result rather than one per goal: the question is how many turns
 // plan, not how many goals a planning turn emits, and the count carries the
-// second answer anyway. Same shape as result.legacy_shape — a stable kind, the
-// run as the object, the finding in the outcome — so the two can be counted the
-// same way.
+// second answer anyway. A stable kind, the run as the object, the finding in
+// the outcome, so every migration counter can be counted the same way.
 //
 // It records what the model emitted, before any of it is applied. A plan_goal
 // the store then rejects is still a model that read the instruction and acted

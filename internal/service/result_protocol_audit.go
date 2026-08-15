@@ -11,13 +11,12 @@ import (
 // ResultProtocolAudit is what replaying stored model results says about the
 // legacy compatibility path.
 type ResultProtocolAudit struct {
-	Total      int      `json:"total"`
-	Typed      int      `json:"typed"`
-	Fallback   int      `json:"fallback"`
-	LegacyOnly int      `json:"legacy_only"`
-	Unparsed   int      `json:"unparsed"`
-	Reasons    []string `json:"fallback_reasons,omitempty"`
-	Examples   []string `json:"fallback_examples,omitempty"`
+	Total    int      `json:"total"`
+	Typed    int      `json:"typed"`
+	Fallback int      `json:"fallback"`
+	Unparsed int      `json:"unparsed"`
+	Reasons  []string `json:"fallback_reasons,omitempty"`
+	Examples []string `json:"fallback_examples,omitempty"`
 	// UnparsedExamples matter as much as fallbacks: a result nobody can parse
 	// is a turn whose reading is unknown, which is not the same as a turn that
 	// used the typed path.
@@ -50,13 +49,17 @@ type StoredResult struct {
 // current parser cannot read at all, which is exactly what a prompt or contract
 // change risks introducing. Run it against recent history before shipping one.
 //
+// The legacy-shape counter it also carried is gone with the dialect it counted.
+// A result that puts its answer in the envelope is refused at the turn that
+// produced it, so a stored one is either typed or unreadable.
+//
 // What it cannot tell you: how a future prompt will behave. It measures history
 // under the prompt that produced it.
 func AuditResultProtocol(results []StoredResult, now time.Time) ResultProtocolAudit {
 	audit := ResultProtocolAudit{Total: len(results)}
 	reasons := make(map[string]int)
 	for _, result := range results {
-		fallback, legacyShape, reason, err := replayStoredResult(result, now)
+		fallback, reason, err := replayStoredResult(result, now)
 		switch {
 		case err != nil:
 			audit.Unparsed++
@@ -70,8 +73,6 @@ func AuditResultProtocol(results []StoredResult, now time.Time) ResultProtocolAu
 			if len(audit.Examples) < 10 {
 				audit.Examples = append(audit.Examples, result.RunID)
 			}
-		case legacyShape:
-			audit.LegacyOnly++
 		default:
 			audit.Typed++
 		}
@@ -88,17 +89,15 @@ func AuditResultProtocol(results []StoredResult, now time.Time) ResultProtocolAu
 func replayStoredResult(
 	result StoredResult,
 	now time.Time,
-) (fallback bool, legacyShape bool, reason string, err error) {
+) (fallback bool, reason string, err error) {
 	if result.Mode == string(core.AgentRunTriage) {
-		decision, parseErr := decisionpkg.ParseWatchDecision(result.Message, now)
-		if parseErr != nil {
-			return false, false, "", parseErr
+		if _, parseErr := decisionpkg.ParseWatchDecision(result.Message, now); parseErr != nil {
+			return false, "", parseErr
 		}
-		return false, decision.LegacyShape, "", nil
+		return false, "", nil
 	}
-	report, _, parseErr := decisionpkg.ParseAgentReport(result.Message)
-	if parseErr != nil {
-		return false, false, "", parseErr
+	if _, _, parseErr := decisionpkg.ParseAgentReport(result.Message); parseErr != nil {
+		return false, "", parseErr
 	}
-	return false, report.LegacyShape, "", nil
+	return false, "", nil
 }

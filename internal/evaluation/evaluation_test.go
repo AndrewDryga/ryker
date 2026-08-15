@@ -1516,11 +1516,11 @@ func TestAHandoffPassesOnlyWhenItCarriesMemoryForward(t *testing.T) {
 		},
 		{
 			// Held to the shape the prompt printed rather than to the widest
-			// shape the parser tolerates. The host would apply this one, but
-			// everywhere else a legacy result gets LegacyResultShape and another
-			// turn to re-emit it typed, and a handoff has no second turn to be
-			// asked in. The prompt shows exactly one shape for that reason, so
-			// the corpus grades exactly one shape.
+			// shape the parser tolerates. Everywhere else a result that puts its
+			// answer in the envelope is refused and the model gets another turn
+			// to re-emit it typed; a handoff has no second turn to be asked in.
+			// The prompt shows exactly one shape for that reason, so the corpus
+			// grades exactly one shape.
 			name: "answered in the shape the prompt did not print",
 			output: `{"action":"ignore","reason":"carrying this session's context",` +
 				`"memory":{"situation_summary":"Checkout latency was traced to cache warmup."}}`,

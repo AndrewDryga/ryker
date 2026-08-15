@@ -147,7 +147,6 @@ func runAuditResultProtocol(args []string, stdout, stderr io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "Replayed %d stored results from the last %d days.\n\n", audit.Total, *days)
 	fmt.Fprintf(stdout, "  typed operations   %d\n", audit.Typed)
-	fmt.Fprintf(stdout, "  legacy shape only  %d\n", audit.LegacyOnly)
 	fmt.Fprintf(stdout, "  legacy fallback    %d\n", audit.Fallback)
 	fmt.Fprintf(stdout, "  unparsed           %d\n\n", audit.Unparsed)
 	switch {

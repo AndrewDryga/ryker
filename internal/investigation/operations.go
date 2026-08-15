@@ -599,8 +599,7 @@ action. Restatements, known blockers, generic advice, and unavailable access are
 The outer JSON is only the transport envelope. Its whole field set is action, reaction, title,
 attention, reason, task_pull_request, publication_updates and operations; nothing else may appear
 beside them. Every part of a result — message, completion, evidence, coverage, memory, approvals,
-task offers, durable behavior offers — is an operation from the list below. A legacy top-level
-result field is read, then sent back once to be re-emitted as operations.
+task offers, durable behavior offers — is an operation from the list below.
 Background learning is independent of the Slack action. Ignore may have no operations, one update_memory,
 or evidence/coverage/goal operations plus wait_external without completion. For
 react, operations must be empty. For incident, use title and no operations. Recording a decision as

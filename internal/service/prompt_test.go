@@ -453,7 +453,15 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // question; the team's names for things are learned and used; a repeated
 // working-style signal earns one offered guidance memory. Each is pinned
 // below so a future diet cannot silently eat it.
-const staticWatchPromptBytes = 51355
+//
+// Lowered by 93 on 2026-08-14, the deletion the envelope-dialect migration was
+// for. The sentence "a legacy top-level result field is read, then sent back
+// once to be re-emitted as operations" was the tolerance, and it undercut the
+// absolute rule two lines above it — the envelope's field set is closed and
+// nothing else may appear beside it. Nothing replaced it: an envelope carrying
+// its result is now unreadable, and the rejection says which fields and which
+// operations carry them on the one turn that needs to hear it.
+const staticWatchPromptBytes = 51262
 
 // The static prompt must not grow without someone deciding it should.
 //
@@ -589,15 +597,11 @@ func TestWatchPromptExamplesUseTheTypedResultShape(t *testing.T) {
 		if _, err := decisionpkg.ParseWatchDecision(line, testDecodeClock); err != nil {
 			t.Fatalf("the prompt shows an example the host would reject: %v\n%s", err, line)
 		}
-		// decision.LegacyShape is not asserted here: the parser flags every
-		// empty-operations envelope as legacy-shaped, and a react or escalate
-		// example legitimately carries none ("bare envelopes with nothing in
-		// them to move", legacy_shape.go). The raw checks below hold the real
-		// contract — an operations key must be present and no legacy result
-		// field may appear beside it.
-		// Checked on the raw JSON, not the parsed decision: parsing projects
-		// the operations back onto the legacy fields, so the decision always
-		// looks legacy-shaped afterwards.
+		// Checked on the raw JSON, not the parsed decision: the fold projects
+		// operations back onto the same top-level fields the retired dialect
+		// used, so every parsed decision looks envelope-shaped afterwards. The
+		// contract this holds is the raw one — an operations key present, and
+		// no result field beside it.
 		var raw map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(line), &raw); err != nil {
 			t.Fatalf("example is not one JSON object: %v\n%s", err, line)

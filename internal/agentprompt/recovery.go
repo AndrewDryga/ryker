@@ -81,25 +81,3 @@ Do not investigate, read anything, or reply in Slack. Answer with exactly this s
 
 Omit any memory field you have nothing durable to put in.`
 }
-
-// LegacyResultShape asks for the same decision in the typed shape, and is
-// deliberately not the correction blocks above it.
-//
-// Those open by telling the model its result was rejected and close by asking
-// for a fresh one. Both would be false here and the second would be harmful:
-// the host read this result, validated it through the whole ladder, and is
-// ready to act on it — so a re-decided answer is a different answer to a
-// question that was already answered well. The only thing being asked for is
-// the transport.
-func LegacyResultShape(detail string) string {
-	if strings.TrimSpace(detail) == "" {
-		return ""
-	}
-	return `
-
-<host-result-shape-correction>
-Your previous decision was accepted and is not in question: ` + detail + `
-Do not re-evaluate the target message, change the decision, soften it, or redo any work. Re-emit
-exactly what you already concluded, in the typed shape.
-</host-result-shape-correction>`
-}

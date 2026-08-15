@@ -2239,11 +2239,15 @@ func auditTracePresentation(audit AuditRow, present func(string) string) (string
 // an audit ledger is would drown them.
 func auditTraceWhy(audit AuditRow) string {
 	switch audit.Kind {
+	// A retired kind. Nothing writes it since the older result format was
+	// deleted on 2026-08-14, but rows from the migration are still in every
+	// database and an episode page that cannot read its own history is worse
+	// than five lines of renderer.
 	case "result.legacy_shape":
 		if audit.Outcome == "legacy_corrected" {
 			return "The model first answered in an older result format, Responder asked it once to re-emit the same decision as typed operations, and this time it did. Nothing about the answer changed — only how it was carried."
 		}
-		return "The model answered in an older result format that Responder still accepts. It was read successfully, and Responder asked the model once to re-emit it as typed operations — this row means the answer stayed in the old format. The count exists so the size of the old format stays visible while the contract moves on."
+		return "The model answered in an older result format that Responder accepted while both formats were in use. This row is from that migration: it means the answer stayed in the old format after Responder asked once for typed operations. That format is no longer read at all — a result carrying its answer outside the operation stream is now refused."
 	case "coop.budget.auto_extend":
 		return "The turn ran into its token budget and Responder raised it rather than cutting the work short."
 	case "slack.paused":
