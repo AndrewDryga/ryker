@@ -1252,6 +1252,28 @@ What remains of this phase is deletion rather than construction: fifteen places
 still bridge run and episode identity, and `agent_runs` remains the transport
 table those bridges read.
 
+Measured again on 2026-08-15, the first time under the per-capability rule: 174
+occurrences across 37 non-test files, and not one of them is eligible to go.
+Every remaining bridge is shared plumbing — delivery idempotency, the retention
+fallback guards, the activity dedup key, the migration registry, the episode
+kernel itself — so each is proven only when every capability routing through it
+is, and seventeen are not.
+
+The incident root is the case that matters, because it is the largest legacy path
+and it looked like the obvious first deletion. It is not deletable on any single
+fixture: engineering tasks are rows in the `incidents` table, the room's root
+message gates the Coop session that every tool use needs, and the approvals hang
+off `emisar_approvals.incident_id`. One legacy path therefore carries `incidents`,
+`engineering-changes`, `mentions-dms-and-proactive-messages`, and
+`runbook-control-plane-work` at once — four proven capabilities, which is four
+reasons it cannot be deleted for one of them.
+
+So the per-capability rule does not by itself unblock this phase's deletion, and
+knowing that is the point of measuring rather than assuming. What stands in the
+way is no longer an unproven capability waiting on dogfooding; it is a second
+lifecycle that four proven capabilities share. Re-anchoring it is phase 5 work,
+not deletion work, and the deletion this phase wants is downstream of that.
+
 ### Phase 1 (original plan): Episode owns attempts
 
 - remove the one-to-one ownership from work episode to agent run;
@@ -1266,7 +1288,44 @@ Exit criteria:
 - at most one public failure appears for one blocker generation;
 - unrelated conversations continue while an episode retries.
 
-### Phase 2: Bind destination and controls
+### Phase 2: Bind destination and controls — destination landed, controls not started
+
+The episode has carried `destination_channel_id`, `destination_thread_ts`, and
+`destination_revision` since schema 47, and the binding is enforced rather than
+only stored. `EnqueueSlackDelivery` refuses a delivery whose channel, thread, or
+expected revision disagrees with the episode; `LeaseSlackDelivery` supersedes an
+already-queued one with `episode destination changed` when the binding moves
+under it; `ChangeEpisodeDestination` requires a typed reason, appends a
+`destination_changed` event, and bumps the revision under optimistic concurrency
+on the event sequence. Deliveries have carried `expected_episode_revision` and
+`expected_destination_revision` since schema 68. Three of this phase's four items
+are built and wired to callers, so the work here is narrowing what remains rather
+than starting.
+
+Two holes remain in the routing item. `status` and `reaction` deliveries are
+exempt from the binding check deliberately, and a delivery enqueued with no
+episode is invisible to both the enqueue check and the supersession sweep — seven
+of the thirteen non-test enqueue sites pass no episode, so a card or file queued
+before a destination change still posts to the surface the episode has left.
+That is the second exit criterion, and it is the failure it names. Separately,
+`bindEpisodeDestination` moves the episode to wherever the service decided to
+post instead of refusing the disagreement, so a per-delivery divergence bumps the
+revision rather than being caught by it.
+
+The third item, episode revision controls, is not started. Three incompatible
+schemes are in use: `slack_status_generations` keyed by `(channel_id, thread_ts)`,
+which is exactly the conversation-scoped generation this phase names;
+`publications.generation` keyed by incident; and, for every other control, no
+generation at all — currency is decided by re-decoding the delivered message body
+and asking whether it still renders that button, found by
+`(incident_id, channel_id, message_ts)`.
+
+That item is gated, not merely unstarted. `contextual-next-step-controls` and
+`diff-and-draft-pr-controls` are both acknowledged gaps, so section 24 holds the
+control path shut until a recorded stale-control replacement and a recorded
+revision-bound control exist — which is what this phase's first exit criterion
+asks for in the same words. The fixtures cannot be written; they have to happen
+and be recorded within the retention window.
 
 - store bound destination and destination revision on the episode;
 - route acknowledgements, status, progress, cards, files, and finals through that binding;
