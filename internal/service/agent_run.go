@@ -3153,7 +3153,7 @@ func (s *Service) stageTerminalFinalizationFailure(
 			return err
 		}
 		body, err := slackui.Encode(s.sanitizeMessage(
-			slackui.TurnFailureMessage("failed", detail),
+			slackui.TurnFailureMessage(incident, "failed", detail),
 		))
 		if err != nil {
 			return err
@@ -3357,10 +3357,11 @@ func (s *Service) reportTurnFailure(
 	state string,
 	detail string,
 ) slackui.Message {
-	message := slackui.AgentReportFailureMessage()
+	message := slackui.AgentReportFailureMessage(incident)
 	if !decisionpkg.StructuredResultFailure(detail) {
 		failure := provider.Classify(detail)
 		message = slackui.TurnFailureMessage(
+			incident,
 			state,
 			// provider.Classify already turned the provider's error into
 			// something an operator can act on. Appending the raw detail after
@@ -3503,7 +3504,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			// Out of corrections. Say so in the operator's terms — what was
 			// lost, what survived, and what they can do — without the parse
 			// error, which means nothing to them.
-			message = slackui.AgentReportFailureMessage()
+			message = slackui.AgentReportFailureMessage(incident)
 			s.recordTimeline(ctx, core.TimelineEvent{
 				ID:         executionDeliveryID("tl_agent_failure_"+run.ID, run.IdempotencyKey),
 				IncidentID: incident.ID, ChannelID: incident.ChannelID,

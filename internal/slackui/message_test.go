@@ -865,7 +865,7 @@ func TestIncompleteValidationWarningKeepsDraftPublicationActionable(t *testing.T
 }
 
 func TestTurnFailureAndManualHandoffPreserveTheNextStep(t *testing.T) {
-	failure := TurnFailureMessage("failed", "MCP request timed out.")
+	failure := TurnFailureMessage(core.Incident{}, "failed", "MCP request timed out.")
 	// Superseded: what to do next moved out of the section that says what
 	// survived and into the context line, so the three slots every failure card
 	// now has — what stopped, what survived, what to do — are three separate
@@ -877,7 +877,7 @@ func TestTurnFailureAndManualHandoffPreserveTheNextStep(t *testing.T) {
 		t.Fatalf("failure message = %+v", failure)
 	}
 	// Cancelling is not a failure. It is grey, and it says who did it.
-	cancelled := TurnFailureMessage("cancelled", "operator stopped the turn")
+	cancelled := TurnFailureMessage(core.Incident{}, "cancelled", "operator stopped the turn")
 	if cancelled.Stripe != StripeIdle || cancelled.Header != "⏸ Stopped — you asked me to." {
 		t.Fatalf("cancelled turn = %+v", cancelled)
 	}
@@ -1312,7 +1312,7 @@ func TestEvidenceSummaryUsesNaturalCoveragePlural(t *testing.T) {
 // turn" and "Result needs a clean summary" — both of which describe Responder's
 // plumbing rather than the operator's situation.
 func TestAgentReportFailureSpeaksToTheOperatorNotAboutTheParser(t *testing.T) {
-	message := AgentReportFailureMessage()
+	message := AgentReportFailureMessage(core.Incident{})
 	content := message.Text + "\n" + message.Header + "\n" +
 		strings.Join(message.Sections, "\n") + "\n" + strings.Join(message.Context, "\n")
 

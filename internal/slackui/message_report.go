@@ -41,7 +41,7 @@ type Report struct {
 func TimelineReport(record core.RemediationRecord) Report {
 	message := TimelineMessage(record)
 	events := core.RemediationTimeline(record)
-	headline := "No incident activity has been recorded yet."
+	headline := "No " + workNoun(record.Incident) + " activity has been recorded yet."
 	if len(events) > 0 {
 		headline = fmt.Sprintf(
 			"%s, from %s to %s.",
@@ -62,20 +62,31 @@ func TimelineReport(record core.RemediationRecord) Report {
 func HandoffReport(record core.RemediationRecord) Report {
 	incident := record.Incident
 	message := HandoffMessage(record)
+	// The clause after the dash is the alert's, and an engineering task has no
+	// alert: it read "0 of 0 signals firing, severity unclassified", which is a
+	// recovered outage rather than a change nobody paged for.
+	headline := fmt.Sprintf(
+		"%s, Responder %s — %d of %d signals firing, severity %s.",
+		incidentStatusLabel(incident.Status),
+		workActivityLabel(incident),
+		incident.FiringCount, incident.SignalCount,
+		displayOr(incident.Severity, "unclassified"),
+	)
+	if incident.IsEngineeringTask() {
+		headline = fmt.Sprintf(
+			"%s, Responder %s.",
+			incidentStatusLabel(incident.Status),
+			workActivityLabel(incident),
+		)
+	}
 	return Report{
 		Title: reportTitle(
 			message.Markdown, "Shift handoff: "+escapeSlackText(incident.Title),
 		),
 		Markdown: message.Markdown,
-		Headline: fmt.Sprintf(
-			"%s, Responder %s — %d of %d signals firing, severity %s.",
-			incidentStatusLabel(incident.Status),
-			workflowStateLabel(incident.Workflow),
-			incident.FiringCount, incident.SignalCount,
-			displayOr(incident.Severity, "unclassified"),
-		),
-		Counts:  reportCounts(record),
-		Message: message,
+		Headline: headline,
+		Counts:   reportCounts(record),
+		Message:  message,
 	}
 }
 
@@ -99,10 +110,14 @@ func PostmortemReport(record core.RemediationRecord) Report {
 	if unchecked := uncheckedLayers(record.Coverage); unchecked != "" {
 		headline = strings.TrimSuffix(headline, ".") + "; " + unchecked + " never checked."
 	}
+	draft := "Post-incident draft: "
+	if record.Incident.IsEngineeringTask() {
+		draft = "Engineering task review draft: "
+	}
 	return Report{
 		Title: reportTitle(
 			message.Markdown,
-			"Post-incident draft: "+escapeSlackText(record.Incident.Title),
+			draft+escapeSlackText(record.Incident.Title),
 		),
 		Markdown: message.Markdown,
 		Headline: headline,
@@ -117,7 +132,7 @@ func EvidenceReport(
 	coverage []core.Coverage,
 ) Report {
 	message := EvidenceDirectoryMessage(incident, evidence, coverage)
-	headline := "No evidence has been recorded for this incident yet."
+	headline := "No evidence has been recorded for this " + workNoun(incident) + " yet."
 	if len(evidence) > 0 {
 		headline = fmt.Sprintf(
 			"%s across %s.",
@@ -127,7 +142,8 @@ func EvidenceReport(
 	}
 	return Report{
 		Title: reportTitle(
-			message.Markdown, "Evidence for incident "+ShortID(incident.ID),
+			message.Markdown,
+			"Evidence for "+workNoun(incident)+" "+ShortID(incident.ID),
 		),
 		Markdown: message.Markdown,
 		Headline: headline,

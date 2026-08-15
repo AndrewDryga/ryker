@@ -1326,8 +1326,18 @@ func markdownCell(value string) string {
 // asked to be stopped is the system obeying you, and a red card with an alarm
 // glyph on it reads as something having gone wrong — which then has to be
 // discounted by the one person who already knows it did not.
-func TurnFailureMessage(state, detail string) Message {
+//
+// It takes the work item because a failed turn on an engineering task is not a
+// failed investigation, and there is no evidence to have collected — there is a
+// working copy, and what the reader wants to know is whether their changes
+// survived.
+func TurnFailureMessage(incident core.Incident, state, detail string) Message {
 	stripe, header := StripeFailed, "🛑 Investigation could not finish"
+	survived := "The isolated fork and the evidence collected so far are preserved."
+	if incident.IsEngineeringTask() {
+		header = "🛑 Task could not finish"
+		survived = "The isolated fork and the changes made so far are preserved."
+	}
 	if state == "cancelled" {
 		stripe, header = StripeIdle, "⏸ Stopped — you asked me to."
 	}
@@ -1339,7 +1349,7 @@ func TurnFailureMessage(state, detail string) Message {
 		stripe,
 		header,
 		escapeSlackText(detail),
-		"The isolated fork and the evidence collected so far are preserved.",
+		survived,
 		"Reply in this thread to continue, or use the controls on the work card.",
 	)
 	message.Context = append(
@@ -1357,17 +1367,28 @@ func TurnFailureMessage(state, detail string) Message {
 // ever had was the parse error — so the parameter was a hole that put
 // `json: cannot unmarshal ...` in front of someone waiting on an incident.
 // What they need is what survived, that nothing changed, and what to do next.
-func AgentReportFailureMessage() Message {
+//
+// It does take the work item, because "the findings are preserved" is the wrong
+// reassurance for an engineering task: nothing was being found, and what the
+// reader is anxious about is the working copy.
+func AgentReportFailureMessage(incident core.Incident) Message {
+	ran := "The investigation ran, but its final summary did not come back in a form I could publish."
+	survived := "The findings are preserved — nothing was lost and nothing was changed."
+	if incident.IsEngineeringTask() {
+		ran = "The engineering task ran, but its final summary did not come back in a form I could publish."
+		survived = "The isolated changes are preserved — nothing was lost and nothing was published."
+	}
 	// No "Write it up again" button, though this is the card that most wants
-	// one. The rerun control is incident-scoped — it routes on an incident id
-	// carried in the button's value — and this constructor is given no
-	// incident, so the button would render and then answer that the control is
-	// no longer valid. The sentence is the honest version of the same offer.
+	// one. The rerun control routes on an incident id carried in the button's
+	// value, and the work item this is given is not always the one the control
+	// would resolve, so the button would render and then answer that the
+	// control is no longer valid. The sentence is the honest version of the
+	// same offer.
 	message := failureCard(
 		StripeFailed,
 		"🛑 Summary needs another pass",
-		"The investigation ran, but its final summary did not come back in a form I could publish.",
-		"The findings are preserved — nothing was lost and nothing was changed.",
+		ran,
+		survived,
 		"Reply in this thread and I’ll write it up again from the same work.",
 	)
 	message.Context = append(
@@ -1420,9 +1441,9 @@ func EvidenceDirectoryMessage(
 ) Message {
 	message := EvidenceResponse(
 		fmt.Sprintf(
-			"## Evidence for incident `%s`\n\nThe entries below are the latest durable "+
+			"## Evidence for %s `%s`\n\nThe entries below are the latest durable "+
 				"observations and coverage assessments.",
-			ShortID(incident.ID),
+			workNoun(incident), ShortID(incident.ID),
 		),
 		evidence,
 		coverage,
@@ -1487,6 +1508,42 @@ func CommitmentDirectoryMessage(items []core.Commitment) Message {
 	return directoryCard(message, entries, "most recently updated first.")
 }
 
+// workNoun is what to call the thing a surface is describing.
+//
+// Every surface that hardcoded "incident" was making a claim about the work as
+// well as its state, and a teammate reading "no evidence for this incident" on
+// their own rename learns to discount the card rather than the noun.
+func workNoun(incident core.Incident) string {
+	if incident.IsEngineeringTask() {
+		return "engineering task"
+	}
+	return "incident"
+}
+
+// workActivityLabel is workflowStateLabel with the work item's own vocabulary.
+//
+// An engineering task has no incident room to create and nothing to
+// investigate, and the operator whose action it waits on is a workspace
+// teammate. IncidentStatusMessage carried these three overrides inline; the
+// App Home strip did not, which is how every open task ended up filed under
+// "Creating incident room".
+func workActivityLabel(incident core.Incident) string {
+	if incident.IsEngineeringTask() {
+		switch incident.Workflow {
+		case core.WorkflowProvisioningChannel:
+			if incident.IsThreadScoped() {
+				return "Starting task"
+			}
+			return "Creating working room"
+		case core.WorkflowInvestigating:
+			return "Working"
+		case core.WorkflowBlocked:
+			return "Needs teammate action"
+		}
+	}
+	return workflowStateLabel(incident.Workflow)
+}
+
 func workflowStateLabel(workflow core.WorkflowState) string {
 	switch workflow {
 	case core.WorkflowProvisioningChannel:
@@ -1515,6 +1572,9 @@ func workflowStateDescription(incident core.Incident) string {
 	case core.WorkflowProvisioningChannel:
 		if incident.IsThreadScoped() {
 			return "Responder is attaching a durable task card and isolated work session to this Slack thread."
+		}
+		if incident.IsEngineeringTask() {
+			return "Slack is creating and preparing the dedicated engineering room."
 		}
 		return "Slack is creating and preparing the dedicated incident room."
 	case core.WorkflowProvisioningSession:
@@ -1649,6 +1709,12 @@ func HelpMessage(incident core.Incident) Message {
 	// silently targets the wrong thing, so the thread's strip names the card.
 	conversation := "*Just reply in this channel* — no `@mention` needed; every message here " +
 		"continues the same incident conversation."
+	if incident.IsEngineeringTask() {
+		// A room-scoped engineering task has a room and the slash controls
+		// resolve in it, so the only thing wrong with this strip was the noun.
+		conversation = "*Just reply in this channel* — no `@mention` needed; every message here " +
+			"continues the same engineering task."
+	}
 	reference := []LedgerStep{
 		// A blank glyph: these are label/value rows, not steps of a run.
 		{Glyph: " ", Label: "/responder update", Detail: "fresh evidence summary"},

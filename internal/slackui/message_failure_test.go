@@ -207,7 +207,7 @@ func TestFailureCardsAnswerTheSameThreeQuestions(t *testing.T) {
 		stopped, survived, next string
 	}{{
 		name:     "turn failed",
-		message:  TurnFailureMessage("failed", "MCP request timed out."),
+		message:  TurnFailureMessage(core.Incident{}, "failed", "MCP request timed out."),
 		stripe:   StripeFailed,
 		header:   "🛑 Investigation could not finish",
 		stopped:  "MCP request timed out.",
@@ -217,7 +217,7 @@ func TestFailureCardsAnswerTheSameThreeQuestions(t *testing.T) {
 		// Stopping work somebody asked to be stopped is the system obeying
 		// them. Red would ask the one person who already knows to discount it.
 		name:     "turn cancelled",
-		message:  TurnFailureMessage("cancelled", "operator stopped the turn"),
+		message:  TurnFailureMessage(core.Incident{}, "cancelled", "operator stopped the turn"),
 		stripe:   StripeIdle,
 		header:   "⏸ Stopped — you asked me to.",
 		stopped:  "operator stopped the turn",
@@ -225,7 +225,7 @@ func TestFailureCardsAnswerTheSameThreeQuestions(t *testing.T) {
 		next:     "Reply in this thread to continue",
 	}, {
 		name:     "report unreadable",
-		message:  AgentReportFailureMessage(),
+		message:  AgentReportFailureMessage(core.Incident{}),
 		stripe:   StripeFailed,
 		header:   "🛑 Summary needs another pass",
 		stopped:  "did not come back in a form I could publish",
@@ -297,8 +297,8 @@ func TestFailureCardsAnswerTheSameThreeQuestions(t *testing.T) {
 // drops without anybody noticing until it is needed.
 func TestFailureCardsKeepTheirSafetyBoundary(t *testing.T) {
 	for name, message := range map[string]Message{
-		"turn":         TurnFailureMessage("failed", "provider timed out"),
-		"report":       AgentReportFailureMessage(),
+		"turn":         TurnFailureMessage(core.Incident{}, "failed", "provider timed out"),
+		"report":       AgentReportFailureMessage(core.Incident{}),
 		"triage":       TriageFailureMessage(),
 		"verification": ApprovalVerificationFailureMessage(),
 	} {

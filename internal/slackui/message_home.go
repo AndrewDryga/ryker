@@ -154,7 +154,7 @@ func OperationsHome(
 			fmt.Fprintf(
 				&current,
 				"\n%s *%s* · %s · %s",
-				incidentCardState(incident).Glyph,
+				workCardState(incident).Glyph,
 				commitmentHeadline(incident.Title),
 				room,
 				incidentDirectoryStatus(incident),

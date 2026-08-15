@@ -408,9 +408,14 @@ func TimelineMessage(record core.RemediationRecord) Message {
 	incident := record.Incident
 	events := core.RemediationTimeline(record)
 	var body strings.Builder
-	body.WriteString("## Remediation timeline\n")
+	title := "Remediation timeline"
+	if incident.IsEngineeringTask() {
+		// Nothing was remediated: the room holds a change someone asked for.
+		title = "Engineering task timeline"
+	}
+	body.WriteString("## " + title + "\n")
 	if len(events) == 0 {
-		body.WriteString("\nNo incident activity has been recorded yet.")
+		body.WriteString("\nNo " + workNoun(incident) + " activity has been recorded yet.")
 	}
 	start := max(0, len(events)-40)
 	for _, event := range events[start:] {
@@ -430,11 +435,18 @@ func TimelineMessage(record core.RemediationRecord) Message {
 			fmt.Fprintf(&body, "  \n  %s", link)
 		}
 	}
-	return Message{
-		Text: fmt.Sprintf(
-			"Incident %s remediation timeline with %d events.",
+	fallback := fmt.Sprintf(
+		"Incident %s remediation timeline with %d events.",
+		ShortID(incident.ID), len(events),
+	)
+	if incident.IsEngineeringTask() {
+		fallback = fmt.Sprintf(
+			"Engineering task %s timeline with %d events.",
 			ShortID(incident.ID), len(events),
-		),
+		)
+	}
+	return Message{
+		Text:     fallback,
 		Markdown: truncateMarkdown(body.String(), 12000),
 		Context: []string{
 			"Built from the alert, agent runs, evidence, Emisar approvals, and publication state. The latest events are shown oldest first.",
@@ -450,15 +462,25 @@ func HandoffMessage(
 	var body strings.Builder
 	fmt.Fprintf(
 		&body,
-		"## Shift handoff: %s\n\n**State:** %s, Responder %s  \n"+
-			"**Signals:** %d firing / %d total  \n**Severity:** %s\n",
+		"## Shift handoff: %s\n\n**State:** %s, Responder %s",
 		escapeSlackText(incident.Title),
 		incidentStatusLabel(incident.Status),
-		workflowStateLabel(incident.Workflow),
-		incident.FiringCount,
-		incident.SignalCount,
-		displayOr(incident.Severity, "unclassified"),
+		workActivityLabel(incident),
 	)
+	// Signals and severity are the alert's own fields. An engineering task has
+	// no alert behind it, so on a task they rendered as "0 firing / 0 total,
+	// severity unclassified" — three numbers that read as a quiet outage rather
+	// than as work nobody paged for.
+	if !incident.IsEngineeringTask() {
+		fmt.Fprintf(
+			&body,
+			"  \n**Signals:** %d firing / %d total  \n**Severity:** %s",
+			incident.FiringCount,
+			incident.SignalCount,
+			displayOr(incident.Severity, "unclassified"),
+		)
+	}
+	body.WriteString("\n")
 	if incident.LastError != "" {
 		fmt.Fprintf(&body, "\n**Operator action needed:** %s\n", incident.LastError)
 	}
@@ -481,7 +503,8 @@ func HandoffMessage(
 	)
 	message.Context = append(
 		message.Context,
-		"This handoff is generated from durable incident state; unknown coverage remains explicit.",
+		"This handoff is generated from durable "+workNoun(incident)+
+			" state; unknown coverage remains explicit.",
 	)
 	return message
 }
@@ -498,12 +521,22 @@ func PostmortemDraft(record core.RemediationRecord) Message {
 	if !closedAt.IsZero() {
 		closed = closedAt.UTC().Format("2006-01-02 15:04 UTC")
 	}
+	// The document is the same shape either way — what was verified, what was
+	// approved, what happened when, what is still open. Only the two lines
+	// naming the work change, because a rename does not get a post-incident
+	// review and a reader handed one stops trusting the rest of the draft.
+	heading, label := "Post-incident draft", "Incident"
+	if incident.IsEngineeringTask() {
+		heading, label = "Engineering task review draft", "Engineering task"
+	}
 	fmt.Fprintf(
 		&body,
-		"## Post-incident draft: %s\n\n"+
-			"**Incident:** `%s`  \n**Severity:** %s  \n**Started:** %s  \n**Closed:** %s\n\n"+
+		"## %s: %s\n\n"+
+			"**%s:** `%s`  \n**Severity:** %s  \n**Started:** %s  \n**Closed:** %s\n\n"+
 			"### What is verified\n",
+		heading,
 		escapeSlackText(incident.Title),
+		label,
 		ShortID(incident.ID),
 		displayOr(incident.Severity, "unclassified"),
 		incident.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"),
@@ -589,7 +622,25 @@ func incidentDirectoryStatus(incident core.Incident) string {
 	if incident.Status == core.IncidentClosed {
 		return "closed"
 	}
-	return workflowStateLabel(incident.Workflow)
+	return workActivityLabel(incident)
+}
+
+// workCardState is the one-line read of a work item for surfaces that list
+// several of them and hold no publication to consult.
+//
+// The App Home strip called incidentCardState for everything, so an engineering
+// task with a turn running flew the red 🔴 Firing glyph of a paging outage —
+// on the one page where a reader compares open work side by side, which is
+// exactly where a false alarm costs the most. A task's own state machine is
+// taskCardState; the publication arguments it does not have here resolve to the
+// states that do not depend on one.
+func workCardState(incident core.Incident) cardState {
+	if incident.IsEngineeringTask() {
+		return taskCardState(
+			incident, false, false, core.Publication{}, core.PublicationFollowup{},
+		)
+	}
+	return incidentCardState(incident)
 }
 
 func ManualHandoff(channelID string) Message {
@@ -841,7 +892,7 @@ func incidentStatusLabel(status core.IncidentStatus) string {
 
 func IncidentStatusMessage(incident core.Incident) Message {
 	status := incidentStatusLabel(incident.Status)
-	activity := workflowStateLabel(incident.Workflow)
+	activity := workActivityLabel(incident)
 	next := "Reply normally in this incident channel to give Responder its next request."
 	noun := "Incident"
 	stateLabel := "Alert state"
@@ -849,16 +900,6 @@ func IncidentStatusMessage(incident core.Incident) Message {
 		noun = "Engineering task"
 		stateLabel = "Task state"
 		next = "Reply normally in this thread to give Responder its next request."
-		if incident.Workflow == core.WorkflowBlocked {
-			activity = "Needs teammate action"
-		}
-		if incident.Workflow == core.WorkflowProvisioningChannel {
-			if incident.IsThreadScoped() {
-				activity = "Starting task"
-			} else {
-				activity = "Creating working room"
-			}
-		}
 	}
 	switch incident.Workflow {
 	case core.WorkflowProvisioningChannel, core.WorkflowProvisioningSession:
@@ -871,7 +912,14 @@ func IncidentStatusMessage(incident core.Incident) Message {
 			next = "An agent turn is running or queued. Wait for its update; a configured operator can use *Stop* on the current task card."
 		}
 	case core.WorkflowBlocked:
-		next = "Read *Action needed* on the work card, resolve that blocker, then reply to continue."
+		// *Action needed* is rendered on the card only when the work item
+		// recorded an error, so blocked-with-no-recorded-reason must not point
+		// at it — that sends the reader hunting for a section which is not
+		// there. taskAsk already learned this; this is its twin.
+		next = "Reply here with how to continue, or close the " + workNoun(incident) + "."
+		if incident.LastError != "" {
+			next = "Read *Action needed* on the work card, resolve that blocker, then reply to continue."
+		}
 	case core.WorkflowClosed:
 		next = "This work item no longer accepts agent turns. Dirty or unpublished changes are retained; published or zero-change workspace state expires by policy."
 	}

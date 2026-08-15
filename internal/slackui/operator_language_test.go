@@ -36,8 +36,8 @@ func TestOperatorMessagesCarryNoInternalVocabulary(t *testing.T) {
 	// TurnFailureMessage render caller-supplied text and cannot vet it; the
 	// rule for those lives at their call sites and is checked separately.
 	messages := map[string]Message{
-		"AgentReportFailureMessage":     AgentReportFailureMessage(),
-		"AgentReportFailureMessage/raw": AgentReportFailureMessage(),
+		"AgentReportFailureMessage":     AgentReportFailureMessage(core.Incident{}),
+		"AgentReportFailureMessage/raw": AgentReportFailureMessage(core.Incident{}),
 		"ChannelSetupCancelled":         ChannelSetupCancelled(),
 		"HelpMessage":                   HelpMessage(core.Incident{ID: "inc_1", Title: "Checkout latency"}),
 		"CommitmentOverdueMessage": CommitmentOverdueMessage(core.WorkEpisode{
@@ -111,8 +111,8 @@ func TestRawErrorsDoNotSurviveIntoOperatorMessages(t *testing.T) {
 	const rawError = "sql: no rows in result set"
 
 	for name, message := range map[string]Message{
-		"AgentReportFailureMessage": AgentReportFailureMessage(),
-		"TurnFailureMessage":        TurnFailureMessage("failed", rawError),
+		"AgentReportFailureMessage": AgentReportFailureMessage(core.Incident{}),
+		"TurnFailureMessage":        TurnFailureMessage(core.Incident{}, "failed", rawError),
 	} {
 		t.Run(name, func(t *testing.T) {
 			content := message.Text + strings.Join(message.Sections, "\n")
