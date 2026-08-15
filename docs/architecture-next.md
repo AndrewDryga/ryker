@@ -1370,7 +1370,39 @@ Exit criteria:
 - empty scheduled messages and partially saved compound instructions are impossible by construction;
 - malformed operations do not discard earlier accepted evidence or progress.
 
-### Phase 5: Re-anchor projections to episodes
+### Phase 5: Re-anchor projections to episodes — ownership landed, derivation not started
+
+Approvals and publications now name their episode. `emisar_approvals.episode_id`
+(schema 81) is written at persist time from the host beside the incident id and
+overwritten unconditionally, so nothing on the model's wire can bind an approval
+to another episode; `publications.episode_id` (schema 82) is filled by the same
+statement that creates the row, resolved from the incident's most recent
+episode-bearing run, because the publish click owns no episode of its own. Both
+were backfilled. Neither replaces its incident id, which stays for what it is
+good at: naming the room that showed the card, when there is one.
+
+Two things the room used to gate no longer wait on it. An Emisar approval
+resolves its verification turn's destination from the episode's bound
+`(channel, thread)` rather than from a Slack input and a card delivery, which
+both expire on the operational horizon while the episode does not — so a
+governed mutation that takes longer than a day now completes instead of dying
+on a lookup at the moment it succeeds; and it stops waiting for its own card
+after a bounded grace rather than re-queueing once a second forever. A
+thread-scoped engineering task binds its Coop session as soon as its
+conversation is bound, rather than after its root card lands, so a card that
+cannot post no longer leaves every turn of that task pending, unblocked and
+unreported.
+
+What has not started is the derivation item. Commitments, controls, coverage,
+status, publication state, timelines and postmortem drafts still read incident
+rows; `LoadRemediationRecord` still lists approvals by incident, so a
+thread-scoped approval is absent from a postmortem it belongs in. The addressing
+half of publication ownership has not moved either: `publications.incident_id`
+is still the primary key, `publication_followups` and
+`publication_lifecycle_events` still cascade from it, and every publication
+write still re-asserts its incidents row — so a publication still cannot exist
+without one. That is the next increment, and the column this phase added is what
+it cuts over to.
 
 - move incident, engineering task, approval, publication, and follow-up ownership to episode IDs;
 - make incident rooms optional artifacts;
