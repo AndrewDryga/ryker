@@ -49,7 +49,11 @@ var methodBudget = map[string]int{
 	// hold-off has to be durable rather than a field on Service, because the
 	// error it writes to the run is also what lets a stalled episode tell an
 	// operator what actually failed instead of "no progress".
-	"Store": 230,
+	// 234 for the four ForTest hooks behind the lease fairness scenario
+	// (age, mark running, set failures, touch). They exist so the starvation
+	// test can shape a cycling blocker without exporting a settable clock;
+	// each writes one column and nothing calls them outside _test files.
+	"Store": 234,
 }
 
 // lineBudget caps non-test source lines per package.
@@ -507,7 +511,15 @@ var lineBudget = map[string]int{
 	// Every query it owns went to internal/store/selfreportstore, which is the
 	// split these notes keep asking for; a delegating method here would have
 	// cost the same three lines and a slot in the method budget as well.
-	"store":      11440,
+	//
+	// Raised to 11470 on 2026-08-15 for the lease fairness clause and the four
+	// test hooks that shape its scenario. A run cycling lease->fail->retry held
+	// its channel's serialization lock for three hours while a sibling with an
+	// operator waiting sat runnable behind it; the clause lets an hour-old
+	// blocker with three failures stop excluding its channel. The hooks exist
+	// because the scenario needs a run aged, failed, and marked running without
+	// threading test clocks through the lease path itself.
+	"store":      11470,
 	"localstate": 400,
 	"provider":   120,
 	"recall":     400,

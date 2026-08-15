@@ -1882,3 +1882,115 @@ func TestASilentTurnIsCancelledInsteadOfHoldingItsChannel(t *testing.T) {
 			"(last error %q)", run.State, run.LastError)
 	}
 }
+
+// Channel serialization exists so answers land in order, and tonight it starved
+// a sibling instead: run_b7e4a0f — an operator-facing lifecycle event from
+// 00:24 — waited more than two hours behind run_e3cec200, which was cycling
+// through provider-throttled retries the whole time. Ordering a reply behind a
+// blocker that cannot finish is not ordering, it is silence. A blocker that is
+// old and visibly cycling stops excluding its channel's waiters.
+func TestAStarvedSiblingLeasesPastACyclingBlocker(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CSTARVE", "CSTARVE2"}
+	cfg.Slack.SummonChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+
+	blockerInput := core.SlackInput{
+		ID: "slack-blocker", EnvelopeID: "env-blocker", EventID: "event-blocker",
+		Kind: "message", TeamID: cfg.Slack.TeamID, ChannelID: "CSTARVE",
+		MessageTS: "1700.100", UserID: "U123ABC", Text: "why is checkout slow?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, blockerInput); err != nil || !created {
+		t.Fatalf("admit blocker = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	blocker, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The blocker is mid-flight and visibly cycling: several failures, old
+	// enough that waiting on it is silence, and back in running for its next
+	// doomed attempt.
+	if retried, err := st.RetryAgentRunIfOwned(
+		ctx, blocker.ID, "provider rate limited the turn",
+		time.Now().UTC().Add(time.Hour), false,
+	); err != nil || !retried {
+		t.Fatalf("retry blocker = %v, %v", retried, err)
+	}
+	if err := st.SetAgentRunFailuresForTest(ctx, blocker.ID, 5); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AgeAgentRunForTest(ctx, blocker.ID, 2*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunRunningForTest(ctx, blocker.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	waiter := core.SlackInput{
+		ID: "slack-starved", EnvelopeID: "env-starved", EventID: "event-starved",
+		Kind: "message", TeamID: cfg.Slack.TeamID, ChannelID: "CSTARVE",
+		MessageTS: "1700.200", UserID: "U123ABC", Text: "any update on that?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, waiter); err != nil || !created {
+		t.Fatalf("admit waiter = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	leased, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatalf("the starved sibling was not leased past the cycling blocker: %v", err)
+	}
+	if leased.SourceID != waiter.ID {
+		t.Fatalf("leased %q, want the starved sibling %q", leased.SourceID, waiter.ID)
+	}
+
+	// A fresh, quietly working blocker still serializes its channel: the
+	// bypass is for blockers that are old AND cycling, not for ordinary
+	// in-flight work.
+	fresh := core.SlackInput{
+		ID: "slack-fresh-blocker", EnvelopeID: "env-fresh-blocker", EventID: "event-fresh-blocker",
+		Kind: "message", TeamID: cfg.Slack.TeamID, ChannelID: "CSTARVE2",
+		MessageTS: "1700.300", UserID: "U123ABC", Text: "and staging?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, fresh); err != nil || !created {
+		t.Fatalf("admit fresh = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	freshRun, err := st.GetAgentRunBySource(ctx, "watch", fresh.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunRunningForTest(ctx, freshRun.ID); err != nil {
+		t.Fatal(err)
+	}
+	sibling := core.SlackInput{
+		ID: "slack-fresh-sibling", EnvelopeID: "env-fresh-sibling", EventID: "event-fresh-sibling",
+		Kind: "message", TeamID: cfg.Slack.TeamID, ChannelID: "CSTARVE2",
+		MessageTS: "1700.400", UserID: "U123ABC", Text: "ping",
+	}
+	if created, err := st.AdmitSlackInput(ctx, sibling); err != nil || !created {
+		t.Fatalf("admit sibling = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if leased, err := st.LeaseAgentRun(ctx); err == nil {
+		t.Fatalf("a fresh blocker's sibling was leased: %q", leased.SourceID)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		t.Fatal(err)
+	}
+}

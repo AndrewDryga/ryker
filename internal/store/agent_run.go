@@ -605,10 +605,20 @@ func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
 		    )
 		  )
 			  AND NOT EXISTS (
-			    SELECT 1 FROM agent_runs AS active
-			    WHERE active.conversation_key = candidate.conversation_key
-			      AND active.id != candidate.id
+		    SELECT 1 FROM agent_runs AS active
+		    WHERE active.conversation_key = candidate.conversation_key
+		      AND active.id != candidate.id
 		      AND active.state IN ('preparing', 'running', 'applying', 'finalizing')
+		      -- A blocker that is old and visibly cycling stops excluding its
+		      -- channel. Serialization exists so answers land in order, and on
+		      -- 2026-08-15 it starved one instead: an operator-facing lifecycle
+		      -- event waited nearly three hours behind a sibling cycling through
+		      -- provider-throttled retries. Ordering a reply behind a blocker
+		      -- that cannot finish is not ordering, it is silence.
+		      AND NOT (
+		        active.failure_count >= 3
+		        AND julianday(active.created_at) < julianday(?) - 1.0/24.0
+		      )
 		  )
 		ORDER BY
 		  CASE
@@ -626,7 +636,7 @@ func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
 		  END,
 		  candidate.created_at,
 		  candidate.id
-		LIMIT 1`, s.nowText()))
+		LIMIT 1`, s.nowText(), s.nowText()))
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			if commitErr := tx.Commit(); commitErr != nil {
@@ -2350,4 +2360,31 @@ func (s *Store) CorrectionRate(
 		return nil, 0, err
 	}
 	return counts, turns, nil
+}
+
+// AgeAgentRunForTest backdates a run's creation, imitating a blocker that has
+// been cycling for hours. Tests use it to prove serialization fairness without
+// sleeping.
+func (s *Store) AgeAgentRunForTest(ctx context.Context, id string, by time.Duration) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs SET created_at = ? WHERE id = ?`,
+		time.Now().Add(-by).UTC().Format(timestampFormat), id)
+	return err
+}
+
+// MarkAgentRunRunningForTest moves a run to running without a Coop submit, so
+// fairness tests can shape a blocking sibling directly.
+func (s *Store) MarkAgentRunRunningForTest(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs SET state = 'running', updated_at = ? WHERE id = ?`,
+		s.nowText(), id)
+	return err
+}
+
+// SetAgentRunFailuresForTest shapes a blocker's visible retry history without
+// cycling real leases.
+func (s *Store) SetAgentRunFailuresForTest(ctx context.Context, id string, failures int) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE agent_runs SET failure_count = ? WHERE id = ?`, failures, id)
+	return err
 }
