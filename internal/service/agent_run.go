@@ -1914,12 +1914,19 @@ func (s *Service) pollAgentRunOnce(ctx context.Context, run core.AgentRun) error
 		// mid-turn and re-delivered the prompt itself, and every Responder
 		// prompt restates its own durable context, so the run depends on
 		// nothing the hop dropped. Coop logs it and the event is durable.
-		case "turn.completed", "turn.failed", "turn.cancelled":
+		case "turn.completed", "turn.failed", "turn.cancelled", "turn.interrupted":
 			turn, err := s.coop.GetTurn(ctx, run.SessionID, run.CoopTurnID)
 			if err != nil {
 				return err
 			}
-			return s.stagePolledAgentRunTerminal(ctx, run, event.Type, turn, cursor)
+			// An interruption is Coop's daemon restarting under the turn — a
+			// terminal of its own, which the switch above did not name, so
+			// the event was skipped and the run stayed running on a turn that
+			// would never speak again: three tenant runs sat that way from
+			// 00:23Z to 05:54Z on 2026-08-15, past the reach of the silent-turn
+			// deadline because their sessions were already discarded. It is
+			// staged as a failure, which is what the replay path understands.
+			return s.stagePolledAgentRunTerminal(ctx, run, interruptedAsFailed(event.Type), turn, cursor)
 		}
 	}
 	if len(events) == 0 && session.ID != "" &&
@@ -1929,9 +1936,9 @@ func (s *Service) pollAgentRunOnce(ctx context.Context, run core.AgentRun) error
 			return turnErr
 		}
 		if turn.State == "completed" || turn.State == "failed" ||
-			turn.State == "cancelled" {
+			turn.State == "cancelled" || turn.State == "interrupted" {
 			return s.stagePolledAgentRunTerminal(
-				ctx, run, "turn."+turn.State, turn,
+				ctx, run, interruptedAsFailed("turn."+turn.State), turn,
 				max(cursor, session.LastEventSequence),
 			)
 		}
@@ -2946,6 +2953,16 @@ func benignlyUnboundSessionCursor(err error) error {
 	return err
 }
 
+// interruptedAsFailed folds Coop's interrupted terminal into the failed one
+// the staging path already knows: an interruption is a turn that will not
+// finish, and the replay decision reads the turn's own error code to say why.
+func interruptedAsFailed(eventType string) string {
+	if eventType == "turn.interrupted" {
+		return "turn.failed"
+	}
+	return eventType
+}
+
 func replayAgentRunFailure(
 	run core.AgentRun,
 	eventType string,
@@ -2959,6 +2976,9 @@ func replayAgentRunFailure(
 	detail := strings.TrimSpace(turn.ErrorDetail)
 	if turn.ErrorCode == "acp_cancelled" && detail == "turn cancelled" {
 		return "Coop turn was interrupted while Responder was stopping", true
+	}
+	if turn.ErrorCode == "turn_interrupted" || turn.State == "interrupted" {
+		return "Coop restarted under the turn; replaying it in a fresh session", true
 	}
 	if run.Failures == 0 &&
 		turn.ErrorCode == "acp_protocol_error" &&

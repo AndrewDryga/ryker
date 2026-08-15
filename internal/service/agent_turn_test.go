@@ -1883,6 +1883,70 @@ func TestASilentTurnIsCancelledInsteadOfHoldingItsChannel(t *testing.T) {
 	}
 }
 
+// Coop marks a turn "interrupted" when its daemon restarts under a running
+// turn — a distinct terminal from cancelled and failed. The poll handled the
+// other two and skipped this one, so a run whose turn was interrupted at
+// 00:23Z on 2026-08-15 was still "running" at 05:54Z, and the silent-turn
+// deadline could not rescue it because the session was discarded and the
+// cancel it tried was refused. Three tenant runs sat that way for five and a
+// half hours. An interrupted turn is a failed turn that deserves a replay.
+func TestAnInterruptedTurnIsReplayedInsteadOfHoldingItsRun(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CINTERRUPT"}
+	cfg.Slack.WatchChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{{ID: "turn_interrupted", State: "running"}}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+
+	input := core.SlackInput{
+		ID: "slack-interrupted", EnvelopeID: "env-interrupted", EventID: "event-interrupted",
+		Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CINTERRUPT", MessageTS: "1700.500", UserID: "U123ABC",
+		Text: "<@U999BOT> is checkout healthy?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// The daemon restarted under the turn: Coop's own record for
+	// turn_503e9e92, verbatim, and no further events will ever arrive.
+	coopClient.turn = coop.Turn{
+		ID: "turn_interrupted", SessionID: "ses_1", State: "interrupted",
+		StopReason: "interrupted", ErrorCode: "turn_interrupted",
+		ErrorDetail: "daemon restart interrupted active turn",
+	}
+	coopClient.session.ActiveTurnID = ""
+	svc.pollAgentRuns(ctx)
+
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.State == core.AgentRunRunning {
+		t.Fatalf("a run whose turn Coop interrupted is still running; it will hold its channel until an operator notices")
+	}
+	if run.State != core.AgentRunPending {
+		t.Fatalf("an interrupted turn ended the run as %q, want pending for a fresh-session replay (last error %q)",
+			run.State, run.LastError)
+	}
+	if run.CoopTurnID == "turn_interrupted" {
+		t.Fatalf("the replay is still bound to the interrupted turn")
+	}
+}
+
 // A provider refusal defers the run, and on 2026-08-15 the deferral kept the
 // dead turn: run_d55f248a's turn failed rate_limited at 00:41Z and every
 // backoff expiry for the next 3.5 hours re-polled that same corpse, re-read
