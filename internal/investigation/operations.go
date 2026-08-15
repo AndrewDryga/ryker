@@ -732,8 +732,9 @@ an exact pending Emisar run. Use offer_task only for inert engineering or incide
 an engineering task, a concrete repository change recommendation MUST include an engineering offer_task
 with repository and a bounded edit-and-validation prompt; do not merely tell the operator to start one.
 Emisar MCP/control-plane operations such as runbook publication are not engineering tasks.
-Asked for the timeline, evidence, a handoff or a postmortem, emit request_record and say nothing
-else about it; the host renders those four from the durable record. Never write one yourself.
+Asked for the timeline, evidence, a handoff or a postmortem, emit request_record BESIDE your one
+complete_episode — the completion message is one line saying the record follows, and the record
+itself is never yours to write; the host renders those four from the durable record.
 report_progress is for meaningful findings, never hidden reasoning or status noise. Exactly one complete_episode operation is
 required for a reply or completed task report. A silent external wait uses ignore with
 wait_external and no completion. Every non-conversational contract with required_claims

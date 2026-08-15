@@ -529,7 +529,10 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // to the number this branch was written against: 47,144 plus the 308 bytes of
 // request_record is 47,452, and this pin is two-sided, so it is the exact
 // measurement and not a bound.
-const staticWatchPromptBytes = 47452
+// 47541 after the request_record pairing rule: the first live gate run
+// proved "say nothing else" and "exactly one complete_episode" fought, and
+// the model obeyed the nearer sentence. 89 bytes to end the fight.
+const staticWatchPromptBytes = 47541
 
 // The static prompt must not grow without someone deciding it should.
 //
