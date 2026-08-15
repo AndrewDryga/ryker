@@ -24,6 +24,10 @@ import (
 // which are the last line and stay the last line. Repeating them earlier is not
 // redundant: the store's refusal reaches a Go caller, and this one reaches the
 // model, which is the only party that can write a different number.
+// maxExpiryDays is ninety because an expiry beyond the horizon anybody plans on
+// is an expiry in name only, and the point of one is that a forgotten
+// assignment decays rather than running forever. defaultExpiryDays is short
+// enough that a first assignment is a trial rather than a standing arrangement.
 const (
 	maxDailyBudget     = 20
 	defaultDailyBudget = 1
@@ -32,13 +36,6 @@ const (
 	maxPathGlobs       = 10
 	maxSignalBytes     = 200
 )
-
-// maxExpiry is the longest grant this package will write.
-//
-// Ninety days is already long for authority nobody re-confirms; the point of an
-// expiry is that a forgotten assignment decays rather than running forever, and
-// an expiry beyond the horizon anybody plans on is an expiry in name only.
-const maxExpiry = maxExpiryDays * 24 * time.Hour
 
 // ConfirmationMaxAge is how long an assignment offer stays clickable — the same
 // twenty-four hours the memory, knowledge and promotion cards use.
