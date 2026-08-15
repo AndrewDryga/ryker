@@ -1716,12 +1716,17 @@ func (s *Service) pollAgentRuns(ctx context.Context) {
 
 // silentTurnDeadline is how long a running turn may say nothing before the
 // host asks Coop to cancel it. Real investigations speak — tool activity
-// advances the event cursor and touches the run row — so fifteen minutes of
-// total silence is a dead transport, not a thinking model. Generous on
-// purpose: the cost of a false positive is one interrupted turn replayed in a
-// fresh session; the cost of a false negative was a channel locked for as
-// long as nobody noticed.
-const silentTurnDeadline = 15 * time.Minute
+// advances the event cursor and touches the run row — so total silence past
+// the deadline is a dead transport, not a thinking model. It was fifteen
+// minutes for one evening, and the first rate-limit storm showed the gap in
+// that number: a turn crawling through provider 429 backoff inside Coop is
+// also silent, and cancelling it buys a fresh session that inherits the same
+// throttle — a cancel-replay loop that burns the attempt budget and answers
+// nothing. Forty-five minutes clears any provider backoff worth waiting out
+// while still converting the class this exists for, restart-orphaned zombies,
+// within the hour. The durable fix is Coop emitting a backoff heartbeat event
+// so throttle is audible and the deadline can return to minutes; it is filed.
+const silentTurnDeadline = 45 * time.Minute
 
 // pollAgentRun advances one running turn, holding a failing run off the poll
 // until its backoff expires.
