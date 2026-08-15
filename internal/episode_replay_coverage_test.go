@@ -46,7 +46,6 @@ var acknowledgedCoverageGaps = map[string]string{
 	"freeform-operator-guidance":                     "needs a recorded guidance note with provenance",
 	"cross-channel-memory":                           "needs a recall pair across two channels with a privacy boundary",
 	"standing-assignments":                           "needs a recorded assignment through pause and expiry",
-	"incident-timeline-and-postmortem":               "needs a recorded postmortem derived from verified events",
 	"diff-and-draft-pr-controls":                     "needs recorded revision-bound controls",
 	"contextual-next-step-controls":                  "needs a recorded stale-control replacement",
 	"pr-checks-merge-deployment-verification":        "needs a recorded follow-through with a missing webhook",
