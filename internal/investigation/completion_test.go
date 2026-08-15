@@ -50,6 +50,96 @@ func TestAMissingRunbookIsNotABlockerOnItsOwn(t *testing.T) {
 	}
 }
 
+// A bounded unknown recorded beneath a verdict it cannot reverse keeps the
+// completion decision-ready.
+//
+// The contract asks for exactly this, twice: "preserve bounded unknowns beneath
+// it" in the operational-health guidance, and "a fresh degraded or unhealthy
+// result may remain decision-ready when secondary coverage is explicitly
+// unknown but cannot reverse that negative verdict. Preserve the bounded
+// unknown beneath the result". material_gaps is the only list-shaped field a
+// completion has, so that is where the model put them — and the host threw the
+// whole envelope away with "decision-ready completion cannot contain material
+// gaps", losing the reply, the memory, the evidence and every offer with it.
+// Nine of these across the two live instances, the last on 2026-08-14.
+//
+// Both completions below are harvested whole from tenant coop turns
+// a3203cffdb219df26aed8c858a16f806 and e20852f570c927eee7b996f458f55493. The
+// first is the shape the contract licenses; the second is the one it does not,
+// and it stays refused — a gap under a healthy verdict is the unsupported
+// success claim this rule exists to stop.
+func TestABoundedUnknownUnderAVerdictItCannotReverseStaysDecisionReady(t *testing.T) {
+	degraded := &CompletionAssessment{
+		Status: "decision_ready", Verdict: "degraded",
+		Summary: "This RESOLVED notice was premature: the alert cleared at 18:13:50 because its " +
+			"10-minute window rolled past the last kill, but data-api was still serving nothing " +
+			"and was killed again at 18:27:50.",
+		MaterialGaps: []string{
+			"data-api's true peak RSS is unknown because the 10 GiB cgroup limit truncated the spike before it topped out.",
+			"The share of end users served from BunnyCDN cache during the data-api gap was not measured, so user impact is bounded by the observed ingress 502s rather than fully quantified.",
+			"The specific query or refresh path that allocates the extra ~4 GiB has not been isolated; LOG_LEVEL is set to warning, so application logs did not name it.",
+		},
+	}
+	if err := ValidateCompletion(degraded); err != nil {
+		t.Fatalf("a bounded unknown under a degraded verdict was refused: %v", err)
+	}
+
+	// The second validator has to agree, or the answer survives the envelope
+	// check only to be sent back by the correction loop for the same reason.
+	episode := core.WorkEpisode{
+		Effort:           core.EffortOperationalAssessment,
+		Objective:        "is data-api healthy",
+		RequiredCoverage: []string{"workload", "application"},
+	}
+	coverage := []core.Coverage{
+		{Layer: "workload", Status: "degraded", Detail: "data-api was OOM-killed three times against its 10 GiB limit."},
+		{Layer: "application", Status: "degraded", Detail: "data-api served nothing for roughly 28 minutes."},
+	}
+	if got := CompletionCorrection(episode, "reply", coverage, degraded); got != "" {
+		t.Fatalf("the correction loop refused what the envelope accepted: %q", got)
+	}
+}
+
+// A gap under a verdict a gap could reverse is still refused, and the refusal
+// names both ways out.
+//
+// "decision-ready completion cannot contain material gaps" reads as "never put
+// anything here", so the model's next move is to blank the field or to switch a
+// sound answer to blocked. Neither is what the contract wants. The fork is: a
+// gap that can change the verdict makes the result blocked or lowers the
+// verdict, and one that cannot belongs beneath the result in the message.
+func TestAGapUnderAVerdictItCouldReverseIsRefusedWithBothWaysOut(t *testing.T) {
+	// Harvested from tenant coop turn e20852f570c927eee7b996f458f55493: a
+	// healthy verdict on a recovered outage, carrying the unverified trigger as
+	// a material gap.
+	healthy := &CompletionAssessment{
+		Status: "decision_ready", Verdict: "healthy",
+		Summary: "The Data API 404 was a real 36-minute total outage of data.v2.iesdev.com at the " +
+			"VA1 edge, and it has genuinely recovered, verified end to end through CDN, VA1 " +
+			"origin, and three representative query paths.",
+		MaterialGaps: []string{
+			"The specific VA1 event that removed both data-api allocations at 17:04 UTC is unverified: no Emisar MCP tool was exposed in this turn, and Grafana is reachable only on the tailnet, so Nomad allocation history and Reaper progress could not be inspected.",
+		},
+	}
+	err := ValidateCompletion(healthy)
+	if err == nil {
+		t.Fatal("a material gap under a healthy verdict was accepted as decision-ready")
+	}
+	for _, want := range []string{"blocked", "material_gaps", "message"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %q, so it says only what not to do: %v", want, err)
+		}
+	}
+
+	// No verdict at all is the same refusal: there is nothing a gap cannot
+	// reverse when nothing was concluded.
+	if err := ValidateCompletion(&CompletionAssessment{
+		Status: "decision_ready", Summary: "Healthy", MaterialGaps: []string{"database"},
+	}); err == nil {
+		t.Fatal("a material gap with no verdict was accepted as decision-ready")
+	}
+}
+
 // direct_answer — "what is the disk usage on nomad-hst03" — defines no
 // verdicts, because answering a question is not reaching a verdict. The
 // mismatch branch fired anyway and told the model its verdict did not match

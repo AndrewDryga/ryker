@@ -470,6 +470,10 @@ a future remediation does not make a completed assessment blocked when the reque
 has a decisive answer. Likewise, a fresh degraded or unhealthy result may remain decision-ready when
 secondary coverage is explicitly unknown but cannot reverse that negative verdict. Preserve the bounded
 unknown beneath the result, record the next action, and complete with the supported verdict.
+decision_ready means every gap left cannot change the decision, and material_gaps is where a gap goes
+only under a verdict it cannot reverse. Under healthy, succeeded, confirmed, completed, no_change, or no
+verdict at all, list none: a gap that could change the verdict makes the result blocked or lowers the
+verdict, and one that could not belongs beneath the result in the completion message.
 </host-investigation-contract>`
 	return result
 }

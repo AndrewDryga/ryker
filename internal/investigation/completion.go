@@ -146,9 +146,13 @@ func validateDecisionReadyCompletion(completion *CompletionAssessment) error {
 	if completion.Summary == "" {
 		return errors.New("decision-ready completion requires a summary")
 	}
-	boundedFailure := completion.Verdict == "failed" && completion.NextAction != ""
-	if len(completion.MaterialGaps) > 0 && !boundedFailure {
-		return errors.New("decision-ready completion cannot contain material gaps")
+	if len(completion.MaterialGaps) > 0 && !gapsCannotReverseVerdict(completion) {
+		return errors.New(
+			"a decision_ready completion lists material_gaps only under a verdict a gap " +
+				"cannot reverse; under this one, either the gap can change the verdict — return " +
+				"blocked, or the verdict the evidence supports — or it cannot, and it belongs " +
+				"beneath the result in the completion message rather than in material_gaps",
+		)
 	}
 	if completion.BlockerKind != "" || len(completion.Attempts) > 0 {
 		return errors.New("decision-ready completion cannot contain blocker fields")
@@ -157,6 +161,42 @@ func validateDecisionReadyCompletion(completion *CompletionAssessment) error {
 		return errors.New("decision-ready completion cannot request a recheck")
 	}
 	return nil
+}
+
+// gapsCannotReverseVerdict reports whether this decision-ready verdict is one a
+// bounded unknown could not turn over — the single rule both completion
+// validators ask, so that the envelope check and the correction loop cannot
+// give one answer each.
+//
+// decision_ready means the gaps that remain cannot change the decision, and
+// blocked means one can. The contract states the same test from the other side:
+// "a fresh degraded or unhealthy result may remain decision-ready when secondary
+// coverage is explicitly unknown but cannot reverse that negative verdict.
+// Preserve the bounded unknown beneath the result". A verdict that already
+// reports a problem or a non-final outcome is one an unknown cannot make wrong
+// about there being a problem, so the unknown recorded beneath it is the
+// contract's own instruction rather than a hole in the answer.
+//
+// The success verdicts are the whole point of the rule and keep their refusal.
+// "Healthy, and here is what I could not see" is exactly the unsupported
+// success claim this validator exists to stop, and so is a gap under no verdict
+// at all: nothing was concluded, so nothing is beyond an unknown's reach.
+//
+// failed keeps its next_action requirement, which predates this rule. Knowing a
+// deploy failed is worth reporting before the blast radius is mapped, but only
+// with the action that bounds it — an unbounded terminal failure is a report
+// nobody can act on.
+func gapsCannotReverseVerdict(completion *CompletionAssessment) bool {
+	switch completion.Verdict {
+	case "degraded", "unhealthy",
+		"in_progress", "needs_review", "inconclusive",
+		"not_confirmed", "partial":
+		return true
+	case "failed":
+		return strings.TrimSpace(completion.NextAction) != ""
+	default:
+		return false
+	}
 }
 
 // validateBlockedCompletion rejects a blocker nobody could act on. A block is
@@ -501,6 +541,12 @@ func CompletionCorrection(
 // outcome is not final, or when it is a terminal failure with a stated next
 // action: knowing a deploy failed is worth reporting even if the blast radius
 // is not fully mapped.
+//
+// The gaps clause asks gapsCannotReverseVerdict rather than keeping a second
+// list, because it and the envelope validator used to answer differently: this
+// one permitted unknown coverage for every operational_health verdict, and then
+// refused the same completion outright as soon as it wrote the unknown down.
+// One rule, both callers.
 func unknownCoverageCorrection(
 	contract InvestigationContract,
 	completion *CompletionAssessment,
@@ -522,7 +568,7 @@ func unknownCoverageCorrection(
 		(contract.Completion.ConclusionKind == "factual_assessment" &&
 			(completion.Verdict == "" || completion.Verdict == "not_confirmed" ||
 				completion.Verdict == "inconclusive"))
-	if !unknownAllowed || (len(completion.MaterialGaps) > 0 && !boundedTerminalFailure) {
+	if !unknownAllowed || (len(completion.MaterialGaps) > 0 && !gapsCannotReverseVerdict(completion)) {
 		return "the result claims decision_ready while material coverage remains unknown; either continue the investigation or return blocked with the exact next action"
 	}
 	return ""
