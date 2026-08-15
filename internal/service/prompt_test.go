@@ -549,7 +549,18 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // folding the assignment into the shared "these propose only, an operator
 // confirms" sentence below the list instead of restating it, and by dropping
 // the rationale key the same sentence already covers for all four offers.
-const staticWatchPromptBytes = 48062
+//
+// 48369 on 2026-08-15, the day the full gate first ran the assignment case:
+// 0/2, and both failures were the prompt's, not the model's. One sample asked
+// the operator instead of misclassifying terraform drift — the assignment
+// line now says the offer exists only for the listed classes and that
+// time-driven work is offer_schedule. The other reached for offer_schedule
+// and sent recurrence as an object, because the offers row was the only line
+// in the vocabulary that never showed a value's type — recurrence's five
+// words and the flat-string rule cost 206 bytes, against a strict-decode
+// rejection and a correction turn every time a schedule is offered from
+// guesswork.
+const staticWatchPromptBytes = 48369
 
 // The static prompt must not grow without someone deciding it should.
 //

@@ -50,4 +50,10 @@
 # operation ALONE, which is the pairing failure request_record's first live
 # gate run produced twice on the same day. want_operations catches the first,
 # require_completion the second.
-{"name": "a request for standing work becomes an assignment offer, not a promise", "tags": ["prompt-contract", "operations", "assignment", "authority"], "kind": "watch", "input": "Review every terraform plan in this repo and open PRs for the drift you find - 2 a day is fine, for the next 30 days.", "mentions_responder": true, "want_action": "reply", "require_completion": true, "want_operations": ["offer_assignment"], "max_duration_ms": 480000}
+#
+# The request must name work inside StandingAssignmentChangeClasses. The first
+# version asked for terraform-drift PRs, which fits no listed class, and the
+# model was right both times it refused to misclassify: it asked the operator
+# once and offered a schedule once (0/2 on 2026-08-15). A case the vocabulary
+# cannot honestly satisfy measures the model's integrity, not the contract.
+{"name": "a request for standing work becomes an assignment offer, not a promise", "tags": ["prompt-contract", "operations", "assignment", "authority"], "kind": "watch", "input": "When CI flags a test as flaky, quarantine it and open the PR yourself - 2 a day is fine, for the next 30 days.", "mentions_responder": true, "want_action": "reply", "require_completion": true, "want_operations": ["offer_assignment"], "max_duration_ms": 480000}
