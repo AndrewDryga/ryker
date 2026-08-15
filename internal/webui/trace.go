@@ -2379,6 +2379,12 @@ func promptContextDetails(prompt string, present func(string) string, trimmed ma
 		// cannot see that separation cannot tell recalled history from what the
 		// host currently knows about this channel.
 		{[]string{similarPastEpisodesLayer}, nil, []string{similarPastEpisodesLayer}, "Recalled past episodes", "Recalled past episodes", "Resolved past episodes the host matched to this symptom, carried as history to check rather than as evidence."},
+		// Also its own group, and for the reason above turned around: this is
+		// the only layer on the page that is about the world outside the
+		// conversation rather than about Responder's own history. A reader
+		// checking why a verdict blamed a deploy needs to see exactly which
+		// changes were in front of the model and why each was selected.
+		{[]string{recentChangesLayer}, nil, []string{recentChangesLayer}, "Recent changes", "Recent changes", "Deploys, merges and applies the host recorded against the services this incident implicates, carried as correlation to check rather than as cause."},
 	} {
 		key, raw := firstPromptField(envelope, layer.keys...)
 		for _, alias := range layer.keys {
@@ -2462,6 +2468,7 @@ var trimmedLayerLabel = map[string]string{
 	// section instead of the flat leftover list, and one that is named without
 	// a section to route it to would vanish from the page entirely.
 	similarPastEpisodesLayer: "Recalled past episodes",
+	recentChangesLayer:       "Recent changes",
 }
 
 // trimmedRows renders the budget's cuts inside the category they were cut
@@ -2561,6 +2568,7 @@ func promptSelectionDescription(key string, included bool) string {
 		"channel_id":                    {"The Slack channel that scopes conversation and channel memory.", "The prompt did not retain a channel identifier."},
 		"prior_operational_context":     {"Operational state selected by recency, scope, provenance, and relevance.", "No current operational memory was relevant to this turn."},
 		similarPastEpisodesLayer:        {"At most 3 resolved past episodes, ranked by alert group, shared services, and symptom overlap. History to check first; it never proves current state.", "No resolved past episode matched this symptom."},
+		recentChangesLayer:              {"Deploys, merges and applies recorded inside the change window against an implicated service or repository, newest first. Correlation to check; naming one as a cause still needs recorded evidence.", "Nothing was recorded as changing the services this turn implicates."},
 		"structured_memory":             {"The exact thread summary when available; otherwise the compact channel summary.", "No compact conversation summary was available for this turn."},
 		"conversation_situation":        {"The exact thread summary when available; otherwise the compact channel summary.", "No compact conversation summary was available for this turn."},
 		"related_situations":            {"At most 6 relevance-ranked summaries selected from up to 40 recent candidates.", "None of the recent conversation summaries were relevant enough to include."},
@@ -3066,6 +3074,7 @@ func promptFieldPresentation(key string) (string, string) {
 	if value, ok := map[string][2]string{
 		"prior_operational_context":        {"Operational memory", "operational"},
 		similarPastEpisodesLayer:           {"Recalled past episodes", "operational"},
+		recentChangesLayer:                 {"Recent changes", "operational"},
 		"structured_memory":                {"Conversation memory", "conversation"},
 		"conversation_situation":           {"Conversation memory", "conversation"},
 		"related_situations":               {"Related conversation summaries", "related"},
@@ -3178,6 +3187,10 @@ func contextReferenceTableRow(ref ContextRef, present func(string) string) Trace
 		// evidence is an invitation to skip the checking, and the checking is
 		// the product. This row is a finished, different incident.
 		similarEpisodeRefKind: "History the host recalled by symptom overlap — not evidence of current health, and not authorization",
+		// Same reason, different failure: a change listed beside a firing alert
+		// is an invitation to name it as the cause. This row says plainly that
+		// the model was shown a coincidence, not a finding.
+		recentChangeRefKind: "A change the host recorded against an implicated service — correlation to check, never a cause on its own",
 	}[ref.Kind]
 	if ref.Kind == "repository" && ref.Visibility == "companion" {
 		kind = "Companion repository"
@@ -3562,6 +3575,7 @@ func contextLabel(kind string) string {
 		"assembled_context": "Context replay fingerprint", "repository": "Repository snapshot",
 		"execution_policy": "Execution policy", "artifact": "Attached artifact",
 		similarEpisodeRefKind: "Recalled past episode",
+		recentChangeRefKind:   "Recent change",
 	}[kind]
 }
 

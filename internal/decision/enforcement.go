@@ -51,6 +51,7 @@ type WatchTurnState struct {
 	EscalationReason       string                         `json:"escalation_reason,omitempty"`
 	Prior                  OperationalMemoryContext       `json:"prior_operational_context,omitempty"`
 	SimilarPastEpisodes    []core.SimilarEpisode          `json:"similar_past_episodes,omitempty"`
+	RecentChanges          []core.RecentChange            `json:"recent_changes,omitempty"`
 	PriorCaptured          bool                           `json:"prior_captured,omitempty"`
 	RulesCaptured          bool                           `json:"rules_captured,omitempty"`
 	MatchedRules           []core.StandingRule            `json:"matched_rules,omitempty"`

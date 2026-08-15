@@ -443,7 +443,32 @@ var lineBudget = map[string]int{
 	// being read: the correction rung, the audit, and the shipped-anyway arm
 	// left with it. Actual is 22830; lowering after a deletion is the ratchet
 	// working in the direction it was built for.
-	"service": 22860,
+	//
+	// Raised to 22930 on 2026-08-14 for the change ledger: an incident can now
+	// be told what changed. It is the first question of every real outage and
+	// Responder could not answer it, while the facts went past its own hands
+	// three times a day — a deploy webhook became a signal or nothing, the
+	// publication follower watched its own pull requests merge without
+	// ledgering the merge, and the approval watcher read mutating Emisar runs
+	// to terminal state and kept only the approval row.
+	//
+	// Sixty-two lines, and the sixth same-day raise, so it is worth saying
+	// exactly what stayed. The vocabulary, the bounds, the identity derivation,
+	// the six-hour window, the scope resolution, the ranking, the prompt text
+	// and the manifest references are all in internal/changeledger; the table,
+	// its idempotent insert and the in-transaction publication write are in
+	// internal/store/changestore. Better than four hundred lines of this
+	// feature are outside this package. What is here is the store read behind
+	// two configuration values, the layer's slot in the two drop orders, and
+	// the six lines that ledger a supervised Emisar run — none of which can
+	// live anywhere the prompt assembler and the approval watcher cannot see.
+	//
+	// The deletion above paid for half of it: 22830 plus this is 22892, against
+	// the 22900 that stood before either landed. The margin is 38 rather than
+	// zero for the reason four paragraphs up — a budget standing exactly at the
+	// count is a tripwire that fails the next legitimate feature whatever its
+	// merit — and it does not buy room for the Phase 9 split to keep waiting.
+	"service": 22930,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -701,6 +726,18 @@ var lineBudget = map[string]int{
 	// because none of that needs a database, a Slack client or a Coop session,
 	// and its tests run against real git against local fixtures.
 	"repomirror": 520,
+	// changeledger owns what counts as a change, how an ingested one is made
+	// safe to store, and which recorded changes a turn is shown. It is a
+	// package because three unrelated adapters — a webhook route, the
+	// publication follower and the Emisar approval watcher — have to agree on
+	// the answer, and a second copy of "is this kind valid" is a second place
+	// for one of them to start recording something the prompt has no words for.
+	"changeledger": 380,
+	// changestore owns the change_events table. Its insert is a free function
+	// over an exec handle as well as a repository method, because a publication
+	// lifecycle transition and the change event it implies have to be one
+	// transaction.
+	"changestore": 175,
 }
 
 // forbiddenImports records the dependency direction. Each package maps to the
@@ -781,6 +818,22 @@ var forbiddenImports = map[string][]string{
 	"localstate": {"service", "store", "httpapi", "app", "publisher", "coop", "config"},
 	"provider":   {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "core"},
 	"recall":     {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config"},
+	// changeledger sits below everything that ingests into it or reads it. It
+	// must never reach the database: the store read it needs is one method, and
+	// it takes that as an interface so the package stays testable without one.
+	// config is excluded too — the window and the cap are handed to it by the
+	// caller, because a domain package that can read configuration grows a rule
+	// about which deployments it applies to.
+	"changeledger": {
+		"service", "store", "slackui", "httpapi", "app", "publisher", "coop",
+		"emisar", "config", "webhook",
+	},
+	// changestore is a store repository and answers to the same direction as
+	// its siblings.
+	"changestore": {
+		"service", "slackui", "httpapi", "app", "publisher", "coop", "emisar",
+		"config", "decision",
+	},
 }
 
 func repoRoot(t *testing.T) string {

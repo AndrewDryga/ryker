@@ -119,3 +119,87 @@ Required mappings are `event_id`, `status`, and `title`. Supported firing states
 
 If `incident_id` is absent, configured `group_by_labels` values form the incident correlation key.
 If none exists, the signal itself is isolated into its own incident.
+
+## Change events
+
+`kind: change` records what changed instead of opening an incident. A change route never creates a
+signal, never opens an incident, and never starts work. Its rows reach an incident or operational
+assessment prompt as `recent_changes` — correlation material scoped to the services that incident
+implicates, inside the untrusted-context framing.
+
+A change may be cited as the cause of an alert only through a proper `record_evidence` operation:
+the host's cause gate still requires evidence IDs bound to recorded claims, so a `change_id` on its
+own is never a cause.
+
+Mapping supports the same object dot paths as generic JSON, and nothing else.
+
+Example payload:
+
+```json
+{
+  "event": {"type": "release"},
+  "deployment": {
+    "finished_at": "2026-08-14T11:50:00Z",
+    "description": "checkout v41",
+    "actor": {"login": "dana"},
+    "sha": "9f21c0a",
+    "url": "https://deploys.example/releases/41",
+    "services": ["checkout", "cart"],
+    "repositories": ["example/backend"]
+  }
+}
+```
+
+Matching route:
+
+```yaml
+webhooks:
+  deploys:
+    kind: change
+    auth: hmac-sha256
+    secret_env: DEPLOY_WEBHOOK_SECRET
+    repository: backend
+    change:
+      kind: event.type
+      occurred_at: deployment.finished_at
+      summary: deployment.description
+      actor: deployment.actor.login
+      revision: deployment.sha
+      source_url: deployment.url
+      services: deployment.services
+      repositories: deployment.repositories
+```
+
+Every mapping is optional. An unmapped `kind` records a `deploy`; an unmapped `occurred_at` records
+when Responder received the delivery. `services` and `repositories` each accept one scalar or an
+array of scalars, and the route's own `repository` is always added to the scope, so a route that
+maps neither still records a recallable change.
+
+| Change kind | Accepted values |
+| --- | --- |
+| `deploy` | `deploy`, `deployment`, `deployed`, `release`, `released`, `rollout` |
+| `merge` | `merge`, `merged`, `pull_request`, `pr` |
+| `infra_apply` | `infra_apply`, `apply`, `applied`, `terraform`, `terraform_apply` |
+| `flag` | `flag`, `feature_flag`, `toggle`, `flag_change` |
+| `config` | `config`, `configuration`, `setting`, `config_change` |
+
+A mapped value outside this vocabulary is rejected with `400`. It is not silently recorded as a
+deploy: a mapping typo should stop where an operator can see it rather than reach an incident
+prompt as a change that never happened.
+
+A feature-flag service needs no code beyond this route. Point `kind` at whatever the provider calls
+its event and `services` at the flag's owning service:
+
+```yaml
+    change:
+      kind: kind
+      occurred_at: date
+      summary: titleVerbose
+      actor: member.email
+      services: environment.name
+```
+
+Authentication, the replay window, and deduplication are identical to every other route. The
+ledger's identity is the same `X-Responder-Event-ID` the signature binds, so a redelivery records
+one change and a replay under a different event ID fails the signature. Change events are retained
+on the episode-history horizon, outliving the webhook body that delivered them.

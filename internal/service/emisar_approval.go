@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/changeledger"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/emisar"
@@ -163,6 +164,17 @@ func (s *Service) finishTerminalEmisarApproval(
 		updated.RequestID,
 	); err != nil {
 		return err
+	}
+	// A mutation Responder itself supervised to terminal success is a change,
+	// and the ledger is the only place that fact survives the approval row.
+	// Logged rather than returned on failure: the ledger is an addition to work
+	// that has already happened, so losing a row must not strand a completed
+	// run before its continuation is queued.
+	repository, _ := s.effectiveRepository(ctx, updated.ChannelID, "", s.cfg.Slack.DefaultRepository)
+	if change, ok := changeledger.FromEmisarApproval(updated, repository, s.now().UTC()); ok {
+		if _, err := s.store.Changes.Record(ctx, change); err != nil && ctx.Err() == nil {
+			s.log.Warn("record Emisar change event", "run", updated.RunID, "error", err)
+		}
 	}
 	s.audit(ctx, core.AuditEvent{
 		IncidentID: updated.IncidentID,

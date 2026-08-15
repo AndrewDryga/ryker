@@ -11,6 +11,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/agentcontext"
 	"github.com/AndrewDryga/responder/internal/agentprompt"
 	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
+	"github.com/AndrewDryga/responder/internal/changeledger"
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -681,12 +682,17 @@ func (s *Service) prepareIncidentAgentRun(
 	run.Repository = incident.Repository
 	contextChanged := false
 	if agentcontext.NeedsCapture(captured, assembled.Repository, incident.Repository) {
+		// The firing alerts, for their labels. An alert that names its service
+		// is the difference between the change ledger recalling that service's
+		// deploys and recalling everything the repository ever shipped. A failed
+		// read costs the scope its sharpest term and nothing else.
+		signals, _ := s.store.ListSignals(ctx, incident.ID)
 		assembled, err = s.assembleAgentContext(
 			ctx,
 			agentContextRequest{
 				ChannelID: incident.ChannelID, Repository: incident.Repository,
-				RepositoryPinned: true,
-				OperatorID:       run.UserID, SourceInputID: run.SourceID,
+				RepositoryPinned: true, AlertSignals: signals,
+				OperatorID: run.UserID, SourceInputID: run.SourceID,
 				// An escalated incident has no Slack message of its own to
 				// recall against — the run is filed under the webhook event —
 				// so its title and the alert's stable group key are what the
@@ -740,6 +746,12 @@ func (s *Service) prepareIncidentAgentRun(
 		// First in the list is first to be dropped. Recalled history is the
 		// only layer here that is about a different incident.
 		{Name: similarPastEpisodesLayer, Text: prefixedPrompt(similarPastEpisodesPrompt(assembled.SimilarPastEpisodes)), Reason: droppedSimilarPastEpisodes},
+		// Second out, and for the same reason recalled history is first: this is
+		// the only other layer that is not about the conversation being answered.
+		// It goes before the channel transcript because a deploy an operator can
+		// still look up themselves costs less to lose than the message the turn
+		// is replying to.
+		{Name: changeledger.Layer, Text: prefixedPrompt(changeledger.Prompt(assembled.RecentChanges)), Reason: changeledger.DroppedReason},
 		{Name: "prior_operational_context", Text: prefixedPrompt(operationalMemoryPrompt(assembled.Prior)), Reason: "older operational memory was omitted to fit the turn"},
 		{Name: "channel_situation", Text: prefixedPrompt(agentcontext.SituationPrompt(assembled.Situation)), Reason: "the compact channel situation was omitted to fit the turn"},
 		{Name: "related_situations", Text: prefixedPrompt(relatedSituationsPrompt(assembled.RelatedSituations)), Reason: "related conversation summaries were omitted to fit the turn"},
@@ -988,6 +1000,7 @@ func (s *Service) freezeTriageContext(
 		state.ReferencedThread = assembled.ReferencedThread
 		state.Prior = assembled.Prior
 		state.SimilarPastEpisodes = assembled.SimilarPastEpisodes
+		state.RecentChanges = assembled.RecentChanges
 		state.Repository = assembled.Repository
 		state.ContextCaptured = true
 		state.PriorCaptured = true
@@ -1209,6 +1222,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			state.ReferencedThread,
 			state.Prior,
 			state.SimilarPastEpisodes,
+			state.RecentChanges,
 			core.FirstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
 			state.MatchedRules,
 			WatchPromptBudget(early.Len()+late.Len()),
@@ -1240,7 +1254,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			input, s.identity.BotUserID, state.ConversationFollowup,
 			state.RecentMessages, state.ChannelAroundRoot,
 			state.Memory, state.RelatedSituations,
-			state.ReferencedThread, state.Prior, state.SimilarPastEpisodes,
+			state.ReferencedThread, state.Prior, state.SimilarPastEpisodes, state.RecentChanges,
 			core.FirstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
 			state.MatchedRules,
 			WatchPromptBudget(early.Len()+late.Len()+len(artifactPrompt)),

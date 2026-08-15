@@ -527,6 +527,39 @@ type Webhook struct {
 	CorrelationWindow Duration       `yaml:"correlation_window"`
 	ResolveAfter      Duration       `yaml:"resolve_after"`
 	Mapping           GenericMapping `yaml:"mapping"`
+	// Change maps a kind: change route's payload. A change route records what
+	// happened rather than opening an incident, so it has its own mapping block
+	// instead of borrowing the alert vocabulary above: a deploy has no status,
+	// no severity and nothing to correlate, and reusing "title" for "summary"
+	// would make both harder to read.
+	Change ChangeMapping `yaml:"change"`
+}
+
+// ChangeMapping is the dot-path mapping for a kind: change route. Every field
+// is optional, which is deliberate: the identity of a change is the delivery
+// identity the signature already binds, not something the body has to carry,
+// and a route that maps nothing still records a scoped, timestamped change.
+type ChangeMapping struct {
+	// Kind maps to the change vocabulary — deploy, merge, infra_apply, flag,
+	// config — through the aliases in changeKind. Unmapped means deploy, which
+	// is what a change webhook almost always is; the other members mostly
+	// arrive from the publication and Emisar adapters, which do not go through
+	// a route.
+	Kind string `yaml:"kind"`
+	// OccurredAt is RFC3339. Unmapped means when Responder received it, which
+	// is honest and usually within a second.
+	OccurredAt string `yaml:"occurred_at"`
+	Summary    string `yaml:"summary"`
+	Actor      string `yaml:"actor"`
+	Revision   string `yaml:"revision"`
+	SourceURL  string `yaml:"source_url"`
+	// Services and Repositories are what the change is TO, and the only way a
+	// change is ever recalled. Each accepts a scalar or an array of scalars, so
+	// a payload naming one service and one naming five both map without the
+	// route needing a scripting language to tell them apart. The route's own
+	// repository is always added, so a route that maps neither still scopes.
+	Services     string `yaml:"services"`
+	Repositories string `yaml:"repositories"`
 }
 
 type GenericMapping struct {
@@ -588,6 +621,15 @@ type Limits struct {
 	// Zero switches the drain off; it does nothing anyway on a deployment whose
 	// configured repositories do not include the checkout the corpus lives in.
 	MaxAutoPromotedFixturesPerWeek int `yaml:"max_auto_promoted_fixtures_per_week"`
+	// ChangeWindow is how far back an incident is shown recorded changes. Six
+	// hours is the span in which "what changed?" has a useful answer: past it
+	// the correlation is weak enough that listing a deploy costs more attention
+	// than it earns, and the ledger is still on disk for anyone who asks.
+	ChangeWindow Duration `yaml:"change_window"`
+	// MaxRecentChanges caps the recent_changes layer. A busy deploy hour is
+	// exactly when the section matters and exactly when it would otherwise take
+	// the budget that live evidence needs.
+	MaxRecentChanges int `yaml:"max_recent_changes"`
 }
 
 func defaults() Config {
@@ -704,6 +746,8 @@ func defaults() Config {
 			WorkerStallAfter:                 Duration{2 * time.Minute},
 			RepositoryFetchInterval:          Duration{15 * time.Minute},
 			MaxAutoPromotedFixturesPerWeek:   5,
+			ChangeWindow:                     Duration{6 * time.Hour},
+			MaxRecentChanges:                 10,
 		},
 	}
 }
@@ -1133,6 +1177,12 @@ func (c Config) validateLimits() error {
 	limits := c.Limits
 	for _, bound := range []intRange{
 		{name: "max_webhook_bytes", value: limits.MaxWebhookBytes, min: 1024, max: 8 << 20},
+		// One is a real setting — show only the newest change — and the ceiling
+		// is where the layer stops being a summary. Zero is not offered: a
+		// deployment that does not want the section removes the window instead,
+		// and a cap of zero would leave the ledger being written and never read,
+		// which is the confusing half-off state rather than an off switch.
+		{name: "max_recent_changes", value: limits.MaxRecentChanges, min: 1, max: 25},
 		{name: "max_slack_files", value: limits.MaxSlackFiles, min: 1, max: 4},
 		{name: "max_slack_file_bytes", value: limits.MaxSlackFileBytes, min: 64 << 10, max: 8 << 20},
 		{
@@ -1209,6 +1259,16 @@ func (c Config) validateLimits() error {
 		{
 			name: "repository_fetch_interval", value: limits.RepositoryFetchInterval.Duration,
 			min: time.Minute, max: 6 * time.Hour,
+		},
+		// Bounded on both sides for the same reason the fetch interval is.
+		// Under fifteen minutes the layer misses the deploy that caused the
+		// alert it is sitting beside — the gap between a rollout finishing and
+		// a monitor firing is minutes, not seconds. Past two days it stops
+		// being correlation: everything shipped that week matches, and a
+		// section that always has ten entries carries no information at all.
+		{
+			name: "change_window", value: limits.ChangeWindow.Duration,
+			min: 15 * time.Minute, max: 48 * time.Hour,
 		},
 	} {
 		if err := bound.check(); err != nil {
@@ -1556,8 +1616,8 @@ func shortDuration(value time.Duration) string {
 }
 
 func validateWebhook(w Webhook) error {
-	if w.Kind != "grafana" && w.Kind != "generic" {
-		return errors.New("kind must be grafana or generic")
+	if w.Kind != "grafana" && w.Kind != "generic" && w.Kind != "change" {
+		return errors.New("kind must be grafana, generic or change")
 	}
 	if w.Auth != "bearer" && w.Auth != "hmac-sha256" {
 		return errors.New("auth must be bearer or hmac-sha256")
@@ -1601,6 +1661,22 @@ func validateWebhook(w Webhook) error {
 		} {
 			if path != "" && !mappingPathRegex.MatchString(path) {
 				return fmt.Errorf("mapping.%s must be empty or a dot path", field)
+			}
+		}
+	}
+	if w.Kind == "change" {
+		for field, path := range map[string]string{
+			"kind":         w.Change.Kind,
+			"occurred_at":  w.Change.OccurredAt,
+			"summary":      w.Change.Summary,
+			"actor":        w.Change.Actor,
+			"revision":     w.Change.Revision,
+			"source_url":   w.Change.SourceURL,
+			"services":     w.Change.Services,
+			"repositories": w.Change.Repositories,
+		} {
+			if path != "" && !mappingPathRegex.MatchString(path) {
+				return fmt.Errorf("change.%s must be empty or a dot path", field)
 			}
 		}
 	}

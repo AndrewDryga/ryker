@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 75
+const currentSchemaVersion = 76
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -430,4 +430,7 @@ var migrations = map[int]string{
 	// What a finished episode amounts to, so the next incident can be told
 	// about it. The DDL and its reasoning live in migrationddl.V75.
 	75: migrationddl.V75,
+	// What changed recently, so an incident can be asked the first question
+	// anybody asks it. The DDL and its reasoning live in migrationddl.V76.
+	76: migrationddl.V76,
 }

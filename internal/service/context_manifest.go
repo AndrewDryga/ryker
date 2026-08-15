@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/AndrewDryga/responder/internal/changeledger"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -119,6 +120,9 @@ func (s *Service) ensureAttemptContextManifest(
 	}
 	manifest.References = append(manifest.References, similarEpisodeReferences(
 		carriedSimilarEpisodes(run.Context), omissions,
+	)...)
+	manifest.References = append(manifest.References, changeledger.References(
+		changeledger.Carried(run.Context), changeledger.Dropped(omissions),
 	)...)
 	if session.PolicyDigest != "" {
 		manifest.References = append(manifest.References, core.ContextReference{

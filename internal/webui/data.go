@@ -41,6 +41,10 @@ type Reader struct {
 	// every attempt, so the uncached version is a query per reference for a row
 	// that is written once, when the episode finished, and never changes after.
 	outcomes sync.Map
+	// changes caches one ledger row's headline per change id, for the same
+	// reason: a manifest carries up to ten recalled changes per attempt, the
+	// page renders every attempt, and a change_events row is append-only.
+	changes sync.Map
 }
 
 // OpenCoopSessions attaches Coop's own session store, read-only.

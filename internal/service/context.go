@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/agentcontext"
+	"github.com/AndrewDryga/responder/internal/changeledger"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
@@ -39,6 +40,10 @@ type agentContextRequest struct {
 	RecallText string
 	// ExcludeEpisodeID keeps an episode from recalling itself.
 	ExcludeEpisodeID string
+	// AlertSignals are the firing alerts behind an escalated incident, carried
+	// for their labels: an alert that names its service is the difference
+	// between recalling that service's deploys and recalling the repository's.
+	AlertSignals []core.Signal
 }
 
 type assembledAgentContext struct {
@@ -50,6 +55,7 @@ type assembledAgentContext struct {
 	ChannelAroundRoot             []decisionpkg.WatchContextMessage          `json:"channel_messages_around_thread_root,omitempty"`
 	ReferencedThread              *decisionpkg.ReferencedThreadContext       `json:"referenced_thread,omitempty"`
 	SimilarPastEpisodes           []core.SimilarEpisode                      `json:"similar_past_episodes,omitempty"`
+	RecentChanges                 []core.RecentChange                        `json:"recent_changes,omitempty"`
 	InitialTaskChangesFingerprint string                                     `json:"initial_task_changes_fingerprint,omitempty"`
 	// StructuredCorrections counts how many times this run has been sent back
 	// to the model because its result could not be read. The watch path has
@@ -97,6 +103,7 @@ func (s *Service) assembleAgentContext(
 		Repository:          repository,
 		Prior:               prior,
 		SimilarPastEpisodes: s.similarPastEpisodes(ctx, request, memoryQuery+" "+request.RecallText),
+		RecentChanges:       s.recentChanges(ctx, request, prior),
 		CapturedAt:          s.now().UTC(),
 	}
 	sinceTS := ""
@@ -272,6 +279,28 @@ func (s *Service) assembleAgentContext(
 		result.ReferencedThread = referenced
 	}
 	return result, nil
+}
+
+// recentChanges reads what changed recently to anything this turn implicates.
+//
+// Everything interesting is in internal/changeledger — the window, the scope
+// resolution, the ranking, the prompt text, the effort gate. What stays here is
+// the store handle and the two configuration values, because those are the only
+// parts that need a Service. A failed read is logged and the turn continues.
+func (s *Service) recentChanges(
+	ctx context.Context,
+	request agentContextRequest,
+	prior decisionpkg.OperationalMemoryContext,
+) []core.RecentChange {
+	changes, err := changeledger.Read(ctx, s.store.Changes, changeledger.Turn{
+		Repository: request.Repository, Signals: request.AlertSignals,
+		Evidence: prior.RecentEvidence, Effort: request.Effort, Now: s.now().UTC(),
+		Window: s.cfg.Limits.ChangeWindow.Duration, Limit: s.cfg.Limits.MaxRecentChanges,
+	})
+	if err != nil && ctx.Err() == nil {
+		s.log.Warn("read the change ledger", "channel", request.ChannelID, "error", err)
+	}
+	return changes
 }
 
 // channelAroundThreadRoot reads the channel-level messages sitting around a

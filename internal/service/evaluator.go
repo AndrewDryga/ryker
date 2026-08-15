@@ -67,8 +67,10 @@ func (e *Evaluator) WatchPrompt(
 		referenced,
 		prior,
 		// The offline corpus replays recorded Slack turns against no database,
-		// so it has no episode history to recall. Recall is exercised by the Go
-		// tests beside the code, which is where a host-side selection belongs.
+		// so it has neither episode history to recall nor a change ledger to
+		// read. Both are exercised by the Go tests beside the code, which is
+		// where a host-side selection belongs.
+		nil,
 		nil,
 		activeRepository,
 		matchedRules,

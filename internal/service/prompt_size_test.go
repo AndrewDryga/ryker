@@ -139,7 +139,7 @@ func staticPromptSizes(t *testing.T) map[string]int {
 		return len(svc.unboundedWatchPrompt(
 			core.SlackInput{ChannelID: "C1", Text: "check the api", UserID: userID},
 			"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-			decisionpkg.OperationalMemoryContext{}, nil, "emisar", nil,
+			decisionpkg.OperationalMemoryContext{}, nil, nil, "emisar", nil,
 			nil,
 		))
 	}
@@ -189,7 +189,7 @@ func TestOversizedContextIsBudgetedNotSliced(t *testing.T) {
 
 	prompt, _ := svc.watchPrompt(
 		core.SlackInput{ChannelID: "C1", MessageTS: "1799.000", Text: "why is checkout failing"},
-		"U999BOT", false, recent, nil, core.AgentMemory{}, related, nil, prior, nil, "emisar", nil,
+		"U999BOT", false, recent, nil, core.AgentMemory{}, related, nil, prior, nil, nil, "emisar", nil,
 		WatchPromptBudget(0),
 	)
 
@@ -257,7 +257,7 @@ func TestBudgetedContextRemainsValidJSON(t *testing.T) {
 	prompt, _ := svc.watchPrompt(
 		core.SlackInput{ChannelID: "C1", MessageTS: "1799.000", Text: "status?"},
 		"U999BOT", false, recent, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, "emisar", nil,
+		decisionpkg.OperationalMemoryContext{}, nil, nil, "emisar", nil,
 		WatchPromptBudget(0),
 	)
 	start := strings.Index(prompt, `{"channel_id"`)
@@ -295,7 +295,7 @@ func TestPromptSectionsAppearOnlyWhenTheyApply(t *testing.T) {
 	build := func(input core.SlackInput) string {
 		return svc.unboundedWatchPrompt(
 			input, "U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-			decisionpkg.OperationalMemoryContext{}, nil, "emisar", nil, nil,
+			decisionpkg.OperationalMemoryContext{}, nil, nil, "emisar", nil, nil,
 		)
 	}
 

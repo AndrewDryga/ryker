@@ -73,6 +73,13 @@ var Policies = []Policy{
 			"incident when closed work is swept"},
 	{"audit_events", Audit,
 		"the ledger of what Responder decided, who asked for it and who approved it"},
+	{"change_events", History,
+		"one recorded change to the systems Responder watches — a deploy, a merge, an apply. It " +
+			"is the account of what happened rather than the transport that carried it, so it " +
+			"outlives the webhook body or the poll that noticed it and expires on the " +
+			"episode-history horizon. Cheap rows, and the six-hour recall window is not the only " +
+			"thing they are for: the ledger is also what an operator reads back afterwards to " +
+			"check a correlation the model drew"},
 	{"channel_configurations", Kept,
 		"operator configuration: which repository a channel maps to, how Responder participates " +
 			"there and who it invites. It changes when an operator changes it and goes when they " +
@@ -282,6 +289,12 @@ func Sweep(ctx context.Context, tx *sql.Tx, operational string, history, audit t
 		// A completed cancellation is a receipt. A pending one is work still
 		// owed to Coop, and deleting it would strand the replay it cancels.
 		{`DELETE FROM replay_cancellations WHERE state = 'completed' AND updated_at < ?`, operational},
+		// The change ledger, on the same horizon as the episode history it was
+		// recalled into. A change event outlives the webhook row that delivered
+		// it on purpose: the delivery is spent once it is normalized, and the
+		// ledger is what an operator opens weeks later to check whether the
+		// deploy a verdict blamed was really there.
+		{`DELETE FROM change_events WHERE occurred_at < ?`, historyText},
 		// The before-and-after of a memory write, keyed to the episode that
 		// caused it and rendered on that episode's page. It expires with the
 		// account it belongs to rather than before it.

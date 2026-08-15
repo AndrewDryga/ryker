@@ -17,6 +17,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/activitystore"
 	"github.com/AndrewDryga/responder/internal/store/artifactstore"
 	"github.com/AndrewDryga/responder/internal/store/behaviorstore"
+	"github.com/AndrewDryga/responder/internal/store/changestore"
 	"github.com/AndrewDryga/responder/internal/store/fixturepromotionstore"
 	"github.com/AndrewDryga/responder/internal/store/goalstore"
 	"github.com/AndrewDryga/responder/internal/store/incidentstore"
@@ -122,6 +123,9 @@ type Store struct {
 	// has already answered for, and whether the answer was the corpus or
 	// quarantine.
 	FixturePromotions *fixturepromotionstore.Repository
+	// Changes owns the ledger of what changed — deploys, merges, applies —
+	// which is the first question of every real incident.
+	Changes *changestore.Repository
 }
 
 type Metrics struct {
@@ -1134,6 +1138,7 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.ReplayCancellations = replaycancelstore.New(db, clock)
 	s.SelfReport = selfreportstore.New(db)
 	s.FixturePromotions = fixturepromotionstore.New(db)
+	s.Changes = changestore.New(db, clock)
 }
 
 // SetClock replaces the store clock. It exists for tests.

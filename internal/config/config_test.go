@@ -426,7 +426,7 @@ func TestExampleConfigurationStaysValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Repositories) != 2 || len(cfg.Webhooks) != 2 {
+	if len(cfg.Repositories) != 2 || len(cfg.Webhooks) != 3 {
 		t.Fatalf("example config = %+v", cfg)
 	}
 }

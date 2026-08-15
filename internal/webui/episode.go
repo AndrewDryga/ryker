@@ -968,6 +968,9 @@ func (r *Reader) describeRef(ctx context.Context, kind, ref, revision, metadata 
 		Name          string `json:"name"`
 		MediaType     string `json:"media_type"`
 		TerminalState string `json:"terminal_state"`
+		// ChangeKind names what a recorded change was — deploy, merge,
+		// infra_apply — so the row reads as a fact rather than an identifier.
+		ChangeKind string `json:"kind"`
 	}
 	_ = json.Unmarshal([]byte(metadata), &meta)
 	scheme, rest, found := strings.Cut(ref, ":")
@@ -999,6 +1002,8 @@ func (r *Reader) describeRef(ctx context.Context, kind, ref, revision, metadata 
 		return rest
 	case similarEpisodeRefKind:
 		return r.recalledEpisodeName(ctx, rest, meta.TerminalState)
+	case recentChangeRefKind:
+		return r.recordedChangeName(ctx, rest, meta.ChangeKind)
 	default:
 		return rest
 	}

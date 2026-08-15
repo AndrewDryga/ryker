@@ -147,7 +147,7 @@ func TestDroppedContextLayersReachTheAttemptManifest(t *testing.T) {
 			Text: "How is the health of our infrastructure?",
 		},
 		"U999BOT", false, recent, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, "", nil, WatchPromptBudget(0),
+		decisionpkg.OperationalMemoryContext{}, nil, nil, "", nil, WatchPromptBudget(0),
 	)
 	if len(omitted) == 0 {
 		t.Fatal("a prompt trimmed to fit reported nothing omitted")

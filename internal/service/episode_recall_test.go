@@ -115,6 +115,7 @@ func TestAnAlertTurnIsToldWhatTheSameSymptomTurnedOutToBe(t *testing.T) {
 	prompt, omitted := svc.watchPrompt(
 		input, "U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
 		decisionpkg.OperationalMemoryContext{}, assembled.SimilarPastEpisodes,
+		nil,
 		"repo", nil, WatchPromptBudget(0),
 	)
 	if len(omitted) != 0 {
@@ -199,6 +200,7 @@ func TestRecalledEpisodesAreTheFirstLayerDroppedForBudget(t *testing.T) {
 			RecentEvidence: []decisionpkg.EvidencePromptEntry{{ID: "ev1", Claim: filler}},
 		},
 		[]core.SimilarEpisode{{EpisodeID: "episode_past", RootCause: filler}},
+		nil,
 		"repo", nil, WatchPromptBudget(0),
 	)
 	if strings.Contains(prompt, "episode_past") {

@@ -206,6 +206,7 @@ func TestWatchPromptExplainsCrossConversationMemoryBoundary(t *testing.T) {
 		nil,
 		decisionpkg.OperationalMemoryContext{},
 		nil,
+		nil,
 		"emisar",
 		nil,
 		WatchPromptBudget(0),
@@ -231,7 +232,7 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 	}
 	prompt, _ := svc.watchPrompt(
 		input, "UBOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, "repo", nil,
+		decisionpkg.OperationalMemoryContext{}, nil, nil, "repo", nil,
 		WatchPromptBudget(0),
 	)
 	for _, required := range []string{
@@ -248,7 +249,7 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 	input.EnvelopeID = "env:ordinary"
 	ordinary, _ := svc.watchPrompt(
 		input, "UBOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, "repo", nil,
+		decisionpkg.OperationalMemoryContext{}, nil, nil, "repo", nil,
 		WatchPromptBudget(0),
 	)
 	if strings.Contains(ordinary, "explicit host verification replay") {
@@ -277,7 +278,7 @@ func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
 	svc := &Service{}
 	raw := svc.unboundedWatchPrompt(
 		input, "UBOT", false, recent, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, "repo", nil,
+		decisionpkg.OperationalMemoryContext{}, nil, nil, "repo", nil,
 		nil,
 	)
 	if len(raw) <= WatchPromptBudget(0) {
@@ -285,7 +286,7 @@ func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
 	}
 	prompt, _ := svc.watchPrompt(
 		input, "UBOT", false, recent, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, "repo", nil,
+		decisionpkg.OperationalMemoryContext{}, nil, nil, "repo", nil,
 		WatchPromptBudget(0),
 	)
 	if len(prompt) > WatchPromptBudget(0) {
@@ -339,7 +340,7 @@ func TestTheChannelAroundTheRootIsDroppedBeforeAnyThreadMessage(t *testing.T) {
 	assembled := func(around []decisionpkg.WatchContextMessage) int {
 		return len(svc.unboundedWatchPrompt(
 			input, "UBOT", false, recent, around, core.AgentMemory{}, nil, nil,
-			decisionpkg.OperationalMemoryContext{}, nil, "repo", nil, nil,
+			decisionpkg.OperationalMemoryContext{}, nil, nil, "repo", nil, nil,
 		))
 	}
 	// Budgeted so that dropping exactly the oldest channel message fits, with
@@ -351,7 +352,7 @@ func TestTheChannelAroundTheRootIsDroppedBeforeAnyThreadMessage(t *testing.T) {
 	}
 	prompt, omitted := svc.watchPrompt(
 		input, "UBOT", false, recent, around, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, "repo", nil,
+		decisionpkg.OperationalMemoryContext{}, nil, nil, "repo", nil,
 		budget,
 	)
 	if len(prompt) > budget {

@@ -730,12 +730,10 @@ func (h *Handler) webhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "webhook authentication failed")
 		return
 	}
-	signals, err := webhook.Normalize(route, body, time.Now())
-	if err != nil {
-		h.rejected.Add(1)
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	// The dedupe key is derived before normalization because a change route
+	// takes its ledger identity from it. It is the delivery ID the HMAC binds
+	// into the signature, so the ledger cannot be replayed under an identity
+	// the sender did not sign for.
 	digestBytes := sha256.Sum256(body)
 	digest := hex.EncodeToString(digestBytes[:])
 	deliveryIDs := r.Header.Values("X-Responder-Event-ID")
@@ -756,6 +754,18 @@ func (h *Handler) webhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "X-Responder-Event-ID is invalid")
 		return
 	}
+	var signals []core.Signal
+	var change core.ChangeEvent
+	if route.Kind == "change" {
+		change, err = webhook.NormalizeChange(route, body, dedupeKey, time.Now())
+	} else {
+		signals, err = webhook.Normalize(route, body, time.Now())
+	}
+	if err != nil {
+		h.rejected.Add(1)
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	event, created, err := h.store.AdmitWebhook(r.Context(), routeName, dedupeKey, digest, signals)
 	if err != nil {
 		h.log.Error("persist webhook", "route", routeName, "error", err)
@@ -766,6 +776,18 @@ func (h *Handler) webhook(w http.ResponseWriter, r *http.Request) {
 		h.rejected.Add(1)
 		writeError(w, http.StatusConflict, "event ID was already used for different content")
 		return
+	}
+	// Written on the duplicate path too, and deliberately. The row id is derived
+	// from this same delivery identity, so a redelivery is a no-op against a
+	// ledger that already holds the change — and a repair when a previous
+	// attempt admitted the delivery and then failed before the ledger write.
+	// A change route admits no signals, so nothing downstream will retry this.
+	if route.Kind == "change" {
+		if _, err := h.store.Changes.Record(r.Context(), change); err != nil {
+			h.log.Error("record change event", "route", routeName, "error", err)
+			writeError(w, http.StatusServiceUnavailable, "change event could not be persisted")
+			return
+		}
 	}
 	if created {
 		h.accepted.Add(1)

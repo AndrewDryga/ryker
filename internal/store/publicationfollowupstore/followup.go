@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/changestore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
@@ -262,6 +263,11 @@ func (r *Repository) saveTransition(
 			return false, rowsErr
 		}
 		inserted = rows == 1
+		if inserted {
+			if err := changestore.FromPublicationLifecycle(ctx, tx, *event, createdAt, now); err != nil {
+				return false, err
+			}
+		}
 	}
 	if previous.PRState != item.PRState || previous.ChecksState != item.ChecksState ||
 		previous.MergeSHA != item.MergeSHA || previous.LastError != item.LastError || inserted {
@@ -310,6 +316,9 @@ func (r *Repository) RecordLifecycleEvent(
 	}
 	if rows == 0 {
 		return false, tx.Commit()
+	}
+	if err := changestore.FromPublicationLifecycle(ctx, tx, item, item.CreatedAt, now); err != nil {
+		return false, err
 	}
 	result, err = tx.ExecContext(ctx, `
 		UPDATE incidents SET updated_at = ?, card_version = card_version + 1

@@ -2,6 +2,27 @@
 
 ## 0.1.0
 
+- **An incident is told what changed.** It is the first question of every real outage and Responder
+  could not answer it, while the facts went past its own hands three times a day: a deploy
+  notification arriving on a webhook became a signal or nothing at all, the publication follower
+  watched Responder's own pull requests merge without ledgering the merge, and the approval watcher
+  read mutating Emisar runs to terminal state and kept only the approval row. `change_events`
+  (migration 76) is one append-only row per recorded change, ingested from exactly those three
+  sources — no new polling — and keyed by the source's own identity so a redelivery, a rewound poll
+  cursor, and a re-read terminal run all address the row that is already there. A new `kind: change`
+  webhook route maps a deploy payload through the same dot paths, the same authentication, and the
+  same replay window as every other route; a merge or a correlated deployment is written inside the
+  transaction that records the lifecycle event, because written afterwards it could simply be
+  absent. Incident and operational-assessment prompts gain a `recent_changes` layer scoped to the
+  implicated services and repositories — resolved from the channel's repository binding, the firing
+  alert's labels, and the target identity of every piece of evidence gathered so far — within
+  `limits.change_window` (6h) and capped at `limits.max_recent_changes` (10). It drops second under
+  budget pressure, after recalled history and before the channel transcript, recording its own
+  omission so a thin answer can be explained. A change is a hint and never authority: it cannot
+  trigger work, and naming one as the cause of an alert still requires a `record_evidence`
+  operation bound through the existing cause gate. The trace page shows exactly which changes a
+  turn was given and why each was selected.
+
 - **A kept correction promotes itself, and quality can fail a release.** Reviewing a correction was
   never the bottleneck: an operator clicked Keep in App Home and then `make promote-corrections` had
   to be run by hand in a checkout, which is the step that stopped happening — three fixtures in the
