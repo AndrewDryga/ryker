@@ -1938,6 +1938,7 @@ func auditTitle(kind string) string {
 		"coop.budget.auto_extend":      "Coop budget extended",
 		"fixture.review":               "Correction reviewed",
 		"agent.report":                 "Agent report",
+		"model.escalation":             "Model escalation refused",
 	}[kind]; ok {
 		return title
 	}

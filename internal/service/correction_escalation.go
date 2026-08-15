@@ -157,12 +157,18 @@ func (s *Service) submitTurnAtLadderFloor(
 	if floor == 0 || !coopRefusedTargetFloor(err) {
 		return turn, operation, err
 	}
+	// Its own kind, not result.correction. Everything that counts corrections
+	// counts rows of that kind — the audition lane's correction rate, the
+	// weekly self-report, the episode's rejection list — and this is not the
+	// host refusing a model's result. Filing it there would charge the model
+	// for a rung its deployment does not have, in exactly the number the
+	// routing flywheel reads to decide which model deserves which lane.
 	s.audit(ctx, core.AuditEvent{
 		IncidentID: run.IncidentID,
-		Kind:       "result.correction",
+		Kind:       "model.escalation",
 		ActorID:    "responder",
 		ObjectID:   run.ID,
-		Outcome:    "escalation_unavailable",
+		Outcome:    "unavailable",
 		Detail: fmt.Sprintf(
 			"Coop would not deliver this turn at policy ladder rung %d (%v); "+
 				"the retry was submitted on the session's own rung.", floor, err,

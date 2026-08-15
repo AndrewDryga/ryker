@@ -171,14 +171,17 @@ func TestAnEscalationCoopRefusesStillDeliversItsCorrection(t *testing.T) {
 		t.Fatalf("a floor Coop refused is still on the run at rung %d, so every "+
 			"ordinary retry pays for it again", floor)
 	}
-	audited := false
-	for _, entry := range auditOutcomes(t, cfg, "result.correction", "") {
-		if strings.HasPrefix(entry, "escalation_unavailable:") {
-			audited = true
-		}
+	// Its own audit kind. Every counter of `result.correction` — the audition
+	// lane's correction rate above all — would otherwise charge the model for a
+	// rung its deployment does not have.
+	audited := auditOutcomes(t, cfg, "model.escalation", "")
+	if len(audited) != 1 || !strings.HasPrefix(audited[0], "unavailable:") {
+		t.Fatalf("a refused escalation left no trace an operator could read: %v", audited)
 	}
-	if !audited {
-		t.Fatal("a refused escalation left no trace an operator could read")
+	for _, entry := range auditOutcomes(t, cfg, "result.correction", "") {
+		if strings.Contains(entry, "would not deliver this turn") {
+			t.Fatalf("a refused escalation was counted as a correction: %q", entry)
+		}
 	}
 }
 
