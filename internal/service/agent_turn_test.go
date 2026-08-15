@@ -1989,6 +1989,79 @@ func TestACompletionOverAnOpenRequiredGoalIsSentBackNotDeferred(t *testing.T) {
 	}
 }
 
+// The finalization-time twin of the test above: a result staged clean, whose
+// episode gains an open required goal before finalization runs (a plan that
+// moved between the two, or a result staged before staging asked). The
+// kernel's refusal at finalization must still become a correction — this is
+// the exact shape run_dab83e5b was wedged in for forty-three attempts.
+func TestAFinalizationRefusedOverAnOpenGoalSendsTheRunBackToTheModel(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CLATEGOAL"}
+	cfg.Slack.WatchChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack-late-goal", EnvelopeID: "env-late-goal", EventID: "event-late-goal",
+		Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CLATEGOAL", MessageTS: "1700.730", UserID: "U123ABC",
+		Text: "<@U999BOT> is bond0 on nomad-hst03 saturated?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit Slack input = %v, %v", created, err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{{
+		State: "completed",
+		AssistantMessage: `{
+			"action":"reply",
+			"operations":[{"id":"complete","type":"complete_episode","completion":{
+				"message":"bond0 on nomad-hst03 is healthy; the saturation alerts were a duplicate exporter target.",
+				"completion":{"status":"decision_ready","summary":"bond0 healthy, duplicate exporter"}}}]
+		}`,
+	}}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The plan changes under the staged result.
+	if _, err := st.CreateEpisodeGoal(ctx, core.EpisodeGoal{
+		ID: "goal-traffic", EpisodeID: run.EpisodeID, Kind: "check",
+		RequestedOutcome:   "Verify actual VA1 network and storage load",
+		CompletionContract: "a fresh interface counter sample", Required: true,
+		AuthorityRequirement: core.AuthorityReadOnly, State: core.GoalPlanned,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRunFinalization(ctx); err != nil && !errors.Is(err, store.ErrNotFound) {
+		t.Fatal(err)
+	}
+	run, err = st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.State == core.AgentRunApplying {
+		t.Fatalf("the refused finalization left the run in applying to retry the same result (last error %q)",
+			run.LastError)
+	}
+	if run.State != core.AgentRunPending || !strings.Contains(run.LastError, "goal-traffic") {
+		t.Fatalf("a finalization refused over an open goal ended as %q with %q, want pending with a correction naming goal-traffic",
+			run.State, run.LastError)
+	}
+}
+
 // Coop marks a turn "interrupted" when its daemon restarts under a running
 // turn — a distinct terminal from cancelled and failed. The poll handled the
 // other two and skipped this one, so a run whose turn was interrupted at

@@ -3216,6 +3216,26 @@ func (s *Service) retryAgentRunFinalization(
 	if requeued, err := s.requeueRefusedFinalization(ctx, run, cause); requeued {
 		return err
 	}
+	// A completion the kernel refuses over an open required goal is not a
+	// finalization that will succeed later; it is an answer the model has to
+	// change. Staging asks the same question first (see OpenRequiredGoalCorrection
+	// in stageTriageTerminal), so this branch is reached when the plan moved
+	// between staging and finalization, or for a result staged before that
+	// check existed: run_dab83e5b, forty-three finalization attempts on
+	// 2026-08-15 against a goal nobody had told it about.
+	if errors.Is(cause, store.ErrEpisodeGoalsOpen) && run.Mode == core.AgentRunTriage {
+		goals, goalsErr := s.store.Goals.ListForEpisode(ctx, run.EpisodeID, 200)
+		if goalsErr != nil {
+			return goalsErr
+		}
+		correction := investigation.OpenRequiredGoalCorrection(
+			goals, nil, &investigation.CompletionAssessment{Status: "decision_ready"},
+		)
+		if correction == "" {
+			correction = trimError(cause)
+		}
+		return s.requeueWithCorrection(ctx, run, correctionIncomplete, correction, run.CoopEventSequence)
+	}
 	attempt := run.Failures + 1
 	if attempt >= s.cfg.Limits.MaxAgentRunAttempts {
 		if err := s.stageTerminalFinalizationFailure(ctx, run, cause); err == nil {

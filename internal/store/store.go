@@ -57,6 +57,12 @@ var (
 	ErrCapacity            = errors.New("incident capacity reached")
 	ErrMemberTaskCapacity  = errors.New("member engineering task capacity reached")
 	ErrMemberTaskRateLimit = errors.New("member engineering task creation rate reached")
+	// ErrEpisodeGoalsOpen marks a completion refused because a required goal
+	// of the episode is still open. Deterministic: the same result can only be
+	// refused again, so the poll's retry is the wrong answer and a correction
+	// to the model is the right one — asked at staging by the service, and
+	// carried by this sentinel when the guard fires at finalization anyway.
+	ErrEpisodeGoalsOpen = errors.New("a required goal of the episode is still open")
 	// ErrEpisodeAttemptSuperseded marks a reopen refused because the episode
 	// is terminal and a newer attempt owns it. Deterministic like the conflict
 	// below: the run asking is history, and retrying the reopen can only be

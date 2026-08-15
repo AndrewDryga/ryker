@@ -640,8 +640,8 @@ func (s *Store) appendEpisodeEventTx(
 		).Scan(&goalID, &outcome, &state)
 		if err == nil {
 			return core.WorkEpisodeEvent{}, fmt.Errorf(
-				"episode cannot complete while required goal %s (%s) is %s",
-				goalID, outcome, state,
+				"episode cannot complete while required goal %s (%s) is %s: %w",
+				goalID, outcome, state, ErrEpisodeGoalsOpen,
 			)
 		}
 		if !errors.Is(err, sql.ErrNoRows) {

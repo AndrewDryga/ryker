@@ -1360,10 +1360,14 @@ func (s *Store) RequeueAgentRun(
 	var incidentID sql.NullString
 	var coopTurnID string
 	var failures int
+	// 'finalizing' is accepted beside 'running' because a correction can now
+	// come from the finalization lane: a completion the kernel refuses over
+	// an open required goal goes back to the model rather than round the
+	// retry loop, and the run is mid-finalization when that is decided.
 	if err := tx.QueryRowContext(ctx, `
 		SELECT incident_id, coop_turn_id, failure_count
 		FROM agent_runs
-		WHERE id = ? AND state = 'running'`, id,
+		WHERE id = ? AND state IN ('running', 'finalizing')`, id,
 	).Scan(&incidentID, &coopTurnID, &failures); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("requeue agent run: %w", ErrConflict)
@@ -1381,7 +1385,7 @@ func (s *Store) RequeueAgentRun(
 		    `+requeueRunColumns+`
 		    coop_event_sequence = MAX(coop_event_sequence, ?),
 		    last_error = ?, next_attempt_at = ?, updated_at = ?
-		WHERE id = ? AND state = 'running'`,
+		WHERE id = ? AND state IN ('running', 'finalizing')`,
 		attempt,
 		fmt.Sprintf("responder:run:%s:%s", id, recoveryID),
 		eventSequence,
