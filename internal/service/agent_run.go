@@ -831,9 +831,9 @@ func (s *Service) prepareIncidentAgentRun(
 	); err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, false)
 	}
-	turn, _, err := s.coop.SubmitTurnWithArtifacts(
+	turn, _, err := s.submitTurnAtLadderFloor(
 		ctx,
-		run.IdempotencyKey,
+		run,
 		incident.CoopSessionID,
 		revision,
 		submissionPrompt,
@@ -1333,9 +1333,9 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	); err != nil {
 		return s.retryAgentRun(ctx, run, err)
 	}
-	turn, _, err := s.coop.SubmitTurnWithArtifacts(
+	turn, _, err := s.submitTurnAtLadderFloor(
 		ctx,
-		run.IdempotencyKey,
+		run,
 		session.ID,
 		revision,
 		prompt,
@@ -2168,6 +2168,13 @@ func (s *Service) requeueWithCorrection(
 	if err := s.store.RequeueAgentRun(ctx, run.ID, correction, cursor, s.now(), false); err != nil {
 		return err
 	}
+	// Counted and escalated before the audit, so the trace line can say which
+	// rung the retry is going to rather than leaving the rung transition to be
+	// inferred from the next attempt's context manifest.
+	escalation := ""
+	if floor := s.escalateRepeatedCorrection(ctx, run, class); floor > 0 {
+		escalation = escalationAuditNote(class, floor)
+	}
 	s.audit(ctx, core.AuditEvent{
 		IncidentID: run.IncidentID,
 		Kind:       "result.correction",
@@ -2180,7 +2187,7 @@ func (s *Service) requeueWithCorrection(
 		// different text than the model received. The full text also lives on
 		// the fixture candidate; this bound only decides how much of it the
 		// trace shows inline.
-		Detail: s.sanitizeText(decisionpkg.BoundedField(correction, 2000)),
+		Detail: s.sanitizeText(decisionpkg.BoundedField(correction, 2000)) + escalation,
 	})
 	// Queue the correction for review as a regression fixture. This is the
 	// whole self-improving loop in one line: the host already decided the model

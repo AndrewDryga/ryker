@@ -730,13 +730,42 @@ func (c *Client) SubmitTurnWithArtifacts(
 	prompt string,
 	artifacts []InputArtifact,
 ) (Turn, Operation, error) {
+	return c.SubmitTurnAtOrAbove(ctx, key, sessionID, expectedRevision, prompt, artifacts, 0)
+}
+
+// SubmitTurnAtOrAbove submits a turn that may not be answered below a rung of
+// the session policy's target ladder.
+//
+// minTargetIndex is zero-based and a floor, not a seat: a session already at or
+// above that rung does not move, rotation continues upward from it, and when
+// every rung at or above it is cooling the turn fails `rate_limited` rather
+// than dropping back below. Coop makes the move durable — the session's target
+// becomes that rung and later turns start there.
+//
+// Zero is absent. The field is left out of the body entirely rather than sent
+// as `0`, because Coop hashes the request body for idempotency: an ordinary
+// turn has to serialize to exactly the bytes it always did, or every retry key
+// in flight across a deploy would name a different request than the one Coop
+// recorded. TestAnUnescalatedTurnIsTheSameRequestItAlwaysWas holds that shut.
+func (c *Client) SubmitTurnAtOrAbove(
+	ctx context.Context,
+	key, sessionID string,
+	expectedRevision int64,
+	prompt string,
+	artifacts []InputArtifact,
+	minTargetIndex int,
+) (Turn, Operation, error) {
 	prompt = c.boundedPrompt(prompt)
-	var response turnResponse
-	err := c.post(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/turns", key, map[string]any{
+	body := map[string]any{
 		"expected_revision": expectedRevision,
 		"prompt":            prompt,
 		"artifacts":         artifacts,
-	}, &response)
+	}
+	if minTargetIndex > 0 {
+		body["min_target_index"] = minTargetIndex
+	}
+	var response turnResponse
+	err := c.post(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/turns", key, body, &response)
 	return response.Turn, response.Operation, err
 }
 

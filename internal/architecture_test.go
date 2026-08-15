@@ -66,7 +66,16 @@ var methodBudget = map[string]int{
 	// and store.Approvals.Record; the ninth query phase 5 needs — approvals by
 	// episode rather than by incident — lands there and costs this number
 	// nothing, which is the whole argument for the field.
-	"Store": 217,
+	//
+	// 219 on 2026-08-15 for the two writes escalation-on-correction needs:
+	// NoteAgentRunCorrectionClass, which counts a correction against its class,
+	// and SetAgentRunTargetFloor, which records the ladder rung the next turn
+	// may not be answered below. Both are here rather than beside the
+	// correction because both edit the run's context envelope as raw fields
+	// inside a transaction — the correction paths write the round counter and
+	// then requeue, so the caller's copy is already stale, and re-encoding it
+	// would drop the increment that bounds the loop.
+	"Store": 219,
 }
 
 // lineBudget caps non-test source lines per package.
@@ -753,7 +762,15 @@ var lineBudget = map[string]int{
 	// third time in two days, and phase 5 was about to ask it for an episode
 	// column and an episode-scoped query in the same change — so the extraction
 	// happened first and the number came down with it rather than up.
-	"store":      11075,
+	//
+	// 11160 the same day for escalation-on-correction: two writes and the
+	// transactional read-modify-write they share, which edits a run's context
+	// envelope as raw fields so that every key this layer has never heard of
+	// survives. Ninety-six lines, all of them the reason these are SQL rather
+	// than a decode beside the correction — the caller's copy of the envelope is
+	// stale by the time an escalation is decided, and re-encoding it would drop
+	// the correction counter that bounds the loop.
+	"store":      11160,
 	"localstate": 400,
 	"provider":   120,
 	// branching opens the branches a fan-out was granted and closes them. It is

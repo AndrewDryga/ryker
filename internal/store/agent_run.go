@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -860,6 +861,142 @@ func (s *Store) SetAgentRunContext(
 		WHERE id = ? AND state NOT IN ('superseded')`,
 		contextJSON, s.nowText(), id)
 	return sqlutil.ExpectOne(result, err, "set agent run context")
+}
+
+// NoteAgentRunCorrectionClass counts one more correction of a class against a
+// run and reports how many that class has now had.
+//
+// The count is per class rather than per run because the two questions are
+// different: the run-wide budget asks whether to keep correcting at all, and
+// this asks whether the model keeps failing the SAME way — which is the only
+// signal that says a bigger model would answer where this one will not. A run
+// that was once unreadable and once incomplete has learned something between
+// rounds; a run that is incomplete twice has not.
+//
+// It reads and writes the envelope inside one transaction rather than passing
+// the caller's copy back in, because the caller's copy is routinely stale by
+// the time it gets here: the correction paths write the round counter first and
+// then requeue, so a read-modify-write from the in-memory run would silently
+// drop that increment and turn a bounded correction loop into an endless one.
+func (s *Store) NoteAgentRunCorrectionClass(
+	ctx context.Context,
+	id, class string,
+) (int, error) {
+	if strings.TrimSpace(id) == "" || strings.TrimSpace(class) == "" {
+		return 0, errors.New("agent run correction class identity is required")
+	}
+	repeats := 0
+	err := s.mutateAgentRunContext(ctx, id, func(fields map[string]json.RawMessage) error {
+		classes := map[string]int{}
+		if raw, ok := fields[correctionClassesKey]; ok {
+			if err := json.Unmarshal(raw, &classes); err != nil {
+				// An envelope whose counter will not decode starts a fresh one.
+				// Refusing here would fail a correction over bookkeeping.
+				classes = map[string]int{}
+			}
+		}
+		classes[class]++
+		repeats = classes[class]
+		encoded, err := json.Marshal(classes)
+		if err != nil {
+			return err
+		}
+		fields[correctionClassesKey] = encoded
+		return nil
+	})
+	return repeats, err
+}
+
+// SetAgentRunTargetFloor records the rung of the session policy's target ladder
+// this run's next turn may not be answered below.
+//
+// Durable, because the escalation has to survive the requeue that carries it:
+// the correction decides the rung and a later lease submits the turn, and
+// nothing in between holds the number. Zero removes it, which is the honest
+// record when Coop has refused the floor — a ladder with no rung above the one
+// in use cannot honour it, and a floor kept anyway would tax every ordinary
+// retry of the run with a refusal round trip.
+func (s *Store) SetAgentRunTargetFloor(ctx context.Context, id string, floor int) error {
+	if strings.TrimSpace(id) == "" {
+		return errors.New("agent run target floor identity is required")
+	}
+	if floor < 0 {
+		return errors.New("agent run target floor must not be negative")
+	}
+	return s.mutateAgentRunContext(ctx, id, func(fields map[string]json.RawMessage) error {
+		if floor == 0 {
+			delete(fields, targetFloorKey)
+			return nil
+		}
+		encoded, err := json.Marshal(floor)
+		if err != nil {
+			return err
+		}
+		fields[targetFloorKey] = encoded
+		return nil
+	})
+}
+
+// The two envelope keys this file owns. Both context envelopes — the assembled
+// one an incident run carries and the watch turn state a triage run carries —
+// serialize as JSON objects, so a field set here survives either without this
+// layer knowing which it holds.
+const (
+	correctionClassesKey = "correction_classes"
+	targetFloorKey       = "min_target_index"
+)
+
+// mutateAgentRunContext edits one field of a run's context envelope without
+// knowing the rest of it.
+//
+// The whole envelope is decoded as raw fields and re-encoded, so every key this
+// layer has never heard of survives untouched. It is a transaction because the
+// read and the write are one decision: two of these racing on the same run
+// would otherwise each write a document built from the other's stale copy.
+func (s *Store) mutateAgentRunContext(
+	ctx context.Context,
+	id string,
+	mutate func(fields map[string]json.RawMessage) error,
+) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var raw []byte
+	if err := tx.QueryRowContext(ctx, `
+		SELECT context_json FROM agent_runs WHERE id = ? AND state NOT IN ('superseded')`,
+		id,
+	).Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("edit agent run context: %w", ErrNotFound)
+		}
+		return err
+	}
+	fields := map[string]json.RawMessage{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return fmt.Errorf("decode agent run context: %w", err)
+		}
+	}
+	if err := mutate(fields); err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		return err
+	}
+	if len(encoded) > 256<<10 {
+		return errors.New("agent run context must be between 1 byte and 256 KiB")
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE agent_runs SET context_json = ?, updated_at = ?
+		WHERE id = ? AND state NOT IN ('superseded')`,
+		encoded, s.nowText(), id)
+	if err := sqlutil.ExpectOne(result, err, "edit agent run context"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // requeueRunColumns drops what bound a run to the attempt that failed.

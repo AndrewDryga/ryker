@@ -22,6 +22,9 @@ type Coop interface {
 	ListSessions(context.Context, int) ([]coop.Session, error)
 	SubmitTurn(context.Context, string, string, int64, string) (coop.Turn, coop.Operation, error)
 	SubmitTurnWithArtifacts(context.Context, string, string, int64, string, []coop.InputArtifact) (coop.Turn, coop.Operation, error)
+	// SubmitTurnAtOrAbove carries the escalation floor: the rung of the session
+	// policy's target ladder below which the turn may not be answered.
+	SubmitTurnAtOrAbove(context.Context, string, string, int64, string, []coop.InputArtifact, int) (coop.Turn, coop.Operation, error)
 	GetTurn(context.Context, string, string) (coop.Turn, error)
 	GetOutputArtifact(context.Context, string, string, string) (coop.OutputArtifact, error)
 	Events(context.Context, string, int64, int) ([]coop.Event, error)

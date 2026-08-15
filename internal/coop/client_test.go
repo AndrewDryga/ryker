@@ -907,3 +907,58 @@ func TestAThrottledTurnNarratesItsBackoffAndItsPulse(t *testing.T) {
 		t.Fatal("an exhausted ladder does not say when it comes back")
 	}
 }
+
+// An ordinary turn is the same request it has always been, byte for byte.
+//
+// Coop hashes the turn request body for idempotency, so a field added to every
+// submission is not a compatible change: a key in flight across a deploy would
+// name a different request than the one Coop recorded, and the recovery path
+// that asks "what does this key already own" would stop finding it. The
+// escalation floor is therefore omitted rather than sent as zero, and this test
+// compares the two encodings rather than trusting the omitempty tag on the far
+// side of the socket.
+func TestAnUnescalatedTurnIsTheSameRequestItAlwaysWas(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	var bodies []string
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"turn":{"id":"turn_1","session_id":"s1","state":"queued"}}`)
+	})}
+	go server.Serve(listener)
+	defer server.Close()
+
+	client := New(socket, 5*time.Second)
+	ctx := context.Background()
+	if _, _, err := client.SubmitTurnWithArtifacts(ctx, "k1", "s1", 4, "Answer.", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.SubmitTurnAtOrAbove(ctx, "k2", "s1", 4, "Answer.", nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.SubmitTurnAtOrAbove(ctx, "k3", "s1", 4, "Answer.", nil, 1); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 3 {
+		t.Fatalf("bodies = %d, want 3", len(bodies))
+	}
+	if bodies[0] != bodies[1] {
+		t.Fatalf("a zero floor changed the request bytes:\n old %s\n new %s", bodies[0], bodies[1])
+	}
+	if strings.Contains(bodies[0], "min_target_index") {
+		t.Fatalf("an unescalated turn carries the floor field: %s", bodies[0])
+	}
+	var escalated map[string]any
+	if err := json.Unmarshal([]byte(bodies[2]), &escalated); err != nil {
+		t.Fatal(err)
+	}
+	if escalated["min_target_index"] != float64(1) {
+		t.Fatalf("an escalated turn did not name its rung: %s", bodies[2])
+	}
+}

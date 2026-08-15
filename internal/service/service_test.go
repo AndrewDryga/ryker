@@ -1025,10 +1025,18 @@ type fakeCoop struct {
 	submitSessions     []string
 	submitPrompts      []string
 	submitArtifacts    [][]coop.InputArtifact
-	submitState        string
-	completeOnSubmit   string
-	completeQueue      []string
-	submitTurns        []coop.Turn
+	// submitFloors is every escalation floor a submission carried, recorded
+	// before any scripted refusal so a strip-and-retry shows up as two entries
+	// rather than one.
+	submitFloors []int
+	// floorErrs refuses the next submission that carries a floor, which is how
+	// a Coop that predates the escalation API — or a policy with no rung above
+	// the one in use — reaches this host.
+	floorErrs        []error
+	submitState      string
+	completeOnSubmit string
+	completeQueue    []string
+	submitTurns      []coop.Turn
 	// submitErrs is consumed after the key is recorded, which is the shape of
 	// the failure worth simulating: Coop committed the submission and the
 	// response did not come back.
@@ -1167,13 +1175,39 @@ func (f *fakeCoop) SubmitTurn(_ context.Context, key, sessionID string, _ int64,
 // the id was noise until a memory handoff had to prove it ran in the OUTGOING
 // session rather than the one rotation had just created.
 func (f *fakeCoop) SubmitTurnWithArtifacts(
+	ctx context.Context,
+	key string,
+	sessionID string,
+	revision int64,
+	prompt string,
+	artifacts []coop.InputArtifact,
+) (coop.Turn, coop.Operation, error) {
+	return f.SubmitTurnAtOrAbove(ctx, key, sessionID, revision, prompt, artifacts, 0)
+}
+
+// SubmitTurnAtOrAbove records the escalation floor each turn carried, which is
+// the only way a test can tell a retry that asked for a bigger model from one
+// that asked for the same one again.
+func (f *fakeCoop) SubmitTurnAtOrAbove(
 	_ context.Context,
 	key string,
 	sessionID string,
 	_ int64,
 	prompt string,
 	artifacts []coop.InputArtifact,
+	minTargetIndex int,
 ) (coop.Turn, coop.Operation, error) {
+	f.submitFloors = append(f.submitFloors, minTargetIndex)
+	// Consumed only by a submission that actually carried a floor, so the
+	// ordinary turns before the first escalation do not eat the refusal the
+	// test scripted for it.
+	if minTargetIndex > 0 && len(f.floorErrs) > 0 {
+		scripted := f.floorErrs[0]
+		f.floorErrs = f.floorErrs[1:]
+		if scripted != nil {
+			return coop.Turn{}, coop.Operation{}, scripted
+		}
+	}
 	f.submitKeys = append(f.submitKeys, key)
 	f.submitSessions = append(f.submitSessions, sessionID)
 	f.submitPrompts = append(f.submitPrompts, prompt)

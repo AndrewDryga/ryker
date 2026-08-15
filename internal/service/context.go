@@ -65,8 +65,16 @@ type assembledAgentContext struct {
 	// ReplyShapeCorrections counts the reply-shape rewrites this run has been
 	// asked for. Separate from the count above because it has its own budget:
 	// exactly one, after which the answer is posted as written.
-	ReplyShapeCorrections int       `json:"reply_shape_corrections,omitempty"`
-	CapturedAt            time.Time `json:"captured_at"`
+	ReplyShapeCorrections int `json:"reply_shape_corrections,omitempty"`
+	// CorrectionClasses counts the corrections this run has had of each class,
+	// and MinTargetIndex is the rung of the session policy's target ladder its
+	// next turn may not be answered below. Both are written by the store, which
+	// edits the envelope as raw fields; they are declared here because this
+	// struct is re-encoded whole by the correction paths, and a field it does
+	// not name would be dropped on the next round.
+	CorrectionClasses map[string]int `json:"correction_classes,omitempty"`
+	MinTargetIndex    int            `json:"min_target_index,omitempty"`
+	CapturedAt        time.Time      `json:"captured_at"`
 }
 
 func (s *Service) assembleAgentContext(
