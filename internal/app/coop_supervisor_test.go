@@ -566,3 +566,47 @@ func TestAFailedPruneStillAttemptsTheBuild(t *testing.T) {
 		t.Fatalf("attempts = %d; a failed prune must not swallow a build attempt", attempts)
 	}
 }
+
+// Readiness reads the streak, so it must move exactly with Repair: up on every
+// failed build, untouched by the shared-cooldown early return, and cleared
+// with the rest of the gate state on success. Without this the 2026-08-13
+// outage shape — 75 minutes of failed rebuilds — kept /readyz green throughout.
+func TestCoopRuntimeRepairGateReportsItsFailureStreak(t *testing.T) {
+	base := 100 * time.Millisecond
+	now := time.Date(2026, time.August, 5, 12, 0, 0, 0, time.UTC)
+	healthy := false
+	gate := newCoopRuntimeRepairGate(base, func() error {
+		if healthy {
+			return nil
+		}
+		return errors.New("invalid output path: stat /var/lib/docker/overlay2/x")
+	}, func() error { return nil })
+	gate.now = func() time.Time { return now }
+
+	if count, lastErr := gate.FailureStreak(); count != 0 || lastErr != nil {
+		t.Fatalf("fresh gate streak = %d, %v", count, lastErr)
+	}
+	_ = gate.Repair(context.Background())
+	if count, lastErr := gate.FailureStreak(); count != 1 || lastErr == nil {
+		t.Fatalf("streak after one failure = %d, %v", count, lastErr)
+	}
+	// The cooldown early return is not a build attempt and must not count.
+	_ = gate.Repair(context.Background())
+	if count, _ := gate.FailureStreak(); count != 1 {
+		t.Fatalf("streak after cooldown return = %d, want 1", count)
+	}
+	now = now.Add(base + time.Millisecond)
+	_ = gate.Repair(context.Background())
+	if count, _ := gate.FailureStreak(); count != 2 {
+		t.Fatalf("streak after second failure = %d, want 2", count)
+	}
+	healthy = true
+	now = now.Add(time.Hour)
+	if err := gate.Repair(context.Background()); err != nil {
+		t.Fatalf("recovered repair = %v", err)
+	}
+	if count, lastErr := gate.FailureStreak(); count != 0 || lastErr != nil {
+		t.Fatalf("streak after recovery = %d, %v; readiness would keep naming "+
+			"a condition that ended", count, lastErr)
+	}
+}

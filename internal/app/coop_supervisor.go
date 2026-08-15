@@ -108,6 +108,19 @@ func (g *coopRuntimeRepairGate) Repair(ctx context.Context) error {
 	return nil
 }
 
+// FailureStreak reports how many consecutive repair attempts have failed and
+// the error the latest one left. Readiness reads it so a Coop image that
+// cannot be rebuilt stops reporting ready: on 2026-08-13 the gate retried a
+// corrupted buildkit cache for 75 minutes while /readyz stayed green the whole
+// way, and the watchdog had nothing to surface. The shared-cooldown early
+// return is not a build attempt and leaves the streak untouched; a successful
+// repair clears it with the rest of the gate state.
+func (g *coopRuntimeRepairGate) FailureStreak() (int, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.failures, g.lastErr
+}
+
 type coopProcessOutput struct {
 	mu          sync.Mutex
 	destination io.Writer

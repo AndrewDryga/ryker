@@ -159,7 +159,7 @@ func runServe(args []string, stdout, stderr io.Writer) (resultErr error) {
 			command.Stderr = stderr
 			return command.Run()
 		})
-		svc.SetCoopRuntimeRepairer(repair.Repair)
+		svc.SetCoopRuntimeRepairer(repair.Repair, repair.FailureStreak)
 	}
 	startupCtx, startupCancel := context.WithTimeout(context.Background(), cfg.Coop.RequestTimeout.Duration)
 	err = svc.Initialize(startupCtx)

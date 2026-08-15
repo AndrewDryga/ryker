@@ -345,3 +345,63 @@ func TestOrphanReconciliationClosesDiscardedCleanupProjection(t *testing.T) {
 		t.Fatalf("discarded cleanup projection = %+v, %v", cleanup, err)
 	}
 }
+
+// The 2026-08-13 buildkit-corruption outage ran 75 minutes with /readyz green:
+// every turn died on "Coop box image is not built" while readiness reported
+// the process fine, so the watchdog had nothing to surface. A repair streak
+// past the gate's own prune-and-rebuild attempt means the self-heal has been
+// tried and lost; readiness must name it, in the exact token the watchdog's
+// ready_reason() forwards to a person.
+func TestReadyNamesAnUnbuildableCoopImage(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Limits.WorkerStallAfter.Duration = time.Minute
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	socket := &fakeSocket{connected: true}
+	svc := New(
+		cfg,
+		st,
+		newFakeCoop(),
+		&fakeSlack{},
+		socket,
+		slackui.NewSanitizer(12000),
+		nil,
+	)
+	if err := svc.seedScheduledWork(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.initialized.Store(true)
+	svc.running.Store(true)
+	svc.coopHealthy.Store(true)
+	now := time.Now().UTC()
+	for _, lane := range []string{
+		store.WorkLaneControl,
+		store.WorkLaneBackground,
+		store.WorkLaneMaintenance,
+	} {
+		svc.heartbeats.mark(lane, now)
+	}
+
+	failures := 0
+	svc.SetCoopRuntimeRepairer(nil, func() (int, error) {
+		return failures, errors.New("invalid output path: stat /var/lib/docker/overlay2/x")
+	})
+	failures = 2
+	if ready, reason := svc.Ready(ctx); !ready || reason != "ready" {
+		t.Fatalf("readiness at two failures = %v, %q; the gate's own prune "+
+			"fires at two and deserves its chance", ready, reason)
+	}
+	failures = 3
+	if ready, reason := svc.Ready(ctx); ready || reason != "coop_image_unbuildable" {
+		t.Fatalf("readiness at three failures = %v, %q; ready_reason() forwards "+
+			"this exact token", ready, reason)
+	}
+	failures = 0
+	if ready, reason := svc.Ready(ctx); !ready || reason != "ready" {
+		t.Fatalf("readiness after recovery = %v, %q", ready, reason)
+	}
+}

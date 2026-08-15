@@ -16,6 +16,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/store/storetest"
 	"github.com/AndrewDryga/responder/internal/taskcard"
 )
 
@@ -709,7 +710,7 @@ func TestAgentRunMissingCoopImageRepairsAndRetriesWithoutSlackFailure(t *testing
 	svc.SetCoopRuntimeRepairer(func(context.Context) error {
 		repairs++
 		return nil
-	})
+	}, nil)
 	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
@@ -780,7 +781,7 @@ func TestAgentRunMissingCoopImageBuildFailureStaysQueuedWithoutSlackFailure(t *t
 	svc.SetCoopRuntimeRepairer(func(context.Context) error {
 		repairs++
 		return errors.New("Docker daemon unavailable")
-	})
+	}, nil)
 	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
@@ -1864,9 +1865,7 @@ func TestASilentTurnIsCancelledInsteadOfHoldingItsChannel(t *testing.T) {
 	// run_dba732ef sat with an 87-minute-old poll stamp and a 70-second-old
 	// updated_at, shielded from the first version of this deadline, which
 	// keyed on the column everything touches.
-	if err := st.TouchAgentRunForTest(ctx, "watch", input.ID); err != nil {
-		t.Fatal(err)
-	}
+	storetest.TouchAgentRun(t, cfg.StateDir, "watch", input.ID)
 
 	base = base.Add(silentTurnDeadline + time.Minute)
 	svc.pollAgentRuns(ctx)

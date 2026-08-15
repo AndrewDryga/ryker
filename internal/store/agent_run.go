@@ -2351,15 +2351,3 @@ func (s *Store) CorrectionRate(
 	}
 	return counts, turns, nil
 }
-
-// TouchAgentRunForTest bumps only updated_at, imitating the cosmetic writers
-// — card refreshes, episode progress — that shielded a zombie turn from the
-// first silent-turn deadline. Tests use it to prove the deadline keys on the
-// poll's own stamp instead.
-func (s *Store) TouchAgentRunForTest(ctx context.Context, sourceKind, sourceID string) error {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE agent_runs SET updated_at = ?
-		WHERE source_kind = ? AND source_id = ?`,
-		s.nowText(), sourceKind, sourceID)
-	return err
-}

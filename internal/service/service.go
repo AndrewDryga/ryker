@@ -65,6 +65,7 @@ type Service struct {
 	store             *store.Store
 	coop              CoopAPI
 	repairCoopRuntime func(context.Context) error
+	coopRepairHealth  func() (int, error)
 	slack             slackui.API
 	socket            Socket
 	sanitizer         *slackui.Sanitizer
@@ -152,9 +153,17 @@ func (s *Service) PromptTruncationMetrics() (total uint64, maxBytes uint64) {
 }
 
 // SetCoopRuntimeRepairer installs the managed-runtime repair hook used when a
-// turn proves that Docker removed Coop's shared execution image after startup.
-func (s *Service) SetCoopRuntimeRepairer(repair func(context.Context) error) {
+// turn proves that Docker removed Coop's shared execution image after startup,
+// and the gate's failure-streak reader so readiness can name an image that
+// repeatedly fails to rebuild instead of reporting the process fine around it.
+// One setter for both because they are two views of the same gate; health may
+// be nil where no gate exists.
+func (s *Service) SetCoopRuntimeRepairer(
+	repair func(context.Context) error,
+	health func() (int, error),
+) {
 	s.repairCoopRuntime = repair
+	s.coopRepairHealth = health
 }
 
 type SchedulerLaneSnapshot struct {
@@ -490,6 +499,13 @@ func isCoopSessionPolicyConflict(err error) bool {
 		strings.Contains(strings.ToLower(apiErr.Detail), "policy")
 }
 
+// coopImageUnbuildableAfter is how many consecutive managed-image repair
+// failures readiness tolerates before naming the condition. The gate's own
+// prune-and-rebuild self-heal triggers at two, so by the third failure the
+// self-heal has been tried and lost and the machine needs a person — the
+// 2026-08-13 corruption outage ran 75 minutes with /readyz green throughout.
+const coopImageUnbuildableAfter = 3
+
 func (s *Service) Ready(ctx context.Context) (bool, string) {
 	switch {
 	case !s.initialized.Load():
@@ -503,6 +519,13 @@ func (s *Service) Ready(ctx context.Context) (bool, string) {
 	}
 	if err := s.store.Ping(ctx); err != nil {
 		return false, "database unavailable"
+	}
+	if s.coopRepairHealth != nil {
+		if failures, _ := s.coopRepairHealth(); failures >= coopImageUnbuildableAfter {
+			// The exact token the watchdog's ready_reason() forwards; detail
+			// stays in the supervisor log where the failing build wrote it.
+			return false, "coop_image_unbuildable"
+		}
 	}
 	stallAfter := s.cfg.Limits.WorkerStallAfter.Duration
 	snapshot, err := s.SchedulerSnapshot(ctx)

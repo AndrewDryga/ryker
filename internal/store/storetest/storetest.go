@@ -16,11 +16,39 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/store"
 
 	_ "modernc.org/sqlite"
 )
+
+// TouchAgentRun bumps only updated_at on one agent run, imitating the cosmetic
+// writers — card refreshes, episode progress — that shielded a zombie turn
+// from the first silent-turn deadline (run_dba732ef: an 87-minute-old poll
+// stamp under a 70-second-old updated_at). It lives here rather than on Store
+// so a test-only writer does not occupy the production method set the
+// architecture budget guards. It opens the caller's own database file; WAL and
+// the busy timeout make the one short write safe beside the store under test.
+func TouchAgentRun(t *testing.T, stateDir, sourceKind, sourceID string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(stateDir, "responder.db"))
+	if err != nil {
+		t.Fatalf("open the database under test: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`PRAGMA busy_timeout = 5000;`); err != nil {
+		t.Fatalf("apply connection pragmas: %v", err)
+	}
+	if _, err := db.Exec(`
+		UPDATE agent_runs SET updated_at = ?
+		WHERE source_kind = ? AND source_id = ?`,
+		time.Now().UTC().Format(core.TimestampFormat), sourceKind, sourceID,
+	); err != nil {
+		t.Fatalf("touch agent run: %v", err)
+	}
+}
 
 // DB returns a connection to a freshly migrated database.
 //
