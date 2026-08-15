@@ -170,6 +170,26 @@ stall_reason() {
   fi
 }
 
+# movement_idle_minutes is how many minutes ago the deployment last started or
+# finished any run, or "never". The stall alarm fires on this, not on the age
+# of the oldest waiting run: age says how long the work has existed, idleness
+# says whether the host is doing any. At 2026-08-15T03:19Z the age-based alarm
+# said "queued 208m without moving" eight minutes after a three-hour-starved
+# run completed — the 208m belonged to a run that was attempting every few
+# minutes, and movement was only ever consulted for recovery, never for firing.
+movement_idle_minutes() {
+  local db="$1" idle
+  [[ -f $db ]] || { echo "never"; return; }
+  idle=$(/usr/bin/sqlite3 -readonly "file:$db?immutable=1" "
+    SELECT CAST((julianday('now') - julianday(MAX(moved_at))) * 1440 AS INT) FROM (
+      SELECT started_at AS moved_at FROM agent_runs WHERE started_at IS NOT NULL AND started_at != ''
+      UNION ALL
+      SELECT completed_at FROM agent_runs WHERE completed_at IS NOT NULL AND completed_at != ''
+    )
+  " 2>/dev/null) || { echo "never"; return; }
+  [[ -n $idle ]] && echo "$idle" || echo "never"
+}
+
 # movement_marker is the latest moment any run started or finished: the only
 # evidence this script accepts that the deployment is doing work.
 #
@@ -248,12 +268,25 @@ for plist in "$agents"/ai.emisar.responder.*.plist; do
     no-db) trouble="no database at $db" ;;
     unreadable) trouble="database unreadable" ;;
     *) if [[ $stalled -ge $stall_minutes ]]; then
-         if [[ $(stall_reason "$db") == "provider-limited" ]]; then
-           trouble="waiting on provider rate limits — oldest run queued ${stalled}m; the host is healthy, the quota is not"
+         # Old waiting work alone is not an outage: the alarm means the host
+         # did nothing for a whole stall window while work waited. A run
+         # riding out rate-limit backoff or a busy channel can be hours old
+         # while runs start and finish around it every few minutes; re-lease
+         # attempts never advance started_at, so a crash-looping queue still
+         # reads idle here and still fires (the 2026-08-13 lesson holds).
+         idle=$(movement_idle_minutes "$db")
+         if [[ $idle != "never" && $idle -lt $stall_minutes ]]; then
+           note "$name has work waiting ${stalled}m but runs are moving (last start or finish ${idle}m ago)"
          else
-           trouble="work has been queued ${stalled}m without moving"
+           if [[ $(stall_reason "$db") == "provider-limited" ]]; then
+             trouble="waiting on provider rate limits — oldest run queued ${stalled}m; the host is healthy, the quota is not"
+           elif [[ $idle == "never" ]]; then
+             trouble="work has waited ${stalled}m and nothing has ever run"
+           else
+             trouble="work has waited ${stalled}m and no run has started or finished in ${idle}m"
+           fi
+           queue_stalled=1
          fi
-         queue_stalled=1
        fi ;;
   esac
   if [[ -z $trouble && $reason != "ready" ]]; then

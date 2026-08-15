@@ -130,7 +130,7 @@ fi
 
 second=$(run)
 check "a persistent stall raises the alarm" "ALERT Responder probe is not working" "$second"
-check "the alarm says what is wrong" "queued 12m without moving" "$second"
+check "the alarm says what is wrong" "waited 12m and nothing has ever run" "$second"
 
 # Provider weather is named, not disguised as a host stall. On 2026-08-15 the
 # alarm said "178m without moving" for three hours of rate limiting — true,
@@ -263,7 +263,7 @@ rm -rf "$WATCHDOG_STATE"; seed pending 12 3 '+45 seconds'
 run >/dev/null
 backing_off=$(run)
 check "a failing run waiting out its backoff is stalled, not healthy" \
-  "work has been queued 12m without moving" "$backing_off"
+  "waited 12m and nothing has ever run" "$backing_off"
 
 # The provider rate-limiting a turn defers it back to pending with a later
 # next_attempt_at and spends no attempt, so failure_count stays 0 — a stall
@@ -274,7 +274,24 @@ rm -rf "$WATCHDOG_STATE"; seed pending 12 0 '+45 seconds'; attempted
 run >/dev/null
 deferred=$(run)
 check "a deferred run that spent no attempt is stalled too" \
-  "work has been queued 12m without moving" "$deferred"
+  "no run has started or finished in 12m" "$deferred"
+
+# A queue that is visibly working is not stalled, however old its slowest
+# member. At 2026-08-15T03:19Z the alarm said "queued 208m without moving"
+# eight minutes after a three-hour-starved run completed and three minutes
+# after a fresh run started: the 208m was the oldest run's age, and movement
+# was only ever consulted for recovery, never for firing.
+rm -rf "$WATCHDOG_STATE"; seed pending 20 4
+/usr/bin/sqlite3 "$db" "
+  INSERT INTO agent_runs (id, state, failure_count, created_at, next_attempt_at, started_at, completed_at)
+  VALUES ('run_flowing', 'completed', 0,
+    strftime('%Y-%m-%dT%H:%M:%f', 'now', '-9 minutes'), '',
+    strftime('%Y-%m-%dT%H:%M:%f', 'now', '-8 minutes'),
+    strftime('%Y-%m-%dT%H:%M:%f', 'now', '-2 minutes'));"
+run >/dev/null
+flowing=$(run)
+refute "an old run behind a moving queue is not an outage" "ALERT Responder probe is not working" "$flowing"
+check "the waiting work is still logged, gated on movement" "but runs are moving" "$flowing"
 
 # A first attempt genuinely scheduled for the future is not a stall. Without
 # this the fix above would alarm on every debounced turn ever queued.
