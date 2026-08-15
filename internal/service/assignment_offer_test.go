@@ -172,6 +172,38 @@ func TestAnUnconfirmedAssignmentOfferGrantsNothingAndShowsNormalizedBounds(t *te
 	}
 }
 
+// The offer the model made is recorded where the confirmation reads it back.
+//
+// Every other test in this file seeds that row directly, which is right for
+// grading the handler and wrong for proving the seam: delete the
+// `offer_assignment` case from applyResultOperation and all of them still pass
+// while every card in production becomes permanently unclickable, because the
+// click resolves an offer the episode never recorded. This is the one test that
+// walks the apply path.
+func TestAnOfferedAssignmentIsRecordedOnTheEpisodeTheClickWillRead(t *testing.T) {
+	ctx := context.Background()
+	svc, _, raw, _ := grantService(t)
+	seedAssignmentEpisode(t, raw)
+
+	if err := svc.recordResultOperationEvents(
+		ctx, "run_a", []investigation.ResultOperation{assignmentOperation()},
+	); err != nil {
+		t.Fatal(err)
+	}
+	var kind string
+	if err := raw.QueryRow(
+		`SELECT kind FROM work_episode_events WHERE episode_id = ? AND idempotency_key = ?`,
+		assignmentEpisode, "result:assign-1",
+	).Scan(&kind); err != nil {
+		t.Fatalf("the offer was not recorded on the episode: %v", err)
+	}
+	if kind != episodepkg.EventAssignmentOffered {
+		t.Fatalf(
+			"the offer is recorded as %q, which the confirmation refuses as unrecorded", kind,
+		)
+	}
+}
+
 // An offer whose bounds cannot be normalized draws no card at all.
 //
 // Silence rather than a refusal in the channel: an operator who did not ask for
