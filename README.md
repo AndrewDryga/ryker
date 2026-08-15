@@ -404,8 +404,8 @@ current-health proof.
 
 Responder records when confirmed memory and continuity rollups are recalled. A scheduled review
 flags confirmed entries that have not been used or reviewed recently and identifies exact duplicate
-guidance, but it never silently edits operator-confirmed memory. `/responder memory` shows memory
-health and `/responder memory review` provides keep, merge, and forget decisions. Replacements keep
+guidance, but it never silently edits operator-confirmed memory. Memory health and the
+keep, merge, and forget review live in App Home and the control plane's Memory page. Replacements keep
 a hash-only supersession record; old values are not copied into audit state. These mechanisms are
 inspired by the freshness, continuity, and reviewability goals in OpenAI's
 [Memory and new controls for ChatGPT](https://openai.com/index/chatgpt-memory-dreaming/), while
@@ -424,7 +424,7 @@ executable trigger or authority. A configured operator can make this explicit
 setup request in any channel where Responder is invited, even when that channel is not otherwise a
 summon or proactive channel.
 
-`/responder preferences` and `/responder rules` list active and disabled entries with enable,
+App Home and the control plane list active and disabled entries with enable,
 disable, edit, and delete controls. An enabled standing rule may admit only its deterministic
 message type even when broad proactive triage is off. A match asks the model to evaluate the event;
 it does not force a reply. The model may ignore an intermediate or duplicate event, react when that
@@ -443,7 +443,7 @@ Configured operators can also create one-time and recurring tasks in ordinary la
 in 4 hours`, `every weekday at 09:00 check production health`, or `on the first of each month prepare
 an SRE review`. Emisar replies with a confirmation card containing the normalized task, destination,
 repository, recurrence, timezone, next run, expiry, and safety boundary. Nothing runs until an
-operator confirms it. `/responder schedules` lists the current channel's tasks with run-now,
+operator confirms it. App Home and the control plane list the current channel's tasks with run-now,
 pause/resume, replace, and delete controls.
 
 Schedules are durable wake-ups, not stored authority. Each occurrence enters the normal Slack/Coop
@@ -458,22 +458,21 @@ posting or creating an incident.
 
 Every accepted model-backed request also creates a durable commitment before execution. The
 commitment follows the underlying run through queued, working, finishing, done, blocked, or
-cancelled state and survives restart. Ask `what are you working on?`, run `/responder work`, or
+cancelled state and survives restart. Ask `what are you working on?` or
 open App Home to see the exact request, current status, and next operator action. This is distinct
 from memory: a commitment is work Emisar owes the team, not a fact to reuse later.
 
-`/responder incidents` lists open incidents with native Slack channel mentions and labels retained
-channel names when a room is archived, deleted, or unavailable;
-`/responder incidents all [page]` includes closed history. `/responder help` explains the complete
-command surface and provides read-only buttons for current-channel status and incident directories.
+App Home and the control plane list open incidents with native Slack channel mentions and label
+retained channel names when a room is archived, deleted, or unavailable, including closed
+history. `/responder help` explains the emergency command kit and provides read-only buttons for current-channel status and incident directories.
 Slack exposes only one static usage hint for a slash command, so the manifest keeps that picker text
 short and moves detailed guidance into this interactive response. The same command also exposes
 `timeline`, `evidence`, `handoff`, `postmortem`, `update`, `changes`, `review`, `publish`, `stop`, and
 `close` in an incident room. The remediation timeline is derived from the alert, agent runs,
 evidence, Emisar approvals, and draft-PR publication state instead of copying those
 facts into a second incident system. Closing posts the same evidence-grounded post-incident draft
-that `/responder postmortem` can regenerate from the durable record. Responder automatically
-allocates more Coop session capacity as authorized requests arrive. `/responder turn-limit` shows
+that the pinned card's postmortem control can regenerate from the durable record. Responder automatically
+allocates more Coop session capacity as authorized requests arrive. The `coop.turn_limit` deployment setting shows
 or changes the channel or workspace lifetime safety ceiling; operators do not estimate how many
 turns an investigation needs. Commands are deterministic, operator-authorized, durably processed,
 and never interpreted by the model.
