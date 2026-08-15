@@ -561,13 +561,25 @@ func unknownCoverageCorrection(
 	boundedTerminalFailure := contract.Completion.ConclusionKind == "change_review" &&
 		completion.Verdict == "failed" && change.Status == "unhealthy" &&
 		strings.TrimSpace(completion.NextAction) != ""
+	// The kind half is unknownCoverageAnswersClaim, shared with the ledger; the
+	// verdict half stays here, because which verdicts rest on an unknown is a
+	// question about the completion rather than about a claim.
+	//
+	// operational_health is named first and deliberately defers to the ledger.
+	// Routing it through the shared table would refuse an unknown non-SLO layer
+	// here, one validator earlier — with "either continue the investigation or
+	// return blocked", instead of the correction c07462c wrote, which names the
+	// coverage row, the operation that clears it, and the fact that nothing
+	// contradicts the claim. The refusal is the same; only its usefulness would
+	// change.
 	unknownAllowed := contract.Completion.ConclusionKind == "operational_health" ||
-		(contract.Completion.ConclusionKind == "change_review" &&
-			(completion.Verdict == "in_progress" || completion.Verdict == "needs_review" ||
-				completion.Verdict == "inconclusive" || boundedTerminalFailure)) ||
-		(contract.Completion.ConclusionKind == "factual_assessment" &&
-			(completion.Verdict == "" || completion.Verdict == "not_confirmed" ||
-				completion.Verdict == "inconclusive"))
+		(unknownLayersAnswered(contract, unknown) &&
+			((contract.Completion.ConclusionKind == "change_review" &&
+				(completion.Verdict == "in_progress" || completion.Verdict == "needs_review" ||
+					completion.Verdict == "inconclusive" || boundedTerminalFailure)) ||
+				(contract.Completion.ConclusionKind == "factual_assessment" &&
+					(completion.Verdict == "" || completion.Verdict == "not_confirmed" ||
+						completion.Verdict == "inconclusive"))))
 	if !unknownAllowed || (len(completion.MaterialGaps) > 0 && !gapsCannotReverseVerdict(completion)) {
 		return "the result claims decision_ready while material coverage remains unknown; either continue the investigation or return blocked with the exact next action"
 	}

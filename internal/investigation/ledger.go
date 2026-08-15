@@ -438,7 +438,7 @@ func claimResolution(
 	switch view.State {
 	case ClaimSupported:
 		return coverage.Status == "healthy" ||
-			(completion.ConclusionKind == "change_review" && coverage.Status == "unknown")
+			unknownCoverageAnswersClaim(completion, view.Requirement, coverage.Status)
 	case ClaimMixed:
 		// A contradiction every supporting observation post-dates is history,
 		// not a live disagreement, and the claim has recovered rather than
@@ -461,20 +461,90 @@ func claimResolution(
 		// is a disagreement about now rather than a record of something fixed.
 		if contradictionsPredateSupport(view) {
 			return coverage.Status == "healthy" ||
-				(completion.ConclusionKind == "change_review" && coverage.Status == "unknown")
+				unknownCoverageAnswersClaim(completion, view.Requirement, coverage.Status)
 		}
 		return materialHealthEffectPresent(view, coverage.Status)
 	case ClaimContradicted:
 		return materialHealthEffectPresent(view, coverage.Status)
 	case ClaimUnknown:
-		return (completion.AllowUnknownSLO && view.Requirement.Layer == "slo" &&
-			view.Requirement.Required && coverage.Status == "unknown") ||
-			(completion.ConclusionKind == "factual_assessment" && coverage.Status == "unknown")
+		return unknownCoverageAnswersClaim(completion, view.Requirement, coverage.Status)
 	case ClaimNotApplicable:
 		return coverage.Status == "not_applicable"
 	default:
 		return false
 	}
+}
+
+// unknownCoverageAnswersClaim is the single rule for whether a coverage row
+// reading "unknown" answers a required claim or leaves a hole in it. Both
+// completion validators ask it, because they used to answer differently and the
+// model heard both answers about one claim.
+//
+// It answers by conclusion kind, and it answers the same whether or not the
+// model recorded supporting evidence. That second half is the defect c07462c
+// exposed without fixing: claimResolution resolved an UNKNOWN claim on unknown
+// coverage for factual_assessment and never a SUPPORTED one, so a claim with
+// nothing recorded against it closed while the same claim carrying a supporting
+// observation stayed open. Recording evidence strictly narrowed the model's
+// exits — it was refused for having done more work — and change_review had the
+// mirror image, where evidence opened an exit the bare claim did not have.
+// Neither direction is defensible: support is not what decides whether an
+// unknown is an answer.
+//
+// What decides is whether the conclusion has a verdict that rests on an
+// unknown. A change review calls one in_progress or inconclusive, and
+// changeReviewVerdictCorrection *requires* unknown change coverage for
+// in_progress; a factual assessment calls one inconclusive or not_confirmed,
+// and the contract says outright that a known incomplete or unpublished state
+// is a decision-ready result. An engineering result and a direct answer have no
+// such verdict, so an unknown there is unfinished work.
+//
+// operational_health is deliberately absent, and the SLO exception is the whole
+// of what it gets. "Healthy" resting on a layer the model has just written down
+// as unknown is the unsupported success claim the ledger exists to refuse, and
+// for an incident investigation the ledger is the only thing refusing it:
+// CompletionCorrection runs operationalHealthVerdictCorrection only when the
+// effort is an operational assessment, and unknownCoverageCorrection permits
+// unknown coverage for every operational_health verdict. Adding it here would
+// have taken the last guard off the recorded envelope this rule was tested
+// against.
+//
+// The row must still explain itself. claimResolution refuses a coverage row
+// with no detail before reaching here, and episodeCoverageState refuses an
+// unknown layer that explains no evidence gap, because "unknown" with nothing
+// beside it is indistinguishable from not having looked.
+func unknownCoverageAnswersClaim(
+	completion CompletionRule,
+	requirement ClaimRequirement,
+	status string,
+) bool {
+	if status != "unknown" {
+		return false
+	}
+	if completion.AllowUnknownSLO && requirement.Layer == "slo" && requirement.Required {
+		return true
+	}
+	switch completion.ConclusionKind {
+	case "change_review", "factual_assessment":
+		return true
+	default:
+		return false
+	}
+}
+
+// unknownLayersAnswered asks the rule above for every layer that came back
+// unknown, so unknownCoverageCorrection and the ledger read one table rather
+// than two lists that drift.
+func unknownLayersAnswered(contract InvestigationContract, unknown []string) bool {
+	for _, layer := range unknown {
+		for _, requirement := range contract.Claims {
+			if requirement.Layer == layer &&
+				!unknownCoverageAnswersClaim(contract.Completion, requirement, "unknown") {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // conflictResolutions states the moves that actually close a conflict.

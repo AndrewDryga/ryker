@@ -910,7 +910,18 @@ var lineBudget = map[string]int{
 	// measurement of the change that set it, which is the tripwire the note at
 	// the top of this map describes: this landed two lines over a number that
 	// had no margin at all, so the raise restores one.
-	"investigation": 2010,
+	//
+	// Raised to 2030 on 2026-08-15 for the two rules the completion validators
+	// had been holding separately. Whether a bounded unknown may sit under a
+	// decision_ready verdict was answered one way by the envelope check and
+	// another by the correction loop; whether an unknown coverage row answers a
+	// required claim was answered one way for a claim with supporting evidence
+	// and another for the same claim without it. Both are now one named
+	// predicate the two callers ask, at 2017 measured — the second rule cost
+	// more in the comment that says why operational_health is not on its list
+	// than in the switch, which is the right ratio for a rule whose last
+	// version was two lists nobody could see at once.
+	"investigation": 2030,
 	// These packages own policy and data transformations that used to sit in
 	// the broad service, store, decision, and investigation packages. Register
 	// every extraction here so moving code cannot evade the architecture ratchet.
