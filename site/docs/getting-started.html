@@ -5,6 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Run it — Responder docs</title>
 <meta name="description" content="One binary, one config file, one Slack app. What the first hour of running Responder looks like.">
+<!-- Unfurl metadata. og:image is root-relative; most unfurlers need absolute
+     URLs, so point og:image (and add og:url + rel=canonical) at the real domain
+     when the site gets one — a one-line substitution at publish time. -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="Run it — Responder docs">
+<meta property="og:description" content="One binary, one config file, one Slack app. What the first hour of running Responder looks like.">
+<meta property="og:image" content="../assets/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Run it — Responder docs">
+<meta name="twitter:description" content="One binary, one config file, one Slack app. What the first hour of running Responder looks like.">
+
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
 <link rel="preload" href="../assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
@@ -60,7 +71,7 @@
           <p class="grp">Operating it</p>
           <ul>
             <li><a href="control-plane.html">The control plane</a></li>
-            <li><a href="operations.html">Running it</a></li>
+            <li><a href="operations.html">Operating it</a></li>
           </ul>
         </nav>
       </div>
@@ -101,7 +112,7 @@
       <li><a href="https://github.com/AndrewDryga/coop">Coop</a>, running its local session API. Coop owns the model session, the isolated fork, and the box the agent runs in.</li>
       <li>A model account Coop can sign into. Bring your own; several providers work, and you can list more than one.</li>
       <li>A Slack workspace where you can create an app.</li>
-      <li>An observe-scoped Emisar API key, for live infrastructure evidence.</li>
+      <li>An observe-scoped API key for Emisar — the infrastructure authority Responder acts through — for live infrastructure evidence.</li>
       <li>A TLS reverse proxy, only if you want to receive webhooks from outside the host.</li>
     </ul>
 

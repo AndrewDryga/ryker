@@ -1526,6 +1526,7 @@ summary.index-head:focus-visible { outline-offset: -2px; }
 .data-more { margin-top: var(--s-2); font-size: var(--t-meta); line-height: var(--lh-tight); }
 
 .cannot {
+  align-self: start;
   padding: var(--s-4) var(--s-3);
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -2389,3 +2390,25 @@ summary.index-head:focus-visible { outline-offset: -2px; }
   .index-list { break-inside: avoid; }
   .index-head { break-after: avoid; }
 }
+
+
+/* The install block's clone URL must never wrap: a URL broken across lines is
+   the one thing a copy-paste block cannot show. It scrolls instead — the string
+   a reader selects is whole either way. */
+.install pre { white-space: pre; overflow-x: auto; text-indent: 0; }
+
+/* Footer rows all anchor left on narrow screens; the zig-zag of alternating
+   alignment read as an accident on the only surface where alignment was not
+   deliberate. */
+@media (max-width: 640px) {
+  .foot-in { justify-content: flex-start; }
+  .foot-in > * { margin-inline-start: 0; }
+}
+
+/* Standalone controls reach the 40px platform tap floor; WCAG's 24px minimum
+   was met before, but a fingertip does not shrink for a wordmark. Padding,
+   not layout: flex centring keeps every baseline where it was. */
+.wordmark, .nav-links a, .copy { min-height: 40px; display: inline-flex; align-items: center; }
+
+/* Prose links get the same press feedback every other control has. */
+.doc a:active, .trust-data a:active, .install-more a:active { opacity: .7; }
