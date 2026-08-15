@@ -16,16 +16,43 @@
    ---------------------------------------------------------------------------
    THE RHYTHM SYSTEM, in one place, because everything below depends on it.
 
-   1. SPACE is strictly 8px. Every margin, padding, gap, and section band in
-      this file is a multiple of --u (8px), fluid bands included: their clamp
-      endpoints are 8px multiples too.
-   2. LEADING is on a 4px sub-grid — 20/24/28/32 — because a 16-17px body
-      column cannot be set at 1.65 line-height and land on 8px (24px is 1.41,
-      32px is 1.88; both are wrong for reading). Two lines of body text
-      therefore measure 56px, exactly seven baseline units, so a paragraph
-      with an even line count returns to the grid.
-   3. DISPLAY type is optically set, not grid set. It is fluid via clamp(),
-      so a px leading is not expressible; it takes a ratio and the opsz axis.
+   This block used to open "SPACE is strictly 8px. Every margin, padding, gap,
+   and section band in this file is a multiple of --u." That was never true —
+   sixty-one spacing values in this file are not multiples of eight, and the
+   fluid band is 155.2px at 1440 — and a stylesheet on a site about naming what
+   you cannot verify is the last place to leave a claim like that standing. The
+   real system is three rules, and it is a better system than the one the old
+   sentence described.
+
+   1. STRUCTURE is strictly 8px, and structure means everything that positions
+      one block against another: section bands, grid gaps, the space above and
+      below a heading, the wrap's gutters. All of it comes from --s-1 … --s-11,
+      and nothing outside that scale is allowed to set it.
+   2. COMPONENT INTERNALS are optically set against their own text, not against
+      the page grid. A button is 11px/20px because 14px on a 24px line needs a
+      46px box; an evidence row is 9px because 13px on 24px needs 42; a status
+      dot is 7px because 8px reads as a bullet. Forcing these to eight would
+      make the components worse to keep a number tidy, so they are the second
+      system on purpose — and they are always inside a component, never between
+      two of them.
+   3. FLUID BANDS are 8px-anchored at BOTH clamp endpoints and interpolate off
+      the grid in between: --band is 72 at 400 and under and 160 at 1500 and
+      over, so at 1440 it lands on 155.2. Nothing is aligned across a band
+      boundary — a band is the empty space between two sections — so the
+      off-grid middle is unobservable, and round(<value>, 8px) would buy a true
+      sentence and no visible pixel. Two bands take a FRACTION of --band
+      (.credo at .55, .band-tight at .62) and are therefore off-grid at both
+      ends by construction: those are proportions of the band, not multiples of
+      the unit, and they are the only two.
+
+   LEADING is on a 4px sub-grid — 20/24/28/32 — because a 16-17px body column
+   cannot be set at 1.65 line-height and land on 8px (24px is 1.41, 32px is
+   1.88; both are wrong for reading). Two lines of body text therefore measure
+   56px, exactly seven baseline units, so a paragraph with an even line count
+   returns to the grid.
+
+   DISPLAY type is optically set, not grid set. It is fluid via clamp(), so a
+   px leading is not expressible; it takes a ratio and the opsz axis.
 
    A heading owns the space above it: --space-above is 2x --space-below at
    every level, so a section reads as a block that begins at its title rather
@@ -334,7 +361,13 @@ time, .num, .mono, .tag, table td.num, table th.num { font-variant-numeric: tabu
   line-height: 1.16;
   letter-spacing: -.025em;
 }
-.section-head p {
+/* The child-and-not is load-bearing, not fussiness. `.section-head p` is one
+   class and one type; `.eyebrow` is one class, and it loses — so every eyebrow
+   on this page shipped at 19px in --dim with the eyebrow's own letter-spacing
+   and uppercase still applied, which reads as a broken subtitle rather than as
+   the 12px mono-weight label that was authored. The whole hierarchy the file
+   above describes was overwritten by the rule for the paragraph beneath it. */
+.section-head > p:not(.eyebrow) {
   margin-top: var(--s-3);
   max-width: var(--measure);
   color: var(--dim);
@@ -377,6 +410,7 @@ time, .num, .mono, .tag, table td.num, table th.num { font-variant-numeric: tabu
   letter-spacing: -.012em;
 }
 .wordmark:hover { color: var(--ink); text-decoration: none; }
+.wordmark:active { transform: translateY(1px); }
 .wordmark svg { display: block; }
 
 .nav-links {
@@ -392,6 +426,10 @@ time, .num, .mono, .tag, table td.num, table th.num { font-variant-numeric: tabu
   transition: color .12s ease;
 }
 .nav-links a:hover { color: var(--ink); text-decoration: none; }
+/* Every interactive thing on this site answers a press, not just a hover. A
+   touch screen has no hover state at all, so without this the whole nav is a
+   set of words that give no sign they were hit. */
+.nav-links a:active { color: var(--accent); }
 .nav-links a.on { color: var(--ink); }
 
 .nav-menu { margin-left: auto; display: none; }
@@ -414,6 +452,7 @@ time, .num, .mono, .tag, table td.num, table th.num { font-variant-numeric: tabu
 .nav-menu > summary::after { content: "+"; color: var(--faint-t); font-family: var(--mono); }
 .nav-menu[open] > summary::after { content: "\2212"; }
 .nav-menu[open] > summary { border-color: var(--faint); color: var(--ink); }
+.nav-menu > summary:active { transform: translateY(1px); }
 
 .nav-drawer {
   position: absolute;
@@ -433,6 +472,7 @@ time, .num, .mono, .tag, table td.num, table th.num { font-variant-numeric: tabu
 }
 .nav-drawer a:last-child { border-bottom: 0; }
 .nav-drawer a:hover { color: var(--accent); text-decoration: none; }
+.nav-drawer a:active { color: var(--accent); transform: translateY(1px); }
 
 @media (max-width: 780px) {
   .nav-links { display: none; }
@@ -470,6 +510,33 @@ time, .num, .mono, .tag, table td.num, table th.num { font-variant-numeric: tabu
   font-weight: 650;
 }
 .btn.go:hover { background: var(--accent); border-color: var(--accent); color: #09090b; }
+/* Pressed, not bounced. The hover lifts one pixel, so the press has to put it
+   back down and one further — otherwise a tap on a touch screen, which never
+   sees the hover, gets no acknowledgement at all. */
+.btn:active { transform: translateY(1px); }
+
+/* The third action. Three buttons in a 416px hero column is a wall, and the
+   third of three is not a button — it is where you go when neither of the
+   first two is what you wanted. Set like the nav links it sits beside in
+   importance: dim, ink on hover, and padded to the same 46px the buttons
+   stand at so the row keeps one baseline and one tap height. */
+.btn-quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 11px 4px;
+  color: var(--dim);
+  font-size: var(--t-small);
+  font-weight: 550;
+  line-height: var(--lh-tight);
+  letter-spacing: -.005em;
+  white-space: nowrap;
+  transition: color .12s ease, transform .12s ease;
+}
+.btn-quiet:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
+.btn-quiet:active { transform: translateY(1px); }
+
+.arr { opacity: .6; }
 .btn .arr { color: currentColor; opacity: .55; }
 
 .btn-row { display: flex; flex-wrap: wrap; gap: var(--s-2); }
@@ -505,18 +572,29 @@ time, .num, .mono, .tag, table td.num, table th.num { font-variant-numeric: tabu
    Stacked, the vignette began below a 520x480 hole beside the headline and
    its verdict landed under the fold — a hero that shows only the claim is
    asking to be believed, which is the one thing this product does not do.
-   Above 1200 the wrap is already at its 1120 maximum, so the two columns
-   are the same width at every larger viewport: 416 for the sentence, 576
-   for the trace. The display size steps down to fit its narrower column;
-   it is still four times the body. */
+   Above 1200 the wrap is already at its 1120 maximum, so the two columns are
+   the same width at every larger viewport: 1040 of content, 48 of gap, and
+   576 for the trace leaves 416 for the sentence. Those are the three numbers
+   this comment has always claimed; the trace column was 37.5rem, which made
+   them 392/48/600, so the columns were moved to the documented intent rather
+   than the comment to the shipped accident.
+
+   And 416 is the number the headline needs. At 52px "that shows its work."
+   measures 436 and could not fit any column this layout can give it, so the
+   line broke as "The first / responder that / shows its work." — the noun
+   split from its own relative clause, in the one sentence on the page that
+   has to read in one go. At 48px the two lines measure 382 and 400, both
+   inside 416, and `balance` has exactly one legal two-line split to find. */
 @media (min-width: 1200px) {
   .hero-in {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 37.5rem);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 36rem);
     gap: var(--s-6);
     align-items: center;
   }
-  .hero-in h1.display { font-size: 3.25rem; max-width: 15ch; }
+  /* The ch clamp is the belt; the 416px column is the braces, and it is the
+     column that does the work at every width from 1200 up. */
+  .hero-in h1.display { font-size: 3rem; max-width: 22ch; }
   .hero-in .hero-sub { max-width: 36ch; font-size: var(--t-body-lg); line-height: var(--lh-loose); }
   .hero-in .vignette { margin-top: 0; }
 }
@@ -698,20 +776,24 @@ h1.display {
 .vig-verdict.warn b { color: var(--warn); }
 
 /* The stagger. Each part arrives in the order the episode produced it, which
-   is the only reason the motion is here: it is a sequence, not an entrance. */
+   is the only reason the motion is here: it is a sequence, not an entrance.
+
+   And a sequence has to finish. At an .18s step and a .5s rise the four parts
+   took 1.14s, which is a second of a visitor's first second spent watching the
+   argument assemble itself instead of reading it. A .14s step and a .4s rise
+   put the last pixel down at .86s — still legibly in order, and done before
+   anyone has finished the headline. The fifth child onwards is pinned rather
+   than extrapolated, so adding a row to the vignette can never push the total
+   past that budget. */
 @media (prefers-reduced-motion: no-preference) {
   .stagger > * {
     opacity: 0;
-    animation: rise .5s cubic-bezier(.22, .8, .3, 1) forwards;
+    animation: rise .4s cubic-bezier(.22, .8, .3, 1) forwards;
   }
-  .stagger > *:nth-child(1) { animation-delay: .10s; }
-  .stagger > *:nth-child(2) { animation-delay: .28s; }
-  .stagger > *:nth-child(3) { animation-delay: .46s; }
-  .stagger > *:nth-child(4) { animation-delay: .64s; }
-  .stagger > *:nth-child(5) { animation-delay: .82s; }
-  .stagger > *:nth-child(6) { animation-delay: 1.00s; }
-  .stagger > *:nth-child(7) { animation-delay: 1.18s; }
-  .stagger > *:nth-child(8) { animation-delay: 1.36s; }
+  .stagger > *:nth-child(1) { animation-delay: .04s; }
+  .stagger > *:nth-child(2) { animation-delay: .18s; }
+  .stagger > *:nth-child(3) { animation-delay: .32s; }
+  .stagger > *:nth-child(n+4) { animation-delay: .46s; }
 
   @keyframes rise {
     from { opacity: 0; transform: translateY(6px); }
@@ -844,7 +926,11 @@ h1.display {
   line-height: 1.18;
   letter-spacing: -.028em;
 }
-.step-text p {
+/* Same defect as `.section-head p`, same shape of fix: `.step-text p` outranked
+   `.step-num`, so "STEP 01" shipped 19px and grey with its accent green and its
+   11px thrown away. The rule that styles the body copy must not be able to
+   reach the label above it. */
+.step-text > p:not(.step-num) {
   margin-top: var(--s-3);
   max-width: 46ch;
   color: var(--dim);
@@ -853,6 +939,12 @@ h1.display {
 }
 
 /* Mock panels ------------------------------------------------------------- */
+
+/* Every mock is a <figure> now, and a figure carries 40px of UA margin on each
+   side. Left alone that is the bug the vignette already documents: the panel
+   pushes past its grid column, widens the document, and takes the page's
+   centring with it. */
+.mock, .mock-slack { margin: 0; }
 
 .mock {
   border: 1px solid var(--line);
@@ -888,6 +980,20 @@ h1.display {
    the gap is the only thing separating them. Eight pixels read as one run-on
    string; sixteen reads as a label and its note. */
 .mock-note .tag { flex: none; color: var(--faint-t); }
+
+/* Provenance. None of these panels is a screenshot — they are drawn from the
+   same parts the product draws from, but the incident in them never happened,
+   and a page arguing that every claim should name its source cannot show five
+   constructed ones without saying so. It takes its own line, last, under every
+   mock including the vignette, so the admission is in the same place every
+   time rather than wherever it happened to fit. */
+.mock-note .prov {
+  flex: 1 0 100%;
+  color: var(--quiet-t);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: .01em;
+}
 /* On a phone the note wrapped inside itself — "one rung, / per / message" —
    because it was sharing a row with a label that would not shrink. Below 480
    it takes its own line whole. */
@@ -1231,65 +1337,57 @@ h1.display {
   font-size: var(--t-micro);
 }
 
-/* Features ---------------------------------------------------------------- */
-
-.cards {
-  display: grid;
-  gap: 1px;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--line);
-  overflow: hidden;
-}
-.card {
-  padding: var(--s-4) var(--s-3);
-  background: var(--panel);
-  transition: background .14s ease;
-}
-.card:hover { background: var(--panel-2); }
-.card .tag { display: flex; align-items: center; gap: 7px; margin-bottom: var(--s-2); }
-.card .tag::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--quiet); }
-.card h3 { font-size: var(--t-h4); line-height: var(--lh-tight); letter-spacing: -.018em; }
-.card p {
-  margin-top: 10px;
-  max-width: 34ch;
-  color: var(--dim);
-  font-size: var(--t-meta);
-  line-height: var(--lh-tight);
-  text-wrap: balance;
-}
-
 /* Capability index -------------------------------------------------------- */
 
-.index-groups { display: grid; gap: var(--s-9); }
+/* Fifty-one facts, and the client keeps all fifty-one — so the scroll is the
+   problem to solve, not the list. The sixteen an on-call engineer actually
+   touches stay open; the other three groups fold behind a header that says how
+   many are inside, so the page offers a table of contents where it used to
+   offer eight hundred pixels of undifferentiated rows. Nothing is removed and
+   nothing is summarised: a fold is a promise about length, not about content,
+   and print opens every one of them again. */
+.index-groups { display: grid; gap: var(--s-6); }
+.index-group { display: block; }
 
-/* Fifty-one one-line facts is a long scroll, and it was undifferentiated:
-   every row the same weight, every group header the same weight as the rows
-   under it. The header column gives up 2rem and the column gap 16px, which
-   is 56px more measure per column — enough to pull the worst two-word last
-   lines back up. */
-.index-group {
-  display: grid;
-  gap: var(--s-3) var(--s-5);
-  grid-template-columns: minmax(0, 1fr);
+/* One header row per group, open or folded, so the four read as four rows of a
+   single list rather than as one section and three widgets. The dot is the
+   page's own group mark, the count is a machine fact and is set as one, and
+   the row clears 48px because a fold you cannot hit with a thumb is a fold. */
+.index-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 48px;
+  padding: var(--s-1) 0;
+  border-bottom: 1px solid var(--line);
+  list-style: none;
 }
-@media (min-width: 900px) {
-  .index-group { grid-template-columns: 12rem minmax(0, 1fr); }
-}
-
-.index-group > header { position: sticky; top: calc(var(--nav-h) + var(--s-3)); align-self: start; }
-@media (max-width: 899px) { .index-group > header { position: static; } }
-
-.index-group h3 {
+.index-head::-webkit-details-marker { display: none; }
+.index-head h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: var(--t-h3);
   font-weight: 700;
   line-height: 1.25;
   letter-spacing: -.022em;
+  text-wrap: pretty;
+}
+.index-head h3::before {
+  content: "";
+  flex: none;
+  align-self: center;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  box-shadow: 0 0 8px rgb(54 230 165 / .4);
 }
 /* The count is a machine fact, so it is set in mono, one step down, and it
    is there to tell you how much of this group is left. */
-.index-group h3 .n {
+.index-head h3 .n {
   color: var(--faint-t);
   font-family: var(--mono);
   font-size: var(--t-meta);
@@ -1297,8 +1395,41 @@ h1.display {
   letter-spacing: 0;
   white-space: nowrap;
 }
-.index-group header p {
-  margin-top: 10px;
+
+/* The chevron is the whole affordance: a rotating hairline corner, drawn from
+   two borders so it needs no glyph and no icon font. */
+summary.index-head { cursor: pointer; }
+summary.index-head::after {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-left: var(--s-1);
+  border-right: 1.5px solid var(--faint-t);
+  border-bottom: 1.5px solid var(--faint-t);
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform .16s ease, border-color .12s ease;
+}
+details[open] > summary.index-head::after { transform: translateY(2px) rotate(-135deg); }
+summary.index-head:hover { border-bottom-color: var(--faint); }
+summary.index-head:hover .n,
+summary.index-head:hover::after { color: var(--ink); border-color: var(--ink); }
+summary.index-head:active { transform: translateY(1px); }
+summary.index-head:focus-visible { outline-offset: -2px; }
+
+/* The header column gives up 2rem and the column gap 16px, which is 56px more
+   measure per column — enough to pull the worst two-word last lines back up. */
+.index-in {
+  display: grid;
+  gap: var(--s-3) var(--s-5);
+  grid-template-columns: minmax(0, 1fr);
+  padding-top: var(--s-3);
+}
+@media (min-width: 900px) {
+  .index-in { grid-template-columns: 12rem minmax(0, 1fr); }
+  .index-note { position: sticky; top: calc(var(--nav-h) + var(--s-3)); align-self: start; }
+}
+.index-note {
   color: var(--faint-t);
   font-size: var(--t-meta);
   line-height: var(--lh-tight);
@@ -1314,9 +1445,10 @@ h1.display {
 }
 @media (min-width: 640px) { .index-list { columns: 2; column-gap: var(--s-5); } }
 
-/* Balanced, not ragged. A three-line fact that ended on "a command." read as
-   a mistake fifty rows into a list of them. */
-.index-list li span { text-wrap: balance; }
+/* No `balance` here. It was set to stop a three-line fact ending on two words,
+   and it did — by evening out every one of the fifty-one, which is what balance
+   is for and is the wrong tool at this count: the site's `pretty` default fixes
+   the orphan without re-ragging the forty-nine rows that were already fine. */
 
 .index-list li {
   break-inside: avoid;
@@ -1372,6 +1504,26 @@ h1.display {
   background: var(--accent-dim);
   box-shadow: 0 0 8px rgb(54 230 165 / .4);
 }
+
+/* "Self-hosted" is a word on a page until somebody writes down where the bytes
+   actually go. This block is four sentences and a link, set at the density of
+   the panel beside it so it reads as the other half of the same answer rather
+   than as a second section. */
+/* No rule of its own: the checks list above already ends on one, and a second
+   hairline 48px under the first reads as a mistake rather than as a boundary. */
+.data-where { margin-top: var(--s-6); }
+.data-where h3 { font-size: var(--t-h4); line-height: var(--lh-tight); letter-spacing: -.018em; }
+.data-where > p {
+  margin-top: var(--s-2);
+  max-width: var(--measure-narrow);
+  color: var(--dim);
+  font-size: var(--t-meta);
+  line-height: var(--lh-body);
+}
+/* [REDACTED] is what the archive literally contains, so it is set as the token
+   it is — mono, quiet, no chip. */
+.data-where code { color: var(--faint-t); font-size: .9375em; }
+.data-more { margin-top: var(--s-2); font-size: var(--t-meta); line-height: var(--lh-tight); }
 
 .cannot {
   padding: var(--s-4) var(--s-3);
@@ -1469,6 +1621,10 @@ h1.display {
    does not need a second box inside a box. */
 .install-note code { color: var(--dim); font-size: .9375em; }
 
+/* Two commands are a claim about how easy this is; this is the link for the
+   reader who wants to check the claim before running either of them. */
+.install-more { margin-top: var(--s-2); font-size: var(--t-meta); line-height: var(--lh-tight); }
+
 /* Copy buttons ------------------------------------------------------------ */
 
 /* Built by script, so a page with no script never shows a button that does
@@ -1495,6 +1651,7 @@ h1.display {
 .copy-wrap:hover .copy,
 .copy:focus-visible { opacity: 1; }
 .copy:hover { color: var(--ink); border-color: var(--faint); }
+.copy:active { transform: translateY(1px); }
 .copy.done { color: var(--accent); border-color: var(--accent-dim); opacity: 1; }
 /* Touch has no hover, so there the button is simply always there. */
 @media (hover: none) {
@@ -1514,6 +1671,18 @@ h1.display {
 .foot .sep { color: var(--quiet-t); }
 .foot a { color: var(--dim); }
 .foot a:hover { color: var(--accent); }
+.foot a:active { color: var(--accent); transform: translateY(1px); }
+/* A 13px link on a 24px line is a 34px target, and a thumb wants 40. The
+   height is bought with vertical padding inside a flex row that centres its
+   items, so the links grow into space the footer already had and nothing to
+   the left or right of them moves. */
+.foot nav a,
+.foot-sub a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding-block: var(--s-1);
+}
 /* The site signs its own name in ink. Set in --faint it was quieter than the
    nav links beside it, which is the wrong order of importance. */
 .foot .state { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-weight: 550; }
@@ -1581,8 +1750,10 @@ h1.display {
 .docs-nav .grp:first-child { margin-top: 0; }
 .docs-nav ul { margin: 0; padding: 0; list-style: none; }
 .docs-nav a {
-  display: block;
-  padding: 6px 0 6px 14px;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: var(--s-1) 0 var(--s-1) 14px;
   border-left: 2px solid var(--line-2);
   color: var(--dim);
   font-size: var(--t-meta);
@@ -1590,6 +1761,7 @@ h1.display {
   transition: color .12s ease, border-color .12s ease;
 }
 .docs-nav a:hover { color: var(--ink); border-left-color: var(--faint); text-decoration: none; }
+.docs-nav a:active { color: var(--accent); }
 .docs-nav a.on {
   color: var(--ink);
   border-left-color: var(--accent);
@@ -1998,6 +2170,7 @@ h1.display {
   transition: transform .12s ease, border-color .12s ease;
 }
 .doc-next a:hover { transform: translateY(-1px); border-color: var(--faint); text-decoration: none; }
+.doc-next a:active { transform: translateY(1px); border-color: var(--faint); }
 .doc-next .k {
   display: block;
   color: var(--quiet-t);
@@ -2043,12 +2216,15 @@ h1.display {
 .doc-toc li + li { margin-top: 0; }
 .doc-toc ul > li::before { display: none; }
 .doc-toc li a {
-  display: block;
-  padding: 5px 0;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: var(--s-1) 0;
   color: var(--dim);
   text-decoration: none;
 }
 .doc-toc li a:hover { color: var(--ink); text-decoration: none; }
+.doc-toc li a:active { color: var(--accent); }
 
 .toc { display: none; }
 @media (min-width: 1180px) {
@@ -2072,14 +2248,17 @@ h1.display {
 }
 .toc ul { margin: 0; padding: 0; list-style: none; }
 .toc a {
-  display: block;
-  padding: 5px 0 5px 12px;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: var(--s-1) 0 var(--s-1) 12px;
   border-left: 1px solid var(--line-2);
   color: var(--faint-t);
   font-size: var(--t-meta);
   line-height: var(--lh-tight);
 }
 .toc a:hover { color: var(--ink-2); border-left-color: var(--faint); text-decoration: none; }
+.toc a:active { color: var(--accent); }
 .toc a.on { color: var(--accent-dim); border-left-color: var(--accent-dim); }
 
 /* Doc-page index cards ---------------------------------------------------- */
@@ -2104,6 +2283,7 @@ h1.display {
   background: var(--panel-2);
   text-decoration: none;
 }
+.next-grid a:active { transform: translateY(1px); background: var(--panel-2); }
 .next-grid .t {
   display: flex;
   align-items: center;
@@ -2125,6 +2305,9 @@ h1.display {
 
 @media (max-width: 480px) {
   .btn { width: 100%; justify-content: center; }
+  /* The tertiary link joins the stack rather than hanging off its left edge.
+     It keeps no border, so it still reads as the third of three. */
+  .btn-quiet { width: 100%; justify-content: center; }
   .btn-row { gap: var(--s-1); }
   .vig-row { grid-template-columns: 7px minmax(0, 1fr); }
   .vig-row .src { grid-column: 2; }
@@ -2142,5 +2325,67 @@ h1.display {
 
 @media print {
   .nav, .toc, .docs-nav, .doc-next { display: none; }
-  body { background: #fff; color: #000; }
+
+  /* Print used to set two colors on <body> and stop, which meant every rule
+     below that names a token kept its dark-surface value: on paper the
+     capability index printed its fifty-one bold labels in --ink, and --ink is
+     #f4f4f5. Fifty-one invisible labels. Because the whole stylesheet reads
+     colors through tokens, inverting the tokens once fixes the document — and
+     it is the only honest way to do it, since a page that lists what a product
+     cannot do had better be readable in the meeting where somebody printed it. */
+  :root {
+    --bg: #fff;
+    --panel: #fff;
+    --panel-2: #fafafa;
+    --line: #d4d4d8;
+    --line-2: #e4e4e7;
+    --ink: #09090b;
+    --ink-2: #27272a;
+    --dim: #3f3f46;
+    --faint: #a1a1aa;
+    --quiet: #a1a1aa;
+    --faint-t: #52525b;
+    --quiet-t: #52525b;
+    --accent: #056f4c;
+    --accent-dim: #056f4c;
+    --accent-ghost: transparent;
+    --warn: #92400e;
+    --bad: #9f1239;
+    --good: #056f4c;
+  }
+  body { background: #fff; color: var(--ink-2); }
+  .dot, .checks li::before, .eyebrow::before, .index-head h3::before { box-shadow: none; }
+  .hero::before { display: none; }
+
+  /* Paper has no disclosure triangle. A folded capability group must print all
+     twelve of its rows, or the printed page quietly claims the product does
+     sixteen things. Both rules are needed and neither is redundant: older
+     engines hide a closed <details>'s children directly, newer ones hide them
+     through ::details-content, and this site is expected to work from file://
+     in whatever browser is already open. */
+  details.index-group > .index-in { display: grid; }
+  details.index-group::details-content { content-visibility: visible; block-size: auto; }
+  summary.index-head { cursor: auto; }
+  summary.index-head::after { display: none; }
+
+  /* And in normal flow, one column. Both grids here fragment badly across a
+     page boundary — printed as authored, the index dropped four of its
+     fifty-one rows off the bottoms of pages, and a printed page that claims
+     eight where the screen says ten is the exact failure this whole site is
+     against. Block flow costs the sticky note its column and loses nothing. */
+  .index-in { display: block; }
+  .index-note { position: static; margin-bottom: var(--s-2); }
+  .index-list { columns: 1; }
+  .index-list li { break-inside: auto; }
+
+  /* Each group's list stays whole on one page, and a group header never sits
+     alone at the foot of one. That is ordinary reference typography, and it is
+     also the only thing that makes the printed index complete: with the lists
+     free to fragment, Chrome does not push the row that meets a page boundary
+     to the next page, it drops it — "Verified discard plans" stopped existing
+     on paper while the screen still showed ten of ten. It costs five pages out
+     of fourteen, and the alternative is a document that quietly under-reports
+     the product, which is the exact failure this whole site argues against. */
+  .index-list { break-inside: avoid; }
+  .index-head { break-after: avoid; }
 }

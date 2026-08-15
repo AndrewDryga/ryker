@@ -7,6 +7,7 @@
 <meta name="description" content="Responder is an AI teammate for on-call and infrastructure teams. It lives in Slack, watches your alerts, and investigates with real evidence. Every claim names its source. Every risky action asks a person first.">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
@@ -53,9 +54,12 @@
 
         <p class="hero-sub">Responder is an AI teammate for on-call and infrastructure teams. It lives in Slack, watches your alerts, and investigates with real evidence. <strong>Every claim names its source. Every risky action asks a person first.</strong></p>
 
+        <!-- The page says "design-partner preview" four times. Until this row
+             existed it said it four times and offered no way to answer. -->
         <div class="btn-row">
           <a class="btn go" href="docs/index.html">Read the docs</a>
-          <a class="btn" href="https://github.com/AndrewDryga/responder">View on GitHub</a>
+          <a class="btn" href="mailto:andrew@dryga.com?subject=Responder%20design%20partner">Become a design partner</a>
+          <a class="btn-quiet" href="https://github.com/AndrewDryga/responder">View on GitHub</a>
         </div>
       </div>
 
@@ -66,7 +70,7 @@
            same moment. The assessment in step 03 is the same episode after
            the alert cleared, at 14:18. One incident, three clocks. -->
       <figure class="vignette" aria-labelledby="vig-cap">
-        <figcaption id="vig-cap" class="vh">An episode trace, live at 14:03: an alert arrives, four evidence rows are recorded with their sources and observation times, and a verdict is returned.</figcaption>
+        <figcaption id="vig-cap" class="vh">Illustrative, and condensed: an episode trace, live at 14:03, with its times compressed. An alert arrives, four evidence rows are recorded with their sources and observation times, and a verdict is returned — degraded and recovering, with the one thing that could not be verified named rather than assumed.</figcaption>
 
         <div class="vig-head" aria-hidden="true">
           <span class="pill warn">episode</span>
@@ -117,6 +121,12 @@
             </span>
           </div>
         </div>
+
+        <!-- Constructed evidence says so. A page whose whole argument is that
+             claims name their sources cannot show a made-up trace without a
+             line admitting it is made up. Said once here, and once under every
+             other mock on the page. -->
+        <p class="mock-note" aria-hidden="true"><span class="prov">illustrative episode — condensed, times compressed</span></p>
       </figure>
     </div>
   </section>
@@ -183,8 +193,10 @@
                ignored, and an emoji pill on one that was reacted to. Chips
                reading "ignored · routine" under a message were the one thing
                on this page claiming a screen looks like something it does not. -->
-          <div class="mock-slack" aria-hidden="true">
-            <div class="slack-annotated">
+          <figure class="mock-slack" aria-labelledby="mock-watch-cap">
+            <figcaption id="mock-watch-cap" class="vh">Illustrative, and condensed: a Slack channel, #ops-payments. At 1:49 PM Ana Torres writes “shipping the coupon fix in a minute” and Responder posts nothing at all — the ignore rung, which in Slack leaves no mark of any kind. At 2:02 PM Priya Rao writes “is checkout ok? I’m seeing 500s from the app” and Responder adds a single eyes emoji and says nothing — the react rung. At 2:03 PM Responder, marked as an app, replies “Degraded, recovering. Error rate peaked at 3.1% and is back to 0.2%. Release 4f21c9 went out 11 minutes before the alert.” — the reply rung, verdict first. One rung is chosen per message.</figcaption>
+
+            <div class="slack-annotated" aria-hidden="true">
 
               <div class="slack-frame">
                 <div class="slack-head">
@@ -225,8 +237,8 @@
               <p class="slack-note"><b>reply</b> <i>—</i> verdict first</p>
             </div>
 
-            <p class="mock-note"><span class="tag">ignore · react · reply · incident</span> <span class="note">one rung, per message</span></p>
-          </div>
+            <p class="mock-note" aria-hidden="true"><span class="tag">ignore · react · reply · incident</span> <span class="note">one rung, per message</span> <span class="prov">illustrative — condensed</span></p>
+          </figure>
         </article>
 
         <!-- 2 -->
@@ -237,9 +249,11 @@
             <p>It reads the topology declared in your repositories and checks it against live evidence: hosts, workloads, dependencies, application behavior, and impact. Layer by layer.</p>
           </div>
 
-          <div class="mock" aria-hidden="true">
-            <div class="mock-head"><span class="dot good"></span><span>coverage</span><span class="right">7 layers · 1 unverified</span></div>
-            <div class="mock-body">
+          <figure class="mock" aria-labelledby="mock-cover-cap">
+            <figcaption id="mock-cover-cap" class="vh">Illustrative, and condensed: a coverage panel, seven layers, one of them unverified. Each layer carries a state, one line of finding, and the source that produced it. Change: one release in the last 6 hours, 4f21c9, from the change ledger. Host: 3 nodes ready, no pressure conditions, from Emisar. Runtime: container runtime healthy on all nodes, from Emisar. Workload: 6 of 6 replicas ready, 0 restarts in an hour, from Emisar. Dependency: the upstream gateway, with no authorized source, so it is reported as unverified rather than as healthy. Application: error rate 0.2%, p99 back under 400 milliseconds, from Grafana. Impact: checkout completing, no failed orders since 14:00, from Grafana. The rule beneath the panel reads: missing evidence alone is not degradation.</figcaption>
+
+            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>coverage</span><span class="right">7 layers · 1 unverified</span></div>
+            <div class="mock-body" aria-hidden="true">
               <div class="layers">
                 <div class="layer">
                   <span class="dot good"></span><span class="nm">change</span>
@@ -271,8 +285,8 @@
                 </div>
               </div>
             </div>
-            <p class="mock-note"><span class="tag">rule</span> <span class="note">missing evidence alone is not degradation</span></p>
-          </div>
+            <p class="mock-note" aria-hidden="true"><span class="tag">rule</span> <span class="note">missing evidence alone is not degradation</span> <span class="prov">illustrative — condensed</span></p>
+          </figure>
         </article>
 
         <!-- 3 -->
@@ -283,9 +297,11 @@
             <p>The verdict comes first — healthy, degraded, or unhealthy — then what it means, the evidence behind it, and the next useful step. Missing evidence is named, never papered over.</p>
           </div>
 
-          <div class="mock" aria-hidden="true">
-            <div class="mock-head"><span class="dot good"></span><span>assessment</span><span class="right">after clear · 14:18</span></div>
-            <div class="mock-body">
+          <figure class="mock" aria-labelledby="mock-answer-cap">
+            <figcaption id="mock-answer-cap" class="vh">Illustrative, and condensed: an assessment of the same episode, written after the alert cleared at 14:18. The verdict comes first — healthy, from 3 sources, none of them stale. Impact: none now; about 40 checkouts failed between 13:58 and 14:00. Cause: release 4f21c9 shipped a slow coupon lookup, which warmed after 2 minutes. Do now: nothing, the alert cleared on its own. Verify: watch p99 through the next coupon batch at 15:00. Long term: cache the coupon lookup, or precompute it at deploy. Unverified: upstream gateway latency, because there is no authorized source for it. Beneath the fields, the receipt for the claim of three sources — Emisar, the change ledger, and Grafana, re-read at 14:17, none stale — and a note that the host refused this answer twice, because the first one named a cause with no evidence row behind it.</figcaption>
+
+            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>assessment</span><span class="right">after clear · 14:18</span></div>
+            <div class="mock-body" aria-hidden="true">
               <div class="verdict-mock">
                 <div class="verdict-head">
                   <span class="dot good"></span>
@@ -305,8 +321,8 @@
                 <p class="vsrc">emisar <i>·</i> change ledger <i>·</i> grafana <span>re-read 14:17, none stale</span></p>
               </div>
             </div>
-            <p class="mock-note"><span class="tag">refused twice</span> <span class="note">the first answer named a cause with no evidence row behind it</span></p>
-          </div>
+            <p class="mock-note" aria-hidden="true"><span class="tag">refused twice</span> <span class="note">the first answer named a cause with no evidence row behind it</span> <span class="prov">illustrative — condensed</span></p>
+          </figure>
         </article>
 
         <!-- 4 -->
@@ -317,9 +333,11 @@
             <p>It recalls how similar incidents ended, what deployed recently, and what your team told it. Always as history to check. Never as proof.</p>
           </div>
 
-          <div class="mock" aria-hidden="true">
-            <div class="mock-head"><span class="dot good"></span><span>recall</span><span class="right">history to check</span></div>
-            <div class="mock-body">
+          <figure class="mock" aria-labelledby="mock-recall-cap">
+            <figcaption id="mock-recall-cap" class="vh">Illustrative, and condensed: a recall panel of four memory rows, every one of them offered as history to check rather than as proof. A past episode, the second of three: the same alert group on 12 June, resolved by a coupon-cache rollback — closed, and not current state. A change-ledger entry: release 4f21c9 at 13:51Z on payments, offered as a correlation to check. A confirmed preference: response detail set to concise, scoped to this channel, expiring in 78 days. A standing rule: a deployment maps to a verify-deployment check, read-only, in this channel. The boundary beneath the panel reads: memory advises, it never authorizes.</figcaption>
+
+            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>recall</span><span class="right">history to check</span></div>
+            <div class="mock-body" aria-hidden="true">
               <div class="mem">
                 <div class="mem-row">
                   <span class="dot idle"></span>
@@ -351,57 +369,20 @@
                 </div>
               </div>
             </div>
-            <p class="mock-note"><span class="tag">boundary</span> <span class="note">memory advises. It never authorizes.</span></p>
-          </div>
+            <p class="mock-note" aria-hidden="true"><span class="tag">boundary</span> <span class="note">memory advises. It never authorizes.</span> <span class="prov">illustrative — condensed</span></p>
+          </figure>
         </article>
 
       </div>
     </div>
   </section>
 
-  <!-- Features ------------------------------------------------------------ -->
-  <section class="band" id="features" aria-labelledby="features-h">
-    <div class="wrap">
-      <div class="section-head">
-        <p class="eyebrow">Surfaces</p>
-        <h2 id="features-h">Six places it lives</h2>
-        <p>One product, six surfaces — and one record behind all of them.</p>
-      </div>
-
-      <div class="cards">
-        <article class="card">
-          <p class="tag">slack</p>
-          <h3>Slack</h3>
-          <p>Questions answered in place, alerts triaged, silence when silence is right.</p>
-        </article>
-        <article class="card">
-          <p class="tag">rooms</p>
-          <h3>Incident rooms</h3>
-          <p>One channel, one pinned card, one timeline per incident.</p>
-        </article>
-        <article class="card">
-          <p class="tag">control-plane</p>
-          <h3>The control plane</h3>
-          <p>Every episode, every trace, every refusal — on a page you host.</p>
-        </article>
-        <article class="card">
-          <p class="tag">forks</p>
-          <h3>Isolated forks</h3>
-          <p>Engineering work lands as a reviewed draft PR. A person merges.</p>
-        </article>
-        <article class="card">
-          <p class="tag">emisar</p>
-          <h3>Emisar</h3>
-          <p>Typed actions, owned approvals, an audit trail that outlives the work.</p>
-        </article>
-        <article class="card">
-          <p class="tag">memory</p>
-          <h3>Memory</h3>
-          <p>Recall, the change ledger, confirmed preferences — advice, never authority.</p>
-        </article>
-      </div>
-    </div>
-  </section>
+  <!-- "Six places it lives" was here, and it is gone. It was the one section
+       on this page assembled from a template rather than from the product: six
+       equal cards, one line each, restating what the four step mocks had
+       already shown. Its only two nouns that appeared nowhere else — Emisar and
+       the control plane — are carried by the evidence rows, the coverage mock,
+       and the capability index below. -->
 
   <!-- Capability index ----------------------------------------------------- -->
   <section class="band" id="capabilities" aria-labelledby="cap-h">
@@ -415,91 +396,99 @@
       <div class="index-groups">
 
         <section class="index-group">
-          <header>
-            <h3>In Slack <span class="n">— 16</span></h3>
-            <p>The whole surface an on-call engineer touches.</p>
-          </header>
-          <ul class="index-list">
-            <li><span><b>Mention answers in place.</b> Ask in a channel or thread; the answer lands there, with no incident created.</span></li>
-            <li><span><b>Thread-aware reads.</b> The thread root, the replies nearest the message, and the channel above the thread.</span></li>
-            <li><span><b>The watch ladder.</b> Ignore, react, reply, incident — one rung chosen per message, with separate thresholds.</span></li>
-            <li><span><b>Alert triage with typed assessments.</b> Verdict, impact, cause, immediate action, verification, and long-term fix.</span></li>
-            <li><span><b>Incident rooms.</b> One channel per occurrence, private by default, with a pinned investigation card that updates in place.</span></li>
-            <li><span><b>Engineering tasks in isolated forks.</b> A “Start task” button turns a request into writable work in the same thread.</span></li>
-            <li><span><b>Host-rendered records.</b> Timeline, evidence, handoff, and postmortem, derived from stored facts rather than prose.</span></li>
-            <li><span><b>Delta updates on repeat alerts.</b> A reply about a still-firing alert is held to what changes the decision, not the whole story again.</span></li>
-            <li><span><b>Closure for cleared alerts.</b> A short close that links the alert it closes. Nothing at all for noise.</span></li>
-            <li><span><b>Guided channel setup.</b> One-click safe defaults, or four questions covering listening, repository, alerts, and audience.</span></li>
-            <li><span><b>App Home and the agent view.</b> Open work, incidents, memory, and suggested prompts, without typing a command.</span></li>
-            <li><span><b>A message shortcut.</b> “Investigate message” runs a read-only investigation even where listening is off.</span></li>
-            <li><span><b>The <code>/responder</code> recovery command.</b> Status, proactive, shadow, assignments, help — what has to work when nothing else does.</span></li>
-            <li><span><b>Reactions as acknowledgement.</b> One emoji when a reply would be noise but silence would be rude.</span></li>
-            <li><span><b>Charts and visuals on request.</b> Bounded, evidence-backed images returned into the same conversation.</span></li>
-            <li><span><b>Feedback capture.</b> React to a reply, or just say what was wrong. It is stored for review and never fed back into a prompt.</span></li>
-          </ul>
+          <div class="index-head">
+            <h3><span class="t">In Slack</span> <span class="n">— 16</span></h3>
+          </div>
+          <div class="index-in">
+            <p class="index-note">The whole surface an on-call engineer touches.</p>
+            <ul class="index-list">
+              <li><span><b>Mention answers in place.</b> Ask in a channel or thread; the answer lands there, with no incident created.</span></li>
+              <li><span><b>Thread-aware reads.</b> The thread root, the replies nearest the message, and the channel above the thread.</span></li>
+              <li><span><b>The watch ladder.</b> Ignore, react, reply, incident — one rung chosen per message, with separate thresholds.</span></li>
+              <li><span><b>Alert triage with typed assessments.</b> Verdict, impact, cause, immediate action, verification, and long-term fix.</span></li>
+              <li><span><b>Incident rooms.</b> One channel per occurrence, private by default, with a pinned investigation card that updates in place.</span></li>
+              <li><span><b>Engineering tasks in isolated forks.</b> A “Start task” button turns a request into writable work in the same thread.</span></li>
+              <li><span><b>Host-rendered records.</b> Timeline, evidence, handoff, and postmortem, derived from stored facts rather than prose.</span></li>
+              <li><span><b>Delta updates on repeat alerts.</b> A reply about a still-firing alert is held to what changes the decision, not the whole story again.</span></li>
+              <li><span><b>Closure for cleared alerts.</b> A short close that links the alert it closes. Nothing at all for noise.</span></li>
+              <li><span><b>Guided channel setup.</b> One-click safe defaults, or four questions covering listening, repository, alerts, and audience.</span></li>
+              <li><span><b>App Home and the agent view.</b> Open work, incidents, memory, and suggested prompts, without typing a command.</span></li>
+              <li><span><b>A message shortcut.</b> “Investigate message” runs a read-only investigation even where listening is off.</span></li>
+              <li><span><b>The <code>/responder</code> recovery command.</b> Status, proactive, shadow, assignments, help — what has to work when nothing else does.</span></li>
+              <li><span><b>Reactions as acknowledgement.</b> One emoji when a reply would be noise but silence would be rude.</span></li>
+              <li><span><b>Charts and visuals on request.</b> Bounded, evidence-backed images returned into the same conversation.</span></li>
+              <li><span><b>Feedback capture.</b> React to a reply, or just say what was wrong. It is stored for review and never fed back into a prompt.</span></li>
+            </ul>
+          </div>
         </section>
 
-        <section class="index-group">
-          <header>
-            <h3>Investigation and memory <span class="n">— 12</span></h3>
-            <p>What it knows, where it got it, and how long that is good for.</p>
-          </header>
-          <ul class="index-list">
-            <li><span><b>An evidence ledger.</b> Each row carries its claim, source, observation time, freshness, and confidence.</span></li>
-            <li><span><b>Supersession.</b> A newer observation replaces an older one on the record instead of quietly overwriting it.</span></li>
-            <li><span><b>Layered coverage.</b> Host, runtime, workload, dependency, application, and impact — each reported separately.</span></li>
-            <li><span><b>Recall of resolved past episodes.</b> Up to three, ranked by alert group, shared services, and symptom overlap.</span></li>
-            <li><span><b>A change ledger.</b> Deploys, merges, and applies inside the change window, offered as correlation to check.</span></li>
-            <li><span><b>Thread and channel conversation memory.</b> Purpose, goal, open loops, decisions, and unresolved questions.</span></li>
-            <li><span><b>Related-conversation summaries.</b> Continuity across channels, with private rooms held behind a membership proof.</span></li>
-            <li><span><b>Contradiction handling.</b> When two sources disagree, it quotes both rather than picking the convenient one.</span></li>
-            <li><span><b>Operator-confirmed preferences.</b> Typed defaults such as check depth and reply detail, resolved by scope.</span></li>
-            <li><span><b>Standing read-only rules.</b> Typed channel subscriptions that show exact scope, expiry, and safety boundary before saving.</span></li>
-            <li><span><b>A memory review queue.</b> Keep, merge, or forget. Nothing edits confirmed memory silently.</span></li>
-            <li><span><b>Session rotation that carries memory.</b> A long-running channel starts a fresh session without losing its summary.</span></li>
-          </ul>
-        </section>
+        <details class="index-group">
+          <summary class="index-head">
+            <h3><span class="t">Investigation and memory</span> <span class="n">— 12</span></h3>
+          </summary>
+          <div class="index-in">
+            <p class="index-note">What it knows, where it got it, and how long that is good for.</p>
+            <ul class="index-list">
+              <li><span><b>An evidence ledger.</b> Each row carries its claim, source, observation time, freshness, and confidence.</span></li>
+              <li><span><b>Supersession.</b> A newer observation replaces an older one on the record instead of quietly overwriting it.</span></li>
+              <li><span><b>Layered coverage.</b> Host, runtime, workload, dependency, application, and impact — each reported separately.</span></li>
+              <li><span><b>Recall of resolved past episodes.</b> Up to three, ranked by alert group, shared services, and symptom overlap.</span></li>
+              <li><span><b>A change ledger.</b> Deploys, merges, and applies inside the change window, offered as correlation to check.</span></li>
+              <li><span><b>Thread and channel conversation memory.</b> Purpose, goal, open loops, decisions, and unresolved questions.</span></li>
+              <li><span><b>Related-conversation summaries.</b> Continuity across channels, with private rooms held behind a membership proof.</span></li>
+              <li><span><b>Contradiction handling.</b> When two sources disagree, it quotes both rather than picking the convenient one.</span></li>
+              <li><span><b>Operator-confirmed preferences.</b> Typed defaults such as check depth and reply detail, resolved by scope.</span></li>
+              <li><span><b>Standing read-only rules.</b> Typed channel subscriptions that show exact scope, expiry, and safety boundary before saving.</span></li>
+              <li><span><b>A memory review queue.</b> Keep, merge, or forget. Nothing edits confirmed memory silently.</span></li>
+              <li><span><b>Session rotation that carries memory.</b> A long-running channel starts a fresh session without losing its summary.</span></li>
+            </ul>
+          </div>
+        </details>
 
-        <section class="index-group">
-          <header>
-            <h3>Governed action <span class="n">— 10</span></h3>
-            <p>The parts that can change something, and the gates in front of them.</p>
-          </header>
-          <ul class="index-list">
-            <li><span><b>Typed Emisar actions.</b> Discovered from trusted catalogs. No free-form command ever reaches a host.</span></li>
-            <li><span><b>Re-validation at the edge.</b> An outbound-only runner re-checks action, arguments, limits, and pack hash on the target.</span></li>
-            <li><span><b>Approvals owned and audited.</b> Slack shows a link to the exact pending request; the decision is made in Emisar.</span></li>
-            <li><span><b>Runbook drafts.</b> A verified fix can be offered to Emisar as an unpublished runbook draft. Emisar decides if it is ever published.</span></li>
-            <li><span><b>Grant promotions.</b> One rung at a time, earned by verified successes the host counts itself.</span></li>
-            <li><span><b>Standing assignments.</b> Five change classes, a daily budget, an expiry — and shadow only, for now.</span></li>
-            <li><span><b>Schedules.</b> Recurring and one-time checks that produce full episodes, in your timezone, never overlapping.</span></li>
-            <li><span><b>Waits on external events.</b> CI checks, deployments, Terraform runs, and approvals, with durable wakeups.</span></li>
-            <li><span><b>Draft-PR publication.</b> The pushed tree must match the reviewed tree exactly, or it is not published.</span></li>
-            <li><span><b>Verified discard plans.</b> Cleanup touches only sessions Responder recorded, and never dirty or unpublished work.</span></li>
-          </ul>
-        </section>
+        <details class="index-group">
+          <summary class="index-head">
+            <h3><span class="t">Governed action</span> <span class="n">— 10</span></h3>
+          </summary>
+          <div class="index-in">
+            <p class="index-note">The parts that can change something, and the gates in front of them.</p>
+            <ul class="index-list">
+              <li><span><b>Typed Emisar actions.</b> Discovered from trusted catalogs. No free-form command ever reaches a host.</span></li>
+              <li><span><b>Re-validation at the edge.</b> An outbound-only runner re-checks action, arguments, limits, and pack hash on the target.</span></li>
+              <li><span><b>Approvals owned and audited.</b> Slack shows a link to the exact pending request; the decision is made in Emisar.</span></li>
+              <li><span><b>Runbook drafts.</b> A verified fix can be offered to Emisar as an unpublished runbook draft. Emisar decides if it is ever published.</span></li>
+              <li><span><b>Grant promotions.</b> One rung at a time, earned by verified successes the host counts itself.</span></li>
+              <li><span><b>Standing assignments.</b> Five change classes, a daily budget, an expiry — and shadow only, for now.</span></li>
+              <li><span><b>Schedules.</b> Recurring and one-time checks that produce full episodes, in your timezone, never overlapping.</span></li>
+              <li><span><b>Waits on external events.</b> CI checks, deployments, Terraform runs, and approvals, with durable wakeups.</span></li>
+              <li><span><b>Draft-PR publication.</b> The pushed tree must match the reviewed tree exactly, or it is not published.</span></li>
+              <li><span><b>Verified discard plans.</b> Cleanup touches only sessions Responder recorded, and never dirty or unpublished work.</span></li>
+            </ul>
+          </div>
+        </details>
 
-        <section class="index-group">
-          <header>
-            <h3>Platform and trust <span class="n">— 13</span></h3>
-            <p>What you run, and what you can check afterwards.</p>
-          </header>
-          <ul class="index-list">
-            <li><span><b>An episode kernel.</b> Attempts, goals, context manifests, and replay fingerprints, on one append-only stream.</span></li>
-            <li><span><b>A full-trace control plane.</b> The exact model input, every context layer with its why and why-not, and every trim.</span></li>
-            <li><span><b>Refusals on the record.</b> When the host rejects an answer, the rejection and the exact correction sent are both kept.</span></li>
-            <li><span><b>Corrections become fixtures.</b> A kept correction turns into a permanent regression test that replays with no model.</span></li>
-            <li><span><b>Decisions and findings queues.</b> The work the machine owes a human, in one list, with the evidence attached.</span></li>
-            <li><span><b>Model routing profiles.</b> Bring your own model through Coop, with an escalation ladder across providers.</span></li>
-            <li><span><b>One Go binary, one SQLite file.</b> No cluster, no broker, no second datastore.</span></li>
-            <li><span><b>Slack socket mode.</b> No inbound ports required. The service listens on loopback.</span></li>
-            <li><span><b>Bounded webhooks.</b> Grafana and mapped JSON, size-capped, authenticated, deduplicated by delivery identity.</span></li>
-            <li><span><b>Automatic repository mirrors.</b> Declared by slug, kept current in the background, and never modified.</span></li>
-            <li><span><b>Restart-safe.</b> It parks between turns, resumes the same conversation, and survives a process restart.</span></li>
-            <li><span><b>Retention with a long tail.</b> Message bodies expire in a day; episode history and audit are kept far longer.</span></li>
-            <li><span><b>A watchdog.</b> Because the failure no test catches is the one where the machine simply stopped.</span></li>
-          </ul>
-        </section>
+        <details class="index-group">
+          <summary class="index-head">
+            <h3><span class="t">Platform and trust</span> <span class="n">— 13</span></h3>
+          </summary>
+          <div class="index-in">
+            <p class="index-note">What you run, and what you can check afterwards.</p>
+            <ul class="index-list">
+              <li><span><b>An episode kernel.</b> Attempts, goals, context manifests, and replay fingerprints, on one append-only stream.</span></li>
+              <li><span><b>A full-trace control plane.</b> The exact model input, every context layer with its why and why-not, and every trim.</span></li>
+              <li><span><b>Refusals on the record.</b> When the host rejects an answer, the rejection and the exact correction sent are both kept.</span></li>
+              <li><span><b>Corrections become fixtures.</b> A kept correction turns into a permanent regression test that replays with no model.</span></li>
+              <li><span><b>Decisions and findings queues.</b> The work the machine owes a human, in one list, with the evidence attached.</span></li>
+              <li><span><b>Model routing profiles.</b> Bring your own model through Coop, with an escalation ladder across providers.</span></li>
+              <li><span><b>One Go binary, one SQLite file.</b> No cluster, no broker, no second datastore.</span></li>
+              <li><span><b>Slack socket mode.</b> No inbound ports required. The service listens on loopback.</span></li>
+              <li><span><b>Bounded webhooks.</b> Grafana and mapped JSON, size-capped, authenticated, deduplicated by delivery identity.</span></li>
+              <li><span><b>Automatic repository mirrors.</b> Declared by slug, kept current in the background, and never modified.</span></li>
+              <li><span><b>Restart-safe.</b> It parks between turns, resumes the same conversation, and survives a process restart.</span></li>
+              <li><span><b>Retention with a long tail.</b> Message bodies expire in a day; episode history and audit are kept far longer.</span></li>
+              <li><span><b>A watchdog.</b> Because the failure no test catches is the one where the machine simply stopped.</span></li>
+            </ul>
+          </div>
+        </details>
 
       </div>
     </div>
@@ -519,9 +508,18 @@
           <ul class="checks">
             <li>Every evidence row carries its source and its observed-at time.</li>
             <li>Every episode keeps its exact model input, fingerprinted for replay.</li>
-            <li>The host refuses answers that break its rules, and shows you the refusal.</li>
+            <li>The host refuses answers that break its rules, and shows you the refusal — on a control plane you run yourself.</li>
             <li>Silence is a feature: cleared alerts get a short closure, noise gets nothing.</li>
           </ul>
+
+          <!-- Four sentences, and every one of them is a property of the code
+               rather than a promise. "Self-hosted" is the claim a reader is
+               entitled to see spelled out, so it is spelled out here. -->
+          <div class="data-where">
+            <h3>Where your data goes</h3>
+            <p>Your prompts go to one place: the model provider you configure, reached through Coop. There is no second model runtime and no direct provider client anywhere in the binary. Slack messages, evidence, episodes, and traces live in one SQLite file on your host. Archived prompts have every credential this process knows replaced with <code>[REDACTED]</code>, and a contributor task box is never handed shared tools or environment secrets.</p>
+            <p class="data-more"><a href="docs/operations.html#state">Where the state lives <span class="arr" aria-hidden="true">→</span></a></p>
+          </div>
         </div>
 
         <div class="cannot">
@@ -545,6 +543,7 @@
       <div>
         <h2>Run it on one host.<br>Point it at one channel.<br><span>Doubt everything it says — it can take it.</span></h2>
         <div class="btn-row">
+          <a class="btn go" href="mailto:andrew@dryga.com?subject=Responder%20design%20partner">Become a design partner</a>
           <a class="btn" href="docs/index.html">Read the docs</a>
         </div>
       </div>
@@ -557,6 +556,7 @@
         <pre><code><span class="tok-x">git</span> <span class="tok-v">clone https://github.com/AndrewDryga/responder</span>
 <span class="tok-x">cd</span> <span class="tok-v">responder</span> <span class="tok-p">&amp;&amp;</span> <span class="tok-x">make</span> <span class="tok-v">install</span></code></pre>
         <p class="install-note">One binary in <code>~/.local/bin</code>. A Unix host and Go are all it assumes.</p>
+        <p class="install-more"><a href="docs/getting-started.html#install">Run it yourself <span class="arr" aria-hidden="true">→</span></a></p>
       </div>
     </div>
   </section>
