@@ -646,11 +646,24 @@ func (s *Service) prepareIncidentAgentRun(
 	s.refreshRepositoryForTurn(ctx, incident.Repository)
 	// A branch investigates in a fork of its own. The incident's session and its
 	// single active turn belong to the lead, and a branch that borrowed them
-	// would share one transcript with every sibling.
+	// would share one transcript with every sibling. The lead lane still guards
+	// the empty binding before Coop is asked anything: LeaseAgentRun will not
+	// hand out a run whose incident has no session, so reaching here without
+	// one means the binding went away between the lease and this read — and the
+	// previous shape fell straight into GetSession(""), an opaque transport
+	// error that sent whoever read the log to debug a service that was never
+	// asked anything.
 	var session coop.Session
 	if fanout.IsBranch(run.ConversationKey) {
 		session, err = s.branches.Session(ctx, run, incident)
 	} else {
+		if incident.CoopSessionID == "" {
+			return s.retryIncidentAgentRun(
+				ctx, run, incident,
+				errors.New("the isolated session for this work is not bound yet"),
+				false,
+			)
+		}
 		session, err = s.coop.GetSession(ctx, incident.CoopSessionID)
 	}
 	if err != nil {

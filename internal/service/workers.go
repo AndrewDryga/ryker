@@ -511,10 +511,15 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 	if err != nil {
 		return err
 	}
-	if incident.RootTS == "" || !incident.ChannelWritable() ||
+	// The conversation, not the card. Thread-scoped work speaks in the
+	// operator's own thread, which is bound before the card is enqueued, so
+	// waiting on root_ts made a card that could not post kill the task silently.
+	if incident.ConversationThreadTS() == "" || !incident.ChannelWritable() ||
 		incident.CoopSessionID != "" ||
 		(incident.Workflow != core.WorkflowProvisioningSession &&
-			incident.Workflow != core.WorkflowHolding) {
+			incident.Workflow != core.WorkflowHolding &&
+			!(incident.IsThreadScoped() &&
+				incident.Workflow == core.WorkflowProvisioningChannel)) {
 		return store.ErrNotFound
 	}
 	if !incident.IsThreadScoped() {

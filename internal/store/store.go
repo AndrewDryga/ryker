@@ -1726,6 +1726,27 @@ func (s *Store) ListSignals(ctx context.Context, incidentID string) ([]core.Sign
 	return result, rows.Err()
 }
 
+// incidentThreadScoped is core.Incident.IsThreadScoped spelled in SQL. It has
+// to be spelled here because the scheduler's seeds are queries, and a second
+// spelling that disagreed with the Go one would provision sessions for work the
+// rest of the system treats as room-scoped.
+const incidentThreadScoped = `(work_scope = 'thread' OR (work_scope = ''
+	AND work_kind = 'engineering_task' AND origin_thread_ts != ''))`
+
+// incidentHasConversation is "this work has somewhere to speak", which until
+// migration phase 5 meant one thing: its room's root card had been posted.
+//
+// For thread-scoped work that was never true in substance. The conversation is
+// the operator's own thread, known at bind time — core.Incident
+// .ConversationThreadTS has always said so in Go — and root_ts is the card's
+// message ts, which is presentation. Making the session wait for it meant a
+// card that could not post (channel archived between the bind and the delivery,
+// a permanently failed enqueue) left every turn of that task sitting pending
+// forever: LeaseAgentRun requires a bound session, this seed required a root,
+// and nothing anywhere timed out. The work was silently dead.
+const incidentHasConversation = `(root_ts != '' OR
+	(origin_thread_ts != '' AND ` + incidentThreadScoped + `))`
+
 func (s *Store) ListChannelWork(ctx context.Context, limit int) ([]core.Incident, error) {
 	return s.listIncidentsWhere(ctx, `channel_id = '' AND workflow = 'provisioning_channel'`, limit)
 }
@@ -1735,9 +1756,17 @@ func (s *Store) ListRootWork(ctx context.Context, limit int) ([]core.Incident, e
 		AND root_ts = '' AND workflow = 'provisioning_channel'`, limit)
 }
 
+// ListSessionWork seeds session provisioning. Thread-scoped work is admitted at
+// provisioning_channel too, because its card and its session no longer have to
+// be sequenced: processChannelIncident binds the thread and enqueues the card in
+// one pass, so by the time channel_id is set the card is already on the outbox
+// and the session has nothing left to wait for.
 func (s *Store) ListSessionWork(ctx context.Context, limit int) ([]core.Incident, error) {
-	return s.listIncidentsWhere(ctx, `root_ts != '' AND channel_state = 'active'
-		AND coop_session_id = '' AND workflow IN ('provisioning_session', 'holding')`, limit)
+	return s.listIncidentsWhere(ctx, `channel_state = 'active' AND coop_session_id = ''
+		AND `+incidentHasConversation+` AND (
+		  workflow IN ('provisioning_session', 'holding') OR
+		  (workflow = 'provisioning_channel' AND channel_id != '' AND `+incidentThreadScoped+`)
+		)`, limit)
 }
 
 func (s *Store) ListBoundIncidents(ctx context.Context, limit int) ([]core.Incident, error) {
@@ -1854,7 +1883,7 @@ func (s *Store) SetIncidentChannelState(
 		    WHEN status = 'closed' THEN workflow
 		    WHEN ? != 'active' THEN 'blocked'
 		    WHEN channel_state != 'active' THEN CASE
-		      WHEN coop_session_id = '' AND root_ts = '' THEN 'provisioning_channel'
+		      WHEN coop_session_id = '' AND NOT `+incidentHasConversation+` THEN 'provisioning_channel'
 		      WHEN coop_session_id = '' THEN 'provisioning_session'
 		      WHEN active_turn_id != '' THEN 'investigating'
 		      ELSE 'parked'
@@ -2141,7 +2170,7 @@ func (s *Store) SetCoopSession(ctx context.Context, id, sessionID, forkName stri
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE incidents SET coop_session_id = ?, coop_fork_name = ?, coop_revision = ?, workflow = 'investigating',
 		  updated_at = ?, card_version = card_version + 1, last_error = ''
-		WHERE id = ? AND root_ts != '' AND coop_session_id = ''`,
+		WHERE id = ? AND `+incidentHasConversation+` AND coop_session_id = ''`,
 		sessionID, forkName, revision, s.nowText(), id)
 	return sqlutil.ExpectOne(result, err, "bind Coop session")
 }

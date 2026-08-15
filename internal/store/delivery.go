@@ -759,7 +759,12 @@ func (s *Store) FinishSlackDelivery(
 	if incidentID.Valid && kind == "root" {
 		result, err = tx.ExecContext(ctx, `
 			UPDATE incidents
-			SET root_ts = ?, workflow = 'provisioning_session',
+			SET root_ts = ?,
+			    -- Thread-scoped work may already have bound its session while
+			    -- this card was in flight; the card landing must not walk the
+			    -- workflow backwards over it.
+			    workflow = CASE WHEN coop_session_id = ''
+			      THEN 'provisioning_session' ELSE workflow END,
 			    updated_at = ?, card_version = card_version + 1, last_error = ''
 			WHERE id = ? AND channel_id != '' AND root_ts = ''`,
 			messageTS, s.nowText(), incidentID.String)
