@@ -58,6 +58,38 @@
 </section>
 {{end}}
 
+{{if .Reviewable}}
+{{/* Absence reads as a state here. A finished episode with no review panel at
+     all is indistinguishable from a reviewed one whose panel failed to load,
+     and the reader concludes "nobody has read this" from both — right only
+     half the time. Present and Awaiting are both shown when both are true:
+     that is an ending that moved after somebody judged it, and the previous
+     reading is still worth seeing beside the fact that it is now stale. */}}
+<section class="panel episode-review" aria-label="Review">
+  <h2>Review</h2>
+  {{if .Review.Present}}
+  <p><strong>{{.Review.Reviewer}}</strong> read this ending {{since .Review.At}} · {{stamp .Review.At}}</p>
+  {{if .Review.Note}}<p class="stopped-why">{{.Review.Note}}</p>{{end}}
+  {{end}}
+  {{if .Review.Awaiting}}
+  <p class="note">Awaiting review{{if .Review.Present}} — the episode has ended differently since it was last read{{end}}.</p>
+  {{end}}
+  {{if .CanAct}}
+  <details class="confirm">
+    <summary>Mark this ending reviewed</summary>
+    <div class="arm">
+      <span>Records that this trace has been read, so the daily pass stops offering it. It comes back if the episode ends differently.</span>
+      <form method="post" action="/actions/episodes/review">
+        <input type="hidden" name="id" value="{{.ID}}">
+        <input type="text" name="note" placeholder="what this ending showed (optional)">
+        <button class="go">Yes, mark it reviewed</button>
+      </form>
+    </div>
+  </details>
+  {{end}}
+</section>
+{{end}}
+
 {{if or .Resolvable .Retryable}}
 <div class="episode-action-strip">
   {{/* No caption for a blocked episode: the panel above already says nothing

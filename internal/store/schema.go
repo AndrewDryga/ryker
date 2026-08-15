@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 82
+const currentSchemaVersion = 83
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -464,4 +464,8 @@ var migrations = map[int]string{
 	// key. The DDL and what this migration deliberately does NOT move live in
 	// migrationddl.V82.
 	82: migrationddl.V82,
+	// Which endings the daily self-improvement pass has already judged, and
+	// what those endings looked like when it did. The DDL and the fingerprint's
+	// reasoning live in migrationddl.V83.
+	83: migrationddl.V83,
 }

@@ -100,6 +100,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /actions/schedules/delete", h.deleteSchedule)
 	mux.HandleFunc("POST /actions/episodes/rerun", h.rerunEpisode)
 	mux.HandleFunc("POST /actions/episodes/resolve", h.resolveEpisode)
+	mux.HandleFunc("POST /actions/episodes/review", h.reviewEpisode)
 	mux.HandleFunc("POST /actions/replays/cancel", h.cancelSlackReplay)
 	mux.HandleFunc("POST /actions/incidents/resolve", h.resolveIncident)
 	mux.HandleFunc("POST /actions/memory/forget", h.forgetMemory)
@@ -456,10 +457,23 @@ func (h *Handler) episodeFilter(ctx context.Context, r *http.Request) EpisodeFil
 		Model:      strings.TrimSpace(query.Get("model")),
 		Query:      strings.TrimSpace(query.Get("q")),
 		State:      strings.TrimSpace(query.Get("state")),
+		Review:     reviewFilter(query.Get("review")),
 		Offset:     pageOffset(query.Get("offset")),
 	}
 	filter.ChannelName = h.reader.channelName(ctx, filter.Channel)
 	return filter
+}
+
+// reviewFilter reads the one value this filter takes and drops anything else.
+//
+// A word nobody offered has to mean "no filter" rather than "match nothing":
+// the URL is user-editable, and ?review=unread silently serving an empty page
+// reads as a history with no episodes in it.
+func reviewFilter(raw string) string {
+	if strings.TrimSpace(raw) == reviewPending {
+		return reviewPending
+	}
+	return ""
 }
 
 // pageOffset reads an offset that came from a link this dashboard wrote.
@@ -481,6 +495,7 @@ func episodesURL(filter EpisodeFilter, offset int) template.URL {
 		{"q", filter.Query}, {"state", filter.State},
 		{"channel", filter.Channel}, {"repository", filter.Repository},
 		{"mode", filter.Mode}, {"provider", filter.Provider}, {"model", filter.Model},
+		{"review", filter.Review},
 	} {
 		if param.value != "" {
 			values.Set(param.key, param.value)
@@ -530,6 +545,13 @@ type episodePage struct {
 	// incident will be told about this one, present only once it has finished
 	// in a state recall accepts.
 	Outcome OutcomeRow
+	// Review is what the daily self-improvement pass made of this ending, and
+	// says so in words when nobody has read it yet.
+	Review ReviewRow
+	// Reviewable gates the review control to endings there is something to
+	// judge. The store re-checks on the way through; this only decides whether
+	// the button is honest to offer.
+	Reviewable bool
 	// StoredArtifacts marks which artifact digests have a retained body, so
 	// the trace links only artifacts that will actually open.
 	StoredArtifacts map[string]bool
@@ -560,6 +582,20 @@ func resolvableState(state string) bool {
 	}
 }
 
+// reviewableState lists the lifecycle states a review may be filed against:
+// the same set as data.go's reviewableEpisodeStates and store's
+// reviewableEpisodeState, which is episode.Terminal plus blocked. Work that is
+// still running has no ending to judge, and offering the control there would
+// let somebody mark a trace read before its interesting half happened.
+func reviewableState(state string) bool {
+	switch state {
+	case "completed", "failed", "refused", "cancelled", "superseded", "blocked":
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
@@ -569,7 +605,10 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 			"Nothing on record carries this id. If it came from an old link, the episode may predate the event ledger.")
 		return
 	}
-	page := episodePage{Item: item, CanAct: h.CanAct(), Resolvable: resolvableState(item.State)}
+	page := episodePage{
+		Item: item, CanAct: h.CanAct(),
+		Resolvable: resolvableState(item.State), Reviewable: reviewableState(item.State),
+	}
 	page.Events, err = h.reader.Events(ctx, id)
 	page.Errs.note("timeline", err)
 	page.Source, err = h.reader.SourceInput(ctx, id)
@@ -601,6 +640,8 @@ func (h *Handler) episode(w http.ResponseWriter, r *http.Request) {
 	}
 	page.Outcome, err = h.reader.EpisodeOutcome(ctx, id)
 	page.Errs.note("recall projection", err)
+	page.Review, err = h.reader.EpisodeReview(ctx, id)
+	page.Errs.note("review ledger", err)
 	page.Attempts, err = h.reader.Attempts(ctx, id)
 	page.Errs.note("attempts", err)
 	page.Rejections, err = h.reader.Rejections(ctx, id)

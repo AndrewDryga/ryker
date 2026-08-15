@@ -141,6 +141,12 @@ var Policies = []Policy{
 		"what a finished episode amounted to, flattened so a later incident can be told about " +
 			"it; deleted with work_episodes, because a recalled outcome that outlived the trace " +
 			"proving it would be an unfalsifiable claim about a past nobody can open"},
+	{"episode_reviews", Audit,
+		"which endings the daily self-improvement pass has already judged, and what those " +
+			"endings looked like when it did. Audit rather than Cascade because there is no " +
+			"foreign key to cascade from, and audit_data is validated to be at least " +
+			"episode_history — so a review is never swept while the trace it suppresses is " +
+			"still readable, which is the only window where losing one costs a re-read"},
 	{"episode_wakeups", Cascade,
 		"a scheduled resume for an episode; deleted with work_episodes, which retention refuses " +
 			"to expire while a wakeup is still pending or leased"},
@@ -342,6 +348,12 @@ func Sweep(ctx context.Context, tx *sql.Tx, operational string, history, audit t
 		// this same horizon.
 		{`DELETE FROM schedule_proposals
 		   WHERE (status IN ('accepted', 'expired') AND updated_at < ?1) OR expires_at < ?1`, operational},
+		// A review of an episode that is long gone. It has no foreign key to be
+		// deleted through, deliberately, so this is the only thing that bounds
+		// the ledger — and the horizon is the audit one because a review swept
+		// while its episode is still readable puts that trace back in tomorrow's
+		// queue for the pass to read a second time.
+		{`DELETE FROM episode_reviews WHERE reviewed_at < ?`, auditText},
 	} {
 		result, err := tx.ExecContext(ctx, sweep.query, sweep.arg)
 		if err != nil {

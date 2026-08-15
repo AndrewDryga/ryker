@@ -614,6 +614,20 @@ details.confirm .arm button {
   white-space: nowrap;
 }
 details.confirm .arm button:hover { background: rgb(251 191 36 / .24); border-color: var(--warn); }
+/* One confirm step carries a field: the note on an episode review, which is the
+   judgement and not a label. It takes the filter box's own styling rather than
+   the browser's, because an unstyled control on this page reads as something
+   half-built and a reviewer skips typing in it. */
+details.confirm .arm input[type=text] {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 7px;
+  padding: 4px 10px;
+  font: 13px var(--sans);
+  min-width: 220px;
+}
+details.confirm .arm input::placeholder { color: var(--faint); }
 
 /* Filters are plain GET forms — a filtered list stays a URL, bookmarkable and
    pasteable into an incident thread, and needs no client-side state. */

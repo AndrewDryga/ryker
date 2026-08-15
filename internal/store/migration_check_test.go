@@ -226,7 +226,8 @@ func TestCheckMigrationReportsADeclaredDeletionWithoutExcusingAnythingElse(t *te
 		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_key;
 		DROP TABLE quality_findings;
 		DROP TABLE conversation_memory_changes;
-		DROP TABLE replay_cancellations;`); err != nil {
+		DROP TABLE replay_cancellations;
+		DROP TABLE episode_reviews;`); err != nil {
 		t.Fatal(err)
 	}
 	target.Close()
@@ -365,6 +366,7 @@ func windBackAndRecreateProposalTables(t *testing.T, stateDir string) {
 		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_key;
 		DROP TABLE conversation_memory_changes;
 		DROP TABLE replay_cancellations;
+		DROP TABLE episode_reviews;
 		CREATE TABLE action_proposals (
 		  id TEXT PRIMARY KEY,
 		  incident_id TEXT NOT NULL DEFAULT '',

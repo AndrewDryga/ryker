@@ -75,7 +75,15 @@ var methodBudget = map[string]int{
 	// inside a transaction — the correction paths write the round counter and
 	// then requeue, so the caller's copy is already stale, and re-encoding it
 	// would drop the increment that bounds the loop.
-	"Store": 219,
+	//
+	// 220 on 2026-08-15 for ReviewEpisode, the one write the episode review
+	// ledger has. Measured, not rounded up. A package would be the usual answer
+	// and is the wrong one for a single method: the ledger's read side is the
+	// dashboard's own query, so an episodereviewstore would hold one upsert and
+	// the terminal-state refusal it shares with the reducer, and the refusal is
+	// the reason this belongs beside the other episode-kernel writes rather
+	// than a directory away from them. Revisit at the second method.
+	"Store": 220,
 }
 
 // lineBudget caps non-test source lines per package.
@@ -787,7 +795,15 @@ var lineBudget = map[string]int{
 	// than a decode beside the correction — the caller's copy of the envelope is
 	// stale by the time an escalation is decided, and re-encoding it would drop
 	// the correction counter that bounds the loop.
-	"store":      11160,
+	//
+	// 11226 on 2026-08-15 for the episode review ledger: one upsert, the
+	// terminal-state refusal it shares with the reducer, and the transaction
+	// that reads the fingerprint the review is filed against. Sixty-six lines,
+	// most of them the upsert's column list, and measured rather than rounded
+	// up — the note at the top of this map calls a budget set exactly at
+	// today's count a tripwire, and that is what this one is meant to be. The
+	// reads live in internal/webui, which is where the queue is served from.
+	"store":      11226,
 	"localstate": 400,
 	"provider":   120,
 	// branching opens the branches a fan-out was granted and closes them. It is

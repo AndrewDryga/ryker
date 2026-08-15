@@ -202,7 +202,8 @@ func TestPublicationControlMigrationDirtiesExistingTaskCard(t *testing.T) {
 		ALTER TABLE standing_assignments DROP COLUMN shadow;
 		DROP TABLE episode_outcomes;
 		DROP TABLE remediation_grants;
-		DROP TABLE replay_cancellations;`); err != nil {
+		DROP TABLE replay_cancellations;
+		DROP TABLE episode_reviews;`); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.Close(); err != nil {

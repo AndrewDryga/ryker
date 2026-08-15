@@ -189,6 +189,23 @@ func (a *dashboardActions) review(ctx context.Context, id, status, actor string)
 	})
 }
 
+// ReviewEpisode records that this ending has been read, so the daily
+// self-improvement pass stops offering it. Store call then audit row, the same
+// shape as review above and for the same sixteen-row reason — and it carries
+// more weight here, because the effect of this row is that nobody reads the
+// trace again, and "who decided that" is the question asked after something is
+// missed. The note rides into the detail when there is one; an empty note is a
+// real answer and does not fabricate a sentence.
+func (a *dashboardActions) ReviewEpisode(ctx context.Context, episodeID, note, actor string) error {
+	if err := a.store.ReviewEpisode(ctx, episodeID, actor, note); err != nil {
+		return err
+	}
+	return a.store.Audit(ctx, core.AuditEvent{
+		Kind: "episode.review", ActorID: actor, ObjectID: episodeID,
+		Outcome: "reviewed", Detail: strings.TrimSpace(note),
+	})
+}
+
 func (a *dashboardActions) KeepCorrection(ctx context.Context, id, actor string) error {
 	return a.review(ctx, id, "approved", actor)
 }

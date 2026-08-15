@@ -92,6 +92,7 @@ func TestSchemaV63RepaintsPublicationLifecycleCards(t *testing.T) {
 		ALTER TABLE standing_assignments DROP COLUMN shadow;
 		DROP TABLE episode_outcomes;
 		DROP TABLE remediation_grants;
+		DROP TABLE episode_reviews;
 		UPDATE schema_version SET version = 62;
 	`); err != nil {
 		t.Fatal(err)

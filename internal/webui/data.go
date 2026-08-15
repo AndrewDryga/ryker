@@ -1495,12 +1495,24 @@ type EpisodeFilter struct {
 	// the two lines a person remembers about work they saw go past. State
 	// narrows to one lifecycle state; Offset pages through what matched.
 	Query, State string
-	Offset       int
+	// Review is "pending" for the queue the daily self-improvement pass reads:
+	// endings nobody has judged yet. One value rather than a pair, because
+	// "already reviewed" is not a list anybody has asked for and an unused
+	// value here is an option that can only produce a page nobody wanted.
+	Review string
+	Offset int
 }
+
+// reviewPending is the only value the review filter takes. Spelled once so the
+// handler that parses it and the predicate that answers it cannot disagree
+// about the word — a mismatch would serve the unfiltered list under a URL that
+// says it is a queue, which reads as "nothing has been reviewed".
+const reviewPending = "pending"
 
 func (f EpisodeFilter) Active() bool {
 	return f.Channel != "" || f.Repository != "" || f.Mode != "" ||
-		f.Provider != "" || f.Model != "" || f.Query != "" || f.State != ""
+		f.Provider != "" || f.Model != "" || f.Query != "" || f.State != "" ||
+		f.Review != ""
 }
 
 // Describe says what the reader is looking at, in the words of the dimension
@@ -1508,6 +1520,9 @@ func (f EpisodeFilter) Active() bool {
 // reader concludes that work stopped happening.
 func (f EpisodeFilter) Describe() string {
 	parts := []string{}
+	if f.Review == reviewPending {
+		parts = append(parts, "awaiting review")
+	}
 	if f.Query != "" {
 		parts = append(parts, "matching \""+f.Query+"\"")
 	}
@@ -1528,6 +1543,55 @@ func (f EpisodeFilter) Describe() string {
 		}
 	}
 	return strings.Join(parts, " · ")
+}
+
+// reviewableEpisodeStates is the boundary the self-improvement pass reads at,
+// spelled as SQL because this predicate runs inside the list query.
+//
+// It is episode.Terminal plus blocked, and it matches store.reviewableEpisodeState
+// exactly. A state missing here is an ending the queue silently never offers;
+// a state wrongly added is live work presented as finished, and the pass would
+// file a judgement on half a trace.
+const reviewableEpisodeStates = `('completed', 'failed', 'refused', 'cancelled', 'superseded', 'blocked')`
+
+// awaitingReview is the queue: a finished episode with no review recording the
+// ending it has NOW.
+//
+// The three-column comparison rather than a bare "has a row" is the whole
+// point. Endings move — a blocked episode revives, spends another attempt and
+// completes — and a ledger keyed on the episode id alone would answer "already
+// judged" for a trace nobody has read. NOT EXISTS rather than a LEFT JOIN so
+// this clause can be appended to episodeSelect and to CountMatching's narrower
+// FROM without either query growing a join the other lacks; a count taken over
+// different tables from the list it captions is how "N match" and the rows
+// below it come to disagree.
+//
+// COALESCE on the episode side because work_episodes.completed_at is nullable
+// and the ledger's column is not: comparing NULL against the empty string
+// answers NULL rather than false, and an episode whose review matched
+// everything else would never leave the queue.
+//
+// Correlated on an episode aliased e.
+const awaitingReview = `
+	e.lifecycle_state IN ` + reviewableEpisodeStates + `
+	AND NOT EXISTS (
+	  SELECT 1 FROM episode_reviews AS rev
+	  WHERE rev.episode_id = e.id
+	    AND rev.lifecycle_state = e.lifecycle_state
+	    AND rev.attempts = (
+	      SELECT COUNT(*) FROM episode_attempts AS a WHERE a.episode_id = e.id
+	    )
+	    AND rev.completed_at = COALESCE(e.completed_at, '')
+	)`
+
+// order is newest-first everywhere except the review queue, which is a backlog
+// and so is drained oldest first — a queue served newest-first starves its own
+// tail, and the tail is exactly the history a daily pass is behind on.
+func (f EpisodeFilter) order() string {
+	if f.Review == reviewPending {
+		return ` ORDER BY COALESCE(e.completed_at, e.updated_at), e.id`
+	}
+	return ` ORDER BY e.created_at DESC`
 }
 
 // where builds the predicate.
@@ -1551,6 +1615,9 @@ func (f EpisodeFilter) where() (string, []any) {
 			clauses = append(clauses, term.sql)
 			args = append(args, term.value)
 		}
+	}
+	if f.Review == reviewPending {
+		clauses = append(clauses, awaitingReview)
 	}
 	if f.Query != "" {
 		// The searched text is escaped so an operator typing "100%" searches
@@ -1576,8 +1643,8 @@ func (r *Reader) EpisodesMatching(
 	limit int,
 ) ([]Item, error) {
 	where, args := filter.where()
-	return r.scanItems(ctx, episodeSelect+where+
-		` ORDER BY e.created_at DESC LIMIT ? OFFSET ?`,
+	return r.scanItems(ctx, episodeSelect+where+filter.order()+
+		` LIMIT ? OFFSET ?`,
 		append(args, limit, filter.Offset)...)
 }
 

@@ -53,6 +53,14 @@ type Actions interface {
 	// passed, through the episode kernel's own cancel transition. Nothing is
 	// deleted: the event and the audit row are the record of who decided.
 	ResolveEpisodeOvertaken(ctx context.Context, episodeID, actor string) error
+	// ReviewEpisode records that this episode's ending has been read, so the
+	// daily self-improvement pass stops offering it and starts offering it
+	// again if the episode ends differently. It carries a note where every
+	// other action here carries only an id, because the note is the judgement:
+	// a ledger saying only "read" answers "should the pass look again" and
+	// nothing about what the last look concluded. The store refuses an episode
+	// that has not ended, and that refusal reaches the operator verbatim.
+	ReviewEpisode(ctx context.Context, episodeID, note, actor string) error
 	CancelSlackReplay(ctx context.Context, replayID, expectedRunKey, actor string) error
 	// ResolveIncident closes an open room through the same handler the Slack
 	// close control uses, cleanup scheduling and closing notice included.
@@ -211,6 +219,16 @@ func (h *Handler) rerunEpisode(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) resolveEpisode(w http.ResponseWriter, r *http.Request) {
 	h.act(w, r, func(ctx context.Context, id string) error {
 		return h.actions.ResolveEpisodeOvertaken(ctx, id, dashboardActor)
+	})
+}
+
+// reviewEpisode reads its second field before act, the way cancelSlackReplay
+// does. An empty note is a legitimate answer — "I read it and there is nothing
+// to say" — so it is never a reason to refuse the form.
+func (h *Handler) reviewEpisode(w http.ResponseWriter, r *http.Request) {
+	note := strings.TrimSpace(r.FormValue("note"))
+	h.act(w, r, func(ctx context.Context, id string) error {
+		return h.actions.ReviewEpisode(ctx, id, note, dashboardActor)
 	})
 }
 

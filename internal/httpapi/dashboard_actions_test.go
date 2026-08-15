@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"database/sql"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/store"
+	_ "modernc.org/sqlite"
 )
 
 // Resolving a blocked episode as overtaken writes the kernel's cancel event
@@ -77,6 +80,78 @@ func TestResolveEpisodeOvertakenClosesBlockedWorkAndAuditsIt(t *testing.T) {
 	err = actions.ResolveEpisodeOvertaken(ctx, episode.ID, "control-plane@localhost")
 	if err == nil {
 		t.Error("a terminal episode accepted a second resolve")
+	}
+}
+
+// Marking an ending reviewed writes the ledger row AND the audit row in one
+// act. The dashboard once shipped an action that changed state with no audit
+// trail and sixteen unattributed reviews came of it, which is why this is a
+// rule rather than a preference — and it matters more here than most, because
+// the ledger's whole effect is to stop a trace being read again, and "who
+// decided nobody needs to look at this" is the question that gets asked when
+// something was missed.
+func TestMarkingAnEndingReviewedLeavesBothTheLedgerAndTheAuditRow(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "COPS", ConversationKey: "thread:COPS:1",
+		SourceKind: "watch", SourceID: "message-1", Prompt: "Investigate",
+	})
+	if err != nil || !created {
+		t.Fatalf("queue run: created=%t err=%v", created, err)
+	}
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions := &dashboardActions{store: st}
+
+	// Running work refuses, and the refusal reaches the operator verbatim.
+	err = actions.ReviewEpisode(ctx, episode.ID, "read it", "control-plane@localhost")
+	if err == nil || !strings.Contains(err.Error(), "has not ended") {
+		t.Fatalf("an episode still working accepted a review: %v", err)
+	}
+
+	if err := st.SetEpisodePhase(ctx, episode.ID, core.EpisodeCompleted, "complete",
+		"Completed", "None", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := actions.ReviewEpisode(ctx, episode.ID,
+		"the verdict matched the evidence", "control-plane@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(dir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var reviewer, note string
+	if err := db.QueryRowContext(ctx,
+		`SELECT reviewer, note FROM episode_reviews WHERE episode_id = ?`, episode.ID,
+	).Scan(&reviewer, &note); err != nil {
+		t.Fatalf("the review was not recorded: %v", err)
+	}
+	if reviewer != "control-plane@localhost" || note != "the verdict matched the evidence" {
+		t.Fatalf("ledger row = (%q, %q); it must say who judged the ending and what they saw", reviewer, note)
+	}
+	var kind, actor, object, outcome, detail string
+	if err := db.QueryRowContext(ctx, `
+		SELECT kind, actor_id, object_id, outcome, detail
+		FROM audit_events WHERE kind = 'episode.review'`,
+	).Scan(&kind, &actor, &object, &outcome, &detail); err != nil {
+		t.Fatalf("no audit row was written for the review: %v", err)
+	}
+	if actor != "control-plane@localhost" || object != episode.ID || outcome != "reviewed" {
+		t.Fatalf("audit row = (%s, %s, %s, %s); the log must name who, what and the result",
+			kind, actor, object, outcome)
+	}
+	if !strings.Contains(detail, "the verdict matched the evidence") {
+		t.Fatalf("audit detail = %q; the note is the judgement and belongs in the log", detail)
 	}
 }
 
