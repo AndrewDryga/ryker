@@ -1,0 +1,466 @@
+/* ============================================================================
+   THE INCIDENT, TYPESET — the report theme.
+
+   The landing page is set as the artifact the product produces: a typeset
+   incident record on paper. Everything dark on this page is a real product
+   surface — a Slack window, a control-plane panel — embedded in the report
+   like a photograph. The page around them is print: Fraunces for the voice,
+   Inter for the reading, mono for anything a machine wrote.
+
+   One device carries the page: the spine. A single rule runs from the first
+   beat to the close, and every section hangs off it at a real timestamp,
+   because the page IS one episode — alert to answer to record.
+
+   This file loads after site.css on the landing page only. Docs keep the
+   dark control-plane theme; the report is about the tool, the docs are the
+   tool's manual. Every dark component this page reuses (.slack-frame, .mock,
+   .verdict) keeps its own colors by re-scoping the dark tokens inside the
+   artifact, not by exception rules scattered below.
+   ========================================================================== */
+
+@font-face {
+  font-family: "Fraunces";
+  src: url("fonts/FrauncesVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fraunces";
+  src: url("fonts/FrauncesVariable-Italic.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+.report {
+  /* Paper. Warm, not clinical — a page, not a void. */
+  --paper: #faf9f6;
+  --paper-2: #f3f1ec;
+  --pink: #161616;        /* print ink; --ink stays the dark theme's token */
+  --pink-2: #3d3d3b;
+  --pmut: #6e6b64;        /* 4.9:1 on paper — captions, spine labels */
+  --prule: #e5e2db;       /* hairlines on paper */
+  --prule-2: #d8d4cb;
+  --pgreen: #0a7c55;      /* text-safe green, 4.9:1 on paper */
+  --pgreen-mark: #14cf8d; /* marks only */
+  --pred: #b3324b;
+  --pamber: #8a5d00;
+
+  --serif: "Fraunces", Georgia, "Times New Roman", serif;
+
+  background: var(--paper);
+  color: var(--pink);
+  font-size: 17px;
+  color-scheme: light;
+}
+.report ::selection { background: rgb(20 207 141 / .28); }
+
+/* Focus flips to ink on paper. */
+.report :focus-visible { outline: 2px solid var(--pink); outline-offset: 2px; }
+
+/* ---------------------------------------------------------------- masthead */
+
+.report .nav { background: rgb(250 249 246 / .88); }
+.report .nav.scrolled { border-bottom: 1px solid var(--prule); background: rgb(250 249 246 / .92); }
+.report .wordmark { color: var(--pink); }
+.report .nav-links a { color: var(--pink-2); }
+.report .nav-links a:hover { color: var(--pink); }
+.report .nav-menu > summary { color: var(--pink); border-color: var(--prule-2); background: var(--paper); }
+.report .nav-menu > summary::after { color: var(--pmut); }
+.report .nav-menu[open] > summary { border-color: var(--pink); color: var(--pink); }
+.report .nav-drawer { background: var(--paper); border-color: var(--prule); }
+.report .nav-drawer a { color: var(--pink-2); }
+
+/* ------------------------------------------------------------------- type */
+
+.report .display {
+  font-family: var(--serif);
+  font-optical-sizing: auto;
+  font-weight: 560;
+  font-size: clamp(3rem, 6.9vw, 5.75rem);
+  line-height: 1.0;
+  letter-spacing: -.012em;
+  max-width: 19ch;
+  color: var(--pink);
+}
+.report h2 {
+  font-family: var(--serif);
+  font-optical-sizing: auto;
+  font-weight: 530;
+  font-size: clamp(2.125rem, 3.5vw, 3.25rem);
+  line-height: 1.04;
+  letter-spacing: -.012em;
+  color: var(--pink);
+}
+.report .step-text h3 {
+  font-family: var(--serif);
+  font-optical-sizing: auto;
+  font-weight: 540;
+  font-size: clamp(1.75rem, 2.6vw, 2.375rem);
+  line-height: 1.06;
+  letter-spacing: -.008em;
+  color: var(--pink);
+}
+.report p:not(.slack-frame *, .mock *, .slack-annotated *), .report li:not(.slack-frame *, .mock *) { color: var(--pink-2); }
+.report .hero-sub { font-size: 1.1875rem; line-height: 1.6; color: var(--pink-2); max-width: 46ch; }
+.report .hero-sub strong { color: var(--pink); }
+.report a { color: inherit; }
+
+/* ---------------------------------------------------------------- buttons */
+
+.report .btn,
+.report .btn.go {
+  background: var(--pink);
+  color: var(--paper);
+  border: 1px solid var(--pink);
+  border-radius: 10px;
+  font-weight: 560;
+}
+.report .btn:hover, .report .btn.go:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgb(22 22 22 / .18); }
+.report .btn:active, .report .btn.go:active { transform: translateY(1px); box-shadow: none; }
+.report .btn.line {
+  background: transparent;
+  color: var(--pink);
+  border: 1px solid var(--prule-2);
+}
+.report .btn.line:hover { border-color: var(--pink); box-shadow: none; }
+.report .btn-quiet { color: var(--pink-2); }
+.report .btn-quiet:hover { color: var(--pink); }
+
+/* ------------------------------------------------------------------ spine */
+
+/* The rail x-position is shared by the rule and every marker, so they can
+   never drift apart. On paper the spine is the page's one continuous line. */
+.report {
+  --spinex: max(20px, calc((100vw - var(--wrap, 1120px)) / 2 - 44px));
+}
+.report .record { position: relative; }
+.report .record::before {
+  content: "";
+  position: absolute;
+  left: var(--spinex);
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--prule-2);
+}
+.report .beat { position: relative; }
+.report .beat-mark {
+  position: absolute;
+  left: var(--spinex);
+  transform: translateX(-3.5px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+.report .beat-mark .tick {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--paper);
+  border: 2px solid var(--pink);
+  flex: none;
+}
+.report .beat-mark.warn .tick { border-color: var(--pred); }
+.report .beat-mark.ok .tick { border-color: var(--pgreen); }
+.report .beat-mark time, .report .beat-mark .t {
+  font: 550 12px/1 var(--mono);
+  letter-spacing: .06em;
+  color: var(--pmut);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Section eyebrows become spine labels: mono, small, quiet. */
+.report .eyebrow { color: var(--pmut); }
+.report .eyebrow::before { background: var(--pgreen-mark); }
+.report .section-head > p:not(.eyebrow) { color: var(--pink-2); }
+
+/* ------------------------------------------------------------------ hero */
+
+.report .hero { padding-top: calc(var(--u, 8px) * 7); padding-bottom: calc(var(--u, 8px) * 4); }
+.report .hero-in { display: block; }
+.report .hero-say { max-width: none; }
+.report .hero-eyebrow, .report .hero-eyebrow span { color: var(--pmut); }
+.report .hero-frame {
+  margin-top: calc(var(--u, 8px) * 6);
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: calc(var(--u, 8px) * 8);
+  align-items: start;
+}
+.report .hero-aside { padding-top: calc(var(--u, 8px) * 3); }
+.report .hero-aside .btn-row { margin-top: calc(var(--u, 8px) * 4); }
+
+/* The dark window on paper: a photograph in the report. */
+.report .slack-frame {
+  box-shadow: 0 1px 2px rgb(22 22 22 / .10), 0 12px 40px rgb(22 22 22 / .12);
+  border-color: #2b2e33;
+}
+
+/* Frame caption: mono, footnoted, part of the page — not the window. */
+.report .frame-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: calc(var(--u, 8px) * 2);
+  font: 400 12.5px/1.6 var(--mono);
+  color: var(--pmut);
+}
+.report .frame-note b { font-weight: 550; color: var(--pink-2); }
+
+/* --------------------------------------------------------------- credo */
+
+.report .credo { border: 0; background: transparent; }
+.report .credo p {
+  font-family: var(--serif);
+  font-style: italic;
+  font-optical-sizing: auto;
+  font-weight: 470;
+  font-size: clamp(1.75rem, 3vw, 2.625rem);
+  line-height: 1.18;
+  letter-spacing: -.005em;
+  color: var(--pink);
+  max-width: 24ch;
+  margin-inline: auto;
+  text-align: center;
+  position: relative;
+}
+.report .credo p::before {
+  content: "\201C";
+  position: absolute;
+  left: -.62em;
+  top: -.04em;
+  display: inline;
+  width: auto;
+  height: auto;
+  margin: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  font-size: 1.9em;
+  font-weight: 420;
+  color: var(--pgreen-mark);
+}
+.report .credo p strong { color: inherit; font-weight: 620; }
+.report .credo .dot { display: none; }
+
+/* --------------------------------------------------------------- theses */
+
+/* The pillars stop being cards. On paper they are three numbered theses —
+   an essay's claims, each with its serif numeral. */
+.report .pillars { border: 0; background: transparent; gap: calc(var(--u, 8px) * 8); }
+.report .pillar { border: 0; padding: 0; background: transparent; }
+.report .pillar .n {
+  font-family: var(--serif);
+  font-optical-sizing: auto;
+  font-weight: 320;
+  font-size: clamp(2.375rem, 3.2vw, 3.25rem);
+  line-height: 1;
+  color: var(--pmut);
+  font-variant-numeric: oldstyle-nums;
+}
+.report .pillar h3 {
+  font-family: var(--serif);
+  font-weight: 560;
+  font-size: 1.5rem;
+  letter-spacing: -.006em;
+  color: var(--pink);
+}
+.report .pillar p { color: var(--pink-2); }
+
+/* ----------------------------------------------------------- dark artifacts */
+
+/* Every control-plane panel keeps the product's real dark theme by
+   re-scoping the dark tokens inside the artifact. The page shows the tool
+   the way a report shows a photograph: true to the original, framed. */
+.report .artifact {
+  --bg: #09090b;
+  --panel: #131316;
+  --panel-2: #18181b;
+  --line: #27272a;
+  --line-2: #1e1e21;
+  --ink: #f4f4f5;
+  --ink-2: #d4d4d8;
+  --dim: #a1a1aa;
+  --faint-t: #8b8b95;
+  --quiet-t: #80808d;
+  color: var(--ink-2);
+  box-shadow: 0 1px 2px rgb(22 22 22 / .10), 0 12px 40px rgb(22 22 22 / .10);
+  border-radius: 12px;
+}
+.report .artifact .mock { box-shadow: none; }
+
+/* The surface tag a dark panel wears, naming what it depicts. */
+.report .surface-tag {
+  font: 550 11px/1 var(--mono);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--quiet-t, #80808d);
+}
+
+/* ------------------------------------------------------------------ index */
+
+/* The appendix. Same content, print grammar: counted groups, ruled rows. */
+.report .index-group { border-top: 1px solid var(--prule); }
+.report .index-head { color: var(--pink); }
+.report .index-head h3, .report .index-head .t { color: var(--pink); }
+.report .index-head .cnt { color: var(--pmut); }
+.report .index-head::after { border-color: var(--pink-2); }
+.report .index-head:hover { background: var(--paper-2); }
+.report .index-list li { border-bottom: 1px solid var(--prule); }
+.report .index-list b { color: var(--pink); }
+.report .index-list li span { color: var(--pink-2); }
+.report .index-list li::before { background: var(--pgreen-mark); }
+
+/* ------------------------------------------------------------------ trust */
+
+.report .checks li { border-color: var(--prule); color: var(--pink-2); }
+.report .checks li::before { background: var(--pgreen-mark); box-shadow: none; }
+
+/* Structural hairlines: the dark theme's near-black rules read as heavy
+   strokes on paper. Every section boundary becomes a paper rule. */
+.report .band + .band,
+.report .band-tight + .band,
+.report .band + .band-tight { border-top-color: var(--prule); }
+.report .section-head { border-color: var(--prule); }
+.report .cannot {
+  background: var(--paper);
+  border: 1px solid var(--prule-2);
+  box-shadow: 0 1px 2px rgb(22 22 22 / .05);
+}
+.report .cannot h3 { font-family: var(--serif); font-weight: 560; color: var(--pink); }
+.report .cannot li { color: var(--pink-2); border-color: var(--prule); }
+.report .cannot .x { color: var(--pred); }
+.report .cannot .why { color: var(--pmut); }
+.report .cannot .why b, .report .cannot .why strong { color: var(--pink-2); }
+.report .data-where h3 { font-family: var(--serif); font-weight: 560; color: var(--pink); }
+.report .data-where p { color: var(--pink-2); }
+.report .data-where code { background: var(--paper-2); border: 1px solid var(--prule); color: var(--pink); }
+.report .data-where a, .report .install-more a, .report .data-more a { color: var(--pgreen); text-decoration-color: rgb(10 124 85 / .5); }
+
+/* -------------------------------------------------------------- footnotes */
+
+.report .fnmark {
+  font: 550 .62em/1 var(--mono);
+  vertical-align: super;
+  color: var(--pgreen);
+  text-decoration: none;
+  margin-left: 2px;
+}
+.report .footnotes {
+  border-top: 1px solid var(--prule);
+  padding-top: calc(var(--u, 8px) * 3);
+  font: 400 13px/1.7 var(--mono);
+  color: var(--pmut);
+  max-width: 72ch;
+}
+.report .footnotes p { color: var(--pmut); margin: 0 0 calc(var(--u, 8px) * 1); }
+.report .footnotes .m { color: var(--pgreen); font-weight: 550; }
+
+/* -------------------------------------------------------------------- CTA */
+
+.report .cta h2 span { color: var(--pmut); }
+.report .install { background: var(--paper); border: 1px solid var(--prule-2); box-shadow: 0 1px 2px rgb(22 22 22 / .05); }
+.report .install .k { color: var(--pmut); }
+.report .install pre { background: #141414; border: 0; }
+.report .install pre code, .report .install pre .tok-v { color: #e8e6e1; }
+.report .install pre .tok-x, .report .install pre .tok-k { color: #14cf8d; }
+.report .install-note { color: var(--pink-2); }
+.report .install-note code { background: var(--paper-2); border: 1px solid var(--prule); color: var(--pink); }
+.report .copy { background: var(--paper); border-color: var(--prule-2); color: var(--pink-2); }
+.report .copy:hover { color: var(--pink); border-color: var(--pink); }
+
+/* --------------------------------------------------------------- colophon */
+
+.report .foot { border-top: 1px solid var(--prule); background: var(--paper); }
+.report .colophon {
+  text-align: center;
+  font: 400 12.5px/2 var(--mono);
+  letter-spacing: .04em;
+  color: var(--pmut);
+  padding-block: calc(var(--u, 8px) * 3);
+}
+.report .colophon a { color: var(--pink-2); text-decoration: underline; text-decoration-color: var(--prule-2); text-underline-offset: 3px; min-height: 40px; display: inline-flex; align-items: center; }
+.report .colophon a:hover { color: var(--pink); text-decoration-color: var(--pink); }
+.report .colophon .sep { margin-inline: 10px; color: var(--prule-2); }
+.report .colophon .dot-ok { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--pgreen-mark); margin-right: 8px; vertical-align: 1px; }
+
+/* ------------------------------------------------------------- responsive */
+
+@media (max-width: 1219px) {
+  .report .record::before, .report .beat-mark { display: none; }
+  /* Below the rail, each beat announces its time inline instead. */
+  .report .beat-time-inline { display: block; }
+}
+@media (min-width: 1220px) {
+  .report .beat-time-inline { display: none; }
+}
+@media (max-width: 1000px) {
+  .report .hero-frame { grid-template-columns: 1fr; gap: calc(var(--u, 8px) * 5); }
+  .report .display { max-width: 14ch; }
+}
+
+/* The stagger inherits from site.css; nothing on paper moves that did not
+   already move in the dark. */
+
+/* ------------------------------------------------- hero window internals */
+
+.report .hero-slack { margin: 0; }
+.report .hero-slack .slack-frame { margin: 0; }
+
+/* Grafana's avatar block. Muted alert-orange, like an app icon, not a state. */
+.report .av-gr { background: #b06a3b; color: #fff; }
+
+/* Slack renders app alerts with a colored attachment bar. */
+.report .slack-attach {
+  border-left: 4px solid #e01e5a;
+  border-radius: 2px;
+  padding: 2px 0 2px 12px;
+  margin-top: 2px;
+}
+.report .slack-sub { font: 400 13px/1.5 var(--sans); color: #ababad; margin: 2px 0 0; }
+.report .slack-list {
+  margin: 6px 0 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 3px;
+}
+.report .slack-list li {
+  font: 400 15px/1.46 var(--sans);
+  color: #d1d2d3;
+  list-style: disc;
+}
+.report .slack-list li::marker { color: #ababad; }
+.report .slack-dim { color: #ababad; margin-top: 6px; }
+
+/* ----------------------------------------------- selector fixes for base */
+
+.report .index-head .n { color: var(--pmut); }
+.report .credo .said { color: inherit; font-weight: 620; }
+.report .cannot li::before { color: var(--pred); }
+.report .cannot > p { color: var(--pmut); }
+.report .cannot > p strong { color: var(--pink-2); }
+
+.report .beat-time-inline {
+  font: 550 12px/1 var(--mono);
+  letter-spacing: .06em;
+  color: var(--pmut);
+  margin: 0 0 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.report .footnotes-band { padding-block: calc(var(--u, 8px) * 6) calc(var(--u, 8px) * 10); }
+
+/* The beat marker rides the section's top padding, level with the eyebrow. */
+.report .beat-mark { top: calc(var(--band) - 26px); }
+
+/* The Slack step's caption line sits on paper, not inside a dark panel, so
+   it takes print colors — the base theme's dim greys vanish on paper. */
+.report .mock-slack > .mock-note .tag { color: var(--pgreen); }
+.report .mock-slack > .mock-note .note { color: var(--pmut); }
+.report .mock-slack > .mock-note .prov { color: var(--pmut); }
+.report .slack-annotated .slack-note b { color: var(--pink); }
+.report .slack-annotated .slack-note { color: var(--pmut); }
+.report .slack-annotated .slack-note i { color: var(--prule-2); }
+.report .slack-annotated::after { background: var(--prule-2); }
+.report .slack-annotated .slack-note::before { background: var(--prule-2); }

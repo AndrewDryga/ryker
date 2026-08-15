@@ -16,12 +16,14 @@
 <meta name="twitter:title" content="Responder — the first responder that shows its work">
 <meta name="twitter:description" content="Responder is an AI teammate for on-call and infrastructure teams. It lives in Slack, watches your alerts, and investigates with real evidence. Every claim names its source. Every risky action asks a person first.">
 
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="light">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/FrauncesVariable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/site.css">
+<link rel="stylesheet" href="assets/report.css">
 </head>
-<body>
+<body class="report">
 
 <a class="skip" href="#main">Skip to content</a>
 
@@ -57,88 +59,65 @@
 
   <!-- Hero ---------------------------------------------------------------- -->
   <section class="hero">
-    <div class="wrap hero-in">
-      <div class="hero-say">
-        <p class="hero-eyebrow"><span>AI SRE</span> <span><i>·&#160;</i>Slack-native</span> <span><i>·&#160;</i>self-hosted</span> <span><i>·&#160;</i>design-partner preview</span></p>
+    <div class="wrap">
+      <p class="hero-eyebrow"><span>AI SRE</span> <span><i>· </i>Slack-native</span> <span><i>· </i>self-hosted</span> <span><i>· </i>design-partner preview</span></p>
 
-        <h1 class="display">The first responder that shows its work.</h1>
+      <h1 class="display">The first responder that shows its work.</h1>
 
-        <p class="hero-sub">Responder is an AI teammate for on-call and infrastructure teams. It lives in Slack, watches your alerts, and investigates with real evidence. <strong>Every claim names its source. Every risky action asks a person first.</strong></p>
+      <div class="hero-frame">
+        <div class="hero-aside">
+          <p class="hero-sub">Responder is an AI teammate for on-call and infrastructure teams. It lives in Slack, watches your alerts, and investigates with real evidence. <strong>Every claim names its source. Every risky action asks a person first.</strong></p>
 
-        <!-- The page says "design-partner preview" four times. Until this row
-             existed it said it four times and offered no way to answer. -->
-        <div class="btn-row">
-          <a class="btn go" href="docs/index.html">Read the docs</a>
-          <a class="btn" href="mailto:andrew@dryga.com?subject=Responder%20design%20partner">Become a design partner</a>
-          <a class="btn-quiet" href="https://github.com/AndrewDryga/responder">View on GitHub</a>
+          <div class="btn-row">
+            <a class="btn go" href="docs/index.html">Read the docs</a>
+            <a class="btn line" href="mailto:andrew@dryga.com?subject=Responder%20design%20partner">Become a design partner</a>
+            <a class="btn-quiet" href="https://github.com/AndrewDryga/responder">View on GitHub</a>
+          </div>
         </div>
+
+        <!-- The hero image is the product: a Slack window, in Slack's own
+             colors, carrying the exchange the whole page is about. The page
+             annotates it from outside; inside is only what Slack would show. -->
+        <figure class="hero-slack" aria-labelledby="hero-cap">
+          <figcaption id="hero-cap" class="vh">A Slack channel, #ops-payments. At 2:01 PM Grafana, marked as an app, posts an alert: checkout p99 latency above 800 milliseconds for 5 minutes — firing, p99 at 812 milliseconds against an 800 millisecond threshold. One person has reacted with an eyes emoji. At 2:03 PM Responder, marked as an app, replies: degraded, recovering — error rate is 0.2 percent and falling; release 4f21c9 is implicated, not proven. Four evidence lines follow: checkout reports 6 of 6 replicas ready, from Emisar at 2:02 PM; release 4f21c9 rolled out 11 minutes before the alert, from the change ledger; error rate 0.2 percent, down from a 3.1 percent peak at 1:58, from Grafana; and upstream gateway latency — not checked, no authorized source. It closes: watching p99 through the next deploy, I’ll close this out when it holds.</figcaption>
+
+          <div class="slack-frame stagger" aria-hidden="true">
+            <div class="slack-head">
+              <b>#ops-payments</b>
+              <span>payments alerts and rollouts</span>
+            </div>
+
+            <div class="slack-msg">
+              <span class="slack-av av-gr">G</span>
+              <div class="slack-said">
+                <p class="slack-meta"><span class="slack-who">Grafana</span> <span class="slack-app">app</span> <span class="slack-ts">2:01 PM</span></p>
+                <div class="slack-attach">
+                  <p class="slack-text"><strong>Checkout p99 latency above 800&#8202;ms for 5 minutes</strong></p>
+                  <p class="slack-sub">firing · p99 812&#8202;ms · threshold 800&#8202;ms</p>
+                </div>
+                <p class="slack-reacts"><span class="slack-react"><span class="e">👀</span>1</span></p>
+              </div>
+            </div>
+
+            <div class="slack-msg">
+              <span class="slack-av av-app">R</span>
+              <div class="slack-said">
+                <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">2:03 PM</span></p>
+                <p class="slack-text"><strong>Degraded, recovering</strong> — error rate is 0.2% and falling. Release 4f21c9 is implicated, not proven.</p>
+                <ul class="slack-list">
+                  <li>checkout reports 6 of 6 replicas ready — emisar, 2:02 PM</li>
+                  <li>release 4f21c9 rolled out 11 minutes before the alert — change ledger</li>
+                  <li>error rate 0.2%, down from a 3.1% peak at 1:58 — grafana</li>
+                  <li>upstream gateway latency — not checked: no authorized source</li>
+                </ul>
+                <p class="slack-text slack-dim">Watching p99 through the next deploy. I’ll close this out when it holds.</p>
+              </div>
+            </div>
+          </div>
+
+          <p class="frame-note"><b>episode ep_4c8a11e0</b> <span>attempt 1 · 41&#8202;s · the answer came 83 seconds after the alert&#8202;<a class="fnmark" href="#fn-1" aria-describedby="fn-1">1</a></span></p>
+        </figure>
       </div>
-
-      <!-- The signature surface. Built from the same parts an episode is
-           built from, so nothing here can be true on the site and false in
-           the product. It is the live moment of one incident — 14:03, two
-           minutes after the alert — and the Slack mock in step 01 is the
-           same moment. The assessment in step 03 is the same episode after
-           the alert cleared, at 14:18. One incident, three clocks. -->
-      <figure class="vignette" aria-labelledby="vig-cap">
-        <figcaption id="vig-cap" class="vh">Illustrative, and condensed: an episode trace, live at 14:03, with its times compressed. An alert arrives, four evidence rows are recorded with their sources and observation times, and a verdict is returned — degraded and recovering, with the one thing that could not be verified named rather than assumed.</figcaption>
-
-        <div class="vig-head" aria-hidden="true">
-          <span class="pill warn">episode</span>
-          <span class="who">ep_4c8a11e0</span>
-          <span>#ops-payments</span>
-          <span class="right"><span>attempt 1</span><span>·</span><span>41s</span><span>·</span><time datetime="2026-08-15T14:03:02Z">14:03:02Z</time></span>
-        </div>
-
-        <div class="vig-body stagger" aria-hidden="true">
-          <div class="vig-alert">
-            <span class="dot bad"></span>
-            <span class="txt">
-              <b>Checkout p99 latency above 800&#8202;ms for 5 minutes</b>
-              <span>grafana · fingerprint 9b2e4c71 · firing 14:01:38Z</span>
-            </span>
-          </div>
-
-          <p class="vig-label">Evidence</p>
-
-          <div class="vig-rows">
-            <div class="vig-row">
-              <span class="dot good"></span>
-              <span class="claim">checkout reports 6 of 6 replicas ready</span>
-              <span class="src"><em>emisar</em> <time datetime="2026-08-15T14:02:11Z">14:02:11Z</time></span>
-            </div>
-            <div class="vig-row">
-              <span class="dot idle"></span>
-              <span class="claim">release 4f21c9 rolled out 11 minutes before the alert</span>
-              <span class="src"><em>change ledger</em> <time datetime="2026-08-15T13:51:04Z">13:51:04Z</time></span>
-            </div>
-            <div class="vig-row">
-              <span class="dot good"></span>
-              <span class="claim">error rate is 0.2%, down from a 3.1% peak at 13:58</span>
-              <span class="src"><em>grafana</em> <time datetime="2026-08-15T14:02:09Z">14:02:09Z</time></span>
-            </div>
-            <div class="vig-row">
-              <span class="dot idle"></span>
-              <span class="claim">upstream gateway latency — no authorized source, not checked</span>
-              <span class="src"><em>unverified</em> <span>—</span></span>
-            </div>
-          </div>
-
-          <div class="vig-verdict warn">
-            <span class="dot warn"></span>
-            <span>
-              <p><b>Degraded, recovering</b> — error rate 0.2% and falling, release 4f21c9 implicated.</p>
-              <span class="then">not verified · upstream gateway latency · said here rather than assumed</span>
-            </span>
-          </div>
-        </div>
-
-        <!-- Constructed evidence says so. A page whose whole argument is that
-             claims name their sources cannot show a made-up trace without a
-             line admitting it is made up. Said once here, and once under every
-             other mock on the page. -->
-        <p class="mock-note" aria-hidden="true"><span class="prov">illustrative episode — condensed, times compressed</span></p>
-      </figure>
     </div>
   </section>
 
@@ -177,10 +156,17 @@
     </div>
   </section>
 
+  <!-- The record: from here to the close, the page is one episode. The spine
+       in the left margin is the site's one indulgence, and it is not an
+       ornament — every section hangs off it at the moment it describes. -->
+  <div class="record">
+
   <!-- How it works -------------------------------------------------------- -->
-  <section class="band" id="how" aria-labelledby="how-h">
+  <section class="band beat" id="how" aria-labelledby="how-h">
+    <div class="beat-mark warn" aria-hidden="true"><span class="tick"></span><time datetime="2026-08-15T14:01:38Z">14:01:38Z</time><span class="t">— the alert</span></div>
     <div class="wrap">
       <div class="section-head">
+        <p class="beat-time-inline">14:01:38Z — the alert</p>
         <p class="eyebrow">How it works</p>
         <h2 id="how-h">Four things happen, in this order, every time.</h2>
         <p>There is no other path. A scheduled check, a webhook, and a question typed at 3am all become the same kind of work, with the same record behind it.</p>
@@ -248,7 +234,7 @@
               <p class="slack-note"><b>reply</b> <i>—</i> verdict first</p>
             </div>
 
-            <p class="mock-note" aria-hidden="true"><span class="tag">ignore · react · reply · incident</span> <span class="note">one rung, per message</span> <span class="prov">illustrative — condensed</span></p>
+            <p class="mock-note" aria-hidden="true"><span class="tag">ignore · react · reply · incident</span> <span class="note">one rung, per message</span> <span class="prov">illustrative — condensed&#8202;<a class="fnmark" href="#fn-2" aria-describedby="fn-2">2</a></span></p>
           </figure>
         </article>
 
@@ -263,7 +249,7 @@
           <figure class="mock" aria-labelledby="mock-cover-cap">
             <figcaption id="mock-cover-cap" class="vh">Illustrative, and condensed: a coverage panel, seven layers, one of them unverified. Each layer carries a state, one line of finding, and the source that produced it. Change: one release in the last 6 hours, 4f21c9, from the change ledger. Host: 3 nodes ready, no pressure conditions, from Emisar. Runtime: container runtime healthy on all nodes, from Emisar. Workload: 6 of 6 replicas ready, 0 restarts in an hour, from Emisar. Dependency: the upstream gateway, with no authorized source, so it is reported as unverified rather than as healthy. Application: error rate 0.2%, p99 back under 400 milliseconds, from Grafana. Impact: checkout completing, no failed orders since 14:00, from Grafana. The rule beneath the panel reads: missing evidence alone is not degradation.</figcaption>
 
-            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>coverage</span><span class="right">7 layers · 1 unverified</span></div>
+            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>coverage</span><span class="surface-tag">· control plane</span><span class="right">7 layers · 1 unverified</span></div>
             <div class="mock-body" aria-hidden="true">
               <div class="layers">
                 <div class="layer">
@@ -296,7 +282,7 @@
                 </div>
               </div>
             </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">rule</span> <span class="note">missing evidence alone is not degradation</span> <span class="prov">illustrative — condensed</span></p>
+            <p class="mock-note" aria-hidden="true"><span class="tag">rule</span> <span class="note">missing evidence alone is not degradation</span> <span class="prov">illustrative — condensed&#8202;<a class="fnmark" href="#fn-2" aria-describedby="fn-2">2</a></span></p>
           </figure>
         </article>
 
@@ -311,7 +297,7 @@
           <figure class="mock" aria-labelledby="mock-answer-cap">
             <figcaption id="mock-answer-cap" class="vh">Illustrative, and condensed: an assessment of the same episode, written after the alert cleared at 14:18. The verdict comes first — healthy, from 3 sources, none of them stale. Impact: none now; about 40 checkouts failed between 13:58 and 14:00. Cause: release 4f21c9 shipped a slow coupon lookup, which warmed after 2 minutes. Do now: nothing, the alert cleared on its own. Verify: watch p99 through the next coupon batch at 15:00. Long term: cache the coupon lookup, or precompute it at deploy. Unverified: upstream gateway latency, because there is no authorized source for it. Beneath the fields, the receipt for the claim of three sources — Emisar, the change ledger, and Grafana, re-read at 14:17, none stale — and a note that the host refused this answer twice, because the first one named a cause with no evidence row behind it.</figcaption>
 
-            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>assessment</span><span class="right">after clear · 14:18</span></div>
+            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>assessment</span><span class="surface-tag">· control plane</span><span class="right">after clear · 14:18</span></div>
             <div class="mock-body" aria-hidden="true">
               <div class="verdict-mock">
                 <div class="verdict-head">
@@ -332,7 +318,7 @@
                 <p class="vsrc">emisar <i>·</i> change ledger <i>·</i> grafana <span>re-read 14:17, none stale</span></p>
               </div>
             </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">refused twice</span> <span class="note">the first answer named a cause with no evidence row behind it</span> <span class="prov">illustrative — condensed</span></p>
+            <p class="mock-note" aria-hidden="true"><span class="tag">refused twice</span> <span class="note">the first answer named a cause with no evidence row behind it</span> <span class="prov">illustrative — condensed&#8202;<a class="fnmark" href="#fn-2" aria-describedby="fn-2">2</a></span></p>
           </figure>
         </article>
 
@@ -347,7 +333,7 @@
           <figure class="mock" aria-labelledby="mock-recall-cap">
             <figcaption id="mock-recall-cap" class="vh">Illustrative, and condensed: a recall panel of four memory rows, every one of them offered as history to check rather than as proof. A past episode, the second of three: the same alert group on 12 June, resolved by a coupon-cache rollback — closed, and not current state. A change-ledger entry: release 4f21c9 at 13:51Z on payments, offered as a correlation to check. A confirmed preference: response detail set to concise, scoped to this channel, expiring in 78 days. A standing rule: a deployment maps to a verify-deployment check, read-only, in this channel. The boundary beneath the panel reads: memory advises, it never authorizes.</figcaption>
 
-            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>recall</span><span class="right">history to check</span></div>
+            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>recall</span><span class="surface-tag">· control plane</span><span class="right">history to check</span></div>
             <div class="mock-body" aria-hidden="true">
               <div class="mem">
                 <div class="mem-row">
@@ -380,7 +366,7 @@
                 </div>
               </div>
             </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">boundary</span> <span class="note">memory advises. It never authorizes.</span> <span class="prov">illustrative — condensed</span></p>
+            <p class="mock-note" aria-hidden="true"><span class="tag">boundary</span> <span class="note">memory advises. It never authorizes.</span> <span class="prov">illustrative — condensed&#8202;<a class="fnmark" href="#fn-2" aria-describedby="fn-2">2</a></span></p>
           </figure>
         </article>
 
@@ -396,9 +382,11 @@
        and the capability index below. -->
 
   <!-- Capability index ----------------------------------------------------- -->
-  <section class="band" id="capabilities" aria-labelledby="cap-h">
+  <section class="band beat" id="capabilities" aria-labelledby="cap-h">
+    <div class="beat-mark" aria-hidden="true"><span class="tick"></span><span class="t">the appendix</span></div>
     <div class="wrap">
       <div class="section-head">
+        <p class="beat-time-inline">the appendix</p>
         <p class="eyebrow">The index</p>
         <h2 id="cap-h">Everything Responder does</h2>
         <p>One honest line each. Nothing here is a roadmap item; if it is listed, it is in the binary you can clone today.</p>
@@ -506,9 +494,11 @@
   </section>
 
   <!-- Trust ---------------------------------------------------------------- -->
-  <section class="band" id="trust" aria-labelledby="trust-h">
+  <section class="band beat" id="trust" aria-labelledby="trust-h">
+    <div class="beat-mark ok" aria-hidden="true"><span class="tick"></span><time datetime="2026-08-15T14:18:00Z">14:18:00Z</time><span class="t">— after the close</span></div>
     <div class="wrap">
       <div class="section-head">
+        <p class="beat-time-inline">14:18:00Z — after the close</p>
         <p class="eyebrow">Trust</p>
         <h2 id="trust-h">Built to be doubted</h2>
         <p>Responder assumes you will check its work — and makes checking easy.</p>
@@ -549,7 +539,8 @@
   </section>
 
   <!-- Final CTA ------------------------------------------------------------ -->
-  <section class="band cta">
+  <section class="band beat cta">
+    <div class="beat-mark" aria-hidden="true"><span class="tick"></span><span class="t">your move</span></div>
     <div class="wrap cta-in">
       <div>
         <h2>Run it on one host.<br>Point it at one channel.<br><span>Doubt everything it says — it can take it.</span></h2>
@@ -572,23 +563,27 @@
     </div>
   </section>
 
+  <!-- Footnotes ------------------------------------------------------------ -->
+  <section class="band footnotes-band" aria-label="Footnotes">
+    <div class="wrap">
+      <div class="footnotes">
+        <p id="fn-1"><span class="m">1</span> An illustrative episode: the message shapes are the product’s real ones — verdict first, evidence with sources, the unchecked thing named — but this exact exchange is staged for the page, condensed, with its times compressed.</p>
+        <p id="fn-2"><span class="m">2</span> Control-plane panels are shown in the product’s own dark theme. The trace UI is the one surface on this page that is not Slack, and you host it yourself.</p>
+      </div>
+    </div>
+  </section>
+
+  </div><!-- /.record -->
+
 </main>
 
 <footer class="foot">
-  <div class="wrap foot-in">
-    <span class="state"><span class="dot good"></span>Responder</span>
-    <span class="sep">·</span>
-    <span>design-partner preview</span>
-    <nav aria-label="Footer">
-      <a href="docs/index.html">Docs</a>
-      <a href="https://github.com/AndrewDryga/responder">GitHub</a>
-      <a href="https://github.com/AndrewDryga/responder/blob/main/SECURITY.md">Security</a>
-    </nav>
-  </div>
-  <div class="wrap foot-sub">
-    <a href="https://github.com/AndrewDryga/responder/blob/main/LICENSE">MIT license</a>
-    <span class="sep">·</span>
-    <a href="https://github.com/AndrewDryga/responder/releases">Releases</a>
+  <div class="wrap colophon">
+    <p><span class="dot-ok" aria-hidden="true"></span>Responder — design-partner preview</p>
+    <p>
+      <a href="docs/index.html">Docs</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder">GitHub</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder/blob/main/SECURITY.md">Security</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder/blob/main/LICENSE">MIT license</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder/releases">Releases</a>
+    </p>
+    <p>set in Fraunces &amp; Inter · one stylesheet · no trackers · works from file://</p>
   </div>
 </footer>
 
