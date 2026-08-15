@@ -1793,7 +1793,11 @@ const (
 )
 
 type Publication struct {
-	IncidentID     string
+	IncidentID string
+	// EpisodeID is the work that produced the diff. The incident id is still
+	// the row's primary key and still names the room; this names the episode,
+	// so a publication can be followed from work that never opened one.
+	EpisodeID      string
 	AttemptInputID string
 	Generation     int64
 	Repository     string

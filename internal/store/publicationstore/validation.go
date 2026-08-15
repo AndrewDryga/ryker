@@ -402,11 +402,24 @@ func (r *Repository) BeginReview(
 	}
 	result, err = tx.ExecContext(ctx, `
 		INSERT INTO publications (
-		  incident_id, generation, repository, base_branch, head_branch, parent_head,
-		  candidate_tree, commit_sha, remote_sha, pr_number, pr_url, state,
-		  failure_code, last_error, created_at, updated_at, attempt_input_id
-		) VALUES (?, 1, ?, ?, ?, '', '', '', ?, ?, ?, 'reviewing', '', '', ?, ?, ?)
+		  incident_id, episode_id, generation, repository, base_branch, head_branch,
+		  parent_head, candidate_tree, commit_sha, remote_sha, pr_number, pr_url,
+		  state, failure_code, last_error, created_at, updated_at, attempt_input_id
+		) VALUES (
+		  ?,
+		  -- The work that produced the diff, resolved here rather than passed in:
+		  -- the publish CLICK owns no episode of its own, so the only honest
+		  -- answer is the incident's most recent episode-bearing run. Refreshed
+		  -- on conflict because a new attempt may belong to a newer episode.
+		  COALESCE((
+		    SELECT run.episode_id FROM agent_runs AS run
+		    WHERE run.incident_id = ? AND run.episode_id != ''
+		    ORDER BY run.created_at DESC, run.id DESC LIMIT 1
+		  ), ''),
+		  1, ?, ?, ?, '', '', '', ?, ?, ?, 'reviewing', '', '', ?, ?, ?)
 		ON CONFLICT(incident_id) DO UPDATE SET
+		  episode_id = CASE WHEN excluded.episode_id != ''
+		    THEN excluded.episode_id ELSE publications.episode_id END,
 		  generation = publications.generation + 1,
 		  repository = excluded.repository,
 		  base_branch = excluded.base_branch,
@@ -473,7 +486,7 @@ func (r *Repository) BeginReview(
 		        julianday(input.received_at) <= julianday(publications.updated_at)
 		    )
 		  ) AND (? < 0 OR publications.generation = ?)`,
-		incidentID, repository, baseBranch, item.HeadBranch, item.RemoteSHA,
+		incidentID, incidentID, repository, baseBranch, item.HeadBranch, item.RemoteSHA,
 		item.PRNumber, item.PRURL, now, now, attemptInputID, slackInputID,
 		expectedGeneration, expectedGeneration,
 	)

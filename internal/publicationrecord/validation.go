@@ -25,12 +25,12 @@ func Get(ctx context.Context, db Reader, incidentID string) (core.Publication, e
 	var created, updated string
 	var published sql.NullString
 	err := db.QueryRowContext(ctx, `
-		SELECT incident_id, attempt_input_id, generation, repository, base_branch,
-		  head_branch, parent_head, candidate_tree, commit_sha, remote_sha,
-		  pr_number, pr_url, state, failure_code, last_error, created_at,
-		  updated_at, published_at
+		SELECT incident_id, episode_id, attempt_input_id, generation, repository,
+		  base_branch, head_branch, parent_head, candidate_tree, commit_sha,
+		  remote_sha, pr_number, pr_url, state, failure_code, last_error,
+		  created_at, updated_at, published_at
 		FROM publications WHERE incident_id = ?`, incidentID).Scan(
-		&item.IncidentID, &item.AttemptInputID, &item.Generation, &item.Repository,
+		&item.IncidentID, &item.EpisodeID, &item.AttemptInputID, &item.Generation, &item.Repository,
 		&item.BaseBranch, &item.HeadBranch, &item.ParentHead, &item.CandidateTree,
 		&item.CommitSHA, &item.RemoteSHA, &item.PRNumber, &item.PRURL, &item.State,
 		&item.FailureCode, &item.LastError, &created, &updated, &published,

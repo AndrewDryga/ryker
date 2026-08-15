@@ -1347,10 +1347,11 @@ func TestEpisodeArtifactsCoverEveryDurableLifecycle(t *testing.T) {
 	  VALUES ('timeline-1','incident-1','C1','investigation','responder',
 	          'Rollout inspected','The new allocation is healthy',?)`, fixture.stamp)
 	fixture.exec(`INSERT INTO publications
-	  (incident_id, repository, base_branch, head_branch, parent_head, candidate_tree,
-	   commit_sha, remote_sha, pr_number, pr_url, state, created_at, updated_at, published_at)
-	  VALUES ('incident-1','emisar','main','responder/fix','parent','tree','commit','remote',
-	          42,'https://github.com/example/emisar/pull/42','published',?,?,?)`,
+	  (incident_id, episode_id, repository, base_branch, head_branch, parent_head,
+	   candidate_tree, commit_sha, remote_sha, pr_number, pr_url, state,
+	   created_at, updated_at, published_at)
+	  VALUES ('incident-1','episode-1','emisar','main','responder/fix','parent','tree',
+	          'commit','remote',42,'https://github.com/example/emisar/pull/42','published',?,?,?)`,
 		fixture.stamp, fixture.stamp, fixture.stamp)
 	fixture.exec(`INSERT INTO publication_lifecycle_events
 	  (id, incident_id, kind, state, summary, source_channel_id, source_message_ts, created_at)
@@ -1418,10 +1419,11 @@ func TestEpisodeArtifactsKeepPublicationWhenIncidentTimelineIsUnavailable(t *tes
 	          'investigate',?,?)`, fixture.stamp, fixture.stamp)
 	fixture.exec(`UPDATE agent_runs SET incident_id = 'incident-1' WHERE id = 'run-1'`)
 	fixture.exec(`INSERT INTO publications
-	  (incident_id, repository, base_branch, head_branch, parent_head, candidate_tree,
-	   commit_sha, remote_sha, pr_number, pr_url, state, created_at, updated_at, published_at)
-	  VALUES ('incident-1','emisar','main','responder/fix','parent','tree','commit','remote',
-	          42,'https://github.com/example/emisar/pull/42','published',?,?,?)`,
+	  (incident_id, episode_id, repository, base_branch, head_branch, parent_head,
+	   candidate_tree, commit_sha, remote_sha, pr_number, pr_url, state,
+	   created_at, updated_at, published_at)
+	  VALUES ('incident-1','episode-1','emisar','main','responder/fix','parent','tree',
+	          'commit','remote',42,'https://github.com/example/emisar/pull/42','published',?,?,?)`,
 		fixture.stamp, fixture.stamp, fixture.stamp)
 	fixture.closeAndDrop("timeline_events")
 
@@ -1635,6 +1637,7 @@ func TestEpisodeProjectionInventoryCoversEveryEpisodeLinkedTable(t *testing.T) {
 		"episode_wakeups":                 "automatic follow-ups",
 		"feedback_items":                  "durable records",
 		"fixture_candidates":              "durable records",
+		"publications":                    "durable records",
 		"quality_findings":                "durable records",
 		"scheduled_task_runs":             "durable records",
 		"slack_deliveries":                "Slack deliveries",

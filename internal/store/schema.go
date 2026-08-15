@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 81
+const currentSchemaVersion = 82
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -460,4 +460,8 @@ var migrations = map[int]string{
 	// Which work an Emisar approval belongs to, when there is no room to say it.
 	// The DDL and the two backfill shapes live in migrationddl.V81.
 	81: migrationddl.V81,
+	// The same question asked of a publication, whose incident id is its primary
+	// key. The DDL and what this migration deliberately does NOT move live in
+	// migrationddl.V82.
+	82: migrationddl.V82,
 }

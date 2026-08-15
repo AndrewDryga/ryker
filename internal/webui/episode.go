@@ -1333,6 +1333,30 @@ func (r *Reader) Artifacts(ctx context.Context, episodeID string) ([]EpisodeArti
 		return item, err
 	}, episodeID)
 
+	// The publication follows the work that produced the diff, not the room it
+	// was discussed in. It used to be collected only through the incident, so an
+	// episode with no incident showed no publication at all — which is the state
+	// phase 5 is moving engineering work toward.
+	appendCollected("publication", `
+	  SELECT incident_id, repository, base_branch, head_branch, parent_head,
+	         candidate_tree, commit_sha, remote_sha, pr_number, pr_url, state,
+	         last_error, created_at, updated_at, COALESCE(published_at,'')
+	  FROM publications WHERE episode_id = ?`, func(rows *sql.Rows) (EpisodeArtifact, error) {
+		var item EpisodeArtifact
+		var repository, base, head, parent, tree, commit, remote, url, lastError, created, updated, published string
+		var prNumber int
+		err := rows.Scan(&item.ID, &repository, &base, &head, &parent, &tree, &commit,
+			&remote, &prNumber, &url, &item.State, &lastError, &created, &updated, &published)
+		item.Kind, item.Title, item.At = "publication", "Repository publication", parseStamp(created)
+		item.Summary = publicationSummary(item.State, prNumber, url)
+		item.Detail, item.DetailKind = lastError, "error"
+		item.Stats = []ArtifactStat{{"Incident", item.ID}, {"Repository", repository}, {"Base", base}, {"Branch", head},
+			{"Parent", parent}, {"Candidate tree", tree}, {"Commit", fallback(commit, "not committed")},
+			{"Remote", fallback(remote, "not pushed")}, {"Pull request", fallback(url, "not created")},
+			{"Published", fallback(published, "not published")}, {"Updated", updated}}
+		return item, err
+	}, episodeID)
+
 	// Approvals hang off the episode rather than the room, which is the only
 	// way a thread-scoped approval reaches this page at all: an episode with no
 	// incident collects no incidentArtifacts, so before phase 5 the operator's
@@ -1447,26 +1471,6 @@ func (r *Reader) incidentArtifacts(ctx context.Context, incidentID string) ([]Ep
 		return item, err
 	}, incidentID)
 	appendItems("publication lifecycle", lifecycle, err)
-	publication, err := collect(ctx, r, `
-	  SELECT incident_id, repository, base_branch, head_branch, parent_head,
-	         candidate_tree, commit_sha, remote_sha, pr_number, pr_url, state,
-	         last_error, created_at, updated_at, COALESCE(published_at,'')
-	  FROM publications WHERE incident_id = ?`, func(rows *sql.Rows) (EpisodeArtifact, error) {
-		var item EpisodeArtifact
-		var repository, base, head, parent, tree, commit, remote, url, lastError, created, updated, published string
-		var prNumber int
-		err := rows.Scan(&item.ID, &repository, &base, &head, &parent, &tree, &commit,
-			&remote, &prNumber, &url, &item.State, &lastError, &created, &updated, &published)
-		item.Kind, item.Title, item.At = "publication", "Repository publication", parseStamp(created)
-		item.Summary = publicationSummary(item.State, prNumber, url)
-		item.Detail, item.DetailKind = lastError, "error"
-		item.Stats = []ArtifactStat{{"Incident", item.ID}, {"Repository", repository}, {"Base", base}, {"Branch", head},
-			{"Parent", parent}, {"Candidate tree", tree}, {"Commit", fallback(commit, "not committed")},
-			{"Remote", fallback(remote, "not pushed")}, {"Pull request", fallback(url, "not created")},
-			{"Published", fallback(published, "not published")}, {"Updated", updated}}
-		return item, err
-	}, incidentID)
-	appendItems("publication", publication, err)
 	return items, errors.Join(projectionErrors...)
 }
 
