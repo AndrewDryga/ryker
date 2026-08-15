@@ -554,7 +554,24 @@ var lineBudget = map[string]int{
 	// operation filter that stops a branch completing the episode. The package
 	// was at its cap to the line, so this feature could not have been added
 	// inside it at all, which is the ratchet doing what it is for.
-	"service": 23285,
+	// Raised to 23480 on 2026-08-15 for migration phase 5, once for the phase
+	// rather than once per commit. Section 25's phase 5 makes an incident room
+	// an optional presentation artefact, and the work that buys is host work by
+	// construction: an approval whose transport rows have expired resolving its
+	// destination from the episode's bound (channel, thread) instead of from a
+	// Slack input and a delivery that no longer exist; a completed governed
+	// mutation finishing without the card it was waiting on rather than
+	// re-queueing itself once a second forever; a publication naming the episode
+	// that produced it; a thread-scoped episode binding a Coop session to its
+	// destination rather than to a room's root message.
+	//
+	// The payment is booked, not deferred: the Emisar approval ROW left for
+	// internal/store/approvalstore in the same session and took eight methods
+	// and 317 lines out of internal/store, and both of that package's budgets
+	// came down. This package's own extraction is still owed, and the candidate
+	// has not changed since the paragraph above named it — the offline
+	// evaluation family behind the decision domain.
+	"service": 23505,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

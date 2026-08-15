@@ -139,13 +139,36 @@ func (s *Service) processEmisarApproval(
 	return s.finishTerminalEmisarApproval(ctx, updated)
 }
 
+// emisarApprovalCardGrace bounds how long a completed Emisar run waits for its
+// own card to exist before finishing without one.
+//
+// It used to wait forever. The card's message_ts is written when the Slack
+// delivery lands, so an approval whose card was superseded, coalesced away, or
+// failed permanently re-queued itself once a second for the life of the
+// process, never completed, never queued its verification turn, and said
+// nothing anywhere — the operator who pressed approve simply never heard back.
+// Two minutes is far longer than a Slack post takes and far shorter than an
+// operator's patience.
+const emisarApprovalCardGrace = 2 * time.Minute
+
 func (s *Service) finishTerminalEmisarApproval(
 	ctx context.Context,
 	updated core.EmisarApproval,
 ) error {
 	if updated.MessageTS == "" {
-		updated.NextCheckAt = s.now().UTC().Add(time.Second)
-		return s.store.EnqueueWork(ctx, emisarApprovalWorkItem(updated, s.now()))
+		if s.now().UTC().Before(emisarApprovalCardDeadline(updated)) {
+			updated.NextCheckAt = s.now().UTC().Add(time.Second)
+			return s.store.EnqueueWork(ctx, emisarApprovalWorkItem(updated, s.now()))
+		}
+		// The card is presentation and the continuation is the work. Say so
+		// once, loudly, and finish: a governed mutation that reached a terminal
+		// status must be verified whether or not its card survived.
+		s.log.Warn(
+			"Emisar approval completed with no card to update",
+			"request", updated.RequestID,
+			"run", updated.RunID,
+			"status", updated.Status,
+		)
 	}
 	if err := s.store.ResolveWaitingApprovalEpisodes(
 		ctx,
@@ -158,8 +181,10 @@ func (s *Service) finishTerminalEmisarApproval(
 	if _, _, err := s.queueEmisarApprovalContinuation(ctx, updated); err != nil {
 		return err
 	}
-	if err := s.enqueueEmisarApprovalCardUpdate(ctx, updated, true); err != nil {
-		return err
+	if updated.MessageTS != "" {
+		if err := s.enqueueEmisarApprovalCardUpdate(ctx, updated, true); err != nil {
+			return err
+		}
 	}
 	if err := s.store.Approvals.MarkContinuationQueued(
 		ctx,
@@ -271,18 +296,14 @@ func (s *Service) queueEmisarApprovalContinuation(
 			prompt,
 		)
 	}
-	input, err := s.store.GetSlackInput(ctx, approval.SourceInput)
-	if err != nil {
-		return core.AgentRun{}, false, err
-	}
-	delivery, err := s.store.GetSlackDelivery(ctx, approval.DeliveryID)
+	target, err := s.approvalContinuationTarget(ctx, approval)
 	if err != nil {
 		return core.AgentRun{}, false, err
 	}
 	repository, err := s.effectiveRepository(
 		ctx,
-		input.ChannelID,
-		input.UserID,
+		target.ChannelID,
+		approval.RequestedBy,
 		s.cfg.Slack.DefaultRepository,
 	)
 	if err != nil {
@@ -291,7 +312,7 @@ func (s *Service) queueEmisarApprovalContinuation(
 	state := decisionpkg.WatchTurnState{
 		Lane:                 "investigation",
 		Repository:           repository,
-		ResponseThreadTS:     delivery.ThreadTS,
+		ResponseThreadTS:     target.ThreadTS,
 		RouteCaptured:        true,
 		RulesCaptured:        true,
 		ConversationFollowup: true,
@@ -304,19 +325,97 @@ func (s *Service) queueEmisarApprovalContinuation(
 		return core.AgentRun{}, false, err
 	}
 	run := core.AgentRun{
-		Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
-		ThreadTS: delivery.ThreadTS, ConversationKey: watchConversationKey(input),
-		SourceKind: sourceKind, SourceID: input.ID, UserID: approval.RequestedBy,
+		Mode: core.AgentRunTriage, ChannelID: target.ChannelID,
+		ThreadTS: target.ThreadTS, ConversationKey: target.ConversationKey,
+		SourceKind: sourceKind, SourceID: approval.SourceInput, UserID: approval.RequestedBy,
 		Repository: repository, Prompt: prompt, Context: contextJSON,
 		CommitmentTitle: "Verify " + approval.ActionID + " after Emisar completed it",
 		Episode:         approvalContinuationEpisode(approval.ActionID),
 	}
-	if origin, originErr := s.store.GetAgentRunBySource(ctx, "watch", input.ID); originErr == nil && origin.EpisodeID != "" {
-		return s.store.QueueEpisodeAttempt(ctx, origin.EpisodeID, run)
-	} else if originErr != nil && !errors.Is(originErr, store.ErrNotFound) {
-		return core.AgentRun{}, false, originErr
+	if target.EpisodeID != "" {
+		return s.store.QueueEpisodeAttempt(ctx, target.EpisodeID, run)
 	}
 	return s.store.QueueAgentRun(ctx, run)
+}
+
+// approvalTarget is where an approval's verification turn belongs when no
+// incident room answers that question.
+type approvalTarget struct {
+	ChannelID       string
+	ThreadTS        string
+	ConversationKey string
+	EpisodeID       string
+}
+
+// approvalContinuationTarget resolves that destination from the episode first
+// and the transport rows second.
+//
+// The order is the whole point. slack_inputs, slack_deliveries and agent_runs
+// all expire on the OPERATIONAL horizon; work_episodes lives on the
+// episode-history one, and its bound destination is revisioned and validated.
+// The previous shape loaded the Slack input and the card delivery and returned
+// their ErrNotFound to the work queue, so an Emisar run that took longer than
+// the operational horizon — which is precisely the run an approval exists for —
+// reached its terminal status and then died looking for the message it meant to
+// reply under. Permanently, and without telling the operator who approved it.
+//
+// Every lookup below the episode is consulted, never required.
+func (s *Service) approvalContinuationTarget(
+	ctx context.Context,
+	approval core.EmisarApproval,
+) (approvalTarget, error) {
+	target := approvalTarget{EpisodeID: approval.EpisodeID, ChannelID: approval.ChannelID}
+	// The origin run carries the conversation key this thread serializes on,
+	// which an alert-correlated episode does not spell as "channel:<id>".
+	origin, err := s.store.GetAgentRunBySource(ctx, "watch", approval.SourceInput)
+	switch {
+	case err == nil:
+		target.ConversationKey = origin.ConversationKey
+		if target.EpisodeID == "" {
+			target.EpisodeID = origin.EpisodeID
+		}
+	case !errors.Is(err, store.ErrNotFound):
+		return approvalTarget{}, err
+	}
+	if target.EpisodeID != "" {
+		episode, episodeErr := s.store.GetWorkEpisode(ctx, target.EpisodeID)
+		switch {
+		case episodeErr == nil:
+			target.ChannelID = core.FirstNonempty(episode.Destination.ChannelID, target.ChannelID)
+			target.ThreadTS = episode.Destination.ThreadTS
+		case !errors.Is(episodeErr, store.ErrNotFound):
+			return approvalTarget{}, episodeErr
+		}
+	}
+	if target.ThreadTS == "" {
+		delivery, deliveryErr := s.store.GetSlackDelivery(ctx, approval.DeliveryID)
+		switch {
+		case deliveryErr == nil:
+			target.ThreadTS = delivery.ThreadTS
+		case !errors.Is(deliveryErr, store.ErrNotFound):
+			return approvalTarget{}, deliveryErr
+		}
+	}
+	if target.ChannelID == "" {
+		return approvalTarget{}, fmt.Errorf(
+			"Emisar approval %q has no conversation left to answer in",
+			approval.RequestID,
+		)
+	}
+	if target.ConversationKey == "" {
+		target.ConversationKey = "channel:" + target.ChannelID
+	}
+	return target, nil
+}
+
+// emisarApprovalCardDeadline is measured from when Emisar went terminal, not
+// from now, so the grace period cannot be renewed by re-polling.
+func emisarApprovalCardDeadline(approval core.EmisarApproval) time.Time {
+	terminal := approval.TerminalAt
+	if terminal.IsZero() {
+		terminal = approval.UpdatedAt
+	}
+	return terminal.Add(emisarApprovalCardGrace)
 }
 
 func emisarApprovalContinuationPrompt(approval core.EmisarApproval) string {
