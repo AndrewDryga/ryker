@@ -67,6 +67,8 @@ func Run(args []string, stdout, stderr io.Writer, buildVersion string) error {
 		return runAuditResultProtocol(args[1:], stdout, stderr)
 	case "correction-rate":
 		return runCorrectionRate(args[1:], stdout, stderr)
+	case "audition":
+		return runAudition(args[1:], stdout, stderr)
 	case "backfill-outcomes":
 		return runBackfillOutcomes(args[1:], stdout, stderr)
 	case "migration-check":
@@ -747,6 +749,8 @@ Usage:
   responder correction-rate
   responder lifecycle-divergence
                            Report how often the host had to correct the model
+  responder audition       Report which model earned which lane: correction rate and cost
+                           from live traffic, gate-pass and judge score from recorded runs
   responder audit-result-protocol
                            Replay stored results to measure the legacy fallback path
   responder backfill-outcomes

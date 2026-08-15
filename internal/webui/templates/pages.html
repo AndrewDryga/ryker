@@ -373,6 +373,31 @@ but nothing here is a queue.</p>
   {{end}}
 </div>
 
+<h2>Audition — which model deserves which lane <span class="note">last {{.Audition.Days}} days</span></h2>
+{{if .Audition.Rows}}
+<table>
+  <thead><tr>
+    <th>Case class</th><th>Profile asked for</th><th>Model that answered</th><th>Reasoning</th>
+    <th class="num">Attempts</th><th>Measured</th>
+    <th class="num">Corrections</th><th class="num">Per attempt</th><th>Cost</th>
+  </tr></thead>
+  <tbody>
+  {{range .Audition.Rows}}
+  <tr>
+    <td>{{.Class}}</td><td>{{.Profile}}</td><td class="mono">{{.Model}}</td><td>{{.Effort}}</td>
+    <td class="mono num">{{.Attempts}}</td><td>{{.Measured}}</td>
+    <td class="mono num">{{.Corrections}}</td>
+    <td class="mono num">{{.CorrectionRate}}{{meter .RatePct}}</td>
+    <td class="mono">{{.Cost}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+<p class="note">Provider-reported {{.Audition.Reported}} · estimated {{.Audition.Estimate}}. These are
+never added together: one is an invoice and the other is arithmetic.</p>
+{{else}}<p class="empty">No attempts in the last {{.Audition.Days}} days, so no lane has a correction rate or a cost yet.</p>{{end}}
+{{range .Audition.Gaps}}<p class="note">{{.}}</p>{{end}}
+
 <h2>Feedback from people <span class="note">{{len .Feedback}}</span></h2>
 {{if .Feedback}}
 {{$act := .CanAct}}

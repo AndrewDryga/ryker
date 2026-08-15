@@ -78,6 +78,10 @@ func TestEveryQueryRunsAgainstTheMigratedSchema(t *testing.T) {
 			_, err := reader.CountAuditOfKind(ctx, everyAuditTerm)
 			return err
 		},
+		"AuditionLanes": func() error {
+			_, err := reader.AuditionLanes(ctx, time.Now().UTC().AddDate(0, 0, -7))
+			return err
+		},
 		"Corrections":       func() error { _, err := reader.Corrections(ctx); return err },
 		"Feedback":          func() error { _, err := reader.Feedback(ctx); return err },
 		"ChannelMemory":     func() error { _, err := reader.ChannelMemory(ctx); return err },

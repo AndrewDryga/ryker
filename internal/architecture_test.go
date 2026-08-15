@@ -956,6 +956,13 @@ var forbiddenImports = map[string][]string{
 		"service", "store", "slackui", "httpapi", "app", "publisher", "coop",
 		"emisar", "config", "webhook",
 	},
+	// audition counts what already happened and returns a report. It reads a
+	// database handle it was given and never opens one, and it must stay unable
+	// to promote, route or demote anything: the whole design of this report is
+	// that a person reads it and decides. A package that could reach the store
+	// or the service is one turn away from being asked to act on its own
+	// findings, which is the autopilot this deliberately is not.
+	"audition":       {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "webui"},
 	"agentprompt":    {"service", "store", "slackui", "httpapi", "app", "publisher", "config"},
 	"evidencepolicy": {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},
 	"replypolicy":    {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},

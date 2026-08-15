@@ -176,8 +176,49 @@ Responder's judgement, made inspectable.
   one-line string with no context, which is why fifteen of them have sat
   unreviewed.
 
+- **Audition**: which model deserves which lane. One row per case class, per
+  profile the turn asked for, per model that actually answered — attempts,
+  how many of them a provider measured, corrections and corrections per
+  attempt, and cost. The panel carries the live half only; gate-pass rate and
+  judge score live in the recorded evaluation results on disk, which the
+  dashboard does not read, so it names `responder audition` rather than
+  rendering an empty column that reads as broken.
+
 **Source:** `evaluation_decisions`, `fixture_candidates`, `agent_runs`,
-correction-rate projection.
+`context_manifests` joined to runs on `attempt_id`, `audit_events` of kind
+`result.correction`, correction-rate projection.
+
+#### The audition report — two halves that are not joined
+
+`responder audition` prints both halves; the Decisions panel shows the live one.
+
+The live half comes from the database: `context_manifests` for the effective
+provider, model and effort and for every usage column, the `execution_profile`
+reference for the profile the turn *asked* for, and `audit_events` of kind
+`result.correction` for the re-work. Corrections attach to an agent run, so the
+attribution walks run → attempt → manifest; the run join is on `attempt_id` and
+never on `episode_id`, for the reason the Usage section gives.
+
+The recorded half comes from the evaluation history — the JSON `make eval`
+already writes with `--results` — and gives gate-pass rate, judge mean over the
+number of answers the judge actually scored, and the case count. The newest run
+of each corpus only.
+
+**The two are printed apart and never joined.** `EvaluationSummary` records no
+provider and no model anywhere, and live traffic has no gate to pass, so no row
+can honestly carry both. A grid keyed by class *and* model would be inventing
+the attribution neither source holds. The report says this out loud rather than
+leaving the reader to notice.
+
+Promotion metrics are gate-pass rate, judge score and correction rate. There is
+deliberately no similarity-to-frontier-prose score, and adding one would be a
+change to what this product optimises for, not a new column.
+
+Cost follows the same rule as the Usage page: a lane the provider charged for is
+reported and is **not** also estimated, an unpriced model reports no estimate
+rather than a zero, and an unmeasured lane reads "not measured" rather than
+"0.00". The two totals are printed on separate lines with the reason beside
+them.
 
 ### 4a. Findings — "what is wrong with Responder itself?"
 

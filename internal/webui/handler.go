@@ -933,6 +933,12 @@ type rate struct {
 	Percent int
 }
 
+// auditionWindowDays is the lane window the Decisions panel reads. A week,
+// because a routing decision made on one afternoon's traffic is a decision made
+// on eval variance — five credentialed runs on one afternoon produced
+// materially different answers, which is why the regression rate is 0.66.
+const auditionWindowDays = 7
+
 func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var failed problems
@@ -946,6 +952,12 @@ func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 		count := h.reader.Count(ctx, countCorrections, class)
 		rates = append(rates, rate{class, count, total, percent(count, total)})
 	}
+	// The standing answer to "which model deserves which lane", on the page
+	// where the other verdicts about Responder's own behaviour already are. It
+	// carries the live half only; the panel says where the recorded half lives
+	// rather than showing an empty column that reads as broken.
+	auditionPanel, err := h.reader.AuditionPanel(ctx, h.pricing, auditionWindowDays)
+	failed.note("audition", err)
 	items, err := h.reader.Feedback(ctx)
 	failed.note("feedback", err)
 	// Praise is separated from the complaints rather than mixed in with them.
@@ -978,6 +990,7 @@ func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 		Rates            []rate
 		Corrections      []CorrectionGroup
 		Promotions       []Promotion
+		Audition         AuditionPanel
 		Waiting          int
 		Feedback, Praise []Feedback
 		Praised, Reacted int
@@ -985,7 +998,7 @@ func (h *Handler) decisions(w http.ResponseWriter, r *http.Request) {
 		Errs             problems
 		CanAct           bool
 	}{
-		rates, corrections, promotions, waiting, feedback, praise,
+		rates, corrections, promotions, auditionPanel, waiting, feedback, praise,
 		praised, praised + complained, percent(praised, praised+complained),
 		failed, h.CanAct(),
 	})
