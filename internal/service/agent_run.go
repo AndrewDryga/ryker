@@ -1714,6 +1714,15 @@ func (s *Service) pollAgentRuns(ctx context.Context) {
 	}
 }
 
+// silentTurnDeadline is how long a running turn may say nothing before the
+// host asks Coop to cancel it. Real investigations speak — tool activity
+// advances the event cursor and touches the run row — so fifteen minutes of
+// total silence is a dead transport, not a thinking model. Generous on
+// purpose: the cost of a false positive is one interrupted turn replayed in a
+// fresh session; the cost of a false negative was a channel locked for as
+// long as nobody noticed.
+const silentTurnDeadline = 15 * time.Minute
+
 // pollAgentRun advances one running turn, holding a failing run off the poll
 // until its backoff expires.
 //
@@ -1854,6 +1863,45 @@ func (s *Service) pollAgentRunOnce(ctx context.Context, run core.AgentRun) error
 				max(cursor, session.LastEventSequence),
 			)
 		}
+	}
+	// A turn that is neither terminal nor speaking is not necessarily alive.
+	// A restart of supervised Coop orphans whatever was mid-turn, and the
+	// rehydrated state reports those turns as running forever: no events, no
+	// terminal, nothing for this poll to write. Four such zombies from the
+	// 2026-08-15 restarts held their channels for half an hour each — the
+	// pending queue aged 56 minutes behind them while every poll visited them,
+	// found nothing to do, and left without a trace. A real long investigation
+	// speaks — tool activity advances the cursor and touches the run — so a
+	// run nothing has touched for the deadline is asked to die through Coop's
+	// own state machine. The cancel produces the acp_cancelled terminal that
+	// the replay path already treats as an interruption, which requeues triage
+	// work in a fresh session, bounded by the ordinary attempt budget.
+	if len(events) == 0 && run.CoopTurnID != "" &&
+		s.now().Sub(run.UpdatedAt) >= silentTurnDeadline {
+		s.log.Warn(
+			"cancelling a turn that has been silent past the deadline",
+			"run", run.ID, "session", run.SessionID, "turn", run.CoopTurnID,
+			"silent_for", s.now().Sub(run.UpdatedAt).Round(time.Second),
+		)
+		turn, _, cancelErr := s.coop.Cancel(
+			ctx, "silent-turn-cancel:"+run.ID+":"+run.CoopTurnID,
+			run.SessionID, run.CoopTurnID, 0,
+		)
+		if cancelErr != nil {
+			return fmt.Errorf("cancel a silent turn: %w", cancelErr)
+		}
+		if turn.State == "completed" {
+			return s.stagePolledAgentRunTerminal(ctx, run, "turn.completed", turn, cursor)
+		}
+		if turn.State == "failed" || turn.State == "cancelled" {
+			// Staged as a failure regardless of which terminal the cancel
+			// reached, because that is what this is: the host interrupted a
+			// dead transport. The failure form is what the replay path
+			// classifies as an interruption, which requeues triage work in a
+			// fresh session instead of burying the answer with the zombie.
+			return s.stagePolledAgentRunTerminal(ctx, run, "turn.failed", turn, cursor)
+		}
+		return nil
 	}
 	if cursor > run.CoopEventSequence {
 		if err := s.store.AdvanceAgentRunEvents(ctx, run.ID, cursor); err != nil {

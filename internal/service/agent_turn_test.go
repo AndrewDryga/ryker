@@ -1810,3 +1810,67 @@ func TestARunWhoseSessionTheChannelLeftBehindStillPolls(t *testing.T) {
 		t.Fatalf("advancing a left-behind session's cursor failed the poll: %v", err)
 	}
 }
+
+// A restart of supervised Coop orphans whatever was mid-turn, and the
+// rehydrated state reports those turns as running forever: no events, no
+// terminal, nothing for a poll to write. Four such zombies from the 2026-08-15
+// restarts held their channels for half an hour each — the pending queue aged
+// 56 minutes behind them while every poll visited them, found nothing to do,
+// and left without a trace. The deadline asks Coop to cancel a turn nothing
+// has touched, and the cancel's terminal takes the interruption path that
+// replays triage work in a fresh session.
+func TestASilentTurnIsCancelledInsteadOfHoldingItsChannel(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CSILENT"}
+	cfg.Slack.WatchChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{{ID: "turn_silent", State: "running"}}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	base := time.Now().UTC()
+	svc.clock = func() time.Time { return base }
+
+	input := core.SlackInput{
+		ID: "slack-silent-turn", EnvelopeID: "env-silent-turn", EventID: "event-silent-turn",
+		Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CSILENT", MessageTS: "1700.900", UserID: "U123ABC",
+		Text: "<@U999BOT> how is the rollout going?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Within the deadline the turn is presumed thinking, and the poll must not
+	// interrupt it.
+	svc.pollAgentRuns(ctx)
+	if coopClient.cancelCalls != 0 {
+		t.Fatalf("a turn inside the deadline was cancelled after %d calls", coopClient.cancelCalls)
+	}
+
+	base = base.Add(silentTurnDeadline + time.Minute)
+	svc.pollAgentRuns(ctx)
+	if coopClient.cancelCalls != 1 {
+		t.Fatalf("a turn silent past the deadline was cancelled %d times, want once",
+			coopClient.cancelCalls)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.State != core.AgentRunPending {
+		t.Fatalf("the cancelled turn's run is %q, want pending for the fresh-session replay "+
+			"(last error %q)", run.State, run.LastError)
+	}
+}

@@ -980,10 +980,11 @@ func stageAgentRunWithMissingConversationSource(
 }
 
 type fakeCoop struct {
-	session coop.Session
-	turn    coop.Turn
-	changes coop.Changes
-	events  []coop.Event
+	session     coop.Session
+	turn        coop.Turn
+	changes     coop.Changes
+	cancelCalls int
+	events      []coop.Event
 	// eventsErr fails the event read every poll, and eventsCalls counts the
 	// reads that got through — together they are how a test can tell a poll
 	// that is being held off from one that is merely failing quietly.
@@ -1239,6 +1240,12 @@ func (f *fakeCoop) Review(context.Context, string, string, int64) (coop.Review, 
 	return coop.Review{}, coop.Operation{}, nil
 }
 func (f *fakeCoop) Cancel(context.Context, string, string, string, int64) (coop.Turn, coop.Operation, error) {
+	f.cancelCalls++
+	// Coop's real cancel drives the turn to its cancelled terminal; the fake
+	// models that so the silent-turn deadline can be proven end to end.
+	f.turn.State = "cancelled"
+	f.turn.ErrorCode = "acp_cancelled"
+	f.turn.ErrorDetail = "turn cancelled"
 	return f.turn, coop.Operation{}, nil
 }
 func (f *fakeCoop) Extend(_ context.Context, _ string, _ string, _ int64, additional int) (coop.Session, coop.Operation, error) {
