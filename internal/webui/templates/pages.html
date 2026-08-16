@@ -13,6 +13,8 @@
   </div>
 </section>
 
+<div class="overview-grid">
+<div class="overview-main">
 {{if .Blocked}}
 {{/* The count is the queue, not the rows rendered: the list is capped at
      eight, and printing its length under a hero that counts the whole queue
@@ -41,8 +43,10 @@
 <p class="note"><a href="/episodes">every episode →</a></p>
 {{else}}<p class="empty-state">No episodes yet. One appears the first time Responder accepts work
 from Slack or a webhook.</p>{{end}}
+</div>
 
-<h2>Coming up <span class="note">{{len .Schedules}}</span></h2>
+<aside class="overview-upcoming" aria-labelledby="overview-upcoming-heading">
+<h2 id="overview-upcoming-heading">Coming up <span class="note">{{len .Schedules}}</span></h2>
 {{if .Schedules}}
 <div class="rows">
   {{range .Schedules}}
@@ -61,6 +65,8 @@ from Slack or a webhook.</p>{{end}}
 <p class="note"><a href="/schedules">every schedule →</a></p>
 {{else}}<p class="empty-state">Nothing is scheduled. Ask Responder in Slack to check something on a
 cadence and it will appear here.</p>{{end}}
+</aside>
+</div>
 
 {{if or .Errs .Troubled (not .Lanes)}}
 <h2>Needs attention</h2>

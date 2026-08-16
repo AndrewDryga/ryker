@@ -140,8 +140,8 @@ func TestShellUsesEmisarContentWidthTiers(t *testing.T) {
 }
 
 // The first redesign copied Emisar's colors but kept Responder's old dashboard
-// composition: a subtitle under every title, a two-column overview, duplicate
-// summaries, and a card around every trace step. These source-level invariants
+// composition: a subtitle under every title, an overloaded dashboard rail,
+// duplicate summaries, and a card around every trace step. These invariants
 // keep the control plane on Emisar's actual hierarchy even when fixtures have
 // too little data to exercise every optional branch in a rendered page.
 func TestControlPlaneKeepsEmisarVisualHierarchy(t *testing.T) {
@@ -171,6 +171,11 @@ func TestControlPlaneKeepsEmisarVisualHierarchy(t *testing.T) {
 	for _, obsolete := range []string{`class="ov-grid"`, `class="rail-pulse"`, "Where work happens"} {
 		if strings.Contains(pages, obsolete) {
 			t.Errorf("list pages restored the redundant dashboard element %q", obsolete)
+		}
+	}
+	for _, required := range []string{`class="overview-grid"`, `class="overview-upcoming"`} {
+		if !strings.Contains(pages, required) {
+			t.Errorf("dashboard lost the focused schedule rail %q", required)
 		}
 	}
 

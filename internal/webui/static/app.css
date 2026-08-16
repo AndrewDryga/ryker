@@ -309,6 +309,26 @@ a.metric:hover { text-decoration: none; background: var(--hover); }
 .hero-stats .warn strong { color: var(--amber-400); }
 .hero-stats .bad strong { color: var(--rose-400); }
 
+/* The dashboard answers "what happened" and "what is next" side by side.
+   Only the small forward-looking schedule belongs in the rail; operational
+   queues and system problems keep the full reading width below it. */
+.overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 56px;
+  align-items: start;
+  margin-top: 48px;
+}
+.overview-main, .overview-upcoming { min-width: 0; }
+.overview-main > * + *, .overview-upcoming > * + * { margin-top: 12px; }
+.overview-main > * + h2 { margin-top: 48px; }
+.overview-main > h2 + *, .overview-upcoming > h2 + * { margin-top: 16px; }
+
+@media (max-width: 1180px) {
+  .overview-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .overview-upcoming { margin-top: 48px; }
+}
+
 /* Lists — framed as cards, rows divided the portal's way ---------------------- */
 
 /* Lists sit directly on the canvas like the portal's audit page: no frame,
