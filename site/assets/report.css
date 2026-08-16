@@ -43,7 +43,7 @@
   --prule: #e5e2db;       /* hairlines on paper */
   --prule-2: #d8d4cb;
   --pgreen: #0a7c55;      /* text-safe green, 4.9:1 on paper */
-  --pgreen-mark: #14cf8d; /* marks only */
+  --pgreen-mark: #0e9f6e; /* marks only — the dark theme's mint washes out on paper */
   --pred: #b3324b;
   --pamber: #8a5d00;
 
@@ -56,13 +56,20 @@
 }
 .report ::selection { background: rgb(20 207 141 / .28); }
 
-/* Focus flips to ink on paper. */
+/* Focus flips to ink on paper; inside a dark artifact it flips back to mint,
+   because an ink outline on a near-black panel is no outline at all. */
 .report :focus-visible { outline: 2px solid var(--pink); outline-offset: 2px; }
+.report .mock :focus-visible, .report .slack-frame :focus-visible,
+.report .mock-slack :focus-visible { outline-color: #14cf8d; }
+
+/* The first tab stop must be readable: the skip chip keeps ink-on-paper
+   inverted, whatever the page's inherit rules say. */
+.report .skip { background: var(--pink); color: var(--paper); border-color: var(--pink); }
 
 /* ---------------------------------------------------------------- masthead */
 
 .report .nav { background: rgb(250 249 246 / .88); }
-.report .nav.scrolled { border-bottom: 1px solid var(--prule); background: rgb(250 249 246 / .92); }
+.report .nav.is-stuck { border-bottom: 1px solid var(--prule); background: rgb(250 249 246 / .92); }
 .report .wordmark { color: var(--pink); }
 .report .nav-links a { color: var(--pink-2); }
 .report .nav-links a:hover { color: var(--pink); }
@@ -122,7 +129,7 @@
 .report .btn.line {
   background: transparent;
   color: var(--pink);
-  border: 1px solid var(--prule-2);
+  border: 1px solid #a49d8e; /* 3:1 on paper — a control boundary, not a hairline */
 }
 .report .btn.line:hover { border-color: var(--pink); box-shadow: none; }
 .report .btn-quiet { color: var(--pink-2); }
@@ -181,6 +188,7 @@
 .report .hero-in { display: block; }
 .report .hero-say { max-width: none; }
 .report .hero-eyebrow, .report .hero-eyebrow span { color: var(--pmut); }
+.report .hero-eyebrow i { color: var(--pmut); }
 .report .hero-frame {
   margin-top: calc(var(--u, 8px) * 6);
   display: grid;
@@ -220,16 +228,16 @@
   line-height: 1.18;
   letter-spacing: -.005em;
   color: var(--pink);
-  max-width: 24ch;
+  max-width: 26ch;
   margin-inline: auto;
-  text-align: center;
+  text-align: left;
   position: relative;
 }
 .report .credo p::before {
   content: "\201C";
   position: absolute;
-  left: -.62em;
-  top: -.04em;
+  left: -.6em;
+  top: .01em;
   display: inline;
   width: auto;
   height: auto;
@@ -239,7 +247,7 @@
   box-shadow: none;
   font-size: 1.9em;
   font-weight: 420;
-  color: var(--pgreen-mark);
+  color: var(--pgreen);
 }
 .report .credo p strong { color: inherit; font-weight: 620; }
 .report .credo .dot { display: none; }
@@ -304,6 +312,12 @@
 .report .index-group { border-top: 1px solid var(--prule); }
 .report .index-head { color: var(--pink); }
 .report .index-head h3, .report .index-head .t { color: var(--pink); }
+.report summary.index-head:hover { border-bottom-color: var(--pink-2); }
+.report summary.index-head:hover .n { color: var(--pmut); }
+.report summary.index-head:hover::after { color: var(--pink); border-color: var(--pink); }
+.report summary.index-head::after { border-color: var(--pink-2); }
+.report .step-num::after { background: var(--prule-2); }
+.report .mock-slack > .mock-note { border-color: var(--prule); }
 .report .index-head .cnt { color: var(--pmut); }
 .report .index-head::after { border-color: var(--pink-2); }
 .report .index-head:hover { background: var(--paper-2); }
@@ -347,6 +361,7 @@
   text-decoration: none;
   margin-left: 2px;
 }
+.report .mock .fnmark { color: #14cf8d; }
 .report .footnotes {
   border-top: 1px solid var(--prule);
   padding-top: calc(var(--u, 8px) * 3);
@@ -367,7 +382,7 @@
 .report .install pre .tok-x, .report .install pre .tok-k { color: #14cf8d; }
 .report .install-note { color: var(--pink-2); }
 .report .install-note code { background: var(--paper-2); border: 1px solid var(--prule); color: var(--pink); }
-.report .copy { background: var(--paper); border-color: var(--prule-2); color: var(--pink-2); }
+.report .copy { background: var(--paper); border-color: #a49d8e; color: var(--pink-2); }
 .report .copy:hover { color: var(--pink); border-color: var(--pink); }
 
 /* --------------------------------------------------------------- colophon */
@@ -382,18 +397,31 @@
 }
 .report .colophon a { color: var(--pink-2); text-decoration: underline; text-decoration-color: var(--prule-2); text-underline-offset: 3px; min-height: 40px; display: inline-flex; align-items: center; }
 .report .colophon a:hover { color: var(--pink); text-decoration-color: var(--pink); }
-.report .colophon .sep { margin-inline: 10px; color: var(--prule-2); }
+.report .colophon .sep { margin-inline: 10px; color: var(--pmut); }
 .report .colophon .dot-ok { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--pgreen-mark); margin-right: 8px; vertical-align: 1px; }
 
 /* ------------------------------------------------------------- responsive */
 
-@media (max-width: 1219px) {
+@media (max-width: 719px) {
   .report .record::before, .report .beat-mark { display: none; }
   /* Below the rail, each beat announces its time inline instead. */
   .report .beat-time-inline { display: block; }
 }
-@media (min-width: 1220px) {
+@media (min-width: 720px) {
   .report .beat-time-inline { display: none; }
+}
+/* The rule ends the way it began: a terminus, not a fade. */
+.report .record::after {
+  content: "";
+  position: absolute;
+  left: var(--spinex);
+  bottom: 0;
+  width: 7px;
+  height: 7px;
+  transform: translateX(-3px);
+  background: var(--paper);
+  border: 2px solid var(--pink-2);
+  border-radius: 50%;
 }
 @media (max-width: 1000px) {
   .report .hero-frame { grid-template-columns: 1fr; gap: calc(var(--u, 8px) * 5); }
@@ -409,7 +437,7 @@
 .report .hero-slack .slack-frame { margin: 0; }
 
 /* Grafana's avatar block. Muted alert-orange, like an app icon, not a state. */
-.report .av-gr { background: #b06a3b; color: #fff; }
+.report .av-gr { background: #8a4f2b; color: #fff; }
 
 /* Slack renders app alerts with a colored attachment bar. */
 .report .slack-attach {
@@ -441,7 +469,8 @@
 .report .cannot > p { color: var(--pmut); }
 .report .cannot > p strong { color: var(--pink-2); }
 
-.report .beat-time-inline {
+.report .beat-time-inline,
+.report .section-head > p.beat-time-inline {
   font: 550 12px/1 var(--mono);
   letter-spacing: .06em;
   color: var(--pmut);
@@ -462,5 +491,20 @@
 .report .slack-annotated .slack-note b { color: var(--pink); }
 .report .slack-annotated .slack-note { color: var(--pmut); }
 .report .slack-annotated .slack-note i { color: var(--prule-2); }
-.report .slack-annotated::after { background: var(--prule-2); }
-.report .slack-annotated .slack-note::before { background: var(--prule-2); }
+.report .slack-annotated::after { background: #b3ab9c; }
+.report .slack-annotated .slack-note::before { background: #b3ab9c; }
+
+
+@media (max-width: 480px) {
+  .report .mock-head { flex-wrap: wrap; row-gap: 2px; }
+  .report .mock-head .right { flex-basis: 100%; }
+}
+@media (max-width: 1000px) {
+  .report .hero-frame { margin-top: calc(var(--u, 8px) * 4); }
+  .report .hero-aside { padding-top: 0; }
+}
+@media (max-width: 520px) {
+  .report .hero-eyebrow { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+  .report .hero-eyebrow span:last-child i { display: none; }
+  .report .hero-eyebrow span:last-child { flex-basis: 100%; }
+}

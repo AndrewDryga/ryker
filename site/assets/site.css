@@ -1003,7 +1003,7 @@ h1.display {
 
 /* Slack, as Slack --------------------------------------------------------- */
 
-/* Step 01 is the only place on this site that shows Slack, so it is built in
+/* Slack surfaces (the hero window and Step 01) are built in
    Slack's colors rather than ours — #1a1d21 behind #35373b hairlines, a 36px
    avatar, an APP badge, an emoji reaction pill, a message box. The clash with
    the zinc page is the point: it has to read as a foreign window sitting in
@@ -2412,3 +2412,20 @@ summary.index-head:focus-visible { outline-offset: -2px; }
 
 /* Prose links get the same press feedback every other control has. */
 .doc a:active, .trust-data a:active, .install-more a:active { opacity: .7; }
+
+
+/* The manual keeps the product's dark theme, but it is authored by the same
+   hand as the report: the one serif on a docs page is its title. */
+@font-face {
+  font-family: "Fraunces";
+  src: url("fonts/FrauncesVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+.doc-page h1 {
+  font-family: "Fraunces", Georgia, serif;
+  font-optical-sizing: auto;
+  font-weight: 540;
+  letter-spacing: -.01em;
+}
