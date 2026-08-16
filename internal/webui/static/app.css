@@ -459,11 +459,30 @@ a.metric:hover { text-decoration: none; background: var(--raised); }
 .pulse-bar:hover { fill: var(--live); }
 .pulse-failed { fill: var(--alarm); opacity: .85; pointer-events: none; }
 
+/* Overview dashboard grid: the work queues own the main column, the
+   schedule rail keeps them company, and one viewport answers the page's
+   three questions without scrolling. Each column carries its own flow
+   rhythm because the main-element rule cannot see inside wrappers. */
+.ov-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 44px;
+  align-items: start;
+  margin-top: 44px;
+}
+.ov-main > * + *, .ov-side > * + * { margin-top: 12px; }
+.ov-main > * + h2, .ov-side > * + h2 { margin-top: 44px; }
+.ov-main > h2 + *, .ov-side > h2 + * { margin-top: 14px; }
+@media (max-width: 1180px) {
+  .ov-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .ov-side { margin-top: 44px; }
+}
+
 /* Lists ---------------------------------------------------------------------- */
 
 .rows {
   border: 1px solid var(--edge);
-  border-radius: var(--r-card);
+  border-radius: 14px;
   overflow: hidden;
   background: var(--surface);
   box-shadow: var(--card-shadow);
@@ -527,14 +546,17 @@ pre code { font-size: 1em; }
 
 /* Tables ----------------------------------------------------------------------- */
 
+/* A data table is a component, not lines of text: a banded header, rows
+   tall enough to breathe, the leading cell carrying the row's identity in
+   ink, and everything else stepped back behind it. */
 table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 13.5px;
+  font-size: 13px;
   background: var(--surface);
   border: 1px solid var(--edge);
-  border-radius: var(--r-card);
+  border-radius: 14px;
   overflow: hidden;
   box-shadow: var(--card-shadow);
 }
@@ -543,8 +565,8 @@ th {
   text-align: left;
   color: var(--quiet);
   font-weight: 600;
-  font-size: 10.5px;
-  padding: 10px 16px;
+  font-size: 11px;
+  padding: 11px 16px;
   background: var(--raised);
   border-bottom: 1px solid var(--edge);
   /* A wrapped header splits the row's baseline: labels are short; the data
@@ -552,7 +574,10 @@ th {
   white-space: nowrap;
 }
 
-td { padding: 11px 16px; border-bottom: 1px solid var(--rule); vertical-align: top; line-height: 1.5; }
+td { padding: 13px 16px; border-bottom: 1px solid var(--rule); vertical-align: middle; line-height: 1.5; }
+/* The first cell is the row's name; the row is read from it. */
+td:first-child { font-weight: 550; color: var(--ink); }
+td:first-child .note, td:first-child.note { font-weight: 400; }
 tr:last-child td { border-bottom: 0; }
 /* Zebra under the hairlines: fifty rows of numbers need two devices to stay
    scannable, and on a dark table the stripe costs nothing. */
@@ -1717,24 +1742,43 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
    are grey, and only a failure, a wait, a reply or a retry takes the eye. */
 .episode-row {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   grid-template-areas:
     "dot title  when"
-    ".   answer answer"
-    ".   facts  facts";
-  align-items: baseline;
-  column-gap: 10px;
+    "dot answer answer"
+    "dot facts  facts";
+  align-items: center;
+  column-gap: 13px;
   padding: 15px 20px 16px;
 }
-/* The dot is centred in the title's own line box rather than aligned to its
-   baseline: an empty inline box has no text to take a baseline from. */
+/* The state is an icon tile, not a naked dot: a rounded plate in the tint
+   of the row's condition with the lamp centred in it — the one element a
+   scanning eye can catch at every row height. */
 .episode-dot {
   grid-area: dot; align-self: start;
-  height: 21px; display: flex; align-items: center;
+  display: grid; place-items: center;
+  width: 28px; height: 28px;
+  border-radius: 9px;
+  background: rgb(255 255 255 / .04);
+  border: 1px solid rgb(255 255 255 / .07);
 }
 .episode-dot::before {
   content: ""; width: 7px; height: 7px; border-radius: 50%;
   background: var(--quiet);
+}
+.episode-row[data-state="failed"] .episode-dot,
+.episode-row[data-state="dead"] .episode-dot {
+  background: rgb(251 113 133 / .1); border-color: rgb(251 113 133 / .25);
+}
+.episode-row[data-state="blocked"] .episode-dot,
+.episode-row[data-state="waiting_operator"] .episode-dot,
+.episode-row[data-state="waiting_approval"] .episode-dot {
+  background: rgb(251 191 36 / .1); border-color: rgb(251 191 36 / .25);
+}
+.episode-row[data-state="running"] .episode-dot,
+.episode-row[data-state="working"] .episode-dot,
+.episode-row[data-state="queued"] .episode-dot {
+  background: rgb(54 230 165 / .1); border-color: rgb(54 230 165 / .25);
 }
 /* Superseded and cancelled work did not reach an outcome of its own, so it
    reads as an outline rather than a mark. */
@@ -1785,7 +1829,10 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
    rather than leading, so a wrapped fact row never starts a line with the
    dot — and never after the chip, which separates itself. */
 .episode-facts > span:not(:last-child)::after { content: " ·"; opacity: .5; }
-.episode-facts > .episode-state::after { content: none; }
+/* span.episode-state matches the generic rule's specificity exactly, so
+   source order can win — a bare class selector loses to :not(:last-child)
+   and the dot ends up printed inside the chip. */
+.episode-facts > span.episode-state:not(:last-child)::after { content: none; }
 /* The state is a chip, tinted with its meaning; the quiet states stay in a
    neutral capsule so a page of completed work reads calm. */
 .episode-state {

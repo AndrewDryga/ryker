@@ -26,6 +26,11 @@
   {{end}}
 </section>
 
+{{/* The page is a dashboard, not a scroll: the work queues hold the main
+     column and the schedule rail sits beside them, so one viewport answers
+     "what needs me, what just happened, what is coming". */}}
+<div class="ov-grid">
+<div class="ov-main">
 {{if .Blocked}}
 {{/* The count is the queue, not the rows rendered: the list is capped at
      eight, and printing its length under a hero that counts the whole queue
@@ -54,7 +59,9 @@
 <p class="note"><a href="/episodes">every episode →</a></p>
 {{else}}<p class="empty">No episodes yet. One appears the first time Responder accepts work
 from Slack or a webhook.</p>{{end}}
+</div>
 
+<aside class="ov-side">
 <h2>Coming up <span class="note">{{len .Schedules}}</span></h2>
 {{if .Schedules}}
 <div class="rows">
@@ -75,6 +82,8 @@ from Slack or a webhook.</p>{{end}}
 <p class="note"><a href="/schedules">every schedule →</a></p>
 {{else}}<p class="empty">Nothing is scheduled. Ask Responder in Slack to check something on a
 cadence and it will appear here.</p>{{end}}
+</aside>
+</div>
 
 <h2>System</h2>
 {{template "problems" .Errs}}
