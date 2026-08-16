@@ -279,7 +279,15 @@ h2 .note { font: 450 12px/1.5 var(--mono); font-variant-numeric: tabular-nums; c
 .metric .n small { font-size: 13px; font-weight: 450; color: var(--z400); letter-spacing: 0; }
 .metric.bad .n { color: var(--rose-400); }
 .metric.warn .n { color: var(--amber-400); }
-.metric-meter { margin-top: 8px; }
+/* The stub meters under single percentages duplicated the number in four
+   gray pixels; the capped per-attempt bars saturated at one and erased a
+   fifteen-fold difference. Only the share column's real proportions keep
+   their meter. */
+.metric-meter { display: none; }
+td.num .meter { display: none; }
+/* Identity strings never wrap: "tenant-app-/svelte" read as two names. The
+   class is opt-in because mono also sets costs, which are sentences. */
+td.id { white-space: nowrap; }
 a.metric { color: inherit; }
 a.metric:hover { text-decoration: none; background: var(--hover); }
 

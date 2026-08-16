@@ -216,7 +216,7 @@ from Slack or a webhook.</p>{{end}}
            task has nothing left to act on. It was inverted — the one finished
            row glowed while five active ones sat gray. */}}
       <td><span class="pill{{if eq .Status "active"}} good{{end}}">{{.Status}}</span></td>
-      <td class="mono">{{.Repository}}</td><td>{{.Channel}}</td>
+      <td class="mono id">{{.Repository}}</td><td>{{.Channel}}</td>
       <td class="mono num">{{.Episodes}}</td>
       <td>{{if .PRNumber}}#{{.PRNumber}} <span class="note">{{.PRState}}{{if .Checks}} · checks {{.Checks}}{{end}}</span>{{else}}<span class="note">none</span>{{end}}</td>
       <td class="note">{{since .Updated}}</td></tr>
@@ -406,7 +406,7 @@ but nothing here is a queue.</p>
   <tbody>
   {{range .Audition.Rows}}
   <tr>
-    <td>{{.Class}}</td><td>{{.Profile}}</td><td class="mono">{{.Model}}</td><td>{{.Effort}}</td>
+    <td>{{.Class}}</td><td>{{.Profile}}</td><td class="mono id">{{.Model}}</td><td>{{.Effort}}</td>
     <td class="mono num">{{.Attempts}}</td><td>{{.Measured}}</td>
     <td class="mono num">{{.Corrections}}</td>
     <td class="mono num">{{.CorrectionRate}}{{meter .RatePct}}</td>
@@ -531,7 +531,7 @@ fill it in.{{end}}</p>
 <table>
   <tr><th>Repository</th><th>Contents</th><th>Written by</th><th class="num">Recalled</th><th class="num">Revised</th><th>Updated</th></tr>
   {{range .Repositories}}
-  <tr><td class="mono">{{.Repository}}</td>
+  <tr><td class="mono id">{{.Repository}}</td>
       <td>{{if .Described}}{{.Contents}}{{else}}<span class="note">Not described yet</span>{{end}}</td>
       <td class="note">{{if eq .Source "agent"}}Responder{{else if eq .Source "configured"}}Configuration{{else}}—{{end}}</td>
       <td class="mono num">{{if eq .Source "agent"}}{{.Recalls}}{{else}}<span class="note">—</span>{{end}}</td>
@@ -576,7 +576,7 @@ fill it in.{{end}}</p>
   <tr><th>Channel</th><th>Thread</th><th>Repository</th><th class="num">Recalled</th><th>Updated</th></tr>
   {{range .Conversations}}
   <tr><td><a href="/conversations/{{.ChannelID}}/{{.Thread}}">{{.Channel}}</a></td>
-      <td class="mono">{{.Thread}}</td><td class="mono">{{.Repository}}</td>
+      <td class="mono id">{{.Thread}}</td><td class="mono id">{{.Repository}}</td>
       <td class="mono num">{{.Recalls}}</td><td class="note">{{since .Updated}}</td></tr>
   {{end}}
 </table>
@@ -883,7 +883,9 @@ measured ones — an unmeasured attempt is left out, not counted as free.</p>
   <div class="panel metric"><div class="n">{{tokens .Cached}}</div><div class="k">cached input</div></div>
   <div class="panel metric"><div class="n">{{tokens .Output}}</div><div class="k">output</div></div>
   <div class="panel metric"><div class="n">{{tokens .Reasoning}}</div><div class="k">reasoning</div></div>
-  <div class="panel metric good"><div class="n">{{.CacheLabel}}</div><div class="k">input served from cache</div></div>
+  {{/* Short enough for one label line: a wrapped label dropped this value
+       off the row's shared baseline. */}}
+  <div class="panel metric good"><div class="n">{{.CacheLabel}}</div><div class="k">cache hit rate</div></div>
 </div>
 {{end}}
 {{end}}

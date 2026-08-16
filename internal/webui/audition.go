@@ -93,7 +93,10 @@ func auditionMeasured(lane audition.Lane) string {
 	if lane.Measured == 0 {
 		return "none measured"
 	}
-	return fmt.Sprintf("%d of %d measured", lane.Measured, lane.Attempts)
+	// The word lives in the column header; repeating it in every cell wrapped
+	// each row to two lines. The zero case keeps its sentence above so an
+	// unmeasured lane still cannot read as a measured zero.
+	return fmt.Sprintf("%d of %d", lane.Measured, lane.Attempts)
 }
 
 func auditionCost(lane audition.Lane, currency string) string {
