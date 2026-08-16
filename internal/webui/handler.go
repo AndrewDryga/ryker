@@ -132,6 +132,7 @@ func (h *Handler) trouble(w http.ResponseWriter, r *http.Request, code int, kind
 		Back          string
 		Bad           bool
 	}{code, kind, message, back, code >= 500})
+	shell.Width = "width-detail"
 	shell.TitleOverride = kind
 	h.render.Render(w, "trouble", shell)
 }
@@ -153,6 +154,7 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request, slug, body string
 // "Episodes" and its subject was buried in a panel below a bare back-link.
 func (h *Handler) detail(w http.ResponseWriter, r *http.Request, slug, body, title string, content any) {
 	shell := h.shell(r, slug, content)
+	shell.Width = detailWidth(slug)
 	shell.TitleOverride = truncate(title, 90)
 	for _, page := range pages {
 		if page.Slug == slug {
@@ -160,6 +162,15 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request, slug, body, tit
 		}
 	}
 	h.render.Render(w, body, shell)
+}
+
+// detailWidth mirrors Emisar's content ladder: operational entities use the
+// 6xl detail column, while settings stay in the calmer 4xl settings column.
+func detailWidth(slug string) string {
+	if slug == "configuration" {
+		return "width-settings"
+	}
+	return "width-detail"
 }
 
 func (h *Handler) shell(r *http.Request, slug string, content any) Shell {

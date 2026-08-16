@@ -62,8 +62,8 @@ those are the ones cleanup refuses to delete without a check.</p>
   </div>
   {{end}}
 </div>
-{{else if .CoopAttached}}<p class="empty">Coop is holding no checkouts.</p>
-{{else}}<p class="empty">Coop's session store is not attached to this build, so what is held cannot
+{{else if .CoopAttached}}<p class="empty-state">Coop is holding no checkouts.</p>
+{{else}}<p class="empty-state">Coop's session store is not attached to this build, so what is held cannot
 be read. Only the cleanup queue below is available.</p>{{end}}
 
 <h2>Waiting on you <span class="note">{{len .Held}}</span></h2>
@@ -96,12 +96,12 @@ be read. Only the cleanup queue below is available.</p>{{end}}
 <p class="note">These buttons run the same service handlers as the Slack buttons, and the outcome
 notice is posted to the room's channel the same way.</p>
 {{end}}
-{{else}}<p class="empty">No workspace is waiting on you. One lands here when cleanup refuses a
+{{else}}<p class="empty-state">No workspace is waiting on you. One lands here when cleanup refuses a
 fork — a dirty tree, unpublished commits, a Coop conflict.</p>{{end}}
 
 <h2>Queued for automatic cleanup <span class="note">{{len .Queued}}</span></h2>
 {{if .Queued}}
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>Workspace</th><th>Belongs to</th><th>Reason</th><th>State</th><th class="num">Attempts</th><th>Eligible</th><th>Next attempt</th></tr>
   {{range .Queued}}
   <tr><td class="mono">{{truncate 22 .SessionID}}</td>
@@ -110,8 +110,8 @@ fork — a dirty tree, unpublished commits, a Coop conflict.</p>{{end}}
       <td class="mono num">{{.Attempts}}</td>
       <td class="note">{{stamp .Eligible}}</td><td class="note">{{stamp .NextAttempt}}</td></tr>
   {{end}}
-</table>
+</table></div>
 <p class="note">Automatic cleanup still owns these and retries on its own schedule; only a
 refusal moves a row up into your queue. Eligible is when the retention grace period ends.</p>
-{{else}}<p class="empty">Nothing is queued for cleanup.</p>{{end}}
+{{else}}<p class="empty-state">Nothing is queued for cleanup.</p>{{end}}
 {{end}}

@@ -44,7 +44,7 @@
 {{if .Recent}}
 {{template "episoderows" .Recent}}
 <p class="note"><a href="/episodes">every episode →</a></p>
-{{else}}<p class="empty">No episodes yet. One appears the first time Responder accepts work
+{{else}}<p class="empty-state">No episodes yet. One appears the first time Responder accepts work
 from Slack or a webhook.</p>{{end}}
 </div>
 
@@ -80,7 +80,7 @@ from Slack or a webhook.</p>{{end}}
   {{end}}
 </div>
 <p class="note"><a href="/schedules">every schedule →</a></p>
-{{else}}<p class="empty">Nothing is scheduled. Ask Responder in Slack to check something on a
+{{else}}<p class="empty-state">Nothing is scheduled. Ask Responder in Slack to check something on a
 cadence and it will appear here.</p>{{end}}
 </aside>
 </div>
@@ -96,7 +96,7 @@ cadence and it will appear here.</p>{{end}}
 {{if .Troubled}}
 <p class="note">Pollers are permanent worker loops, not queued jobs; only the work columns count
 work still to do.</p>
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>Lane</th><th>Status</th><th class="num">Pollers</th><th class="num">Ready</th><th class="num">Running</th><th class="num">Scheduled</th><th class="num">Retrying</th><th class="num">Failed</th><th>Next work</th><th>Last issue</th></tr>
   {{range .Troubled}}
   <tr><td>{{.Name}}</td>
@@ -108,8 +108,8 @@ work still to do.</p>
       <td class="note">{{if .HasNext}}{{since .Next}}{{else}}—{{end}}</td>
       <td>{{if .Error}}{{truncate 90 .Error}}{{else}}<span class="note">—</span>{{end}}</td></tr>
   {{end}}
-</table>
-{{else if not .Lanes}}<p class="empty">No scheduler workers have registered.</p>{{end}}
+</table></div>
+{{else if not .Lanes}}<p class="empty-state">No scheduler workers have registered.</p>{{end}}
 {{end}}
 
 {{define "episodes"}}
@@ -138,7 +138,7 @@ work still to do.</p>
 <h2>Episodes <span class="note">{{.Total}} match{{if .Episodes}}, showing {{.From}}–{{.To}}{{end}}</span></h2>
 {{if .Episodes}}
 {{template "episoderows" .Episodes}}
-{{else}}<p class="empty">No episode matches this filter.</p>{{end}}
+{{else}}<p class="empty-state">No episode matches this filter.</p>{{end}}
 {{template "pager" .}}
 {{else}}
 
@@ -180,7 +180,7 @@ channel's work turned out.</p>
   </div>
   {{end}}
 </div>
-{{else}}<p class="empty">No work is on record in any channel yet.</p>{{end}}
+{{else}}<p class="empty-state">No work is on record in any channel yet.</p>{{end}}
 
 {{if .Tasks}}
 <h2>Engineering tasks <span class="note">{{len .Tasks}}</span></h2>
@@ -201,14 +201,14 @@ workspace and ends in a pull request; the episodes below are its individual turn
 about it, and did it. Most turns are deliberately silent — only the rows marked
 <em>replied in Slack</em> put a message in front of somebody.</p>
 {{template "episoderows" .Episodes}}
-{{else}}<p class="empty">No episodes yet. One appears the first time Responder accepts work
+{{else}}<p class="empty-state">No episodes yet. One appears the first time Responder accepts work
 from Slack or a webhook.</p>{{end}}
 {{template "pager" .}}
 {{end}}
 {{end}}
 
 {{define "roomtable"}}
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>What was asked</th><th>Status</th><th>Repository</th><th>Channel</th><th class="num">Episodes</th><th>Pull request</th><th>Last change</th></tr>
   {{range .}}
   <tr><td><a href="/incidents/{{.ID}}">{{truncate 70 .Title}}</a></td>
@@ -221,7 +221,7 @@ from Slack or a webhook.</p>{{end}}
       <td>{{if .PRNumber}}#{{.PRNumber}} <span class="note">{{.PRState}}{{if .Checks}} · checks {{.Checks}}{{end}}</span>{{else}}<span class="note">none</span>{{end}}</td>
       <td class="note">{{since .Updated}}</td></tr>
   {{end}}
-</table>
+</table></div>
 {{end}}
 
 {{define "episoderows"}}
@@ -274,7 +274,7 @@ time it fired and what came of it.</p>
   </a>
   {{end}}
 </div>
-{{else}}<p class="empty">Nothing is scheduled. Ask Responder in Slack to check something on a
+{{else}}<p class="empty-state">Nothing is scheduled. Ask Responder in Slack to check something on a
 cadence — <span class="mono">/responder schedules</span> — and it will appear here.</p>{{end}}
 {{end}}
 
@@ -320,7 +320,7 @@ never been in is not its business.</p>
   {{end}}
 </div>
 {{end}}
-{{if not .Groups}}<p class="empty">No channel has any Responder footprint yet.</p>{{end}}
+{{if not .Groups}}<p class="empty-state">No channel has any Responder footprint yet.</p>{{end}}
 {{end}}
 
 {{define "failures"}}
@@ -359,7 +359,7 @@ it and retry them.</p>
   </a>
   {{end}}
 </div>
-{{else}}<p class="empty">No cause has failed in the last two days. Anything below stopped on
+{{else}}<p class="empty-state">No cause has failed in the last two days. Anything below stopped on
 its own or was fixed.</p>{{end}}
 
 {{if .Stopped}}
@@ -397,7 +397,7 @@ but nothing here is a queue.</p>
 
 <h2>Audition — which model deserves which lane <span class="note">last {{.Audition.Days}} days</span></h2>
 {{if .Audition.Rows}}
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <thead><tr>
     <th>Case class</th><th>Profile asked for</th><th>Model that answered</th><th>Reasoning</th>
     <th class="num">Attempts</th><th>Measured</th>
@@ -414,10 +414,10 @@ but nothing here is a queue.</p>
   </tr>
   {{end}}
   </tbody>
-</table>
+</table></div>
 <p class="note">Provider-reported {{.Audition.Reported}} · estimated {{.Audition.Estimate}}. These are
 never added together: one is an invoice and the other is arithmetic.</p>
-{{else}}<p class="empty">No attempts in the last {{.Audition.Days}} days, so no lane has a correction rate or a cost yet.</p>{{end}}
+{{else}}<p class="empty-state">No attempts in the last {{.Audition.Days}} days, so no lane has a correction rate or a cost yet.</p>{{end}}
 {{range .Audition.Gaps}}<p class="note">{{.}}</p>{{end}}
 
 <h2>Feedback from people <span class="note">{{len .Feedback}}</span></h2>
@@ -441,7 +441,7 @@ never added together: one is an invoice and the other is arithmetic.</p>
   </div>
   {{end}}
 </div>
-{{else}}<p class="empty">No one has told Responder it got something wrong yet.</p>{{end}}
+{{else}}<p class="empty-state">No one has told Responder it got something wrong yet.</p>{{end}}
 
 <h2>What Responder got right <span class="note">{{len .Praise}}</span></h2>
 {{if .Reacted}}
@@ -461,7 +461,7 @@ Each row links to the episode that earned it, kept whole as an example worth cop
   </div>
   {{end}}
 </div>
-{{else}}<p class="empty">No positive reactions yet. A 👍, 🎉, ❤️ or 🔥 on a Responder reply
+{{else}}<p class="empty-state">No positive reactions yet. A 👍, 🎉, ❤️ or 🔥 on a Responder reply
 lands here as an example of the target behaviour.</p>{{end}}
 
 <h2>Corrections waiting to become tests <span class="note">{{len .Corrections}} to decide{{if ne .Waiting (len .Corrections)}}, {{.Waiting}} recorded{{end}}</span></h2>
@@ -492,7 +492,7 @@ copy.</p>
   </div>
   {{end}}
 </div>
-{{else}}<p class="empty">Nothing waiting.</p>{{end}}
+{{else}}<p class="empty-state">Nothing waiting.</p>{{end}}
 
 {{if .Promotions}}
 <h2>Kept corrections that promoted themselves</h2>
@@ -528,7 +528,7 @@ they come from the session's own pins each turn, so the map cannot disagree with
 {{if .Undescribed}} {{.Undescribed}} still undescribed; the next turn that reads one will
 fill it in.{{end}}</p>
 {{if .Repositories}}
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>Repository</th><th>Contents</th><th>Written by</th><th class="num">Recalled</th><th class="num">Revised</th><th>Updated</th></tr>
   {{range .Repositories}}
   <tr><td class="mono id">{{.Repository}}</td>
@@ -538,13 +538,13 @@ fill it in.{{end}}</p>
       <td class="mono num">{{if eq .Source "agent"}}{{if .Rewrites}}{{.Rewrites}}{{else}}<span class="note">never</span>{{end}}{{else}}<span class="note">—</span>{{end}}</td>
       <td class="note">{{if eq .Source "agent"}}{{since .Updated}}{{else}}<span class="note">—</span>{{end}}</td></tr>
   {{end}}
-</table>
-{{else}}<p class="empty">No repositories are configured.</p>{{end}}
+</table></div>
+{{else}}<p class="empty-state">No repositories are configured.</p>{{end}}
 
 <h2>Operational memory <span class="note">{{len .Entries}}</span></h2>
 {{if .Entries}}
 {{$act := .CanAct}}
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>Subject</th><th>Predicate</th><th>Value</th><th>Scope</th><th class="num">Recalled</th><th class="num">Rewritten</th><th>Expires</th>{{if $act}}<th></th>{{end}}</tr>
   {{range .Entries}}
   <tr><td>{{.Subject}}</td><td class="mono">{{.Predicate}}</td><td>{{truncate 60 .Value}}</td>
@@ -554,8 +554,8 @@ fill it in.{{end}}</p>
       <td class="note">{{stamp .Expires}}</td>
       {{if $act}}<td>{{template "confirm" confirm "Forget" "The entry is deleted and the removal audited. Responder stops recalling it immediately." "Yes, forget it" "/actions/memory/forget" .ID}}</td>{{end}}</tr>
   {{end}}
-</table>
-{{else}}<p class="empty">Nothing saved.</p>{{end}}
+</table></div>
+{{else}}<p class="empty-state">Nothing saved.</p>{{end}}
 
 <h2>Channel situations <span class="note">{{len .Channels}}</span></h2>
 {{if .Channels}}
@@ -568,30 +568,30 @@ fill it in.{{end}}</p>
   </div>
   {{end}}
 </div>
-{{else}}<p class="empty">No channel situations.</p>{{end}}
+{{else}}<p class="empty-state">No channel situations.</p>{{end}}
 
 <h2>Conversation memory <span class="note">{{len .Conversations}}</span></h2>
 {{if .Conversations}}
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>Channel</th><th>Thread</th><th>Repository</th><th class="num">Recalled</th><th>Updated</th></tr>
   {{range .Conversations}}
   <tr><td><a href="/conversations/{{.ChannelID}}/{{.Thread}}">{{.Channel}}</a></td>
       <td class="mono id">{{.Thread}}</td><td class="mono id">{{.Repository}}</td>
       <td class="mono num">{{.Recalls}}</td><td class="note">{{since .Updated}}</td></tr>
   {{end}}
-</table>
-{{else}}<p class="empty">No conversation memory.</p>{{end}}
+</table></div>
+{{else}}<p class="empty-state">No conversation memory.</p>{{end}}
 
 <h2>Rollups <span class="note">{{len .Rollups}}</span></h2>
 {{if .Rollups}}
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>Scope</th><th class="num">Sources</th><th class="num">Recalled</th><th>Period</th></tr>
   {{range .Rollups}}
   <tr><td>{{.Scope}}</td><td class="mono num">{{.Sources}}</td><td class="mono num">{{.Recalls}}</td>
       <td class="note">{{stamp .From}} → {{stamp .To}}</td></tr>
   {{end}}
-</table>
-{{else}}<p class="empty">Nothing synthesized yet. A rollup is the summary that survives when
+</table></div>
+{{else}}<p class="empty-state">Nothing synthesized yet. A rollup is the summary that survives when
 individual conversations age out.</p>{{end}}
 
 <h2>Awaiting review <span class="note">{{len .Review}}</span></h2>
@@ -611,7 +611,7 @@ individual conversations age out.</p>{{end}}
   </div>
   {{end}}
 </div>
-{{else}}<p class="empty">Nothing flagged as stale or duplicated.</p>{{end}}
+{{else}}<p class="empty-state">Nothing flagged as stale or duplicated.</p>{{end}}
 {{end}}
 
 {{define "configuration"}}
@@ -684,30 +684,30 @@ be what runs tonight.</p>
 </div>
 {{end}}
 {{else}}
-<p class="empty">No turn has run with its prompt kept on record, so there is nothing to
+<p class="empty-state">No turn has run with its prompt kept on record, so there is nothing to
 measure. Prompts are stored on the attempt's context manifest and kept for thirty days.</p>
 {{end}}
 {{end}}
 
 <h2>This deployment</h2>
 {{with .Deployment}}
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>Setting</th><th>Value</th></tr>
   <tr><td>Name</td><td class="mono">{{.Name}}</td></tr>
   <tr><td>Binary</td><td class="mono">{{.Binary}}</td></tr>
   <tr><td>Schema</td><td class="mono">{{.Schema}}</td></tr>
   {{if .Coop}}<tr><td>Checkouts</td><td class="mono">{{.Coop}}</td></tr>{{end}}
-</table>
+</table></div>
 
 {{if .Models}}
 <h2>Models it has run</h2>
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>Model</th><th>Effort</th><th class="num">Turns</th></tr>
   {{range .Models}}
   <tr><td class="mono">{{.Label}}</td><td class="note">{{if .Effort}}{{.Effort}}{{else}}—{{end}}</td>
       <td class="mono num">{{.Turns}}</td></tr>
   {{end}}
-</table>
+</table></div>
 <p class="note">What actually ran, from the context manifests. A model named in the
 configuration file and never reached is a plan, so it is not listed here.</p>
 {{end}}
@@ -740,7 +740,7 @@ Each one was set by asking in Slack, and is changed the same way.</p>
 without anything being deleted, which is why one that matters has to be renewed rather than
 assumed permanent.</p>
 {{else}}
-<p class="empty">No preference is set, so every channel uses the defaults: answer where the
+<p class="empty-state">No preference is set, so every channel uses the defaults: answer where the
 message was, at standard detail, with a standard health check. Ask Responder in a channel to
 change one there.</p>
 {{end}}
@@ -773,7 +773,7 @@ most and is read the least.</p>
 and returning silence. Open it to see what it decided each time, then either sharpen what it
 matches or remove it.</p>
 {{else}}
-<p class="empty">No standing rule is set, so Responder starts nothing on its own in any
+<p class="empty-state">No standing rule is set, so Responder starts nothing on its own in any
 channel. Ask it in a channel to watch for something there.</p>
 {{end}}
 {{end}}
@@ -810,7 +810,7 @@ it. Clearing the shadow flag is not a control on this page, and not a Slack butt
 Create, pause and delete one with <span class="mono">/responder assignments</span> in its
 channel.</p>
 {{else}}
-<p class="empty">No standing assignment exists, so Responder opens no pull request anywhere
+<p class="empty-state">No standing assignment exists, so Responder opens no pull request anywhere
 without being asked for that one. Create one with <span class="mono">/responder assignments
 create</span> in the channel it should watch.</p>
 {{end}}
@@ -818,20 +818,17 @@ create</span> in the channel it should watch.</p>
 
 {{define "rule"}}
 {{template "problems" .Errs}}
-<div class="panel">
-  <div class="meta">
-    {{if .Idle}}<span class="pill bad">firing but never acting</span>
-    {{else if .Enabled}}<span class="pill good">enabled</span>
-    {{else}}<span class="pill warn">turned off</span>{{end}}
-    {{.Channel}}{{if .Repository}} · <span class="mono">{{.Repository}}</span>{{end}} · {{.From}}
-  </div>
-  <div class="meta">
-    fired {{.Runs}} times{{if .Recorded}} · acted {{.Acted}} · stayed quiet {{.Quiet}}{{end}}
-    {{if not .LastActed.IsZero}} · last acted {{since .LastActed}}{{end}}
-    {{if not .Expires.IsZero}} · expires {{until .Expires}}{{end}}
-  </div>
-  {{if .Actor}}<div class="meta">Set up by {{.Actor}}{{if not .Created.IsZero}} {{since .Created}}{{end}}.</div>{{end}}
-</div>
+<section class="detail-meta" aria-label="Standing rule facts">
+  <div class="meta-field"><span>Status</span><strong>{{if .Idle}}<span class="pill bad">firing but never acting</span>{{else if .Enabled}}<span class="pill good">enabled</span>{{else}}<span class="pill warn">turned off</span>{{end}}</strong></div>
+  <div class="meta-field"><span>Channel</span><strong>{{.Channel}}</strong></div>
+  {{if .Repository}}<div class="meta-field"><span>Repository</span><strong class="mono">{{.Repository}}</strong></div>{{end}}
+  <div class="meta-field"><span>Source</span><strong>{{.From}}</strong></div>
+  <div class="meta-field"><span>Fired</span><strong>{{.Runs}} times</strong></div>
+  {{if .Recorded}}<div class="meta-field"><span>Acted</span><strong>{{.Acted}}</strong></div><div class="meta-field"><span>Stayed quiet</span><strong>{{.Quiet}}</strong></div>{{end}}
+  {{if not .LastActed.IsZero}}<div class="meta-field"><span>Last acted</span><strong>{{since .LastActed}}</strong></div>{{end}}
+  {{if not .Expires.IsZero}}<div class="meta-field"><span>Expires</span><strong>{{until .Expires}}</strong></div>{{end}}
+  {{if .Actor}}<div class="meta-field"><span>Set up by</span><strong>{{.Actor}}{{if not .Created.IsZero}} · {{since .Created}}{{end}}</strong></div>{{end}}
+</section>
 
 <p class="note">To change what this matches or remove it, ask Responder in {{.Channel}}. A rule
 has no edit in place: a replacement is proposed, you confirm it, and this one is removed.</p>
@@ -856,7 +853,7 @@ needed saying.</p>
   {{end}}
 </div>
 {{else}}
-<p class="empty">This rule has not matched anything on record. Firings are kept for thirty
+<p class="empty-state">This rule has not matched anything on record. Firings are kept for thirty
 days, so a rule that last fired before then shows nothing here.</p>
 {{end}}
 {{end}}
@@ -873,7 +870,7 @@ days, so a rule that last fired before then shows nothing here.</p>
 {{.Measured}} reported token usage ({{.CoverageLabel}} measured). Sums below cover only the
 measured ones — an unmeasured attempt is left out, not counted as free.</p>
 {{else}}
-<p class="empty">No attempt ran in this window. Widen it to reach older work.</p>
+<p class="empty-state">No attempt ran in this window. Widen it to reach older work.</p>
 {{end}}
 
 {{if .Recorded}}
@@ -920,7 +917,7 @@ An amber mark on the baseline is a day whose attempts nobody measured — not a 
 <p class="note">{{.Note}}</p>
 {{if .Rows}}
 {{$money := .Money}}
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>{{.Column}}</th><th class="num">Attempts</th><th class="num">Tokens</th><th class="num">Share</th><th class="num">Fresh in</th>
       <th class="num">Cached in</th><th class="num">Out</th><th class="num">Reasoning</th><th class="num">Cache</th>
       <th class="num">Wall clock</th>{{if $money}}<th class="num">Cost</th>{{end}}<th></th></tr>
@@ -940,8 +937,8 @@ An amber mark on the baseline is a day whose attempts nobody measured — not a 
       {{if $money}}<td class="mono num">{{if .Cost}}{{.Cost}}{{else}}<span class="note">—</span>{{end}}</td>{{end}}
       <td>{{if .Href}}<a href="{{.Href}}">episodes →</a>{{end}}</td></tr>
   {{end}}
-</table>
-{{else}}<p class="empty">No attempt in this window.</p>{{end}}
+</table></div>
+{{else}}<p class="empty-state">No attempt in this window.</p>{{end}}
 {{end}}
 
 <h2>Cost</h2>
@@ -996,7 +993,7 @@ listed here so nothing that was written down is out of reach.</p>
 <p class="note">Every failed run behind this cause. Retrying one puts it back in the queue and
 reopens its episode; a run that cannot be retried says why, because "no button" and "no reason"
 are different answers.</p>
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>Episode</th><th>Channel</th><th>Kind</th><th class="num">Attempts</th><th>When</th><th></th></tr>
   {{$act := .CanAct}}
   {{range .Runs}}
@@ -1005,18 +1002,22 @@ are different answers.</p>
       <td class="note">{{since .Updated}}</td>
       <td>{{if $act}}{{if .Retryable}}{{template "confirm" confirm "Retry" "The run goes back in the queue and its episode reopens." "Yes, run it again" "/actions/failures/retry" .RunID}}{{else}}<span class="note">{{.Why}}</span>{{end}}{{end}}</td></tr>
   {{end}}
-</table>
-{{else}}<p class="empty">No runs behind this cause. Runs are kept on the operational horizon,
+</table></div>
+{{else}}<p class="empty-state">No runs behind this cause. Runs are kept on the operational horizon,
 so a cause whose runs have aged out keeps its name and loses its evidence.</p>{{end}}
 {{end}}
 
 {{define "conversation"}}
-<div class="panel">
-  <div class="meta">{{.Repository}} · recalled {{.Recalls}} times · updated {{since .Updated}}</div>
+<section class="detail-meta" aria-label="Conversation memory facts">
+  <div class="meta-field"><span>Repository</span><strong class="mono">{{if .Repository}}{{.Repository}}{{else}}—{{end}}</strong></div>
+  <div class="meta-field"><span>Recalled</span><strong>{{.Recalls}} times</strong></div>
+  <div class="meta-field"><span>Updated</span><strong>{{since .Updated}}</strong></div>
+</section>
+{{if or .Goal .Purpose .Summary}}<section class="detail-context">
   {{if .Goal}}<p><strong>Goal.</strong> {{.Goal}}</p>{{end}}
   {{if .Purpose}}<p class="note"><strong>Channel purpose.</strong> {{.Purpose}}</p>{{end}}
   {{if .Summary}}<p>{{.Summary}}</p>{{end}}
-</div>
+</section>{{end}}
 
 {{if .OpenLoops}}<h2>Open loops</h2><div class="rows">
   {{range .OpenLoops}}<div class="row">{{.}}</div>{{end}}</div>{{end}}
@@ -1029,15 +1030,15 @@ so a cause whose runs have aged out keeps its name and loses its evidence.</p>{{
 
 <h2>Learned knowledge <span class="note">{{len .Knowledge}}</span></h2>
 {{if .Knowledge}}
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>Subject</th><th>Statement</th><th>Kind</th><th>Status</th><th>Confidence</th></tr>
   {{range .Knowledge}}
   <tr><td>{{.Subject}}</td><td>{{truncate 220 .Statement}}</td><td class="mono">{{.Kind}}</td>
       <td><span class="pill{{if eq .Status "accepted"}} good{{else if eq .Status "superseded"}} bad{{end}}">{{.Status}}</span></td>
       <td class="mono">{{.Confidence}}</td></tr>
   {{end}}
-</table>
-{{else}}<p class="empty">Nothing learned in this conversation yet.</p>{{end}}
+</table></div>
+{{else}}<p class="empty-state">Nothing learned in this conversation yet.</p>{{end}}
 
 <h2>Work in this channel</h2>
 {{if .Episodes}}
@@ -1049,5 +1050,5 @@ so a cause whose runs have aged out keeps its name and loses its evidence.</p>{{
   </a>
   {{end}}
 </div>
-{{else}}<p class="empty">No recorded work.</p>{{end}}
+{{else}}<p class="empty-state">No recorded work.</p>{{end}}
 {{end}}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -26,8 +27,9 @@ func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 	handler.Register(mux)
 
 	for _, path := range []string{
-		"/", "/episodes", "/failures", "/workspaces", "/decisions", "/findings",
-		"/audit", "/memory", "/configuration", "/usage",
+		"/", "/episodes", "/schedules", "/channels", "/failures", "/workspaces",
+		"/decisions", "/findings", "/audit", "/memory", "/configuration",
+		"/preferences", "/rules", "/assignments", "/usage",
 	} {
 		recorder := httptest.NewRecorder()
 		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
@@ -36,8 +38,16 @@ func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 			continue
 		}
 		body := recorder.Body.String()
-		if !strings.Contains(body, "<nav class=\"sidebar\">") {
-			t.Errorf("GET %s did not render the shell", path)
+		for _, landmark := range []string{
+			`<aside class="sidebar"`,
+			`<details class="mobile-navigation"`,
+			`<div class="shell-canvas">`,
+			`<header class="page-header">`,
+			`<main id="main-content"`,
+		} {
+			if !strings.Contains(body, landmark) {
+				t.Errorf("GET %s did not render shell landmark %q", path, landmark)
+			}
 		}
 		// Nothing is fetched at render time: the page must work with the
 		// network off, and no request about production work should leave.
@@ -51,6 +61,9 @@ func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 	body := recorder.Body.String()
 	if !strings.Contains(body, "Nothing measured in this window") {
 		t.Error("the usage page does not mark its unmeasured window unwired")
+	}
+	if !strings.Contains(body, `class="empty-state empty-state-hint"`) {
+		t.Error("the usage page does not use the shared Emisar-style empty-state primitive")
 	}
 	// An unwired panel names what would fill it, so nobody has to guess whether
 	// the number is zero or the pipe is missing. This deployment was handed an
@@ -74,6 +87,77 @@ func TestEveryPageRendersAndUnwiredPanelsSayWhyTheyAreEmpty(t *testing.T) {
 	}
 	if strings.Contains(body, ">0<") {
 		t.Error("the usage page renders a zero where it has no data")
+	}
+}
+
+// Dense tables use Emisar's naked canvas treatment, but the viewport around
+// them must still be keyboard-scrollable. Without the focusable frame, a wide
+// audit or usage table is reachable with a pointer and clipped for a keyboard
+// user on the same narrow screen.
+func TestEveryDenseTableHasAKeyboardScrollableFrame(t *testing.T) {
+	entries, err := assets.ReadDir("templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := regexp.MustCompile(`<table(?:\s|>)`)
+	for _, entry := range entries {
+		data, err := assets.ReadFile("templates/" + entry.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := string(data)
+		for _, at := range table.FindAllStringIndex(body, -1) {
+			start := max(0, at[0]-180)
+			frame := body[start:at[0]]
+			if !strings.Contains(frame, `tabindex="0"`) ||
+				(!strings.Contains(frame, `class="table-scroll"`) &&
+					!strings.Contains(frame, `class="trace-table-wrap"`)) {
+				t.Errorf("%s has a table without a focusable scroll frame near byte %d", entry.Name(), at[0])
+			}
+		}
+	}
+}
+
+// Emisar keeps operating lists wide, entity detail a step narrower, and
+// settings narrower again. That hierarchy is part of the shared shell rather
+// than a page-by-page CSS accident, so a new detail route inherits it.
+func TestShellUsesEmisarContentWidthTiers(t *testing.T) {
+	if got := NewShell("episodes", "test", nil).Width; got != "width-table" {
+		t.Errorf("list shell width = %q, want width-table", got)
+	}
+
+	detail := NewShell("episodes", "test", nil)
+	detail.Width = detailWidth("episodes")
+	if detail.Width != "width-detail" {
+		t.Errorf("entity detail width = %q, want width-detail", detail.Width)
+	}
+
+	settings := NewShell("configuration", "test", nil)
+	settings.Width = detailWidth("configuration")
+	if settings.Width != "width-settings" {
+		t.Errorf("settings detail width = %q, want width-settings", settings.Width)
+	}
+}
+
+func TestShellExposesKeyboardLocationAndSkipNavigation(t *testing.T) {
+	handler, err := NewHandler(&Reader{}, "test", "47", "responder-abc1234",
+		func() (bool, string) { return true, "" }, config.Pricing{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/episodes", nil))
+	body := recorder.Body.String()
+
+	if !strings.Contains(body, `<a class="skip-link" href="#main-content">Skip to content</a>`) {
+		t.Error("the shell has no skip link to its main content landmark")
+	}
+	// The navigation is rendered once in the desktop rail and once in the
+	// native mobile drawer; each copy must expose the current page.
+	if got := strings.Count(body, `aria-current="page"`); got != 2 {
+		t.Errorf("active navigation markers = %d, want 2", got)
 	}
 }
 

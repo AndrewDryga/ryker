@@ -6,22 +6,21 @@ it and what came of it.</p>
 
 <h2>By kind</h2>
 {{if .Kinds}}
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>Kind</th><th>Count</th><th>Outcomes</th><th>Most recent</th></tr>
   {{range .Kinds}}
   <tr><td><a href="/audit/{{.Kind}}">{{.Kind}}</a></td><td class="mono num">{{.Count}}</td>
       <td class="note">{{truncate 90 .Outcomes}}</td><td class="note">{{since .Latest}}</td></tr>
   {{end}}
-</table>
-{{else}}<p class="empty">Nothing has been audited.</p>{{end}}
+</table></div>
+{{else}}<p class="empty-state">Nothing has been audited.</p>{{end}}
 
 <h2>Most recent</h2>
 {{if .Recent}}{{template "auditrows" .Recent}}
-{{else}}<p class="empty">No recent activity.</p>{{end}}
+{{else}}<p class="empty-state">No recent activity.</p>{{end}}
 {{end}}
 
 {{define "auditkind"}}
-<p class="note"><a href="/audit">← all audited actions</a></p>
 {{template "problems" .Errs}}
 <form method="get" action="/audit/{{.Kind}}" class="filter">
   <input type="text" name="actor" value="{{.Filter.Actor}}" placeholder="actor id — U…, B…, responder">
@@ -31,12 +30,15 @@ it and what came of it.</p>
   <button>Filter</button>
   {{if .Filter.Active}}<a href="/audit/{{.Kind}}">clear</a>{{end}}
 </form>
-<div class="panel"><div class="title"><strong>{{.Kind}}</strong></div>
-  <div class="meta">{{.Total}} match{{if .Filter.Actor}} · actor <span class="mono">{{.Filter.Actor}}</span>{{end}}{{if
-    .Total}} · rows {{.From}}–{{.To}}, newest first{{if ne .Raw (len .Events)}}, identical
-    neighbours folded to {{len .Events}}{{end}}{{end}}</div></div>
+<section class="detail-meta" aria-label="Audit filter summary">
+  <div class="meta-field"><span>Matches</span><strong>{{.Total}}</strong></div>
+  {{if .Filter.Actor}}<div class="meta-field"><span>Actor</span><strong class="mono">{{.Filter.Actor}}</strong></div>{{end}}
+  {{if .Total}}<div class="meta-field"><span>Showing</span><strong>{{.From}}–{{.To}}</strong></div>
+  <div class="meta-field"><span>Order</span><strong>newest first</strong></div>{{end}}
+  {{if ne .Raw (len .Events)}}<div class="meta-field"><span>Folded rows</span><strong>{{.Raw}} → {{len .Events}}</strong></div>{{end}}
+</section>
 {{if .Events}}{{template "auditrows" .Events}}
-{{else}}<p class="empty">No event of this kind matches the filter.</p>{{end}}
+{{else}}<p class="empty-state">No event of this kind matches the filter.</p>{{end}}
 {{if or .Newer .Older}}
 <div class="pager">
   {{if .Newer}}<a href="{{.Newer}}">← newer</a>{{end}}
@@ -46,7 +48,7 @@ it and what came of it.</p>
 {{end}}
 
 {{define "auditrows"}}
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>What</th><th>Outcome</th><th>Actor</th><th>Detail</th><th>Where</th><th>When</th></tr>
   {{range .}}
   <tr><td><a href="/audit/{{.Kind}}">{{.Kind}}</a></td>
@@ -56,5 +58,5 @@ it and what came of it.</p>
       <td class="note">{{if .EpisodeID}}<a href="/episodes/{{.EpisodeID}}">episode →</a>{{else if .IncidentID}}<a href="/incidents/{{.IncidentID}}">room →</a>{{end}}</td>
       <td class="note">{{since .At}}</td></tr>
   {{end}}
-</table>
+</table></div>
 {{end}}

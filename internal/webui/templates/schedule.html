@@ -1,18 +1,17 @@
 {{define "schedule"}}
 {{template "problems" .Errs}}
-<div class="panel">
-  <div class="meta">
-    {{if .Enabled}}<span class="pill good">enabled</span>{{else}}<span class="pill warn">paused</span>{{end}}
-    {{.Cadence}} · {{.Channel}}{{if .Repository}} · <span class="mono">{{.Repository}}</span>{{end}}
-  </div>
-  <div class="meta">
-    {{if .Enabled}}Next {{until .NextRun}}{{else}}No future run while paused{{end}}
-    · {{if .LastRun.IsZero}}never run yet{{else}}last run {{since .LastRun}}{{end}}
-    · {{if .CatchUp}}missed runs: {{if eq .CatchUp "latest"}}run the latest one{{else}}skipped{{end}}{{end}}
-    {{if not .ExpiresAt.IsZero}} · expires {{until .ExpiresAt}}{{end}}
-  </div>
-  {{if .CanAct}}
-  <div class="acts">
+<section class="detail-meta" aria-label="Schedule facts">
+  <div class="meta-field"><span>Status</span><strong>{{if .Enabled}}<span class="pill good">enabled</span>{{else}}<span class="pill warn">paused</span>{{end}}</strong></div>
+  <div class="meta-field"><span>Cadence</span><strong>{{.Cadence}}</strong></div>
+  <div class="meta-field"><span>Channel</span><strong>{{.Channel}}</strong></div>
+  {{if .Repository}}<div class="meta-field"><span>Repository</span><strong class="mono">{{.Repository}}</strong></div>{{end}}
+  <div class="meta-field"><span>Next run</span><strong>{{if .Enabled}}{{until .NextRun}}{{else}}none while paused{{end}}</strong></div>
+  <div class="meta-field"><span>Last run</span><strong>{{if .LastRun.IsZero}}never{{else}}{{since .LastRun}}{{end}}</strong></div>
+  {{if .CatchUp}}<div class="meta-field"><span>Missed runs</span><strong>{{if eq .CatchUp "latest"}}run latest{{else}}skip{{end}}</strong></div>{{end}}
+  {{if not .ExpiresAt.IsZero}}<div class="meta-field"><span>Expires</span><strong>{{until .ExpiresAt}}</strong></div>{{end}}
+</section>
+{{if .CanAct}}
+  <div class="detail-actions">
     {{if .Enabled}}
     {{template "confirm" confirm "Pause" "Stops it firing. Nothing already running is interrupted, its history is kept, and it can be resumed as long as it still has a future run." "Yes, pause it" "/actions/schedules/pause" .ID}}
     {{else}}
@@ -24,8 +23,7 @@
     {{end}}
     {{template "confirm" confirm "Delete" "Removes the schedule for good; it will not fire again. The executions below stay on record, and the episodes they produced remain under Episodes." "Yes, delete it" "/actions/schedules/delete" .ID}}
   </div>
-  {{end}}
-</div>
+{{end}}
 
 <p class="note">To change what this asks for or when it runs, ask Responder in
 {{.Channel}} for the replacement and confirm it there. A schedule has no edit in place:
@@ -52,7 +50,7 @@ where what it actually did is written down.</p>
   {{if .EpisodeID}}</a>{{else}}</div>{{end}}
   {{end}}
 </div>
-{{else}}<p class="empty">No execution is on record yet. Runs are kept for thirty days; a schedule
+{{else}}<p class="empty-state">No execution is on record yet. Runs are kept for thirty days; a schedule
 that has not fired in that window shows nothing here.</p>{{end}}
 
 <h2>What it asks for</h2>

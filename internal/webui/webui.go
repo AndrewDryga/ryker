@@ -303,6 +303,7 @@ type Shell struct {
 	Pages   []Page
 	Nav     []NavGroup
 	Active  string
+	Width   string
 	Title   string
 	Ask     string
 	Deploy  string
@@ -359,7 +360,10 @@ func (s Shell) HeadTitle() string {
 }
 
 func NewShell(active, deployment string, content any) Shell {
-	shell := Shell{Pages: pages, Nav: navGroups(), Active: active, Deploy: deployment, Content: content}
+	shell := Shell{
+		Pages: pages, Nav: navGroups(), Active: active, Width: "width-table",
+		Deploy: deployment, Content: content,
+	}
 	for _, page := range pages {
 		if page.Slug == active {
 			shell.Title = page.Title

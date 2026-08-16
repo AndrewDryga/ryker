@@ -231,7 +231,7 @@
               </summary>
               {{if .Description}}<p class="trace-detail-description"><strong>Selection</strong><span>{{.Description}}</span></p>{{end}}
               {{if .Table}}
-              <div class="trace-table-wrap">
+              <div class="trace-table-wrap" tabindex="0">
                 <table class="trace-table{{if .Table.Tight}} cols-tight{{end}}">
                   <thead><tr>{{range .Table.Headers}}<th>{{.}}</th>{{end}}</tr></thead>
                   {{$span := len .Table.Headers}}{{$prefix := .Table.IDPrefix}}
@@ -273,7 +273,7 @@
   </section>
   {{end}}
   {{else}}
-  <p class="empty">No trace steps were recorded for this episode.</p>
+  <p class="empty-state">No trace steps were recorded for this episode.</p>
   {{end}}
 </section>
 {{end}}

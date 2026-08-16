@@ -1,18 +1,17 @@
 {{define "incident"}}
-<p class="note"><a href="/episodes">← all episodes</a></p>
 {{template "problems" .Errs}}
-<div class="panel">
-  <div class="title"><strong>{{.Title}}</strong></div>
-  <div class="meta">
-    <span class="pill{{if eq .Status "closed"}} good{{end}}">{{.Status}}</span>
-    {{.Noun}} · {{.Repository}} · {{.Channel}} · opened {{stamp .Created}}
-  </div>
-  {{if and .CanAct (ne .Status "closed")}}
-  <div class="acts">
+<section class="detail-meta" aria-label="Room facts">
+  <div class="meta-field"><span>Status</span><strong><span class="pill{{if eq .Status "closed"}} good{{end}}">{{.Status}}</span></strong></div>
+  <div class="meta-field"><span>Kind</span><strong>{{.Noun}}</strong></div>
+  <div class="meta-field"><span>Repository</span><strong class="mono">{{.Repository}}</strong></div>
+  <div class="meta-field"><span>Channel</span><strong>{{.Channel}}</strong></div>
+  <div class="meta-field"><span>Opened</span><strong>{{stamp .Created}}</strong></div>
+</section>
+{{if and .CanAct (ne .Status "closed")}}
+  <div class="detail-actions">
     {{template "confirm" confirm "Resolve" "The room closes through the same handler as the Slack close control: no more turns start, cleanup is scheduled after the grace period, and the closing notice is posted to the room's channel. Nothing merges, pushes, or deploys." "Yes, close it" "/actions/incidents/resolve" .ID}}
   </div>
-  {{end}}
-</div>
+{{end}}
 
 <h2>What was asked</h2>
 {{if .Signals}}
@@ -26,7 +25,7 @@
   </div>
   {{end}}
 </div>
-{{else}}<p class="empty">No signal is on record. The room was opened without one, or the signal
+{{else}}<p class="empty-state">No signal is on record. The room was opened without one, or the signal
 was deleted with its retention window.</p>{{end}}
 
 <h2>What was said <span class="note">{{len .Moments}}</span></h2>
@@ -40,12 +39,12 @@ was deleted with its retention window.</p>{{end}}
   </div>
   {{end}}
 </div>
-{{else}}<p class="empty">Nothing was recorded on the room's timeline.</p>{{end}}
+{{else}}<p class="empty-state">Nothing was recorded on the room's timeline.</p>{{end}}
 
 <h2>What shipped</h2>
 {{with .Published}}
 {{if .Repository}}
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>Pull request</th><th>Repository</th><th>Branch</th><th>Commit</th><th>Publication</th><th>PR</th><th>Checks</th></tr>
   <tr><td>{{if .URL}}<a href="{{.URL}}">#{{.PRNumber}} →</a>{{else}}<span class="note">not opened</span>{{end}}</td>
       <td class="mono">{{.Repository}}</td><td class="mono">{{.Head}} → {{.Base}}</td>
@@ -53,7 +52,7 @@ was deleted with its retention window.</p>{{end}}
       <td><span class="pill{{if eq .State "published"}} good{{end}}">{{.State}}</span></td>
       <td><span class="pill{{if eq .PRState "merged"}} good{{end}}">{{.PRState}}</span></td>
       <td><span class="pill{{if eq .Checks "passing"}} good{{else if eq .Checks "failing"}} bad{{end}}">{{.Checks}}</span></td></tr>
-</table>
+</table></div>
 {{if .Error}}<p class="unwired"><span class="tag">Last error</span>{{.Error}}</p>{{end}}
 {{if .Events}}
 <div class="timeline">
@@ -66,7 +65,7 @@ was deleted with its retention window.</p>{{end}}
   {{end}}
 </div>
 {{end}}
-{{else}}<p class="empty">Nothing was published from this room. A read-only investigation ends in a
+{{else}}<p class="empty-state">Nothing was published from this room. A read-only investigation ends in a
 reply; only an engineering task opens a pull request.</p>{{end}}
 {{end}}
 
@@ -80,9 +79,9 @@ reply; only an engineering task opens a pull request.</p>{{end}}
   </a>
   {{end}}
 </div>
-{{else}}<p class="empty">No episode ran in this room.</p>{{end}}
+{{else}}<p class="empty-state">No episode ran in this room.</p>{{end}}
 
 <h2>Audit trail <span class="note">{{len .Audit}}</span></h2>
 {{if .Audit}}{{template "auditrows" .Audit}}
-{{else}}<p class="empty">Nothing was audited against this room.</p>{{end}}
+{{else}}<p class="empty-state">Nothing was audited against this room.</p>{{end}}
 {{end}}

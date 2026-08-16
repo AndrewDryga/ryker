@@ -1,14 +1,15 @@
 {{define "channel"}}
 {{template "problems" .Errs}}
-<div class="panel">
-  <div class="meta">
-    {{.Kind}} ·
-    {{if .Member}}<span class="pill good">member</span>{{else}}<span class="pill">not a member</span>{{end}}
-    {{if .Private}} · private{{end}}
-    {{if .Repository}} · <span class="mono">{{.Repository}}</span>{{end}}
-    {{if .Participation}} · set up for {{.Participation}}{{end}}
-    {{if .AlertPolicy}} · alerts {{.AlertPolicy}}{{end}}
-  </div>
+<section class="detail-meta" aria-label="Channel facts">
+  <div class="meta-field"><span>Kind</span><strong>{{.Kind}}</strong></div>
+  <div class="meta-field"><span>Membership</span><strong>{{if .Member}}<span class="pill good">member</span>{{else}}<span class="pill">not a member</span>{{end}}</strong></div>
+  <div class="meta-field"><span>Visibility</span><strong>{{if .Private}}private{{else}}public{{end}}</strong></div>
+  {{if .Repository}}<div class="meta-field"><span>Repository</span><strong class="mono">{{.Repository}}</strong></div>{{end}}
+  {{if .Participation}}<div class="meta-field"><span>Participation</span><strong>{{.Participation}}</strong></div>{{end}}
+  {{if .AlertPolicy}}<div class="meta-field"><span>Alerts</span><strong>{{.AlertPolicy}}</strong></div>{{end}}
+</section>
+{{if or .Roll.Total .Summary}}
+<section class="detail-context">
   {{with .Roll}}{{if .Total}}
   <svg class="chan-bar" viewBox="0 0 100 4" width="100%" height="4" preserveAspectRatio="none" role="img"
        aria-label="{{.Done}} completed, {{.Failed}} failed, {{.Other}} ended another way">
@@ -30,10 +31,12 @@
     <a href="/conversations/{{.ID}}/channel">the whole conversation memory →</a></div>
   {{else}}<p class="note">No situation summary yet. One is written when a turn in this channel
   learns something worth carrying.</p>{{end}}
-</div>
+</section>
+{{else}}<p class="note">No situation summary yet. One is written when a turn in this channel
+learns something worth carrying.</p>{{end}}
 
 <h2>Participation</h2>
-<table class="participation">
+<div class="table-scroll" tabindex="0"><table class="participation">
   <tr><th>Setting</th><th>Effective</th><th>Because</th><th>Channel</th><th>Workspace</th><th>Setup</th>
       {{if .CanAct}}<th></th>{{end}}</tr>
   {{$id := .ID}}{{$act := .CanAct}}
@@ -50,26 +53,26 @@
       </div></td>
       {{end}}</tr>
   {{end}}
-</table>
+</table></div>
 <p class="note">Precedence: channel override → channel setup → workspace override → deployment
 configuration. Clearing an override restores whatever it was hiding.</p>
 {{template "unwired" .Setup}}
 
 {{if .Preferences}}
 <h2>Preferences here <span class="note">{{len .Preferences}}</span></h2>
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>Preference</th><th>Value</th><th>Expires</th><th>State</th></tr>
   {{range .Preferences}}
   <tr><td class="mono">{{.Name}}</td><td class="mono">{{.Value}}</td>
       <td class="note">{{stamp .Expires}}</td>
       <td><span class="pill{{if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
   {{end}}
-</table>
+</table></div>
 {{end}}
 
 {{if .Rules}}
 <h2>Standing rules here <span class="note">{{len .Rules}}</span></h2>
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>When</th><th>Do</th><th class="num">Fired</th><th class="num">Acted</th>
       <th>Last acted</th><th>Expires</th><th>State</th></tr>
   {{range .Rules}}
@@ -80,21 +83,21 @@ configuration. Clearing an override restores whatever it was hiding.</p>
       <td class="note">{{stamp .Expires}}</td>
       <td><span class="pill{{if .Idle}} bad{{else if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
   {{end}}
-</table>
+</table></div>
 <p class="note">A rule that fires and never acts costs a model turn per matching message;
 <a href="/configuration">Configuration</a> shows every rule.</p>
 {{end}}
 
 {{if .Schedules}}
 <h2>Schedules here <span class="note">{{len .Schedules}}</span></h2>
-<table>
+<div class="table-scroll" tabindex="0"><table>
   <tr><th>Schedule</th><th>Cadence</th><th class="num">Runs</th><th>Next</th></tr>
   {{range .Schedules}}
   <tr><td>{{if .Title}}{{truncate 60 .Title}}{{else}}{{truncate 60 .Prompt}}{{end}}</td>
       <td class="mono">{{.Cadence}}</td><td class="mono num">{{.Runs}}</td>
       <td class="note">{{since .NextRun}}</td></tr>
   {{end}}
-</table>
+</table></div>
 {{end}}
 
 <h2>Work here</h2>
@@ -117,7 +120,7 @@ configuration. Clearing an override restores whatever it was hiding.</p>
   {{end}}
 </div>
 <p class="note"><a href="/episodes?channel={{.ID}}">every episode in this channel →</a></p>
-{{else}}<p class="empty">No recorded work. Responder writes an episode here the first time it
+{{else}}<p class="empty-state">No recorded work. Responder writes an episode here the first time it
 answers, reacts to an alert, or runs a scheduled task in this channel.</p>{{end}}
 
 {{if .Tasks}}
