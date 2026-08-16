@@ -15,6 +15,38 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
+// SumEpisodeStructuredCorrections totals the host corrections every run of an
+// episode has spent.
+//
+// This is the second correction budget's measurement. It used to be the
+// episode's attempt NUMBER, which was the same thing back when a re-triggered
+// alert opened a new episode every time. Now that an alert stream stays one
+// episode across every card and wakeup it produces, the attempt number counts
+// cards, and a stream that fires all day would have been refused its first
+// correction at attempt twenty-one having spent none.
+//
+// A run whose context envelope has no counter contributes zero, which is what a
+// run that has never been corrected means.
+func (s *Store) SumEpisodeStructuredCorrections(
+	ctx context.Context,
+	episodeID string,
+) (int, error) {
+	if strings.TrimSpace(episodeID) == "" {
+		return 0, errors.New("episode is required")
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(
+		  COALESCE(json_extract(context_json, '$.structured_corrections'), 0)
+		), 0)
+		FROM agent_runs
+		WHERE episode_id = ?`, episodeID,
+	).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
 // QueueEpisodeAttempt resumes an existing episode with a new transport attempt.
 // The episode keeps its goals, evidence, destination, and event history.
 func (s *Store) QueueEpisodeAttempt(

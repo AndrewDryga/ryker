@@ -46,13 +46,18 @@ func TestMalformedReportCorrectionBudget(t *testing.T) {
 		t.Fatal("a zero correction budget allowed a retry")
 	}
 
-	// The second budget, which the first cannot see. A re-triggered alert opens
-	// a new run with a fresh correction count, so the within-run number is 1
-	// again however many runs the episode has already burned. One episode took
-	// twenty-one of them and a hundred and thirty corrections before anyone
-	// noticed, and it needed an operator from about the second hour.
+	// The second budget, which the first cannot see: the corrections the whole
+	// EPISODE has spent. A re-triggered alert opens a new run with a fresh
+	// within-run count, so that number is 1 again however many rounds the
+	// episode has already burned. One episode took twenty-one runs and a hundred
+	// and thirty corrections before anyone noticed, and it needed an operator
+	// from about the second hour.
+	//
+	// It counts corrections rather than the episode's attempt number, which were
+	// the same measurement only while every re-triggered alert opened its own
+	// episode. See TestALongLivedStreamEpisodeKeepsItsCorrectionBudget.
 	if terminalStructuredCorrection(1, maximum, maximum) {
-		t.Fatal("an episode inside its attempt budget was refused its first correction")
+		t.Fatal("an episode inside its correction budget was refused its next correction")
 	}
 	if !terminalStructuredCorrection(1, maximum+1, maximum) {
 		t.Fatal("a fresh run on an exhausted episode bought itself a whole new budget")

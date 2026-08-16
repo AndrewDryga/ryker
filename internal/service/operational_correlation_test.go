@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -356,7 +357,14 @@ func TestNewOperationalInputAdmittedDuringFinalizationSuppressesOldResult(t *tes
 	}
 }
 
-func TestNewOperationalInputSupersedesAlreadyStagedOlderDelivery(t *testing.T) {
+// An answer that is written and queued is delivered. A newer card on the same
+// stream is not evidence that the answer is stale — on 2026-08-16 that reading
+// threw away four of them, one of which an investigation had spent fifteen
+// minutes producing.
+//
+// Staleness has an observable criterion: a NEWER reply already went out in this
+// thread. Nothing else supersedes a written answer.
+func TestStagedAlertReplyIsDeliveredDespiteANewerCard(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -364,16 +372,7 @@ func TestNewOperationalInputSupersedesAlreadyStagedOlderDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	older := core.SlackInput{
-		ID: "staged-alert", EnvelopeID: "env-staged-alert", EventID: "event-staged-alert",
-		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH",
-		MessageTS: "1700.100", UserID: "BGRAFANA", ReceivedAt: time.Now().UTC(),
-		Text: "[VA1 FIRING:1] WARNING | High disk I/O latency\nService: cluster\nComponent: cassandra",
-	}
-	newer := older
-	newer.ID, newer.EnvelopeID, newer.EventID = "staged-alert-resolved", "env-staged-alert-resolved", "event-staged-alert-resolved"
-	newer.MessageTS, newer.ReceivedAt = "1700.200", older.ReceivedAt.Add(time.Second)
-	newer.Text = "[VA1 RESOLVED:1] WARNING | High disk I/O latency\nService: cluster\nComponent: cassandra"
+	older, newer := stagedAlertStreamInputs(cfg.Slack.TeamID)
 	if created, err := st.AdmitSlackInput(ctx, older); err != nil || !created {
 		t.Fatalf("admit older = %t, %v", created, err)
 	}
@@ -385,16 +384,8 @@ func TestNewOperationalInputSupersedesAlreadyStagedOlderDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, err := slackui.Encode(slackui.ConversationResponse("The alert is still firing.", slackui.NewSanitizer(12000)))
-	if err != nil {
+	if err := stageAlertStreamReply(ctx, st, older, run, "The alert is still firing."); err != nil {
 		t.Fatal(err)
-	}
-	if created, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
-		ID: "watch_reply_" + older.ID, Operation: "post", Kind: "notice",
-		ChannelID: older.ChannelID, ThreadTS: older.MessageTS, Body: body,
-		ResponseRoot: true, SourceInputID: older.ID, AgentRunID: run.ID, AgentRunKey: run.IdempotencyKey,
-	}); err != nil || !created {
-		t.Fatalf("stage older delivery = %t, %v", created, err)
 	}
 	if created, err := st.AdmitSlackInput(ctx, newer); err != nil || !created {
 		t.Fatalf("admit terminal update = %t, %v", created, err)
@@ -405,9 +396,114 @@ func TestNewOperationalInputSupersedesAlreadyStagedOlderDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 	delivery, err := st.GetSlackDelivery(ctx, "watch_reply_"+older.ID)
-	if err != nil || delivery.State != "superseded" || len(slack.posts) != 0 {
-		t.Fatalf("staged operational delivery = %+v, posts=%+v, err=%v", delivery, slack.posts, err)
+	if err != nil || delivery.State != "sent" || len(slack.posts) != 1 {
+		t.Fatalf(
+			"a written alert answer was discarded for a newer card: delivery=%+v posts=%+v err=%v",
+			delivery, slack.posts, err,
+		)
 	}
+}
+
+// The other half of the same invariant: once a newer reply for this stream has
+// actually been posted in the thread, the older one is genuinely stale and must
+// not arrive under it as a contradicting second answer.
+func TestStagedAlertReplyIsSupersededOnlyByANewerSentReply(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	older, newer := stagedAlertStreamInputs(cfg.Slack.TeamID)
+	for _, input := range []core.SlackInput{older, newer} {
+		if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+			t.Fatalf("admit %s = %t, %v", input.ID, created, err)
+		}
+	}
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: older.ChannelID,
+		ConversationKey: watchConversationKey(older), SourceKind: "watch", SourceID: older.ID,
+		UserID: older.UserID, Context: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stageAlertStreamReply(ctx, st, older, run, "The alert is still firing."); err != nil {
+		t.Fatal(err)
+	}
+	newerRun, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: newer.ChannelID,
+		ConversationKey: watchConversationKey(newer), SourceKind: "watch", SourceID: newer.ID,
+		UserID: newer.UserID, Context: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stageAlertStreamReply(ctx, st, newer, newerRun, "The alert recovered."); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackDelivery(ctx, "watch_reply_"+newer.ID, "1700.900", "pending"); err != nil {
+		t.Fatal(err)
+	}
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := st.GetSlackDelivery(ctx, "watch_reply_"+older.ID)
+	if err != nil || delivery.State != "superseded" || len(slack.posts) != 0 {
+		t.Fatalf(
+			"an alert answer overtaken by a sent reply was still posted: delivery=%+v posts=%+v err=%v",
+			delivery, slack.posts, err,
+		)
+	}
+}
+
+func stagedAlertStreamInputs(teamID string) (core.SlackInput, core.SlackInput) {
+	older := core.SlackInput{
+		ID: "staged-alert", EnvelopeID: "env-staged-alert", EventID: "event-staged-alert",
+		Kind: "bot_message", TeamID: teamID, ChannelID: "CWATCH",
+		MessageTS: "1700.100", UserID: "BGRAFANA", ReceivedAt: time.Now().UTC(),
+		Text: "[VA1 FIRING:1] WARNING | High disk I/O latency\nService: cluster\nComponent: cassandra",
+	}
+	newer := older
+	newer.ID, newer.EnvelopeID, newer.EventID =
+		"staged-alert-resolved", "env-staged-alert-resolved", "event-staged-alert-resolved"
+	newer.MessageTS, newer.ReceivedAt = "1700.200", older.ReceivedAt.Add(time.Second)
+	newer.Text = "[VA1 RESOLVED:1] WARNING | High disk I/O latency\nService: cluster\nComponent: cassandra"
+	return older, newer
+}
+
+// stageAlertStreamReply writes the reply an investigation produced into the
+// outbox, in the same shape finalization does: a response-root post threaded
+// under the first card of the stream.
+func stageAlertStreamReply(
+	ctx context.Context,
+	st *store.Store,
+	input core.SlackInput,
+	run core.AgentRun,
+	text string,
+) error {
+	body, err := slackui.Encode(
+		slackui.ConversationResponse(text, slackui.NewSanitizer(12000)),
+	)
+	if err != nil {
+		return err
+	}
+	created, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "watch_reply_" + input.ID, Operation: "post", Kind: "notice",
+		ChannelID: input.ChannelID, ThreadTS: "1700.100", Body: body,
+		ResponseRoot: true, SourceInputID: input.ID,
+		AgentRunID: run.ID, AgentRunKey: run.IdempotencyKey,
+	})
+	if err != nil {
+		return err
+	}
+	if !created {
+		return errors.New("staged alert reply was not enqueued")
+	}
+	return nil
 }
 
 func TestOperationalRecoveryKeepsTheOriginalAlertThread(t *testing.T) {
@@ -659,4 +755,375 @@ func TestObviousHumanDialogueIsSuppressedBeforeCoop(t *testing.T) {
 	if svc.obviousHumanDialogue(input, decisionpkg.WatchTurnState{}) {
 		t.Fatal("direct bot mention was suppressed")
 	}
+}
+
+// confirmedAlertReplyResult is a harvested decision_ready alert reply: a
+// confirmed_issue assessment, a typed finding, evidence bound to every required
+// claim, and exactly one complete_episode. It passes the whole watch validation
+// pipeline unaltered, which is expensive to reproduce and cheap to share, so
+// TestAnsweredAlertCardShowsCheckMark and the alert-stream tests below all use
+// this one string.
+func confirmedAlertReplyResult(observedAt string) string {
+	return fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"reason":"fresh repository and live evidence confirm the alert","operations":[{"id":"checkout-topology","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"checkout topology has two backends","observation":"the production manifest declares two checkout backends behind the load balancer","source_type":"repository","source_name":"infra/checkout.tf","dimensions":{"repository":"repo","environment":"production","revision":"current"}}},{"id":"checkout-live","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"checkout requests complete successfully","observation":"the live checkout error rate is 20.5 percent and one backend is unhealthy","relation":"contradicts","health_effect":"unhealthy","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","endpoint":"requests","environment":"production","window":"current"}}},{"id":"checkout-impact","type":"record_evidence","evidence":{"claim_id":"impact.current","claim":"checkout user impact is within its error budget","observation":"the current error rate is 20.5 percent","relation":"contradicts","health_effect":"degraded","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","indicator":"error_rate","environment":"production","window":"current"}}},{"id":"cov-1","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"healthy","source":"infra/checkout.tf","detail":"the declared two-backend topology was reconciled"}},{"id":"cov-2","type":"record_coverage","coverage":{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unhealthy","source":"Emisar checkout health","detail":"current requests are failing"}},{"id":"cov-3","type":"record_coverage","coverage":{"layer":"slo","claim_ids":["impact.current"],"status":"degraded","source":"Emisar checkout health","detail":"error rate exceeds the alert threshold"}},{"id":"finding-1","type":"record_finding","finding":{"what":"Checkout requests fail for more than 20 percent of users","scope":"checkout, production","status":"explained","cause_evidence":["checkout-live"],"alternatives":[{"hypothesis":"A client-side release is producing the errors","discriminated_by":"checkout-live"}]}},{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue","impact":"More than 20 percent of current checkout requests fail.","cause_status":"identified","cause":"One load balancer backend is unhealthy after the current deployment.","cause_claim_ids":["application.functional_behavior"],"evidence_refs":["checkout-live"],"immediate_action":"Remove the unhealthy backend from service.","verification":"Confirm checkout errors return below the alert threshold after the backend is removed.","long_term_solution":"Correct the deployment regression and add a checkout-error rollout guard."}},{"id":"mem","type":"update_memory","memory":{"situation_summary":"A critical checkout error-rate alert was confirmed from repository and live evidence.","decisions":["Continue the alert investigation in its source thread."]}},{"id":"complete","type":"complete_episode","completion":{"message":"**Checkout errors are affecting current requests:** more than 20 percent are failing.\n\nRemove the unhealthy backend from service and verify the error rate falls. The durable fix is to correct the deployment regression and add a rollout guard for checkout errors.","completion":{"status":"decision_ready","verdict":"unhealthy","summary":"The checkout alert is a confirmed current issue with a bounded immediate remediation."}}}]}`, observedAt, observedAt)
+}
+
+// alertStreamChannel prepares a watch channel that answers operational alerts
+// on the channel's behalf: a standing triage rule so the card is acknowledged,
+// and a reply alert policy so the answer is posted rather than offered.
+func alertStreamChannel(t *testing.T, ctx context.Context, st *store.Store, cfg config.Config, channelID string) {
+	t.Helper()
+	if _, _, err := st.Behavior.UpsertStandingRule(ctx, core.StandingRule{
+		ChannelID: channelID, Repository: "repo",
+		Trigger: "operational_alert", Action: "triage_alert",
+		SourceKind: "app", Enabled: true, SourceRef: "test", ActorID: "UOPERATOR",
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+	}, cfg.Limits.MaxStandingRules, cfg.Limits.MaxRulesPerChannel); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: channelID, Participation: "proactive",
+		Repository: "repo", AlertPolicy: "reply", ActorID: "UOPERATOR",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Two investigations on 2026-08-16 (15 and 7 minutes, 50 tool calls, 5
+// correction rounds) were dropped mid-flight for the next Grafana card and
+// restarted from zero. Grafana posted seven cards for one Traefik memory alert
+// in ninety minutes; each one superseded whatever was running, so a stream that
+// was investigated for an hour never once finished an investigation.
+//
+// An unstarted run still coalesces, and must: nothing was produced, so nothing
+// is lost. A run that has submitted its turn has produced work, and the newer
+// card is one more update to that same investigation rather than a reason to
+// throw it away. The guard already existed for human messages and was never
+// applied to bot messages.
+func TestAttemptedAlertRunSurvivesANewerNotificationOnTheSameStream(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CSTREAM"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	alertStreamChannel(t, ctx, st, cfg, "CSTREAM")
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+
+	base := core.SlackInput{
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CSTREAM",
+		UserID: "BGRAFANA", ReceivedAt: time.Now().UTC(),
+		Text: "CRITICAL alert: checkout error rate is firing above 20 percent.",
+	}
+	first := base
+	first.ID, first.EnvelopeID = "stream-card-1", "env-stream-card-1"
+	first.EventID, first.MessageTS = "event-stream-card-1", "1703.100"
+	second := base
+	second.ID, second.EnvelopeID = "stream-card-2", "env-stream-card-2"
+	second.EventID, second.MessageTS = "event-stream-card-2", "1703.200"
+	second.ReceivedAt = base.ReceivedAt.Add(4 * time.Minute)
+	second.Text = "[VA1 FIRING:2] " + base.Text
+
+	if created, admitErr := st.AdmitSlackInput(ctx, first); admitErr != nil || !created {
+		t.Fatalf("admit first card = %v, %v", created, admitErr)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	firstRun, err := st.GetAgentRunBySource(ctx, "watch", first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.submitPrompts) != 1 || firstRun.StartedAt.IsZero() {
+		t.Fatalf(
+			"the first card's investigation did not start: prompts=%d run=%+v",
+			len(coopClient.submitPrompts), firstRun,
+		)
+	}
+
+	if created, admitErr := st.AdmitSlackInput(ctx, second); admitErr != nil || !created {
+		t.Fatalf("admit second card = %v, %v", created, admitErr)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// A correction round or a transport retry puts a started run back into
+	// pending, and its next lease asks this question again. It must answer the
+	// same way it did the first time.
+	state, err := decodeWatchRunContext(firstRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decided, admitErr := svc.admitTriageRun(ctx, firstRun, first, &state); admitErr != nil || decided {
+		t.Fatalf(
+			"a started investigation was coalesced into the newer card: decided=%t, %v",
+			decided, admitErr,
+		)
+	}
+
+	coopClient.complete(confirmedAlertReplyResult(time.Now().UTC().Format(time.RFC3339)))
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	firstRun, err = st.GetAgentRun(ctx, firstRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstRun.State != core.AgentRunCompleted {
+		t.Fatalf(
+			"the finished investigation ended %q (%q) instead of completing",
+			firstRun.State, firstRun.LastError,
+		)
+	}
+	replied := false
+	for _, post := range slackClient.posts {
+		if strings.Contains(post.message.Text, "Checkout errors") {
+			replied = true
+		}
+	}
+	if !replied {
+		t.Fatalf("the finished investigation never reached Slack: %+v", slackClient.posts)
+	}
+
+	secondRun, err := st.GetAgentRunBySource(ctx, "watch", second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondRun.State != core.AgentRunPending {
+		t.Fatalf("the newer card's run = %q, want it still waiting its turn", secondRun.State)
+	}
+	if secondRun.EpisodeID != firstRun.EpisodeID || secondRun.AttemptNumber != 2 {
+		t.Fatalf(
+			"the newer card opened separate work: episode=%q attempt=%d, want %q attempt 2",
+			secondRun.EpisodeID, secondRun.AttemptNumber, firstRun.EpisodeID,
+		)
+	}
+}
+
+// Five episodes and $15 for one alert on 2026-08-16; the stream is one unit of
+// work until it recovers.
+//
+// Grafana posted seven cards for one Traefik memory alert in ninety minutes.
+// Every episode completed the moment its reply posted, so the next card found a
+// terminal predecessor, opened a new episode, and paid for a fresh briefing to
+// re-learn what the last one had just established. An alert that is still
+// active is not finished work: the reply goes out, and the episode stays open
+// on a bounded host wait until the stream recovers or the window expires.
+func TestActiveAlertReplyKeepsTheStreamEpisodeOpen(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CSTREAMOPEN"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	alertStreamChannel(t, ctx, st, cfg, "CSTREAMOPEN")
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = confirmedAlertReplyResult(
+		time.Now().UTC().Format(time.RFC3339),
+	)
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+
+	base := core.SlackInput{
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CSTREAMOPEN",
+		UserID: "BGRAFANA", ReceivedAt: time.Now().UTC(),
+		Text: "CRITICAL alert: checkout error rate is firing above 20 percent.",
+	}
+	first := base
+	first.ID, first.EnvelopeID = "open-card-1", "env-open-card-1"
+	first.EventID, first.MessageTS = "event-open-card-1", "1704.100"
+	if created, err := st.AdmitSlackInput(ctx, first); err != nil || !created {
+		t.Fatalf("admit first card = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+
+	firstRun, err := st.GetAgentRunBySource(ctx, "watch", first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(firstRun.ConversationKey, "operation:") {
+		t.Fatalf("the alert card is not on an operational stream: %q", firstRun.ConversationKey)
+	}
+	answered := false
+	for _, post := range slackClient.posts {
+		if strings.Contains(post.message.Text, "Checkout errors") {
+			answered = true
+		}
+	}
+	if !answered {
+		t.Fatalf("the alert was never answered: run=%q %q posts=%+v",
+			firstRun.State, firstRun.LastError, slackClient.posts)
+	}
+	episode, err := st.GetWorkEpisode(ctx, firstRun.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.State != core.EpisodeWaitingExternal {
+		t.Fatalf(
+			"an answered but still-firing alert closed its episode as %q",
+			episode.State,
+		)
+	}
+	wakeups, err := st.ListEpisodeWakeups(ctx, firstRun.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	streamWaits := 0
+	for _, wakeup := range wakeups {
+		if wakeup.Kind == alertStreamWaitKind {
+			streamWaits++
+		}
+	}
+	if streamWaits != 1 {
+		t.Fatalf("alert stream wakeups = %d, want exactly one: %+v", streamWaits, wakeups)
+	}
+	// The card was answered. A host wait that keeps the ledger open is not the
+	// model waiting on something, so it must not take the ✅ off the card.
+	checked := false
+	for _, added := range slackClient.reactions {
+		if added.name == "white_check_mark" && added.timestamp == first.MessageTS {
+			checked = true
+		}
+	}
+	if !checked {
+		t.Fatalf("the answered card lost its check mark: %+v", slackClient.reactions)
+	}
+
+	second := base
+	second.ID, second.EnvelopeID = "open-card-2", "env-open-card-2"
+	second.EventID, second.MessageTS = "event-open-card-2", "1704.200"
+	second.ReceivedAt = base.ReceivedAt.Add(12 * time.Minute)
+	second.Text = "[VA1 FIRING:2] " + base.Text
+	if created, err := st.AdmitSlackInput(ctx, second); err != nil || !created {
+		t.Fatalf("admit second card = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	secondRun, err := st.GetAgentRunBySource(ctx, "watch", second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Answering the next card keeps the stream open on the SAME wait. One timer
+	// per stream, not one per card, or seven cards in ninety minutes become
+	// seven re-checks six hours later.
+	finishQueuedAgentRun(t, ctx, svc)
+	wakeups, err = st.ListEpisodeWakeups(ctx, firstRun.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	streamWaits = 0
+	for _, wakeup := range wakeups {
+		if wakeup.Kind == alertStreamWaitKind {
+			streamWaits++
+		}
+	}
+	if streamWaits != 1 {
+		t.Fatalf(
+			"each card left its own stream re-check behind: %d waits, %+v",
+			streamWaits, wakeups,
+		)
+	}
+	if secondRun.EpisodeID != firstRun.EpisodeID || secondRun.AttemptNumber != 2 {
+		t.Fatalf(
+			"the next card on the stream opened new work: episode=%q attempt=%d, want %q attempt 2",
+			secondRun.EpisodeID, secondRun.AttemptNumber, firstRun.EpisodeID,
+		)
+	}
+}
+
+// The stream stays open only while the alert does. A recovery closes the
+// episode on the spot, or a stream that fires once a week never finishes and
+// every recheck timer it ever scheduled stays live.
+func TestRecoveredAlertReplyCompletesTheStreamEpisode(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CSTREAMDONE"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	alertStreamChannel(t, ctx, st, cfg, "CSTREAMDONE")
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = recoveredAlertReplyResult(
+		time.Now().UTC().Format(time.RFC3339),
+	)
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+
+	recovered := core.SlackInput{
+		ID: "done-card-1", EnvelopeID: "env-done-card-1", EventID: "event-done-card-1",
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CSTREAMDONE",
+		MessageTS: "1705.100", UserID: "BGRAFANA", ReceivedAt: time.Now().UTC(),
+		Text: "[VA1 RESOLVED:1] CRITICAL alert: checkout error rate is back under 20 percent.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, recovered); err != nil || !created {
+		t.Fatalf("admit recovery card = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+
+	run, err := st.GetAgentRunBySource(ctx, "watch", recovered.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(run.ConversationKey, "operation:") {
+		t.Fatalf("the recovery card is not on an operational stream: %q", run.ConversationKey)
+	}
+	episode, err := st.GetWorkEpisode(ctx, run.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.State != core.EpisodeCompleted {
+		t.Fatalf(
+			"a recovered alert left its episode open as %q (run %q %q)",
+			episode.State, run.State, run.LastError,
+		)
+	}
+	wakeups, err := st.ListEpisodeWakeups(ctx, run.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, wakeup := range wakeups {
+		if wakeup.Kind == alertStreamWaitKind {
+			t.Fatalf("a recovered alert still scheduled a stream re-check: %+v", wakeup)
+		}
+	}
+}
+
+// recoveredAlertReplyResult is the same shape as confirmedAlertReplyResult for
+// a stream that came back: a not_issue assessment, healthy coverage, and a
+// healthy decision_ready completion. Nothing here reports a failure, so no
+// finding is required and no host wait is owed.
+func recoveredAlertReplyResult(observedAt string) string {
+	return fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":1,"confidence":3,"novelty":1,"ownership":3,"contribution":"decision","material":true},"reason":"live evidence agrees the alert recovered","operations":[{"id":"checkout-topology","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"checkout topology has two backends","observation":"the production manifest declares two checkout backends behind the load balancer","source_type":"repository","source_name":"infra/checkout.tf","dimensions":{"repository":"repo","environment":"production","revision":"current"}}},{"id":"checkout-live","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"checkout requests complete successfully","observation":"the live checkout error rate is 0.2 percent and both backends are healthy","relation":"supports","health_effect":"none","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","endpoint":"requests","environment":"production","window":"current"}}},{"id":"checkout-impact","type":"record_evidence","evidence":{"claim_id":"impact.current","claim":"checkout user impact is within its error budget","observation":"the current error rate is 0.2 percent","relation":"supports","health_effect":"none","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","indicator":"error_rate","environment":"production","window":"current"}}},{"id":"cov-1","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"healthy","source":"infra/checkout.tf","detail":"the declared two-backend topology was reconciled"}},{"id":"cov-2","type":"record_coverage","coverage":{"layer":"application","claim_ids":["application.functional_behavior"],"status":"healthy","source":"Emisar checkout health","detail":"current requests are completing"}},{"id":"cov-3","type":"record_coverage","coverage":{"layer":"slo","claim_ids":["impact.current"],"status":"healthy","source":"Emisar checkout health","detail":"the error rate is back under the alert threshold"}},{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"not_issue","impact":"No checkout requests are failing now; the error rate is back to baseline.","evidence_refs":["checkout-live"]}},{"id":"mem","type":"update_memory","memory":{"situation_summary":"The checkout error-rate alert recovered and live evidence agrees.","decisions":["Close the checkout alert stream in its source thread."]}},{"id":"complete","type":"complete_episode","completion":{"message":"**Checkout errors recovered:** the current error rate is back to baseline and both backends are healthy.","completion":{"status":"decision_ready","verdict":"healthy","summary":"The checkout alert recovered and live evidence is back to baseline."}}}]}`, observedAt, observedAt)
 }

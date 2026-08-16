@@ -10,6 +10,13 @@ import (
 
 const operationalBurstWindow = 90 * time.Second
 
+// alertStreamWaitKind names the host's own external wait: an alert that was
+// answered while it was still active, whose stream is expected to produce more
+// cards. It is never emitted by a model — the host appends it — so it is the
+// one wait kind that does not mean "the model is waiting on something", and the
+// answered card keeps its check mark.
+const alertStreamWaitKind = "alert_stream"
+
 // OperationalCorrelationKey derives the key that groups operationally
 // related inputs into one burst.
 var OperationalCorrelationKey = operationalkey.Key

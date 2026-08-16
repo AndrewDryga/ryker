@@ -721,7 +721,20 @@ func (s *Store) LeaseAgentRunFinalization(ctx context.Context) (core.AgentRun, e
 	if err != nil {
 		return core.AgentRun{}, err
 	}
-	if run.EpisodeID != "" {
+	// A newer attempt takes over an episode whose older attempt has no answer to
+	// deliver — the ordinary case this guards, where the older one failed and
+	// was replaced.
+	//
+	// It does not take over a COMPLETED result. An alert stream is one episode
+	// across every card it produces, so the next card queues a new attempt while
+	// the previous investigation is still applying its answer, and superseding
+	// here threw that answer away — the same thing three other checks were doing
+	// on 2026-08-16, on an investigation that had run fifteen minutes. The
+	// shared episode is already protected without this: setWorkEpisodePhaseTx
+	// refuses to close an episode from an attempt that is no longer the latest,
+	// so the older result is delivered without stranding the newer attempt
+	// beneath a terminal projection.
+	if run.EpisodeID != "" && run.TerminalState != string(core.AgentRunCompleted) {
 		var latestAttempt string
 		if err := tx.QueryRowContext(ctx,
 			`SELECT latest_attempt_id FROM work_episodes WHERE id = ?`, run.EpisodeID,

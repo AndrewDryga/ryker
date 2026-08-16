@@ -28,6 +28,10 @@ slack:
   # own conversation regardless of this window.
   conversation_continuation_window: 30m
   watch_settle_delay: 350ms
+  # How long an answered alert stream stays one episode, waiting for its next card,
+  # before the host wakes it to re-check the alert's current state. A stream that
+  # recovers closes immediately; this bounds only the case where nothing else arrives.
+  alert_stream_open_window: 6h
   # Recover recent app notifications after a short Socket Mode or process outage. Set 0s to disable.
   startup_history_window: 15m
   # Some Slack apps edit an existing notification without reliably emitting a usable event.

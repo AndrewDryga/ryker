@@ -438,6 +438,16 @@ func completionEpisodePhase(
 			return core.EpisodeWaitingOperator, "waiting_for_operator",
 				"Waiting for your answer", operation.OperatorInput.Question
 		case "wait_external":
+			// An alert stream is the host's own wait and reads as itself. "Waiting
+			// for an external update" is true of a GitHub check and misleading
+			// here: nobody owes this episode anything, the alert is simply still
+			// on and the thread stays where the answers go.
+			if operation.ExternalWait != nil &&
+				operation.ExternalWait.Kind == alertStreamWaitKind {
+				return core.EpisodeWaitingExternal, "waiting_for_external_event",
+					"Watching the alert stream",
+					"Replies stay in this thread until the alert recovers"
+			}
 			return core.EpisodeWaitingExternal, "waiting_for_external_event",
 				"Waiting for an external update", "Resume when the matching event arrives"
 		}

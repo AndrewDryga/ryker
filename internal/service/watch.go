@@ -1746,11 +1746,22 @@ func (s *Service) clearWatchNativeStatus(
 	return nil
 }
 
+// watchDecisionWaitsExternal reports whether the turn left something pending
+// that the card's presence marks should keep saying is pending.
+//
+// A host alert-stream wait does not count. It exists to keep the episode's
+// ledger open across the next card, not because the model is waiting on
+// anything: the card was answered, in the thread, and it keeps its ✅.
 func watchDecisionWaitsExternal(decision decisionpkg.WatchDecision) bool {
 	for _, operation := range decision.AppliedOperations {
-		if operation.Type == "wait_external" {
-			return true
+		if operation.Type != "wait_external" {
+			continue
 		}
+		if operation.ExternalWait != nil &&
+			operation.ExternalWait.Kind == alertStreamWaitKind {
+			continue
+		}
+		return true
 	}
 	return false
 }

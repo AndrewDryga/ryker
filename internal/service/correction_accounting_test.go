@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -190,4 +191,93 @@ func TestTheIncidentCorrectionBudgetCountsCorrectionsNotFailures(t *testing.T) {
 	if stored.Repository != "repo" {
 		t.Fatalf("the run's assembled context was overwritten: %+v", stored)
 	}
+}
+
+// An alert stream is one episode now, so its attempt number counts cards and
+// wakeups rather than corrections. The second correction budget was bounded by
+// that attempt number, which was right when every re-triggered alert opened a
+// fresh episode and is wrong now: the Traefik memory stream of 2026-08-16 would
+// have reached attempt 21 in an afternoon and been refused its FIRST correction
+// having spent none.
+//
+// The budget it was protecting is real — one episode once took twenty-one runs
+// and a hundred and thirty corrections — so it is kept and measured directly:
+// the corrections the episode actually spent, across every run it contains.
+func TestALongLivedStreamEpisodeKeepsItsCorrectionBudget(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Limits.MaxAgentRunAttempts = 4
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+
+	first, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "CSTREAMBUDGET",
+		ConversationKey: "operation:CSTREAMBUDGET:alert:BGRAFANA:long-lived",
+		SourceKind:      "watch", SourceID: "stream-budget-card",
+		UserID: "BGRAFANA", Context: streamBudgetContext(0),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Twenty-five cards and wakeups on one stream, none of which spent a
+	// correction.
+	run := first
+	for run.AttemptNumber < 25 {
+		run, _, err = st.QueueEpisodeAttempt(ctx, first.EpisodeID, core.AgentRun{
+			Mode: core.AgentRunTriage, ChannelID: first.ChannelID,
+			ConversationKey: first.ConversationKey, SourceKind: "watch",
+			SourceID: fmt.Sprintf("stream-budget-card-%02d", run.AttemptNumber+1),
+			UserID:   first.UserID, Context: streamBudgetContext(0),
+		})
+		if err != nil {
+			t.Fatalf("queue attempt %d: %v", run.AttemptNumber+1, err)
+		}
+	}
+	spent, err := svc.spendStructuredCorrection(ctx, run, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spent {
+		t.Fatalf(
+			"attempt %d of a stream that has spent no corrections was refused its first one",
+			run.AttemptNumber,
+		)
+	}
+
+	// The loop this budget exists for still stops. The corrections are spread
+	// across the episode's runs, exactly as a model that answers the same
+	// unusable way on every card spreads them.
+	for index := range cfg.Limits.MaxAgentRunAttempts {
+		sibling, _, queueErr := st.QueueEpisodeAttempt(ctx, first.EpisodeID, core.AgentRun{
+			Mode: core.AgentRunTriage, ChannelID: first.ChannelID,
+			ConversationKey: first.ConversationKey, SourceKind: "watch",
+			SourceID: fmt.Sprintf("stream-budget-spent-%02d", index),
+			UserID:   first.UserID, Context: streamBudgetContext(1),
+		})
+		if queueErr != nil {
+			t.Fatal(queueErr)
+		}
+		run = sibling
+	}
+	spent, err = svc.spendStructuredCorrection(ctx, run, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !spent {
+		t.Fatal("an episode that spent its whole correction budget was granted another")
+	}
+}
+
+// streamBudgetContext is a run context envelope the host will decode: it has to
+// carry captured_at, or the correction path treats the run as having no context
+// at all and stops for that reason instead of the budget.
+func streamBudgetContext(corrections int) []byte {
+	return fmt.Appendf(nil,
+		`{"captured_at":%q,"structured_corrections":%d}`,
+		time.Now().UTC().Format(time.RFC3339), corrections,
+	)
 }

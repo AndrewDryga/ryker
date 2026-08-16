@@ -58,12 +58,23 @@ func (s *Service) processEpisodeWakeup(ctx context.Context) error {
 		threadTS = previous.ThreadTS
 	}
 
+	// An alert stream resumes on different terms from a GitHub check. The
+	// question was already answered in this thread, so the useful turn is a
+	// re-check that speaks only if the answer changed — otherwise the operator
+	// gets the same assessment posted again every window.
+	preface := ""
+	if wakeup.Kind == alertStreamWaitKind {
+		preface = "This alert stream was answered earlier in this thread; " +
+			"re-check the alert's current state, reply only if the verdict, " +
+			"impact or recommended action changed, and otherwise stay silent " +
+			"and emit a new bounded wait_external of the same kind. "
+	}
 	sourceID := "episode_wakeup_" + wakeup.ID
 	input := core.SlackInput{
 		ID: sourceID, EnvelopeID: sourceID, EventID: sourceID, Kind: "recheck",
 		TeamID: episode.WorkspaceID, ChannelID: episode.Destination.ChannelID,
 		ThreadTS: threadTS, UserID: previous.UserID,
-		Text: fmt.Sprintf(
+		Text: preface + fmt.Sprintf(
 			"Resume the accepted work after the %s wait. Match this exact external object: %s. Re-check its state with fresh evidence, continue every open required goal, and report only when the result is decision-ready or an exact blocker remains. If it is still nonterminal, stay silent and emit a new bounded wait_external operation.",
 			wakeup.Kind, string(wakeup.EventMatcher),
 		),

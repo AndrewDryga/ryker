@@ -247,26 +247,35 @@ func (s *Service) processSlackDelivery(ctx context.Context, cooling []string) er
 	if err != nil {
 		return err
 	}
-	if item.SourceInputID != "" {
+	// An operational answer is withdrawn on one criterion only: a newer reply
+	// for this thread has already been posted, so this one would arrive under
+	// it contradicting what the channel has already read.
+	//
+	// The criterion used to be that a newer input on the same stream had been
+	// ADMITTED, which is a question nobody has answered yet rather than a
+	// reason to withdraw the answer to the last one. On 2026-08-16 that dropped
+	// four finished Grafana answers, one of them fifteen minutes and
+	// forty-seven tool calls old.
+	//
+	// A reply with no thread is the one that CREATES the thread, so there is no
+	// thread to have been answered ahead of it and nothing to ask.
+	if item.SourceInputID != "" && item.Operation == "post" &&
+		item.ResponseRoot && item.ThreadTS != "" {
 		source, sourceErr := s.store.GetSlackInput(ctx, item.SourceInputID)
 		if sourceErr != nil && !errors.Is(sourceErr, store.ErrNotFound) {
 			return s.store.RetrySlackDelivery(ctx, item.ID, trimError(sourceErr), s.now(), false, false)
 		}
-		if sourceErr == nil && source.Kind == "bot_message" && item.AgentRunID != "" {
-			run, runErr := s.store.GetAgentRun(ctx, item.AgentRunID)
-			if runErr != nil && !errors.Is(runErr, store.ErrNotFound) {
-				return s.store.RetrySlackDelivery(ctx, item.ID, trimError(runErr), s.now(), false, false)
+		if sourceErr == nil && source.Kind == "bot_message" {
+			newer, newerErr := s.store.HasNewerSentReplyInThread(
+				ctx, item.ChannelID, item.ThreadTS, item.SourceInputID, item.CreatedAt,
+			)
+			if newerErr != nil {
+				return s.store.RetrySlackDelivery(ctx, item.ID, trimError(newerErr), s.now(), false, false)
 			}
-			if runErr == nil {
-				newer, newerErr := s.hasNewerOperationalInput(ctx, run, source)
-				if newerErr != nil {
-					return s.store.RetrySlackDelivery(ctx, item.ID, trimError(newerErr), s.now(), false, false)
-				}
-				if newer {
-					return s.store.SupersedeLeasedSlackDelivery(
-						ctx, item.ID, "newer correlated operational input admitted",
-					)
-				}
+			if newer {
+				return s.store.SupersedeLeasedSlackDelivery(
+					ctx, item.ID, "a newer reply for this thread was already sent",
+				)
 			}
 		}
 	}

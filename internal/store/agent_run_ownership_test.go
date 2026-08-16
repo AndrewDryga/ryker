@@ -407,42 +407,76 @@ func TestTriageSessionBindingRefusesSessionAlreadyDetachedByFailure(t *testing.T
 	}
 }
 
-func TestLeaseAgentRunFinalizationSkipsOlderEpisodeAttempt(t *testing.T) {
+// A newer attempt takes over an episode from an attempt that has no answer to
+// deliver, and only from that one.
+//
+// The replacement case is the one this guard was written for: an attempt failed,
+// something queued another, and the failure must not be finalized underneath it.
+//
+// A completed result is the opposite case, and superseding it here was the
+// fourth place a newer Grafana card destroyed finished work on 2026-08-16 —
+// an alert stream is one episode now, so the next card queues its attempt while
+// the previous investigation is still applying an answer that cost fifteen
+// minutes and forty-seven tool calls. Delivering it strands nothing:
+// setWorkEpisodePhaseTx already refuses to close a shared episode from an
+// attempt that is no longer the latest.
+func TestOnlyAnAnswerlessAttemptYieldsFinalizationToItsReplacement(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	first, episode := queueKernelEpisode(t, st, "older-result")
-	if _, err := st.LeaseAgentRun(ctx); err != nil {
-		t.Fatal(err)
+	stage := func(source, terminalState string) (core.AgentRun, core.AgentRun) {
+		t.Helper()
+		first, episode := queueKernelEpisode(t, st, source)
+		if _, err := st.LeaseAgentRun(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.db.ExecContext(ctx,
+			`UPDATE agent_runs SET state = 'running' WHERE id = ?`, first.ID,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.StageAgentRunResult(
+			ctx, first.ID, terminalState, []byte(`{"action":"reply"}`), "", 1,
+		); err != nil {
+			t.Fatal(err)
+		}
+		second, created, queueErr := st.QueueEpisodeAttempt(ctx, episode.ID, core.AgentRun{
+			Mode: core.AgentRunTriage, ChannelID: "COPS", ConversationKey: first.ConversationKey,
+			SourceKind: "recheck", SourceID: "newer-" + source, Prompt: "newer",
+		})
+		if queueErr != nil || !created {
+			t.Fatalf("queue replacement = %+v, %t, %v", second, created, queueErr)
+		}
+		return first, second
 	}
-	if _, err := st.db.ExecContext(ctx,
-		`UPDATE agent_runs SET state = 'running' WHERE id = ?`, first.ID,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.StageAgentRunResult(ctx, first.ID, "completed", []byte(`{"action":"reply"}`), "", 1); err != nil {
-		t.Fatal(err)
-	}
-	second, created, err := st.QueueEpisodeAttempt(ctx, episode.ID, core.AgentRun{
-		Mode: core.AgentRunTriage, ChannelID: "COPS", ConversationKey: first.ConversationKey,
-		SourceKind: "recheck", SourceID: "newer-result", Prompt: "newer",
-	})
-	if err != nil || !created {
-		t.Fatalf("queue replacement = %+v, %t, %v", second, created, err)
-	}
+
+	failed, replacement := stage("older-failure", "failed")
 	if _, err := st.LeaseAgentRunFinalization(ctx); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("lease stale finalization = %v", err)
 	}
-	stored, err := st.GetAgentRun(ctx, first.ID)
+	stored, err := st.GetAgentRun(ctx, failed.ID)
 	if err != nil || stored.State != core.AgentRunSuperseded {
-		t.Fatalf("older finalization = %+v, %v", stored, err)
+		t.Fatalf("a replaced failure was still finalized: %+v, %v", stored, err)
 	}
 	leased, err := st.LeaseAgentRun(ctx)
-	if err != nil || leased.ID != second.ID {
+	if err != nil || leased.ID != replacement.ID {
 		t.Fatalf("newer attempt = %+v, %v", leased, err)
+	}
+
+	answered, _ := stage("older-result", "completed")
+	claimed, err := st.LeaseAgentRunFinalization(ctx)
+	if err != nil {
+		t.Fatalf("a finished answer was refused finalization: %v", err)
+	}
+	if claimed.ID != answered.ID {
+		t.Fatalf("finalization claimed %q, want the finished answer %q", claimed.ID, answered.ID)
+	}
+	stored, err = st.GetAgentRun(ctx, answered.ID)
+	if err != nil || stored.State != core.AgentRunFinalizing {
+		t.Fatalf("the finished answer = %+v, %v", stored, err)
 	}
 }
 

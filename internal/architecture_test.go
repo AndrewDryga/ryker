@@ -91,7 +91,19 @@ var methodBudget = map[string]int{
 	// tally. Same transactional raw-field edit as its siblings, for the same
 	// reason. Three methods now form that ledger; they are the next cohesive
 	// extraction (an escalation store) once the alert-stream work lands.
-	"Store": 221,
+	//
+	// 223 the same day for the two reads an alert stream needs, both of which
+	// are SQL over rows this package owns and neither of which has a home
+	// elsewhere. HasNewerSentReplyInThread replaces "a newer input was
+	// admitted" with the only durable reason to withdraw a written answer — a
+	// newer reply already sent in this thread — after that reading threw away
+	// four finished Grafana answers in ninety minutes.
+	// SumEpisodeStructuredCorrections totals what an episode actually spent,
+	// because the second correction budget used to count the episode's attempt
+	// number and an alert stream is now one episode across every card it
+	// produces. Both are aggregates the callers cannot compute without loading
+	// every row they aggregate.
+	"Store": 223,
 }
 
 // lineBudget caps non-test source lines per package.
@@ -651,7 +663,16 @@ var lineBudget = map[string]int{
 	// away, the two sections' drop order would live in neither of them. The
 	// seventy-three lines of margin are thinner than the note above wants;
 	// the extraction this package still owes is unchanged.
-	"service": 23230,
+	//
+	// And 23314 the same day for the alert stream being one episode. Eighty-four
+	// lines against the previous entry, measured: the host's own bounded wait that
+	// keeps an answered but still-firing stream open, the one-wait-per-stream
+	// guard that stops seven cards leaving seven timers behind, and reading the
+	// correction budget from what the episode spent rather than which attempt it
+	// is on. Those are the five episodes the note above priced at $15 each,
+	// bought back — and two investigations dropped mid-flight the same day, 22
+	// minutes and 50 tool calls, are the other half of the same bill.
+	"service": 23314,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -846,7 +867,14 @@ var lineBudget = map[string]int{
 	// that reads those rows lives in intelligencestore, so this package pays
 	// for the registration and nothing else. That is the shape this budget is
 	// meant to encourage.
-	"store":      11261,
+	//
+	// And 11307 the same day for the two alert-stream reads named in
+	// methodBudget above and the narrowing of the finalization lease, which now
+	// hands an episode to a newer attempt only when the older one has no answer
+	// to deliver. Forty-nine lines, measured. The lease change is three of them
+	// and the rest is the two queries; the guard it replaces was the fourth
+	// place a newer Grafana card destroyed a finished investigation.
+	"store":      11307,
 	"localstate": 400,
 	"provider":   120,
 	// branching opens the branches a fan-out was granted and closes them. It is

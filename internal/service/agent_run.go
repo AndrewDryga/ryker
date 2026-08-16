@@ -1529,16 +1529,41 @@ func (s *Service) admitTriageRun(
 		}
 	}
 	if input.Kind == "bot_message" && !isPrivateSlackVerificationReplay(input) {
-		newer, err := s.store.HasNewerPendingAgentRun(ctx, run)
-		if err != nil {
-			return true, s.retryAgentRun(ctx, run, err)
-		}
-		if !newer && broadOperationalBurstCoalescingAllowed(input) {
-			newer, err = s.store.HasNewerOperationalAgentRun(
-				ctx, run, operationalBurstWindow, true,
-			)
+		// The same guard the human branch above carries, for the same reason,
+		// on the branch it was never applied to.
+		//
+		// Coalescing rests on "nothing is lost", and that premise holds only
+		// for a run which has not started. A started run has spent tool calls
+		// and correction rounds establishing what is wrong, and the newer card
+		// is one more update about the same thing, not a reason to throw that
+		// away — the successor starts from an empty briefing and inherits no
+		// obligation to reach the same place.
+		//
+		// On 2026-08-16 Grafana posted seven cards for one Traefik memory alert
+		// in ninety minutes. run_0404d3 was dropped at minute 15 for the
+		// RESOLVED card with 47 tool calls and 5 correction rounds behind it,
+		// and run_2376d1 at minute 7 for FIRING:3. The stream was investigated
+		// for over an hour and never finished an investigation once.
+		//
+		// StartedAt is the boundary because it is set exactly at the transition
+		// into running, when the turn is submitted, and is never cleared — the
+		// same durable fact scripts/watchdog.sh reads to see a stalled run.
+		attempted := run.Failures > 0 || state.StructuredCorrections > 0 ||
+			!run.StartedAt.IsZero()
+		newer := false
+		if !attempted {
+			var err error
+			newer, err = s.store.HasNewerPendingAgentRun(ctx, run)
 			if err != nil {
 				return true, s.retryAgentRun(ctx, run, err)
+			}
+			if !newer && broadOperationalBurstCoalescingAllowed(input) {
+				newer, err = s.store.HasNewerOperationalAgentRun(
+					ctx, run, operationalBurstWindow, true,
+				)
+				if err != nil {
+					return true, s.retryAgentRun(ctx, run, err)
+				}
 			}
 		}
 		if newer {
@@ -2244,6 +2269,83 @@ func (s *Service) supersededByNewerLifecycle(
 	return s.hasNewerOperationalInput(ctx, run, input)
 }
 
+// appendAlertStreamWait keeps an answered but still-active alert stream open as
+// one episode, by adding the host's own bounded external wait to the result.
+//
+// An alert stream is one operational situation, and each card is an update to
+// it. Every episode used to complete the instant its reply posted, so the next
+// card found a terminal predecessor and opened a fresh episode with a fresh
+// briefing: on 2026-08-16 one Traefik memory alert cost five episodes and about
+// fifteen dollars re-establishing what the previous one had just learned, with
+// no shared ledger between them.
+//
+// The wait is appended only when the alert is still a live problem and the turn
+// concluded. A recovery, a not_issue verdict, or a turn that already left work
+// running says the opposite, and the episode closes or continues on its own
+// terms. It goes on both Operations and AppliedOperations because the former is
+// the persisted shape finalization reparses and the latter is what this turn
+// records.
+func (s *Service) appendAlertStreamWait(
+	ctx context.Context,
+	run core.AgentRun,
+	input core.SlackInput,
+	decision *decisionpkg.WatchDecision,
+) error {
+	if input.Kind != "bot_message" || isPrivateSlackVerificationReplay(input) ||
+		!strings.HasPrefix(run.ConversationKey, "operation:") ||
+		decision.Action != "reply" || decision.Completion == nil ||
+		decision.Completion.Status != "decision_ready" ||
+		decision.AlertAssessment == nil ||
+		decisionpkg.ContinuesThisEpisode(*decision) {
+		return nil
+	}
+	switch decision.AlertAssessment.Verdict {
+	case "confirmed_issue", "likely_issue":
+	default:
+		return nil
+	}
+	window := s.cfg.Slack.AlertStreamOpenWindow.Duration
+	if window <= 0 {
+		return nil
+	}
+	// One wait per stream, not one per card. Each answered card would otherwise
+	// leave its own timer behind, and a stream that produced seven cards in
+	// ninety minutes would fire seven re-checks six hours later — the noise this
+	// change exists to remove, rescheduled.
+	if run.EpisodeID != "" {
+		wakeups, err := s.store.ListEpisodeWakeups(ctx, run.EpisodeID)
+		if err != nil {
+			return err
+		}
+		for _, wakeup := range wakeups {
+			if wakeup.Kind == alertStreamWaitKind && wakeup.State == core.WakeupPending {
+				return nil
+			}
+		}
+	}
+	now := s.now().UTC()
+	matcher, err := json.Marshal(map[string]string{
+		"conversation_key": run.ConversationKey,
+		"reason":           "the alert is still active; the next card continues this episode",
+	})
+	if err != nil {
+		return err
+	}
+	id := "host-stream-open-" + run.ID
+	wait := investigation.ResultOperation{
+		ID: id, Type: "wait_external",
+		ExternalWait: &investigation.ExternalWaitOperation{
+			ID: id, Kind: alertStreamWaitKind, EventMatcher: matcher,
+			PollAfter: now.Add(window).Format(time.RFC3339),
+			DueAt:     now.Add(window).Format(time.RFC3339),
+			Deadline:  now.Add(2 * window).Format(time.RFC3339),
+		},
+	}
+	decision.Operations = append(decision.Operations, wait)
+	decision.AppliedOperations = append(decision.AppliedOperations, wait)
+	return nil
+}
+
 func (s *Service) stageTriageTerminal(
 	ctx context.Context,
 	run core.AgentRun,
@@ -2274,13 +2376,20 @@ func (s *Service) stageTriageTerminal(
 	if stateErr != nil {
 		return true, stateErr
 	}
+	// The corrections this episode has already spent, read once: both correction
+	// branches below bound themselves against the same number, and it does not
+	// move while this turn is being staged.
+	episodeCorrections, correctionsErr := s.episodeStructuredCorrections(ctx, run)
+	if correctionsErr != nil {
+		return true, correctionsErr
+	}
 	input = mentioncontext.Apply(input, state.ResolvedMentionRequest)
 	if decisionErr != nil {
 		invalid := trimError(decisionErr)
 		correction := "the structured Slack response is invalid: " + invalid +
 			investigation.SchemaFragmentForCorrection(string(correctionUnreadable), invalid)
 		if !consumeWatchStructuredCorrection(
-			&state, run.AttemptNumber, s.cfg.Limits.MaxAgentRunAttempts,
+			&state, episodeCorrections, s.cfg.Limits.MaxAgentRunAttempts,
 		) {
 			state.FailureDetail = correction
 			contextJSON, marshalErr := json.Marshal(state)
@@ -2505,7 +2614,7 @@ func (s *Service) stageTriageTerminal(
 		}
 		if correction != "" {
 			if !consumeWatchStructuredCorrection(
-				&state, run.AttemptNumber, s.cfg.Limits.MaxAgentRunAttempts,
+				&state, episodeCorrections, s.cfg.Limits.MaxAgentRunAttempts,
 			) {
 				state.FailureDetail = correction
 				contextJSON, marshalErr := json.Marshal(state)
@@ -2547,18 +2656,34 @@ func (s *Service) stageTriageTerminal(
 			if err := staged.setResult(decisionpkg.MarshalWatchDecisionResult(decision)); err != nil {
 				return true, err
 			}
-		} else if superseded, err := s.supersededByNewerLifecycle(ctx, run, input); err != nil {
-			return true, err
-		} else if !superseded {
-			// Recorded only once nothing newer is queued for this lifecycle.
-			// These operations are durable: a wait_external schedules a wakeup
-			// that outlives the turn, so staging one from a result finalization
-			// was about to discard left a timer behind that later fired a
-			// recheck for an update already answered.
-			if err := s.recordResultOperationEvents(
-				ctx, run.ID, decision.AppliedOperations,
-			); err != nil {
-				return true, err
+		} else {
+			superseded := false
+			// A reply is the investigation, and its evidence, findings and
+			// waits are what the next attempt on this stream reads instead of
+			// starting over. Only a turn with nothing to lose — an ignore or a
+			// react — is worth discarding because a newer card arrived; asking
+			// this of a reply is what made five separate episodes investigate
+			// one alert on 2026-08-16 and share nothing between them.
+			if decision.Action != "reply" {
+				var err error
+				if superseded, err = s.supersededByNewerLifecycle(ctx, run, input); err != nil {
+					return true, err
+				}
+			}
+			if !superseded {
+				if err := s.appendAlertStreamWait(ctx, run, input, &decision); err != nil {
+					return true, err
+				}
+				// Recorded only once nothing newer is queued for this lifecycle.
+				// These operations are durable: a wait_external schedules a wakeup
+				// that outlives the turn, so staging one from a result finalization
+				// was about to discard left a timer behind that later fired a
+				// recheck for an update already answered.
+				if err := s.recordResultOperationEvents(
+					ctx, run.ID, decision.AppliedOperations,
+				); err != nil {
+					return true, err
+				}
 			}
 		}
 	}
@@ -2971,8 +3096,12 @@ func (s *Service) spendStructuredCorrection(
 	assembled.CarriedEvidence = decisionpkg.CarryEvidence(assembled.CarriedEvidence, evidence)
 	assembled.CarriedCoverage = decisionpkg.CarryCoverage(assembled.CarriedCoverage, coverage)
 	assembled.CarriedFindings = decisionpkg.CarryFindings(assembled.CarriedFindings, findings)
+	episodeCorrections, err := s.episodeStructuredCorrections(ctx, run)
+	if err != nil {
+		return true, err
+	}
 	if terminalStructuredCorrection(
-		assembled.StructuredCorrections, run.AttemptNumber, s.cfg.Limits.MaxAgentRunAttempts,
+		assembled.StructuredCorrections, episodeCorrections, s.cfg.Limits.MaxAgentRunAttempts,
 	) {
 		return true, nil
 	}
@@ -2983,31 +3112,53 @@ func (s *Service) spendStructuredCorrection(
 	return false, s.store.SetAgentRunContext(ctx, run.ID, contextJSON)
 }
 
+// episodeStructuredCorrections is how many host corrections this run's episode
+// has already spent, across every run it contains. A run with no episode is its
+// own whole episode, so its own counter is the total.
+func (s *Service) episodeStructuredCorrections(
+	ctx context.Context,
+	run core.AgentRun,
+) (int, error) {
+	if run.EpisodeID == "" {
+		return 0, nil
+	}
+	return s.store.SumEpisodeStructuredCorrections(ctx, run.EpisodeID)
+}
+
 // terminalStructuredCorrection reports that this turn may not be corrected
 // again, against two budgets rather than one.
 //
 // Within a run, the attempt count stops a model that keeps failing the same
-// way. Across runs, the episode's attempt number stops the case the first
-// budget cannot see: a re-triggered alert opens a *new* run with a fresh count,
-// so an hourly trigger bought nineteen more corrections every hour. One episode
-// took twenty-one runs and a hundred and thirty corrections that way, over
-// twenty-one hours, burning 220 minutes of wall clock, and ended needing an
-// operator regardless — which it had needed since about the second hour.
+// way. Across runs, the corrections the whole episode has spent stop the case
+// the first budget cannot see: a re-triggered alert opens a *new* run with a
+// fresh count, so an hourly trigger bought nineteen more corrections every hour.
+// One episode took twenty-one runs and a hundred and thirty corrections that
+// way, over twenty-one hours, burning 220 minutes of wall clock, and ended
+// needing an operator regardless — which it had needed since about the second
+// hour.
+//
+// The second budget counted the episode's ATTEMPT NUMBER until 2026-08-16,
+// which was the same measurement while every re-triggered alert opened its own
+// episode. An alert stream is now one episode across every card and wakeup it
+// produces, so the attempt number counts cards: the Traefik memory stream would
+// have reached attempt twenty-one in an afternoon and been refused its first
+// correction having spent none. Counting the corrections themselves says what
+// the budget always meant.
 //
 // The same maximum bounds both because they measure the same patience from two
 // directions, and a second number to tune would be a second number to get
 // wrong. Only one episode in the recorded history has ever passed it.
-func terminalStructuredCorrection(attempt, episodeAttempt, maximum int) bool {
+func terminalStructuredCorrection(attempt, episodeCorrections, maximum int) bool {
 	return retrydelay.Exhausted(attempt, maximum) ||
-		(maximum > 0 && episodeAttempt > maximum)
+		(maximum > 0 && episodeCorrections > maximum)
 }
 
 func consumeWatchStructuredCorrection(
 	state *decisionpkg.WatchTurnState,
-	episodeAttempt, maximum int,
+	episodeCorrections, maximum int,
 ) bool {
 	state.StructuredCorrections++
-	return terminalStructuredCorrection(state.StructuredCorrections, episodeAttempt, maximum)
+	return terminalStructuredCorrection(state.StructuredCorrections, episodeCorrections, maximum)
 }
 
 func blockedWatchContinuation(
@@ -3477,7 +3628,21 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 	if stale, staleErr := s.supersedeStaleHumanTriageResult(ctx, run, input, state); staleErr != nil || stale {
 		return staleErr
 	}
-	if input.Kind == "bot_message" && !isPrivateSlackVerificationReplay(input) &&
+	// Parsed before the staleness question, not after, because the answer to
+	// that question depends on what this result is. A finished reply is the
+	// investigation the operator is waiting for; a newer card on the same
+	// stream is the next update to it, and suppressing the reply for that
+	// reason is how four answers were thrown away on 2026-08-16 — one of them
+	// after fifteen minutes and forty-seven tool calls.
+	decision, err := decisionpkg.ParseWatchDecision(string(run.Result), s.now())
+	if err != nil {
+		detail := "malformed watch decision: " + trimError(err)
+		return s.finishTriageRunFailure(
+			ctx, run, input, state, detail,
+		)
+	}
+	if decision.Action != "reply" && input.Kind == "bot_message" &&
+		!isPrivateSlackVerificationReplay(input) &&
 		strings.HasPrefix(run.ConversationKey, "operation:") {
 		newer, newerErr := s.hasNewerOperationalInput(ctx, run, input)
 		if newerErr != nil {
@@ -3497,13 +3662,6 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 				ctx, run.ID, "superseded by a newer operational update",
 			)
 		}
-	}
-	decision, err := decisionpkg.ParseWatchDecision(string(run.Result), s.now())
-	if err != nil {
-		detail := "malformed watch decision: " + trimError(err)
-		return s.finishTriageRunFailure(
-			ctx, run, input, state, detail,
-		)
 	}
 	if len(state.MatchedRules) > 0 && decision.Action == "incident" {
 		alertPolicy, policyErr := s.channelAlertPolicy(ctx, input.ChannelID)

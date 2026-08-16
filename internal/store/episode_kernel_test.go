@@ -711,3 +711,107 @@ func TestAContextManifestRemembersTheRungItsBriefingWentOutOn(t *testing.T) {
 		t.Fatalf("an unescalated briefing recorded rung %d: %v", loaded.TargetFloor, err)
 	}
 }
+
+// The second correction budget measures what the episode SPENT, not how many
+// attempts it has had. An alert stream is one episode across every card and
+// wakeup it produces, so attempts count cards: without this sum, a stream that
+// fired all day on 2026-08-16 would have been refused its first correction at
+// attempt twenty-one having spent none.
+func TestEpisodeCorrectionTotalCountsCorrectionsNotAttempts(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	first, episode := queueKernelEpisode(t, st, "stream-card-1")
+	total, err := st.SumEpisodeStructuredCorrections(ctx, episode.ID)
+	if err != nil || total != 0 {
+		t.Fatalf("a fresh episode has spent %d corrections (%v), want 0", total, err)
+	}
+	if err := st.SetAgentRunContext(
+		ctx, first.ID, []byte(`{"captured_at":"2026-08-16T12:00:00Z","structured_corrections":2}`),
+	); err != nil {
+		t.Fatal(err)
+	}
+	for index := range 3 {
+		next, _, queueErr := st.QueueEpisodeAttempt(ctx, episode.ID, core.AgentRun{
+			Mode: core.AgentRunTriage, ChannelID: first.ChannelID,
+			ConversationKey: first.ConversationKey, SourceKind: "watch",
+			SourceID: fmt.Sprintf("stream-card-%d", index+2),
+		})
+		if queueErr != nil {
+			t.Fatal(queueErr)
+		}
+		// Only the last of the three spends anything; the others are cards that
+		// were answered without argument and must contribute zero.
+		if index == 2 {
+			if err := st.SetAgentRunContext(
+				ctx, next.ID,
+				[]byte(`{"captured_at":"2026-08-16T13:00:00Z","structured_corrections":3}`),
+			); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	total, err = st.SumEpisodeStructuredCorrections(ctx, episode.ID)
+	if err != nil || total != 5 {
+		t.Fatalf("episode corrections = %d (%v), want 5 across four attempts", total, err)
+	}
+}
+
+// An answer already written and queued is withdrawn on one criterion: a newer
+// reply for the same thread has already been posted. On 2026-08-16 the criterion
+// was "a newer input was admitted", which threw away four finished Grafana
+// answers for questions nobody had answered yet.
+func TestOnlyASentReplyMakesAnOlderThreadReplyStale(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	enqueue := func(id, sourceInput string, responseRoot bool, operation string) core.SlackDelivery {
+		t.Helper()
+		created, enqueueErr := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+			ID: id, Operation: operation, Kind: "notice", ChannelID: "CWATCH",
+			ThreadTS: "1700.100", Body: []byte(`{"text":"answer"}`),
+			ResponseRoot: responseRoot, SourceInputID: sourceInput,
+		})
+		if enqueueErr != nil || !created {
+			t.Fatalf("enqueue %s = %t, %v", id, created, enqueueErr)
+		}
+		stored, getErr := st.GetSlackDelivery(ctx, id)
+		if getErr != nil {
+			t.Fatal(getErr)
+		}
+		return stored
+	}
+
+	older := enqueue("older-reply", "card-1", true, "post")
+	newer := enqueue("newer-reply", "card-2", true, "post")
+	found, err := st.HasNewerSentReplyInThread(
+		ctx, older.ChannelID, older.ThreadTS, older.SourceInputID, older.CreatedAt,
+	)
+	if err != nil || found {
+		t.Fatalf("a merely queued newer reply made the older one stale: %t, %v", found, err)
+	}
+	if err := st.FinishSlackDelivery(ctx, newer.ID, "1700.500", "pending"); err != nil {
+		t.Fatal(err)
+	}
+	found, err = st.HasNewerSentReplyInThread(
+		ctx, older.ChannelID, older.ThreadTS, older.SourceInputID, older.CreatedAt,
+	)
+	if err != nil || !found {
+		t.Fatalf("a sent newer reply did not make the older one stale: %t, %v", found, err)
+	}
+	// Its own delivery never counts, and neither does one sent before it.
+	found, err = st.HasNewerSentReplyInThread(
+		ctx, newer.ChannelID, newer.ThreadTS, newer.SourceInputID, newer.CreatedAt,
+	)
+	if err != nil || found {
+		t.Fatalf("a reply was made stale by itself: %t, %v", found, err)
+	}
+}

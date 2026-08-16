@@ -178,6 +178,7 @@ type SlackConfig struct {
 	WatchContext                     int      `yaml:"watch_context_messages"`
 	ContinuationWindow               Duration `yaml:"conversation_continuation_window"`
 	WatchSettleDelay                 Duration `yaml:"watch_settle_delay"`
+	AlertStreamOpenWindow            Duration `yaml:"alert_stream_open_window"`
 	StartupHistoryWindow             Duration `yaml:"startup_history_window"`
 	ExternalMessageReconcileInterval Duration `yaml:"external_message_reconcile_interval"`
 	ExternalMessageReconcileWindow   Duration `yaml:"external_message_reconcile_window"`
@@ -676,6 +677,7 @@ func defaults() Config {
 			WatchSettleDelay: Duration{
 				Duration: 350 * time.Millisecond,
 			},
+			AlertStreamOpenWindow:            Duration{6 * time.Hour},
 			StartupHistoryWindow:             Duration{15 * time.Minute},
 			ExternalMessageReconcileInterval: Duration{time.Minute},
 			ExternalMessageReconcileWindow:   Duration{24 * time.Hour},
@@ -1531,6 +1533,16 @@ func validateSlack(c SlackConfig) error {
 	}
 	if c.WatchSettleDelay.Duration < 0 || c.WatchSettleDelay.Duration > 10*time.Second {
 		return errors.New("watch_settle_delay must be between 0s and 10s")
+	}
+	// How long an answered alert stream stays one episode, waiting for its next
+	// card, before the host wakes it to re-check the alert's current state. A
+	// stream that recovers closes its episode immediately; this bounds only the
+	// case where nothing more arrives. Below fifteen minutes it re-checks an
+	// alert faster than most alerts re-fire; past two days a stream nobody
+	// mentioned again is not one unit of work any more.
+	if c.AlertStreamOpenWindow.Duration < 15*time.Minute ||
+		c.AlertStreamOpenWindow.Duration > 48*time.Hour {
+		return errors.New("alert_stream_open_window must be between 15m and 48h")
 	}
 	if c.StartupHistoryWindow.Duration < 0 ||
 		c.StartupHistoryWindow.Duration > 24*time.Hour {

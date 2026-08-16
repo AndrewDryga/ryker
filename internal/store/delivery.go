@@ -499,6 +499,47 @@ func (s *Store) GetSentSlackMessageDelivery(
 	))
 }
 
+// HasNewerSentReplyInThread reports whether a reply from a LATER source input
+// has already been posted as the root answer in this thread.
+//
+// This is the only durable reason to discard an answer that is already written
+// and queued. The outbox used to drop one whenever a newer input on the same
+// operational stream had merely been admitted, which on 2026-08-16 threw away
+// four finished Grafana alert answers — an admitted card is a question nobody
+// has answered yet, not a reason to withdraw the answer to the last one. A
+// reply that actually went out is different: a second one under it contradicts
+// what the channel has already read.
+func (s *Store) HasNewerSentReplyInThread(
+	ctx context.Context,
+	channelID string,
+	threadTS string,
+	sourceInputID string,
+	after time.Time,
+) (bool, error) {
+	if channelID == "" || threadTS == "" {
+		return false, errors.New("Slack reply thread channel and thread are required")
+	}
+	var found int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM slack_deliveries
+		  WHERE channel_id = ?
+		    AND thread_ts = ?
+		    AND operation = 'post'
+		    AND response_root = 1
+		    AND state = 'sent'
+		    AND source_input_id != ''
+		    AND source_input_id != ?
+		    AND created_at > ?
+		)`,
+		channelID, threadTS, sourceInputID, after.UTC().Format(timestampFormat),
+	).Scan(&found)
+	if err != nil {
+		return false, err
+	}
+	return found == 1, nil
+}
+
 // LeaseSlackDelivery claims the next Slack write.
 //
 // coolingChannels are channels whose pacing slot has not reopened. Skipping
