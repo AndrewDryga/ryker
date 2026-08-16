@@ -283,6 +283,15 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	failed.note("queues", err)
 	schedules, err := h.reader.Schedules(ctx)
 	failed.note("scheduled tasks", err)
+	// The dashboard's rail answers "what will run next" — a paused schedule
+	// will not, so it stays on the Schedules page only.
+	active := schedules[:0]
+	for _, schedule := range schedules {
+		if schedule.Enabled {
+			active = append(active, schedule)
+		}
+	}
+	schedules = active
 	activity, err := h.reader.EpisodeActivity(ctx, time.Now().UTC(), 14)
 	failed.note("activity", err)
 	recent, err := h.reader.EpisodesMatching(ctx, EpisodeFilter{}, 5)

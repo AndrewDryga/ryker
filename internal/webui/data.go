@@ -1749,8 +1749,8 @@ func (r *Reader) EpisodeActivity(ctx context.Context, now time.Time, days int) (
 // day, because the handler passed a nil slice where a query belonged — the
 // section was scaffolding wearing the costume of an empty state.
 type Schedule struct {
-	ID                                                                string
-	Title, Prompt, Cadence, Channel, Repository, CatchUp, LastOutcome string
+	ID                                                                              string
+	Title, Prompt, Cadence, CadenceShort, Channel, Repository, CatchUp, LastOutcome string
 	// Recurrence is the stored word and Cadence the phrasing built from it.
 	// Both are kept because "daily" is the rule and "daily at 09:00
 	// America/Mexico_City" is the appointment, and a page about one schedule
@@ -1786,11 +1786,16 @@ func (r *Reader) scanSchedule(ctx context.Context, rows *sql.Rows) (Schedule, er
 	item.NextRun, item.LastRun = parseStamp(next), parseStamp(last)
 	item.StartAt, item.ExpiresAt = parseStamp(start), parseStamp(expires)
 	item.Cadence = item.Recurrence
+	item.CadenceShort = item.Recurrence
 	switch {
 	case item.Recurrence == "interval" && interval > 0:
 		item.Cadence = "every " + (time.Duration(interval) * time.Second).String()
+		item.CadenceShort = item.Cadence
 	case localTime != "":
 		item.Cadence = item.Recurrence + " at " + localTime + " " + item.Timezone
+		// The dashboard says "daily at 09:00"; the timezone is reference
+		// material for the schedule's own page, not the glance.
+		item.CadenceShort = item.Recurrence + " at " + localTime
 	}
 	return item, nil
 }

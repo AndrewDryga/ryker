@@ -309,8 +309,10 @@ func TestOverviewShowsScheduledTasksAsUpcomingWork(t *testing.T) {
 	// It hands off to the Schedules section rather than explaining how to make
 	// one: the overview says what is coming, and the page it links to is where
 	// a schedule's own history lives.
+	// The dashboard row says "daily at 09:00" — the timezone is reference
+	// material for the schedule's own page, not the glance.
 	for _, expected := range []string{
-		"Coming up", "Daily platform health review", "daily at 09:00 America/Mexico_City",
+		"Coming up", "Daily platform health review", "daily at 09:00",
 		"in 19h", "last completed 4h ago", `href="/schedules/schedule-1"`, "every schedule →",
 	} {
 		if !strings.Contains(body, expected) {

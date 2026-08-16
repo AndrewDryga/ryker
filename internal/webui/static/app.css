@@ -315,20 +315,20 @@ a.metric:hover { text-decoration: none; background: var(--hover); }
   margin: 0;
   padding: 16px 0 6px;
 }
-/* The portal's stat phrase: a big white number and big gray words on one
-   baseline — "9 / 9 connected" — not a caps eyebrow over a lonely figure. */
+/* The portal dashboard's stat anatomy, exactly: the label above in plain
+   gray at reading size, the big number below it. */
 .hero-stats > * {
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
-  color: var(--z500);
-  font-size: 21px;
-  font-weight: 600;
-  letter-spacing: -0.015em;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  justify-items: start;
+  color: var(--z400);
+  font-size: 15px;
+  font-weight: 450;
   padding: 0 56px 0 0;
 }
 .hero-stats > :first-child { padding-left: 4px; }
-.hero-stats strong { color: var(--z50); font-size: 28px; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; letter-spacing: -0.022em; }
+.hero-stats strong { color: var(--z50); font-size: 30px; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; letter-spacing: -0.022em; }
 .hero-stats a:hover { text-decoration: none; }
 .hero-stats a:hover strong { color: var(--brand-400); }
 .hero-stats .warn strong { color: var(--amber-400); }
@@ -336,6 +336,12 @@ a.metric:hover { text-decoration: none; background: var(--hover); }
 
 .hero-pulse { grid-area: pulse; display: grid; gap: 6px; justify-items: end; align-self: center; padding-bottom: 16px; }
 .hero-pulse span { color: var(--z500); font: 450 10.5px/1.4 var(--mono); }
+
+/* The rail's fortnight pulse: the little chart grows to the column and the
+   caption sits under it at whisper size. */
+.rail-pulse { display: grid; gap: 9px; margin-bottom: 36px; }
+.rail-pulse svg { display: block; width: 100%; height: auto; }
+.rail-pulse span { color: var(--z500); font-size: 12px; }
 .pulse-bar { fill: rgb(54 230 165 / .55); }
 .pulse-bar:hover { fill: var(--brand-400); }
 .pulse-failed { fill: var(--rose-400); opacity: .9; pointer-events: none; }

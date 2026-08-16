@@ -65,8 +65,8 @@ func TestWaitingSectionCountsTheQueueNotThePage(t *testing.T) {
 	t.Cleanup(func() { _ = reader.Close() })
 
 	body := servePage(t, reader, "/")
-	if !strings.Contains(body, "9 waiting on you") {
-		t.Fatalf("hero does not state the queue of nine:\n%s", excerpt(body, "waiting on you"))
+	if !strings.Contains(body, "Waiting on you<strong>9</strong>") {
+		t.Fatalf("stat band does not state the queue of nine:\n%s", excerpt(body, "Waiting on you"))
 	}
 	if !strings.Contains(body, `Waiting on you <span class="note">9</span>`) {
 		t.Errorf("section note does not state the queue of nine: %s", excerpt(body, "Waiting on you"))

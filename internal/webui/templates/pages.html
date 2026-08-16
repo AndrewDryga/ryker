@@ -1,29 +1,16 @@
 {{define "overview"}}
+{{/* One statement of each count, in the portal's stat anatomy: the label
+     above, the number below. The old headline repeated the waiting count
+     twice before the section said it a third time. */}}
 <section class="hero{{if .Calm}} calm{{else}} busy{{end}}">
   <div class="hero-status">
-    <div class="hero-line">
-      <span class="hero-beacon" aria-hidden="true"></span>
-      {{if .Calm}}<h2 class="hero-word">All quiet</h2>{{else}}<h2 class="hero-word">{{.NeedsYou}} waiting on you</h2>{{end}}
-    </div>
     <div class="hero-stats">
-      <span><strong>{{.InFlight}}</strong>working now</span>
-      <span{{if .NeedsYou}} class="warn"{{end}}><strong>{{.NeedsYou}}</strong>waiting on you</span>
-      <a href="/failures"{{if .Failed}} class="bad"{{end}}><strong>{{.Failed}}</strong>failed today</a>
-      <a href="/workspaces"{{if .Retained}} class="warn"{{end}}><strong>{{.Retained}}</strong>workspaces held</a>
+      <span>Working now<strong>{{.InFlight}}</strong></span>
+      <span{{if .NeedsYou}} class="warn"{{end}}>Waiting on you<strong>{{.NeedsYou}}</strong></span>
+      <a href="/failures"{{if .Failed}} class="bad"{{end}}>Failed today<strong>{{.Failed}}</strong></a>
+      <a href="/workspaces"{{if .Retained}} class="warn"{{end}}>Workspaces held<strong>{{.Retained}}</strong></a>
     </div>
   </div>
-  {{with .Pulse}}
-  <div class="hero-pulse">
-    <svg viewBox="0 0 {{.Width}} 34" width="{{.Width}}" height="34" role="img" aria-label="Episodes per day">
-      <title>Episodes per day, last {{.Span}} days</title>
-      {{range .Days}}
-      <rect class="pulse-bar" x="{{.X}}" y="{{.Y}}" width="7" height="{{.H}}" rx="1.5"><title>{{.Title}}</title></rect>
-      {{if .FH}}<rect class="pulse-failed" x="{{.X}}" y="{{.FY}}" width="7" height="{{.FH}}" rx="1.5"><title>{{.Title}}</title></rect>{{end}}
-      {{end}}
-    </svg>
-    <span>{{.Episodes}} episodes over {{.Span}} days · red is failed</span>
-  </div>
-  {{end}}
 </section>
 
 {{/* The page is a dashboard, not a scroll: the work queues hold the main
@@ -62,18 +49,31 @@ from Slack or a webhook.</p>{{end}}
 </div>
 
 <aside class="ov-side">
+{{with .Pulse}}
+{{/* The fortnight pulse lives with the forward-looking rail: what happened
+     lately, above what runs next, scaled to the column. */}}
+<div class="rail-pulse">
+  <svg viewBox="0 0 {{.Width}} 34" role="img" aria-label="Episodes per day" preserveAspectRatio="xMidYMid meet">
+    <title>Episodes per day, last {{.Span}} days</title>
+    {{range .Days}}
+    <rect class="pulse-bar" x="{{.X}}" y="{{.Y}}" width="7" height="{{.H}}" rx="1.5"><title>{{.Title}}</title></rect>
+    {{if .FH}}<rect class="pulse-failed" x="{{.X}}" y="{{.FY}}" width="7" height="{{.FH}}" rx="1.5"><title>{{.Title}}</title></rect>{{end}}
+    {{end}}
+  </svg>
+  <span>{{.Episodes}} episodes over {{.Span}} days · red is failed</span>
+</div>
+{{end}}
 <h2>Coming up <span class="note">{{len .Schedules}}</span></h2>
 {{if .Schedules}}
 <div class="rows">
   {{range .Schedules}}
-  <a class="row episode-row" href="/schedules/{{.ID}}" data-state="{{if .Enabled}}scheduled{{else}}paused{{end}}">
+  <a class="row episode-row" href="/schedules/{{.ID}}" data-state="scheduled">
     <span class="episode-dot" aria-hidden="true"></span>
-    <span class="episode-when">{{if .Enabled}}{{until .NextRun}}{{else}}paused{{end}}</span>
+    <span class="episode-when">{{until .NextRun}}</span>
     <span class="episode-title">{{if .Title}}{{.Title}}{{else}}{{.Prompt}}{{end}}</span>
     <span class="episode-facts">
-      <span>{{.Cadence}}</span>
+      <span>{{.CadenceShort}}</span>
       <span>{{.Channel}}</span>
-      {{if .Repository}}<span class="mono">{{.Repository}}</span>{{end}}
       <span>{{if .LastRun.IsZero}}never run yet{{else}}last {{if .LastOutcome}}{{.LastOutcome}} {{end}}{{since .LastRun}}{{end}}</span>
     </span>
   </a>
@@ -332,10 +332,10 @@ never been in is not its business.</p>
       <h2 class="hero-word">{{if .Live}}{{len .Live}} cause{{if ne (len .Live) 1}}s{{end}} still failing{{else}}Nothing is failing now{{end}}</h2>
     </div>
     <div class="hero-stats">
-      <span{{if .Day}} class="warn"{{end}}><strong>{{.Day}}</strong>in the last day</span>
-      <span><strong>{{.Week}}</strong>this week</span>
-      <span><strong>{{.Unfinished}}</strong>episodes left failed</span>
-      <span><strong>{{.Total}}</strong>runs all time</span>
+      <span{{if .Day}} class="warn"{{end}}>In the last day<strong>{{.Day}}</strong></span>
+      <span>This week<strong>{{.Week}}</strong></span>
+      <span>Episodes left failed<strong>{{.Unfinished}}</strong></span>
+      <span>Runs all time<strong>{{.Total}}</strong></span>
     </div>
   </div>
 </section>
@@ -664,10 +664,10 @@ be what runs tonight.</p>
       <h2 class="hero-word">{{if .Thinned}}{{.Thinned}} of {{.Turns}} turns lost context{{else}}Every turn fitted{{end}}</h2>
     </div>
     <div class="hero-stats">
-      <span><strong>{{kib .Typical}}</strong>typical prompt</span>
-      <span><strong>{{kib .Largest}}</strong>largest</span>
-      <span><strong>{{kib .Cap}}</strong>ceiling</span>
-      <span><strong>{{.Fullest}}%</strong>fullest turn</span>
+      <span>Typical prompt<strong>{{kib .Typical}}</strong></span>
+      <span>Largest<strong>{{kib .Largest}}</strong></span>
+      <span>Ceiling<strong>{{kib .Cap}}</strong></span>
+      <span>Fullest turn<strong>{{.Fullest}}%</strong></span>
     </div>
   </div>
 </section>
