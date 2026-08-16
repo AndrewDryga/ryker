@@ -9,6 +9,7 @@ import (
 	"time"
 
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/investigation"
 )
 
 // Questions is what a finished answer still does not know, read out of the
@@ -59,11 +60,28 @@ func For(decision decisionpkg.WatchDecision) Questions {
 	}
 	for _, finding := range decision.Findings {
 		if finding.Status == "unexplained" {
-			open.Unexplained = append(open.Unexplained, finding.What)
+			open.Unexplained = append(open.Unexplained, unexplainedLine(finding))
 		}
 	}
 	open.NextCheck = nextCheckFor(decision)
 	return open
+}
+
+// unexplainedLine is what the operator reads about a question that is still
+// open. Since 2026-08-16 a finding may rest unexplained when one of its
+// alternatives says which check would settle it and why that check is not
+// available now, so the caveat has to carry both halves: a bare "Unexplained:
+// ..." beside a decision_ready verdict reads as the host having given up, where
+// "... — not checkable now: the Emisar catalog has no Nomad diagnostic" is a
+// bounded answer an operator can act on.
+func unexplainedLine(finding investigation.FindingOperation) string {
+	what := strings.TrimSpace(finding.What)
+	for _, alternative := range finding.Alternatives {
+		if why := strings.TrimSpace(alternative.NotCheckable); why != "" {
+			return decisionpkg.BoundedField(what+" — not checkable now: "+why, 200)
+		}
+	}
+	return what
 }
 
 // nextCheckFor names the thing that will answer the open question, in the order

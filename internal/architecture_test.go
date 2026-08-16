@@ -1069,7 +1069,19 @@ var lineBudget = map[string]int{
 	//
 	// 2659 measured; 2700 keeps the 40-odd lines of margin that made this entry
 	// a tripwire rather than a ratchet.
-	"decision": 2700,
+	//
+	// 2790 on 2026-08-16 for the two ways an unexplained finding was unanswerable.
+	// One is a matcher: carried findings are keyed on their own text, so a
+	// finding the model RECLASSIFIED under new words was still judged by the
+	// old copy — run_532f8d62871320dc9d0696cb334d3503 was told thirteen times
+	// over twenty-three minutes to explain a finding it had already marked
+	// out_of_scope with a reason. The other is an exit: a finding whose
+	// discriminating check exists but is unavailable had nowhere honest to
+	// rest, and two corpus cases failed on exactly that. Both belong here
+	// because both are what the host will accept from a result, which is this
+	// package's whole subject; the eighty-four lines are the matcher, its
+	// word-overlap scoring, and the not_checkable clause.
+	"decision": 2790,
 	// investigation owns the contract and, since the completion validators moved
 	// beside it, the rules that check a result against that contract.
 	//

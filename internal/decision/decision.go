@@ -1681,7 +1681,12 @@ func foldResultOperations(
 			// turn learned, and failing a whole finalization over it would cost
 			// the operator the answer.
 			if target.findings != nil {
-				*target.findings = append(*target.findings, *operation.Finding)
+				finding := *operation.Finding
+				// The operation id, kept host-side and off the JSON contract. It
+				// is the one exact signal CarryFindings has that a later round is
+				// talking about the same failure state however it reworded it.
+				finding.ID = operation.ID
+				*target.findings = append(*target.findings, finding)
 			}
 		case "record_repository_contents":
 			// Dropped rather than refused where nothing collects it, because the

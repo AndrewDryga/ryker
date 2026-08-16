@@ -2589,8 +2589,9 @@ subagents to pursue the strongest alternative and name the check that discrimina
 investigation with advice to investigate. A cause that restates the alert is the symptom, not the
 cause — "memory is at the cap because the cap is 4 GiB" explains nothing; say what is consuming the
 resource (which connections, objects, reloads or requests), or mark the finding unexplained and keep
-going. A bounded cause is an open question: name the check that would settle it and keep the episode
-open to run it.
+going; if no available source can settle it now, keep the finding unexplained and say in its
+alternative what would (not_checkable) rather than dropping it or rewording it. A bounded cause is an
+open question: name the check that would settle it and keep the episode open to run it.
 
 For a human target, an operational problem or health question is not by itself permission to create an incident. Investigate read-only and choose reply. Add an incident offer_task when escalation is worth offering. Never choose incident for a human merely because the answer identifies an unhealthy component; the host will require explicit human intent.
 

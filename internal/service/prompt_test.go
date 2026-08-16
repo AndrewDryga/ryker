@@ -629,7 +629,19 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // Neither is a rule a validator alone can carry: BoundedCauseCorrection can
 // refuse a bounded cause that closes on nothing, but nothing host-side can tell
 // a restated symptom from a cause.
-const staticWatchPromptBytes = 50198
+//
+// And 50505 the same day, 307 bytes, for the exit an unexplained finding did
+// not have. The correction offered four ways out — explain it, keep working,
+// return blocked, reclassify it — and none of them fits a failure whose
+// discriminating check exists and is unavailable: the recorded corpus answer
+// about a Nomad rollback put that check in discriminated_by as prose, because
+// the catalog has no diagnostic that could fetch it, and was refused. 147 bytes
+// go to the depth paragraph, which now names not_checkable and says plainly not
+// to drop or reword the finding instead; 160 to record_finding's own contract
+// line, where a model reading the operation shape meets the same rule. The
+// rewording half of that defect is host-side and costs no prompt: a finding
+// reclassified under new words is now recognised as the same finding.
+const staticWatchPromptBytes = 50505
 
 // The static prompt must not grow without someone deciding it should.
 //

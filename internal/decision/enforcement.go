@@ -154,12 +154,149 @@ func CarryCoverage(prior, current []core.Coverage) []core.Coverage {
 // completion would stay refused forever. What a finding IS is the failure state
 // it names, so that is its identity, and a later round naming the same state
 // replaces the earlier verdict about it.
+//
+// The text alone was not enough. A model that reclassifies a finding almost
+// always rewords it in the same breath — it is writing the sentence again, not
+// editing a row — so the reworded copy landed BESIDE the old verdict instead of
+// replacing it. Live run run_532f8d62871320dc9d0696cb334d3503 was told thirteen
+// times in twenty-three minutes that a finding was unexplained while the finding
+// it was actually emitting said the same thing in new words, and said it
+// out_of_scope with a reason. A prior finding is therefore also dropped when the
+// current round is plainly talking about it; see sameFinding.
 func CarryFindings(
 	prior, current []investigation.FindingOperation,
 ) []investigation.FindingOperation {
-	return carryForward(prior, current, func(item investigation.FindingOperation) string {
+	unanswered := make([]investigation.FindingOperation, 0, len(prior))
+	for _, earlier := range prior {
+		if slices.ContainsFunc(current, func(item investigation.FindingOperation) bool {
+			return sameFinding(earlier, item)
+		}) {
+			continue
+		}
+		unanswered = append(unanswered, earlier)
+	}
+	return carryForward(unanswered, current, func(item investigation.FindingOperation) string {
 		return strings.ToLower(strings.TrimSpace(item.What))
 	})
+}
+
+// sameFinding reports whether two findings name the same failure state, so a
+// round that answered one under new words retires the older record of it.
+//
+// Two signals, either sufficient. The operation id is exact where it survives —
+// a finding re-recorded under the same id is the same row by construction — and
+// in practice it is the weaker of the two, because a correction round suffixes
+// its ids "-corrected" and a finding read back out of a context envelope has no
+// id at all. The words carry the rest: one sentence opening the other, or a
+// scope that could be the same system plus a strong overlap of the words long
+// enough to carry a subject.
+//
+// Conservative on purpose, the same way findingFailurePhrases is. A false
+// positive retires an open finding nobody answered, which is the failure this
+// file exists to prevent; a false negative costs one more correction round. The
+// live pair is the calibration: "The tenant-infra refresh reports 121 resources
+// changed outside Terraform, dominated by betteruptime_monitor" and "The refresh
+// observed 121 resources changed outside Terraform, mostly betteruptime_monitor
+// resources." share seven of thirteen subject words.
+func sameFinding(prior, current investigation.FindingOperation) bool {
+	if prior.ID != "" && prior.ID == current.ID {
+		return true
+	}
+	if findingOpensTheOther(prior.What, current.What) {
+		return true
+	}
+	return comparableFindingScopes(prior.Scope, current.Scope) &&
+		findingWordOverlap(prior.What, current.What) >= findingOverlapThreshold
+}
+
+const (
+	// findingOverlapThreshold is the Jaccard index at or above which two failure
+	// states are the same one restated.
+	findingOverlapThreshold = 0.5
+	// findingSubjectLetters is how many letters a word needs before it counts
+	// toward that overlap. Four drops "the", "and", "was" and "121"; it keeps
+	// "drift", "refresh", "terraform" and "betteruptime".
+	findingSubjectLetters = 4
+	// findingOpeningWords is how much of one sentence's opening, appearing
+	// inside the other, says the two are the same statement continued.
+	findingOpeningWords = 6
+)
+
+// findingWords splits a failure state into lower-cased alphanumeric words, so
+// "betteruptime_monitor" and "tenant-infra" compare by their parts rather than by
+// their punctuation.
+func findingWords(text string) []string {
+	return strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+}
+
+// findingSubjects keeps the words long enough to be about something.
+func findingSubjects(text string) map[string]struct{} {
+	subjects := make(map[string]struct{})
+	for _, word := range findingWords(text) {
+		letters := 0
+		for _, symbol := range word {
+			if unicode.IsLetter(symbol) {
+				letters++
+			}
+		}
+		if letters >= findingSubjectLetters {
+			subjects[word] = struct{}{}
+		}
+	}
+	return subjects
+}
+
+// findingWordOverlap is the Jaccard index of two failure states' subject words.
+func findingWordOverlap(prior, current string) float64 {
+	priorSubjects, currentSubjects := findingSubjects(prior), findingSubjects(current)
+	if len(priorSubjects) == 0 || len(currentSubjects) == 0 {
+		return 0
+	}
+	shared := 0
+	for word := range priorSubjects {
+		if _, ok := currentSubjects[word]; ok {
+			shared++
+		}
+	}
+	return float64(shared) / float64(len(priorSubjects)+len(currentSubjects)-shared)
+}
+
+// findingOpensTheOther reports whether either sentence contains the other's
+// opening words. A rewrite that keeps the opening is the same statement
+// continued; the four-word floor keeps a short fragment from swallowing every
+// finding that happens to mention it.
+func findingOpensTheOther(prior, current string) bool {
+	return findingContainsOpening(prior, current) || findingContainsOpening(current, prior)
+}
+
+func findingContainsOpening(text, other string) bool {
+	words := findingWords(other)
+	if len(words) < 4 {
+		return false
+	}
+	opening := strings.Join(words[:min(len(words), findingOpeningWords)], " ")
+	return strings.Contains(" "+strings.Join(findingWords(text), " ")+" ", " "+opening+" ")
+}
+
+// comparableFindingScopes reports whether two findings could be about the same
+// system at all. Equal is the common case; an empty scope on either side says
+// nothing and so refuses nothing; and one subject word in common covers the live
+// rewrite, where drift in "tenant-infra production workspace" was restated
+// against "SME-Tenant/tenant-infra state refresh".
+func comparableFindingScopes(prior, current string) bool {
+	prior, current = strings.TrimSpace(prior), strings.TrimSpace(current)
+	if prior == "" || current == "" || strings.EqualFold(prior, current) {
+		return true
+	}
+	priorSubjects := findingSubjects(prior)
+	for word := range findingSubjects(current) {
+		if _, ok := priorSubjects[word]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // findingFailurePhrases is the vocabulary that turns a reply into a report of a
@@ -229,6 +366,18 @@ func ReplyReportsFailure(parts ...string) bool {
 		!EpisodeContainsAny(normalized, findingRecoveryPhrases...)
 }
 
+// findingRestsOnAnUncheckableRival reports whether a finding has named the rival
+// explanation it cannot separate and said why it cannot separate it now. It is
+// the model's own sentence about the limits of what it can reach, and it is the
+// only exit from the unexplained rule that a session with no Nomad diagnostic
+// and no load-balancer log can actually take.
+func findingRestsOnAnUncheckableRival(finding investigation.FindingOperation) bool {
+	return slices.ContainsFunc(finding.Alternatives,
+		func(alternative investigation.FindingAlternative) bool {
+			return strings.TrimSpace(alternative.NotCheckable) != ""
+		})
+}
+
 // FindingCorrection holds a turn to the invariant an unexplained failure implies:
 // the episode is not done.
 //
@@ -273,9 +422,25 @@ func FindingCorrection(
 			if item.Status != "unexplained" {
 				continue
 			}
-			return "finding " + strconv.Quote(item.What) + " is unexplained; identify its cause " +
-				"with evidence ids, keep investigating with a goal or recheck, return blocked with " +
-				"the exact obstacle, or classify it expected or out_of_scope with the reason"
+			// "Unexplained, and nothing available can settle it now" is an honest
+			// final state, and the rule is unsatisfiable without a shape for it.
+			// Two eval-prompts cases failed on 2026-08-16 trying to say exactly
+			// that: a Nomad rollback whose own reply read "the current Emisar
+			// catalog has no Nomad diagnostic" put the check that would settle it
+			// into discriminated_by, which takes an evidence id, and a recovered
+			// portal 503 said in prose that "current evidence can't distinguish a
+			// brief no-healthy-backend interval from an application-generated
+			// 503". Neither could identify a cause, continue, block, or honestly
+			// call the failure expected or out_of_scope. This is the same third
+			// exit BoundedCauseCorrection already accepts, in the same field.
+			if findingRestsOnAnUncheckableRival(item) {
+				continue
+			}
+			return "finding " + strconv.Quote(item.What) + " is unexplained: identify its cause " +
+				"with evidence ids; or keep investigating with a goal, recheck or wait_external; " +
+				"or say in an alternative what check would settle it and why it is not available " +
+				"now (not_checkable); or return blocked with the exact obstacle; or classify it " +
+				"expected or out_of_scope with the reason"
 		}
 	}
 	// An identified cause must survive its strongest alternative, on the lanes
@@ -361,12 +526,8 @@ func BoundedCauseCorrection(episode core.WorkEpisode, decision WatchDecision) st
 	// exit, and it is the one that makes the rule satisfiable inside a session
 	// with no profiler. Asking again after that answer spends a round to be told
 	// the same thing.
-	for _, item := range decision.Findings {
-		for _, alternative := range item.Alternatives {
-			if alternative.NotCheckable != "" {
-				return ""
-			}
-		}
+	if slices.ContainsFunc(decision.Findings, findingRestsOnAnUncheckableRival) {
+		return ""
 	}
 	return "the alert assessment's cause is bounded, not identified, and nothing continues the " +
 		"investigation: name the check that would identify it — a heap profile at high RSS, a " +
