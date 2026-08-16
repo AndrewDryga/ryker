@@ -26,8 +26,8 @@
 
 :root {
   /* The zinc scale, as the portal uses it. */
-  --bg: #09090b;            /* zinc-950 */
-  --card: #0c0c0e;          /* the portal's card face */
+  --bg: #0a0a0a;            /* the portal's pure-black canvas */
+  --card: #0a0a0a;          /* no card faces: content sits on the canvas */
   --z900: #18181b;
   --z800: #27272a;          /* card + control borders */
   --z700-80: rgb(63 63 70 / .8);   /* the table's header rule */
@@ -137,12 +137,14 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 /* The portal's eyebrow label. */
 .nav-group {
-  padding: 18px 12px 6px;
-  font-size: 10px;
+  margin: 18px 12px 6px;
+  padding: 0 0 7px;
+  font-size: 10.5px;
   font-weight: 600;
   letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--z500);
+  border-bottom: 1px solid var(--divide);
 }
 
 /* nav_link: active = the house light wash + bright text, the icon carrying
@@ -222,7 +224,7 @@ header {
 .crumb a:hover { color: var(--z200); }
 .crumb i { color: var(--z600); font-style: normal; }
 
-h1 { margin: 0; font-size: 24px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.2; }
+h1 { margin: 0; font-size: 28px; font-weight: 650; letter-spacing: -0.022em; line-height: 1.2; }
 
 .ask { margin: 5px 0 0; color: var(--z400); font-size: 14px; }
 
@@ -231,7 +233,7 @@ main > * + h2 { margin-top: 44px; }
 main > h2 + * { margin-top: 14px; }
 main p { margin: 0; }
 
-h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.011em; color: var(--z100); }
+h2 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -0.014em; color: var(--z50); }
 h2 .note { font: 450 12px/1.5 var(--mono); font-variant-numeric: tabular-nums; color: var(--z500); margin-left: 7px; letter-spacing: 0; }
 
 /* Overview grid: queues in the main column, schedules in the rail. */
@@ -253,25 +255,21 @@ h2 .note { font: 450 12px/1.5 var(--mono); font-variant-numeric: tabular-nums; c
 /* Cards — rounded-xl, zinc-800 border, the portal's soft black shadow -------- */
 
 .panel {
-  background: var(--card);
+  background: none;
   border: 1px solid var(--z800);
   border-radius: 12px;
   padding: 18px 20px;
-  box-shadow: var(--card-shadow);
 }
 
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 0;
-  background: var(--card);
-  border: 1px solid var(--z800);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: var(--card-shadow);
+  border-top: 1px solid var(--divide);
+  border-bottom: 1px solid var(--divide);
 }
-.grid > .panel { background: none; border: 0; border-radius: 0; box-shadow: none; border-left: 1px solid var(--divide); }
-.grid > .panel:first-child { border-left: 0; }
+.grid > .panel { background: none; border: 0; border-radius: 0; box-shadow: none; border-left: 1px solid var(--divide); padding: 18px 24px; }
+.grid > .panel:first-child { border-left: 0; padding-left: 4px; }
 
 .metric { display: flex; flex-direction: column; gap: 2px; }
 .metric .k {
@@ -298,15 +296,9 @@ a.metric:hover { text-decoration: none; background: var(--hover); }
   grid-template-areas: "line pulse" "stats stats";
   align-items: center;
   column-gap: 28px;
-  padding: 20px 24px 0;
-  background: var(--card);
-  border: 1px solid var(--z800);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: var(--card-shadow);
+  padding: 4px 0 0;
 }
 .hero > .hero-status { display: contents; }
-.hero.calm, .hero.busy { background: var(--card); }
 
 .hero-line { grid-area: line; display: flex; align-items: center; gap: 11px; padding-bottom: 16px; }
 .hero-word { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -0.018em; line-height: 1.25; color: var(--z50); }
@@ -319,8 +311,9 @@ a.metric:hover { text-decoration: none; background: var(--hover); }
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
   border-top: 1px solid var(--divide);
-  margin: 0 -24px;
-  padding: 16px 0 18px;
+  border-bottom: 1px solid var(--divide);
+  margin: 0;
+  padding: 18px 0 20px;
 }
 .hero-stats > * {
   display: grid;
@@ -331,10 +324,10 @@ a.metric:hover { text-decoration: none; background: var(--hover); }
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .08em;
-  padding: 0 24px;
+  padding: 0 28px;
   border-left: 1px solid var(--divide);
 }
-.hero-stats > :first-child { border-left: 0; }
+.hero-stats > :first-child { border-left: 0; padding-left: 4px; }
 .hero-stats strong { color: var(--z50); font-size: 24px; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; text-transform: none; }
 .hero-stats a:hover { text-decoration: none; }
 .hero-stats a:hover strong { color: var(--brand-400); }
@@ -349,15 +342,11 @@ a.metric:hover { text-decoration: none; background: var(--hover); }
 
 /* Lists — framed as cards, rows divided the portal's way ---------------------- */
 
-.rows {
-  background: var(--card);
-  border: 1px solid var(--z800);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: var(--card-shadow);
-}
+/* Lists sit directly on the canvas like the portal's audit page: no frame,
+   flush left, one hairline between generous rows. */
+.rows { background: none; border: 0; border-radius: 0; box-shadow: none; overflow: visible; }
 
-.row { display: block; padding: 16px 20px; border-bottom: 1px solid var(--divide); color: inherit; }
+.row { display: block; padding: 20px 4px; border-bottom: 1px solid var(--divide); color: inherit; }
 .row:last-child { border-bottom: 0; }
 a.row { transition: background .1s ease; }
 a.row:hover { background: var(--hover); text-decoration: none; }
@@ -412,10 +401,10 @@ th {
   text-align: left;
   color: var(--z400);
   font-weight: 500;
-  font-size: 12px;
+  font-size: 12.5px;
   text-transform: uppercase;
-  letter-spacing: .05em;
-  padding: 10px 12px;
+  letter-spacing: .06em;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--z700-80);
   white-space: nowrap;
 }
@@ -423,7 +412,7 @@ th:first-child { padding-left: 0; }
 th:last-child { padding-right: 0; }
 
 td {
-  padding: 10px 12px;
+  padding: 17px 14px;
   border-bottom: 1px solid var(--divide);
   vertical-align: middle;
   line-height: 1.55;
@@ -464,7 +453,7 @@ td .note { font-size: 12.5px; color: var(--z500); }
 /* Prose dumps ------------------------------------------------------------------ */
 
 pre.dump {
-  background: var(--card);
+  background: rgb(0 0 0 / .3);
   border: 1px solid var(--z800);
   border-radius: 12px;
   padding: 14px 16px;
@@ -578,22 +567,24 @@ button.go:hover { background: var(--brand-400); }
 button.go:active { background: var(--brand-600); }
 
 details.confirm { display: inline-block; }
+/* Neutral row actions are plain text, the way the portal writes "View
+   activity" — a button face is reserved for the consequential verb. */
 .act-link,
 details.confirm > summary {
   list-style: none;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  font: 500 13.5px/1.4 var(--sans);
-  padding: 6px 14px;
+  font: 500 14px/1.4 var(--sans);
+  padding: 6px 10px;
   border-radius: 8px;
-  border: 1px solid var(--z800);
-  color: var(--z200);
+  border: 1px solid transparent;
+  color: var(--z100);
   white-space: nowrap;
   transition: background .12s ease;
 }
 .act-link:hover,
-details.confirm > summary:hover { background: var(--z900); text-decoration: none; }
+details.confirm > summary:hover { background: var(--hover); text-decoration: none; }
 details.confirm > summary::-webkit-details-marker { display: none; }
 details.confirm[open] > summary { background: var(--z900); }
 
@@ -612,7 +603,7 @@ details.confirm .arm {
   padding: 8px 14px;
   border: 1px solid var(--z800);
   border-radius: 8px;
-  background: var(--card);
+  background: none;
   font-size: 13px;
   line-height: 1.55;
   color: var(--z400);
@@ -641,7 +632,7 @@ details.confirm .arm input::placeholder { color: var(--z500); }
 
 form.filter { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 form.filter input[type=text], form.filter select {
-  background: var(--card);
+  background: none;
   border: 1px solid var(--z800);
   color: var(--z100);
   border-radius: 8px;
@@ -700,19 +691,16 @@ form.filter a { font-size: 13px; color: var(--z400); }
 .episode-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  overflow: hidden;
-  background: var(--card);
-  border: 1px solid var(--z800);
-  border-radius: 12px;
-  box-shadow: var(--card-shadow);
+  border-top: 1px solid var(--divide);
+  border-bottom: 1px solid var(--divide);
 }
 
 .episode-action-strip { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; align-items: center; }
 .episode-action-strip .confirm { width: min(100%, 420px); margin: 0; }
 .episode-action-strip .note { margin: 0; margin-right: auto; max-width: 46ch; }
 
-.episode-metric { padding: 17px 20px 18px; border-left: 1px solid var(--divide); }
-.episode-metric:first-child { border-left: 0; }
+.episode-metric { padding: 18px 24px 19px; border-left: 1px solid var(--divide); }
+.episode-metric:first-child { border-left: 0; padding-left: 4px; }
 .episode-metric-label { color: var(--z400); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
 .episode-metric-value {
   margin-top: 5px;
@@ -750,11 +738,8 @@ form.filter a { font-size: 13px; color: var(--z400); }
   align-items: stretch;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 12px 16px;
-  background: var(--card);
-  border: 1px solid var(--z800);
-  border-radius: 12px;
-  box-shadow: var(--card-shadow);
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--divide);
 }
 .journey-stop { display: flex; flex-direction: column; justify-content: flex-start; gap: 1px; padding: 4px 10px; }
 .journey-stop strong { font-size: 13.5px; font-weight: 600; color: var(--z100); white-space: nowrap; }
@@ -864,10 +849,9 @@ form.filter a { font-size: 13px; color: var(--z400); }
 .trace-step-card {
   min-width: 0;
   overflow: hidden;
-  background: var(--card);
+  background: none;
   border: 1px solid var(--z800);
   border-radius: 12px;
-  box-shadow: var(--card-shadow);
 }
 
 .trace-step-card > .trace-step-summary,
@@ -1189,10 +1173,8 @@ form.filter a { font-size: 13px; color: var(--z400); }
 .stopped {
   border: 1px solid rgb(245 158 11 / .4);
   border-radius: 12px;
-  padding: 15px 18px 14px;
+  padding: 16px 20px 15px;
   margin-bottom: 18px;
-  background: var(--card);
-  box-shadow: var(--card-shadow);
 }
 .stopped h2 { margin: 0; font-size: 15.5px; font-weight: 650; color: var(--amber-300); letter-spacing: -0.008em; }
 .stopped-why { margin: 7px 0 0; color: var(--z300); font-size: 14px; line-height: 1.6; max-width: 100ch; }
@@ -1237,22 +1219,22 @@ form.filter a { font-size: 13px; color: var(--z400); }
 .system-line .warn { color: var(--amber-300); }
 
 /* Channel cards. */
-.chan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+/* Channels are entities, presented the way the portal's agents page presents
+   agents: full-width rows on the canvas, a big bold name, detail lines, one
+   hairline between — no cards. */
+.chan-grid { display: block; border-top: 1px solid var(--divide); }
 .chan-card {
-  background: var(--card);
-  border: 1px solid var(--z800);
-  border-radius: 12px;
-  padding: 18px 20px 15px;
-  display: flex; flex-direction: column; gap: 12px;
-  box-shadow: var(--card-shadow);
+  padding: 22px 4px 20px;
+  border-bottom: 1px solid var(--divide);
+  display: flex; flex-direction: column; gap: 11px;
 }
 .chan-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.chan-name { font-size: 14px; font-weight: 550; color: var(--z100); }
+.chan-name { font-size: 19px; font-weight: 650; letter-spacing: -0.015em; color: var(--z50); }
 .chan-name:hover { color: var(--brand-400); text-decoration: none; }
 .chan-when { font-size: 12.5px; color: var(--z500); white-space: nowrap; flex: none; }
-.chan-total { display: flex; align-items: baseline; gap: 7px; font-size: 27px; font-weight: 650; line-height: 1.1; letter-spacing: -0.022em; color: var(--z50); font-variant-numeric: tabular-nums; margin-bottom: -2px; }
-.chan-total small { font: 450 12.5px/1.4 var(--sans); color: var(--z500); letter-spacing: 0; }
-.chan-bar { display: block; width: 100%; height: 5px; border-radius: 3px; overflow: hidden; background: var(--z900); }
+.chan-total { display: flex; align-items: baseline; gap: 8px; font-size: 15px; font-weight: 500; color: var(--z300); font-variant-numeric: tabular-nums; }
+.chan-total small { font: 450 15px/1.5 var(--sans); color: var(--z500); letter-spacing: 0; }
+.chan-bar { display: block; width: 100%; max-width: 460px; height: 4px; border-radius: 2px; overflow: hidden; background: var(--z900); }
 .chan-done { fill: var(--brand-500); }
 .chan-failed { fill: var(--rose-400); }
 .chan-other { fill: #3f3f46; }
@@ -1282,14 +1264,14 @@ form.filter a { font-size: 13px; color: var(--z400); }
 /* The episode row. */
 .episode-row {
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) auto;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
   grid-template-areas:
     "dot title  when"
     ".   answer answer"
     ".   facts  facts";
   align-items: baseline;
-  column-gap: 13px;
-  padding: 16px 20px 17px;
+  column-gap: 14px;
+  padding: 20px 4px 21px;
 }
 .episode-dot {
   grid-area: dot; align-self: start;
@@ -1324,9 +1306,16 @@ form.filter a { font-size: 13px; color: var(--z400); }
 
 .episode-title {
   grid-area: title;
-  font-size: 14px; font-weight: 550; color: var(--z100); line-height: 1.5;
+  font-size: 15px; font-weight: 550; color: var(--z100); line-height: 1.5;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* The audit page's grammar: trouble colours the title itself; success keeps
+   a white title behind its green dot — good news stays quiet. */
+.episode-row[data-state="failed"] .episode-title,
+.episode-row[data-state="dead"] .episode-title { color: var(--rose-300); }
+.episode-row[data-state="blocked"] .episode-title,
+.episode-row[data-state="waiting_operator"] .episode-title,
+.episode-row[data-state="waiting_approval"] .episode-title { color: var(--amber-300); }
 .episode-when { grid-area: when; font-size: 12.5px; color: var(--z500); white-space: nowrap; }
 .episode-answer {
   grid-area: answer;
@@ -1359,7 +1348,7 @@ form.filter a { font-size: 13px; color: var(--z400); }
 
 .layer-row .episode-title { white-space: normal; }
 
-.disclose { background: var(--card); border: 1px solid var(--z800); border-radius: 12px; box-shadow: var(--card-shadow); }
+.disclose { background: none; border: 1px solid var(--z800); border-radius: 12px; }
 .disclose > summary { padding: 11px 16px; cursor: pointer; color: var(--z400); font-size: 13.5px; list-style: none; }
 .disclose > summary::-webkit-details-marker { display: none; }
 .disclose > summary::before { content: "▸"; margin-right: 9px; color: var(--z500); }
@@ -1393,17 +1382,18 @@ form.filter a { font-size: 13px; color: var(--z400); }
 
 /* Configuration index ------------------------------------------------------------------ */
 
-.set-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 28px; }
+.set-grid { display: block; border-top: 1px solid var(--divide); margin-bottom: 28px; }
 .set-card {
-  background: var(--card); border: 1px solid var(--z800); border-radius: 12px;
-  padding: 17px 19px 15px; display: grid; gap: 5px; align-content: start; color: inherit;
-  box-shadow: var(--card-shadow);
+  padding: 20px 4px 19px; display: grid; gap: 4px; align-content: start; color: inherit;
+  border-bottom: 1px solid var(--divide);
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name count" "what count" "health count";
 }
-.set-card:hover { border-color: var(--z600); text-decoration: none; }
-.set-name { font-size: 10px; color: var(--z400); font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
-.set-count { font-size: 25px; font-weight: 650; line-height: 1.15; letter-spacing: -0.02em; color: var(--z50); font-variant-numeric: tabular-nums; }
-.set-what { font-size: 13px; line-height: 1.55; color: var(--z400); margin-top: 2px; min-height: 2lh; }
-.set-health { font-size: 12.5px; color: var(--z500); margin-top: 5px; }
+.set-card:hover { background: var(--hover); text-decoration: none; }
+.set-name { grid-area: name; font-size: 17px; color: var(--z50); font-weight: 650; letter-spacing: -0.012em; text-transform: none; }
+.set-count { grid-area: count; align-self: center; font-size: 25px; font-weight: 650; letter-spacing: -0.02em; color: var(--z300); font-variant-numeric: tabular-nums; padding-left: 24px; }
+.set-what { grid-area: what; font-size: 13.5px; line-height: 1.55; color: var(--z400); margin-top: 1px; }
+.set-health { grid-area: health; font-size: 12.5px; color: var(--z500); margin-top: 4px; }
 .set-health.warn { color: var(--amber-300); }
 .set-health.bad { color: var(--rose-300); }
 .set-card:hover .set-count { color: var(--brand-400); }
@@ -1413,7 +1403,7 @@ form.filter a { font-size: 13px; color: var(--z400); }
 
 .shape {
   margin: 0 0 8px; padding: 9px 14px;
-  background: var(--card); border: 1px solid var(--z800); border-radius: 8px;
+  border: 1px solid var(--z800); border-radius: 8px;
   font: 450 13px/1.55 var(--mono); color: var(--z300);
 }
 
