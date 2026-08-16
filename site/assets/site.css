@@ -2414,18 +2414,16 @@ summary.index-head:focus-visible { outline-offset: -2px; }
 .doc a:active, .trust-data a:active, .install-more a:active { opacity: .7; }
 
 
-/* The manual keeps the product's dark theme, but it is authored by the same
-   hand as the report: the one serif on a docs page is its title. */
+/* The manual is authored by the same hand as the landing: its titles share
+   the display grotesk. */
 @font-face {
-  font-family: "Fraunces";
-  src: url("fonts/FrauncesVariable.woff2") format("woff2");
-  font-weight: 100 900;
-  font-style: normal;
+  font-family: "Space Grotesk";
+  src: url("fonts/SpaceGroteskVariable.woff2") format("woff2");
+  font-weight: 300 700;
   font-display: swap;
 }
 .doc-page h1 {
-  font-family: "Fraunces", Georgia, serif;
-  font-optical-sizing: auto;
-  font-weight: 540;
-  letter-spacing: -.01em;
+  font-family: "Space Grotesk", ui-sans-serif, sans-serif;
+  font-weight: 560;
+  letter-spacing: -.02em;
 }

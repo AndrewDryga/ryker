@@ -4,7 +4,7 @@
    The landing page is set as the artifact the product produces: a typeset
    incident record on paper. Everything dark on this page is a real product
    surface — a Slack window, a control-plane panel — embedded in the report
-   like a photograph. The page around them is print: Fraunces for the voice,
+   like a photograph. The page around them is print: Space Grotesk for the voice,
    Inter for the reading, mono for anything a machine wrote.
 
    One device carries the page: the spine. A single rule runs from the first
@@ -19,17 +19,9 @@
    ========================================================================== */
 
 @font-face {
-  font-family: "Fraunces";
-  src: url("fonts/FrauncesVariable.woff2") format("woff2");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Fraunces";
-  src: url("fonts/FrauncesVariable-Italic.woff2") format("woff2");
-  font-weight: 100 900;
-  font-style: italic;
+  font-family: "Space Grotesk";
+  src: url("fonts/SpaceGroteskVariable.woff2") format("woff2");
+  font-weight: 300 700;
   font-display: swap;
 }
 
@@ -49,7 +41,7 @@
   --pred: #fb7185;
   --pamber: #fbbf24;
 
-  --serif: "Fraunces", Georgia, "Times New Roman", serif;
+  --disp: "Space Grotesk", var(--sans), sans-serif;
 
   background: var(--paper);
   color: var(--pink);
@@ -84,31 +76,28 @@
 /* ------------------------------------------------------------------- type */
 
 .report .display {
-  font-family: var(--serif);
-  font-optical-sizing: auto;
+  font-family: var(--disp);
   font-weight: 560;
-  font-size: clamp(3rem, 6.9vw, 5.75rem);
-  line-height: 1.0;
-  letter-spacing: -.012em;
+  font-size: clamp(2.875rem, 6.6vw, 5.5rem);
+  line-height: 1.02;
+  letter-spacing: -.025em;
   max-width: 19ch;
   color: var(--pink);
 }
 .report h2 {
-  font-family: var(--serif);
-  font-optical-sizing: auto;
-  font-weight: 530;
-  font-size: clamp(2.125rem, 3.5vw, 3.25rem);
-  line-height: 1.04;
-  letter-spacing: -.012em;
+  font-family: var(--disp);
+  font-weight: 540;
+  font-size: clamp(2rem, 3.3vw, 3rem);
+  line-height: 1.06;
+  letter-spacing: -.02em;
   color: var(--pink);
 }
 .report .step-text h3 {
-  font-family: var(--serif);
-  font-optical-sizing: auto;
+  font-family: var(--disp);
   font-weight: 540;
-  font-size: clamp(1.75rem, 2.6vw, 2.375rem);
-  line-height: 1.06;
-  letter-spacing: -.008em;
+  font-size: clamp(1.625rem, 2.4vw, 2.125rem);
+  line-height: 1.08;
+  letter-spacing: -.015em;
   color: var(--pink);
 }
 .report p:not(.slack-frame *, .mock *, .slack-annotated *), .report li:not(.slack-frame *, .mock *) { color: var(--pink-2); }
@@ -228,10 +217,8 @@
 
 .report .credo { border: 0; background: transparent; }
 .report .credo p {
-  font-family: var(--serif);
-  font-style: italic;
-  font-optical-sizing: auto;
-  font-weight: 470;
+  font-family: var(--disp);
+  font-weight: 480;
   font-size: clamp(1.75rem, 3vw, 2.625rem);
   line-height: 1.18;
   letter-spacing: -.005em;
@@ -253,8 +240,8 @@
   border-radius: 0;
   background: none;
   box-shadow: none;
-  font-size: 1.9em;
-  font-weight: 420;
+  font-size: 1.8em;
+  font-weight: 500;
   color: var(--pgreen);
 }
 .report .credo p strong { color: inherit; font-weight: 620; }
@@ -267,18 +254,17 @@
 .report .pillars { border: 0; background: transparent; gap: calc(var(--u, 8px) * 8); }
 .report .pillar { border: 0; padding: 0; background: transparent; }
 .report .pillar .n {
-  font-family: var(--serif);
-  font-optical-sizing: auto;
-  font-weight: 320;
-  font-size: clamp(2.375rem, 3.2vw, 3.25rem);
+  font-family: var(--disp);
+  font-weight: 340;
+  font-size: clamp(2.25rem, 3vw, 3rem);
   line-height: 1;
   color: var(--pmut);
-  font-variant-numeric: oldstyle-nums;
+  font-variant-numeric: tabular-nums;
 }
 .report .pillar h3 {
-  font-family: var(--serif);
+  font-family: var(--disp);
   font-weight: 560;
-  font-size: 1.5rem;
+  font-size: 1.4375rem;
   letter-spacing: -.006em;
   color: var(--pink);
 }
@@ -350,12 +336,12 @@
   border: 1px solid var(--prule-2);
   box-shadow: 0 1px 2px rgb(22 22 22 / .05);
 }
-.report .cannot h3 { font-family: var(--serif); font-weight: 560; color: var(--pink); }
+.report .cannot h3 { font-family: var(--disp); font-weight: 560; color: var(--pink); }
 .report .cannot li { color: var(--pink-2); border-color: var(--prule); }
 .report .cannot .x { color: var(--pred); }
 .report .cannot .why { color: var(--pmut); }
 .report .cannot .why b, .report .cannot .why strong { color: var(--pink-2); }
-.report .data-where h3 { font-family: var(--serif); font-weight: 560; color: var(--pink); }
+.report .data-where h3 { font-family: var(--disp); font-weight: 560; color: var(--pink); }
 .report .data-where p { color: var(--pink-2); }
 .report .data-where code { background: var(--paper-2); border: 1px solid var(--prule); color: var(--pink); }
 .report .data-where a, .report .install-more a, .report .data-more a { color: var(--pgreen); text-decoration-color: rgb(10 124 85 / .5); }
@@ -514,4 +500,45 @@
   .report .hero-eyebrow { display: flex; flex-wrap: wrap; gap: 6px 10px; }
   .report .hero-eyebrow span:last-child i { display: none; }
   .report .hero-eyebrow span:last-child { flex-basis: 100%; }
+}
+
+/* ------------------------------------------------- the walkthrough beats */
+
+/* Each beat carries its own small tick on the spine: the rail is no longer
+   four stops but the episode's actual pulse. Numbers stay honest — a beat's
+   time is the moment its artifact records. */
+.report .beat-sub {
+  position: absolute;
+  left: var(--spinex);
+  transform: translateX(-3.5px);
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+/* The time hangs LEFT of the rail, in the margin, where nothing lives;
+   when the margin is too narrow for it, the tick alone marks the pulse and
+   the beat's own heading carries the time in-column. */
+@media (min-width: 1280px) {
+  .report .beat-sub { transform: translateX(calc(-100% + 3.5px)); }
+}
+@media (max-width: 1279px) {
+  .report .beat-sub time { display: none; }
+}
+.report .beat-sub .tick {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--paper);
+  border: 2px solid var(--pmut);
+  flex: none;
+}
+.report .beat-sub time {
+  font: 550 11px/1 var(--mono);
+  letter-spacing: .05em;
+  color: var(--pmut);
+  font-variant-numeric: tabular-nums;
+}
+.report .step.beatline { position: static; }
+@media (max-width: 719px) {
+  .report .beat-sub { display: none; }
 }

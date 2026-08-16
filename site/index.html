@@ -18,7 +18,7 @@
 
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-<link rel="preload" href="assets/fonts/FrauncesVariable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/SpaceGroteskVariable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/site.css">
 <link rel="stylesheet" href="assets/report.css">
@@ -128,68 +128,32 @@
     </div>
   </section>
 
-  <!-- Pillars ------------------------------------------------------------- -->
-  <section class="band" aria-labelledby="pillars-h">
-    <div class="wrap">
-      <h2 id="pillars-h" class="vh">What Responder is built on</h2>
-      <div class="pillars">
-
-        <article class="pillar">
-          <span class="n">01</span>
-          <h3>Answers built from evidence</h3>
-          <p>Every answer is assembled from recorded observations: what was checked, where, and when. If Responder cannot verify a claim, it says so plainly instead of guessing.</p>
-        </article>
-
-        <article class="pillar">
-          <span class="n">02</span>
-          <h3>Power only with permission</h3>
-          <p>There is no production shell. Responder discovers typed actions from a trusted catalog. Policy decides what runs and what waits for a person. Every action is audited. It cannot merge, deploy, or skip an approval.</p>
-        </article>
-
-        <article class="pillar">
-          <span class="n">03</span>
-          <h3>An AI held to a standard</h3>
-          <p>The host checks every model answer against hard rules before anyone sees it. Weak answers are refused and corrected. Real failures become permanent tests. It gets better, on&#160;the&#160;record.</p>
-        </article>
-
-      </div>
-    </div>
-  </section>
-
-  <!-- The record: from here to the close, the page is one episode. The spine
-       in the left margin is the site's one indulgence, and it is not an
-       ornament — every section hangs off it at the moment it describes. -->
-  <div class="record">
-
-  <!-- How it works -------------------------------------------------------- -->
+  <!-- One episode, taken apart ---------------------------------------------
+       The page stops describing the product here and walks one incident from
+       alert to aftermath. Every beat hangs on the spine at its real moment,
+       and every mechanism is taught by the beat that demonstrates it — the
+       ladder by the watching, the evidence rule by the investigating, the
+       standard by the refusal, the flywheel by what remains afterwards. -->
   <section class="band beat" id="how" aria-labelledby="how-h">
-    <div class="beat-mark warn" aria-hidden="true"><span class="tick"></span><span class="nm">How it works</span><time datetime="2026-08-15T14:01:38Z">· 14:01:38Z – 14:18Z</time></div>
+    <div class="beat-mark warn" aria-hidden="true"><span class="tick"></span><span class="nm">One episode</span><time datetime="2026-08-15T14:01:38Z">· 14:01:38Z – 14:18Z</time></div>
     <div class="wrap">
       <div class="section-head">
-        <p class="beat-time-inline">How it works · 14:01:38Z – 14:18Z</p>
-        <h2 id="how-h">Four things happen, in this order, every time.</h2>
-        <p>There is no other path. A scheduled check, a webhook, and a question typed at 3am all become the same kind of work, with the same record behind it.</p>
+        <p class="beat-time-inline">One episode · 14:01:38Z – 14:18Z</p>
+        <h2 id="how-h">Eighty-three seconds, taken apart.</h2>
+        <p>The exchange above is real work, not theater. Here is the same episode again, slowly — every step, every rule, and what became of it afterwards. There is no other path: a webhook, a scheduled check, and a question typed at 3am all walk these same beats.</p>
       </div>
 
       <div class="steps">
 
-        <!-- 1 -->
-        <article class="step">
+        <!-- Beat 1: it was already watching -->
+        <article class="step beatline" id="b-watch">
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>13:49 – 14:01</time></span>
           <div class="step-text">
-            <p class="step-num">Step 01</p>
-            <h3>It watches</h3>
-            <p>Responder joins your alert and ops channels. It knows when to stay silent, when one emoji is enough, when to answer, and when an alert deserves an incident room.</p>
+            <p class="step-num">Before the alert</p>
+            <h3>It was already watching</h3>
+            <p>Responder sits in the channel like a teammate, choosing one rung per message: ignore, react, reply, or incident. Ana&rsquo;s shipping note got silence. Priya&rsquo;s worry got &#128064; while the check was already running. The alert earned the investigation.</p>
           </div>
-
-          <!-- A Slack surface, like the hero window above it, so it is built as
-               Slack: Slack's own colors, its message row, its APP badge, its
-               reaction pill, its message box. Everything the ladder teaches is
-               said from outside the window, because inside it there is nothing
-               to see — Slack puts no mark whatsoever on a message that was
-               ignored, and an emoji pill on one that was reacted to. Chips
-               reading "ignored · routine" under a message were the one thing
-               on this page claiming a screen looks like something it does not. -->
-          <figure class="mock-slack" aria-labelledby="mock-watch-cap">
+<figure class="mock-slack" aria-labelledby="mock-watch-cap">
             <figcaption id="mock-watch-cap" class="vh">Illustrative, and condensed: a Slack channel, #ops-payments. At 1:49 PM Ana Torres writes “shipping the coupon fix in a minute” and Responder posts nothing at all — the ignore rung, which in Slack leaves no mark of any kind. At 2:02 PM Priya Rao writes “is checkout ok? I’m seeing 500s from the app” and Responder adds a single eyes emoji and says nothing — the react rung. At 2:03 PM Responder, marked as an app, replies “Degraded, recovering. Error rate peaked at 3.1% and is back to 0.2%. Release 4f21c9 went out 11 minutes before the alert.” — the reply rung, verdict first. One rung is chosen per message.</figcaption>
 
             <div class="slack-annotated" aria-hidden="true">
@@ -237,15 +201,36 @@
           </figure>
         </article>
 
-        <!-- 2 -->
-        <article class="step flip">
+        <!-- Beat 2: an episode opens -->
+        <article class="step flip beatline" id="b-open">
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>14:02:21Z</time></span>
           <div class="step-text">
-            <p class="step-num">Step 02</p>
-            <h3>It investigates</h3>
-            <p>It reads the topology declared in your repositories and checks it against live evidence: hosts, workloads, dependencies, application behavior, and impact. Layer by layer.</p>
+            <p class="step-num">14:02:21Z</p>
+            <h3>An episode opens</h3>
+            <p>Every trigger becomes an episode: one id, one goal, one append-only record that outlives the conversation. Everything you are about to see — evidence, refusals, the answer — is written to it as it happens.</p>
           </div>
+          <figure class="mock" aria-labelledby="mock-open-cap">
+            <figcaption id="mock-open-cap" class="vh">Illustrative, and condensed: an episode header from the control plane. Episode ep_4c8a11e0, in channel ops-payments, attempt 1, with the goal: answer the alert with evidence, read-only authority.</figcaption>
+            <div class="mock-head" aria-hidden="true"><span class="dot warn"></span><span>episode</span><span class="surface-tag">· control plane</span><span class="right">opened 14:02:21Z</span></div>
+            <div class="mock-body" aria-hidden="true">
+              <div class="mem">
+                <div class="mem-row"><span class="dot warn"></span><span><span class="k">id · channel</span><span class="v">ep_4c8a11e0 · #ops-payments <i>attempt 1</i></span></span></div>
+                <div class="mem-row"><span class="dot idle"></span><span><span class="k">goal</span><span class="v">answer the alert with evidence <i>read-only authority</i></span></span></div>
+              </div>
+            </div>
+            <p class="mock-note" aria-hidden="true"><span class="tag">rule</span> <span class="note">one trigger, one episode, one record</span> <span class="prov">illustrative — condensed&#8202;<span class="fnmark">2</span></span></p>
+          </figure>
+        </article>
 
-          <figure class="mock" aria-labelledby="mock-cover-cap">
+        <!-- Beat 3: it investigates -->
+        <article class="step beatline" id="b-investigate">
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>14:02:11Z →</time></span>
+          <div class="step-text">
+            <p class="step-num">14:02</p>
+            <h3>It investigates, layer by layer</h3>
+            <p>Declared topology from your repositories, checked against live evidence: hosts, workloads, dependencies, application behavior, impact. Every row carries its source and its observed-at time. The one thing it could not reach is recorded as unverified — never assumed healthy.</p>
+          </div>
+<figure class="mock" aria-labelledby="mock-cover-cap">
             <figcaption id="mock-cover-cap" class="vh">Illustrative, and condensed: a coverage panel, seven layers, one of them unverified. Each layer carries a state, one line of finding, and the source that produced it. Change: one release in the last 6 hours, 4f21c9, from the change ledger. Host: 3 nodes ready, no pressure conditions, from Emisar. Runtime: container runtime healthy on all nodes, from Emisar. Workload: 6 of 6 replicas ready, 0 restarts in an hour, from Emisar. Dependency: the upstream gateway, with no authorized source, so it is reported as unverified rather than as healthy. Application: error rate 0.2%, p99 back under 400 milliseconds, from Grafana. Impact: checkout completing, no failed orders since 14:00, from Grafana. The rule beneath the panel reads: missing evidence alone is not degradation.</figcaption>
 
             <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>coverage</span><span class="surface-tag">· control plane</span><span class="right">7 layers · 1 unverified</span></div>
@@ -285,51 +270,15 @@
           </figure>
         </article>
 
-        <!-- 3 -->
-        <article class="step">
+        <!-- Beat 4: memory advises -->
+        <article class="step flip beatline" id="b-memory">
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>14:02</time></span>
           <div class="step-text">
-            <p class="step-num">Step 03</p>
-            <h3>It answers</h3>
-            <p>The verdict comes first — healthy, degraded, or unhealthy — then what it means, the evidence behind it, and the next useful step. Missing evidence is named, never papered over.</p>
+            <p class="step-num">The same moment</p>
+            <h3>Memory advises</h3>
+            <p>It recalls how the same alert group ended in June, sees release 4f21c9 in the change ledger eleven minutes before the alert, and honors what your team confirmed. All of it is history to check — none of it is proof. Memory made the release a suspect; only evidence could convict it.</p>
           </div>
-
-          <figure class="mock" aria-labelledby="mock-answer-cap">
-            <figcaption id="mock-answer-cap" class="vh">Illustrative, and condensed: an assessment of the same episode, written after the alert cleared at 14:18. The verdict comes first — healthy, from 3 sources, none of them stale. Impact: none now; about 40 checkouts failed between 13:58 and 14:00. Cause: release 4f21c9 shipped a slow coupon lookup, which warmed after 2 minutes. Do now: nothing, the alert cleared on its own. Verify: watch p99 through the next coupon batch at 15:00. Long term: cache the coupon lookup, or precompute it at deploy. Unverified: upstream gateway latency, because there is no authorized source for it. Beneath the fields, the receipt for the claim of three sources — Emisar, the change ledger, and Grafana, re-read at 14:17, none stale — and a note that the host refused this answer twice, because the first one named a cause with no evidence row behind it.</figcaption>
-
-            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>assessment</span><span class="surface-tag">· control plane</span><span class="right">after clear · 14:18</span></div>
-            <div class="mock-body" aria-hidden="true">
-              <div class="verdict-mock">
-                <div class="verdict-head">
-                  <span class="dot good"></span>
-                  <b>Healthy</b>
-                  <span class="tag">3 sources · 0 stale</span>
-                </div>
-                <dl>
-                  <div class="vfield"><dt>Impact</dt><dd>None now. About 40 checkouts failed between 13:58 and 14:00.</dd></div>
-                  <div class="vfield"><dt>Cause</dt><dd>Release 4f21c9 shipped a slow coupon lookup. It warmed after 2 minutes.</dd></div>
-                  <div class="vfield"><dt>Do now</dt><dd>Nothing. The alert cleared on its own.</dd></div>
-                  <div class="vfield"><dt>Verify</dt><dd>Watch p99 through the next coupon batch at 15:00.</dd></div>
-                  <div class="vfield"><dt>Long term</dt><dd>Cache the coupon lookup, or precompute it at deploy.</dd></div>
-                  <div class="vfield"><dt>Unverified</dt><dd><em>Upstream gateway latency. No authorized source for it.</em></dd></div>
-                </dl>
-                <!-- The header tag claims three sources and none stale. This
-                     is that claim's receipt: the three it read, and when. -->
-                <p class="vsrc">emisar <i>·</i> change ledger <i>·</i> grafana <span>re-read 14:17, none stale</span></p>
-              </div>
-            </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">refused twice</span> <span class="note">the first answer named a cause with no evidence row behind it</span> <span class="prov">illustrative — condensed&#8202;<span class="fnmark">2</span></span></p>
-          </figure>
-        </article>
-
-        <!-- 4 -->
-        <article class="step flip">
-          <div class="step-text">
-            <p class="step-num">Step 04</p>
-            <h3>It remembers</h3>
-            <p>It recalls how similar incidents ended, what deployed recently, and what your team told it. Always as history to check. Never as proof.</p>
-          </div>
-
-          <figure class="mock" aria-labelledby="mock-recall-cap">
+<figure class="mock" aria-labelledby="mock-recall-cap">
             <figcaption id="mock-recall-cap" class="vh">Illustrative, and condensed: a recall panel of four memory rows, every one of them offered as history to check rather than as proof. A past episode, the second of three: the same alert group on 12 June, resolved by a coupon-cache rollback — closed, and not current state. A change-ledger entry: release 4f21c9 at 13:51Z on payments, offered as a correlation to check. A confirmed preference: response detail set to concise, scoped to this channel, expiring in 78 days. A standing rule: a deployment maps to a verify-deployment check, read-only, in this channel. The boundary beneath the panel reads: memory advises, it never authorizes.</figcaption>
 
             <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>recall</span><span class="surface-tag">· control plane</span><span class="right">history to check</span></div>
@@ -366,6 +315,109 @@
               </div>
             </div>
             <p class="mock-note" aria-hidden="true"><span class="tag">boundary</span> <span class="note">memory advises. It never authorizes.</span> <span class="prov">illustrative — condensed&#8202;<span class="fnmark">2</span></span></p>
+          </figure>
+        </article>
+
+        <!-- Beat 5: the host refuses the first draft — the standard, live -->
+        <article class="step beatline" id="b-refusal">
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>14:02:40Z</time></span>
+          <div class="step-text">
+            <p class="step-num">14:02:40Z</p>
+            <h3>The first draft is refused</h3>
+            <p>The model&rsquo;s first answer named the release as the cause without an evidence row to stand on. The host checks every answer against hard rules before anyone sees it — this one came back with an exact correction instead of reaching Slack. Nobody saw the weak draft. The record kept it.</p>
+          </div>
+          <figure class="mock" aria-labelledby="mock-refusal-cap">
+            <figcaption id="mock-refusal-cap" class="vh">Illustrative, and condensed: a correction from the host to the model, inside the same attempt. The refused draft claimed a cause with no supporting evidence row. The correction reads: the active issue cites absent or unrelated cause evidence; use exact evidence ids whose claims support the cause, or say plainly what remains unverified. The draft was not delivered; the model revised and the episode continued.</figcaption>
+            <div class="mock-head" aria-hidden="true"><span class="dot bad"></span><span>correction</span><span class="surface-tag">· control plane</span><span class="right">host → model · 1 of 2</span></div>
+            <div class="mock-body" aria-hidden="true">
+              <div class="mem">
+                <div class="mem-row"><span class="dot bad"></span><span><span class="k">refused</span><span class="v">draft named a cause with no evidence row behind it <i>not delivered</i></span></span></div>
+                <div class="mem-row"><span class="dot idle"></span><span><span class="k">correction sent</span><span class="v">&ldquo;cite evidence ids whose claims support the cause, or say what remains unverified&rdquo;</span></span></div>
+              </div>
+            </div>
+            <p class="mock-note" aria-hidden="true"><span class="tag">standard</span> <span class="note">weak answers are refused before anyone sees them</span> <span class="prov">illustrative — condensed&#8202;<span class="fnmark">2</span></span></p>
+          </figure>
+        </article>
+
+        <!-- Beat 6: the answer -->
+        <article class="step flip beatline" id="b-answer">
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>14:03:02Z</time></span>
+          <div class="step-text">
+            <p class="step-num">14:03:02Z</p>
+            <h3>The answer, verdict first</h3>
+            <p>Eighty-three seconds after the alert: the verdict, what it means, the evidence behind it, and the one thing that stayed unchecked — named, not papered over. This is the message from the top of the page, earned the long way.</p>
+          </div>
+          <figure class="mock-slack" aria-labelledby="mock-reply-cap">
+            <figcaption id="mock-reply-cap" class="vh">The same Slack reply the hero shows: Responder, marked as an app, at 2:03 PM — degraded, recovering; error rate 0.2 percent and falling; release 4f21c9 implicated, not proven — followed by the four evidence lines with their sources, the unchecked gateway named plainly, and a promise to watch p99 through the next deploy.</figcaption>
+            <div class="slack-frame" aria-hidden="true">
+              <div class="slack-msg">
+                <span class="slack-av av-app">R</span>
+                <div class="slack-said">
+                  <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">2:03 PM</span></p>
+                  <p class="slack-text"><strong>Degraded, recovering</strong> — error rate is 0.2% and falling. Release 4f21c9 is implicated, not proven.</p>
+                  <p class="slack-text slack-dim">…four evidence lines, sources named, one thing honestly unchecked.</p>
+                </div>
+              </div>
+            </div>
+            <p class="mock-note" aria-hidden="true"><span class="tag">shape</span> <span class="note">verdict first, receipts attached, gaps named</span> <span class="prov">condensed from the hero&rsquo;s window</span></p>
+          </figure>
+        </article>
+
+        <!-- Beat 7: the close -->
+        <article class="step beatline" id="b-close">
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>14:18:00Z</time></span>
+          <div class="step-text">
+            <p class="step-num">14:18:00Z</p>
+            <h3>The alert clears. The episode closes honestly.</h3>
+            <p>Fifteen minutes later the signal recovered on its own. The close-out re-reads every source, says what the impact actually was, what to verify next, and what to fix long-term. No drama, no victory lap — and if this had been noise, there would have been nothing at all.</p>
+          </div>
+<figure class="mock" aria-labelledby="mock-answer-cap">
+            <figcaption id="mock-answer-cap" class="vh">Illustrative, and condensed: an assessment of the same episode, written after the alert cleared at 14:18. The verdict comes first — healthy, from 3 sources, none of them stale. Impact: none now; about 40 checkouts failed between 13:58 and 14:00. Cause: release 4f21c9 shipped a slow coupon lookup, which warmed after 2 minutes. Do now: nothing, the alert cleared on its own. Verify: watch p99 through the next coupon batch at 15:00. Long term: cache the coupon lookup, or precompute it at deploy. Unverified: upstream gateway latency, because there is no authorized source for it. Beneath the fields, the receipt for the claim of three sources — Emisar, the change ledger, and Grafana, re-read at 14:17, none stale — and a note that the host refused this answer twice, because the first one named a cause with no evidence row behind it.</figcaption>
+
+            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>assessment</span><span class="surface-tag">· control plane</span><span class="right">after clear · 14:18</span></div>
+            <div class="mock-body" aria-hidden="true">
+              <div class="verdict-mock">
+                <div class="verdict-head">
+                  <span class="dot good"></span>
+                  <b>Healthy</b>
+                  <span class="tag">3 sources · 0 stale</span>
+                </div>
+                <dl>
+                  <div class="vfield"><dt>Impact</dt><dd>None now. About 40 checkouts failed between 13:58 and 14:00.</dd></div>
+                  <div class="vfield"><dt>Cause</dt><dd>Release 4f21c9 shipped a slow coupon lookup. It warmed after 2 minutes.</dd></div>
+                  <div class="vfield"><dt>Do now</dt><dd>Nothing. The alert cleared on its own.</dd></div>
+                  <div class="vfield"><dt>Verify</dt><dd>Watch p99 through the next coupon batch at 15:00.</dd></div>
+                  <div class="vfield"><dt>Long term</dt><dd>Cache the coupon lookup, or precompute it at deploy.</dd></div>
+                  <div class="vfield"><dt>Unverified</dt><dd><em>Upstream gateway latency. No authorized source for it.</em></dd></div>
+                </dl>
+                <!-- The header tag claims three sources and none stale. This
+                     is that claim's receipt: the three it read, and when. -->
+                <p class="vsrc">emisar <i>·</i> change ledger <i>·</i> grafana <span>re-read 14:17, none stale</span></p>
+              </div>
+            </div>
+            <p class="mock-note" aria-hidden="true"><span class="tag">refused twice</span> <span class="note">the first answer named a cause with no evidence row behind it</span> <span class="prov">illustrative — condensed&#8202;<span class="fnmark">2</span></span></p>
+          </figure>
+        </article>
+
+        <!-- Beat 8: the flywheel — what this episode left behind -->
+        <article class="step flip beatline" id="b-flywheel">
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>afterwards</time></span>
+          <div class="step-text">
+            <p class="step-num">Afterwards</p>
+            <h3>The episode makes the product better</h3>
+            <p>Nothing here evaporates. The refusal at 14:02:40Z can be kept as a permanent regression test that replays with no model. The close-out becomes recallable history — the next incident that smells like 4f21c9 will be checked against this one. And every correction, memory, and finding waits in a review queue for a person to keep or discard. It gets better, on the record.</p>
+          </div>
+          <figure class="mock" aria-labelledby="mock-flywheel-cap">
+            <figcaption id="mock-flywheel-cap" class="vh">Illustrative, and condensed: what one episode leaves behind. The correction from 14:02:40Z is kept as a regression fixture that replays with no model. The episode outcome is recorded for recall, so the next incident matching this alert group is checked against it. Both entries wait in a review queue for a person to keep or discard.</figcaption>
+            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>what remains</span><span class="surface-tag">· control plane</span><span class="right">the flywheel</span></div>
+            <div class="mock-body" aria-hidden="true">
+              <div class="mem">
+                <div class="mem-row"><span class="dot good"></span><span><span class="k">correction → fixture</span><span class="v">the 14:02:40Z refusal replays as a test, no model needed <i>pending review: keep or discard</i></span></span></div>
+                <div class="mem-row"><span class="dot good"></span><span><span class="k">outcome → recall</span><span class="v">next time this alert group fires, this ending is checked first <i>history, never proof</i></span></span></div>
+                <div class="mem-row"><span class="dot idle"></span><span><span class="k">trace → review</span><span class="v">the full episode waits in the review ledger for human eyes <i>keep, fix, or forget</i></span></span></div>
+              </div>
+            </div>
+            <p class="mock-note" aria-hidden="true"><span class="tag">loop</span> <span class="note">refused → corrected → kept → replayed</span> <span class="prov">illustrative — condensed&#8202;<span class="fnmark">2</span></span></p>
           </figure>
         </article>
 
@@ -493,10 +545,10 @@
 
   <!-- Trust ---------------------------------------------------------------- -->
   <section class="band beat" id="trust" aria-labelledby="trust-h">
-    <div class="beat-mark ok" aria-hidden="true"><span class="tick"></span><span class="nm">Trust</span><span class="t">· what remains</span></div>
+    <div class="beat-mark ok" aria-hidden="true"><span class="tick"></span><span class="nm">Trust</span><span class="t">· the boundaries</span></div>
     <div class="wrap">
       <div class="section-head">
-        <p class="beat-time-inline">Trust · what remains</p>
+        <p class="beat-time-inline">Trust · the boundaries</p>
         <h2 id="trust-h">Built to be doubted</h2>
         <p>Responder assumes you will check its work — and makes checking easy.</p>
       </div>
@@ -581,7 +633,7 @@
     <p>
       <a href="docs/index.html">Docs</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder">GitHub</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder/blob/main/SECURITY.md">Security</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder/blob/main/LICENSE">MIT license</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder/releases">Releases</a>
     </p>
-    <p>set in Fraunces &amp; Inter · no build, no trackers · works from file://</p>
+    <p>set in Space Grotesk &amp; Inter · no build, no trackers · works from file://</p>
   </div>
 </footer>
 
