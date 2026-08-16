@@ -1,9 +1,12 @@
 package investigation
 
 import (
-	"github.com/AndrewDryga/responder/internal/core"
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/AndrewDryga/responder/internal/core"
 )
 
 // A missing runbook is a reproducibility gap, not a blocker.
@@ -170,5 +173,83 @@ func TestNoVerdictContractTellsTheModelToOmitIt(t *testing.T) {
 		Status: "decision_ready", Summary: "The disk is at 82%.",
 	}); correction != "" {
 		t.Fatalf("omitting the verdict was still corrected: %q", correction)
+	}
+}
+
+// A pack the evidence names in its own identifier is a pack the evidence names.
+//
+// The rule is real: a capability gap that asserts "pack linux-core is not
+// advertised" must rest on an observation of that pack, or it is a guess in the
+// shape of a finding. But it only ever read the evidence's PROSE, and the model
+// puts a catalog entry's identity where a catalog entry's identity goes — the
+// source_id, `linux.disk_usage@linux-core-0.4.1`. So the same answer passed or
+// failed on whether the sentence happened to repeat the pack name: three smoke
+// runs passed, and on 2026-08-16 two consecutive runs failed on different cases,
+// each one a well-formed capability gap whose evidence identified the pack
+// exactly where an identifier belongs.
+func TestAPackNamedInItsEvidenceIdentifierIsIdentified(t *testing.T) {
+	data, err := os.ReadFile("testdata/smoke_capability_gap_pack_in_id.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The recorded answer opens with a sentence of prose before its envelope,
+	// which is exactly what the host's own parser recovers from, so the fixture
+	// stays byte-for-byte what the model sent.
+	start := strings.Index(string(data), "{")
+	if start < 0 {
+		t.Fatal("the harvested answer carries no envelope")
+	}
+	var envelope struct {
+		Operations []ResultOperation `json:"operations"`
+	}
+	if err := json.Unmarshal(data[start:], &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var completion *CompletionAssessment
+	evidence := make([]core.Evidence, 0, len(envelope.Operations))
+	for _, operation := range envelope.Operations {
+		switch operation.Type {
+		case "record_evidence":
+			item := *operation.Evidence
+			if item.ID == "" {
+				item.ID = operation.ID
+			}
+			evidence = append(evidence, item)
+		case "complete_episode":
+			completion = operation.Completion.Completion
+		}
+	}
+	if completion == nil || len(completion.CapabilityGaps) != 1 {
+		t.Fatalf("the harvested answer is meant to carry one capability gap: %+v", completion)
+	}
+	gap := completion.CapabilityGaps[0]
+	if gap.PackID != "linux-core" {
+		t.Fatalf("harvested pack id = %q", gap.PackID)
+	}
+	// The claim it was judged on says nothing about the pack; the source_id it
+	// cites says everything.
+	if err := ValidateCapabilityGapEvidence(completion, evidence); err != nil {
+		t.Fatalf("a pack identified by its evidence's own identifier was refused: %v", err)
+	}
+}
+
+// And the rule still holds where it should: a gap naming a pack no cited
+// evidence mentions anywhere — prose, identifier or source — is still a guess.
+func TestAPackNoEvidenceMentionsIsStillRefused(t *testing.T) {
+	evidence := []core.Evidence{{
+		ID: "evidence-runners", SourceType: "emisar",
+		SourceID: "emisar-list-runners", SourceName: "Emisar runner inventory",
+		Claim: "The runner inventory was read.", Observation: "Two runners answered.",
+	}}
+	completion := &CompletionAssessment{
+		Status: "blocked",
+		CapabilityGaps: []CapabilityGap{{
+			Capability: "Read filesystem usage", Status: "not_advertised",
+			PackID: "linux-core", EvidenceRefs: []string{"evidence-runners"},
+			Recommendation: "Deploy the pack.",
+		}},
+	}
+	if err := ValidateCapabilityGapEvidence(completion, evidence); err == nil {
+		t.Fatal("a pack no evidence mentions at all was accepted")
 	}
 }

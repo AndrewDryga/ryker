@@ -332,9 +332,20 @@ func ValidateCapabilityGapEvidence(
 					)
 				}
 				matched = true
+				// The identifiers count as much as the prose. A capability gap
+				// must rest on an observation of the pack it names, and the
+				// place a catalog entry's identity actually lands is the
+				// evidence's own id — `linux.disk_usage@linux-core-0.4.1` — not
+				// a sentence that happens to repeat the pack name. Reading only
+				// the prose made the same well-formed answer pass or fail on
+				// that coincidence: three smoke runs passed, and on 2026-08-16
+				// two consecutive ones failed on different cases, each a gap
+				// whose evidence identified the pack exactly where an
+				// identifier belongs.
 				if gap.PackID != "" && containsFold(
 					strings.Join([]string{
 						item.Claim, item.Observation, item.SourceName, item.Target,
+						item.ID, item.SourceID,
 					}, " "),
 					gap.PackID,
 				) {
