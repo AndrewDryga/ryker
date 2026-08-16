@@ -156,7 +156,7 @@ channel's work turned out.</p>
     {{/* The card's anatomy: volume as its headline figure, the outcome meter
          under it, exceptions as chips. A card is a small page, not four lines
          of text at one size. */}}
-    <span class="chan-total">{{.Total}} episodes</span>
+    <span class="chan-total">{{.Total}}<small>episodes</small></span>
     <svg class="chan-bar" viewBox="0 0 100 4" width="100%" height="4" preserveAspectRatio="none" role="img"
          aria-label="{{.Done}} completed, {{.Failed}} failed, {{.Other}} ended another way">
       {{if .DoneW}}<rect class="chan-done" x="0" y="0" width="{{.DoneW}}" height="4"/>{{end}}

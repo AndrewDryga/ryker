@@ -51,7 +51,7 @@ body {
   min-height: 100vh;
   background: var(--bg);
   color: var(--text);
-  font: 13.5px/1.55 var(--sans);
+  font: 14px/1.6 var(--sans);
   font-feature-settings: "liga" 1, "calt" 1;
   -webkit-font-smoothing: antialiased;
 }
@@ -203,8 +203,8 @@ main p { margin: 0; }
 
 h2 {
   margin: 0;
-  font: 600 15px/1.4 var(--display);
-  letter-spacing: -0.008em;
+  font: 600 16px/1.4 var(--display);
+  letter-spacing: -0.01em;
   color: var(--text);
 }
 
@@ -233,18 +233,18 @@ h2 .note { font: 450 12px/1.5 var(--mono); font-variant-numeric: tabular-nums; c
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px 18px;
+  border-radius: 12px;
+  padding: 18px 20px;
 }
 
 /* A bank of metrics is one container; cells divide by hairline. */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 0;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
 }
 .grid > .panel { background: none; border: 0; border-radius: 0; border-left: 1px solid var(--line); }
@@ -260,7 +260,7 @@ h2 .note { font: 450 12px/1.5 var(--mono); font-variant-numeric: tabular-nums; c
   letter-spacing: .06em;
   min-height: 2lh;
 }
-.metric .n { font: 600 22px/1.2 var(--display); letter-spacing: -0.015em; font-variant-numeric: tabular-nums; color: var(--text); }
+.metric .n { font: 600 25px/1.2 var(--display); letter-spacing: -0.018em; font-variant-numeric: tabular-nums; color: var(--text); }
 .metric .n small { font-size: 13px; font-weight: 450; color: var(--text-2); letter-spacing: 0; }
 .metric.bad .n { color: var(--rose); }
 .metric.warn .n { color: var(--amber); }
@@ -275,17 +275,17 @@ a.metric:hover { text-decoration: none; background: rgb(255 255 255 / .02); }
   grid-template-areas: "line pulse" "stats stats";
   align-items: center;
   column-gap: 28px;
-  padding: 18px 22px 0;
+  padding: 20px 24px 0;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
 }
 .hero > .hero-status { display: contents; }
 .hero.calm, .hero.busy { background: var(--surface); }
 
 .hero-line { grid-area: line; display: flex; align-items: center; gap: 11px; padding-bottom: 16px; }
-.hero-word { margin: 0; font: 600 20px/1.25 var(--display); letter-spacing: -0.015em; color: var(--text); }
+.hero-word { margin: 0; font: 600 21px/1.25 var(--display); letter-spacing: -0.018em; color: var(--text); }
 .hero.busy .hero-word { color: var(--text); }
 
 .hero-beacon {
@@ -300,8 +300,8 @@ a.metric:hover { text-decoration: none; background: rgb(255 255 255 / .02); }
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
   border-top: 1px solid var(--line);
-  margin: 0 -22px;
-  padding: 14px 0 16px;
+  margin: 0 -24px;
+  padding: 16px 0 18px;
 }
 .hero-stats > * {
   display: grid;
@@ -311,11 +311,11 @@ a.metric:hover { text-decoration: none; background: rgb(255 255 255 / .02); }
   font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: .06em;
-  padding: 0 22px;
+  padding: 0 24px;
   border-left: 1px solid var(--line);
 }
 .hero-stats > :first-child { border-left: 0; }
-.hero-stats strong { color: var(--text); font: 600 22px/1.2 var(--display); font-variant-numeric: tabular-nums; letter-spacing: -0.015em; text-transform: none; }
+.hero-stats strong { color: var(--text); font: 600 24px/1.2 var(--display); font-variant-numeric: tabular-nums; letter-spacing: -0.018em; text-transform: none; }
 .hero-stats a:hover { text-decoration: none; }
 .hero-stats a:hover strong { color: var(--accent); }
 .hero-stats .warn strong { color: var(--amber); }
@@ -332,17 +332,17 @@ a.metric:hover { text-decoration: none; background: rgb(255 255 255 / .02); }
 .rows {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
 }
 
-.row { display: block; padding: 13px 18px; border-bottom: 1px solid var(--line); color: inherit; }
+.row { display: block; padding: 16px 20px; border-bottom: 1px solid rgb(255 255 255 / .045); color: inherit; }
 .row:last-child { border-bottom: 0; }
 a.row { transition: background .1s ease; }
 a.row:hover { background: rgb(255 255 255 / .025); text-decoration: none; }
 
-.row .title { font-weight: 550; line-height: 1.45; color: var(--text); }
-.row .meta { color: var(--text-3); font-size: 12.5px; margin-top: 3px; }
+.row .title { font-weight: 550; font-size: 14px; line-height: 1.5; color: var(--text); }
+.row .meta { color: var(--text-3); font-size: 12.5px; margin-top: 5px; }
 .row .meta a { color: var(--text-2); }
 .row .what { color: var(--text-2); font-size: 13px; line-height: 1.55; margin-top: 5px; max-width: 100ch; }
 
@@ -378,36 +378,39 @@ pre code { font-size: 1em; }
 
 /* Tables ----------------------------------------------------------------------- */
 
-/* A table shows data: bright figures on a flat surface, one thin separator
-   per row, headers as quiet labels, numbers right where they compare. */
+/* A table is an open data list, not a grid of small text: one strong rule
+   under the header, rows tall enough to read at a glance, separators at a
+   whisper so the whitespace does the separating, and every column with a
+   typographic role — the name bright, the numbers mono, the rest stepped
+   back. */
 table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 13px;
+  font-size: 13.5px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
 }
 
 th {
   text-align: left;
   color: var(--text-3);
-  font-weight: 500;
+  font-weight: 600;
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: .06em;
-  padding: 10px 14px;
+  letter-spacing: .07em;
+  padding: 13px 18px;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
 
-td { padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; line-height: 1.5; color: var(--text-2); }
-td:first-child { color: var(--text); font-weight: 500; }
-td:first-child .note, td:first-child.note { font-weight: 400; }
+td { padding: 15px 18px; border-bottom: 1px solid rgb(255 255 255 / .045); vertical-align: middle; line-height: 1.55; color: var(--text-2); }
+td:first-child { color: var(--text); font-weight: 550; font-size: 14px; }
+td:first-child .note, td:first-child.note { font-weight: 400; font-size: 12.5px; }
 tr:last-child td { border-bottom: 0; }
-tr:hover td { background: rgb(255 255 255 / .02); }
+tr:hover td { background: rgb(255 255 255 / .025); }
 
 th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 td.num .note { display: block; }
@@ -665,7 +668,7 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
   overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
 }
 
 .episode-action-strip { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -673,16 +676,16 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
 .episode-action-strip .note { margin: 0; margin-right: auto; max-width: 46ch; }
 
 .episode-metric {
-  padding: 14px 18px 15px;
+  padding: 17px 20px 18px;
   border-left: 1px solid var(--line);
 }
 .episode-metric:first-child { border-left: 0; }
 .episode-metric-label { color: var(--text-3); font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; }
 .episode-metric-value {
-  margin-top: 4px;
+  margin-top: 5px;
   color: var(--text);
-  font: 600 22px/1.2 var(--display);
-  letter-spacing: -0.015em;
+  font: 600 24px/1.2 var(--display);
+  letter-spacing: -0.018em;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
@@ -1203,8 +1206,8 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
 
 .episode-ask {
   grid-area: answer;
-  margin-top: 4px; max-width: 104ch;
-  font-size: 13px; line-height: 1.55; color: var(--text-2);
+  margin-top: 6px; max-width: 96ch;
+  font-size: 13.5px; line-height: 1.6; color: var(--text-2);
   padding-left: 19px; text-indent: -19px;
 }
 .episode-ask::before { content: "→"; color: var(--accent); margin-right: 7px; }
@@ -1225,20 +1228,24 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
 .chan-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px 18px 13px;
-  display: flex; flex-direction: column; gap: 10px;
+  border-radius: 12px;
+  padding: 18px 20px 15px;
+  display: flex; flex-direction: column; gap: 12px;
 }
+.chan-card:hover { border-color: #39415a; }
 .chan-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.chan-name { font-size: 13.5px; font-weight: 550; color: var(--text); }
+.chan-name { font-size: 14px; font-weight: 550; color: var(--text); }
 .chan-name:hover { color: var(--accent); text-decoration: none; }
 .chan-when { font-size: 12px; color: var(--text-3); white-space: nowrap; flex: none; }
-.chan-total { font: 600 21px/1.2 var(--display); letter-spacing: -0.015em; color: var(--text); font-variant-numeric: tabular-nums; margin-bottom: -2px; }
-.chan-bar { display: block; width: 100%; height: 4px; border-radius: 2px; overflow: hidden; background: var(--raised); }
+/* The numeral speaks and the unit whispers beside it — one blob of display
+   text is a label; a big figure with a small unit is a statistic. */
+.chan-total { display: flex; align-items: baseline; gap: 7px; font: 600 27px/1.1 var(--display); letter-spacing: -0.02em; color: var(--text); font-variant-numeric: tabular-nums; margin-bottom: -2px; }
+.chan-total small { font: 450 12.5px/1.4 var(--sans); color: var(--text-3); letter-spacing: 0; }
+.chan-bar { display: block; width: 100%; height: 5px; border-radius: 3px; overflow: hidden; background: var(--raised); }
 .chan-done { fill: var(--accent); }
 .chan-failed { fill: var(--rose); }
 .chan-other { fill: #3a4152; }
-.chan-flags { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.chan-flags { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; }
 /* The channel page's own roll-up keeps the plain counts line. */
 .chan-counts { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 7px; font-size: 12.5px; color: var(--text-2); }
 .chan-counts > span:not(:last-child)::after { content: " ·"; opacity: .5; }
@@ -1258,7 +1265,7 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
 .chan-foot {
   display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 7px;
   font-size: 12px; color: var(--text-3);
-  margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line);
+  margin-top: auto; padding-top: 12px; border-top: 1px solid rgb(255 255 255 / .05);
 }
 .chan-foot > span:not(:last-child)::after { content: " ·"; opacity: .5; }
 .chan-foot .mono { color: var(--text-2); }
@@ -1275,8 +1282,8 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
     ".   answer answer"
     ".   facts  facts";
   align-items: baseline;
-  column-gap: 12px;
-  padding: 13px 18px 14px;
+  column-gap: 13px;
+  padding: 16px 20px 17px;
 }
 /* The dot is centred in the title's own line box rather than aligned to its
    baseline: an empty inline box has no text to take a baseline from. */
@@ -1315,7 +1322,7 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
 /* One line, always. */
 .episode-title {
   grid-area: title;
-  font-size: 13.5px; font-weight: 550; color: var(--text); line-height: 1.5;
+  font-size: 14px; font-weight: 550; color: var(--text); line-height: 1.5;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .episode-when { grid-area: when; font-size: 12px; color: var(--text-3); white-space: nowrap; }
@@ -1324,16 +1331,16 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
   grid-area: answer;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
   overflow: hidden;
-  margin-top: 4px; max-width: 104ch;
-  font-size: 13px; line-height: 1.6; color: var(--text-2);
+  margin-top: 6px; max-width: 96ch;
+  font-size: 13.5px; line-height: 1.65; color: var(--text-2);
 }
 .episode-answer code { font-family: var(--mono); font-size: .92em; color: var(--text-2); background: var(--raised); border-radius: 4px; padding: 1px 5px; }
 .episode-answer strong { color: var(--text); font-weight: 550; }
 .episode-answer .link-host { color: var(--text-2); text-decoration: underline; text-underline-offset: 2px; }
 .episode-facts {
   grid-area: facts;
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 7px;
-  margin-top: 6px; font-size: 12px; color: var(--text-3);
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px;
+  margin-top: 9px; font-size: 12.5px; color: var(--text-3);
 }
 /* The dot trails its item, so a wrapped fact row never starts with one. */
 .episode-facts > span:not(:last-child)::after { content: " ·"; opacity: .5; }
@@ -1380,12 +1387,12 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
 
 .set-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 28px; }
 .set-card {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  padding: 15px 17px 13px; display: grid; gap: 4px; align-content: start; color: inherit;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 17px 19px 15px; display: grid; gap: 5px; align-content: start; color: inherit;
 }
 .set-card:hover { border-color: #39415a; text-decoration: none; }
 .set-name { font-size: 11px; color: var(--text-3); font-weight: 500; text-transform: uppercase; letter-spacing: .06em; }
-.set-count { font: 600 22px/1.15 var(--display); letter-spacing: -0.015em; color: var(--text); font-variant-numeric: tabular-nums; }
+.set-count { font: 600 25px/1.15 var(--display); letter-spacing: -0.018em; color: var(--text); font-variant-numeric: tabular-nums; }
 .set-what { font-size: 12.5px; line-height: 1.55; color: var(--text-2); margin-top: 2px; min-height: 2lh; }
 .set-health { font-size: 12px; color: var(--text-3); margin-top: 5px; }
 .set-health.warn { color: var(--amber); }
