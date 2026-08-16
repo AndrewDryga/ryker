@@ -2403,6 +2403,12 @@ func (s *Service) stageTriageTerminal(
 		if correction == "" {
 			correction = decisionpkg.FindingCorrection(episode, validated, validated.Findings)
 		}
+		// Beside it, and for the same reason: a bounded cause is an open
+		// question, and an episode that closes on one has stopped rather than
+		// finished.
+		if correction == "" {
+			correction = decisionpkg.BoundedCauseCorrection(episode, validated)
+		}
 		if correction == "" {
 			// A terminal claim is checked against what the model produced, not
 			// against what policy left of it. Only a terminal one: a turn that
@@ -2625,11 +2631,18 @@ func (s *Service) stageIncidentTerminal(
 		// deep lanes run here, so this is the only place the adversarial-residue
 		// rule is reachable at all.
 		if correction == "" {
-			correction = decisionpkg.FindingCorrection(episode, decisionpkg.WatchDecision{
+			// Evidence travels with it because the residue rules read the words
+			// of the observation a finding cites, not just its id.
+			reported := decisionpkg.WatchDecision{
 				Action: "reply", Message: report.Message,
 				FollowupMessages: report.FollowupMessages, Completion: report.Completion,
 				AppliedOperations: report.AppliedOperations, Findings: findings,
-			}, findings)
+				Evidence: evidence,
+			}
+			correction = decisionpkg.FindingCorrection(episode, reported, findings)
+			if correction == "" {
+				correction = decisionpkg.BoundedCauseCorrection(episode, reported)
+			}
 		}
 		if correction == "" {
 			correction = investigation.CompletionCorrection(
@@ -3951,6 +3964,18 @@ func (s *Service) finalizeIncidentAgentRun(
 					s.sanitizer,
 				)
 			}
+			// The same line for the deep lanes' own replies. An agent report
+			// carries no alert assessment, so the cause fields stay empty and
+			// what reaches Slack is the gap, the unexplained finding, and the
+			// check that will answer it.
+			open := openQuestionsFor(decisionpkg.WatchDecision{
+				Completion: report.Completion, Findings: report.Findings,
+				AppliedOperations: episodeOperations,
+			})
+			message = slackui.WithOpenQuestions(
+				message, open.CauseStatus, open.Cause, open.MaterialGaps,
+				open.Unexplained, open.NextCheck, s.sanitizer,
+			)
 			// The questions carry controls, which is also what keeps an
 			// engineering task's ask off the durable card and on a message of
 			// its own: standaloneTaskResult below reads HasControls, and the

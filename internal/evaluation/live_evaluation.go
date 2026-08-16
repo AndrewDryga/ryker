@@ -1086,6 +1086,7 @@ func evaluationStructuredCorrection(
 							testCase.CarriedFindings, decision.Findings,
 						)),
 					),
+					decisionpkg.BoundedCauseCorrection(*episode, decision),
 					investigation.CompletionCorrection(
 						*episode,
 						decision.Action,

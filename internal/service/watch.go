@@ -397,6 +397,16 @@ func (s *Service) applyReplyDecision(
 	message := s.watchReplyMessage(
 		input, finalReply, decision.Evidence, decision.Coverage,
 	)
+	// Before the offers, because this belongs to the answer rather than to what
+	// is being offered on top of it. What the answer does not yet know was typed
+	// on every one of these results and rendered on none of them unless the
+	// completion was blocked, so on 2026-08-16 a bounded cause with an
+	// unresolved leak question reached Slack as "raise the cap and roll the job".
+	open := openQuestionsFor(decision)
+	message = slackui.WithOpenQuestions(
+		message, open.CauseStatus, open.Cause, open.MaterialGaps,
+		open.Unexplained, open.NextCheck, s.sanitizer,
+	)
 	outcome := "replied"
 	if actionValue, permanent, scope, expires, ok := s.prepareMemoryOfferAction(input, decision.MemoryOffer); ok {
 		message = slackui.WithMemoryOffer(
@@ -2502,7 +2512,11 @@ An unexplained failure in scope means the work is not done. Post the fast status
 investigating in the same episode — deliver the cause as a delta update when the evidence lands, or
 return blocked with the exact obstacle. Before claiming an identified cause, attack it: use your own
 subagents to pursue the strongest alternative and name the check that discriminates. Never end an
-investigation with advice to investigate.
+investigation with advice to investigate. A cause that restates the alert is the symptom, not the
+cause — "memory is at the cap because the cap is 4 GiB" explains nothing; say what is consuming the
+resource (which connections, objects, reloads or requests), or mark the finding unexplained and keep
+going. A bounded cause is an open question: name the check that would settle it and keep the episode
+open to run it.
 
 For a human target, an operational problem or health question is not by itself permission to create an incident. Investigate read-only and choose reply. Add an incident offer_task when escalation is worth offering. Never choose incident for a human merely because the answer identifies an unhealthy component; the host will require explicit human intent.
 

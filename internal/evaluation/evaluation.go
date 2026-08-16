@@ -834,11 +834,23 @@ func evaluateCaseWithConfig(
 		// An unexplained failure in scope means the work is not done, checked
 		// here the same way the runtime checks it. A case whose model answer
 		// stops at advice fails on this line rather than on a bespoke assertion.
-		if correction := decisionpkg.FindingCorrection(*episode, decisionpkg.WatchDecision{
+		replayed := decisionpkg.WatchDecision{
 			Action: completionAction, Message: message, Completion: completion,
 			AppliedOperations: appliedOperations, Findings: findings,
-		}, findings); correction != "" {
+			Evidence: evidence, AlertAssessment: assessment,
+		}
+		if correction := decisionpkg.FindingCorrection(
+			*episode, replayed, findings,
+		); correction != "" {
 			result.Detail = "unexplained finding: " + correction
+			return result
+		}
+		// And a bounded cause that closes with nothing open, so the replay
+		// refuses the 2026-08-16 Traefik answer the runtime now refuses.
+		if correction := decisionpkg.BoundedCauseCorrection(
+			*episode, replayed,
+		); correction != "" {
+			result.Detail = "bounded cause left open: " + correction
 			return result
 		}
 		if correction := investigation.ClaimCorrection(

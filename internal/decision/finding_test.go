@@ -1,6 +1,7 @@
 package decision
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -395,5 +396,122 @@ func TestSanitizeFindingsBoundsWhatItStores(t *testing.T) {
 	}
 	if len(kept.Alternatives[0].Hypothesis) >= len(long) {
 		t.Fatalf("an unbounded hypothesis survived: %d bytes", len(kept.Alternatives[0].Hypothesis))
+	}
+}
+
+// traefikBoundedCause is the recorded 2026-08-16 result from the tenant
+// deployment, harvested whole out of agent_runs.result_json: 24 operations,
+// twelve evidence rows, two findings, a confirmed_issue assessment whose cause
+// is bounded, and a decision_ready completion.
+//
+// It is the fixture for the two rules below because it is the exact answer that
+// reached production. Nothing in it is invented, and nothing in it is malformed
+// in a way any parser can see — which is why the host accepted all of it.
+func traefikBoundedCause(t *testing.T) WatchDecision {
+	t.Helper()
+	data, err := os.ReadFile("testdata/traefik_bounded_cause_result.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := ParseWatchDecision(
+		string(data), time.Date(2026, 8, 16, 14, 46, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return decision
+}
+
+// A finding is not explained by evidence that says the rival survives.
+//
+// The recorded 2026-08-16 Traefik result: leak "not excluded" by the model's own
+// evidence, finding explained, cause bounded, episode closed decision-ready; the
+// operator got "raise the cap" with no caveat. evidence-impact-growth is named
+// as what discriminates against "a pure in-process leak independent of load",
+// and its last sentence is "Heap grew faster than the connection count, so a
+// leak component on top of the load-driven growth is not excluded." The
+// adversarial-residue rule was satisfied by the shape — an alternative, an
+// evidence id — and read none of the words.
+func TestExplainedFindingWhoseDiscriminatorSaysNotExcludedIsSentBack(t *testing.T) {
+	decision := traefikBoundedCause(t)
+	episode := core.WorkEpisode{Effort: core.EffortIncidentInvestigation}
+	correction := FindingCorrection(episode, decision, decision.Findings)
+	if correction == "" {
+		t.Fatal("a finding discriminated by evidence that says the rival is not excluded passed")
+	}
+	for _, required := range []string{
+		"not excluded",
+		"evidence-impact-growth",
+		"A pure in-process leak independent of load",
+		"Every VA1 traefik allocation is within 3-10% of its 4,096 MiB memory cap",
+	} {
+		if !strings.Contains(correction, required) {
+			t.Fatalf("the correction does not name %q: %q", required, correction)
+		}
+	}
+
+	// The way out the model can always take: say plainly that no check
+	// discriminates. That is an honest answer about a limit, and the rule is
+	// against a discriminator that does not discriminate, not against candour.
+	honest := traefikBoundedCause(t)
+	honest.Findings[0].Alternatives[0] = investigation.FindingAlternative{
+		Hypothesis:   honest.Findings[0].Alternatives[0].Hypothesis,
+		NotCheckable: "no heap profile is available in this session",
+	}
+	if correction := FindingCorrection(episode, honest, honest.Findings); correction != "" {
+		t.Fatalf("an honestly not-checkable alternative was corrected: %q", correction)
+	}
+}
+
+// A bounded cause is an open question, and an episode may not close on one with
+// nothing that would answer it.
+//
+// Same recorded result. record_alert_assessment says cause_status "bounded", its
+// long_term_solution ends "capture a Go heap profile at high RSS to settle
+// whether growth beyond the connection count is a real leak", and the
+// completion's material_gaps says the split between load and leak "is
+// unresolved" — and then the episode closed decision_ready with no recheck, no
+// wait_external and no goal. Three days earlier the same alert had been
+// diagnosed as reload-driven growth and the same follow-up written down and
+// never done.
+func TestBoundedCauseWithNothingOpenIsSentBack(t *testing.T) {
+	decision := traefikBoundedCause(t)
+	episode := core.WorkEpisode{Effort: core.EffortIncidentInvestigation}
+	correction := BoundedCauseCorrection(episode, decision)
+	if correction == "" {
+		t.Fatal("a bounded cause closed decision_ready with nothing open, uncorrected")
+	}
+	for _, required := range []string{"bounded, not identified", "blocked"} {
+		if !strings.Contains(correction, required) {
+			t.Fatalf("the correction does not name %q: %q", required, correction)
+		}
+	}
+
+	// Exit one: the episode stays open and runs the discriminating check. This
+	// is the shape the rule exists to buy — the follow-up scheduled by the host
+	// rather than written into a long_term_solution nobody reads again.
+	continuing := traefikBoundedCause(t)
+	continuing.AppliedOperations = append(continuing.AppliedOperations,
+		investigation.ResultOperation{
+			ID: "wait-heap-profile", Type: "wait_external",
+			ExternalWait: &investigation.ExternalWaitOperation{
+				ID: "wakeup-heap-profile", Kind: "scheduled_verification",
+				PollAfter: "2026-08-16T16:30:00Z", Deadline: "2026-08-16T18:30:00Z",
+			},
+		})
+	if correction := BoundedCauseCorrection(episode, continuing); correction != "" {
+		t.Fatalf("a bounded cause with a scheduled follow-up was corrected: %q", correction)
+	}
+
+	// Exit two: the model says in the finding itself that no check
+	// discriminates. Bounded is then as far as this session can get, and asking
+	// again spends a round to be told the same thing.
+	limited := traefikBoundedCause(t)
+	limited.Findings[0].Alternatives[0] = investigation.FindingAlternative{
+		Hypothesis:   limited.Findings[0].Alternatives[0].Hypothesis,
+		NotCheckable: "no heap profile is available in this session",
+	}
+	if correction := BoundedCauseCorrection(episode, limited); correction != "" {
+		t.Fatalf("a bounded cause with no available discriminating check was corrected: %q", correction)
 	}
 }

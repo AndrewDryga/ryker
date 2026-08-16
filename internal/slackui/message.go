@@ -1253,6 +1253,60 @@ func WithBlockedAssessment(
 	return message
 }
 
+// WithOpenQuestions appends one context line naming what the answer does not
+// yet know and the check that would settle it. Typed fields — cause_status,
+// material_gaps, an unexplained finding, next_action — were never rendered
+// unless the completion was blocked, so on 2026-08-16 a reply whose ledger said
+// "leak not excluded; capture a heap profile" reached Slack as "raise the cap".
+func WithOpenQuestions(
+	message Message,
+	causeStatus string,
+	cause string,
+	materialGaps []string,
+	unexplained []string,
+	nextCheck string,
+	sanitizer *Sanitizer,
+) Message {
+	clean := func(value string) string {
+		value = strings.TrimSpace(value)
+		if sanitizer != nil {
+			value = sanitizer.Text(value)
+		}
+		return escapeSlackText(value)
+	}
+	firstGap := ""
+	if len(materialGaps) > 0 {
+		firstGap = clean(materialGaps[0])
+	}
+	parts := make([]string, 0, 4)
+	bounded := strings.EqualFold(strings.TrimSpace(causeStatus), "bounded")
+	if bounded {
+		// The gap is the better sentence when there is one: it says what is
+		// missing, where the cause only says how far the answer got.
+		if qualifier := core.FirstNonempty(firstGap, clean(cause)); qualifier != "" {
+			parts = append(parts, "Cause bounded, not identified: "+qualifier)
+		}
+	}
+	// Two. A caveat line an operator scrolls past is the same as no caveat line,
+	// and every finding is still on the episode for anyone who wants the rest.
+	for _, item := range unexplained[:min(len(unexplained), 2)] {
+		if item = clean(item); item != "" {
+			parts = append(parts, "Unexplained: "+item)
+		}
+	}
+	if !bounded && firstGap != "" {
+		parts = append(parts, "Open: "+firstGap)
+	}
+	if nextCheck = clean(nextCheck); nextCheck != "" {
+		parts = append(parts, "Next check: "+nextCheck)
+	}
+	if len(parts) == 0 {
+		return message
+	}
+	message.Context = append(message.Context, truncateUTF8(strings.Join(parts, " · "), 700))
+	return message
+}
+
 func evidenceRecordSummary(evidence []core.Evidence, coverage []core.Coverage) string {
 	var parts []string
 	if len(evidence) > 0 {

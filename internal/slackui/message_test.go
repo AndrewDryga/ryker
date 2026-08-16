@@ -1295,6 +1295,88 @@ func TestBlockedAssessmentExplainsWhatStoppedAndHowToContinue(t *testing.T) {
 	}
 }
 
+// What the answer does not yet know reaches Slack, in one line, or it does not
+// reach the operator at all.
+//
+// On 2026-08-16 a Traefik reply whose own ledger said cause_status "bounded",
+// "no Go heap profile was captured ... unresolved" and "capture a Go heap
+// profile at high RSS to settle whether growth beyond the connection count is a
+// real leak" arrived in the channel as "Memory tracks load ... raise the cap and
+// roll the job." Every one of those fields was typed and stored; none of them
+// was rendered, because only a blocked completion had a context line. The
+// operator read certainty the answer did not have.
+func TestOpenQuestionsRenderAsOneContextLine(t *testing.T) {
+	base := ConciseEvidenceResponse(
+		"Memory tracks load; raise the cap and roll the job.", nil, nil, NewSanitizer(12000),
+	)
+	message := WithOpenQuestions(
+		base,
+		"bounded",
+		"Traefik's working set scales with in-flight connection state, and the 4,096 MiB cap is now the binding constraint.",
+		[]string{
+			"No Go heap profile was captured, so the split between load-driven growth and a genuine leak is unresolved.",
+		},
+		[]string{
+			"The va1-nomad-oom-risk alert cleared without any allocation recovering",
+			"nomad-hst04 has no reclaimable file cache left",
+			"a third thing nobody has room to read",
+		},
+		"scheduled follow-up at 16:30 UTC",
+		NewSanitizer(12000),
+	)
+	if len(message.Context) != len(base.Context)+1 {
+		t.Fatalf("open questions are not one context line: %+v", message.Context)
+	}
+	line := message.Context[len(message.Context)-1]
+	for _, want := range []string{
+		"Cause bounded, not identified: No Go heap profile was captured",
+		"Unexplained: The va1-nomad-oom-risk alert cleared",
+		"Unexplained: nomad-hst04 has no reclaimable file cache",
+		"Next check: scheduled follow-up at 16:30 UTC",
+		" · ",
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("the open-questions line lacks %q: %q", want, line)
+		}
+	}
+	// Two, not the whole ledger. A context line an operator scrolls past is the
+	// same as no context line, and the typed findings are still on the episode.
+	if strings.Contains(line, "a third thing nobody has room to read") {
+		t.Fatalf("a third unexplained finding reached the reply: %q", line)
+	}
+	if len(message.Sections) != len(base.Sections) {
+		t.Fatalf("open questions leaked into sections: %+v", message.Sections)
+	}
+
+	// An identified cause with a material gap still says the gap, under a word
+	// that does not overclaim what is missing.
+	identified := WithOpenQuestions(
+		base, "identified", "the 4,096 MiB cap", []string{"peak-hour request rate per node"},
+		nil, "", NewSanitizer(12000),
+	)
+	if got := identified.Context[len(identified.Context)-1]; !strings.HasPrefix(got, "Open: ") {
+		t.Fatalf("an identified cause with a gap did not render it as Open: %q", got)
+	}
+
+	// Nothing to say, nothing said. A reply that knows what it knows must not
+	// grow an empty caveat line.
+	quiet := WithOpenQuestions(base, "identified", "the cap", nil, nil, "", NewSanitizer(12000))
+	if len(quiet.Context) != len(base.Context) {
+		t.Fatalf("an answer with no open question grew a context line: %+v", quiet.Context)
+	}
+
+	// Bounded by the same 700 bytes every other context line is bounded by: the
+	// gaps are model-authored prose and Slack renders the whole of it.
+	long := WithOpenQuestions(
+		base, "bounded", strings.Repeat("cause ", 400),
+		[]string{strings.Repeat("gap ", 400)}, []string{strings.Repeat("finding ", 400)},
+		strings.Repeat("check ", 400), NewSanitizer(12000),
+	)
+	if got := len(long.Context[len(long.Context)-1]); got > 700 {
+		t.Fatalf("the open-questions line is %d bytes, over the 700-byte bound", got)
+	}
+}
+
 func TestEvidenceSummaryUsesNaturalCoveragePlural(t *testing.T) {
 	message := ConciseEvidenceResponse(
 		"Summary",

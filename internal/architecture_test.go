@@ -931,7 +931,23 @@ var lineBudget = map[string]int{
 	// 2585 measured; 2620 is 35 lines of margin, deliberately more than the 13
 	// and 14 the entries below settled for, because those are the numbers that
 	// made this a tripwire.
-	"decision": 2620,
+	//
+	// Raised to 2700 on 2026-08-16 for two more rules in the same chain, on the
+	// same reasoning: they read a WatchDecision and nothing else, and a package
+	// holding them would hold two signatures and no decision. The cost that
+	// bought them is one alert. VA1 traefik memory saturated its cap, the
+	// investigation recorded finding-1 "explained" and named evidence-impact-growth
+	// as ruling out a pure in-process leak, and that observation's own last
+	// sentence is "a leak component on top of the load-driven growth is not
+	// excluded". The assessment's cause went out bounded, the completion closed
+	// decision_ready with a material gap saying the split was unresolved, and the
+	// operator read "Memory tracks load ... raise the cap and roll the job". The
+	// same alert had been diagnosed three days earlier and the same follow-up
+	// written down and never done.
+	//
+	// 2659 measured; 2700 keeps the 40-odd lines of margin that made this entry
+	// a tripwire rather than a ratchet.
+	"decision": 2700,
 	// investigation owns the contract and, since the completion validators moved
 	// beside it, the rules that check a result against that contract.
 	//

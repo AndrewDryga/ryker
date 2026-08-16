@@ -173,6 +173,38 @@ var findingRecoveryPhrases = []string{
 // in this same episode rather than concluding here.
 var findingContinuationOperations = []string{"plan_goal", "wait_external"}
 
+// evidenceHedgePhrases are the ways an observation says the rival hypothesis is
+// still standing. An observation containing one of these cannot be the thing
+// that rules that rival out, however confidently a finding cites it.
+//
+// Literal and conservative, on the same reasoning as findingFailurePhrases: the
+// cost of missing a phrasing is the status quo, and the cost of a wrong one is a
+// correction round spent on an answer that was already honest.
+var evidenceHedgePhrases = []string{
+	"not excluded", "cannot be excluded", "can't be excluded",
+	"not ruled out", "cannot rule out", "can't rule out",
+	"cannot distinguish", "does not distinguish", "unresolved",
+}
+
+// evidenceHedgesItsOwnDiscrimination reports whether the named evidence says, in
+// its own observation, that the alternative it is cited against survives.
+//
+// The apostrophe is normalized because models write "can't" with a typographic
+// one about as often as with a straight one, and a rule that reads only ASCII
+// would be silently half-off.
+func evidenceHedgesItsOwnDiscrimination(evidence []core.Evidence, id string) bool {
+	for _, item := range evidence {
+		if item.ID != id {
+			continue
+		}
+		observation := strings.ToLower(strings.ReplaceAll(item.Observation, "’", "'"))
+		if EpisodeContainsAny(observation, evidenceHedgePhrases...) {
+			return true
+		}
+	}
+	return false
+}
+
 // ReplyReportsFailure reads whether a reply tells an operator that something is
 // broken, without a recovery or closure sentence taking it back.
 func ReplyReportsFailure(parts ...string) bool {
@@ -238,6 +270,38 @@ func FindingCorrection(
 		episode.Effort != core.EffortIncidentInvestigation {
 		return ""
 	}
+	// A discriminator that does not discriminate is worse than no residue at all:
+	// it satisfies the check below with the very evidence that says the rival
+	// survives, so the shape passes and the words are never read.
+	//
+	// On 2026-08-16 finding-1 of the VA1 Traefik investigation was "explained"
+	// and named evidence-impact-growth as ruling out "a pure in-process leak
+	// independent of load". That observation ends "Heap grew faster than the
+	// connection count, so a leak component on top of the load-driven growth is
+	// not excluded." The assessment's cause went out bounded, the completion
+	// closed decision_ready, and the operator read "Memory tracks load ... raise
+	// the cap and roll the job" with no caveat. The exemptions are the
+	// unexplained rule's: a turn that is still working may hold a provisional
+	// explanation, and a blocked one has already named its obstacle.
+	if decision.Completion != nil && !blocked && !ContinuesThisEpisode(decision) {
+		for _, item := range findings {
+			if item.Status != "explained" {
+				continue
+			}
+			for _, alternative := range item.Alternatives {
+				if alternative.DiscriminatedBy == "" ||
+					!evidenceHedgesItsOwnDiscrimination(decision.Evidence, alternative.DiscriminatedBy) {
+					continue
+				}
+				return "finding " + strconv.Quote(item.What) + " names " +
+					alternative.DiscriminatedBy + " as ruling out " +
+					strconv.Quote(alternative.Hypothesis) + ", but that evidence says the rival " +
+					"is not excluded; add the check that actually discriminates, or mark the " +
+					"finding unexplained and keep investigating with a goal, recheck or " +
+					"wait_external, or return blocked with the exact obstacle"
+			}
+		}
+	}
 	for _, item := range findings {
 		if item.Status == "explained" && len(item.Alternatives) == 0 {
 			return "the cause is asserted but never attacked; name the strongest alternative " +
@@ -246,6 +310,54 @@ func FindingCorrection(
 		}
 	}
 	return ""
+}
+
+// BoundedCauseCorrection refuses to let a confirmed or likely issue whose cause
+// is only bounded close as decision_ready with nothing that continues the
+// investigation. Bounded is a legitimate intermediate state — "it is Traefik
+// and it is the cap" — but on 2026-08-16 it was accepted as a final one, and the
+// question the model itself had written down (heap profile: leak or load?) was
+// never asked again in five episodes. The ways out are all the model's: keep
+// the episode open with a recheck, goal or wait_external that runs the
+// discriminating check; return blocked with that check as the exact obstacle;
+// or state in the finding's alternative that no discriminating check exists.
+func BoundedCauseCorrection(episode core.WorkEpisode, decision WatchDecision) string {
+	if decision.Action != "reply" {
+		return ""
+	}
+	if episode.Effort != core.EffortOperationalAssessment &&
+		episode.Effort != core.EffortIncidentInvestigation {
+		return ""
+	}
+	if decision.Completion == nil || decision.Completion.Status != "decision_ready" {
+		return ""
+	}
+	assessment := decision.AlertAssessment
+	if assessment == nil ||
+		(assessment.Verdict != "confirmed_issue" && assessment.Verdict != "likely_issue") ||
+		!strings.EqualFold(strings.TrimSpace(assessment.CauseStatus), "bounded") {
+		return ""
+	}
+	if ContinuesThisEpisode(decision) {
+		return ""
+	}
+	// The model saying plainly that nothing available discriminates is the third
+	// exit, and it is the one that makes the rule satisfiable inside a session
+	// with no profiler. Asking again after that answer spends a round to be told
+	// the same thing.
+	for _, item := range decision.Findings {
+		for _, alternative := range item.Alternatives {
+			if alternative.NotCheckable != "" {
+				return ""
+			}
+		}
+	}
+	return "the alert assessment's cause is bounded, not identified, and nothing continues the " +
+		"investigation: name the check that would identify it — a heap profile at high RSS, a " +
+		"reload counter, connection age, whatever discriminates — and keep this episode open " +
+		"with a recheck or wait_external that runs it, or return blocked with that check as the " +
+		"exact obstacle, or say in the finding's alternative why no discriminating check is " +
+		"available"
 }
 
 // ContinuesThisEpisode reports whether the turn left work running rather than

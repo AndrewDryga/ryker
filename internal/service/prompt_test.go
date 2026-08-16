@@ -616,7 +616,20 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // cannot compress, for the reason the assignment change-class set could not —
 // the worst correction loop on record, 6.6 repeats on one episode, was a model
 // choosing from a set it had never been shown.
-const staticWatchPromptBytes = 49668
+//
+// Raised to 50198 on 2026-08-16 for 530 bytes that answer a different failure:
+// a cause that restates the alert. VA1 traefik memory saturated its 4,096 MiB
+// cap and the recorded cause was, in substance, that the cap is 4,096 MiB —
+// bounded, decision_ready, and out to the operator as "raise the cap and roll
+// the job", while the same result's material gap said the load-versus-leak
+// split was unresolved for want of a heap profile. 370 bytes go to the depth
+// paragraph — say what is consuming the resource, and a bounded cause is an
+// open question to keep the episode open on — and 160 to record_alert_assessment's
+// own contract line, where a model reading the operation shape will meet it.
+// Neither is a rule a validator alone can carry: BoundedCauseCorrection can
+// refuse a bounded cause that closes on nothing, but nothing host-side can tell
+// a restated symptom from a cause.
+const staticWatchPromptBytes = 50198
 
 // The static prompt must not grow without someone deciding it should.
 //

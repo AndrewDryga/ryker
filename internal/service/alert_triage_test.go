@@ -185,6 +185,8 @@ func TestWatchedAppAlertBurstEvaluatesEveryEventInOrder(t *testing.T) {
 	}
 	coopClient := newFakeCoop()
 	observedAt := time.Now().UTC().Format(time.RFC3339)
+	pollAfter := time.Now().UTC().Add(30 * time.Minute).Format(time.RFC3339)
+	deadline := time.Now().UTC().Add(2 * time.Hour).Format(time.RFC3339)
 	coopClient.completeQueue = []string{
 		fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"operations":[`+
 			`{"id":"ev-1","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"the deployed Cassandra topology is current","observation":"the repository declares the current Cassandra service and operating threshold","relation":"supports","health_effect":"none","source_type":"repository","source_name":"cassandra topology","dimensions":{"repository":"repo","environment":"production","revision":"current"}}},`+
@@ -194,8 +196,14 @@ func TestWatchedAppAlertBurstEvaluatesEveryEventInOrder(t *testing.T) {
 			`{"id":"cov-3","type":"record_coverage","coverage":{"layer":"slo","claim_ids":["impact.current"],"status":"unknown","detail":"No separate user-impact measure is available."}},`+
 			`{"id":"cov-4","type":"record_coverage","coverage":{"layer":"dependency","claim_ids":["dependency.current_health"],"status":"unknown","detail":"Dependency health does not change the confirmed throughput failure."}},`+
 			`{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue","impact":"Current Cassandra throughput is below its operating threshold.","cause_status":"bounded","cause":"The Cassandra service is reachable, but aggregate request throughput remains below 4k.","cause_claim_ids":["application.functional_behavior"],"evidence_refs":["cassandra-throughput"],"immediate_action":"Reduce nonessential Cassandra load while restoring service capacity.","verification":"Confirm fresh total RPS stays above 4k and request errors stop.","long_term_solution":"Add capacity and traffic controls that keep Cassandra above its operating threshold."}},`+
+			// The bounded cause carries the check that would settle it. Without
+			// this wait the first answer is the 2026-08-16 Traefik shape —
+			// confirmed issue, cause bounded, decision_ready, nothing open — and
+			// BoundedCauseCorrection sends it back before this test can measure
+			// anything about ordering.
+			`{"id":"wait-throughput","type":"wait_external","external_wait":{"id":"wakeup-cassandra-rps","kind":"scheduled_verification","poll_after":%[2]q,"deadline":%[3]q}},`+
 			`{"id":"complete","type":"complete_episode","completion":{"message":"Cassandra throughput is below 4k. Reduce nonessential load while restoring capacity, then verify RPS stays above 4k and errors stop.","completion":{"status":"decision_ready","verdict":"unhealthy","summary":"Cassandra throughput is currently below its operating threshold."}}}`+
-			`]}`, observedAt),
+			`]}`, observedAt, pollAfter, deadline),
 		fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":2,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"operations":[`+
 			`{"id":"ev-1","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"the deployed Cassandra topology is current","observation":"the repository declares the current Cassandra service and operating threshold","relation":"supports","health_effect":"none","source_type":"repository","source_name":"cassandra topology","dimensions":{"repository":"repo","environment":"production","revision":"current"}}},`+
 			`{"id":"ev-2","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"Cassandra serves requests above its operating threshold","observation":"fresh monitoring reports total RPS above 4k and the request check is passing","relation":"supports","health_effect":"none","source_type":"monitoring","source_name":"Cassandra throughput","observed_at":%[1]q,"dimensions":{"service":"cassandra","endpoint":"requests","environment":"production","window":"current"}}},`+
