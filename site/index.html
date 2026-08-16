@@ -66,7 +66,7 @@
 
       <div class="hero-frame solo">
         <div class="hero-aside">
-          <p class="hero-sub">Responder is an AI teammate for on-call and infrastructure teams. It lives in Slack, watches your alerts, and investigates with real evidence. <strong>Every claim names its source. Every risky action asks a person first.</strong></p>
+          <p class="hero-sub">Responder is an AI teammate for on-call and infrastructure teams. It runs autonomously and ships fixes proactively. <strong>Every claim comes with evidence. Every risky action asks a person first.</strong></p>
 
           <div class="btn-row">
             <a class="btn go" href="docs/index.html">Read the docs</a>
@@ -78,12 +78,7 @@
     </div>
   </section>
 
-  <!-- Credo --------------------------------------------------------------- -->
-  <section class="credo">
-    <div class="wrap">
-      <p>It would rather say <span class="said">“I could not verify this”</span> than&#160;guess.</p>
-    </div>
-  </section>
+
 
   <!-- Responder during a real incident ------------------------------------
        Seven steps, one real thread, everything from the record. The windows
@@ -101,9 +96,9 @@
 
         <!-- 1 -->
         <article class="step beatline" id="s-alert">
-          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>Aug 11 &middot; 18:14Z</time></span>
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>12:14 PM</time></span>
           <div class="step-text">
-            <p class="step-num">1 &middot; 12:14 PM</p>
+            <p class="step-num">01<span class="tmin"> · 12:14 PM</span></p>
             <h3>It all starts with an alert</h3>
             <p>Terraform posted a run notification. Nobody asked Responder anything &mdash; it reads app alerts in your channels the way an engineer on the team does, and reacts on its own.</p>
           </div>
@@ -128,9 +123,9 @@
 
         <!-- 2 -->
         <article class="step flip beatline" id="s-triage">
-          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>18:16Z</time></span>
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>12:16 PM</time></span>
           <div class="step-text">
-            <p class="step-num">2 &middot; 12:16 PM</p>
+            <p class="step-num">02<span class="tmin"> · 12:16 PM</span></p>
             <h3>Two minutes later, it had already investigated</h3>
             <p>Through Emisar &mdash; governed, read-only &mdash; it pulled the Nomad events and had the failure story before anyone asked: what rolled back, why retrying was unsafe, and why there were no logs at all.</p>
           </div>
@@ -159,9 +154,9 @@
 
         <!-- 3 -->
         <article class="step beatline" id="s-teammate">
-          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>19:03Z</time></span>
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>1:03 PM</time></span>
           <div class="step-text">
-            <p class="step-num">3 &middot; 1:03 PM</p>
+            <p class="step-num">03<span class="tmin"> · 1:03 PM</span></p>
             <h3>It talks like a teammate</h3>
             <p>No dashboard to open, no bot syntax to remember. Think out loud at it, push back at it &mdash; it answers in the thread, and it disagrees with receipts: the CI job really did succeed, and that still isn&rsquo;t the cause.</p>
           </div>
@@ -197,9 +192,9 @@
 
         <!-- 4 -->
         <article class="step flip beatline" id="s-rootcause">
-          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>19:44Z</time></span>
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>1:44 PM</time></span>
           <div class="step-text">
-            <p class="step-num">4 &middot; 1:44 PM</p>
+            <p class="step-num">04<span class="tmin"> · 1:44 PM</span></p>
             <h3>Any tool it needs, to find the root cause</h3>
             <p>Source code, metrics, logs, registries &mdash; whatever your team trusts it with, through governed read-only actions. Four minutes into the deep dive it caught the registry lying: a fake 404 hiding an auth failure. And the one thing the evidence could not settle is said out loud.</p>
           </div>
@@ -221,31 +216,38 @@
 
         <!-- 5 -->
         <article class="step beatline" id="s-pr">
-          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>19:50:46Z</time></span>
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>1:50 PM</time></span>
           <div class="step-text">
-            <p class="step-num">5 &middot; 1:45 &ndash; 1:50 PM</p>
+            <p class="step-num">05<span class="tmin"> · 1:50 PM</span></p>
             <h3>It wrote the fix, as a pull request</h3>
             <p>&ldquo;Prepare PR to fix it&rdquo; &mdash; five words. The change happened in an isolated fork: commit 54d9dc0e makes every credential rotation roll every node, and alerts on the exact auth error that a healthy-looking readiness check had hidden. It cannot merge and cannot deploy. A person does that.</p>
           </div>
-          <figure class="mock" aria-labelledby="mock-pr-cap">
-            <figcaption id="mock-pr-cap" class="vh">The publication record, condensed: commit 54d9dc0e &mdash; Zot: roll credentials and alert on auth failures &mdash; in an isolated fork of tenant-infra. Draft PR 526, GitHub checks 5 of 5. By its own report: no apply, no deployment, no push, no credential rotation was performed.</figcaption>
-            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>publication</span><span class="surface-tag">&middot; control plane</span><span class="right">19:50:46Z</span></div>
-            <div class="mock-body" aria-hidden="true">
-              <div class="mem">
-                <div class="mem-row"><span class="dot good"></span><span><span class="k">commit</span><span class="v">54d9dc0e &mdash; &ldquo;Zot: roll credentials and alert on auth failures&rdquo; <i>isolated fork</i></span></span></div>
-                <div class="mem-row"><span class="dot good"></span><span><span class="k">draft PR</span><span class="v">tenantcorp/tenant-infra #526 &middot; checks 5 of 5 <i>a person merges</i></span></span></div>
-                <div class="mem-row"><span class="dot idle"></span><span><span class="k">not performed</span><span class="v">no apply, no deployment, no push, no credential rotation <i>its own report</i></span></span></div>
+          <figure class="mock-slack" aria-labelledby="mock-pr-cap">
+            <figcaption id="mock-pr-cap" class="vh">The pull-request card Responder posted, real and condensed. At 1:50 PM: completed and committed as 54d9dc0e &mdash; Zot: roll credentials and alert on auth failures. Then: draft PR ready, with a button to open draft PR 526. The branch contains the exact tree approved by the latest readiness review; publication used lease protection. Draft only &mdash; Responder did not merge, deploy, sign, or change infrastructure.</figcaption>
+            <div class="slack-frame" aria-hidden="true">
+              <div class="slack-msg">
+                <span class="slack-av av-app">R</span>
+                <div class="slack-said">
+                  <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">1:50 PM</span></p>
+                  <p class="slack-text">Completed and committed as <span class="slack-code">54d9dc0e</span> &mdash; <strong>Zot: roll credentials and alert on auth failures.</strong> Credential rotations now roll every Zot allocation, and Grafana alerts on the exact auth error even while <span class="slack-code">/v2/</span> stays ready.</p>
+                  <div class="slack-attach ok">
+                    <p class="slack-text"><strong>Draft PR ready</strong></p>
+                    <p class="slack-sub">The branch contains the exact tree approved by the readiness review. Publication used lease protection.</p>
+                    <p class="slack-btnrow"><span class="slack-btn">Open draft PR #526</span></p>
+                  </div>
+                  <p class="slack-text slack-dim">Draft only. Responder did not merge, deploy, sign, or change infrastructure.</p>
+                </div>
               </div>
             </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">boundary</span> <span class="note">it cannot merge. it cannot deploy. always.</span> <span class="prov">real episode &mdash; condensed&#8202;<span class="fnmark">2</span></span></p>
+            <p class="mock-note" aria-hidden="true"><span class="tag">boundary</span> <span class="note">it cannot merge. it cannot deploy. always.</span> <span class="prov">real thread &mdash; condensed&#8202;<span class="fnmark">2</span></span></p>
           </figure>
         </article>
 
         <!-- 6 -->
         <article class="step flip beatline" id="s-watch">
-          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>19:59Z</time></span>
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>1:59 PM</time></span>
           <div class="step-text">
-            <p class="step-num">6 &middot; 1:53 &ndash; 1:59 PM</p>
+            <p class="step-num">06<span class="tmin"> · 1:59 PM</span></p>
             <h3>It watched the merge, and the rollout</h3>
             <p>Checks passed, 5 of 5. When you asked &ldquo;can you explain how your fix works?&rdquo; &mdash; it could, mechanism and all. After the merge it kept the thread linked to deployment and Terraform updates, and watched the fix roll out as Nomad job v8 the next evening.</p>
           </div>
@@ -274,9 +276,9 @@
 
         <!-- 7 -->
         <article class="step beatline" id="s-verify">
-          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>Aug 15 &middot; 19:55Z</time></span>
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>Aug 15</time></span>
           <div class="step-text">
-            <p class="step-num">7 &middot; Aug 12 &ndash; Aug 15</p>
+            <p class="step-num">07<span class="tmin"> · Aug 15</span></p>
             <h3>Then it double-checked. Twice.</h3>
             <p>Asked to make sure the issue stayed gone, it scheduled follow-up checks for the next day and four days out &mdash; each proposed and confirmed separately, nothing scheduled until a person says so. The last one ran on August 15 and closed the story.</p>
           </div>
@@ -337,24 +339,17 @@
     <div class="wrap">
       <div class="section-head">
         <p class="beat-time-inline">It understands you</p>
-        <h2 id="und-h">Tell it how you want things.</h2>
-        <p>&ldquo;Keep replies short in this channel.&rdquo; &ldquo;Always verify before claiming recovery.&rdquo; Say it in words &mdash; Responder turns it into a typed preference or rule with an exact scope, expiry, and safety boundary, shows it to you, and applies it only after you confirm. Change your mind any time; nothing edits confirmed memory silently.</p>
+        <h2 id="und-h">It understands you.</h2>
+        <p>Behavior is shaped in plain words, and it changes only on the record.</p>
       </div>
-      <div class="trust-grid">
-        <figure class="mock" aria-labelledby="und-mock-cap">
-          <figcaption id="und-mock-cap" class="vh">A confirmed preference and a standing rule, from the record: response detail set to concise, scoped to one channel, expiring in 78 days; and a read-only rule mapping deployments to a verification check in this channel. Beneath: memory advises, it never authorizes.</figcaption>
-          <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>confirmed memory</span><span class="surface-tag">&middot; control plane</span><span class="right">scoped &middot; expiring</span></div>
-          <div class="mock-body" aria-hidden="true">
-            <div class="mem">
-              <div class="mem-row"><span class="dot good"></span><span><span class="k">preference</span><span class="v">response_detail = concise <i>this channel &middot; expires in 78 days</i></span></span></div>
-              <div class="mem-row"><span class="dot good"></span><span><span class="k">standing rule</span><span class="v">deployment &rarr; verify_deployment <i>read-only &middot; this channel</i></span></span></div>
-            </div>
-          </div>
-          <p class="mock-note" aria-hidden="true"><span class="tag">boundary</span> <span class="note">memory advises. It never authorizes.</span> <span class="prov">real entries &mdash; condensed&#8202;<span class="fnmark">2</span></span></p>
-        </figure>
+      <div class="und-grid">
+        <div class="und-text">
+          <h3>Tell it how you want things</h3>
+          <p>&ldquo;Keep replies short in this channel.&rdquo; &ldquo;Always verify before claiming recovery.&rdquo; Say it in words &mdash; Responder turns it into a typed preference or rule with an exact scope and expiry, shows it to you, and applies it only after you confirm. Nothing edits confirmed memory silently.</p>
+        </div>
         <div class="und-text">
           <h3>It listens to feedback</h3>
-          <p>React to a reply with an emoji, or just say what was wrong &mdash; both are recorded as feedback, with sentiment and context. Nothing is quietly absorbed: feedback goes to a review queue, and behavior changes the way everything here changes &mdash; on the record, with a person deciding.</p>
+          <p>React to a reply with an emoji, or just say what was wrong. Both are recorded as feedback, with sentiment and context &mdash; and reviewed on the record, with a person deciding what changes. Nothing is quietly absorbed.</p>
         </div>
       </div>
     </div>
@@ -561,7 +556,6 @@
     <p>
       <a href="docs/index.html">Docs</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder">GitHub</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder/blob/main/SECURITY.md">Security</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder/blob/main/LICENSE">MIT license</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder/releases">Releases</a>
     </p>
-    <p>set in Space Grotesk &amp; Inter · no build, no trackers · works from file://</p>
   </div>
 </footer>
 
