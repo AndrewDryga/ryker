@@ -34,42 +34,44 @@
 }
 
 .report {
-  /* Paper. Warm, not clinical — a page, not a void. */
-  --paper: #faf9f6;
-  --paper-2: #f3f1ec;
-  --pink: #161616;        /* print ink; --ink stays the dark theme's token */
-  --pink-2: #3d3d3b;
-  --pmut: #6e6b64;        /* 4.9:1 on paper — captions, spine labels */
-  --prule: #e5e2db;       /* hairlines on paper */
-  --prule-2: #d8d4cb;
-  --pgreen: #0a7c55;      /* text-safe green, 4.9:1 on paper */
-  --pgreen-mark: #0e9f6e; /* marks only — the dark theme's mint washes out on paper */
-  --pred: #b3324b;
-  --pamber: #8a5d00;
+  /* The midnight edition: the record is typeset on the product's own dark.
+     Token names keep their print meanings — pink is ink, paper is ground —
+     so the editorial components read identically in either edition. */
+  --paper: #09090b;
+  --paper-2: #131316;
+  --pink: #f4f4f5;        /* print ink */
+  --pink-2: #d4d4d8;
+  --pmut: #a1a1aa;        /* 7.8:1 — captions, spine labels */
+  --prule: #1e1e21;       /* hairlines */
+  --prule-2: #2c2c31;
+  --pgreen: #36e6a5;      /* text-safe green on dark, 12.3:1 */
+  --pgreen-mark: #14cf8d;
+  --pred: #fb7185;
+  --pamber: #fbbf24;
 
   --serif: "Fraunces", Georgia, "Times New Roman", serif;
 
   background: var(--paper);
   color: var(--pink);
   font-size: 17px;
-  color-scheme: light;
+  color-scheme: dark;
 }
-.report ::selection { background: rgb(20 207 141 / .28); }
+.report ::selection { background: rgb(54 230 165 / .25); }
 
 /* Focus flips to ink on paper; inside a dark artifact it flips back to mint,
    because an ink outline on a near-black panel is no outline at all. */
-.report :focus-visible { outline: 2px solid var(--pink); outline-offset: 2px; }
-.report .mock :focus-visible, .report .slack-frame :focus-visible,
-.report .mock-slack :focus-visible { outline-color: #14cf8d; }
+.report :focus-visible { outline: 2px solid var(--pgreen-mark); outline-offset: 2px; }
+
 
 /* The first tab stop must be readable: the skip chip keeps ink-on-paper
    inverted, whatever the page's inherit rules say. */
 .report .skip { background: var(--pink); color: var(--paper); border-color: var(--pink); }
+.report .mock .fnmark { color: var(--pgreen-mark); }
 
 /* ---------------------------------------------------------------- masthead */
 
-.report .nav { background: rgb(250 249 246 / .88); }
-.report .nav.is-stuck { border-bottom: 1px solid var(--prule); background: rgb(250 249 246 / .92); }
+.report .nav { background: rgb(9 9 11 / .82); }
+.report .nav.is-stuck { border-bottom: 1px solid var(--prule-2); background: rgb(9 9 11 / .9); }
 .report .wordmark { color: var(--pink); }
 .report .nav-links a { color: var(--pink-2); }
 .report .nav-links a:hover { color: var(--pink); }
@@ -129,7 +131,7 @@
 .report .btn.line {
   background: transparent;
   color: var(--pink);
-  border: 1px solid #a49d8e; /* 3:1 on paper — a control boundary, not a hairline */
+  border: 1px solid #6e6e78; /* 4.2:1 on dark — a control boundary, not a hairline */
 }
 .report .btn.line:hover { border-color: var(--pink); box-shadow: none; }
 .report .btn-quiet { color: var(--pink-2); }
@@ -170,6 +172,12 @@
 }
 .report .beat-mark.warn .tick { border-color: var(--pred); }
 .report .beat-mark.ok .tick { border-color: var(--pgreen); }
+.report .beat-mark .nm {
+  font: 650 12px/1 var(--mono);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--pink);
+}
 .report .beat-mark time, .report .beat-mark .t {
   font: 550 12px/1 var(--mono);
   letter-spacing: .06em;
@@ -201,8 +209,8 @@
 
 /* The dark window on paper: a photograph in the report. */
 .report .slack-frame {
-  box-shadow: 0 1px 2px rgb(22 22 22 / .10), 0 12px 40px rgb(22 22 22 / .12);
-  border-color: #2b2e33;
+  box-shadow: 0 1px 0 rgb(255 255 255 / .04) inset, 0 16px 48px rgb(0 0 0 / .5);
+  border-color: #35373b;
 }
 
 /* Frame caption: mono, footnoted, part of the page — not the window. */
@@ -281,7 +289,7 @@
 /* Every control-plane panel keeps the product's real dark theme by
    re-scoping the dark tokens inside the artifact. The page shows the tool
    the way a report shows a photograph: true to the original, framed. */
-.report .artifact {
+.report .artifact-unused {
   --bg: #09090b;
   --panel: #131316;
   --panel-2: #18181b;
@@ -361,7 +369,6 @@
   text-decoration: none;
   margin-left: 2px;
 }
-.report .mock .fnmark { color: #14cf8d; }
 .report .footnotes {
   border-top: 1px solid var(--prule);
   padding-top: calc(var(--u, 8px) * 3);
@@ -377,12 +384,12 @@
 .report .cta h2 span { color: var(--pmut); }
 .report .install { background: var(--paper); border: 1px solid var(--prule-2); box-shadow: 0 1px 2px rgb(22 22 22 / .05); }
 .report .install .k { color: var(--pmut); }
-.report .install pre { background: #141414; border: 0; }
-.report .install pre code, .report .install pre .tok-v { color: #e8e6e1; }
+.report .install pre { background: #131316; border: 1px solid var(--prule-2); }
+.report .install pre code, .report .install pre .tok-v { color: #e4e4e7; }
 .report .install pre .tok-x, .report .install pre .tok-k { color: #14cf8d; }
 .report .install-note { color: var(--pink-2); }
 .report .install-note code { background: var(--paper-2); border: 1px solid var(--prule); color: var(--pink); }
-.report .copy { background: var(--paper); border-color: #a49d8e; color: var(--pink-2); }
+.report .copy { background: var(--paper); border-color: #6e6e78; color: var(--pink-2); }
 .report .copy:hover { color: var(--pink); border-color: var(--pink); }
 
 /* --------------------------------------------------------------- colophon */
@@ -491,8 +498,8 @@
 .report .slack-annotated .slack-note b { color: var(--pink); }
 .report .slack-annotated .slack-note { color: var(--pmut); }
 .report .slack-annotated .slack-note i { color: var(--prule-2); }
-.report .slack-annotated::after { background: #b3ab9c; }
-.report .slack-annotated .slack-note::before { background: #b3ab9c; }
+.report .slack-annotated::after { background: #4a4a52; }
+.report .slack-annotated .slack-note::before { background: #4a4a52; }
 
 
 @media (max-width: 480px) {
