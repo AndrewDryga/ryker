@@ -43,17 +43,21 @@
 }
 
 :root {
-  /* Depth: void → surface → raised → overlay. Cards lift off the page by
-     material, not by loud borders. */
-  --void: #0a0a0b;
-  --surface: #121216;
-  --raised: #17171b;
-  --overlay: #1c1c22;
+  /* Depth: void → surface → raised → overlay. The first cut of this scale
+     spaced the layers three lightness points apart and the whole console
+     rendered as one black field on a real monitor — cards, bands and rules
+     all below the threshold a display can show. The steps are wide enough
+     to survive black-crush now: if a squinted thumbnail doesn't show the
+     cards, the cards aren't there. */
+  --void: #0a0a0c;
+  --surface: #17181e;
+  --raised: #1e2027;
+  --overlay: #252730;
   /* Hairlines: edges bound components, rules divide their interiors, and the
      strong edge marks something interactive under the pointer. */
-  --edge: #26262c;
-  --rule: #1d1d22;
-  --edge-2: #32323a;
+  --edge: #32343e;
+  --rule: #262832;
+  --edge-2: #434656;
   /* Ink, five steps. Body text never drops below --mute; --ghost is for
      furniture only. */
   --ink: #f5f5f6;
@@ -68,9 +72,10 @@
   --live-tint: rgb(54 230 165 / .08);
   --warn: #fbbf24;
   --alarm: #fb7185;
-  /* Machined card: a ring, a breath of drop, and a hairline of top light. */
-  --card-shadow: 0 1px 2px rgb(0 0 0 / .4), inset 0 1px 0 rgb(255 255 255 / .025);
-  --card-face: linear-gradient(180deg, #15151a, var(--surface) 62%);
+  /* Machined card: a ring, real drop, and a hairline of top light — cards
+     must visibly sit ON the page, not dissolve into it. */
+  --card-shadow: 0 1px 2px rgb(0 0 0 / .5), 0 10px 28px -14px rgb(0 0 0 / .55), inset 0 1px 0 rgb(255 255 255 / .04);
+  --card-face: linear-gradient(180deg, #1c1e25, var(--surface) 58%);
   --r-card: 12px;
   --r-ctl: 8px;
   --sans: "InterVariable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -116,6 +121,8 @@ a:hover { color: var(--live); text-decoration: underline; text-underline-offset:
 
 /* Sidebar ------------------------------------------------------------------ */
 
+/* The rail is chrome, the main column is canvas: two different darks with a
+   real seam between them, so the app has a silhouette instead of one field. */
 .sidebar {
   width: 232px;
   flex: 0 0 232px;
@@ -126,7 +133,7 @@ a:hover { color: var(--live); text-decoration: underline; text-underline-offset:
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--void);
+  background: #0e0f13;
 }
 
 .brand {
@@ -197,7 +204,8 @@ a:hover { color: var(--live); text-decoration: underline; text-underline-offset:
 
 .sidebar a.on {
   color: var(--ink);
-  background: var(--live-tint);
+  background: rgb(54 230 165 / .12);
+  box-shadow: inset 0 0 0 1px rgb(54 230 165 / .22);
 }
 .sidebar a.on .nav-icon { opacity: 1; color: var(--live); }
 
@@ -257,8 +265,8 @@ header {
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  margin-bottom: 28px;
-  padding-bottom: 18px;
+  margin-bottom: 32px;
+  padding-bottom: 20px;
   border-bottom: 1px solid var(--rule);
 }
 
@@ -271,8 +279,8 @@ header {
 
 h1 {
   margin: 0;
-  font: 560 27px/1.2 var(--display);
-  letter-spacing: -0.022em;
+  font: 560 30px/1.15 var(--display);
+  letter-spacing: -0.025em;
 }
 
 /* Every page states the question it answers. A section that cannot say what
@@ -295,8 +303,8 @@ main p { margin: 0; }
    cards and tables, where a two-word tag is what it is naming. */
 h2 {
   margin: 0;
-  font: 560 15.5px/1.4 var(--display);
-  letter-spacing: -0.008em;
+  font: 560 17px/1.4 var(--display);
+  letter-spacing: -0.01em;
   color: var(--ink);
 }
 
@@ -461,7 +469,7 @@ a.metric:hover { text-decoration: none; background: var(--raised); }
   box-shadow: var(--card-shadow);
 }
 
-.row { display: block; padding: 13px 18px; border-bottom: 1px solid var(--rule); color: inherit; }
+.row { display: block; padding: 14px 20px; border-bottom: 1px solid var(--rule); color: inherit; }
 .row:last-child { border-bottom: 0; }
 a.row { transition: background .1s ease; box-shadow: inset 2px 0 0 transparent; }
 a.row:hover { background: var(--raised); text-decoration: none; box-shadow: inset 2px 0 0 var(--live-dim); }
@@ -538,6 +546,9 @@ th {
 
 td { padding: 11px 16px; border-bottom: 1px solid var(--rule); vertical-align: top; line-height: 1.5; }
 tr:last-child td { border-bottom: 0; }
+/* Zebra under the hairlines: fifty rows of numbers need two devices to stay
+   scannable, and on a dark table the stripe costs nothing. */
+tr:nth-child(even) td { background: rgb(255 255 255 / .016); }
 tr:hover td { background: var(--raised); }
 
 /* Numbers compare only when they line up — and alignment is opt-in via .num,
@@ -682,8 +693,8 @@ blockquote.challenge::before { content: "challenger · "; font-style: normal; fo
 
 /* One size and one voice for every control. */
 button {
-  font: 500 12.5px/1.35 var(--sans);
-  padding: 6px 13px;
+  font: 500 13px/1.35 var(--sans);
+  padding: 7px 14px;
   border-radius: var(--r-ctl);
   border: 1px solid var(--edge);
   background: var(--raised);
@@ -706,8 +717,8 @@ details.confirm > summary {
   list-style: none;
   cursor: pointer;
   display: inline-block;
-  font: 500 12.5px/1.35 var(--sans);
-  padding: 6px 13px;
+  font: 500 13px/1.35 var(--sans);
+  padding: 7px 14px;
   border-radius: var(--r-ctl);
   border: 1px solid var(--edge);
   background: var(--raised);
@@ -1386,6 +1397,9 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
   text-align: left;
   vertical-align: top;
 }
+/* Record dumps stay flat: the stripe belongs to the summary tables above,
+   not to a raw ledger read line by line. */
+.trace-table tr:nth-child(even) td { background: none; }
 .trace-table th {
   color: var(--quiet);
   background: #111114;
@@ -1657,7 +1671,7 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
     ".   facts  facts";
   align-items: baseline;
   column-gap: 10px;
-  padding: 14px 18px 15px;
+  padding: 15px 20px 16px;
 }
 /* The dot is centred in the title's own line box rather than aligned to its
    baseline: an empty inline box has no text to take a baseline from. */
