@@ -200,7 +200,10 @@ from Slack or a webhook.</p>{{end}}
   <tr><th>What was asked</th><th>Status</th><th>Repository</th><th>Channel</th><th class="num">Episodes</th><th>Pull request</th><th>Last change</th></tr>
   {{range .}}
   <tr><td><a href="/incidents/{{.ID}}">{{truncate 70 .Title}}</a></td>
-      <td><span class="pill{{if eq .Status "closed"}} good{{end}}">{{.Status}}</span></td>
+      {{/* Live work is the lit state: emerald means "in motion", and a closed
+           task has nothing left to act on. It was inverted — the one finished
+           row glowed while five active ones sat gray. */}}
+      <td><span class="pill{{if eq .Status "active"}} good{{end}}">{{.Status}}</span></td>
       <td class="mono">{{.Repository}}</td><td>{{.Channel}}</td>
       <td class="mono num">{{.Episodes}}</td>
       <td>{{if .PRNumber}}#{{.PRNumber}} <span class="note">{{.PRState}}{{if .Checks}} · checks {{.Checks}}{{end}}</span>{{else}}<span class="note">none</span>{{end}}</td>

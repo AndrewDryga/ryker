@@ -1,10 +1,14 @@
-/* One hand-written stylesheet, vendored. No framework, no CDN: the dashboard
-   must render with the network off, and nothing about production work should
-   leave the machine.
+/* The console, second generation. One hand-written stylesheet, vendored — no
+   framework, no CDN: the dashboard must render with the network off, and
+   nothing about production work should leave the machine.
 
-   The system is Emisar's — the zinc scale and the emerald logo green
-   (portal/apps/emisar_web/assets/tailwind.config.js) — with rules this surface
-   learned by screenshotting itself:
+   The design is a flight deck: three layers of surface over a void, hairline
+   interiors, instrument clusters for numbers, and a display face that speaks
+   only when the page states a headline fact. Density is the point — an
+   operator scans hundreds of rows — so depth and type carry hierarchy, not
+   size or noise.
+
+   Rules this surface learned by screenshotting itself, kept as law:
 
    - Accent means "you can go somewhere or do something". The first iteration
      set every next-action paragraph in full emerald, and with everything
@@ -13,14 +17,16 @@
      compared by eye.
    - State is a colored dot beside quiet text, not a filled badge. Eleven
      bordered chips per screen out-shouted the content they described.
-   - A global anchor rule exists because it once did not, and every "episodes →"
-     link on the Usage page shipped browser-default blue on black. */
+   - Good news is quiet. Most work completes; a page of fifty green ticks
+     says exactly as little as a page of none. Trouble keeps its colour.
+   - A global anchor rule exists because it once did not, and every
+     "episodes →" link on the Usage page shipped browser-default blue. */
 
 /* Two self-hosted faces, the same subsets the product site ships (~98 KB
    total, embedded in the binary like everything else). Inter carries the UI;
-   Space Grotesk speaks only where the page states a headline fact — a title,
-   an outcome, a big number. Identifiers and timestamps stay in the system
-   mono: they are machine facts, and the machine's own face suits them. */
+   Space Grotesk speaks the headline facts. Identifiers and timestamps stay in
+   the system mono: they are machine facts, and the machine's own face suits
+   them. */
 @font-face {
   font-family: "InterVariable";
   font-style: normal;
@@ -37,25 +43,36 @@
 }
 
 :root {
-  --bg: #09090b;          /* zinc-950 */
-  --panel: #131316;       /* between 950 and 900: cards barely lift off the page */
-  --panel-2: #18181b;     /* zinc-900, hover */
-  --line: #27272a;        /* zinc-800 */
-  --line-2: #1e1e21;      /* hairlines inside components */
-  --ink: #f4f4f5;         /* zinc-100 */
-  --ink-2: #d4d4d8;       /* zinc-300, long-form body */
-  --dim: #a1a1aa;         /* zinc-400 */
-  --faint: #71717a;       /* zinc-500 */
-  --accent: #36e6a5;      /* brand-400, the logo green */
-  --accent-dim: #14cf8d;  /* brand-500, resting fills */
-  --accent-ghost: rgb(54 230 165 / .07);
-  --warn: #fbbf24;        /* amber-400 */
-  --bad: #fb7185;         /* rose-400 */
-  --good: #36e6a5;
-  /* An earlier note here rejected the portal's 340 KB InterVariable as a poor
-     trade for an internal page. The site's subsets changed the arithmetic:
-     76 KB of Inter and 22 KB of Space Grotesk, served from the binary, still
-     rendering with the network off. */
+  /* Depth: void → surface → raised → overlay. Cards lift off the page by
+     material, not by loud borders. */
+  --void: #0a0a0b;
+  --surface: #121216;
+  --raised: #17171b;
+  --overlay: #1c1c22;
+  /* Hairlines: edges bound components, rules divide their interiors, and the
+     strong edge marks something interactive under the pointer. */
+  --edge: #26262c;
+  --rule: #1d1d22;
+  --edge-2: #32323a;
+  /* Ink, five steps. Body text never drops below --mute; --ghost is for
+     furniture only. */
+  --ink: #f5f5f6;
+  --body: #d4d4da;
+  --mute: #a2a2ac;
+  --quiet: #73737d;
+  --ghost: #56565f;
+  /* One live colour and two alarms. Emerald is reserved for "actionable or
+     alive"; amber is "needs a person"; rose is "went wrong". */
+  --live: #36e6a5;
+  --live-dim: #14cf8d;
+  --live-tint: rgb(54 230 165 / .08);
+  --warn: #fbbf24;
+  --alarm: #fb7185;
+  /* Machined card: a ring, a breath of drop, and a hairline of top light. */
+  --card-shadow: 0 1px 2px rgb(0 0 0 / .4), inset 0 1px 0 rgb(255 255 255 / .025);
+  --card-face: linear-gradient(180deg, #15151a, var(--surface) 62%);
+  --r-card: 12px;
+  --r-ctl: 8px;
   --sans: "InterVariable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --display: "Space Grotesk", "InterVariable", ui-sans-serif, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
@@ -69,33 +86,29 @@ body {
   margin: 0;
   display: flex;
   min-height: 100vh;
-  background: var(--bg);
+  background: var(--void);
   color: var(--ink);
   font: 14px/1.55 var(--sans);
   font-feature-settings: "liga" 1, "calt" 1;
   -webkit-font-smoothing: antialiased;
 }
 
-/* One ambient accent glow behind the top of the page. Depth, not decoration:
-   at two percent opacity it separates the chrome from the void without ever
-   reading as a colored element. */
+/* One ambient glow behind the top of the page: depth, not decoration. */
 main {
   background:
-    radial-gradient(520px 260px at 18% -60px, rgb(54 230 165 / .045), transparent 70%),
-    radial-gradient(700px 300px at 85% -120px, rgb(96 165 250 / .03), transparent 70%);
+    radial-gradient(560px 280px at 16% -80px, rgb(54 230 165 / .04), transparent 70%),
+    radial-gradient(720px 320px at 85% -140px, rgb(96 165 250 / .028), transparent 70%);
 }
 
 ::selection { background: rgb(54 230 165 / .25); }
 
 /* Links are the accent, quietly. Underline appears on hover so a table of
    links does not render as a table of underlines. */
-a { color: var(--accent-dim); text-decoration: none; }
-a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+a { color: var(--live-dim); text-decoration: none; }
+a:hover { color: var(--live); text-decoration: underline; text-underline-offset: 3px; }
 
-:focus-visible { outline: 2px solid var(--accent-dim); outline-offset: 2px; border-radius: 4px; }
+:focus-visible { outline: 2px solid var(--live-dim); outline-offset: 2px; border-radius: 4px; }
 
-/* Thin theme scrollbars, as the portal does — the OS default fat grey bar
-   reads as a foreign widget inside dark insets. */
 * { scrollbar-width: thin; scrollbar-color: #3f3f46 transparent; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 9999px; }
@@ -104,65 +117,75 @@ a:hover { color: var(--accent); text-decoration: underline; text-underline-offse
 /* Sidebar ------------------------------------------------------------------ */
 
 .sidebar {
-  width: 224px;
-  flex: 0 0 224px;
-  border-right: 1px solid var(--line);
-  padding: 20px 0;
+  width: 232px;
+  flex: 0 0 232px;
+  border-right: 1px solid var(--rule);
+  padding: 18px 0 14px;
   position: sticky;
   top: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: var(--void);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 2px 20px 18px;
+  gap: 10px;
+  padding: 4px 16px 16px;
   font: 600 15px/1.4 var(--display);
   letter-spacing: -0.01em;
   color: var(--ink);
 }
 
+/* The mark is a machined tile with the live dot inside it — a product mark,
+   not a status lamp. The health lamp lives in the footer where it means
+   something. */
 .brand .dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  background: var(--accent);
-  box-shadow: 0 0 12px rgb(54 230 165 / .5);
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  flex: none;
+  background:
+    radial-gradient(5px 5px at 50% 50%, var(--live) 40%, rgb(54 230 165 / .35) 60%, transparent 75%),
+    linear-gradient(180deg, #1a1a20, #121216);
+  border: 1px solid var(--edge);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .04);
 }
 
 .brand .deploy {
-  font: 500 11px/1.6 var(--mono);
-  color: var(--dim);
+  font: 500 11px/1.7 var(--mono);
+  color: var(--mute);
   margin-left: auto;
-  padding: 0 7px;
-  border: 1px solid var(--line);
+  padding: 0 8px;
+  border: 1px solid var(--edge);
   border-radius: 999px;
-  background: var(--panel);
+  background: var(--surface);
 }
 
-.sidebar ul { list-style: none; margin: 0 0 6px; padding: 0; }
+.sidebar ul { list-style: none; margin: 0 8px 4px; padding: 0; }
 
 /* Three named sections instead of ten flat entries: operate the work,
    improve the behaviour, inspect the system. */
 .nav-group {
-  padding: 14px 20px 5px;
+  padding: 18px 12px 6px;
   font: 650 9.5px/1.4 var(--mono);
   letter-spacing: 1.1px;
   text-transform: uppercase;
-  color: #52525b;
+  color: var(--ghost);
 }
 
+/* Nav rows are blocks, not bars: the active page is a lit tile in the rail,
+   which reads at a glance from the corner of the eye. */
 .sidebar a {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 7px 20px 7px 18px;
-  color: var(--dim);
-  border-left: 2px solid transparent;
+  gap: 10px;
+  margin: 1px 0;
+  padding: 7px 10px;
+  border-radius: var(--r-ctl);
+  color: var(--mute);
   font-size: 13.5px;
   transition: color .12s ease, background .12s ease;
 }
@@ -170,48 +193,52 @@ a:hover { color: var(--accent); text-decoration: underline; text-underline-offse
 .nav-icon { width: 15px; height: 15px; flex: none; opacity: .75; }
 .nav-label { min-width: 0; }
 
-.sidebar a:hover { color: var(--ink); text-decoration: none; background: rgb(255 255 255 / .02); }
+.sidebar a:hover { color: var(--ink); text-decoration: none; background: rgb(255 255 255 / .03); }
 
 .sidebar a.on {
   color: var(--ink);
-  border-left-color: var(--accent);
-  background: var(--accent-ghost);
+  background: var(--live-tint);
 }
-.sidebar a.on .nav-icon { opacity: 1; color: var(--accent); }
+.sidebar a.on .nav-icon { opacity: 1; color: var(--live); }
 
 /* A count that would make someone open the page: amber for "needs you",
    plain for volume. Absent at zero — a zero badge is decoration. */
 .sidebar .badge {
   margin-left: auto;
   font: 600 11px/1.7 var(--mono);
+  font-variant-numeric: tabular-nums;
   padding: 0 7px;
   border-radius: 9px;
-  background: var(--panel-2);
-  color: var(--dim);
+  background: var(--raised);
+  color: var(--mute);
 }
 
 .sidebar .badge.warn { background: rgb(251 191 36 / .12); color: var(--warn); }
 
+/* The footer is the machine's own vitals, set in a card of its own: the lamp,
+   the binary that is running, and the schema it is running against. */
 .sidebar .foot {
-  margin-top: auto;
-  padding: 14px 20px 0;
+  margin: auto 12px 0;
+  padding: 11px 13px;
   display: grid;
   gap: 3px;
   font: 11px/1.5 var(--mono);
-  color: var(--faint);
-  border-top: 1px solid var(--line-2);
+  color: var(--quiet);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
 }
 
-.foot-health { display: flex; align-items: center; gap: 7px; color: var(--dim); }
+.foot-health { display: flex; align-items: center; gap: 7px; color: var(--mute); }
 .ready-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--good);
+  background: var(--live);
   box-shadow: 0 0 8px rgb(54 230 165 / .6);
   animation: breathe 3.2s ease-in-out infinite;
 }
-.ready-dot.down { background: var(--bad); box-shadow: 0 0 8px rgb(251 113 133 / .6); animation: none; }
+.ready-dot.down { background: var(--alarm); box-shadow: 0 0 8px rgb(251 113 133 / .6); animation: none; }
 
 @keyframes breathe {
   0%, 100% { box-shadow: 0 0 4px rgb(54 230 165 / .35); }
@@ -224,124 +251,161 @@ a:hover { color: var(--accent); text-decoration: underline; text-underline-offse
 
 /* Header ------------------------------------------------------------------- */
 
-main { flex: 1; min-width: 0; padding: 28px 40px 88px; max-width: 1240px; }
+main { flex: 1; min-width: 0; padding: 30px 44px 96px; max-width: 1280px; }
 
 header {
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  margin-bottom: 24px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--line-2);
+  margin-bottom: 28px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--rule);
 }
 
-.title-line { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; min-width: 0; }
+.title-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .title-line h1 { min-width: 0; overflow-wrap: anywhere; }
-.crumb { display: inline-flex; align-items: baseline; gap: 7px; font-size: 12.5px; color: var(--faint); }
-.crumb a { color: var(--faint); }
-.crumb a:hover { color: var(--accent); }
-.crumb i { color: #52525b; font-style: normal; }
+.crumb { display: inline-flex; align-items: baseline; gap: 8px; font-size: 12.5px; color: var(--quiet); }
+.crumb a { color: var(--quiet); }
+.crumb a:hover { color: var(--live); }
+.crumb i { color: var(--ghost); font-style: normal; }
 
 h1 {
   margin: 0;
-  font: 560 24px/1.25 var(--display);
-  letter-spacing: -0.02em;
+  font: 560 27px/1.2 var(--display);
+  letter-spacing: -0.022em;
 }
 
 /* Every page states the question it answers. A section that cannot say what
    it is for is usually one that should not exist. */
-.ask { margin: 5px 0 0; color: var(--dim); font-size: 13.5px; }
+.ask { margin: 6px 0 0; color: var(--mute); font-size: 14px; }
 
 /* Vertical rhythm is one flow rule, not a margin per component. Blocks are
-   12px apart, a new section breathes 40px above its heading and holds its
-   content 12px close — so a table can never fuse with the next table, and an
-   unwired panel can never weld onto the one below it, which is exactly how
-   the episode page rendered before this existed. Near against far at better
-   than three-to-one is what lets sections read as sections without a rule
-   between them. */
+   12px apart, a new section breathes 44px above its title and holds its
+   content 14px close — so a table can never fuse with the next table, and an
+   unwired panel can never weld onto the one below it. Near against far at
+   better than three-to-one is what lets sections read as sections without a
+   rule between them. */
 main > * + * { margin-top: 12px; }
-main > * + h2 { margin-top: 40px; }
-main > h2 + * { margin-top: 12px; }
+main > * + h2 { margin-top: 44px; }
+main > h2 + * { margin-top: 14px; }
 main p { margin: 0; }
 
+/* Section titles speak in the display face, sentence case — they are titles,
+   not labels. The small-caps voice moved down a level, to the labels inside
+   cards and tables, where a two-word tag is what it is naming. */
 h2 {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: .09em;
-  color: var(--dim);
   margin: 0;
-  font-weight: 600;
+  font: 560 15.5px/1.4 var(--display);
+  letter-spacing: -0.008em;
+  color: var(--ink);
 }
 
-h2 .note { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 4px; }
+h2 .note { font: 500 12px/1.5 var(--mono); font-variant-numeric: tabular-nums; color: var(--quiet); margin-left: 7px; letter-spacing: 0; }
 
-/* Metric cards --------------------------------------------------------------- */
-
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
-
-.panel {
-  background: linear-gradient(180deg, #17171b, var(--panel) 55%);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 14px 16px;
-}
-
-.metric { display: flex; flex-direction: column; gap: 2px; }
-.metric .k {
-  order: -1;
-  color: var(--faint);
-  font-size: 11px;
+/* The small-caps label: one voice for every in-card tag. */
+.metric .k, th, .unwired .tag, .set-name,
+.episode-metric-label, .trace-actor {
   text-transform: uppercase;
-  letter-spacing: .6px;
-  font-weight: 600;
+  letter-spacing: .07em;
 }
-/* Headline numbers speak in the display face; the mono stays downstairs with
-   the identifiers. Tabular-nums is kept for the faces that honor it so a grid
-   of these still lines up digit for digit. */
-.metric .n { font: 560 26px/1.2 var(--display); letter-spacing: -0.015em; font-variant-numeric: tabular-nums; }
-.metric.bad .n { color: var(--bad); }
-.metric.warn .n { color: var(--warn); }
-.metric.good .n { color: var(--good); }
-.metric-meter { margin-top: 8px; }
-a.metric { color: inherit; transition: border-color .12s ease, transform .12s ease; }
-a.metric:hover { text-decoration: none; border-color: var(--faint); background: var(--panel-2); transform: translateY(-1px); }
 
-/* Overview hero: is anything waiting, and what the last two weeks looked
-   like — one band, answered before the first heading. */
-.hero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 28px;
-  padding: 20px 24px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: linear-gradient(180deg, #17171b, var(--panel) 60%);
+/* Cards ---------------------------------------------------------------------- */
+
+/* Every .grid on the plane is a bank of metrics, and a bank is ONE
+   instrument: a single card whose cells divide by hairline, the same grammar
+   as the trace's outcome cluster. Separate bordered boxes for four numbers
+   read as four appliances. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
+  gap: 0;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-card);
+  background: var(--card-face);
+  box-shadow: var(--card-shadow);
   overflow: hidden;
 }
+.grid > .panel {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  border-left: 1px solid var(--rule);
+}
+.grid > .panel:first-child { border-left: 0; }
 
-/* The band's own border stays neutral in both moods. A tinted frame around
-   the whole strip read as an alarm before the number said anything; the
-   beacon and the headline word carry the mood on their own, and a whisper of
-   its colour washes in from the top-left — below the threshold of reading as
-   a colored element. */
+.panel {
+  background: var(--card-face);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-card);
+  padding: 15px 17px;
+  box-shadow: var(--card-shadow);
+}
+
+.metric { display: flex; flex-direction: column; gap: 3px; }
+.metric .k {
+  order: -1;
+  color: var(--quiet);
+  font-size: 10.5px;
+  font-weight: 600;
+  /* Two label lines reserved everywhere, so one wrapped label cannot drop
+     its number off the bank's shared baseline. */
+  min-height: 2lh;
+}
+.metric .n { font: 560 24px/1.15 var(--display); letter-spacing: -0.015em; font-variant-numeric: tabular-nums; }
+.metric .n small { font-size: 14px; font-weight: 500; color: var(--mute); letter-spacing: 0; }
+/* Tone is a rule at the cell's edge, not a repainted number — except
+   trouble, which keeps its colour. */
+.grid > .metric.bad { box-shadow: inset 3px 0 0 var(--alarm); }
+.grid > .metric.warn { box-shadow: inset 3px 0 0 var(--warn); }
+.grid > .metric.good { box-shadow: inset 3px 0 0 var(--live-dim); }
+.metric.bad .n { color: var(--alarm); }
+.metric.warn .n { color: var(--warn); }
+.metric-meter { margin-top: 9px; }
+a.metric { color: inherit; transition: background .12s ease; }
+a.metric:hover { text-decoration: none; background: var(--raised); }
+
+/* The overview hero is one instrument: the word and the beacon up top, the
+   fortnight pulse beside them, and the counts in a clustered footer row
+   divided by hairlines. The band's frame stays neutral in both moods — a
+   tinted border read as an alarm before the number said anything; the beacon
+   and the word carry the mood, with a whisper of its colour washing in from
+   the corner. */
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "line pulse" "stats stats";
+  align-items: center;
+  column-gap: 28px;
+  padding: 20px 24px 0;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-card);
+  background: var(--card-face);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+/* The status wrapper dissolves into the grid so the stat cluster can span
+   the full band below both the word and the pulse — the one place grid
+   areas beat the template's nesting. */
+.hero > .hero-status { display: contents; }
+
 .hero.calm { background:
-  radial-gradient(420px 200px at 8% -40px, rgb(54 230 165 / .05), transparent 70%),
-  linear-gradient(180deg, #17171b, var(--panel) 60%); }
+  radial-gradient(460px 220px at 6% -60px, rgb(54 230 165 / .05), transparent 70%),
+  var(--card-face); }
 .hero.busy { background:
-  radial-gradient(420px 200px at 8% -40px, rgb(251 191 36 / .06), transparent 70%),
-  linear-gradient(180deg, #17171b, var(--panel) 60%); }
+  radial-gradient(460px 220px at 6% -60px, rgb(251 191 36 / .06), transparent 70%),
+  var(--card-face); }
 
-.hero-line { display: flex; align-items: center; gap: 12px; }
-.hero-word { margin: 0; font: 560 20px/1.3 var(--display); letter-spacing: -0.015em; text-transform: none; color: var(--ink); }
+.hero-line { grid-area: line; display: flex; align-items: center; gap: 12px; padding-bottom: 18px; }
+.hero-word { margin: 0; font: 560 21px/1.25 var(--display); letter-spacing: -0.015em; text-transform: none; color: var(--ink); }
 .hero.busy .hero-word { color: var(--warn); }
 
 .hero-beacon {
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   flex: none;
-  background: var(--good);
+  background: var(--live);
   box-shadow: 0 0 14px rgb(54 230 165 / .6);
   animation: breathe 3.2s ease-in-out infinite;
 }
@@ -351,41 +415,68 @@ a.metric:hover { text-decoration: none; border-color: var(--faint); background: 
   animation: none;
 }
 
-.hero-stats { display: flex; gap: 26px; flex-wrap: wrap; margin-top: 10px; }
-.hero-stats > * { display: grid; gap: 0; color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; }
-.hero-stats strong { color: var(--ink-2); font: 560 18px/1.3 var(--display); font-variant-numeric: tabular-nums; letter-spacing: 0; text-transform: none; }
-.hero-stats a:hover { text-decoration: none; color: var(--dim); }
+/* Equal columns spanning the whole band: hairlines land on a grid, and the
+   cluster reads as one instrument rather than a row of fragments beside a
+   hole. */
+.hero-stats {
+  grid-area: stats;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  border-top: 1px solid var(--rule);
+  margin: 0 -24px;
+  padding: 14px 0 16px;
+}
+.hero-stats > * {
+  display: grid;
+  gap: 1px;
+  align-content: start;
+  color: var(--quiet);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 0 24px;
+  border-left: 1px solid var(--rule);
+}
+.hero-stats > :first-child { border-left: 0; }
+.hero-stats strong { color: var(--body); font: 560 20px/1.25 var(--display); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; text-transform: none; }
+.hero-stats a:hover { text-decoration: none; color: var(--mute); }
 .hero-stats a:hover strong { color: var(--ink); }
 .hero-stats .warn strong { color: var(--warn); }
-.hero-stats .bad strong { color: var(--bad); }
+.hero-stats .bad strong { color: var(--alarm); }
 
-.hero-pulse { display: grid; gap: 5px; justify-items: end; flex: none; }
-.hero-pulse span { color: var(--faint); font: 500 10.5px/1.4 var(--mono); }
+.hero-pulse { grid-area: pulse; display: grid; gap: 6px; justify-items: end; align-self: center; flex: none; padding-bottom: 18px; }
+.hero-pulse span { color: var(--quiet); font: 500 10.5px/1.4 var(--mono); }
 .pulse-bar { fill: rgb(54 230 165 / .45); }
-.pulse-bar:hover { fill: var(--accent); }
-.pulse-failed { fill: var(--bad); opacity: .85; pointer-events: none; }
+.pulse-bar:hover { fill: var(--live); }
+.pulse-failed { fill: var(--alarm); opacity: .85; pointer-events: none; }
 
 /* Lists ---------------------------------------------------------------------- */
 
-.rows { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+.rows {
+  border: 1px solid var(--edge);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
+}
 
-.row { display: block; padding: 11px 16px; border-bottom: 1px solid var(--line-2); color: inherit; }
+.row { display: block; padding: 13px 18px; border-bottom: 1px solid var(--rule); color: inherit; }
 .row:last-child { border-bottom: 0; }
 a.row { transition: background .1s ease; box-shadow: inset 2px 0 0 transparent; }
-a.row:hover { background: var(--panel-2); text-decoration: none; box-shadow: inset 2px 0 0 var(--accent-dim); }
+a.row:hover { background: var(--raised); text-decoration: none; box-shadow: inset 2px 0 0 var(--live-dim); }
 
 .row .title { font-weight: 550; line-height: 1.45; }
-.row .meta { color: var(--faint); font-size: 12.5px; margin-top: 3px; }
-.row .meta a { color: var(--dim); }
+.row .meta { color: var(--quiet); font-size: 12.5px; margin-top: 3px; }
+.row .meta a { color: var(--mute); }
 
 /* The instruction, not a glow: ink text behind one accent arrow. The negative
-   indent hangs wrapped lines under the text rather than under the arrow, so a
-   two-line instruction keeps one left edge. */
+   indent hangs wrapped lines under the text rather than under the arrow. */
 .row .todo, p.todo {
-  color: var(--ink-2); font-size: 13px; margin-top: 5px; max-width: 100ch;
+  color: var(--body); font-size: 13px; margin-top: 6px; max-width: 100ch;
   padding-left: 17px; text-indent: -17px;
 }
-.todo .arr { color: var(--accent); margin-right: 2px; }
+.todo .arr { color: var(--live); margin-right: 2px; }
 
 /* State dots ------------------------------------------------------------------ */
 
@@ -394,27 +485,27 @@ a.row:hover { background: var(--panel-2); text-decoration: none; box-shadow: ins
   align-items: center;
   gap: 5px;
   font: 500 11.5px/1.6 var(--mono);
-  color: var(--dim);
+  color: var(--mute);
   vertical-align: 1px;
 }
 
-.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); flex: none; }
-.pill.bad { color: var(--bad); } .pill.bad::before { background: var(--bad); }
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--quiet); flex: none; }
+.pill.bad { color: var(--alarm); } .pill.bad::before { background: var(--alarm); }
 .pill.warn { color: var(--warn); } .pill.warn::before { background: var(--warn); }
-.pill.good { color: var(--good); } .pill.good::before { background: var(--good); }
+.pill.good { color: var(--live); } .pill.good::before { background: var(--live); }
 .memory-diff { margin-top: 8px; display: grid; gap: 3px; }
 .memory-value { white-space: pre-wrap; overflow-wrap: anywhere; }
 
-.rep, .att { font: 500 11px/1.6 var(--mono); color: var(--faint); }
+.rep, .att { font: 500 11px/1.6 var(--mono); color: var(--quiet); }
 
 /* Which model answered, on every row that has one. Monospaced because it is an
    identifier, and dim because it qualifies the work rather than being it. */
-.who { font: 500 11.5px/1.6 var(--mono); color: var(--dim); }
+.who { font: 500 11.5px/1.6 var(--mono); color: var(--mute); }
 .gap { font: 500 11px/1.6 var(--mono); color: var(--warn); }
 
-/* Relative, not fixed: SF Mono's x-height runs large, and a 12.5px identifier
-   inside 12px meta text read a size bigger than its own sentence. Scaled to
-   the surrounding size it stays subordinate everywhere at once. */
+/* Relative, not fixed: SF Mono's x-height runs large, and a fixed-size
+   identifier inside small meta text read a size bigger than its own
+   sentence. */
 code, .mono { font-family: var(--mono); font-size: .93em; font-variant-numeric: tabular-nums; }
 pre code { font-size: 1em; }
 
@@ -425,40 +516,43 @@ table {
   border-collapse: separate;
   border-spacing: 0;
   font-size: 13.5px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-card);
   overflow: hidden;
+  box-shadow: var(--card-shadow);
 }
 
 th {
   text-align: left;
-  color: var(--faint);
+  color: var(--quiet);
   font-weight: 600;
   font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: .07em;
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--line);
-  /* A wrapped header splits the row's baseline: "LAST CHANGE" on two lines
-     left every single-line label floating between them. Labels are short;
-     the data column can carry the squeeze. */
+  padding: 10px 16px;
+  background: var(--raised);
+  border-bottom: 1px solid var(--edge);
+  /* A wrapped header splits the row's baseline: labels are short; the data
+     column carries the squeeze. */
   white-space: nowrap;
 }
 
-td { padding: 10px 14px; border-bottom: 1px solid var(--line-2); vertical-align: top; line-height: 1.5; }
+td { padding: 11px 16px; border-bottom: 1px solid var(--rule); vertical-align: top; line-height: 1.5; }
 tr:last-child td { border-bottom: 0; }
-tr:hover td { background: var(--panel-2); }
+tr:hover td { background: var(--raised); }
 
 /* Numbers compare only when they line up — and alignment is opt-in via .num,
-   because "mono" marks a typeface, not a number: right-aligning every mono
-   cell shoved source names and shas against the column edge. */
+   because "mono" marks a typeface, not a number. */
 th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* A number that wraps stops being comparable: the qualifier drops to its own
+   quiet line instead of splitting the figure mid-parenthesis. The cell
+   itself may still wrap — a compound fact like a wall-clock reading folds
+   between its clauses, not inside a number. */
+td.num .note { display: block; }
 td .note { font-size: 12px; }
 
 /* Timeline ---------------------------------------------------------------------- */
 
-.timeline { border-left: 2px solid var(--line); margin-left: 7px; padding-left: 18px; }
+.timeline { border-left: 2px solid var(--edge); margin-left: 7px; padding-left: 18px; }
 
 .timeline .ev { position: relative; padding: 8px 0; }
 .timeline .ev::before {
@@ -470,29 +564,30 @@ td .note { font-size: 12px; }
   height: 9px;
   border-radius: 50%;
   background: #3f3f46;
-  border: 2px solid var(--bg);
+  border: 2px solid var(--void);
 }
-/* Who acted, at a glance: the model's contributions glow brand green, the
-   host's machinery stays zinc. */
-.timeline .ev.a-agent::before { background: var(--accent-dim); }
+.timeline .ev.a-agent::before { background: var(--live-dim); }
 
-.timeline .what { color: var(--ink-2); font-size: 13.5px; line-height: 1.5; max-width: 100ch; }
-.timeline .when { color: var(--faint); font: 11.5px/1.7 var(--mono); margin-top: 1px; }
-.timeline .when .k { color: var(--dim); }
+.timeline .what { color: var(--body); font-size: 13.5px; line-height: 1.5; max-width: 100ch; }
+.timeline .when { color: var(--quiet); font: 11.5px/1.7 var(--mono); margin-top: 1px; }
+.timeline .when .k { color: var(--mute); }
 
-/* A reopen restarts the story; without a seam, two attempts read as one run
-   that inexplicably planned the work twice. */
-.timeline .ev.reopen { margin-top: 10px; padding-top: 14px; border-top: 1px dashed var(--line); }
+.timeline .ev.reopen { margin-top: 10px; padding-top: 14px; border-top: 1px dashed var(--edge); }
+
+/* The incident room's extra vocabulary: a quiet type label between the
+   timestamp and the sentence, and a signal summary inside a plain row. */
+.timeline .kind { color: var(--quiet); font: 500 10.5px/1.7 var(--mono); text-transform: uppercase; letter-spacing: .05em; }
+.row .what { color: var(--body); font-size: 13px; line-height: 1.55; margin-top: 5px; max-width: 100ch; }
 
 /* Prose dumps (the model's reply, a kept prompt) --------------------------------- */
 
 pre.dump {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-card);
+  padding: 15px 18px;
   font: 12.5px/1.6 var(--mono);
-  color: var(--ink-2);
+  color: var(--body);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 480px;
@@ -500,112 +595,112 @@ pre.dump {
 }
 
 .panel p, .panel .meta, .panel .todo { margin-top: 7px; }
-.panel p { max-width: 82ch; color: var(--ink-2); }
+.panel p { max-width: 82ch; color: var(--body); }
 .panel > :first-child { margin-top: 0; }
 .panel p strong { color: var(--ink); }
 .panel .title { font-weight: 550; }
-.panel .meta { color: var(--faint); font-size: 12.5px; margin-top: 3px; }
+.panel .meta { color: var(--quiet); font-size: 12.5px; margin-top: 3px; }
 
-/* Window tabs -------------------------------------------------------------------- */
+/* Filter chips ------------------------------------------------------------------ */
 
 .tabs { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 
 .tabs a, .tabs .on {
   font-size: 12.5px;
-  padding: 3px 11px;
+  padding: 4px 12px;
   border-radius: 999px;
-  border: 1px solid var(--line);
-  color: var(--dim);
+  border: 1px solid var(--edge);
+  color: var(--mute);
+  background: var(--surface);
 }
 
-.tabs a:hover { color: var(--ink); border-color: var(--faint); text-decoration: none; }
+.tabs a:hover { color: var(--ink); border-color: var(--edge-2); text-decoration: none; }
 .tabs .on, .tabs a.on {
-  background: var(--accent-ghost);
+  background: var(--live-tint);
   border-color: rgb(54 230 165 / .4);
-  color: var(--accent);
+  color: var(--live);
 }
 
 /* State chips: the filter is the data — each state carries its own count. */
 .state-chips a { display: inline-flex; align-items: center; gap: 6px; }
-.chip-n { font: 600 10.5px/1.5 var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
-.state-chips a.on .chip-n { color: var(--accent-dim); }
+.chip-n { font: 600 10.5px/1.5 var(--mono); color: var(--quiet); font-variant-numeric: tabular-nums; }
+.state-chips a.on .chip-n { color: var(--live-dim); }
 
 /* Proportional meters beside shares and counts, so the biggest row is
    visible before the numbers are read. */
+/* A measurement, not an action: the generic meter fills in neutral so a
+   correction rate cannot read as a healthy green bar. Tone comes from the
+   metric it sits in. */
 .meter { display: inline-block; vertical-align: middle; }
 .meter-bg { fill: #26262b; }
-.meter-fg { fill: var(--accent-dim); }
+.meter-fg { fill: #55555f; }
 .meter-cell { width: 76px; }
-.share-cell span { display: inline-block; min-width: 34px; margin-right: 8px; }
+.share-cell { display: grid; justify-items: end; gap: 4px; }
+.share-cell span { display: inline-block; min-width: 0; margin-right: 0; }
 .metric.warn .meter-fg { fill: var(--warn); }
-.metric.bad .meter-fg { fill: var(--bad); }
+.metric.bad .meter-fg { fill: var(--alarm); }
 
 /* Trend ---------------------------------------------------------------------------- */
 
 .trend { display: block; }
 .trend .bar { fill: url(#trendfill); }
-.trend .bar:hover { fill: var(--accent); }
+.trend .bar:hover { fill: var(--live); }
 .trend .gap { fill: var(--warn); opacity: .8; }
-.trend .axis { stroke: var(--line); stroke-width: 1; }
+.trend .axis { stroke: var(--edge); stroke-width: 1; }
 
 /* Findings: the verdict is the card's edge, and the challenger speaks in a
-   quote rather than another metadata line. */
+   quote rather than another metadata line. The evidence lists hold a
+   readable measure and hang off a hairline rail so their structure shows
+   before anyone reads them. */
+.finding .meta { max-width: 92ch; line-height: 1.7; border-left: 1px solid var(--rule); padding-left: 12px; margin-left: 1px; }
+.finding p { max-width: 92ch; }
 .finding { box-shadow: inset 2px 0 0 #3f3f46; }
-.finding-confirmed { box-shadow: inset 2px 0 0 var(--bad); }
+.finding-confirmed { box-shadow: inset 2px 0 0 var(--alarm); }
 .finding-rejected { box-shadow: inset 2px 0 0 #3f3f46; }
 /* Upright, not italic: the challenger's verdict is the most argumentative
-   text on the page, and italic sans at this size on a dark panel was the
-   least legible way to set it. */
+   text on the page, and italic sans at this size was the least legible way
+   to set it. */
 blockquote.challenge {
   margin: 8px 0 0;
-  padding: 7px 12px;
-  border-left: 2px solid #52525b;
+  padding: 8px 13px;
+  border-left: 2px solid var(--ghost);
   border-radius: 0 6px 6px 0;
   background: rgb(255 255 255 / .02);
-  color: var(--dim);
+  color: var(--mute);
   font-size: 12.5px;
   line-height: 1.55;
 }
-blockquote.challenge::before { content: "challenger · "; font-style: normal; font: 650 9.5px/1.6 var(--mono); text-transform: uppercase; color: var(--faint); }
+blockquote.challenge::before { content: "challenger · "; font-style: normal; font: 650 9.5px/1.6 var(--mono); text-transform: uppercase; color: var(--quiet); }
 
 /* Actions ---------------------------------------------------------------------------- */
 
-/* Every action is a form post. A GET that mutates would fire on a preload or an
-   accidental revisit, and on a surface with no authentication the browser is
-   the only thing that would have to be wrong. */
-.acts { display: flex; gap: 8px; margin-top: 9px; flex-wrap: wrap; align-items: flex-start; }
+/* Every action is a form post. A GET that mutates would fire on a preload or
+   an accidental revisit, and on a surface with no authentication the browser
+   is the only thing that would have to be wrong. */
+.acts { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: flex-start; }
 .acts form { margin: 0; }
 
-/* One size for every button, and it is .act-link's size: the base control
-   used to render two pixels shorter than the links beside it, which read as
-   two unrelated species of control in the same .acts row. */
+/* One size and one voice for every control. */
 button {
   font: 500 12.5px/1.35 var(--sans);
   padding: 6px 13px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--edge);
+  background: var(--raised);
   color: var(--ink);
   cursor: pointer;
   transition: border-color .12s ease, background .12s ease;
 }
 
-button:hover { border-color: var(--faint); background: #1c1c21; }
+button:hover { border-color: var(--edge-2); background: var(--overlay); }
 
-button.go { background: var(--accent-dim); border-color: var(--accent-dim); color: #09090b; font-weight: 600; }
-button.go:hover { background: var(--accent); border-color: var(--accent); }
+button.go { background: var(--live-dim); border-color: var(--live-dim); color: #09090b; font-weight: 600; }
+button.go:hover { background: var(--live); border-color: var(--live); }
 
 /* The confirm step is a native <details> disclosure, not confirm(). This page
-   ships no JavaScript and its CSP is default-src 'none' with no script-src, so
-   the inline onclick confirms it used to carry never executed — every
-   destructive button fired on first click while looking guarded. Here the real
-   submit button does not exist on the page until the operator opens the step. */
+   ships no JavaScript and its CSP has no script-src — the real submit button
+   does not exist on the page until the operator opens the step. */
 details.confirm { display: inline-block; }
-/* One vocabulary for every way to act on a piece of work. They differ in what
-   they do, not in how loudly they say it: a 13px outlined link sat beside a
-   12px filled button beside an amber-outlined one, at three different
-   paddings, and read as three unrelated controls rather than one set of
-   choices about the same episode. */
 .act-link,
 details.confirm > summary {
   list-style: none;
@@ -613,37 +708,29 @@ details.confirm > summary {
   display: inline-block;
   font: 500 12.5px/1.35 var(--sans);
   padding: 6px 13px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-  color: var(--ink-2);
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--edge);
+  background: var(--raised);
+  color: var(--body);
   white-space: nowrap;
 }
 .act-link:hover,
 details.confirm > summary:hover {
   color: var(--ink);
-  border-color: var(--faint);
+  border-color: var(--edge-2);
+  background: var(--overlay);
   text-decoration: none;
 }
 details.confirm > summary::-webkit-details-marker { display: none; }
-/* Opened, the button is the label of the row below it rather than a second
-   alarm. Amber belongs to the one control that fires. */
 details.confirm[open] > summary {
-  border-color: var(--faint);
-  background: var(--panel);
+  border-color: var(--edge-2);
+  background: var(--surface);
   color: var(--ink);
 }
 
-/* The armed step is a contained panel on its own row, in the amber of "about
-   to happen" — not a bare accent-green sentence with the button drifting to
-   the card's far edge, which is how the first version rendered: the arm was an
-   inline flex child, so opening one confirm shoved every sibling button
-   sideways and the explanation read as a call-to-action. Opening moves the
-   whole control below its row (order + basis), which is motion that means
-   something: the button became a panel. */
-/* Opening takes the whole row and puts the button beside what it is about, so
-   the armed step reads as one line — "this control, this consequence, this
-   confirmation" — instead of a button orphaned above a boxed paragraph. */
+/* The armed step is a contained row of its own, in the amber of "about to
+   happen" — opening moves the whole control below its siblings, which is
+   motion that means something: the button became a panel. */
 details.confirm[open] {
   order: 99;
   flex-basis: 100%;
@@ -656,13 +743,13 @@ details.confirm .arm {
   align-items: center;
   gap: 14px;
   flex: 1;
-  padding: 7px 13px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
+  padding: 8px 13px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
   font-size: 12.5px;
   line-height: 1.5;
-  color: var(--dim);
+  color: var(--mute);
   text-align: left;
 }
 details.confirm .arm form { margin: 0 0 0 auto; }
@@ -674,247 +761,232 @@ details.confirm .arm button {
   white-space: nowrap;
 }
 details.confirm .arm button:hover { background: rgb(251 191 36 / .24); border-color: var(--warn); }
-/* One confirm step carries a field: the note on an episode review, which is the
-   judgement and not a label. It takes the filter box's own styling rather than
-   the browser's, because an unstyled control on this page reads as something
-   half-built and a reviewer skips typing in it. */
 details.confirm .arm input[type=text] {
-  background: var(--bg);
-  border: 1px solid var(--line);
+  background: var(--void);
+  border: 1px solid var(--edge);
   color: var(--ink);
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
   padding: 6px 12px;
   font: 13px var(--sans);
   min-width: 220px;
 }
-details.confirm .arm input::placeholder { color: var(--faint); }
+details.confirm .arm input::placeholder { color: var(--quiet); }
 
 /* Filters are plain GET forms — a filtered list stays a URL, bookmarkable and
-   pasteable into an incident thread, and needs no client-side state. */
+   pasteable into an incident thread. */
 form.filter { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 form.filter input[type=text], form.filter select {
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--edge);
   color: var(--ink);
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
   padding: 6px 12px;
   font: 13px var(--sans);
-  /* Wide enough for its own placeholder — a search box that clips "search
-     titles and status lines" mid-word looks broken before it is used. */
   min-width: 260px;
 }
-form.filter input::placeholder { color: var(--faint); }
+form.filter input::placeholder { color: var(--quiet); }
 form.filter select { min-width: 0; }
-form.filter a { font-size: 12.5px; color: var(--dim); }
+form.filter a { font-size: 12.5px; color: var(--mute); }
 
 .pager { display: flex; gap: 16px; font-size: 13px; }
 
 /* Empty and unwired ------------------------------------------------------------------- */
 
 .empty {
-  color: var(--dim);
+  color: var(--mute);
   font-size: 13.5px;
-  padding: 16px 18px;
-  border: 1px dashed var(--line);
-  border-radius: 10px;
+  padding: 18px 20px;
+  border: 1px dashed var(--edge);
+  border-radius: var(--r-card);
   max-width: 82ch;
 }
 
 /* An unwired panel says what is missing and what would fill it. It never
    renders a zero, and never an estimate dressed as a measurement. */
+/* Dashed because the thing it describes is absent — the one border style
+   reserved for absence — but on the shared column grid like every other
+   block, and without the hatch that made it the only patterned surface in
+   the product. */
 .unwired {
-  border: 1px dashed rgb(251 191 36 / .35);
-  border-radius: 10px;
+  border: 1px dashed rgb(251 191 36 / .3);
+  border-radius: var(--r-card);
   padding: 13px 16px;
-  color: var(--dim);
+  color: var(--mute);
   font-size: 13px;
-  max-width: 92ch;
-  background: repeating-linear-gradient(
-    45deg, transparent, transparent 9px, rgb(251 191 36 / .015) 9px, rgb(251 191 36 / .015) 18px);
 }
 
 .unwired .tag {
   display: block;
   margin: 0 0 5px;
   font: 600 10.5px/1.4 var(--mono);
-  letter-spacing: .6px;
-  text-transform: uppercase;
   color: var(--warn);
 }
 
 .unwired p { margin: 0; }
 
-.note { color: var(--dim); font-size: 13px; max-width: 92ch; }
+.note { color: var(--mute); font-size: 13px; max-width: 92ch; }
 
 /* Episode execution trace -------------------------------------------------------
 
    An episode is not a collection of reports. It is one execution story. The
    summary answers "how did it go?" and the rail answers "what happened, in
-   order, and why?". Full records stay native <details> disclosures so the page
-   remains useful with JavaScript disabled. */
+   order, and why?". Full records stay native <details> disclosures so the
+   page remains useful with JavaScript disabled. */
 
+/* The outcome cluster is one instrument, four cells divided by hairlines —
+   the same grammar as the overview band. Tone is a rule at each cell's left
+   edge; good cells keep their value in ink. */
 .episode-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--line);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-card);
+  background: var(--card-face);
+  box-shadow: var(--card-shadow);
 }
 
 .episode-action-strip { display: flex; justify-content: flex-end; }
 .episode-action-strip .confirm { width: min(100%, 420px); margin: 0; }
 
-/* The review band is one sentence and one control — set as a stacked panel
-   it spent ninety pixels of the fold saying "awaiting review". Inline, it is
-   a strip: label, state, action; the armed confirm still drops to its own
-   full-width row below. */
-.episode-review { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 12px 16px; }
-.episode-review h2 { flex: none; }
-.episode-review p { margin: 0; }
-.episode-review .stopped-why { flex-basis: 100%; }
-.episode-review .confirm { margin-left: auto; }
-
-/* No minimum height: the grid already stretches every card to the tallest
-   sibling, and a floor only added dead space below four short cards. */
 .episode-metric {
-  padding: 15px 17px;
-  background: var(--panel);
-  border-top: 2px solid transparent;
+  padding: 15px 18px 16px;
+  border-left: 1px solid var(--rule);
+  box-shadow: inset 3px 0 0 transparent;
 }
+.episode-metric:first-child { border-left: 0; }
 
-.episode-metric.tone-good { border-top-color: var(--good); }
-.episode-metric.tone-warn { border-top-color: var(--warn); }
-.episode-metric.tone-bad { border-top-color: var(--bad); }
-.episode-metric.is-missing { border-top-color: #52525b; }
-.episode-metric-label { color: var(--faint); font-size: 11px; font-weight: 650; text-transform: uppercase; }
+.episode-metric.tone-good { box-shadow: inset 3px 0 0 var(--live-dim); }
+.episode-metric.tone-warn { box-shadow: inset 3px 0 0 var(--warn); }
+.episode-metric.tone-bad { box-shadow: inset 3px 0 0 var(--alarm); }
+.episode-metric.is-missing { box-shadow: inset 3px 0 0 var(--ghost); }
+.episode-metric-label { color: var(--quiet); font-size: 10.5px; font-weight: 600; }
 .episode-metric-value {
-  margin-top: 4px;
+  margin-top: 5px;
   color: var(--ink);
-  font: 560 24px/1.25 var(--display);
+  font: 560 24px/1.2 var(--display);
   letter-spacing: -0.015em;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
-/* Good news is quiet: the green rule above the card already says it went
-   well, and a duration or an outcome word in full accent at display size
-   spent the palette's one "actionable" hue on a fact needing no action.
-   Trouble keeps its colour — a page where failure whispers is worse than a
-   page where success shouts. */
-.episode-metric.tone-good .episode-metric-value { color: var(--ink); }
 .episode-metric.tone-warn .episode-metric-value { color: var(--warn); }
-.episode-metric.tone-bad .episode-metric-value { color: var(--bad); }
-.episode-metric.is-missing .episode-metric-value { color: var(--dim); font-size: 19px; }
-.episode-metric-detail { margin-top: 6px; color: var(--dim); font-size: 12px; line-height: 1.45; max-width: 34ch; }
+.episode-metric.tone-bad .episode-metric-value { color: var(--alarm); }
+.episode-metric.is-missing .episode-metric-value { color: var(--mute); font-size: 19px; }
+.episode-metric-detail { margin-top: 6px; color: var(--mute); font-size: 12px; line-height: 1.45; max-width: 34ch; }
 
-.trace-shell { margin-top: 30px; }
+.trace-shell { margin-top: 34px; }
 
 .trace-heading {
   display: flex;
   justify-content: space-between;
   align-items: end;
   gap: 28px;
-  padding-bottom: 15px;
+  padding-bottom: 16px;
 }
 
 .trace-heading h2 {
   color: var(--ink);
-  font: 560 19px/1.3 var(--display);
-  text-transform: none;
+  font: 560 20px/1.3 var(--display);
   letter-spacing: -0.015em;
 }
 
-.trace-lede { margin-top: 4px; color: var(--dim); max-width: 68ch; }
+.trace-lede { margin-top: 4px; color: var(--mute); max-width: 68ch; }
 
-.trace-summary { display: flex; justify-content: flex-end; gap: 18px; flex-wrap: wrap; }
-.trace-summary span { display: grid; gap: 1px; justify-items: center; text-align: center; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
-.trace-summary strong { color: var(--ink-2); font: 560 15px/1.2 var(--display); font-variant-numeric: tabular-nums; }
+.trace-summary { display: flex; justify-content: flex-end; gap: 14px; flex-wrap: wrap; }
+.trace-summary span { display: grid; gap: 1px; justify-items: center; text-align: center; color: var(--quiet); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+.trace-summary strong { color: var(--body); font: 560 15px/1.2 var(--display); font-variant-numeric: tabular-nums; }
 
 /* The journey strip is the whole episode in one glance: arrived, briefed,
-   worked, decided, done. Chips joined by arrows, tones only on outcomes. */
+   worked, decided, done. Stops joined by hairlines, tones only on outcomes. */
 .journey {
   display: flex;
   align-items: stretch;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
+  padding: 13px 16px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
 }
 
+/* Stops top-align so every title shares one baseline whether or not a stop
+   carries a second line, and the connector bisects the title line, not the
+   box. Tone lives in the title alone: in this system a tinted fill means
+   "interactive" (the lit nav tile, the active chip), and an outcome is not
+   a button. */
 .journey-stop {
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 1px;
-  padding: 4px 10px;
-  border-radius: 7px;
+  padding: 5px 11px;
+  border-radius: var(--r-ctl);
 }
 
 .journey-stop strong { font: 560 13px/1.5 var(--display); letter-spacing: -0.005em; color: var(--ink); white-space: nowrap; }
-.journey-stop span { color: var(--faint); font-size: 11px; white-space: nowrap; }
-.journey-stop + .journey-stop { position: relative; margin-left: 22px; }
+.journey-stop span { color: var(--quiet); font-size: 11px; white-space: nowrap; }
+.journey-stop + .journey-stop { position: relative; margin-left: 24px; }
 .journey-stop + .journey-stop::before {
-  content: "→";
+  content: "";
   position: absolute;
-  left: -18px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #52525b;
-  font-size: 13px;
+  left: -21px;
+  top: 15px;
+  width: 18px;
+  height: 1px;
+  background: var(--edge-2);
 }
-.journey-stop.tone-good { background: rgb(54 230 165 / .08); }
-.journey-stop.tone-good strong { color: var(--good); }
-.journey-stop.tone-warn { background: rgb(251 191 36 / .08); }
+.journey-stop.tone-good strong { color: var(--live); }
 .journey-stop.tone-warn strong { color: var(--warn); }
-.journey-stop.tone-bad { background: rgb(251 113 133 / .1); }
-.journey-stop.tone-bad strong { color: var(--bad); }
+.journey-stop.tone-bad strong { color: var(--alarm); }
 
 /* The time bar: each chapter's share of the episode's wall clock, in the
    same left-to-right order as the rail below it. */
+/* Chapters are sequential, so the bar encodes order as a value ramp rather
+   than borrowing hues — the old violet was the largest colour mass in the
+   product and named nothing. Content-class hue stays where hue is the
+   information: the briefing's stepbar and the prompt segments. */
 .timebar { display: grid; gap: 7px; }
 .timebar svg { display: block; border-radius: 5px; overflow: hidden; }
-.timebar-c0 { fill: #3b82f6; opacity: .75; }
-.timebar-c1 { fill: #14cf8d; opacity: .8; }
-.timebar-c2 { fill: #a78bfa; opacity: .75; }
-.timebar-c3 { fill: #22d3ee; opacity: .75; }
-.timebar rect:hover { opacity: 1; }
+.timebar-c0 { fill: #3f3f46; }
+.timebar-c1 { fill: #5b5b66; }
+.timebar-c2 { fill: #7d7d89; }
+.timebar-c3 { fill: #a2a2ac; }
+.timebar rect:hover { opacity: .85; }
 .timebar-legend { display: flex; gap: 16px; flex-wrap: wrap; }
-.timebar-key { display: inline-flex; align-items: center; gap: 6px; color: var(--faint); font: 500 11px/1.5 var(--mono); }
+.timebar-key { display: inline-flex; align-items: center; gap: 6px; color: var(--quiet); font: 500 11px/1.5 var(--mono); }
 .timebar-key::before { content: ""; width: 8px; height: 8px; border-radius: 2.5px; }
-.timebar-key.c0::before { background: #3b82f6; }
-.timebar-key.c1::before { background: #14cf8d; }
-.timebar-key.c2::before { background: #a78bfa; }
-.timebar-key.c3::before { background: #22d3ee; }
+.timebar-key.c0::before { background: #3f3f46; }
+.timebar-key.c1::before { background: #5b5b66; }
+.timebar-key.c2::before { background: #7d7d89; }
+.timebar-key.c3::before { background: #a2a2ac; }
 /* The tail is a note about what the bar deliberately leaves out (see
    traceTimeBar) — a swatch would promise a segment that is not drawn. */
 .timebar-key.tail::before { display: none; }
 
 /* Chapters cut the rail into acts a stranger can follow. */
-.trace-chapter { margin-top: 26px; }
-.trace-chapter:first-of-type { margin-top: 4px; }
+.trace-chapter { margin-top: 30px; }
+.trace-chapter:first-of-type { margin-top: 6px; }
 
 .trace-chapter-head {
   display: flex;
   align-items: baseline;
   gap: 12px;
-  padding: 7px 0 7px;
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 14px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--edge);
+  margin-bottom: 16px;
 }
 
 .trace-chapter-head h3 {
   margin: 0;
   color: var(--ink);
-  font: 560 14.5px/1.4 var(--display);
-  letter-spacing: -0.01em;
+  font: 560 15px/1.4 var(--display);
+  letter-spacing: -0.008em;
   white-space: nowrap;
 }
 
-.trace-chapter-head p { color: var(--faint); font-size: 12px; margin: 0; min-width: 0; }
-.trace-chapter-span { margin-left: auto; color: var(--faint); font: 500 11px/1.6 var(--mono); white-space: nowrap; }
+.trace-chapter-head p { color: var(--quiet); font-size: 12px; margin: 0; min-width: 0; }
+.trace-chapter-span { margin-left: auto; color: var(--quiet); font: 500 11px/1.6 var(--mono); white-space: nowrap; }
 
 .trace-list { position: relative; }
 .trace-list::before {
@@ -924,14 +996,14 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   bottom: 6px;
   left: 12px;
   width: 1px;
-  background: var(--line);
+  background: var(--edge);
 }
 
 .trace-step {
   position: relative;
   display: grid;
   grid-template-columns: 25px minmax(0, 1fr);
-  gap: 13px;
+  gap: 14px;
   padding: 0 0 12px;
 }
 
@@ -950,18 +1022,18 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .trace-marker .ring {
   display: grid;
   place-items: center;
-  width: 23px;
-  height: 23px;
-  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
   border: 1px solid #33333a;
-  background: linear-gradient(180deg, #1b1b20, #131316);
-  color: var(--faint);
-  box-shadow: 0 0 0 3px var(--bg);
+  background: linear-gradient(180deg, #1b1b20, var(--surface));
+  color: var(--quiet);
+  box-shadow: 0 0 0 3px var(--void);
 }
 .trace-marker .ring svg { width: 12px; height: 12px; }
-.trace-step[data-tone="good"] .ring { border-color: rgb(54 230 165 / .45); color: var(--good); }
+.trace-step[data-tone="good"] .ring { border-color: rgb(54 230 165 / .45); color: var(--live); }
 .trace-step[data-tone="warn"] .ring { border-color: rgb(251 191 36 / .5); color: var(--warn); }
-.trace-step[data-tone="bad"] .ring { border-color: rgb(251 113 133 / .5); color: var(--bad); }
+.trace-step[data-tone="bad"] .ring { border-color: rgb(251 113 133 / .5); color: var(--alarm); }
 
 /* Deep links glow: an operator pasting #prompt into a thread lands on a
    card that identifies itself. */
@@ -977,24 +1049,25 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 2px 0 14px 38px;
-  color: var(--faint);
+  padding: 2px 0 14px 39px;
+  color: var(--quiet);
   font: 500 11px/1.4 var(--mono);
 }
-.trace-gap::before { content: "⋯"; position: absolute; left: 8.5px; color: #52525b; letter-spacing: 1px; writing-mode: vertical-rl; }
-.trace-gap span::after { content: " pass"; color: #52525b; font-family: var(--sans); }
+.trace-gap::before { content: "⋯"; position: absolute; left: 8.5px; color: var(--ghost); letter-spacing: 1px; writing-mode: vertical-rl; }
+.trace-gap span::after { content: " pass"; color: var(--ghost); font-family: var(--sans); }
 
 .trace-step-card {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
 }
 
 .trace-step-card > .trace-step-summary,
 .trace-step-card > .trace-why,
-.trace-step-card > .trace-step-stats { margin-left: 16px; margin-right: 16px; }
+.trace-step-card > .trace-step-stats { margin-left: 17px; margin-right: 17px; }
 
 .trace-step-header {
   display: flex;
@@ -1002,7 +1075,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   justify-content: space-between;
   gap: 14px;
   margin: 0;
-  padding: 13px 16px 0;
+  padding: 13px 17px 0;
 }
 
 .trace-step-header h4 {
@@ -1024,53 +1097,53 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .trace-chip {
   flex: none;
   padding: 1px 8px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 999px;
-  color: var(--dim);
+  color: var(--mute);
   background: rgb(255 255 255 / .02);
   font: 500 10.5px/1.6 var(--mono);
   white-space: nowrap;
 }
 .trace-step[data-tone="warn"] .trace-chip { color: var(--warn); border-color: rgb(251 191 36 / .35); }
-.trace-step[data-tone="bad"] .trace-chip { color: var(--bad); border-color: rgb(251 113 133 / .35); }
+.trace-step[data-tone="bad"] .trace-chip { color: var(--alarm); border-color: rgb(251 113 133 / .35); }
 
 .trace-step-side { display: flex; align-items: baseline; gap: 9px; flex: none; }
 
 /* Who acted, only when it is not Responder itself — and each outside actor
    keeps one hue, so "purple did this" becomes muscle memory for the model. */
-.trace-actor { color: var(--faint); font: 550 10.5px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
+.trace-actor { color: var(--quiet); font: 550 10.5px/1.4 var(--mono); white-space: nowrap; }
 .trace-actor[data-actor="Model"], .trace-actor[data-actor="agent"] { color: #c4b5fd; }
 .trace-actor[data-actor="Coop"] { color: #67e8f9; }
 .trace-actor[data-actor="Slack"], .trace-actor[data-actor="Slack outbox"] { color: #7dd3fc; }
 .trace-actor[data-actor="Operator"], .trace-actor[data-actor="person"] { color: var(--warn); }
 
-.trace-time { display: flex; align-items: baseline; gap: 8px; color: var(--faint); font: 10.5px/1.4 var(--mono); white-space: nowrap; }
-.trace-time strong { color: var(--ink-2); font-weight: 600; }
-.trace-time em { font-style: normal; color: var(--dim); }
-.trace-time em::before { content: "for "; color: #52525b; }
+.trace-time { display: flex; align-items: baseline; gap: 8px; color: var(--quiet); font: 10.5px/1.4 var(--mono); white-space: nowrap; }
+.trace-time strong { color: var(--body); font-weight: 600; }
+.trace-time em { font-style: normal; color: var(--mute); }
+.trace-time em::before { content: "for "; color: var(--ghost); }
 
-.trace-step-summary { margin-top: 8px; color: var(--ink-2); font-size: 13.5px; line-height: 1.55; max-width: 92ch; overflow-wrap: anywhere; }
+.trace-step-summary { margin-top: 8px; color: var(--body); font-size: 13.5px; line-height: 1.55; max-width: 92ch; overflow-wrap: anywhere; }
 .trace-step-summary strong { color: var(--ink); font-weight: 600; }
 .trace-step-summary code {
   padding: 1px 5px;
   border-radius: 4px;
-  background: #1c1c21;
-  border: 1px solid var(--line-2);
+  background: var(--overlay);
+  border: 1px solid var(--rule);
   font-size: 11.5px;
-  color: var(--ink-2);
+  color: var(--body);
 }
 .trace-step-card > :last-child:not(.trace-details) { padding-bottom: 14px; }
 
 /* In-card micro-visualizations: the briefing's token composition, a turn's
    fresh/cached/output split. The strip answers the proportional question the
    numbers beneath it make exact. */
-.trace-step-card > .stepbar { margin: 10px 16px 0; }
+.trace-step-card > .stepbar { margin: 10px 17px 0; }
 .stepbar svg { display: block; border-radius: 4px; overflow: hidden; }
 .stepbar-legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: baseline; margin-top: 6px; }
-.sb-key { display: inline-flex; align-items: baseline; gap: 5px; color: var(--dim); font-size: 11px; }
+.sb-key { display: inline-flex; align-items: baseline; gap: 5px; color: var(--mute); font-size: 11px; }
 .sb-key::before { content: ""; width: 7px; height: 7px; border-radius: 2px; align-self: center; }
-.sb-key em { font-style: normal; color: var(--faint); font: 500 10.5px/1.4 var(--mono); }
-.stepbar-note { margin-left: auto; color: #52525b; font-size: 10.5px; }
+.sb-key em { font-style: normal; color: var(--quiet); font: 500 10.5px/1.4 var(--mono); }
+.stepbar-note { margin-left: auto; color: var(--ghost); font-size: 10.5px; }
 .sb-sys { fill: #52525b; }        .sb-key.sys::before { background: #52525b; }
 .sb-mem { fill: #60a5fa; }        .sb-key.mem::before { background: #60a5fa; }
 .sb-slack { fill: #22d3ee; }      .sb-key.slack::before { background: #22d3ee; }
@@ -1080,9 +1153,8 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .sb-out { fill: #a78bfa; }        .sb-key.out::before { background: #a78bfa; }
 .sb-think { fill: #22d3ee; }      .sb-key.think::before { background: #22d3ee; }
 .sb-free { fill: #1c1c20; }       .sb-key.free::before { background: #1c1c20; box-shadow: inset 0 0 0 1px #33333a; }
-.sb-key.free { color: #52525b; }
+.sb-key.free { color: var(--ghost); }
 .stepbar rect:hover { opacity: .85; }
-
 
 .trace-why {
   display: flex;
@@ -1092,8 +1164,10 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   padding: 1px 0 1px 10px;
   border-left: 2px solid rgb(54 230 165 / .3);
 }
-.trace-why > span { flex: none; color: var(--accent-dim); font: 650 9.5px/1.9 var(--mono); text-transform: uppercase; letter-spacing: .4px; }
-.trace-why p { color: var(--dim); font-size: 12.5px; line-height: 1.55; max-width: 92ch; }
+/* The eyebrow is a label, not an action: the accent-tinted rail beside it
+   already marks the rationale; forty emerald WHYs down one page glowed. */
+.trace-why > span { flex: none; color: var(--quiet); font: 650 9.5px/1.9 var(--mono); text-transform: uppercase; letter-spacing: .4px; }
+.trace-why p { color: var(--mute); font-size: 12.5px; line-height: 1.55; max-width: 92ch; }
 
 .trace-step-stats {
   display: flex;
@@ -1103,18 +1177,18 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   overflow-x: auto;
 }
 .trace-step-stats span { display: grid; gap: 1px; min-width: 84px; }
-.trace-step-stats small { color: var(--faint); font-size: 9.5px; text-transform: uppercase; }
-.trace-step-stats strong { color: var(--ink-2); font: 500 11.5px/1.5 var(--mono); overflow-wrap: anywhere; }
+.trace-step-stats small { color: var(--quiet); font-size: 9.5px; text-transform: uppercase; }
+.trace-step-stats strong { color: var(--body); font: 500 11.5px/1.5 var(--mono); overflow-wrap: anywhere; }
 
 /* Standing rules as structure: one card per rule, its verdict on the head
    row, its reason as prose, and — for matched rules — the definition as a
    labeled fact grid instead of paragraph blobs. */
-.trace-step-card > .rules { margin: 10px 16px 0; }
+.trace-step-card > .rules { margin: 10px 17px 0; }
 .rules { display: grid; gap: 8px; }
 .rule {
   padding: 9px 12px 10px;
-  border: 1px solid var(--line-2);
-  border-radius: 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
 }
 .rule.on { border-color: rgb(54 230 165 / .25); background: rgb(54 230 165 / .03); }
 .rule-head { display: flex; align-items: baseline; gap: 8px; }
@@ -1126,52 +1200,52 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   align-self: center;
   flex: none;
 }
-.rule.on .rule-head i { background: var(--accent-dim); }
+.rule.on .rule-head i { background: var(--live-dim); }
 .rule-head strong { font-size: 13px; color: var(--ink); min-width: 0; }
-.rule:not(.on) .rule-head strong { color: var(--dim); font-weight: 500; }
-.rule-head span { margin-left: auto; color: var(--faint); font: 500 10.5px/1.6 var(--mono); }
-.rule.on .rule-head span { color: var(--accent-dim); }
-.rule-why { margin: 3px 0 0 15px; color: var(--ink-2); font-size: 12.5px; line-height: 1.5; max-width: 92ch; }
-.rule:not(.on) .rule-why { color: var(--faint); }
+.rule:not(.on) .rule-head strong { color: var(--mute); font-weight: 500; }
+.rule-head span { margin-left: auto; color: var(--quiet); font: 500 10.5px/1.6 var(--mono); }
+.rule.on .rule-head span { color: var(--live-dim); }
+.rule-why { margin: 3px 0 0 15px; color: var(--body); font-size: 12.5px; line-height: 1.5; max-width: 92ch; }
+.rule:not(.on) .rule-why { color: var(--quiet); }
 .rule-facts { margin: 8px 0 0 15px; display: grid; gap: 4px; }
 .rule-facts div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; }
-.rule-facts dt { color: var(--faint); font: 650 9.5px/1.9 var(--mono); text-transform: uppercase; letter-spacing: .3px; }
-.rule-facts dd { margin: 0; color: var(--dim); font-size: 12.5px; line-height: 1.5; }
-.rule-effect { margin: 7px 0 0 15px; color: #52525b; font-size: 11.5px; }
+.rule-facts dt { color: var(--quiet); font: 650 9.5px/1.9 var(--mono); text-transform: uppercase; letter-spacing: .3px; }
+.rule-facts dd { margin: 0; color: var(--mute); font-size: 12.5px; line-height: 1.5; }
+.rule-effect { margin: 7px 0 0 15px; color: var(--ghost); font-size: 11.5px; }
 
 /* The footer strip: flat facts below every disclosure — replay fingerprints
    read like the stats row, not like a table to open. */
 .trace-step-footer {
   margin: 0;
-  padding: 10px 16px 0;
-  border-top: 1px solid var(--line-2);
+  padding: 10px 17px 0;
+  border-top: 1px solid var(--rule);
 }
-.trace-step-footer p { margin: 0 0 2px; color: #52525b; font-size: 10.5px; }
+.trace-step-footer p { margin: 0 0 2px; color: var(--ghost); font-size: 10.5px; }
 .trace-step-footer .trace-step-stats { margin: 4px 0 0; padding-bottom: 0; }
 
-.trace-details { border-top: 1px solid var(--line-2); }
+.trace-details { border-top: 1px solid var(--rule); }
 .trace-step-header + .trace-details,
 .trace-step-summary + .trace-details,
 .stepbar + .trace-details,
 .trace-why + .trace-details { margin-top: 12px; }
 .trace-detail-group {
   padding: 13px 18px 12px;
-  border-bottom: 1px solid var(--line-2);
+  border-bottom: 1px solid var(--rule);
   background: #111114;
 }
 .trace-detail-group strong {
-  color: var(--accent);
+  color: var(--live);
   font: 650 10.5px/1.5 var(--mono);
   letter-spacing: .4px;
   text-transform: uppercase;
 }
 .trace-detail-group > div { display: flex; align-items: baseline; gap: 8px; }
 .trace-detail-group small {
-  color: var(--faint);
+  color: var(--quiet);
   font: 500 9.5px/1.5 var(--mono);
   white-space: nowrap;
 }
-.trace-detail { border-bottom: 1px solid var(--line-2); }
+.trace-detail { border-bottom: 1px solid var(--rule); }
 .trace-detail:last-child { border-bottom: 0; }
 .trace-detail > summary {
   display: flex;
@@ -1180,7 +1254,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   gap: 18px;
   min-height: 39px;
   padding: 8px 18px;
-  color: var(--ink-2);
+  color: var(--body);
   cursor: pointer;
   list-style: none;
   font-size: 12.5px;
@@ -1192,7 +1266,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   padding: 3px 6px;
   border: 1px solid #3f3f46;
   border-radius: 3px;
-  color: var(--dim);
+  color: var(--mute);
   background: #111114;
   font: 650 8.5px/1 var(--mono);
   font-style: normal;
@@ -1205,7 +1279,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .trace-detail.tone-related .trace-detail-title em { color: #d8b4fe; border-color: #581c87; }
 .trace-detail.tone-runtime .trace-detail-title em,
 .trace-detail.tone-policy .trace-detail-title em { color: #fdba74; border-color: #7c2d12; }
-.trace-detail.tone-prompt .trace-detail-title em { color: var(--accent); border-color: #166534; }
+.trace-detail.tone-prompt .trace-detail-title em { color: var(--live); border-color: #166534; }
 /* A slot that held nothing renders as a quiet line, not a disclosure that
    opens onto "no content". */
 .trace-detail-inert {
@@ -1216,12 +1290,12 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   min-height: 34px;
   padding: 6px 18px;
   font-size: 12.5px;
-  color: var(--faint);
+  color: var(--quiet);
 }
-.trace-detail-inert .trace-detail-title > span { color: var(--faint); }
+.trace-detail-inert .trace-detail-title > span { color: var(--quiet); }
 .trace-inert-note {
   min-width: 0;
-  color: #52525b;
+  color: var(--ghost);
   font-size: 11.5px;
   text-align: right;
   overflow: hidden;
@@ -1233,7 +1307,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
    content — it wraps instead of truncating. */
 .trace-detail-inert.tone-trimmed .trace-detail-title em { color: var(--warn); border-color: rgb(251 191 36 / .35); }
 .trace-detail-inert.tone-trimmed .trace-inert-note {
-  color: var(--dim);
+  color: var(--mute);
   text-align: right;
   overflow: visible;
   text-overflow: clip;
@@ -1241,32 +1315,32 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 }
 
 .trace-detail > summary::-webkit-details-marker { display: none; }
-.trace-detail > summary:hover { background: var(--panel-2); }
+.trace-detail > summary:hover { background: var(--raised); }
 .trace-detail[open] > summary { background: #161619; color: var(--ink); }
 .trace-detail > summary::after {
   content: "▾";
   flex: none;
-  color: #52525b;
+  color: var(--ghost);
   font-size: 11px;
   transform: rotate(-90deg);
   transition: transform .15s ease, color .15s ease;
 }
-.trace-detail[open] > summary::after { transform: rotate(0); color: var(--dim); }
-.trace-detail > summary:hover::after { color: var(--accent-dim); }
+.trace-detail[open] > summary::after { transform: rotate(0); color: var(--mute); }
+.trace-detail > summary:hover::after { color: var(--live-dim); }
 .trace-detail-description {
   margin: 0;
   padding: 9px 18px 10px;
-  border-top: 1px solid var(--line-2);
+  border-top: 1px solid var(--rule);
   background: #111114;
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
   gap: 12px;
-  color: var(--dim);
+  color: var(--mute);
   font-size: 11.5px;
   line-height: 1.55;
 }
 .trace-detail-description strong {
-  color: var(--faint);
+  color: var(--quiet);
   font: 650 9.5px/1.75 var(--mono);
   letter-spacing: .3px;
   text-transform: uppercase;
@@ -1275,9 +1349,9 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   margin: 0;
   padding: 14px 18px 17px;
   overflow: auto;
-  border-top: 1px solid var(--line-2);
+  border-top: 1px solid var(--rule);
   background: #0e0e11;
-  color: var(--ink-2);
+  color: var(--body);
   font: 11.5px/1.65 var(--mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1285,31 +1359,35 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 }
 .trace-detail.kind-context pre, .trace-detail.kind-missing pre { max-height: none; }
 .trace-detail.kind-prompt pre { color: #e4e4e7; max-height: 820px; }
-.trace-detail.kind-missing pre { color: var(--dim); font-style: italic; }
-.trace-detail.kind-error pre { color: var(--bad); }
+.trace-detail.kind-missing pre { color: var(--mute); font-style: italic; }
+.trace-detail.kind-error pre { color: var(--alarm); }
 .trace-detail.kind-diff pre { color: #bbf7d0; }
 
 .trace-table-wrap {
   overflow-x: auto;
-  border-top: 1px solid var(--line-2);
+  border-top: 1px solid var(--rule);
   background: #0e0e11;
 }
 .trace-table {
   width: 100%;
   min-width: 680px;
   border-collapse: collapse;
-  color: var(--ink-2);
+  color: var(--body);
   font-size: 11.5px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
 }
 .trace-table th,
 .trace-table td {
   padding: 11px 18px;
-  border-bottom: 1px solid var(--line-2);
+  border-bottom: 1px solid var(--rule);
   text-align: left;
   vertical-align: top;
 }
 .trace-table th {
-  color: var(--faint);
+  color: var(--quiet);
   background: #111114;
   font: 650 9.5px/1.4 var(--mono);
   letter-spacing: .3px;
@@ -1323,10 +1401,9 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 }
 .trace-table tbody tr:last-child td { border-bottom: 0; }
 
-/* Identity columns are read token by token, so they must not break mid-word:
-   the default anywhere-wrap rendered "mcp.emisar.run_action" as four stacked
-   fragments. The wrapper already scrolls, and a scrollbar costs less than an
-   unreadable cell. The final column keeps wrapping — it holds arguments. */
+/* Identity columns are read token by token, so they must not break mid-word.
+   The wrapper already scrolls, and a scrollbar costs less than an unreadable
+   cell. The final column keeps wrapping — it holds arguments. */
 .trace-table.cols-tight th:nth-child(-n+5),
 .trace-table.cols-tight td:nth-child(-n+5) {
   white-space: nowrap;
@@ -1338,8 +1415,10 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   overflow-wrap: anywhere;
 }
 
-/* The whole row is the control. A target the width of one column is a target
-   you have to aim at, and every cell in the row describes the same call. */
+/* Every cell is the control: each cell's label fills its box and toggles the
+   same checkbox, so wherever in the row the pointer lands, the record opens.
+   (The padding gutters between cells stay inert — close enough that nobody
+   has to aim.) */
 .trace-row-toggle {
   position: absolute;
   width: 1px;
@@ -1355,23 +1434,22 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 }
 .trace-table tr.is-expandable label.has-caret::after {
   content: " ▸";
-  color: var(--faint);
+  color: var(--quiet);
 }
 .trace-table tr.is-expandable:has(.trace-row-toggle:checked) label.has-caret::after {
   content: " ▾";
 }
 .trace-table tr.is-expandable:has(.trace-row-toggle:focus-visible) > td {
-  outline: 1px solid var(--line-1);
+  outline: 1px solid var(--edge-2);
   outline-offset: -1px;
 }
 
 /* The opened record spans the table rather than the one column its toggle
-   sits in. Nested in the cell it inherited that column's width, so a pack
-   digest wrapped as "hcp-\nterraform@0.7.0/..." — a full-width row is the
-   whole reason to expand instead of reading the cell. */
+   sits in — a full-width row is the whole reason to expand instead of
+   reading the cell. */
 .trace-row-expand > td {
   padding: 0 18px 12px;
-  border-bottom: 1px solid var(--line-2);
+  border-bottom: 1px solid var(--rule);
   background: #0b0b0e;
 }
 .trace-row-expand pre {
@@ -1379,7 +1457,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   padding: 10px 12px;
   border-radius: 4px;
   background: #08080a;
-  color: var(--ink-2);
+  color: var(--body);
   font: 10.5px/1.6 var(--mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1396,8 +1474,8 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   display: grid;
   gap: 1px;
   padding: 1px 0;
-  border-top: 1px solid var(--line-2);
-  background: var(--line-2);
+  border-top: 1px solid var(--rule);
+  background: var(--rule);
 }
 
 .prompt-segment {
@@ -1406,7 +1484,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   background: #0e0e11;
 }
 .prompt-segment.tone-system { border-left-color: #71717a; }
-.prompt-segment.tone-trusted { border-left-color: var(--good); }
+.prompt-segment.tone-trusted { border-left-color: var(--live); }
 .prompt-segment.tone-memory { border-left-color: #60a5fa; }
 .prompt-segment.tone-operational { border-left-color: #f472b6; }
 .prompt-segment.tone-conversation { border-left-color: #60a5fa; }
@@ -1419,18 +1497,18 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   justify-content: space-between;
   gap: 16px;
   padding: 9px 15px 0;
-  color: var(--faint);
+  color: var(--quiet);
   font: 600 9.5px/1.4 var(--mono);
   letter-spacing: .35px;
   text-transform: uppercase;
 }
-.prompt-segment.tone-trusted .prompt-segment-meta span:first-child { color: var(--good); }
+.prompt-segment.tone-trusted .prompt-segment-meta span:first-child { color: var(--live); }
 .prompt-segment.tone-memory .prompt-segment-meta span:first-child { color: #93c5fd; }
 .prompt-segment.tone-operational .prompt-segment-meta span:first-child { color: #f9a8d4; }
 .prompt-segment.tone-conversation .prompt-segment-meta span:first-child { color: #93c5fd; }
 .prompt-segment.tone-related .prompt-segment-meta span:first-child { color: #d8b4fe; }
 .prompt-segment.tone-slack .prompt-segment-meta span:first-child { color: #67e8f9; }
-.prompt-segment.tone-structure .prompt-segment-meta span:first-child { color: var(--faint); }
+.prompt-segment.tone-structure .prompt-segment-meta span:first-child { color: var(--quiet); }
 .prompt-segment.tone-user .prompt-segment-meta span:first-child { color: var(--warn); }
 .trace-detail .prompt-segment pre {
   border-top: 0;
@@ -1440,39 +1518,35 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 }
 
 /* What a parked episode is waiting for.
-   For a blocked episode this is the page: the reader came to find out what is
-   missing, and previously got the word "blocked" in the outcome tile and one
-   truncated line of instruction three hundred pixels below it. The panel sits
-   directly under the summary strip, before the trace, because nobody scrolls
-   a hundred cards to find out why nothing happened. */
+   For a blocked episode this is the page: the reader came to find out what
+   is missing, and it sits directly under the summary strip, before the
+   trace, because nobody scrolls a hundred cards to find out why nothing
+   happened. */
 .stopped {
-  border: 1px solid rgb(251 191 36 / .35); border-radius: 12px;
+  border: 1px solid rgb(251 191 36 / .35); border-radius: var(--r-card);
   background: rgb(251 191 36 / .04);
   padding: 16px 18px 15px; margin-bottom: 18px;
 }
-/* Section headings on this dashboard are uppercase and tracked out, which is
-   right for a two-word label and wrong for a sentence — "IT COULD NOT REACH
-   THE CODE OR DATA IT NEEDED" is shouted at somebody who is already annoyed. */
 .stopped h2 {
   margin: 0; font: 560 15.5px/1.4 var(--display); color: var(--warn);
-  text-transform: none; letter-spacing: -0.01em;
+  letter-spacing: -0.01em;
 }
-.stopped-why { margin: 7px 0 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.6; max-width: 100ch; }
+.stopped-why { margin: 7px 0 0; color: var(--body); font-size: 13.5px; line-height: 1.6; max-width: 100ch; }
 .stopped-cols {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 4px 28px; margin-top: 13px;
 }
 .stopped h3 {
   margin: 0 0 5px; font: 600 11px/1.5 var(--sans);
-  letter-spacing: .08em; text-transform: uppercase; color: var(--faint);
+  letter-spacing: .08em; text-transform: uppercase; color: var(--quiet);
 }
-.stopped ul { margin: 0; padding-left: 17px; color: var(--ink-2); font-size: 13px; line-height: 1.65; }
+.stopped ul { margin: 0; padding-left: 17px; color: var(--body); font-size: 13px; line-height: 1.65; }
 .stopped li { margin: 0; }
 .stopped li::marker { color: var(--warn); }
 /* What was already tried is context, not instruction — it is here so nobody
    repeats it, and it should not compete with what still needs doing. */
-.stopped-tried { color: var(--dim); }
-.stopped-tried li::marker { color: var(--faint); }
+.stopped-tried { color: var(--mute); }
+.stopped-tried li::marker { color: var(--quiet); }
 .stopped-do {
   margin: 14px 0 0; padding-top: 12px; border-top: 1px solid rgb(251 191 36 / .2);
   color: var(--ink); font-size: 13.5px; line-height: 1.6; max-width: 100ch;
@@ -1481,80 +1555,88 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   display: block; font: 600 11px/1.5 var(--sans);
   letter-spacing: .08em; text-transform: uppercase; color: var(--warn); margin-bottom: 4px;
 }
-.stopped code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); border-radius: 4px; padding: 1px 5px; }
+.stopped code { font-family: var(--mono); font-size: .9em; background: var(--raised); border-radius: 4px; padding: 1px 5px; }
 .episode-action-strip { flex-wrap: wrap; gap: 8px; align-items: center; }
 .episode-action-strip .note { margin: 0; margin-right: auto; max-width: 46ch; }
-/* Answering in Slack is a link, not a mutation, so it does not wear the
-   confirm disclosure the writes do — but it is the same size and shape as
-   them, because it is one of the same set of choices. See .act-link above. */
 
-/* Two rows on the overview borrow the episode row's grid so the page reads as
-   one list vocabulary rather than three. A question waiting on somebody adds
-   the line it is waiting for; a schedule leads with when it next runs, which
-   is the only thing anybody wants from it here. */
+/* The review band is a strip, not a stacked panel: label, state, action on
+   one line. Only a recorded review note takes a full row of its own — it is
+   the judgement, not a status — and the armed confirm drops below likewise. */
+.episode-review { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 12px 16px; }
+.episode-review h2 { flex: none; font-size: 14px; }
+.episode-review p { margin: 0; }
+.episode-review .stopped-why { flex-basis: 100%; }
+.episode-review .confirm { margin-left: auto; }
+/* Reviewing is the page's one action, so it wears the primary fill; the
+   amber commit inside the armed step still outranks it once open. */
+.episode-review details.confirm > summary {
+  background: var(--live-dim);
+  border-color: var(--live-dim);
+  color: #09090b;
+  font-weight: 600;
+}
+.episode-review details.confirm > summary:hover { background: var(--live); border-color: var(--live); }
+.episode-review details.confirm[open] > summary { background: var(--surface); border-color: var(--edge-2); color: var(--ink); font-weight: 500; }
+
+/* Two rows on the overview borrow the episode row's grid so the page reads
+   as one list vocabulary rather than three. */
 .episode-ask {
   grid-area: answer;
   margin-top: 5px; max-width: 104ch;
-  font-size: 13px; line-height: 1.55; color: var(--ink-2);
+  font-size: 13px; line-height: 1.55; color: var(--body);
   padding-left: 19px; text-indent: -19px;
 }
-.episode-ask::before { content: "→"; color: var(--accent); margin-right: 7px; }
-.episode-row[data-state="scheduled"] .episode-dot::before { background: var(--accent-dim); opacity: .55; }
+.episode-ask::before { content: "→"; color: var(--live); margin-right: 7px; }
+.episode-row[data-state="scheduled"] .episode-dot::before { background: var(--live-dim); opacity: .55; }
 .episode-row[data-state="paused"] .episode-dot::before {
-  background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint);
+  background: transparent; box-shadow: inset 0 0 0 1.5px var(--quiet);
 }
 
-/* The system line replaces a four-cell table that repeated the sidebar footer
-   and a nine-column one that was thirteen zeros and one fact. A healthy lane
-   has nothing to say; the table returns the moment one stops being healthy. */
+/* The system line replaces a four-cell table that repeated the sidebar
+   footer. A healthy lane has nothing to say; the table returns the moment
+   one stops being healthy. */
 .system-line {
   display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px;
-  font-size: 12.5px; color: var(--faint);
+  font-size: 12.5px; color: var(--quiet);
 }
 .system-line > span:not(:last-child)::after { content: " ·"; opacity: .5; }
-.system-line .ok { color: var(--good); }
-.system-line .bad { color: var(--bad); }
+.system-line .ok { color: var(--live); }
+.system-line .bad { color: var(--alarm); }
 .system-line .warn { color: var(--warn); }
 
 /* The channel roll-up on /episodes. Work is not evenly spread across the
-   fleet: three channels hold most of six hundred episodes, and a flat list
-   sorted by time never shows that. Each card is one channel, and the bar is
-   the only place on the dashboard where a channel's outcomes are comparable
-   by eye.
-
-   The card states one number and then only what is unusual. It used to print
-   all four — total, completed, failed, ended another way — which wrapped to
-   two ragged lines and buried the failure count among three numbers nobody
-   was looking for. The bar already carries the proportion; the text carries
-   the exceptions. */
-.chan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(272px, 1fr)); gap: 10px; }
+   fleet: three channels hold most of the episodes, and a flat list sorted by
+   time never shows that. The bar is the only place a channel's outcomes are
+   comparable by eye; the text carries the exceptions. */
+.chan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(276px, 1fr)); gap: 12px; }
 .chan-card {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-  padding: 13px 15px 12px; display: flex; flex-direction: column; gap: 9px;
+  background: var(--card-face); border: 1px solid var(--edge); border-radius: var(--r-card);
+  box-shadow: var(--card-shadow);
+  padding: 14px 16px 13px; display: flex; flex-direction: column; gap: 9px;
 }
 .chan-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 /* The name is the card's title, so it is ink rather than accent. Fourteen
    cards of glowing green read as fourteen calls to action. */
 .chan-name { font-size: 14px; font-weight: 550; color: var(--ink); }
-.chan-name:hover { color: var(--accent); text-decoration: none; }
-.chan-when { font-size: 12px; color: var(--faint); white-space: nowrap; flex: none; }
-.chan-bar { display: block; width: 100%; height: 4px; border-radius: 2px; overflow: hidden; background: var(--line-2); }
-.chan-done { fill: var(--accent-dim); }
-.chan-failed { fill: var(--bad); }
+.chan-name:hover { color: var(--live); text-decoration: none; }
+.chan-when { font-size: 12px; color: var(--quiet); white-space: nowrap; flex: none; }
+.chan-bar { display: block; width: 100%; height: 4px; border-radius: 2px; overflow: hidden; background: var(--rule); }
+.chan-done { fill: var(--live-dim); }
+.chan-failed { fill: var(--alarm); }
 .chan-other { fill: #3f3f46; }
 .chan-counts, .chan-foot {
   display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 7px;
-  font-size: 12.5px; color: var(--faint);
+  font-size: 12.5px; color: var(--quiet);
 }
 /* The dot trails its item instead of leading the next one, so a card narrow
    enough to wrap never opens a line with "· 1 waiting on you". */
 .chan-counts > span:not(:last-child)::after,
 .chan-foot > span:not(:last-child)::after { content: " ·"; opacity: .5; }
-.chan-counts { color: var(--dim); }
-.chan-bad { color: var(--bad); }
+.chan-counts { color: var(--mute); }
+.chan-bad { color: var(--alarm); }
 .chan-wait { color: var(--warn); }
-.chan-busy { color: var(--accent); }
-.chan-foot { margin-top: auto; padding-top: 1px; font-size: 12px; gap: 0 4px; }
+.chan-busy { color: var(--live); }
+.chan-foot { margin-top: auto; padding-top: 1px; font-size: 12px; }
 /* The same bar on the channel's own page. A card spaces its children with a
    flex gap; a panel does not, so here it carries its own margin. */
 .panel > .chan-bar { margin-top: 10px; }
@@ -1563,19 +1645,9 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 /* The episode row.
    Three questions, in the order somebody scanning six hundred of these has
    them: is anything wrong, what was this about, and what did Responder
-   conclude. The layout answers them in that order and gives each answer one
-   fixed place, so the eye runs down a column instead of re-reading a paragraph
-   to find the next title.
-
-   A two-column grid rather than stacked blocks: the dot and the timestamp hold
-   their own tracks, so a long title cannot push the time out of line and a
-   wrapped title cannot leave the dot stranded. Everything else shares the text
-   column and therefore one left edge.
-
-   Colour is reserved for what is unusual. Most work completes, most work never
-   reaches Slack, and most work runs once — so those states are grey, and only
-   a failure, a wait, a reply or a retry is allowed to take the eye. A page of
-   fifty green ticks says exactly as little as a page of none. */
+   conclude. Colour is reserved for what is unusual: most work completes,
+   most work never reaches Slack, and most work runs once — so those states
+   are grey, and only a failure, a wait, a reply or a retry takes the eye. */
 .episode-row {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr) auto;
@@ -1585,28 +1657,27 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
     ".   facts  facts";
   align-items: baseline;
   column-gap: 10px;
-  padding: 13px 16px 14px;
+  padding: 14px 18px 15px;
 }
 /* The dot is centred in the title's own line box rather than aligned to its
-   baseline: an empty inline box has no text to take a baseline from, so
-   baseline alignment put it a pixel or two low at every zoom level. */
+   baseline: an empty inline box has no text to take a baseline from. */
 .episode-dot {
   grid-area: dot; align-self: start;
   height: 21px; display: flex; align-items: center;
 }
 .episode-dot::before {
   content: ""; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--faint);
+  background: var(--quiet);
 }
 /* Superseded and cancelled work did not reach an outcome of its own, so it
    reads as an outline rather than a mark. */
 .episode-row[data-state="superseded"] .episode-dot::before,
 .episode-row[data-state="cancelled"] .episode-dot::before {
-  background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint);
+  background: transparent; box-shadow: inset 0 0 0 1.5px var(--quiet);
 }
-.episode-row[data-state="completed"] .episode-dot::before { background: var(--accent-dim); opacity: .55; }
+.episode-row[data-state="completed"] .episode-dot::before { background: var(--live-dim); opacity: .55; }
 .episode-row[data-state="failed"] .episode-dot::before,
-.episode-row[data-state="dead"] .episode-dot::before { background: var(--bad); }
+.episode-row[data-state="dead"] .episode-dot::before { background: var(--alarm); }
 .episode-row[data-state="blocked"] .episode-dot::before,
 .episode-row[data-state="waiting_operator"] .episode-dot::before,
 .episode-row[data-state="waiting_approval"] .episode-dot::before { background: var(--warn); }
@@ -1620,96 +1691,140 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 }
 .episode-when {
   grid-area: when;
-  font-size: 12px; color: var(--faint); white-space: nowrap;
+  font-size: 12px; color: var(--quiet); white-space: nowrap;
 }
-/* Three lines of the conclusion. Enough for the finding and its qualifier,
-   which is where these paragraphs put the part worth reading; the rest is one
-   click away and does not have to be paid for fifty times on one screen. */
+/* Three lines of the conclusion. Enough for the finding and its qualifier;
+   the rest is one click away and does not have to be paid for fifty times
+   on one screen. */
 .episode-answer {
   grid-area: answer;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
   overflow: hidden;
   margin-top: 5px; max-width: 104ch;
-  font-size: 13px; line-height: 1.6; color: var(--dim);
+  font-size: 13px; line-height: 1.6; color: var(--mute);
 }
 .episode-answer code {
-  font-family: var(--mono); font-size: 12px; color: var(--ink-2);
-  background: var(--panel-2); border-radius: 4px; padding: 1px 5px;
+  font-family: var(--mono); font-size: .92em; color: var(--body);
+  background: var(--raised); border-radius: 4px; padding: 1px 5px;
 }
-.episode-answer strong { color: var(--ink-2); font-weight: 550; }
-.episode-answer .link-host { color: var(--dim); text-decoration: underline; text-underline-offset: 2px; }
+.episode-answer strong { color: var(--body); font-weight: 550; }
+.episode-answer .link-host { color: var(--mute); text-decoration: underline; text-underline-offset: 2px; }
 .episode-facts {
   grid-area: facts;
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 7px;
-  margin-top: 7px; font-size: 12px; color: var(--faint);
+  margin-top: 7px; font-size: 12px; color: var(--quiet);
 }
-/* One separator rule beats a separator typed between every pair: the middle
-   dots stay even, and a fact that renders conditionally cannot leave a
-   dangling one behind it. Trailing rather than leading, so a wrapped fact
-   row never starts a line with the dot. */
+/* One separator rule beats a separator typed between every pair. Trailing
+   rather than leading, so a wrapped fact row never starts a line with the
+   dot. */
 .episode-facts > span:not(:last-child)::after { content: " ·"; opacity: .5; }
-.episode-state { color: var(--dim); }
+.episode-state { color: var(--mute); }
 .episode-row[data-state="failed"] .episode-state,
-.episode-row[data-state="dead"] .episode-state { color: var(--bad); }
+.episode-row[data-state="dead"] .episode-state { color: var(--alarm); }
 .episode-row[data-state="blocked"] .episode-state,
 .episode-row[data-state="waiting_operator"] .episode-state,
 .episode-row[data-state="waiting_approval"] .episode-state { color: var(--warn); }
-.episode-spoke { color: var(--accent); }
+.episode-spoke { color: var(--live); }
 .episode-retried { color: var(--warn); }
 
 /* Schedule pages reuse the episode row so the whole control plane keeps one
-   list vocabulary. Only the states a schedule can be in that an episode cannot
-   are declared here — completed and failed already read correctly from the
-   episode rules above, and repeating them would leave two places to edit. */
+   list vocabulary. Only the states a schedule can be in that an episode
+   cannot are declared here. */
 .episode-row[data-state="queued"] .episode-dot::before,
-.episode-row[data-state="running"] .episode-dot::before { background: var(--accent); }
+.episode-row[data-state="running"] .episode-dot::before { background: var(--live); }
 .episode-row[data-state="skipped_missed"] .episode-dot::before,
 .episode-row[data-state="skipped_overlap"] .episode-dot::before,
 .episode-row[data-state="skipped_unauthorized"] .episode-dot::before {
-  background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint);
+  background: transparent; box-shadow: inset 0 0 0 1.5px var(--quiet);
 }
 .episode-row[data-state^="skipped"] .episode-state { color: var(--warn); }
-/* The standing instructions are reference material, not the answer to why you
-   opened the page, and on a real schedule they run to a couple of thousand
-   words — printed open they pushed the execution history off the screen. */
-.disclose { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+/* The standing instructions are reference material, not the answer to why
+   you opened the page — printed open they pushed the execution history off
+   the screen. */
+.disclose { border: 1px solid var(--edge); border-radius: var(--r-card); background: var(--surface); box-shadow: var(--card-shadow); }
 .disclose > summary {
-  padding: 11px 16px; cursor: pointer; color: var(--dim); font-size: 13px;
+  padding: 12px 17px; cursor: pointer; color: var(--mute); font-size: 13px;
   list-style: none;
 }
 .disclose > summary::-webkit-details-marker { display: none; }
-.disclose > summary::before { content: "▸"; margin-right: 9px; color: var(--faint); }
+.disclose > summary::before { content: "▸"; margin-right: 9px; color: var(--quiet); }
 .disclose[open] > summary::before { content: "▾"; }
 .disclose > summary:hover { color: var(--ink); }
 .schedule-prompt {
-  margin: 0; padding: 2px 16px 15px; color: var(--ink-2);
+  margin: 0; padding: 2px 17px 15px; color: var(--body);
   font-size: 13.5px; line-height: 1.65; max-width: 100ch;
 }
-.schedule-prompt code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); border-radius: 4px; padding: 1px 5px; }
+.schedule-prompt code { font-family: var(--mono); font-size: .9em; background: var(--raised); border-radius: 4px; padding: 1px 5px; }
 
-/* Coop's own activity words, on the shared episode row. A parked workspace is
-   idle but still holding disk; a working one has a turn in flight. */
-.episode-row[data-state="working"] .episode-dot::before { background: var(--accent); }
-.episode-row[data-state="parked"] .episode-dot::before { background: var(--faint); }
+/* Coop's own activity words, on the shared episode row. A parked workspace
+   is idle but still holding disk; a working one has a turn in flight. */
+.episode-row[data-state="working"] .episode-dot::before { background: var(--live); }
+.episode-row[data-state="parked"] .episode-dot::before { background: var(--quiet); }
 
-/* The correction queue. Its rows carry a complaint, how it can be checked, and
-   whether the host may have produced it by mistake — which is the one thing a
-   reviewer must not miss, because a test built on a host fault pins a
-   requirement nothing can satisfy. */
+/* The correction queue. Its rows carry a complaint, how it can be checked,
+   and whether the host may have produced it by mistake — which is the one
+   thing a reviewer must not miss. */
 .correction .title { font-size: 13.5px; line-height: 1.55; max-width: 110ch; }
 .correction-kind {
   font: 600 10.5px/1.6 var(--sans); letter-spacing: .06em; text-transform: uppercase;
-  border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; margin-right: 8px;
-  color: var(--faint);
+  border: 1px solid var(--edge); border-radius: 5px; padding: 1px 6px; margin-right: 8px;
+  color: var(--quiet);
 }
-/* An unreadable answer is a fact and makes the cheapest test; a judgment is
-   the one that needs an argument before it is worth pinning. */
-.correction-kind.kind-unreadable { color: var(--accent); border-color: rgb(54 230 165 / .35); }
+.correction-kind.kind-unreadable { color: var(--live); border-color: rgb(54 230 165 / .35); }
 .correction-caution {
-  margin-top: 7px; padding: 8px 11px; border-radius: 8px;
+  margin-top: 7px; padding: 8px 11px; border-radius: var(--r-ctl);
   border: 1px solid rgb(251 191 36 / .3); background: rgb(251 191 36 / .05);
   color: var(--warn); font-size: 12.5px; line-height: 1.55; max-width: 110ch;
 }
+
+/* Configuration is an index, not a dump. Each card is one kind of standing
+   instruction: what it is, how much of it exists, and the single fact that
+   says whether any of it needs attention. */
+.set-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 28px; }
+.set-card {
+  background: var(--card-face); border: 1px solid var(--edge); border-radius: var(--r-card);
+  box-shadow: var(--card-shadow);
+  padding: 14px 16px 13px; display: grid; gap: 4px; align-content: start; color: inherit;
+}
+.set-card:hover { border-color: var(--edge-2); text-decoration: none; }
+.set-name { font-size: 10.5px; color: var(--quiet); font-weight: 600; }
+.set-count { font: 560 24px/1.15 var(--display); letter-spacing: -0.015em; color: var(--ink); font-variant-numeric: tabular-nums; }
+.set-what { font-size: 12.5px; line-height: 1.55; color: var(--mute); margin-top: 2px; min-height: 2lh; }
+.set-health { font-size: 12px; color: var(--quiet); margin-top: 5px; }
+.set-health.warn { color: var(--warn); }
+.set-health.bad { color: var(--alarm); }
+.set-card:hover .set-count { color: var(--live); }
+
+/* A dropped layer is a count against a sentence, so the sentence gets the
+   room and the count sits where a timestamp would. */
+.layer-row .episode-title { white-space: normal; }
+
+/* States these pages add to the shared row. A rule that fires and never
+   acts is the one row worth acting on, and takes the failure colour. */
+.episode-row[data-state="enabled"] .episode-dot::before,
+.episode-row[data-state="reply"] .episode-dot::before { background: var(--live-dim); opacity: .55; }
+.episode-row[data-state="disabled"] .episode-dot::before,
+.episode-row[data-state="shadowed"] .episode-dot::before {
+  background: transparent; box-shadow: inset 0 0 0 1.5px var(--quiet);
+}
+.episode-row[data-state="idle"] .episode-dot::before { background: var(--alarm); }
+
+/* The participation controls right-align to the table's edge and hold the
+   row's top line like every other cell, so the button pair reads as part of
+   the row it acts on. */
+.participation td:last-child { text-align: right; white-space: nowrap; }
+.participation td:last-child form { display: inline-block; margin-left: 6px; }
+
+/* What the runs have in common, above the table that would otherwise make
+   the reader derive it. Ink rather than faint: it is the finding, not a
+   caption. */
+.shape {
+  margin: 0 0 8px; padding: 10px 15px;
+  background: var(--surface); border: 1px solid var(--edge); border-radius: var(--r-ctl);
+  font: 500 12.5px/1.5 var(--mono); color: var(--body);
+}
+
+/* Responsive ------------------------------------------------------------------ */
 
 @media (max-width: 900px) {
   body { display: block; }
@@ -1719,7 +1834,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
     height: auto;
     padding: 8px 10px;
     border-right: 0;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--edge);
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
@@ -1731,13 +1846,14 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   /* Icons stay: with the group labels gone they are the only thing that
      tells twelve wrapped links apart at a glance. Padding buys tap targets
      a thumb can actually hit. */
-  .sidebar a { padding: 8px 12px; border-left: 0; border-bottom: 2px solid transparent; white-space: nowrap; }
-  .sidebar a.on { border-bottom-color: var(--accent); }
-  .sidebar .foot { margin: 4px 8px 0; padding: 4px 0; display: flex; gap: 12px; flex-wrap: wrap; border-top: 0; flex: 1 0 100%; }
-  main { max-width: none; padding: 18px 20px 60px; }
+  .sidebar a { padding: 8px 12px; border-radius: var(--r-ctl); white-space: nowrap; }
+  .sidebar .foot { margin: 6px 8px 2px; padding: 8px 12px; display: flex; gap: 12px; flex-wrap: wrap; flex: 1 0 100%; }
+  main { max-width: none; padding: 20px 20px 64px; }
   .episode-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .hero { flex-direction: column; align-items: flex-start; gap: 14px; }
-  .hero-pulse { justify-items: start; }
+  .episode-metric:nth-child(odd) { border-left: 0; }
+  .episode-metric:nth-child(n+3) { border-top: 1px solid var(--rule); }
+  .hero { grid-template-areas: "line" "pulse" "stats"; grid-template-columns: 1fr; }
+  .hero-pulse { justify-items: start; padding-bottom: 16px; }
   .trace-heading { align-items: start; flex-direction: column; }
   .trace-summary { justify-content: flex-start; }
 }
@@ -1745,14 +1861,23 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 @media (max-width: 620px) {
   main { padding: 14px 14px 48px; }
   main > header { display: block; }
+  h1 { font-size: 23px; }
   .episode-metrics { grid-template-columns: 1fr; }
-  .episode-metric { min-height: 0; }
+  .episode-metric { border-left: 0; border-top: 1px solid var(--rule); }
+  .episode-metric:first-child { border-top: 0; }
+  .hero-stats > * { padding: 0 16px; }
+  /* The cluster folds two-by-two, the same seam treatment as the outcome
+     cells: no stray left rule opening a row, a hairline closing the fold. */
+  .hero-stats { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hero-stats > :nth-child(odd) { border-left: 0; }
+  .hero-stats > :nth-child(n+3) { border-top: 1px solid var(--rule); padding-top: 12px; margin-top: 12px; }
   .journey { gap: 4px; }
   .journey-stop + .journey-stop { margin-left: 20px; }
+  .journey-stop + .journey-stop::before { width: 14px; left: -17px; }
   .trace-chapter-head { flex-wrap: wrap; row-gap: 2px; }
   .trace-step { grid-template-columns: 21px minmax(0, 1fr); gap: 8px; }
   .trace-list::before { left: 10px; }
-  .trace-marker .ring { width: 20px; height: 20px; }
+  .trace-marker .ring { width: 21px; height: 21px; border-radius: 7px; }
   .trace-marker .ring svg { width: 10.5px; height: 10.5px; }
   .trace-gap { padding-left: 30px; }
   .trace-gap::before { left: 6.5px; }
@@ -1770,47 +1895,4 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   .trace-detail-description { grid-template-columns: 1fr; gap: 2px; padding-left: 13px; padding-right: 13px; }
   .trace-detail pre { padding: 12px 13px 15px; }
   .prompt-segment-meta { align-items: flex-start; flex-direction: column; gap: 2px; padding: 8px 12px 0; }
-}
-
-/* Configuration is an index, not a dump. Each card is one kind of standing
-   instruction: what it is, how much of it exists, and the single fact that
-   says whether any of it needs attention. The count alone cannot say that —
-   twelve channels is not better or worse than four — so the health line is
-   the reason this is a card and not a link. */
-.set-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 10px; margin-bottom: 26px; }
-.set-card {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-  padding: 14px 16px 13px; display: grid; gap: 4px; align-content: start; color: inherit;
-}
-.set-card:hover { border-color: #33333a; text-decoration: none; }
-.set-name { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--faint); }
-.set-count { font: 560 24px/1.2 var(--display); letter-spacing: -0.015em; color: var(--ink); font-variant-numeric: tabular-nums; }
-.set-what { font-size: 12.5px; line-height: 1.55; color: var(--dim); margin-top: 2px; }
-.set-health { font-size: 12px; color: var(--faint); margin-top: 5px; }
-.set-health.warn { color: var(--warn); }
-.set-health.bad { color: var(--bad); }
-.set-card:hover .set-count { color: var(--accent); }
-
-/* A dropped layer is a count against a sentence, so the sentence gets the
-   room and the count sits where a timestamp would. */
-.layer-row .episode-title { white-space: normal; }
-
-/* States these pages add to the shared row. A preference or rule that is
-   turned off did not reach an outcome — it is not running — so it reads as an
-   outline, the same as superseded work. A rule that fires and never acts is
-   the one row worth acting on, and takes the failure colour. */
-.episode-row[data-state="enabled"] .episode-dot::before,
-.episode-row[data-state="reply"] .episode-dot::before { background: var(--accent-dim); opacity: .55; }
-.episode-row[data-state="disabled"] .episode-dot::before,
-.episode-row[data-state="shadowed"] .episode-dot::before {
-  background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint);
-}
-.episode-row[data-state="idle"] .episode-dot::before { background: var(--bad); }
-
-/* What the runs have in common, above the table that would otherwise make the
-   reader derive it. Ink rather than faint: it is the finding, not a caption. */
-.shape {
-  margin: 0 0 8px; padding: 9px 14px;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  font: 500 12.5px/1.5 var(--mono); color: var(--ink-2);
 }
