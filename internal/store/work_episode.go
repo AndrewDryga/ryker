@@ -394,8 +394,22 @@ func (s *Store) SetWorkEpisodePhase(
 	}
 	_, err = s.appendWorkEpisodeEventTx(ctx, tx, runID, core.WorkEpisodeEvent{
 		Kind: episodepkg.EventPhaseChanged, Actor: "host",
+		// Keyed on the run, because an episode has to be able to enter the same
+		// phase twice.
+		//
+		// The key was content-addressed over the transition alone, so a later
+		// attempt that reached an identical phase found its event already
+		// recorded and appended nothing — and an event that is not appended is a
+		// transition that never reduces. The episode kept whatever execution
+		// state leasing the attempt had put it in, and FinishAgentRun then
+		// completed it as ordinary finished work. That is the second half of how
+		// the 2026-08-16 va1-nomad-oom-risk stream closed its episode at 19:29Z
+		// with the alert still firing: attempt 1 had already parked the episode
+		// in "Watching the alert stream", so attempt 2's identical park was
+		// dropped on the floor. Retrying one run's finalization still dedupes,
+		// which is the idempotency this key exists for.
 		IdempotencyKey: episodeEventKey(
-			"phase", string(state), phase, status, nextAction,
+			"phase", runID, string(state), phase, status, nextAction,
 			progressDue.UTC().Format(time.RFC3339Nano),
 		),
 		Payload: payload,

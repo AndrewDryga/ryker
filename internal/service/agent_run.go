@@ -2287,13 +2287,12 @@ func (s *Service) supersededByNewerLifecycle(
 // no shared ledger between them.
 //
 // The wait is appended only when the alert is still a live problem and the turn
-// concluded. A recovery, a not_issue verdict, or a turn that already left work
-// running says the opposite, and the episode closes or continues on its own
-// terms. It goes on both Operations and AppliedOperations because the former is
-// the persisted shape finalization reparses and the latter is what this turn
-// records.
+// concluded. A recovery, a not_issue verdict, or a turn that already left a wait
+// of its own behind says the opposite, and the episode closes or continues on
+// its own terms. It goes on both Operations and AppliedOperations because the
+// former is the persisted shape finalization reparses and the latter is what
+// this turn records.
 func (s *Service) appendAlertStreamWait(
-	ctx context.Context,
 	run core.AgentRun,
 	input core.SlackInput,
 	decision *decisionpkg.WatchDecision,
@@ -2303,7 +2302,7 @@ func (s *Service) appendAlertStreamWait(
 		decision.Action != "reply" || decision.Completion == nil ||
 		decision.Completion.Status != "decision_ready" ||
 		decision.AlertAssessment == nil ||
-		decisionpkg.ContinuesThisEpisode(*decision) {
+		leavesAWaitBehind(*decision) {
 		return nil
 	}
 	switch decision.AlertAssessment.Verdict {
@@ -2315,21 +2314,6 @@ func (s *Service) appendAlertStreamWait(
 	if window <= 0 {
 		return nil
 	}
-	// One wait per stream, not one per card. Each answered card would otherwise
-	// leave its own timer behind, and a stream that produced seven cards in
-	// ninety minutes would fire seven re-checks six hours later — the noise this
-	// change exists to remove, rescheduled.
-	if run.EpisodeID != "" {
-		wakeups, err := s.store.ListEpisodeWakeups(ctx, run.EpisodeID)
-		if err != nil {
-			return err
-		}
-		for _, wakeup := range wakeups {
-			if wakeup.Kind == alertStreamWaitKind && wakeup.State == core.WakeupPending {
-				return nil
-			}
-		}
-	}
 	now := s.now().UTC()
 	matcher, err := json.Marshal(map[string]string{
 		"conversation_key": run.ConversationKey,
@@ -2338,7 +2322,22 @@ func (s *Service) appendAlertStreamWait(
 	if err != nil {
 		return err
 	}
-	id := "host-stream-open-" + run.ID
+	// One timer per stream, and the operation on every answer.
+	//
+	// The id names the EPISODE, so a later card's wait resolves to the row the
+	// first one created: CreateEpisodeWakeup is INSERT OR IGNORE on the id, and
+	// the scheduler item behind it is a singleton keeping the earliest due time,
+	// so the duplicate schedules nothing. That is why the operation itself is
+	// unconditional — which it has to be. Skipping it to avoid a second timer,
+	// as the first version did, staged a decision with nothing pending in it:
+	// the 2026-08-16 va1-nomad-oom-risk stream answered its second card at
+	// 19:29Z, completionEpisodePhase read a finished turn, and the episode
+	// closed with the alert still firing.
+	//
+	// A run with no episode leaves the id bare, and harmlessly: the operation is
+	// applied against the episode resolved from that same agent_runs.episode_id,
+	// so a run without one creates no wakeup for the id to collide with.
+	id := "host-stream-open-" + run.EpisodeID
 	wait := investigation.ResultOperation{
 		ID: id, Type: "wait_external",
 		ExternalWait: &investigation.ExternalWaitOperation{
@@ -2351,6 +2350,33 @@ func (s *Service) appendAlertStreamWait(
 	decision.Operations = append(decision.Operations, wait)
 	decision.AppliedOperations = append(decision.AppliedOperations, wait)
 	return nil
+}
+
+// leavesAWaitBehind reports whether the turn scheduled something that outlives
+// it: an external wait of any kind, or a recheck on its completion. Those are
+// the only two things that keep an episode open past this turn on their own, so
+// they are the only two the host's stream wait would duplicate.
+//
+// Narrower than decisionpkg.ContinuesThisEpisode, which also counts a planned
+// goal. An open goal does hold the episode open through the goal machinery, but
+// a goal planned and closed in the same turn leaves nothing running at all —
+// and the first live alert stream after this feature deployed did exactly that:
+// run_0c2e0f1f2ea28371cac5ef8a1aa603c4 answered the 19:01Z card on 2026-08-16
+// with three plan_goal operations and three update_goal closures. Read as "the
+// turn continues", the wait was skipped, the episode completed, and the 19:11Z
+// card opened a new one with a fresh briefing. ContinuesThisEpisode keeps its
+// meaning for the corrections that depend on it; only this question changed. A
+// goal that does stay open is harmless here: the wait beside it costs one row.
+func leavesAWaitBehind(decision decisionpkg.WatchDecision) bool {
+	if decision.Completion != nil && decision.Completion.Recheck != nil {
+		return true
+	}
+	for _, operation := range decision.AppliedOperations {
+		if operation.Type == "wait_external" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) stageTriageTerminal(
@@ -2678,7 +2704,7 @@ func (s *Service) stageTriageTerminal(
 				}
 			}
 			if !superseded {
-				if err := s.appendAlertStreamWait(ctx, run, input, &decision); err != nil {
+				if err := s.appendAlertStreamWait(run, input, &decision); err != nil {
 					return true, err
 				}
 				// Recorded only once nothing newer is queued for this lifecycle.

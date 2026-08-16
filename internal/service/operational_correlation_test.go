@@ -1123,6 +1123,154 @@ func TestRecoveredAlertReplyCompletesTheStreamEpisode(t *testing.T) {
 	}
 }
 
+// The first live Traefik reply after 2026-08-16's deploy planned and closed
+// three goals in one turn and lost its stream wait; the next card opened a new
+// episode.
+//
+// The host skipped its own wait whenever the turn "continued this episode", and
+// that question counts any plan_goal in the result — including goals the same
+// turn closed. run_0c2e0f1f2ea28371cac5ef8a1aa603c4 answered the 19:01Z
+// va1-nomad-oom-risk card with three planned goals, three update_goal closures,
+// a confirmed_issue verdict and a decision_ready completion. Nothing was left
+// running, no wait was appended, the episode completed, and the 19:11Z card
+// opened episode_run_72b49371 with a fresh briefing. Only a wait or a recheck
+// actually outlives the turn, so only those may stand in for the host's own.
+func TestAnActiveAlertReplyWithClosedGoalsStillKeepsTheStreamOpen(t *testing.T) {
+	ctx := context.Background()
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	cfg, st, slackClient, svc, base := streamFixture(t, "CGOALCLOSED")
+	svc.coop.(*fakeCoop).completeQueue = []string{
+		withPlannedAndClosedGoal(t, confirmedAlertReplyResult(observedAt)),
+	}
+
+	card := base
+	card.ID, card.EnvelopeID = "goal-card-1", "env-goal-card-1"
+	card.EventID, card.MessageTS = "event-goal-card-1", "1709.100"
+	run := answerStreamCard(t, svc, st, card)
+	if posted := alertReplyPosts(slackClient.posts); len(posted) != 1 {
+		t.Fatalf("the card was not answered exactly once: %d posts", len(posted))
+	}
+	// The reproduction depends on the goal operations actually being applied: a
+	// fixture whose plan_goal never reached the ledger would pass this test
+	// without ever posing the question it exists to ask.
+	if states := streamColumn(t, cfg, `
+		SELECT state FROM episode_goals WHERE episode_id = ? ORDER BY id`,
+		run.EpisodeID,
+	); len(states) != 1 || states[0] != string(core.GoalCompleted) {
+		t.Fatalf("the reply's planned-and-closed goal is not on the ledger: %v", states)
+	}
+	episode, err := st.GetWorkEpisode(ctx, run.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.State != core.EpisodeWaitingExternal {
+		t.Fatalf(
+			"a reply that planned and closed a goal completed its still-firing stream as %q",
+			episode.State,
+		)
+	}
+	if waits := streamWaitCount(t, ctx, st, run.EpisodeID); waits != 1 {
+		t.Fatalf("alert stream wakeups = %d, want exactly one", waits)
+	}
+}
+
+// Attempt 2 of the live stream completed the episode at 19:29Z because the
+// guard skipped the wait instead of reusing it.
+//
+// One wait per stream was enforced by returning before the wait operation was
+// appended, so the second answered card on va1-nomad-oom-risk (the 19:24Z card,
+// audited alert_update_changed) staged a decision with nothing pending in it.
+// The phase that reads those operations saw a finished turn, completed the
+// episode a second time, and the 20:09Z card opened a third one. The operation
+// and the timer are different things: the operation says this turn is not the
+// end of the episode and belongs on every answer, and only the wakeup row
+// behind it has to be a single one.
+//
+// This test holds two doors shut. Appending the operation was not enough on
+// its own: with the wait in the result the episode still completed, because the
+// phase event that parks it was keyed on the transition alone and attempt 2's
+// park was identical to attempt 1's, so it deduplicated into silence and
+// FinishAgentRun closed an episode that was still in an execution state. Either
+// defect alone loses the stream.
+func TestASecondActiveReplyKeepsTheStreamOpen(t *testing.T) {
+	ctx := context.Background()
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	_, st, slackClient, svc, base := streamFixture(t, "CSECONDREPLY")
+	svc.coop.(*fakeCoop).completeQueue = []string{
+		confirmedAlertReplyResult(observedAt),
+		degradedConfirmedAlertReply(t, observedAt),
+	}
+
+	first := base
+	first.ID, first.EnvelopeID = "second-card-1", "env-second-card-1"
+	first.EventID, first.MessageTS = "event-second-card-1", "1710.100"
+	firstRun := answerStreamCard(t, svc, st, first)
+	episode, err := st.GetWorkEpisode(ctx, firstRun.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.State != core.EpisodeWaitingExternal {
+		t.Fatalf("the first answered card closed its stream as %q", episode.State)
+	}
+	if waits := streamWaitCount(t, ctx, st, firstRun.EpisodeID); waits != 1 {
+		t.Fatalf("alert stream wakeups after the first card = %d, want one", waits)
+	}
+
+	second := base
+	second.ID, second.EnvelopeID = "second-card-2", "env-second-card-2"
+	second.EventID, second.MessageTS = "event-second-card-2", "1710.200"
+	second.ReceivedAt = base.ReceivedAt.Add(13 * time.Minute)
+	second.Text = "[VA1 FIRING:2] " + base.Text
+	secondRun := answerStreamCard(t, svc, st, second)
+	if secondRun.EpisodeID != firstRun.EpisodeID || secondRun.AttemptNumber != 2 {
+		t.Fatalf(
+			"the second card did not continue the stream: episode=%q attempt=%d, want %q attempt 2",
+			secondRun.EpisodeID, secondRun.AttemptNumber, firstRun.EpisodeID,
+		)
+	}
+	// A changed decision, so this is the answered path the live stream took and
+	// not a suppressed repeat that never reached the channel.
+	if posted := alertReplyPosts(slackClient.posts); len(posted) != 2 {
+		t.Fatalf("the second card was not answered: %d posts", len(posted))
+	}
+	episode, err = st.GetWorkEpisode(ctx, firstRun.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.State != core.EpisodeWaitingExternal {
+		t.Fatalf(
+			"the second answer on a still-firing stream closed the episode as %q",
+			episode.State,
+		)
+	}
+	// And still one row: the wait belongs on every answer, the timer belongs to
+	// the stream, or seven cards in ninety minutes become seven re-checks.
+	if waits := streamWaitCount(t, ctx, st, firstRun.EpisodeID); waits != 1 {
+		t.Fatalf("alert stream wakeups after the second card = %d, want one", waits)
+	}
+}
+
+// streamWaitCount counts the host's stream re-check timers on an episode.
+func streamWaitCount(
+	t *testing.T,
+	ctx context.Context,
+	st *store.Store,
+	episodeID string,
+) int {
+	t.Helper()
+	wakeups, err := st.ListEpisodeWakeups(ctx, episodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waits := 0
+	for _, wakeup := range wakeups {
+		if wakeup.Kind == alertStreamWaitKind {
+			waits++
+		}
+	}
+	return waits
+}
+
 // rewriteFixture edits a harvested result by exact substring, failing when the
 // substring is not there.
 //
@@ -1190,6 +1338,22 @@ func supersedingRecoveredAlertReply(t *testing.T, recoveredAt string) string {
 		`{"id":"checkout-impact","type":"record_evidence","evidence":{"claim_id":"impact.current","claim":"checkout user impact is within its error budget","observation":"the current error rate is 0.2 percent","relation":"supports"`,
 		`{"id":"checkout-impact-recovered","type":"record_evidence","evidence":{"claim_id":"impact.current","claim":"checkout user impact is within its error budget","observation":"the current error rate is 0.2 percent","supersedes":["checkout-impact"],"relation":"supports"`,
 		`"evidence_refs":["checkout-live"]`, `"evidence_refs":["checkout-live-recovered"]`,
+	)
+}
+
+// withPlannedAndClosedGoal adds the shape the 19:01Z live reply had: a goal
+// planned and closed inside the same turn, leaving nothing running behind it.
+func withPlannedAndClosedGoal(t *testing.T, body string) string {
+	t.Helper()
+	return rewriteFixture(t, body,
+		`{"id":"complete","type":"complete_episode"`,
+		`{"id":"goal-plan-1","type":"plan_goal","goal":{"id":"goal-1","kind":"check",`+
+			`"requested_outcome":"Read the load balancer's live backend health",`+
+			`"completion_contract":"each backend's health is reported from live evidence",`+
+			`"required":false,"authority":"read_only"}},`+
+			`{"id":"goal-done-1","type":"update_goal","goal_state":{"goal_id":"goal-1",`+
+			`"state":"completed","detail":"the live health read named the unhealthy backend"}},`+
+			`{"id":"complete","type":"complete_episode"`,
 	)
 }
 
