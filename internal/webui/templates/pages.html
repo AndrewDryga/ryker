@@ -27,7 +27,10 @@
 </section>
 
 {{if .Blocked}}
-<h2>Waiting on you <span class="note">{{len .Blocked}}</span></h2>
+{{/* The count is the queue, not the rows rendered: the list is capped at
+     eight, and printing its length under a hero that counts the whole queue
+     made the first screen contradict itself. */}}
+<h2>Waiting on you <span class="note">{{.NeedsYou}}</span></h2>
 <div class="rows">
   {{range .Blocked}}
   <a class="row episode-row" href="/episodes/{{.ID}}" data-state="{{.State}}">
@@ -153,11 +156,14 @@ channel's work turned out.</p>
       {{if .NeedsDecision}}<span class="chan-wait">{{.NeedsDecision}} waiting on you</span>{{end}}
       {{if .InFlight}}<span class="chan-busy">{{.InFlight}} in flight</span>{{end}}
     </div>
+    {{/* Spans only, no literal separators: the stylesheet draws the dot after
+         every item but the last, which is the one arrangement that cannot
+         strand a dot at the head of a wrapped line. */}}
     <div class="chan-foot">
-      {{if .Repository}}<span class="mono">{{.Repository}}</span> · {{.Participation}}
+      {{if .Repository}}<span class="mono">{{.Repository}}</span><span>{{.Participation}}</span>
       {{else if .Direct}}<span class="mono">{{.ID}}</span>
-      {{else}}no repository bound{{end}}
-      · <a href="/channels/{{.ID}}">settings</a>
+      {{else}}<span>no repository bound</span>{{end}}
+      <span><a href="/channels/{{.ID}}">settings</a></span>
     </div>
   </div>
   {{end}}

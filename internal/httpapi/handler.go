@@ -825,8 +825,9 @@ func (h *Handler) webhook(w http.ResponseWriter, r *http.Request) {
 // whoever opened the page.
 //
 // The dashboard policy still forbids scripts, frames, form posts and any
-// external origin. It permits exactly same-origin styles and images, which is
-// what a server-rendered page with one vendored stylesheet needs.
+// external origin. It permits exactly same-origin styles, fonts and images,
+// which is what a server-rendered page with one vendored stylesheet and two
+// self-hosted faces needs.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -848,7 +849,7 @@ func contentSecurityPolicy(path string) string {
 			return "default-src 'none'; frame-ancestors 'none'"
 		}
 	}
-	return "default-src 'none'; style-src 'self'; img-src 'self' data:; " +
+	return "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self' data:; " +
 		"form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 }
 

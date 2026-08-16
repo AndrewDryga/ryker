@@ -22,6 +22,12 @@ func TestContentSecurityPolicySuitsEachSurface(t *testing.T) {
 		if !strings.Contains(policy, "style-src 'self'") {
 			t.Errorf("dashboard path %s cannot load its stylesheet: %q", path, policy)
 		}
+		// The stylesheet self-hosts its display faces. Without font-src the
+		// browser falls back to the system stack silently — the page renders,
+		// the server reports success, and only a screenshot shows the loss.
+		if !strings.Contains(policy, "font-src 'self'") {
+			t.Errorf("dashboard path %s cannot load its own fonts: %q", path, policy)
+		}
 		// Same-origin styles and images only. Everything else stays refused,
 		// including the scripts a server-rendered page has no use for.
 		for _, forbidden := range []string{"script-src", "'unsafe-inline'", "http:", "https:", "*"} {

@@ -16,6 +16,26 @@
    - A global anchor rule exists because it once did not, and every "episodes →"
      link on the Usage page shipped browser-default blue on black. */
 
+/* Two self-hosted faces, the same subsets the product site ships (~98 KB
+   total, embedded in the binary like everything else). Inter carries the UI;
+   Space Grotesk speaks only where the page states a headline fact — a title,
+   an outcome, a big number. Identifiers and timestamps stay in the system
+   mono: they are machine facts, and the machine's own face suits them. */
+@font-face {
+  font-family: "InterVariable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/InterVariable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("fonts/SpaceGroteskVariable.woff2") format("woff2");
+  font-weight: 300 700;
+  font-display: swap;
+}
+
 :root {
   --bg: #09090b;          /* zinc-950 */
   --panel: #131316;       /* between 950 and 900: cards barely lift off the page */
@@ -32,9 +52,12 @@
   --warn: #fbbf24;        /* amber-400 */
   --bad: #fb7185;         /* rose-400 */
   --good: #36e6a5;
-  /* Portal self-hosts InterVariable; this takes the same stack minus the
-     webfont — 340 KB in the binary is a poor trade for an internal page. */
-  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* An earlier note here rejected the portal's 340 KB InterVariable as a poor
+     trade for an internal page. The site's subsets changed the arithmetic:
+     76 KB of Inter and 22 KB of Space Grotesk, served from the binary, still
+     rendering with the network off. */
+  --sans: "InterVariable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: "Space Grotesk", "InterVariable", ui-sans-serif, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 }
 
@@ -98,8 +121,8 @@ a:hover { color: var(--accent); text-decoration: underline; text-underline-offse
   align-items: center;
   gap: 9px;
   padding: 2px 20px 18px;
-  font-weight: 650;
-  letter-spacing: .2px;
+  font: 600 15px/1.4 var(--display);
+  letter-spacing: -0.01em;
   color: var(--ink);
 }
 
@@ -126,7 +149,7 @@ a:hover { color: var(--accent); text-decoration: underline; text-underline-offse
 /* Three named sections instead of ten flat entries: operate the work,
    improve the behaviour, inspect the system. */
 .nav-group {
-  padding: 10px 20px 4px;
+  padding: 14px 20px 5px;
   font: 650 9.5px/1.4 var(--mono);
   letter-spacing: 1.1px;
   text-transform: uppercase;
@@ -137,7 +160,7 @@ a:hover { color: var(--accent); text-decoration: underline; text-underline-offse
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 6px 20px 6px 18px;
+  padding: 7px 20px 7px 18px;
   color: var(--dim);
   border-left: 2px solid transparent;
   font-size: 13.5px;
@@ -201,14 +224,14 @@ a:hover { color: var(--accent); text-decoration: underline; text-underline-offse
 
 /* Header ------------------------------------------------------------------- */
 
-main { flex: 1; min-width: 0; padding: 22px 36px 72px; max-width: 1240px; }
+main { flex: 1; min-width: 0; padding: 28px 40px 88px; max-width: 1240px; }
 
 header {
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  margin-bottom: 18px;
-  padding-bottom: 14px;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
   border-bottom: 1px solid var(--line-2);
 }
 
@@ -219,26 +242,32 @@ header {
 .crumb a:hover { color: var(--accent); }
 .crumb i { color: #52525b; font-style: normal; }
 
-h1 { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: 0; line-height: 1.3; }
+h1 {
+  margin: 0;
+  font: 560 24px/1.25 var(--display);
+  letter-spacing: -0.02em;
+}
 
 /* Every page states the question it answers. A section that cannot say what
    it is for is usually one that should not exist. */
-.ask { margin: 3px 0 0; color: var(--dim); font-size: 13.5px; }
+.ask { margin: 5px 0 0; color: var(--dim); font-size: 13.5px; }
 
 /* Vertical rhythm is one flow rule, not a margin per component. Blocks are
-   12px apart, a new section breathes 32px above its heading and holds its
-   content 10px close — so a table can never fuse with the next table, and an
+   12px apart, a new section breathes 40px above its heading and holds its
+   content 12px close — so a table can never fuse with the next table, and an
    unwired panel can never weld onto the one below it, which is exactly how
-   the episode page rendered before this existed. */
+   the episode page rendered before this existed. Near against far at better
+   than three-to-one is what lets sections read as sections without a rule
+   between them. */
 main > * + * { margin-top: 12px; }
-main > * + h2 { margin-top: 32px; }
-main > h2 + * { margin-top: 10px; }
+main > * + h2 { margin-top: 40px; }
+main > h2 + * { margin-top: 12px; }
 main p { margin: 0; }
 
 h2 {
-  font-size: 11.5px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: .8px;
+  letter-spacing: .09em;
   color: var(--dim);
   margin: 0;
   font-weight: 600;
@@ -266,7 +295,10 @@ h2 .note { text-transform: none; letter-spacing: 0; font-weight: 400; margin-lef
   letter-spacing: .6px;
   font-weight: 600;
 }
-.metric .n { font: 600 26px/1.25 var(--mono); font-variant-numeric: tabular-nums; }
+/* Headline numbers speak in the display face; the mono stays downstairs with
+   the identifiers. Tabular-nums is kept for the faces that honor it so a grid
+   of these still lines up digit for digit. */
+.metric .n { font: 560 26px/1.2 var(--display); letter-spacing: -0.015em; font-variant-numeric: tabular-nums; }
 .metric.bad .n { color: var(--bad); }
 .metric.warn .n { color: var(--warn); }
 .metric.good .n { color: var(--good); }
@@ -281,18 +313,27 @@ a.metric:hover { text-decoration: none; border-color: var(--faint); background: 
   align-items: center;
   justify-content: space-between;
   gap: 28px;
-  padding: 18px 22px;
+  padding: 20px 24px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: linear-gradient(180deg, #17171b, var(--panel) 60%);
   overflow: hidden;
 }
 
-.hero.calm { border-color: rgb(54 230 165 / .25); }
-.hero.busy { border-color: rgb(251 191 36 / .3); }
+/* The band's own border stays neutral in both moods. A tinted frame around
+   the whole strip read as an alarm before the number said anything; the
+   beacon and the headline word carry the mood on their own, and a whisper of
+   its colour washes in from the top-left — below the threshold of reading as
+   a colored element. */
+.hero.calm { background:
+  radial-gradient(420px 200px at 8% -40px, rgb(54 230 165 / .05), transparent 70%),
+  linear-gradient(180deg, #17171b, var(--panel) 60%); }
+.hero.busy { background:
+  radial-gradient(420px 200px at 8% -40px, rgb(251 191 36 / .06), transparent 70%),
+  linear-gradient(180deg, #17171b, var(--panel) 60%); }
 
 .hero-line { display: flex; align-items: center; gap: 12px; }
-.hero-word { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: 0; text-transform: none; color: var(--ink); }
+.hero-word { margin: 0; font: 560 20px/1.3 var(--display); letter-spacing: -0.015em; text-transform: none; color: var(--ink); }
 .hero.busy .hero-word { color: var(--warn); }
 
 .hero-beacon {
@@ -312,7 +353,7 @@ a.metric:hover { text-decoration: none; border-color: var(--faint); background: 
 
 .hero-stats { display: flex; gap: 26px; flex-wrap: wrap; margin-top: 10px; }
 .hero-stats > * { display: grid; gap: 0; color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; }
-.hero-stats strong { color: var(--ink-2); font: 600 17px/1.3 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: 0; text-transform: none; }
+.hero-stats strong { color: var(--ink-2); font: 560 18px/1.3 var(--display); font-variant-numeric: tabular-nums; letter-spacing: 0; text-transform: none; }
 .hero-stats a:hover { text-decoration: none; color: var(--dim); }
 .hero-stats a:hover strong { color: var(--ink); }
 .hero-stats .warn strong { color: var(--warn); }
@@ -333,12 +374,17 @@ a.metric:hover { text-decoration: none; border-color: var(--faint); background: 
 a.row { transition: background .1s ease; box-shadow: inset 2px 0 0 transparent; }
 a.row:hover { background: var(--panel-2); text-decoration: none; box-shadow: inset 2px 0 0 var(--accent-dim); }
 
-.row .title { font-weight: 500; line-height: 1.45; }
+.row .title { font-weight: 550; line-height: 1.45; }
 .row .meta { color: var(--faint); font-size: 12.5px; margin-top: 3px; }
 .row .meta a { color: var(--dim); }
 
-/* The instruction, not a glow: ink text behind one accent arrow. */
-.row .todo, p.todo { color: var(--ink-2); font-size: 13px; margin-top: 5px; max-width: 100ch; }
+/* The instruction, not a glow: ink text behind one accent arrow. The negative
+   indent hangs wrapped lines under the text rather than under the arrow, so a
+   two-line instruction keeps one left edge. */
+.row .todo, p.todo {
+  color: var(--ink-2); font-size: 13px; margin-top: 5px; max-width: 100ch;
+  padding-left: 17px; text-indent: -17px;
+}
 .todo .arr { color: var(--accent); margin-right: 2px; }
 
 /* State dots ------------------------------------------------------------------ */
@@ -366,7 +412,11 @@ a.row:hover { background: var(--panel-2); text-decoration: none; box-shadow: ins
 .who { font: 500 11.5px/1.6 var(--mono); color: var(--dim); }
 .gap { font: 500 11px/1.6 var(--mono); color: var(--warn); }
 
-code, .mono { font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+/* Relative, not fixed: SF Mono's x-height runs large, and a 12.5px identifier
+   inside 12px meta text read a size bigger than its own sentence. Scaled to
+   the surrounding size it stays subordinate everywhere at once. */
+code, .mono { font-family: var(--mono); font-size: .93em; font-variant-numeric: tabular-nums; }
+pre code { font-size: 1em; }
 
 /* Tables ----------------------------------------------------------------------- */
 
@@ -387,12 +437,16 @@ th {
   font-weight: 600;
   font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: .7px;
-  padding: 8px 12px;
+  letter-spacing: .07em;
+  padding: 9px 14px;
   border-bottom: 1px solid var(--line);
+  /* A wrapped header splits the row's baseline: "LAST CHANGE" on two lines
+     left every single-line label floating between them. Labels are short;
+     the data column can carry the squeeze. */
+  white-space: nowrap;
 }
 
-td { padding: 9px 12px; border-bottom: 1px solid var(--line-2); vertical-align: top; line-height: 1.5; }
+td { padding: 10px 14px; border-bottom: 1px solid var(--line-2); vertical-align: top; line-height: 1.5; }
 tr:last-child td { border-bottom: 0; }
 tr:hover td { background: var(--panel-2); }
 
@@ -499,6 +553,9 @@ pre.dump {
 .finding { box-shadow: inset 2px 0 0 #3f3f46; }
 .finding-confirmed { box-shadow: inset 2px 0 0 var(--bad); }
 .finding-rejected { box-shadow: inset 2px 0 0 #3f3f46; }
+/* Upright, not italic: the challenger's verdict is the most argumentative
+   text on the page, and italic sans at this size on a dark panel was the
+   least legible way to set it. */
 blockquote.challenge {
   margin: 8px 0 0;
   padding: 7px 12px;
@@ -507,8 +564,7 @@ blockquote.challenge {
   background: rgb(255 255 255 / .02);
   color: var(--dim);
   font-size: 12.5px;
-  font-style: italic;
-  max-width: 100ch;
+  line-height: 1.55;
 }
 blockquote.challenge::before { content: "challenger · "; font-style: normal; font: 650 9.5px/1.6 var(--mono); text-transform: uppercase; color: var(--faint); }
 
@@ -520,17 +576,21 @@ blockquote.challenge::before { content: "challenger · "; font-style: normal; fo
 .acts { display: flex; gap: 8px; margin-top: 9px; flex-wrap: wrap; align-items: flex-start; }
 .acts form { margin: 0; }
 
+/* One size for every button, and it is .act-link's size: the base control
+   used to render two pixels shorter than the links beside it, which read as
+   two unrelated species of control in the same .acts row. */
 button {
-  font: 500 12px/1.9 var(--sans);
-  padding: 1px 13px;
-  border-radius: 7px;
+  font: 500 12.5px/1.35 var(--sans);
+  padding: 6px 13px;
+  border-radius: 8px;
   border: 1px solid var(--line);
   background: var(--panel-2);
   color: var(--ink);
   cursor: pointer;
+  transition: border-color .12s ease, background .12s ease;
 }
 
-button:hover { border-color: var(--faint); }
+button:hover { border-color: var(--faint); background: #1c1c21; }
 
 button.go { background: var(--accent-dim); border-color: var(--accent-dim); color: #09090b; font-weight: 600; }
 button.go:hover { background: var(--accent); border-color: var(--accent); }
@@ -622,8 +682,8 @@ details.confirm .arm input[type=text] {
   background: var(--bg);
   border: 1px solid var(--line);
   color: var(--ink);
-  border-radius: 7px;
-  padding: 4px 10px;
+  border-radius: 8px;
+  padding: 6px 12px;
   font: 13px var(--sans);
   min-width: 220px;
 }
@@ -636,10 +696,12 @@ form.filter input[type=text], form.filter select {
   background: var(--panel);
   border: 1px solid var(--line);
   color: var(--ink);
-  border-radius: 7px;
-  padding: 4px 10px;
+  border-radius: 8px;
+  padding: 6px 12px;
   font: 13px var(--sans);
-  min-width: 180px;
+  /* Wide enough for its own placeholder — a search box that clips "search
+     titles and status lines" mid-word looks broken before it is used. */
+  min-width: 260px;
 }
 form.filter input::placeholder { color: var(--faint); }
 form.filter select { min-width: 0; }
@@ -704,8 +766,19 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .episode-action-strip { display: flex; justify-content: flex-end; }
 .episode-action-strip .confirm { width: min(100%, 420px); margin: 0; }
 
+/* The review band is one sentence and one control — set as a stacked panel
+   it spent ninety pixels of the fold saying "awaiting review". Inline, it is
+   a strip: label, state, action; the armed confirm still drops to its own
+   full-width row below. */
+.episode-review { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 12px 16px; }
+.episode-review h2 { flex: none; }
+.episode-review p { margin: 0; }
+.episode-review .stopped-why { flex-basis: 100%; }
+.episode-review .confirm { margin-left: auto; }
+
+/* No minimum height: the grid already stretches every card to the tallest
+   sibling, and a floor only added dead space below four short cards. */
 .episode-metric {
-  min-height: 126px;
   padding: 15px 17px;
   background: var(--panel);
   border-top: 2px solid transparent;
@@ -719,11 +792,17 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .episode-metric-value {
   margin-top: 4px;
   color: var(--ink);
-  font: 650 24px/1.3 var(--mono);
+  font: 560 24px/1.25 var(--display);
+  letter-spacing: -0.015em;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
-.episode-metric.tone-good .episode-metric-value { color: var(--good); }
+/* Good news is quiet: the green rule above the card already says it went
+   well, and a duration or an outcome word in full accent at display size
+   spent the palette's one "actionable" hue on a fact needing no action.
+   Trouble keeps its colour — a page where failure whispers is worse than a
+   page where success shouts. */
+.episode-metric.tone-good .episode-metric-value { color: var(--ink); }
 .episode-metric.tone-warn .episode-metric-value { color: var(--warn); }
 .episode-metric.tone-bad .episode-metric-value { color: var(--bad); }
 .episode-metric.is-missing .episode-metric-value { color: var(--dim); font-size: 19px; }
@@ -741,17 +820,16 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 
 .trace-heading h2 {
   color: var(--ink);
-  font-size: 20px;
-  line-height: 1.3;
+  font: 560 19px/1.3 var(--display);
   text-transform: none;
-  letter-spacing: 0;
+  letter-spacing: -0.015em;
 }
 
 .trace-lede { margin-top: 4px; color: var(--dim); max-width: 68ch; }
 
 .trace-summary { display: flex; justify-content: flex-end; gap: 18px; flex-wrap: wrap; }
 .trace-summary span { display: grid; gap: 1px; justify-items: center; text-align: center; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
-.trace-summary strong { color: var(--ink-2); font: 600 15px/1.2 var(--mono); }
+.trace-summary strong { color: var(--ink-2); font: 560 15px/1.2 var(--display); font-variant-numeric: tabular-nums; }
 
 /* The journey strip is the whole episode in one glance: arrived, briefed,
    worked, decided, done. Chips joined by arrows, tones only on outcomes. */
@@ -775,7 +853,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   border-radius: 7px;
 }
 
-.journey-stop strong { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+.journey-stop strong { font: 560 13px/1.5 var(--display); letter-spacing: -0.005em; color: var(--ink); white-space: nowrap; }
 .journey-stop span { color: var(--faint); font-size: 11px; white-space: nowrap; }
 .journey-stop + .journey-stop { position: relative; margin-left: 22px; }
 .journey-stop + .journey-stop::before {
@@ -810,7 +888,9 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .timebar-key.c1::before { background: #14cf8d; }
 .timebar-key.c2::before { background: #a78bfa; }
 .timebar-key.c3::before { background: #22d3ee; }
-.timebar-key.tail::before { background: #3f3f46; }
+/* The tail is a note about what the bar deliberately leaves out (see
+   traceTimeBar) — a swatch would promise a segment that is not drawn. */
+.timebar-key.tail::before { display: none; }
 
 /* Chapters cut the rail into acts a stranger can follow. */
 .trace-chapter { margin-top: 26px; }
@@ -828,8 +908,8 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .trace-chapter-head h3 {
   margin: 0;
   color: var(--ink);
-  font-size: 14.5px;
-  font-weight: 650;
+  font: 560 14.5px/1.4 var(--display);
+  letter-spacing: -0.01em;
   white-space: nowrap;
 }
 
@@ -1374,8 +1454,8 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
    right for a two-word label and wrong for a sentence — "IT COULD NOT REACH
    THE CODE OR DATA IT NEEDED" is shouted at somebody who is already annoyed. */
 .stopped h2 {
-  margin: 0; font-size: 15px; font-weight: 600; color: var(--warn);
-  text-transform: none; letter-spacing: 0;
+  margin: 0; font: 560 15.5px/1.4 var(--display); color: var(--warn);
+  text-transform: none; letter-spacing: -0.01em;
 }
 .stopped-why { margin: 7px 0 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.6; max-width: 100ch; }
 .stopped-cols {
@@ -1416,6 +1496,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   grid-area: answer;
   margin-top: 5px; max-width: 104ch;
   font-size: 13px; line-height: 1.55; color: var(--ink-2);
+  padding-left: 19px; text-indent: -19px;
 }
 .episode-ask::before { content: "→"; color: var(--accent); margin-right: 7px; }
 .episode-row[data-state="scheduled"] .episode-dot::before { background: var(--accent-dim); opacity: .55; }
@@ -1427,10 +1508,10 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
    and a nine-column one that was thirteen zeros and one fact. A healthy lane
    has nothing to say; the table returns the moment one stops being healthy. */
 .system-line {
-  display: flex; flex-wrap: wrap; align-items: baseline;
+  display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px;
   font-size: 12.5px; color: var(--faint);
 }
-.system-line > span + span::before { content: "·"; margin: 0 8px; opacity: .5; }
+.system-line > span:not(:last-child)::after { content: " ·"; opacity: .5; }
 .system-line .ok { color: var(--good); }
 .system-line .bad { color: var(--bad); }
 .system-line .warn { color: var(--warn); }
@@ -1462,11 +1543,13 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .chan-failed { fill: var(--bad); }
 .chan-other { fill: #3f3f46; }
 .chan-counts, .chan-foot {
-  display: flex; flex-wrap: wrap; align-items: baseline;
+  display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 7px;
   font-size: 12.5px; color: var(--faint);
 }
-.chan-counts > span + span::before,
-.chan-foot > span + span::before { content: "·"; margin: 0 7px; opacity: .5; }
+/* The dot trails its item instead of leading the next one, so a card narrow
+   enough to wrap never opens a line with "· 1 waiting on you". */
+.chan-counts > span:not(:last-child)::after,
+.chan-foot > span:not(:last-child)::after { content: " ·"; opacity: .5; }
 .chan-counts { color: var(--dim); }
 .chan-bad { color: var(--bad); }
 .chan-wait { color: var(--warn); }
@@ -1532,7 +1615,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
    mid-word costs a line of rhythm to say nothing the first line did not. */
 .episode-title {
   grid-area: title;
-  font-size: 14px; font-weight: 500; color: var(--ink); line-height: 1.5;
+  font-size: 14px; font-weight: 550; color: var(--ink); line-height: 1.5;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .episode-when {
@@ -1557,13 +1640,14 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 .episode-answer .link-host { color: var(--dim); text-decoration: underline; text-underline-offset: 2px; }
 .episode-facts {
   grid-area: facts;
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 0;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 7px;
   margin-top: 7px; font-size: 12px; color: var(--faint);
 }
 /* One separator rule beats a separator typed between every pair: the middle
    dots stay even, and a fact that renders conditionally cannot leave a
-   dangling one behind it. */
-.episode-facts > span + span::before { content: "·"; margin: 0 7px; opacity: .5; }
+   dangling one behind it. Trailing rather than leading, so a wrapped fact
+   row never starts a line with the dot. */
+.episode-facts > span:not(:last-child)::after { content: " ·"; opacity: .5; }
 .episode-state { color: var(--dim); }
 .episode-row[data-state="failed"] .episode-state,
 .episode-row[data-state="dead"] .episode-state { color: var(--bad); }
@@ -1644,9 +1728,11 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
   .brand .deploy { margin-left: 8px; }
   .nav-group { display: none; }
   .sidebar ul { display: flex; flex-wrap: wrap; margin: 0; }
-  .sidebar a { padding: 5px 10px; border-left: 0; border-bottom: 2px solid transparent; white-space: nowrap; }
+  /* Icons stay: with the group labels gone they are the only thing that
+     tells twelve wrapped links apart at a glance. Padding buys tap targets
+     a thumb can actually hit. */
+  .sidebar a { padding: 8px 12px; border-left: 0; border-bottom: 2px solid transparent; white-space: nowrap; }
   .sidebar a.on { border-bottom-color: var(--accent); }
-  .nav-icon { display: none; }
   .sidebar .foot { margin: 4px 8px 0; padding: 4px 0; display: flex; gap: 12px; flex-wrap: wrap; border-top: 0; flex: 1 0 100%; }
   main { max-width: none; padding: 18px 20px 60px; }
   .episode-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1698,7 +1784,7 @@ form.filter a { font-size: 12.5px; color: var(--dim); }
 }
 .set-card:hover { border-color: #33333a; text-decoration: none; }
 .set-name { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--faint); }
-.set-count { font: 600 24px/1.2 var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+.set-count { font: 560 24px/1.2 var(--display); letter-spacing: -0.015em; color: var(--ink); font-variant-numeric: tabular-nums; }
 .set-what { font-size: 12.5px; line-height: 1.55; color: var(--dim); margin-top: 2px; }
 .set-health { font-size: 12px; color: var(--faint); margin-top: 5px; }
 .set-health.warn { color: var(--warn); }
