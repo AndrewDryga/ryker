@@ -49,7 +49,7 @@
      all below the threshold a display can show. The steps are wide enough
      to survive black-crush now: if a squinted thumbnail doesn't show the
      cards, the cards aren't there. */
-  --void: #0a0a0c;
+  --void: #08080b;
   --surface: #17181e;
   --raised: #1e2027;
   --overlay: #252730;
@@ -72,10 +72,15 @@
   --live-tint: rgb(54 230 165 / .08);
   --warn: #fbbf24;
   --alarm: #fb7185;
-  /* Machined card: a ring, real drop, and a hairline of top light — cards
-     must visibly sit ON the page, not dissolve into it. */
-  --card-shadow: 0 1px 2px rgb(0 0 0 / .5), 0 10px 28px -14px rgb(0 0 0 / .55), inset 0 1px 0 rgb(255 255 255 / .04);
-  --card-face: linear-gradient(180deg, #1c1e25, var(--surface) 58%);
+  /* Glass over aurora: cards are translucent plates with a gradient edge —
+     lit from the scene behind them, not painted gray. The border trick pairs
+     a padding-box fill with a border-box gradient so the 1px edge runs
+     bright at the top-left and falls away, which is what makes glass read
+     as glass. */
+  --card-shadow: 0 1px 2px rgb(0 0 0 / .5), 0 16px 40px -16px rgb(0 0 0 / .6);
+  --card-face:
+    linear-gradient(rgb(255 255 255 / .038), rgb(255 255 255 / .022)) padding-box,
+    linear-gradient(150deg, rgb(255 255 255 / .16), rgb(255 255 255 / .05) 34%, rgb(255 255 255 / .03)) border-box;
   --r-card: 12px;
   --r-ctl: 8px;
   --sans: "InterVariable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -98,11 +103,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* One ambient glow behind the top of the page: depth, not decoration. */
+/* The aurora: the dark is lit, not flat. Two color fields bleed in from the
+   top corners — the brand emerald and a cold indigo — and every glass card
+   above them picks up the cast. This is the scene the console lives in. */
 main {
   background:
-    radial-gradient(560px 280px at 16% -80px, rgb(54 230 165 / .04), transparent 70%),
-    radial-gradient(720px 320px at 85% -140px, rgb(96 165 250 / .028), transparent 70%);
+    radial-gradient(900px 480px at 8% -160px, rgb(54 230 165 / .1), transparent 65%),
+    radial-gradient(1100px 560px at 96% -240px, rgb(99 102 241 / .12), transparent 65%),
+    radial-gradient(700px 700px at 55% 120%, rgb(20 207 141 / .05), transparent 60%);
 }
 
 ::selection { background: rgb(54 230 165 / .25); }
@@ -112,7 +120,7 @@ main {
 a { color: var(--live-dim); text-decoration: none; }
 a:hover { color: var(--live); text-decoration: underline; text-underline-offset: 3px; }
 
-:focus-visible { outline: 2px solid var(--live-dim); outline-offset: 2px; border-radius: 4px; }
+:focus-visible { outline: 2px solid rgb(54 230 165 / .8); outline-offset: 2px; border-radius: 6px; }
 
 * { scrollbar-width: thin; scrollbar-color: #3f3f46 transparent; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -133,7 +141,7 @@ a:hover { color: var(--live); text-decoration: underline; text-underline-offset:
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #0e0f13;
+  background: #0c0d11;
 }
 
 .brand {
@@ -197,17 +205,27 @@ a:hover { color: var(--live); text-decoration: underline; text-underline-offset:
   transition: color .12s ease, background .12s ease;
 }
 
-.nav-icon { width: 15px; height: 15px; flex: none; opacity: .75; }
+/* Every section owns a hue and every icon sits in a tinted tile: operate in
+   emerald, improve in violet, system in blue. The rail reads as a set of
+   designed destinations, not twelve gray strokes. */
+.nav-icon {
+  width: 26px; height: 26px; flex: none; box-sizing: border-box;
+  padding: 5.5px; border-radius: 8px;
+  color: var(--mute); background: rgb(255 255 255 / .06);
+  opacity: 1;
+}
+.sidebar ul:nth-of-type(1) .nav-icon { color: #34d399; background: rgb(52 211 153 / .13); }
+.sidebar ul:nth-of-type(2) .nav-icon { color: #b0a2fc; background: rgb(167 139 250 / .14); }
+.sidebar ul:nth-of-type(3) .nav-icon { color: #7cb5fc; background: rgb(96 165 250 / .14); }
 .nav-label { min-width: 0; }
 
-.sidebar a:hover { color: var(--ink); text-decoration: none; background: rgb(255 255 255 / .03); }
+.sidebar a:hover { color: var(--ink); text-decoration: none; background: rgb(255 255 255 / .04); }
 
 .sidebar a.on {
   color: var(--ink);
-  background: rgb(54 230 165 / .12);
-  box-shadow: inset 0 0 0 1px rgb(54 230 165 / .22);
+  background: linear-gradient(100deg, rgb(54 230 165 / .16), rgb(54 230 165 / .06));
+  box-shadow: inset 0 0 0 1px rgb(54 230 165 / .28), 0 2px 10px -4px rgb(54 230 165 / .3);
 }
-.sidebar a.on .nav-icon { opacity: 1; color: var(--live); }
 
 /* A count that would make someone open the page: amber for "needs you",
    plain for volume. Absent at zero — a zero badge is decoration. */
@@ -327,7 +345,7 @@ h2 .note { font: 500 12px/1.5 var(--mono); font-variant-numeric: tabular-nums; c
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
   gap: 0;
-  border: 1px solid var(--edge);
+  border: 1px solid transparent;
   border-radius: var(--r-card);
   background: var(--card-face);
   box-shadow: var(--card-shadow);
@@ -344,9 +362,9 @@ h2 .note { font: 500 12px/1.5 var(--mono); font-variant-numeric: tabular-nums; c
 
 .panel {
   background: var(--card-face);
-  border: 1px solid var(--edge);
+  border: 1px solid transparent;
   border-radius: var(--r-card);
-  padding: 15px 17px;
+  padding: 16px 18px;
   box-shadow: var(--card-shadow);
 }
 
@@ -385,9 +403,9 @@ a.metric:hover { text-decoration: none; background: var(--raised); }
   grid-template-areas: "line pulse" "stats stats";
   align-items: center;
   column-gap: 28px;
-  padding: 20px 24px 0;
-  border: 1px solid var(--edge);
-  border-radius: var(--r-card);
+  padding: 22px 26px 0;
+  border: 1px solid transparent;
+  border-radius: 16px;
   background: var(--card-face);
   box-shadow: var(--card-shadow);
   overflow: hidden;
@@ -404,22 +422,31 @@ a.metric:hover { text-decoration: none; background: var(--raised); }
   radial-gradient(460px 220px at 6% -60px, rgb(251 191 36 / .06), transparent 70%),
   var(--card-face); }
 
-.hero-line { grid-area: line; display: flex; align-items: center; gap: 12px; padding-bottom: 18px; }
-.hero-word { margin: 0; font: 560 21px/1.25 var(--display); letter-spacing: -0.015em; text-transform: none; color: var(--ink); }
-.hero.busy .hero-word { color: var(--warn); }
+.hero-line { grid-area: line; display: flex; align-items: center; gap: 14px; padding-bottom: 20px; }
+/* The headline is lit: gradient-clipped display type, calm in mint, busy in
+   amber — the one place the page is allowed to glow with its whole voice. */
+.hero-word {
+  margin: 0; font: 600 26px/1.2 var(--display); letter-spacing: -0.022em; text-transform: none;
+  background: linear-gradient(105deg, #f0fdf8, #6ee7b7 75%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.hero.busy .hero-word {
+  background: linear-gradient(105deg, #fefce8, #fbbf24 75%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
 
 .hero-beacon {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   flex: none;
-  background: var(--live);
-  box-shadow: 0 0 14px rgb(54 230 165 / .6);
+  background: radial-gradient(circle at 35% 35%, #b9ffe4, var(--live) 60%);
+  box-shadow: 0 0 18px rgb(54 230 165 / .8), 0 0 40px rgb(54 230 165 / .35);
   animation: breathe 3.2s ease-in-out infinite;
 }
 .hero.busy .hero-beacon {
-  background: var(--warn);
-  box-shadow: 0 0 14px rgb(251 191 36 / .55);
+  background: radial-gradient(circle at 35% 35%, #ffedc4, var(--warn) 60%);
+  box-shadow: 0 0 18px rgb(251 191 36 / .75), 0 0 40px rgb(251 191 36 / .3);
   animation: none;
 }
 
@@ -447,7 +474,7 @@ a.metric:hover { text-decoration: none; background: var(--raised); }
   border-left: 1px solid var(--rule);
 }
 .hero-stats > :first-child { border-left: 0; }
-.hero-stats strong { color: var(--body); font: 560 20px/1.25 var(--display); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; text-transform: none; }
+.hero-stats strong { color: var(--ink); font: 600 24px/1.2 var(--display); font-variant-numeric: tabular-nums; letter-spacing: -0.015em; text-transform: none; }
 .hero-stats a:hover { text-decoration: none; color: var(--mute); }
 .hero-stats a:hover strong { color: var(--ink); }
 .hero-stats .warn strong { color: var(--warn); }
@@ -455,9 +482,9 @@ a.metric:hover { text-decoration: none; background: var(--raised); }
 
 .hero-pulse { grid-area: pulse; display: grid; gap: 6px; justify-items: end; align-self: center; flex: none; padding-bottom: 18px; }
 .hero-pulse span { color: var(--quiet); font: 500 10.5px/1.4 var(--mono); }
-.pulse-bar { fill: rgb(54 230 165 / .45); }
+.pulse-bar { fill: rgb(54 230 165 / .6); filter: drop-shadow(0 0 4px rgb(54 230 165 / .45)); }
 .pulse-bar:hover { fill: var(--live); }
-.pulse-failed { fill: var(--alarm); opacity: .85; pointer-events: none; }
+.pulse-failed { fill: var(--alarm); opacity: .9; filter: drop-shadow(0 0 4px rgb(251 113 133 / .45)); pointer-events: none; }
 
 /* Overview dashboard grid: the work queues own the main column, the
    schedule rail keeps them company, and one viewport answers the page's
@@ -481,10 +508,10 @@ a.metric:hover { text-decoration: none; background: var(--raised); }
 /* Lists ---------------------------------------------------------------------- */
 
 .rows {
-  border: 1px solid var(--edge);
-  border-radius: 14px;
+  border: 1px solid transparent;
+  border-radius: 16px;
   overflow: hidden;
-  background: var(--surface);
+  background: var(--card-face);
   box-shadow: var(--card-shadow);
 }
 
@@ -525,9 +552,9 @@ a.row:hover { background: var(--raised); text-decoration: none; box-shadow: inse
 }
 
 .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--quiet); flex: none; }
-.pill.bad { color: #fda4af; background: rgb(251 113 133 / .1); border-color: rgb(251 113 133 / .22); } .pill.bad::before { background: var(--alarm); }
-.pill.warn { color: #fcd34d; background: rgb(251 191 36 / .1); border-color: rgb(251 191 36 / .22); } .pill.warn::before { background: var(--warn); }
-.pill.good { color: #6ee7b7; background: rgb(54 230 165 / .1); border-color: rgb(54 230 165 / .22); } .pill.good::before { background: var(--live); }
+.pill.bad { color: #fda4af; background: rgb(251 113 133 / .15); border-color: rgb(251 113 133 / .35); } .pill.bad::before { background: var(--alarm); }
+.pill.warn { color: #fcd34d; background: rgb(251 191 36 / .15); border-color: rgb(251 191 36 / .35); } .pill.warn::before { background: var(--warn); }
+.pill.good { color: #6ee7b7; background: rgb(54 230 165 / .15); border-color: rgb(54 230 165 / .35); } .pill.good::before { background: var(--live); }
 .memory-diff { margin-top: 8px; display: grid; gap: 3px; }
 .memory-value { white-space: pre-wrap; overflow-wrap: anywhere; }
 
@@ -554,9 +581,9 @@ table {
   border-collapse: separate;
   border-spacing: 0;
   font-size: 13px;
-  background: var(--surface);
-  border: 1px solid var(--edge);
-  border-radius: 14px;
+  background: var(--card-face);
+  border: 1px solid transparent;
+  border-radius: 16px;
   overflow: hidden;
   box-shadow: var(--card-shadow);
 }
@@ -653,9 +680,9 @@ pre.dump {
   align-items: stretch;
   flex-wrap: wrap;
   padding: 3px;
-  border: 1px solid var(--edge);
-  border-radius: 10px;
-  background: var(--surface);
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: var(--card-face);
   box-shadow: var(--card-shadow);
 }
 
@@ -749,8 +776,14 @@ button {
 
 button:hover { border-color: var(--edge-2); background: var(--overlay); }
 
-button.go { background: var(--live-dim); border-color: var(--live-dim); color: #09090b; font-weight: 600; }
-button.go:hover { background: var(--live); border-color: var(--live); }
+button.go {
+  background: linear-gradient(135deg, #3ceaa9, #12c184);
+  border-color: transparent;
+  color: #052e20;
+  font-weight: 650;
+  box-shadow: 0 4px 18px -6px rgb(54 230 165 / .6), inset 0 1px 0 rgb(255 255 255 / .25);
+}
+button.go:hover { background: linear-gradient(135deg, #5cf2ba, #16d896); border-color: transparent; }
 
 /* The confirm step is a native <details> disclosure, not confirm(). This page
    ships no JavaScript and its CSP has no script-src — the real submit button
@@ -906,7 +939,7 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   overflow: hidden;
-  border: 1px solid var(--edge);
+  border: 1px solid transparent;
   border-radius: var(--r-card);
   background: var(--card-face);
   box-shadow: var(--card-shadow);
@@ -970,9 +1003,9 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
   flex-wrap: wrap;
   gap: 6px;
   padding: 13px 16px;
-  border: 1px solid var(--edge);
+  border: 1px solid transparent;
   border-radius: var(--r-card);
-  background: var(--surface);
+  background: var(--card-face);
   box-shadow: var(--card-shadow);
 }
 
@@ -1125,9 +1158,9 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
 .trace-step-card {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--edge);
-  border-radius: 10px;
-  background: var(--surface);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--card-face);
   box-shadow: var(--card-shadow);
 }
 
@@ -1683,9 +1716,9 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
    small page — it deserves an anatomy, not four lines of text at one size. */
 .chan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(288px, 1fr)); gap: 14px; }
 .chan-card {
-  background: var(--card-face); border: 1px solid var(--edge); border-radius: 14px;
+  background: var(--card-face); border: 1px solid transparent; border-radius: 16px;
   box-shadow: var(--card-shadow);
-  padding: 16px 18px 14px; display: flex; flex-direction: column; gap: 10px;
+  padding: 17px 19px 15px; display: flex; flex-direction: column; gap: 10px;
 }
 .chan-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 /* The name is the card's title, so it is ink rather than accent. Fourteen
@@ -1693,10 +1726,10 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
 .chan-name { font-size: 14px; font-weight: 550; color: var(--ink); }
 .chan-name:hover { color: var(--live); text-decoration: none; }
 .chan-when { font-size: 12px; color: var(--quiet); white-space: nowrap; flex: none; }
-.chan-bar { display: block; width: 100%; height: 6px; border-radius: 3px; overflow: hidden; background: var(--rule); }
-.chan-done { fill: var(--live-dim); }
-.chan-failed { fill: var(--alarm); }
-.chan-other { fill: #494b56; }
+.chan-bar { display: block; width: 100%; height: 7px; border-radius: 4px; overflow: hidden; background: rgb(255 255 255 / .06); }
+.chan-done { fill: var(--live-dim); filter: drop-shadow(0 0 5px rgb(20 207 141 / .55)); }
+.chan-failed { fill: var(--alarm); filter: drop-shadow(0 0 5px rgb(251 113 133 / .55)); }
+.chan-other { fill: #4d505c; }
 .chan-total {
   font: 560 21px/1.2 var(--display);
   letter-spacing: -0.015em;
@@ -1719,9 +1752,9 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
   font: 500 11px/1.5 var(--sans);
   padding: 2px 9px; border-radius: 999px;
 }
-.chan-bad { color: #fda4af; background: rgb(251 113 133 / .1); border: 1px solid rgb(251 113 133 / .22); }
-.chan-wait { color: #fcd34d; background: rgb(251 191 36 / .1); border: 1px solid rgb(251 191 36 / .22); }
-.chan-busy { color: #6ee7b7; background: rgb(54 230 165 / .1); border: 1px solid rgb(54 230 165 / .22); }
+.chan-bad { color: #fda4af; background: rgb(251 113 133 / .15); border: 1px solid rgb(251 113 133 / .35); }
+.chan-wait { color: #fcd34d; background: rgb(251 191 36 / .15); border: 1px solid rgb(251 191 36 / .35); }
+.chan-busy { color: #6ee7b7; background: rgb(54 230 165 / .15); border: 1px solid rgb(54 230 165 / .35); }
 .chan-foot {
   display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 7px;
   font-size: 12px; color: var(--quiet);
@@ -1768,17 +1801,17 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
 }
 .episode-row[data-state="failed"] .episode-dot,
 .episode-row[data-state="dead"] .episode-dot {
-  background: rgb(251 113 133 / .1); border-color: rgb(251 113 133 / .25);
+  background: rgb(251 113 133 / .16); border-color: rgb(251 113 133 / .4);
 }
 .episode-row[data-state="blocked"] .episode-dot,
 .episode-row[data-state="waiting_operator"] .episode-dot,
 .episode-row[data-state="waiting_approval"] .episode-dot {
-  background: rgb(251 191 36 / .1); border-color: rgb(251 191 36 / .25);
+  background: rgb(251 191 36 / .16); border-color: rgb(251 191 36 / .4);
 }
 .episode-row[data-state="running"] .episode-dot,
 .episode-row[data-state="working"] .episode-dot,
 .episode-row[data-state="queued"] .episode-dot {
-  background: rgb(54 230 165 / .1); border-color: rgb(54 230 165 / .25);
+  background: rgb(54 230 165 / .16); border-color: rgb(54 230 165 / .4);
 }
 /* Superseded and cancelled work did not reach an outcome of its own, so it
    reads as an outline rather than a mark. */
@@ -1844,16 +1877,16 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
 }
 .episode-row[data-state="failed"] .episode-state,
 .episode-row[data-state="dead"] .episode-state {
-  color: #fda4af; background: rgb(251 113 133 / .1); border-color: rgb(251 113 133 / .22);
+  color: #fda4af; background: rgb(251 113 133 / .15); border-color: rgb(251 113 133 / .35);
 }
 .episode-row[data-state="blocked"] .episode-state,
 .episode-row[data-state="waiting_operator"] .episode-state,
 .episode-row[data-state="waiting_approval"] .episode-state {
-  color: #fcd34d; background: rgb(251 191 36 / .1); border-color: rgb(251 191 36 / .22);
+  color: #fcd34d; background: rgb(251 191 36 / .15); border-color: rgb(251 191 36 / .35);
 }
 .episode-row[data-state="running"] .episode-state,
 .episode-row[data-state="working"] .episode-state {
-  color: #6ee7b7; background: rgb(54 230 165 / .1); border-color: rgb(54 230 165 / .22);
+  color: #6ee7b7; background: rgb(54 230 165 / .15); border-color: rgb(54 230 165 / .35);
 }
 .episode-spoke { color: var(--live); }
 .episode-retried { color: var(--warn); }
@@ -1872,7 +1905,7 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
 /* The standing instructions are reference material, not the answer to why
    you opened the page — printed open they pushed the execution history off
    the screen. */
-.disclose { border: 1px solid var(--edge); border-radius: var(--r-card); background: var(--surface); box-shadow: var(--card-shadow); }
+.disclose { border: 1px solid transparent; border-radius: var(--r-card); background: var(--card-face); box-shadow: var(--card-shadow); }
 .disclose > summary {
   padding: 12px 17px; cursor: pointer; color: var(--mute); font-size: 13px;
   list-style: none;
@@ -1913,9 +1946,9 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
    says whether any of it needs attention. */
 .set-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 28px; }
 .set-card {
-  background: var(--card-face); border: 1px solid var(--edge); border-radius: var(--r-card);
+  background: var(--card-face); border: 1px solid transparent; border-radius: var(--r-card);
   box-shadow: var(--card-shadow);
-  padding: 14px 16px 13px; display: grid; gap: 4px; align-content: start; color: inherit;
+  padding: 15px 17px 14px; display: grid; gap: 4px; align-content: start; color: inherit;
 }
 .set-card:hover { border-color: var(--edge-2); text-decoration: none; }
 .set-name { font-size: 10.5px; color: var(--quiet); font-weight: 600; }
