@@ -144,18 +144,21 @@ channel's work turned out.</p>
       <a class="chan-name" href="/episodes?channel={{.ID}}">{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</a>
       <span class="chan-when">{{since .Last}}</span>
     </div>
+    {{/* The card's anatomy: volume as its headline figure, the outcome meter
+         under it, exceptions as chips. A card is a small page, not four lines
+         of text at one size. */}}
+    <span class="chan-total">{{.Total}} episodes</span>
     <svg class="chan-bar" viewBox="0 0 100 4" width="100%" height="4" preserveAspectRatio="none" role="img"
          aria-label="{{.Done}} completed, {{.Failed}} failed, {{.Other}} ended another way">
       {{if .DoneW}}<rect class="chan-done" x="0" y="0" width="{{.DoneW}}" height="4"/>{{end}}
       {{if .FailedW}}<rect class="chan-failed" x="{{.FailedX}}" y="0" width="{{.FailedW}}" height="4"/>{{end}}
       {{if .OtherW}}<rect class="chan-other" x="{{.OtherX}}" y="0" width="{{.OtherW}}" height="4"/>{{end}}
     </svg>
-    <div class="chan-counts">
-      <span>{{.Total}} episodes</span>
+    {{if or .Failed .NeedsDecision .InFlight}}<div class="chan-flags">
       {{if .Failed}}<span class="chan-bad">{{.Failed}} failed</span>{{end}}
       {{if .NeedsDecision}}<span class="chan-wait">{{.NeedsDecision}} waiting on you</span>{{end}}
       {{if .InFlight}}<span class="chan-busy">{{.InFlight}} in flight</span>{{end}}
-    </div>
+    </div>{{end}}
     {{/* Spans only, no literal separators: the stylesheet draws the dot after
          every item but the last, which is the one arrangement that cannot
          strand a dot at the head of a wrapped line. */}}

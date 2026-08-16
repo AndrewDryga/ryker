@@ -488,19 +488,27 @@ a.row:hover { background: var(--raised); text-decoration: none; box-shadow: inse
 
 /* State dots ------------------------------------------------------------------ */
 
+/* State chips: a dot inside a tinted capsule. The bare-text form read as
+   nothing at all — a state is a designed object, calm but unmistakably a
+   component, in the tint of its meaning. */
 .pill {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font: 500 11.5px/1.6 var(--mono);
+  gap: 6px;
+  font: 500 11px/1.4 var(--mono);
   color: var(--mute);
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / .05);
+  border: 1px solid rgb(255 255 255 / .07);
   vertical-align: 1px;
+  white-space: nowrap;
 }
 
 .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--quiet); flex: none; }
-.pill.bad { color: var(--alarm); } .pill.bad::before { background: var(--alarm); }
-.pill.warn { color: var(--warn); } .pill.warn::before { background: var(--warn); }
-.pill.good { color: var(--live); } .pill.good::before { background: var(--live); }
+.pill.bad { color: #fda4af; background: rgb(251 113 133 / .1); border-color: rgb(251 113 133 / .22); } .pill.bad::before { background: var(--alarm); }
+.pill.warn { color: #fcd34d; background: rgb(251 191 36 / .1); border-color: rgb(251 191 36 / .22); } .pill.warn::before { background: var(--warn); }
+.pill.good { color: #6ee7b7; background: rgb(54 230 165 / .1); border-color: rgb(54 230 165 / .22); } .pill.good::before { background: var(--live); }
 .memory-diff { margin-top: 8px; display: grid; gap: 3px; }
 .memory-value { white-space: pre-wrap; overflow-wrap: anywhere; }
 
@@ -612,25 +620,36 @@ pre.dump {
 .panel .title { font-weight: 550; }
 .panel .meta { color: var(--quiet); font-size: 12.5px; margin-top: 3px; }
 
-/* Filter chips ------------------------------------------------------------------ */
-
-.tabs { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+/* Filters are a segmented control: one joined instrument, the selected
+   segment lit — not a handful of loose pills drifting in space. */
+.tabs {
+  display: inline-flex;
+  gap: 0;
+  align-items: stretch;
+  flex-wrap: wrap;
+  padding: 3px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
+}
 
 .tabs a, .tabs .on {
+  display: inline-flex;
+  align-items: center;
   font-size: 12.5px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--edge);
+  padding: 6px 13px;
+  border-radius: 7px;
   color: var(--mute);
-  background: var(--surface);
 }
 
-.tabs a:hover { color: var(--ink); border-color: var(--edge-2); text-decoration: none; }
+.tabs a:hover { color: var(--ink); text-decoration: none; background: rgb(255 255 255 / .04); }
 .tabs .on, .tabs a.on {
-  background: var(--live-tint);
-  border-color: rgb(54 230 165 / .4);
-  color: var(--live);
+  background: var(--overlay);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--edge-2), 0 1px 2px rgb(0 0 0 / .4);
 }
+.tabs .on .chip-n, .tabs a.on .chip-n { color: var(--live); }
 
 /* State chips: the filter is the data — each state carries its own count. */
 .state-chips a { display: inline-flex; align-items: center; gap: 6px; }
@@ -790,11 +809,22 @@ form.filter input[type=text], form.filter select {
   background: var(--surface);
   border: 1px solid var(--edge);
   color: var(--ink);
-  border-radius: var(--r-ctl);
-  padding: 6px 12px;
+  border-radius: 10px;
+  padding: 8px 13px;
   font: 13px var(--sans);
-  min-width: 260px;
+  min-width: 300px;
+  transition: border-color .12s ease;
 }
+/* The magnifier lives in the field: drawn with a mask-free inline SVG so it
+   takes the placeholder's gray, costs no request, and runs no script. */
+form.filter input[type=text] {
+  padding-left: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2373737d' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-size: 15px;
+  background-position: 12px center;
+}
+form.filter input:hover, form.filter input:focus { border-color: var(--edge-2); }
 form.filter input::placeholder { color: var(--quiet); }
 form.filter select { min-width: 0; }
 form.filter a { font-size: 12.5px; color: var(--mute); }
@@ -1622,11 +1652,15 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
    fleet: three channels hold most of the episodes, and a flat list sorted by
    time never shows that. The bar is the only place a channel's outcomes are
    comparable by eye; the text carries the exceptions. */
-.chan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(276px, 1fr)); gap: 12px; }
+/* The channel card, re-architected: name and age up top, the volume as the
+   card's own headline figure, the outcome meter under it, the exceptions as
+   tinted chips, and the bindings in a hairlined footer zone. A card is a
+   small page — it deserves an anatomy, not four lines of text at one size. */
+.chan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(288px, 1fr)); gap: 14px; }
 .chan-card {
-  background: var(--card-face); border: 1px solid var(--edge); border-radius: var(--r-card);
+  background: var(--card-face); border: 1px solid var(--edge); border-radius: 14px;
   box-shadow: var(--card-shadow);
-  padding: 14px 16px 13px; display: flex; flex-direction: column; gap: 9px;
+  padding: 16px 18px 14px; display: flex; flex-direction: column; gap: 10px;
 }
 .chan-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 /* The name is the card's title, so it is ink rather than accent. Fourteen
@@ -1634,23 +1668,42 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
 .chan-name { font-size: 14px; font-weight: 550; color: var(--ink); }
 .chan-name:hover { color: var(--live); text-decoration: none; }
 .chan-when { font-size: 12px; color: var(--quiet); white-space: nowrap; flex: none; }
-.chan-bar { display: block; width: 100%; height: 4px; border-radius: 2px; overflow: hidden; background: var(--rule); }
+.chan-bar { display: block; width: 100%; height: 6px; border-radius: 3px; overflow: hidden; background: var(--rule); }
 .chan-done { fill: var(--live-dim); }
 .chan-failed { fill: var(--alarm); }
-.chan-other { fill: #3f3f46; }
-.chan-counts, .chan-foot {
-  display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 7px;
-  font-size: 12.5px; color: var(--quiet);
+.chan-other { fill: #494b56; }
+.chan-total {
+  font: 560 21px/1.2 var(--display);
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: -2px;
 }
-/* The dot trails its item instead of leading the next one, so a card narrow
-   enough to wrap never opens a line with "· 1 waiting on you". */
-.chan-counts > span:not(:last-child)::after,
+.chan-flags { display: flex; flex-wrap: wrap; gap: 6px; }
+/* The channel page's own roll-up keeps the plain counts line. */
+.chan-counts {
+  display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 7px;
+  font-size: 12.5px; color: var(--mute);
+}
+.chan-counts > span:not(:last-child)::after { content: " ·"; opacity: .5; }
+.chan-counts > .chan-bad::after, .chan-counts > .chan-wait::after,
+.chan-counts > .chan-busy::after { content: none; }
+/* Exception counts are chips in the tint of their meaning. */
+.chan-bad, .chan-wait, .chan-busy {
+  display: inline-flex; align-items: center;
+  font: 500 11px/1.5 var(--sans);
+  padding: 2px 9px; border-radius: 999px;
+}
+.chan-bad { color: #fda4af; background: rgb(251 113 133 / .1); border: 1px solid rgb(251 113 133 / .22); }
+.chan-wait { color: #fcd34d; background: rgb(251 191 36 / .1); border: 1px solid rgb(251 191 36 / .22); }
+.chan-busy { color: #6ee7b7; background: rgb(54 230 165 / .1); border: 1px solid rgb(54 230 165 / .22); }
+.chan-foot {
+  display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 7px;
+  font-size: 12px; color: var(--quiet);
+  margin-top: auto; padding-top: 10px; border-top: 1px solid var(--rule);
+}
 .chan-foot > span:not(:last-child)::after { content: " ·"; opacity: .5; }
-.chan-counts { color: var(--mute); }
-.chan-bad { color: var(--alarm); }
-.chan-wait { color: var(--warn); }
-.chan-busy { color: var(--live); }
-.chan-foot { margin-top: auto; padding-top: 1px; font-size: 12px; }
+.chan-foot .mono { color: var(--mute); }
 /* The same bar on the channel's own page. A card spaces its children with a
    flex gap; a panel does not, so here it carries its own margin. */
 .panel > .chan-bar { margin-top: 10px; }
@@ -1725,19 +1778,36 @@ form.filter a { font-size: 12.5px; color: var(--mute); }
 .episode-answer .link-host { color: var(--mute); text-decoration: underline; text-underline-offset: 2px; }
 .episode-facts {
   grid-area: facts;
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 7px;
-  margin-top: 7px; font-size: 12px; color: var(--quiet);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px;
+  margin-top: 8px; font-size: 12px; color: var(--quiet);
 }
 /* One separator rule beats a separator typed between every pair. Trailing
    rather than leading, so a wrapped fact row never starts a line with the
-   dot. */
+   dot — and never after the chip, which separates itself. */
 .episode-facts > span:not(:last-child)::after { content: " ·"; opacity: .5; }
-.episode-state { color: var(--mute); }
+.episode-facts > .episode-state::after { content: none; }
+/* The state is a chip, tinted with its meaning; the quiet states stay in a
+   neutral capsule so a page of completed work reads calm. */
+.episode-state {
+  display: inline-flex; align-items: center;
+  font: 500 11px/1.5 var(--mono); color: var(--mute);
+  padding: 1px 8px; border-radius: 999px;
+  background: rgb(255 255 255 / .05); border: 1px solid rgb(255 255 255 / .07);
+  white-space: nowrap;
+}
 .episode-row[data-state="failed"] .episode-state,
-.episode-row[data-state="dead"] .episode-state { color: var(--alarm); }
+.episode-row[data-state="dead"] .episode-state {
+  color: #fda4af; background: rgb(251 113 133 / .1); border-color: rgb(251 113 133 / .22);
+}
 .episode-row[data-state="blocked"] .episode-state,
 .episode-row[data-state="waiting_operator"] .episode-state,
-.episode-row[data-state="waiting_approval"] .episode-state { color: var(--warn); }
+.episode-row[data-state="waiting_approval"] .episode-state {
+  color: #fcd34d; background: rgb(251 191 36 / .1); border-color: rgb(251 191 36 / .22);
+}
+.episode-row[data-state="running"] .episode-state,
+.episode-row[data-state="working"] .episode-state {
+  color: #6ee7b7; background: rgb(54 230 165 / .1); border-color: rgb(54 230 165 / .22);
+}
 .episode-spoke { color: var(--live); }
 .episode-retried { color: var(--warn); }
 
