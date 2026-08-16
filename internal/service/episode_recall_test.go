@@ -114,10 +114,9 @@ func TestAnAlertTurnIsToldWhatTheSameSymptomTurnedOutToBe(t *testing.T) {
 
 	prompt, omitted := svc.watchPrompt(
 		input, "U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, assembled.SimilarPastEpisodes,
+		decisionpkg.OperationalMemoryContext{}, assembled.SimilarPastEpisodes, nil,
 		nil,
-		"repo", nil, WatchPromptBudget(0),
-	)
+		"repo", nil, WatchPromptBudget(0))
 	if len(omitted) != 0 {
 		t.Fatalf("an unpressured prompt dropped context: %+v", omitted)
 	}
@@ -201,8 +200,8 @@ func TestRecalledEpisodesAreTheFirstLayerDroppedForBudget(t *testing.T) {
 		},
 		[]core.SimilarEpisode{{EpisodeID: "episode_past", RootCause: filler}},
 		nil,
-		"repo", nil, WatchPromptBudget(0),
-	)
+		nil,
+		"repo", nil, WatchPromptBudget(0))
 	if strings.Contains(prompt, "episode_past") {
 		t.Fatal("the recalled episode survived a prompt that had to drop context")
 	}

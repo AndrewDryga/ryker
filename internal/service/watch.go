@@ -2050,6 +2050,7 @@ func (s *Service) watchPrompt(
 	referenced *decisionpkg.ReferencedThreadContext,
 	prior decisionpkg.OperationalMemoryContext,
 	similar []core.SimilarEpisode,
+	relatedTasks []core.RelatedTask,
 	changes []core.RecentChange,
 	activeRepository string,
 	matchedRules []core.StandingRule,
@@ -2094,8 +2095,8 @@ func (s *Service) watchPrompt(
 	for {
 		prompt := s.unboundedWatchPrompt(
 			input, botUserID, conversationFollowup, recent, channelAroundRoot,
-			memory, related, referenced, prior, similar, changes, activeRepository, matchedRules,
-			core.ContextOmissionReasons(omitted),
+			memory, related, referenced, prior, similar, relatedTasks, changes,
+			activeRepository, matchedRules, core.ContextOmissionReasons(omitted),
 		)
 		if len(prompt) <= budget {
 			return prompt, omitted
@@ -2109,6 +2110,13 @@ func (s *Service) watchPrompt(
 			// verify.
 			similar = nil
 			note(similarPastEpisodesLayer, droppedSimilarPastEpisodes)
+		case len(relatedTasks) > 0:
+			// With the recalled episodes, and for the same reason: an open task
+			// is history about this channel, not the conversation being
+			// answered. It goes as a whole because half a list of tasks reads
+			// as the whole list.
+			relatedTasks = nil
+			note(relatedTasksLayer, droppedRelatedTasks)
 		case len(changes) > 0:
 			// Second out, and entirely. What changed recently is the only other
 			// layer here that is not about the conversation being answered, and
@@ -2238,6 +2246,7 @@ func (s *Service) unboundedWatchPrompt(
 	referenced *decisionpkg.ReferencedThreadContext,
 	prior decisionpkg.OperationalMemoryContext,
 	similar []core.SimilarEpisode,
+	relatedTasks []core.RelatedTask,
 	changes []core.RecentChange,
 	activeRepository string,
 	matchedRules []core.StandingRule,
@@ -2312,6 +2321,11 @@ context for comparison only; they must not cause action=ignore or replace the re
 	// Described only when the host recalled something, so a turn with no
 	// analogue never pays for an explanation of an empty list.
 	similarEpisodePolicy := includeWhen(len(similar) > 0, similarPastEpisodesPolicyText)
+	// The tasks this channel already opened, on the same terms: described only
+	// when there are any. This is the layer that would have told the 2026-08-16
+	// Traefik investigations that the fix they were about to propose had been
+	// committed three days earlier and never rolled out.
+	relatedTaskPolicy := includeWhen(len(relatedTasks) > 0, relatedTasksPolicyText+"\n\n")
 	// Same rule: a turn with nothing recorded against it never pays for an
 	// explanation of an empty list.
 	recentChangePolicy := includeWhen(len(changes) > 0, changeledger.PolicyText)
@@ -2324,6 +2338,7 @@ context for comparison only; they must not cause action=ignore or replace the re
 		Referenced        *decisionpkg.ReferencedThreadContext       `json:"referenced_thread,omitempty"`
 		Prior             decisionpkg.OperationalMemoryContext       `json:"prior_operational_context,omitempty"`
 		Similar           []core.SimilarEpisode                      `json:"similar_past_episodes,omitempty"`
+		RelatedTasks      []core.RelatedTask                         `json:"related_engineering_tasks,omitempty"`
 		Changes           []core.RecentChange                        `json:"recent_changes,omitempty"`
 		TargetMessage     decisionpkg.WatchContextMessage            `json:"target_message"`
 		Omitted           []string                                   `json:"context_omitted,omitempty"`
@@ -2336,6 +2351,7 @@ context for comparison only; they must not cause action=ignore or replace the re
 		Referenced:        referenced,
 		Prior:             prior,
 		Similar:           similar,
+		RelatedTasks:      relatedTasks,
 		Changes:           changes,
 		TargetMessage:     target,
 		Omitted:           omitted,
@@ -2426,7 +2442,7 @@ referent of "it", "this", "that", "the run", and similar shorthand. Do not subst
 related_situation, prior evidence record, or channel memory when the current thread supplies a
 subject. If the root is still ambiguous, ask a concise clarifying question instead of guessing.
 
-` + channelAroundRootPolicy + similarEpisodePolicy + recentChangePolicy + `Infer who is talking to whom before responding. A question mark alone does not mean a question is for Emisar. If people are talking to each other, another person is mentioned, or a newer human message already answers the target, choose ignore unless Emisar is explicitly mentioned or the conversation clearly asks Emisar for help. A standalone operational question in this configured feed may be for Emisar without an explicit mention. target_message.conversation_continuation means Emisar recently answered at this Slack location, so a follow-up is eligible without another mention; it is not proof that every nearby message is addressed to Emisar. A bare mention with no request is a nudge: act on the nearest unanswered operator message above it; never ask what to check.
+` + channelAroundRootPolicy + similarEpisodePolicy + relatedTaskPolicy + recentChangePolicy + `Infer who is talking to whom before responding. A question mark alone does not mean a question is for Emisar. If people are talking to each other, another person is mentioned, or a newer human message already answers the target, choose ignore unless Emisar is explicitly mentioned or the conversation clearly asks Emisar for help. A standalone operational question in this configured feed may be for Emisar without an explicit mention. target_message.conversation_continuation means Emisar recently answered at this Slack location, so a follow-up is eligible without another mention; it is not proof that every nearby message is addressed to Emisar. A bare mention with no request is a nudge: act on the nearest unanswered operator message above it; never ask what to check.
 
 ` + scheduledOccurrencePolicy + hostRecheckPolicy + `` + operationalMemoryPolicy + `
 

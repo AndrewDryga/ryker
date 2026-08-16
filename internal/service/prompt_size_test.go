@@ -265,9 +265,8 @@ func staticPromptSizes(t *testing.T) map[string]int {
 		return len(svc.unboundedWatchPrompt(
 			input,
 			"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-			decisionpkg.OperationalMemoryContext{}, nil, nil, "emisar", nil,
-			nil,
-		))
+			decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "emisar", nil,
+			nil))
 	}
 	return map[string]int{
 		"watch": measure(core.SlackInput{ChannelID: "C1", Text: "check the api"}),
@@ -328,9 +327,8 @@ func TestOversizedContextIsBudgetedNotSliced(t *testing.T) {
 
 	prompt, _ := svc.watchPrompt(
 		core.SlackInput{ChannelID: "C1", MessageTS: "1799.000", Text: "why is checkout failing"},
-		"U999BOT", false, recent, nil, core.AgentMemory{}, related, nil, prior, nil, nil, "emisar", nil,
-		WatchPromptBudget(0),
-	)
+		"U999BOT", false, recent, nil, core.AgentMemory{}, related, nil, prior, nil, nil, nil, "emisar", nil,
+		WatchPromptBudget(0))
 
 	if len(prompt) > WatchPromptBudget(0) {
 		t.Fatalf("budgeted prompt is %d bytes, over the %d bound",
@@ -396,9 +394,8 @@ func TestBudgetedContextRemainsValidJSON(t *testing.T) {
 	prompt, _ := svc.watchPrompt(
 		core.SlackInput{ChannelID: "C1", MessageTS: "1799.000", Text: "status?"},
 		"U999BOT", false, recent, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, nil, "emisar", nil,
-		WatchPromptBudget(0),
-	)
+		decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "emisar", nil,
+		WatchPromptBudget(0))
 	start := strings.Index(prompt, `{"channel_id"`)
 	if start < 0 {
 		t.Fatal("no structured context block in the prompt")
@@ -476,8 +473,7 @@ func TestPromptSectionsAppearOnlyWhenTheyApply(t *testing.T) {
 func watchPromptFor(svc *Service, input core.SlackInput) string {
 	return svc.unboundedWatchPrompt(
 		input, "U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, nil, "emisar", nil, nil,
-	)
+		decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "emisar", nil, nil)
 }
 
 // The three tables below guard the blocks that became conditional on

@@ -207,10 +207,10 @@ func TestWatchPromptExplainsCrossConversationMemoryBoundary(t *testing.T) {
 		decisionpkg.OperationalMemoryContext{},
 		nil,
 		nil,
+		nil,
 		"emisar",
 		nil,
-		WatchPromptBudget(0),
-	)
+		WatchPromptBudget(0))
 	for _, required := range []string{
 		"compact summary of this exact Slack conversation",
 		"compact summaries from other recent conversations",
@@ -232,9 +232,8 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 	}
 	prompt, _ := svc.watchPrompt(
 		input, "UBOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, nil, "repo", nil,
-		WatchPromptBudget(0),
-	)
+		decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "repo", nil,
+		WatchPromptBudget(0))
 	for _, required := range []string{
 		"explicit host verification replay",
 		"Re-execute the",
@@ -249,9 +248,8 @@ func TestWatchPromptMakesVerificationReplayExecuteOriginalRequest(t *testing.T) 
 	input.EnvelopeID = "env:ordinary"
 	ordinary, _ := svc.watchPrompt(
 		input, "UBOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, nil, "repo", nil,
-		WatchPromptBudget(0),
-	)
+		decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "repo", nil,
+		WatchPromptBudget(0))
 	if strings.Contains(ordinary, "explicit host verification replay") {
 		t.Fatalf("ordinary prompt contains replay policy:\n%s", ordinary)
 	}
@@ -278,17 +276,15 @@ func TestWatchPromptDropsOldestContextBeforeCoopLimit(t *testing.T) {
 	svc := &Service{}
 	raw := svc.unboundedWatchPrompt(
 		input, "UBOT", false, recent, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, nil, "repo", nil,
-		nil,
-	)
+		decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "repo", nil,
+		nil)
 	if len(raw) <= WatchPromptBudget(0) {
 		t.Fatalf("test prompt did not exceed assembly bound: %d", len(raw))
 	}
 	prompt, _ := svc.watchPrompt(
 		input, "UBOT", false, recent, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, nil, "repo", nil,
-		WatchPromptBudget(0),
-	)
+		decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "repo", nil,
+		WatchPromptBudget(0))
 	if len(prompt) > WatchPromptBudget(0) {
 		t.Fatalf("watch prompt bytes = %d", len(prompt))
 	}
@@ -340,8 +336,7 @@ func TestTheChannelAroundTheRootIsDroppedBeforeAnyThreadMessage(t *testing.T) {
 	assembled := func(around []decisionpkg.WatchContextMessage) int {
 		return len(svc.unboundedWatchPrompt(
 			input, "UBOT", false, recent, around, core.AgentMemory{}, nil, nil,
-			decisionpkg.OperationalMemoryContext{}, nil, nil, "repo", nil, nil,
-		))
+			decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "repo", nil, nil))
 	}
 	// Budgeted so that dropping exactly the oldest channel message fits, with
 	// room for the omission note the drop itself adds. Anything the assembler
@@ -352,9 +347,8 @@ func TestTheChannelAroundTheRootIsDroppedBeforeAnyThreadMessage(t *testing.T) {
 	}
 	prompt, omitted := svc.watchPrompt(
 		input, "UBOT", false, recent, around, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, nil, "repo", nil,
-		budget,
-	)
+		decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "repo", nil,
+		budget)
 	if len(prompt) > budget {
 		t.Fatalf("watch prompt bytes = %d, budget %d", len(prompt), budget)
 	}

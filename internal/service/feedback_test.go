@@ -211,9 +211,8 @@ func TestWatchPromptSeparatesResponderFeedbackFromOperationalFrustration(t *test
 	prompt := (&Service{}).unboundedWatchPrompt(
 		core.SlackInput{TeamID: "T123ABC", ChannelID: "C123ABC", UserID: "U123ABC", Text: "This answer is not useful"},
 		"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, nil, "", nil,
-		nil,
-	)
+		decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "", nil,
+		nil)
 	for _, required := range []string{
 		"Product feedback is distinct from operational frustration",
 		"include one record_feedback operation",

@@ -207,3 +207,57 @@ func TestOnlyARealCommitIsReadOutOfATaskUpdate(t *testing.T) {
 		}
 	}
 }
+
+// The alert lane is where the 2026-08-16 investigations ran, and it is the lane
+// this layer was built for: the incident-room prompt carried it from the first
+// commit and the watch prompt — the one that answered the Traefik card five
+// times — did not. A layer the alert lane never sees is a layer that would have
+// missed the incident it exists to prevent.
+func TestParkedTaskReachesTheWatchPrompt(t *testing.T) {
+	svc, st, ctx := recalledEpisodeService(t)
+	task := parkedTraefikTask(t, st, "COPS")
+	input := core.SlackInput{
+		ID: "slack_oom_watch", TeamID: svc.cfg.Slack.TeamID, ChannelID: "COPS",
+		MessageTS: "1800.10", Kind: "bot_message", UserID: "B0GRAFANA",
+		Text: "[FIRING:1] va1-nomad-oom-risk (traefik) memory above 90% of the allocation",
+	}
+	assembled, err := svc.assembleAgentContext(ctx, agentContextRequest{
+		ChannelID: "COPS", Repository: "tenant-infra", TargetInput: &input,
+		Effort: core.EffortIncidentInvestigation,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt, omitted := svc.watchPrompt(
+		input, "U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
+		assembled.Prior, nil, assembled.RelatedTasks, nil, "tenant-infra", nil,
+		WatchPromptBudget(0),
+	)
+	if len(omitted) != 0 {
+		t.Fatalf("an unpressured watch prompt dropped context: %+v", omitted)
+	}
+	for _, required := range []string{
+		`"related_engineering_tasks"`, task.ID, "f804b18c",
+		"instead of proposing to write it again",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("the watch prompt is missing %q", required)
+		}
+	}
+	// And under pressure it goes with the recalled episodes, whole and reported,
+	// rather than being cut in the middle of a task list.
+	_, omitted = svc.watchPrompt(
+		input, "U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
+		assembled.Prior, nil, assembled.RelatedTasks, nil, "tenant-infra", nil,
+		minimumWatchPromptBytes,
+	)
+	dropped := false
+	for _, omission := range omitted {
+		if omission.Kind == relatedTasksLayer {
+			dropped = true
+		}
+	}
+	if !dropped {
+		t.Fatalf("a pressured watch prompt did not report dropping the task layer: %+v", omitted)
+	}
+}

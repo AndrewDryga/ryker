@@ -1030,6 +1030,7 @@ func (s *Service) freezeTriageContext(
 		state.ReferencedThread = assembled.ReferencedThread
 		state.Prior = assembled.Prior
 		state.SimilarPastEpisodes = assembled.SimilarPastEpisodes
+		state.RelatedTasks = assembled.RelatedTasks
 		state.RecentChanges = assembled.RecentChanges
 		state.Repository = assembled.Repository
 		state.ContextCaptured = true
@@ -1255,6 +1256,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			state.ReferencedThread,
 			state.Prior,
 			state.SimilarPastEpisodes,
+			state.RelatedTasks,
 			state.RecentChanges,
 			core.FirstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
 			state.MatchedRules,
@@ -1287,7 +1289,8 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			input, s.identity.BotUserID, state.ConversationFollowup,
 			state.RecentMessages, state.ChannelAroundRoot,
 			state.Memory, state.RelatedSituations,
-			state.ReferencedThread, state.Prior, state.SimilarPastEpisodes, state.RecentChanges,
+			state.ReferencedThread, state.Prior, state.SimilarPastEpisodes, state.RelatedTasks,
+			state.RecentChanges,
 			core.FirstNonempty(repositoryKey, s.cfg.Slack.DefaultRepository),
 			state.MatchedRules,
 			WatchPromptBudget(early.Len()+late.Len()+len(artifactPrompt)),

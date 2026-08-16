@@ -332,9 +332,8 @@ func TestWatchPromptsDefineAmbientKnowledgeAndConfidenceGate(t *testing.T) {
 		),
 		"full": svc.unboundedWatchPrompt(
 			input, "U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-			decisionpkg.OperationalMemoryContext{}, nil, nil, "repo", nil,
-			nil,
-		),
+			decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "repo", nil,
+			nil),
 	} {
 		for _, required := range []string{
 			"durable organizational knowledge",
@@ -352,9 +351,8 @@ func TestWatchPromptsDefineAmbientKnowledgeAndConfidenceGate(t *testing.T) {
 	}
 	full := svc.unboundedWatchPrompt(
 		input, "U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, nil, "repo", nil,
-		nil,
-	)
+		decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "repo", nil,
+		nil)
 	for _, required := range []string{
 		"Recording a decision as evidence",
 		"MUST include exactly one update_memory operation",

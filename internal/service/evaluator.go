@@ -72,6 +72,7 @@ func (e *Evaluator) WatchPrompt(
 		// where a host-side selection belongs.
 		nil,
 		nil,
+		nil,
 		activeRepository,
 		matchedRules,
 		budget,

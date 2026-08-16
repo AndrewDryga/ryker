@@ -79,7 +79,7 @@ func TestAnAssessmentIsToldWhatChangedAndWhatThatDoesNotLicense(t *testing.T) {
 	prompt, omitted := svc.watchPrompt(
 		core.SlackInput{ChannelID: "C1", MessageTS: "1700.9", Text: "checkout is erroring"},
 		"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, changes,
+		decisionpkg.OperationalMemoryContext{}, nil, nil, changes,
 		"repo", nil, WatchPromptBudget(0),
 	)
 	if len(omitted) != 0 {
@@ -193,12 +193,12 @@ func TestABudgetedTurnDropsTheChangesBeforeTheTranscriptAndRecordsIt(t *testing.
 	// test would stop being about ordering.
 	withoutChanges, _ := svc.watchPrompt(
 		input, "U999BOT", false, recent, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, nil, "repo", nil,
+		decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "repo", nil,
 		WatchPromptBudget(0),
 	)
 	prompt, omitted := svc.watchPrompt(
 		input, "U999BOT", false, recent, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, changes, "repo", nil,
+		decisionpkg.OperationalMemoryContext{}, nil, nil, changes, "repo", nil,
 		len(withoutChanges)+len(changeledger.DroppedReason)+64,
 	)
 	if strings.Contains(prompt, "checkout v41 rolled out") {

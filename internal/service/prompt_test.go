@@ -89,10 +89,10 @@ func TestWatchPromptCarriesMandatoryCrossSourceEvidencePolicy(t *testing.T) {
 		decisionpkg.OperationalMemoryContext{},
 		nil,
 		nil,
+		nil,
 		"",
 		nil,
-		WatchPromptBudget(0),
-	)
+		WatchPromptBudget(0))
 	for _, required := range []string{
 		"Consider the full set of repository, MCP, and other tools available in the turn",
 		"Use the checked-out repository for declared intent and expected topology",
@@ -646,8 +646,7 @@ func TestStaticWatchPromptSizeIsPinned(t *testing.T) {
 			Text: "How is the health of our infrastructure?",
 		},
 		"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, nil, "", nil, WatchPromptBudget(0),
-	)
+		decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "", nil, WatchPromptBudget(0))
 	switch {
 	case len(prompt) > staticWatchPromptBytes:
 		t.Fatalf(
@@ -695,8 +694,7 @@ func TestOversizedChannelMessageSaysTheHostCutIt(t *testing.T) {
 			UserID: "U123ABC", Text: instruction,
 		},
 		"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, nil, "", nil, WatchPromptBudget(0),
-	)
+		decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "", nil, WatchPromptBudget(0))
 	if !strings.Contains(prompt, "the host cut the rest of this message to fit") {
 		t.Fatal("an oversized channel message was cut without saying so")
 	}
@@ -709,8 +707,7 @@ func TestOversizedChannelMessageSaysTheHostCutIt(t *testing.T) {
 			UserID: "U123ABC", Text: "is checkout slow?",
 		},
 		"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, nil, "", nil, WatchPromptBudget(0),
-	)
+		decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "", nil, WatchPromptBudget(0))
 	if strings.Contains(fitting, "the host cut the rest of this message to fit") {
 		t.Fatal("a message that fitted was marked as cut")
 	}
@@ -733,8 +730,7 @@ func TestWatchPromptExamplesUseTheTypedResultShape(t *testing.T) {
 			Text: "How is the health of our infrastructure?",
 		},
 		"U999BOT", false, nil, nil, core.AgentMemory{}, nil, nil,
-		decisionpkg.OperationalMemoryContext{}, nil, nil, "", nil, WatchPromptBudget(0),
-	)
+		decisionpkg.OperationalMemoryContext{}, nil, nil, nil, "", nil, WatchPromptBudget(0))
 	// The bounded conversation lane's examples are held to the same bar since
 	// 2026-08-14, when its four legacy-shaped examples taught every cheap turn
 	// a dialect the host then spent a correction turn translating — a 2x turn
