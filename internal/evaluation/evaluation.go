@@ -655,6 +655,7 @@ func evaluateCaseWithConfig(
 	var pendingApproval bool
 	var strictOperations bool
 	var lifecycleContinuationCorrection string
+	var alertPolicyCorrection string
 	switch testCase.Kind {
 	case "watch":
 		decision, err := decisionpkg.ParseWatchDecision(testCase.Output, now)
@@ -693,6 +694,15 @@ func evaluateCaseWithConfig(
 				cfg.Slack.ReactionAttention,
 			)
 			decision, _ = decisionpkg.EnforceRecoveredAlertLink(input, state, decision)
+			// The channel's own alert policy, read here exactly as
+			// WatchDecisionCorrectionAt reads it in production and in the
+			// correction round: same gate, same post-enforcement decision. A
+			// corpus case answering an app card was scored without it, so the
+			// harness could pass a reply the runtime would have sent back.
+			if input.Kind == "bot_message" && state.AlertPolicy != "" &&
+				state.AlertPolicy != "automatic" {
+				alertPolicyCorrection = decisionpkg.AlertPolicyCorrection(input, state, decision)
+			}
 			offers = hostedWatchDecisionOffers(*cfg, testCase, decision)
 		} else {
 			offers = watchDecisionOffers(decision)
@@ -812,6 +822,10 @@ func evaluateCaseWithConfig(
 	}
 	if lifecycleContinuationCorrection != "" {
 		result.Detail = "missing lifecycle continuation: " + lifecycleContinuationCorrection
+		return result
+	}
+	if alertPolicyCorrection != "" {
+		result.Detail = "alert policy: " + alertPolicyCorrection
 		return result
 	}
 	if episode != nil {

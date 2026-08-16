@@ -656,7 +656,13 @@ func AlertPolicyCorrection(
 			"continue the read-only investigation and return reply with typed evidence, " +
 			"coverage, and a completion verdict instead of reducing the result to incident admission"
 	}
-	if ExternalAppEventRequiresDecision(input.Text) && decision.Action == "reply" &&
+	// A terminal SUCCESS joins the failure vocabulary here and only here. The
+	// card may still be ignored or reacted to above — the reply policy tells the
+	// model to stay quiet about a routine applied run — but a reply the model
+	// chose to post about a finished apply is recording an outcome, and an
+	// outcome without a verdict is news.
+	if (ExternalAppEventRequiresDecision(input.Text) ||
+		ExternalAppEventIsTerminalSuccess(input.Text)) && decision.Action == "reply" &&
 		(decision.Completion == nil || strings.TrimSpace(decision.Completion.Verdict) == "") {
 		return "this terminal or actionable app event has no completion verdict; establish " +
 			"the exact state, impact, cause or boundary, and concrete next action before finishing"
@@ -896,6 +902,56 @@ func ExternalAppEventRequiresDecision(text string) bool {
 	return EpisodeContainsAny(
 		text, "errored", "failed", "failure", "firing", "critical", "warning",
 	)
+}
+
+// externalLifecycleSubjects and externalTerminalSuccessStates are
+// lifecycle.Classify's own subject words and Succeeded states. They are copied
+// rather than imported because internal/lifecycle imports this package, and
+// they are the vocabulary a Terraform, deploy or CI card actually uses.
+var (
+	externalLifecycleSubjects = []string{
+		"run", "deployment", "job", "workflow", "build", "release", "plan", "apply",
+	}
+	externalTerminalSuccessStates = []string{
+		"applied", "succeeded", "successful", "completed", "finished",
+	}
+)
+
+// ExternalAppEventIsTerminalSuccess reports an app card whose own status line
+// says the work reached a terminal successful state: `Run Applied`,
+// `Deployment succeeded`, `Run Planned and Finished`. It is the other half of
+// ExternalAppEventRequiresDecision, which knows only the failure words.
+//
+// Like lifecycle.Classify it reads explicit status lines and not prose, so an
+// operator writing that a migration "completed last night" is not a lifecycle
+// event; and an intermediate status — `Run Planning`, `Run Planned - Needs
+// Confirmation` — is not terminal, so a plan awaiting a human owes no verdict.
+func ExternalAppEventIsTerminalSuccess(text string) bool {
+	for _, raw := range strings.Split(strings.ToLower(text), "\n") {
+		line := strings.Join(strings.Fields(raw), " ")
+		if !externalLifecycleStatusLine(line) {
+			continue
+		}
+		for _, state := range externalTerminalSuccessStates {
+			if line == state || strings.Contains(line, " "+state) ||
+				strings.Contains(line, state+" ") || strings.Contains(line, state+":") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func externalLifecycleStatusLine(line string) bool {
+	if strings.HasPrefix(line, "status:") || strings.HasPrefix(line, "state:") {
+		return true
+	}
+	for _, subject := range externalLifecycleSubjects {
+		if strings.HasPrefix(line, subject+" ") || strings.HasPrefix(line, subject+":") {
+			return true
+		}
+	}
+	return false
 }
 
 func MatchedOperationalAlertRule(rules []core.StandingRule) bool {

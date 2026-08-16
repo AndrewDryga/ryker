@@ -1,6 +1,7 @@
 package decision
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -241,5 +242,90 @@ func TestRecoveryOnAnAnsweredStreamStillRequiresAnAnswer(t *testing.T) {
 	correction := AlertPolicyCorrection(input, answered, silent)
 	if !strings.Contains(correction, "requires an evidence-backed in-place") {
 		t.Fatalf("a recovery on an answered stream was allowed to pass silently: %q", correction)
+	}
+}
+
+// terraformRunApplied is the recorded model answer to the Terraform Cloud card
+// whose last line is `Run Applied`, harvested whole out of the eval corpus case
+// "terminal app event carries a completion verdict": a reply carrying apply
+// evidence, runner evidence, change coverage, and a decision_ready
+// complete_episode whose verdict is succeeded.
+func terraformRunApplied(t *testing.T) WatchDecision {
+	t.Helper()
+	data, err := os.ReadFile("testdata/terraform_run_applied_result.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := ParseWatchDecision(
+		string(data), time.Date(2026, 8, 16, 18, 55, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return decision
+}
+
+// terraformRunAppliedCard is the corpus case's own input: an external app
+// message on a channel whose alert policy is anything but automatic.
+func terraformRunAppliedCard() core.SlackInput {
+	return core.SlackInput{
+		Kind: "bot_message",
+		Text: "Run notification for <https://app.terraform.io/app/Dryga/emisar|Dryga/emisar>\n" +
+			"<https://app.terraform.io/app/Dryga/emisar/runs/run-nyi5FEjCdPDiXTdH|Run run-nyi5FEjCdPDiXTdH>\n" +
+			"main 3d794f517e6848d43f8563125b501675606d8ed5 (@AndrewDryga, gh run 31745692023)\n" +
+			"Run Applied",
+	}
+}
+
+// Success is a decision to record, not just news to relay.
+//
+// The "terminal app event carries a completion verdict" corpus case has failed
+// since 2026-08-15 with "completion assessment is missing"; the host had a
+// correction for it that only knew the failure vocabulary.
+// ExternalAppEventRequiresDecision matched errored, failed, failure, firing,
+// critical and warning, so a terminal APPLY — the most common terminal card
+// Responder sees — was the one terminal event whose reply could be posted with
+// no verdict behind it at all, and production posted them.
+func TestAReplyToATerminalSuccessEventCarriesACompletion(t *testing.T) {
+	input := terraformRunAppliedCard()
+	state := WatchTurnState{AlertPolicy: "reply"}
+	decision := terraformRunApplied(t)
+	if decision.Action != "reply" {
+		t.Fatalf("the harvested answer is meant to be a reply, got %q", decision.Action)
+	}
+	if decision.Completion == nil || decision.Completion.Verdict != "succeeded" {
+		t.Fatalf("the harvested answer is meant to carry a succeeded verdict, got %+v",
+			decision.Completion)
+	}
+
+	// What production posted: the same reply, the same evidence, and nothing
+	// completing the episode behind it.
+	withoutCompletion := decision
+	withoutCompletion.Completion = nil
+	correction := AlertPolicyCorrection(input, state, withoutCompletion)
+	if !strings.Contains(correction, "no completion verdict") {
+		t.Fatalf("a reply to `Run Applied` was allowed to finish with no verdict: %q", correction)
+	}
+
+	if correction := AlertPolicyCorrection(input, state, decision); correction != "" {
+		t.Fatalf("the harvested decision_ready completion was corrected anyway: %q", correction)
+	}
+}
+
+// The reply is what owes a verdict, not the card that owes a reply.
+//
+// A routine success is the thing the reply policy tells the model to stay quiet
+// about, so forcing a post on every applied run would trade this defect for the
+// flapping-alert defect above — five posts in ninety minutes for one unchanged
+// assessment. Only a terminal success the model CHOSE to answer must complete.
+func TestATerminalSuccessEventMayStillBeIgnored(t *testing.T) {
+	input := terraformRunAppliedCard()
+	state := WatchTurnState{AlertPolicy: "reply"}
+	silent := WatchDecision{
+		Action: "ignore",
+		Reason: "the apply is routine and the card already says so",
+	}
+	if correction := AlertPolicyCorrection(input, state, silent); correction != "" {
+		t.Fatalf("a routine applied run was forced into a post: %q", correction)
 	}
 }
