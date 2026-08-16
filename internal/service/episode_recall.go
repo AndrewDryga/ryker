@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/AndrewDryga/responder/internal/changeledger"
 	"github.com/AndrewDryga/responder/internal/core"
+	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/recall"
 )
 
@@ -73,15 +75,20 @@ func (s *Service) similarPastEpisodes(
 	ctx context.Context,
 	request agentContextRequest,
 	query string,
+	prior decisionpkg.OperationalMemoryContext,
 ) []core.SimilarEpisode {
 	switch request.Effort {
 	case core.EffortOperationalAssessment, core.EffortIncidentInvestigation:
 	default:
 		return nil
 	}
+	anchor := recall.SimilarEpisodeAnchor{
+		AlertGroupKey: recallAlertGroupKey(request),
+		Services:      recallServices(request, prior),
+	}
 	candidates, err := s.store.Intelligence.ListSimilarEpisodeCandidates(
 		ctx, s.cfg.Slack.TeamID, request.ChannelID, request.ExcludeEpisodeID,
-		recall.SimilarEpisodeCandidates,
+		anchor, recall.SimilarEpisodeCandidates,
 	)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -92,10 +99,53 @@ func (s *Service) similarPastEpisodes(
 	}
 	return recall.PromptEntries(recall.SelectSimilarEpisodes(candidates, recall.SymptomQuery{
 		Text:          query,
-		AlertGroupKey: request.AlertGroupKey,
+		Services:      anchor.Services,
+		AlertGroupKey: anchor.AlertGroupKey,
 		Repository:    request.Repository,
 		Now:           s.now().UTC(),
 	}, recall.SimilarEpisodeLimit))
+}
+
+// recallAlertGroupKey is the read side of the alert identity an outcome row
+// carries.
+//
+// Escalated incidents supply the provider's own group key and always have. A
+// Grafana alert DELIVERED AS A SLACK CARD does not: the Slack surface carries
+// no groupKey, so every episode_outcomes row for one of those has an empty
+// alert_group_key, and the strongest signal recall has — twelve points, more
+// than every vocabulary match combined — could never fire for the alerts that
+// actually wake people up. The correlation key the host already derives for
+// burst coalescing is that identity; it prefers the stable
+// /alerting/grafana/<uid>/view link, which survives every re-fire.
+//
+// It is deliberately the same function the projection calls, because a read
+// side that derived the identity differently from the write side would look
+// exactly like having no history at all.
+func recallAlertGroupKey(request agentContextRequest) string {
+	if request.AlertGroupKey != "" {
+		return request.AlertGroupKey
+	}
+	if request.TargetInput == nil || request.TargetInput.Kind != "bot_message" {
+		return ""
+	}
+	return OperationalCorrelationKey(*request.TargetInput)
+}
+
+// recallServices names what this turn implicates, in the terms an outcome row
+// records: the outcome writer stores the evidence targets an episode probed,
+// so the read side asks with the alert's service labels and the targets this
+// channel's recent evidence already names. Same resolver the change ledger
+// scopes with, so "what changed to this service" and "what happened last time
+// to this service" cannot disagree about what the service is.
+func recallServices(
+	request agentContextRequest,
+	prior decisionpkg.OperationalMemoryContext,
+) []string {
+	targets := make([]string, 0, len(prior.RecentEvidence))
+	for _, item := range prior.RecentEvidence {
+		targets = append(targets, item.Target)
+	}
+	return changeledger.ScopeFrom("", request.AlertSignals, targets).Services
 }
 
 // incidentEffort is what the incident lane recalls as. An engineering task is

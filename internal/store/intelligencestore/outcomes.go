@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/operationalkey"
 	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
@@ -149,6 +150,11 @@ func buildEpisodeOutcome(
 			return core.EpisodeOutcome{}, err
 		}
 	}
+	if outcome.AlertGroupKey == "" {
+		if outcome.AlertGroupKey, err = slackAlertIdentity(ctx, db, sourceInput); err != nil {
+			return core.EpisodeOutcome{}, err
+		}
+	}
 	if outcome.Services, err = episodeServices(ctx, db, episodeID); err != nil {
 		return core.EpisodeOutcome{}, err
 	}
@@ -178,6 +184,50 @@ func buildEpisodeOutcome(
 	outcome.Verified = outcome.Verification != "" &&
 		terminalState == string(core.EpisodeCompleted)
 	return outcome, nil
+}
+
+// slackAlertIdentity is the alert group key of an episode whose alert arrived
+// as a Slack card rather than as a webhook.
+//
+// Grafana's Slack integration posts a message, not a groupKey, so every one of
+// these outcomes stored an empty alert_group_key — and alert_group_key is the
+// twelve-point signal, worth more than every vocabulary match combined. The
+// consequence was measured on tenant on 2026-08-16: va1-nomad-oom-risk had been
+// investigated on 2026-08-04 and three times on 2026-08-13, in the same
+// channel, and the turn that answered it on the 16th recalled a host-OOM
+// episode and two disk-IO episodes instead, on shared wording.
+//
+// The identity is the burst-correlation key the host already derives for every
+// one of these messages, which prefers the stable /alerting/<uid>/view link and
+// therefore survives re-firing, resolution and re-firing again. Deriving it
+// here rather than reading a column keeps one definition: the read side calls
+// the same function on the message in front of it.
+//
+// A missing input row is not an error. Retention prunes finished Slack inputs
+// on the operational horizon, and an outcome with no identity is exactly what
+// this code found — it must never be what this code causes.
+func slackAlertIdentity(
+	ctx context.Context,
+	db rowQuerier,
+	sourceInput string,
+) (string, error) {
+	if sourceInput == "" {
+		return "", nil
+	}
+	var input core.SlackInput
+	err := db.QueryRowContext(ctx, `
+		SELECT kind, user_id, text FROM slack_inputs WHERE id = ?`, sourceInput,
+	).Scan(&input.Kind, &input.UserID, &input.Text)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if input.Kind != "bot_message" {
+		return "", nil
+	}
+	return operationalkey.Key(input), nil
 }
 
 // episodeSymptom recovers what the episode was actually about, and says which
@@ -450,12 +500,79 @@ func (r *Repository) ListSimilarEpisodeCandidates(
 	workspaceID string,
 	channelID string,
 	excludeEpisodeID string,
+	anchor recall.SimilarEpisodeAnchor,
 	limit int,
 ) ([]core.EpisodeOutcome, error) {
 	if limit < 1 || limit > 500 {
 		return nil, errors.New("similar episode candidates require a limit from 1 to 500")
 	}
-	rows, err := r.db.QueryContext(ctx, `
+	scope := scopedCandidates{
+		workspaceID: workspaceID, channelID: channelID,
+		excludeEpisodeID: excludeEpisodeID, limit: limit,
+	}
+	seen := make(map[string]bool, limit)
+	candidates := make([]core.EpisodeOutcome, 0, limit)
+	collect := func(batch []core.EpisodeOutcome) {
+		for _, candidate := range batch {
+			if seen[candidate.EpisodeID] {
+				continue
+			}
+			seen[candidate.EpisodeID] = true
+			candidates = append(candidates, candidate)
+		}
+	}
+	// Structure first, and each pass capped on its own so no pass can starve
+	// the next: the same alert however old, then anything touching a service
+	// this turn implicates, then the recency window that was the whole of this
+	// query before. Order inside a pass stays newest-first, because two
+	// episodes of the same alert are still better answered by the recent one.
+	if key := strings.TrimSpace(anchor.AlertGroupKey); key != "" {
+		batch, err := scope.query(ctx, r.db, `AND outcome.alert_group_key = ?`, key)
+		if err != nil {
+			return nil, err
+		}
+		collect(batch)
+	}
+	if services := anchorServices(anchor.Services); len(services) > 0 {
+		batch, err := scope.query(ctx, r.db, `AND EXISTS (
+			  SELECT 1 FROM json_each(outcome.services_json) AS service
+			  WHERE lower(service.value) IN (`+placeholders(len(services))+`)
+			)`, services...)
+		if err != nil {
+			return nil, err
+		}
+		collect(batch)
+	}
+	batch, err := scope.query(ctx, r.db, "")
+	if err != nil {
+		return nil, err
+	}
+	collect(batch)
+	return candidates, nil
+}
+
+// scopedCandidates is the visibility rule and its bound, held in one place so
+// every candidate pass is filtered identically. A pass that widened the scope
+// while widening the window would leak a private channel's incident into a
+// room whose members were not in it, which is the one mistake this query is
+// not allowed to make.
+type scopedCandidates struct {
+	workspaceID      string
+	channelID        string
+	excludeEpisodeID string
+	limit            int
+}
+
+func (s scopedCandidates) query(
+	ctx context.Context,
+	db rowQuerier,
+	predicate string,
+	args ...any,
+) ([]core.EpisodeOutcome, error) {
+	params := append([]any{
+		s.excludeEpisodeID, s.workspaceID, s.workspaceID, s.channelID,
+	}, args...)
+	rows, err := db.QueryContext(ctx, `
 		SELECT `+outcomeColumns+`
 		FROM episode_outcomes AS outcome
 		LEFT JOIN slack_channel_memberships AS membership
@@ -463,13 +580,39 @@ func (r *Repository) ListSimilarEpisodeCandidates(
 		WHERE outcome.episode_id != ?
 		  AND (? = '' OR outcome.workspace_id = '' OR outcome.workspace_id = ?)
 		  AND (outcome.channel_id = ? OR (membership.present = 1 AND membership.private = 0))
+		  `+predicate+`
 		ORDER BY outcome.terminal_at DESC, outcome.episode_id LIMIT ?`,
-		excludeEpisodeID, workspaceID, workspaceID, channelID, limit)
+		append(params, s.limit)...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanEpisodeOutcomes(rows, limit)
+	return scanEpisodeOutcomes(rows, s.limit)
+}
+
+// anchorServices lowercases and bounds the service anchors. Lowercased because
+// services_json holds the evidence target as the operation wrote it and the
+// anchor arrives normalized from the scope resolver, and a recall that missed
+// on capitalization would be indistinguishable from having no history.
+func anchorServices(services []string) []any {
+	bounded := make([]any, 0, recall.AnchorServices)
+	seen := make(map[string]bool, len(services))
+	for _, service := range services {
+		service = strings.ToLower(strings.TrimSpace(service))
+		if service == "" || seen[service] {
+			continue
+		}
+		seen[service] = true
+		bounded = append(bounded, service)
+		if len(bounded) == recall.AnchorServices {
+			break
+		}
+	}
+	return bounded
+}
+
+func placeholders(count int) string {
+	return strings.TrimSuffix(strings.Repeat("?,", count), ",")
 }
 
 // GetEpisodeOutcome reads one recall row, for the trace page and for tests.

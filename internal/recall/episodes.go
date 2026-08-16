@@ -18,7 +18,39 @@ const (
 	// actually proves current state, and a fourth analogue has never been what
 	// a senior engineer needed.
 	SimilarEpisodeLimit = 3
+	// AnchorServices caps how many services a candidate query anchors on. The
+	// scope resolver already bounds its own list; this is the second bound, so
+	// a turn whose evidence touched thirty targets cannot turn one recall into
+	// a thirty-term scan.
+	AnchorServices = 8
 )
+
+// SimilarEpisodeAnchor is the structural identity of the turn asking "have we
+// seen this before", in the two terms an outcome row can be looked up by
+// without reading its prose.
+//
+// It exists because recency is not a filter, it is a budget. Tenant finishes
+// about seventy episodes a day, so the hundred most recent outcomes reached
+// back roughly thirty-six hours: when va1-nomad-oom-risk fired on 2026-08-16
+// the three investigations of the SAME alert from 2026-08-13 — in the same
+// channel, one of which had already produced a committed fix — were not
+// candidates at all, and five investigations re-derived "raise the cap" from
+// nothing. What the window did return was a host-OOM episode and two disk-IO
+// episodes that shared some wording.
+//
+// So structure is asked first and recency second. An episode carrying the same
+// alert identity is the same alert firing again however old it is, and that is
+// a fact about the row rather than a guess about its vocabulary.
+type SimilarEpisodeAnchor struct {
+	AlertGroupKey string
+	Services      []string
+}
+
+// Empty reports whether the anchor names nothing to look up, in which case the
+// recency window is the whole candidate set exactly as before.
+func (a SimilarEpisodeAnchor) Empty() bool {
+	return strings.TrimSpace(a.AlertGroupKey) == "" && len(a.Services) == 0
+}
 
 // Scoring weights. Structural signals outrank vocabulary on purpose: two
 // episodes that share an alert group key are the same alert firing twice,

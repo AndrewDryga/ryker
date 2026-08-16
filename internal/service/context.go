@@ -48,16 +48,21 @@ type agentContextRequest struct {
 }
 
 type assembledAgentContext struct {
-	Repository                    string                                     `json:"repository"`
-	Prior                         decisionpkg.OperationalMemoryContext       `json:"prior_operational_context,omitempty"`
-	Situation                     core.AgentMemory                           `json:"conversation_situation,omitempty"`
-	RelatedSituations             []decisionpkg.ConversationSituationContext `json:"related_situations,omitempty"`
-	RecentMessages                []decisionpkg.WatchContextMessage          `json:"recent_messages_around_target,omitempty"`
-	ChannelAroundRoot             []decisionpkg.WatchContextMessage          `json:"channel_messages_around_thread_root,omitempty"`
-	ReferencedThread              *decisionpkg.ReferencedThreadContext       `json:"referenced_thread,omitempty"`
-	SimilarPastEpisodes           []core.SimilarEpisode                      `json:"similar_past_episodes,omitempty"`
-	RecentChanges                 []core.RecentChange                        `json:"recent_changes,omitempty"`
-	InitialTaskChangesFingerprint string                                     `json:"initial_task_changes_fingerprint,omitempty"`
+	Repository          string                                     `json:"repository"`
+	Prior               decisionpkg.OperationalMemoryContext       `json:"prior_operational_context,omitempty"`
+	Situation           core.AgentMemory                           `json:"conversation_situation,omitempty"`
+	RelatedSituations   []decisionpkg.ConversationSituationContext `json:"related_situations,omitempty"`
+	RecentMessages      []decisionpkg.WatchContextMessage          `json:"recent_messages_around_target,omitempty"`
+	ChannelAroundRoot   []decisionpkg.WatchContextMessage          `json:"channel_messages_around_thread_root,omitempty"`
+	ReferencedThread    *decisionpkg.ReferencedThreadContext       `json:"referenced_thread,omitempty"`
+	SimilarPastEpisodes []core.SimilarEpisode                      `json:"similar_past_episodes,omitempty"`
+	// RelatedTasks is the engineering work this channel has already opened.
+	// Recall answers "what did this turn out to be last time"; this answers
+	// "did somebody already write the fix", which is a different question and
+	// was the one nothing could ask.
+	RelatedTasks                  []core.RelatedTask  `json:"related_engineering_tasks,omitempty"`
+	RecentChanges                 []core.RecentChange `json:"recent_changes,omitempty"`
+	InitialTaskChangesFingerprint string              `json:"initial_task_changes_fingerprint,omitempty"`
 	// StructuredCorrections counts how many times this run has been sent back
 	// to the model because its result could not be read. The watch path has
 	// always had this; incident and engineering-task runs did not, so a single
@@ -121,7 +126,8 @@ func (s *Service) assembleAgentContext(
 	result := assembledAgentContext{
 		Repository:          repository,
 		Prior:               prior,
-		SimilarPastEpisodes: s.similarPastEpisodes(ctx, request, memoryQuery+" "+request.RecallText),
+		SimilarPastEpisodes: s.similarPastEpisodes(ctx, request, memoryQuery+" "+request.RecallText, prior),
+		RelatedTasks:        s.relatedEngineeringTasks(ctx, request),
 		RecentChanges:       s.recentChanges(ctx, request, prior),
 		CapturedAt:          s.now().UTC(),
 	}

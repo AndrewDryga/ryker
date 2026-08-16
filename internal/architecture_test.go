@@ -631,7 +631,27 @@ var lineBudget = map[string]int{
 	//
 	// 154 lines of margin, deliberately thin: this package should be shrinking,
 	// and the same note on internal/store calls 161 on 11,000 "a small margin".
-	"service": 23050,
+	//
+	// Raised to 23230 on 2026-08-16 for the context layer that tells a turn what
+	// its own channel has already opened, plus the two anchors recall now asks
+	// the store with. The cost being bought back is measured: on 2026-08-13 an
+	// investigation produced an engineering task that was completed and
+	// committed as f804b18c in a fork and then parked unpublished, and on
+	// 2026-08-16 five investigations of the same alert proposed writing that
+	// change again at roughly $15 each, because nothing carried an OPEN task
+	// into a later turn — recall projects finished episodes only, and a parked
+	// task has not finished. related_tasks.go is 90 of the lines and is a whole
+	// layer: the load, the projection, its policy text, its manifest
+	// references, and the commit-id parse that makes "already written, sitting
+	// in a fork" a field rather than a sentence the model has to notice.
+	//
+	// It stays in internal/service because every part of it needs the store
+	// handle, the clock and the effort gate at once, and because it is budgeted
+	// beside the recalled-episode layer it borrows its framing from — a package
+	// away, the two sections' drop order would live in neither of them. The
+	// seventy-three lines of margin are thinner than the note above wants;
+	// the extraction this package still owes is unchanged.
+	"service": 23230,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -819,7 +839,14 @@ var lineBudget = map[string]int{
 	// of leaning on a briefing the new model never read; two envelope rounds on
 	// 2026-08-16 were that model learning a schema the previous rung had been
 	// taught.
-	"store":      11260,
+	//
+	// And one more the same day, `85: migrationddl.V85`. The migration recovers
+	// the alert identity every Slack-delivered Grafana outcome was written
+	// without; the DDL and the reasoning live in migrationddl, and the query
+	// that reads those rows lives in intelligencestore, so this package pays
+	// for the registration and nothing else. That is the shape this budget is
+	// meant to encourage.
+	"store":      11261,
 	"localstate": 400,
 	"provider":   120,
 	// branching opens the branches a fan-out was granted and closes them. It is

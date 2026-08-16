@@ -9,6 +9,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
+	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
 )
 
@@ -231,7 +232,7 @@ func TestAPrivateChannelEpisodeNeverCrossesIntoAnotherRoom(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	elsewhere, err := st.Intelligence.ListSimilarEpisodeCandidates(ctx, "", "COPS", "other", 50)
+	elsewhere, err := st.Intelligence.ListSimilarEpisodeCandidates(ctx, "", "COPS", "other", recall.SimilarEpisodeAnchor{}, 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +241,7 @@ func TestAPrivateChannelEpisodeNeverCrossesIntoAnotherRoom(t *testing.T) {
 			t.Fatal("a private-channel episode was offered to another channel's triage")
 		}
 	}
-	inRoom, err := st.Intelligence.ListSimilarEpisodeCandidates(ctx, "", "CSECRET", "other", 50)
+	inRoom, err := st.Intelligence.ListSimilarEpisodeCandidates(ctx, "", "CSECRET", "other", recall.SimilarEpisodeAnchor{}, 50)
 	if err != nil {
 		t.Fatal(err)
 	}

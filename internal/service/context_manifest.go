@@ -129,6 +129,9 @@ func (s *Service) ensureAttemptContextManifest(
 	manifest.References = append(manifest.References, similarEpisodeReferences(
 		carriedSimilarEpisodes(run.Context), omissions,
 	)...)
+	manifest.References = append(manifest.References, relatedTaskReferences(
+		carriedRelatedTasks(run.Context), omissions,
+	)...)
 	manifest.References = append(manifest.References, changeledger.References(
 		changeledger.Carried(run.Context), changeledger.Dropped(omissions),
 	)...)

@@ -772,6 +772,10 @@ func (s *Service) prepareIncidentAgentRun(
 		// First in the list is first to be dropped. Recalled history is the
 		// only layer here that is about a different incident.
 		{Name: similarPastEpisodesLayer, Text: prefixedPrompt(similarPastEpisodesPrompt(assembled.SimilarPastEpisodes)), Reason: droppedSimilarPastEpisodes},
+		// Next out. Also about work other than this turn's, but it goes after
+		// recalled history because an open task holding a committed change is
+		// the one piece of history that can replace the work being planned.
+		{Name: relatedTasksLayer, Text: prefixedPrompt(relatedTasksPrompt(assembled.RelatedTasks)), Reason: droppedRelatedTasks},
 		// Second out, and for the same reason recalled history is first: this is
 		// the only other layer that is not about the conversation being answered.
 		// It goes before the channel transcript because a deploy an operator can

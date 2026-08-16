@@ -16,6 +16,8 @@ import (
 const (
 	similarEpisodeRefKind    = "similar_past_episode"
 	similarPastEpisodesLayer = "similar_past_episodes"
+	relatedTaskRefKind       = "related_engineering_task"
+	relatedTasksLayer        = "related_engineering_tasks"
 )
 
 // recalledEpisodeName says which past episode a recall reference points at.

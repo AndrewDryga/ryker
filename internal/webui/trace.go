@@ -2197,6 +2197,12 @@ func promptContextDetails(prompt string, present func(string) string, trimmed ma
 		// cannot see that separation cannot tell recalled history from what the
 		// host currently knows about this channel.
 		{[]string{similarPastEpisodesLayer}, nil, []string{similarPastEpisodesLayer}, "Recalled past episodes", "Recalled past episodes", "Resolved past episodes the host matched to this symptom, carried as history to check rather than as evidence."},
+		// Its own group for the same reason and a sharper one: this layer is
+		// about work that was STARTED and not finished, which is the only thing
+		// on the page that can mean the model was told the fix already exists.
+		// A reader asking why a turn proposed writing something Responder had
+		// already committed needs to see whether this section was there.
+		{[]string{relatedTasksLayer}, nil, []string{relatedTasksLayer}, "Open engineering tasks", "Open engineering tasks", "Engineering tasks this channel has already opened and not closed, carried as history to check rather than as current state."},
 		// Also its own group, and for the reason above turned around: this is
 		// the only layer on the page that is about the world outside the
 		// conversation rather than about Responder's own history. A reader
@@ -2289,6 +2295,7 @@ var trimmedLayerLabel = map[string]string{
 	// section instead of the flat leftover list, and one that is named without
 	// a section to route it to would vanish from the page entirely.
 	similarPastEpisodesLayer: "Recalled past episodes",
+	relatedTasksLayer:        "Open engineering tasks",
 	recentChangesLayer:       "Recent changes",
 }
 
@@ -2411,6 +2418,7 @@ func promptSelectionDescription(key string, included bool) string {
 		"channel_id":                    {"The Slack channel that scopes conversation and channel memory.", "The prompt did not retain a channel identifier."},
 		"prior_operational_context":     {"Operational state selected by recency, scope, provenance, and relevance.", "No current operational memory was relevant to this turn."},
 		similarPastEpisodesLayer:        {"At most 3 resolved past episodes, ranked by alert group, shared services, and symptom overlap. History to check first; it never proves current state.", "No resolved past episode matched this symptom."},
+		relatedTasksLayer:               {"At most 5 engineering tasks this channel has open, newest first, with the commit any of them reports. A task holding a committed but unpublished change is an offer to publish that change rather than write it again.", "This channel has no engineering task open from the last thirty days."},
 		recentChangesLayer:              {"Deploys, merges and applies recorded inside the change window against an implicated service or repository, newest first. Correlation to check; naming one as a cause still needs recorded evidence.", "Nothing was recorded as changing the services this turn implicates."},
 		"structured_memory":             {"The exact thread summary when available; otherwise the compact channel summary.", "No compact conversation summary was available for this turn."},
 		"conversation_situation":        {"The exact thread summary when available; otherwise the compact channel summary.", "No compact conversation summary was available for this turn."},
@@ -2917,6 +2925,7 @@ func promptFieldPresentation(key string) (string, string) {
 	if value, ok := map[string][2]string{
 		"prior_operational_context":        {"Operational memory", "operational"},
 		similarPastEpisodesLayer:           {"Recalled past episodes", "operational"},
+		relatedTasksLayer:                  {"Open engineering tasks", "operational"},
 		recentChangesLayer:                 {"Recent changes", "operational"},
 		"structured_memory":                {"Conversation memory", "conversation"},
 		"conversation_situation":           {"Conversation memory", "conversation"},
@@ -3038,6 +3047,10 @@ func contextReferenceTableRow(ref ContextRef, present func(string) string) Trace
 		// evidence is an invitation to skip the checking, and the checking is
 		// the product. This row is a finished, different incident.
 		similarEpisodeRefKind: "History the host recalled by symptom overlap — not evidence of current health, and not authorization",
+		// And this one is work Responder itself opened and did not finish. It is
+		// on the page because "the fix was already written and never published"
+		// is a claim an operator has to be able to check the model was told.
+		relatedTaskRefKind: "An engineering task this channel already has open — history to check, never proof that anything shipped",
 		// Same reason, different failure: a change listed beside a firing alert
 		// is an invitation to name it as the cause. This row says plainly that
 		// the model was shown a coincidence, not a finding.
@@ -3426,6 +3439,7 @@ func contextLabel(kind string) string {
 		"assembled_context": "Context replay fingerprint", "repository": "Repository snapshot",
 		"execution_policy": "Execution policy", "artifact": "Attached artifact",
 		similarEpisodeRefKind: "Recalled past episode",
+		relatedTaskRefKind:    "Open engineering task",
 		recentChangeRefKind:   "Recent change",
 	}[kind]
 }
