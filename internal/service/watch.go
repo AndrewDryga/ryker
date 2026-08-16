@@ -512,17 +512,28 @@ func (s *Service) applyReplyDecision(
 		// out of a list holding only `tenant-platform`, and every one of those
 		// replies could have carried a task button instead.
 		defaulted := false
+		operator := s.cfg.IsOperator(input.UserID)
+		// The list a member chooses from is anchored on the repository this
+		// channel authorizes for them, not on the deployment default: a button
+		// for the default in a channel configured for something else is a
+		// button the click handler refuses.
+		active := s.cfg.Slack.DefaultRepository
+		if !operator {
+			if member, memberErr := taskaccess.MemberRepository(
+				ctx, s.cfg, s.store, input.ChannelID,
+			); memberErr == nil {
+				active = member
+			}
+		}
 		if err != nil {
-			if single, ok := taskaccess.SingleChoice(
-				s.cfg, s.cfg.IsOperator(input.UserID), s.cfg.Slack.DefaultRepository,
-			); ok {
+			if single, ok := taskaccess.SingleChoice(s.cfg, operator, active); ok {
 				repository, defaulted = single, true
 				err = nil
 			}
 		}
 		if err != nil {
 			question := taskaccess.RepositoryQuestion("", taskaccess.Choices(
-				s.cfg, s.cfg.IsOperator(input.UserID), s.cfg.Slack.DefaultRepository,
+				s.cfg, operator, active,
 			))
 			if schedulePresent {
 				message.Sections = append(message.Sections, question)
@@ -530,7 +541,7 @@ func (s *Service) applyReplyDecision(
 				message = s.watchReplyMessage(
 					input,
 					taskaccess.RepositoryQuestion(finalReply, taskaccess.Choices(
-						s.cfg, s.cfg.IsOperator(input.UserID), s.cfg.Slack.DefaultRepository,
+						s.cfg, operator, active,
 					)),
 					decision.Evidence,
 					decision.Coverage,
