@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -200,6 +201,121 @@ func TestAnEscalationCoopRefusesStillDeliversItsCorrection(t *testing.T) {
 		if strings.Contains(entry, "would not deliver this turn") {
 			t.Fatalf("a refused escalation was counted as a correction: %q", entry)
 		}
+	}
+}
+
+// A refused rung is the only reading Responder gets of where the ladder ends.
+//
+// Coop publishes the session's current target but not the policy's list of
+// them, so the floor was computed as repeats-1 with no ceiling at all. Rungs
+// 10, 11 and 12 asked for and refused on 2026-08-16 while a thirteen-round
+// correction loop ran: run_532f8d62871320dc9d0696cb334d3503 on tenant was
+// corrected thirteen times, and from about the tenth repeat every round cost a
+// SubmitTurn refused with `invalid_request (400): min_target_index …`, a
+// `model.escalation`/`unavailable` audit line, and a second round trip to
+// deliver the correction the ordinary way — while the ledger kept climbing into
+// rungs that do not exist and would be refused again next round.
+//
+// The refusal is durable for that reason: it is the one fact about the ladder's
+// length this host can ever learn, and forgetting it between rounds is what
+// turned one refusal into three.
+func TestEscalationStopsClimbingAfterCoopRefusesARung(t *testing.T) {
+	ctx, cfg, st, svc, coopClient, input := cyclingCorrectionFixture(
+		t, "CLADDERTOP", "ladder-top",
+	)
+	seeded := mustRunBySource(t, ctx, st, input)
+	// The state the production run was in when it started asking for rungs
+	// that are not there: three corrections of the class already counted, and a
+	// rung 3 that Coop refused — a refusal that also dropped the floor to zero,
+	// which is why the run is sitting on the session's own rung.
+	for round := 0; round < 3; round++ {
+		if _, err := st.NoteAgentRunCorrectionClass(
+			ctx, seeded.ID, string(correctionIncomplete),
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.SetAgentRunTargetFloor(ctx, seeded.ID, 0, 3); err != nil {
+		t.Fatal(err)
+	}
+
+	runCorrectionRounds(t, ctx, st, svc, input, 2)
+
+	run := mustRunBySource(t, ctx, st, input)
+	if floor := agentRunTargetFloor(run.Context); floor >= 3 {
+		t.Fatalf("the ledger climbed to rung %d past a rung 3 Coop had already "+
+			"refused, so every round from here pays for a refused submit", floor)
+	}
+	for round, floor := range coopClient.submitFloors {
+		if floor >= 3 {
+			t.Fatalf("submission %d asked Coop for rung %d after it refused rung 3: %v",
+				round+1, floor, coopClient.submitFloors)
+		}
+	}
+	// The trace has to say why the same model is answering again. Without the
+	// sentence an operator reads a repeated `incomplete` correction with no
+	// escalation beside it and concludes the escalation is broken.
+	tops := 0
+	for _, entry := range auditOutcomes(t, cfg, "result.correction", "") {
+		if strings.Contains(entry,
+			"ladder top: rung 3 was refused by Coop; the retry stays at rung 0",
+		) {
+			tops++
+		}
+	}
+	if tops == 0 {
+		t.Fatalf("no correction said the ladder had run out: %v",
+			auditOutcomes(t, cfg, "result.correction", ""))
+	}
+	// And it never pays the refusal a second time.
+	if refusals := auditOutcomes(t, cfg, "model.escalation", ""); len(refusals) != 0 {
+		t.Fatalf("a known-refused rung was asked for again: %v", refusals)
+	}
+}
+
+// A refusal Coop sends once is remembered on the run that earned it.
+//
+// Rungs 10, 11 and 12 asked for and refused on 2026-08-16 while a thirteen-round
+// correction loop ran. The refusal path already dropped the floor and resubmitted
+// on the ordinary rung, so the correction was always delivered — but it dropped
+// the floor and nothing else, and the next repeat computed a higher rung from the
+// same repeat count and asked again. The number Coop refused is the ceiling, and
+// it has to survive the requeue that carries the run to its next round.
+func TestARefusedFloorIsRememberedOnTheRun(t *testing.T) {
+	ctx, _, st, svc, coopClient, input := cyclingCorrectionFixture(
+		t, "CREFUSEDRUNG", "refused-rung-remembered",
+	)
+	// The exact refusal the production Coop sends, which the host classifies on
+	// the status rather than on the words: a current Coop names the field and a
+	// Coop older than the escalation API says only that the body is invalid.
+	coopClient.floorErrs = []error{&coop.APIError{
+		Status: 400, Code: "invalid_request",
+		Detail: "min_target_index 1 is not a rung of this session's 1-rung target ladder",
+	}}
+	// Two rounds earn the escalation to rung 1; the third submission is the one
+	// that carries it and is refused.
+	runCorrectionRounds(t, ctx, st, svc, input, 2)
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	run := mustRunBySource(t, ctx, st, input)
+	if _, refused := agentRunLadderFloors(run.Context); refused != 1 {
+		t.Fatalf("Coop refused rung 1 and the run remembers rung %d, so the next "+
+			"repeat asks for a higher rung of the same absent ladder", refused)
+	}
+	fields := map[string]json.RawMessage{}
+	if err := json.Unmarshal(run.Context, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if string(fields["refused_target_floor"]) != "1" {
+		t.Fatalf("refused_target_floor = %s, want 1", fields["refused_target_floor"])
+	}
+	// The watch envelope is decoded strictly, so a key its state struct does not
+	// declare is not a lost field but a failed turn: the run's very next round
+	// would end on `invalid persisted triage context`.
+	if _, err := decodeWatchRunContext(run); err != nil {
+		t.Fatalf("remembering the refused rung broke the envelope it lives in: %v", err)
 	}
 }
 

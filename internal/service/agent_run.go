@@ -2223,10 +2223,7 @@ func (s *Service) requeueWithCorrection(
 	// Counted and escalated before the audit, so the trace line can say which
 	// rung the retry is going to rather than leaving the rung transition to be
 	// inferred from the next attempt's context manifest.
-	escalation := ""
-	if floor := s.escalateRepeatedCorrection(ctx, run, class); floor > 0 {
-		escalation = escalationAuditNote(class, floor)
-	}
+	escalation := s.escalateRepeatedCorrection(ctx, run, class)
 	s.audit(ctx, core.AuditEvent{
 		IncidentID: run.IncidentID,
 		Kind:       "result.correction",

@@ -960,23 +960,49 @@ func (s *Store) ClearAgentRunCorrectionClass(ctx context.Context, id, class stri
 	})
 }
 
-// SetAgentRunTargetFloor records the rung of the session policy's target ladder
-// this run's next turn may not be answered below.
+// SetAgentRunTargetFloor records where this run stands on the session policy's
+// target ladder: the rung its next turn may not be answered below, and — when
+// Coop has just refused one — the rung it would not honour.
 //
 // Durable, because the escalation has to survive the requeue that carries it:
 // the correction decides the rung and a later lease submits the turn, and
-// nothing in between holds the number. Zero removes it, which is the honest
-// record when Coop has refused the floor — a ladder with no rung above the one
+// nothing in between holds the number. Zero removes the floor, which is the
+// honest record when Coop has refused it — a ladder with no rung above the one
 // in use cannot honour it, and a floor kept anyway would tax every ordinary
 // retry of the run with a refusal round trip.
-func (s *Store) SetAgentRunTargetFloor(ctx context.Context, id string, floor int) error {
+//
+// Both in one write because a refusal is one decision: drop the floor AND
+// remember why. Two writes could half-apply, and the half that survives — the
+// dropped floor, without the reason — is the state the whole ceiling is meant
+// to prevent. A refused rung of zero means nothing was refused, which is every
+// ordinary raise.
+//
+// The LOWEST refusal wins. A ladder does not grow during a run, so a later
+// refusal at a higher rung says nothing the first one did not already say, and
+// keeping the latest would leave a ceiling of 12 still admitting 10 and 11 —
+// which on 2026-08-16 is precisely the sequence Coop refused.
+func (s *Store) SetAgentRunTargetFloor(ctx context.Context, id string, floor, refused int) error {
 	if strings.TrimSpace(id) == "" {
 		return errors.New("agent run target floor identity is required")
 	}
-	if floor < 0 {
+	if floor < 0 || refused < 0 {
 		return errors.New("agent run target floor must not be negative")
 	}
 	return s.mutateAgentRunContext(ctx, id, func(fields map[string]json.RawMessage) error {
+		if refused > 0 {
+			lowest := refused
+			var remembered int
+			if raw, ok := fields[refusedTargetFloorKey]; ok &&
+				json.Unmarshal(raw, &remembered) == nil &&
+				remembered > 0 && remembered < lowest {
+				lowest = remembered
+			}
+			encoded, err := json.Marshal(lowest)
+			if err != nil {
+				return err
+			}
+			fields[refusedTargetFloorKey] = encoded
+		}
 		if floor == 0 {
 			delete(fields, targetFloorKey)
 			return nil
@@ -990,13 +1016,17 @@ func (s *Store) SetAgentRunTargetFloor(ctx context.Context, id string, floor int
 	})
 }
 
-// The two envelope keys this file owns. Both context envelopes — the assembled
+// The three envelope keys this file owns. Both context envelopes — the assembled
 // one an incident run carries and the watch turn state a triage run carries —
 // serialize as JSON objects, so a field set here survives either without this
-// layer knowing which it holds.
+// layer knowing which it holds. Each is declared on both of those structs too:
+// they are re-encoded whole by the paths that write them, and the watch one is
+// decoded strictly, so a key neither names is first a failed turn and then a
+// silently dropped field.
 const (
-	correctionClassesKey = "correction_classes"
-	targetFloorKey       = "min_target_index"
+	correctionClassesKey  = "correction_classes"
+	targetFloorKey        = "min_target_index"
+	refusedTargetFloorKey = "refused_target_floor"
 )
 
 // mutateAgentRunContext edits one field of a run's context envelope without

@@ -59,7 +59,7 @@ func TestALadderFloorEditsTheEnvelopeItFindsAndKeepsTheRest(t *testing.T) {
 	} else if repeats != 1 {
 		t.Fatalf("a first correction of a second class counted %d repeats, want 1", repeats)
 	}
-	if err := st.SetAgentRunTargetFloor(ctx, queued.ID, 2); err != nil {
+	if err := st.SetAgentRunTargetFloor(ctx, queued.ID, 2, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -78,11 +78,55 @@ func TestALadderFloorEditsTheEnvelopeItFindsAndKeepsTheRest(t *testing.T) {
 
 	// Zero removes the key rather than writing a zero, so a run Coop refused an
 	// escalation for is byte-identical to one that never asked.
-	if err := st.SetAgentRunTargetFloor(ctx, queued.ID, 0); err != nil {
+	if err := st.SetAgentRunTargetFloor(ctx, queued.ID, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	if _, present := envelopeOf(t, st, queued.ID)["min_target_index"]; present {
 		t.Fatal("a cleared floor left its key behind")
+	}
+}
+
+// The remembered ceiling is the LOWEST rung Coop has ever refused.
+//
+// Rungs 10, 11 and 12 asked for and refused on 2026-08-16 while a thirteen-round
+// correction loop ran, in that order — so a record that kept the latest refusal
+// would end up holding 12 and let the host go on asking for 10 and 11 forever.
+// The ladder does not grow during a run, and the lowest refusal is the only
+// bound that holds against every later one.
+func TestTheLowestRefusedRungIsTheOneRemembered(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	queued, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "C1", ThreadTS: "100.1",
+		ConversationKey: "channel:C1", SourceKind: "watch", SourceID: "input_refused",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Refused in the order the production run met them, lowest first, then two
+	// higher rungs computed from the same climbing repeat count.
+	for _, refused := range []int{10, 11, 12} {
+		if err := st.SetAgentRunTargetFloor(ctx, queued.ID, 0, refused); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := string(envelopeOf(t, st, queued.ID)["refused_target_floor"]); got != "10" {
+		t.Fatalf("remembered refused rung = %s, want the lowest one refused, 10", got)
+	}
+	// A raise that refuses nothing leaves the ceiling alone: the two halves of
+	// the ladder record are written by different paths on different rounds.
+	if err := st.SetAgentRunTargetFloor(ctx, queued.ID, 4, 0); err != nil {
+		t.Fatal(err)
+	}
+	fields := envelopeOf(t, st, queued.ID)
+	if string(fields["refused_target_floor"]) != "10" ||
+		string(fields["min_target_index"]) != "4" {
+		t.Fatalf("a raise rewrote the ladder ceiling: %v", fields)
 	}
 }
 

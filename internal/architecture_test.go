@@ -692,7 +692,19 @@ var lineBudget = map[string]int{
 	// as three more methods on Store. What is left here is what cannot leave:
 	// five host-side questions that need the store handle, the config and the
 	// clock at once, and the six call sites that ask them.
-	"service": 23523,
+	//
+	// And 23537 the same day, fourteen lines, for the ladder having a top. Coop
+	// publishes the session's current target and never the policy's list of
+	// them, so the escalation floor was repeats-1 with no ceiling:
+	// run_532f8d62871320dc9d0696cb334d3503 asked for rungs 10, 11 and 12 in
+	// three consecutive rounds of a thirteen-round correction loop and Coop
+	// refused each one, at a refused submit and an audit line per round. Nine of
+	// the fourteen are reading the remembered refusal beside the floor and the
+	// audit sentence that says why the same model is answering again; the other
+	// five are paid for by the caller, which now takes the sentence rather than
+	// composing it from a rung. It stays in internal/service because it is the
+	// same file as the submission that learns the refusal.
+	"service": 23537,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -903,7 +915,17 @@ var lineBudget = map[string]int{
 	// Store, no method budget spent, and the whole feature costs this package
 	// the three lines it takes to reach it. That is the shape the paragraph
 	// above asks for, priced.
-	"store":      11310,
+	//
+	// And 11325 the same day for the ladder's top: the refused rung is now part
+	// of the same write that drops the floor Coop would not honour. Fifteen
+	// lines, measured — the extra parameter, its validation, and the lowest-wins
+	// merge that keeps a later refusal at a higher rung from raising a ceiling
+	// already learned. No new method: SetAgentRunTargetFloor was generalized
+	// from "the rung this run may not go below" to "where this run stands on the
+	// ladder", because a refusal is one decision and two writes could half-apply
+	// — leaving the dropped floor without the reason, which is the exact state
+	// this ceiling exists to prevent.
+	"store":      11325,
 	"localstate": 400,
 	"provider":   120,
 	// branching opens the branches a fan-out was granted and closes them. It is

@@ -73,14 +73,18 @@ type assembledAgentContext struct {
 	// exactly one, after which the answer is posted as written.
 	ReplyShapeCorrections int `json:"reply_shape_corrections,omitempty"`
 	// CorrectionClasses counts the corrections this run has had of each class,
-	// and MinTargetIndex is the rung of the session policy's target ladder its
-	// next turn may not be answered below. Both are written by the store, which
-	// edits the envelope as raw fields; they are declared here because this
-	// struct is re-encoded whole by the correction paths, and a field it does
-	// not name would be dropped on the next round.
-	CorrectionClasses map[string]int `json:"correction_classes,omitempty"`
-	MinTargetIndex    int            `json:"min_target_index,omitempty"`
-	CapturedAt        time.Time      `json:"captured_at"`
+	// MinTargetIndex is the rung of the session policy's target ladder its next
+	// turn may not be answered below, and RefusedTargetFloor is the lowest rung
+	// Coop has refused to deliver — the only reading of the ladder's length this
+	// host ever gets, since Coop publishes the session's current target and not
+	// the policy's list of them. All three are written by the store, which edits
+	// the envelope as raw fields; they are declared here because this struct is
+	// re-encoded whole by the correction paths, and a field it does not name
+	// would be dropped on the next round.
+	CorrectionClasses  map[string]int `json:"correction_classes,omitempty"`
+	MinTargetIndex     int            `json:"min_target_index,omitempty"`
+	RefusedTargetFloor int            `json:"refused_target_floor,omitempty"`
+	CapturedAt         time.Time      `json:"captured_at"`
 	// CarriedEvidence and CarriedCoverage are this run's accepted rows, the
 	// incident-side half of decision.CarryEvidence: a correction round returns
 	// only the operations the correction named, and nothing persists what the

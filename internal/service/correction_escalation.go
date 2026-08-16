@@ -52,7 +52,8 @@ func escalationFloorForRepeats(repeats int) int {
 
 // escalateRepeatedCorrection counts this correction against its class and, when
 // the class has now repeated, records the ladder rung the retry may not be
-// answered below. It returns that rung, or zero when nothing escalated.
+// answered below. It returns the sentence the correction's audit event should
+// carry, which is empty when there is nothing to say about the ladder.
 //
 // Bookkeeping must never cost a correction. A run whose envelope cannot be
 // edited still gets its retry — the correction is the useful thing, and losing
@@ -61,9 +62,9 @@ func (s *Service) escalateRepeatedCorrection(
 	ctx context.Context,
 	run core.AgentRun,
 	class correctionClass,
-) int {
+) string {
 	if !correctionEscalates(class) {
-		return 0
+		return ""
 	}
 	repeats, err := s.store.NoteAgentRunCorrectionClass(ctx, run.ID, string(class))
 	if err != nil {
@@ -73,20 +74,37 @@ func (s *Service) escalateRepeatedCorrection(
 				"run", run.ID, "class", string(class), "error", err,
 			)
 		}
-		return 0
+		return ""
 	}
+	current, refused := agentRunLadderFloors(run.Context)
 	floor := escalationFloorForRepeats(repeats)
-	if floor <= agentRunTargetFloor(run.Context) {
-		return 0
+	if floor <= current {
+		return ""
 	}
-	if err := s.store.SetAgentRunTargetFloor(ctx, run.ID, floor); err != nil {
+	// The ladder has a top and this is the only place the host can learn where
+	// it is: Coop publishes the session's current target, never the policy's
+	// list of them, so a floor was computed as repeats-1 and asked for however
+	// high the repeat count went. run_532f8d62871320dc9d0696cb334d3503 was
+	// corrected thirteen times on tenant on 2026-08-16 and asked for rungs 10,
+	// 11 and 12 in turn; each one cost a refused SubmitTurn, an audit line and a
+	// second round trip to deliver the correction the ordinary way, and the next
+	// round asked for a rung one higher than the one that had just been refused.
+	//
+	// Not clamped to the rung below the refusal. The run has already been told
+	// what is wrong on every rung up to here, and the honest reading of a
+	// refused floor is that the ladder is exhausted, not that there is one more
+	// seat somewhere below the one Coop would not sell.
+	if refused > 0 && floor >= refused {
+		return ladderTopAuditNote(class, refused, current)
+	}
+	if err := s.store.SetAgentRunTargetFloor(ctx, run.ID, floor, 0); err != nil {
 		if s.log != nil && ctx.Err() == nil {
 			s.log.Warn(
 				"could not raise a run's model ladder floor",
 				"run", run.ID, "floor", floor, "error", err,
 			)
 		}
-		return 0
+		return ""
 	}
 	// The rung that answers next is a different model, and turndelta hands it
 	// the whole briefing again for that reason. It has not yet failed to read
@@ -108,7 +126,7 @@ func (s *Service) escalateRepeatedCorrection(
 			"run", run.ID, "error", err,
 		)
 	}
-	return floor
+	return escalationAuditNote(class, floor)
 }
 
 // escalationAuditNote is the sentence the result.correction audit event carries
@@ -129,23 +147,48 @@ func escalationAuditNote(class correctionClass, floor int) string {
 	)
 }
 
-// agentRunTargetFloor reads the ladder rung a run has already escalated to.
+// ladderTopAuditNote is its sibling for the round after the ladder runs out.
 //
-// Decoded as one field rather than as either whole envelope, because both of
-// them carry it under the same key and neither of their shapes is this
-// function's business. An envelope that will not decode reads as no floor,
-// which is the ordinary turn.
-func agentRunTargetFloor(contextJSON []byte) int {
+// Without it the trace shows a class repeating for the fourth time with no
+// escalation beside it and no reason given, which reads as the escalation being
+// broken. The sentence names the refused rung, so the answer to "why is the same
+// model answering again" is in the correction the operator is already reading
+// rather than in a `model.escalation` audit line three rounds back.
+func ladderTopAuditNote(class correctionClass, refused, floor int) string {
+	return fmt.Sprintf(
+		"\n\n[host] %s again on this attempt, and this is the ladder top: rung %d "+
+			"was refused by Coop; the retry stays at rung %d.",
+		class, refused, floor,
+	)
+}
+
+// agentRunLadderFloors reads where a run stands on the ladder: the rung it has
+// already escalated to, and the lowest rung Coop has refused to deliver — zero
+// when it has refused none, which is every run until it asks past the top.
+//
+// Decoded as two fields rather than as either whole envelope, because both of
+// them carry these under the same keys and neither of their shapes is this
+// function's business. An envelope that will not decode reads as no floor and
+// no ceiling, which is the ordinary turn.
+func agentRunLadderFloors(contextJSON []byte) (floor, refused int) {
 	if len(contextJSON) == 0 {
-		return 0
+		return 0, 0
 	}
 	var envelope struct {
-		MinTargetIndex int `json:"min_target_index,omitempty"`
+		MinTargetIndex     int `json:"min_target_index,omitempty"`
+		RefusedTargetFloor int `json:"refused_target_floor,omitempty"`
 	}
-	if json.Unmarshal(contextJSON, &envelope) != nil || envelope.MinTargetIndex < 0 {
-		return 0
+	if json.Unmarshal(contextJSON, &envelope) != nil {
+		return 0, 0
 	}
-	return envelope.MinTargetIndex
+	return max(envelope.MinTargetIndex, 0), max(envelope.RefusedTargetFloor, 0)
+}
+
+// agentRunTargetFloor is the rung alone, which is what the delta-turn decision
+// and the submission path ask for.
+func agentRunTargetFloor(contextJSON []byte) int {
+	floor, _ := agentRunLadderFloors(contextJSON)
+	return floor
 }
 
 // submitTurnAtLadderFloor submits a turn at or above the rung this run has
@@ -167,8 +210,15 @@ func agentRunTargetFloor(contextJSON []byte) int {
 //
 // The floor is cleared on refusal rather than kept. A floor Coop has just said
 // it cannot honour would otherwise tax every ordinary retry of this run with a
-// round trip that is refused again; a later repeat re-raises it, which is right
-// if an operator has since added a rung.
+// round trip that is refused again.
+//
+// The refused rung is remembered in the same write, and that is the half this
+// path was missing. Clearing alone left the next repeat to compute a rung one
+// higher from a repeat count that had gone up, ask for it, and be refused
+// again: rungs 10, 11 and 12 in three consecutive rounds on 2026-08-16, each
+// costing a refused submit and an audit line on a thirteen-round loop. A
+// refusal is the only reading of the ladder's length this host ever gets, so it
+// has to survive the requeue rather than being re-learned every round.
 func (s *Service) submitTurnAtLadderFloor(
 	ctx context.Context,
 	run core.AgentRun,
@@ -201,7 +251,7 @@ func (s *Service) submitTurnAtLadderFloor(
 				"the retry was submitted on the session's own rung.", floor, err,
 		),
 	})
-	if clearErr := s.store.SetAgentRunTargetFloor(ctx, run.ID, 0); clearErr != nil &&
+	if clearErr := s.store.SetAgentRunTargetFloor(ctx, run.ID, 0, floor); clearErr != nil &&
 		s.log != nil && ctx.Err() == nil {
 		s.log.Warn(
 			"could not drop a model ladder floor Coop refused",

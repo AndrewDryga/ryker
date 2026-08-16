@@ -237,7 +237,7 @@ func TestRungEscalationRebriefsTheContract(t *testing.T) {
 			)
 		}
 		beforeEscalation = decide(run)
-		if err := st.SetAgentRunTargetFloor(ctx, run.ID, 1); err != nil {
+		if err := st.SetAgentRunTargetFloor(ctx, run.ID, 1, 0); err != nil {
 			t.Fatal(err)
 		}
 		escalated, err := st.GetAgentRun(ctx, run.ID)
