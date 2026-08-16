@@ -60,7 +60,7 @@
   <!-- Hero ---------------------------------------------------------------- -->
   <section class="hero">
     <div class="wrap">
-      <p class="hero-eyebrow"><span>AI SRE</span> <span><i>· </i>Slack-native</span> <span><i>· </i>self-hosted</span> <span><i>· </i>design-partner preview</span></p>
+      <p class="hero-eyebrow"><span>AI SRE</span> <span><i>· </i>Slack-native</span> <span><i>· </i>self-hosted</span></p>
 
       <h1 class="display">The first responder that shows its work.</h1>
 
@@ -88,7 +88,7 @@
     <div class="wrap">
       <div class="section-head">
         <h2 id="how-h">Responder, during a real incident.</h2>
-        <p>What follows really happened, on a customer&rsquo;s infrastructure. Names, times, commits, and every message are from the record &mdash; condensed, never invented.</p>
+        <p>What follows really happened, on a customer&rsquo;s infrastructure. Names, times, commits, and every message are from the record.</p>
       </div>
 
       <div class="steps">
@@ -116,7 +116,7 @@
                 </div>
               </div>
             </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">watch</span> <span class="note">no mention, no command &mdash; it was already listening</span></span></p>
+            <p class="mock-note" aria-hidden="true"><span class="tag">proactive</span> <span class="note">it reacts to alerts, and to people asking for help</span></span></p>
           </figure>
         </article>
 
@@ -129,7 +129,7 @@
             <p>Through Emisar &mdash; governed, read-only &mdash; it pulled the Nomad events and had the failure story before anyone asked: what rolled back, why retrying was unsafe, and why there were no logs at all.</p>
           </div>
           <figure class="mock-slack" aria-labelledby="s-triage-cap">
-            <figcaption id="s-triage-cap" class="vh">Responder&rsquo;s triage, real and condensed. At 12:16 PM: production pyke-server applied, but VA1 pyke did not deploy &mdash; its rollout missed the progress deadline and automatically rolled back to job version 5. Keep that rollback in place and avoid retrying until the failed allocation or health check is identified. Customer impact is unverified. Later, on the logs question: image tag 5a56520 does not exist in the registry; all three replacement allocations failed with manifest unknown and never started, so there are no app logs &mdash; the Nomad driver events are the failure record.</figcaption>
+            <figcaption id="s-triage-cap" class="vh">Responder&rsquo;s triage. At 12:16 PM: production pyke-server applied, but VA1 pyke did not deploy &mdash; its rollout missed the progress deadline and automatically rolled back to job version 5. Keep that rollback in place and avoid retrying until the failed allocation or health check is identified. Customer impact is unverified. Later, on the logs question: image tag 5a56520 does not exist in the registry; all three replacement allocations failed with manifest unknown and never started, so there are no app logs &mdash; the Nomad driver events are the failure record.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-msg">
                 <span class="slack-av av-app">R</span>
@@ -147,7 +147,7 @@
                 </div>
               </div>
             </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">evidence</span> <span class="note">even &ldquo;there are no logs&rdquo; comes with the reason</span></span></p>
+            <p class="mock-note" aria-hidden="true"><span class="tag">evidence</span> <span class="note">it grounds every answer in evidence, not guesswork</span></span></p>
           </figure>
         </article>
 
@@ -157,10 +157,10 @@
           <div class="step-text">
             <p class="step-num">03<span class="tmin"> · 1:03 PM</span></p>
             <h3>It talks like a teammate</h3>
-            <p>No dashboard to open, no bot syntax to remember. Think out loud at it, push back at it &mdash; it answers in the thread, and it disagrees with receipts: the CI job really did succeed, and that still isn&rsquo;t the cause.</p>
+            <p>No dashboard to open, no bot syntax to remember. Think out loud at it, push back at it &mdash; it answers in the thread, and it disagrees with receipts.</p>
           </div>
           <figure class="mock-slack" aria-labelledby="s-team-cap">
-            <figcaption id="s-team-cap" class="vh">The conversation, real and condensed. Trevin Miller, 1:03 PM: weird &mdash; the CI build and push completed, though static analysis failed in a different job, which shouldn&rsquo;t have retroactively deleted the pushed container? Responder, 1:39 PM: the build-and-push job really did succeed; the separate static-analysis failure isn&rsquo;t what caused the rollback. But the exact full-SHA image Nomad requested still returns 404 from registry mirrors on two nodes, so CI success and runtime availability don&rsquo;t match. Andrew, 1:40 PM: run a deep investigation into this and find the root cause.</figcaption>
+            <figcaption id="s-team-cap" class="vh">The conversation. Trevin Miller, 1:03 PM: weird &mdash; the CI build and push completed, though static analysis failed in a different job, which shouldn&rsquo;t have retroactively deleted the pushed container? Responder, 1:39 PM: the build-and-push job really did succeed; the separate static-analysis failure isn&rsquo;t what caused the rollback. But the exact full-SHA image Nomad requested still returns 404 from registry mirrors on two nodes, so CI success and runtime availability don&rsquo;t match. Andrew, 1:40 PM: run a deep investigation into this and find the root cause.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-msg">
                 <span class="slack-av av-tm">TM</span>
@@ -185,7 +185,7 @@
                 </div>
               </div>
             </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">voice</span> <span class="note">it can say &ldquo;you&rsquo;re right, and that&rsquo;s still not it&rdquo;</span></span></p>
+            <p class="mock-note" aria-hidden="true"><span class="tag">cooperative</span> <span class="note">it talks to your team like a human</span></span></p>
           </figure>
         </article>
 
@@ -195,10 +195,10 @@
           <div class="step-text">
             <p class="step-num">04<span class="tmin"> · 1:44 PM</span></p>
             <h3>Any tool it needs, to find the root cause</h3>
-            <p>Source code, metrics, logs, registries &mdash; whatever your team trusts it with, through governed read-only actions. Four minutes into the deep dive it caught the registry lying: a fake 404 hiding an auth failure. And the one thing the evidence could not settle is said out loud.</p>
+            <p>Source code, metrics, logs, registries &mdash; whatever your team trusts it with, through governed read-only actions. Four minutes into the deep dive it caught the registry lying: a fake 404 hiding an auth failure.</p>
           </div>
           <figure class="mock-slack" aria-labelledby="s-root-cap">
-            <figcaption id="s-root-cap" class="vh">The root-cause verdict, real and condensed. Responder, 1:44 PM: root cause &mdash; broken Zot authentication to Artifact Registry, not the CI build, not static analysis. Zot failed upstream with unauthorized access, check credentials, and returned the misleading manifest-unknown 404. Older cached tags explain why another deployment could still succeed. The evidence cannot distinguish a deleted service-account key from a removed IAM grant &mdash; rotate va1-zot-ar-reader either way.</figcaption>
+            <figcaption id="s-root-cap" class="vh">The root-cause verdict. Responder, 1:44 PM: root cause &mdash; broken Zot authentication to Artifact Registry, not the CI build, not static analysis. Zot failed upstream with unauthorized access, check credentials, and returned the misleading manifest-unknown 404. Older cached tags explain why another deployment could still succeed. The evidence cannot distinguish a deleted service-account key from a removed IAM grant &mdash; rotate va1-zot-ar-reader either way.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-msg">
                 <span class="slack-av av-app">R</span>
@@ -209,7 +209,7 @@
                 </div>
               </div>
             </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">rule</span> <span class="note">what it cannot tell you is part of the answer</span></span></p>
+            <p class="mock-note" aria-hidden="true"><span class="tag">honest</span> <span class="note">it says when it is blocked, or missing the data to finish</span></span></p>
           </figure>
         </article>
 
@@ -219,16 +219,16 @@
           <div class="step-text">
             <p class="step-num">05<span class="tmin"> · 1:50 PM</span></p>
             <h3>It wrote the fix, as a pull request</h3>
-            <p>&ldquo;Prepare PR to fix it&rdquo; &mdash; five words. The change happened in an isolated fork: commit 54d9dc0e makes every credential rotation roll every node, and alerts on the exact auth error that a healthy-looking readiness check had hidden. It cannot merge and cannot deploy. A person does that.</p>
+            <p>&ldquo;Prepare PR to fix it&rdquo; &mdash; five words. The change happened in an isolated fork: it makes every credential rotation roll every node, and alerts on the exact auth error that a healthy-looking readiness check had hidden. It cannot merge and cannot deploy. A person does that.</p>
           </div>
           <figure class="mock-slack" aria-labelledby="mock-pr-cap">
-            <figcaption id="mock-pr-cap" class="vh">The pull-request card Responder posted, real and condensed. At 1:50 PM: completed and committed as 54d9dc0e &mdash; Zot: roll credentials and alert on auth failures. Then: draft PR ready, with a button to open draft PR 526. The branch contains the exact tree approved by the latest readiness review; publication used lease protection. Draft only &mdash; Responder did not merge, deploy, sign, or change infrastructure.</figcaption>
+            <figcaption id="mock-pr-cap" class="vh">The pull-request card Responder posted. At 1:50 PM: completed and committed &mdash; Zot: roll credentials and alert on auth failures. Then: draft PR ready, with a button to open draft PR 526. The branch contains the exact tree approved by the latest readiness review; publication used lease protection. Draft only &mdash; Responder did not merge, deploy, sign, or change infrastructure.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-msg">
                 <span class="slack-av av-app">R</span>
                 <div class="slack-said">
                   <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">1:50 PM</span></p>
-                  <p class="slack-text">Completed and committed as <span class="slack-code">54d9dc0e</span> &mdash; <strong>Zot: roll credentials and alert on auth failures.</strong> Credential rotations now roll every Zot allocation, and Grafana alerts on the exact auth error even while <span class="slack-code">/v2/</span> stays ready.</p>
+                  <p class="slack-text">Completed and committed &mdash; <strong>Zot: roll credentials and alert on auth failures.</strong> Credential rotations now roll every Zot allocation, and Grafana alerts on the exact auth error even while <span class="slack-code">/v2/</span> stays ready.</p>
                   <div class="slack-attach ok">
                     <p class="slack-text"><strong>Draft PR ready</strong></p>
                     <p class="slack-sub">The branch contains the exact tree approved by the readiness review. Publication used lease protection.</p>
@@ -238,7 +238,7 @@
                 </div>
               </div>
             </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">boundary</span> <span class="note">it cannot merge. it cannot deploy. always.</span></span></p>
+            <p class="mock-note" aria-hidden="true"><span class="tag">boundary</span> <span class="note">it opens a draft PR; your team takes it from there</span></span></p>
           </figure>
         </article>
 
@@ -248,10 +248,10 @@
           <div class="step-text">
             <p class="step-num">06<span class="tmin"> · 1:59 PM</span></p>
             <h3>It watched the merge, and the rollout</h3>
-            <p>Checks passed, 5 of 5. When you asked &ldquo;can you explain how your fix works?&rdquo; &mdash; it could, mechanism and all. After the merge it kept the thread linked to deployment and Terraform updates, and watched the fix roll out as Nomad job v8 the next evening.</p>
+            <p>Checks passed, 5 of 5. When you asked &ldquo;can you explain how your fix works?&rdquo; &mdash; it could, mechanism and all. After the merge it kept the thread linked to deployment and Terraform updates, and watched the fix roll out the next evening.</p>
           </div>
           <figure class="mock-slack" aria-labelledby="s-watch-cap">
-            <figcaption id="s-watch-cap" class="vh">The follow-through, real and condensed. Responder, 1:53 PM: checks passed &mdash; GitHub checks passed for PR 526, five of five; it is ready for review or merge. At 1:59 PM: PR 526 was merged; I&rsquo;ll keep this thread linked to matching deployment and Terraform updates for 14 days. Then a delivery update: the va1-observability workspace applied the merge revision from PR 526.</figcaption>
+            <figcaption id="s-watch-cap" class="vh">The follow-through. Responder, 1:53 PM: checks passed &mdash; GitHub checks passed for PR 526, five of five; it is ready for review or merge. At 1:59 PM: PR 526 was merged; I&rsquo;ll keep this thread linked to matching deployment and Terraform updates for 14 days. Then a delivery update: the va1-observability workspace applied the merge revision from PR 526.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-msg">
                 <span class="slack-av av-app">R</span>
@@ -269,7 +269,7 @@
                 </div>
               </div>
             </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">follow-through</span> <span class="note">merged is not done &mdash; deployed and healthy is done</span></span></p>
+            <p class="mock-note" aria-hidden="true"><span class="tag">follow-through</span> <span class="note">it watches the PR, the CI checks, and the merge</span></span></p>
           </figure>
         </article>
 
@@ -282,7 +282,7 @@
             <p>Asked to make sure the issue stayed gone, it scheduled follow-up checks for the next day and four days out &mdash; each proposed and confirmed separately, nothing scheduled until a person says so. The last one ran on August 15 and closed the story.</p>
           </div>
           <figure class="mock-slack" aria-labelledby="s-verify-cap">
-            <figcaption id="s-verify-cap" class="vh">The final report, real and condensed. Responder, August 15, 1:55 PM: Zot&rsquo;s Artifact Registry authentication issue is not recurring. The last 24 hours contain no matching auth or upstream-sync failures, and all five node-local Zot instances performed an on-demand upstream sync of the exact pinned manifest and returned the same OCI manifest successfully. Nomad also shows five healthy Zot allocations, one per VA1 node.</figcaption>
+            <figcaption id="s-verify-cap" class="vh">The final report. Responder, August 15, 1:55 PM: Zot&rsquo;s Artifact Registry authentication issue is not recurring. The last 24 hours contain no matching auth or upstream-sync failures, and all five node-local Zot instances performed an on-demand upstream sync of the exact pinned manifest and returned the same OCI manifest successfully. Nomad also shows five healthy Zot allocations, one per VA1 node.</figcaption>
             <div class="slack-frame" aria-hidden="true">
               <div class="slack-day"><span>Aug 15</span></div>
               <div class="slack-msg">
@@ -345,7 +345,7 @@
         </div>
         <div class="und-text">
           <h3>It listens to feedback</h3>
-          <p>React to a reply with an emoji, or just say what was wrong. Both are recorded as feedback, with sentiment and context &mdash; and reviewed on the record, with a person deciding what changes. Nothing is quietly absorbed.</p>
+          <p>React to a reply with an emoji, or just say what was wrong. Both are recorded as feedback, with sentiment and context, and saved. That data later feeds the self-improvement loop.</p>
         </div>
       </div>
     </div>
@@ -356,7 +356,7 @@
     <div class="wrap">
       <div class="section-head">
         <h2 id="cap-h">Everything Responder does</h2>
-        <p>One honest line each. Nothing here is a roadmap item; if it is listed, it is in the binary you can clone today.</p>
+        <p>One line per feature. Everything listed here works today.</p>
       </div>
 
       <div class="index-groups">
@@ -482,7 +482,7 @@
                entitled to see spelled out, so it is spelled out here. -->
           <div class="data-where">
             <h3>Where your data goes</h3>
-            <p>Your prompts go to one place: the model provider you configure, reached through Coop. There is no second model runtime and no direct provider client anywhere in the binary. Slack messages, evidence, episodes, and traces live in one SQLite file on your host. Archived prompts have every credential this process knows replaced with <code>[REDACTED]</code>, and a contributor task box is never handed shared tools or environment secrets.</p>
+            <p>Your prompts go to one place: the model provider you configure, reached through Coop. There is no second model runtime and no direct provider client anywhere in the binary. Slack messages, evidence, episodes, and traces live in one SQLite file on your host.</p>
             <p class="data-more"><a href="docs/operations.html#state">Where the state lives <span class="arr" aria-hidden="true">→</span></a></p>
           </div>
         </div>
@@ -533,7 +533,7 @@
 
 <footer class="foot">
   <div class="wrap colophon">
-    <p><span class="dot-ok" aria-hidden="true"></span>Responder — design-partner preview</p>
+    <p><span class="dot-ok" aria-hidden="true"></span>Responder</p>
     <p>
       <a href="docs/index.html">Docs</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder">GitHub</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder/blob/main/SECURITY.md">Security</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder/blob/main/LICENSE">MIT license</a><span class="sep">·</span><a href="https://github.com/AndrewDryga/responder/releases">Releases</a>
     </p>
