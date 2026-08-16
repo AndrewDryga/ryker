@@ -563,3 +563,16 @@
   border-radius: 999px;
   padding: 5px 10px;
 }
+
+/* Trevin's avatar block and inline code inside Slack messages. */
+.report .av-tm { background: #456382; color: #fff; }
+.report .slack-code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: rgb(232 232 232 / .06);
+  border: 1px solid #35373b;
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: #e8912d;
+}
+.report .nowrap { white-space: nowrap; }
