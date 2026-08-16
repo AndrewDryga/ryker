@@ -506,6 +506,20 @@ func (s *Service) applyReplyDecision(
 		repository, err := taskaccess.ResolveOfferRepository(
 			ctx, s.cfg, s.store, input, decision.TaskRepository,
 		)
+		// A question with one answer is not a question. When the configuration
+		// leaves exactly one repository this offer could mean, take it: on
+		// 2026-08-16 the alternative was asked five times, of a Grafana bot,
+		// out of a list holding only `tenant-platform`, and every one of those
+		// replies could have carried a task button instead.
+		defaulted := false
+		if err != nil {
+			if single, ok := taskaccess.SingleChoice(
+				s.cfg, s.cfg.IsOperator(input.UserID), s.cfg.Slack.DefaultRepository,
+			); ok {
+				repository, defaulted = single, true
+				err = nil
+			}
+		}
 		if err != nil {
 			question := taskaccess.RepositoryQuestion("", taskaccess.Choices(
 				s.cfg, s.cfg.IsOperator(input.UserID), s.cfg.Slack.DefaultRepository,
@@ -554,11 +568,17 @@ func (s *Service) applyReplyDecision(
 						decision.TaskPullRequest,
 					)
 				}
-				if scheduleOffered {
+				switch {
+				// First, because it is the rarest and the only one an operator
+				// may want to go back and check: the repository was chosen by
+				// the host, not named by the decision.
+				case defaulted:
+					outcome = "engineering_task_repository_defaulted"
+				case scheduleOffered:
 					outcome = "schedule_and_engineering_task_offered"
-				} else if decision.IncidentTitle != "" {
+				case decision.IncidentTitle != "":
 					outcome = "incident_and_engineering_task_offered"
-				} else {
+				default:
 					outcome = "engineering_task_offered"
 				}
 			}

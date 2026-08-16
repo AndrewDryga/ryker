@@ -85,6 +85,78 @@ func TestWatchedEngineeringRequestRequiresRepositoryWhenSeveralAreConfigured(t *
 	}
 }
 
+// A question with one answer is not a question.
+//
+// On 2026-08-16 Responder answered five alert investigations with "Which
+// configured repository should I use for this engineering task: All Tenant
+// repositories (`tenant-platform`)?" — a list of one, addressed to a Grafana
+// bot. Nobody could answer it and no task button was rendered all day. When the
+// configuration leaves exactly one repository the offer could mean, take it.
+func TestSingleRepositoryChoiceIsTakenNotAsked(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{dedupePosts: true}
+	coopClient := newFakeCoop()
+	// The model named a repository this deployment does not configure, which is
+	// the same dead end as naming none: there is exactly one place the work
+	// could run.
+	coopClient.completeOnSubmit = `{
+			"action":"reply",
+			"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
+			"operations":[
+				{"id":"off-task","type":"offer_task","task":{"kind":"engineering","title":"Update deployment packs","repository":"tenant-infra"}},
+				{"id":"complete","type":"complete_episode","completion":{"message":"I can make that repository change.","completion":{"status":"decision_ready","summary":"Offered the deployment pack change."}}}
+			]
+	}`
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	source := core.SlackInput{
+		ID: "slack-single-repository", EnvelopeID: "env-single-repository",
+		EventID: "event-single-repository", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", MessageTS: "1700.960", UserID: "U123ABC",
+		Text: "Update the deployment packs.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, source); err != nil || !created {
+		t.Fatalf("admit source = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("single repository choice response = %+v", slackClient.posts)
+	}
+	message := slackClient.posts[0].message
+	if strings.Contains(renderedSlackMessage(message), "Which configured repository") {
+		t.Fatalf("single repository choice was asked as a question = %+v", message)
+	}
+	if len(message.Actions) != 1 || message.Actions[0].ID != slackui.ActionStartTask ||
+		message.Actions[0].Value != source.ID {
+		t.Fatalf("single repository choice offer actions = %+v", message.Actions)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decodeWatchRunContext(run)
+	if err != nil ||
+		state.OfferedTaskTitle != "Update deployment packs" ||
+		state.OfferedTaskRepository != "repo" {
+		t.Fatalf("persisted task offer = %+v, %v", state, err)
+	}
+}
+
 func TestMemberTaskRepositoryCatalogIsBoundToTheChannelRepository(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

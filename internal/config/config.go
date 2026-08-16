@@ -420,6 +420,37 @@ func (c Config) RepositoryContext(name string) (Repository, bool) {
 	return repository, ok
 }
 
+// RepositoryWithinContext reports whether repository is the context itself or
+// the primary of a repository set named by context.
+//
+// A channel configured for the `tenant-platform` set has authorized work on
+// `tenant-infra`, because that is the checkout the set writes to; on 2026-08-16
+// an alert investigation's correct choice of tenant-infra was refused five times
+// by a string compare against the set's name.
+//
+// A set's companions are deliberately outside the boundary. The set resolves to
+// exactly one primary and that primary is the only repository whose changes
+// Responder may review or publish, so authorizing a companion here would
+// authorize work no later step can carry out.
+func (c Config) RepositoryWithinContext(context, repository string) bool {
+	context = strings.TrimSpace(context)
+	repository = strings.TrimSpace(repository)
+	if context == "" || repository == "" {
+		return false
+	}
+	if context == repository {
+		return true
+	}
+	set, ok := c.RepositorySets[context]
+	if !ok || strings.TrimSpace(set.Primary) != repository {
+		return false
+	}
+	// A set naming a primary that is not configured resolves to nothing at all,
+	// exactly as RepositoryContext refuses it.
+	_, configured := c.Repositories[repository]
+	return configured
+}
+
 func (c Config) RepositoryContextKeys() []string {
 	keys := make([]string, 0, len(c.Repositories)+len(c.RepositorySets))
 	for key := range c.Repositories {

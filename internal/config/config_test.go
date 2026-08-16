@@ -205,6 +205,54 @@ webhooks:
 	}
 }
 
+// A channel configured for a repository set has authorized work on the set's
+// primary, because the primary is the checkout the set writes to.
+//
+// On 2026-08-16 the authorization compared strings: an alert investigation
+// named `tenant-infra` — the correct repository, where the Terraform lives —
+// and the channel named the `tenant-platform` set whose primary is exactly that
+// repository, so every offer of the day was refused and no engineering task
+// button was ever rendered.
+func TestSetPrimaryIsWithinTheSetsContext(t *testing.T) {
+	cfg := Config{
+		Repositories: map[string]Repository{
+			"tenant-infra":   {CoopPolicy: "infra-observe", Path: "/srv/repos/tenant-infra"},
+			"tenant-backend": {CoopPolicy: "backend-observe", Path: "/srv/repos/tenant-backend"},
+		},
+		RepositorySets: map[string]RepositorySet{
+			"tenant-platform": {DisplayName: "All Tenant repositories", Primary: "tenant-infra"},
+			"tenant-dangling": {DisplayName: "Dangling", Primary: "tenant-missing"},
+		},
+	}
+	for name, test := range map[string]struct {
+		context    string
+		repository string
+		want       bool
+	}{
+		"a repository is within itself":          {"tenant-infra", "tenant-infra", true},
+		"a set is within itself":                 {"tenant-platform", "tenant-platform", true},
+		"the primary is within its set":          {"tenant-platform", "tenant-infra", true},
+		"surrounding whitespace is not a name":   {" tenant-platform ", " tenant-infra ", true},
+		"a companion is not within the set":      {"tenant-platform", "tenant-backend", false},
+		"a set is not within its own primary":    {"tenant-infra", "tenant-platform", false},
+		"an unknown context holds nothing":       {"tenant-unknown", "tenant-infra", false},
+		"an unknown repository is not within":    {"tenant-platform", "tenant-unknown", false},
+		"a set whose primary is not configured":  {"tenant-dangling", "tenant-missing", false},
+		"an empty context authorizes nothing":    {"", "tenant-infra", false},
+		"an empty repository is not authorized":  {"tenant-platform", "", false},
+		"two empty names do not make a boundary": {"", "", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := cfg.RepositoryWithinContext(test.context, test.repository); got != test.want {
+				t.Fatalf(
+					"RepositoryWithinContext(%q, %q) = %v, want %v",
+					test.context, test.repository, got, test.want,
+				)
+			}
+		})
+	}
+}
+
 func TestLegacyOutboxLimitSeedsOnlyUnspecifiedFailureBudgets(t *testing.T) {
 	cfg := defaults()
 	data := []byte(`limits:

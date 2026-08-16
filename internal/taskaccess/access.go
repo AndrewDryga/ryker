@@ -168,15 +168,24 @@ func ResolveOfferRepository(
 	requested string,
 ) (string, error) {
 	requested = strings.TrimSpace(requested)
+	if input.Kind == "bot_message" {
+		return alertOfferRepository(ctx, cfg, st, input, requested)
+	}
 	if !cfg.IsOperator(input.UserID) {
 		authorized, err := MemberRepository(ctx, cfg, st, input.ChannelID)
 		if err != nil {
 			return "", err
 		}
-		if requested != "" && requested != authorized {
+		switch {
+		case requested == "":
+			requested = authorized
+		case !cfg.RepositoryWithinContext(authorized, requested):
 			return "", fmt.Errorf("task repository %q is not authorized for this channel", requested)
 		}
-		requested = authorized
+		// requested is kept as it stands when it is inside the channel's
+		// context: a set resolves to its primary, and the task belongs in the
+		// repository the investigation named, not in the name of the set that
+		// contains it.
 	}
 	if requested != "" {
 		repository, ok := cfg.RepositoryContext(requested)
@@ -195,6 +204,50 @@ func ResolveOfferRepository(
 	return "", errors.New("task repository is ambiguous")
 }
 
+// alertOfferRepository picks the repository for work offered on an app's
+// message, without gating on the app.
+//
+// The author of an alert is Grafana, which holds no authority of its own to
+// check and no ability to answer a question. Whoever clicks the offer is the
+// one who is authorized, at click time, by handleWatchTaskOfferAction — an
+// operator for anything, a workspace member only within this channel's
+// contributor boundary — so the offer side resolves rather than refuses, and
+// does not require a contributor policy the clicker may not need.
+//
+// On 2026-08-16 the member gate ran against the Grafana bot instead: every
+// alert investigation of the day was refused the repository it had correctly
+// named and asked the bot to choose from a list of one, so no engineering task
+// was ever offered.
+func alertOfferRepository(
+	ctx context.Context,
+	cfg config.Config,
+	st *store.Store,
+	input core.SlackInput,
+	requested string,
+) (string, error) {
+	if requested != "" {
+		if _, ok := cfg.RepositoryContext(requested); ok {
+			return requested, nil
+		}
+	}
+	configuration, err := st.GetChannelConfiguration(ctx, input.ChannelID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return "", err
+	}
+	if err == nil {
+		if _, ok := cfg.RepositoryContext(configuration.Repository); ok {
+			return configuration.Repository, nil
+		}
+	}
+	if _, ok := cfg.RepositoryContext(cfg.Slack.DefaultRepository); ok {
+		return cfg.Slack.DefaultRepository, nil
+	}
+	if keys := cfg.RepositoryContextKeys(); len(keys) == 1 {
+		return keys[0], nil
+	}
+	return "", errors.New("task repository is ambiguous")
+}
+
 func ValidateMemberStart(
 	ctx context.Context,
 	cfg config.Config,
@@ -205,10 +258,25 @@ func ValidateMemberStart(
 	if err != nil {
 		return err
 	}
-	if offeredRepository != authorized {
+	if !cfg.RepositoryWithinContext(authorized, offeredRepository) {
 		return errors.New("task repository is outside the channel contributor boundary")
 	}
 	return nil
+}
+
+// SingleChoice names the only repository an offer could mean, when the
+// configuration leaves exactly one.
+//
+// A question with one answer is not a question. On 2026-08-16 Responder asked
+// five times, of a Grafana bot, which repository to use out of a list holding
+// only `tenant-platform`; every one of those replies could have carried a task
+// button instead.
+func SingleChoice(cfg config.Config, operator bool, active string) (string, bool) {
+	repositories := Repositories(cfg, operator, active)
+	if len(repositories) != 1 {
+		return "", false
+	}
+	return repositories[0].Key, true
 }
 
 func Repositories(cfg config.Config, operator bool, active string) []Repository {
