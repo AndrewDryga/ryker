@@ -597,7 +597,10 @@
 @media (min-width: 720px) { .report .step-num .tmin { display: none; } }
 
 /* Steps breathe evenly: one rhythm for every pair. */
-.report .steps { display: grid; gap: calc(var(--u,8px) * 14); }
+/* The beats breathe: each step is its own moment, and the pause between
+   moments is part of the timeline's rhythm. Fluid, 8px-anchored at both
+   ends: 128px on a phone, 224px on a wide page. */
+.report .steps { display: grid; gap: clamp(8rem, 6rem + 6vw, 14rem); }
 
 /* The Slack success-attachment and its button, as Slack draws them. */
 .report .slack-attach.ok { border-left-color: #2eb67d; }
