@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1118,6 +1121,487 @@ func TestRecoveredAlertReplyCompletesTheStreamEpisode(t *testing.T) {
 			t.Fatalf("a recovered alert still scheduled a stream re-check: %+v", wakeup)
 		}
 	}
+}
+
+// rewriteFixture edits a harvested result by exact substring, failing when the
+// substring is not there.
+//
+// A fixture that quietly stopped being rewritten is a test that quietly stopped
+// testing: the "changed" cases below would compare a reply with itself and pass
+// for the wrong reason. Every variant here differs from confirmedAlertReplyResult
+// in exactly the fields it names and in nothing else, which is the whole point
+// of comparing decisions rather than sentences.
+func rewriteFixture(t *testing.T, body string, pairs ...string) string {
+	t.Helper()
+	for index := 0; index+1 < len(pairs); index += 2 {
+		if !strings.Contains(body, pairs[index]) {
+			t.Fatalf("the alert fixture no longer contains %q to rewrite", pairs[index])
+		}
+		body = strings.ReplaceAll(body, pairs[index], pairs[index+1])
+	}
+	return body
+}
+
+// rewordedConfirmedAlertReply says the same thing in different words: the same
+// verdict, the same cause status, the same coverage on the same layers, the
+// same explained finding, the same absence of an offer, and not one sentence in
+// common. It is the 2026-08-16 flap in one fixture.
+func rewordedConfirmedAlertReply(t *testing.T, observedAt string) string {
+	t.Helper()
+	return rewriteFixture(t, confirmedAlertReplyResult(observedAt),
+		"fresh repository and live evidence confirm the alert",
+		"the live signal still disagrees with the declared topology",
+		"More than 20 percent of current checkout requests fail.",
+		"Checkout is still shedding better than a fifth of what it is asked to serve.",
+		"Remove the unhealthy backend from service.",
+		"Take the failing backend out of rotation.",
+		"**Checkout errors are affecting current requests:** more than 20 percent are failing.",
+		"**Checkout is still failing for current traffic:** better than one request in five.",
+		"The checkout alert is a confirmed current issue with a bounded immediate remediation.",
+		"The alert is still a live problem and its immediate remediation is already known.",
+	)
+}
+
+// degradedConfirmedAlertReply is the same verdict over different coverage: the
+// application layer moved from unhealthy to degraded, and the evidence under it
+// moved with it. Nothing else changes, so a host that posts this one and
+// suppresses the reworded one is comparing the decision rather than the prose.
+func degradedConfirmedAlertReply(t *testing.T, observedAt string) string {
+	t.Helper()
+	return rewriteFixture(t, confirmedAlertReplyResult(observedAt),
+		`"health_effect":"unhealthy"`, `"health_effect":"degraded"`,
+		`"status":"unhealthy","source":"Emisar checkout health","detail":"current requests are failing"`,
+		`"status":"degraded","source":"Emisar checkout health","detail":"current requests are failing less often"`,
+	)
+}
+
+// supersedingRecoveredAlertReply is the closure a stream owes when its firing
+// investigation is still the same episode.
+//
+// A2 keeps one episode across every card, so the evidence the firing turn
+// recorded is still on the ledger when the recovery turn writes the opposite of
+// it. Retiring the earlier records by id is how the model is required to say
+// "this replaces that" — which is exactly what a recovery is.
+func supersedingRecoveredAlertReply(t *testing.T, recoveredAt string) string {
+	t.Helper()
+	return rewriteFixture(t, recoveredAlertReplyResult(recoveredAt),
+		`{"id":"checkout-live","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"checkout requests complete successfully","observation":"the live checkout error rate is 0.2 percent and both backends are healthy","relation":"supports"`,
+		`{"id":"checkout-live-recovered","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"checkout requests complete successfully","observation":"the live checkout error rate is 0.2 percent and both backends are healthy","supersedes":["checkout-live"],"relation":"supports"`,
+		`{"id":"checkout-impact","type":"record_evidence","evidence":{"claim_id":"impact.current","claim":"checkout user impact is within its error budget","observation":"the current error rate is 0.2 percent","relation":"supports"`,
+		`{"id":"checkout-impact-recovered","type":"record_evidence","evidence":{"claim_id":"impact.current","claim":"checkout user impact is within its error budget","observation":"the current error rate is 0.2 percent","supersedes":["checkout-impact"],"relation":"supports"`,
+		`"evidence_refs":["checkout-live"]`, `"evidence_refs":["checkout-live-recovered"]`,
+	)
+}
+
+// withCheckoutTaskOffer adds the engineering offer the 2026-08-16 replies all
+// carried: the same title, in the same repository, on every card.
+func withCheckoutTaskOffer(t *testing.T, body string) string {
+	t.Helper()
+	return rewriteFixture(t, body,
+		`{"id":"complete","type":"complete_episode"`,
+		`{"id":"offer-fix","type":"offer_task","task":{"kind":"engineering","title":`+
+			`"Remove the unhealthy checkout backend from the load balancer",`+
+			`"repository":"repo"}},{"id":"complete","type":"complete_episode"`,
+	)
+}
+
+// alertReplyPosts counts the answers that reached the channel. A status update
+// or an ephemeral is not an answer, so the count is over posts whose body
+// actually names the alert.
+func alertReplyPosts(posts []slackPost) []slackPost {
+	var replies []slackPost
+	for _, post := range posts {
+		body := post.message.Text + " " + strings.Join(post.message.Sections, " ")
+		if strings.Contains(body, "Checkout") || strings.Contains(body, "checkout") {
+			replies = append(replies, post)
+		}
+	}
+	return replies
+}
+
+// watchAuditOutcomes reads the slack.watch outcomes recorded against one Slack
+// input, the way the trace page does. The outcome is how an operator learns the
+// host suppressed a post rather than failing to produce one.
+func watchAuditOutcomes(t *testing.T, cfg config.Config, objectID string) []string {
+	t.Helper()
+	return streamColumn(t, cfg, `
+		SELECT outcome FROM audit_events
+		WHERE kind = 'slack.watch' AND object_id = ?
+		ORDER BY created_at, id`, objectID)
+}
+
+// standingRuleRunActions reads what the channel's rule ledger says was done
+// with a card.
+func standingRuleRunActions(t *testing.T, cfg config.Config, sourceInput string) []string {
+	t.Helper()
+	return streamColumn(t, cfg, `
+		SELECT outcome FROM standing_rule_runs
+		WHERE source_input = ? ORDER BY created_at, rule_id`, sourceInput)
+}
+
+func streamColumn(t *testing.T, cfg config.Config, query string, args ...any) []string {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(cfg.StateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(context.Background(), query, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var values []string
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		values = append(values, value)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return values
+}
+
+// streamFixture is the two-card alert stream every test below runs: a watch
+// channel with a triage rule and a reply alert policy, and a fake Coop that
+// answers each card from a queue.
+func streamFixture(
+	t *testing.T,
+	channelID string,
+	results ...string,
+) (config.Config, *store.Store, *fakeSlack, *Service, core.SlackInput) {
+	t.Helper()
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{channelID}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	alertStreamChannel(t, ctx, st, cfg, channelID)
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	coopClient.completeQueue = results
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	base := core.SlackInput{
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: channelID,
+		UserID: "BGRAFANA", ReceivedAt: time.Now().UTC(),
+		Text: "CRITICAL alert: checkout error rate is firing above 20 percent.",
+	}
+	return cfg, st, slackClient, svc, base
+}
+
+// answerStreamCard admits one card and drives it all the way to a delivered
+// answer, which is what an operator watching the channel sees happen.
+func answerStreamCard(
+	t *testing.T,
+	svc *Service,
+	st *store.Store,
+	card core.SlackInput,
+) core.AgentRun {
+	t.Helper()
+	ctx := context.Background()
+	if created, err := st.AdmitSlackInput(ctx, card); err != nil || !created {
+		t.Fatalf("admit card %s = %t, %v", card.ID, created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	run, err := st.GetAgentRunBySource(ctx, "watch", card.ID)
+	if err != nil {
+		t.Fatalf("card %s produced no run: %v", card.ID, err)
+	}
+	if run.LastError != "" {
+		t.Fatalf("card %s failed: %q %q", card.ID, run.State, run.LastError)
+	}
+	return run
+}
+
+// Five posts for one unchanged decision on 2026-08-16.
+//
+// One Grafana stream, Traefik memory oscillating around 95 percent, seven cards
+// in ninety minutes, and five replies in the stream's thread — 8:51, 8:57,
+// 9:23, 9:55 and 10:04 — each restating that all five allocations sat near the
+// 4 GiB cap and each ending with the same offer. Two said only that a node had
+// crossed back over the line. Nothing anywhere compared a new assessment with
+// the one already posted, so "say nothing unless something changed" was a rule
+// with no one holding it.
+//
+// The comparison is over what the reply DECIDES — verdict, cause status,
+// completion, which coverage layers are unwell, how many findings are still
+// unexplained, which repository is being offered — because those five replies
+// differed in every sentence and in nothing that mattered.
+func TestUnchangedFlapDoesNotPostAgain(t *testing.T) {
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	cfg, st, slackClient, svc, base := streamFixture(t, "CFLAP")
+	svc.coop.(*fakeCoop).completeQueue = []string{
+		confirmedAlertReplyResult(observedAt),
+		rewordedConfirmedAlertReply(t, observedAt),
+	}
+
+	first := base
+	first.ID, first.EnvelopeID = "flap-card-1", "env-flap-card-1"
+	first.EventID, first.MessageTS = "event-flap-card-1", "1706.100"
+	firstRun := answerStreamCard(t, svc, st, first)
+	if posted := alertReplyPosts(slackClient.posts); len(posted) != 1 {
+		t.Fatalf("the first card was not answered exactly once: %d posts", len(posted))
+	}
+
+	second := base
+	second.ID, second.EnvelopeID = "flap-card-2", "env-flap-card-2"
+	second.EventID, second.MessageTS = "event-flap-card-2", "1706.200"
+	second.ReceivedAt = base.ReceivedAt.Add(6 * time.Minute)
+	second.Text = "[VA1 FIRING:2] " + base.Text
+	secondRun := answerStreamCard(t, svc, st, second)
+	if secondRun.EpisodeID != firstRun.EpisodeID {
+		t.Fatalf(
+			"the repeat card left the stream episode: %q, want %q",
+			secondRun.EpisodeID, firstRun.EpisodeID,
+		)
+	}
+	if posted := alertReplyPosts(slackClient.posts); len(posted) != 1 {
+		t.Fatalf(
+			"an unchanged assessment was posted again: %d answers, last %q",
+			len(posted), posted[len(posted)-1].message.Text,
+		)
+	}
+	// The card was handled, and the channel has to be able to see that. A
+	// suppressed reply that also drops the check mark is indistinguishable from
+	// an alert nobody looked at.
+	checked := false
+	for _, added := range slackClient.reactions {
+		if added.name == "white_check_mark" && added.timestamp == second.MessageTS {
+			checked = true
+		}
+	}
+	if !checked {
+		t.Fatalf("the suppressed card lost its check mark: %+v", slackClient.reactions)
+	}
+	outcomes := watchAuditOutcomes(t, cfg, second.ID)
+	if !slices.Contains(outcomes, "alert_update_unchanged") {
+		t.Fatalf(
+			"the suppression is not on the trace: slack.watch outcomes %v",
+			outcomes,
+		)
+	}
+	// The channel's rule ledger has to agree with the channel. A rule run
+	// recorded as "reply" for a card nothing was posted for is what an operator
+	// reads when asking why the rule is so noisy.
+	for _, action := range standingRuleRunActions(t, cfg, second.ID) {
+		if action != "ignore" {
+			t.Fatalf("the suppressed card recorded its rule run as %q", action)
+		}
+	}
+}
+
+// The other half: a decision that actually changed still reaches the channel.
+// A stream that recovered says something the last reply did not, and this is
+// also the case that proves the suppression above is about the decision rather
+// than about the second card being a second card.
+func TestChangedVerdictPostsAgain(t *testing.T) {
+	ctx := context.Background()
+	// Both observations are in the past and inside the freshness window, and
+	// the recovery is the later of the two: superseding evidence has to carry an
+	// observed_at after the record it retires.
+	observedAt := time.Now().UTC().Add(-6 * time.Minute).Format(time.RFC3339)
+	recoveredAt := time.Now().UTC().Add(-1 * time.Minute).Format(time.RFC3339)
+	cfg, st, slackClient, svc, base := streamFixture(t, "CVERDICT")
+	svc.coop.(*fakeCoop).completeQueue = []string{
+		confirmedAlertReplyResult(observedAt),
+		supersedingRecoveredAlertReply(t, recoveredAt),
+	}
+
+	first := base
+	first.ID, first.EnvelopeID = "verdict-card-1", "env-verdict-card-1"
+	first.EventID, first.MessageTS = "event-verdict-card-1", "1707.100"
+	firstRun := answerStreamCard(t, svc, st, first)
+
+	second := base
+	second.ID, second.EnvelopeID = "verdict-card-2", "env-verdict-card-2"
+	second.EventID, second.MessageTS = "event-verdict-card-2", "1707.200"
+	second.ReceivedAt = base.ReceivedAt.Add(20 * time.Minute)
+	// The same alert, with a resolved status in front of it: the correlation key
+	// is built from the alert's title, so a recovery worded as a different alert
+	// would open a different stream and prove nothing about this one.
+	second.Text = "[VA1 RESOLVED:2] " + base.Text
+	answerStreamCard(t, svc, st, second)
+	if posted := alertReplyPosts(slackClient.posts); len(posted) != 2 {
+		t.Fatalf("the recovery was suppressed as a repeat: %d answers", len(posted))
+	}
+	if outcomes := watchAuditOutcomes(t, cfg, second.ID); !slices.Contains(
+		outcomes, "alert_update_changed",
+	) {
+		t.Fatalf("what changed is not on the trace: slack.watch outcomes %v", outcomes)
+	}
+	// A recovery closes the stream, which is the A2 behaviour this must not
+	// disturb: suppressing a reply must never be the thing that keeps an
+	// episode open forever.
+	episode, err := st.GetWorkEpisode(ctx, firstRun.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.State != core.EpisodeCompleted {
+		t.Fatalf("the recovered stream is still open as %q", episode.State)
+	}
+}
+
+// Coverage is part of the decision even when the verdict is not. The same
+// confirmed issue over a different set of unwell layers is a different answer,
+// and an operator watching a service move between unhealthy and degraded is
+// watching the only thing the reply is for.
+func TestChangedCoveragePostsAgain(t *testing.T) {
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	cfg, st, slackClient, svc, base := streamFixture(t, "CCOVER")
+	svc.coop.(*fakeCoop).completeQueue = []string{
+		confirmedAlertReplyResult(observedAt),
+		degradedConfirmedAlertReply(t, observedAt),
+	}
+
+	first := base
+	first.ID, first.EnvelopeID = "cover-card-1", "env-cover-card-1"
+	first.EventID, first.MessageTS = "event-cover-card-1", "1708.100"
+	answerStreamCard(t, svc, st, first)
+
+	second := base
+	second.ID, second.EnvelopeID = "cover-card-2", "env-cover-card-2"
+	second.EventID, second.MessageTS = "event-cover-card-2", "1708.200"
+	second.ReceivedAt = base.ReceivedAt.Add(9 * time.Minute)
+	second.Text = "[VA1 FIRING:2] " + base.Text
+	answerStreamCard(t, svc, st, second)
+	if posted := alertReplyPosts(slackClient.posts); len(posted) != 2 {
+		t.Fatalf("a moved coverage layer was suppressed as a repeat: %d answers", len(posted))
+	}
+	// And the comparator says which part of the decision moved. A suppression
+	// nobody can debug becomes a suppression nobody trusts, and the first
+	// question about a missing reply is always "compared with what".
+	outcomes := watchAuditOutcomes(t, cfg, second.ID)
+	if !slices.Contains(outcomes, "alert_update_changed") {
+		t.Fatalf("what changed is not on the trace: slack.watch outcomes %v", outcomes)
+	}
+}
+
+// The model is told what it already said, so "nothing has changed" is a
+// decision it can make.
+//
+// The prompt has always asked for silence unless something changed, and never
+// said what "unchanged" would be measured against. A repeat card looked exactly
+// like a first one, so the only honest answer available was to restate the
+// assessment — which is what happened five times on 2026-08-16.
+func TestAnsweredStreamPromptTellsTheModelWhatWasPosted(t *testing.T) {
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	_, st, _, svc, base := streamFixture(t, "CTOLD")
+	coopClient := svc.coop.(*fakeCoop)
+	coopClient.completeQueue = []string{
+		confirmedAlertReplyResult(observedAt),
+		rewordedConfirmedAlertReply(t, observedAt),
+	}
+
+	first := base
+	first.ID, first.EnvelopeID = "told-card-1", "env-told-card-1"
+	first.EventID, first.MessageTS = "event-told-card-1", "1709.100"
+	answerStreamCard(t, svc, st, first)
+	answered := len(coopClient.submitPrompts)
+
+	second := base
+	second.ID, second.EnvelopeID = "told-card-2", "env-told-card-2"
+	second.EventID, second.MessageTS = "event-told-card-2", "1709.200"
+	second.ReceivedAt = base.ReceivedAt.Add(6 * time.Minute)
+	second.Text = "[VA1 FIRING:2] " + base.Text
+	answerStreamCard(t, svc, st, second)
+	if len(coopClient.submitPrompts) <= answered {
+		t.Fatalf("the repeat card submitted no turn: %d prompts", len(coopClient.submitPrompts))
+	}
+	repeat := coopClient.submitPrompts[answered]
+	if !strings.Contains(repeat, "<host-stream-answered>") {
+		t.Fatalf("the repeat card was briefed as if the stream had never been answered:\n%s", repeat)
+	}
+	// The verdict, because a section that says only "you already replied" leaves
+	// the model comparing against nothing.
+	if !strings.Contains(repeat, "confirmed_issue") {
+		t.Fatalf("the answered-stream section names no verdict:\n%s", repeat)
+	}
+	if !strings.Contains(repeat, "Remove the unhealthy backend from service.") {
+		t.Fatalf("the answered-stream section names no recommended action:\n%s", repeat)
+	}
+	// The first card had nothing to be told, and must not be told anything: a
+	// stream's opening card is exactly when silence is not allowed.
+	if strings.Contains(coopClient.submitPrompts[0], "<host-stream-answered>") {
+		t.Fatalf("the first card of a stream was told it had already been answered")
+	}
+}
+
+// Six identical offers on 2026-08-16, none accepted, each reply re-deriving the
+// same task.
+//
+// Five came from the alert stream and one from a scheduled review in another
+// thread, all of them "open an engineering task in tenant-infra to raise the
+// memory cap". A second button for work already on offer is not a second
+// choice; it is the same choice, rendered again, next to a button that still
+// works.
+func TestRepeatAlertReplyPointsAtTheOpenOffer(t *testing.T) {
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	cfg, st, slackClient, svc, base := streamFixture(t, "COFFER")
+	svc.coop.(*fakeCoop).completeQueue = []string{
+		withCheckoutTaskOffer(t, confirmedAlertReplyResult(observedAt)),
+		withCheckoutTaskOffer(t, degradedConfirmedAlertReply(t, observedAt)),
+	}
+
+	first := base
+	first.ID, first.EnvelopeID = "offer-card-1", "env-offer-card-1"
+	first.EventID, first.MessageTS = "event-offer-card-1", "1710.100"
+	answerStreamCard(t, svc, st, first)
+	posted := alertReplyPosts(slackClient.posts)
+	if len(posted) != 1 {
+		t.Fatalf("the first card was not answered exactly once: %d answers", len(posted))
+	}
+	if !messageOffersEngineeringTask(posted[0].message) {
+		t.Fatalf("the first offer rendered no button: %+v", posted[0].message.Actions)
+	}
+
+	second := base
+	second.ID, second.EnvelopeID = "offer-card-2", "env-offer-card-2"
+	second.EventID, second.MessageTS = "event-offer-card-2", "1710.200"
+	second.ReceivedAt = base.ReceivedAt.Add(11 * time.Minute)
+	second.Text = "[VA1 FIRING:2] " + base.Text
+	answerStreamCard(t, svc, st, second)
+	posted = alertReplyPosts(slackClient.posts)
+	if len(posted) != 2 {
+		t.Fatalf("the changed assessment was suppressed: %d answers", len(posted))
+	}
+	repeat := posted[1].message
+	if messageOffersEngineeringTask(repeat) {
+		t.Fatalf("the same task was offered twice: %+v", repeat.Actions)
+	}
+	pointer := strings.Join(repeat.Context, " ")
+	if !strings.Contains(pointer, "Already offered") {
+		t.Fatalf("the repeat reply does not point at the open offer: %q", pointer)
+	}
+	if !strings.Contains(pointer, "Remove the unhealthy checkout backend") {
+		t.Fatalf("the pointer does not name the task already on offer: %q", pointer)
+	}
+	if outcomes := watchAuditOutcomes(t, cfg, second.ID); !slices.Contains(
+		outcomes, "engineering_task_offer_repeated",
+	) {
+		t.Fatalf("the repeated offer is not on the trace: %v", outcomes)
+	}
+}
+
+func messageOffersEngineeringTask(message slackui.Message) bool {
+	for _, action := range message.Actions {
+		if action.ID == slackui.ActionStartTask {
+			return true
+		}
+	}
+	return false
 }
 
 // recoveredAlertReplyResult is the same shape as confirmedAlertReplyResult for

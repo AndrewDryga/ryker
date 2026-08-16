@@ -1019,6 +1019,45 @@ func WithSuggestedEngineeringTaskOffer(
 	)
 }
 
+// WithExistingTaskOfferPointer says the task is already on offer and where the
+// button for it is, instead of rendering a second one.
+//
+// Six identical engineering-task offers reached one channel on 2026-08-16, none
+// of them accepted, each a fresh button beside a button that still worked. Two
+// controls for one piece of work are not two choices; they are one choice
+// rendered twice, and an operator looking at them has to decide which is real.
+//
+// A context line rather than a section, because this is not part of the answer.
+// The answer is what the alert means now; where the offer went is a footnote for
+// whoever wants to press it.
+func WithExistingTaskOfferPointer(
+	message Message,
+	taskTitle string,
+	repositoryLabel string,
+	permalink string,
+	sanitizer *Sanitizer,
+) Message {
+	taskTitle = strings.TrimSpace(taskTitle)
+	if sanitizer != nil {
+		taskTitle = sanitizer.Text(taskTitle)
+	}
+	if taskTitle = strings.TrimSpace(taskTitle); taskTitle == "" {
+		return message
+	}
+	where := "use the Start button on that message"
+	if permalink = strings.TrimSpace(permalink); permalink != "" {
+		where = "<" + permalink + "|open it>"
+	}
+	line := "Already offered: " + escapeSlackText(taskTitle)
+	if repositoryLabel = strings.TrimSpace(repositoryLabel); repositoryLabel != "" {
+		line += " (" + repositoryLabel + ")"
+	}
+	message.Context = append(
+		message.Context, truncateUTF8(line+" — "+where+".", 700),
+	)
+	return message
+}
+
 func WithPullRequestReview(message Message, sourceInputID string) Message {
 	message.Actions = append(message.Actions, Action{
 		ID: ActionReviewPullRequest, Label: "Review PR", Value: sourceInputID,

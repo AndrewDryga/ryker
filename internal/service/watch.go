@@ -559,6 +559,21 @@ func (s *Service) applyReplyDecision(
 				)
 			}
 			outcome = "engineering_task_repository_required"
+		} else if open, found, openErr := s.openStreamTaskOffer(
+			ctx, input, episodeID, repository,
+		); openErr != nil {
+			return openErr
+		} else if found {
+			// Six identical offers reached one channel on 2026-08-16, none
+			// accepted, each reply re-deriving the same task and rendering a
+			// second button beside a first one that still worked. One open offer
+			// per stream: this update says what the alert means now and points at
+			// the control that already exists.
+			message = slackui.WithExistingTaskOfferPointer(
+				message, open.Title, taskaccess.Label(s.cfg, repository),
+				open.Permalink, s.sanitizer,
+			)
+			outcome = "engineering_task_offer_repeated"
 		} else {
 			offerErr := s.persistWatchTaskOffer(
 				ctx,
@@ -913,6 +928,34 @@ func (s *Service) applyWatchDecision(
 			)
 		}
 	}
+	// A flap is not news. An alert stream that crosses the same threshold seven
+	// times in ninety minutes produced five replies on 2026-08-16, each one
+	// restating the decision the last one had already delivered in different
+	// words, and nothing anywhere compared the two.
+	//
+	// Downgraded rather than returned early, so everything an answered card owes
+	// the channel still happens on the way out: the pending status comes off,
+	// the standing rules record what was actually done with the card, and the
+	// publication and proactive-work steps below are unaffected. The ✅ was
+	// placed above, before this, and stays: the card WAS handled.
+	repeats, changed, err := s.alertReplyRepeats(ctx, input, run, decision)
+	if err != nil {
+		return err
+	}
+	switch {
+	case repeats:
+		s.audit(ctx, core.AuditEvent{
+			Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+			Outcome: "alert_update_unchanged",
+			Detail:  s.cleanStructuredField(decision.Message, 500),
+		})
+		decision.Action = "ignore"
+	case changed != "":
+		s.audit(ctx, core.AuditEvent{
+			Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+			Outcome: "alert_update_changed", Detail: changed,
+		})
+	}
 	switch decision.Action {
 	case "ignore":
 		s.audit(ctx, core.AuditEvent{
@@ -953,6 +996,9 @@ func (s *Service) applyWatchDecision(
 		if err := s.applyReplyDecision(
 			ctx, input, state, decision, episodeID, responseThreadTS, run.IdempotencyKey, post,
 		); err != nil {
+			return err
+		}
+		if err := s.recordAlertReplyPosted(ctx, input, decision, run); err != nil {
 			return err
 		}
 	case "incident":

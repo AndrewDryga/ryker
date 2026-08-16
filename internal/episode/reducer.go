@@ -68,6 +68,16 @@ const (
 	// this and it did not happen" is answerable from the episode's own
 	// timeline rather than from a log line nobody is reading.
 	EventOperationDropped = "operation_dropped"
+	// EventReplyPosted records what an answer this episode delivered actually
+	// DECIDED, so the next card on the same alert stream can be compared with
+	// it rather than merely arriving after it.
+	//
+	// It changes no projection either. It is a durable fact because the
+	// comparison has to survive a restart and a six-hour re-check: an episode
+	// that answered a firing alert at 08:51 must still know what it said when
+	// the next card lands at 10:04, and the only thing that outlives both is
+	// the episode's own timeline.
+	EventReplyPosted = "reply_posted"
 )
 
 type Transition struct {

@@ -74,20 +74,33 @@ type WatchTurnState struct {
 	// edits the envelope as raw fields; they are declared here because this
 	// struct is decoded strictly and re-encoded whole, so a field it does not
 	// name is first a decode error and then, once tolerated, silently dropped.
-	CorrectionClasses      map[string]int            `json:"correction_classes,omitempty"`
-	MinTargetIndex         int                       `json:"min_target_index,omitempty"`
-	PendingStatusSet       bool                      `json:"pending_status_set,omitempty"`
-	PendingStatusAt        int64                     `json:"pending_status_at,omitempty"`
-	FailureDetail          string                    `json:"failure_detail,omitempty"`
-	ApprovalContinuation   bool                      `json:"approval_continuation,omitempty"`
-	DecisionSourceID       string                    `json:"decision_source_id,omitempty"`
-	ReplyDeliveryID        string                    `json:"reply_delivery_id,omitempty"`
-	PublicationsCaptured   bool                      `json:"publications_captured,omitempty"`
-	ActivePublications     []core.PublicationContext `json:"active_publications,omitempty"`
-	RecheckOriginRunID     string                    `json:"recheck_origin_run_id,omitempty"`
-	RecheckKey             string                    `json:"recheck_key,omitempty"`
-	RecheckAttempt         int                       `json:"recheck_attempt,omitempty"`
-	ResolvedMentionRequest *core.SlackInput          `json:"resolved_mention_request,omitempty"`
+	CorrectionClasses    map[string]int            `json:"correction_classes,omitempty"`
+	MinTargetIndex       int                       `json:"min_target_index,omitempty"`
+	PendingStatusSet     bool                      `json:"pending_status_set,omitempty"`
+	PendingStatusAt      int64                     `json:"pending_status_at,omitempty"`
+	FailureDetail        string                    `json:"failure_detail,omitempty"`
+	ApprovalContinuation bool                      `json:"approval_continuation,omitempty"`
+	DecisionSourceID     string                    `json:"decision_source_id,omitempty"`
+	ReplyDeliveryID      string                    `json:"reply_delivery_id,omitempty"`
+	PublicationsCaptured bool                      `json:"publications_captured,omitempty"`
+	ActivePublications   []core.PublicationContext `json:"active_publications,omitempty"`
+	RecheckOriginRunID   string                    `json:"recheck_origin_run_id,omitempty"`
+	RecheckKey           string                    `json:"recheck_key,omitempty"`
+	RecheckAttempt       int                       `json:"recheck_attempt,omitempty"`
+	// StreamAnsweredAt, StreamAnsweredVerdict and StreamAnsweredAction are what
+	// Responder has already posted about THIS operational stream, in this
+	// thread: when, what it concluded, and what it told the channel to do.
+	//
+	// They exist so that "nothing has changed" is a decision the model can make
+	// and the host can check. Without them a repeat card is indistinguishable
+	// from a first one, which on 2026-08-16 was five replies restating one
+	// unchanged assessment of a memory alert oscillating around its threshold.
+	// Empty on the first card of a stream, which is exactly when silence is not
+	// allowed.
+	StreamAnsweredAt       string           `json:"stream_answered_at,omitempty"`
+	StreamAnsweredVerdict  string           `json:"stream_answered_verdict,omitempty"`
+	StreamAnsweredAction   string           `json:"stream_answered_action,omitempty"`
+	ResolvedMentionRequest *core.SlackInput `json:"resolved_mention_request,omitempty"`
 	// CarriedEvidence and CarriedCoverage are what this run has already had
 	// accepted, kept so a correction round is judged against the investigation
 	// rather than against the fragment of it that round resubmitted. See
@@ -612,12 +625,28 @@ func AlertAssessmentCorrection(
 // AlertPolicyCorrection applies the extra standard a channel opts into when its
 // alert policy is anything other than automatic: terminal app events get an
 // investigated reply with a verdict, not a reaction and not an incident room.
-
-// AlertPolicyCorrection applies the extra standard a channel opts into when its
-// alert policy is anything other than automatic: terminal app events get an
-// investigated reply with a verdict, not a reaction and not an incident room.
-func AlertPolicyCorrection(input core.SlackInput, decision WatchDecision) string {
-	if ExternalAppEventRequiresDecision(input.Text) && decision.Action != "reply" {
+//
+// The standard is "every alert gets an answer", not "every card gets a post".
+// It read the card's own words — firing, warning, failed — and forced a reply
+// from any of them, so a stream that flapped across one threshold owed the
+// channel one post per crossing. On 2026-08-16 that was five replies in ninety
+// minutes for a single unchanged assessment, each restating that Traefik memory
+// was near its cap, two of them saying only that a node had crossed back over
+// the line. The prompt told the model to stay silent unless it had something
+// new; this rule made obeying it impossible.
+//
+// So a card on a stream Responder has ALREADY answered in this thread may be
+// ignored. A recovery may not: a stream answered while it was firing still owes
+// the channel its closure, and OperationalAlertResolvedEvent is what tells the
+// two apart.
+func AlertPolicyCorrection(
+	input core.SlackInput,
+	state WatchTurnState,
+	decision WatchDecision,
+) string {
+	answered := strings.TrimSpace(state.StreamAnsweredAt) != "" &&
+		!OperationalAlertResolvedEvent(input.Text)
+	if !answered && ExternalAppEventRequiresDecision(input.Text) && decision.Action != "reply" {
 		return "this terminal or actionable app event requires an evidence-backed in-place " +
 			"alert assessment and reply; investigate the exact event instead of ignoring it " +
 			"or reducing it to a reaction"
@@ -667,7 +696,7 @@ func WatchDecisionCorrectionAt(
 	}
 	if input.Kind == "bot_message" && state.AlertPolicy != "" &&
 		state.AlertPolicy != "automatic" {
-		if correction := AlertPolicyCorrection(input, decision); correction != "" {
+		if correction := AlertPolicyCorrection(input, state, decision); correction != "" {
 			return correction
 		}
 	}

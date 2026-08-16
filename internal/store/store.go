@@ -16,6 +16,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/fanout"
 	"github.com/AndrewDryga/responder/internal/store/activitystore"
+	"github.com/AndrewDryga/responder/internal/store/alertstreamstore"
 	"github.com/AndrewDryga/responder/internal/store/approvalstore"
 	"github.com/AndrewDryga/responder/internal/store/artifactstore"
 	"github.com/AndrewDryga/responder/internal/store/behaviorstore"
@@ -159,6 +160,10 @@ type Store struct {
 	// Approvals owns the Emisar approval record: what was requested, by whom,
 	// for which work, and what Emisar finally said about the run.
 	Approvals *approvalstore.Repository
+	// AlertStream owns the past of one alert stream: what its last reply
+	// decided, and whether the engineering task that reply offered is still
+	// open and still reachable.
+	AlertStream *alertstreamstore.Repository
 }
 
 type Metrics struct {
@@ -1177,6 +1182,7 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.PublicationRecovery = publicationrecoverystore.New(db, clock)
 	s.Incidents = incidentstore.New(db, clock)
 	s.SlackInputs = slackinputstore.New(db)
+	s.AlertStream = alertstreamstore.New(db)
 	s.PauseCleanup = pausecleanupstore.New(db)
 	s.ReplayCancellations = replaycancelstore.New(db, clock)
 	s.SelfReport = selfreportstore.New(db)

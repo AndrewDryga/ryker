@@ -10,6 +10,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/agentcontext"
 	"github.com/AndrewDryga/responder/internal/agentprompt"
+	"github.com/AndrewDryga/responder/internal/alertstream"
 	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
 	"github.com/AndrewDryga/responder/internal/changeledger"
 	"github.com/AndrewDryga/responder/internal/config"
@@ -430,6 +431,11 @@ func (s *Service) correlateWatchEpisode(
 			if previous.Destination.ChannelID == input.ChannelID &&
 				previous.Destination.ThreadTS != "" {
 				state.ResponseThreadTS = previous.Destination.ThreadTS
+			}
+			// What this stream already told the channel, so the next card can be
+			// judged against it instead of arriving as if it were the first.
+			if err := s.captureAnsweredStream(ctx, previous, state); err != nil {
+				return nil, false, err
 			}
 		} else {
 			if episodepkg.AcceptsOperatorAnswer(
@@ -1215,6 +1221,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	late.WriteString("\n\n" + repositorycapability.Prompt(repositorycapability.Build(s.cfg, repositoryKey, session, repositorycapability.PinnedReadOnly)))
 	late.WriteString(publicationcontext.ActivePrompt(state.ActivePublications))
 	late.WriteString(watchDecisionCorrectionPrompt(state.FailureDetail))
+	late.WriteString(alertstream.AnsweredPrompt(state))
 	episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
 	if episodeErr != nil {
 		return s.retryAgentRun(ctx, run, episodeErr)

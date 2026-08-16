@@ -2056,4 +2056,57 @@ func TestOverdueCardDistinguishesAStallFromAQuietTurn(t *testing.T) {
 	}
 }
 
+// Six identical engineering-task offers reached one Slack channel on
+// 2026-08-16, none of them accepted, each one a fresh button beside a button
+// that still worked. A second control for work already on offer is not a second
+// choice; it is the same choice, and the operator has to decide which of the
+// two is real.
+//
+// The pointer is a context line rather than a section because it is not part of
+// the answer: the answer is what the alert means now, and where the offer went
+// is a footnote for whoever wants to press it.
+func TestExistingTaskOfferPointsAtTheOpenOfferInsteadOfRepeatingIt(t *testing.T) {
+	message := WithExistingTaskOfferPointer(
+		ConversationResponse("Memory is still over the cap on all five allocations.", NewSanitizer(12000)),
+		"Raise the Traefik memory cap and roll the job",
+		"Tenant infrastructure (`tenant-infra`)",
+		"https://app.slack.com/client/T1/C1/thread/C1-1700.100",
+		NewSanitizer(12000),
+	)
+	if len(message.Actions) != 0 {
+		t.Fatalf("the pointer rendered a second button: %+v", message.Actions)
+	}
+	pointer := strings.Join(message.Context, "\n")
+	if !strings.Contains(pointer, "Already offered") ||
+		!strings.Contains(pointer, "Raise the Traefik memory cap") ||
+		!strings.Contains(pointer, "Tenant infrastructure") {
+		t.Fatalf("the pointer does not say what is already on offer: %q", pointer)
+	}
+	if !strings.Contains(pointer, "https://app.slack.com/client/T1/C1/thread/C1-1700.100") {
+		t.Fatalf("the pointer does not link to the offer it points at: %q", pointer)
+	}
+	// Without a link there is still an instruction: an operator who cannot be
+	// sent to the message has to be told the button is on an earlier one, or
+	// the line reads as a refusal.
+	unlinked := WithExistingTaskOfferPointer(
+		ConversationResponse("Still over the cap.", NewSanitizer(12000)),
+		"Raise the Traefik memory cap and roll the job",
+		"Tenant infrastructure (`tenant-infra`)",
+		"",
+		NewSanitizer(12000),
+	)
+	if line := strings.Join(unlinked.Context, "\n"); !strings.Contains(
+		line, "use the Start button on that message",
+	) {
+		t.Fatalf("an unlinkable pointer leaves the operator nowhere: %q", line)
+	}
+	// A pointer with nothing to point at changes nothing.
+	plain := ConversationResponse("Still over the cap.", NewSanitizer(12000))
+	if empty := WithExistingTaskOfferPointer(
+		plain, "", "Tenant infrastructure (`tenant-infra`)", "", NewSanitizer(12000),
+	); len(empty.Context) != len(plain.Context) {
+		t.Fatalf("a titleless pointer added a line: %+v", empty.Context)
+	}
+}
+
 // Sanitizing a copy of a Message must not rewrite the caller's own slices.

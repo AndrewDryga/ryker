@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/agentprompt"
+	"github.com/AndrewDryga/responder/internal/alertstream"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
@@ -109,7 +110,8 @@ func (s *Service) deltaTurnPrompt(
 	if state.Lane != "conversation" {
 		host = turndelta.Escalation(boundedOperatorText(state.EscalationReason))
 	}
-	host += watchDecisionCorrectionPrompt(state.FailureDetail) + agentprompt.Continuation(run)
+	host += watchDecisionCorrectionPrompt(state.FailureDetail) +
+		alertstream.AnsweredPrompt(state) + agentprompt.Continuation(run)
 	return turndelta.Prompt(turndelta.Sections{
 		Input:    turndelta.NewInput(input.UserID, boundedOperatorText(input.Text)),
 		Contract: WorkEpisodePrompt(episode),

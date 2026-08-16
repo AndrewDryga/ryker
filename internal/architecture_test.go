@@ -672,7 +672,27 @@ var lineBudget = map[string]int{
 	// is on. Those are the five episodes the note above priced at $15 each,
 	// bought back — and two investigations dropped mid-flight the same day, 22
 	// minutes and 50 tool calls, are the other half of the same bill.
-	"service": 23314,
+	//
+	// And 23523 the same day for the other half of that stream: it stayed one
+	// episode and still posted five times. 209 lines, measured, for two
+	// questions nobody was asking — has the decision changed since the last
+	// reply on this stream, and is the task this reply wants to offer already on
+	// offer. The bill is the same seven cards in ninety minutes: five replies
+	// into one thread restating one unchanged assessment, two of them saying
+	// only that a node had crossed back over the same line, and six identical
+	// engineering offers, none accepted.
+	//
+	// The extraction came first this time, which is why the number is 209 rather
+	// than nearer four hundred. What a reply DECIDES, how two of those compare,
+	// what changed between them and the prompt section that tells a model what
+	// it already said are all in internal/alertstream, which reaches nothing —
+	// no store, no Slack, no clock — so a suppression is reproducible from two
+	// results and a diff. The three reads behind it are in
+	// internal/store/alertstreamstore, reached as store.AlertStream rather than
+	// as three more methods on Store. What is left here is what cannot leave:
+	// five host-side questions that need the store handle, the config and the
+	// clock at once, and the six call sites that ask them.
+	"service": 23523,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -874,7 +894,16 @@ var lineBudget = map[string]int{
 	// to deliver. Forty-nine lines, measured. The lease change is three of them
 	// and the rest is the two queries; the guard it replaces was the fourth
 	// place a newer Grafana card destroyed a finished investigation.
-	"store":      11307,
+	//
+	// And 11310, three lines, for store.AlertStream — an import, a field and its
+	// construction. The three reads behind that field are in
+	// internal/store/alertstreamstore: what this stream's last reply decided,
+	// whether the engineering task it offered was ever accepted, and whether the
+	// message carrying that offer's button actually reached Slack. Nothing on
+	// Store, no method budget spent, and the whole feature costs this package
+	// the three lines it takes to reach it. That is the shape the paragraph
+	// above asks for, priced.
+	"store":      11310,
 	"localstate": 400,
 	"provider":   120,
 	// branching opens the branches a fan-out was granted and closes them. It is
@@ -1279,7 +1308,18 @@ var forbiddenImports = map[string][]string{
 		"service", "slackui", "httpapi", "app", "publisher", "coop", "emisar",
 		"decision", "investigation", "evaluation",
 	},
-	"decision":     {"service", "store", "httpapi", "app", "publisher", "coop"},
+	"decision": {"service", "store", "httpapi", "app", "publisher", "coop"},
+	// alertstream answers "has this stream's decision changed since the last
+	// time we said something". It takes a decision and returns what that
+	// decision decides, and it must stay unable to reach anything that would
+	// make a suppression depend on where it ran: no store, no Slack, no config
+	// and no clock. A reply Responder did not send is exactly the kind of thing
+	// an operator asks about a day later, and the answer has to be reproducible
+	// from the two results alone.
+	"alertstream": {
+		"service", "store", "slackui", "httpapi", "app", "publisher", "coop",
+		"emisar", "config", "webhook", "evaluation",
+	},
 	"evaluation":   {"httpapi", "app", "webhook"},
 	"agentcontext": {"service", "store", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
 	// fanout answers "has this investigation earned a second turn running beside

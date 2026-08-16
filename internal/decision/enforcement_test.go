@@ -175,3 +175,71 @@ func TestRecoveredAlertClosureIsNotCorrectedForLength(t *testing.T) {
 		t.Fatalf("a plain 120-word recovery closure was corrected for length: %q", correction)
 	}
 }
+
+// Five posts on 2026-08-16; the model was told to stay silent unless something
+// changed and the host forbade it.
+//
+// One Grafana stream oscillating around a memory threshold produced seven cards
+// in ninety minutes. The prompt says "stay silent unless you add a newly
+// verified consequence, problem, or next action", and this correction rejected
+// every ignore whose card mentioned firing, warning or failed — so a flapping
+// alert was guaranteed one post per card no matter what the model decided. Two
+// of the five said only that a node had crossed back over the same line.
+//
+// The state is the whole fix: an answer already posted on this stream is what
+// makes silence legitimate, and the correction could not see it.
+func TestRepeatFiringOnAnAnsweredStreamMayStaySilent(t *testing.T) {
+	input := core.SlackInput{
+		Kind: "bot_message",
+		Text: "[VA1 FIRING:3] WARNING | Traefik memory above 95 percent",
+	}
+	answered := WatchTurnState{
+		AlertPolicy:           "reply",
+		StreamAnsweredAt:      "2026-08-16T14:51:00Z",
+		StreamAnsweredVerdict: "confirmed_issue",
+		StreamAnsweredAction:  "Raise the memory cap and roll the job.",
+	}
+	silent := WatchDecision{
+		Action: "ignore",
+		Reason: "this card restates the condition already answered in this thread",
+	}
+	if correction := AlertPolicyCorrection(input, answered, silent); correction != "" {
+		t.Fatalf("a repeat card on an answered stream was forced to post: %q", correction)
+	}
+}
+
+// The other half of the same rule, which must not move: the FIRST card of a
+// stream has no earlier answer, so an ignore there is an alert nobody looked
+// at. Without this the fix above reads as "alerts may be ignored".
+func TestFirstFiringStillRequiresAnAnswer(t *testing.T) {
+	input := core.SlackInput{
+		Kind: "bot_message",
+		Text: "[VA1 FIRING:1] WARNING | Traefik memory above 95 percent",
+	}
+	silent := WatchDecision{Action: "ignore", Reason: "nothing to add"}
+	correction := AlertPolicyCorrection(input, WatchTurnState{AlertPolicy: "reply"}, silent)
+	if !strings.Contains(correction, "requires an evidence-backed in-place") {
+		t.Fatalf("the first firing card was allowed to pass unanswered: %q", correction)
+	}
+}
+
+// A resolve is not a repeat. A stream answered while it was firing still owes
+// the channel a closure when it recovers, so the answered state must not let a
+// recovery card be ignored.
+func TestRecoveryOnAnAnsweredStreamStillRequiresAnAnswer(t *testing.T) {
+	input := core.SlackInput{
+		Kind: "bot_message",
+		Text: "[VA1 RESOLVED:3] WARNING | Traefik memory back under 95 percent",
+	}
+	answered := WatchTurnState{
+		AlertPolicy:           "reply",
+		StreamAnsweredAt:      "2026-08-16T14:51:00Z",
+		StreamAnsweredVerdict: "confirmed_issue",
+		StreamAnsweredAction:  "Raise the memory cap and roll the job.",
+	}
+	silent := WatchDecision{Action: "ignore", Reason: "already answered"}
+	correction := AlertPolicyCorrection(input, answered, silent)
+	if !strings.Contains(correction, "requires an evidence-backed in-place") {
+		t.Fatalf("a recovery on an answered stream was allowed to pass silently: %q", correction)
+	}
+}
