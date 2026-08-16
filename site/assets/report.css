@@ -593,3 +593,11 @@
 /* Understands: two calm columns. */
 .report .und-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: calc(var(--u,8px)*6) calc(var(--u,8px)*10); }
 @media (max-width: 900px) { .report .und-grid { grid-template-columns: 1fr; } }
+
+/* The windows breathe: messages sit well clear of the frame's edges. */
+.report .slack-msg { padding: 12px 24px; }
+.report .slack-msg:first-of-type { padding-top: 20px; }
+.report .slack-msg:last-of-type { padding-bottom: 22px; }
+.report .slack-head { padding: 14px 24px; }
+.report .slack-day { padding: 14px 24px 4px; }
+.report .slack-compose { margin: 6px 24px 20px; }
