@@ -102,13 +102,11 @@ fork — a dirty tree, unpublished commits, a Coop conflict.</p>{{end}}
 <h2>Queued for automatic cleanup <span class="note">{{len .Queued}}</span></h2>
 {{if .Queued}}
 <div class="table-scroll" tabindex="0"><table>
-  <tr><th>Workspace</th><th>Belongs to</th><th>Reason</th><th>State</th><th class="num">Attempts</th><th>Eligible</th><th>Next attempt</th></tr>
-  {{range .Queued}}
-  <tr><td class="mono">{{truncate 22 .SessionID}}</td>
-      <td>{{if .IncidentID}}<a href="/incidents/{{.IncidentID}}">{{truncate 46 .IncidentTitle}}</a>{{else if .Channel}}{{.Channel}}{{else}}<span class="note">—</span>{{end}}</td>
-      <td>{{.Reason}}</td><td><span class="pill">{{.State}}</span></td>
-      <td class="mono num">{{.Attempts}}</td>
-      <td class="note">{{stamp .Eligible}}</td><td class="note">{{stamp .NextAttempt}}</td></tr>
+	  <tr><th>Workspace</th><th>Reason</th><th>State</th><th>Timing</th></tr>
+	  {{range .Queued}}
+	  <tr><td><span class="cell-main mono">{{truncate 22 .SessionID}}</span><span class="cell-sub">{{if .IncidentID}}<a href="/incidents/{{.IncidentID}}">{{truncate 46 .IncidentTitle}}</a>{{else if .Channel}}{{.Channel}}{{else}}Unassigned{{end}}</span></td>
+	      <td>{{.Reason}}</td><td><span class="pill">{{.State}}</span><span class="cell-sub mono">{{.Attempts}} attempt{{if ne .Attempts 1}}s{{end}}</span></td>
+	      <td><span class="cell-main note">next {{stamp .NextAttempt}}</span><span class="cell-sub">eligible {{stamp .Eligible}}</span></td></tr>
   {{end}}
 </table></div>
 <p class="note">Automatic cleanup still owns these and retries on its own schedule; only a

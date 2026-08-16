@@ -43,15 +43,13 @@ was deleted with its retention window.</p>{{end}}
 
 <h2>What shipped</h2>
 {{with .Published}}
-{{if .Repository}}
-<div class="table-scroll" tabindex="0"><table>
-  <tr><th>Pull request</th><th>Repository</th><th>Branch</th><th>Commit</th><th>Publication</th><th>PR</th><th>Checks</th></tr>
-  <tr><td>{{if .URL}}<a href="{{.URL}}">#{{.PRNumber}} →</a>{{else}}<span class="note">not opened</span>{{end}}</td>
-      <td class="mono">{{.Repository}}</td><td class="mono">{{.Head}} → {{.Base}}</td>
-      <td class="mono">{{.Commit}}</td>
-      <td><span class="pill{{if eq .State "published"}} good{{end}}">{{.State}}</span></td>
-      <td><span class="pill{{if eq .PRState "merged"}} good{{end}}">{{.PRState}}</span></td>
-      <td><span class="pill{{if eq .Checks "passing"}} good{{else if eq .Checks "failing"}} bad{{end}}">{{.Checks}}</span></td></tr>
+	{{if .Repository}}
+	<div class="table-scroll" tabindex="0"><table>
+	  <tr><th>Pull request</th><th>Revision</th><th>Publication</th><th>Delivery</th></tr>
+	  <tr><td>{{if .URL}}<a class="cell-main" href="{{.URL}}">#{{.PRNumber}} →</a>{{else}}<span class="cell-main note">Not opened</span>{{end}}<span class="cell-sub mono">{{.Repository}}</span></td>
+	      <td><span class="cell-main mono">{{.Head}} → {{.Base}}</span><span class="cell-sub mono">{{.Commit}}</span></td>
+	      <td><span class="pill{{if eq .State "published"}} good{{end}}">{{.State}}</span></td>
+	      <td><span class="pill{{if eq .PRState "merged"}} good{{end}}">{{.PRState}}</span><span class="cell-sub"><span class="pill{{if eq .Checks "passing"}} good{{else if eq .Checks "failing"}} bad{{end}}">{{.Checks}}</span> checks</span></td></tr>
 </table></div>
 {{if .Error}}<p class="unwired"><span class="tag">Last error</span>{{.Error}}</p>{{end}}
 {{if .Events}}

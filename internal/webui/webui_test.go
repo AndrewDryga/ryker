@@ -198,6 +198,43 @@ func TestControlPlaneKeepsEmisarVisualHierarchy(t *testing.T) {
 	}
 }
 
+// A table is a scan surface, not a database export. The control plane used to
+// expose up to eleven equal-weight columns, forcing operators to read every
+// heading before they could find the subject, state, or result of a row.
+// Secondary facts now sit beneath their primary value, as they do in Emisar.
+func TestTablesKeepACompactScanPath(t *testing.T) {
+	headerRow := regexp.MustCompile(`(?s)<tr>\s*(?:<thead>)?\s*<th.*?</tr>`)
+	header := regexp.MustCompile(`<th(?:\s|>)`)
+
+	for _, name := range []string{
+		"templates/audit.html",
+		"templates/channel.html",
+		"templates/incident.html",
+		"templates/pages.html",
+		"templates/workspaces.html",
+	} {
+		body, err := assets.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range headerRow.FindAll(body, -1) {
+			if columns := len(header.FindAll(row, -1)); columns > 6 {
+				t.Errorf("%s has a %d-column table; stack supporting facts beneath the primary value", name, columns)
+			}
+		}
+	}
+
+	css, err := assets.ReadFile("static/app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hierarchy := range []string{".cell-main {", ".cell-sub {", ".cell-action {"} {
+		if !strings.Contains(string(css), hierarchy) {
+			t.Errorf("shared table hierarchy lost %q", hierarchy)
+		}
+	}
+}
+
 func TestShellExposesKeyboardLocationAndSkipNavigation(t *testing.T) {
 	handler, err := NewHandler(&Reader{}, "test", "47", "responder-abc1234",
 		func() (bool, string) { return true, "" }, config.Pricing{}, nil, nil)

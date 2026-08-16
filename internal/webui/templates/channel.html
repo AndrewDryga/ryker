@@ -37,16 +37,15 @@ learns something worth carrying.</p>{{end}}
 
 <h2>Participation</h2>
 <div class="table-scroll" tabindex="0"><table class="participation">
-  <tr><th>Setting</th><th>Effective</th><th>Because</th><th>Channel</th><th>Workspace</th><th>Setup</th>
-      {{if .CanAct}}<th></th>{{end}}</tr>
+	  <tr><th>Setting</th><th>Effective</th><th>Source</th>
+	      {{if .CanAct}}<th class="cell-action"></th>{{end}}</tr>
   {{$id := .ID}}{{$act := .CanAct}}
   {{range .Settings}}
-  <tr><td class="mono">{{.Name}}</td>
-      <td><span class="pill{{if .On}} good{{end}}">{{.Effective}}</span></td>
-      <td class="note">{{.Source}}</td>
-      <td class="mono">{{.Channel}}</td><td class="mono">{{.Global}}</td><td class="mono">{{.Config}}</td>
-      {{if $act}}
-      <td><div class="acts">
+	  <tr><td><span class="mono cell-main">{{.Name}}</span></td>
+	      <td><span class="pill{{if .On}} good{{end}}">{{.Effective}}</span></td>
+	      <td><span class="cell-main note">{{.Source}}</span><span class="cell-sub mono">channel {{.Channel}} · workspace {{.Global}} · setup {{.Config}}</span></td>
+	      {{if $act}}
+	      <td class="cell-action"><div class="acts">
         {{if ne .Channel "on"}}{{template "setting" dict "ID" $id "Name" .Name "Value" "on" "Label" "Turn on"}}{{end}}
         {{if ne .Channel "off"}}{{template "setting" dict "ID" $id "Name" .Name "Value" "off" "Label" "Turn off"}}{{end}}
         {{if ne .Channel "inherit"}}{{template "setting" dict "ID" $id "Name" .Name "Value" "inherit" "Label" "Clear"}}{{end}}
@@ -61,11 +60,11 @@ configuration. Clearing an override restores whatever it was hiding.</p>
 {{if .Preferences}}
 <h2>Preferences here <span class="note">{{len .Preferences}}</span></h2>
 <div class="table-scroll" tabindex="0"><table>
-  <tr><th>Preference</th><th>Value</th><th>Expires</th><th>State</th></tr>
-  {{range .Preferences}}
-  <tr><td class="mono">{{.Name}}</td><td class="mono">{{.Value}}</td>
-      <td class="note">{{stamp .Expires}}</td>
-      <td><span class="pill{{if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
+	  <tr><th>Preference</th><th>State</th><th>Expires</th></tr>
+	  {{range .Preferences}}
+	  <tr><td><span class="cell-main mono">{{.Name}}</span><span class="cell-sub mono">{{.Value}}</span></td>
+	      <td><span class="pill{{if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td>
+	      <td class="note">{{stamp .Expires}}</td></tr>
   {{end}}
 </table></div>
 {{end}}
@@ -73,15 +72,11 @@ configuration. Clearing an override restores whatever it was hiding.</p>
 {{if .Rules}}
 <h2>Standing rules here <span class="note">{{len .Rules}}</span></h2>
 <div class="table-scroll" tabindex="0"><table>
-  <tr><th>When</th><th>Do</th><th class="num">Fired</th><th class="num">Acted</th>
-      <th>Last acted</th><th>Expires</th><th>State</th></tr>
-  {{range .Rules}}
-  <tr><td class="mono">{{.Trigger}}</td><td class="mono">{{.Action}}</td>
-      <td class="mono num">{{.Runs}}</td>
-      <td class="mono num">{{if .Recorded}}{{.Acted}}{{else}}<span class="note">—</span>{{end}}</td>
-      <td class="note">{{if not .LastActed.IsZero}}{{since .LastActed}}{{else if .Idle}}never{{else}}<span class="note">—</span>{{end}}</td>
-      <td class="note">{{stamp .Expires}}</td>
-      <td><span class="pill{{if .Idle}} bad{{else if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span></td></tr>
+	  <tr><th>Rule</th><th>Activity</th><th>State</th></tr>
+	  {{range .Rules}}
+	  <tr><td><span class="cell-main mono">{{.Trigger}}</span><span class="cell-sub mono">{{.Action}}</span></td>
+	      <td><span class="cell-main mono">{{.Runs}} fired</span><span class="cell-sub">{{if .Recorded}}{{.Acted}} acted{{else}}not recorded{{end}}</span></td>
+	      <td><span class="pill{{if .Idle}} bad{{else if .Enabled}} good{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span><span class="cell-sub">{{if not .LastActed.IsZero}}last acted {{since .LastActed}}{{else if .Idle}}never acted{{else}}no activity{{end}} · expires {{stamp .Expires}}</span></td></tr>
   {{end}}
 </table></div>
 <p class="note">A rule that fires and never acts costs a model turn per matching message;
@@ -91,11 +86,11 @@ configuration. Clearing an override restores whatever it was hiding.</p>
 {{if .Schedules}}
 <h2>Schedules here <span class="note">{{len .Schedules}}</span></h2>
 <div class="table-scroll" tabindex="0"><table>
-  <tr><th>Schedule</th><th>Cadence</th><th class="num">Runs</th><th>Next</th></tr>
-  {{range .Schedules}}
-  <tr><td>{{if .Title}}{{truncate 60 .Title}}{{else}}{{truncate 60 .Prompt}}{{end}}</td>
-      <td class="mono">{{.Cadence}}</td><td class="mono num">{{.Runs}}</td>
-      <td class="note">{{since .NextRun}}</td></tr>
+	  <tr><th>Schedule</th><th class="num">Runs</th><th>Next</th></tr>
+	  {{range .Schedules}}
+	  <tr><td><span class="cell-main">{{if .Title}}{{truncate 60 .Title}}{{else}}{{truncate 60 .Prompt}}{{end}}</span><span class="cell-sub mono">{{.Cadence}}</span></td>
+	      <td class="mono num">{{.Runs}}</td>
+	      <td class="note">{{since .NextRun}}</td></tr>
   {{end}}
 </table></div>
 {{end}}

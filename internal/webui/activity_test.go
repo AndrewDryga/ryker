@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -405,8 +406,8 @@ func TestCallsThatNeverFinishedAreNamed(t *testing.T) {
 		t.Fatalf("an unfinished call was not called out: %+v", steps[0].Stats)
 	}
 	table, _ := detailByLabel(steps[0], "Every call, in order")
-	if got := table.Table.Rows[0].Cells[3]; got != "still running" {
-		t.Fatalf("status cell = %q, want an honest unfinished state", got)
+	if got := table.Table.Rows[0].Cells[1]; !strings.HasPrefix(got, "still running · ") {
+		t.Fatalf("state cell = %q, want an honest unfinished state", got)
 	}
 }
 
@@ -427,8 +428,11 @@ func TestCallTableIsTightAndExpandable(t *testing.T) {
 	if !table.Table.Tight {
 		t.Fatal("the table wraps its identity columns")
 	}
+	if got, want := table.Table.Headers, []string{"Tool", "State", "At", "Arguments"}; !slices.Equal(got, want) {
+		t.Fatalf("call table headers = %q, want the compact scan path %q", got, want)
+	}
 	row := table.Table.Rows[0]
-	if row.ExpandAt != 5 || !strings.Contains(row.Expand, `"run_id": "r1"`) {
+	if row.ExpandAt != 3 || !strings.Contains(row.Expand, `"run_id": "r1"`) {
 		t.Fatalf("the full record is not behind the arguments cell: %+v", row)
 	}
 	// The toggle controls are namespaced per card. A page carries several of

@@ -3738,14 +3738,12 @@ func activityCallsStep(calls []ActivityMoment, ordinal int) TraceStep {
 		}
 		rows = append(rows, TraceTableRow{
 			Cells: []string{
+				fallback(call.Title, "unnamed call") + " · " + fallback(call.ToolKind, "unknown kind"),
+				fallback(call.Status, "still running") + " · " + fallback(call.Duration, "not timed"),
 				activityOffset(first, call.At),
-				fallback(call.Title, "unnamed call"),
-				fallback(call.ToolKind, "—"),
-				fallback(call.Status, "still running"),
-				fallback(call.Duration, "—"),
 				fallback(call.Detail, "—"),
 			},
-			Expand: call.Arguments, ExpandAt: 5,
+			Expand: call.Arguments, ExpandAt: 3,
 		})
 	}
 
@@ -3788,7 +3786,7 @@ func activityCallsStep(calls []ActivityMoment, ordinal int) TraceStep {
 			"credentials and log bodies.",
 		Open: true, ShowCount: true, Count: len(rows),
 		Table: &TraceTable{
-			Headers:  []string{"At", "What ran", "Kind", "Status", "Took", "Arguments"},
+			Headers:  []string{"Tool", "State", "At", "Arguments"},
 			Rows:     rows,
 			Tight:    true,
 			IDPrefix: step.ID,

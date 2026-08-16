@@ -366,6 +366,7 @@ pre code { font-size: 1em; }
 /* Tables — the portal's live_table: DIRECTLY on the canvas, no frame ---------- */
 
 .table-scroll { width: 100%; overflow-x: auto; scrollbar-width: thin; scrollbar-color: rgb(63 63 70 / .9) transparent; }
+.table-scroll:focus-visible { outline: 1px solid var(--z700-80); outline-offset: 4px; border-radius: 2px; }
 .table-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
 .table-scroll::-webkit-scrollbar-thumb { background: rgb(63 63 70 / .9); border-radius: 9999px; }
 .table-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -407,6 +408,13 @@ tr:hover td { background: var(--hover); }
 th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 td.num .note { display: block; }
 td .note { font-size: 12.5px; color: var(--z500); }
+.cell-main { display: block; color: var(--z100); font-weight: 500; line-height: 1.4; }
+.cell-sub { display: block; margin-top: 3px; color: var(--z500); font-size: 12px; line-height: 1.4; font-weight: 400; }
+a.cell-main, a.cell-sub { color: var(--brand-400); }
+.cell-sub:first-child { margin-top: 0; }
+.cell-action { width: 1%; text-align: right; white-space: nowrap; }
+.cell-action .acts { margin-top: 0; flex-wrap: nowrap; justify-content: flex-end; }
+.bad-text { color: var(--rose-300); }
 
 /* Timeline -------------------------------------------------------------------- */
 
@@ -510,9 +518,6 @@ pre.dump {
 .meter { display: inline-block; vertical-align: middle; }
 .meter-bg { fill: #26262b; }
 .meter-fg { fill: var(--z600); }
-.meter-cell { width: 76px; }
-.share-cell { display: grid; justify-items: end; gap: 4px; }
-.share-cell span { display: inline-block; min-width: 0; margin-right: 0; }
 .metric.warn .meter-fg { fill: var(--amber-400); }
 .metric.bad .meter-fg { fill: var(--rose-400); }
 
@@ -1064,17 +1069,19 @@ form.filter a { font-size: 13px; color: var(--z400); }
 .trace-detail.kind-error pre { color: var(--rose-300); }
 .trace-detail.kind-diff pre { color: var(--brand-200); }
 
-.trace-table-wrap { overflow-x: auto; border-top: 1px solid var(--divide); background: rgb(0 0 0 / .3); }
+.trace-table-wrap { overflow-x: auto; border-top: 1px solid var(--divide); background: transparent; scrollbar-width: thin; scrollbar-color: rgb(63 63 70 / .9) transparent; }
+.trace-table-wrap:focus-visible { outline: 1px solid var(--z700-80); outline-offset: -1px; }
 .trace-table {
   width: 100%;
-  min-width: 680px;
-  border-collapse: collapse;
-  color: var(--z300);
-  font-size: 12px;
+  min-width: 560px;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--z200);
+  font-size: 13px;
 }
 .trace-table th,
-.trace-table td { padding: 10px 16px; border-bottom: 1px solid var(--divide); text-align: left; vertical-align: top; }
-.trace-table th { color: var(--z500); background: rgb(0 0 0 / .25); font: 600 10px/1.4 var(--mono); letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; border-bottom-color: var(--z700-80); }
+.trace-table td { padding: 8px 12px; border-bottom: 1px solid var(--divide); text-align: left; vertical-align: middle; line-height: 1.5; }
+.trace-table th { padding: 10px 12px; color: var(--z400); background: transparent; font: 500 11px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; border-bottom: 1px solid var(--z700-80); }
 .trace-table th:first-child, .trace-table td:first-child { padding-left: 16px; }
 .trace-table th:last-child, .trace-table td:last-child { padding-right: 16px; }
 .trace-table td:nth-child(2),
@@ -1082,8 +1089,8 @@ form.filter a { font-size: 13px; color: var(--z400); }
 .trace-table tbody tr:last-child td { border-bottom: 0; }
 .trace-table tr:hover td { background: var(--hover); }
 
-.trace-table.cols-tight th:nth-child(-n+5),
-.trace-table.cols-tight td:nth-child(-n+5) { white-space: nowrap; overflow-wrap: normal; }
+.trace-table.cols-tight th:nth-child(-n+3),
+.trace-table.cols-tight td:nth-child(-n+3) { white-space: nowrap; overflow-wrap: normal; }
 .trace-table.cols-tight td:last-child { min-width: 260px; font-family: var(--mono); overflow-wrap: anywhere; }
 
 /* Every cell is the control: each cell's label fills its box and toggles the
@@ -1366,8 +1373,7 @@ form.filter a { font-size: 13px; color: var(--z400); }
 .set-health.bad { color: var(--rose-300); }
 .set-card:hover .set-count { color: var(--brand-400); }
 
-.participation td:last-child { text-align: right; white-space: nowrap; }
-.participation td:last-child form { display: inline-block; margin-left: 6px; }
+.participation .cell-action form { display: inline-block; margin-left: 6px; }
 
 .shape {
   margin: 0 0 8px; padding: 9px 14px;

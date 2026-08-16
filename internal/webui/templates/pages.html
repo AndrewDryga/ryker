@@ -65,21 +65,17 @@ cadence and it will appear here.</p>{{end}}
 {{if or .Errs .Troubled (not .Lanes)}}
 <h2>Needs attention</h2>
 {{template "problems" .Errs}}
-{{if .Troubled}}
-<p class="note">Pollers are permanent worker loops, not queued jobs.</p>
-<div class="table-scroll" tabindex="0"><table>
-  <tr><th>Lane</th><th>Status</th><th class="num">Pollers</th><th class="num">Ready</th><th class="num">Running</th><th class="num">Scheduled</th><th class="num">Retrying</th><th class="num">Failed</th><th>Next work</th><th>Last issue</th></tr>
-  {{range .Troubled}}
-  <tr><td>{{.Name}}</td>
-      <td><span class="pill{{if eq .Status "failed"}} bad{{else if eq .Status "retrying"}} warn{{end}}">{{.Status}}</span></td>
-      <td class="mono num">{{.Pollers}}</td><td class="mono num">{{.Ready}}</td><td class="mono num">{{.Running}}</td>
-      <td class="mono num">{{.Scheduled}}</td>
-      <td class="mono num">{{.Retrying}}{{if .RetryAttempts}} <span class="note">({{.RetryAttempts}} attempts)</span>{{end}}</td>
-      <td class="mono num">{{.Failed}}</td>
-      <td class="note">{{if .HasNext}}{{since .Next}}{{else}}—{{end}}</td>
-      <td>{{if .Error}}{{truncate 90 .Error}}{{else}}<span class="note">—</span>{{end}}</td></tr>
-  {{end}}
-</table></div>
+	{{if .Troubled}}
+	<p class="note">Pollers are permanent worker loops, not queued jobs.</p>
+	<div class="table-scroll" tabindex="0"><table>
+	  <tr><th>Lane</th><th>State</th><th>Work</th><th>Last issue</th></tr>
+	  {{range .Troubled}}
+	  <tr><td><span class="cell-main">{{.Name}}</span><span class="cell-sub">{{.Pollers}} pollers · {{.Ready}} ready</span></td>
+	      <td><span class="pill{{if eq .Status "failed"}} bad{{else if eq .Status "retrying"}} warn{{end}}">{{.Status}}</span>{{if .Failed}}<span class="cell-sub bad-text">{{.Failed}} failed</span>{{end}}</td>
+	      <td><span class="cell-main mono">{{.Running}} running · {{.Scheduled}} scheduled · {{.Retrying}} retrying</span><span class="cell-sub">{{if .RetryAttempts}}{{.RetryAttempts}} retry attempts · {{end}}{{if .HasNext}}next {{since .Next}}{{else}}nothing queued{{end}}</span></td>
+	      <td>{{if .Error}}{{truncate 90 .Error}}{{else}}<span class="note">—</span>{{end}}</td></tr>
+	  {{end}}
+	</table></div>
 {{else if not .Lanes}}<p class="empty-state">No scheduler workers have registered.</p>{{end}}
 {{end}}
 {{end}}
@@ -138,19 +134,18 @@ from Slack or a webhook.</p>{{end}}
 
 {{define "roomtable"}}
 <div class="table-scroll" tabindex="0"><table>
-  <tr><th>What was asked</th><th>Status</th><th>Repository</th><th>Channel</th><th class="num">Episodes</th><th>Pull request</th><th>Last change</th></tr>
-  {{range .}}
-  <tr><td><a href="/incidents/{{.ID}}">{{truncate 70 .Title}}</a></td>
-      {{/* Live work is the lit state: emerald means "in motion", and a closed
-           task has nothing left to act on. It was inverted — the one finished
-           row glowed while five active ones sat gray. */}}
-      <td><span class="pill{{if eq .Status "active"}} good{{end}}">{{.Status}}</span></td>
-      <td class="mono id">{{.Repository}}</td><td>{{.Channel}}</td>
-      <td class="mono num">{{.Episodes}}</td>
-      <td>{{if .PRNumber}}#{{.PRNumber}} <span class="note">{{.PRState}}{{if .Checks}} · checks {{.Checks}}{{end}}</span>{{else}}<span class="note">none</span>{{end}}</td>
-      <td class="note">{{since .Updated}}</td></tr>
-  {{end}}
-</table></div>
+	  <tr><th>Work</th><th>State</th><th>Repository</th><th>Delivery</th><th>Updated</th></tr>
+	  {{range .}}
+	  <tr><td><a class="cell-main" href="/incidents/{{.ID}}">{{truncate 70 .Title}}</a><span class="cell-sub">{{.Channel}}</span></td>
+	      {{/* Live work is the lit state: emerald means "in motion", and a closed
+	           task has nothing left to act on. It was inverted — the one finished
+	           row glowed while five active ones sat gray. */}}
+	      <td><span class="pill{{if eq .Status "active"}} good{{end}}">{{.Status}}</span><span class="cell-sub">{{.Episodes}} episode{{if ne .Episodes 1}}s{{end}}</span></td>
+	      <td class="mono id">{{if .Repository}}{{.Repository}}{{else}}<span class="note">—</span>{{end}}</td>
+	      <td>{{if .PRNumber}}<span class="cell-main">#{{.PRNumber}}</span><span class="cell-sub">{{.PRState}}{{if .Checks}} · checks {{.Checks}}{{end}}</span>{{else}}<span class="note">No pull request</span>{{end}}</td>
+	      <td class="note">{{since .Updated}}</td></tr>
+	  {{end}}
+	</table></div>
 {{end}}
 
 {{define "episoderows"}}
@@ -325,22 +320,20 @@ but nothing here is a queue.</p>
 </div>
 
 <h2>Audition — which model deserves which lane <span class="note">last {{.Audition.Days}} days</span></h2>
-{{if .Audition.Rows}}
-<div class="table-scroll" tabindex="0"><table>
-  <thead><tr>
-    <th>Case class</th><th>Profile asked for</th><th>Model that answered</th><th>Reasoning</th>
-    <th class="num">Attempts</th><th>Measured</th>
-    <th class="num">Corrections</th><th class="num">Per attempt</th><th>Cost</th>
-  </tr></thead>
-  <tbody>
-  {{range .Audition.Rows}}
-  <tr>
-    <td>{{.Class}}</td><td>{{.Profile}}</td><td class="mono id">{{.Model}}</td><td>{{.Effort}}</td>
-    <td class="mono num">{{.Attempts}}</td><td>{{.Measured}}</td>
-    <td class="mono num">{{.Corrections}}</td>
-    <td class="mono num">{{.CorrectionRate}}{{meter .RatePct}}</td>
-    <td class="mono">{{.Cost}}</td>
-  </tr>
+	{{if .Audition.Rows}}
+	<div class="table-scroll" tabindex="0"><table>
+	  <thead><tr>
+	    <th>Case</th><th>Model</th><th class="num">Attempts</th><th class="num">Corrections</th><th>Cost</th>
+	  </tr></thead>
+	  <tbody>
+	  {{range .Audition.Rows}}
+	  <tr>
+	    <td><span class="cell-main">{{.Class}}</span><span class="cell-sub">{{.Profile}} profile</span></td>
+	    <td><span class="cell-main mono id">{{.Model}}</span><span class="cell-sub">{{.Effort}} reasoning</span></td>
+	    <td class="num"><span class="cell-main mono">{{.Attempts}}</span><span class="cell-sub">{{.Measured}} measured</span></td>
+	    <td class="num"><span class="cell-main mono">{{.Corrections}}</span><span class="cell-sub">{{.CorrectionRate}} per attempt</span>{{meter .RatePct}}</td>
+	    <td class="mono">{{.Cost}}</td>
+	  </tr>
   {{end}}
   </tbody>
 </table></div>
@@ -458,14 +451,12 @@ they come from the session's own pins each turn, so the map cannot disagree with
 fill it in.{{end}}</p>
 {{if .Repositories}}
 <div class="table-scroll" tabindex="0"><table>
-  <tr><th>Repository</th><th>Contents</th><th>Written by</th><th class="num">Recalled</th><th class="num">Revised</th><th>Updated</th></tr>
-  {{range .Repositories}}
-  <tr><td class="mono id">{{.Repository}}</td>
-      <td>{{if .Described}}{{.Contents}}{{else}}<span class="note">Not described yet</span>{{end}}</td>
-      <td class="note">{{if eq .Source "agent"}}Responder{{else if eq .Source "configured"}}Configuration{{else}}—{{end}}</td>
-      <td class="mono num">{{if eq .Source "agent"}}{{.Recalls}}{{else}}<span class="note">—</span>{{end}}</td>
-      <td class="mono num">{{if eq .Source "agent"}}{{if .Rewrites}}{{.Rewrites}}{{else}}<span class="note">never</span>{{end}}{{else}}<span class="note">—</span>{{end}}</td>
-      <td class="note">{{if eq .Source "agent"}}{{since .Updated}}{{else}}<span class="note">—</span>{{end}}</td></tr>
+	  <tr><th>Repository</th><th>Source</th><th>Memory activity</th><th>Updated</th></tr>
+	  {{range .Repositories}}
+	  <tr><td><span class="cell-main mono id">{{.Repository}}</span><span class="cell-sub">{{if .Described}}{{.Contents}}{{else}}Not described yet{{end}}</span></td>
+	      <td class="note">{{if eq .Source "agent"}}Responder{{else if eq .Source "configured"}}Configuration{{else}}—{{end}}</td>
+	      <td>{{if eq .Source "agent"}}<span class="cell-main mono">{{.Recalls}} recalled</span><span class="cell-sub">{{if .Rewrites}}{{.Rewrites}} revised{{else}}never revised{{end}}</span>{{else}}<span class="note">Not tracked</span>{{end}}</td>
+	      <td class="note">{{if eq .Source "agent"}}{{since .Updated}}{{else}}<span class="note">—</span>{{end}}</td></tr>
   {{end}}
 </table></div>
 {{else}}<p class="empty-state">No repositories are configured.</p>{{end}}
@@ -474,14 +465,13 @@ fill it in.{{end}}</p>
 {{if .Entries}}
 {{$act := .CanAct}}
 <div class="table-scroll" tabindex="0"><table>
-  <tr><th>Subject</th><th>Predicate</th><th>Value</th><th>Scope</th><th class="num">Recalled</th><th class="num">Rewritten</th><th>Expires</th>{{if $act}}<th></th>{{end}}</tr>
-  {{range .Entries}}
-  <tr><td>{{.Subject}}</td><td class="mono">{{.Predicate}}</td><td>{{truncate 60 .Value}}</td>
-      <td class="note">{{.Scope}}</td>
-      <td class="mono num">{{.Recalls}}{{if .Recalls}} · {{since .LastRecalled}}{{end}}</td>
-      <td class="mono num">{{if .Rewrites}}{{.Rewrites}} · <span class="note">{{.LastRewrite}}</span>{{else}}<span class="note">never</span>{{end}}</td>
-      <td class="note">{{stamp .Expires}}</td>
-      {{if $act}}<td>{{template "confirm" confirm "Forget" "The entry is deleted and the removal audited. Responder stops recalling it immediately." "Yes, forget it" "/actions/memory/forget" .ID}}</td>{{end}}</tr>
+	  <tr><th>Memory</th><th>Scope</th><th>Activity</th><th>Expires</th>{{if $act}}<th class="cell-action"></th>{{end}}</tr>
+	  {{range .Entries}}
+	  <tr><td><span class="cell-main">{{.Subject}}</span><span class="cell-sub"><span class="mono">{{.Predicate}}</span> · {{truncate 60 .Value}}</span></td>
+	      <td class="note">{{.Scope}}</td>
+	      <td><span class="cell-main mono">{{.Recalls}} recalled</span><span class="cell-sub">{{if .Recalls}}last {{since .LastRecalled}} · {{end}}{{if .Rewrites}}{{.Rewrites}} rewritten · {{.LastRewrite}}{{else}}never rewritten{{end}}</span></td>
+	      <td class="note">{{stamp .Expires}}</td>
+	      {{if $act}}<td class="cell-action">{{template "confirm" confirm "Forget" "The entry is deleted and the removal audited. Responder stops recalling it immediately." "Yes, forget it" "/actions/memory/forget" .ID}}</td>{{end}}</tr>
   {{end}}
 </table></div>
 {{else}}<p class="empty-state">Nothing saved.</p>{{end}}
@@ -502,11 +492,11 @@ fill it in.{{end}}</p>
 <h2>Conversation memory <span class="note">{{len .Conversations}}</span></h2>
 {{if .Conversations}}
 <div class="table-scroll" tabindex="0"><table>
-  <tr><th>Channel</th><th>Thread</th><th>Repository</th><th class="num">Recalled</th><th>Updated</th></tr>
-  {{range .Conversations}}
-  <tr><td><a href="/conversations/{{.ChannelID}}/{{.Thread}}">{{.Channel}}</a></td>
-      <td class="mono id">{{.Thread}}</td><td class="mono id">{{.Repository}}</td>
-      <td class="mono num">{{.Recalls}}</td><td class="note">{{since .Updated}}</td></tr>
+	  <tr><th>Conversation</th><th>Repository</th><th>Activity</th></tr>
+	  {{range .Conversations}}
+	  <tr><td><a class="cell-main" href="/conversations/{{.ChannelID}}/{{.Thread}}">{{.Channel}}</a><span class="cell-sub mono id">{{.Thread}}</span></td>
+	      <td class="mono id">{{.Repository}}</td>
+	      <td><span class="cell-main mono">{{.Recalls}} recalled</span><span class="cell-sub">updated {{since .Updated}}</span></td></tr>
   {{end}}
 </table></div>
 {{else}}<p class="empty-state">No conversation memory.</p>{{end}}
@@ -514,10 +504,10 @@ fill it in.{{end}}</p>
 <h2>Rollups <span class="note">{{len .Rollups}}</span></h2>
 {{if .Rollups}}
 <div class="table-scroll" tabindex="0"><table>
-  <tr><th>Scope</th><th class="num">Sources</th><th class="num">Recalled</th><th>Period</th></tr>
-  {{range .Rollups}}
-  <tr><td>{{.Scope}}</td><td class="mono num">{{.Sources}}</td><td class="mono num">{{.Recalls}}</td>
-      <td class="note">{{stamp .From}} → {{stamp .To}}</td></tr>
+	  <tr><th>Scope</th><th class="num">Sources</th><th>Activity</th></tr>
+	  {{range .Rollups}}
+	  <tr><td>{{.Scope}}</td><td class="mono num">{{.Sources}}</td>
+	      <td><span class="cell-main mono">{{.Recalls}} recalled</span><span class="cell-sub">{{stamp .From}} → {{stamp .To}}</span></td></tr>
   {{end}}
 </table></div>
 {{else}}<p class="empty-state">Nothing synthesized yet. A rollup is the summary that survives when
@@ -847,25 +837,19 @@ An amber mark on the baseline is a day whose attempts nobody measured — not a 
 {{if .Rows}}
 {{$money := .Money}}
 <div class="table-scroll" tabindex="0"><table>
-  <tr><th>{{.Column}}</th><th class="num">Attempts</th><th class="num">Tokens</th><th class="num">Share</th><th class="num">Fresh in</th>
-      <th class="num">Cached in</th><th class="num">Out</th><th class="num">Reasoning</th><th class="num">Cache</th>
-      <th class="num">Wall clock</th>{{if $money}}<th class="num">Cost</th>{{end}}<th></th></tr>
-  {{range .Rows}}
-  <tr><td>{{.Label}}{{if .Sub}} <span class="mono">{{.Sub}}</span>{{end}}</td>
-      <td class="mono num">{{.Attempts}}{{if and .Recorded (ne .Measured .Attempts)}}
-        <span class="note">({{.Measured}} measured)</span>{{end}}</td>
-      {{if .Recorded}}
-      <td class="mono num" title="{{exact .Total}} tokens">{{tokens .Total}}</td><td class="mono num share-cell"><span>{{.Share}}</span>{{meter .SharePct}}</td>
-      <td class="mono num">{{tokens .Input}}</td><td class="mono num">{{tokens .Cached}}</td>
-      <td class="mono num">{{tokens .Output}}</td><td class="mono num">{{tokens .Reasoning}}</td>
-      <td class="mono num">{{.CacheLabel}}</td>
-      {{else}}
-      <td class="note" colspan="7">not measured</td>
-      {{end}}
-      <td class="mono num">{{if .Clock.Recorded}}<span title="{{.Clock.Split}} · over {{.Clock.TimedTurns}} timed turns">{{.Clock.Cell}}</span>{{else}}<span class="note">not timed</span>{{end}}</td>
-      {{if $money}}<td class="mono num">{{if .Cost}}{{.Cost}}{{else}}<span class="note">—</span>{{end}}</td>{{end}}
-      <td>{{if .Href}}<a href="{{.Href}}">episodes →</a>{{end}}</td></tr>
-  {{end}}
+	  <tr><th>{{.Column}}</th><th class="num">Usage</th><th class="num">Input</th><th class="num">Output</th><th class="num">Performance</th>{{if $money}}<th class="num">Cost</th>{{end}}</tr>
+	  {{range .Rows}}
+	  <tr><td><span class="cell-main">{{.Label}}</span>{{if .Sub}}<span class="cell-sub mono">{{.Sub}}</span>{{end}}{{if .Href}}<a class="cell-sub" href="{{.Href}}">episodes →</a>{{end}}</td>
+	      <td class="num"><span class="cell-main mono">{{.Attempts}} attempts</span>{{if .Recorded}}<span class="cell-sub">{{tokens .Total}} tokens · {{.Share}} share{{if ne .Measured .Attempts}} · {{.Measured}} measured{{end}}</span>{{else}}<span class="cell-sub">not measured</span>{{end}}</td>
+	      {{if .Recorded}}
+	      <td class="num"><span class="cell-main mono">{{tokens .Input}} fresh</span><span class="cell-sub">{{tokens .Cached}} cached</span></td>
+	      <td class="num"><span class="cell-main mono">{{tokens .Output}} out</span><span class="cell-sub">{{tokens .Reasoning}} reasoning</span></td>
+	      <td class="num"><span class="cell-main mono">{{.CacheLabel}} cache</span><span class="cell-sub">{{if .Clock.Recorded}}<span title="{{.Clock.Split}} · over {{.Clock.TimedTurns}} timed turns">{{.Clock.Cell}} wall clock</span>{{else}}not timed{{end}}</span></td>
+	      {{else}}
+	      <td class="note num" colspan="3">Token and timing detail unavailable</td>
+	      {{end}}
+	      {{if $money}}<td class="num mono">{{if .Cost}}{{.Cost}}{{else}}<span class="note">—</span>{{end}}</td>{{end}}</tr>
+	  {{end}}
 </table></div>
 {{else}}<p class="empty-state">No attempt in this window.</p>{{end}}
 {{end}}
@@ -923,13 +907,13 @@ listed here so nothing that was written down is out of reach.</p>
 reopens its episode; a run that cannot be retried says why, because "no button" and "no reason"
 are different answers.</p>
 <div class="table-scroll" tabindex="0"><table>
-  <tr><th>Episode</th><th>Channel</th><th>Kind</th><th class="num">Attempts</th><th>When</th><th></th></tr>
-  {{$act := .CanAct}}
-  {{range .Runs}}
-  <tr><td>{{if .EpisodeID}}<a href="/episodes/{{.EpisodeID}}">open →</a>{{else}}<span class="note">no episode</span>{{end}}</td>
-      <td>{{.Channel}}</td><td>{{.Mode}}</td><td class="mono num">{{.Attempts}}</td>
-      <td class="note">{{since .Updated}}</td>
-      <td>{{if $act}}{{if .Retryable}}{{template "confirm" confirm "Retry" "The run goes back in the queue and its episode reopens." "Yes, run it again" "/actions/failures/retry" .RunID}}{{else}}<span class="note">{{.Why}}</span>{{end}}{{end}}</td></tr>
+	  <tr><th>Work</th><th>Run</th><th>Updated</th><th class="cell-action"></th></tr>
+	  {{$act := .CanAct}}
+	  {{range .Runs}}
+	  <tr><td>{{if .EpisodeID}}<a class="cell-main" href="/episodes/{{.EpisodeID}}">Open episode →</a>{{else}}<span class="cell-main note">No episode</span>{{end}}<span class="cell-sub">{{.Channel}}</span></td>
+	      <td><span class="cell-main">{{.Mode}}</span><span class="cell-sub mono">{{.Attempts}} attempt{{if ne .Attempts 1}}s{{end}}</span></td>
+	      <td class="note">{{since .Updated}}</td>
+	      <td class="cell-action">{{if $act}}{{if .Retryable}}{{template "confirm" confirm "Retry" "The run goes back in the queue and its episode reopens." "Yes, run it again" "/actions/failures/retry" .RunID}}{{else}}<span class="note">{{.Why}}</span>{{end}}{{end}}</td></tr>
   {{end}}
 </table></div>
 {{else}}<p class="empty-state">No runs behind this cause. Runs are kept on the operational horizon,
@@ -960,11 +944,10 @@ so a cause whose runs have aged out keeps its name and loses its evidence.</p>{{
 <h2>Learned knowledge <span class="note">{{len .Knowledge}}</span></h2>
 {{if .Knowledge}}
 <div class="table-scroll" tabindex="0"><table>
-  <tr><th>Subject</th><th>Statement</th><th>Kind</th><th>Status</th><th>Confidence</th></tr>
-  {{range .Knowledge}}
-  <tr><td>{{.Subject}}</td><td>{{truncate 220 .Statement}}</td><td class="mono">{{.Kind}}</td>
-      <td><span class="pill{{if eq .Status "accepted"}} good{{else if eq .Status "superseded"}} bad{{end}}">{{.Status}}</span></td>
-      <td class="mono">{{.Confidence}}</td></tr>
+	  <tr><th>Knowledge</th><th>Kind</th><th>State</th></tr>
+	  {{range .Knowledge}}
+	  <tr><td><span class="cell-main">{{.Subject}}</span><span class="cell-sub">{{truncate 220 .Statement}}</span></td><td class="mono">{{.Kind}}</td>
+	      <td><span class="pill{{if eq .Status "accepted"}} good{{else if eq .Status "superseded"}} bad{{end}}">{{.Status}}</span><span class="cell-sub mono">{{.Confidence}} confidence</span></td></tr>
   {{end}}
 </table></div>
 {{else}}<p class="empty-state">Nothing learned in this conversation yet.</p>{{end}}

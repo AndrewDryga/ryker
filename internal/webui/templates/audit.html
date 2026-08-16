@@ -7,10 +7,10 @@ it and what came of it.</p>
 <h2>By kind</h2>
 {{if .Kinds}}
 <div class="table-scroll" tabindex="0"><table>
-  <tr><th>Kind</th><th>Count</th><th>Outcomes</th><th>Most recent</th></tr>
-  {{range .Kinds}}
-  <tr><td><a href="/audit/{{.Kind}}">{{.Kind}}</a></td><td class="mono num">{{.Count}}</td>
-      <td class="note">{{truncate 90 .Outcomes}}</td><td class="note">{{since .Latest}}</td></tr>
+	  <tr><th>Kind</th><th>Outcomes</th><th>Latest</th></tr>
+	  {{range .Kinds}}
+	  <tr><td><a class="cell-main" href="/audit/{{.Kind}}">{{.Kind}}</a><span class="cell-sub">{{.Count}} event{{if ne .Count 1}}s{{end}}</span></td>
+	      <td class="note">{{truncate 90 .Outcomes}}</td><td class="note">{{since .Latest}}</td></tr>
   {{end}}
 </table></div>
 {{else}}<p class="empty-state">Nothing has been audited.</p>{{end}}
@@ -49,14 +49,12 @@ it and what came of it.</p>
 
 {{define "auditrows"}}
 <div class="table-scroll" tabindex="0"><table>
-  <tr><th>What</th><th>Outcome</th><th>Actor</th><th>Detail</th><th>Where</th><th>When</th></tr>
-  {{range .}}
-  <tr><td><a href="/audit/{{.Kind}}">{{.Kind}}</a></td>
-      <td><span class="pill{{if eq .Outcome "failed"}} bad{{else if eq .Outcome "pending_approval"}} warn{{end}}">{{.Outcome}}</span>{{if .Repeats}} <span class="rep">×{{.Repeats}}{{if .Span}} over {{.Span}}{{end}}</span>{{end}}</td>
-      <td class="note">{{.Whom}}{{if or (eq .Whom "person") (eq .Whom "app")}} <span class="mono">{{.Actor}}</span>{{end}}</td>
-      <td>{{truncate 220 .Detail}}</td>
-      <td class="note">{{if .EpisodeID}}<a href="/episodes/{{.EpisodeID}}">episode →</a>{{else if .IncidentID}}<a href="/incidents/{{.IncidentID}}">room →</a>{{end}}</td>
-      <td class="note">{{since .At}}</td></tr>
+	  <tr><th>Event</th><th>Outcome</th><th>Actor</th><th>Context</th></tr>
+	  {{range .}}
+	  <tr><td><a class="cell-main" href="/audit/{{.Kind}}">{{.Kind}}</a><span class="cell-sub">{{truncate 220 .Detail}}</span></td>
+	      <td><span class="pill{{if eq .Outcome "failed"}} bad{{else if eq .Outcome "pending_approval"}} warn{{end}}">{{.Outcome}}</span>{{if .Repeats}} <span class="rep">×{{.Repeats}}{{if .Span}} over {{.Span}}{{end}}</span>{{end}}</td>
+	      <td><span class="cell-main">{{.Whom}}</span>{{if or (eq .Whom "person") (eq .Whom "app")}}<span class="cell-sub mono">{{.Actor}}</span>{{end}}</td>
+	      <td><span class="cell-main note">{{if .EpisodeID}}<a href="/episodes/{{.EpisodeID}}">episode →</a>{{else if .IncidentID}}<a href="/incidents/{{.IncidentID}}">room →</a>{{else}}—{{end}}</span><span class="cell-sub">{{since .At}}</span></td></tr>
   {{end}}
 </table></div>
 {{end}}
