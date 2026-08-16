@@ -650,3 +650,64 @@ func TestEpisodeWakeupSurvivesLeaseAndResolvesWithFence(t *testing.T) {
 		t.Fatalf("wakeups = %+v, %v", items, err)
 	}
 }
+
+// A manifest remembers which rung of the model ladder its briefing went out on.
+//
+// It is the only record of WHICH MODEL was taught the result contract. A
+// repeated correction escalates the retry up the session policy's ladder, and a
+// ladder step is a different model; without this column the delta-turn decision
+// can only see that a session holds a briefing, never that the model about to
+// read that session was not the one briefed. On tenant on 2026-08-16 that cost
+// two envelope rounds — about $0.85 and four minutes — of a fresh model
+// answering `unknown field "completion_contract"` and then `unknown field
+// "record_evidence"` about a schema the previous rung had been taught.
+func TestAContextManifestRemembersTheRungItsBriefingWentOutOn(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, episode := queueKernelEpisode(t, st, "target-floor")
+	escalated, err := st.CreateContextManifest(ctx, core.ContextManifest{
+		EpisodeID: episode.ID, AttemptID: run.AttemptID, TargetFloor: 2,
+		SubmittedPrompt: "SYSTEM: the whole briefing",
+		References: []core.ContextReference{{
+			Kind: "slack_message", SourceRef: "slack:COPS:1.0", Visibility: "channel",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := st.GetContextManifest(ctx, escalated.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.TargetFloor != 2 {
+		t.Fatalf("the manifest reads back at rung %d, so nothing on disk says "+
+			"which model was taught this contract", loaded.TargetFloor)
+	}
+	// The delta-turn decision reads the episode's latest manifest and no other,
+	// so a rung the row holds and this reader drops is a rung nothing enforces.
+	latest, err := st.GetLatestContextManifest(ctx, episode.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.TargetFloor != 2 {
+		t.Fatalf("the standing briefing reads back at rung %d", latest.TargetFloor)
+	}
+	ordinary, err := st.CreateContextManifest(ctx, core.ContextManifest{
+		EpisodeID: episode.ID, AttemptID: run.AttemptID, ParentManifestID: escalated.ID,
+		SubmittedPrompt: "SYSTEM: the whole briefing",
+		References: []core.ContextReference{{
+			Kind: "slack_message", SourceRef: "slack:COPS:1.0", Visibility: "channel",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded, err := st.GetContextManifest(ctx, ordinary.ID); err != nil ||
+		loaded.TargetFloor != 0 {
+		t.Fatalf("an unescalated briefing recorded rung %d: %v", loaded.TargetFloor, err)
+	}
+}

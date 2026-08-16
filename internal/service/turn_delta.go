@@ -55,11 +55,20 @@ func (s *Service) standingBriefing(
 			// catches the intent before the resolution can disagree.
 			Replay:  run.SessionGeneration > 0 && state.Generation > run.SessionGeneration,
 			Handoff: isSessionHandoffRun(run),
+			// Read from the run's own envelope rather than from the state
+			// above, because this is called before the bind that rewrites it
+			// and the envelope on disk is what the submission will carry.
+			TargetFloor: agentRunTargetFloor(run.Context),
 		},
 		turndelta.Standing{
 			ManifestID: previous.ID,
 			Preset:     previous.Preset,
 			Prompt:     previous.SubmittedPrompt,
+			// The rung this briefing went out on, which is the only record of
+			// which model was taught the contract. A manifest written before
+			// the column existed reads zero, so the first escalated retry of an
+			// old episode re-briefs — the safe direction.
+			TargetFloor: previous.TargetFloor,
 			Contract: turndelta.Contract{
 				Prompt:        previous.PromptVersion,
 				Investigation: previous.ContractVersion,

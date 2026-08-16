@@ -20,6 +20,22 @@ func cyclingCorrectionFixture(
 	t *testing.T, channel, inputID string,
 ) (context.Context, config.Config, *store.Store, *Service, *fakeCoop, core.SlackInput) {
 	t.Helper()
+	// Returned on EVERY submission, not once: the run being reproduced is a
+	// model that answers the same unusable way every round, and a queue that
+	// drains would leave the second turn running forever instead.
+	return cyclingCorrectionFixtureAnswering(t, channel, inputID,
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,`+
+			`"ownership":3,"contribution":"decision","material":true},`+
+			`"reason":"checked production","operations":[{"id":"complete",`+
+			`"type":"complete_episode","completion":{"message":"Production is healthy."}}]}`)
+}
+
+// cyclingCorrectionFixtureAnswering is the same drive against a chosen answer,
+// so a case can pick which correction class the loop keeps producing.
+func cyclingCorrectionFixtureAnswering(
+	t *testing.T, channel, inputID, answer string,
+) (context.Context, config.Config, *store.Store, *Service, *fakeCoop, core.SlackInput) {
+	t.Helper()
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	cfg.Limits.MaxAgentRunAttempts = 5
@@ -29,14 +45,7 @@ func cyclingCorrectionFixture(
 	}
 	t.Cleanup(func() { st.Close() })
 	coopClient := newFakeCoop()
-	// Returned on EVERY submission, not once: the run being reproduced is a
-	// model that answers the same unusable way every round, and a queue that
-	// drains would leave the second turn running forever instead.
-	coopClient.completeOnSubmit =
-		`{"action":"reply","attention":{"addressee":"responder","confidence":3,` +
-			`"ownership":3,"contribution":"decision","material":true},` +
-			`"reason":"checked production","operations":[{"id":"complete",` +
-			`"type":"complete_episode","completion":{"message":"Production is healthy."}}]}`
+	coopClient.completeOnSubmit = answer
 	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
 	input := core.SlackInput{
 		ID: inputID, EnvelopeID: "env-" + inputID, EventID: "event-" + inputID,
@@ -123,8 +132,17 @@ func TestARepeatedCorrectionClassEscalatesTheRetryUpTheLadder(t *testing.T) {
 	// trace says why the same question came back on a different model.
 	escalations := 0
 	for _, entry := range auditOutcomes(t, cfg, "result.correction", "") {
-		if strings.Contains(entry, "policy ladder rung 1") {
-			escalations++
+		if !strings.Contains(entry, "policy ladder rung 1") {
+			continue
+		}
+		escalations++
+		// A rung is a different model, so the escalated retry also carries the
+		// full briefing again. The note has to say so: without it the trace
+		// shows a prompt that went from twelve kilobytes back to a hundred and
+		// forty with nothing recorded to explain it, and the reader's first
+		// guess is a delta-turn regression.
+		if !strings.Contains(entry, "The retry carries the full briefing again.") {
+			t.Fatalf("the escalation trace does not explain the larger prompt: %q", entry)
 		}
 	}
 	if escalations != 1 {
@@ -211,4 +229,66 @@ func TestAShapeOrRejectedCorrectionNeverClimbsTheLadder(t *testing.T) {
 	if floor := escalationFloorForRepeats(4); floor != 3 {
 		t.Errorf("a fourth correction asked for rung %d, want 3", floor)
 	}
+}
+
+// A model that has just been re-briefed owes nothing to the rounds before it.
+//
+// Raising the floor also restates the whole briefing, because the rung it
+// raises to is a different model. That model has not yet failed to read
+// anything, so carrying the previous rung's `unreadable` tally forward would
+// charge it for a schema it had never been shown — on tenant on 2026-08-16 the
+// escalated model answered `unknown field "completion_contract"` and then
+// `unknown field "record_evidence"`, two rounds spent learning a contract the
+// host had not sent it, against a counter that was already at its limit.
+//
+// Deliberately only this class, and deliberately not the run-wide budget:
+// `StructuredCorrections` is the hard bound on how long one run may argue with
+// the model, and a reset there would turn a bounded loop into an unbounded one.
+func TestRebriefedModelStartsWithAFreshUnreadableCount(t *testing.T) {
+	// The recorded shape of the production failure: a well-formed envelope
+	// carrying a field the result contract does not have, which strict decoding
+	// refuses as unreadable rather than merely incomplete.
+	ctx, _, st, svc, _, input := cyclingCorrectionFixtureAnswering(
+		t, "CREBRIEF", "rebriefed-model",
+		`{"action":"reply","attention":{"addressee":"responder","confidence":3,`+
+			`"ownership":3,"contribution":"decision","material":true},`+
+			`"reason":"checked production","completion_contract":{"status":"decision_ready"},`+
+			`"operations":[{"id":"complete","type":"complete_episode",`+
+			`"completion":{"message":"Production is healthy."}}]}`,
+	)
+	runCorrectionRounds(t, ctx, st, svc, input, 2)
+
+	run, err := st.GetAgentRun(ctx, mustRunBySource(t, ctx, st, input).ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decodeWatchRunContext(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if floor := agentRunTargetFloor(run.Context); floor != 1 {
+		t.Fatalf("two unreadable answers left the run on rung %d, so this test "+
+			"never reached the escalation it is about: %s", floor, run.LastError)
+	}
+	if repeats := state.CorrectionClasses[string(correctionUnreadable)]; repeats != 0 {
+		t.Fatalf("the re-briefed model starts owing %d unreadable rounds it did "+
+			"not spend", repeats)
+	}
+	// The hard bound is untouched. It is what stops a run arguing forever, and
+	// the reset above must never be mistaken for a second chance at it.
+	if state.StructuredCorrections < 2 {
+		t.Fatalf("the run-wide correction budget was reset to %d; only the class "+
+			"counter starts fresh", state.StructuredCorrections)
+	}
+}
+
+func mustRunBySource(
+	t *testing.T, ctx context.Context, st *store.Store, input core.SlackInput,
+) core.AgentRun {
+	t.Helper()
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return run
 }

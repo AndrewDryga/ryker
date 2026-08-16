@@ -1263,11 +1263,21 @@ type ContextManifest struct {
 	// GetLatestContextManifest: the delta-turn decision reads that path on every
 	// turn and has no use for a hundred kilobytes of archive.
 	RetainedPrompt string
-	Omissions      []string
-	CreatedAt      time.Time
-	References     []ContextReference
-	Usage          ContextUsage
-	Latency        ContextLatency
+	// TargetFloor is the rung of the session policy's target ladder this turn
+	// was submitted at or above — the floor a repeated correction raised, not
+	// the rung Coop happened to answer on. Provider, Model and ReasoningEffort
+	// above record who answered; this records what the host asked for, and it
+	// is the only thing on disk that says WHICH MODEL was handed this briefing.
+	//
+	// The next turn's delta decision reads it. A retry escalated above the rung
+	// its standing briefing went out on is answered by a model that never read
+	// that briefing, and must be briefed again.
+	TargetFloor int
+	Omissions   []string
+	CreatedAt   time.Time
+	References  []ContextReference
+	Usage       ContextUsage
+	Latency     ContextLatency
 }
 
 // ContextArtifact is the retained body of one bounded input artifact handed

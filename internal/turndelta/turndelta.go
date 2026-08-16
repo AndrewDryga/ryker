@@ -69,6 +69,11 @@ type Attempt struct {
 	// Handoff an attempt that opens its own session to retire another.
 	Replay  bool
 	Handoff bool
+	// TargetFloor is the rung of the session policy's target ladder this
+	// attempt will not be answered below. A repeated correction raises it, and
+	// a raised rung is a different model — so it is a statement about WHO is
+	// about to answer, not about how hard they will try.
+	TargetFloor int
 }
 
 // Contract is the triple a briefing teaches: how to read the prompt, what the
@@ -91,6 +96,9 @@ type Standing struct {
 	// manifest is frozen BEFORE the submit it describes, so its existence alone
 	// proves only that the host meant to send something.
 	Delivered bool
+	// TargetFloor is the rung this briefing was submitted at, frozen on its
+	// manifest. It is the only record of which model was taught the contract.
+	TargetFloor int
 }
 
 // Decision is the answer and the sentence explaining it. Reason is recorded
@@ -120,6 +128,8 @@ const (
 	ReasonPresetChanged        = "the session policy changed mid-episode"
 	ReasonFreshSessionReplay   = "this attempt replays in a fresh session"
 	ReasonSessionHandoff       = "a session handoff opens the session it speaks into"
+	ReasonRungEscalated        = "the retry is delivered on a higher policy rung than " +
+		"the standing briefing was; the model answering has not read it"
 )
 
 // Decide reports whether this attempt may submit a delta turn.
@@ -143,6 +153,21 @@ func Decide(
 		return full(ReasonAttemptAlreadyFrozen)
 	case standing.ManifestID == "" || !standing.Delivered:
 		return full(ReasonNoStandingBriefing)
+	case attempt.TargetFloor > standing.TargetFloor:
+		// The session holds the briefing and a different model is about to read
+		// the session. Every other clause here asks whether the CONVERSATION
+		// still holds the standing briefing; this one asks whether the model
+		// answering has read it, and a ladder step means it has not.
+		//
+		// Measured on tenant on 2026-08-16: an escalated retry answered
+		// `unknown field "completion_contract"` and then `unknown field
+		// "record_evidence"` — two envelope rounds, about $0.85 and four
+		// minutes, spent learning a schema the previous rung had been taught
+		// and this one had never seen.
+		//
+		// Strictly greater, so the ordinary retries that follow an escalation
+		// stay deltas: they submit at the rung their own briefing went out on.
+		return full(ReasonRungEscalated)
 	case attempt.TurnID != "":
 		return full(ReasonTurnInFlight)
 	case session.State != "open":

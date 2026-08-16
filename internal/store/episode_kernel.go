@@ -480,12 +480,14 @@ func (s *Store) CreateContextManifest(
 		INSERT INTO context_manifests (
 		  id, episode_id, attempt_id, parent_manifest_id, version,
 		  prompt_version, contract_version, tool_schema_version, preset,
-		  provider, model, reasoning_effort, submitted_prompt, omissions_json, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  provider, model, reasoning_effort, submitted_prompt, target_floor,
+		  omissions_json, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		manifest.ID, manifest.EpisodeID, manifest.AttemptID, manifest.ParentManifestID,
 		manifest.Version, manifest.PromptVersion, manifest.ContractVersion,
 		manifest.ToolSchemaVersion, manifest.Preset, manifest.Provider, manifest.Model,
-		manifest.ReasoningEffort, manifest.SubmittedPrompt, omissions, manifest.CreatedAt.Format(timestampFormat),
+		manifest.ReasoningEffort, manifest.SubmittedPrompt, manifest.TargetFloor,
+		omissions, manifest.CreatedAt.Format(timestampFormat),
 	); err != nil {
 		return core.ContextManifest{}, err
 	}
@@ -616,7 +618,8 @@ func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, episode_id, attempt_id, parent_manifest_id, version,
 		       prompt_version, contract_version, tool_schema_version, preset,
-		       provider, model, reasoning_effort, submitted_prompt, omissions_json, created_at,
+		       provider, model, reasoning_effort, submitted_prompt, target_floor,
+		       omissions_json, created_at,
 		       usage_input_tokens, usage_cached_input_tokens,
 		       usage_output_tokens, usage_reasoning_tokens, usage_cost_usd,
 		       usage_costed_turns,
@@ -627,7 +630,8 @@ func (s *Store) GetContextManifest(ctx context.Context, manifestID string) (core
 		&item.ID, &item.EpisodeID, &item.AttemptID, &item.ParentManifestID,
 		&item.Version, &item.PromptVersion, &item.ContractVersion,
 		&item.ToolSchemaVersion, &item.Preset, &item.Provider, &item.Model,
-		&item.ReasoningEffort, &item.SubmittedPrompt, &omissionsJSON, &created,
+		&item.ReasoningEffort, &item.SubmittedPrompt, &item.TargetFloor,
+		&omissionsJSON, &created,
 		&item.Usage.InputTokens, &item.Usage.CachedInputTokens,
 		&item.Usage.OutputTokens, &item.Usage.ReasoningTokens,
 		&item.Usage.CostUSD, &item.Usage.CostedTurns,

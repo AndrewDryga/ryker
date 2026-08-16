@@ -88,6 +88,26 @@ func (s *Service) escalateRepeatedCorrection(
 		}
 		return 0
 	}
+	// The rung that answers next is a different model, and turndelta hands it
+	// the whole briefing again for that reason. It has not yet failed to read
+	// anything, so the previous rung's unreadable tally is not its debt: on
+	// tenant on 2026-08-16 an escalated model spent its first two rounds
+	// answering `unknown field "completion_contract"` and `unknown field
+	// "record_evidence"` about a schema it had never been shown, against a
+	// counter that was already spent.
+	//
+	// Only this class, and never the run-wide budget. `incomplete` is a claim
+	// about the WORK rather than about one model's reading — a bigger model
+	// that still cannot finish the investigation should keep climbing — and
+	// spendStructuredCorrection stays the hard bound on the whole argument.
+	if err := s.store.ClearAgentRunCorrectionClass(
+		ctx, run.ID, string(correctionUnreadable),
+	); err != nil && s.log != nil && ctx.Err() == nil {
+		s.log.Warn(
+			"could not clear a re-briefed run's unreadable count",
+			"run", run.ID, "error", err,
+		)
+	}
 	return floor
 }
 
@@ -95,10 +115,17 @@ func (s *Service) escalateRepeatedCorrection(
 // when the retry moved up the ladder, so the episode trace says why the same
 // question came back on a different model rather than leaving an operator to
 // infer it from the manifest.
+//
+// It names the re-briefing too. A rung is a different model and that model is
+// handed the whole briefing again, so the retry's prompt jumps from a
+// twelve-kilobyte delta back to a hundred and forty kilobytes; without this
+// sentence the trace shows that jump with nothing beside it, and the first
+// guess a reader makes is a delta-turn regression.
 func escalationAuditNote(class correctionClass, floor int) string {
 	return fmt.Sprintf(
 		"\n\n[host] %s twice on this attempt: the retry is delivered no lower "+
-			"than policy ladder rung %d.", class, floor,
+			"than policy ladder rung %d. The retry carries the full briefing again.",
+		class, floor,
 	)
 }
 

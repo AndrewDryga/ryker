@@ -86,6 +86,11 @@ func (s *Service) ensureAttemptContextManifest(
 		Model:           model,
 		ReasoningEffort: effort,
 		SubmittedPrompt: prompt,
+		// The rung the host ASKED for, frozen with the prompt it asked for it
+		// with. The columns above say who answered and cannot answer the
+		// question the next turn asks — whether the model about to read this
+		// session is the one this briefing was written for.
+		TargetFloor: agentRunTargetFloor(run.Context),
 		// Redacted before the write, never after: this copy outlives the turn
 		// and is the one an export carries. The raw column above is transport.
 		RetainedPrompt: s.sanitizer.Unbounded().Text(prompt),

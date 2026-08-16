@@ -281,3 +281,43 @@ func TestADeltaRepeatsTheInputAndCorrectionEvenWhenTheBriefingHadThem(t *testing
 			"carries because the briefing happened to contain them:\n%s", prompt)
 	}
 }
+
+// A retry delivered on a higher rung than the standing briefing is briefed
+// again, because the model that read that briefing is not the model answering.
+//
+// A repeated correction escalates the retry up the session policy's ladder, and
+// a ladder step is a DIFFERENT model: on tenant on 2026-08-16 the second
+// `unreadable` correction moved an attempt from gpt-5.6-terra to Claude Opus,
+// and the retry went out as a delta on the premise that "the standing briefing
+// is already in this session". It was — the previous rung had read it. The new
+// model had never seen the result contract, and its first two answers were
+// `unknown field "completion_contract"` and `unknown field "record_evidence"`:
+// two envelope rounds, about $0.85 and four minutes, spent learning a schema
+// the host could have restated. It only answered correctly once a new attempt
+// handed it the full 136 KB briefing.
+//
+// Equal floors stay a delta. Every ordinary retry of an escalated run submits
+// at the rung it already escalated to, and re-briefing those would give back
+// the saving for a model that has read the briefing.
+func TestEscalatedRetryIsBriefedInFull(t *testing.T) {
+	session, attempt, standing, contract := eligible()
+	attempt.TargetFloor, standing.TargetFloor = 1, 0
+	decision := turndelta.Decide(session, attempt, standing, contract)
+	if decision.Delta {
+		t.Fatal("a retry that moved up the ladder leaned on a briefing the model " +
+			"answering it has never read")
+	}
+	if decision.Reason != turndelta.ReasonRungEscalated {
+		t.Fatalf("reason = %q, want %q", decision.Reason, turndelta.ReasonRungEscalated)
+	}
+	if decision.ParentManifestID != "" {
+		t.Fatalf("a full briefing must not claim a delta parent; got %q",
+			decision.ParentManifestID)
+	}
+
+	attempt.TargetFloor, standing.TargetFloor = 1, 1
+	if decision := turndelta.Decide(session, attempt, standing, contract); !decision.Delta {
+		t.Fatalf("a retry on the rung its briefing was submitted at restated it: %s",
+			decision.Reason)
+	}
+}

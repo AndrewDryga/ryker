@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 83
+const currentSchemaVersion = 84
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -468,4 +468,21 @@ var migrations = map[int]string{
 	// what those endings looked like when it did. The DDL and the fingerprint's
 	// reasoning live in migrationddl.V83.
 	83: migrationddl.V83,
+	// Which rung of the session policy's model ladder a turn was submitted at.
+	//
+	// The provider, model and effort columns beside it record who answered; a
+	// repeated correction raises this floor and the NEXT turn is what needs to
+	// know, because a raised rung is a different model and a delta turn tells it
+	// that a briefing it has never read "still applies in full". Two envelope
+	// rounds on tenant on 2026-08-16 — about $0.85 and four minutes — were a
+	// fresh model answering `unknown field "completion_contract"` and then
+	// `unknown field "record_evidence"` about a schema the previous rung had
+	// been taught.
+	//
+	// Every existing row backfills to 0, which claims its briefing went out on
+	// the ordinary rung. Where that is wrong it is wrong in the safe direction:
+	// the first escalated retry after this migration re-briefs a model that may
+	// already have read one, and a briefing sent twice costs bytes while a
+	// briefing never sent costs the rounds above.
+	84: `ALTER TABLE context_manifests ADD COLUMN target_floor INTEGER NOT NULL DEFAULT 0;`,
 }

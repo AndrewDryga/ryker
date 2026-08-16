@@ -18,10 +18,11 @@ import (
 // betweenTurns runs after the first turn has reached its terminal and before the
 // retry is prepared, which is the only window where a mid-episode change can
 // make the standing briefing stale. It is where the fallback cases spoil the one
-// fact they are about.
+// fact they are about, and it is handed the run in exactly the shape the lease
+// path will find it so a case can also ask what the decision would be.
 func correctedRetryPrompts(
 	t *testing.T,
-	betweenTurns func(*fakeCoop),
+	betweenTurns func(*fakeCoop, *Service, *store.Store, core.AgentRun),
 ) (*fakeCoop, *Service, *store.Store, string) {
 	t.Helper()
 	ctx := context.Background()
@@ -79,7 +80,7 @@ func correctedRetryPrompts(
 			run.State, run.LastError, err)
 	}
 	if betweenTurns != nil {
-		betweenTurns(coopClient)
+		betweenTurns(coopClient, svc, st, run)
 	}
 	finishQueuedAgentRun(t, ctx, svc)
 	if len(coopClient.submitPrompts) != 2 {
@@ -172,7 +173,9 @@ func TestAFollowUpIntoALiveSessionSendsADeltaNotAnotherBriefing(t *testing.T) {
 // model keeps answering to instructions that have been retired, and the host has
 // no way to notice because the conversation looks healthy.
 func TestAPolicyChangeMidEpisodeRestatesTheWholeBriefing(t *testing.T) {
-	coopClient, _, st, episodeID := correctedRetryPrompts(t, func(client *fakeCoop) {
+	coopClient, _, st, episodeID := correctedRetryPrompts(t, func(
+		client *fakeCoop, _ *Service, _ *store.Store, _ core.AgentRun,
+	) {
 		client.session.Policy = "watch-operator"
 	})
 	briefing, followUp := coopClient.submitPrompts[0], coopClient.submitPrompts[1]
@@ -196,5 +199,84 @@ func TestAPolicyChangeMidEpisodeRestatesTheWholeBriefing(t *testing.T) {
 		if strings.HasPrefix(reference.SourceRef, "delta_of:") {
 			t.Fatalf("a full briefing recorded itself as a delta: %+v", reference)
 		}
+	}
+}
+
+// A retry that moved up the model ladder is briefed again.
+//
+// A repeated correction escalates the retry to a higher rung of the session
+// policy's target ladder, and a rung is a DIFFERENT model — on tenant on
+// 2026-08-16, gpt-5.6-terra to Claude Opus. The session still held the standing
+// briefing and the delta turn therefore told the new model that a briefing it
+// had never read "still applies in full". Its first two answers were `unknown
+// field "completion_contract"` and `unknown field "record_evidence"`: two
+// envelope rounds, about $0.85 and four minutes, spent learning a result
+// schema the host had on hand and could have restated. It answered correctly
+// only once a fresh attempt handed it the full 136 KB briefing.
+//
+// The control matters as much as the case. The same run, one line earlier, is
+// delta-eligible on every other clause, so what this proves is the rung and not
+// some other doubt tripping first.
+func TestRungEscalationRebriefsTheContract(t *testing.T) {
+	ctx := context.Background()
+	var beforeEscalation, afterEscalation turndelta.Decision
+	coopClient, _, st, episodeID := correctedRetryPrompts(t, func(
+		client *fakeCoop, svc *Service, st *store.Store, run core.AgentRun,
+	) {
+		decide := func(run core.AgentRun) turndelta.Decision {
+			t.Helper()
+			state, err := decodeWatchRunContext(run)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The projection sits where this run left it, which is what makes
+			// the run delta-eligible in the first place.
+			return svc.standingBriefing(
+				ctx, run, client.session,
+				run.SessionGeneration, run.CoopEventSequence, state,
+			)
+		}
+		beforeEscalation = decide(run)
+		if err := st.SetAgentRunTargetFloor(ctx, run.ID, 1); err != nil {
+			t.Fatal(err)
+		}
+		escalated, err := st.GetAgentRun(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		afterEscalation = decide(escalated)
+	})
+
+	if !beforeEscalation.Delta {
+		t.Fatalf("the control turn was not delta-eligible, so this test proves "+
+			"nothing about the rung: %s", beforeEscalation.Reason)
+	}
+	if afterEscalation.Delta {
+		t.Fatalf("a retry escalated above its briefing's rung leaned on that "+
+			"briefing: %s", afterEscalation.Reason)
+	}
+	if afterEscalation.Reason != turndelta.ReasonRungEscalated {
+		t.Fatalf("reason = %q, want %q", afterEscalation.Reason,
+			turndelta.ReasonRungEscalated)
+	}
+
+	// And the turn that actually went out carries it. The static instruction
+	// block rides every full briefing and no delta, so its presence is the
+	// cheapest proof the new model was taught the contract again.
+	followUp := coopClient.submitPrompts[1]
+	if strings.Contains(followUp, "<host-standing-briefing>") ||
+		!strings.Contains(followUp, "<host-tool-transport>") {
+		t.Fatalf("the escalated retry went out as a delta:\n%.2000s", followUp)
+	}
+	latest, err := st.GetLatestContextManifest(ctx, episodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The rung has to reach the manifest, or the NEXT retry compares itself
+	// against a briefing that claims it went out on the ordinary rung and
+	// re-briefs a model that has just been briefed.
+	if latest.TargetFloor != 1 {
+		t.Fatalf("the escalated briefing recorded rung %d, so the next turn "+
+			"cannot tell it was delivered on a higher one", latest.TargetFloor)
 	}
 }

@@ -907,6 +907,46 @@ func (s *Store) NoteAgentRunCorrectionClass(
 	return repeats, err
 }
 
+// ClearAgentRunCorrectionClass forgets what a run has been corrected for in one
+// class, without touching the others or the run-wide correction budget.
+//
+// It exists for the moment the run changes model. A repeated correction raises
+// the ladder floor and the retry is briefed again, so the rung that answers next
+// is a model that has neither read the previous briefing nor failed to satisfy
+// it; the tally it inherits was earned by somebody else. Only the escalation
+// path calls this, and only for the class whose count is a claim about a
+// particular model's reading.
+//
+// A run whose envelope holds no counter at all is already in the state this
+// asks for, so it is not an error.
+func (s *Store) ClearAgentRunCorrectionClass(ctx context.Context, id, class string) error {
+	if strings.TrimSpace(id) == "" || strings.TrimSpace(class) == "" {
+		return errors.New("agent run correction class identity is required")
+	}
+	return s.mutateAgentRunContext(ctx, id, func(fields map[string]json.RawMessage) error {
+		raw, ok := fields[correctionClassesKey]
+		if !ok {
+			return nil
+		}
+		classes := map[string]int{}
+		if err := json.Unmarshal(raw, &classes); err != nil {
+			// An envelope whose counter will not decode already counts nothing.
+			delete(fields, correctionClassesKey)
+			return nil
+		}
+		if _, counted := classes[class]; !counted {
+			return nil
+		}
+		delete(classes, class)
+		encoded, err := json.Marshal(classes)
+		if err != nil {
+			return err
+		}
+		fields[correctionClassesKey] = encoded
+		return nil
+	})
+}
+
 // SetAgentRunTargetFloor records the rung of the session policy's target ladder
 // this run's next turn may not be answered below.
 //
