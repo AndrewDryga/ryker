@@ -183,6 +183,108 @@ func TestOperationalBurstCoalescesBeforeCoopAndLinksEpisodes(t *testing.T) {
 	}
 }
 
+// Two Grafana cards on 2026-08-16 kept 👀 for hours after their runs were
+// coalesced into a newer card; the answered cards had theirs removed, so the
+// abandoned ones looked like the only work in progress.
+func TestCoalescedAlertRunRemovesItsAcknowledgement(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	cfg.Slack.NativeStatus = true
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, _, err := st.Behavior.UpsertStandingRule(ctx, core.StandingRule{
+		ChannelID: "CWATCH", Repository: "repo",
+		Trigger: "operational_alert", Action: "triage_alert",
+		SourceKind: "app", Enabled: true, SourceRef: "test", ActorID: "UOPERATOR",
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+	}, cfg.Limits.MaxStandingRules, cfg.Limits.MaxRulesPerChannel); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "CWATCH", Participation: "proactive",
+		Repository: "repo", AlertPolicy: "reply", ActorID: "UOPERATOR",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT"}
+
+	base := core.SlackInput{
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH",
+		UserID: "BGRAFANA", ReceivedAt: time.Now().UTC(),
+		Text: "[VA1 FIRING:1] WARNING | High disk I/O latency\n" +
+			"FIRING - 1 alert\nService: cluster\nComponent: cassandra",
+	}
+	first := base
+	first.ID, first.EnvelopeID = "ack-storm-1", "env-ack-storm-1"
+	first.EventID, first.MessageTS = "event-ack-storm-1", "1700.001"
+	second := base
+	second.ID, second.EnvelopeID = "ack-storm-2", "env-ack-storm-2"
+	second.EventID, second.MessageTS = "event-ack-storm-2", "1700.002"
+	second.Text = strings.Replace(second.Text, "FIRING:1", "FIRING:2", 1)
+	for _, input := range []core.SlackInput{first, second} {
+		if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
+			t.Fatalf("admit %s = %v, %v", input.ID, created, admitErr)
+		}
+		if err := svc.processSlackInput(ctx); err != nil {
+			t.Fatalf("queue %s: %v", input.ID, err)
+		}
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	marked := func(entries []slackReaction, name string, timestamp string) bool {
+		for _, entry := range entries {
+			if entry.name == name && entry.timestamp == timestamp {
+				return true
+			}
+		}
+		return false
+	}
+	if !marked(slackClient.reactions, "eyes", first.MessageTS) ||
+		!marked(slackClient.reactions, "eyes", second.MessageTS) {
+		t.Fatalf("standing rule acknowledgements = %+v", slackClient.reactions)
+	}
+
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	oldRun, err := st.GetAgentRunBySource(ctx, "watch", first.ID)
+	if err != nil || oldRun.State != core.AgentRunSuperseded {
+		t.Fatalf("older correlated run = %+v, %v", oldRun, err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if !marked(slackClient.removedReactions, "eyes", first.MessageTS) {
+		t.Fatalf(
+			"the coalesced card still tells the channel somebody is looking at it: %+v",
+			slackClient.removedReactions,
+		)
+	}
+	if marked(slackClient.removedReactions, "eyes", second.MessageTS) {
+		t.Fatalf(
+			"the run that will answer lost its acknowledgement: %+v",
+			slackClient.removedReactions,
+		)
+	}
+	cleared, found := "", false
+	for _, status := range slackClient.statuses {
+		if status.thread == first.MessageTS {
+			cleared, found = status.text, true
+		}
+	}
+	if !found || cleared != "" {
+		t.Fatalf(
+			"the coalesced card's thread status = %q (set=%t): %+v",
+			cleared, found, slackClient.statuses,
+		)
+	}
+}
+
 func TestNewOperationalInputAdmittedDuringFinalizationSuppressesOldResult(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

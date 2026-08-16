@@ -818,8 +818,24 @@ func (s *Service) applyWatchDecision(
 	}
 	waitingExternal := watchDecisionWaitsExternal(decision)
 	if !waitingExternal {
+		// A card that produced an answer keeps a mark saying so. Once the 👀
+		// came off, a handled alert card and one nobody had looked at were
+		// indistinguishable from the channel, and the answer itself is not on
+		// this card — an operational stream replies in the thread of its first
+		// alert — so the card has to carry its own state.
+		//
+		// Only when a standing rule acknowledged it, because that is the only
+		// case where the card is being handled on the channel's behalf rather
+		// than as part of a conversation, and only for a decision that produces
+		// something visible: ignore, react and shadow mode answer nothing, so
+		// there is nothing for a check mark to confirm.
+		answered := state.RuleAcknowledged && !shadow &&
+			(decision.Action == "reply" || decision.Action == "incident")
 		if err := s.clearWatchRuleAcknowledgement(ctx, input, state); err != nil {
 			return err
+		}
+		if answered {
+			s.markWatchInputAnswered(ctx, input)
 		}
 		state.RuleAcknowledged = false
 		state.RuleAcknowledgement = ""
@@ -1727,6 +1743,79 @@ func (s *Service) clearWatchRuleAcknowledgement(
 		ObjectID: input.ID, Outcome: "unreacted", Detail: reaction,
 	})
 	return nil
+}
+
+// markWatchInputAnswered puts a check mark on a card whose standing-rule
+// acknowledgement has just been handed back because the run answered it.
+//
+// Failing to react is cosmetic: it is audited and swallowed, exactly as a
+// failed unreact is, because a mark on a card is never a reason to fail a turn
+// that has already produced its answer.
+func (s *Service) markWatchInputAnswered(ctx context.Context, input core.SlackInput) {
+	if input.MessageTS == "" {
+		return
+	}
+	client, ok := unpacedSlack(s.slack).(interface {
+		React(context.Context, string, string, string) error
+	})
+	if !ok {
+		return
+	}
+	if err := client.React(
+		ctx, input.ChannelID, input.MessageTS, "white_check_mark",
+	); err != nil {
+		s.audit(ctx, core.AuditEvent{
+			Kind: "standing_rule.acknowledgement_answer_failed", ActorID: "responder",
+			ObjectID: input.ID, Outcome: "failed",
+			Detail: s.cleanStructuredField(err.Error(), 500),
+		})
+		return
+	}
+	s.audit(ctx, core.AuditEvent{
+		Kind: "standing_rule.acknowledgement_answered", ActorID: "responder",
+		ObjectID: input.ID, Outcome: "reacted", Detail: "white_check_mark",
+	})
+}
+
+// retireWatchRunPresence removes everything that tells a channel this run is
+// still working on its message — the native "gathering evidence" status and the
+// standing-rule acknowledgement reaction — and records in the run context that
+// both are gone.
+//
+// Every path on which a triage run stops being the run that will answer has to
+// hand those marks back. Completion and failure do it where they settle their
+// own status; this is that same retirement for the paths that end a run before
+// it ever reaches a decision — supersession, coalescing and parking.
+//
+// It exists because the coalescing path did not do this: on 2026-08-16 two
+// Grafana alert cards kept a 👀 for hours after the runs that placed it had been
+// dropped in favour of a newer card, while the cards that were actually answered
+// had theirs removed — so the abandoned card looked like the only one being
+// handled.
+func (s *Service) retireWatchRunPresence(
+	ctx context.Context,
+	run core.AgentRun,
+	input core.SlackInput,
+	state *decisionpkg.WatchTurnState,
+) error {
+	if !state.PendingStatusSet && !state.RuleAcknowledged {
+		return nil
+	}
+	// clearWatchPendingStatus covers both marks and each half is already
+	// guarded by the flag it belongs to, so calling it once retires whichever
+	// of them this run actually placed and never unreacts twice.
+	if err := s.clearWatchPendingStatus(ctx, input, *state); err != nil {
+		return err
+	}
+	state.PendingStatusSet = false
+	state.PendingStatusAt = 0
+	state.RuleAcknowledged = false
+	state.RuleAcknowledgement = ""
+	contextJSON, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return s.store.SetAgentRunContext(ctx, run.ID, contextJSON)
 }
 
 func makeWatchContext(

@@ -1486,6 +1486,10 @@ func (s *Service) admitTriageRun(
 				Outcome: "superseded",
 				Detail:  "a newer channel message was already classified",
 			})
+			if err := s.retireWatchRunPresence(ctx, run, input, state); err != nil {
+				s.log.Warn("retire a superseded triage run's presence",
+					"run", run.ID, "input", input.ID, "error", err)
+			}
 			return true, s.store.SupersedeAgentRun(
 				ctx, run.ID, "a newer channel message was already classified",
 			)
@@ -1505,6 +1509,10 @@ func (s *Service) admitTriageRun(
 				Outcome: "superseded",
 				Detail:  "a newer nearby channel message will carry the conversation context",
 			})
+			if err := s.retireWatchRunPresence(ctx, run, input, state); err != nil {
+				s.log.Warn("retire a superseded triage run's presence",
+					"run", run.ID, "input", input.ID, "error", err)
+			}
 			return true, s.store.SupersedeAgentRun(
 				ctx,
 				run.ID,
@@ -1531,6 +1539,10 @@ func (s *Service) admitTriageRun(
 				Outcome: "coalesced",
 				Detail:  "a newer update for the same operational stream will be investigated",
 			})
+			if err := s.retireWatchRunPresence(ctx, run, input, state); err != nil {
+				s.log.Warn("retire a coalesced triage run's presence",
+					"run", run.ID, "input", input.ID, "error", err)
+			}
 			return true, s.store.SupersedeAgentRun(
 				ctx, run.ID, "coalesced into a newer operational update",
 			)
@@ -2872,18 +2884,10 @@ func (s *Service) parkWatchRunPendingStatus(
 	if err != nil {
 		return err
 	}
-	if err := s.clearWatchPendingStatus(ctx, input, state); err != nil {
-		return err
-	}
-	state.PendingStatusSet = false
-	state.PendingStatusAt = 0
-	state.RuleAcknowledged = false
-	state.RuleAcknowledgement = ""
-	contextJSON, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-	return s.store.SetAgentRunContext(ctx, run.ID, contextJSON)
+	// A parked run is no longer the run that will answer, so it hands back the
+	// acknowledgement as well as the status. Zeroing the acknowledgement in the
+	// context without unreacting would strand the mark on the card forever.
+	return s.retireWatchRunPresence(ctx, run, input, &state)
 }
 
 // retryMalformedIncidentReport sends an unreadable result back to the model
@@ -3464,6 +3468,10 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 				Outcome: "coalesced",
 				Detail:  "suppressed a stale result because a newer operational update is queued",
 			})
+			if err := s.retireWatchRunPresence(ctx, run, input, &state); err != nil {
+				s.log.Warn("retire a coalesced triage run's presence",
+					"run", run.ID, "input", input.ID, "error", err)
+			}
 			return s.store.SupersedeAgentRun(
 				ctx, run.ID, "superseded by a newer operational update",
 			)

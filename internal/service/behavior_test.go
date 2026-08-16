@@ -1784,6 +1784,86 @@ func findSlackAction(
 	return slackui.Action{}
 }
 
+// Once its acknowledgement came off, an answered alert card looked exactly like
+// a card nobody had seen, and the reply lives in the stream's first card's
+// thread rather than this one — so on 2026-08-16 an operator scanning the
+// channel could not tell which Grafana cards had been handled.
+func TestAnsweredAlertCardShowsCheckMark(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CALERTCARD"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, _, err := st.Behavior.UpsertStandingRule(ctx, core.StandingRule{
+		ChannelID: "CALERTCARD", Repository: "repo",
+		Trigger: "operational_alert", Action: "triage_alert",
+		SourceKind: "app", Enabled: true, SourceRef: "test", ActorID: "UOPERATOR",
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+	}, cfg.Limits.MaxStandingRules, cfg.Limits.MaxRulesPerChannel); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "CALERTCARD", Participation: "proactive",
+		Repository: "repo", AlertPolicy: "reply", ActorID: "UOPERATOR",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	coopClient.completeOnSubmit = fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"reason":"fresh repository and live evidence confirm the alert","operations":[{"id":"checkout-topology","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"checkout topology has two backends","observation":"the production manifest declares two checkout backends behind the load balancer","source_type":"repository","source_name":"infra/checkout.tf","dimensions":{"repository":"repo","environment":"production","revision":"current"}}},{"id":"checkout-live","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"checkout requests complete successfully","observation":"the live checkout error rate is 20.5 percent and one backend is unhealthy","relation":"contradicts","health_effect":"unhealthy","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","endpoint":"requests","environment":"production","window":"current"}}},{"id":"checkout-impact","type":"record_evidence","evidence":{"claim_id":"impact.current","claim":"checkout user impact is within its error budget","observation":"the current error rate is 20.5 percent","relation":"contradicts","health_effect":"degraded","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","indicator":"error_rate","environment":"production","window":"current"}}},{"id":"cov-1","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"healthy","source":"infra/checkout.tf","detail":"the declared two-backend topology was reconciled"}},{"id":"cov-2","type":"record_coverage","coverage":{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unhealthy","source":"Emisar checkout health","detail":"current requests are failing"}},{"id":"cov-3","type":"record_coverage","coverage":{"layer":"slo","claim_ids":["impact.current"],"status":"degraded","source":"Emisar checkout health","detail":"error rate exceeds the alert threshold"}},{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue","impact":"More than 20 percent of current checkout requests fail.","cause_status":"identified","cause":"One load balancer backend is unhealthy after the current deployment.","cause_claim_ids":["application.functional_behavior"],"evidence_refs":["checkout-live"],"immediate_action":"Remove the unhealthy backend from service.","verification":"Confirm checkout errors return below the alert threshold after the backend is removed.","long_term_solution":"Correct the deployment regression and add a checkout-error rollout guard."}},{"id":"mem","type":"update_memory","memory":{"situation_summary":"A critical checkout error-rate alert was confirmed from repository and live evidence.","decisions":["Continue the alert investigation in its source thread."]}},{"id":"complete","type":"complete_episode","completion":{"message":"**Checkout errors are affecting current requests:** more than 20 percent are failing.\n\nRemove the unhealthy backend from service and verify the error rate falls. The durable fix is to correct the deployment regression and add a rollout guard for checkout errors.","completion":{"status":"decision_ready","verdict":"unhealthy","summary":"The checkout alert is a confirmed current issue with a bounded immediate remediation."}}}]}`, observedAt, observedAt)
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	alert := core.SlackInput{
+		ID: "slack_alert_card", EnvelopeID: "env_alert_card", EventID: "EvAlertCard",
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CALERTCARD",
+		MessageTS: "1703.100", UserID: "BGRAFANA", ReceivedAt: time.Now().UTC(),
+		Text: "CRITICAL alert: checkout error rate is firing above 20 percent.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, alert); err != nil || !created {
+		t.Fatalf("admit alert card = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.reactions) != 1 || slackClient.reactions[0].name != "eyes" ||
+		slackClient.reactions[0].timestamp != alert.MessageTS {
+		t.Fatalf("alert acknowledgement = %+v", slackClient.reactions)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	reply := slackClient.posts[len(slackClient.posts)-1]
+	if reply.thread != alert.MessageTS ||
+		!strings.Contains(reply.message.Text, "Checkout errors") {
+		t.Fatalf("alert triage reply = %+v", slackClient.posts)
+	}
+	cleared, answered := 0, 0
+	for _, removed := range slackClient.removedReactions {
+		if removed.name == "eyes" && removed.timestamp == alert.MessageTS {
+			cleared++
+		}
+	}
+	for _, added := range slackClient.reactions {
+		if added.name == "white_check_mark" && added.timestamp == alert.MessageTS {
+			answered++
+		}
+	}
+	if cleared != 1 || answered != 1 {
+		t.Fatalf(
+			"answered alert card cleared %d acknowledgements and carries %d check marks: added=%+v removed=%+v",
+			cleared, answered, slackClient.reactions, slackClient.removedReactions,
+		)
+	}
+}
+
 func TestBehaviorOfferExpiryValidation(t *testing.T) {
 	now := testDecodeClock
 	if !offerIssuedAtInvalid(now.Add(-25*time.Hour), now) ||
