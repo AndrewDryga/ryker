@@ -113,8 +113,9 @@ type EvaluationCase struct {
 	// fragment the model resubmitted — and reports a case as failed for coverage
 	// its first round supplied. Not read from the corpus: only the correction
 	// loop fills them.
-	CarriedEvidence []core.Evidence `json:"-"`
-	CarriedCoverage []core.Coverage `json:"-"`
+	CarriedEvidence []core.Evidence                  `json:"-"`
+	CarriedCoverage []core.Coverage                  `json:"-"`
+	CarriedFindings []investigation.FindingOperation `json:"-"`
 }
 
 type EvaluationRecordedEvent struct {
@@ -646,6 +647,8 @@ func evaluateCaseWithConfig(
 	var memory core.AgentMemory
 	var evidence []core.Evidence
 	var coverage []core.Coverage
+	var findings []investigation.FindingOperation
+	var appliedOperations []investigation.ResultOperation
 	var assessment *decisionpkg.AlertAssessment
 	var completion *service.CompletionAssessment
 	var episode *core.WorkEpisode
@@ -707,9 +710,11 @@ func evaluateCaseWithConfig(
 		}
 		evidence = decision.Evidence
 		coverage = decision.Coverage
+		findings = decision.Findings
 		assessment = decision.AlertAssessment
 		completion = decision.Completion
 		operations = operationTypes(decision.AppliedOperations)
+		appliedOperations = decision.AppliedOperations
 		strictOperations = len(decision.AppliedOperations) > 0
 	case "handoff":
 		// A retiring session's turn is graded exactly where the host reads it.
@@ -770,9 +775,11 @@ func evaluateCaseWithConfig(
 		replyMessageCount = len(replies)
 		evidence = report.Evidence
 		coverage = report.Coverage
+		findings = report.Findings
 		completion = report.Completion
 		pendingApproval = report.PendingApproval != nil
 		strictOperations = len(report.AppliedOperations) > 0
+		appliedOperations = report.AppliedOperations
 		if cfg != nil {
 			mode := core.AgentRunIncident
 			if testCase.Kind == "task" {
@@ -789,6 +796,9 @@ func evaluateCaseWithConfig(
 	// Everything this case has established, not just the round being scored.
 	evidence = decisionpkg.CarryEvidence(testCase.CarriedEvidence, evidence)
 	coverage = decisionpkg.CarryCoverage(testCase.CarriedCoverage, coverage)
+	findings = decisionpkg.SanitizeFindings(
+		decisionpkg.CarryFindings(testCase.CarriedFindings, findings),
+	)
 	if cfg != nil {
 		evidence = decisionpkg.SanitizeEvidence(evidence, "eval", "CEVALUATION", "", now)
 		coverage = decisionpkg.SanitizeCoverage(coverage, "eval", "CEVALUATION", "", now)
@@ -819,6 +829,16 @@ func evaluateCaseWithConfig(
 			*episode, completionAction, message,
 		); correction != "" {
 			result.Detail = "wrong conclusion language: " + correction
+			return result
+		}
+		// An unexplained failure in scope means the work is not done, checked
+		// here the same way the runtime checks it. A case whose model answer
+		// stops at advice fails on this line rather than on a bespoke assertion.
+		if correction := decisionpkg.FindingCorrection(*episode, decisionpkg.WatchDecision{
+			Action: completionAction, Message: message, Completion: completion,
+			AppliedOperations: appliedOperations, Findings: findings,
+		}, findings); correction != "" {
+			result.Detail = "unexplained finding: " + correction
 			return result
 		}
 		if correction := investigation.ClaimCorrection(

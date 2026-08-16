@@ -900,7 +900,38 @@ var lineBudget = map[string]int{
 	// 2441 after the consumer landing declared the escalation envelope keys
 	// (DisallowUnknownFields makes undeclared keys a poll-killer, so the two
 	// fields had to live here); 2470 keeps a real margin.
-	"decision": 2470,
+	//
+	// Raised to 2620 on 2026-08-15 for root cause by default, and this is the
+	// entry to read sceptically: 115 lines, on a package that stood at its cap to
+	// the line, which is the tripwire this file warns about and not a ratchet.
+	//
+	// What it buys is the rule that an unexplained failure in scope means the
+	// episode is not done. On 2026-08-11 the 12:16 Zot triage
+	// (episode_run_ebbee0227d72743cc4aee48ef01113ba) closed decision_ready with
+	// verdict succeeded on a Terraform Run-Applied event while its own reply said
+	// VA1 pyke "did not deploy: its rollout missed the progress deadline and
+	// automatically rolled back". Every contract passed, because the failure the
+	// turn had found was prose. Three human nudges and 88 minutes later a deep
+	// dive found the root cause in four.
+	//
+	// The extraction this file asks for was considered and refused, on this
+	// file's own grounds. The finding's SHAPE did leave — the payload, its status
+	// set, its validator and its prompt bullet are in internal/investigation
+	// beside the contract they belong to. What stayed is three corrections that
+	// read a WatchDecision and a WatchTurnState field, and they stayed because a
+	// package holding them would hold three function signatures and no decision:
+	// "moving lines between packages without moving a decision" is what the note
+	// on the service entry calls the way a budget stops measuring anything. They
+	// also have to be read beside WatchDecisionCorrection and
+	// AlertAssessmentCorrection, which fire in the same chain on the same shapes,
+	// and internal/replypolicy's entry below records what splitting one rule
+	// across packages cost the last time: "answer in thread" went two months
+	// unmeasured.
+	//
+	// 2585 measured; 2620 is 35 lines of margin, deliberately more than the 13
+	// and 14 the entries below settled for, because those are the numbers that
+	// made this a tripwire.
+	"decision": 2620,
 	// investigation owns the contract and, since the completion validators moved
 	// beside it, the rules that check a result against that contract.
 	//
@@ -966,7 +997,27 @@ var lineBudget = map[string]int{
 	// fragment nothing had yet, and the sentence that tells an unmapped field
 	// it exists nowhere. The table is the expensive half and it is data, so the
 	// next recorded guess is one line rather than a function.
-	"investigation": 2080,
+	//
+	// Raised to 2190 on 2026-08-15 for record_finding, the operation that makes a
+	// discovered failure machine-readable at all. 87 lines: the payload and its
+	// alternatives, the four-value status set, the validator, its slot in the
+	// exactly-one-payload rule, a prompt bullet and a schema fragment.
+	//
+	// The validator is the expensive half and it is the half worth having. Each
+	// of its rules closes one way a finding could be recorded while saying less
+	// than the prose it replaces — explained with no evidence id, expected with
+	// no reason, an alternative listed with neither the evidence that rules it
+	// out nor a word about why nothing can. That last one is the whole
+	// adversarial-residue check: the deep prompt tells the model to attack its
+	// own conclusion, prompts drift, and the only thing a host can verify is what
+	// came back.
+	//
+	// The status set is quoted back verbatim on rejection for the reason the
+	// assignment change classes are: the worst correction loop on record, 6.6
+	// repeats on one episode, was a model asked to choose from a list it could
+	// not see. 2153 measured; 2190 keeps a real margin rather than the 13 the
+	// entry above settled for.
+	"investigation": 2190,
 	// These packages own policy and data transformations that used to sit in
 	// the broad service, store, decision, and investigation packages. Register
 	// every extraction here so moving code cannot evade the architecture ratchet.

@@ -88,6 +88,11 @@ func GoalOf(conversationKey string) (string, bool) {
 var branchOperations = map[string]bool{
 	"record_evidence": true,
 	"record_coverage": true,
+	// A branch that discovers a failure is a branch doing exactly its job, and
+	// the lead cannot synthesize what it never sees. Dropping the finding here
+	// would leave the one operation that refuses a premature completion visible
+	// to the branch's own correction chain and to nothing else.
+	"record_finding":  true,
 	"update_goal":     true,
 	"report_progress": true,
 }

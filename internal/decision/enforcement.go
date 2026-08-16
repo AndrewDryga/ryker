@@ -3,6 +3,7 @@ package decision
 import (
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -92,6 +93,11 @@ type WatchTurnState struct {
 	// CarryEvidence.
 	CarriedEvidence []core.Evidence `json:"carried_evidence,omitempty"`
 	CarriedCoverage []core.Coverage `json:"carried_coverage,omitempty"`
+	// CarriedFindings is the same accumulation for typed findings, and it is the
+	// one this envelope cannot do without: an unexplained finding refuses the
+	// completion, so a round that dropped the finding it was not asked about
+	// would be judged as having discovered nothing.
+	CarriedFindings []investigation.FindingOperation `json:"carried_findings,omitempty"`
 }
 
 // CarryEvidence and CarryCoverage fold a round's rows into what the run already
@@ -120,6 +126,140 @@ func CarryEvidence(prior, current []core.Evidence) []core.Evidence {
 
 func CarryCoverage(prior, current []core.Coverage) []core.Coverage {
 	return carryForward(prior, current, func(item core.Coverage) string { return item.Layer })
+}
+
+// CarryFindings does the same for findings, keyed on the failure state named
+// rather than on an operation id.
+//
+// The id would be the obvious key and it is the wrong one here. A correction
+// round re-emits its operations with ids literally suffixed "-corrected", so
+// keying on the id folds nothing: the round that finally explains a failure
+// would land beside the unexplained record of the same failure and the
+// completion would stay refused forever. What a finding IS is the failure state
+// it names, so that is its identity, and a later round naming the same state
+// replaces the earlier verdict about it.
+func CarryFindings(
+	prior, current []investigation.FindingOperation,
+) []investigation.FindingOperation {
+	return carryForward(prior, current, func(item investigation.FindingOperation) string {
+		return strings.ToLower(strings.TrimSpace(item.What))
+	})
+}
+
+// findingFailurePhrases is the vocabulary that turns a reply into a report of a
+// failure state. It is deliberately conservative and literal: every phrase is
+// one an operator would read as "something broke", and the cost of missing one
+// is a finding nobody recorded, while the cost of a wrong one is a correction
+// round spent on an answer that was already right.
+var findingFailurePhrases = []string{
+	"rolled back", "rollback", "did not deploy", "failed with", "crash loop", "crashloop",
+	"exhausted their retries", "exhausted retries", "missed the progress deadline",
+	"failing", "keeps failing",
+}
+
+// findingRecoveryPhrases take the sentence back. Two real completions are why
+// they are here: "**Sentry recovered.** ... The durable fix is redundancy or a
+// health-gated rollout and rollback procedure" carries the failure vocabulary
+// inside a recommendation about the future, and "Zot's Artifact Registry
+// authentication issue is **not recurring**. The last 24 hours contain no
+// matching auth or upstream-sync failures" reports an absence. Demanding a
+// finding for either is how a correction becomes noise.
+var findingRecoveryPhrases = []string{
+	"not recurring", "no matching", "recovered", "back to baseline", "resolved",
+	"is healthy", "zero ",
+}
+
+// findingContinuationOperations are the operations that say the work carries on
+// in this same episode rather than concluding here.
+var findingContinuationOperations = []string{"plan_goal", "wait_external"}
+
+// ReplyReportsFailure reads whether a reply tells an operator that something is
+// broken, without a recovery or closure sentence taking it back.
+func ReplyReportsFailure(parts ...string) bool {
+	normalized := strings.ToLower(strings.Join(strings.Fields(strings.Join(parts, " ")), " "))
+	return EpisodeContainsAny(normalized, findingFailurePhrases...) &&
+		!EpisodeContainsAny(normalized, findingRecoveryPhrases...)
+}
+
+// FindingCorrection holds a turn to the invariant an unexplained failure implies:
+// the episode is not done.
+//
+// Three rules, in the order a turn fails them. It runs before
+// CompletionCorrection because all three are about whether there is anything
+// left to do, and asking "is the completion well formed" first would accept a
+// perfectly shaped completion of work that had not finished — which is precisely
+// what the 12:16 Zot triage was.
+//
+// The cost: on 2026-08-11 episode_run_ebbee0227d72743cc4aee48ef01113ba closed
+// decision_ready/succeeded on a Terraform Run-Applied event while its own reply
+// said VA1 pyke "did not deploy: its rollout missed the progress deadline and
+// automatically rolled back to job version 5 ... avoid retrying until the failed
+// allocation or health check is identified". The discovered failure lived only
+// in prose. Three human nudges and 88 minutes bought the root cause a deep dive
+// then found in four.
+func FindingCorrection(
+	episode core.WorkEpisode,
+	decision WatchDecision,
+	findings []investigation.FindingOperation,
+) string {
+	if decision.Action != "reply" {
+		return ""
+	}
+	blocked := decision.Completion != nil && decision.Completion.Status == "blocked"
+	// A reply that reports a failure must record it as a typed finding. Prose is
+	// where the Zot rollback went, and prose is the one place no contract reads.
+	if !blocked && len(findings) == 0 && ReplyReportsFailure(
+		ReplySequence(decision.Message, decision.FollowupMessages)...,
+	) {
+		return "the reply reports a failure state; record it as a typed finding — status " +
+			"unexplained unless evidence identifies the cause — or classify it expected with the reason"
+	}
+	// An unexplained finding cannot rest at decision_ready. Blocked has already
+	// named its obstacle in the shape the host validates, and a continuation says
+	// the work carries on in this same episode, which is the delta-update shape
+	// the prompt asks for rather than a way to stop. A turn with no completion at
+	// all is not resting on anything yet — CompletionCorrection has the useful
+	// thing to say about it, and saying this first would cost a round.
+	if decision.Completion != nil && !blocked && !ContinuesThisEpisode(decision) {
+		for _, item := range findings {
+			if item.Status != "unexplained" {
+				continue
+			}
+			return "finding " + strconv.Quote(item.What) + " is unexplained; identify its cause " +
+				"with evidence ids, keep investigating with a goal or recheck, return blocked with " +
+				"the exact obstacle, or classify it expected or out_of_scope with the reason"
+		}
+	}
+	// An identified cause must survive its strongest alternative, on the lanes
+	// that were sent to find one. The fast lanes are deliberately exempt: depth
+	// is triggered by anomaly, and charging a focused check for adversarial
+	// residue would be the rule eating the latency it exists to justify.
+	if episode.Effort != core.EffortOperationalAssessment &&
+		episode.Effort != core.EffortIncidentInvestigation {
+		return ""
+	}
+	for _, item := range findings {
+		if item.Status == "explained" && len(item.Alternatives) == 0 {
+			return "the cause is asserted but never attacked; name the strongest alternative " +
+				"hypothesis and the evidence id that discriminates against it, or say why no " +
+				"discriminating check is available"
+		}
+	}
+	return ""
+}
+
+// ContinuesThisEpisode reports whether the turn left work running rather than
+// concluding. A planned goal, a scheduled external wait, and a recheck directive
+// each say the same thing in the host's own vocabulary: post the fast status
+// now, deliver the cause as a delta update when the evidence lands.
+func ContinuesThisEpisode(decision WatchDecision) bool {
+	if decision.Completion != nil && decision.Completion.Recheck != nil {
+		return true
+	}
+	return slices.ContainsFunc(decision.AppliedOperations,
+		func(operation investigation.ResultOperation) bool {
+			return slices.Contains(findingContinuationOperations, operation.Type)
+		})
 }
 
 func carryForward[T any](prior, current []T, key func(T) string) []T {

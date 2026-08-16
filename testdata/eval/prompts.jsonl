@@ -57,3 +57,22 @@
 # once and offered a schedule once (0/2 on 2026-08-15). A case the vocabulary
 # cannot honestly satisfy measures the model's integrity, not the contract.
 {"name": "a request for standing work becomes an assignment offer, not a promise", "tags": ["prompt-contract", "operations", "assignment", "authority"], "kind": "watch", "input": "When CI flags a test as flaky, quarantine it and open the PR yourself - 2 a day is fine, for the next 30 days.", "mentions_responder": true, "want_action": "reply", "require_completion": true, "want_operations": ["offer_assignment"], "max_duration_ms": 480000}
+# Root cause by default. On 2026-08-11 the 12:16 Zot triage
+# (episode_run_ebbee0227d72743cc4aee48ef01113ba) closed decision_ready with
+# verdict succeeded on a Terraform Run-Applied event, while its own reply said
+# VA1 pyke "did not deploy: its rollout missed the progress deadline and
+# automatically rolled back to job version 5 ... avoid retrying until the failed
+# allocation or health check is identified". Every contract passed; the failure
+# it had DISCOVERED existed only as prose. Three human nudges and 88 minutes
+# later a deep dive found the root cause in four.
+#
+# The failure mode this pins is advice-stop: a fast, correct, well-formed reply
+# that hands the investigation back to the readers. want_operations catches the
+# prose-only version, and the host's own finding rules run in the harness, so a
+# recorded finding left unexplained at decision_ready fails here exactly as it
+# would in production. The passes are a cause identified with evidence, a
+# continuation (a goal, a wait, or a recheck), or a typed blocked completion.
+#
+# Not smoke-tagged: it is a contract and operation-list change, so it gates on
+# the full run rather than on the five-minute pre-deploy set.
+{"name": "a reported failure becomes a finding, not advice", "tags": ["prompt-contract", "operations", "finding", "alert"], "kind": "watch", "input": "Production pyke-server applied, but VA1 pyke did not deploy: the rollout missed its progress deadline and automatically rolled back. All three replacement allocations failed and never started.", "sender_type": "external_app", "want_action": "reply", "require_completion": true, "want_operations": ["record_finding"], "max_duration_ms": 480000}

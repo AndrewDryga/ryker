@@ -588,7 +588,35 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // ready complete_episode with its nested status and verdict. One sentence on
 // the reply bullet; the two kept app-event fixture candidates are its
 // production twins.
-const staticWatchPromptBytes = 48698
+//
+// 49668 on 2026-08-15 for root cause by default, and this is the entry to argue
+// with if the prompt ever needs a diet: 970 bytes, one operation bullet and one
+// paragraph, the largest single addition since the four-behavior batch.
+//
+// What it buys was measured in minutes rather than bytes. On 2026-08-11 the
+// 12:16 Zot triage (episode_run_ebbee0227d72743cc4aee48ef01113ba) closed
+// decision_ready with verdict succeeded on a Terraform Run-Applied event, and
+// the same reply said VA1 pyke "did not deploy: its rollout missed the progress
+// deadline and automatically rolled back to job version 5 ... avoid retrying
+// until the failed allocation or health check is identified". Every contract
+// passed. The failure the turn had DISCOVERED existed only as prose, so nothing
+// could refuse the completion, and the episode ended with a research assignment
+// for the humans. Three nudges and 88 minutes later a deep dive found the root
+// cause — Zot auth masked as a manifest-unknown 404 — in four.
+//
+// 528 of the bytes are the record_finding bullet, which is the whole reason a
+// host rule can see that rollback at all: what failed, in what scope, and
+// whether anything explains it. The other 442 are the depth paragraph — post the
+// fast status first, keep investigating in the same episode, attack an identified
+// cause before claiming it, never end an investigation with advice to investigate
+// — and they are the half no validator can supply, because "keep going" is a
+// disposition and the host can only check residue.
+//
+// Cut before it was paid for: the bullet's list of statuses is the one part that
+// cannot compress, for the reason the assignment change-class set could not —
+// the worst correction loop on record, 6.6 repeats on one episode, was a model
+// choosing from a set it had never been shown.
+const staticWatchPromptBytes = 49668
 
 // The static prompt must not grow without someone deciding it should.
 //

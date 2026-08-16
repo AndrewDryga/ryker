@@ -119,7 +119,8 @@ func UnreadableEnvelopeResult(decision WatchDecision) string {
 		"action, reaction, title, attention, reason, task_pull_request, " +
 		"publication_updates and operations, and every part of a result travels as " +
 		"an operation: the answer and its completion in one complete_episode, " +
-		"conversation memory in update_memory, each finding in record_evidence, each " +
+		"conversation memory in update_memory, each observation in record_evidence, each " +
+		"discovered failure state in record_finding, each " +
 		"assessed claim group in record_coverage, an offered incident or engineering " +
 		"task in offer_task, and each durable behavior offer in its own offer_memory, " +
 		"offer_preference, offer_rule or offer_schedule. Return the same decision, " +

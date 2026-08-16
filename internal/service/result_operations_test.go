@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -350,4 +351,44 @@ func TestAnInfrastructureFailureStillFailsTheResult(t *testing.T) {
 	if err == nil {
 		t.Fatal("a closed database recorded a result without error, want the failure to propagate")
 	}
+}
+
+// A discovered failure lands on the episode's own timeline, beside the evidence
+// it was found in.
+//
+// The record is what makes "did anyone ever explain this" a question the trace
+// can answer. On 2026-08-11 the 12:16 Zot triage
+// (episode_run_ebbee0227d72743cc4aee48ef01113ba) recorded two evidence rows for
+// a VA1 rollout that had failed, and recorded the failure itself nowhere: it was
+// a sentence in a Slack message, so reconstructing what the episode had actually
+// found meant reading the thread. Three human nudges and 88 minutes later a deep
+// dive found the root cause in four.
+func TestARecordedFindingReachesTheEpisodeTimeline(t *testing.T) {
+	ctx, st, svc, _, run := activityRunFixture(t)
+
+	if err := svc.recordResultOperationEvents(ctx, run.ID, []investigation.ResultOperation{{
+		ID: "finding-va1", Type: "record_finding",
+		Finding: &investigation.FindingOperation{
+			What:  "VA1 pyke did not deploy; its rollout missed the progress deadline",
+			Scope: "va1-apps", Status: "unexplained",
+		},
+	}}); err != nil {
+		t.Fatalf("recording a finding = %v, want nil", err)
+	}
+
+	events, err := st.ListWorkEpisodeEvents(ctx, run.ID, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.Kind != episodepkg.EventFindingRecorded {
+			continue
+		}
+		if !strings.Contains(string(event.Payload), "missed the progress deadline") {
+			t.Fatalf("the finding event does not carry what failed: %s", event.Payload)
+		}
+		return
+	}
+	t.Fatalf("no %s event; the discovered failure is on the record nowhere: %+v",
+		episodepkg.EventFindingRecorded, events)
 }

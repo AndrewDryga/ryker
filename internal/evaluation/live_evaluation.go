@@ -1032,18 +1032,20 @@ typed operations and contract fields exactly. Do not describe this correction pr
 func carryEvaluationRound(testCase *EvaluationCase, response string, now time.Time) {
 	var evidence []core.Evidence
 	var coverage []core.Coverage
+	var findings []investigation.FindingOperation
 	switch testCase.Kind {
 	case "incident", "task":
 		if report, _, err := decisionpkg.ParseAgentReport(response); err == nil {
-			evidence, coverage = report.Evidence, report.Coverage
+			evidence, coverage, findings = report.Evidence, report.Coverage, report.Findings
 		}
 	case "watch":
 		if decision, err := decisionpkg.ParseWatchDecision(response, now); err == nil {
-			evidence, coverage = decision.Evidence, decision.Coverage
+			evidence, coverage, findings = decision.Evidence, decision.Coverage, decision.Findings
 		}
 	}
 	testCase.CarriedEvidence = decisionpkg.CarryEvidence(testCase.CarriedEvidence, evidence)
 	testCase.CarriedCoverage = decisionpkg.CarryCoverage(testCase.CarriedCoverage, coverage)
+	testCase.CarriedFindings = decisionpkg.CarryFindings(testCase.CarriedFindings, findings)
 }
 
 func evaluationStructuredCorrection(
@@ -1078,6 +1080,12 @@ func evaluationStructuredCorrection(
 					decisionpkg.WatchDecisionCorrectionAt(input, state, decision, now, service.OperationalCorrelationKey),
 					decisionpkg.AlertReplyLanguageCorrectionWithContext(input, state, decision),
 					service.ExternalLifecycleReplyLanguageCorrection(input, decision),
+					decisionpkg.FindingCorrection(
+						*episode, decision,
+						decisionpkg.SanitizeFindings(decisionpkg.CarryFindings(
+							testCase.CarriedFindings, decision.Findings,
+						)),
+					),
 					investigation.CompletionCorrection(
 						*episode,
 						decision.Action,

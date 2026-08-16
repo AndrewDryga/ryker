@@ -183,7 +183,8 @@ func Compile(episode core.WorkEpisode) InvestigationContract {
 		// listed exit, so it invented completion.status "needs_input" and lost
 		// the response.
 		ResultOperations: []string{
-			"record_evidence", "record_coverage", "report_progress", "plan_goal", "update_goal",
+			"record_evidence", "record_coverage", "record_finding", "report_progress",
+			"plan_goal", "update_goal",
 			"request_operator_input", "wait_external", "record_feedback", "request_record",
 			"request_approval",
 			"offer_task", "attach_visual", "update_memory", "offer_memory", "offer_preference",

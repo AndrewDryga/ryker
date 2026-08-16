@@ -101,6 +101,63 @@ func (assessment *AlertAssessment) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// FindingOperation is a failure state the turn discovered, written where a
+// contract can see it.
+//
+// On 2026-08-11 the 12:16 Zot triage (episode_run_ebbee0227d72743cc4aee48ef01113ba)
+// closed decision_ready/succeeded on a Terraform Run-Applied event while its own
+// reply said VA1 pyke "did not deploy: its rollout missed the progress deadline
+// and automatically rolled back to job version 5 ... avoid retrying until the
+// failed allocation or health check is identified". The rollback the turn had
+// DISCOVERED lived only in prose, invisible to every validator the host owns, so
+// nothing refused the completion. Three human nudges and 88 minutes later a deep
+// dive found the root cause in four.
+//
+// unexplained is the honest default. explained is a claim, so it must name the
+// evidence that identifies the cause; expected and out_of_scope are the two ways
+// to stop, and both are classifications an operator can audit later rather than
+// silences nobody can find.
+type FindingOperation struct {
+	What          string               `json:"what"`
+	Scope         string               `json:"scope,omitempty"`
+	Status        string               `json:"status"`
+	CauseEvidence []string             `json:"cause_evidence,omitempty"`
+	Alternatives  []FindingAlternative `json:"alternatives,omitempty"`
+	Reason        string               `json:"reason,omitempty"`
+}
+
+// FindingAlternative is the adversarial residue of an identified cause: the
+// strongest rival explanation, and what rules it out.
+//
+// The host never watches the model attack its own conclusion — prompts drift,
+// and a process nothing checks is a process that quietly stops happening — so it
+// checks the residue instead. Exactly one of DiscriminatedBy and NotCheckable is
+// required, because "I considered it" with neither is the shape that proves
+// nothing.
+type FindingAlternative struct {
+	Hypothesis      string `json:"hypothesis"`
+	DiscriminatedBy string `json:"discriminated_by,omitempty"`
+	NotCheckable    string `json:"not_checkable,omitempty"`
+}
+
+// FindingStatuses is the set a finding may report, named here so a rejection can
+// quote it back rather than leaving the model to guess a fifth word.
+var FindingStatuses = []string{"unexplained", "explained", "expected", "out_of_scope"}
+
+// MaxFindingAlternatives and MaxFindingCauseEvidence bound the two lists a
+// finding carries, on the same reasoning as MaxSupersededRecords: one failure
+// state has a strongest rival and a runner-up, not a catalogue.
+const (
+	MaxFindingAlternatives  = 5
+	MaxFindingCauseEvidence = 10
+)
+
+// ValidFindingStatus reports whether a normalized status is one the contract
+// recognises.
+func ValidFindingStatus(status string) bool {
+	return slices.Contains(FindingStatuses, status)
+}
+
 type ProgressOperation struct {
 	Phase     string `json:"phase"`
 	Summary   string `json:"summary"`
@@ -212,6 +269,7 @@ type ResultOperation struct {
 	Type            string                  `json:"type"`
 	Evidence        *core.Evidence          `json:"evidence,omitempty"`
 	Coverage        *core.Coverage          `json:"coverage,omitempty"`
+	Finding         *FindingOperation       `json:"finding,omitempty"`
 	Progress        *ProgressOperation      `json:"progress,omitempty"`
 	Goal            *GoalOperation          `json:"goal,omitempty"`
 	GoalState       *GoalStateOperation     `json:"goal_state,omitempty"`
@@ -313,6 +371,7 @@ func (operation *ResultOperation) UnmarshalJSON(data []byte) error {
 var resultOperationPayloads = []func(ResultOperation) bool{
 	func(o ResultOperation) bool { return o.Evidence != nil },
 	func(o ResultOperation) bool { return o.Coverage != nil },
+	func(o ResultOperation) bool { return o.Finding != nil },
 	func(o ResultOperation) bool { return o.Progress != nil },
 	func(o ResultOperation) bool { return o.Goal != nil },
 	func(o ResultOperation) bool { return o.GoalState != nil },
@@ -475,6 +534,7 @@ func validateEvidenceOperation(o ResultOperation) error {
 var resultOperationValidators = map[string]func(ResultOperation) error{
 	"record_evidence": validateEvidenceOperation,
 	"record_coverage": validateCoverageOperation,
+	"record_finding":  validateFindingOperation,
 	"report_progress": requirePayload("progress phase and summary", func(o ResultOperation) bool {
 		return o.Progress != nil && strings.TrimSpace(o.Progress.Phase) != "" &&
 			strings.TrimSpace(o.Progress.Summary) != ""
@@ -614,6 +674,68 @@ func validateGrantPromotionOperation(o ResultOperation) error {
 	return nil
 }
 
+// validateFindingOperation refuses a finding that claims more than it records.
+//
+// Each rule closes one way the Zot triage could have been written and still said
+// nothing a contract can read. A status outside the set is quoted back with the
+// whole set, because the worst recorded correction loop — 6.6 repeats on one
+// episode — was a model picking from a list it could not see. "explained" must
+// name the evidence, since an unbacked cause is the prose claim this operation
+// replaces. "expected" and "out_of_scope" must carry the sentence an operator
+// reviews later, or they are silences with a label on them. And an alternative
+// carries exactly one of discriminated_by and not_checkable, because listing a
+// rival hypothesis with neither is the residue that proves the attack did not
+// happen.
+func validateFindingOperation(o ResultOperation) error {
+	if o.Finding == nil || strings.TrimSpace(o.Finding.What) == "" {
+		return fmt.Errorf(
+			"result operation %q requires a finding whose what names, in one line, what failed",
+			o.ID,
+		)
+	}
+	finding := o.Finding
+	status := strings.ToLower(strings.TrimSpace(finding.Status))
+	if !ValidFindingStatus(status) {
+		return fmt.Errorf(
+			"result operation %q reports finding status %q, which is not one of: %s",
+			o.ID, finding.Status, strings.Join(FindingStatuses, ", "),
+		)
+	}
+	named := func(value string) bool { return strings.TrimSpace(value) != "" }
+	switch {
+	case status == "explained" && !slices.ContainsFunc(finding.CauseEvidence, named):
+		return fmt.Errorf(
+			"result operation %q explains %q without naming what identified the cause; cite the "+
+				"exact record_evidence id in cause_evidence, or report the finding as unexplained",
+			o.ID, finding.What,
+		)
+	case (status == "expected" || status == "out_of_scope") && !named(finding.Reason):
+		return fmt.Errorf(
+			"result operation %q classifies %q as %s with no reason; that classification is the "+
+				"record an operator reviews later, so it carries the sentence that justifies it",
+			o.ID, finding.What, status,
+		)
+	}
+	for _, alternative := range finding.Alternatives {
+		if !named(alternative.Hypothesis) {
+			return fmt.Errorf(
+				"result operation %q lists an alternative with no hypothesis; an alternative is "+
+					"the strongest rival cause, stated",
+				o.ID,
+			)
+		}
+		if named(alternative.DiscriminatedBy) == named(alternative.NotCheckable) {
+			return fmt.Errorf(
+				"result operation %q attacks %q without exactly one of discriminated_by and "+
+					"not_checkable; give the evidence id that rules the alternative out, or say "+
+					"why no available check discriminates",
+				o.ID, alternative.Hypothesis,
+			)
+		}
+	}
+	return nil
+}
+
 // validateRecordRequestOperation checks the one enum a record request carries.
 //
 // The rejection lists the four kinds because there is no partial credit here:
@@ -718,6 +840,7 @@ accepted operations in the episode event stream.
 
 - record_evidence: {"id":"evidence-1","type":"record_evidence","evidence":{"claim_id":"exact required_claims id from the host contract, or a short stable slug when no listed claim applies","claim":"short claim","observation":"what the source established","relation":"supports|contradicts","health_effect":"none|risk|degraded|unhealthy|unknown","source_type":"repository|emisar|monitoring|slack|other","source_id":"stable provider or result id","source_name":"human-readable source","observed_at":"RFC3339 source time","freshness":"source-relative age or revision","confidence":"high|medium|low","dimensions":{"service":"api","environment":"production","replicas":3},"supersedes":["evidence id this record retires"],"scope_note":"optional bounded limitation"}}
 - record_coverage: {"id":"coverage-host","type":"record_coverage","coverage":{"layer":"host","claim_ids":["host.current_state"],"status":"healthy|degraded|unhealthy|unknown|not_applicable","source":"short source label","detail":"bounded assessment","observed_at":"RFC3339 source time"}}
+- record_finding: {"id":"finding-1","type":"record_finding","finding":{"what":"one line naming the failure state","scope":"service or environment","status":"unexplained|explained|expected|out_of_scope","cause_evidence":["evidence id, required when explained"],"alternatives":[{"hypothesis":"strongest rival cause","discriminated_by":"evidence id"}],"reason":"required for expected|out_of_scope"}} — record one for EVERY failure state your reply mentions; unexplained is the honest default until evidence identifies the cause.
 - report_progress: {"id":"progress-1","type":"report_progress","progress":{"phase":"investigating","summary":"meaningful operator-facing update","next_due_at":"optional RFC3339"}}
 - plan_goal: {"id":"goal-plan-1","type":"plan_goal","goal":{"id":"goal-1","kind":"check|engineering|operation|schedule","requested_outcome":"...","completion_contract":"observable done condition","required":true,"prerequisite_goal_ids":[],"authority":"read_only|repository_write|governed_operation"}}
 - update_goal: {"id":"goal-done-1","type":"update_goal","goal_state":{"goal_id":"goal-1","state":"ready|working|waiting|completed|blocked|excluded|cancelled","detail":"optional blocker"}}

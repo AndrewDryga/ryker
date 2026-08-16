@@ -66,6 +66,17 @@ var schemaFragments = []schemaFragment{
 			`"cause_claim_ids":["host.current_state"],"evidence_refs":["evidence-1"]}}`,
 	},
 	{
+		matches: []string{"record_finding", "cause_evidence", "finding status", "not_checkable"},
+		field:   "record_finding",
+		shape: `{"id":<string>,"type":"record_finding","finding":{"what":<string>,` +
+			`"scope":<string>,"status":"unexplained"|"explained"|"expected"|"out_of_scope",` +
+			`"cause_evidence":[<record_evidence id>],"alternatives":[{"hypothesis":<string>,` +
+			`"discriminated_by":<record_evidence id>|"not_checkable":<string>}],"reason":<string>}}`,
+		example: `{"id":"finding-1","type":"record_finding","finding":{"what":` +
+			`"VA1 pyke did not deploy; the rollout missed its progress deadline","scope":"va1-apps",` +
+			`"status":"unexplained"}}`,
+	},
+	{
 		matches: []string{"confidence"},
 		field:   "evidence.confidence",
 		shape:   `"confidence":"high"|"medium"|"low"`,
@@ -166,6 +177,12 @@ var unknownFieldOperations = map[string]string{
 	"blocker_kind": "completion blocked fields", "attempts": "completion blocked fields",
 	"message": "complete_episode", "answer": "complete_episode",
 	"claim_id": "evidence.claim_id", "confidence": "evidence.confidence",
+	// Only names that can mean one operation, per the rule above. "what",
+	// "status" and "reason" are deliberately absent — several payloads carry
+	// each — but nothing else in the contract has alternatives, a cause_evidence
+	// list, or a not_checkable.
+	"cause_evidence": "record_finding", "alternatives": "record_finding",
+	"not_checkable": "record_finding",
 }
 
 // unknownFieldAnswer names the invented field and, where it can only have meant

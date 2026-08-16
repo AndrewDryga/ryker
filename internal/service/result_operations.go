@@ -205,6 +205,8 @@ func (s *Service) applyResultOperation(
 	switch operation.Type {
 	case "record_evidence":
 		kind = episodepkg.EventEvidenceRecorded
+	case "record_finding":
+		kind = episodepkg.EventFindingRecorded
 	case "report_progress":
 		kind = episodepkg.EventProgressReported
 		var due time.Time

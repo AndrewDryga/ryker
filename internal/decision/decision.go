@@ -42,6 +42,12 @@ const (
 	MaxReplyPartBytes     = 12 << 10
 	MaxReplySequenceBytes = 48 << 10
 	MaxScheduleOffers     = 8
+	// MaxFindings bounds the failure states one turn may record, on the same
+	// reasoning as the 50 for evidence and 30 for coverage: a turn that found
+	// more than this many distinct failures has stopped triaging and started
+	// transcribing, and every one of them refuses the completion until it is
+	// answered.
+	MaxFindings = 20
 )
 
 func (a AttentionAssessment) Score() int {
@@ -81,6 +87,7 @@ type WatchDecision struct {
 	TaskPullRequest    string                              `json:"task_pull_request,omitempty"`
 	Evidence           []core.Evidence                     `json:"evidence,omitempty"`
 	Coverage           []core.Coverage                     `json:"coverage,omitempty"`
+	Findings           []investigation.FindingOperation    `json:"findings,omitempty"`
 	Memory             core.AgentMemory                    `json:"memory,omitempty"`
 	MemoryOffer        *core.MemoryOffer                   `json:"memory_offer,omitempty"`
 	PreferenceOffer    *core.PreferenceOffer               `json:"preference_offer,omitempty"`
@@ -374,6 +381,7 @@ var WatchDecisionPayload = []struct {
 	{"completion", func(d WatchDecision) bool { return d.Completion != nil }},
 	{"evidence", func(d WatchDecision) bool { return len(d.Evidence) != 0 }},
 	{"coverage", func(d WatchDecision) bool { return len(d.Coverage) != 0 }},
+	{"findings", func(d WatchDecision) bool { return len(d.Findings) != 0 }},
 	{"visuals", func(d WatchDecision) bool { return len(d.Visuals) != 0 }},
 	{"publication_updates", func(d WatchDecision) bool { return len(d.PublicationUpdates) != 0 }},
 }
@@ -391,18 +399,20 @@ var WatchActionPayload = map[string]struct {
 }{
 	"escalate": {noun: "escalation", allowed: map[string]bool{}},
 	"ignore": {noun: "ignore", allowed: map[string]bool{
-		"evidence": true, "coverage": true, "publication_updates": true,
+		"evidence": true, "coverage": true, "findings": true, "publication_updates": true,
 	}},
-	"react":    {noun: "react", allowed: map[string]bool{"reaction": true}},
-	"incident": {noun: "incident", allowed: map[string]bool{"title": true, "evidence": true, "coverage": true}},
+	"react": {noun: "react", allowed: map[string]bool{"reaction": true}},
+	"incident": {noun: "incident", allowed: map[string]bool{
+		"title": true, "evidence": true, "coverage": true, "findings": true,
+	}},
 	"reply": {noun: "reply", allowed: map[string]bool{
 		"message": true, "followup_messages": true, "incident_title": true,
 		"task_title": true, "task_repository": true, "task_prompt": true,
 		"task_pull_request": true,
 		"memory_offer":      true, "preference_offer": true, "rule_offer": true,
 		"schedule_offer": true, "schedule_offers": true, "pending_approval": true, "alert_assessment": true,
-		"completion": true, "evidence": true, "coverage": true, "visuals": true,
-		"publication_updates": true,
+		"completion": true, "evidence": true, "coverage": true, "findings": true,
+		"visuals": true, "publication_updates": true,
 	}},
 }
 
@@ -806,17 +816,18 @@ func DecodeStrictJSON(data []byte, target any) error {
 }
 
 type AgentReport struct {
-	Message          string                 `json:"message"`
-	FollowupMessages []string               `json:"followup_messages,omitempty"`
-	Visuals          []core.GeneratedVisual `json:"visuals,omitempty"`
-	Evidence         []core.Evidence        `json:"evidence,omitempty"`
-	Coverage         []core.Coverage        `json:"coverage,omitempty"`
-	Memory           core.AgentMemory       `json:"memory,omitempty"`
-	MemoryOffer      *core.MemoryOffer      `json:"memory_offer,omitempty"`
-	PreferenceOffer  *core.PreferenceOffer  `json:"preference_offer,omitempty"`
-	RuleOffer        *core.RuleOffer        `json:"rule_offer,omitempty"`
-	ScheduleOffer    *core.ScheduleOffer    `json:"schedule_offer,omitempty"`
-	ScheduleOffers   []*core.ScheduleOffer  `json:"schedule_offers,omitempty"`
+	Message          string                           `json:"message"`
+	FollowupMessages []string                         `json:"followup_messages,omitempty"`
+	Visuals          []core.GeneratedVisual           `json:"visuals,omitempty"`
+	Evidence         []core.Evidence                  `json:"evidence,omitempty"`
+	Coverage         []core.Coverage                  `json:"coverage,omitempty"`
+	Findings         []investigation.FindingOperation `json:"findings,omitempty"`
+	Memory           core.AgentMemory                 `json:"memory,omitempty"`
+	MemoryOffer      *core.MemoryOffer                `json:"memory_offer,omitempty"`
+	PreferenceOffer  *core.PreferenceOffer            `json:"preference_offer,omitempty"`
+	RuleOffer        *core.RuleOffer                  `json:"rule_offer,omitempty"`
+	ScheduleOffer    *core.ScheduleOffer              `json:"schedule_offer,omitempty"`
+	ScheduleOffers   []*core.ScheduleOffer            `json:"schedule_offers,omitempty"`
 	// GrantOffer is a proposal that one exact Emisar action earned the next
 	// rung of the remediation trust ladder. It reaches the service as a claim
 	// and nothing more: the host recomputes the count before anything is shown.
@@ -1186,6 +1197,40 @@ func SanitizeCoverage(
 	return result
 }
 
+// SanitizeFindings bounds what a finding may store, and drops the two shapes the
+// rules above could not read: one that names no failure state, and one whose
+// status is outside the contract's set. A finding with an unrecognised status is
+// neither open nor resolved, so keeping it would either wedge every completion
+// or silently excuse one.
+func SanitizeFindings(
+	items []investigation.FindingOperation,
+) []investigation.FindingOperation {
+	result := make([]investigation.FindingOperation, 0, min(len(items), MaxFindings))
+	for _, item := range items[:min(len(items), MaxFindings)] {
+		item.What = BoundedField(item.What, 400)
+		item.Scope = BoundedField(item.Scope, 200)
+		item.Status = strings.ToLower(BoundedField(item.Status, 40))
+		item.Reason = BoundedField(item.Reason, 1000)
+		item.CauseEvidence = BoundedUniqueFields(
+			item.CauseEvidence, investigation.MaxFindingCauseEvidence, 120,
+		)
+		if len(item.Alternatives) > investigation.MaxFindingAlternatives {
+			item.Alternatives = item.Alternatives[:investigation.MaxFindingAlternatives]
+		}
+		for index, alternative := range item.Alternatives {
+			alternative.Hypothesis = BoundedField(alternative.Hypothesis, 400)
+			alternative.DiscriminatedBy = BoundedField(alternative.DiscriminatedBy, 120)
+			alternative.NotCheckable = BoundedField(alternative.NotCheckable, 400)
+			item.Alternatives[index] = alternative
+		}
+		if item.What == "" || !investigation.ValidFindingStatus(item.Status) {
+			continue
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
 func BoundedUniqueFields(values []string, limit int, bound int) []string {
 	result := make([]string, 0, min(len(values), limit))
 	seen := make(map[string]struct{}, len(values))
@@ -1290,6 +1335,7 @@ func ApplyAgentResultOperations(report *AgentReport) error {
 	report.Visuals = nil
 	report.Evidence = nil
 	report.Coverage = nil
+	report.Findings = nil
 	report.Memory = core.AgentMemory{}
 	report.MemoryOffer = nil
 	report.PreferenceOffer = nil
@@ -1301,7 +1347,8 @@ func ApplyAgentResultOperations(report *AgentReport) error {
 	report.GrantOffer = nil
 	err := FoldResultOperations(report.Operations, OperationTargets{
 		message: &report.Message, followups: &report.FollowupMessages, visuals: &report.Visuals,
-		evidence: &report.Evidence, coverage: &report.Coverage, memory: &report.Memory,
+		evidence: &report.Evidence, coverage: &report.Coverage, findings: &report.Findings,
+		memory:      &report.Memory,
 		memoryOffer: &report.MemoryOffer, preferenceOffer: &report.PreferenceOffer,
 		ruleOffer: &report.RuleOffer, scheduleOffer: &report.ScheduleOffer,
 		scheduleOffers: &report.ScheduleOffers,
@@ -1360,6 +1407,7 @@ func ApplyWatchResultOperations(decision *WatchDecision) error {
 	decision.TaskPrompt = ""
 	decision.Evidence = nil
 	decision.Coverage = nil
+	decision.Findings = nil
 	decision.Memory = core.AgentMemory{}
 	decision.MemoryOffer = nil
 	decision.PreferenceOffer = nil
@@ -1371,7 +1419,8 @@ func ApplyWatchResultOperations(decision *WatchDecision) error {
 	decision.Completion = nil
 	err := FoldResultOperations(decision.Operations, OperationTargets{
 		message: &decision.Message, followups: &decision.FollowupMessages, visuals: &decision.Visuals,
-		evidence: &decision.Evidence, coverage: &decision.Coverage, memory: &decision.Memory,
+		evidence: &decision.Evidence, coverage: &decision.Coverage,
+		findings: &decision.Findings, memory: &decision.Memory,
 		memoryOffer: &decision.MemoryOffer, preferenceOffer: &decision.PreferenceOffer,
 		ruleOffer: &decision.RuleOffer, scheduleOffer: &decision.ScheduleOffer,
 		scheduleOffers: &decision.ScheduleOffers,
@@ -1407,8 +1456,8 @@ func ApplySilentWatchWaitOperations(decision *WatchDecision) error {
 	waits := 0
 	for _, operation := range decision.Operations {
 		switch operation.Type {
-		case "record_evidence", "record_coverage", "plan_goal", "update_goal",
-			"wait_external":
+		case "record_evidence", "record_coverage", "record_finding", "plan_goal",
+			"update_goal", "wait_external":
 			if operation.Type == "wait_external" {
 				waits++
 			}
@@ -1432,6 +1481,7 @@ func ApplySilentWatchWaitOperations(decision *WatchDecision) error {
 		visuals         []core.GeneratedVisual
 		evidence        []core.Evidence
 		coverage        []core.Coverage
+		findings        []investigation.FindingOperation
 		memory          core.AgentMemory
 		memoryOffer     *core.MemoryOffer
 		preferenceOffer *core.PreferenceOffer
@@ -1448,7 +1498,7 @@ func ApplySilentWatchWaitOperations(decision *WatchDecision) error {
 	)
 	if err := foldResultOperations(operations, OperationTargets{
 		message: &message, followups: &followups, visuals: &visuals,
-		evidence: &evidence, coverage: &coverage, memory: &memory,
+		evidence: &evidence, coverage: &coverage, findings: &findings, memory: &memory,
 		memoryOffer: &memoryOffer, preferenceOffer: &preferenceOffer,
 		ruleOffer: &ruleOffer, scheduleOffer: &scheduleOffer,
 		scheduleOffers: &scheduleOffers,
@@ -1463,6 +1513,7 @@ func ApplySilentWatchWaitOperations(decision *WatchDecision) error {
 	decision.Visuals = nil
 	decision.Evidence = evidence
 	decision.Coverage = coverage
+	decision.Findings = findings
 	decision.Memory = core.AgentMemory{}
 	decision.MemoryOffer = nil
 	decision.PreferenceOffer = nil
@@ -1492,7 +1543,8 @@ func ApplySuppressedWatchOperations(decision *WatchDecision) error {
 	scratch := WatchDecision{}
 	err := FoldResultOperations(decision.Operations, OperationTargets{
 		message: &scratch.Message, followups: &scratch.FollowupMessages, visuals: &scratch.Visuals,
-		evidence: &scratch.Evidence, coverage: &scratch.Coverage, memory: &scratch.Memory,
+		evidence: &scratch.Evidence, coverage: &scratch.Coverage,
+		findings: &scratch.Findings, memory: &scratch.Memory,
 		memoryOffer: &scratch.MemoryOffer, preferenceOffer: &scratch.PreferenceOffer,
 		ruleOffer: &scratch.RuleOffer, scheduleOffer: &scratch.ScheduleOffer,
 		scheduleOffers: &scratch.ScheduleOffers,
@@ -1505,6 +1557,7 @@ func ApplySuppressedWatchOperations(decision *WatchDecision) error {
 		return fmt.Errorf("%w: %w", ErrInvalidOperations, err)
 	}
 	decision.Evidence, decision.Coverage = scratch.Evidence, scratch.Coverage
+	decision.Findings = scratch.Findings
 	decision.Memory = scratch.Memory
 	// Re-cleared rather than assumed clear. This runs on a decision read back
 	// from the database, and the only guarantee worth relying on is the one
@@ -1526,7 +1579,7 @@ func ApplySilentWatchMemoryOperation(decision *WatchDecision) error {
 	if strings.TrimSpace(decision.Message) != "" || len(decision.FollowupMessages) != 0 ||
 		len(decision.Visuals) != 0 || strings.TrimSpace(decision.IncidentTitle) != "" ||
 		strings.TrimSpace(decision.TaskTitle) != "" || len(decision.Evidence) != 0 ||
-		len(decision.Coverage) != 0 || decision.MemoryOffer != nil ||
+		len(decision.Coverage) != 0 || len(decision.Findings) != 0 || decision.MemoryOffer != nil ||
 		decision.PreferenceOffer != nil || decision.RuleOffer != nil ||
 		decision.ScheduleOffer != nil || len(decision.ScheduleOffers) != 0 || decision.PendingApproval != nil ||
 		decision.AlertAssessment != nil || decision.Completion != nil ||
@@ -1562,6 +1615,7 @@ type OperationTargets struct {
 	visuals         *[]core.GeneratedVisual
 	evidence        *[]core.Evidence
 	coverage        *[]core.Coverage
+	findings        *[]investigation.FindingOperation
 	memory          *core.AgentMemory
 	memoryOffer     **core.MemoryOffer
 	preferenceOffer **core.PreferenceOffer
@@ -1621,6 +1675,14 @@ func foldResultOperations(
 			*target.evidence = append(*target.evidence, *operation.Evidence)
 		case "record_coverage":
 			*target.coverage = append(*target.coverage, *operation.Coverage)
+		case "record_finding":
+			// Dropped rather than refused where nothing collects it, on the same
+			// reasoning as record_repository_contents: a finding is something the
+			// turn learned, and failing a whole finalization over it would cost
+			// the operator the answer.
+			if target.findings != nil {
+				*target.findings = append(*target.findings, *operation.Finding)
+			}
 		case "record_repository_contents":
 			// Dropped rather than refused where nothing collects it, because the
 			// repository map is a side effect of the turn and not the answer.

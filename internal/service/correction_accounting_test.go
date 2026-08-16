@@ -163,7 +163,7 @@ func TestTheIncidentCorrectionBudgetCountsCorrectionsNotFailures(t *testing.T) {
 		if run.Failures != 0 {
 			t.Fatalf("round %d: failures = %d, so this test is not proving the split", round, run.Failures)
 		}
-		spent, err := svc.spendStructuredCorrection(ctx, run, nil, nil)
+		spent, err := svc.spendStructuredCorrection(ctx, run, nil, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

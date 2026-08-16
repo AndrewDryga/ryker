@@ -1362,6 +1362,7 @@ func TestDecisionReadyDiagnosisOffersIncidentAndPreparedFix(t *testing.T) {
 		"operations":[
 			{"id":"ev-1","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"the decoder is strict","observation":"the repository decoder enumerates rank values","source_type":"repository","source_name":"lib/rank.ex"}},
 			{"id":"cov-1","type":"record_coverage","coverage":{"layer":"application","claim_ids":["application.functional_behavior"],"status":"degraded","detail":"LoL requests fail on new rank values"}},
+			{"id":"finding-1","type":"record_finding","finding":{"what":"LoL requests are failing on new upstream rank values","scope":"lol-api","status":"explained","cause_evidence":["ev-1"],"alternatives":[{"hypothesis":"the upstream API changed its response envelope","discriminated_by":"ev-1"}]}},
 			{"id":"alert","type":"record_alert_assessment","alert_assessment":{
 				"verdict":"confirmed_issue",
 				"impact":"LoL requests fail continuously.",

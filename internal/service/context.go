@@ -12,6 +12,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/changeledger"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/investigation"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -81,6 +82,10 @@ type assembledAgentContext struct {
 	// rounds before it established.
 	CarriedEvidence []core.Evidence `json:"carried_evidence,omitempty"`
 	CarriedCoverage []core.Coverage `json:"carried_coverage,omitempty"`
+	// CarriedFindings is the same for typed findings, and it matters more than
+	// either: an unexplained finding refuses the completion, so a round that
+	// dropped one would be judged as having discovered nothing at all.
+	CarriedFindings []investigation.FindingOperation `json:"carried_findings,omitempty"`
 }
 
 func (s *Service) assembleAgentContext(

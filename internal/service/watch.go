@@ -2378,6 +2378,12 @@ engineering task.
   follow its action semantics and return reply; add an incident offer_task when escalation is useful,
   and let the host apply the channel's configured alert policy. Use a concise factual title.
 
+An unexplained failure in scope means the work is not done. Post the fast status first, then keep
+investigating in the same episode — deliver the cause as a delta update when the evidence lands, or
+return blocked with the exact obstacle. Before claiming an identified cause, attack it: use your own
+subagents to pursue the strongest alternative and name the check that discriminates. Never end an
+investigation with advice to investigate.
+
 For a human target, an operational problem or health question is not by itself permission to create an incident. Investigate read-only and choose reply. Add an incident offer_task when escalation is worth offering. Never choose incident for a human merely because the answer identifies an unhealthy component; the host will require explicit human intent.
 
 Incident admission is classification, not the investigation itself. When an unmatched credible

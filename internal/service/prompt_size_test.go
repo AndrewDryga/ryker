@@ -81,7 +81,21 @@ var promptCeilings = map[string]int{
 	// carries, so all three entries here pay for it. Measured 40,531, which
 	// left the previous 40 KiB with 429 bytes — the tripwire again. 40 KiB +
 	// 512 restores the roughly 1 KiB this entry says it wants.
-	"watch": 40*1024 + 512,
+	//
+	// And on 2026-08-15 for root cause by default: the record_finding bullet and
+	// the depth paragraph, 970 bytes across every variant. This is the largest
+	// single raise since the four-behavior batch, and it is bought against a
+	// measured 88 minutes. The 12:16 Zot triage closed decision_ready/succeeded
+	// on a Run-Applied event while its own reply said VA1 pyke "did not deploy:
+	// its rollout missed the progress deadline and automatically rolled back",
+	// and handed the readers "avoid retrying until the failed allocation or
+	// health check is identified". The failure it had found lived in prose, no
+	// contract could see it, and three human nudges bought a root cause a deep
+	// dive then found in four minutes. The bullet is what makes that rollback
+	// machine-readable; the paragraph is what stops the next one ending in advice
+	// to investigate. Measured 42,137, which left 40 KiB + 512 nothing at all;
+	// 42 KiB restores the roughly 1 KiB this entry says it wants.
+	"watch": 42 * 1024,
 
 	// The ambient measurement above is the cheap case, and for a while it was
 	// the only one — so this test reported "37% left for context" while an
@@ -152,7 +166,12 @@ var promptCeilings = map[string]int{
 	// And once more the same day for offer_assignment, again the same 521 bytes
 	// in the same shared block. Measured 47,135, leaving 46 KiB + 512 with 481
 	// bytes; 47 KiB is 993, which is the margin these entries are written to.
-	"watch-operator": 47 * 1024,
+	//
+	// And once more the same day for root cause by default — see the watch entry
+	// above; the operation list and the depth paragraph are both in blocks every
+	// variant carries, so all three entries pay the same 970 bytes. Measured
+	// 48,741, which left 47 KiB with nothing. 48 KiB + 512 is 923.
+	"watch-operator": 48*1024 + 512,
 
 	// The expensive turn, kept measured on purpose. Conditional inclusion means
 	// the two entries above now describe turns that skip 5,391 bytes of rules,
@@ -166,7 +185,12 @@ var promptCeilings = map[string]int{
 	// And 51,077 with offer_assignment aboard the same day, which left that
 	// number 635 bytes. 51 KiB is 1,147 — the margin the entries above are
 	// written to, on the variant that has the least of it to spare.
-	"watch-operator-alert": 51 * 1024,
+	// And 52,683 with root cause by default aboard, which left 51 KiB with 541.
+	// 52 KiB + 512 is 1,077 — the margin these entries are written to, on the
+	// variant that has the least of it to spare. This is also the variant that
+	// most needs what the raise buys: the alert turns are where a discovered
+	// failure actually turns up.
+	"watch-operator-alert": 52*1024 + 512,
 }
 
 func TestStaticPromptSizeIsBounded(t *testing.T) {

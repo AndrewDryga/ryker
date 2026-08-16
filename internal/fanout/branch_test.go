@@ -83,7 +83,7 @@ func TestABranchMayNotCompleteTheEpisode(t *testing.T) {
 // the lead will read, and nothing else.
 func TestABranchWritesEvidenceIntoTheSharedLedger(t *testing.T) {
 	for _, operation := range []string{
-		"record_evidence", "record_coverage", "update_goal", "report_progress",
+		"record_evidence", "record_coverage", "record_finding", "update_goal", "report_progress",
 	} {
 		if !BranchMayApply(operation) {
 			t.Fatalf("a branch could not %s, which is the work it exists to do", operation)

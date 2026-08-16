@@ -11,21 +11,27 @@ import (
 )
 
 const (
-	EventCreated             = "episode_created"
-	EventAccepted            = "episode_accepted"
-	EventDestinationBound    = "destination_bound"
-	EventDestinationChanged  = "destination_changed"
-	EventGoalPlanned         = "goal_planned"
-	EventGoalStarted         = "goal_started"
-	EventGoalCompleted       = "goal_completed"
-	EventGoalBlocked         = "goal_blocked"
-	EventAttemptStarted      = "attempt_started"
-	EventAttemptFailed       = "attempt_failed"
-	EventContextExtended     = "context_extended"
-	EventPhaseChanged        = "phase_changed"
-	EventProgressReported    = "progress_reported"
-	EventProgressRecorded    = "progress_recorded"
-	EventEvidenceRecorded    = "evidence_recorded"
+	EventCreated            = "episode_created"
+	EventAccepted           = "episode_accepted"
+	EventDestinationBound   = "destination_bound"
+	EventDestinationChanged = "destination_changed"
+	EventGoalPlanned        = "goal_planned"
+	EventGoalStarted        = "goal_started"
+	EventGoalCompleted      = "goal_completed"
+	EventGoalBlocked        = "goal_blocked"
+	EventAttemptStarted     = "attempt_started"
+	EventAttemptFailed      = "attempt_failed"
+	EventContextExtended    = "context_extended"
+	EventPhaseChanged       = "phase_changed"
+	EventProgressReported   = "progress_reported"
+	EventProgressRecorded   = "progress_recorded"
+	EventEvidenceRecorded   = "evidence_recorded"
+	// EventFindingRecorded is a failure state the turn discovered, on the record
+	// beside the evidence it was found in. It changes no projection: it exists so
+	// that "what did this episode find broken, and did anyone ever explain it"
+	// is answerable from the episode's own timeline rather than from the prose of
+	// a Slack message that has scrolled away.
+	EventFindingRecorded     = "finding_recorded"
 	EventOperatorInputAsked  = "operator_input_requested"
 	EventApprovalRequested   = "approval_requested"
 	EventExternalWaitStarted = "external_wait_started"
