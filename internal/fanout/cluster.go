@@ -116,8 +116,7 @@ func Clusters(ledger investigation.Ledger) []Cluster {
 	for index := range parent {
 		parent[index] = index
 	}
-	var find func(int) int
-	find = func(index int) int {
+	find := func(index int) int {
 		for parent[index] != index {
 			parent[index] = parent[parent[index]]
 			index = parent[index]

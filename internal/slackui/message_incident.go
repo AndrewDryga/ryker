@@ -327,6 +327,7 @@ func signalWhere(signal core.Signal) string {
 // overflow one dialog for all of its options — so the menu takes the read-only
 // remainder, and the primary style survives only where the ball is actually
 // with the operator.
+
 // RecordControls are the four durable reads of a piece of work.
 //
 // They are on every card that has a record behind it, in the overflow menu,

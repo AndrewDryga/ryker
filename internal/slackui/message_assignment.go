@@ -175,16 +175,14 @@ func AssignmentSavedMessage(assignment core.StandingAssignment) Message {
 	)
 }
 
-// The refusals an assignment confirmation can answer with.
-//
-// Each says the same last thing — nothing was granted — because that is the
-// only fact an operator who pressed a button and read an error needs before
-// deciding whether to press it again. They are separate sentences because they
-// have different remedies: a configuration list, a Slack account's standing,
-// and a card that has outlived the conversation it was offered in.
+// AssignmentOperatorOnly refuses an assignment confirmation from an actor who
+// is not on the configured operator list. It says nothing was granted because
+// that is the fact they need before deciding whether to try again.
 const AssignmentOperatorOnly = "*Only configured Responder operators can grant a standing " +
 	"assignment.* Nothing was granted."
 
+// AssignmentMembershipRequired refuses an operator whose Slack account is not
+// an active full workspace member and names that distinct remedy.
 const AssignmentMembershipRequired = "*This Slack account cannot grant a standing assignment.* " +
 	"Active full workspace membership is required. Nothing was granted."
 

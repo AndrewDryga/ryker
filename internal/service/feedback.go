@@ -147,29 +147,6 @@ func (s *Service) recordFeedbackOperations(
 	return nil
 }
 
-func (s *Service) recordExplicitFeedback(
-	ctx context.Context,
-	input core.SlackInput,
-	text string,
-) error {
-	contextMessages, err := s.feedbackContext(ctx, input, decisionpkg.WatchTurnState{}, "")
-	if err != nil {
-		return err
-	}
-	item := store.FeedbackItem{
-		ID:          feedbackID("explicit", input.TeamID, input.ID),
-		WorkspaceID: input.TeamID, ChannelID: input.ChannelID,
-		ThreadTS: input.ThreadTS, MessageTS: input.MessageTS, UserID: input.UserID,
-		Source: "slash_command", Category: "other", Sentiment: "suggestion",
-		Summary: TruncateWatchText(strings.TrimSpace(s.sanitizeFeedbackText(text)), 500),
-		Context: contextMessages, SourceRef: exactSlackMessageLink(input, input.MessageTS),
-	}
-	if _, err := s.store.RecordFeedback(ctx, item); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (s *Service) feedbackContext(
 	ctx context.Context,
 	input core.SlackInput,

@@ -10,21 +10,22 @@ import (
 const KnowledgeConfirmationStale = "*This confirmation is invalid or stale.* Nothing was " +
 	"created. Ask Responder to propose it again and use the new confirmation button."
 
-// KnowledgeOperatorOnly and KnowledgeMembershipRequired are the two
-// authorization refusals. They are separate sentences because they have
-// different remedies: one is a configuration list, the other is a Slack
-// account's standing in the workspace.
+// KnowledgeOperatorOnly refuses a knowledge confirmation from an actor who is
+// not on the configured operator list.
 const KnowledgeOperatorOnly = "*Only configured Responder operators can keep an episode's " +
 	"knowledge.* Nothing was created."
 
+// KnowledgeMembershipRequired refuses an operator whose Slack account is not
+// an active full workspace member and names that distinct remedy.
 const KnowledgeMembershipRequired = "*This Slack account cannot create a runbook draft or a " +
 	"pull request.* Active full workspace membership is required. Nothing was created."
 
-// The two failure prefixes. Both end by saying what did not happen, because an
-// operator who pressed a button and read an error needs to know whether to
-// press it again or go and look in Emisar.
+// KnowledgeDraftFailed prefixes a runbook-draft failure with the fact that
+// nothing was created before appending Emisar's reason.
 const KnowledgeDraftFailed = "*Responder could not create this runbook draft.* Emisar said: "
 
+// KnowledgeCardFailed prefixes a task-card failure with the fact that nothing
+// was started before appending the underlying reason.
 const KnowledgeCardFailed = "*Responder could not start the task that writes this card.* "
 
 // KnowledgeRefusedNotice is the refusal an operator reads when the host can no

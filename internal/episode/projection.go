@@ -58,7 +58,7 @@ func Project(value core.WorkEpisode) Projection {
 	return result
 }
 
-// ProgressSentence is how the host describes a turn that is still running: what
+// ProgressSummary is how the host describes a turn that is still running: what
 // kind of work is still going, and — for a turn that has narrated nothing at
 // all — what it is generally doing.
 //

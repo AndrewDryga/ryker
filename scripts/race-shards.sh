@@ -47,7 +47,11 @@ while IFS= read -r import_path; do
   [[ $import_path == */internal/service ]] || other_packages+=("$import_path")
 done < <(go list ./...)
 if [[ ${#other_packages[@]} -gt 0 ]]; then
-  start_job other-packages go test -race -count=1 "${other_packages[@]}"
+  # The store package opens a fresh migrated SQLite database in most tests.
+  # Under race instrumentation its full package can exceed Go's default ten
+  # minute package timeout while each individual test is still making normal
+  # progress, so give this broad shard the same bounded headroom as CI.
+  start_job other-packages go test -race -count=1 -timeout=20m "${other_packages[@]}"
 fi
 
 shard=1
