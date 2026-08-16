@@ -12,10 +12,10 @@ this machine, and nothing else counts them.</p>
       <h2 class="hero-word">{{.Disk.Headline}}</h2>
     </div>
     <div class="hero-stats">
-      <span><strong>{{len .Live}}</strong>in use</span>
-      <span{{if .Reclaimable}} class="warn"{{end}}><strong>{{bytes .Reclaimable}}</strong>reclaimable now</span>
-      <span{{if .Held}} class="bad"{{end}}><strong>{{len .Held}}</strong>cleanup blocked</span>
-      <span><strong>{{.Reclaimed}}</strong>already reclaimed</span>
+      <span>In use<strong>{{len .Live}}</strong></span>
+      <span{{if .Reclaimable}} class="warn"{{end}}>Reclaimable now<strong>{{bytes .Reclaimable}}</strong></span>
+      <span{{if .Held}} class="bad"{{end}}>Cleanup blocked<strong>{{len .Held}}</strong></span>
+      <span>Already reclaimed<strong>{{.Reclaimed}}</strong></span>
     </div>
   </div>
 </section>

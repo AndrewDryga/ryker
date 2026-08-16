@@ -147,26 +147,11 @@ type TraceChapter struct {
 	Steps              []TraceStep
 }
 
-// JourneyStop is one hop in the one-line summary above the trace.
-type JourneyStop struct {
-	Label, Detail, Tone string
-}
-
-// TimeSegment is one chapter's slice of the episode's wall clock, in
-// integer thousandths of the full bar so the template stays arithmetic-free.
-type TimeSegment struct {
-	X, W  int
-	Class string
-	Title string
-}
-
 type EpisodeTrace struct {
 	Metrics  []EpisodeMetric
-	Journey  []JourneyStop
 	Stats    []TraceStat
 	Steps    []TraceStep
 	Chapters []TraceChapter
-	TimeBar  []TimeSegment
 }
 
 func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(string) string) EpisodeTrace {
@@ -900,8 +885,6 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 	}
 	trace.Steps = steps
 	trace.Chapters = traceChapters(steps)
-	trace.Journey = traceJourney(page, turns, wakeups)
-	trace.TimeBar = traceTimeBar(trace.Chapters)
 	for _, stat := range []struct {
 		count            int
 		singular, plural string
@@ -1009,148 +992,6 @@ func traceChapters(steps []TraceStep) []TraceChapter {
 	return chapters
 }
 
-// traceTimeBar turns the chapters into one proportional strip of the
-// episode's wall clock. The rail says what happened in order; this says what
-// the order cost — usually that nearly all of it sat inside "The work".
-func traceTimeBar(chapters []TraceChapter) []TimeSegment {
-	type span struct {
-		index int
-		start time.Time
-	}
-	spans := []span{}
-	var last time.Time
-	for index, chapter := range chapters {
-		var first time.Time
-		for _, step := range chapter.Steps {
-			if step.At.IsZero() {
-				continue
-			}
-			if first.IsZero() {
-				first = step.At
-			}
-			if step.At.After(last) {
-				last = step.At
-			}
-		}
-		if !first.IsZero() {
-			spans = append(spans, span{index, first})
-		}
-	}
-	if len(spans) < 2 || last.IsZero() {
-		return nil
-	}
-	// The bar measures the execution: arrival to answer. Aftermath records
-	// often land hours later — a quality review, a delegated task finishing —
-	// and drawn to scale they would compress the real fifty seconds into
-	// slivers. A dominant final chapter becomes a legend note instead.
-	tail := ""
-	if final := spans[len(spans)-1]; chapters[final.index].Title == chapterNames[bandOutcome-1].title {
-		body := final.start.Sub(spans[0].start)
-		if trailing := last.Sub(final.start); trailing > 2*body {
-			tail = "follow-up records over " + compactDuration(trailing) + " more"
-			last = final.start
-			spans = spans[:len(spans)-1]
-		}
-	}
-	if len(spans) < 2 {
-		return nil
-	}
-	total := last.Sub(spans[0].start)
-	if total < 2*time.Second {
-		return nil
-	}
-	segments := make([]TimeSegment, 0, len(spans)+1)
-	for position, current := range spans {
-		end := last
-		if position+1 < len(spans) {
-			end = spans[position+1].start
-		}
-		width := int(end.Sub(current.start) * 1000 / total)
-		segments = append(segments, TimeSegment{
-			W:     max(width, 5),
-			Class: fmt.Sprintf("c%d", current.index),
-			Title: chapters[current.index].Title + " · " + compactDuration(end.Sub(current.start)),
-		})
-	}
-	x, scale := 0, 0
-	for _, segment := range segments {
-		scale += segment.W
-	}
-	for index := range segments {
-		segments[index].W = segments[index].W * 1000 / scale
-		segments[index].X = x
-		x += segments[index].W
-	}
-	segments[len(segments)-1].W = 1000 - segments[len(segments)-1].X
-	if tail != "" {
-		segments = append(segments, TimeSegment{Class: "tail", Title: tail})
-	}
-	return segments
-}
-
-// traceJourney is the one-line version of the whole episode: what arrived,
-// what worked on it, how long that took, and how it ended. It only states
-// what the durable records state.
-func traceJourney(page episodePage, turns []Turn, wakeups []Wakeup) []JourneyStop {
-	stops := []JourneyStop{}
-	if page.Source.ID != "" {
-		label := sourceTitle(page.Source)
-		detail := page.Source.Channel
-		if !page.Source.Received.IsZero() {
-			detail = strings.TrimPrefix(detail+" · "+page.Source.Received.UTC().Format("15:04 UTC"), " · ")
-		}
-		stops = append(stops, JourneyStop{Label: label, Detail: detail})
-	}
-	if page.Manifest.Version > 0 {
-		detail := strings.Trim(page.Manifest.Model+"/"+page.Manifest.Effort, "/")
-		stops = append(stops, JourneyStop{Label: "Model briefed", Detail: detail})
-	}
-	if worked := workedDuration(page, turns); worked > 0 {
-		detail := ""
-		if len(page.Attempts) > 1 {
-			detail = fmt.Sprintf("%d attempts", len(page.Attempts))
-		}
-		if len(wakeups) > 0 {
-			detail = strings.TrimPrefix(detail+" · slept between wake-ups", " · ")
-		}
-		stops = append(stops, JourneyStop{Label: "Worked " + compactDuration(worked), Detail: detail})
-	}
-	if outcome := journeyOutcome(page); outcome.Label != "" {
-		stops = append(stops, outcome)
-	}
-	if end := journeyEnd(page); end.Label != "" {
-		stops = append(stops, end)
-	}
-	if len(stops) < 2 {
-		return nil
-	}
-	return stops
-}
-
-func workedDuration(page episodePage, turns []Turn) time.Duration {
-	var start, end time.Time
-	for _, attempt := range page.Attempts {
-		if !attempt.Started.IsZero() && (start.IsZero() || attempt.Started.Before(start)) {
-			start = attempt.Started
-		}
-		if attempt.Completed.After(end) {
-			end = attempt.Completed
-		}
-	}
-	if start.IsZero() && page.Manifest.Version > 0 {
-		start = page.Manifest.Created
-	}
-	for _, turn := range turns {
-		if turn.Updated.After(end) {
-			end = turn.Updated
-		}
-	}
-	if start.IsZero() || end.IsZero() || end.Before(start) {
-		return 0
-	}
-	return end.Sub(start)
-}
-
 func firstReply(page episodePage) (Delivery, bool) {
 	var first Delivery
 	found := false
@@ -1174,56 +1015,6 @@ func latestDecision(page episodePage) (action, reason string) {
 		}
 	}
 	return action, reason
-}
-
-func journeyOutcome(page episodePage) JourneyStop {
-	action, _ := latestDecision(page)
-	if reply, ok := firstReply(page); ok {
-		detail := ""
-		if !page.Source.Received.IsZero() {
-			detail = compactDuration(reply.At.Sub(page.Source.Received)) + " after the message"
-		}
-		return JourneyStop{Label: "Replied in " + fallback(reply.Channel, "Slack"), Detail: detail, Tone: "good"}
-	}
-	switch page.State {
-	case "failed":
-		return JourneyStop{Label: "Failed", Tone: "bad"}
-	case "blocked", "waiting_operator", "waiting_approval":
-		return JourneyStop{Label: "Waiting on you", Tone: "warn"}
-	case "waiting_external":
-		return JourneyStop{Label: "Waiting on an external event", Tone: "warn"}
-	}
-	if action == "ignore" {
-		return JourneyStop{Label: "Chose not to reply", Tone: "good"}
-	}
-	if action != "" {
-		return JourneyStop{Label: "Decided: " + strings.ReplaceAll(action, "_", " ")}
-	}
-	return JourneyStop{}
-}
-
-func journeyEnd(page episodePage) JourneyStop {
-	total := ""
-	if !page.Source.Received.IsZero() && !page.Updated.IsZero() && page.Updated.After(page.Source.Received) {
-		total = compactDuration(page.Updated.Sub(page.Source.Received))
-	}
-	tokens := ""
-	if page.Spent.Recorded() {
-		tokens = humanTokens(page.Spent.Total()) + " tokens"
-	}
-	detail := strings.TrimPrefix(strings.TrimSuffix(total+" · "+tokens, " · "), " · ")
-	switch page.State {
-	case "completed":
-		return JourneyStop{Label: "Done", Detail: detail, Tone: "good"}
-	case "failed", "blocked", "waiting_operator", "waiting_approval", "waiting_external":
-		return JourneyStop{}
-	case "cancelled":
-		return JourneyStop{Label: "Cancelled", Detail: detail}
-	case "superseded":
-		return JourneyStop{Label: "Superseded", Detail: detail}
-	default:
-		return JourneyStop{Label: "Still open", Detail: detail}
-	}
 }
 
 // foldLoneAttempt merges a single successful Coop attempt into the model

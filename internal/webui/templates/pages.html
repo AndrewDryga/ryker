@@ -13,11 +13,6 @@
   </div>
 </section>
 
-{{/* The page is a dashboard, not a scroll: the work queues hold the main
-     column and the schedule rail sits beside them, so one viewport answers
-     "what needs me, what just happened, what is coming". */}}
-<div class="ov-grid">
-<div class="ov-main">
 {{if .Blocked}}
 {{/* The count is the queue, not the rows rendered: the list is capped at
      eight, and printing its length under a hero that counts the whole queue
@@ -46,23 +41,7 @@
 <p class="note"><a href="/episodes">every episode →</a></p>
 {{else}}<p class="empty-state">No episodes yet. One appears the first time Responder accepts work
 from Slack or a webhook.</p>{{end}}
-</div>
 
-<aside class="ov-side">
-{{with .Pulse}}
-{{/* The fortnight pulse lives with the forward-looking rail: what happened
-     lately, above what runs next, scaled to the column. */}}
-<div class="rail-pulse">
-  <svg viewBox="0 0 {{.Width}} 34" role="img" aria-label="Episodes per day" preserveAspectRatio="xMidYMid meet">
-    <title>Episodes per day, last {{.Span}} days</title>
-    {{range .Days}}
-    <rect class="pulse-bar" x="{{.X}}" y="{{.Y}}" width="7" height="{{.H}}" rx="1.5"><title>{{.Title}}</title></rect>
-    {{if .FH}}<rect class="pulse-failed" x="{{.X}}" y="{{.FY}}" width="7" height="{{.FH}}" rx="1.5"><title>{{.Title}}</title></rect>{{end}}
-    {{end}}
-  </svg>
-  <span>{{.Episodes}} episodes over {{.Span}} days · red is failed</span>
-</div>
-{{end}}
 <h2>Coming up <span class="note">{{len .Schedules}}</span></h2>
 {{if .Schedules}}
 <div class="rows">
@@ -82,20 +61,12 @@ from Slack or a webhook.</p>{{end}}
 <p class="note"><a href="/schedules">every schedule →</a></p>
 {{else}}<p class="empty-state">Nothing is scheduled. Ask Responder in Slack to check something on a
 cadence and it will appear here.</p>{{end}}
-</aside>
-</div>
 
-<h2>System</h2>
+{{if or .Errs .Troubled (not .Lanes)}}
+<h2>Needs attention</h2>
 {{template "problems" .Errs}}
-<div class="system-line">
-  <span class="{{if .Ready}}ok{{else}}bad{{end}}">{{if .Ready}}accepting work{{else}}not ready{{end}}</span>
-  <span>{{len .Lanes}} worker lane{{if ne (len .Lanes) 1}}s{{end}}{{if .Troubled}}, <span class="warn">{{len .Troubled}} degraded</span>{{else}}, all healthy{{end}}</span>
-  <span class="mono">{{.Binary}}</span>
-  <span class="mono">schema {{.Schema}}</span>
-</div>
 {{if .Troubled}}
-<p class="note">Pollers are permanent worker loops, not queued jobs; only the work columns count
-work still to do.</p>
+<p class="note">Pollers are permanent worker loops, not queued jobs.</p>
 <div class="table-scroll" tabindex="0"><table>
   <tr><th>Lane</th><th>Status</th><th class="num">Pollers</th><th class="num">Ready</th><th class="num">Running</th><th class="num">Scheduled</th><th class="num">Retrying</th><th class="num">Failed</th><th>Next work</th><th>Last issue</th></tr>
   {{range .Troubled}}
@@ -110,6 +81,7 @@ work still to do.</p>
   {{end}}
 </table></div>
 {{else if not .Lanes}}<p class="empty-state">No scheduler workers have registered.</p>{{end}}
+{{end}}
 {{end}}
 
 {{define "episodes"}}
@@ -142,46 +114,6 @@ work still to do.</p>
 {{template "pager" .}}
 {{else}}
 
-<h2>Where work happens <span class="note">{{len .Channels}} {{if eq (len .Channels) 1}}channel{{else}}channels{{end}}</span></h2>
-{{if .Channels}}
-<p class="note">Every conversation Responder has worked in, busiest first. The bar is how that
-channel's work turned out.</p>
-<div class="chan-grid">
-  {{range .Channels}}
-  <div class="chan-card">
-    <div class="chan-head">
-      <a class="chan-name" href="/episodes?channel={{.ID}}">{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</a>
-      <span class="chan-when">{{since .Last}}</span>
-    </div>
-    {{/* The card's anatomy: volume as its headline figure, the outcome meter
-         under it, exceptions as chips. A card is a small page, not four lines
-         of text at one size. */}}
-    <span class="chan-total">{{.Total}}<small>episodes</small></span>
-    <svg class="chan-bar" viewBox="0 0 100 4" width="100%" height="4" preserveAspectRatio="none" role="img"
-         aria-label="{{.Done}} completed, {{.Failed}} failed, {{.Other}} ended another way">
-      {{if .DoneW}}<rect class="chan-done" x="0" y="0" width="{{.DoneW}}" height="4"/>{{end}}
-      {{if .FailedW}}<rect class="chan-failed" x="{{.FailedX}}" y="0" width="{{.FailedW}}" height="4"/>{{end}}
-      {{if .OtherW}}<rect class="chan-other" x="{{.OtherX}}" y="0" width="{{.OtherW}}" height="4"/>{{end}}
-    </svg>
-    {{if or .Failed .NeedsDecision .InFlight}}<div class="chan-flags">
-      {{if .Failed}}<span class="chan-bad">{{.Failed}} failed</span>{{end}}
-      {{if .NeedsDecision}}<span class="chan-wait">{{.NeedsDecision}} waiting on you</span>{{end}}
-      {{if .InFlight}}<span class="chan-busy">{{.InFlight}} in flight</span>{{end}}
-    </div>{{end}}
-    {{/* Spans only, no literal separators: the stylesheet draws the dot after
-         every item but the last, which is the one arrangement that cannot
-         strand a dot at the head of a wrapped line. */}}
-    <div class="chan-foot">
-      {{if .Repository}}<span class="mono">{{.Repository}}</span><span>{{.Participation}}</span>
-      {{else if .Direct}}<span class="mono">{{.ID}}</span>
-      {{else}}<span>no repository bound</span>{{end}}
-      <span><a href="/channels/{{.ID}}">settings</a></span>
-    </div>
-  </div>
-  {{end}}
-</div>
-{{else}}<p class="empty-state">No work is on record in any channel yet.</p>{{end}}
-
 {{if .Tasks}}
 <h2>Engineering tasks <span class="note">{{len .Tasks}}</span></h2>
 <p class="note">Work someone asked Responder to carry out in a repository. Each one runs in its own
@@ -197,9 +129,6 @@ workspace and ends in a pull request; the episodes below are its individual turn
 
 <h2>Episodes <span class="note">{{.Total}} recorded{{if .Episodes}}, showing {{.From}}–{{.To}}{{end}}</span></h2>
 {{if .Episodes}}
-<p class="note">One episode is one turn of work: something arrived, Responder decided what to do
-about it, and did it. Most turns are deliberately silent — only the rows marked
-<em>replied in Slack</em> put a message in front of somebody.</p>
 {{template "episoderows" .Episodes}}
 {{else}}<p class="empty-state">No episodes yet. One appears the first time Responder accepts work
 from Slack or a webhook.</p>{{end}}
@@ -388,7 +317,7 @@ but nothing here is a queue.</p>
 <h2>Correction rate</h2>
 <div class="grid">
   {{range .Rates}}
-  <div class="panel metric{{if gt .Percent 20}} bad{{else if gt .Percent 5}} warn{{end}}">
+  <div class="metric{{if gt .Percent 20}} bad{{else if gt .Percent 5}} warn{{end}}">
     <div class="n">{{.Percent}}%</div><div class="k">{{.Label}} · {{.Count}} of {{.Total}}</div>
     <div class="metric-meter">{{meter .Percent}}</div>
   </div>
@@ -875,14 +804,14 @@ measured ones — an unmeasured attempt is left out, not counted as free.</p>
 
 {{if .Recorded}}
 <div class="grid">
-  <div class="panel metric" title="{{exact .Total}} tokens"><div class="n">{{tokens .Total}}</div><div class="k">tokens</div></div>
-  <div class="panel metric"><div class="n">{{tokens .Input}}</div><div class="k">fresh input</div></div>
-  <div class="panel metric"><div class="n">{{tokens .Cached}}</div><div class="k">cached input</div></div>
-  <div class="panel metric"><div class="n">{{tokens .Output}}</div><div class="k">output</div></div>
-  <div class="panel metric"><div class="n">{{tokens .Reasoning}}</div><div class="k">reasoning</div></div>
+  <div class="metric" title="{{exact .Total}} tokens"><div class="n">{{tokens .Total}}</div><div class="k">tokens</div></div>
+  <div class="metric"><div class="n">{{tokens .Input}}</div><div class="k">fresh input</div></div>
+  <div class="metric"><div class="n">{{tokens .Cached}}</div><div class="k">cached input</div></div>
+  <div class="metric"><div class="n">{{tokens .Output}}</div><div class="k">output</div></div>
+  <div class="metric"><div class="n">{{tokens .Reasoning}}</div><div class="k">reasoning</div></div>
   {{/* Short enough for one label line: a wrapped label dropped this value
        off the row's shared baseline. */}}
-  <div class="panel metric good"><div class="n">{{.CacheLabel}}</div><div class="k">cache hit rate</div></div>
+  <div class="metric good"><div class="n">{{.CacheLabel}}</div><div class="k">cache hit rate</div></div>
 </div>
 {{end}}
 {{end}}
@@ -944,8 +873,8 @@ An amber mark on the baseline is a day whose attempts nobody measured — not a 
 <h2>Cost</h2>
 {{if or .Cost.Reported .Cost.EstimatedKnown}}
 <div class="grid">
-  {{if .Cost.Reported}}<div class="panel metric good"><div class="n">{{.Cost.ReportedMoney}}</div><div class="k">provider reported · {{.Window.Label}}</div></div>{{end}}
-  {{if .Cost.EstimatedKnown}}<div class="panel metric"><div class="n">{{.Cost.EstimatedMoney}}</div><div class="k">configured estimate · {{.Window.Label}}</div></div>{{end}}
+  {{if .Cost.Reported}}<div class="metric good"><div class="n">{{.Cost.ReportedMoney}}</div><div class="k">provider reported · {{.Window.Label}}</div></div>{{end}}
+  {{if .Cost.EstimatedKnown}}<div class="metric"><div class="n">{{.Cost.EstimatedMoney}}</div><div class="k">configured estimate · {{.Window.Label}}</div></div>{{end}}
 </div>
 <p class="note">{{if .Cost.Reported}}The provider reported USD cost for {{.Cost.ReportedTurns}} turn(s).
 {{end}}{{if .Cost.EstimatedKnown}}The separate estimate uses configured token rates for
@@ -957,10 +886,10 @@ amounts are never added together.{{end}}</p>
 {{with .Totals.Clock}}
 {{if .Recorded}}
 <div class="grid">
-  <div class="panel metric"><div class="n">{{.PerTurn}}</div><div class="k">per timed turn</div></div>
-  <div class="panel metric"><div class="n">{{.Queued}}</div><div class="k">queued — Coop holding the turn</div></div>
-  <div class="panel metric"><div class="n">{{.Provider}}</div><div class="k">provider working</div></div>
-  <div class="panel metric"><div class="n">{{.Host}}</div><div class="k">host noticing it finished</div></div>
+  <div class="metric"><div class="n">{{.PerTurn}}</div><div class="k">per timed turn</div></div>
+  <div class="metric"><div class="n">{{.Queued}}</div><div class="k">queued — Coop holding the turn</div></div>
+  <div class="metric"><div class="n">{{.Provider}}</div><div class="k">provider working</div></div>
+  <div class="metric"><div class="n">{{.Host}}</div><div class="k">host noticing it finished</div></div>
 </div>
 <p class="note">{{exact .TimedTurns}} timed turns, {{.Total}} of wall clock in all. Queued means
 a busy session or an exhausted ladder, provider is the model working, and host is Responder's own

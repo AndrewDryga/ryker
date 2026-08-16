@@ -102,9 +102,9 @@ configuration. Clearing an override restores whatever it was hiding.</p>
 
 <h2>Work here</h2>
 <div class="grid">
-  <a class="panel metric{{if .Blocked}} warn{{end}}" href="/episodes?channel={{.ID}}">
+  <a class="metric{{if .Blocked}} warn{{end}}" href="/episodes?channel={{.ID}}">
     <div class="n">{{.Blocked}}</div><div class="k">need a decision</div></a>
-  <a class="panel metric{{if .Failed}} bad{{end}}" href="/failures">
+  <a class="metric{{if .Failed}} bad{{end}}" href="/failures">
     <div class="n">{{.Failed}}</div><div class="k">failed runs</div></a>
 </div>
 {{if .Episodes}}

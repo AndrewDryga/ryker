@@ -5,9 +5,9 @@ handed to a challenger whose job is to disprove it. Both verdicts are kept.</p>
 {{template "problems" .Errs}}
 
 <div class="grid">
-  <div class="panel metric{{if .Confirmed}} warn{{end}}"><div class="n">{{.Confirmed}}</div><div class="k">confirmed after challenge</div></div>
-  <div class="panel metric"><div class="n">{{.Rejected}}</div><div class="k">rejected by the challenger</div></div>
-  <div class="panel metric"><div class="n">{{.Total}}</div><div class="k">reviewed findings held</div></div>
+  <div class="metric{{if .Confirmed}} warn{{end}}"><div class="n">{{.Confirmed}}</div><div class="k">confirmed after challenge</div></div>
+  <div class="metric"><div class="n">{{.Rejected}}</div><div class="k">rejected by the challenger</div></div>
+  <div class="metric"><div class="n">{{.Total}}</div><div class="k">reviewed findings held</div></div>
 </div>
 
 <h2>Findings{{if .Findings}} <span class="note">{{.First}}–{{.Last}} of {{.Total}}</span>{{end}}</h2>

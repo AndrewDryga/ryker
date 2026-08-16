@@ -139,6 +139,65 @@ func TestShellUsesEmisarContentWidthTiers(t *testing.T) {
 	}
 }
 
+// The first redesign copied Emisar's colors but kept Responder's old dashboard
+// composition: a subtitle under every title, a two-column overview, duplicate
+// summaries, and a card around every trace step. These source-level invariants
+// keep the control plane on Emisar's actual hierarchy even when fixtures have
+// too little data to exercise every optional branch in a rendered page.
+func TestControlPlaneKeepsEmisarVisualHierarchy(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		data, err := assets.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+
+	layout := read("templates/layout.html")
+	for _, required := range []string{
+		`class="title-line{{if .Crumbs}} detail-title{{end}}"`,
+		`class="brand-wordmark"`,
+	} {
+		if !strings.Contains(layout, required) {
+			t.Errorf("shared shell lost %q", required)
+		}
+	}
+	if strings.Contains(layout, `class="ask"`) {
+		t.Error("shared shell put explanatory copy under every page title")
+	}
+
+	pages := read("templates/pages.html")
+	for _, obsolete := range []string{`class="ov-grid"`, `class="rail-pulse"`, "Where work happens"} {
+		if strings.Contains(pages, obsolete) {
+			t.Errorf("list pages restored the redundant dashboard element %q", obsolete)
+		}
+	}
+
+	episode := read("templates/episode.html")
+	for _, duplicate := range []string{`class="journey"`, `class="timebar"`} {
+		if strings.Contains(episode, duplicate) {
+			t.Errorf("episode detail restored the duplicate summary %q", duplicate)
+		}
+	}
+
+	css := read("static/app.css")
+	for _, offBrand := range []string{"#60a5fa", "#22d3ee", "#a78bfa", "#c084fc", "#f472b6"} {
+		if strings.Contains(css, offBrand) {
+			t.Errorf("trace palette restored off-brand color %s", offBrand)
+		}
+	}
+	if !strings.Contains(css, ".trace-step-card {") ||
+		!strings.Contains(css, "border-bottom: 1px solid var(--divide);") {
+		t.Error("trace steps no longer form the continuous hairline timeline")
+	}
+
+	wordmark := read("static/emisar-wordmark.svg")
+	if !strings.Contains(wordmark, `viewBox="0 0 896 155"`) {
+		t.Error("shared shell no longer carries Emisar's wordmark geometry")
+	}
+}
+
 func TestShellExposesKeyboardLocationAndSkipNavigation(t *testing.T) {
 	handler, err := NewHandler(&Reader{}, "test", "47", "responder-abc1234",
 		func() (bool, string) { return true, "" }, config.Pricing{}, nil, nil)

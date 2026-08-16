@@ -30,11 +30,10 @@
 <div class="shell-canvas">
   <header class="page-header">
     <div class="page-header-inner {{.Width}}">
-      <div class="title-line">
+      <div class="title-line{{if .Crumbs}} detail-title{{end}}">
         {{range .Crumbs}}<span class="crumb"><a href="{{.Href}}">{{.Label}}</a><i>/</i></span>{{end}}
         <h1>{{if .TitleOverride}}{{.TitleOverride}}{{else}}{{.Title}}{{end}}</h1>
       </div>
-      {{if not .TitleOverride}}<p class="ask">{{.Ask}}</p>{{end}}
     </div>
   </header>
   <main id="main-content" tabindex="-1" class="page-main">
@@ -49,12 +48,12 @@
 
 {{define "sidebarcontent"}}
   <div class="brand">
-    <svg class="brand-mark" viewBox="0 0 36 40" fill="none" aria-hidden="true">
-      <path d="M10 6 3 20l7 14M26 6l7 14-7 14" stroke-linejoin="round" stroke-width="3.5"/>
-      <path d="M18 10v6m0 8v6" stroke-width="2"/>
-      <circle cx="18" cy="5" r="3"/><circle class="brand-gate" cx="18" cy="20" r="3"/><circle cx="18" cy="35" r="3"/>
+    <svg class="brand-mark" viewBox="-18 0 390 390" fill="none" aria-hidden="true">
+      <g stroke-linejoin="round" stroke-width="37"><path stroke="#fff" d="M96 50 19.5 195 96 340"/><path stroke="#36e6a5" d="m258 50 76.5 145L258 340"/></g>
+      <path stroke="#fff" stroke-width="16" d="M177 84v69m0 84v69"/>
+      <circle cx="177" cy="42.5" r="34.5" stroke="#fff" stroke-width="14"/><circle cx="177" cy="195" r="34.5" stroke="#36e6a5" stroke-width="14"/><circle cx="177" cy="347.5" r="34.5" stroke="#fff" stroke-width="14"/>
     </svg>
-    <span class="brand-copy"><strong>Responder</strong><span>{{.Deploy}}</span></span>
+    <span class="brand-copy"><i class="brand-wordmark" role="img" aria-label="emisar"></i><span>Responder</span></span>
   </div>
   <div class="sidebar-scroll">
   {{$shell := .}}
@@ -70,7 +69,6 @@
   <div class="foot">
     <span class="foot-health"><i class="ready-dot{{if not .Ready}} down{{end}}"></i>{{if .Ready}}ready{{else}}{{if .NotReady}}{{.NotReady}}{{else}}not ready{{end}}{{end}}</span>
     <span>{{.Binary}}</span>
-    <span>schema {{.Schema}}</span>
   </div>
 {{end}}
 
