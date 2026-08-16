@@ -3,11 +3,12 @@
    dashboard must render with the network off, and nothing about production
    work should leave the machine.
 
-   Minimal and flat, by the operator's direction after every decorated
-   attempt: no gradients, no glass, no glow, no filled badges, no icon
-   plates. Near-white text on near-black surfaces, thin crisp separators,
-   real columns, generous space. Contrast and alignment do all the work;
-   color exists only to say live, waiting, or failed. */
+   Minimal and flat on slate, the direction the operator picked from a
+   side-by-side of four: blue-tinted dark surfaces, visible borders, one
+   blue accent. No gradients, no glass, no glow, no filled badges. Bright
+   text, thin crisp separators, real columns, generous space. Contrast and
+   alignment do all the work; color exists only to say live, waiting, or
+   failed. */
 
 @font-face {
   font-family: "InterVariable";
@@ -25,17 +26,17 @@
 }
 
 :root {
-  --bg: #09090a;
-  --surface: #0e0e10;      /* flat, one step above the page */
-  --raised: #141416;       /* hover and active fills */
-  --border: #202025;       /* container edges — thin but visible */
-  --line: #1a1a1e;         /* interior separators */
-  --text: #f2f2f4;         /* primary: bright, this is the design */
-  --text-2: #9a9aa3;       /* secondary: one middle gray, no ramp */
-  --text-3: #61616a;       /* tertiary: labels and furniture */
-  --accent: #23d18f;       /* links, actions, live */
-  --amber: #f0b13c;        /* waiting on a person */
-  --rose: #f47181;         /* failed */
+  --bg: #0e1016;
+  --surface: #141824;      /* flat, one step above the page */
+  --raised: #1b2030;       /* hover and active fills */
+  --border: #2b3247;       /* container edges — thin but visible */
+  --line: #222839;         /* interior separators */
+  --text: #edf0f7;         /* primary: bright, this is the design */
+  --text-2: #98a1b8;       /* secondary: one middle gray, no ramp */
+  --text-3: #5d6579;       /* tertiary: labels and furniture */
+  --accent: #7aa5ff;       /* links, actions, live */
+  --amber: #f4b64c;        /* waiting on a person */
+  --rose: #f47a8b;         /* failed */
   --sans: "InterVariable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --display: "Space Grotesk", "InterVariable", ui-sans-serif, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
@@ -55,16 +56,16 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-::selection { background: rgb(35 209 143 / .25); }
+::selection { background: rgb(122 165 255 / .25); }
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
-* { scrollbar-width: thin; scrollbar-color: #333338 transparent; }
+* { scrollbar-width: thin; scrollbar-color: #363d4e transparent; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-thumb { background: #333338; border-radius: 9999px; }
+::-webkit-scrollbar-thumb { background: #363d4e; border-radius: 9999px; }
 ::-webkit-scrollbar-track { background: transparent; }
 
 /* Sidebar ------------------------------------------------------------------ */
@@ -137,7 +138,7 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 .sidebar a.on {
   color: var(--text);
-  background: rgb(255 255 255 / .06);
+  background: rgb(122 165 255 / .12);
 }
 .sidebar a.on .nav-icon { opacity: 1; color: var(--accent); }
 
@@ -322,7 +323,7 @@ a.metric:hover { text-decoration: none; background: rgb(255 255 255 / .02); }
 
 .hero-pulse { grid-area: pulse; display: grid; gap: 6px; justify-items: end; align-self: center; padding-bottom: 16px; }
 .hero-pulse span { color: var(--text-3); font: 450 10.5px/1.4 var(--mono); }
-.pulse-bar { fill: rgb(35 209 143 / .55); }
+.pulse-bar { fill: rgb(122 165 255 / .55); }
 .pulse-bar:hover { fill: var(--accent); }
 .pulse-failed { fill: var(--rose); opacity: .9; pointer-events: none; }
 
@@ -424,7 +425,7 @@ td .note { font-size: 12px; }
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #3a3a40;
+  background: #394050;
   border: 2px solid var(--bg);
 }
 .timeline .ev.a-agent::before { background: var(--accent); }
@@ -484,8 +485,8 @@ pre.dump {
 /* Meters --------------------------------------------------------------------------- */
 
 .meter { display: inline-block; vertical-align: middle; }
-.meter-bg { fill: #222227; }
-.meter-fg { fill: #55555f; }
+.meter-bg { fill: #232838; }
+.meter-fg { fill: #545d73; }
 .meter-cell { width: 76px; }
 .share-cell { display: grid; justify-items: end; gap: 4px; }
 .share-cell span { display: inline-block; min-width: 0; margin-right: 0; }
@@ -504,9 +505,9 @@ pre.dump {
 
 .finding .meta { max-width: 92ch; line-height: 1.7; border-left: 1px solid var(--line); padding-left: 12px; margin-left: 1px; }
 .finding p { max-width: 92ch; }
-.finding { box-shadow: inset 2px 0 0 #3a3a40; }
+.finding { box-shadow: inset 2px 0 0 #394050; }
 .finding-confirmed { box-shadow: inset 2px 0 0 var(--rose); }
-.finding-rejected { box-shadow: inset 2px 0 0 #3a3a40; }
+.finding-rejected { box-shadow: inset 2px 0 0 #394050; }
 blockquote.challenge {
   margin: 8px 0 0;
   padding: 8px 13px;
@@ -532,10 +533,10 @@ button {
   color: var(--text);
   cursor: pointer;
 }
-button:hover { border-color: #33333a; }
+button:hover { border-color: #39415a; }
 
-button.go { background: var(--accent); border-color: var(--accent); color: #04120c; font-weight: 600; }
-button.go:hover { background: #3ddb9f; border-color: #3ddb9f; }
+button.go { background: var(--accent); border-color: var(--accent); color: #0a1020; font-weight: 600; }
+button.go:hover { background: #93b6ff; border-color: #93b6ff; }
 
 /* The confirm step is a native <details> disclosure, not confirm(). This page
    ships no JavaScript and its CSP has no script-src — the real submit button
@@ -555,7 +556,7 @@ details.confirm > summary {
   white-space: nowrap;
 }
 .act-link:hover,
-details.confirm > summary:hover { border-color: #33333a; text-decoration: none; }
+details.confirm > summary:hover { border-color: #39415a; text-decoration: none; }
 details.confirm > summary::-webkit-details-marker { display: none; }
 details.confirm[open] > summary { background: var(--surface); }
 
@@ -613,12 +614,12 @@ form.filter input[type=text], form.filter select {
 }
 form.filter input[type=text] {
   padding-left: 32px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2361616a' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235d6579' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-size: 14px;
   background-position: 11px center;
 }
-form.filter input:hover, form.filter input:focus { border-color: #33333a; }
+form.filter input:hover, form.filter input:focus { border-color: #39415a; }
 form.filter input::placeholder { color: var(--text-3); }
 form.filter select { min-width: 0; }
 form.filter a { font-size: 12.5px; color: var(--text-2); }
@@ -739,18 +740,18 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
    traceTimeBar). */
 .timebar { display: grid; gap: 7px; }
 .timebar svg { display: block; border-radius: 4px; overflow: hidden; }
-.timebar-c0 { fill: #34343b; }
-.timebar-c1 { fill: #4b4b54; }
-.timebar-c2 { fill: #6b6b76; }
-.timebar-c3 { fill: #94949e; }
+.timebar-c0 { fill: #303648; }
+.timebar-c1 { fill: #454d63; }
+.timebar-c2 { fill: #646d85; }
+.timebar-c3 { fill: #9099ad; }
 .timebar rect:hover { opacity: .85; }
 .timebar-legend { display: flex; gap: 16px; flex-wrap: wrap; }
 .timebar-key { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); font: 450 11px/1.5 var(--mono); }
 .timebar-key::before { content: ""; width: 8px; height: 8px; border-radius: 2px; }
-.timebar-key.c0::before { background: #34343b; }
-.timebar-key.c1::before { background: #4b4b54; }
-.timebar-key.c2::before { background: #6b6b76; }
-.timebar-key.c3::before { background: #94949e; }
+.timebar-key.c0::before { background: #303648; }
+.timebar-key.c1::before { background: #454d63; }
+.timebar-key.c2::before { background: #646d85; }
+.timebar-key.c3::before { background: #9099ad; }
 .timebar-key.tail::before { display: none; }
 
 /* Chapters cut the rail into acts a stranger can follow. */
@@ -809,11 +810,11 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
   box-shadow: 0 0 0 3px var(--bg);
 }
 .trace-marker .ring svg { width: 11px; height: 11px; }
-.trace-step[data-tone="good"] .ring { border-color: rgb(35 209 143 / .5); color: var(--accent); }
+.trace-step[data-tone="good"] .ring { border-color: rgb(122 165 255 / .5); color: var(--accent); }
 .trace-step[data-tone="warn"] .ring { border-color: rgb(240 177 60 / .55); color: var(--amber); }
 .trace-step[data-tone="bad"] .ring { border-color: rgb(244 113 129 / .55); color: var(--rose); }
 
-.trace-step:target .trace-step-card { border-color: rgb(35 209 143 / .5); }
+.trace-step:target .trace-step-card { border-color: rgb(122 165 255 / .5); }
 
 /* A quiet stretch gets its own mark on the rail. */
 .trace-gap {
@@ -907,7 +908,7 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
 .sb-key::before { content: ""; width: 7px; height: 7px; border-radius: 2px; align-self: center; }
 .sb-key em { font-style: normal; color: var(--text-3); font: 450 10.5px/1.4 var(--mono); }
 .stepbar-note { margin-left: auto; color: var(--text-3); font-size: 10.5px; }
-.sb-sys { fill: #4b4b54; }        .sb-key.sys::before { background: #4b4b54; }
+.sb-sys { fill: #4b5266; }        .sb-key.sys::before { background: #4b5266; }
 .sb-mem { fill: #6f9ff5; }        .sb-key.mem::before { background: #6f9ff5; }
 .sb-slack { fill: #46c8e0; }      .sb-key.slack::before { background: #46c8e0; }
 .sb-user { fill: #f0b13c; }       .sb-key.user::before { background: #f0b13c; }
@@ -915,7 +916,7 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
 .sb-in { fill: #6f9ff5; }         .sb-key.in::before { background: #6f9ff5; }
 .sb-out { fill: #a794f8; }        .sb-key.out::before { background: #a794f8; }
 .sb-think { fill: #46c8e0; }      .sb-key.think::before { background: #46c8e0; }
-.sb-free { fill: #1b1b1f; }       .sb-key.free::before { background: #1b1b1f; box-shadow: inset 0 0 0 1px #33333a; }
+.sb-free { fill: #191d29; }       .sb-key.free::before { background: #191d29; box-shadow: inset 0 0 0 1px #333a4b; }
 .sb-key.free { color: var(--text-3); }
 .stepbar rect:hover { opacity: .85; }
 
@@ -925,7 +926,7 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
   gap: 9px;
   margin-top: 10px;
   padding: 1px 0 1px 10px;
-  border-left: 2px solid rgb(35 209 143 / .35);
+  border-left: 2px solid rgb(122 165 255 / .35);
 }
 .trace-why > span { flex: none; color: var(--text-3); font: 600 9.5px/1.9 var(--mono); text-transform: uppercase; letter-spacing: .05em; }
 .trace-why p { color: var(--text-2); font-size: 12.5px; line-height: 1.55; max-width: 92ch; }
@@ -945,9 +946,9 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
 .trace-step-card > .rules { margin: 10px 16px 0; }
 .rules { display: grid; gap: 8px; }
 .rule { padding: 9px 12px 10px; border: 1px solid var(--line); border-radius: 8px; }
-.rule.on { border-color: rgb(35 209 143 / .3); }
+.rule.on { border-color: rgb(122 165 255 / .35); }
 .rule-head { display: flex; align-items: baseline; gap: 8px; }
-.rule-head i { width: 7px; height: 7px; border-radius: 50%; background: #3a3a40; align-self: center; flex: none; }
+.rule-head i { width: 7px; height: 7px; border-radius: 50%; background: #394050; align-self: center; flex: none; }
 .rule.on .rule-head i { background: var(--accent); }
 .rule-head strong { font-size: 13px; color: var(--text); min-width: 0; }
 .rule:not(.on) .rule-head strong { color: var(--text-2); font-weight: 500; }
@@ -1134,15 +1135,15 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
 }
 
 .prompt-segments { display: grid; gap: 1px; padding: 1px 0; border-top: 1px solid var(--line); background: var(--line); }
-.prompt-segment { min-width: 0; border-left: 2px solid #4b4b54; background: rgb(0 0 0 / .3); }
-.prompt-segment.tone-system { border-left-color: #6b6b76; }
+.prompt-segment { min-width: 0; border-left: 2px solid #4b5266; background: rgb(0 0 0 / .3); }
+.prompt-segment.tone-system { border-left-color: #6b7488; }
 .prompt-segment.tone-trusted { border-left-color: var(--accent); }
 .prompt-segment.tone-memory { border-left-color: #6f9ff5; }
 .prompt-segment.tone-operational { border-left-color: #f28cb4; }
 .prompt-segment.tone-conversation { border-left-color: #6f9ff5; }
 .prompt-segment.tone-related { border-left-color: #b39cf9; }
 .prompt-segment.tone-slack { border-left-color: #46c8e0; }
-.prompt-segment.tone-structure { border-left-color: #4b4b54; }
+.prompt-segment.tone-structure { border-left-color: #4b5266; }
 .prompt-segment.tone-user { border-left-color: var(--amber); }
 .prompt-segment-meta {
   display: flex;
@@ -1194,8 +1195,8 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
 .episode-review .stopped-why { flex-basis: 100%; }
 .episode-review .confirm { margin-left: auto; }
 /* Reviewing is the page's one action, so it wears the primary fill. */
-.episode-review details.confirm > summary { background: var(--accent); border-color: var(--accent); color: #04120c; font-weight: 600; }
-.episode-review details.confirm > summary:hover { background: #3ddb9f; border-color: #3ddb9f; }
+.episode-review details.confirm > summary { background: var(--accent); border-color: var(--accent); color: #0a1020; font-weight: 600; }
+.episode-review details.confirm > summary:hover { background: #93b6ff; border-color: #93b6ff; }
 .episode-review details.confirm[open] > summary { background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 500; }
 
 /* Episode rows ------------------------------------------------------------------------ */
@@ -1236,7 +1237,7 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
 .chan-bar { display: block; width: 100%; height: 4px; border-radius: 2px; overflow: hidden; background: var(--raised); }
 .chan-done { fill: var(--accent); }
 .chan-failed { fill: var(--rose); }
-.chan-other { fill: #3c3c43; }
+.chan-other { fill: #3a4152; }
 .chan-flags { display: flex; flex-wrap: wrap; gap: 4px 14px; }
 /* The channel page's own roll-up keeps the plain counts line. */
 .chan-counts { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 7px; font-size: 12.5px; color: var(--text-2); }
@@ -1382,7 +1383,7 @@ form.filter a { font-size: 12.5px; color: var(--text-2); }
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
   padding: 15px 17px 13px; display: grid; gap: 4px; align-content: start; color: inherit;
 }
-.set-card:hover { border-color: #33333a; text-decoration: none; }
+.set-card:hover { border-color: #39415a; text-decoration: none; }
 .set-name { font-size: 11px; color: var(--text-3); font-weight: 500; text-transform: uppercase; letter-spacing: .06em; }
 .set-count { font: 600 22px/1.15 var(--display); letter-spacing: -0.015em; color: var(--text); font-variant-numeric: tabular-nums; }
 .set-what { font-size: 12.5px; line-height: 1.55; color: var(--text-2); margin-top: 2px; min-height: 2lh; }
