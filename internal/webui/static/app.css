@@ -38,7 +38,7 @@
   --z200: #e4e4e7;          /* table text */
   --z100: #f4f4f5;          /* page text */
   --z50:  #fafafa;
-  --divide: rgb(255 255 255 / .08); /* row separators — visible, not loud */
+  --divide: rgb(255 255 255 / .05); /* row separators — a whisper, like the portal's */
   --hover: rgb(255 255 255 / .04);
   /* The brand gate and the two alarms, straight from tailwind.config.js. */
   --brand-200: #95f3cd;
@@ -95,7 +95,7 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .sidebar {
   width: 232px;
   flex: 0 0 232px;
-  border-right: 1px solid var(--z800);
+  border-right: 1px solid rgb(255 255 255 / .06);
   padding: 18px 12px 14px;
   position: sticky;
   top: 0;
@@ -138,13 +138,12 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 /* The portal's eyebrow label. */
 .nav-group {
   margin: 18px 12px 6px;
-  padding: 0 0 7px;
+  padding: 0;
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--z500);
-  border-bottom: 1px solid var(--divide);
 }
 
 /* nav_link: active = the house light wash + bright text, the icon carrying
@@ -199,7 +198,7 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
   gap: 3px;
   font: 11px/1.5 var(--mono);
   color: var(--z500);
-  border-top: 1px solid var(--z800);
+  border-top: 1px solid rgb(255 255 255 / .06);
 }
 
 .foot-health { display: flex; align-items: center; gap: 7px; color: var(--z400); }
@@ -265,11 +264,9 @@ h2 .note { font: 450 12px/1.5 var(--mono); font-variant-numeric: tabular-nums; c
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 0;
-  border-top: 1px solid var(--divide);
-  border-bottom: 1px solid var(--divide);
 }
-.grid > .panel { background: none; border: 0; border-radius: 0; box-shadow: none; border-left: 1px solid var(--divide); padding: 18px 24px; }
-.grid > .panel:first-child { border-left: 0; padding-left: 4px; }
+.grid > .panel { background: none; border: 0; border-radius: 0; box-shadow: none; padding: 14px 48px 14px 0; }
+.grid > .panel:first-child { padding-left: 4px; }
 
 .metric { display: flex; flex-direction: column; gap: 2px; }
 .metric .k {
@@ -310,10 +307,8 @@ a.metric:hover { text-decoration: none; background: var(--hover); }
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
-  border-top: 1px solid var(--divide);
-  border-bottom: 1px solid var(--divide);
   margin: 0;
-  padding: 18px 0 20px;
+  padding: 16px 0 6px;
 }
 .hero-stats > * {
   display: grid;
@@ -324,10 +319,9 @@ a.metric:hover { text-decoration: none; background: var(--hover); }
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .08em;
-  padding: 0 28px;
-  border-left: 1px solid var(--divide);
+  padding: 0 56px 0 0;
 }
-.hero-stats > :first-child { border-left: 0; padding-left: 4px; }
+.hero-stats > :first-child { padding-left: 4px; }
 .hero-stats strong { color: var(--z50); font-size: 24px; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; text-transform: none; }
 .hero-stats a:hover { text-decoration: none; }
 .hero-stats a:hover strong { color: var(--brand-400); }
@@ -399,13 +393,13 @@ table {
 
 th {
   text-align: left;
-  color: var(--z400);
+  color: var(--z500);
   font-weight: 500;
-  font-size: 12.5px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: .06em;
   padding: 12px 14px;
-  border-bottom: 1px solid var(--z700-80);
+  border-bottom: 1px solid rgb(255 255 255 / .08);
   white-space: nowrap;
 }
 th:first-child { padding-left: 0; }
@@ -691,16 +685,14 @@ form.filter a { font-size: 13px; color: var(--z400); }
 .episode-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  border-top: 1px solid var(--divide);
-  border-bottom: 1px solid var(--divide);
 }
 
 .episode-action-strip { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; align-items: center; }
 .episode-action-strip .confirm { width: min(100%, 420px); margin: 0; }
 .episode-action-strip .note { margin: 0; margin-right: auto; max-width: 46ch; }
 
-.episode-metric { padding: 18px 24px 19px; border-left: 1px solid var(--divide); }
-.episode-metric:first-child { border-left: 0; padding-left: 4px; }
+.episode-metric { padding: 14px 40px 15px 0; }
+.episode-metric:first-child { padding-left: 4px; }
 .episode-metric-label { color: var(--z400); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
 .episode-metric-value {
   margin-top: 5px;
@@ -739,7 +731,6 @@ form.filter a { font-size: 13px; color: var(--z400); }
   flex-wrap: wrap;
   gap: 6px;
   padding: 12px 4px;
-  border-bottom: 1px solid var(--divide);
 }
 .journey-stop { display: flex; flex-direction: column; justify-content: flex-start; gap: 1px; padding: 4px 10px; }
 .journey-stop strong { font-size: 13.5px; font-weight: 600; color: var(--z100); white-space: nowrap; }
@@ -782,7 +773,7 @@ form.filter a { font-size: 13px; color: var(--z400); }
   align-items: baseline;
   gap: 12px;
   padding: 7px 0;
-  border-bottom: 1px solid var(--z700-80);
+  border-bottom: 1px solid rgb(255 255 255 / .08);
   margin-bottom: 14px;
 }
 .trace-chapter-head h3 { margin: 0; color: var(--z100); font-size: 15px; font-weight: 650; letter-spacing: -0.01em; white-space: nowrap; }
@@ -1222,7 +1213,7 @@ form.filter a { font-size: 13px; color: var(--z400); }
 /* Channels are entities, presented the way the portal's agents page presents
    agents: full-width rows on the canvas, a big bold name, detail lines, one
    hairline between — no cards. */
-.chan-grid { display: block; border-top: 1px solid var(--divide); }
+.chan-grid { display: block; }
 .chan-card {
   padding: 22px 4px 20px;
   border-bottom: 1px solid var(--divide);
@@ -1309,13 +1300,8 @@ form.filter a { font-size: 13px; color: var(--z400); }
   font-size: 15px; font-weight: 550; color: var(--z100); line-height: 1.5;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-/* The audit page's grammar: trouble colours the title itself; success keeps
-   a white title behind its green dot — good news stays quiet. */
-.episode-row[data-state="failed"] .episode-title,
-.episode-row[data-state="dead"] .episode-title { color: var(--rose-300); }
-.episode-row[data-state="blocked"] .episode-title,
-.episode-row[data-state="waiting_operator"] .episode-title,
-.episode-row[data-state="waiting_approval"] .episode-title { color: var(--amber-300); }
+/* Titles stay white always — the dot and the state word carry the tone.
+   Colouring long alert titles read as a page shouting. */
 .episode-when { grid-area: when; font-size: 12.5px; color: var(--z500); white-space: nowrap; }
 .episode-answer {
   grid-area: answer;
@@ -1382,7 +1368,7 @@ form.filter a { font-size: 13px; color: var(--z400); }
 
 /* Configuration index ------------------------------------------------------------------ */
 
-.set-grid { display: block; border-top: 1px solid var(--divide); margin-bottom: 28px; }
+.set-grid { display: block; margin-bottom: 28px; }
 .set-card {
   padding: 20px 4px 19px; display: grid; gap: 4px; align-content: start; color: inherit;
   border-bottom: 1px solid var(--divide);
