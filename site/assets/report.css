@@ -576,3 +576,16 @@
   color: #e8912d;
 }
 .report .nowrap { white-space: nowrap; }
+
+/* Hero without its window: the text owns the width, the story owns the show. */
+.report .hero-frame.solo { grid-template-columns: minmax(0, 1fr); }
+.report .hero-frame.solo .hero-aside { padding-top: 0; }
+
+/* The mechanics grid: four quiet theses, two columns on wide paper. */
+.report .pillars.mech { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(var(--u,8px)*6) calc(var(--u,8px)*10); }
+@media (max-width: 900px) { .report .pillars.mech { grid-template-columns: 1fr; } }
+.report .pillars.mech h3 { font-family: var(--disp); font-weight: 560; font-size: 1.4375rem; letter-spacing: -.012em; color: var(--pink); }
+
+/* Understands: panel beside prose. */
+.report .und-text h3 { font-family: var(--disp); font-weight: 560; font-size: 1.4375rem; letter-spacing: -.012em; color: var(--pink); margin-bottom: 8px; }
+.report #understands .trust-grid { align-items: start; }
