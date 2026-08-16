@@ -79,43 +79,42 @@
              colors, carrying the exchange the whole page is about. The page
              annotates it from outside; inside is only what Slack would show. -->
         <figure class="hero-slack" aria-labelledby="hero-cap">
-          <figcaption id="hero-cap" class="vh">A Slack channel, #ops-payments. At 2:01 PM Grafana, marked as an app, posts an alert: checkout p99 latency above 800 milliseconds for 5 minutes — firing, p99 at 812 milliseconds against an 800 millisecond threshold. One person has reacted with an eyes emoji. At 2:03 PM Responder, marked as an app, replies: degraded, recovering — error rate is 0.2 percent and falling; release 4f21c9 is implicated, not proven. Four evidence lines follow: checkout reports 6 of 6 replicas ready, from Emisar at 2:02 PM; release 4f21c9 rolled out 11 minutes before the alert, from the change ledger; error rate 0.2 percent, down from a 3.1 percent peak at 1:58, from Grafana; and upstream gateway latency — not checked, no authorized source. It closes: watching p99 through the next deploy, I’ll close this out when it holds.</figcaption>
+          <figcaption id="hero-cap" class="vh">A real Slack exchange from the author&rsquo;s own infrastructure, condensed. In channel backend-ops on August 11, Andrew writes: I think that Zot error is what broke the integration &mdash; it created an app but did not connect GH. Four days later, on August 15, Responder &mdash; marked as an app &mdash; reports: not recurring. The last 24 hours contain no matching auth or upstream-sync failures. All five node-local Zot instances returned the same manifest on an on-demand sync, and Nomad shows five healthy allocations, one per node. Watching stays scheduled; this was the last of three checks it booked for itself.</figcaption>
 
           <div class="slack-frame stagger" aria-hidden="true">
             <div class="slack-head">
-              <b>#ops-payments</b>
-              <span>payments alerts and rollouts</span>
+              <b>#backend-ops</b>
             </div>
 
+            <div class="slack-day"><span>Aug 11</span></div>
+
             <div class="slack-msg">
-              <span class="slack-av av-gr">G</span>
+              <span class="slack-av av-at">A</span>
               <div class="slack-said">
-                <p class="slack-meta"><span class="slack-who">Grafana</span> <span class="slack-app">app</span> <span class="slack-ts">2:01 PM</span></p>
-                <div class="slack-attach">
-                  <p class="slack-text"><strong>Checkout p99 latency above 800&#8202;ms for 5 minutes</strong></p>
-                  <p class="slack-sub">firing · p99 812&#8202;ms · threshold 800&#8202;ms</p>
-                </div>
-                <p class="slack-reacts"><span class="slack-react"><span class="e">👀</span>1</span></p>
+                <p class="slack-meta"><span class="slack-who">Andrew</span> <span class="slack-ts">2:34 PM</span></p>
+                <p class="slack-text">I think that Zot error is what broke the integration &mdash; it created an app but did not connect GH</p>
               </div>
             </div>
+
+            <div class="slack-day"><span>Aug 15</span></div>
 
             <div class="slack-msg">
               <span class="slack-av av-app">R</span>
               <div class="slack-said">
-                <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">2:03 PM</span></p>
-                <p class="slack-text"><strong>Degraded, recovering</strong> — error rate is 0.2% and falling. Release 4f21c9 is implicated, not proven.</p>
+                <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">2:55 PM</span></p>
+                <p class="slack-text"><strong>Not recurring.</strong> The last 24 hours contain no matching auth or upstream-sync failures.</p>
                 <ul class="slack-list">
-                  <li>checkout reports 6 of 6 replicas ready — emisar, 2:02 PM</li>
-                  <li>release 4f21c9 rolled out 11 minutes before the alert — change ledger</li>
-                  <li>error rate 0.2%, down from a 3.1% peak at 1:58 — grafana</li>
-                  <li>upstream gateway latency — not checked: no authorized source</li>
+                  <li>all five node-local Zot instances returned the same manifest on demand &mdash; probes, 2:53 PM</li>
+                  <li>Nomad shows five healthy allocations, one per VA1 node &mdash; nomad, 2:53 PM</li>
+                  <li>24-hour log query: zero &ldquo;unauthorized access&rdquo; entries &mdash; victorialogs, 2:52 PM</li>
+                  <li>job v8 rolled Aug 12 after PR #526 &mdash; change ledger</li>
                 </ul>
-                <p class="slack-text slack-dim">Watching p99 through the next deploy. I’ll close this out when it holds.</p>
+                <p class="slack-text slack-dim">That was the last of the three checks I scheduled. Closing this out.</p>
               </div>
             </div>
           </div>
 
-          <p class="frame-note"><b>episode ep_4c8a11e0</b> <span>attempt 1 · 41&#8202;s · the answer came 83 seconds after the alert&#8202;<a class="fnmark" href="#fn-1" aria-describedby="fn-1">1</a></span></p>
+          <p class="frame-note"><b>episode ep_26ac116f</b> <span>attempt 1 &middot; 5&#8202;m&#8202;31&#8202;s &middot; the fourth day&rsquo;s check, kept without being asked&#8202;<a class="fnmark" href="#fn-1" aria-describedby="fn-1">1</a></span></p>
         </figure>
       </div>
     </div>
@@ -129,308 +128,165 @@
   </section>
 
   <!-- One episode, taken apart ---------------------------------------------
-       The page stops describing the product here and walks one incident from
-       alert to aftermath. Every beat hangs on the spine at its real moment,
-       and every mechanism is taught by the beat that demonstrates it — the
-       ladder by the watching, the evidence rule by the investigating, the
-       standard by the refusal, the flywheel by what remains afterwards. -->
+       Everything below is a real episode from the author's own
+       infrastructure: ids, times, texts, the PR number, the correction. It is
+       condensed, never invented. The page's whole argument is that claims
+       carry receipts; its centerpiece had better be one. -->
   <section class="band beat" id="how" aria-labelledby="how-h">
-    <div class="beat-mark warn" aria-hidden="true"><span class="tick"></span><span class="nm">One episode</span><time datetime="2026-08-15T14:01:38Z">· 14:01:38Z – 14:18Z</time></div>
+    <div class="beat-mark warn" aria-hidden="true"><span class="tick"></span><span class="nm">One episode</span><time datetime="2026-08-11T19:47:21Z">&middot; Aug 11 &ndash; Aug 15</time></div>
     <div class="wrap">
       <div class="section-head">
-        <p class="beat-time-inline">One episode · 14:01:38Z – 14:18Z</p>
-        <h2 id="how-h">Eighty-three seconds, taken apart.</h2>
-        <p>The exchange above is real work, not theater. Here is the same episode again, slowly — every step, every rule, and what became of it afterwards. There is no other path: a webhook, a scheduled check, and a question typed at 3am all walk these same beats.</p>
+        <p class="beat-time-inline">One episode &middot; Aug 11 &ndash; Aug 15</p>
+        <h2 id="how-h">Four days, taken apart.</h2>
+        <p>The exchange above really happened. Here is the episode behind it, beat by beat &mdash; a person&rsquo;s hunch, a fix, and a machine that scheduled its own doubt and reported back four days later. Every id, time, and sentence below is from the record.</p>
       </div>
 
       <div class="steps">
 
-        <!-- Beat 1: it was already watching -->
-        <article class="step beatline" id="b-watch">
-          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>13:49 – 14:01</time></span>
+        <!-- Beat 1: a person reports it -->
+        <article class="step beatline" id="b-report">
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>Aug 11 &middot; 19:47Z</time></span>
           <div class="step-text">
-            <p class="step-num">Before the alert</p>
-            <h3>It was already watching</h3>
-            <p>Responder sits in the channel like a teammate, choosing one rung per message: ignore, react, reply, or incident. Ana&rsquo;s shipping note got silence. Priya&rsquo;s worry got &#128064; while the check was already running. The alert earned the investigation.</p>
-          </div>
-<figure class="mock-slack" aria-labelledby="mock-watch-cap">
-            <figcaption id="mock-watch-cap" class="vh">Illustrative, and condensed: a Slack channel, #ops-payments. At 1:49 PM Ana Torres writes “shipping the coupon fix in a minute” and Responder posts nothing at all — the ignore rung, which in Slack leaves no mark of any kind. At 2:02 PM Priya Rao writes “is checkout ok? I’m seeing 500s from the app” and Responder adds a single eyes emoji and says nothing — the react rung. At 2:03 PM Responder, marked as an app, replies “Degraded, recovering. Error rate peaked at 3.1% and is back to 0.2%. Release 4f21c9 went out 11 minutes before the alert.” — the reply rung, verdict first. One rung is chosen per message.</figcaption>
-
-            <div class="slack-annotated" aria-hidden="true">
-
-              <div class="slack-frame">
-                <div class="slack-head">
-                  <b>#ops-payments</b>
-                  <span>payments alerts and rollouts</span>
-                </div>
-
-                <div class="slack-msg">
-                  <span class="slack-av av-at">AT</span>
-                  <div class="slack-said">
-                    <p class="slack-meta"><span class="slack-who">Ana Torres</span> <span class="slack-ts">1:49 PM</span></p>
-                    <p class="slack-text">shipping the coupon fix in a minute</p>
-                  </div>
-                </div>
-
-                <div class="slack-msg">
-                  <span class="slack-av av-pr">PR</span>
-                  <div class="slack-said">
-                    <p class="slack-meta"><span class="slack-who">Priya Rao</span> <span class="slack-ts">2:02 PM</span></p>
-                    <p class="slack-text">is checkout ok? I’m seeing 500s from the app</p>
-                    <p class="slack-reacts"><span class="slack-react"><span class="e">👀</span>1</span></p>
-                  </div>
-                </div>
-
-                <div class="slack-msg">
-                  <span class="slack-av av-app">R</span>
-                  <div class="slack-said">
-                    <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">2:03 PM</span></p>
-                    <p class="slack-text"><strong>Degraded, recovering.</strong> Error rate peaked at 3.1% and is back to 0.2%. Release 4f21c9 went out 11 minutes before the alert.</p>
-                  </div>
-                </div>
-
-                <p class="slack-compose">Message #ops-payments</p>
-              </div>
-
-              <p class="slack-note"><b>ignored</b> <i>—</i> nothing posted</p>
-              <p class="slack-note"><b>react</b> <i>—</i> 👀, nothing said</p>
-              <p class="slack-note"><b>reply</b> <i>—</i> verdict first</p>
-            </div>
-
-            <p class="mock-note" aria-hidden="true"><span class="tag">ignore · react · reply · incident</span> <span class="note">one rung, per message</span> <span class="prov">illustrative — condensed&#8202;<span class="fnmark">2</span></span></p>
-          </figure>
-        </article>
-
-        <!-- Beat 2: an episode opens -->
-        <article class="step flip beatline" id="b-open">
-          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>14:02:21Z</time></span>
-          <div class="step-text">
-            <p class="step-num">14:02:21Z</p>
-            <h3>An episode opens</h3>
-            <p>Every trigger becomes an episode: one id, one goal, one append-only record that outlives the conversation. Everything you are about to see — evidence, refusals, the answer — is written to it as it happens.</p>
+            <p class="step-num">Aug 11 &middot; 2:47 PM</p>
+            <h3>It starts with a hunch</h3>
+            <p>Zot &mdash; the container registry &mdash; had been failing upstream syncs with &ldquo;unauthorized access. check credentials&rdquo;, and the GitHub integration broke. Andrew said what he suspected. One &ldquo;Start task&rdquo; later, an engineering episode opened in an isolated fork: fix the authentication, and make the failure detectable.</p>
           </div>
           <figure class="mock" aria-labelledby="mock-open-cap">
-            <figcaption id="mock-open-cap" class="vh">Illustrative, and condensed: an episode header from the control plane. Episode ep_4c8a11e0, in channel ops-payments, attempt 1, with the goal: answer the alert with evidence, read-only authority.</figcaption>
-            <div class="mock-head" aria-hidden="true"><span class="dot warn"></span><span>episode</span><span class="surface-tag">· control plane</span><span class="right">opened 14:02:21Z</span></div>
+            <figcaption id="mock-open-cap" class="vh">The engineering episode, as the control plane records it: fix Zot Artifact Registry authentication and detection. Repository tenant-infra, in an isolated fork, with repository-write authority and no production access.</figcaption>
+            <div class="mock-head" aria-hidden="true"><span class="dot warn"></span><span>episode</span><span class="surface-tag">&middot; control plane</span><span class="right">opened 19:47:21Z</span></div>
             <div class="mock-body" aria-hidden="true">
               <div class="mem">
-                <div class="mem-row"><span class="dot warn"></span><span><span class="k">id · channel</span><span class="v">ep_4c8a11e0 · #ops-payments <i>attempt 1</i></span></span></div>
-                <div class="mem-row"><span class="dot idle"></span><span><span class="k">goal</span><span class="v">answer the alert with evidence <i>read-only authority</i></span></span></div>
+                <div class="mem-row"><span class="dot warn"></span><span><span class="k">goal</span><span class="v">Fix Zot Artifact Registry authentication and detection <i>engineering task</i></span></span></div>
+                <div class="mem-row"><span class="dot idle"></span><span><span class="k">authority</span><span class="v">tenant-infra, isolated fork <i>repository-write &middot; no production access</i></span></span></div>
               </div>
             </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">rule</span> <span class="note">one trigger, one episode, one record</span> <span class="prov">illustrative — condensed&#8202;<span class="fnmark">2</span></span></p>
+            <p class="mock-note" aria-hidden="true"><span class="tag">rule</span> <span class="note">one trigger, one episode, one record</span> <span class="prov">real episode &mdash; condensed&#8202;<span class="fnmark">2</span></span></p>
           </figure>
         </article>
 
-        <!-- Beat 3: it investigates -->
-        <article class="step beatline" id="b-investigate">
-          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>14:02:11Z →</time></span>
+        <!-- Beat 2: the fix is a draft PR -->
+        <article class="step flip beatline" id="b-fix">
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>19:50:46Z</time></span>
           <div class="step-text">
-            <p class="step-num">14:02</p>
-            <h3>It investigates, layer by layer</h3>
-            <p>Declared topology from your repositories, checked against live evidence: hosts, workloads, dependencies, application behavior, impact. Every row carries its source and its observed-at time. The one thing it could not reach is recorded as unverified — never assumed healthy.</p>
+            <p class="step-num">Aug 11 &middot; 2:50 PM</p>
+            <h3>The fix is a pull request, not a deploy</h3>
+            <p>Three and a half minutes after the episode opened, the fix was published &mdash; as a draft PR in tenant-infra. Responder cannot merge it and cannot deploy it. A person reviewed and merged; Nomad rolled the registry to job v8 the next evening. The boundary is the feature.</p>
           </div>
-<figure class="mock" aria-labelledby="mock-cover-cap">
-            <figcaption id="mock-cover-cap" class="vh">Illustrative, and condensed: a coverage panel, seven layers, one of them unverified. Each layer carries a state, one line of finding, and the source that produced it. Change: one release in the last 6 hours, 4f21c9, from the change ledger. Host: 3 nodes ready, no pressure conditions, from Emisar. Runtime: container runtime healthy on all nodes, from Emisar. Workload: 6 of 6 replicas ready, 0 restarts in an hour, from Emisar. Dependency: the upstream gateway, with no authorized source, so it is reported as unverified rather than as healthy. Application: error rate 0.2%, p99 back under 400 milliseconds, from Grafana. Impact: checkout completing, no failed orders since 14:00, from Grafana. The rule beneath the panel reads: missing evidence alone is not degradation.</figcaption>
+          <figure class="mock" aria-labelledby="mock-pr-cap">
+            <figcaption id="mock-pr-cap" class="vh">The publication record: repository tenantcorp/tenant-infra, pull request number 526, state published, at 19:50:46Z on August 11. The change rolled as Nomad job version 8 at 20:16:55Z on August 12, after the PR merged &mdash; merged by a person, deployed by the pipeline, neither by Responder.</figcaption>
+            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>publication</span><span class="surface-tag">&middot; control plane</span><span class="right">19:50:46Z</span></div>
+            <div class="mock-body" aria-hidden="true">
+              <div class="mem">
+                <div class="mem-row"><span class="dot good"></span><span><span class="k">draft PR</span><span class="v">tenantcorp/tenant-infra #526 <i>published &middot; a person merges</i></span></span></div>
+                <div class="mem-row"><span class="dot idle"></span><span><span class="k">rollout</span><span class="v">Nomad job v8, Aug 12 &middot; 20:16:55Z, after the merge <i>deployment successful</i></span></span></div>
+              </div>
+            </div>
+            <p class="mock-note" aria-hidden="true"><span class="tag">boundary</span> <span class="note">it cannot merge. it cannot deploy. always.</span> <span class="prov">real episode &mdash; condensed&#8202;<span class="fnmark">2</span></span></p>
+          </figure>
+        </article>
 
-            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>coverage</span><span class="surface-tag">· control plane</span><span class="right">7 layers · 1 unverified</span></div>
+        <!-- Beat 3: it schedules its own doubt -->
+        <article class="step beatline" id="b-doubt">
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>23:31Z</time></span>
+          <div class="step-text">
+            <p class="step-num">Aug 11 &middot; 6:31 PM</p>
+            <h3>It schedules its own doubt</h3>
+            <p>A fix that compiles is not a fix that holds. Unprompted, Responder booked three one-time checks &mdash; &ldquo;the same local time tomorrow, the following day, and four days from now; each will inspect fresh Zot evidence and report here.&rdquo; Each check is a full episode with its own record.</p>
+          </div>
+          <figure class="mock" aria-labelledby="mock-sched-cap">
+            <figcaption id="mock-sched-cap" class="vh">Three one-time verification schedules, prepared by Responder and confirmed by an operator: August 12, August 13, and August 15, each at the same local time, each inspecting fresh Zot logs and manifests for the exact failure that was fixed.</figcaption>
+            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>schedules</span><span class="surface-tag">&middot; control plane</span><span class="right">3 checks &middot; one-time</span></div>
+            <div class="mock-body" aria-hidden="true">
+              <div class="mem">
+                <div class="mem-row"><span class="dot good"></span><span><span class="k">aug 12 &middot; aug 13</span><span class="v">inspect fresh Zot evidence, report in-channel <i>ran &middot; clean</i></span></span></div>
+                <div class="mem-row"><span class="dot warn"></span><span><span class="k">aug 15</span><span class="v">the four-day recheck &mdash; the one above <i>operator-confirmed</i></span></span></div>
+              </div>
+            </div>
+            <p class="mock-note" aria-hidden="true"><span class="tag">stance</span> <span class="note">built to be doubted &mdash; starting with itself</span> <span class="prov">real episode &mdash; condensed&#8202;<span class="fnmark">2</span></span></p>
+          </figure>
+        </article>
+
+        <!-- Beat 4: the last check runs -->
+        <article class="step flip beatline" id="b-check">
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>Aug 15 &middot; 19:52Z</time></span>
+          <div class="step-text">
+            <p class="step-num">Aug 15 &middot; 2:50 PM</p>
+            <h3>The last check runs, layer by layer</h3>
+            <p>Four days later the schedule fired and the episode you saw at the top began. Logs, manifests, scheduler, change history &mdash; each layer read from its own source, each row stamped with when it was observed. Nothing is inferred from an adjacent layer&rsquo;s good news.</p>
+          </div>
+          <figure class="mock" aria-labelledby="mock-cover-cap">
+            <figcaption id="mock-cover-cap" class="vh">The coverage panel of the August 15 check, four layers, none unverified, all from the record. Logs: the latest 24-hour VictoriaLogs query returned no Zot entries matching unauthorized access, observed 19:52:11Z. Dependency: all five node-local Zot instances returned the same OCI manifest on an on-demand sync, 19:53:18Z. Scheduler: one current allocation on each of nomad-hst01 through 05, 19:53:57Z. Change: Zot job version 8, submitted August 12 at 20:16:55Z after PR 526, deployment successful, 19:53:57Z. The rule beneath: missing evidence alone is not degradation.</figcaption>
+            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>coverage</span><span class="surface-tag">&middot; control plane</span><span class="right">4 layers &middot; 0 unverified</span></div>
             <div class="mock-body" aria-hidden="true">
               <div class="layers">
                 <div class="layer">
+                  <span class="dot good"></span><span class="nm">logs</span>
+                  <span class="tx">24&#8202;h query: zero &ldquo;unauthorized access. check credentials&rdquo;</span><span class="st">victorialogs 19:52:11Z</span>
+                </div>
+                <div class="layer">
+                  <span class="dot good"></span><span class="nm">dependency</span>
+                  <span class="tx">all five node-local Zots returned the same OCI manifest on demand</span><span class="st">probes 19:53:18Z</span>
+                </div>
+                <div class="layer">
+                  <span class="dot good"></span><span class="nm">scheduler</span>
+                  <span class="tx">one current allocation on each of nomad-hst01 &ndash; 05</span><span class="st">nomad 19:53:57Z</span>
+                </div>
+                <div class="layer">
                   <span class="dot good"></span><span class="nm">change</span>
-                  <span class="tx">one release in the last 6 hours: 4f21c9</span><span class="st">ledger</span>
-                </div>
-                <div class="layer">
-                  <span class="dot good"></span><span class="nm">host</span>
-                  <span class="tx">3 nodes ready, no pressure conditions</span><span class="st">emisar</span>
-                </div>
-                <div class="layer">
-                  <span class="dot good"></span><span class="nm">runtime</span>
-                  <span class="tx">container runtime healthy on all nodes</span><span class="st">emisar</span>
-                </div>
-                <div class="layer">
-                  <span class="dot good"></span><span class="nm">workload</span>
-                  <span class="tx">6 of 6 replicas ready, 0 restarts in 1h</span><span class="st">emisar</span>
-                </div>
-                <div class="layer unverified">
-                  <span class="dot idle"></span><span class="nm">dependency</span>
-                  <span class="tx">upstream gateway — no authorized source</span><span class="st">unverified</span>
-                </div>
-                <div class="layer">
-                  <span class="dot good"></span><span class="nm">application</span>
-                  <span class="tx">error rate 0.2%, p99 back under 400&#8202;ms</span><span class="st">grafana</span>
-                </div>
-                <div class="layer">
-                  <span class="dot good"></span><span class="nm">impact</span>
-                  <span class="tx">checkout completing; no failed orders since 14:00</span><span class="st">grafana</span>
+                  <span class="tx">job v8, submitted Aug 12 after PR #526 &mdash; deployment successful</span><span class="st">nomad 19:53:57Z</span>
                 </div>
               </div>
             </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">rule</span> <span class="note">missing evidence alone is not degradation</span> <span class="prov">illustrative — condensed&#8202;<span class="fnmark">2</span></span></p>
+            <p class="mock-note" aria-hidden="true"><span class="tag">rule</span> <span class="note">missing evidence alone is not degradation</span> <span class="prov">real episode &mdash; verbatim rows, condensed&#8202;<span class="fnmark">2</span></span></p>
           </figure>
         </article>
 
-        <!-- Beat 4: memory advises -->
-        <article class="step flip beatline" id="b-memory">
-          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>14:02</time></span>
-          <div class="step-text">
-            <p class="step-num">The same moment</p>
-            <h3>Memory advises</h3>
-            <p>It recalls how the same alert group ended in June, sees release 4f21c9 in the change ledger eleven minutes before the alert, and honors what your team confirmed. All of it is history to check — none of it is proof. Memory made the release a suspect; only evidence could convict it.</p>
-          </div>
-<figure class="mock" aria-labelledby="mock-recall-cap">
-            <figcaption id="mock-recall-cap" class="vh">Illustrative, and condensed: a recall panel of four memory rows, every one of them offered as history to check rather than as proof. A past episode, the second of three: the same alert group on 12 June, resolved by a coupon-cache rollback — closed, and not current state. A change-ledger entry: release 4f21c9 at 13:51Z on payments, offered as a correlation to check. A confirmed preference: response detail set to concise, scoped to this channel, expiring in 78 days. A standing rule: a deployment maps to a verify-deployment check, read-only, in this channel. The boundary beneath the panel reads: memory advises, it never authorizes.</figcaption>
-
-            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>recall</span><span class="surface-tag">· control plane</span><span class="right">history to check</span></div>
-            <div class="mock-body" aria-hidden="true">
-              <div class="mem">
-                <div class="mem-row">
-                  <span class="dot idle"></span>
-                  <span>
-                    <span class="k">past episode · 2 of 3</span>
-                    <span class="v">Same alert group on 12 Jun. Resolved by a coupon-cache rollback. <i>closed · not current state</i></span>
-                  </span>
-                </div>
-                <div class="mem-row">
-                  <span class="dot idle"></span>
-                  <span>
-                    <span class="k">change ledger</span>
-                    <span class="v">release 4f21c9 · 13:51Z · payments <i>correlation to check</i></span>
-                  </span>
-                </div>
-                <div class="mem-row">
-                  <span class="dot good"></span>
-                  <span>
-                    <span class="k">confirmed preference</span>
-                    <span class="v">response_detail = concise <i>channel · expires in 78 days</i></span>
-                  </span>
-                </div>
-                <div class="mem-row">
-                  <span class="dot good"></span>
-                  <span>
-                    <span class="k">standing rule</span>
-                    <span class="v">deployment → verify_deployment <i>read-only · this channel</i></span>
-                  </span>
-                </div>
-              </div>
-            </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">boundary</span> <span class="note">memory advises. It never authorizes.</span> <span class="prov">illustrative — condensed&#8202;<span class="fnmark">2</span></span></p>
-          </figure>
-        </article>
-
-        <!-- Beat 5: the host refuses the first draft — the standard, live -->
+        <!-- Beat 5: one correction, on the record -->
         <article class="step beatline" id="b-refusal">
-          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>14:02:40Z</time></span>
+          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>19:54Z</time></span>
           <div class="step-text">
-            <p class="step-num">14:02:40Z</p>
-            <h3>The first draft is refused</h3>
-            <p>The model&rsquo;s first answer named the release as the cause without an evidence row to stand on. The host checks every answer against hard rules before anyone sees it — this one came back with an exact correction instead of reaching Slack. Nobody saw the weak draft. The record kept it.</p>
+            <p class="step-num">Aug 15 &middot; 2:54 PM</p>
+            <h3>Even the good answer gets checked</h3>
+            <p>The model&rsquo;s reply had the right evidence and the wrong shape: it addressed the finding as chatter between humans instead of an answer owed to the channel. The host refused it and sent the exact correction. Nobody saw the misaddressed draft. The delivered one is above.</p>
           </div>
           <figure class="mock" aria-labelledby="mock-refusal-cap">
-            <figcaption id="mock-refusal-cap" class="vh">Illustrative, and condensed: a correction from the host to the model, inside the same attempt. The refused draft claimed a cause with no supporting evidence row. The correction reads: the active issue cites absent or unrelated cause evidence; use exact evidence ids whose claims support the cause, or say plainly what remains unverified. The draft was not delivered; the model revised and the episode continued.</figcaption>
-            <div class="mock-head" aria-hidden="true"><span class="dot bad"></span><span>correction</span><span class="surface-tag">· control plane</span><span class="right">host → model · 1 of 2</span></div>
+            <figcaption id="mock-refusal-cap" class="vh">The correction, from the record, condensed: the result contains a completed evidence-backed reply for the active conversation, but the attention field says human; return the same supported answer addressed as Responder&rsquo;s own reply instead of misclassifying it as human-to-human chatter. The draft was not delivered; the corrected reply was.</figcaption>
+            <div class="mock-head" aria-hidden="true"><span class="dot bad"></span><span>correction</span><span class="surface-tag">&middot; control plane</span><span class="right">host &rarr; model</span></div>
             <div class="mock-body" aria-hidden="true">
               <div class="mem">
-                <div class="mem-row"><span class="dot bad"></span><span><span class="k">refused</span><span class="v">draft named a cause with no evidence row behind it <i>not delivered</i></span></span></div>
-                <div class="mem-row"><span class="dot idle"></span><span><span class="k">correction sent</span><span class="v">&ldquo;cite evidence ids whose claims support the cause, or say what remains unverified&rdquo;</span></span></div>
+                <div class="mem-row"><span class="dot bad"></span><span><span class="k">refused</span><span class="v">an evidence-backed reply, misaddressed as human-to-human chatter <i>not delivered</i></span></span></div>
+                <div class="mem-row"><span class="dot idle"></span><span><span class="k">correction sent</span><span class="v">&ldquo;return the same supported answer, addressed as your own reply&rdquo; <i>verbatim, condensed</i></span></span></div>
               </div>
             </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">standard</span> <span class="note">weak answers are refused before anyone sees them</span> <span class="prov">illustrative — condensed&#8202;<span class="fnmark">2</span></span></p>
+            <p class="mock-note" aria-hidden="true"><span class="tag">standard</span> <span class="note">shape is checked as hard as substance</span> <span class="prov">real episode &mdash; condensed&#8202;<span class="fnmark">2</span></span></p>
           </figure>
         </article>
 
-        <!-- Beat 6: the answer -->
-        <article class="step flip beatline" id="b-answer">
-          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>14:03:02Z</time></span>
-          <div class="step-text">
-            <p class="step-num">14:03:02Z</p>
-            <h3>The answer, verdict first</h3>
-            <p>Eighty-three seconds after the alert: the verdict, what it means, the evidence behind it, and the one thing that stayed unchecked — named, not papered over. This is the message from the top of the page, earned the long way.</p>
-          </div>
-          <figure class="mock-slack" aria-labelledby="mock-reply-cap">
-            <figcaption id="mock-reply-cap" class="vh">The same Slack reply the hero shows: Responder, marked as an app, at 2:03 PM — degraded, recovering; error rate 0.2 percent and falling; release 4f21c9 implicated, not proven — followed by the four evidence lines with their sources, the unchecked gateway named plainly, and a promise to watch p99 through the next deploy.</figcaption>
-            <div class="slack-frame" aria-hidden="true">
-              <div class="slack-msg">
-                <span class="slack-av av-app">R</span>
-                <div class="slack-said">
-                  <p class="slack-meta"><span class="slack-who">Responder</span> <span class="slack-app">app</span> <span class="slack-ts">2:03 PM</span></p>
-                  <p class="slack-text"><strong>Degraded, recovering</strong> — error rate is 0.2% and falling. Release 4f21c9 is implicated, not proven.</p>
-                  <p class="slack-text slack-dim">…four evidence lines, sources named, one thing honestly unchecked.</p>
-                </div>
-              </div>
-            </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">shape</span> <span class="note">verdict first, receipts attached, gaps named</span> <span class="prov">condensed from the hero&rsquo;s window</span></p>
-          </figure>
-        </article>
-
-        <!-- Beat 7: the close -->
-        <article class="step beatline" id="b-close">
-          <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>14:18:00Z</time></span>
-          <div class="step-text">
-            <p class="step-num">14:18:00Z</p>
-            <h3>The alert clears. The episode closes honestly.</h3>
-            <p>Fifteen minutes later the signal recovered on its own. The close-out re-reads every source, says what the impact actually was, what to verify next, and what to fix long-term. No drama, no victory lap — and if this had been noise, there would have been nothing at all.</p>
-          </div>
-<figure class="mock" aria-labelledby="mock-answer-cap">
-            <figcaption id="mock-answer-cap" class="vh">Illustrative, and condensed: an assessment of the same episode, written after the alert cleared at 14:18. The verdict comes first — healthy, from 3 sources, none of them stale. Impact: none now; about 40 checkouts failed between 13:58 and 14:00. Cause: release 4f21c9 shipped a slow coupon lookup, which warmed after 2 minutes. Do now: nothing, the alert cleared on its own. Verify: watch p99 through the next coupon batch at 15:00. Long term: cache the coupon lookup, or precompute it at deploy. Unverified: upstream gateway latency, because there is no authorized source for it. Beneath the fields, the receipt for the claim of three sources — Emisar, the change ledger, and Grafana, re-read at 14:17, none stale — and a note that the host refused this answer twice, because the first one named a cause with no evidence row behind it.</figcaption>
-
-            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>assessment</span><span class="surface-tag">· control plane</span><span class="right">after clear · 14:18</span></div>
-            <div class="mock-body" aria-hidden="true">
-              <div class="verdict-mock">
-                <div class="verdict-head">
-                  <span class="dot good"></span>
-                  <b>Healthy</b>
-                  <span class="tag">3 sources · 0 stale</span>
-                </div>
-                <dl>
-                  <div class="vfield"><dt>Impact</dt><dd>None now. About 40 checkouts failed between 13:58 and 14:00.</dd></div>
-                  <div class="vfield"><dt>Cause</dt><dd>Release 4f21c9 shipped a slow coupon lookup. It warmed after 2 minutes.</dd></div>
-                  <div class="vfield"><dt>Do now</dt><dd>Nothing. The alert cleared on its own.</dd></div>
-                  <div class="vfield"><dt>Verify</dt><dd>Watch p99 through the next coupon batch at 15:00.</dd></div>
-                  <div class="vfield"><dt>Long term</dt><dd>Cache the coupon lookup, or precompute it at deploy.</dd></div>
-                  <div class="vfield"><dt>Unverified</dt><dd><em>Upstream gateway latency. No authorized source for it.</em></dd></div>
-                </dl>
-                <!-- The header tag claims three sources and none stale. This
-                     is that claim's receipt: the three it read, and when. -->
-                <p class="vsrc">emisar <i>·</i> change ledger <i>·</i> grafana <span>re-read 14:17, none stale</span></p>
-              </div>
-            </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">refused twice</span> <span class="note">the first answer named a cause with no evidence row behind it</span> <span class="prov">illustrative — condensed&#8202;<span class="fnmark">2</span></span></p>
-          </figure>
-        </article>
-
-        <!-- Beat 8: the flywheel — what this episode left behind -->
+        <!-- Beat 6: the flywheel -->
         <article class="step flip beatline" id="b-flywheel">
           <span class="beat-sub" aria-hidden="true"><span class="tick"></span><time>afterwards</time></span>
           <div class="step-text">
             <p class="step-num">Afterwards</p>
             <h3>The episode makes the product better</h3>
-            <p>Nothing here evaporates. The refusal at 14:02:40Z can be kept as a permanent regression test that replays with no model. The close-out becomes recallable history — the next incident that smells like 4f21c9 will be checked against this one. And every correction, memory, and finding waits in a review queue for a person to keep or discard. It gets better, on the record.</p>
+            <p>The verdict landed at 2:55 PM and the record kept working. The outcome is recallable now &mdash; the next registry incident gets this ending as history to check, never as proof. The correction went to a review queue where a person decides if it becomes a permanent regression test that replays with no model. It gets better, on the record.</p>
           </div>
           <figure class="mock" aria-labelledby="mock-flywheel-cap">
-            <figcaption id="mock-flywheel-cap" class="vh">Illustrative, and condensed: what one episode leaves behind. The correction from 14:02:40Z is kept as a regression fixture that replays with no model. The episode outcome is recorded for recall, so the next incident matching this alert group is checked against it. Both entries wait in a review queue for a person to keep or discard.</figcaption>
-            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>what remains</span><span class="surface-tag">· control plane</span><span class="right">the flywheel</span></div>
+            <figcaption id="mock-flywheel-cap" class="vh">What the episode left behind, from the record: an outcome row &mdash; Zot Artifact Registry authentication fixed by PR 526, verified not recurring on August 15 &mdash; now recallable by the next episode that matches this service or symptom. And the addressee correction, waiting in the review queue, where a kept correction becomes a regression fixture that replays with no model.</figcaption>
+            <div class="mock-head" aria-hidden="true"><span class="dot good"></span><span>what remains</span><span class="surface-tag">&middot; control plane</span><span class="right">the flywheel</span></div>
             <div class="mock-body" aria-hidden="true">
               <div class="mem">
-                <div class="mem-row"><span class="dot good"></span><span><span class="k">correction → fixture</span><span class="v">the 14:02:40Z refusal replays as a test, no model needed <i>pending review: keep or discard</i></span></span></div>
-                <div class="mem-row"><span class="dot good"></span><span><span class="k">outcome → recall</span><span class="v">next time this alert group fires, this ending is checked first <i>history, never proof</i></span></span></div>
-                <div class="mem-row"><span class="dot idle"></span><span><span class="k">trace → review</span><span class="v">the full episode waits in the review ledger for human eyes <i>keep, fix, or forget</i></span></span></div>
+                <div class="mem-row"><span class="dot good"></span><span><span class="k">outcome &rarr; recall</span><span class="v">&ldquo;fixed by PR #526, verified not recurring&rdquo; &mdash; ready for the next registry incident <i>history, never proof</i></span></span></div>
+                <div class="mem-row"><span class="dot good"></span><span><span class="k">correction &rarr; review</span><span class="v">the misaddressed draft waits for keep-or-discard <i>kept, it replays as a test &mdash; no model</i></span></span></div>
+                <div class="mem-row"><span class="dot idle"></span><span><span class="k">trace &rarr; anyone</span><span class="v">the full episode &mdash; prompt, layers, refusal, reply &mdash; is one click on the control plane <i>doubt it yourself</i></span></span></div>
               </div>
             </div>
-            <p class="mock-note" aria-hidden="true"><span class="tag">loop</span> <span class="note">refused → corrected → kept → replayed</span> <span class="prov">illustrative — condensed&#8202;<span class="fnmark">2</span></span></p>
+            <p class="mock-note" aria-hidden="true"><span class="tag">loop</span> <span class="note">refused &rarr; corrected &rarr; kept &rarr; replayed</span> <span class="prov">real episode &mdash; condensed&#8202;<span class="fnmark">2</span></span></p>
           </figure>
         </article>
 
       </div>
     </div>
   </section>
-
-  <!-- "Six places it lives" was here, and it is gone. It was the one section
-       on this page assembled from a template rather than from the product: six
-       equal cards, one line each, restating what the four step mocks had
-       already shown. Its only two nouns that appeared nowhere else — Emisar and
-       the control plane — are carried by the evidence rows, the coverage mock,
-       and the capability index below. -->
 
   <!-- Capability index ----------------------------------------------------- -->
   <section class="band beat" id="capabilities" aria-labelledby="cap-h">
@@ -617,8 +473,8 @@
   <section class="band footnotes-band" aria-label="Footnotes">
     <div class="wrap">
       <div class="footnotes">
-        <p id="fn-1"><span class="m">1</span> An illustrative episode: the message shapes are the product’s real ones — verdict first, evidence with sources, the unchecked thing named — but this exact exchange is staged for the page, condensed, with its times compressed.</p>
-        <p id="fn-2"><span class="m">2</span> Control-plane panels are shown in the product’s own dark theme. The trace UI is the one surface on this page that is not Slack, and you host it yourself.</p>
+        <p id="fn-1"><span class="m">1</span> A real episode from the author’s own infrastructure — ids, times, texts, the PR number, and the correction are from the record. Messages are condensed for the page; nothing is invented.</p>
+        <p id="fn-2"><span class="m">2</span> Control-plane panels are shown in the product’s own theme and condensed from the episode’s real record. The trace UI is the one surface on this page that is not Slack, and you host it yourself.</p>
       </div>
     </div>
   </section>

@@ -542,3 +542,24 @@
 @media (max-width: 719px) {
   .report .beat-sub { display: none; }
 }
+
+/* Slack's date divider: a hairline with the day riding it in a pill. */
+.report .slack-day {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px 2px;
+}
+.report .slack-day::before, .report .slack-day::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #35373b;
+}
+.report .slack-day span {
+  font: 700 12px/1 var(--sans);
+  color: #d1d2d3;
+  border: 1px solid #35373b;
+  border-radius: 999px;
+  padding: 5px 10px;
+}
