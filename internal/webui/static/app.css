@@ -272,13 +272,10 @@ h2 .note { font: 450 12px/1.5 var(--mono); font-variant-numeric: tabular-nums; c
 .metric .k {
   order: -1;
   color: var(--z400);
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  min-height: 2lh;
+  font-size: 15px;
+  font-weight: 450;
 }
-.metric .n { font-size: 25px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.2; font-variant-numeric: tabular-nums; color: var(--z50); }
+.metric .n { font-size: 28px; font-weight: 650; letter-spacing: -0.022em; line-height: 1.2; font-variant-numeric: tabular-nums; color: var(--z50); margin-top: 2px; }
 .metric .n small { font-size: 13px; font-weight: 450; color: var(--z400); letter-spacing: 0; }
 .metric.bad .n { color: var(--rose-400); }
 .metric.warn .n { color: var(--amber-400); }
@@ -310,19 +307,20 @@ a.metric:hover { text-decoration: none; background: var(--hover); }
   margin: 0;
   padding: 16px 0 6px;
 }
+/* The portal's stat phrase: a big white number and big gray words on one
+   baseline — "9 / 9 connected" — not a caps eyebrow over a lonely figure. */
 .hero-stats > * {
-  display: grid;
-  gap: 2px;
-  align-content: start;
-  color: var(--z400);
-  font-size: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  color: var(--z500);
+  font-size: 21px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .08em;
+  letter-spacing: -0.015em;
   padding: 0 56px 0 0;
 }
 .hero-stats > :first-child { padding-left: 4px; }
-.hero-stats strong { color: var(--z50); font-size: 24px; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; text-transform: none; }
+.hero-stats strong { color: var(--z50); font-size: 28px; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; letter-spacing: -0.022em; }
 .hero-stats a:hover { text-decoration: none; }
 .hero-stats a:hover strong { color: var(--brand-400); }
 .hero-stats .warn strong { color: var(--amber-400); }
@@ -693,14 +691,14 @@ form.filter a { font-size: 13px; color: var(--z400); }
 
 .episode-metric { padding: 14px 40px 15px 0; }
 .episode-metric:first-child { padding-left: 4px; }
-.episode-metric-label { color: var(--z400); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+.episode-metric-label { color: var(--z400); font-size: 15px; font-weight: 450; }
 .episode-metric-value {
-  margin-top: 5px;
+  margin-top: 4px;
   color: var(--z50);
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 650;
   line-height: 1.2;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.022em;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
@@ -1376,7 +1374,7 @@ form.filter a { font-size: 13px; color: var(--z400); }
   grid-template-areas: "name count" "what count" "health count";
 }
 .set-card:hover { background: var(--hover); text-decoration: none; }
-.set-name { grid-area: name; font-size: 17px; color: var(--z50); font-weight: 650; letter-spacing: -0.012em; text-transform: none; }
+.set-name { grid-area: name; font-size: 17px; color: var(--z50); font-weight: 650; letter-spacing: -0.012em; }
 .set-count { grid-area: count; align-self: center; font-size: 25px; font-weight: 650; letter-spacing: -0.02em; color: var(--z300); font-variant-numeric: tabular-nums; padding-left: 24px; }
 .set-what { grid-area: what; font-size: 13.5px; line-height: 1.55; color: var(--z400); margin-top: 1px; }
 .set-health { grid-area: health; font-size: 12.5px; color: var(--z500); margin-top: 4px; }
@@ -1431,9 +1429,7 @@ form.filter a { font-size: 13px; color: var(--z400); }
   .episode-metrics { grid-template-columns: 1fr; }
   .episode-metric { border-left: 0; border-top: 1px solid var(--divide); }
   .episode-metric:first-child { border-top: 0; }
-  .hero-stats { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .hero-stats > :nth-child(odd) { border-left: 0; }
-  .hero-stats > :nth-child(n+3) { border-top: 1px solid var(--divide); padding-top: 12px; margin-top: 12px; }
+  .hero-stats { grid-auto-flow: row; grid-template-columns: 1fr; row-gap: 10px; }
   .journey { gap: 4px; }
   .journey-stop + .journey-stop { margin-left: 20px; }
   .journey-stop + .journey-stop::before { width: 14px; left: -17px; }
