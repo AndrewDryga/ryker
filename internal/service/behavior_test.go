@@ -662,7 +662,20 @@ func TestOperationalAlertReplyLeadsWithPlainServiceState(t *testing.T) {
 	}
 }
 
-func TestOperationalAlertReplyEditsToTheDecisionUsefulDelta(t *testing.T) {
+// These four fixtures used to prove a word count: the two long ones were
+// expected to draw a correction at 90 words active and 60 words recovered, the
+// two short ones to pass. The prompt meanwhile asked for "under 100 words", so
+// the host and the instruction disagreed by ten words and the model could obey
+// only one of them. On 2026-08-16 that gap cost one episode eight correction
+// rounds, ~$3.60 and fourteen minutes on updates of 98, 91, 96, 98 and 94
+// words, none of which an operator would have read differently at 80.
+//
+// The fixtures are kept and the two length expectations inverted, because they
+// are the case that broke: long, plain, decision-useful alert prose that the
+// host must now accept. What this test still holds shut is the language rules —
+// openers, verdict labels, monitoring shorthand, technical-term density — which
+// is what a reply to an operator is actually judged on.
+func TestOperationalAlertReplyIsJudgedOnLanguageNotLength(t *testing.T) {
 	active := core.SlackInput{
 		Kind: "bot_message",
 		Text: "[VA1 FIRING:1] WARNING | Cassandra repair overdue",
@@ -678,8 +691,8 @@ func TestOperationalAlertReplyEditsToTheDecisionUsefulDelta(t *testing.T) {
 			"returning to zero. If overruns recur, compare runtimes around today's Reaper 5.0.0 upgrade " +
 			"and tune cadence or repair parameters.",
 	}
-	if correction := alertReplyLanguageCorrection(active, verboseActive); correction == "" {
-		t.Fatal("accepted an evidence-inventory alert reply")
+	if correction := alertReplyLanguageCorrection(active, verboseActive); correction != "" {
+		t.Fatalf("corrected a long but plain active-alert update: %s", correction)
 	}
 	conciseActive := decisionpkg.WatchDecision{
 		Action: "reply",
@@ -707,8 +720,8 @@ func TestOperationalAlertReplyEditsToTheDecisionUsefulDelta(t *testing.T) {
 			"the schedule or repair parameters.",
 		AlertAssessment: &decisionpkg.AlertAssessment{Verdict: "not_issue"},
 	}
-	if correction := alertReplyLanguageCorrection(resolved, verboseResolved); correction == "" {
-		t.Fatal("accepted a verbose recovered-alert inventory")
+	if correction := alertReplyLanguageCorrection(resolved, verboseResolved); correction != "" {
+		t.Fatalf("corrected a long but plain recovered-alert closure: %s", correction)
 	}
 	conciseResolved := decisionpkg.WatchDecision{
 		Action:          "reply",

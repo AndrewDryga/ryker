@@ -99,3 +99,79 @@ func TestResolvedAlertCannotClaimActiveDegradationWithoutSeeingIt(t *testing.T) 
 		t.Fatalf("a verified ongoing failure was rejected as cleared: %q", correction)
 	}
 }
+
+// An active-alert update is as long as its delta. The prompt asked for "two
+// short paragraphs under 100 words" while this checker rejected anything over
+// 90, so a model obeying the instruction it was given was still sent back.
+// Eight rounds and ~$3.60 on 2026-08-16 to trim an update from 98 words to 80
+// while the prompt said "under 100" — fourteen minutes of an active alert spent
+// on ten words that changed nothing an operator would act on, across updates of
+// 98, 91, 96, 98 and 94 words. Length alone corrects nothing here now; the
+// prompt asks for concision, and internal/replypolicy.ReplyWordBudget still
+// catches an answer that blows the corpus budget several times over.
+func TestActiveAlertUpdateIsNotCorrectedForLength(t *testing.T) {
+	input := core.SlackInput{
+		Kind: "bot_message",
+		Text: "[VA1 FIRING:1] WARNING | Cassandra repair overdue",
+	}
+	// 140 words of plain operational English: no banned opener, no typed
+	// verdict label, no acknowledgement narration, no monitoring shorthand, and
+	// one implementation term at most.
+	update := "**`sts_ks` repair is behind schedule.** Its last finished cycle was " +
+		"5.6 days ago, past the five-day interval plus grace, so the overdue gauge " +
+		"is up. The repair now running moved from 73.10% to 74.62% during this " +
+		"check, so it is slow rather than stuck, and customer traffic " +
+		"shows no error spike in the last hour. All three database nodes answer " +
+		"normally with no sign of data loss.\n\n" +
+		"This matches the known slow-repair problem the team hit last month, and " +
+		"the 5.0.0 upgrade that fixes it is already rolling out to this region " +
+		"tonight. Nothing needs a hand right now: starting a second repair would " +
+		"only make it slower. Let the running cycle finish. Success is progress " +
+		"reaching 100% and the overdue gauge going back to zero, and I will look " +
+		"again once the upgrade lands and report what I find."
+	if words := len(strings.Fields(update)); words != 140 {
+		t.Fatalf("the fixture is meant to be 140 words, got %d", words)
+	}
+	decision := WatchDecision{Action: "reply", Message: update}
+	if correction := AlertReplyLanguageCorrectionWithContext(
+		input, WatchTurnState{}, decision,
+	); correction != "" {
+		t.Fatalf("a plain 140-word active-alert update was corrected for length: %q", correction)
+	}
+}
+
+// The same rule on the recovery side, which rejected a closure over 60 words:
+// a recovery with anything worth saying about what completed paid a correction
+// round for saying it. The link rule is the one that survives — a closure still
+// has to point at the message it closes — so this fixture leaves
+// state.RecentMessages empty, which is the only way to prove that length alone
+// corrects nothing.
+func TestRecoveredAlertClosureIsNotCorrectedForLength(t *testing.T) {
+	input := core.SlackInput{
+		Kind: "bot_message",
+		Text: "[VA1 RESOLVED:1] WARNING | Cassandra repair overdue",
+	}
+	closure := "**`sts_ks` is fully repaired.** The cycle that was running when this " +
+		"fired reached 100% about twenty minutes ago, the overdue gauge is back to " +
+		"zero, and the completion-age metric reset with it, so the condition that " +
+		"opened this alert is genuinely gone rather than merely unwatched.\n\n" +
+		"The whole cycle took a little over six days against a five-day cadence " +
+		"target, which is why the overdue check tripped, and the 5.0.0 upgrade " +
+		"rolling out this week is the fix for exactly that slowness. Nothing " +
+		"needs to be done right now. If the next cycle " +
+		"also runs long after that upgrade lands, the cadence itself is worth a " +
+		"second look, and I will say so then rather than guess at it today."
+	if words := len(strings.Fields(closure)); words != 120 {
+		t.Fatalf("the fixture is meant to be 120 words, got %d", words)
+	}
+	decision := WatchDecision{
+		Action:          "reply",
+		Message:         closure,
+		AlertAssessment: &AlertAssessment{Verdict: "not_issue"},
+	}
+	if correction := AlertReplyLanguageCorrectionWithContext(
+		input, WatchTurnState{}, decision,
+	); correction != "" {
+		t.Fatalf("a plain 120-word recovery closure was corrected for length: %q", correction)
+	}
+}

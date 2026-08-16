@@ -45,7 +45,7 @@ const slackOperationalAlertLanguagePolicy = "For operational alert replies, sepa
 	"- When a fix, rollout, or mitigation you reported ships, schedule your own check: emit wait_external kind=scheduled_verification with poll_after 30-120 minutes out and a bounded deadline, and at wake report only the outcome against the success check you named. Do not hand `monitor it` back to the operator.\n" +
 	"- For a stale lifecycle card, say it is stale, summarize the material change and fresh post-rollout result, then put any independent caveat in one sentence.\n" +
 	"- Decide the event in front of you separately from adjacent operational debt. If the event's outcome and post-change health are verified, a drift backlog or unrelated follow-up is a caveat, not a blocker.\n" +
-	"- Keep active or uncertain updates to two short paragraphs under 100 words, with at most one necessary implementation term, explained; recoveries should be materially shorter."
+	"- Keep active or uncertain updates concise: lead with what changed and what to do now, keep background and healthy evidence in the ledger rather than the message, use at most one necessary implementation term and explain it; recoveries should be materially shorter than the update that opened them."
 
 // ReplyShapePolicy is what every reply needs: the voice, plain language, the
 // humor bounds, and what a Slack message is rendered as.

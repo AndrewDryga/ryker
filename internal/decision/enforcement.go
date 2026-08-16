@@ -616,6 +616,19 @@ func HasPriorCorrelatedFiringAlert(
 	return false
 }
 
+// AlertReplyLanguageCorrectionWithContext judges the LANGUAGE of an alert
+// reply — its opener, its verdict labels, its monitoring shorthand, its
+// technical-term density, and whether a recovery links the message it closes.
+//
+// It deliberately does not judge length. It used to: 90 words active, 60 words
+// recovered, against a prompt that asked for "under 100 words". A model
+// obeying its instructions was still sent back, and on 2026-08-16 one episode
+// spent eight correction rounds, ~$3.60 and fourteen minutes producing updates
+// of 98, 91, 96, 98 and 94 words. Trimming ten words never changed what an
+// operator did next. Concision is asked for in the prompt now, and
+// replypolicy.ReplyWordBudget still catches an answer that blows the
+// corpus-measured budget several times over — that bound is measured against
+// the trigger, not guessed at.
 func AlertReplyLanguageCorrectionWithContext(
 	input core.SlackInput,
 	state WatchTurnState,
@@ -678,7 +691,6 @@ func AlertReplyLanguageCorrectionWithContext(
 			"most one necessary technical term and explain it in common words; say whether the " +
 			"service works, what monitoring can see, and whether anyone needs to act"
 	}
-	wordCount := len(strings.Fields(message))
 	resolved := strings.Contains(
 		strings.ToLower(strings.Join(strings.Fields(input.Text), " ")), "resolved",
 	)
@@ -694,16 +706,6 @@ func AlertReplyLanguageCorrectionWithContext(
 				"firing message using its exact message_link `" + link + "`; say plainly what " +
 				"completed and omit unrelated healthy inventory"
 		}
-		if wordCount > 60 {
-			return "rewrite this recovered-alert update as a compact closure: say what recovered and " +
-				"link the earlier firing message when its exact message_link is present in recent context; " +
-				"remove the normal-system inventory, no-op instructions, and hypothetical future tuning"
-		}
-	}
-	if !resolved && wordCount > 90 {
-		return "edit this active-alert update down to the decision-useful delta: current impact, the " +
-			"evidence that changes the decision, a relevant known fix or rollout, and only the action " +
-			"needed now; keep background healthy evidence in the ledger"
 	}
 	return ""
 }
