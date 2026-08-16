@@ -641,7 +641,16 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // line, where a model reading the operation shape meets the same rule. The
 // rewording half of that defect is host-side and costs no prompt: a finding
 // reclassified under new words is now recognised as the same finding.
-const staticWatchPromptBytes = 50505
+//
+// 50514 an hour later, nine bytes, because the first wording made not_checkable
+// sound like an addition: the corpus answered with an alternative carrying BOTH
+// it and discriminated_by, which the operation validator has always refused —
+// "exactly one of discriminated_by and not_checkable" — so a case that used to
+// pass began failing on a field the prompt had just taught. The rule moved into
+// the operation sketch, where a model reading the shape meets it as a choice
+// rather than a sentence to remember, and both prose sentences got shorter than
+// the ones that caused it. Nine bytes for a rule that was costing a case.
+const staticWatchPromptBytes = 50514
 
 // The static prompt must not grow without someone deciding it should.
 //
