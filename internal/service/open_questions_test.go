@@ -11,6 +11,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/openquestions"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -35,7 +36,7 @@ func TestBoundedCauseReachesTheSlackReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	open := openQuestionsFor(decision)
+	open := openquestions.For(decision)
 	if open.CauseStatus != "bounded" {
 		t.Fatalf("the bounded cause did not reach the renderer: %+v", open)
 	}
@@ -67,7 +68,7 @@ func TestBoundedCauseReachesTheSlackReply(t *testing.T) {
 				PollAfter: "2026-08-16T16:30:00Z", Deadline: "2026-08-16T18:30:00Z",
 			},
 		})
-	next := openQuestionsFor(scheduled).NextCheck
+	next := openquestions.For(scheduled).NextCheck
 	if !strings.Contains(next, "scheduled follow-up") {
 		t.Fatalf("a scheduled verification did not become a next check: %q", next)
 	}
@@ -80,7 +81,7 @@ func TestBoundedCauseReachesTheSlackReply(t *testing.T) {
 	blockedCompletion.Status = "blocked"
 	blockedCompletion.NextAction = "Grant the profiler capability, then retry."
 	blocked.Completion = &blockedCompletion
-	if second := openQuestionsFor(blocked); len(second.MaterialGaps) != 0 ||
+	if second := openquestions.For(blocked); len(second.MaterialGaps) != 0 ||
 		second.NextCheck != "" || second.CauseStatus != "" {
 		t.Fatalf("a blocked completion grew a second caveat line: %+v", second)
 	}
@@ -91,7 +92,7 @@ func TestBoundedCauseReachesTheSlackReply(t *testing.T) {
 	quietAssessment := *decision.AlertAssessment
 	quietAssessment.Verdict = "not_issue"
 	quiet.AlertAssessment = &quietAssessment
-	if status := openQuestionsFor(quiet).CauseStatus; status != "" {
+	if status := openquestions.For(quiet).CauseStatus; status != "" {
 		t.Fatalf("a not_issue verdict still carried a cause status: %q", status)
 	}
 }

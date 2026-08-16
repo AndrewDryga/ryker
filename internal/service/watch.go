@@ -16,6 +16,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/openquestions"
 	"github.com/AndrewDryga/responder/internal/promptscope"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
@@ -402,7 +403,7 @@ func (s *Service) applyReplyDecision(
 	// on every one of these results and rendered on none of them unless the
 	// completion was blocked, so on 2026-08-16 a bounded cause with an
 	// unresolved leak question reached Slack as "raise the cap and roll the job".
-	open := openQuestionsFor(decision)
+	open := openquestions.For(decision)
 	message = slackui.WithOpenQuestions(
 		message, open.CauseStatus, open.Cause, open.MaterialGaps,
 		open.Unexplained, open.NextCheck, s.sanitizer,

@@ -83,7 +83,15 @@ var methodBudget = map[string]int{
 	// the terminal-state refusal it shares with the reducer, and the refusal is
 	// the reason this belongs beside the other episode-kernel writes rather
 	// than a directory away from them. Revisit at the second method.
-	"Store": 220,
+	//
+	// 221 on 2026-08-16 for ClearAgentRunCorrectionClass, the reset half of the
+	// escalation ledger beside NoteAgentRunCorrectionClass and
+	// SetAgentRunTargetFloor: a retry that moved up the model ladder is a
+	// different model, and it starts without the previous rung's unreadable
+	// tally. Same transactional raw-field edit as its siblings, for the same
+	// reason. Three methods now form that ledger; they are the next cohesive
+	// extraction (an escalation store) once the alert-stream work lands.
+	"Store": 221,
 }
 
 // lineBudget caps non-test source lines per package.
@@ -803,7 +811,15 @@ var lineBudget = map[string]int{
 	// up — the note at the top of this map calls a budget set exactly at
 	// today's count a tripwire, and that is what this one is meant to be. The
 	// reads live in internal/webui, which is where the queue is served from.
-	"store":      11226,
+	//
+	// 11260 on 2026-08-16 for the ladder rung a context manifest was submitted
+	// at: one column, its scan in the manifest readers, and the reset write for
+	// the escalation ledger. Thirty-one lines, measured. Every one of them is
+	// what lets a retry that moved up the model ladder be briefed again instead
+	// of leaning on a briefing the new model never read; two envelope rounds on
+	// 2026-08-16 were that model learning a schema the previous rung had been
+	// taught.
+	"store":      11260,
 	"localstate": 400,
 	"provider":   120,
 	// branching opens the branches a fan-out was granted and closes them. It is

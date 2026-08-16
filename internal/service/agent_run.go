@@ -22,6 +22,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/liveturn"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/mentioncontext"
+	"github.com/AndrewDryga/responder/internal/openquestions"
 	"github.com/AndrewDryga/responder/internal/promptbudget"
 	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/publicationcontext"
@@ -3968,7 +3969,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			// carries no alert assessment, so the cause fields stay empty and
 			// what reaches Slack is the gap, the unexplained finding, and the
 			// check that will answer it.
-			open := openQuestionsFor(decisionpkg.WatchDecision{
+			open := openquestions.For(decisionpkg.WatchDecision{
 				Completion: report.Completion, Findings: report.Findings,
 				AppliedOperations: episodeOperations,
 			})
