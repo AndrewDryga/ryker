@@ -134,15 +134,7 @@
   --spinex: max(20px, calc((100vw - var(--wrap, 1120px)) / 2 - 44px));
 }
 .report .record { position: relative; }
-.report .record::before {
-  content: "";
-  position: absolute;
-  left: var(--spinex);
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--prule-2);
-}
+.report .record::before { content: none; }
 .report .beat { position: relative; }
 .report .beat-mark {
   position: absolute;
@@ -403,19 +395,7 @@
 @media (min-width: 720px) {
   .report .beat-time-inline { display: none; }
 }
-/* The rule ends the way it began: a terminus, not a fade. */
-.report .record::after {
-  content: "";
-  position: absolute;
-  left: var(--spinex);
-  bottom: 0;
-  width: 7px;
-  height: 7px;
-  transform: translateX(-3px);
-  background: var(--paper);
-  border: 2px solid var(--pink-2);
-  border-radius: 50%;
-}
+.report .record::after { content: none; }
 @media (max-width: 1000px) {
   .report .hero-frame { grid-template-columns: 1fr; gap: calc(var(--u, 8px) * 5); }
   .report .display { max-width: 14ch; }
@@ -526,12 +506,7 @@
 @media (max-width: 1279px) {
   .report .beat-sub time { display: none; }
 }
-.report .beat-sub .tick {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--paper);
-  border: 2px solid var(--pmut);
-  flex: none;
-}
+.report .beat-sub .tick { display: none; }
 .report .beat-sub time {
   font: 550 11px/1 var(--mono);
   letter-spacing: .05em;
