@@ -95,7 +95,18 @@ var promptCeilings = map[string]int{
 	// machine-readable; the paragraph is what stops the next one ending in advice
 	// to investigate. Measured 42,137, which left 40 KiB + 512 nothing at all;
 	// 42 KiB restores the roughly 1 KiB this entry says it wants.
-	"watch": 42 * 1024,
+	//
+	// And 244 bytes on 2026-08-16 for the partial correction round, in the same
+	// shared operation list, so all three entries below pay it once. This is the
+	// cheapest raise in the file per byte returned: a correction used to make the
+	// model re-emit the entire envelope, and on the worst recorded episode —
+	// episode_run_956b7644b6fbef89b17aa3a9c6df8da8, sixteen turns for $8.84 —
+	// 116,385 of 233,398 result bytes were record operations the host was already
+	// holding, 56.8% of everything its correction rounds emitted. The host
+	// restores what a round omits; these bytes are what tell the model it may
+	// omit them, which is the half no validator can supply. Measured 43,227,
+	// which left 42 KiB nothing; 43 KiB + 256 is 1,061.
+	"watch": 43*1024 + 256,
 
 	// The ambient measurement above is the cheap case, and for a while it was
 	// the only one — so this test reported "37% left for context" while an
@@ -171,7 +182,11 @@ var promptCeilings = map[string]int{
 	// above; the operation list and the depth paragraph are both in blocks every
 	// variant carries, so all three entries pay the same 970 bytes. Measured
 	// 48,741, which left 47 KiB with nothing. 48 KiB + 512 is 923.
-	"watch-operator": 48*1024 + 512,
+	//
+	// And 244 bytes on 2026-08-16 for the partial correction round — the same
+	// shared operation list again, measured against the same recorded episode.
+	// Measured 49,831, which left 48 KiB + 512 nothing; 49 KiB + 512 is 857.
+	"watch-operator": 49*1024 + 512,
 
 	// The expensive turn, kept measured on purpose. Conditional inclusion means
 	// the two entries above now describe turns that skip 5,391 bytes of rules,
@@ -190,7 +205,11 @@ var promptCeilings = map[string]int{
 	// variant that has the least of it to spare. This is also the variant that
 	// most needs what the raise buys: the alert turns are where a discovered
 	// failure actually turns up.
-	"watch-operator-alert": 52*1024 + 512,
+	// And 53,896 on 2026-08-16 with the partial correction round aboard — 244
+	// bytes, the same shared operation list. The alert variant is also where the
+	// saving lands: the recorded sixteen-turn episode this was measured on was an
+	// alert-lane run notification. 52 KiB + 512 had 136 left; 53 KiB + 512 is 888.
+	"watch-operator-alert": 53*1024 + 512,
 }
 
 func TestStaticPromptSizeIsBounded(t *testing.T) {

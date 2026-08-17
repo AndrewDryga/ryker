@@ -2535,6 +2535,19 @@ func (s *Service) stageTriageTerminal(
 		if episodeErr != nil {
 			return true, episodeErr
 		}
+		// Before anything else reads this result. A correction round returns
+		// only the records it is changing, and every reader below — the
+		// lifecycle policy that decides whether the reply adds anything, the
+		// validators, the delivery, the ledger — is entitled to the whole
+		// investigation. Asked of the fragment instead, a round that returned
+		// its completion and nothing else was suppressed as adding no fresh
+		// evidence, and the answer the operator was waiting for went nowhere.
+		if decision.Action == "reply" {
+			decisionpkg.RestoreCarriedRecords(
+				decision.Operations,
+				state.CarriedEvidence, state.CarriedCoverage, state.CarriedFindings,
+			).ApplyTo(&decision)
+		}
 		decisionpkg.NormalizeAppAlertCompletion(input, &decision)
 		lifecycleContinuationCorrection := TerraformLifecycleContinuationCorrection(
 			input, state, decision,
@@ -2565,11 +2578,13 @@ func (s *Service) stageTriageTerminal(
 			}
 		}
 		// Validation reads the investigation, not this round's fragment of it.
-		// A correction round resubmits only the operations the correction named
-		// and drops the evidence and coverage an earlier round already had
-		// accepted, so `validated` carries both forward; see decision.CarryEvidence
-		// for the loop this closes. `decision` itself is left alone, because what
-		// is applied and delivered is still only what this round returned.
+		// A correction round returns only the records it is changing, so
+		// `validated` carries the rest forward; see decision.CarryEvidence for
+		// the loop this closes. The restore above has already put those records
+		// back into `decision` itself, so this fold is over a stream that
+		// mostly repeats what it holds — carryForward keys on the record
+		// identity, so a row folded onto itself stays one row — and the rows it
+		// adds here are the ones the host wrote in this turn's enforcement.
 		state.CarriedEvidence = decisionpkg.CarryEvidence(state.CarriedEvidence,
 			decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", s.now()))
 		state.CarriedCoverage = decisionpkg.CarryCoverage(state.CarriedCoverage,
@@ -2584,6 +2599,12 @@ func (s *Service) stageTriageTerminal(
 		correction := lifecycleContinuationCorrection
 		// The default class; a rejected artifact overrides it below.
 		correctionKind := correctionIncomplete
+		// First, because everything below asks what the result says and this
+		// asks whether it said anything. A correction round may return only
+		// what it changes; it may not return nothing and inherit an answer.
+		if correction == "" {
+			correction = decisionpkg.PartialRoundCorrection(input, state, decision)
+		}
 		if correction == "" {
 			needsScheduleOffer, scheduleErr := s.scheduleActivationNeedsOffer(
 				ctx, input, decision.ScheduleOffer,
@@ -2826,10 +2847,17 @@ func (s *Service) stageIncidentTerminal(
 		correction := ""
 		correctionKind := correctionIncomplete
 		trigger := ""
-		// The same accumulation the watch path does above: an incident correction
-		// round drops the rows it was not asked about, and validating its stream
-		// alone refuses it for what this run already established.
+		// The same accumulation the watch path does above: an incident
+		// correction round returns only the records it is changing, and
+		// validating its stream alone refuses it for what this run already
+		// established. The restore puts those records back into the report
+		// first, so the report that is staged, delivered and stored is the
+		// whole investigation rather than the fragment of it this round typed.
 		carried, _ := decodeAssembledAgentContext(run.Context)
+		decisionpkg.RestoreCarriedRecords(
+			report.Operations,
+			carried.CarriedEvidence, carried.CarriedCoverage, carried.CarriedFindings,
+		).ApplyToReport(&report)
 		evidence := decisionpkg.CarryEvidence(carried.CarriedEvidence,
 			decisionpkg.SanitizeEvidence(report.Evidence, "", "", "", s.now()))
 		coverage := decisionpkg.CarryCoverage(carried.CarriedCoverage,

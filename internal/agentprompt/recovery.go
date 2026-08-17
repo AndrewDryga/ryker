@@ -36,6 +36,10 @@ func Continuation(run core.AgentRun) string {
 The previous turn completed its work, but Responder rejected only its final structured report.
 Preserve the work and verified result. Return a corrected report that fixes this exact host validation
 error: ` + decisionpkg.BoundedField(run.LastError, core.CorrectionTextLimit) + `
+Return only what changes: your one complete_episode with the report message every time, beside the
+operations you are changing. Leave out any record_evidence, record_coverage or record_finding you are
+not changing — the host still holds it, and omitting one does not retract it. Change a record by
+sending it again with the same id and the same finding what; that replaces it.
 Do not repeat the investigation or drop completed work merely to repair the response envelope.
 </host-structured-correction>`
 	}

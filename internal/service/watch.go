@@ -1224,6 +1224,14 @@ func (s *Service) watchReplyMessage(
 	)
 }
 
+// watchDecisionCorrectionPrompt asks for the field that was rejected, not the
+// whole result again.
+//
+// It used to ask for "the full corrected result ... including the evidence and
+// operations you already gathered", and got it: on the worst recorded episode
+// 56.8% of every correction round was record operations the host was already
+// holding in the run's own context envelope. The host restores them now, so the
+// round can be the correction and nothing else — see decision.RestoreCarriedRecords.
 func watchDecisionCorrectionPrompt(detail string) string {
 	if strings.TrimSpace(detail) == "" {
 		return ""
@@ -1234,8 +1242,12 @@ func watchDecisionCorrectionPrompt(detail string) string {
 Responder rejected your previous result, not your work: ` + detail + `.
 The investigation you already did stands — its tool results are in this conversation, and
 re-running them is waste. Fix exactly what the rejection names, changing the decision itself only
-when the rejection is about the decision, and re-emit the full corrected result for the same
-target, including the evidence and operations you already gathered. Do not reuse an answer to a
+when the rejection is about the decision. Return only what changes: your one complete_episode with
+the reply message every time, beside the operations you are changing. Leave out any record_evidence,
+record_coverage or record_finding you are not changing — the host still holds it, and omitting one
+does not retract it. Change a record by sending it again with the same id and the same finding what;
+that replaces it, and there is no other way to withdraw or restate one. Everything else the result
+needs — the alert assessment, goals, waits, offers — comes back in full. Do not reuse an answer to a
 different nearby message, and do not silently ignore work the operator directed to Emisar.
 </host-decision-correction>`
 }

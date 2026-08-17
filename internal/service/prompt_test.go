@@ -650,7 +650,20 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // the operation sketch, where a model reading the shape meets it as a choice
 // rather than a sentence to remember, and both prose sentences got shorter than
 // the ones that caused it. Nine bytes for a rule that was costing a case.
-const staticWatchPromptBytes = 50514
+//
+// And 50758 on 2026-08-16, 244 bytes, for the one rule that pays for itself in
+// output rather than input: answering a host correction, send only the
+// operations you are changing beside the one complete_episode, an omitted
+// record is kept as it was, and re-sending an id replaces it. The host has
+// carried the accepted records for two days and told nobody, so every
+// correction round re-typed them. Measured on the sixteen-turn Terraform
+// episode episode_run_956b7644b6fbef89b17aa3a9c6df8da8, which cost $8.84:
+// 116,385 of its 233,398 result bytes were record_evidence, record_coverage and
+// record_finding operations the host already held — 56.8% of everything its
+// correction rounds emitted, roughly 29,000 output tokens at four bytes to the
+// token. 244 bytes on every turn against that is the trade this pin exists to
+// make explicit.
+const staticWatchPromptBytes = 50758
 
 // The static prompt must not grow without someone deciding it should.
 //

@@ -1158,7 +1158,24 @@ var lineBudget = map[string]int{
 	// because both are what the host will accept from a result, which is this
 	// package's whole subject; the eighty-four lines are the matcher, its
 	// word-overlap scoring, and the not_checkable clause.
-	"decision": 2790,
+	//
+	// 3020 on 2026-08-16 for the other half of the carry: a correction round now
+	// returns only the records it is changing, and partial_round.go is what puts
+	// the rest back. It belongs beside CarryEvidence and sameFinding because it
+	// has to agree with them exactly — restore keyed on the text where the carry
+	// keys on sameFinding put the unexplained copy of a finding back beside the
+	// round that had just reclassified it, which is the twelve-round loop the
+	// entry above describes, reinstated by its own fix. A package holding it
+	// would hold one function and half a decision.
+	//
+	// The cost that bought it is measured rather than argued.
+	// episode_run_956b7644b6fbef89b17aa3a9c6df8da8 ran sixteen turns for $8.84,
+	// and 116,385 of its 233,398 result bytes — 56.8% of everything its
+	// correction rounds emitted — were record_evidence, record_coverage and
+	// record_finding operations the host was already carrying in the run's own
+	// context envelope. 2978 measured; 3020 keeps the 40-odd lines of margin the
+	// entries above are written to.
+	"decision": 3020,
 	// investigation owns the contract and, since the completion validators moved
 	// beside it, the rules that check a result against that contract.
 	//

@@ -882,7 +882,9 @@ Asked for the timeline, evidence, a handoff or a postmortem, emit request_record
 complete_episode — the completion message is one line saying the record follows, and the record
 itself is never yours to write; the host renders those four from the durable record.
 report_progress is for meaningful findings, never hidden reasoning or status noise. Exactly one complete_episode operation is
-required for a reply or completed task report. A silent external wait uses ignore with
+required for a reply or completed task report. Answering a host correction, send only the operations you
+are changing beside that one complete_episode: a record_evidence, record_coverage or record_finding you
+omit is kept exactly as it was, and re-sending one under the same id replaces it. A silent external wait uses ignore with
 wait_external and no completion. Every non-conversational contract with required_claims
 MUST emit at least one record_evidence operation bound to an exact required claim before complete_episode;
 describing sources only in the message, memory, or coverage is invalid. Every required coverage item
