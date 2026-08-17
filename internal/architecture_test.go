@@ -790,7 +790,7 @@ var lineBudget = map[string]int{
 	// the offer preparation and confirmation handlers are the cohesive area, and
 	// internal/offerreason is already the half of them that left.
 	//
-	// LOWERED to 23600 on 2026-08-17, which is that extraction rather than the
+	// LOWERED to 23650 on 2026-08-17, which is that extraction rather than the
 	// raise the paragraph above warned about. 438 lines went to
 	// internal/behavioroffer: what a preference, a standing rule and a memory
 	// offer must say before the host will store one, the phrasings that decide
@@ -809,11 +809,15 @@ var lineBudget = map[string]int{
 	// database behind it, which is what makes a refusal the model reads
 	// reproducible a week later.
 	//
-	// The margin is 144 rather than the 93 this entry carried yesterday. It is
-	// not room for a feature: three same-day raises met the old number by
+	// The number is measured against the tree that will exist, not against the
+	// branch that produced it — which is the mistake the paragraph above is a
+	// record of. This extraction measures 23456 on its own; the conversation
+	// lane's offer correction landed beside it, and the two together measure
+	// 23502, which is the count this 23650 is set from. The margin is 148, and it
+	// is not room for a feature: three same-day raises met the old number by
 	// arithmetic, and a ratchet that re-arms at zero fails the next honest change
 	// on the merits of this one.
-	"service": 23600,
+	"service": 23650,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
