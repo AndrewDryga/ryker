@@ -255,3 +255,59 @@ func (s *Service) streamWasLive(ctx context.Context, episodeID string) (bool, er
 	}
 	return false, nil
 }
+
+// foldedIntoAnsweredStream reports whether this card was already answered by
+// the reply this stream posted while the card was waiting its turn, and the
+// sentence the audit should carry when it was.
+//
+// A1 stopped a newer card destroying the investigation in flight, and A3
+// stopped its answer being posted twice — but the turn was still spent. The
+// second card was leased, briefed, submitted, answered, and only then compared
+// and suppressed, so the 2026-08-16 va1-nomad-oom-risk stream paid for six
+// investigations of a condition the first had established.
+//
+// The host can see for itself when a card says nothing new, but only from what
+// the card states about itself: the bracketed marker's firing and resolved
+// counts. Everything else about "is this the same news" is the model's judgment
+// and stays there. Three conditions, each closing a way this could suppress
+// real news:
+//
+//   - the card carries a marker at all. A Terraform run notification and a
+//     Better Stack alert both read 0 and 0, and folding on that would make
+//     "Run Applied" and "Run Errored" the same card.
+//   - its counts equal the answered card's. A third allocation crossing the
+//     line is the fact an operator is watching; the comparator was taught that
+//     on 2026-08-16 and this must not take it back.
+//   - the answer was posted after this card arrived. Otherwise the card is
+//     newer than the answer in every sense and nobody has looked at it.
+func (s *Service) foldedIntoAnsweredStream(
+	ctx context.Context,
+	run core.AgentRun,
+	input core.SlackInput,
+) (bool, string, error) {
+	if input.Kind != "bot_message" || isPrivateSlackVerificationReplay(input) ||
+		run.EpisodeID == "" || !strings.HasPrefix(run.ConversationKey, "operation:") {
+		return false, "", nil
+	}
+	firing, resolved := alertstream.AlertCounts(input.Text)
+	if firing == 0 && resolved == 0 {
+		return false, "", nil
+	}
+	posted, err := s.latestStreamReply(ctx, run.EpisodeID)
+	if err != nil || posted == nil {
+		return false, "", err
+	}
+	if posted.Signature.Firing != firing || posted.Signature.Resolved != resolved {
+		return false, "", nil
+	}
+	// Compared at the archived precision, not the wire's. PostedAt is written as
+	// RFC3339 seconds while an input's ReceivedAt carries nanoseconds, so a
+	// strict After() answers "no" for everything that happened inside the same
+	// second — invisible in production, where the gap is minutes, and exactly
+	// the kind of nothing that makes a rule fire only where it was measured.
+	postedAt, err := time.Parse(time.RFC3339, posted.PostedAt)
+	if err != nil || postedAt.Before(input.ReceivedAt.Truncate(time.Second)) {
+		return false, "", nil
+	}
+	return true, "answered by this stream's reply to " + posted.SourceInputID, nil
+}

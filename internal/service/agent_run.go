@@ -1536,6 +1536,26 @@ func (s *Service) admitTriageRun(
 		}
 	}
 	if input.Kind == "bot_message" && !isPrivateSlackVerificationReplay(input) {
+		// Asked before the session is resolved and the turn is built, because
+		// the whole point is not to spend one. A card the stream has already
+		// answered keeps the ✅ that says so — it was handled, and a card with
+		// no mark at all reads as unseen from the channel.
+		folded, why, err := s.foldedIntoAnsweredStream(ctx, run, input)
+		if err != nil {
+			return true, s.retryAgentRun(ctx, run, err)
+		}
+		if folded {
+			s.audit(ctx, core.AuditEvent{
+				Kind: "slack.watch", ActorID: input.UserID, ObjectID: input.ID,
+				Outcome: "answered_by_the_stream", Detail: why,
+			})
+			if err := s.retireWatchRunPresence(ctx, run, input, state); err != nil {
+				s.log.Warn("retire a folded triage run's presence",
+					"run", run.ID, "input", input.ID, "error", err)
+			}
+			s.markWatchInputAnswered(ctx, input)
+			return true, s.store.SupersedeAgentRun(ctx, run.ID, why)
+		}
 		// The same guard the human branch above carries, for the same reason,
 		// on the branch it was never applied to.
 		//

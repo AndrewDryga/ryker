@@ -713,7 +713,17 @@ var lineBudget = map[string]int{
 	// that was live now holds its episode open for one more window; a stream
 	// that never was still closes on its recovery, which is the read that costs
 	// most of these lines.
-	"service": 23566,
+	//
+	// 23608 the same day, forty-two lines, so a card the stream has already
+	// answered costs no model turn. A1 stopped a newer card destroying the
+	// investigation in flight and the flap comparator stopped its answer being
+	// posted twice, but the turn was still spent — leased, briefed, submitted,
+	// answered, and only then compared and suppressed, six times over on the
+	// 2026-08-16 va1-nomad-oom-risk stream. The host decides it alone only from
+	// what a card states about itself, its own firing and resolved counts, and
+	// most of these lines are the three conditions that keep it from suppressing
+	// real news.
+	"service": 23608,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

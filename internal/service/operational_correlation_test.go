@@ -1966,3 +1966,149 @@ func TestARefireAfterARecoveryContinuesTheSameEpisode(t *testing.T) {
 		)
 	}
 }
+
+// A card that repeats what the stream just answered costs no model turn.
+//
+// A1 stopped a newer card from destroying the investigation in flight, and A3
+// stopped its answer being posted twice — but the turn was still spent: the
+// second card was leased, briefed, submitted, answered and only then compared
+// and suppressed. On 2026-08-16 the va1-nomad-oom-risk stream produced seven
+// cards in ninety minutes, so that is six investigations of a condition the
+// first one had already established.
+//
+// The host can see for itself when a card says nothing new: the bracketed
+// marker carries how many alerts are firing and how many have resolved, and a
+// card whose counts match the answered one, arriving while that answer was
+// being written, is the same news. It is answered without asking a model, and
+// it carries the ✅ that says so.
+func TestACardThatSaysNothingNewIsAnsweredWithoutAModelTurn(t *testing.T) {
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	_, st, slackClient, svc, base := streamFixture(
+		t, "CFOLD", confirmedAlertReplyResult(observedAt),
+	)
+	coopClient := svc.coop.(*fakeCoop)
+	base.Text = "[VA1 FIRING:2] " + base.Text
+
+	first := base
+	first.ID, first.EnvelopeID = "fold-card-1", "env-fold-card-1"
+	first.EventID, first.MessageTS = "event-fold-card-1", "1716.100"
+	answerStreamCard(t, svc, st, first)
+	if turns := len(coopClient.submitPrompts); turns != 1 {
+		t.Fatalf("the first card took %d model turns, want 1", turns)
+	}
+
+	// It arrived while the first card was being investigated, which is the
+	// whole case: the answer that followed was written knowing everything this
+	// card says. A card that arrives AFTER the answer is a fresh statement of
+	// the current state and still earns its own turn.
+	repeat := base
+	repeat.ID, repeat.EnvelopeID = "fold-card-2", "env-fold-card-2"
+	repeat.EventID, repeat.MessageTS = "event-fold-card-2", "1716.200"
+	// Driven by hand rather than through answerStreamCard, which reads a
+	// superseded run as a failed card — and a folded card is answered, not
+	// failed. Its run ending superseded with that reason IS the behaviour.
+	ctx := context.Background()
+	if created, err := st.AdmitSlackInput(ctx, repeat); err != nil || !created {
+		t.Fatalf("admit repeat = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	folded, err := st.GetAgentRunBySource(ctx, "watch", repeat.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if folded.State != core.AgentRunSuperseded ||
+		!strings.Contains(folded.LastError, "answered by this stream") {
+		t.Fatalf("the repeat was not folded into the answered stream: %+v", folded)
+	}
+
+	if turns := len(coopClient.submitPrompts); turns != 1 {
+		t.Fatalf(
+			"a card repeating the answered counts spent %d model turns, want the first one only",
+			turns,
+		)
+	}
+	if posted := alertReplyPosts(slackClient.posts); len(posted) != 1 {
+		t.Fatalf("the repeat was answered again in the channel: %d answers", len(posted))
+	}
+	answered := false
+	for _, reaction := range slackClient.reactions {
+		if reaction.name == "white_check_mark" && reaction.timestamp == repeat.MessageTS {
+			answered = true
+		}
+	}
+	if !answered {
+		t.Fatalf(
+			"the folded card carries no answered mark, so it reads as unseen: %+v",
+			slackClient.reactions,
+		)
+	}
+}
+
+// And a card that says something new still gets its own investigation.
+//
+// This is the door the fold-in must not close. A third allocation crossing the
+// line is the fact an operator is watching, and deciding it host-side from the
+// counts alone would be the flap suppression eating the escalation it exists to
+// make visible.
+func TestACardWithANewCountStillGetsItsOwnTurn(t *testing.T) {
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	_, st, _, svc, base := streamFixture(
+		t, "CFOLDNEW",
+		confirmedAlertReplyResult(observedAt),
+		degradedConfirmedAlertReply(t, observedAt),
+	)
+	coopClient := svc.coop.(*fakeCoop)
+
+	first := base
+	first.ID, first.EnvelopeID = "foldnew-card-1", "env-foldnew-card-1"
+	first.EventID, first.MessageTS = "event-foldnew-card-1", "1717.100"
+	first.Text = "[VA1 FIRING:2] " + base.Text
+	answerStreamCard(t, svc, st, first)
+
+	escalated := base
+	escalated.ID, escalated.EnvelopeID = "foldnew-card-2", "env-foldnew-card-2"
+	escalated.EventID, escalated.MessageTS = "event-foldnew-card-2", "1717.200"
+	escalated.ReceivedAt = base.ReceivedAt.Add(90 * time.Second)
+	escalated.Text = "[VA1 FIRING:3] " + base.Text
+	answerStreamCard(t, svc, st, escalated)
+
+	if turns := len(coopClient.submitPrompts); turns != 2 {
+		t.Fatalf(
+			"a third allocation over the line was folded away after %d model turns; it is news",
+			turns,
+		)
+	}
+}
+
+// A stream with no bracketed marker is left exactly as it was.
+//
+// Terraform run notifications, Better Stack alerts and every other app card
+// report 0 and 0, so comparing counts would make "Run Applied" and "Run
+// Errored" the same news. Only a card that states its own counts may be folded.
+func TestAnAppCardWithNoCountsIsNeverFolded(t *testing.T) {
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	_, st, _, svc, base := streamFixture(
+		t, "CFOLDPLAIN",
+		confirmedAlertReplyResult(observedAt),
+		degradedConfirmedAlertReply(t, observedAt),
+	)
+	coopClient := svc.coop.(*fakeCoop)
+
+	first := base
+	first.ID, first.EnvelopeID = "foldplain-card-1", "env-foldplain-card-1"
+	first.EventID, first.MessageTS = "event-foldplain-card-1", "1718.100"
+	answerStreamCard(t, svc, st, first)
+
+	repeat := base
+	repeat.ID, repeat.EnvelopeID = "foldplain-card-2", "env-foldplain-card-2"
+	repeat.EventID, repeat.MessageTS = "event-foldplain-card-2", "1718.200"
+	repeat.ReceivedAt = base.ReceivedAt.Add(90 * time.Second)
+	answerStreamCard(t, svc, st, repeat)
+
+	if turns := len(coopClient.submitPrompts); turns != 2 {
+		t.Fatalf("a markerless app card was folded on counts it never carried: %d turns", turns)
+	}
+}
