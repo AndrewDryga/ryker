@@ -137,6 +137,30 @@ func TestAReusedWakeupIdCostsItsOperationNotTheTurn(t *testing.T) {
 	}
 }
 
+func TestScheduledVerificationKeepsItsObservableSuccessCheck(t *testing.T) {
+	ctx, st, svc, _, run := activityRunFixture(t)
+	verification := "all eight routed services are healthy after the rollout"
+	if err := svc.recordResultOperationEvents(ctx, run.ID, []investigation.ResultOperation{{
+		ID: "wait-rollout-health", Type: "wait_external",
+		ExternalWait: &investigation.ExternalWaitOperation{
+			ID: "verify-rollout-health", Kind: "scheduled_verification",
+			Verification: verification,
+			EventMatcher: []byte(`{"provider":"hcp_terraform","run_id":"run-abc"}`),
+			PollAfter:    time.Now().UTC().Add(time.Minute).Format(time.RFC3339),
+			Deadline:     time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+		},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	wakeups, err := st.ListEpisodeWakeups(ctx, run.EpisodeID)
+	if err != nil || len(wakeups) != 1 {
+		t.Fatalf("scheduled wakeups = %+v, %v", wakeups, err)
+	}
+	if wakeups[0].Verification != verification {
+		t.Fatalf("scheduled verification lost its success check: %+v", wakeups[0])
+	}
+}
+
 // The prerequisite variant of the same wedge, caught live the same evening the
 // wakeup variant was fixed: run_dba732ef poll-looped on `goal prerequisite
 // "goal-impact" is not in episode` — a plan_goal referencing a goal the model

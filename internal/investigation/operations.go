@@ -201,10 +201,44 @@ type OperatorInputOperation struct {
 type ExternalWaitOperation struct {
 	ID           string          `json:"id"`
 	Kind         string          `json:"kind"`
+	Verification string          `json:"verification,omitempty"`
 	EventMatcher json.RawMessage `json:"event_matcher,omitempty"`
 	DueAt        string          `json:"due_at,omitempty"`
 	PollAfter    string          `json:"poll_after,omitempty"`
 	Deadline     string          `json:"deadline,omitempty"`
+}
+
+func validateExternalWaitOperation(operation ResultOperation) error {
+	wait := operation.ExternalWait
+	if wait == nil {
+		return fmt.Errorf(
+			"result operation %q of type wait_external requires an external wait and observation time",
+			operation.ID,
+		)
+	}
+	wait.ID = strings.TrimSpace(wait.ID)
+	wait.Kind = strings.TrimSpace(wait.Kind)
+	wait.Verification = strings.TrimSpace(wait.Verification)
+	wait.DueAt = strings.TrimSpace(wait.DueAt)
+	wait.PollAfter = strings.TrimSpace(wait.PollAfter)
+	wait.Deadline = strings.TrimSpace(wait.Deadline)
+	if wait.ID == "" || wait.Kind == "" ||
+		(wait.DueAt == "" && wait.PollAfter == "") {
+		return fmt.Errorf(
+			"result operation %q of type wait_external requires an external wait and observation time",
+			operation.ID,
+		)
+	}
+	if wait.Kind == "scheduled_verification" && wait.Verification == "" {
+		return fmt.Errorf(
+			"result operation %q scheduled_verification requires verification naming the observable success check",
+			operation.ID,
+		)
+	}
+	if len(wait.Verification) > 500 {
+		return fmt.Errorf("result operation %q verification exceeds 500 bytes", operation.ID)
+	}
+	return nil
 }
 
 // FeedbackOperation records product feedback about Responder itself. It is
@@ -556,11 +590,7 @@ var resultOperationValidators = map[string]func(ResultOperation) error{
 	"request_operator_input": requirePayload("an operator question", func(o ResultOperation) bool {
 		return o.OperatorInput != nil && strings.TrimSpace(o.OperatorInput.Question) != ""
 	}),
-	"wait_external": requirePayload("an external wait and observation time", func(o ResultOperation) bool {
-		return o.ExternalWait != nil && strings.TrimSpace(o.ExternalWait.ID) != "" &&
-			strings.TrimSpace(o.ExternalWait.Kind) != "" &&
-			(o.ExternalWait.DueAt != "" || o.ExternalWait.PollAfter != "")
-	}),
+	"wait_external":              validateExternalWaitOperation,
 	"record_feedback":            validateFeedbackOperation,
 	"request_record":             validateRecordRequestOperation,
 	"offer_task":                 validateTaskOperation,
@@ -849,7 +879,7 @@ accepted operations in the episode event stream.
 - plan_goal: {"id":"goal-plan-1","type":"plan_goal","goal":{"id":"goal-1","kind":"check|engineering|operation|schedule","requested_outcome":"...","completion_contract":"observable done condition","required":true,"prerequisite_goal_ids":[],"authority":"read_only|repository_write|governed_operation"}}
 - update_goal: {"id":"goal-done-1","type":"update_goal","goal_state":{"goal_id":"goal-1","state":"ready|working|waiting|completed|blocked|excluded|cancelled","detail":"optional blocker"}}
 - request_operator_input: {"id":"input-1","type":"request_operator_input","operator_input":{"question":"one exact question","choices":["optional choice"]}}
-- wait_external: {"id":"wait-1","type":"wait_external","external_wait":{"id":"wakeup-1","kind":"github_checks|deployment|terraform_run|emisar_approval|scheduled_verification|other","event_matcher":{"provider":"github","pr":42},"poll_after":"RFC3339","deadline":"RFC3339"}}
+- wait_external: {"id":"w","type":"wait_external","external_wait":{"id":"wakeup","kind":"github_checks|deployment|terraform_run|emisar_approval|scheduled_verification|other","verification":"success check","event_matcher":{},"poll_after":"RFC3339","deadline":"RFC3339"}}
 - request_record: {"id":"record-1","type":"request_record","record":{"kind":"timeline|evidence|handoff|postmortem"}}
 - record_feedback: {"id":"feedback-1","type":"record_feedback","feedback":{"category":"ux|correctness|tone|latency|reliability|feature_request|other","sentiment":"negative|positive|suggestion|mixed","summary":"one actionable sentence","details":"optional concise context","target_message_ts":"optional target reply timestamp","needs_followup":false,"followup_question":"required when needs_followup"}}
 - request_approval: {"id":"approval-1","type":"request_approval","approval":{...exact Emisar approval...}}

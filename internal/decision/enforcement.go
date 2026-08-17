@@ -766,7 +766,9 @@ func AlertAssessmentCorrection(
 		if OperationalAlertResolvedEvent(input.Text) &&
 			(decision.AlertAssessment.Verdict == "confirmed_issue" ||
 				decision.AlertAssessment.Verdict == "likely_issue") &&
-			!HasActiveDegradationEvidence(evidence, now) {
+			!HasActiveDegradationEvidence(
+				evidence, decision.AlertAssessment.EvidenceRefs, now,
+			) {
 			return "this alert condition has already cleared and nothing observed since shows " +
 				"the problem is still active; close the exact alert condition, say plainly that " +
 				"the signal recovered, mark broader recovery unknown where you did not verify it, " +
@@ -1126,12 +1128,24 @@ func MatchedOperationalAlertRule(rules []core.StandingRule) bool {
 	return false
 }
 
-// HasActiveDegradationEvidence reports a fresh operational observation that
-// actually found something wrong, as opposed to one that merely arrived
-// recently. Freshness says when Responder looked; the health effect says what
-// it saw, and only the second can support a claim that a problem is ongoing.
-func HasActiveDegradationEvidence(evidence []core.Evidence, now time.Time) bool {
+// HasActiveDegradationEvidence reports a fresh operational observation cited by
+// this assessment that actually found something wrong, as opposed to one that
+// merely arrived recently or describes an unrelated service. Freshness says
+// when Responder looked; the health effect and explicit assessment reference
+// say what it saw and which alert the observation supports.
+func HasActiveDegradationEvidence(
+	evidence []core.Evidence,
+	assessmentRefs []string,
+	now time.Time,
+) bool {
+	referenced := make(map[string]struct{}, len(assessmentRefs))
+	for _, ref := range assessmentRefs {
+		referenced[ref] = struct{}{}
+	}
 	for _, item := range evidence {
+		if _, ok := referenced[item.ID]; !ok {
+			continue
+		}
 		if item.HealthEffect != "degraded" && item.HealthEffect != "unhealthy" {
 			continue
 		}

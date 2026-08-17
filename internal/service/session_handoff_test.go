@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -196,6 +197,59 @@ func TestAFreshlyRememberedSessionRotatesWithoutAHandoffTurn(t *testing.T) {
 	cleanup, err := st.NextCleanup(ctx, svc.now().UTC())
 	if err != nil || cleanup.SessionID != firstSession {
 		t.Fatalf("the rotated session was not retired immediately: %+v, %v", cleanup, err)
+	}
+}
+
+// Covers: TestATerminalRotatedSessionDoesNotQueueAnImpossibleHandoff
+//
+// A discarded Coop session cannot accept another turn. Rotation used to ask
+// whether memory was stale before it asked whether the session was terminal,
+// so a stale discarded session gained a pending handoff that could never run
+// and its cleanup was postponed behind impossible work.
+func TestATerminalRotatedSessionDoesNotQueueAnImpossibleHandoff(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	if err := st.Intelligence.BindChannelSession(
+		ctx, "CTERMINAL", "emisar", "ses_1", 1, 1, time.Now().UTC().Add(-time.Minute),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Intelligence.ApplyWatchDecision(ctx, core.EvaluationDecision{
+		ChannelID: "CTERMINAL", Repository: "emisar", MessageTS: "1700.901",
+		SourceInput: "terminal-turn", Mode: "live", Action: "reply",
+	}, "investigation", 2, core.AgentMemory{}); err != nil {
+		t.Fatal(err)
+	}
+
+	coopClient := newFakeCoop()
+	coopClient.session.State = "discarded"
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	if err := svc.retireRotatedSession(
+		ctx, "ses_1", "close-terminal", "terminal rotation",
+		outgoingSession{
+			memoryChannelID: "CTERMINAL", repository: "emisar",
+			lane: "watch", turnCount: 1,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetAgentRunBySource(
+		ctx, handoffSourceKind, handoffSourceKind+":ses_1",
+	); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("terminal session received a handoff run: %v", err)
+	}
+	cleanup, err := st.NextCleanup(ctx, svc.now().UTC())
+	if err != nil || cleanup.SessionID != "ses_1" {
+		t.Fatalf("terminal session was not queued for cleanup: %+v, %v", cleanup, err)
 	}
 }
 

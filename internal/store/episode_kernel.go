@@ -857,10 +857,10 @@ func (s *Store) CreateEpisodeWakeup(ctx context.Context, wakeup core.EpisodeWake
 	}
 	result, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO episode_wakeups (
-		  id, episode_id, kind, event_matcher_json, due_at, poll_after, deadline,
+		  id, episode_id, kind, verification, event_matcher_json, due_at, poll_after, deadline,
 		  state, last_observation_json, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
-		wakeup.ID, wakeup.EpisodeID, wakeup.Kind, wakeup.EventMatcher,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		wakeup.ID, wakeup.EpisodeID, wakeup.Kind, wakeup.Verification, wakeup.EventMatcher,
 		nullableTime(wakeup.DueAt), nullableTime(wakeup.PollAfter), nullableTime(wakeup.Deadline),
 		wakeup.LastObservation, now.Format(timestampFormat), now.Format(timestampFormat),
 	)
@@ -879,6 +879,7 @@ func (s *Store) CreateEpisodeWakeup(ctx context.Context, wakeup core.EpisodeWake
 			return core.EpisodeWakeup{}, existingErr
 		}
 		if existing.EpisodeID != wakeup.EpisodeID || existing.Kind != wakeup.Kind ||
+			existing.Verification != wakeup.Verification ||
 			string(existing.EventMatcher) != string(wakeup.EventMatcher) {
 			return core.EpisodeWakeup{}, fmt.Errorf("wakeup id %q was reused with different semantics: %w", wakeup.ID, ErrEpisodeOperationConflict)
 		}
@@ -887,10 +888,7 @@ func (s *Store) CreateEpisodeWakeup(ctx context.Context, wakeup core.EpisodeWake
 		}
 		return existing, nil
 	}
-	payload, _ := episodepkg.Encode(map[string]any{
-		"wakeup_id": wakeup.ID, "kind": wakeup.Kind,
-		"due_at": wakeup.DueAt, "deadline": wakeup.Deadline,
-	})
+	payload, _ := episodepkg.Encode(map[string]any{"wakeup_id": wakeup.ID, "kind": wakeup.Kind, "verification": wakeup.Verification, "due_at": wakeup.DueAt, "deadline": wakeup.Deadline})
 	if _, err := s.appendEpisodeEventTx(ctx, tx, wakeup.EpisodeID, core.WorkEpisodeEvent{
 		Kind: episodepkg.EventExternalWaitStarted, Actor: "host",
 		IdempotencyKey: "wakeup-created:" + wakeup.ID, Payload: payload,
@@ -904,7 +902,7 @@ func (s *Store) CreateEpisodeWakeup(ctx context.Context, wakeup core.EpisodeWake
 }
 
 const episodeWakeupSelect = `
-	SELECT id, episode_id, kind, event_matcher_json, due_at, poll_after,
+	SELECT id, episode_id, kind, verification, event_matcher_json, due_at, poll_after,
 	       deadline, state, last_observation_json, lease_owner, fencing_token,
 	       lease_expires_at, created_at, updated_at, resolved_at
 	FROM episode_wakeups `
@@ -914,7 +912,7 @@ func scanEpisodeWakeup(row interface{ Scan(...any) error }) (core.EpisodeWakeup,
 	var due, poll, deadline, leaseExpires, resolved sql.NullString
 	var created, updated string
 	err := row.Scan(
-		&item.ID, &item.EpisodeID, &item.Kind, &item.EventMatcher, &due, &poll,
+		&item.ID, &item.EpisodeID, &item.Kind, &item.Verification, &item.EventMatcher, &due, &poll,
 		&deadline, &item.State, &item.LastObservation, &item.LeaseOwner,
 		&item.FencingToken, &leaseExpires, &created, &updated, &resolved,
 	)

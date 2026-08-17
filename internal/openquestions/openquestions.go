@@ -99,10 +99,18 @@ func nextCheckFor(decision decisionpkg.WatchDecision) string {
 			operation.ExternalWait.Kind != scheduledVerificationWait {
 			continue
 		}
-		// The wake time, not the raw RFC3339 stamp: this is a sentence an
-		// operator reads in Slack, and "at 2026-08-16T16:30:00Z" is not one.
+		// A scheduled check is a promise about an observable result, not merely
+		// an alarm clock. The 0754fcb5 rollout said only "scheduled follow-up at
+		// 19:25 UTC" even though the work it owed was verifying eight services.
+		verification := strings.TrimSpace(operation.ExternalWait.Verification)
 		if at, err := time.Parse(time.RFC3339, operation.ExternalWait.PollAfter); err == nil {
+			if verification != "" {
+				return "verify " + lowerFirst(verification) + " at " + at.UTC().Format("15:04") + " UTC"
+			}
 			return "scheduled follow-up at " + at.UTC().Format("15:04") + " UTC"
+		}
+		if verification != "" {
+			return "verify " + lowerFirst(verification)
 		}
 		return "scheduled follow-up"
 	}
@@ -110,4 +118,13 @@ func nextCheckFor(decision decisionpkg.WatchDecision) string {
 		return "recheck scheduled"
 	}
 	return ""
+}
+
+func lowerFirst(value string) string {
+	if value == "" {
+		return ""
+	}
+	first := []rune(value)
+	first[0] = []rune(strings.ToLower(string(first[0])))[0]
+	return string(first)
 }

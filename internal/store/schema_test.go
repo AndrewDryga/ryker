@@ -180,6 +180,7 @@ func TestPublicationControlMigrationDirtiesExistingTaskCard(t *testing.T) {
 		ALTER TABLE slack_deliveries DROP COLUMN response_root;
 		ALTER TABLE slack_deliveries DROP COLUMN agent_run_id;
 		ALTER TABLE slack_deliveries DROP COLUMN agent_run_key;
+		ALTER TABLE episode_wakeups DROP COLUMN verification;
 		ALTER TABLE slack_deliveries DROP COLUMN source_input_id;
 		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_id;
 		ALTER TABLE evaluation_decisions DROP COLUMN agent_run_key;

@@ -83,7 +83,8 @@ func TestWatchedStructuredReportPersistsEvidenceCoverageAndMemory(t *testing.T) 
 		strings.Contains(slackClient.posts[0].message.Markdown, "## Evidence") ||
 		strings.Contains(slackClient.posts[0].message.Markdown, "## Coverage") ||
 		len(slackClient.posts[0].message.Context) != 1 ||
-		!strings.Contains(slackClient.posts[0].message.Context[0], "finding") {
+		slackClient.posts[0].message.Context[0] !=
+			"Details saved: 1 evidence record, 1 system area, and 2 memory changes." {
 		t.Fatalf("structured response = %+v", slackClient.posts)
 	}
 	evidence, err := st.Intelligence.ListEvidence(ctx, "", input.ChannelID, 10)

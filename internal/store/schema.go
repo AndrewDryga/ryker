@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 85
+const currentSchemaVersion = 86
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -489,4 +489,5 @@ var migrations = map[int]string{
 	// without, recovered from the correlation key the run already carries. Why
 	// that recovery is exact rather than a guess lives in migrationddl.V85.
 	85: migrationddl.V85,
+	86: migrationddl.V86,
 }

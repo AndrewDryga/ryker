@@ -1505,6 +1505,7 @@ type EpisodeWakeup struct {
 	ID              string
 	EpisodeID       string
 	Kind            string
+	Verification    string
 	EventMatcher    []byte
 	DueAt           time.Time
 	PollAfter       time.Time

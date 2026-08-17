@@ -57,6 +57,16 @@ func (s *Service) processEpisodeWakeup(ctx context.Context) error {
 	if threadTS == "" {
 		threadTS = previous.ThreadTS
 	}
+	state, err := decodeWatchRunContext(previous)
+	if err != nil {
+		return s.retryEpisodeWakeup(ctx, wakeup, err)
+	}
+	state.ResponseThreadTS = threadTS
+	state.ConversationFollowup = true
+	frozen, err := json.Marshal(state)
+	if err != nil {
+		return s.retryEpisodeWakeup(ctx, wakeup, err)
+	}
 
 	// An alert stream resumes on different terms from a GitHub check. The
 	// question was already answered in this thread, so the useful turn is a
@@ -75,10 +85,10 @@ func (s *Service) processEpisodeWakeup(ctx context.Context) error {
 		TeamID: episode.WorkspaceID, ChannelID: episode.Destination.ChannelID,
 		ThreadTS: threadTS, UserID: previous.UserID,
 		Text: preface + fmt.Sprintf(
-			"Resume the accepted work after the %s wait. Match this exact external object: %s. Re-check its state with fresh evidence, continue every open required goal, and report only when the result is decision-ready or an exact blocker remains. If it is still nonterminal, stay silent and emit a new bounded wait_external operation.",
-			wakeup.Kind, string(wakeup.EventMatcher),
+			"Resume the accepted work after the %s wait. Match this exact external object: %s. The promised success check is: %s. Re-check its state with fresh evidence, continue every open required goal, and report only when the result is decision-ready or an exact blocker remains. If it is still nonterminal, stay silent and emit a new bounded wait_external operation.",
+			wakeup.Kind, string(wakeup.EventMatcher), core.FirstNonempty(wakeup.Verification, "the matched object reaches its required terminal state"),
 		),
-		Frozen: previous.Context, ReceivedAt: s.now().UTC(),
+		Frozen: frozen, ReceivedAt: s.now().UTC(),
 	}
 	admitted, err := s.store.AdmitSyntheticSlackInput(ctx, input)
 	if err != nil {
@@ -95,7 +105,7 @@ func (s *Service) processEpisodeWakeup(ctx context.Context) error {
 		ThreadTS:        threadTS,
 		ConversationKey: previous.ConversationKey,
 		SourceKind:      "watch", SourceID: input.ID, UserID: previous.UserID,
-		Repository: previous.Repository, Prompt: input.Text,
+		Repository: previous.Repository, Prompt: input.Text, Context: frozen,
 		CommitmentTitle: previous.CommitmentTitle,
 	})
 	if err != nil {

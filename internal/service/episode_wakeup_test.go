@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -117,6 +118,13 @@ func TestAResumedWaitKeepsTheThreadTheAttemptWasTalkingIn(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := raw.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = 'completed', terminal_state = 'completed', completed_at = ?
+		WHERE id = ?`, time.Now().UTC().Format(core.TimestampFormat), run.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
 	if err := raw.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +143,10 @@ func TestAResumedWaitKeepsTheThreadTheAttemptWasTalkingIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"operations":[{"id":"complete","type":"complete_episode","completion":{"message":"The rollout verification is blocked because the deployment record is unavailable.","completion":{"status":"blocked","summary":"The accepted rollout check could not read its required source.","material_gaps":["The deployment record is unavailable."],"blocker_kind":"source_unavailable","attempts":["Queried the configured deployment source."],"next_action":"Restore deployment-record access, then retry this scheduled verification."}}}]}`
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
 	if err := svc.processEpisodeWakeup(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -153,5 +164,80 @@ func TestAResumedWaitKeepsTheThreadTheAttemptWasTalkingIn(t *testing.T) {
 	}
 	if input.ThreadTS != "1700.500" {
 		t.Fatalf("the synthetic input lost the thread: %q", input.ThreadTS)
+	}
+	var state struct {
+		ResponseThreadTS     string `json:"response_thread_ts"`
+		ConversationFollowup bool   `json:"conversation_followup"`
+	}
+	if err := json.Unmarshal(input.Frozen, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.ResponseThreadTS != "1700.500" || !state.ConversationFollowup {
+		t.Fatalf("the resumed context lost its accepted destination: %+v", state)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != 1 {
+		resumed, _ = st.GetAgentRun(ctx, resumed.ID)
+		t.Fatalf("the completed wakeup posted %d replies, want one; run=%+v", len(slackClient.posts), resumed)
+	}
+	if slackClient.posts[0].thread != "1700.500" {
+		t.Fatalf(
+			"the completed wakeup answered in %q, not the accepted thread",
+			slackClient.posts[0].thread,
+		)
+	}
+	if !strings.Contains(slackClient.posts[0].message.Text, "verification is blocked") {
+		t.Fatalf("the scheduled blocker was silently suppressed: %+v", slackClient.posts[0])
+	}
+	finalEpisode, err := st.GetWorkEpisode(ctx, run.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finalEpisode.Destination.ThreadTS != "1700.500" {
+		t.Fatalf("the final reply widened the episode destination to %q", finalEpisode.Destination.ThreadTS)
+	}
+}
+
+func TestABoundThreadCannotBeWidenedByAnEmptyResponseRoute(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "COPS", ThreadTS: "1800.100",
+		ConversationKey: "thread:COPS:1800.100", SourceKind: "watch", SourceID: "source-bound",
+		UserID: "U123ABC", Repository: "repo", Prompt: "Continue the accepted work",
+		Episode: &core.WorkEpisode{
+			WorkspaceID: cfg.Slack.TeamID, Mode: core.EpisodeCheck,
+			Destination: core.BoundDestination{ChannelID: "COPS", ThreadTS: "1800.100"},
+		},
+	})
+	if err != nil || !created {
+		t.Fatalf("queue bound episode = %+v, %t, %v", run, created, err)
+	}
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.postInputMessageAtEpisodeResponse(
+		ctx, "bound-thread-delivery", run.EpisodeID, "source-bound", "COPS", "",
+		slackui.ConversationResponse("Still working in the accepted thread.", slackui.NewSanitizer(12000)),
+		false,
+	); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := st.GetSlackDelivery(ctx, "bound-thread-delivery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delivery.ThreadTS != "1800.100" {
+		t.Fatalf("an empty route widened the reply to %q", delivery.ThreadTS)
+	}
+	episode, err := st.GetWorkEpisode(ctx, run.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.Destination.ThreadTS != "1800.100" {
+		t.Fatalf("an empty route widened the durable destination to %q", episode.Destination.ThreadTS)
 	}
 }

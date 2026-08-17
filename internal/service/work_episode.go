@@ -300,6 +300,26 @@ func unsupportedOperationalClaimCorrection(
 		return ""
 	}
 	normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
+	unsupportedExclusivity := decisionpkg.EpisodeContainsAny(normalized,
+		"degraded only in", "unhealthy only in", "failing only in", "broken only in",
+		"the only degraded", "the only unhealthy", "the only failing",
+		"only service above", "only service with errors", "only service failing",
+		"only component above", "only component with errors", "only component failing",
+		"only workload above", "only workload with errors", "only workload failing",
+		"only endpoint above", "only endpoint with errors", "only endpoint failing",
+		"only path above", "only path with errors", "only path failing",
+		"no other service is degraded", "no other component is degraded",
+		"no other workload is degraded", "no other endpoint is degraded",
+		"no other path is degraded", "nothing else is degraded",
+		"nothing else is unhealthy", "nothing else is failing", "nothing else is broken",
+		"everything else is clean", "everything else is healthy",
+		"everything else is normal", "everything else is up",
+	)
+	if unsupportedExclusivity {
+		return "the reply claims operational exclusivity from bounded evidence; state the finding " +
+			"as among the checked services, paths, or indicators and leave unmeasured scope " +
+			"unverified instead of claiming that every other area is healthy"
+	}
 	noImpactClaim := decisionpkg.EpisodeContainsAny(normalized,
 		"no current user impact", "no user impact", "no customer impact",
 		"customers are unaffected", "users are unaffected",

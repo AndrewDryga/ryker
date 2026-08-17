@@ -258,6 +258,31 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 printf 'listen: 127.0.0.1:%s\n' "$(cat "$work/ready-port")" > "$work/deploy/.responder/responder.yaml"
 
+# Unrelated work is activity, not recovery of the stalled cohort. The live
+# false positives came from a daily review and Rivals messages moving while the
+# original provider-limited run remained pending.
+rm -rf "$WATCHDOG_STATE"; seed pending 12 3; attempted; rate_limited
+run >/dev/null; run >/dev/null
+/usr/bin/sqlite3 "$db" "
+  INSERT INTO agent_runs (id, state, failure_count, created_at, next_attempt_at, started_at, completed_at)
+  VALUES ('run_unrelated', 'completed', 0,
+    strftime('%Y-%m-%dT%H:%M:%f', 'now', '-2 minutes'), '',
+    strftime('%Y-%m-%dT%H:%M:%f', 'now', '-2 minutes'),
+    strftime('%Y-%m-%dT%H:%M:%f', 'now'));"
+partial=$(run)
+check "unrelated activity names the provider-limited work still blocked" \
+  "Activity resumed, but 1 provider-limited run remains blocked" "$partial"
+refute "unrelated activity is not recovery of the stalled cohort" \
+  "ALERT Responder probe recovered" "$partial"
+
+/usr/bin/sqlite3 "$db" "
+  UPDATE agent_runs SET state = 'completed', next_attempt_at = '',
+    completed_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
+  WHERE id = 'run_stalled';"
+cohort_recovered=$(run)
+check "the watchdog recovers when the stalled cohort moves" \
+  "ALERT Responder probe recovered" "$cohort_recovered"
+
 # Failing work waiting out its backoff is the stall, not an exemption from it.
 rm -rf "$WATCHDOG_STATE"; seed pending 12 3 '+45 seconds'
 run >/dev/null
@@ -327,7 +352,7 @@ fi
 # And when a run really does finish, recovery is announced.
 /usr/bin/sqlite3 "$db" "
   INSERT INTO agent_runs (id, state, failure_count, created_at, next_attempt_at, started_at, completed_at)
-  VALUES ('run_done', 'completed', 1, strftime('%Y-%m-%dT%H:%M:%f', 'now', '-12 minutes'), '',
+  VALUES ('run_stalled', 'completed', 1, strftime('%Y-%m-%dT%H:%M:%f', 'now', '-12 minutes'), '',
           strftime('%Y-%m-%dT%H:%M:%f', 'now', '-2 minutes'), strftime('%Y-%m-%dT%H:%M:%f', 'now'));"
 moved=$(run)
 check "recovery is logged once a run has actually moved" \

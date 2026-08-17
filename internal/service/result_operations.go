@@ -269,6 +269,7 @@ func (s *Service) applyResultOperation(
 		}
 		wakeup, err := s.store.CreateEpisodeWakeup(ctx, core.EpisodeWakeup{
 			ID: wait.ID, EpisodeID: episode.ID, Kind: wait.Kind,
+			Verification: wait.Verification,
 			EventMatcher: wait.EventMatcher, DueAt: dueAt, PollAfter: pollAfter,
 			Deadline: deadline,
 		})

@@ -424,13 +424,25 @@ func (s *Service) correlateWatchEpisode(
 					ThreadTS: slackReplyThread(input), AnchorTS: input.ID,
 					Visibility: "channel",
 				}
-				episode.Destination = previous.Destination
+				// A terminal row can still be the recent firing/recovery stream.
+				// Keep that stream in its accepted thread through the hold window;
+				// after the window, the new card becomes the new destination while
+				// the parent link preserves history.
+				withinHold := previous.CompletedAt.IsZero() ||
+					input.ReceivedAt.Before(previous.CompletedAt.Add(
+						s.cfg.Slack.AlertStreamOpenWindow.Duration,
+					))
+				if withinHold && previous.Destination.ChannelID == input.ChannelID &&
+					previous.Destination.ThreadTS != "" {
+					episode.Destination = previous.Destination
+					state.ResponseThreadTS = previous.Destination.ThreadTS
+				}
 			} else {
 				episode.ID = previous.ID
-			}
-			if previous.Destination.ChannelID == input.ChannelID &&
-				previous.Destination.ThreadTS != "" {
-				state.ResponseThreadTS = previous.Destination.ThreadTS
+				if previous.Destination.ChannelID == input.ChannelID &&
+					previous.Destination.ThreadTS != "" {
+					state.ResponseThreadTS = previous.Destination.ThreadTS
+				}
 			}
 			// What this stream already told the channel, so the next card can be
 			// judged against it instead of arriving as if it were the first.

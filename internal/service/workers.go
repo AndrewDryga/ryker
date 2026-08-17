@@ -1223,15 +1223,17 @@ func (s *Service) enqueueEpisode(
 	message slackui.Message,
 	responseRoot ...bool,
 ) error {
-	if _, err := s.bindEpisodeDestination(
+	episode, err := s.bindEpisodeDestination(
 		ctx,
 		episodeID,
 		incident.ChannelID,
 		threadTS,
 		"response_location",
-	); err != nil {
+	)
+	if err != nil {
 		return err
 	}
+	threadTS = episode.Destination.ThreadTS
 	body, err := slackui.Encode(s.sanitizer.Message(message))
 	if err != nil {
 		return err

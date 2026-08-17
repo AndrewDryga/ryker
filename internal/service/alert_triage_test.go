@@ -201,7 +201,7 @@ func TestWatchedAppAlertBurstEvaluatesEveryEventInOrder(t *testing.T) {
 			// confirmed issue, cause bounded, decision_ready, nothing open — and
 			// BoundedCauseCorrection sends it back before this test can measure
 			// anything about ordering.
-			`{"id":"wait-throughput","type":"wait_external","external_wait":{"id":"wakeup-cassandra-rps","kind":"scheduled_verification","poll_after":%[2]q,"deadline":%[3]q}},`+
+			`{"id":"wait-throughput","type":"wait_external","external_wait":{"id":"wakeup-cassandra-rps","kind":"scheduled_verification","verification":"fresh total RPS stays above 4k and request errors stop","poll_after":%[2]q,"deadline":%[3]q}},`+
 			`{"id":"complete","type":"complete_episode","completion":{"message":"Cassandra throughput is below 4k. Reduce nonessential load while restoring capacity, then verify RPS stays above 4k and errors stop.","completion":{"status":"decision_ready","verdict":"unhealthy","summary":"Cassandra throughput is currently below its operating threshold."}}}`+
 			`]}`, observedAt, pollAfter, deadline),
 		fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":2,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"operations":[`+

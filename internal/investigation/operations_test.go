@@ -47,6 +47,28 @@ func TestAlertAssessmentRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestScheduledVerificationRequiresAnObservableSuccessCheck(t *testing.T) {
+	operation := ResultOperation{
+		ID: "wait-rollout", Type: "wait_external",
+		ExternalWait: &ExternalWaitOperation{
+			ID: "verify-rollout", Kind: "scheduled_verification",
+			PollAfter: "2026-08-16T19:25:00Z",
+		},
+	}
+	if err := operation.Validate(); err == nil || !strings.Contains(err.Error(), "verification") {
+		t.Fatalf("a scheduled verification without a success check was accepted: %v", err)
+	}
+	operation.ExternalWait.Kind = " scheduled_verification "
+	if err := operation.Validate(); err == nil || !strings.Contains(err.Error(), "verification") {
+		t.Fatalf("whitespace bypassed the scheduled verification contract: %v", err)
+	}
+	operation.ExternalWait.Kind = "scheduled_verification"
+	operation.ExternalWait.Verification = "all eight routed services are healthy after the rollout"
+	if err := operation.Validate(); err != nil {
+		t.Fatalf("an observable scheduled verification was rejected: %v", err)
+	}
+}
+
 // A proposed action is refused by name, not dropped and not misdiagnosed.
 //
 // The host used to accept propose_action, hand the proposal to the service, and

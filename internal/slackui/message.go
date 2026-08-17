@@ -1211,9 +1211,14 @@ func ConciseEvidenceResponse(
 	evidence []core.Evidence,
 	coverage []core.Coverage,
 	sanitizer *Sanitizer,
+	memoryChanges ...int,
 ) Message {
 	message := EvidenceResponse(text, nil, nil, sanitizer)
-	if summary := evidenceRecordSummary(evidence, coverage); summary != "" {
+	changeCount := 0
+	if len(memoryChanges) > 0 {
+		changeCount = memoryChanges[0]
+	}
+	if summary := evidenceRecordSummary(evidence, coverage, changeCount); summary != "" {
 		message.Context = append(message.Context, summary)
 	}
 	return message
@@ -1307,18 +1312,34 @@ func WithOpenQuestions(
 	return message
 }
 
-func evidenceRecordSummary(evidence []core.Evidence, coverage []core.Coverage) string {
+func evidenceRecordSummary(evidence []core.Evidence, coverage []core.Coverage, memoryChanges int) string {
 	var parts []string
 	if len(evidence) > 0 {
-		parts = append(parts, countLabel(len(evidence), "finding"))
+		parts = append(parts, countLabel(len(evidence), "evidence record"))
 	}
 	if len(coverage) > 0 {
-		parts = append(parts, countLabel(len(coverage), "system area checked", "system areas checked"))
+		parts = append(parts, countLabel(len(coverage), "system area"))
+	}
+	if memoryChanges > 0 {
+		parts = append(parts, countLabel(memoryChanges, "memory change"))
 	}
 	if len(parts) == 0 {
 		return ""
 	}
-	return "Details saved: " + strings.Join(parts, " and ") + "."
+	return "Details saved: " + joinedCountLabels(parts) + "."
+}
+
+func joinedCountLabels(parts []string) string {
+	switch len(parts) {
+	case 0:
+		return ""
+	case 1:
+		return parts[0]
+	case 2:
+		return parts[0] + " and " + parts[1]
+	default:
+		return strings.Join(parts[:len(parts)-1], ", ") + ", and " + parts[len(parts)-1]
+	}
 }
 
 func countLabel(count int, singular string, plural ...string) string {

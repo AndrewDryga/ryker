@@ -663,7 +663,10 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // correction rounds emitted, roughly 29,000 output tokens at four bytes to the
 // token. 244 bytes on every turn against that is the trade this pin exists to
 // make explicit.
-const staticWatchPromptBytes = 50758
+//
+// And 50755 on 2026-08-17: the scheduled-verification success check joined the
+// operation shape while a terser matcher example paid for it, saving three bytes.
+const staticWatchPromptBytes = 50755
 
 // The static prompt must not grow without someone deciding it should.
 //

@@ -85,13 +85,33 @@ func TestResolvedAlertCannotClaimActiveDegradationWithoutSeeingIt(t *testing.T) 
 		t.Fatalf("a resolved alert claimed active degradation unchallenged: %q", correction)
 	}
 
-	// An observation that actually finds the failure still present carries the
-	// claim. Freshness says when Responder looked; the health effect says what
-	// it saw, and only the second supports "still happening".
+	// A fresh degraded observation about another service cannot keep this
+	// resolved memory alert open. It is useful context, but the assessment did
+	// not cite it and it says nothing about the exact condition that recovered.
+	unrelated := claiming
+	unrelated.Evidence = append(append([]core.Evidence{}, historical...), core.Evidence{
+		ID: "evidence-rivals", ClaimID: "rivals.current_state",
+		Observation: "Rivals requests are still timing out now.",
+		SourceType:  "emisar", SourceName: "host-probe", Relation: "supports",
+		HealthEffect: "degraded", ObservedAt: now.Add(-1 * time.Minute),
+	})
+	if correction := AlertAssessmentCorrection(input, state, unrelated, now); !strings.Contains(
+		correction, "already cleared",
+	) {
+		t.Fatalf("unrelated degraded evidence kept a resolved alert active: %q", correction)
+	}
+
+	// An observation that actually finds the cited failure still present
+	// carries the claim. Freshness says when Responder looked; the health effect
+	// says what it saw, and the assessment link says which alert it supports.
 	seen := claiming
+	assessment := *claiming.AlertAssessment
+	assessment.EvidenceRefs = append(assessment.EvidenceRefs, "evidence-host-live")
+	seen.AlertAssessment = &assessment
 	seen.Evidence = append(append([]core.Evidence{}, historical...), core.Evidence{
-		ClaimID: "host.current_state", Observation: "Memory is still above the threshold now.",
-		SourceType: "emisar", SourceName: "host-probe", Relation: "supports",
+		ID: "evidence-host-live", ClaimID: "host.current_state",
+		Observation: "Memory is still above the threshold now.",
+		SourceType:  "emisar", SourceName: "host-probe", Relation: "supports",
 		HealthEffect: "degraded", ObservedAt: now.Add(-1 * time.Minute),
 	})
 	if correction := AlertAssessmentCorrection(input, state, seen, now); strings.Contains(

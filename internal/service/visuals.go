@@ -35,11 +35,13 @@ func (s *Service) enqueueGeneratedVisuals(
 		return errors.New("agent response references too many generated visuals")
 	}
 	if episodeID != "" {
-		if _, err := s.bindEpisodeDestination(
+		episode, err := s.bindEpisodeDestination(
 			ctx, episodeID, channelID, threadTS, "visual_response_location",
-		); err != nil {
+		)
+		if err != nil {
 			return err
 		}
+		threadTS = episode.Destination.ThreadTS
 	}
 	turn, err := s.coop.GetTurn(ctx, sessionID, turnID)
 	if err != nil {

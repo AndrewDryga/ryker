@@ -382,6 +382,7 @@ func (s *Service) applyReplyDecision(
 	episodeID string,
 	responseThreadTS string,
 	executionKey string,
+	memoryChanges int,
 	post func(context.Context, string, core.SlackInput, slackui.Message, bool) error,
 ) error {
 	// The answer is arriving, so the pause comes off. A message that was
@@ -397,7 +398,7 @@ func (s *Service) applyReplyDecision(
 	}
 	finalReply := replyParts[len(replyParts)-1]
 	message := s.watchReplyMessage(
-		input, finalReply, decision.Evidence, decision.Coverage,
+		input, finalReply, decision.Evidence, decision.Coverage, memoryChanges,
 	)
 	// Before the offers, because this belongs to the answer rather than to what
 	// is being offered on top of it. What the answer does not yet know was typed
@@ -875,6 +876,10 @@ func (s *Service) applyWatchDecision(
 	}, state.Lane, session.Revision, decision.Memory); err != nil {
 		return err
 	}
+	memoryChanges, err := s.store.Intelligence.ConversationMemoryChangeCount(ctx, sourceInput)
+	if err != nil {
+		return err
+	}
 	waitingExternal := watchDecisionWaitsExternal(decision)
 	if !waitingExternal {
 		// A card that produced an answer keeps a mark saying so. Once the 👀
@@ -996,7 +1001,8 @@ func (s *Service) applyWatchDecision(
 		})
 	case "reply":
 		if err := s.applyReplyDecision(
-			ctx, input, state, decision, episodeID, responseThreadTS, run.IdempotencyKey, post,
+			ctx, input, state, decision, episodeID, responseThreadTS, run.IdempotencyKey,
+			memoryChanges, post,
 		); err != nil {
 			return err
 		}
@@ -1214,6 +1220,7 @@ func (s *Service) watchReplyMessage(
 	text string,
 	evidence []core.Evidence,
 	coverage []core.Coverage,
+	memoryChanges ...int,
 ) slackui.Message {
 	if input.Kind == "bot_message" {
 		// Evidence remains in the ledger. App-alert replies should read like a teammate's
@@ -1221,7 +1228,7 @@ func (s *Service) watchReplyMessage(
 		return slackui.EvidenceResponse(text, nil, nil, s.sanitizer)
 	}
 	return slackui.ConciseEvidenceResponse(
-		text, evidence, coverage, s.sanitizer,
+		text, evidence, coverage, s.sanitizer, memoryChanges...,
 	)
 }
 

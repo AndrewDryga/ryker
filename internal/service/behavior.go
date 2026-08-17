@@ -231,17 +231,22 @@ Step meanings:
   stay silent and emit wait_external kind=terraform_run with an event matcher containing the provider
   and exact run ID, a poll_after about 60-120 seconds from now, and a bounded deadline. On each wakeup,
   query HCP again and schedule another quiet wait while it is still planning. When the plan becomes
-  confirmable, retrieve the exact saved plan and post one approval-ready reply in the original thread:
+  confirmable, retrieve the exact saved plan with tfc.plan_summary and post one approval-ready reply in the original thread:
   include the canonical HCP approval URL returned by the provider, a short material-change summary,
   destructive operations, replacements, drift, security or availability red flags, and fresh health
   checks for the affected production scope. Use verdict=needs_review and schedule another terraform_run
   wait for the terminal result. After Applied, verify the affected runtime, workload, dependency, or
-  application scope with fresh evidence and report only the outcome or a concern. After Errored, inspect
+  application scope with fresh evidence. Any scheduled_verification wait must carry verification naming
+  the exact observable success condition — affected services and the health signal they must satisfy —
+  so the operator reads "verify all eight routed services are healthy", not merely a wake time. Report
+  only the outcome or a concern. After Errored, inspect
   the exact diagnostic and possible partial changes, then mention notify_operator. Ignore discarded
   siblings and do not repeat a state already visible in Slack.
-- review_terraform_plan: inspect the exact saved plan when available. Summarize material before/after
-  values, replacements, destructive changes, drift, and security or availability red flags. Repository
-  history is context, not a substitute for the HCP plan. Never fabricate a provider URL.
+- review_terraform_plan: use tfc.plan_summary. For replacements, read action_reason and replace_paths;
+  they name mechanics and forcing fields without values. Do not call the replacement trigger unknown
+  unless the action ran and both fields are empty. Distinguish known rollout mechanics from an unconfirmed
+  source change. Report destructive changes, drift, and security or availability risks. Repository history
+  is context, not plan evidence. Never invent provider URLs.
 - verify_post_apply_health: after Applied, verify the affected runtime, workload, dependency, or
   application scope with fresh evidence and report only the useful outcome or concern.
 - diagnose_terraform_failure: after Errored, inspect the exact diagnostic and possible partial changes,

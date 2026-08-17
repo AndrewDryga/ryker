@@ -1016,15 +1016,17 @@ func (s *Service) postInputMessageAtEpisodeResponse(
 	message slackui.Message,
 	responseRoot bool,
 ) error {
-	if _, err := s.bindEpisodeDestination(
+	episode, err := s.bindEpisodeDestination(
 		ctx,
 		episodeID,
 		channelID,
 		threadTS,
 		"communication_policy",
-	); err != nil {
+	)
+	if err != nil {
 		return err
 	}
+	threadTS = episode.Destination.ThreadTS
 	message = s.sanitizeMessage(message)
 	body, err := slackui.Encode(message)
 	if err != nil {
@@ -1051,6 +1053,15 @@ func (s *Service) bindEpisodeDestination(
 	}
 	if episode.Destination.ChannelID == channelID &&
 		episode.Destination.ThreadTS == threadTS {
+		return episode, nil
+	}
+	// Missing routing information may preserve a bound audience, never widen
+	// it. Two scheduled verifications carried an empty frozen response thread
+	// and were consequently posted to the whole channel even though the episode
+	// had already accepted a thread. An explicit relocation still names a new
+	// non-empty thread and follows the ordinary destination-change path below.
+	if episode.Destination.ChannelID == channelID &&
+		episode.Destination.ThreadTS != "" && threadTS == "" {
 		return episode, nil
 	}
 	return s.store.ChangeEpisodeDestination(

@@ -1979,6 +1979,88 @@ func TestARefireAfterARecoveryContinuesTheSameEpisode(t *testing.T) {
 	}
 }
 
+// A recovered stream is remembered after its hold expires, but it no longer
+// owns where a new alert speaks.
+//
+// The Vector alert stream copied the destination from its first-ever episode
+// into every terminal successor. A current FIRING card was therefore answered
+// under a four-day-old Slack message: useful history survived, but so did an
+// audience choice whose lifetime should have ended with the recovered hold.
+func TestARefireAfterTheRecoveredHoldStartsAtTheNewCard(t *testing.T) {
+	ctx := context.Background()
+	observedAt := time.Now().UTC().Add(-6 * time.Minute).Format(time.RFC3339)
+	recoveredAt := time.Now().UTC().Add(-3 * time.Minute).Format(time.RFC3339)
+	cfg, st, _, svc, base := streamFixture(
+		t, "CSTREAMNEWCYCLE",
+		confirmedAlertReplyResult(observedAt),
+		supersedingRecoveredAlertReply(t, recoveredAt),
+	)
+
+	firing := base
+	firing.ID, firing.EnvelopeID = "new-cycle-card-1", "env-new-cycle-card-1"
+	firing.EventID, firing.MessageTS = "event-new-cycle-card-1", "1715.100"
+	first := answerStreamCard(t, svc, st, firing)
+
+	recovered := base
+	recovered.ID, recovered.EnvelopeID = "new-cycle-card-2", "env-new-cycle-card-2"
+	recovered.EventID, recovered.MessageTS = "event-new-cycle-card-2", "1715.200"
+	recovered.ReceivedAt = base.ReceivedAt.Add(2 * time.Minute)
+	recovered.Text = "[VA1 RESOLVED:1] " + base.Text
+	second := answerStreamCard(t, svc, st, recovered)
+
+	if err := st.SetWorkEpisodePhase(
+		ctx, second.ID, core.EpisodeCompleted, "completed", "Recovered hold expired", "", time.Time{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", filepath.Join(cfg.StateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiredAt := time.Now().UTC().Add(-cfg.Slack.AlertStreamOpenWindow.Duration - time.Minute)
+	if _, err := raw.ExecContext(
+		ctx, `UPDATE work_episodes SET completed_at = ? WHERE id = ?`,
+		expiredAt.Format(core.TimestampFormat), first.EpisodeID,
+	); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	again := base
+	again.ID, again.EnvelopeID = "new-cycle-card-3", "env-new-cycle-card-3"
+	again.EventID, again.MessageTS = "event-new-cycle-card-3", "1715.300"
+	again.ReceivedAt = time.Now().UTC()
+	if created, err := st.AdmitSlackInput(ctx, again); err != nil || !created {
+		t.Fatalf("admit new cycle = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	third, err := st.GetAgentRunBySource(ctx, "watch", again.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.EpisodeID == first.EpisodeID {
+		t.Fatalf("the expired recovered stream kept the new firing in episode %q", third.EpisodeID)
+	}
+	if third.ThreadTS != again.MessageTS {
+		t.Fatalf("the new firing answers in %q, not its current card %q", third.ThreadTS, again.MessageTS)
+	}
+	thirdEpisode, err := st.GetWorkEpisode(ctx, third.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if thirdEpisode.ParentEpisodeID != first.EpisodeID {
+		t.Fatalf("the new cycle lost its historical parent: %+v", thirdEpisode)
+	}
+	if thirdEpisode.Destination.ThreadTS != again.MessageTS {
+		t.Fatalf("the new cycle inherited the historical destination %q", thirdEpisode.Destination.ThreadTS)
+	}
+}
+
 // A card that repeats what the stream just answered costs no model turn.
 //
 // A1 stopped a newer card from destroying the investigation in flight, and A3

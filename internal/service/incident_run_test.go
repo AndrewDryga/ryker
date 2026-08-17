@@ -857,7 +857,7 @@ func TestConversationReplyReturnsToOriginWithoutIncidentChrome(t *testing.T) {
 		t.Fatal(err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
-	if len(slack.posts) != 1 || slack.posts[0].thread != "" ||
+	if len(slack.posts) != 1 || slack.posts[0].thread != incident.RootTS ||
 		slack.posts[0].message.Header != "" || len(slack.posts[0].message.Context) != 0 ||
 		!strings.Contains(slack.posts[0].message.Text, "inspection is complete") {
 		t.Fatalf("conversation reply = %+v", slack.posts)

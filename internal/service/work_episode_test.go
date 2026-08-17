@@ -608,6 +608,36 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 	}
 }
 
+// A bounded health review found one degraded path, then turned that positive
+// finding into an exhaustive negative claim about everything it did not check.
+// "Only" is materially stronger than "among the checked paths" and can hide a
+// second incident behind confidence the evidence never earned.
+func TestOperationalReplyCannotClaimExclusiveDegradationFromBoundedChecks(t *testing.T) {
+	evidence := []core.Evidence{{
+		ID: "rivals-errors", ClaimID: "application.functional_behavior",
+		Claim:       "The checked Rivals endpoints are degraded.",
+		Observation: "Two checked Rivals endpoints return 500 responses.",
+		SourceType:  "emisar", SourceName: "VA1 request metrics",
+		ScopeNote: "This query covered the Rivals routes selected for the review.",
+	}}
+	message := "VA1 is degraded only in the Rivals path; everything else is clean."
+	correction := unsupportedOperationalClaimCorrection("reply", message, evidence)
+	if !strings.Contains(correction, "exclusivity") ||
+		!strings.Contains(correction, "among the checked") {
+		t.Fatalf("unsupported only claim was accepted: %q", correction)
+	}
+
+	scoped := "The checked Rivals path is degraded; health outside the measured routes remains unverified."
+	if correction := unsupportedOperationalClaimCorrection("reply", scoped, evidence); correction != "" {
+		t.Fatalf("bounded scope wording was rejected: %q", correction)
+	}
+
+	exhaustivePlan := "Terraform replaced auth; it was the only service changed in the saved plan."
+	if correction := unsupportedOperationalClaimCorrection("reply", exhaustivePlan, evidence); correction != "" {
+		t.Fatalf("a non-health exclusivity claim was rejected: %q", correction)
+	}
+}
+
 func TestEpisodeClaimCorrectionRequiresTypedEvidenceAndCoverageBinding(t *testing.T) {
 	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
 	episode := core.WorkEpisode{

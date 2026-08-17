@@ -212,6 +212,49 @@ movement_marker() {
   " 2>/dev/null || echo ""
 }
 
+# stalled_run_ids snapshots the exact work that earned a queue-stall alarm.
+# Recovery belongs to these rows, not to an unrelated review or message that
+# happens to start later in the same deployment.
+stalled_run_ids() {
+  local db="$1"
+  [[ -f $db ]] || return
+  /usr/bin/sqlite3 -readonly "file:$db?immutable=1" "
+    SELECT id FROM agent_runs
+    WHERE state IN ('pending', 'preparing')
+      AND (next_attempt_at IS NULL OR next_attempt_at = '' OR next_attempt_at <= strftime('%Y-%m-%dT%H:%M:%f', 'now')
+           OR failure_count > 0
+           OR (started_at IS NOT NULL AND started_at != ''))
+    ORDER BY id
+  " 2>/dev/null || true
+}
+
+# Prints: blocked provider_limited present captured. A missing captured row is
+# not recovery evidence: retention or cancellation may remove it without ever
+# starting the work, so the existing quiet-expiry path handles that ambiguity.
+stalled_cohort_counts() {
+  local db="$1" cohort_file="$2" id row state limited
+  local blocked=0 provider_limited=0 present=0 captured=0
+  while IFS= read -r id; do
+    [[ -n $id ]] || continue
+    captured=$((captured + 1))
+    [[ $id =~ ^[A-Za-z0-9_-]+$ ]] || continue
+    row=$(/usr/bin/sqlite3 -readonly "file:$db?immutable=1" "
+      SELECT state || char(9) ||
+        CASE WHEN last_error LIKE '%rate limited%' OR last_error LIKE '%rate_limited%'
+             THEN 1 ELSE 0 END
+      FROM agent_runs WHERE id = '$id'
+    " 2>/dev/null) || row=""
+    [[ -n $row ]] || continue
+    present=$((present + 1))
+    IFS=$'\t' read -r state limited <<< "$row"
+    if [[ $state == "pending" || $state == "preparing" ]]; then
+      blocked=$((blocked + 1))
+      [[ $limited == 1 ]] && provider_limited=$((provider_limited + 1))
+    fi
+  done < <(sed -n '2,$p' "$cohort_file" 2>/dev/null)
+  printf '%s %s %s %s\n' "$blocked" "$provider_limited" "$present" "$captured"
+}
+
 # ready_reason returns the deployment's own account of itself, or the reason it
 # could not be asked.
 ready_reason() {
@@ -295,6 +338,7 @@ for plist in "$agents"/ai.emisar.responder.*.plist; do
 
   strike_file="$state_dir/$name.strikes"
   alerted_file="$state_dir/$name.alerted"
+  partial_file="$state_dir/$name.partial"
   # When the queue was last seen stalled, and what movement looked like then.
   # Its presence is what makes the next all-clear provisional.
   stalled_at_file="$state_dir/$name.stalled-at"
@@ -310,14 +354,45 @@ for plist in "$agents"/ai.emisar.responder.*.plist; do
     # that started or finished since the stall was last seen.
     if [[ -f $stalled_at_file ]]; then
       read -r stalled_at stalled_movement < "$stalled_at_file" || true
-      if [[ $movement > ${stalled_movement:-} ]]; then
-        : # Something ran. This is a real recovery; fall through and say so.
+      read -r cohort_blocked cohort_limited cohort_present cohort_captured \
+        <<< "$(stalled_cohort_counts "$db" "$stalled_at_file")"
+      if [[ ${cohort_captured:-0} -gt 0 && ${cohort_blocked:-0} -gt 0 ]]; then
+        label="stalled"
+        [[ $cohort_limited -eq $cohort_blocked ]] && label="provider-limited"
+        noun="runs"; verb="remain"
+        [[ $cohort_blocked -eq 1 ]] && noun="run" && verb="remains"
+        if [[ $movement > ${stalled_movement:-} ]]; then
+          progress="Activity resumed, but $cohort_blocked $label $noun $verb blocked."
+          note "$name: $progress"
+          if [[ -f $alerted_file && ! -f $partial_file ]]; then
+            alarm "Responder $name activity resumed" "$progress"
+            printf '%s\n' "$movement" > "$partial_file"
+          fi
+          # A later unrelated completion is not fresh recovery evidence for
+          # this cohort; remember that global movement has already been named.
+          { printf '%s %s\n' "$stalled_at" "$movement"; sed -n '2,$p' "$stalled_at_file"; } \
+            > "$stalled_at_file.tmp"
+          mv "$stalled_at_file.tmp" "$stalled_at_file"
+        else
+          note "$name reads active but $cohort_blocked captured $label $noun remains blocked; holding strike $strikes/$strikes_required"
+        fi
+        continue
+      elif [[ ${cohort_captured:-0} -gt 0 && ${cohort_present:-0} -lt $cohort_captured ]]; then
+        if [[ $(($(date +%s) - ${stalled_at:-0})) -ge $((stall_minutes * 60)) ]]; then
+          note "$name has read clear for ${stall_minutes}m with captured work gone; clearing strikes without calling it recovery"
+          rm -f "$strike_file" "$alerted_file" "$partial_file" "$stalled_at_file"
+        else
+          note "$name reads clear but captured work disappeared without running; holding strike $strikes/$strikes_required"
+        fi
+        continue
+      elif [[ $movement > ${stalled_movement:-} ]]; then
+        : # The captured cohort itself ran. This is a real recovery.
       elif [[ $(($(date +%s) - ${stalled_at:-0})) -ge $((stall_minutes * 60)) ]]; then
         # Read clear for a whole stall window with nothing left to move: an
         # idle deployment, not a recovery. Forget the stall without claiming
         # credit for it, so the hold cannot outlive what it was watching.
         note "$name has read clear for ${stall_minutes}m with nothing moving; clearing strikes without calling it recovery"
-        rm -f "$strike_file" "$alerted_file" "$stalled_at_file"
+        rm -f "$strike_file" "$alerted_file" "$partial_file" "$stalled_at_file"
         continue
       else
         note "$name reads clear but nothing has started or finished since the stall; holding strike $strikes/$strikes_required"
@@ -327,7 +402,7 @@ for plist in "$agents"/ai.emisar.responder.*.plist; do
     if [[ $strikes -ge $strikes_required && -f $alerted_file ]]; then
       alarm "Responder $name recovered" "Queue is moving again and the deployment reports ready."
     fi
-    rm -f "$strike_file" "$alerted_file" "$stalled_at_file"
+    rm -f "$strike_file" "$alerted_file" "$partial_file" "$stalled_at_file"
     continue
   fi
 
@@ -335,7 +410,9 @@ for plist in "$agents"/ai.emisar.responder.*.plist; do
   echo "$strikes" > "$strike_file"
   # Refreshed on every stalled check, so recovery is measured against the last
   # time the queue was seen stuck rather than the first.
-  [[ -n $queue_stalled ]] && printf '%s %s\n' "$(date +%s)" "$movement" > "$stalled_at_file"
+  if [[ -n $queue_stalled ]]; then
+    { printf '%s %s\n' "$(date +%s)" "$movement"; stalled_run_ids "$db"; } > "$stalled_at_file"
+  fi
   note "$name unhealthy (strike $strikes/$strikes_required): $trouble"
   [[ $strikes -ge $strikes_required ]] || continue
 

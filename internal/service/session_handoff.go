@@ -67,15 +67,16 @@ func (s *Service) retireRotatedSession(
 	if err != nil || session.ActiveTurnID != "" {
 		return nil
 	}
+	if watchSessionTerminal(session.State) {
+		return s.store.ScheduleCleanup(ctx, sessionID, "", reason, false, s.now().UTC())
+	}
 	if s.queueSessionHandoff(ctx, sessionID, outgoing) {
 		return nil
 	}
-	if !watchSessionTerminal(session.State) {
-		if _, _, closeErr := s.coop.Close(
-			ctx, closeKey, session.ID, session.Revision,
-		); closeErr != nil {
-			return closeErr
-		}
+	if _, _, closeErr := s.coop.Close(
+		ctx, closeKey, session.ID, session.Revision,
+	); closeErr != nil {
+		return closeErr
 	}
 	return s.store.ScheduleCleanup(ctx, sessionID, "", reason, false, s.now().UTC())
 }

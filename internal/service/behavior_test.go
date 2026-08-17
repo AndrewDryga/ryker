@@ -1559,6 +1559,21 @@ func TestStandingRuleMatcherIsTypedAndSourceAware(t *testing.T) {
 	}
 }
 
+func TestTerraformStandingWorkflowReadsReplacementPathsBeforeCallingTheTriggerUnknown(t *testing.T) {
+	prompt := standingRulePrompt([]core.StandingRule{{
+		ID: "rule-terraform", Action: "follow_terraform_run",
+	}})
+	for _, required := range []string{
+		"tfc.plan_summary",
+		"replace_paths",
+		"Do not call the replacement trigger unknown",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("Terraform workflow prompt lacks %q:\n%s", required, prompt)
+		}
+	}
+}
+
 func TestStandingWorkflowMatcherExplainsMatchesAndSkips(t *testing.T) {
 	workflow, _, _, err := core.NormalizeStandingWorkflow(
 		core.StandingWorkflow{

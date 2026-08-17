@@ -1261,8 +1261,22 @@ func TestConciseEvidenceResponseKeepsLedgerOutOfRoutineSlackReply(t *testing.T) 
 		t.Fatalf("routine reply dumped evidence ledger: %+v", message)
 	}
 	if len(message.Context) != 1 ||
-		message.Context[0] != "Details saved: 1 finding and 1 system area checked." {
+		message.Context[0] != "Details saved: 1 evidence record and 1 system area." {
 		t.Fatalf("routine reply evidence summary = %+v", message.Context)
+	}
+}
+
+func TestConciseEvidenceResponseCountsMemoryChangesBesideEvidence(t *testing.T) {
+	message := ConciseEvidenceResponse(
+		"The correction is saved.",
+		[]core.Evidence{{}, {}, {}},
+		[]core.Coverage{{}},
+		NewSanitizer(12000),
+		2,
+	)
+	if len(message.Context) != 1 || message.Context[0] !=
+		"Details saved: 3 evidence records, 1 system area, and 2 memory changes." {
+		t.Fatalf("memory-aware details = %+v", message.Context)
 	}
 }
 
@@ -1385,7 +1399,7 @@ func TestEvidenceSummaryUsesNaturalCoveragePlural(t *testing.T) {
 		NewSanitizer(12000),
 	)
 	if len(message.Context) != 1 ||
-		message.Context[0] != "Details saved: 2 findings and 3 system areas checked." {
+		message.Context[0] != "Details saved: 2 evidence records and 3 system areas." {
 		t.Fatalf("evidence summary = %+v", message.Context)
 	}
 }

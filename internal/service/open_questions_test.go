@@ -65,12 +65,13 @@ func TestBoundedCauseReachesTheSlackReply(t *testing.T) {
 			ID: "wait-heap-profile", Type: "wait_external",
 			ExternalWait: &investigation.ExternalWaitOperation{
 				ID: "wakeup-heap-profile", Kind: "scheduled_verification",
-				PollAfter: "2026-08-16T16:30:00Z", Deadline: "2026-08-16T18:30:00Z",
+				Verification: "the captured heap profile distinguishes load-driven growth from a leak",
+				PollAfter:    "2026-08-16T16:30:00Z", Deadline: "2026-08-16T18:30:00Z",
 			},
 		})
 	next := openquestions.For(scheduled).NextCheck
-	if !strings.Contains(next, "scheduled follow-up") {
-		t.Fatalf("a scheduled verification did not become a next check: %q", next)
+	if next != "verify the captured heap profile distinguishes load-driven growth from a leak at 16:30 UTC" {
+		t.Fatalf("a scheduled verification did not name its success check: %q", next)
 	}
 
 	// A blocked completion already renders its own gaps and next action through
@@ -132,7 +133,7 @@ func TestABoundedCauseReplyNamesTheCheckThatWillSettleIt(t *testing.T) {
 			`{"id":"cov-3","type":"record_coverage","coverage":{"layer":"slo","claim_ids":["impact.current"],"status":"unknown","detail":"No separate user-impact measure is available."}},`+
 			`{"id":"cov-4","type":"record_coverage","coverage":{"layer":"dependency","claim_ids":["dependency.current_health"],"status":"unknown","detail":"Dependency health does not change the confirmed throughput failure."}},`+
 			`{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue","impact":"Current Cassandra throughput is below its operating threshold.","cause_status":"bounded","cause":"Throughput falls with no topology change, so the loss is inside the serving path rather than in the deployment.","cause_claim_ids":["application.functional_behavior"],"evidence_refs":["cassandra-throughput"],"immediate_action":"Reduce nonessential Cassandra load while restoring service capacity.","verification":"Confirm fresh total RPS stays above 4k and request errors stop.","long_term_solution":"Add capacity and traffic controls that keep Cassandra above its operating threshold."}},`+
-			`{"id":"wait-throughput","type":"wait_external","external_wait":{"id":"wakeup-cassandra-rps","kind":"scheduled_verification","poll_after":%[2]q,"deadline":%[3]q}},`+
+			`{"id":"wait-throughput","type":"wait_external","external_wait":{"id":"wakeup-cassandra-rps","kind":"scheduled_verification","verification":"fresh total RPS stays above 4k and request errors stop","poll_after":%[2]q,"deadline":%[3]q}},`+
 			`{"id":"complete","type":"complete_episode","completion":{"message":"Cassandra throughput is below 4k. Reduce nonessential load while restoring capacity, then verify RPS stays above 4k and errors stop.","completion":{"status":"decision_ready","verdict":"unhealthy","summary":"Cassandra throughput is currently below its operating threshold.","material_gaps":["Which of the serving nodes is shedding the requests is unresolved until the next sample lands."]}}}`+
 			`]}`,
 		observedAt,
@@ -161,7 +162,7 @@ func TestABoundedCauseReplyNamesTheCheckThatWillSettleIt(t *testing.T) {
 	context := strings.Join(slackClient.posts[0].message.Context, "\n")
 	for _, want := range []string{
 		"Cause bounded, not identified: Which of the serving nodes",
-		"Next check: scheduled follow-up at " + pollAfter.Format("15:04") + " UTC",
+		"Next check: verify fresh total RPS stays above 4k and request errors stop at " + pollAfter.Format("15:04") + " UTC",
 	} {
 		if !strings.Contains(context, want) {
 			t.Fatalf("the posted reply does not say %q: %q", want, context)
