@@ -19,10 +19,6 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
-const (
-	memoryOfferMaxAge = 24 * time.Hour
-)
-
 var (
 	explicitMemoryRequestPattern = regexp.MustCompile(
 		`(?i)\b(?:remember|memorize|save this|store this|correct (?:your|the) memory|` +
