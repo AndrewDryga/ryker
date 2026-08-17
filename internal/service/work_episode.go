@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
@@ -97,8 +98,8 @@ func (s *Service) episodeForWatchedInput(
 	}
 	// Configuration is accepted work, but it is not an operational assessment even
 	// when the requested preference happens to mention health checks or alerts.
-	if input.Kind != "scheduled" && explicitBehaviorRequest(input.Text) {
-		if explicitPreferenceRequestPattern.MatchString(input.Text) ||
+	if input.Kind != "scheduled" && behaviorofferpkg.ExplicitRequest(input.Text) {
+		if behaviorofferpkg.PreferenceRequest(input.Text) ||
 			decisionpkg.StandingRuleAssignment(input.Text) ||
 			!isFocusedCheckRequest(text) {
 			return episode

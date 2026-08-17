@@ -789,7 +789,31 @@ var lineBudget = map[string]int{
 	// restores a 93-line margin. The next thing to land here extracts instead:
 	// the offer preparation and confirmation handlers are the cohesive area, and
 	// internal/offerreason is already the half of them that left.
-	"service": 23990,
+	//
+	// LOWERED to 23600 on 2026-08-17, which is that extraction rather than the
+	// raise the paragraph above warned about. 438 lines went to
+	// internal/behavioroffer: what a preference, a standing rule and a memory
+	// offer must say before the host will store one, the phrasings that decide
+	// whether an offer was invited at all, and the payload its confirmation
+	// button carries. internal/scheduleoffer had already been split that way and
+	// these are its three siblings; they stayed here only because each validator
+	// reached the configuration for a team id and a repository list, and that is
+	// now a two-method Catalog the caller hands over.
+	//
+	// What could not leave is the shape this map keeps asking for. The four scope
+	// gates still read the operator list, rejectedOffers still resolves a
+	// channel's effective repository through the store before it validates a
+	// rule, and the discard record still needs the logger and the run. That is
+	// thirty lines of caller against four hundred of decision — and the decision
+	// is now answerable from an offer and a list of repository names, with no
+	// database behind it, which is what makes a refusal the model reads
+	// reproducible a week later.
+	//
+	// The margin is 144 rather than the 93 this entry carried yesterday. It is
+	// not room for a feature: three same-day raises met the old number by
+	// arithmetic, and a ratchet that re-arms at zero fails the next honest change
+	// on the merits of this one.
+	"service": 23600,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -1388,6 +1412,20 @@ var lineBudget = map[string]int{
 	// will be executed by somebody else's control plane deserves a table test,
 	// not an integration test.
 	"knowledgeoffer": 420,
+	// behavioroffer owns what a preference, a standing rule or a memory offer
+	// must say before the host will store one, and what the confirmation button
+	// that offer becomes may carry. Extracted from internal/service on
+	// 2026-08-17, where the three validators had stayed because each reached the
+	// configuration for a team id and a repository list; that arrives as a
+	// two-method Catalog now, so a refusal is reproducible from an offer and a
+	// list of repository names rather than from a running deployment.
+	//
+	// 560 against 528 measured, and 528 against the 438 that left internal/service
+	// — the difference is the seam, and it is worth naming. A Context, a Catalog,
+	// an Envelope shared by the three payloads and six encode and decode
+	// entrances are all lines the service never had to write down, because it had
+	// the whole of Service to reach through instead.
+	"behavioroffer": 560,
 	// slackfile owns what Responder will accept as a Slack file, what it will
 	// call one, and how much of one it will read. Extracted whole from
 	// internal/service on 2026-08-15; every rule in it is a refusal about bytes
@@ -1527,6 +1565,20 @@ var forbiddenImports = map[string][]string{
 	"offerreason": {
 		"service", "store", "slackui", "httpapi", "app", "publisher", "coop",
 		"emisar", "config", "decision", "investigation", "schedule", "memory",
+	},
+	// behavioroffer is the other half of offerreason: that package owns the
+	// words a refusal uses, this one owns the checks that produce them. config
+	// is on this list beside the usual outward-facing packages, and it is the
+	// entry that matters. The two questions this package asks of a deployment's
+	// repositories arrive as a Catalog; the moment it could read a config
+	// itself, a refusal would stop being reproducible from the offer that caused
+	// it, and reproducing those is the whole reason the vocabulary was split out
+	// in the first place. It reaches decision, memory and schedule for the same
+	// reason internal/scheduleoffer does — the rule a model is corrected against
+	// has to be the rule its confirmation click is measured by.
+	"behavioroffer": {
+		"service", "store", "slackui", "httpapi", "app", "publisher", "coop",
+		"emisar", "config", "webhook", "evaluation", "investigation",
 	},
 	"replypolicy": {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
 	// The digest reads the database and writes into Slack, so the direction has

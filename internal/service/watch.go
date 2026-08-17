@@ -10,6 +10,7 @@ import (
 	"time"
 
 	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
+	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
 	"github.com/AndrewDryga/responder/internal/changeledger"
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
@@ -1516,7 +1517,7 @@ func (s *Service) persistWatchTaskOffer(
 func explicitIncidentRequest(text string) bool {
 	text = strings.TrimSpace(text)
 	return explicitIncidentRequestPattern.MatchString(text) &&
-		!explicitBehaviorRequest(text)
+		!behaviorofferpkg.ExplicitRequest(text)
 }
 
 func (s *Service) handleWatchIncidentOfferAction(

@@ -2,11 +2,11 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
@@ -129,21 +129,23 @@ func TestConfirmedMemoryActionPersistsAndForgetDeletes(t *testing.T) {
 		cfg, st, newFakeCoop(), slackClient, nil,
 		slackui.NewSanitizer(12000), nil,
 	)
-	payload, err := json.Marshal(memoryActionPayload{
-		Version: 1, ChannelID: "COPS", SourceRef: "event_source", IssuedAt: time.Now().UTC(),
-		Offer: core.MemoryOffer{
+	payload, encoded := behaviorofferpkg.EncodeMemory(
+		behaviorofferpkg.Issue{
+			ChannelID: "COPS", SourceRef: "event_source", At: time.Now().UTC(),
+		},
+		core.MemoryOffer{
 			Scope: "channel", Subject: "old portal", Predicate: "alias_of",
 			Value: "service:portal", Visibility: "channel", ExpiresIn: "30d",
 		},
-	})
-	if err != nil {
-		t.Fatal(err)
+	)
+	if !encoded {
+		t.Fatal("the memory confirmation payload did not encode")
 	}
 	remember := core.SlackInput{
 		ID: "slack_remember", EnvelopeID: "env_remember", EventID: "event_remember",
 		Kind: "action", TeamID: cfg.Slack.TeamID, ChannelID: "COPS",
 		MessageTS: "1700.001", UserID: cfg.Slack.Operators[0],
-		ActionID: slackui.ActionRememberMemory, ActionValue: string(payload),
+		ActionID: slackui.ActionRememberMemory, ActionValue: payload,
 	}
 	if created, err := st.AdmitSlackInput(ctx, remember); err != nil || !created {
 		t.Fatalf("admit remember = %t, %v", created, err)

@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
-	"strconv"
-	"strings"
 	"time"
 
+	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
@@ -18,26 +16,6 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
-
-var (
-	explicitMemoryRequestPattern = regexp.MustCompile(
-		`(?i)\b(?:remember|memorize|save this|store this|correct (?:your|the) memory|` +
-			`keep (?:this|that|it) in mind|from now on|going forward|always|every time|whenever)\b`,
-	)
-	canonicalMemoryRefPattern = regexp.MustCompile(
-		`^(?:repo|channel|emisar|service):[A-Za-z0-9._/@:-]{1,180}$`,
-	)
-	aliasMemorySubjectPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._ /:-]{0,119}$`)
-	memoryRevisionPattern     = regexp.MustCompile(`^(?:[A-Fa-f0-9]{7,64}|sha256:[A-Fa-f0-9]{64})$`)
-)
-
-type memoryActionPayload struct {
-	Version   int              `json:"version"`
-	ChannelID string           `json:"channel_id"`
-	SourceRef string           `json:"source_ref"`
-	IssuedAt  time.Time        `json:"issued_at"`
-	Offer     core.MemoryOffer `json:"offer"`
-}
 
 type memoryRememberResult struct {
 	EntryID  string `json:"entry_id"`
@@ -255,27 +233,18 @@ func (s *Service) prepareMemoryOfferAction(
 	} else {
 		offer.Repository = ""
 	}
-	issued := s.now().UTC()
-	sourceRef := core.FirstNonempty(input.EventID, input.ID)
-	encode := func(proposal core.MemoryOffer) string {
-		payload, err := json.Marshal(memoryActionPayload{
-			Version: 1, ChannelID: input.ChannelID, SourceRef: sourceRef,
-			IssuedAt: issued, Offer: proposal,
-		})
-		if err != nil || len(payload) > 1900 {
-			return ""
-		}
-		return string(payload)
-	}
-	proposed := encode(*offer)
-	if proposed == "" {
+	// Both buttons are stamped from one issue, so the "remember" and "remember
+	// forever" halves of the same card cannot expire a moment apart.
+	issue := s.offerIssue(input)
+	proposed, ok := behaviorofferpkg.EncodeMemory(issue, *offer)
+	if !ok {
 		return "", "", "", "", false
 	}
 	permanent := ""
 	if core.PredicateMayBePermanent(entry.Predicate) && ttl != memorypkg.PermanentTTL {
 		forever := *offer
 		forever.ExpiresIn = core.NeverExpires
-		permanent = encode(forever)
+		permanent, _ = behaviorofferpkg.EncodeMemory(issue, forever)
 	}
 	return proposed, permanent,
 		memorypkg.MemoryScopeLabel(*offer), memorypkg.FormatMemoryTTL(ttl), true
@@ -289,12 +258,8 @@ func (s *Service) handleRememberMemory(
 	if err != nil || !allowed {
 		return err
 	}
-	var payload memoryActionPayload
-	err = decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload)
-	if cause, stale := s.behaviorOfferClick(
-		err, payload.Version, payload.ChannelID, payload.SourceRef,
-		payload.IssuedAt, input,
-	).Cause(); stale {
+	payload, err := behaviorofferpkg.DecodeMemory(input.ActionValue)
+	if cause, stale := payload.Click(err, input.ChannelID, s.now().UTC()).Cause(); stale {
 		return s.finishSlashInput(
 			ctx, input, offerreason.Stale(offerreason.MemoryConfirmation, cause),
 		)
@@ -643,150 +608,13 @@ func (s *Service) memoryEntryFromOffer(
 	offer core.MemoryOffer,
 	now time.Time,
 ) (core.MemoryEntry, time.Duration, error) {
-	offer.Scope = strings.TrimSpace(strings.ToLower(offer.Scope))
-	offer.Repository = strings.TrimSpace(strings.ToLower(offer.Repository))
-	offer.Subject = strings.TrimSpace(strings.ToLower(offer.Subject))
-	offer.Predicate = strings.TrimSpace(strings.ToLower(offer.Predicate))
-	offer.Value = strings.TrimSpace(offer.Value)
-	offer.Visibility = strings.TrimSpace(strings.ToLower(offer.Visibility))
-	offer.SourceRevision = strings.TrimSpace(offer.SourceRevision)
-	ttl, err := memorypkg.ParseMemoryTTL(offer.ExpiresIn)
-	if err != nil {
-		return core.MemoryEntry{}, 0, err
-	}
-	if input.ChannelID == "" {
-		return core.MemoryEntry{}, 0, errors.New("memory requires a Slack channel context")
-	}
-	if ttl == memorypkg.PermanentTTL && !core.PredicateMayBePermanent(offer.Predicate) {
-		return core.MemoryEntry{}, 0, offerreason.Field(
-			"expires_in", offer.ExpiresIn,
-			"expected 7d, 30d, 90d, or 365d, because predicate "+
-				strconv.Quote(offer.Predicate)+" describes a system that can change "+
-				"without telling Responder; only a guidance predicate may be permanent",
-		)
-	}
-	entry := core.MemoryEntry{
-		ScopeKind: offer.Scope, SubjectKey: offer.Subject, Predicate: offer.Predicate,
-		Value: offer.Value, SourceRevision: offer.SourceRevision,
-		VisibilityKind: offer.Visibility, ExpiresAt: memorypkg.ExpiryFrom(now, ttl),
-		SourceRef: input.ID, ActorID: input.UserID,
-	}
-	if offer.Predicate == "guidance" {
-		entry.SubjectKey = memorypkg.NormalizeGuidanceSubject(entry.SubjectKey)
-		entry.Value = strings.Join(strings.Fields(entry.Value), " ")
-		entry.SourceRevision = ""
-	}
-	switch offer.Scope {
-	case "workspace":
-		entry.ScopeKey = s.cfg.Slack.TeamID
-	case "channel":
-		entry.ScopeKey = input.ChannelID
-	case "repository":
-		if _, ok := s.cfg.RepositoryContext(offer.Repository); !ok {
-			return core.MemoryEntry{}, 0, s.unknownRepository(offer.Repository)
-		}
-		entry.ScopeKey = offer.Repository
-	default:
-		return core.MemoryEntry{}, 0, offerreason.Field(
-			"scope", offer.Scope, "expected channel, repository, or workspace",
-		)
-	}
-	switch offer.Visibility {
-	case "workspace":
-		entry.VisibilityID = s.cfg.Slack.TeamID
-	case "channel":
-		entry.VisibilityID = input.ChannelID
-	case "operator":
-		entry.VisibilityID = input.UserID
-	default:
-		return core.MemoryEntry{}, 0, offerreason.Field(
-			"visibility", offer.Visibility,
-			"expected channel, operator, or workspace",
-		)
-	}
-	if err := s.validateMemoryValue(&entry); err != nil {
-		return core.MemoryEntry{}, 0, err
-	}
-	if entry.SourceRevision != "" &&
-		!memoryRevisionPattern.MatchString(entry.SourceRevision) {
-		return core.MemoryEntry{}, 0, offerreason.Field(
-			"source_revision", entry.SourceRevision,
-			"expected an immutable Git revision or a sha256: digest, "+
-				"or leave it empty",
-		)
-	}
-	return entry, ttl, nil
+	return behaviorofferpkg.Entry(offer, s.offerContext(input, now))
 }
 
+// validateMemoryValue checks a memory entry that never had an offer in front of
+// it. Operator feedback promoted to guidance and knowledge learned from
+// repository contents both build one directly, so the check is reachable
+// without going through Entry.
 func (s *Service) validateMemoryValue(entry *core.MemoryEntry) error {
-	// Named one at a time: "subject and value are required" sent the model back
-	// to re-send both when only one of them was blank.
-	if entry.SubjectKey == "" {
-		return offerreason.Field("subject", "", "name what the memory is about")
-	}
-	if entry.Value == "" {
-		return offerreason.Field("value", "", "state what is true about the subject")
-	}
-	if strings.ContainsAny(entry.SubjectKey+entry.Value, "\r\n\t") ||
-		memorypkg.ContainsSecretLikeValue(entry.SubjectKey) || memorypkg.ContainsSecretLikeValue(entry.Value) {
-		return errors.New("memory cannot contain multiline text or credential-like values")
-	}
-	switch entry.Predicate {
-	case "alias_of":
-		if !aliasMemorySubjectPattern.MatchString(entry.SubjectKey) ||
-			!canonicalMemoryRefPattern.MatchString(entry.Value) {
-			return errors.New(
-				"alias_of requires a normalized alias and canonical repo:, channel:, emisar:, or service: reference",
-			)
-		}
-	case "repository_for_channel":
-		if entry.ScopeKind != "channel" {
-			return errors.New("repository_for_channel requires channel scope")
-		}
-		if entry.VisibilityKind == "operator" {
-			return errors.New(
-				"repository_for_channel visibility must be channel or workspace",
-			)
-		}
-		if _, ok := s.cfg.RepositoryContext(entry.Value); !ok {
-			return fmt.Errorf("repository %q is not configured", entry.Value)
-		}
-		entry.SubjectKey = "channel:" + entry.ScopeKey
-	case "evidence_route":
-		if !canonicalMemoryRefPattern.MatchString(entry.SubjectKey) ||
-			!canonicalMemoryRefPattern.MatchString(entry.Value) {
-			return errors.New(
-				"evidence_route requires canonical repo:, channel:, emisar:, or service: references",
-			)
-		}
-	case "entity_relationship_correction":
-		relation, target, ok := strings.Cut(entry.Value, "=")
-		if !ok || !canonicalMemoryRefPattern.MatchString(entry.SubjectKey) ||
-			!canonicalMemoryRefPattern.MatchString(target) {
-			return errors.New(
-				"entity_relationship_correction requires canonical subject and relation=canonical-target",
-			)
-		}
-		switch relation {
-		case "runtime_identity_of", "replacement_of", "member_of", "depends_on":
-		default:
-			return errors.New(
-				"relationship must be runtime_identity_of, replacement_of, member_of, or depends_on",
-			)
-		}
-	case "guidance":
-		if !aliasMemorySubjectPattern.MatchString(entry.SubjectKey) {
-			return errors.New(
-				"guidance requires a short normalized topic such as communication_style",
-			)
-		}
-		if len(entry.Value) > 1000 {
-			return errors.New("guidance must be 1000 characters or fewer")
-		}
-	default:
-		return errors.New(
-			"predicate must be alias_of, repository_for_channel, evidence_route, entity_relationship_correction, or guidance",
-		)
-	}
-	return nil
+	return behaviorofferpkg.ValidateEntryValue(entry, repositoryCatalog{cfg: s.cfg})
 }

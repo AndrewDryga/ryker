@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
+	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
@@ -21,36 +21,39 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schedulestore"
 )
 
-const behaviorOfferMaxAge = 24 * time.Hour
+// repositoryCatalog answers the two questions internal/behavioroffer asks of
+// this host's configuration. It is an adapter rather than a slice of names
+// because RepositoryContext and RepositoryContextKeys do not agree on every
+// slug — a repository set naming a primary that is not configured is listed and
+// does not resolve — and flattening them would accept a repository no later
+// step could check out.
+type repositoryCatalog struct{ cfg config.Config }
 
-var (
-	explicitPreferenceRequestPattern = regexp.MustCompile(
-		`(?i)\b(?:always|from now on|going forward|when(?:ever)?\s+i\s+ask|` +
-			`prefer(?:ence)?|default\s+to|by\s+default|remember|` +
-			`(?:use|us)\s+threads?|answers?[^\n]{0,100}\bthreads?)\b`,
-	)
-	incidentRoomReferencePattern = regexp.MustCompile(
-		`(?i)\bincident(?:\s+(?:channel|room))?\b`,
-	)
-	inviteSelfPattern = regexp.MustCompile(
-		`(?i)\binvite\s+(?:me|myself)\b`,
-	)
-)
-
-type preferenceActionPayload struct {
-	Version   int                  `json:"version"`
-	ChannelID string               `json:"channel_id"`
-	SourceRef string               `json:"source_ref"`
-	IssuedAt  time.Time            `json:"issued_at"`
-	Offer     core.PreferenceOffer `json:"offer"`
+func (c repositoryCatalog) Configured(name string) bool {
+	_, ok := c.cfg.RepositoryContext(name)
+	return ok
 }
 
-type ruleActionPayload struct {
-	Version   int            `json:"version"`
-	ChannelID string         `json:"channel_id"`
-	SourceRef string         `json:"source_ref"`
-	IssuedAt  time.Time      `json:"issued_at"`
-	Offer     core.RuleOffer `json:"offer"`
+func (c repositoryCatalog) Names() []string { return c.cfg.RepositoryContextKeys() }
+
+// offerContext is what an offer validator needs from this host and this
+// message. One helper for all three because they ask the same questions, and a
+// second copy is where a team id and a repository list drift apart.
+func (s *Service) offerContext(input core.SlackInput, now time.Time) behaviorofferpkg.Context {
+	return behaviorofferpkg.Context{
+		ChannelID: input.ChannelID, UserID: input.UserID, InputID: input.ID,
+		TeamID: s.cfg.Slack.TeamID, Now: now,
+		Repositories: repositoryCatalog{cfg: s.cfg},
+	}
+}
+
+// offerIssue stamps the confirmation button an offer is about to become.
+func (s *Service) offerIssue(input core.SlackInput) behaviorofferpkg.Issue {
+	return behaviorofferpkg.Issue{
+		ChannelID: input.ChannelID,
+		SourceRef: core.FirstNonempty(input.EventID, input.ID),
+		At:        s.now().UTC(),
+	}
 }
 
 type toggleBehaviorPayload struct {
@@ -304,67 +307,12 @@ rule_offer. A schedule prompt is task prose, not authority: reject credentials a
 policy at every occurrence. Use memory_offer with predicate guidance for lasting open-ended collaboration advice
 that does not fit the typed catalogs. Omit all offers for one-time requests.`
 
-func explicitBehaviorRequest(text string) bool {
-	return explicitPreferenceRequestPattern.MatchString(text) ||
-		decisionpkg.StandingRuleAssignment(text) || schedulepkg.ExplicitScheduleRequest(text)
-}
-
-func normalizeResponseLocationPreference(
-	input core.SlackInput,
-	proposed *core.PreferenceOffer,
-) (*core.PreferenceOffer, string, bool) {
-	if !explicitPreferenceRequestPattern.MatchString(input.Text) {
-		return proposed, "", false
-	}
-	normalized := decisionpkg.NormalizeLocationRequest(input.Text)
-	value := ""
-	switch {
-	case containsAnyPhrase(normalized,
-		"follow the conversation", "follow conversation", "follow context",
-		"where the conversation is", "wherever the conversation is"):
-		value = "follow_context"
-	case containsAnyPhrase(normalized,
-		"prefer thread", "prefer threads", "prefer reply in thread", "prefer replies in thread",
-		"default thread", "default to thread",
-		"always use thread", "always reply in thread", "keep replies in thread",
-		"use thread", "use threads", "us thread", "us threads",
-		"thread by default", "threaded by default"):
-		value = "prefer_thread"
-	case containsAnyPhrase(normalized,
-		"prefer channel", "prefer reply in channel", "prefer replies in channel",
-		"default channel", "default to channel",
-		"always use channel", "always reply in channel", "keep replies in channel",
-		"channel by default", "unthreaded by default"):
-		value = "prefer_channel"
-	default:
-		return proposed, "", false
-	}
-	scope := "operator"
-	switch {
-	case containsAnyPhrase(normalized,
-		"in this channel", "for this channel", "this channel should", "in here"):
-		scope = "channel"
-	case containsAnyPhrase(normalized,
-		"for everyone", "for everybody", "for the whole team", "team wide",
-		"workspace wide", "for the workspace", "for all users"):
-		scope = "workspace"
-	}
-	expiresIn := "90d"
-	if proposed != nil && strings.TrimSpace(proposed.ExpiresIn) != "" {
-		expiresIn = proposed.ExpiresIn
-	}
-	offer := &core.PreferenceOffer{
-		Scope: scope, Name: "response_location", Value: value, ExpiresIn: expiresIn,
-	}
-	return offer, responseLocationPreferenceAcknowledgement(value, scope), true
-}
-
 func (s *Service) confirmPendingPreferenceReply(
 	ctx context.Context,
 	input core.SlackInput,
 ) (bool, error) {
 	if !s.cfg.IsOperator(input.UserID) || input.ThreadTS == "" ||
-		!affirmativeBehaviorConfirmation(s.stripBotMention(input.Text)) {
+		!behaviorofferpkg.AffirmativeConfirmation(s.stripBotMention(input.Text)) {
 		return false, nil
 	}
 	delivery, err := s.store.GetSentSlackMessageDelivery(
@@ -377,7 +325,7 @@ func (s *Service) confirmPendingPreferenceReply(
 		return false, err
 	}
 	sourceID := delivery.SourceInputID
-	if !delivery.ResponseRoot || sourceID == "" || time.Since(delivery.CreatedAt) > behaviorOfferMaxAge {
+	if !delivery.ResponseRoot || sourceID == "" || time.Since(delivery.CreatedAt) > behaviorofferpkg.MaxAge {
 		return false, nil
 	}
 	run, err := s.store.GetAgentRunBySource(ctx, "watch", sourceID)
@@ -439,52 +387,6 @@ func (s *Service) confirmPendingScheduleReply(
 		Outcome: "enabled", Detail: task.Title,
 	})
 	return true, s.postBehaviorReceipt(ctx, input, slackui.ScheduleSavedMessage(task))
-}
-
-func affirmativeBehaviorConfirmation(text string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(text))
-	normalized = strings.TrimRight(normalized, ".!")
-	switch normalized {
-	case "ok", "okay", "yes", "yes please", "confirm", "confirmed",
-		"save it", "remember it", "do it", "sounds good", "sgtm":
-		return true
-	default:
-		return false
-	}
-}
-
-func containsAnyPhrase(value string, phrases ...string) bool {
-	for _, phrase := range phrases {
-		if strings.Contains(value, phrase) {
-			return true
-		}
-	}
-	return false
-}
-
-func responseLocationPreferenceAcknowledgement(value string, scope string) string {
-	target := "when replying to you"
-	switch scope {
-	case "channel":
-		target = "in this channel"
-	case "workspace":
-		target = "across this workspace"
-	}
-	switch value {
-	case "prefer_thread":
-		return "Got it. I can prefer threads " + target + ". Confirm below so I remember it."
-	case "prefer_channel":
-		return "Got it. I can prefer channel replies " + target + ". Confirm below so I remember it."
-	default:
-		return "Got it. I can follow each conversation's current location " + target +
-			". Confirm below so I remember it."
-	}
-}
-
-func incidentSelfInviteBehaviorRequest(text string) bool {
-	return explicitBehaviorRequest(text) &&
-		incidentRoomReferencePattern.MatchString(text) &&
-		inviteSelfPattern.MatchString(text)
 }
 
 func (s *Service) matchingStandingRules(
@@ -589,15 +491,11 @@ func (s *Service) preparePreferenceOfferAction(
 	} else {
 		offer.Repository = ""
 	}
-	payload, err := json.Marshal(preferenceActionPayload{
-		Version: 1, ChannelID: input.ChannelID,
-		SourceRef: core.FirstNonempty(input.EventID, input.ID),
-		IssuedAt:  s.now().UTC(), Offer: *offer,
-	})
-	if err != nil || len(payload) > 1900 {
+	payload, ok := behaviorofferpkg.EncodePreference(s.offerIssue(input), *offer)
+	if !ok {
 		return "", core.ResponderPreference{}, "", false
 	}
-	return string(payload), preference, memorypkg.FormatMemoryTTL(ttl), true
+	return payload, preference, memorypkg.FormatMemoryTTL(ttl), true
 }
 
 func (s *Service) preferenceFromOffer(
@@ -605,103 +503,22 @@ func (s *Service) preferenceFromOffer(
 	offer core.PreferenceOffer,
 	now time.Time,
 ) (core.ResponderPreference, time.Duration, error) {
-	offer.Scope = strings.ToLower(strings.TrimSpace(offer.Scope))
-	offer.Repository = strings.ToLower(strings.TrimSpace(offer.Repository))
-	offer.Name = strings.ToLower(strings.TrimSpace(offer.Name))
-	offer.Value = strings.ToLower(strings.TrimSpace(offer.Value))
-	ttl, err := memorypkg.ParseMemoryTTL(offer.ExpiresIn)
-	if err != nil {
-		return core.ResponderPreference{}, 0, err
-	}
-	preference := core.ResponderPreference{
-		ScopeKind: offer.Scope, Name: offer.Name, Value: offer.Value,
-		Enabled: true, SourceRef: input.ID, ActorID: input.UserID,
-		ExpiresAt: memorypkg.ExpiryFrom(now, ttl),
-	}
-	switch offer.Scope {
-	case "workspace":
-		preference.ScopeKey = s.cfg.Slack.TeamID
-	case "channel":
-		if input.ChannelID == "" {
-			return core.ResponderPreference{}, 0, offerreason.Field(
-				"scope", offer.Scope,
-				"a channel preference has to come from a Slack channel; "+
-					"use operator or workspace scope here",
-			)
-		}
-		preference.ScopeKey = input.ChannelID
-	case "repository":
-		if _, ok := s.cfg.RepositoryContext(offer.Repository); !ok {
-			return core.ResponderPreference{}, 0, s.unknownRepository(offer.Repository)
-		}
-		preference.ScopeKey = offer.Repository
-	case "operator":
-		preference.ScopeKey = input.UserID
-	default:
-		return core.ResponderPreference{}, 0, offerreason.Field(
-			"scope", offer.Scope,
-			"expected operator, channel, repository, or workspace",
-		)
-	}
-	if memorypkg.ContainsSecretLikeValue(preference.Value) {
-		// The value is not read back here: it looks like a credential, and a
-		// refusal that quotes one has copied it somewhere new.
-		return core.ResponderPreference{}, 0, errors.New(
-			"the preference value looks like a credential and cannot be stored; " +
-				"offer the setting, never the secret",
-		)
-	}
-	switch preference.Name {
-	case "health_check_depth":
-		if preference.Value != "quick" && preference.Value != "standard" &&
-			preference.Value != "deep" {
-			return core.ResponderPreference{}, 0, offerreason.Field(
-				"value", preference.Value,
-				"health_check_depth expects quick, standard, or deep",
-			)
-		}
-	case "response_detail":
-		if preference.Value != "concise" && preference.Value != "standard" &&
-			preference.Value != "detailed" {
-			return core.ResponderPreference{}, 0, offerreason.Field(
-				"value", preference.Value,
-				"response_detail expects concise, standard, or detailed",
-			)
-		}
-	case "response_location":
-		if preference.ScopeKind == "repository" {
-			return core.ResponderPreference{}, 0, offerreason.Field(
-				"scope", preference.ScopeKind,
-				"response_location expects operator, channel, or workspace scope",
-			)
-		}
-		if preference.Value != "follow_context" && preference.Value != "prefer_thread" &&
-			preference.Value != "prefer_channel" {
-			return core.ResponderPreference{}, 0, offerreason.Field(
-				"value", preference.Value,
-				"response_location expects follow_context, prefer_thread, or prefer_channel",
-			)
-		}
-	default:
-		return core.ResponderPreference{}, 0, offerreason.Field(
-			"name", preference.Name,
-			"expected health_check_depth, response_detail, or response_location",
-		)
-	}
-	return preference, ttl, nil
+	return behaviorofferpkg.Preference(offer, s.offerContext(input, now))
 }
 
-// unknownRepository refuses a repository this host does not have, and lists the
-// ones it does. The model cannot learn a deployment's repositories from the
-// conversation, so a refusal that says only "not configured" leaves it to guess
-// the same wrong slug again — and it did, on every schedule the tenant host was
-// asked for by its own name.
+// unknownRepository refuses a repository this host does not have and lists the
+// ones it does. Four call sites reach it, so the catalog is assembled here
+// rather than at each of them.
 func (s *Service) unknownRepository(name string) error {
-	return offerreason.Field(
-		"repository", name,
-		"the configured repositories are "+
-			offerreason.List(s.cfg.RepositoryContextKeys()),
-	)
+	return behaviorofferpkg.UnknownRepository(name, repositoryCatalog{cfg: s.cfg})
+}
+
+func (s *Service) standingRuleFromOffer(
+	input core.SlackInput,
+	offer core.RuleOffer,
+	now time.Time,
+) (core.StandingRule, time.Duration, error) {
+	return behaviorofferpkg.Rule(offer, s.offerContext(input, now))
 }
 
 func (s *Service) prepareRuleOfferAction(
@@ -724,79 +541,11 @@ func (s *Service) prepareRuleOfferAction(
 	offer.Action = rule.Action
 	offer.SourceKind = rule.SourceKind
 	offer.ExpiresIn = memorypkg.MemoryTTLValue(ttl)
-	payload, err := json.Marshal(ruleActionPayload{
-		Version: 1, ChannelID: input.ChannelID,
-		SourceRef: core.FirstNonempty(input.EventID, input.ID),
-		IssuedAt:  s.now().UTC(), Offer: *offer,
-	})
-	if err != nil || len(payload) > 1900 {
+	payload, ok := behaviorofferpkg.EncodeRule(s.offerIssue(input), *offer)
+	if !ok {
 		return "", core.StandingRule{}, "", false
 	}
-	return string(payload), rule, memorypkg.FormatMemoryTTL(ttl), true
-}
-
-func (s *Service) standingRuleFromOffer(
-	input core.SlackInput,
-	offer core.RuleOffer,
-	now time.Time,
-) (core.StandingRule, time.Duration, error) {
-	offer.Scope = strings.ToLower(strings.TrimSpace(offer.Scope))
-	offer.Repository = strings.ToLower(strings.TrimSpace(offer.Repository))
-	offer.Trigger = strings.ToLower(strings.TrimSpace(offer.Trigger))
-	offer.Action = strings.ToLower(strings.TrimSpace(offer.Action))
-	offer.SourceKind = strings.ToLower(strings.TrimSpace(offer.SourceKind))
-	if offer.SourceKind == "" {
-		offer.SourceKind = "any"
-	}
-	ttl, err := memorypkg.ParseMemoryTTL(offer.ExpiresIn)
-	if err != nil {
-		return core.StandingRule{}, 0, err
-	}
-	if offer.Scope != "channel" || input.ChannelID == "" ||
-		strings.HasPrefix(input.ChannelID, "D") {
-		return core.StandingRule{}, 0, offerreason.Field(
-			"scope", offer.Scope,
-			"expected channel, and a standing rule can only be set up in a "+
-				"channel rather than a direct message",
-		)
-	}
-	if _, ok := s.cfg.RepositoryContext(offer.Repository); !ok {
-		return core.StandingRule{}, 0, s.unknownRepository(offer.Repository)
-	}
-	var proposed core.StandingWorkflow
-	if offer.Workflow != nil {
-		proposed = *offer.Workflow
-	}
-	workflow, trigger, action, err := core.NormalizeStandingWorkflow(
-		proposed, offer.Trigger, offer.Action,
-	)
-	if err != nil {
-		return core.StandingRule{}, 0, err
-	}
-	if offer.Workflow != nil &&
-		((offer.Trigger != "" && offer.Trigger != trigger) ||
-			(offer.Action != "" && offer.Action != action)) {
-		return core.StandingRule{}, 0, offerreason.Field(
-			"workflow", workflow.Name,
-			"it disagrees with trigger "+strconv.Quote(offer.Trigger)+" and action "+
-				strconv.Quote(offer.Action)+", which compile to "+strconv.Quote(trigger)+
-				" and "+strconv.Quote(action)+"; send the workflow alone",
-		)
-	}
-	rule := core.StandingRule{
-		ChannelID: input.ChannelID, Repository: offer.Repository,
-		Trigger: trigger, Action: action, SourceKind: offer.SourceKind,
-		WorkflowName: workflow.Name, Workflow: workflow,
-		Enabled: true, SourceRef: input.ID, ActorID: input.UserID,
-		ExpiresAt: memorypkg.ExpiryFrom(now, ttl),
-	}
-	if rule.SourceKind != "any" && rule.SourceKind != "human" &&
-		rule.SourceKind != "app" {
-		return core.StandingRule{}, 0, offerreason.Field(
-			"source_kind", rule.SourceKind, "expected any, human, or app",
-		)
-	}
-	return rule, ttl, nil
+	return payload, rule, memorypkg.FormatMemoryTTL(ttl), true
 }
 
 func (s *Service) handleRememberPreference(
@@ -807,12 +556,8 @@ func (s *Service) handleRememberPreference(
 	if err != nil || !allowed {
 		return err
 	}
-	var payload preferenceActionPayload
-	err = decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload)
-	if cause, stale := s.behaviorOfferClick(
-		err, payload.Version, payload.ChannelID, payload.SourceRef,
-		payload.IssuedAt, input,
-	).Cause(); stale {
+	payload, err := behaviorofferpkg.DecodePreference(input.ActionValue)
+	if cause, stale := payload.Click(err, input.ChannelID, s.now().UTC()).Cause(); stale {
 		return s.behaviorActionFeedback(
 			ctx, input, offerreason.Stale(offerreason.PreferenceConfirmation, cause),
 		)
@@ -872,12 +617,8 @@ func (s *Service) handleRememberRule(
 	if err != nil || !allowed {
 		return err
 	}
-	var payload ruleActionPayload
-	err = decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload)
-	if cause, stale := s.behaviorOfferClick(
-		err, payload.Version, payload.ChannelID, payload.SourceRef,
-		payload.IssuedAt, input,
-	).Cause(); stale {
+	payload, err := behaviorofferpkg.DecodeRule(input.ActionValue)
+	if cause, stale := payload.Click(err, input.ChannelID, s.now().UTC()).Cause(); stale {
 		return s.behaviorActionFeedback(
 			ctx, input, offerreason.Stale(offerreason.RuleConfirmation, cause),
 		)
@@ -1138,24 +879,6 @@ func (s *Service) handleEditRule(
 	)
 }
 
-// behaviorOfferClick describes one confirmation click for classification. Every
-// behaviour confirmation carries the same envelope, so they share the reading
-// of it rather than each spelling the same five checks.
-func (s *Service) behaviorOfferClick(
-	decodeErr error,
-	version int,
-	payloadChannel string,
-	sourceRef string,
-	issuedAt time.Time,
-	input core.SlackInput,
-) offerreason.Click {
-	return offerreason.Click{
-		DecodeErr: decodeErr, Version: version, PayloadChannel: payloadChannel,
-		InputChannel: input.ChannelID, SourceRef: sourceRef, IssuedAt: issuedAt,
-		Now: s.now().UTC(), MaxAge: behaviorOfferMaxAge,
-	}
-}
-
 func (s *Service) freezeBehaviorResult(
 	ctx context.Context,
 	inputID string,
@@ -1266,11 +989,11 @@ func normalizedOffers(
 	if offer, ok := normalizeOperationalAlertRule(input, repository, offers.Rule); ok {
 		offers.Rule = offer
 	}
-	offer, _, locationRequest := normalizeResponseLocationPreference(input, offers.Preference)
+	offer, _, locationRequest := behaviorofferpkg.NormalizeLocation(input.Text, offers.Preference)
 	if locationRequest {
 		offers.Preference = offer
 	}
-	if !explicitBehaviorRequest(input.Text) ||
+	if !behaviorofferpkg.ExplicitRequest(input.Text) ||
 		(offers.Preference == nil && offers.Rule == nil && offers.Memory == nil) {
 		return offers, "", false
 	}

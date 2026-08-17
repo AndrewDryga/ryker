@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode"
 
+	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
 	"github.com/AndrewDryga/responder/internal/channelsetup"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -337,7 +338,7 @@ func (s *Service) handleUnboundConversation(
 	behaviorRequest := errors.Is(incidentErr, store.ErrNotFound) &&
 		input.Kind == "mention" &&
 		s.cfg.IsOperator(input.UserID) &&
-		explicitBehaviorRequest(input.Text)
+		behaviorofferpkg.ExplicitRequest(input.Text)
 	if errors.Is(incidentErr, store.ErrNotFound) {
 		if directRequest || conversationFollowup {
 			watched = true
@@ -405,7 +406,7 @@ func (s *Service) handleUnboundConversation(
 			explicitIncidentRequest(s.stripBotMention(input.Text)) {
 			return true, s.createManualIncident(ctx, input)
 		}
-		if behaviorRequest && incidentSelfInviteBehaviorRequest(input.Text) {
+		if behaviorRequest && behaviorofferpkg.IncidentSelfInvite(input.Text) {
 			// One operator asked to be invited to incident rooms and already is.
 			// Nothing was saved and nothing was created, so this is an answer to
 			// them rather than an announcement: a channel post here told a room

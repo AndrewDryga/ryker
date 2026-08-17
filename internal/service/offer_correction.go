@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/offerreason"
@@ -299,12 +300,12 @@ func (s *Service) ruleOfferInScope(input core.SlackInput) bool {
 
 func (s *Service) preferenceOfferInScope(input core.SlackInput) bool {
 	return s.cfg.IsOperator(input.UserID) &&
-		explicitPreferenceRequestPattern.MatchString(input.Text)
+		behaviorofferpkg.PreferenceRequest(input.Text)
 }
 
 func (s *Service) memoryOfferInScope(input core.SlackInput) bool {
 	return s.cfg.IsOperator(input.UserID) &&
-		explicitMemoryRequestPattern.MatchString(input.Text)
+		behaviorofferpkg.MemoryRequest(input.Text)
 }
 
 func (s *Service) scheduleOfferInScope(input core.SlackInput) bool {

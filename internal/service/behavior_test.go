@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/offerreason"
@@ -67,8 +68,8 @@ func TestBehaviorOffersRequireExplicitTypedOperatorIntent(t *testing.T) {
 	}
 
 	input.Text = "I prefer threads by default."
-	locationOffer, acknowledgement, ok := normalizeResponseLocationPreference(
-		input,
+	locationOffer, acknowledgement, ok := behaviorofferpkg.NormalizeLocation(
+		input.Text,
 		&core.PreferenceOffer{Scope: "workspace", ExpiresIn: "365d"},
 	)
 	if !ok || locationOffer.Scope != "operator" ||
@@ -79,17 +80,17 @@ func TestBehaviorOffersRequireExplicitTypedOperatorIntent(t *testing.T) {
 		t.Fatalf("operator location offer = %+v, %q, %t", locationOffer, acknowledgement, ok)
 	}
 	input.Text = "For everyone in the workspace, always reply in threads."
-	locationOffer, _, ok = normalizeResponseLocationPreference(input, nil)
+	locationOffer, _, ok = behaviorofferpkg.NormalizeLocation(input.Text, nil)
 	if !ok || locationOffer.Scope != "workspace" {
 		t.Fatalf("workspace location offer = %+v, %t", locationOffer, ok)
 	}
 	input.Text = "In this channel I prefer replies in threads."
-	locationOffer, _, ok = normalizeResponseLocationPreference(input, nil)
+	locationOffer, _, ok = behaviorofferpkg.NormalizeLocation(input.Text, nil)
 	if !ok || locationOffer.Scope != "channel" {
 		t.Fatalf("channel location offer = %+v, %t", locationOffer, ok)
 	}
 	input.Text = "Switch to a thread for this answer."
-	if _, _, ok := normalizeResponseLocationPreference(input, nil); ok {
+	if _, _, ok := behaviorofferpkg.NormalizeLocation(input.Text, nil); ok {
 		t.Fatal("one-turn location request produced a durable preference")
 	}
 }
@@ -105,7 +106,7 @@ func TestTerraformLifecycleInstructionCompilesToOneTypedChannelRule(t *testing.T
 			"explaining the plan changes in short, flag red flags, check health after " +
 			"the run applies, and tag me if apply failed.",
 	}
-	if !decisionpkg.StandingRuleAssignment(input.Text) || !explicitBehaviorRequest(input.Text) {
+	if !decisionpkg.StandingRuleAssignment(input.Text) || !behaviorofferpkg.ExplicitRequest(input.Text) {
 		t.Fatal("the explicit Terraform lifecycle assignment was treated as one-time work")
 	}
 	offers, _, _ := normalizedOffers(input, "repo", operatorOffers{})
@@ -1874,7 +1875,10 @@ func TestBehaviorOfferExpiryValidation(t *testing.T) {
 	input := core.SlackInput{ChannelID: "COPS"}
 	s := &Service{clock: func() time.Time { return now }}
 	clicked := func(issuedAt time.Time) (offerreason.Cause, bool) {
-		return s.behaviorOfferClick(nil, 1, "COPS", "Ev1", issuedAt, input).Cause()
+		envelope := behaviorofferpkg.Envelope{
+			Version: 1, ChannelID: "COPS", SourceRef: "Ev1", IssuedAt: issuedAt,
+		}
+		return envelope.Click(nil, input.ChannelID, s.now().UTC()).Cause()
 	}
 	if cause, stale := clicked(now.Add(-25 * time.Hour)); !stale ||
 		cause != offerreason.Expired {
