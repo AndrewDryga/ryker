@@ -1438,8 +1438,20 @@ func streamFixture(
 	results ...string,
 ) (config.Config, *store.Store, *fakeSlack, *Service, core.SlackInput) {
 	t.Helper()
+	return streamFixtureOn(t, serviceConfig(t), channelID, results...)
+}
+
+// streamFixtureOn is the same fixture over a configuration the caller has
+// already shaped — a second repository, say, so an offer can name one the
+// channel did not.
+func streamFixtureOn(
+	t *testing.T,
+	cfg config.Config,
+	channelID string,
+	results ...string,
+) (config.Config, *store.Store, *fakeSlack, *Service, core.SlackInput) {
+	t.Helper()
 	ctx := context.Background()
-	cfg := serviceConfig(t)
 	cfg.Slack.WatchChannels = []string{channelID}
 	cfg.Slack.WatchSettleDelay.Duration = 0
 	st, err := store.Open(cfg.StateDir)

@@ -560,15 +560,16 @@ func (s *Service) applyReplyDecision(
 			}
 			outcome = "engineering_task_repository_required"
 		} else if open, found, openErr := s.openStreamTaskOffer(
-			ctx, input, episodeID, repository,
+			ctx, input, episodeID, repository, decision.TaskTitle,
 		); openErr != nil {
 			return openErr
 		} else if found {
 			// Six identical offers reached one channel on 2026-08-16, none
 			// accepted, each reply re-deriving the same task and rendering a
-			// second button beside a first one that still worked. One open offer
-			// per stream: this update says what the alert means now and points at
-			// the control that already exists.
+			// second button beside a first one that still worked. They came from
+			// six episodes, so it is one open offer per FIX per channel: this
+			// update says what the alert means now and points at the control that
+			// already exists.
 			message = slackui.WithExistingTaskOfferPointer(
 				message, open.Title, taskaccess.Label(s.cfg, repository),
 				open.Permalink, s.sanitizer,

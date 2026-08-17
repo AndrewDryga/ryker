@@ -723,7 +723,22 @@ var lineBudget = map[string]int{
 	// what a card states about itself, its own firing and resolved counts, and
 	// most of these lines are the three conditions that keep it from suppressing
 	// real news.
-	"service": 23608,
+	//
+	// And 23581 the same day, forty-four lines, measured, for the offer check
+	// seeing the channel rather than one episode. The sixth identical Traefik
+	// offer came from the 15:00 whole-platform review in another thread — a
+	// different episode, so the check that had just shipped could not see it,
+	// and the operator was handed the same button a sixth time. Same split as
+	// the paragraph above and the same reason the remainder is here: whether two
+	// titles name one fix is in internal/alertstream and the channel-wide read is
+	// in internal/store/alertstreamstore, so what this package pays for is the
+	// fallback that asks the second question only when the first found nothing,
+	// the openness rules both answers share, and the window — which needs the
+	// config and the clock together, and is the same one that decides a card
+	// continues an episode. 23652 measured against the merged tree rather than
+	// the 23581 it measured alone, because the recovery hold and the fold landed
+	// beside it.
+	"service": 23652,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token

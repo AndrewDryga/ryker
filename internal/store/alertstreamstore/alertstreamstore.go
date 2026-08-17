@@ -1,12 +1,13 @@
 // Package alertstreamstore reads what an alert stream has already said and
 // already offered.
 //
-// Three questions, all of them about the past of one stream: what did the last
-// reply on this episode decide, was the engineering task it offered ever
+// Four questions, all of them about what a channel has already been told: what
+// did the last reply on this episode decide, what have the channel's other
+// episodes answered lately, was the engineering task an offer named ever
 // accepted, and is the message carrying that offer's button actually on the
 // channel. They live together because they are only ever asked together — the
-// second and third are how "an offer is still open" is decided, and an offer
-// nobody can reach is not an offer.
+// last two are how "an offer is still open" is decided, and an offer nobody can
+// reach is not an offer.
 package alertstreamstore
 
 import (
@@ -15,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
@@ -46,6 +48,69 @@ func (r *Repository) RepliesPosted(
 		WHERE episode_id = ? AND kind = ?
 		ORDER BY sequence DESC LIMIT ?`,
 		episodeID, episodepkg.EventReplyPosted, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	replies := make([]json.RawMessage, 0, limit)
+	for rows.Next() {
+		var payload []byte
+		if err := rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		replies = append(replies, json.RawMessage(payload))
+	}
+	return replies, rows.Err()
+}
+
+// RepliesPostedInChannel returns the answers the channel's OTHER episodes have
+// posted lately, newest first.
+//
+// One episode is one alert stream, and a channel is several of them at once
+// beside whatever a scheduled review or a conversation is doing. On 2026-08-16
+// the same Traefik fix was offered six times in one channel from six episodes,
+// so the question "has this already been offered here" cannot be asked of a
+// single episode — which is all RepliesPosted can answer.
+//
+// Bounded twice, because this walks a channel rather than a stream. The window
+// is the caller's: an offer nobody has taken up in days is not what an operator
+// reading this thread means by "already offered", and pointing at it sends them
+// to a message that has scrolled out of the conversation. The limit keeps a busy
+// channel's history from being read into memory to answer one question.
+//
+// The join is deliberate rather than a channel column on the event: the episode
+// owns where it is happening, and a copy on every event would be a second answer
+// to that question able to disagree with the first. Measured on the deployed
+// tenant database, work_episode_events holds 17,829 rows of which 10 are
+// reply_posted, and this runs at most once per alert reply.
+func (r *Repository) RepliesPostedInChannel(
+	ctx context.Context,
+	channelID string,
+	excludeEpisodeID string,
+	since time.Time,
+	limit int,
+) ([]json.RawMessage, error) {
+	if strings.TrimSpace(channelID) == "" {
+		return nil, nil
+	}
+	if limit < 1 || limit > 50 {
+		return nil, errors.New("posted replies require a limit from 1 to 50")
+	}
+	if since.IsZero() {
+		return nil, errors.New("a channel-wide reply search requires a time bound")
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT event.payload_json
+		FROM work_episode_events AS event
+		JOIN work_episodes AS episode ON episode.id = event.episode_id
+		WHERE episode.channel_id = ?
+		  AND event.episode_id != ?
+		  AND event.kind = ?
+		  AND event.created_at >= ?
+		ORDER BY event.created_at DESC, event.id DESC
+		LIMIT ?`,
+		channelID, excludeEpisodeID, episodepkg.EventReplyPosted,
+		since.UTC().Format(core.TimestampFormat), limit)
 	if err != nil {
 		return nil, err
 	}

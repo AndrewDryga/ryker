@@ -181,18 +181,22 @@ type openTaskOffer struct {
 	Permalink string
 }
 
-// openStreamTaskOffer finds an offer this stream has already made in the same
-// repository that nobody has accepted and that is still reachable.
+// openStreamTaskOffer finds an offer already made for this work that nobody has
+// accepted and that is still reachable — first in this stream, then anywhere in
+// this channel.
 //
-// Open means both halves. An accepted offer is a closed question, and the reply
-// after it should say what the task is doing rather than offer it again; an
-// offer whose reply never reached Slack has no button at all, so pointing at it
-// would send an operator to a message that does not exist.
+// The stream comes first because it is the cheaper question and the better
+// answer: an offer in this same thread is the one an operator reading this
+// thread can see. The channel is asked only when the stream has nothing,
+// because one stream is not what a channel remembers — the sixth identical
+// Traefik offer of 2026-08-16 came from the 15:00 whole-platform review, in
+// another thread, and A4 could not see it from here.
 func (s *Service) openStreamTaskOffer(
 	ctx context.Context,
 	input core.SlackInput,
 	episodeID string,
 	repository string,
+	title string,
 ) (openTaskOffer, bool, error) {
 	if input.Kind != "bot_message" || episodeID == "" ||
 		!strings.HasPrefix(watchConversationKey(input), "operation:") {
@@ -205,9 +209,71 @@ func (s *Service) openStreamTaskOffer(
 	if err != nil {
 		return openTaskOffer{}, false, err
 	}
-	for _, posted := range alertstream.OpenOfferCandidates(
-		replies, repository, input.ID,
-	) {
+	offer, found, err := s.firstOpenOffer(
+		ctx, input, alertstream.OpenOfferCandidates(replies, repository, input.ID),
+	)
+	if err != nil || found {
+		return offer, found, err
+	}
+	return s.openChannelTaskOffer(ctx, input, episodeID, repository, title)
+}
+
+// openChannelTaskOffer finds the same fix already on offer from another episode
+// in this channel.
+//
+// Same repository AND the same fix, because a channel's other episodes are
+// other situations: the repository alone is the test inside one stream and would
+// hide unrelated work here. The window is the alert stream's own — the span over
+// which the host already treats a channel as still living through one
+// operational situation — so the same configuration that decides "this card
+// continues that episode" decides "that offer is still what we are talking
+// about". A separate constant would be a second clock for the same idea, and the
+// deployed six hours covers the real case: the day's last stream offer was at
+// 10:04 and the review repeated it at 15:00.
+func (s *Service) openChannelTaskOffer(
+	ctx context.Context,
+	input core.SlackInput,
+	episodeID string,
+	repository string,
+	title string,
+) (openTaskOffer, bool, error) {
+	window := s.cfg.Slack.AlertStreamOpenWindow.Duration
+	if window <= 0 || strings.TrimSpace(title) == "" {
+		return openTaskOffer{}, false, nil
+	}
+	payloads, err := s.store.AlertStream.RepliesPostedInChannel(
+		ctx, input.ChannelID, episodeID, s.now().UTC().Add(-window), 20,
+	)
+	if err != nil {
+		return openTaskOffer{}, false, err
+	}
+	replies, unreadable := alertstream.DecodeReplies(payloads)
+	if unreadable > 0 {
+		s.log.Warn(
+			"decode what this channel already offered",
+			"channel", input.ChannelID, "unreadable", unreadable,
+		)
+	}
+	return s.firstOpenOffer(
+		ctx, input,
+		alertstream.SameFixCandidates(replies, repository, title, input.ID),
+	)
+}
+
+// firstOpenOffer returns the first of these offers that is still open.
+//
+// Open means all of it. An accepted offer is a closed question, and the reply
+// after it should say what the task is doing rather than offer it again; an
+// offer whose reply never reached Slack has no button at all; and a reply that
+// landed in another channel is a message the operator reading this one may not
+// even be able to open. Each of those would send them somewhere that does not
+// answer, which is worse than a second button.
+func (s *Service) firstOpenOffer(
+	ctx context.Context,
+	input core.SlackInput,
+	candidates []alertstream.ReplyPosted,
+) (openTaskOffer, bool, error) {
+	for _, posted := range candidates {
 		accepted, err := s.store.AlertStream.EngineeringTaskExistsForSource(
 			ctx, posted.SourceInputID,
 		)
@@ -223,6 +289,9 @@ func (s *Service) openStreamTaskOffer(
 		}
 		if err != nil {
 			return openTaskOffer{}, false, err
+		}
+		if reply.ChannelID != "" && reply.ChannelID != input.ChannelID {
+			continue
 		}
 		return openTaskOffer{
 			Title:     posted.OfferTitle,
