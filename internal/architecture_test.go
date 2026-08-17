@@ -761,27 +761,35 @@ var lineBudget = map[string]int{
 	// per-file continue where a return used to be, and the prompt section that
 	// tells the model what was dropped and to say so.
 	//
-	// And 23900 on 2026-08-16, forty-two lines measured, for the merge state on a
-	// related engineering task. The related_engineering_tasks layer had been
-	// parsing a commit id out of a task's own prose and offering to publish it,
-	// without ever asking where that commit was; at 21:09Z an alert investigation
-	// ended blocked on "Publish and roll f804b18c through the governed reviewed
-	// deployment workflow", three days after the same change reached tenant-infra
-	// main as 08f8b671. What was missing was the rollout. Fifteen of these lines
-	// are the policy text that tells the model what to recommend for each state
-	// and that merged is not deployed; the rest are two bounded git reads of the
-	// checkout the repository context already points at, and the guards that make
-	// every unreadable case answer unknown instead of guessing.
+	// And 23990 on 2026-08-16, measured at 23897, for two changes and a warning.
 	//
-	// 23900 on 2026-08-16, measured at 23816. The refusals a model and an
-	// operator read when the host drops something now name the field, the
-	// value, and what was expected, which is longer than "invalid" was. The
-	// vocabulary itself went OUT, to internal/offerreason: the words, the
-	// bounding, and the classification of a stale button are pure text and
-	// belong where they can be read together. What stayed here is the wiring —
-	// one record for a discarded offer instead of four log blocks, and one
-	// envelope reading instead of five per-handler boolean ORs.
-	"service": 23900,
+	// The merge state on a related engineering task: the layer had been parsing a
+	// commit id out of a task's own prose and offering to publish it without ever
+	// asking where that commit was, and at 21:09Z an alert investigation ended
+	// blocked on "Publish and roll f804b18c through the governed reviewed
+	// deployment workflow" three days after the same change reached tenant-infra
+	// main as 08f8b671. What was missing was the rollout. Fifteen of its lines are
+	// the policy text naming what to recommend for each state and saying that
+	// merged is not deployed; the rest are two bounded git reads of the checkout
+	// the repository context already points at, and the guards that make every
+	// unreadable case answer unknown instead of guessing.
+	//
+	// And the refusals a model or an operator reads when the host drops
+	// something, which now name the field, the value and what was expected —
+	// longer than "invalid" was. The vocabulary itself went OUT, to
+	// internal/offerreason, because the words and the classification of a stale
+	// button are pure text; what stayed is the wiring, one record for a discarded
+	// offer instead of four log blocks.
+	//
+	// The warning is the number. Three changes landed in this package on one day,
+	// each measured against a tree without the other two, and all three
+	// independently picked 23900 — which the combined tree then met with three
+	// lines to spare. That is the tripwire this file describes four paragraphs
+	// down, reached by arithmetic rather than by anyone deciding it. 23990
+	// restores a 93-line margin. The next thing to land here extracts instead:
+	// the offer preparation and confirmation handlers are the cohesive area, and
+	// internal/offerreason is already the half of them that left.
+	"service": 23990,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
