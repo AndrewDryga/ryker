@@ -231,3 +231,27 @@ func (s *Service) openStreamTaskOffer(
 	}
 	return openTaskOffer{}, false, nil
 }
+
+// streamWasLive reports whether this episode has already told the channel the
+// alert was a real, current problem.
+//
+// It is the question a recovery has to answer before the host holds its episode
+// open: a stream that was live is a conversation the next firing continues, and
+// a stream that never was is a card saying nothing is wrong. Read from the
+// episode's own posted answers rather than from its evidence, because what was
+// SAID is what a re-fire would be continuing.
+func (s *Service) streamWasLive(ctx context.Context, episodeID string) (bool, error) {
+	// Twenty, on the same reasoning as the offer walk above: this reads one
+	// stream's own answers, and a stream that fires all day is one episode.
+	replies, err := s.postedStreamReplies(ctx, episodeID, 20)
+	if err != nil {
+		return false, err
+	}
+	for _, posted := range replies {
+		switch strings.TrimSpace(posted.Verdict) {
+		case "confirmed_issue", "likely_issue":
+			return true, nil
+		}
+	}
+	return false, nil
+}

@@ -2290,6 +2290,7 @@ func (s *Service) supersededByNewerLifecycle(
 // former is the persisted shape finalization reparses and the latter is what
 // this turn records.
 func (s *Service) appendAlertStreamWait(
+	ctx context.Context,
 	run core.AgentRun,
 	input core.SlackInput,
 	decision *decisionpkg.WatchDecision,
@@ -2302,19 +2303,43 @@ func (s *Service) appendAlertStreamWait(
 		leavesAWaitBehind(*decision) {
 		return nil
 	}
-	switch decision.AlertAssessment.Verdict {
-	case "confirmed_issue", "likely_issue":
-	default:
-		return nil
-	}
 	window := s.cfg.Slack.AlertStreamOpenWindow.Duration
 	if window <= 0 {
+		return nil
+	}
+	// A recovery ends a firing, not the conversation about it.
+	//
+	// The episode used to close the moment a reply said the condition had
+	// cleared, so a re-fire minutes later opened a new one with a fresh
+	// briefing, an empty ledger and no sight of the offer the earlier episode
+	// had already made — the same defect the stream wait exists to remove,
+	// arriving one card later. On 2026-08-16 va1-nomad-oom-risk cleared at
+	// 19:11Z and fired again at 19:24Z, thirteen minutes apart.
+	//
+	// So a stream that WAS live is held open for one more window after it
+	// recovers. Only a stream that was live: a RESOLVED card for something
+	// Responder never investigated is the end of a conversation it was not
+	// having, and holding an episode open for it would keep a wakeup, a session
+	// and an episode alive for six hours over a card that said nothing is wrong.
+	hold := false
+	switch decision.AlertAssessment.Verdict {
+	case "confirmed_issue", "likely_issue":
+	case "not_issue":
+		live, err := s.streamWasLive(ctx, run.EpisodeID)
+		if err != nil {
+			return err
+		}
+		if !live {
+			return nil
+		}
+		hold = true
+	default:
 		return nil
 	}
 	now := s.now().UTC()
 	matcher, err := json.Marshal(map[string]string{
 		"conversation_key": run.ConversationKey,
-		"reason":           "the alert is still active; the next card continues this episode",
+		"reason":           "this alert stream is still one unit of work; the next card continues this episode",
 	})
 	if err != nil {
 		return err
@@ -2335,13 +2360,25 @@ func (s *Service) appendAlertStreamWait(
 	// applied against the episode resolved from that same agent_runs.episode_id,
 	// so a run without one creates no wakeup for the id to collide with.
 	id := "host-stream-open-" + run.EpisodeID
+	deadline := now.Add(2 * window)
+	if hold {
+		// The hold carries the RUN, not the episode, and that is the whole
+		// difference. The episode-scoped id is idempotent by design, which is
+		// what stops a second firing arming a second timer — but it also means
+		// a hold arriving after the first timer has fired would insert nothing
+		// and leave the episode open with no clock. One timer per recovery is
+		// the bound instead: a recovery ends a firing, and its own deadline is
+		// one window rather than two, because nothing is running any more.
+		id = "host-stream-hold-" + run.ID
+		deadline = now.Add(window)
+	}
 	wait := investigation.ResultOperation{
 		ID: id, Type: "wait_external",
 		ExternalWait: &investigation.ExternalWaitOperation{
 			ID: id, Kind: alertStreamWaitKind, EventMatcher: matcher,
 			PollAfter: now.Add(window).Format(time.RFC3339),
 			DueAt:     now.Add(window).Format(time.RFC3339),
-			Deadline:  now.Add(2 * window).Format(time.RFC3339),
+			Deadline:  deadline.Format(time.RFC3339),
 		},
 	}
 	decision.Operations = append(decision.Operations, wait)
@@ -2701,7 +2738,7 @@ func (s *Service) stageTriageTerminal(
 				}
 			}
 			if !superseded {
-				if err := s.appendAlertStreamWait(run, input, &decision); err != nil {
+				if err := s.appendAlertStreamWait(ctx, run, input, &decision); err != nil {
 					return true, err
 				}
 				// Recorded only once nothing newer is queued for this lifecycle.

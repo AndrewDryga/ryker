@@ -1606,15 +1606,18 @@ func TestChangedVerdictPostsAgain(t *testing.T) {
 	) {
 		t.Fatalf("what changed is not on the trace: slack.watch outcomes %v", outcomes)
 	}
-	// A recovery closes the stream, which is the A2 behaviour this must not
-	// disturb: suppressing a reply must never be the thing that keeps an
-	// episode open forever.
+	// A recovery on a stream that was live holds the episode open for one more
+	// window rather than closing it, so the next firing continues this work
+	// instead of starting over. What must not change is that the recovery is a
+	// posted answer: suppressing a reply must never be the thing that keeps an
+	// episode open, and holding one open must never be the thing that silences
+	// a reply.
 	episode, err := st.GetWorkEpisode(ctx, firstRun.EpisodeID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if episode.State != core.EpisodeCompleted {
-		t.Fatalf("the recovered stream is still open as %q", episode.State)
+	if episode.State != core.EpisodeWaitingExternal {
+		t.Fatalf("the recovered stream did not stay open for its window: %q", episode.State)
 	}
 }
 
@@ -1774,4 +1777,146 @@ func messageOffersEngineeringTask(message slackui.Message) bool {
 // finding is required and no host wait is owed.
 func recoveredAlertReplyResult(observedAt string) string {
 	return fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":1,"confidence":3,"novelty":1,"ownership":3,"contribution":"decision","material":true},"reason":"live evidence agrees the alert recovered","operations":[{"id":"checkout-topology","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"checkout topology has two backends","observation":"the production manifest declares two checkout backends behind the load balancer","source_type":"repository","source_name":"infra/checkout.tf","dimensions":{"repository":"repo","environment":"production","revision":"current"}}},{"id":"checkout-live","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"checkout requests complete successfully","observation":"the live checkout error rate is 0.2 percent and both backends are healthy","relation":"supports","health_effect":"none","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","endpoint":"requests","environment":"production","window":"current"}}},{"id":"checkout-impact","type":"record_evidence","evidence":{"claim_id":"impact.current","claim":"checkout user impact is within its error budget","observation":"the current error rate is 0.2 percent","relation":"supports","health_effect":"none","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","indicator":"error_rate","environment":"production","window":"current"}}},{"id":"cov-1","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"healthy","source":"infra/checkout.tf","detail":"the declared two-backend topology was reconciled"}},{"id":"cov-2","type":"record_coverage","coverage":{"layer":"application","claim_ids":["application.functional_behavior"],"status":"healthy","source":"Emisar checkout health","detail":"current requests are completing"}},{"id":"cov-3","type":"record_coverage","coverage":{"layer":"slo","claim_ids":["impact.current"],"status":"healthy","source":"Emisar checkout health","detail":"the error rate is back under the alert threshold"}},{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"not_issue","impact":"No checkout requests are failing now; the error rate is back to baseline.","evidence_refs":["checkout-live"]}},{"id":"mem","type":"update_memory","memory":{"situation_summary":"The checkout error-rate alert recovered and live evidence agrees.","decisions":["Close the checkout alert stream in its source thread."]}},{"id":"complete","type":"complete_episode","completion":{"message":"**Checkout errors recovered:** the current error rate is back to baseline and both backends are healthy.","completion":{"status":"decision_ready","verdict":"healthy","summary":"The checkout alert recovered and live evidence is back to baseline."}}}]}`, observedAt, observedAt)
+}
+
+// A recovery is the end of a firing, not the end of the conversation.
+//
+// The stream episode stayed open only while the alert was active, so the moment
+// a reply said the condition had cleared the episode completed — and a re-fire
+// minutes later opened a NEW one, with a fresh briefing, an empty ledger and no
+// sight of the offer the earlier episode had already made. That is the shape
+// the whole alert-stream change exists to remove, arriving one card later than
+// the version it removed: on 2026-08-16 the va1-nomad-oom-risk stream cleared
+// at 19:11Z and fired again at 19:24Z, thirteen minutes apart, and the second
+// firing knew nothing about the first.
+//
+// So a stream that WAS live holds its episode open for one more window after it
+// recovers, and only the window's own deadline closes it.
+func TestARecoveredStreamStaysOpenForItsWindow(t *testing.T) {
+	ctx := context.Background()
+	observedAt := time.Now().UTC().Add(-6 * time.Minute).Format(time.RFC3339)
+	recoveredAt := time.Now().UTC().Add(-1 * time.Minute).Format(time.RFC3339)
+	cfg, st, _, svc, base := streamFixture(
+		t, "CSTREAMHOLD",
+		confirmedAlertReplyResult(observedAt),
+		supersedingRecoveredAlertReply(t, recoveredAt),
+	)
+	_ = cfg
+
+	firing := base
+	firing.ID, firing.EnvelopeID = "hold-card-1", "env-hold-card-1"
+	firing.EventID, firing.MessageTS = "event-hold-card-1", "1712.100"
+	first := answerStreamCard(t, svc, st, firing)
+
+	recovered := base
+	recovered.ID, recovered.EnvelopeID = "hold-card-2", "env-hold-card-2"
+	recovered.EventID, recovered.MessageTS = "event-hold-card-2", "1712.200"
+	recovered.ReceivedAt = base.ReceivedAt.Add(2 * time.Minute)
+	// The same alert, said the other way round. A differently worded recovery
+	// correlates to a stream of its own, which would make this test pass for a
+	// reason that has nothing to do with the hold.
+	recovered.Text = "[VA1 RESOLVED:1] " + base.Text
+	second := answerStreamCard(t, svc, st, recovered)
+
+	if second.EpisodeID != first.EpisodeID {
+		t.Fatalf(
+			"the recovery opened its own episode %q instead of continuing %q",
+			second.EpisodeID, first.EpisodeID,
+		)
+	}
+	episode, err := st.GetWorkEpisode(ctx, second.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.State != core.EpisodeWaitingExternal {
+		t.Fatalf(
+			"a stream that had been live closed on its recovery as %q, so the next firing starts over",
+			episode.State,
+		)
+	}
+	if waits := streamWaitCount(t, ctx, st, second.EpisodeID); waits < 1 {
+		t.Fatal("the recovered stream is open with nothing scheduled to close it")
+	}
+}
+
+// The hold is for streams that were live, not for every recovery card.
+//
+// A RESOLVED notice for something Responder never investigated is the end of a
+// conversation it was not having. Holding an episode open for it would keep a
+// wakeup, a session and an episode alive for six hours over a card that said
+// nothing was wrong.
+func TestARecoveryOnAStreamThatWasNeverActiveStillCompletes(t *testing.T) {
+	ctx := context.Background()
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	_, st, _, svc, base := streamFixture(
+		t, "CSTREAMQUIET", recoveredAlertReplyResult(observedAt),
+	)
+
+	recovered := base
+	recovered.ID, recovered.EnvelopeID = "quiet-card-1", "env-quiet-card-1"
+	recovered.EventID, recovered.MessageTS = "event-quiet-card-1", "1713.100"
+	recovered.Text = "[VA1 RESOLVED:1] CRITICAL alert: checkout error rate is back under 20 percent."
+	run := answerStreamCard(t, svc, st, recovered)
+
+	episode, err := st.GetWorkEpisode(ctx, run.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.State != core.EpisodeCompleted {
+		t.Fatalf(
+			"a recovery on a stream that was never live held its episode open as %q",
+			episode.State,
+		)
+	}
+	if waits := streamWaitCount(t, ctx, st, run.EpisodeID); waits != 0 {
+		t.Fatalf("a stream that was never live scheduled %d re-checks", waits)
+	}
+}
+
+// And the point of the hold: the next firing is the same unit of work.
+//
+// Same episode means the same ledger, the same thread and the same open offer,
+// which is what makes the second firing able to say "the fix is already
+// offered above" instead of deriving it again.
+func TestARefireAfterARecoveryContinuesTheSameEpisode(t *testing.T) {
+	observedAt := time.Now().UTC().Add(-6 * time.Minute).Format(time.RFC3339)
+	recoveredAt := time.Now().UTC().Add(-3 * time.Minute).Format(time.RFC3339)
+	refiredAt := time.Now().UTC().Format(time.RFC3339)
+	_, st, _, svc, base := streamFixture(
+		t, "CSTREAMREFIRE",
+		confirmedAlertReplyResult(observedAt),
+		supersedingRecoveredAlertReply(t, recoveredAt),
+		degradedConfirmedAlertReply(t, refiredAt),
+	)
+
+	firing := base
+	firing.ID, firing.EnvelopeID = "refire-card-1", "env-refire-card-1"
+	firing.EventID, firing.MessageTS = "event-refire-card-1", "1714.100"
+	first := answerStreamCard(t, svc, st, firing)
+
+	recovered := base
+	recovered.ID, recovered.EnvelopeID = "refire-card-2", "env-refire-card-2"
+	recovered.EventID, recovered.MessageTS = "event-refire-card-2", "1714.200"
+	recovered.ReceivedAt = base.ReceivedAt.Add(2 * time.Minute)
+	recovered.Text = "[VA1 RESOLVED:1] " + base.Text
+	answerStreamCard(t, svc, st, recovered)
+
+	again := base
+	again.ID, again.EnvelopeID = "refire-card-3", "env-refire-card-3"
+	again.EventID, again.MessageTS = "event-refire-card-3", "1714.300"
+	again.ReceivedAt = base.ReceivedAt.Add(4 * time.Minute)
+	third := answerStreamCard(t, svc, st, again)
+
+	if third.EpisodeID != first.EpisodeID {
+		t.Fatalf(
+			"the re-fire started episode %q instead of continuing %q",
+			third.EpisodeID, first.EpisodeID,
+		)
+	}
+	if third.AttemptNumber < 3 {
+		t.Fatalf(
+			"the re-fire is attempt %d of its episode, so it did not resume the stream's work",
+			third.AttemptNumber,
+		)
+	}
 }

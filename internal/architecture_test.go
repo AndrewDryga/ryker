@@ -704,7 +704,16 @@ var lineBudget = map[string]int{
 	// five are paid for by the caller, which now takes the sentence rather than
 	// composing it from a rung. It stays in internal/service because it is the
 	// same file as the submission that learns the refusal.
-	"service": 23537,
+	//
+	// And 23566 on 2026-08-16 for the recovery hold, twenty-nine lines. The
+	// stream episode closed the moment a reply said the alert had cleared, so a
+	// re-fire thirteen minutes later — va1-nomad-oom-risk cleared 19:11Z, fired
+	// again 19:24Z — opened a new episode with a fresh briefing, an empty
+	// ledger and no sight of the offer the last one had already made. A stream
+	// that was live now holds its episode open for one more window; a stream
+	// that never was still closes on its recovery, which is the read that costs
+	// most of these lines.
+	"service": 23566,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
