@@ -18,7 +18,6 @@ package behavioroffer
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -511,7 +510,7 @@ func ValidateEntryValue(entry *core.MemoryEntry, catalog Catalog) error {
 			)
 		}
 		if catalog == nil || !catalog.Configured(entry.Value) {
-			return fmt.Errorf("repository %q is not configured", entry.Value)
+			return UnknownRepository(entry.Value, catalog)
 		}
 		entry.SubjectKey = "channel:" + entry.ScopeKey
 	case "evidence_route":

@@ -283,3 +283,29 @@ func TestAStalePressSaysWhichCauseStoppedIt(t *testing.T) {
 		}
 	}
 }
+
+// The last refusal that still named no field, found while extracting this
+// package and left for its own change.
+//
+// A memory whose predicate is repository_for_channel is how an operator binds a
+// channel to a repository — "for this channel, use tenant-infra" — and it is the
+// one place a model must name a repository from a set it cannot see in the
+// conversation. It got "repository \"tenant-infra\" is not configured": no field,
+// no list, nothing to correct toward, three lines from the UnknownRepository
+// helper every sibling already used. That is the same defect the standing-rule
+// and schedule offers were fixed for, in the one branch nobody checked.
+func TestABoundRepositoryRefusalNamesTheOnesThatExist(t *testing.T) {
+	_, _, err := Entry(core.MemoryOffer{
+		Scope: "channel", Subject: "channel:C1", Predicate: "repository_for_channel",
+		Value: "tenant-infra", Visibility: "channel", ExpiresIn: "90d",
+	}, testContext())
+	var refused *offerreason.FieldError
+	if !errors.As(err, &refused) {
+		t.Fatalf("an unconfigured bound repository was not refused by field: %v", err)
+	}
+	if refused.Value != "tenant-infra" ||
+		!strings.Contains(refused.Expected, "platform") ||
+		!strings.Contains(refused.Expected, "coop") {
+		t.Errorf("the refusal does not name the repositories that exist: %+v", refused)
+	}
+}
