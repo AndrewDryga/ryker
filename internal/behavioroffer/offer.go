@@ -615,18 +615,22 @@ type MemoryPayload struct {
 	Offer core.MemoryOffer `json:"offer"`
 }
 
-// EncodePreference, EncodeRule and EncodeMemory mint a confirmation button's
-// value. Each reports false rather than an error because the caller's only
-// answer to either failure is the same one — do not offer it — and an offer
-// that cannot be encoded is not a refusal the model can act on.
+// The three Encode functions below mint a confirmation button's value. Each
+// reports false rather than an error because the caller's only answer to either
+// failure is the same one — do not offer it — and an offer that cannot be
+// encoded is not a refusal the model can act on.
+
+// EncodePreference mints the button a preference offer becomes.
 func EncodePreference(issue Issue, offer core.PreferenceOffer) (string, bool) {
 	return encode(PreferencePayload{Envelope: issue.envelope(), Offer: offer})
 }
 
+// EncodeRule mints the button a standing-rule offer becomes.
 func EncodeRule(issue Issue, offer core.RuleOffer) (string, bool) {
 	return encode(RulePayload{Envelope: issue.envelope(), Offer: offer})
 }
 
+// EncodeMemory mints the button a memory offer becomes.
 func EncodeMemory(issue Issue, offer core.MemoryOffer) (string, bool) {
 	return encode(MemoryPayload{Envelope: issue.envelope(), Offer: offer})
 }
@@ -639,20 +643,24 @@ func encode(payload any) (string, bool) {
 	return string(encoded), true
 }
 
-// DecodePreference, DecodeRule and DecodeMemory read a press back. The decode
-// error is returned rather than acted on: it is one of the five things
-// offerreason.Click weighs, and a caller that dropped it here would report an
-// unreadable button as some other cause.
+// The three Decode functions below read a press back. The decode error is
+// returned rather than acted on: it is one of the five things offerreason.Click
+// weighs, and a caller that dropped it here would report an unreadable button
+// as some other cause.
+
+// DecodePreference reads back the button a preference offer became.
 func DecodePreference(value string) (PreferencePayload, error) {
 	var payload PreferencePayload
 	return payload, decision.DecodeStrictJSON([]byte(value), &payload)
 }
 
+// DecodeRule reads back the button a standing-rule offer became.
 func DecodeRule(value string) (RulePayload, error) {
 	var payload RulePayload
 	return payload, decision.DecodeStrictJSON([]byte(value), &payload)
 }
 
+// DecodeMemory reads back the button a memory offer became.
 func DecodeMemory(value string) (MemoryPayload, error) {
 	var payload MemoryPayload
 	return payload, decision.DecodeStrictJSON([]byte(value), &payload)
