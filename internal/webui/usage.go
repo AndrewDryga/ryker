@@ -124,6 +124,13 @@ func chosenWindow(windows []UsageWindow) UsageWindow {
 // zero, and the driver refuses to scan that into an int. Left off the measured
 // count, this failed the whole totals query on an empty window — the page's own
 // "could not load" banner over a database that was simply quiet.
+// The last five columns are the same figures over the attempts no provider
+// priced. A group mixes billed and unbilled attempts freely — a provider that
+// reports cost for one turn and stays silent for the next hundred is the normal
+// case, not a fault — so the row total cannot be priced from a table without
+// charging twice for the part already reported, and the reported figure alone
+// is not the row's spend. Summing the unbilled side apart is what lets both be
+// true on one row.
 const usageColumns = `COUNT(*),
   COALESCE(SUM(m.usage_input_tokens > 0 OR m.usage_cached_input_tokens > 0
       OR m.usage_output_tokens > 0 OR m.usage_reasoning_tokens > 0),0),
@@ -131,7 +138,12 @@ const usageColumns = `COUNT(*),
   COALESCE(SUM(m.usage_output_tokens),0), COALESCE(SUM(m.usage_reasoning_tokens),0),
   COALESCE(SUM(m.usage_costed_turns),0), COALESCE(SUM(m.usage_cost_usd),0),
   COALESCE(SUM(m.usage_timed_turns),0), COALESCE(SUM(m.usage_queued_ms),0),
-  COALESCE(SUM(m.usage_provider_ms),0), COALESCE(SUM(m.usage_host_ms),0)`
+  COALESCE(SUM(m.usage_provider_ms),0), COALESCE(SUM(m.usage_host_ms),0),
+  COALESCE(SUM(m.usage_costed_turns > 0),0),
+  COALESCE(SUM(CASE WHEN m.usage_costed_turns = 0 THEN m.usage_input_tokens END),0),
+  COALESCE(SUM(CASE WHEN m.usage_costed_turns = 0 THEN m.usage_cached_input_tokens END),0),
+  COALESCE(SUM(CASE WHEN m.usage_costed_turns = 0 THEN m.usage_output_tokens END),0),
+  COALESCE(SUM(CASE WHEN m.usage_costed_turns = 0 THEN m.usage_reasoning_tokens END),0)`
 
 // usageFrom joins each frozen attempt to the run that produced it.
 //
@@ -219,6 +231,8 @@ type UsageTotals struct {
 	CostUSD            float64
 	First, Last        time.Time
 	Clock              WallClock
+	PricedAttempts     int
+	Unbilled           Tokens
 }
 
 func (u UsageTotals) Recorded() bool { return u.Measured > 0 }
@@ -242,6 +256,8 @@ func (r *Reader) UsageTotals(ctx context.Context, window UsageWindow) (UsageTota
 			&totals.Output, &totals.Reasoning, &totals.CostedTurns, &totals.CostUSD,
 			&totals.Clock.TimedTurns,
 			&totals.Clock.QueuedMS, &totals.Clock.ProviderMS, &totals.Clock.HostMS,
+			&totals.PricedAttempts, &totals.Unbilled.Input, &totals.Unbilled.Cached,
+			&totals.Unbilled.Output, &totals.Unbilled.Reasoning,
 			&first, &last)
 	if err != nil {
 		return UsageTotals{}, err
@@ -266,7 +282,13 @@ type UsageGroup struct {
 	Tokens
 	CostedTurns int
 	CostUSD     float64
-	Clock       WallClock
+	// PricedAttempts is how many of the attempts a provider put money on, and
+	// Unbilled is what the others spent. CostUSD covers PricedAttempts and
+	// nothing else, so a row where those two counts differ needs both halves
+	// rendered or it understates itself by however much the silence was worth.
+	PricedAttempts int
+	Unbilled       Tokens
+	Clock          WallClock
 	// Cost is provider-reported money when present, otherwise a configured
 	// estimate. The suffix keeps those evidence classes visible.
 	Cost string
@@ -280,6 +302,18 @@ type UsageGroup struct {
 }
 
 func (g UsageGroup) Recorded() bool { return g.Measured > 0 }
+
+// UnbilledTokens is the part of the row a configured rate may be applied to.
+//
+// When nothing in the group was billed, that is every token in it — which is
+// also what the query returns, and stating the identity here keeps a row built
+// by hand from silently pricing at zero.
+func (g UsageGroup) UnbilledTokens() Tokens {
+	if g.CostedTurns == 0 {
+		return g.Tokens
+	}
+	return g.Unbilled
+}
 
 // UsageTable is one breakdown and the question it splits by. Four of them share
 // a single rendering, so a column added for one dimension appears for all four
@@ -332,7 +366,9 @@ func (r *Reader) usageBy(
 			err := rows.Scan(&key, &sub, &item.Attempts, &item.Measured, &item.Input,
 				&item.Cached, &item.Output, &item.Reasoning, &item.CostedTurns,
 				&item.CostUSD, &item.Clock.TimedTurns,
-				&item.Clock.QueuedMS, &item.Clock.ProviderMS, &item.Clock.HostMS)
+				&item.Clock.QueuedMS, &item.Clock.ProviderMS, &item.Clock.HostMS,
+				&item.PricedAttempts, &item.Unbilled.Input, &item.Unbilled.Cached,
+				&item.Unbilled.Output, &item.Unbilled.Reasoning)
 			item.Label, item.Sub = key, sub
 			// Either half is enough to filter on. An attempt whose provider went
 			// unrecorded but whose model did not still has episodes behind it, and
@@ -627,6 +663,10 @@ type UsageCost struct {
 	ReportedUSD, Estimated       float64
 	ReportedTurns, EstimatedRows int
 	MeasuredRows                 int
+	// PricedAttempts is how many attempts the reported money actually covers.
+	// Reported turns alone cannot say that: one attempt can take several turns
+	// and have a price on only one of them.
+	PricedAttempts int
 }
 
 func (c UsageCost) Reported() bool         { return c.ReportedTurns > 0 }
@@ -636,35 +676,45 @@ func (c UsageCost) ReportedMoney() string  { return money(c.ReportedUSD, "USD") 
 func (c UsageCost) EstimatedMoney() string { return money(c.Estimated, c.Currency) }
 
 // priceUsage fills the money column from provider reports first, then estimates
-// only rows with measured tokens and no reported money. The totals stay apart.
+// whatever the reports left out. The totals stay apart.
+//
+// Both halves on one row, because reporting only the first was a lie by
+// omission: a row of 172 attempts with a price on 4 of them printed "9.48 USD
+// reported" and let 26.8M unbilled tokens read as free. Estimating the row's
+// full token count instead would be the opposite lie — charging again for the
+// turns the provider already billed — so the estimate runs over UnbilledTokens
+// and the two figures are never added together.
 func priceUsage(pricing config.Pricing, byModel []UsageGroup) ([]UsageGroup, UsageCost) {
 	cost := UsageCost{Currency: pricing.Currency, Configured: len(pricing.Models) > 0}
 	for index, row := range byModel {
+		var parts []string
 		if row.CostedTurns > 0 {
-			byModel[index].Cost = money(row.CostUSD, "USD") + " reported"
+			parts = append(parts, money(row.CostUSD, "USD")+" reported")
 			cost.ReportedUSD += row.CostUSD
 			cost.ReportedTurns += row.CostedTurns
-			continue
+			cost.PricedAttempts += row.PricedAttempts
 		}
-		if !row.Recorded() {
-			continue
-		}
-		cost.MeasuredRows++
-		amount, known := pricing.Cost(row.Provider, row.Model, core.ContextUsage{
-			InputTokens:       int(row.Input),
-			CachedInputTokens: int(row.Cached),
-			OutputTokens:      int(row.Output),
-			ReasoningTokens:   int(row.Reasoning),
-		})
-		if !known {
-			if cost.Configured {
-				byModel[index].Cost = "not priced"
+		unbilled := row.UnbilledTokens()
+		if row.Recorded() && unbilled.Total() > 0 {
+			cost.MeasuredRows++
+			amount, known := pricing.Cost(row.Provider, row.Model, core.ContextUsage{
+				InputTokens:       int(unbilled.Input),
+				CachedInputTokens: int(unbilled.Cached),
+				OutputTokens:      int(unbilled.Output),
+				ReasoningTokens:   int(unbilled.Reasoning),
+			})
+			switch {
+			case known:
+				parts = append(parts, money(amount, pricing.Currency)+" estimated")
+				cost.Estimated += amount
+				cost.EstimatedRows++
+			case cost.Configured && len(parts) > 0:
+				parts = append(parts, "rest not priced")
+			case cost.Configured:
+				parts = append(parts, "not priced")
 			}
-			continue
 		}
-		byModel[index].Cost = money(amount, pricing.Currency) + " estimated"
-		cost.Estimated += amount
-		cost.EstimatedRows++
+		byModel[index].Cost = strings.Join(parts, " + ")
 	}
 	return byModel, cost
 }

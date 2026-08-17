@@ -410,6 +410,69 @@ func TestReportedAndEstimatedCostStaySeparate(t *testing.T) {
 	}
 }
 
+// A row that reported money for a few of its attempts still prices the rest.
+//
+// On the tenant database (2026-08-16) codex:gpt-5.6-terra had 172 attempts of
+// which 4 carried a provider price. The model table read "9.48 USD reported"
+// and stopped there, so the 26.8M tokens the other 168 attempts spent were
+// rendered as costing nothing — and the same row shape hid 130M tokens under
+// "6.26 USD reported" for gpt-5.6-sol. A blind spot printed as a bill reads as
+// a saving, which is the one claim this page must never make.
+func TestAPartlyBilledRowPricesTheAttemptsNobodyBilled(t *testing.T) {
+	now := time.Now().UTC()
+	reader := seedUsage(t,
+		attempt{id: "billed", channel: "C1", repository: "r", mode: "triage",
+			provider: "codex", model: "gpt-5.6-terra", frozen: now.Add(-time.Hour),
+			spent:   Tokens{Input: 1_000_000, Cached: 5_000_000, Output: 100_000, Reasoning: 10_000},
+			costUSD: 9.48, costedTurns: 1},
+		attempt{id: "unbilled", channel: "C1", repository: "r", mode: "triage",
+			provider: "codex", model: "gpt-5.6-terra", frozen: now.Add(-time.Hour),
+			spent: Tokens{Input: 4_000_000, Cached: 20_000_000, Output: 200_000, Reasoning: 30_000}},
+	)
+	groups, err := reader.UsageByModel(context.Background(), UsageWindow{Key: "1d"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("grouping = %+v, want the two attempts on one model row", groups)
+	}
+	// The split the query has to make: the unbilled attempt's tokens alone, not
+	// the row's total, are what a configured rate may be applied to.
+	if got, want := groups[0].UnbilledTokens(),
+		(Tokens{Input: 4_000_000, Cached: 20_000_000, Output: 200_000, Reasoning: 30_000}); got != want {
+		t.Fatalf("unbilled tokens = %+v, want %+v", got, want)
+	}
+	if groups[0].PricedAttempts != 1 {
+		t.Errorf("priced attempts = %d, want 1 of 2", groups[0].PricedAttempts)
+	}
+
+	pricing := config.Pricing{Currency: "USD", Models: map[string]config.ModelPrice{
+		"codex:gpt-5.6-terra": {Input: 2, CachedInput: 0.2, Output: 12, Reasoning: 12},
+	}}
+	rows, cost := priceUsage(pricing, groups)
+	// 8.00 input + 4.00 cached + 2.40 output + 0.36 reasoning, over the unbilled
+	// attempt only. The billed attempt's own tokens are never estimated on top of
+	// the money its provider already reported.
+	if rows[0].Cost != "9.48 USD reported + 14.76 USD estimated" {
+		t.Errorf("row cost = %q, want both halves", rows[0].Cost)
+	}
+	if cost.ReportedMoney() != "9.48 USD" || cost.EstimatedMoney() != "14.76 USD" {
+		t.Errorf("reported %q and estimated %q were not kept apart",
+			cost.ReportedMoney(), cost.EstimatedMoney())
+	}
+	if cost.ReportedTurns != 1 || cost.EstimatedRows != 1 || cost.PricedAttempts != 1 {
+		t.Errorf("cost accounting = %+v", cost)
+	}
+
+	// Without a rate for the model, the row still says the reported money does
+	// not cover it, rather than letting 9.48 stand for the whole row.
+	bare, _ := priceUsage(config.Pricing{Currency: "USD",
+		Models: map[string]config.ModelPrice{"other": {Input: 1}}}, groups)
+	if bare[0].Cost != "9.48 USD reported + rest not priced" {
+		t.Errorf("unpriced remainder = %q", bare[0].Cost)
+	}
+}
+
 // Zero milliseconds is ambiguous between "instant" and "unmeasured", so the
 // timed-turn count is the recorded flag and every derived figure refuses to
 // divide by nothing.

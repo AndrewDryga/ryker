@@ -866,9 +866,10 @@ An amber mark on the baseline is a day whose attempts nobody measured — not a 
   {{if .Cost.Reported}}<div class="metric good"><div class="n">{{.Cost.ReportedMoney}}</div><div class="k">provider reported · {{.Window.Label}}</div></div>{{end}}
   {{if .Cost.EstimatedKnown}}<div class="metric"><div class="n">{{.Cost.EstimatedMoney}}</div><div class="k">configured estimate · {{.Window.Label}}</div></div>{{end}}
 </div>
-<p class="note">{{if .Cost.Reported}}The provider reported USD cost for {{.Cost.ReportedTurns}} turn(s).
-{{end}}{{if .Cost.EstimatedKnown}}The separate estimate uses configured token rates for
-{{.Cost.EstimatedRows}} model row(s) that reported tokens but no cost. Reported and estimated
+<p class="note">{{if .Cost.Reported}}The provider reported USD cost for {{.Cost.ReportedTurns}} turn(s),
+covering {{.Cost.PricedAttempts}} of {{.Totals.Measured}} measured attempt(s).
+{{end}}{{if .Cost.EstimatedKnown}}The separate estimate uses configured token rates for the
+attempts no provider priced, across {{.Cost.EstimatedRows}} model row(s). Reported and estimated
 amounts are never added together.{{end}}</p>
 {{else}}{{template "unwired" .CostUnwired}}{{end}}
 
