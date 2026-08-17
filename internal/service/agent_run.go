@@ -805,12 +805,16 @@ func (s *Service) prepareIncidentAgentRun(
 	if err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, true)
 	}
-	artifacts, err := s.agentRunArtifacts(ctx, run)
+	artifacts, unreadable, err := s.agentRunArtifacts(ctx, run)
 	if err != nil {
 		return s.retryIncidentAgentRun(
 			ctx, run, incident, err, slackfile.PermanentInputError(err),
 		)
 	}
+	// In the required tail, because a file the host refused is the one piece of
+	// context that explains a gap in the answer, and a budget that dropped it
+	// would leave the model reasoning about a screenshot it never received.
+	requiredContext += unreadableAttachmentsPrompt(unreadable)
 	provisionalPrompt := run.Prompt
 	for _, section := range promptSections {
 		provisionalPrompt += section.Text
@@ -1192,7 +1196,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
 	}
-	artifacts, err := s.agentRunArtifacts(ctx, run)
+	artifacts, unreadable, err := s.agentRunArtifacts(ctx, run)
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
 	}
@@ -1221,6 +1225,9 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	late.WriteString("\n\n" + repositorycapability.Prompt(repositorycapability.Build(s.cfg, repositoryKey, session, repositorycapability.PinnedReadOnly)))
 	late.WriteString(publicationcontext.ActivePrompt(state.ActivePublications))
 	late.WriteString(watchDecisionCorrectionPrompt(state.FailureDetail))
+	// late, never early: early is what the conversation lane drops, and the
+	// reason the answer cannot describe the screenshot has to survive that.
+	late.WriteString(unreadableAttachmentsPrompt(unreadable))
 	late.WriteString(alertstream.AnsweredPrompt(state))
 	episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
 	if episodeErr != nil {

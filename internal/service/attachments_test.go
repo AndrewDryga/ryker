@@ -13,7 +13,6 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/publisher"
-	"github.com/AndrewDryga/responder/internal/slackfile"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskpr"
@@ -229,6 +228,113 @@ func TestSlackAttachmentReachesQueuedCoopTurn(t *testing.T) {
 	}
 }
 
+// A payments report with a screenshot went unanswered on 2026-08-16 because the
+// screenshot's bytes did not match its declared type. One unreadable file
+// returned one error for the whole message, both callers turned that into a
+// failed run, and the words — answerable without the picture — were never read
+// by anything. The audit outcome was failed_silent, nothing was posted, and the
+// person solved it themselves twelve minutes later.
+//
+// A file the host will not attach is a note the model is handed, never the end
+// of the turn.
+func TestAnUnreadableAttachmentIsNotedRatherThanFatal(t *testing.T) {
+	cfg := serviceConfig(t)
+	const readableURL = "https://files.slack.com/files-pri/T-F/bug.png"
+	const unreadableURL = "https://files.slack.com/files-pri/T-F/image.png"
+	slackClient := &fakeSlack{files: map[string][]byte{
+		readableURL:   testPNG,
+		unreadableURL: []byte("<!doctype html><html>expired</html>"),
+	}}
+	svc := &Service{cfg: cfg, slack: slackClient}
+
+	artifacts, rejected, err := svc.downloadSlackArtifacts(
+		context.Background(),
+		core.SlackInput{Attachments: []core.SlackAttachment{
+			{
+				ID: "FGOOD", Name: "bug.png", MediaType: "image/png",
+				Size: int64(len(testPNG)), URLPrivate: readableURL,
+			},
+			{
+				ID: "FBAD", Name: "image.png", MediaType: "image/png",
+				Size: 35, URLPrivate: unreadableURL,
+			},
+		}},
+	)
+	if err != nil {
+		t.Fatalf("one unreadable attachment failed the whole turn: %v", err)
+	}
+	if len(artifacts) != 1 || artifacts[0].Name != "bug.png" ||
+		string(artifacts[0].Data) != string(testPNG) {
+		t.Fatalf("readable artifact was lost with the unreadable one: %+v", artifacts)
+	}
+	if len(rejected) != 1 || rejected[0].Name != "image.png" ||
+		rejected[0].MediaType != "image/png" ||
+		!strings.Contains(rejected[0].Reason, "image/png") {
+		t.Fatalf("rejections = %+v", rejected)
+	}
+}
+
+// The note is worth nothing if the model never sees it: the reply has to say it
+// could not read the picture, and it can only say that if the prompt told it.
+func TestTheUnreadableAttachmentReachesThePrompt(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	const privateURL = "https://files.slack.com/files-pri/T123-F123/image.png?origin=event"
+	slackClient := &fakeSlack{files: map[string][]byte{
+		privateURL: []byte("<!doctype html><html>expired</html>"),
+	}}
+	coopClient := newFakeCoop()
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+		BotName: "Emisar",
+	}
+	input := core.SlackInput{
+		ID: "slack-unreadable-attachment", EnvelopeID: "env-unreadable-attachment",
+		EventID: "EvUnreadableAttachment", Kind: "direct", TeamID: cfg.Slack.TeamID,
+		ChannelID: "DOPERATOR", MessageTS: "1700.100", UserID: "U123ABC",
+		Text: "there are issues atm with payments, I just made a new account and tried to pay",
+		Attachments: []core.SlackAttachment{{
+			ID: "F123", Name: "image.png", MediaType: "image/png",
+			Size: 35, URLPrivate: privateURL,
+		}},
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit unreadable-attachment input = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.submitPrompts) != 1 {
+		t.Fatalf("submitted prompts = %d; the unreadable file killed the turn", len(coopClient.submitPrompts))
+	}
+	prompt := coopClient.submitPrompts[0]
+	for _, want := range []string{
+		`<host-unreadable-attachment name="image.png" declared="image/png">`,
+		"not a valid image/png",
+		"could not read the attachment",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt does not name the dropped attachment (%q):\n%s", want, prompt)
+		}
+	}
+	if len(coopClient.submitArtifacts) != 1 || len(coopClient.submitArtifacts[0]) != 0 {
+		t.Fatalf("unreadable bytes were attached anyway: %#v", coopClient.submitArtifacts)
+	}
+}
+
 func TestSlackAttachmentDownloadRejectsUnsafeOrMismatchedContent(t *testing.T) {
 	cfg := serviceConfig(t)
 	tests := []struct {
@@ -252,7 +358,7 @@ func TestSlackAttachmentDownloadRejectsUnsafeOrMismatchedContent(t *testing.T) {
 				Size:       int64(len(testPNG)),
 				URLPrivate: "https://files.slack.com/files-pri/T-F/fake.pdf",
 			},
-			data: testPNG, want: "does not match declared media type",
+			data: testPNG, want: "not a valid application/pdf",
 		},
 		{
 			name: "stream exceeds limit",
@@ -270,14 +376,22 @@ func TestSlackAttachmentDownloadRejectsUnsafeOrMismatchedContent(t *testing.T) {
 				test.attachment.URLPrivate: test.data,
 			}}
 			svc := &Service{cfg: cfg, slack: slackClient}
-			_, err := svc.downloadSlackArtifacts(context.Background(), core.SlackInput{
-				Attachments: []core.SlackAttachment{test.attachment},
-			})
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("download error = %v, want %q", err, test.want)
+			artifacts, rejected, err := svc.downloadSlackArtifacts(
+				context.Background(),
+				core.SlackInput{Attachments: []core.SlackAttachment{test.attachment}},
+			)
+			// Superseded on 2026-08-16. Each of these used to be a
+			// slackfile.InvalidInput that ended the run; the file is still
+			// refused, but the refusal is now a sentence the model reads.
+			if err != nil {
+				t.Fatalf("refusing one file failed the turn: %v", err)
 			}
-			if !slackfile.PermanentInputError(err) {
-				t.Fatalf("invalid attachment was treated as retryable: %v", err)
+			if len(artifacts) != 0 {
+				t.Fatalf("refused file was attached anyway: %+v", artifacts)
+			}
+			if len(rejected) != 1 || rejected[0].Name != test.attachment.Name ||
+				!strings.Contains(rejected[0].Reason, test.want) {
+				t.Fatalf("rejection = %+v, want a reason naming %q", rejected, test.want)
 			}
 		})
 	}
@@ -296,11 +410,11 @@ func TestSlackAttachmentPlaceholderResolvesThroughFilesInfo(t *testing.T) {
 		},
 	}
 	svc := &Service{cfg: cfg, slack: slackClient}
-	artifacts, err := svc.downloadSlackArtifacts(context.Background(), core.SlackInput{
+	artifacts, rejected, err := svc.downloadSlackArtifacts(context.Background(), core.SlackInput{
 		Attachments: []core.SlackAttachment{{ID: "FDELAYED", Name: "attachment"}},
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || len(rejected) != 0 {
+		t.Fatalf("resolved file was refused: %+v, %v", rejected, err)
 	}
 	if len(artifacts) != 1 || artifacts[0].Name != "delayed.png" ||
 		artifacts[0].MediaType != "image/png" ||
@@ -378,7 +492,7 @@ func TestAgentRunArtifactRequiresExistingSlackSource(t *testing.T) {
 	}
 	defer st.Close()
 	svc := &Service{cfg: cfg, store: st, slack: &fakeSlack{}}
-	_, err = svc.agentRunArtifacts(context.Background(), core.AgentRun{
+	_, _, err = svc.agentRunArtifacts(context.Background(), core.AgentRun{
 		SourceKind: "slack", SourceID: "missing",
 	})
 	if err == nil || !errors.Is(err, store.ErrNotFound) {
@@ -420,11 +534,11 @@ func TestAgentRunArtifactInheritsScreenshotForThreadMessageFollowup(t *testing.T
 	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
 		t.Fatalf("admit thread followup = %t, %v", created, err)
 	}
-	artifacts, err := svc.agentRunArtifacts(ctx, core.AgentRun{
+	artifacts, rejected, err := svc.agentRunArtifacts(ctx, core.AgentRun{
 		SourceKind: "watch", SourceID: input.ID,
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || len(rejected) != 0 {
+		t.Fatalf("inherited screenshot was refused: %+v, %v", rejected, err)
 	}
 	if len(artifacts) != 1 || artifacts[0].Name != "failing-check.png" ||
 		string(artifacts[0].Data) != string(testPNG) {

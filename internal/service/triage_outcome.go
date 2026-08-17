@@ -16,7 +16,9 @@ func (s *Service) terminalTriageFailureDelivery(
 	state decisionpkg.WatchTurnState,
 	message slackui.Message,
 ) (*core.SlackDelivery, error) {
-	if !triageoutcome.NeedsFailureReply(input, state) {
+	if !triageoutcome.NeedsFailureNotice(
+		input, state, s.identity.BotUserID, s.identity.BotName,
+	) {
 		return nil, nil
 	}
 	channelID := core.FirstNonempty(input.ChannelID, run.ChannelID)

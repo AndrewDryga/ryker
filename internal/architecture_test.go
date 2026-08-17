@@ -750,7 +750,17 @@ var lineBudget = map[string]int{
 	// assembles, and it cannot leave, because half of them are unexported
 	// constants of this package and the other half are only known to be IN a
 	// prompt by the code that puts them there.
-	"service": 23711,
+	//
+	// And 23780 on 2026-08-16, forty-six lines measured, for the attachment that
+	// used to end a turn. A teammate reported a payments problem in a watched
+	// channel with a screenshot whose bytes were not the image/png it declared;
+	// the download refused it, the refusal was one error for the whole message,
+	// and both callers turned that into a failed run that posted nothing at all.
+	// The words were answerable without the picture. Nearly all of these lines
+	// are the difference between an error and a note: the rejection type, the
+	// per-file continue where a return used to be, and the prompt section that
+	// tells the model what was dropped and to say so.
+	"service": 23780,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -1261,7 +1271,13 @@ var lineBudget = map[string]int{
 	"serviceport":       65,
 	"retrydelay":        40,
 	"schemaassets":      1050,
-	"triageoutcome":     50,
+	// Raised from 50 to 70 on 2026-08-16, eleven lines measured. A failure now
+	// asks a second question before it chooses silence — did this message say
+	// Responder's name, whatever kind of event Slack called it — because a
+	// payments report that typed "@Emisar" produced no app_mention, read as room
+	// chatter, and was audited failed_silent with nothing posted. Both halves of
+	// the rule live here so there is one place to read what earns an answer.
+	"triageoutcome": 70,
 	// turndelta is the lease-time predicate for a follow-up turn: may this
 	// attempt speak into the session that already holds its briefing, or must it
 	// restate one. 135 today. It is deliberately a pile of veto clauses over a

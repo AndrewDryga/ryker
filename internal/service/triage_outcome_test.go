@@ -79,6 +79,116 @@ func TestTerminalHumanTriageFailurePostsOneSanitizedNotice(t *testing.T) {
 	}
 }
 
+// On 2026-08-16 a teammate wrote "@Emisar there are issues atm with payments"
+// in a watched channel, attached a screenshot, and got nothing: the run failed
+// on the screenshot and the audit recorded failed_silent. They typed the name
+// rather than picking the completion, so Slack sent no app_mention and the
+// input arrived as an ordinary channel message — which WatchInputTargeted reads
+// as room chatter nobody is owed an answer to. Twelve minutes later they solved
+// it themselves.
+//
+// Silence is right for an unmatched bot card and for two humans talking past
+// Responder. It is never right for a message that said its name.
+func TestAFailedAnswerToAMentionIsNotSilent(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "named-responder-failure", EnvelopeID: "env-named-responder-failure",
+		EventID: "event-named-responder-failure", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", MessageTS: "1700.100", UserID: "U123ABC",
+		Text: "@Emisar there are issues atm with payments, I just made a new account",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit named input = %t, %v", created, err)
+	}
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: input.ChannelID, ThreadTS: input.MessageTS,
+		ConversationKey: "channel:COPS", SourceKind: "watch", SourceID: input.ID,
+		UserID: input.UserID, Context: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.LeaseAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotName: "Emisar",
+	}
+	if err := svc.failPreparingTriageRun(
+		ctx, run, input, decisionpkg.WatchTurnState{},
+		`Slack file "image.png" content does not match declared media type "image/png"`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	outcomes := auditOutcomes(t, cfg, "slack.watch", input.ID)
+	if len(outcomes) != 1 || !strings.HasPrefix(outcomes[0], "failed_notified:") {
+		t.Fatalf("audit outcomes = %v, want one failed_notified", outcomes)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 1 || slack.posts[0].thread != input.MessageTS {
+		t.Fatalf("failure notice to a named request = %+v", slack.posts)
+	}
+}
+
+// The other half of the same rule: an ambient message that never named
+// Responder still fails quietly, so a watched room does not fill with notices
+// about work nobody asked for.
+func TestAFailedAmbientMessageStaysSilent(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "ambient-failure", EnvelopeID: "env-ambient-failure",
+		EventID: "event-ambient-failure", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", MessageTS: "1700.100", UserID: "U123ABC",
+		Text: "deploy finished, going to lunch",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit ambient input = %t, %v", created, err)
+	}
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: input.ChannelID, ThreadTS: input.MessageTS,
+		ConversationKey: "channel:COPS", SourceKind: "watch", SourceID: input.ID,
+		UserID: input.UserID, Context: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.LeaseAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotName: "Emisar",
+	}
+	if err := svc.failPreparingTriageRun(
+		ctx, run, input, decisionpkg.WatchTurnState{}, "host preparation failed",
+	); err != nil {
+		t.Fatal(err)
+	}
+	outcomes := auditOutcomes(t, cfg, "slack.watch", input.ID)
+	if len(outcomes) != 1 || !strings.HasPrefix(outcomes[0], "failed_silent:") {
+		t.Fatalf("audit outcomes = %v, want one failed_silent", outcomes)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 0 {
+		t.Fatalf("ambient failure posted to the room: %+v", slack.posts)
+	}
+}
+
 func TestApprovalContinuationFailurePostsVerificationOnlyNotice(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
