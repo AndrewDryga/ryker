@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
+	"github.com/AndrewDryga/responder/internal/offerreason"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/standingrule"
@@ -575,13 +577,7 @@ func (s *Service) preparePreferenceOfferAction(
 	}
 	preference, ttl, err := s.preferenceFromOffer(input, *offer, s.now().UTC())
 	if err != nil {
-		if s.log != nil {
-			s.log.Warn(
-				"discard invalid preference offer",
-				"source_input", input.ID,
-				"error", err,
-			)
-		}
+		s.recordDiscardedOffer(input, "preference", err)
 		return "", core.ResponderPreference{}, "", false
 	}
 	offer.Scope = preference.ScopeKind
@@ -627,63 +623,85 @@ func (s *Service) preferenceFromOffer(
 		preference.ScopeKey = s.cfg.Slack.TeamID
 	case "channel":
 		if input.ChannelID == "" {
-			return core.ResponderPreference{}, 0, errors.New(
-				"channel preference requires a Slack channel",
+			return core.ResponderPreference{}, 0, offerreason.Field(
+				"scope", offer.Scope,
+				"a channel preference has to come from a Slack channel; "+
+					"use operator or workspace scope here",
 			)
 		}
 		preference.ScopeKey = input.ChannelID
 	case "repository":
 		if _, ok := s.cfg.RepositoryContext(offer.Repository); !ok {
-			return core.ResponderPreference{}, 0, fmt.Errorf(
-				"repository %q is not configured", offer.Repository,
-			)
+			return core.ResponderPreference{}, 0, s.unknownRepository(offer.Repository)
 		}
 		preference.ScopeKey = offer.Repository
 	case "operator":
 		preference.ScopeKey = input.UserID
 	default:
-		return core.ResponderPreference{}, 0, errors.New(
-			"preference scope must be operator, channel, repository, or workspace",
+		return core.ResponderPreference{}, 0, offerreason.Field(
+			"scope", offer.Scope,
+			"expected operator, channel, repository, or workspace",
 		)
 	}
 	if memorypkg.ContainsSecretLikeValue(preference.Value) {
+		// The value is not read back here: it looks like a credential, and a
+		// refusal that quotes one has copied it somewhere new.
 		return core.ResponderPreference{}, 0, errors.New(
-			"preference cannot contain a credential-like value",
+			"the preference value looks like a credential and cannot be stored; " +
+				"offer the setting, never the secret",
 		)
 	}
 	switch preference.Name {
 	case "health_check_depth":
 		if preference.Value != "quick" && preference.Value != "standard" &&
 			preference.Value != "deep" {
-			return core.ResponderPreference{}, 0, errors.New(
-				"health_check_depth must be quick, standard, or deep",
+			return core.ResponderPreference{}, 0, offerreason.Field(
+				"value", preference.Value,
+				"health_check_depth expects quick, standard, or deep",
 			)
 		}
 	case "response_detail":
 		if preference.Value != "concise" && preference.Value != "standard" &&
 			preference.Value != "detailed" {
-			return core.ResponderPreference{}, 0, errors.New(
-				"response_detail must be concise, standard, or detailed",
+			return core.ResponderPreference{}, 0, offerreason.Field(
+				"value", preference.Value,
+				"response_detail expects concise, standard, or detailed",
 			)
 		}
 	case "response_location":
 		if preference.ScopeKind == "repository" {
-			return core.ResponderPreference{}, 0, errors.New(
-				"response_location supports operator, channel, or workspace scope",
+			return core.ResponderPreference{}, 0, offerreason.Field(
+				"scope", preference.ScopeKind,
+				"response_location expects operator, channel, or workspace scope",
 			)
 		}
 		if preference.Value != "follow_context" && preference.Value != "prefer_thread" &&
 			preference.Value != "prefer_channel" {
-			return core.ResponderPreference{}, 0, errors.New(
-				"response_location must be follow_context, prefer_thread, or prefer_channel",
+			return core.ResponderPreference{}, 0, offerreason.Field(
+				"value", preference.Value,
+				"response_location expects follow_context, prefer_thread, or prefer_channel",
 			)
 		}
 	default:
-		return core.ResponderPreference{}, 0, errors.New(
-			"preference name must be health_check_depth, response_detail, or response_location",
+		return core.ResponderPreference{}, 0, offerreason.Field(
+			"name", preference.Name,
+			"expected health_check_depth, response_detail, or response_location",
 		)
 	}
 	return preference, ttl, nil
+}
+
+// unknownRepository refuses a repository this host does not have, and lists the
+// ones it does. The model cannot learn a deployment's repositories from the
+// conversation, so a refusal that says only "not configured" leaves it to guess
+// the same wrong slug again — and it did, on every schedule the tenant host was
+// asked for by its own name.
+func (s *Service) unknownRepository(name string) error {
+	return offerreason.Field(
+		"repository", name,
+		"the configured repositories are "+
+			offerreason.List(s.cfg.RepositoryContextKeys()),
+	)
 }
 
 func (s *Service) prepareRuleOfferAction(
@@ -695,13 +713,7 @@ func (s *Service) prepareRuleOfferAction(
 	}
 	rule, ttl, err := s.standingRuleFromOffer(input, *offer, s.now().UTC())
 	if err != nil {
-		if s.log != nil {
-			s.log.Warn(
-				"discard invalid standing rule offer",
-				"source_input", input.ID,
-				"error", err,
-			)
-		}
+		s.recordDiscardedOffer(input, "standing rule", err)
 		return "", core.StandingRule{}, "", false
 	}
 	offer.Scope = "channel"
@@ -742,14 +754,14 @@ func (s *Service) standingRuleFromOffer(
 	}
 	if offer.Scope != "channel" || input.ChannelID == "" ||
 		strings.HasPrefix(input.ChannelID, "D") {
-		return core.StandingRule{}, 0, errors.New(
-			"standing rules require channel scope in a non-DM Slack channel",
+		return core.StandingRule{}, 0, offerreason.Field(
+			"scope", offer.Scope,
+			"expected channel, and a standing rule can only be set up in a "+
+				"channel rather than a direct message",
 		)
 	}
 	if _, ok := s.cfg.RepositoryContext(offer.Repository); !ok {
-		return core.StandingRule{}, 0, fmt.Errorf(
-			"repository %q is not configured", offer.Repository,
-		)
+		return core.StandingRule{}, 0, s.unknownRepository(offer.Repository)
 	}
 	var proposed core.StandingWorkflow
 	if offer.Workflow != nil {
@@ -764,8 +776,11 @@ func (s *Service) standingRuleFromOffer(
 	if offer.Workflow != nil &&
 		((offer.Trigger != "" && offer.Trigger != trigger) ||
 			(offer.Action != "" && offer.Action != action)) {
-		return core.StandingRule{}, 0, errors.New(
-			"standing workflow conflicts with its legacy trigger or action",
+		return core.StandingRule{}, 0, offerreason.Field(
+			"workflow", workflow.Name,
+			"it disagrees with trigger "+strconv.Quote(offer.Trigger)+" and action "+
+				strconv.Quote(offer.Action)+", which compile to "+strconv.Quote(trigger)+
+				" and "+strconv.Quote(action)+"; send the workflow alone",
 		)
 	}
 	rule := core.StandingRule{
@@ -777,8 +792,8 @@ func (s *Service) standingRuleFromOffer(
 	}
 	if rule.SourceKind != "any" && rule.SourceKind != "human" &&
 		rule.SourceKind != "app" {
-		return core.StandingRule{}, 0, errors.New(
-			"standing rule source_kind must be any, human, or app",
+		return core.StandingRule{}, 0, offerreason.Field(
+			"source_kind", rule.SourceKind, "expected any, human, or app",
 		)
 	}
 	return rule, ttl, nil
@@ -793,14 +808,13 @@ func (s *Service) handleRememberPreference(
 		return err
 	}
 	var payload preferenceActionPayload
-	if err := decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
-		payload.Version != 1 || payload.ChannelID == "" ||
-		payload.ChannelID != input.ChannelID || payload.SourceRef == "" ||
-		offerIssuedAtInvalid(payload.IssuedAt, s.now()) {
+	err = decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload)
+	if cause, stale := s.behaviorOfferClick(
+		err, payload.Version, payload.ChannelID, payload.SourceRef,
+		payload.IssuedAt, input,
+	).Cause(); stale {
 		return s.behaviorActionFeedback(
-			ctx, input,
-			"*This preference confirmation is invalid or stale.* Nothing was saved. Ask "+
-				"Responder to apply the preference again and use the new confirmation button.",
+			ctx, input, offerreason.Stale(offerreason.PreferenceConfirmation, cause),
 		)
 	}
 	var result preferenceSaveResult
@@ -859,14 +873,13 @@ func (s *Service) handleRememberRule(
 		return err
 	}
 	var payload ruleActionPayload
-	if err := decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
-		payload.Version != 1 || payload.ChannelID == "" ||
-		payload.ChannelID != input.ChannelID || payload.SourceRef == "" ||
-		offerIssuedAtInvalid(payload.IssuedAt, s.now()) {
+	err = decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload)
+	if cause, stale := s.behaviorOfferClick(
+		err, payload.Version, payload.ChannelID, payload.SourceRef,
+		payload.IssuedAt, input,
+	).Cause(); stale {
 		return s.behaviorActionFeedback(
-			ctx, input,
-			"*This standing-rule confirmation is invalid or stale.* Nothing was saved. Ask "+
-				"Responder to create the rule again and use the new confirmation button.",
+			ctx, input, offerreason.Stale(offerreason.RuleConfirmation, cause),
 		)
 	}
 	var result ruleSaveResult
@@ -926,7 +939,8 @@ func (s *Service) handleTogglePreference(
 	if err := decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
 		payload.ID == "" {
 		return s.behaviorActionFeedback(
-			ctx, input, "*This preference control is invalid.* Nothing was changed.",
+			ctx, input,
+			offerreason.Stale(offerreason.PreferenceSwitch, offerreason.Unreadable),
 		)
 	}
 	preference, err := s.store.Behavior.GetPreference(ctx, payload.ID)
@@ -1124,10 +1138,22 @@ func (s *Service) handleEditRule(
 	)
 }
 
-func offerIssuedAtInvalid(issuedAt, now time.Time) bool {
-	return issuedAt.IsZero() ||
-		issuedAt.After(now.UTC().Add(5*time.Minute)) ||
-		now.Sub(issuedAt) > behaviorOfferMaxAge
+// behaviorOfferClick describes one confirmation click for classification. Every
+// behaviour confirmation carries the same envelope, so they share the reading
+// of it rather than each spelling the same five checks.
+func (s *Service) behaviorOfferClick(
+	decodeErr error,
+	version int,
+	payloadChannel string,
+	sourceRef string,
+	issuedAt time.Time,
+	input core.SlackInput,
+) offerreason.Click {
+	return offerreason.Click{
+		DecodeErr: decodeErr, Version: version, PayloadChannel: payloadChannel,
+		InputChannel: input.ChannelID, SourceRef: sourceRef, IssuedAt: issuedAt,
+		Now: s.now().UTC(), MaxAge: behaviorOfferMaxAge,
+	}
 }
 
 func (s *Service) freezeBehaviorResult(

@@ -11,6 +11,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/offerreason"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/standingrule"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -1870,9 +1871,20 @@ func TestAnsweredAlertCardShowsCheckMark(t *testing.T) {
 
 func TestBehaviorOfferExpiryValidation(t *testing.T) {
 	now := testDecodeClock
-	if !offerIssuedAtInvalid(now.Add(-25*time.Hour), now) ||
-		!offerIssuedAtInvalid(now.Add(10*time.Minute), now) ||
-		offerIssuedAtInvalid(now, now) {
-		t.Fatal("behavior offer age validation is incorrect")
+	input := core.SlackInput{ChannelID: "COPS"}
+	s := &Service{clock: func() time.Time { return now }}
+	clicked := func(issuedAt time.Time) (offerreason.Cause, bool) {
+		return s.behaviorOfferClick(nil, 1, "COPS", "Ev1", issuedAt, input).Cause()
+	}
+	if cause, stale := clicked(now.Add(-25 * time.Hour)); !stale ||
+		cause != offerreason.Expired {
+		t.Fatalf("a day-old button = %q, %t", cause, stale)
+	}
+	if cause, stale := clicked(now.Add(10 * time.Minute)); !stale ||
+		cause != offerreason.Undated {
+		t.Fatalf("a button stamped in the future = %q, %t", cause, stale)
+	}
+	if cause, stale := clicked(now); stale {
+		t.Fatalf("a fresh button was refused as %q", cause)
 	}
 }

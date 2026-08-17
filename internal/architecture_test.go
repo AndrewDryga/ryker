@@ -772,6 +772,15 @@ var lineBudget = map[string]int{
 	// and that merged is not deployed; the rest are two bounded git reads of the
 	// checkout the repository context already points at, and the guards that make
 	// every unreadable case answer unknown instead of guessing.
+	//
+	// 23900 on 2026-08-16, measured at 23816. The refusals a model and an
+	// operator read when the host drops something now name the field, the
+	// value, and what was expected, which is longer than "invalid" was. The
+	// vocabulary itself went OUT, to internal/offerreason: the words, the
+	// bounding, and the classification of a stale button are pure text and
+	// belong where they can be read together. What stayed here is the wiring —
+	// one record for a discarded offer instead of four log blocks, and one
+	// envelope reading instead of five per-handler boolean ORs.
 	"service": 23900,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
@@ -1262,8 +1271,24 @@ var lineBudget = map[string]int{
 	// correction rounds in one day — five of them after that day's deploys —
 	// that the generic sentence bought at 6,000 to 20,000 output tokens each.
 	// There is no sub-package to extract: this is one function's vocabulary.
-	"evidencepolicy":        130,
-	"episode":               350,
+	//
+	// 150 on 2026-08-16, from 130, measured at 134. The two diagnosis
+	// corrections moved here from internal/decision so they can name what they
+	// saw: "the active issue has no actionable cause boundary" and "no fresh
+	// verification plan" were the whole message, and a model that had just
+	// written cause_status: bounded could not tell which of the two fields the
+	// host was reading. They belong beside the cause-binding rule above for the
+	// same reason its branches belong together — one vocabulary, one voice, and
+	// a correction that quotes a field is only safe if it bounds it the same
+	// way its neighbour does.
+	"evidencepolicy": 150,
+	"episode":        350,
+	// offerreason owns the words the host owes when it refuses an offer or a
+	// confirmation button. 145 on 2026-08-16, measured at 131 — a new package
+	// rather than a corner of internal/service, because every function in it is
+	// pure text and the whole vocabulary has to be readable in one sitting to
+	// stay consistent. It is also what pays for the service raise above.
+	"offerreason":           145,
 	"investigationcontract": 550,
 	// replypolicy owns what a Slack reply must look like. Since 2026-08-12 both
 	// halves of the rule live here — the instruction text every lane carries and
@@ -1471,7 +1496,14 @@ var forbiddenImports = map[string][]string{
 	"audition":       {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "webui"},
 	"agentprompt":    {"service", "store", "slackui", "httpapi", "app", "publisher", "config"},
 	"evidencepolicy": {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision"},
-	"replypolicy":    {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
+	// offerreason is text and nothing else. It may reach core for the bounding
+	// helpers and no further: a refusal that had to load something would be a
+	// refusal that can fail, which is how the silence it replaces started.
+	"offerreason": {
+		"service", "store", "slackui", "httpapi", "app", "publisher", "coop",
+		"emisar", "config", "decision", "investigation", "schedule", "memory",
+	},
+	"replypolicy": {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "config", "decision", "investigation"},
 	// The digest reads the database and writes into Slack, so the direction has
 	// to be stated or it will drift back into one package that does both. The
 	// composer knows nothing about either: give it a counted week and it

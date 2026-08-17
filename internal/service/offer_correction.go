@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/offerreason"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 )
 
@@ -247,6 +249,36 @@ func (s *Service) dropRejectedOffers(
 			"dropped", strings.Join(kinds, ", "),
 		)
 	}
+}
+
+// recordDiscardedOffer says which offer the host refused and why.
+//
+// The reply still goes out — the answer was never the problem, only the button
+// attached to it — so this record is the only trace that something the user was
+// told about did not happen. Until 2026-08-16 it was "discard invalid
+// preference offer" and the error, which named neither the field nor the value,
+// so an operator reading it could not tell whether the model had invented a
+// preference name or misspelled a repository.
+//
+// The parts are logged separately as well as in the sentence, because the
+// question worth asking of these lines is "which field keeps failing", and that
+// is a filter rather than a search.
+func (s *Service) recordDiscardedOffer(input core.SlackInput, kind string, err error) {
+	if s.log == nil {
+		return
+	}
+	fields := []any{
+		"offer", kind, "source_input", input.ID,
+		"channel", input.ChannelID, "reason", trimError(err),
+	}
+	var refused *offerreason.FieldError
+	if errors.As(err, &refused) {
+		fields = append(fields,
+			"field", refused.Field, "value", refused.Value,
+			"expected", refused.Expected,
+		)
+	}
+	s.log.Warn("discard an offer the host cannot store", fields...)
 }
 
 // The four gates below decide whether the host would even try to store an

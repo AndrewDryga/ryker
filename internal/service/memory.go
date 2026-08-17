@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
+	"github.com/AndrewDryga/responder/internal/offerreason"
 	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -242,13 +244,7 @@ func (s *Service) prepareMemoryOfferAction(
 	}
 	entry, ttl, err := s.memoryEntryFromOffer(input, *offer, s.now().UTC())
 	if err != nil {
-		if s.log != nil {
-			s.log.Warn(
-				"discard invalid memory offer",
-				"source_input", input.ID,
-				"error", err,
-			)
-		}
+		s.recordDiscardedOffer(input, "memory", err)
 		return "", "", "", "", false
 	}
 	offer.Scope = entry.ScopeKind
@@ -298,16 +294,13 @@ func (s *Service) handleRememberMemory(
 		return err
 	}
 	var payload memoryActionPayload
-	if err := decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload); err != nil ||
-		payload.Version != 1 || payload.SourceRef == "" ||
-		payload.ChannelID == "" || payload.ChannelID != input.ChannelID ||
-		payload.IssuedAt.IsZero() ||
-		payload.IssuedAt.After(s.now().UTC().Add(5*time.Minute)) ||
-		s.now().UTC().Sub(payload.IssuedAt) > memoryOfferMaxAge {
+	err = decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload)
+	if cause, stale := s.behaviorOfferClick(
+		err, payload.Version, payload.ChannelID, payload.SourceRef,
+		payload.IssuedAt, input,
+	).Cause(); stale {
 		return s.finishSlashInput(
-			ctx, input,
-			"*This memory confirmation is invalid or stale.* Nothing was saved. Ask Responder "+
-				"to propose it again and use the new confirmation button.",
+			ctx, input, offerreason.Stale(offerreason.MemoryConfirmation, cause),
 		)
 	}
 	var result memoryRememberResult
@@ -669,11 +662,11 @@ func (s *Service) memoryEntryFromOffer(
 		return core.MemoryEntry{}, 0, errors.New("memory requires a Slack channel context")
 	}
 	if ttl == memorypkg.PermanentTTL && !core.PredicateMayBePermanent(offer.Predicate) {
-		return core.MemoryEntry{}, 0, fmt.Errorf(
-			"predicate %q cannot be permanent because it describes a system that can change "+
-				"without telling Responder; use 7d, 30d, 90d, or 365d, or offer it as guidance "+
-				"if it is advice rather than a fact",
-			offer.Predicate,
+		return core.MemoryEntry{}, 0, offerreason.Field(
+			"expires_in", offer.ExpiresIn,
+			"expected 7d, 30d, 90d, or 365d, because predicate "+
+				strconv.Quote(offer.Predicate)+" describes a system that can change "+
+				"without telling Responder; only a guidance predicate may be permanent",
 		)
 	}
 	entry := core.MemoryEntry{
@@ -694,14 +687,12 @@ func (s *Service) memoryEntryFromOffer(
 		entry.ScopeKey = input.ChannelID
 	case "repository":
 		if _, ok := s.cfg.RepositoryContext(offer.Repository); !ok {
-			return core.MemoryEntry{}, 0, fmt.Errorf(
-				"repository %q is not configured", offer.Repository,
-			)
+			return core.MemoryEntry{}, 0, s.unknownRepository(offer.Repository)
 		}
 		entry.ScopeKey = offer.Repository
 	default:
-		return core.MemoryEntry{}, 0, errors.New(
-			"scope must be channel, repository, or workspace",
+		return core.MemoryEntry{}, 0, offerreason.Field(
+			"scope", offer.Scope, "expected channel, repository, or workspace",
 		)
 	}
 	switch offer.Visibility {
@@ -712,8 +703,9 @@ func (s *Service) memoryEntryFromOffer(
 	case "operator":
 		entry.VisibilityID = input.UserID
 	default:
-		return core.MemoryEntry{}, 0, errors.New(
-			"visibility must be channel, operator, or workspace",
+		return core.MemoryEntry{}, 0, offerreason.Field(
+			"visibility", offer.Visibility,
+			"expected channel, operator, or workspace",
 		)
 	}
 	if err := s.validateMemoryValue(&entry); err != nil {
@@ -721,16 +713,23 @@ func (s *Service) memoryEntryFromOffer(
 	}
 	if entry.SourceRevision != "" &&
 		!memoryRevisionPattern.MatchString(entry.SourceRevision) {
-		return core.MemoryEntry{}, 0, errors.New(
-			"source_revision must be an immutable Git or SHA-256 revision",
+		return core.MemoryEntry{}, 0, offerreason.Field(
+			"source_revision", entry.SourceRevision,
+			"expected an immutable Git revision or a sha256: digest, "+
+				"or leave it empty",
 		)
 	}
 	return entry, ttl, nil
 }
 
 func (s *Service) validateMemoryValue(entry *core.MemoryEntry) error {
-	if entry.SubjectKey == "" || entry.Value == "" {
-		return errors.New("subject and value are required")
+	// Named one at a time: "subject and value are required" sent the model back
+	// to re-send both when only one of them was blank.
+	if entry.SubjectKey == "" {
+		return offerreason.Field("subject", "", "name what the memory is about")
+	}
+	if entry.Value == "" {
+		return offerreason.Field("value", "", "state what is true about the subject")
 	}
 	if strings.ContainsAny(entry.SubjectKey+entry.Value, "\r\n\t") ||
 		memorypkg.ContainsSecretLikeValue(entry.SubjectKey) || memorypkg.ContainsSecretLikeValue(entry.Value) {

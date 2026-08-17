@@ -124,6 +124,47 @@ func AlertCauseCorrection(assessment *investigation.AlertAssessment, evidence []
 	return ""
 }
 
+// CauseBoundaryCorrection refuses an active issue whose cause_status claims a
+// boundary the cause sentence never states.
+//
+// It reads back the verdict and the cause_status because those are what the
+// model believes it already supplied: "the active issue has no actionable cause
+// boundary" was the whole message until 2026-08-16, and a model that had just
+// written cause_status: bounded has no way to tell from it which of the two
+// fields the host was looking at.
+func CauseBoundaryCorrection(assessment *investigation.AlertAssessment) string {
+	return "this assessment reports verdict " + named(assessment.Verdict) +
+		" with cause_status " + named(assessment.CauseStatus) +
+		" and cause empty; state in cause the component that is failing and the " +
+		"change or condition that made it fail, or set cause_status to unverified " +
+		"and continue the diagnosis"
+}
+
+// VerificationPlanCorrection refuses a mitigation nobody can check.
+//
+// The immediate_action is quoted back because it is the thing the missing plan
+// would verify, and because an assessment that has one and not the other is a
+// step from finished rather than a rewrite.
+func VerificationPlanCorrection(assessment *investigation.AlertAssessment) string {
+	action := "immediate_action empty"
+	if trimmed := strings.TrimSpace(assessment.ImmediateAction); trimmed != "" {
+		action = "immediate_action " + named(trimmed)
+	}
+	return "this assessment reports verdict " + named(assessment.Verdict) +
+		" and " + action + " with verification empty; state in verification the " +
+		"exact check that would show that mitigation worked — the signal, the " +
+		"threshold, and the window — or return an exact external blocker"
+}
+
+// named renders one model-supplied field into a correction, bounded and quoted
+// so a runaway value cannot become the whole message.
+func named(value string) string {
+	if value = core.BoundedText(strings.TrimSpace(value), 200); value == "" {
+		return "empty"
+	}
+	return strconv.Quote(value)
+}
+
 // maximumNamedIDs bounds how many ids one correction reads back. Eight matches
 // the cap decision.BoundedUniqueFields already puts on cause_claim_ids, and is
 // past every recorded alert episode's evidence count; a longer list stops being

@@ -13,10 +13,12 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
+	"github.com/AndrewDryga/responder/internal/offerreason"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/store/schedulestore"
 )
 
 const scheduleOfferMaxAge = 24 * time.Hour
@@ -284,9 +286,7 @@ func (s *Service) normalizeScheduleOffer(
 	}
 	task, err := s.scheduledTaskFromOffer(ctx, input, *offer, s.now().UTC())
 	if err != nil {
-		if s.log != nil {
-			s.log.Warn("discard invalid schedule offer", "source_input", input.ID, "error", err)
-		}
+		s.recordDiscardedOffer(input, "schedule", err)
 		return core.ScheduledTask{}, "", false
 	}
 	scheduleofferpkg.ApplyTaskToOffer(offer, task, expiresIn)
@@ -329,7 +329,10 @@ func (s *Service) scheduledTaskFromOffer(
 				return core.ScheduledTask{}, fmt.Errorf("read the operator's Slack timezone: %w", err)
 			}
 			if strings.TrimSpace(zone) == "" {
-				return core.ScheduledTask{}, errors.New("schedule needs an explicit timezone because the operator's Slack profile has none")
+				return core.ScheduledTask{}, offerreason.Field(
+					"timezone", "",
+					"the operator's Slack profile has no timezone, so name an IANA zone such as America/Chicago",
+				)
 			}
 			offer.Timezone = zone
 		} else {
@@ -337,7 +340,7 @@ func (s *Service) scheduledTaskFromOffer(
 		}
 	}
 	if _, ok := s.cfg.RepositoryContext(offer.Repository); !ok {
-		return core.ScheduledTask{}, fmt.Errorf("repository %q is not configured", offer.Repository)
+		return core.ScheduledTask{}, s.unknownRepository(offer.Repository)
 	}
 	offer.DeliveryChannel = core.FirstNonempty(offer.DeliveryChannel, input.ChannelID)
 	if offer.DeliveryChannel != input.ChannelID {
@@ -346,7 +349,11 @@ func (s *Service) scheduledTaskFromOffer(
 			return core.ScheduledTask{}, fmt.Errorf("read scheduled delivery channel: %w", channelErr)
 		}
 		if channel.ID != offer.DeliveryChannel || channel.Archived || !channel.Member {
-			return core.ScheduledTask{}, errors.New("Emisar must be an active member of the scheduled delivery channel")
+			return core.ScheduledTask{}, offerreason.Field(
+				"delivery_channel", offer.DeliveryChannel,
+				"Emisar is not an active member of that channel; deliver to "+
+					input.ChannelID+" or have Emisar invited there first",
+			)
 		}
 	}
 	return scheduleofferpkg.TaskFromOffer(offer, scheduleofferpkg.TaskContext{
@@ -363,7 +370,9 @@ func (s *Service) handleRememberSchedule(ctx context.Context, input core.SlackIn
 	}
 	proposalIDs, version, decodeErr := scheduleofferpkg.DecodeAction(input.ActionValue)
 	if decodeErr != nil {
-		return s.behaviorActionFeedback(ctx, input, "*This schedule confirmation is invalid or stale.* Nothing was saved. Ask Emisar to schedule it again and use the new button.")
+		return s.behaviorActionFeedback(ctx, input, offerreason.Stale(
+			offerreason.ScheduleConfirmation, offerreason.Unreadable,
+		))
 	}
 	if len(input.Frozen) != 0 {
 		var tasks []core.ScheduledTask
@@ -388,6 +397,15 @@ func (s *Service) handleRememberSchedule(ctx context.Context, input core.SlackIn
 			ctx, input, "This schedule is already saved — nothing more to do.",
 		)
 	}
+	if scheduleProposalGone(err) {
+		// The proposal row is the button's subject, and when it is missing,
+		// lapsed, or already spent, the operator was shown a raw store error —
+		// "schedule proposal not found" reached Slack verbatim. It is the same
+		// stale button every other confirmation has, and it says so now.
+		return s.behaviorActionFeedback(ctx, input, offerreason.Stale(
+			offerreason.ScheduleConfirmation, offerreason.Gone,
+		))
+	}
 	if err != nil {
 		return s.behaviorActionFeedback(ctx, input, "*Emisar could not save these schedules.* "+err.Error())
 	}
@@ -399,6 +417,22 @@ func (s *Service) handleRememberSchedule(ctx context.Context, input core.SlackIn
 		s.audit(ctx, core.AuditEvent{Kind: "schedule.created", ActorID: input.UserID, ObjectID: task.ID, Outcome: "enabled", Detail: task.Title})
 	}
 	return s.postBehaviorReceipt(ctx, input, slackui.SchedulesSavedMessage(tasks), true)
+}
+
+// scheduleProposalGone reports whether an acceptance failed because the button
+// no longer has anything to accept, rather than because the save itself broke.
+// The store answers both in prose, so the two sentences it uses are matched
+// here beside the not-found row they accompany.
+func scheduleProposalGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, store.ErrNotFound) || errors.Is(err, schedulestore.ErrNotFound) {
+		return true
+	}
+	reason := err.Error()
+	return strings.Contains(reason, "no longer pending") ||
+		strings.Contains(reason, "belongs to another conversation")
 }
 
 func (s *Service) acceptScheduleProposal(ctx context.Context, input core.SlackInput, proposalID string) (core.ScheduledTask, error) {
@@ -430,7 +464,9 @@ func (s *Service) handleToggleSchedule(ctx context.Context, input core.SlackInpu
 	}
 	var payload scheduleTogglePayload
 	if err := decisionpkg.DecodeStrictJSON([]byte(input.ActionValue), &payload); err != nil || payload.ID == "" {
-		return s.behaviorActionFeedback(ctx, input, "*This schedule control is invalid.* Nothing changed.")
+		return s.behaviorActionFeedback(ctx, input, offerreason.Stale(
+			offerreason.ScheduleSwitch, offerreason.Unreadable,
+		))
 	}
 	if _, err := s.authorizedScheduledTask(ctx, input, payload.ID); err != nil {
 		return s.behaviorActionFeedback(ctx, input, "*This schedule control does not belong to this channel.* Nothing changed.")

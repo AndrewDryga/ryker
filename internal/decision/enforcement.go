@@ -1216,13 +1216,13 @@ func EpisodeDiagnosisCorrection(
 		return "the active issue has no identified or bounded cause; continue through available logs, metrics, traces, repository context, and dependencies instead of assigning that investigation to the operator"
 	}
 	if strings.TrimSpace(assessment.Cause) == "" {
-		return "the active issue has no actionable cause boundary; continue the diagnosis or return an exact external blocker"
+		return evidencepolicy.CauseBoundaryCorrection(assessment)
 	}
 	if correction := evidencepolicy.AlertCauseCorrection(assessment, evidence); correction != "" {
 		return correction
 	}
 	if strings.TrimSpace(assessment.Verification) == "" {
-		return "the active issue has no fresh verification plan for its mitigation; continue until the result is operationally testable"
+		return evidencepolicy.VerificationPlanCorrection(assessment)
 	}
 	if AlertActionIsUnfinishedInvestigation(assessment.ImmediateAction) {
 		return "the active alert's immediate action is still an investigative handoff; perform the available read-only inspection now, then recommend an actual mitigation or return an exact external blocker"
