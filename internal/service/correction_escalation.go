@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -191,9 +194,57 @@ func agentRunTargetFloor(contextJSON []byte) int {
 	return floor
 }
 
+// submissionTargetFloor is the floor this one Coop admission carries. The
+// desired floor remains in the run envelope: it is history about why the run
+// prefers a stronger model, not a reason to leave the work stuck when every
+// target at or above that floor has reported a provider limit.
+//
+// A successful submission clears LastError, so this is naturally a degraded
+// fallback only while the ladder-exhaustion response is current. The next
+// ordinary escalated turn asks for the desired floor again.
+func submissionTargetFloor(run core.AgentRun) int {
+	floor := agentRunTargetFloor(run.Context)
+	if floor > 0 && coopLadderExhaustedDetail(run.LastError) {
+		return 0
+	}
+	return floor
+}
+
+// coopLadderExhaustedDetail recognises only Coop's complete-ladder refusal,
+// not an arbitrary provider message containing "rate limited". A single
+// preferred provider being limited is Coop's job to rotate around; this host
+// relaxes an escalation floor only after Coop says that floor excluded every
+// target it could currently use.
+func coopLadderExhaustedDetail(detail string) bool {
+	const prefix = "every target at or above policy ladder rung "
+	const limited = " is rate limited"
+	detail = strings.TrimSpace(detail)
+	rest, found := strings.CutPrefix(detail, prefix)
+	if !found {
+		return false
+	}
+	rung, suffix, found := strings.Cut(rest, limited)
+	if !found {
+		return false
+	}
+	if _, err := strconv.Atoi(rung); err != nil {
+		return false
+	}
+	if suffix == "" {
+		return true
+	}
+	const until = " until "
+	reset, found := strings.CutPrefix(suffix, until)
+	if !found {
+		return false
+	}
+	_, err := time.Parse(time.RFC3339, reset)
+	return err == nil
+}
+
 // submitTurnAtLadderFloor submits a turn at or above the rung this run has
-// escalated to, and degrades to an ordinary submission when Coop will not honour
-// the floor.
+// escalated to. It temporarily admits a complete-ladder retry at rung zero, and
+// degrades to an ordinary submission when Coop will not honour the floor.
 //
 // Two refusals arrive as the same 400. A Coop that predates the escalation API
 // rejects the unknown field — and says only "request body is invalid JSON",
@@ -227,7 +278,7 @@ func (s *Service) submitTurnAtLadderFloor(
 	prompt string,
 	artifacts []coop.InputArtifact,
 ) (coop.Turn, coop.Operation, error) {
-	floor := agentRunTargetFloor(run.Context)
+	floor := submissionTargetFloor(run)
 	turn, operation, err := s.coop.SubmitTurnAtOrAbove(
 		ctx, run.IdempotencyKey, sessionID, revision, prompt, artifacts, floor,
 	)

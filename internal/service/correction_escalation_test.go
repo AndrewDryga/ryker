@@ -204,6 +204,55 @@ func TestAnEscalationCoopRefusesStillDeliversItsCorrection(t *testing.T) {
 	}
 }
 
+// Exhausting the preferred rung degrades one retry; it does not erase why the
+// run was escalated.
+//
+// Two production investigations stayed queued for roughly six hours after
+// Claude reported its weekly limit even though Codex was healthy. Their stored
+// floor was rung 1, so every retry excluded rung 0 and repeated the same
+// ladder-exhausted error. The exact exhaustion response is the permission to
+// admit the next turn at rung 0. Once that response is no longer the run's last
+// error, an ordinary escalated turn must still require rung 1 so Claude remains
+// preferred when it is available.
+func TestAFloorLimitedEscalationDegradesOnceWithoutForgettingItsFloor(t *testing.T) {
+	ctx := context.Background()
+	coopClient := newFakeCoop()
+	svc := &Service{coop: coopClient}
+	run := core.AgentRun{
+		ID:             "run_floor_limited",
+		IdempotencyKey: "turn-floor-limited",
+		Context:        json.RawMessage(`{"min_target_index":1}`),
+		LastError: "every target at or above policy ladder rung 1 is rate limited " +
+			"until 2026-08-20T20:00:00Z",
+	}
+
+	if _, _, err := svc.submitTurnAtLadderFloor(
+		ctx, run, "session_codex_claude", 7, "continue", nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.submitFloors) != 1 || coopClient.submitFloors[0] != 0 {
+		t.Fatalf("the Claude-limited retry carried floors %v, want [0] so Codex can answer",
+			coopClient.submitFloors)
+	}
+	if floor := agentRunTargetFloor(run.Context); floor != 1 {
+		t.Fatalf("the degraded retry forgot desired escalation floor %d, want 1", floor)
+	}
+
+	healthy := run
+	healthy.IdempotencyKey = "turn-healthy-escalation"
+	healthy.LastError = ""
+	if _, _, err := svc.submitTurnAtLadderFloor(
+		ctx, healthy, "session_codex_claude", 8, "continue", nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.submitFloors) != 2 || coopClient.submitFloors[1] != 1 {
+		t.Fatalf("the healthy escalated turn carried floors %v, want [0 1] so Claude stays preferred",
+			coopClient.submitFloors)
+	}
+}
+
 // A refused rung is the only reading Responder gets of where the ladder ends.
 //
 // Coop publishes the session's current target but not the policy's list of
