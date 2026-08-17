@@ -2865,11 +2865,16 @@ func (s *Service) stageIncidentTerminal(
 		findings := decisionpkg.CarryFindings(
 			carried.CarriedFindings, decisionpkg.SanitizeFindings(report.Findings),
 		)
+		// Kept past the block below because the offer rules need it twice: once
+		// to build the correction and once, when the retries are spent, to drop
+		// what the model never managed to state.
+		offerInput := core.SlackInput{}
 		if run.SourceKind == "slack" {
 			input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
 			if inputErr != nil {
 				return true, inputErr
 			}
+			offerInput = input
 			trigger = input.Text
 			needsScheduleOffer, scheduleErr := s.scheduleActivationNeedsOffer(
 				ctx, input, report.ScheduleOffer,
@@ -2930,6 +2935,23 @@ func (s *Service) stageIncidentTerminal(
 				return true, episodeErr
 			}
 		}
+		// After everything about the answer, before anything about how it reads:
+		// the same position and the same reason as the watch lane. An offer is
+		// an artifact attached to a conclusion, so there is no point spending a
+		// turn on the button while the content is going back anyway.
+		//
+		// This lane had no such check at all. A malformed offer was dropped
+		// where it was found — prepareMemoryOfferAction returning false and
+		// nothing else happening — so the reply went out without the button the
+		// answer had just promised, and the model, never told which field it
+		// got wrong, proposed the same thing next time.
+		if correction == "" && offerInput.ID != "" {
+			if rejected := s.reportOfferRejectionCorrection(
+				ctx, offerInput, report,
+			); rejected != "" {
+				correction, correctionKind = rejected, correctionRejected
+			}
+		}
 		if correction == "" && trigger != "" {
 			shape, shapeErr := s.incidentReplyShapeCorrection(ctx, run, trigger, report.Message)
 			if shapeErr != nil {
@@ -2952,11 +2974,20 @@ func (s *Service) stageIncidentTerminal(
 				}
 				return true, nil
 			}
-			// An answer refused only for its shape still gets posted; see
-			// replyShapeCorrection for why the alternative is worse.
-			if correctionKind == correctionShape {
+			switch correctionKind {
+			case correctionRejected:
+				// A rejected offer is not a failed turn. Blocking here would
+				// replace a correct answer with "I couldn't finish this check
+				// safely yet" over a malformed button — worse than the silence
+				// this correction replaced, not better. Drop the offer that
+				// failed, keep the answer and the offers that were fine, and
+				// tell the operator what was dropped.
+				s.dropRejectedReportOffers(ctx, offerInput, &report, run)
+			case correctionShape:
+				// An answer refused only for its shape still gets posted; see
+				// replyShapeCorrection for why the alternative is worse.
 				s.recordUnshapedReply(ctx, run, correction)
-			} else {
+			default:
 				report = blockedAgentContinuation(correction, &report)
 			}
 			if reportErr = staged.setResult(resultwire.AgentReport(report)); reportErr != nil {
