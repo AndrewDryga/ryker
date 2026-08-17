@@ -363,7 +363,16 @@ func Rule(
 		proposed, offer.Trigger, offer.Action,
 	)
 	if err != nil {
-		return core.StandingRule{}, 0, err
+		// core cannot say this itself: internal/offerreason imports core, so the
+		// reverse would be a cycle. It exports the pairs, and the refusal is
+		// worded here — which is where every other refusal in this family is
+		// worded anyway. Without it the model got `standing rule pair
+		// "deploy"/"watch_it" is invalid` and no way to learn the four that work.
+		return core.StandingRule{}, 0, offerreason.Field(
+			"trigger/action", offer.Trigger+"/"+offer.Action,
+			"expected one of "+offerreason.List(core.StandingRulePairs())+
+				"; or send workflow instead and leave both empty",
+		)
 	}
 	if offer.Workflow != nil &&
 		((offer.Trigger != "" && offer.Trigger != trigger) ||

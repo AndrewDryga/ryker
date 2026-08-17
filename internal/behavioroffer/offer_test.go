@@ -309,3 +309,40 @@ func TestABoundRepositoryRefusalNamesTheOnesThatExist(t *testing.T) {
 		t.Errorf("the refusal does not name the repositories that exist: %+v", refused)
 	}
 }
+
+// The last refusal in the offer family that named nothing.
+//
+// A standing rule is offered as a trigger/action pair, and the accepted pairs
+// are four cases in one switch in internal/core that the model cannot see. An
+// invented pair came back as `standing rule pair "deploy"/"watch_it" is
+// invalid`: no field, no value, and above all no list — while every sibling
+// refusal names the field, what was sent, and what would have been accepted.
+//
+// The naming has to happen here rather than in core, because internal/core
+// cannot import internal/offerreason: offerreason already imports core, so the
+// dependency would be a cycle. core exports the pairs, this package turns the
+// refusal into words.
+func TestAnInvalidStandingRulePairNamesThePairsThatExist(t *testing.T) {
+	_, _, err := Rule(core.RuleOffer{
+		Scope: "channel", Repository: "platform",
+		Trigger: "deploy", Action: "watch_it", ExpiresIn: "90d",
+	}, testContext())
+	var refused *offerreason.FieldError
+	if !errors.As(err, &refused) {
+		t.Fatalf("an invented trigger/action pair was not refused by field: %v", err)
+	}
+	if !strings.Contains(refused.Value, "deploy") ||
+		!strings.Contains(refused.Value, "watch_it") {
+		t.Errorf("the refusal does not name what was sent: %+v", refused)
+	}
+	// Every pair the host actually accepts, so the model can pick one instead of
+	// guessing a second time.
+	for _, pair := range core.StandingRulePairs() {
+		if !strings.Contains(refused.Expected, pair) {
+			t.Errorf("the refusal omits the accepted pair %q: %q", pair, refused.Expected)
+		}
+	}
+	if len(core.StandingRulePairs()) < 4 {
+		t.Errorf("the accepted pairs are not enumerated: %v", core.StandingRulePairs())
+	}
+}

@@ -104,3 +104,25 @@ func TestStandingWorkflowCanDisableAcknowledgement(t *testing.T) {
 		t.Fatalf("disabled acknowledgement leaked into delivery explanation: %q", delivery)
 	}
 }
+
+// StandingRulePairs is advertised to the model as the pairs that work, so a
+// pair it lists that does not compile is worse than not listing it at all: the
+// refusal that names them exists to stop the model guessing, and a wrong list
+// makes it guess from a menu instead. The two live in one file for this reason;
+// this is what stops them drifting apart in it.
+func TestEveryAdvertisedStandingRulePairCompiles(t *testing.T) {
+	pairs := StandingRulePairs()
+	if len(pairs) == 0 {
+		t.Fatal("no standing rule pairs are advertised")
+	}
+	for _, pair := range pairs {
+		trigger, action, found := strings.Cut(pair, "/")
+		if !found {
+			t.Errorf("advertised pair %q is not trigger/action", pair)
+			continue
+		}
+		if _, err := LegacyStandingWorkflow(trigger, action); err != nil {
+			t.Errorf("advertised pair %q does not compile: %v", pair, err)
+		}
+	}
+}

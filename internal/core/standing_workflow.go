@@ -54,6 +54,26 @@ type StandingRuleEvaluation struct {
 	Delivery string `json:"delivery"`
 }
 
+// StandingRulePairs lists the trigger/action pairs LegacyStandingWorkflow
+// accepts, in the "trigger/action" form the model writes them.
+//
+// It exists so a refusal can name them. The pairs were four cases of a switch
+// and nowhere else, so an invented pair came back as `standing rule pair
+// "deploy"/"watch_it" is invalid` — no list, and the model has no other way to
+// learn the vocabulary. The naming itself happens in internal/behavioroffer:
+// this package cannot import internal/offerreason, which already imports it.
+//
+// Kept beside the switch it enumerates, because the two drifting apart would
+// advertise a pair that does not compile.
+func StandingRulePairs() []string {
+	return []string{
+		"terraform_plan/review_terraform_plan",
+		"terraform_lifecycle/monitor_terraform_lifecycle",
+		"deployment/verify_deployment",
+		"operational_alert/triage_alert",
+	}
+}
+
 // LegacyStandingWorkflow maps every rule saved before workflow documents were
 // introduced to the same behavior it already had. It is also the source of
 // defaults for terse model proposals.
