@@ -118,7 +118,7 @@ func (s *Service) alertReplyRepeats(
 	if err != nil || previous == nil {
 		return false, "", err
 	}
-	signature := alertstream.SignatureOf(decision)
+	signature := alertstream.SignatureOf(decision, input.Text)
 	if signature.Equal(previous.Signature) {
 		return true, "", nil
 	}
@@ -142,7 +142,7 @@ func (s *Service) recordAlertReplyPosted(
 		return nil
 	}
 	posted := alertstream.ReplyPosted{
-		Signature:     alertstream.SignatureOf(decision),
+		Signature:     alertstream.SignatureOf(decision, input.Text),
 		SourceInputID: input.ID,
 		PostedAt:      s.now().UTC().Format(time.RFC3339),
 	}

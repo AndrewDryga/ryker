@@ -125,6 +125,22 @@ type Signature struct {
 	// function of the same channel on every card.
 	OfferRepository string `json:"offer_repository,omitempty"`
 	OfferPresent    bool   `json:"offer_present,omitempty"`
+	// Firing and Resolved are the counts the TRIGGERING CARD carries in its
+	// title, and they are the one thing here that is not a decision. A card going
+	// FIRING:2 to FIRING:3 under an otherwise identical assessment was silent, and
+	// the operator decided the number of allocations over the line is the fact
+	// they are watching, so it posts.
+	//
+	// This is a deliberate operator decision, made against the argument that three
+	// of the five 2026-08-16 replies would return under it. That is the price, it
+	// was named before the choice, and it was chosen: a future reader looking at a
+	// noisy stream is looking at something decided rather than overlooked.
+	//
+	// A reply recorded before this shipped carries neither key, so it decodes as
+	// 0 and 0. The next card on a stream that was already open answers once for
+	// that, and every card after it compares count against count.
+	Firing   int `json:"firing,omitempty"`
+	Resolved int `json:"resolved,omitempty"`
 }
 
 // unwellCoverage names the coverage states that carry news. Coverage is
@@ -139,11 +155,63 @@ func unwellCoverage(status string) bool {
 	}
 }
 
-func SignatureOf(decision decisionpkg.WatchDecision) Signature {
+// AlertCounts reads how many alerts a card says are firing and how many have
+// resolved, from the bracketed marker its title carries: "[VA1 FIRING:3]
+// WARNING | Alloc resident memory near limit", or "[VA1 FIRING:3, RESOLVED:1]"
+// once part of the group has come back.
+//
+// Only the first bracketed group on the card's first line is read, and every
+// one of the 21 marker-carrying cards on the tenant deployment puts it there —
+// inside the Slack link label of the title. The body of that same card then says
+// "*FIRING - 2 alerts*" and describes in prose what is firing, and a card
+// answered later may quote an earlier one; none of that is this card's count.
+//
+// A card with no marker — a Terraform run notification, a Better Stack alert —
+// is 0 and 0, which is what keeps every non-Grafana stream comparing exactly as
+// it did before.
+func AlertCounts(text string) (firing, resolved int) {
+	title, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	open := strings.Index(title, "[")
+	if open < 0 {
+		return 0, 0
+	}
+	marker, _, closed := strings.Cut(title[open+1:], "]")
+	if !closed {
+		return 0, 0
+	}
+	marker = strings.ToLower(marker)
+	return markerCount(marker, "firing:"), markerCount(marker, "resolved:")
+}
+
+// markerCount reads the number after a label inside an already-lowercased
+// marker, and 0 when the label is absent or carries no number.
+func markerCount(marker, label string) int {
+	at := strings.Index(marker, label)
+	if at < 0 {
+		return 0
+	}
+	digits := strings.TrimLeft(marker[at+len(label):], " ")
+	end := 0
+	for end < len(digits) && digits[end] >= '0' && digits[end] <= '9' {
+		end++
+	}
+	count, err := strconv.Atoi(digits[:end])
+	if err != nil {
+		return 0
+	}
+	return count
+}
+
+// SignatureOf reads what a reply decided, and what the card it answers says is
+// firing. The card text is the second half because the count is the alert's own
+// fact rather than the model's, and reading it from the decision would make it a
+// thing the model could reword.
+func SignatureOf(decision decisionpkg.WatchDecision, cardText string) Signature {
 	signature := Signature{
 		OfferPresent:    strings.TrimSpace(decision.TaskTitle) != "",
 		OfferRepository: normalized(decision.TaskRepository),
 	}
+	signature.Firing, signature.Resolved = AlertCounts(cardText)
 	if decision.AlertAssessment != nil {
 		signature.AlertVerdict = normalized(decision.AlertAssessment.Verdict)
 		signature.CauseStatus = normalized(decision.AlertAssessment.CauseStatus)
@@ -183,6 +251,8 @@ func (a Signature) Equal(b Signature) bool {
 		a.Explained == b.Explained &&
 		a.OfferRepository == b.OfferRepository &&
 		a.OfferPresent == b.OfferPresent &&
+		a.Firing == b.Firing &&
+		a.Resolved == b.Resolved &&
 		slices.Equal(a.Layers, b.Layers)
 }
 
@@ -213,6 +283,10 @@ func (a Signature) Change(previous Signature) string {
 		previous.OfferRepository != a.OfferRepository {
 		note("offer", offerLabel(previous), offerLabel(a))
 	}
+	// Last, because these describe the card rather than the decision: when a line
+	// carries both, what the reply concluded reads first.
+	note("firing", strconv.Itoa(previous.Firing), strconv.Itoa(a.Firing))
+	note("resolved", strconv.Itoa(previous.Resolved), strconv.Itoa(a.Resolved))
 	if len(parts) == 0 {
 		return "nothing in the typed decision moved"
 	}

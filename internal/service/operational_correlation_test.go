@@ -1515,6 +1515,10 @@ func TestUnchangedFlapDoesNotPostAgain(t *testing.T) {
 	first := base
 	first.ID, first.EnvelopeID = "flap-card-1", "env-flap-card-1"
 	first.EventID, first.MessageTS = "event-flap-card-1", "1706.100"
+	// Both cards say two allocations are over the line. The count is part of the
+	// comparison since TestAHigherFiringCountPostsAgain, so a repeat that also
+	// moved it would post for that reason and prove nothing about the prose.
+	first.Text = "[VA1 FIRING:2] " + base.Text
 	firstRun := answerStreamCard(t, svc, st, first)
 	if posted := alertReplyPosts(slackClient.posts); len(posted) != 1 {
 		t.Fatalf("the first card was not answered exactly once: %d posts", len(posted))
@@ -1650,6 +1654,48 @@ func TestChangedCoveragePostsAgain(t *testing.T) {
 	// And the comparator says which part of the decision moved. A suppression
 	// nobody can debug becomes a suppression nobody trusts, and the first
 	// question about a missing reply is always "compared with what".
+	outcomes := watchAuditOutcomes(t, cfg, second.ID)
+	if !slices.Contains(outcomes, "alert_update_changed") {
+		t.Fatalf("what changed is not on the trace: slack.watch outcomes %v", outcomes)
+	}
+}
+
+// The alert's own count is part of the answer, by operator decision.
+//
+// A Grafana card says how many of the group are over the line — "[VA1 FIRING:3,
+// RESOLVED:1] WARNING | Alloc resident memory near limit" — and the comparator
+// shipped on 2026-08-16 read only what the reply DECIDED, so a stream going from
+// two allocations over the cap to three, with an identical assessment, said
+// nothing. The operator decided the number over the line is the fact they are
+// watching. The price is about three of that day's five replies coming back,
+// which was argued and chosen rather than overlooked.
+func TestAHigherFiringCountPostsAgain(t *testing.T) {
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	cfg, st, slackClient, svc, base := streamFixture(t, "CFIRING")
+	// The same decision twice, in different words: nothing but the card's count
+	// separates the second answer from the first.
+	svc.coop.(*fakeCoop).completeQueue = []string{
+		confirmedAlertReplyResult(observedAt),
+		rewordedConfirmedAlertReply(t, observedAt),
+	}
+
+	first := base
+	first.ID, first.EnvelopeID = "firing-card-1", "env-firing-card-1"
+	first.EventID, first.MessageTS = "event-firing-card-1", "1711.100"
+	first.Text = "[VA1 FIRING:2] " + base.Text
+	answerStreamCard(t, svc, st, first)
+
+	second := base
+	second.ID, second.EnvelopeID = "firing-card-2", "env-firing-card-2"
+	second.EventID, second.MessageTS = "event-firing-card-2", "1711.200"
+	second.ReceivedAt = base.ReceivedAt.Add(7 * time.Minute)
+	second.Text = "[VA1 FIRING:3, RESOLVED:1] " + base.Text
+	answerStreamCard(t, svc, st, second)
+	if posted := alertReplyPosts(slackClient.posts); len(posted) != 2 {
+		t.Fatalf("a third allocation over the line was suppressed as a repeat: %d answers", len(posted))
+	}
+	// And the trace says the count is what moved, because a post an operator did
+	// not expect is asked about the same way a missing one is.
 	outcomes := watchAuditOutcomes(t, cfg, second.ID)
 	if !slices.Contains(outcomes, "alert_update_changed") {
 		t.Fatalf("what changed is not on the trace: slack.watch outcomes %v", outcomes)
