@@ -18,8 +18,17 @@ func TestAlertCauseCorrectionRequiresExplicitClaimBinding(t *testing.T) {
 		ID: "dependency-failure", ClaimID: "change.recent",
 		Observation: "the deployment revision is current",
 	}}
-	if got := AlertCauseCorrection(assessment, unrelated); !strings.Contains(got, "unrelated") {
-		t.Fatalf("unrelated evidence correction = %q", got)
+	// This asserted only that the word "unrelated" appeared, which is the word
+	// the model could not act on: it named neither the reference nor the claim
+	// that made it unrelated. The rule is unchanged; the demand is now that the
+	// text identifies the record.
+	got := AlertCauseCorrection(assessment, unrelated)
+	for _, want := range []string{
+		"dependency-failure", "change.recent", "dependency.current_health",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("unrelated evidence correction never named %q: %q", want, got)
+		}
 	}
 	matching := []core.Evidence{{
 		ID: "dependency-failure", ClaimID: "dependency.current_health",

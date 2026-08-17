@@ -575,10 +575,16 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 	}
 	unsupported := *bounded
 	unsupported.EvidenceRefs = []string{"missing-cause-evidence"}
-	if got := decisionpkg.EpisodeDiagnosisCorrection(
+	// The refusal has to name the reference it rejected and the one on record:
+	// "absent" was the whole of it for eight rounds on 2026-08-16, and a model
+	// cannot repair a citation the host will not name.
+	got := decisionpkg.EpisodeDiagnosisCorrection(
 		episode, "reply", evidence, coverage, &unsupported, completion,
-	); !strings.Contains(got, "absent") {
-		t.Fatalf("unsupported diagnosis correction = %q", got)
+	)
+	for _, want := range []string{"missing-cause-evidence", "decoder-values"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("unsupported diagnosis correction never named %q: %q", want, got)
+		}
 	}
 
 	unfinishedAction := *bounded

@@ -1232,8 +1232,15 @@ var lineBudget = map[string]int{
 	// decision paths the runtime uses, and gates releases on the result. It sits
 	// above service the way app does: it may import service, and nothing imports
 	// it back.
-	"evaluation":            4050,
-	"evidencepolicy":        100,
+	"evaluation": 4050,
+	// 130 on 2026-08-16, from 100. The cause-binding rule is unchanged and its
+	// branches are the same three; what grew is what each one says. Naming the
+	// offending evidence id, the claim it actually carries, and the ids the
+	// model may choose from instead costs about forty lines here, against eight
+	// correction rounds in one day — five of them after that day's deploys —
+	// that the generic sentence bought at 6,000 to 20,000 output tokens each.
+	// There is no sub-package to extract: this is one function's vocabulary.
+	"evidencepolicy":        130,
 	"episode":               350,
 	"investigationcontract": 550,
 	// replypolicy owns what a Slack reply must look like. Since 2026-08-12 both

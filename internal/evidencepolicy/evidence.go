@@ -2,6 +2,7 @@
 package evidencepolicy
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/core"
@@ -60,8 +61,16 @@ func AlertCauseCorrection(assessment *investigation.AlertAssessment, evidence []
 	if !active && !asserted {
 		return ""
 	}
+	// Which field is empty, rather than both: an assessment that named its
+	// claims and cited nothing was told to name its claims.
 	if len(assessment.CauseClaimIDs) == 0 || len(assessment.EvidenceRefs) == 0 {
-		return "this assessment assigns a cause without cause_claim_ids and evidence_refs; bind the cause to exact recorded claims and evidence operation ids, or leave cause_status unverified"
+		if len(assessment.CauseClaimIDs) == 0 && len(assessment.EvidenceRefs) == 0 {
+			return "this assessment assigns a cause with both cause_claim_ids and evidence_refs empty; name the recorded claim ids the cause rests on, cite one exact evidence id for each of them, or leave cause_status unverified"
+		}
+		if len(assessment.EvidenceRefs) == 0 {
+			return "this assessment assigns a cause to " + namedIDs(assessment.CauseClaimIDs) + " with evidence_refs empty; cite at least one exact evidence id recorded against each of those claims, or leave cause_status unverified"
+		}
+		return "this assessment assigns a cause citing " + namedIDs(assessment.EvidenceRefs) + " with cause_claim_ids empty; name in cause_claim_ids the claim_id each of those records carries, or leave cause_status unverified"
 	}
 	claims := make(map[string]bool, len(assessment.CauseClaimIDs))
 	covered := make(map[string]bool, len(assessment.CauseClaimIDs))
@@ -69,23 +78,77 @@ func AlertCauseCorrection(assessment *investigation.AlertAssessment, evidence []
 		claims[claimID] = true
 	}
 	byID := make(map[string]core.Evidence, len(evidence))
+	recorded := make([]string, 0, len(evidence))
+	byClaim := make(map[string][]string, len(evidence))
 	for _, item := range evidence {
 		if item.ID != "" {
 			byID[item.ID] = item
+			recorded = append(recorded, item.ID)
+			byClaim[item.ClaimID] = append(byClaim[item.ClaimID], item.ID)
 		}
+	}
+	// Hoisted so the unresolved-reference message below can always offer a real
+	// list. Every reference misses when the ledger is empty, and "cite one of
+	// these instead" with nothing after it is the blindness this rule had.
+	if len(byID) == 0 {
+		return "evidence_refs names " + namedIDs(assessment.EvidenceRefs) + " and this episode has no recorded evidence at all; record each observation with a record_evidence operation, then cite the ids those operations carry"
 	}
 	for _, ref := range assessment.EvidenceRefs {
 		item, ok := byID[ref]
-		if !ok || !claims[item.ClaimID] ||
-			(strings.TrimSpace(item.Claim) == "" && strings.TrimSpace(item.Observation) == "") {
-			return "the active issue cites absent or unrelated cause evidence; use exact evidence ids whose claim_id is named in cause_claim_ids"
+		switch {
+		case !ok:
+			// Usually a renamed or misremembered id, so the answer the model
+			// needs is the list of ids that do exist.
+			return "evidence_refs names " + namedIDs([]string{ref}) + ", which is not a recorded evidence id; the ids on record are " + namedIDs(recorded) + " — cite one of those, or record that observation as evidence before citing it"
+		case !claims[item.ClaimID]:
+			// Two ways out, and they are not the same repair: cite a record
+			// already bound to a named claim, or admit this claim into the
+			// cause. The model cannot choose without being told both.
+			return "evidence_refs names " + namedIDs([]string{ref}) + ", whose claim_id is " + namedIDs([]string{item.ClaimID}) + ", and cause_claim_ids names " + namedIDs(assessment.CauseClaimIDs) + "; cite an evidence id whose claim_id is already in cause_claim_ids, or add " + namedIDs([]string{item.ClaimID}) + " to cause_claim_ids if that claim really is part of the cause"
+		case strings.TrimSpace(item.Claim) == "" && strings.TrimSpace(item.Observation) == "":
+			return "evidence_refs names " + namedIDs([]string{ref}) + ", which carries neither a claim nor an observation; cite an evidence id that records what was actually observed, or re-record that evidence with its observation"
 		}
 		covered[item.ClaimID] = true
 	}
-	for claimID := range claims {
-		if !covered[claimID] {
-			return "the active issue names a causal claim without cited evidence; cite at least one exact evidence id for every cause_claim_id"
+	// Over the assessment's own order rather than the claims map, so the same
+	// unbound claim is named the same way twice running.
+	for _, claimID := range assessment.CauseClaimIDs {
+		if covered[claimID] {
+			continue
 		}
+		if available := namedIDs(byClaim[claimID]); available != "" {
+			return "cause_claim_ids names " + namedIDs([]string{claimID}) + " with no evidence_ref citing it; cite one of the evidence ids recorded against that claim — " + available + " — or drop it from cause_claim_ids"
+		}
+		return "cause_claim_ids names " + namedIDs([]string{claimID}) + " and no recorded evidence carries that claim_id; record the observation that establishes the claim and cite it, or drop the claim from cause_claim_ids"
 	}
 	return ""
+}
+
+// maximumNamedIDs bounds how many ids one correction reads back. Eight matches
+// the cap decision.BoundedUniqueFields already puts on cause_claim_ids, and is
+// past every recorded alert episode's evidence count; a longer list stops being
+// a menu the model can choose from.
+const maximumNamedIDs = 8
+
+// namedIDs renders model-supplied ids into a correction. Every id is bounded
+// individually — they are model text like any other, and 120 bytes is the same
+// bound the decision layer applies when it stores them — the list is capped,
+// and what it dropped is counted rather than silently lost.
+func namedIDs(ids []string) string {
+	shown := make([]string, 0, maximumNamedIDs)
+	kept := 0
+	for _, id := range ids {
+		if id = core.BoundedText(id, 120); id == "" {
+			continue
+		}
+		kept++
+		if len(shown) < maximumNamedIDs {
+			shown = append(shown, id)
+		}
+	}
+	list := strings.Join(shown, ", ")
+	if kept > len(shown) {
+		list += " and " + strconv.Itoa(kept-len(shown)) + " more"
+	}
+	return list
 }

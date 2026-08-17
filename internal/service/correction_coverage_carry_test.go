@@ -91,9 +91,12 @@ func TestACorrectionRoundKeepsTheCoverageAndEvidenceTheFirstRoundRecorded(t *tes
 	// be reachable rather than whatever the run state ended up as.
 	for index, entry := range corrections {
 		for _, refused := range []string{
-			// Round 3 names round 1's evidence ids exactly. This is the recorded
-			// reason, pasted from the session's own correction prompt.
-			"the active issue cites absent or unrelated cause evidence",
+			// Round 3 names round 1's evidence ids exactly. The recorded reason
+			// read "the active issue cites absent or unrelated cause evidence";
+			// since 2026-08-16 every branch of that rule names the offending
+			// reference instead, and they all open this way, so the probe is the
+			// opening rather than the sentence it replaced.
+			"evidence_refs names",
 			// The coverage half, recorded by the eval harness as
 			// "premature completion: the deep work episode has not assessed
 			// required coverage layers: change, application, slo".
