@@ -3,10 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -15,6 +18,19 @@ import (
 // engineering task opened out of an investigation, written and committed in a
 // fork, and then parked without ever being published.
 func parkedTraefikTask(t *testing.T, st *store.Store, channelID string) core.Incident {
+	t.Helper()
+	return parkedTraefikTaskCommittedAs(t, st, channelID, "f804b18c")
+}
+
+// parkedTraefikTaskCommittedAs is the same task against a chosen commit, so a
+// test can point its update at a commit that really exists in a real
+// repository. The wording is the harvested one; only the id moves.
+func parkedTraefikTaskCommittedAs(
+	t *testing.T,
+	st *store.Store,
+	channelID string,
+	sha string,
+) core.Incident {
 	t.Helper()
 	ctx := context.Background()
 	task, created, err := st.CreateEngineeringTask(
@@ -35,7 +51,7 @@ func parkedTraefikTask(t *testing.T, st *store.Store, channelID string) core.Inc
 		t.Fatalf("queue task run: created=%t err=%v", created, err)
 	}
 	if err := st.TaskCards.SetUpdate(ctx, task.ID, run.ID,
-		"Completed and committed as `f804b18c` (Traefik: prevent reload-driven OOM "+
+		"Completed and committed as `"+sha+"` (Traefik: prevent reload-driven OOM "+
 			"recurrence): raised the cap to 8192 MiB, added the pre-OOM alert, and left "+
 			"the heap-profile follow-up open. Not published yet.",
 	); err != nil {
@@ -204,6 +220,203 @@ func TestOnlyARealCommitIsReadOutOfATaskUpdate(t *testing.T) {
 	for update, want := range cases {
 		if got := commitSHAIn(update); got != want {
 			t.Fatalf("commitSHAIn(%q) = %q, want %q", update, got, want)
+		}
+	}
+}
+
+// tenantInfraCheckout is the repository the incident turned on, in miniature: a
+// default branch that already carries the change, and a side branch carrying
+// one that does not.
+//
+// A real repository rather than a stubbed git, because what is being proven is
+// what git says about ancestry. A fake that answers "merged" agrees with itself
+// whatever `merge-base` would have said, which is the one thing this check
+// cannot afford to get wrong twice.
+func tenantInfraCheckout(t *testing.T) (path, onMain, onBranch string) {
+	t.Helper()
+	path = t.TempDir()
+	author := []string{
+		"GIT_AUTHOR_NAME=Fixture", "GIT_AUTHOR_EMAIL=fixture@example.test",
+		"GIT_COMMITTER_NAME=Fixture", "GIT_COMMITTER_EMAIL=fixture@example.test",
+		"GIT_AUTHOR_DATE=2026-08-13T00:00:00Z", "GIT_COMMITTER_DATE=2026-08-13T00:00:00Z",
+	}
+	commit := func(message, body string) string {
+		if err := os.WriteFile(
+			filepath.Join(path, "traefik.hcl"), []byte(body), 0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		mustGit(t, path, "add", "traefik.hcl")
+		mustGitEnv(t, path, author, "commit", "--quiet", "-m", message)
+		return strings.TrimSpace(mustGit(t, path, "rev-parse", "--short=8", "HEAD"))
+	}
+	mustGit(t, path, "init", "--quiet", "--initial-branch=main")
+	commit("Traefik: va1 job definition", "memory = 4096\n")
+	mustGit(t, path, "checkout", "--quiet", "-b", "va1-pre-oom-alerts")
+	onBranch = commit(
+		"Traefik: alert before the va1 allocation dies", "memory = 4096\nalert = true\n")
+	mustGit(t, path, "checkout", "--quiet", "main")
+	onMain = commit("Traefik: Double memory limit to 8 GiB in va1", "memory = 8192\n")
+	return path, onMain, onBranch
+}
+
+// pointRepositoryAt declares a repository context over a checkout on disk, the
+// way a deployment's `path:` does.
+func pointRepositoryAt(svc *Service, name, path, branch string) {
+	repositories := make(map[string]config.Repository, len(svc.cfg.Repositories)+1)
+	for key, repository := range svc.cfg.Repositories {
+		repositories[key] = repository
+	}
+	repositories[name] = config.Repository{
+		DisplayName: name, CoopPolicy: name + "-observe",
+		Path: path, GitHubBaseBranch: branch,
+	}
+	svc.cfg.Repositories = repositories
+}
+
+// alertingTraefikCard is the card the whole incident hangs off.
+func alertingTraefikCard(svc *Service, id string) core.SlackInput {
+	return core.SlackInput{
+		ID: id, TeamID: svc.cfg.Slack.TeamID, ChannelID: "COPS",
+		MessageTS: "1800.11", Kind: "bot_message", UserID: "B0GRAFANA",
+		Text: "[FIRING:1] va1-nomad-oom-risk (traefik) memory above 90% of the allocation",
+	}
+}
+
+// relatedTaskFor assembles the layer for one channel and returns its only task.
+func relatedTaskFor(t *testing.T, svc *Service, ctx context.Context, id string) core.RelatedTask {
+	t.Helper()
+	input := alertingTraefikCard(svc, id)
+	assembled, err := svc.assembleAgentContext(ctx, agentContextRequest{
+		ChannelID: "COPS", Repository: "tenant-infra", TargetInput: &input,
+		Effort: core.EffortIncidentInvestigation,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assembled.RelatedTasks) != 1 {
+		t.Fatalf("assembled %+v, want the parked Traefik task", assembled.RelatedTasks)
+	}
+	return assembled.RelatedTasks[0]
+}
+
+// On 2026-08-16 Responder told an operator to publish a commit that had been on
+// main for three days; what was actually missing was the rollout.
+//
+// The 21:09Z alert episode ended blocked on "The accepted profile check cannot
+// run because f804b18c is not deployed. Publish and roll f804b18c through the
+// governed reviewed deployment workflow." That reads as "this was never
+// merged". The substance of the commit — Traefik VA1 memory 4096 to 8192 MiB —
+// had been on tenant-infra main since 2026-08-13 as 08f8b671; what was missing
+// was the cluster rollout, the allocations still running job version 19 with
+// the 4096 cap, and two alert rules nobody had merged. An operator following
+// the recommendation literally would have opened a duplicate pull request.
+//
+// The layer had stated that a commit existed without ever asking where it was.
+func TestAMergedFixIsNotOfferedForPublication(t *testing.T) {
+	svc, st, ctx := recalledEpisodeService(t)
+	checkout, onMain, _ := tenantInfraCheckout(t)
+	pointRepositoryAt(svc, "tenant-infra", checkout, "main")
+	parkedTraefikTaskCommittedAs(t, st, "COPS", onMain)
+
+	related := relatedTaskFor(t, svc, ctx, "slack_oom_merged")
+	if related.CommitSHA != onMain {
+		t.Fatalf("commit sha = %q, want the one its own update names (%q)",
+			related.CommitSHA, onMain)
+	}
+	if related.MergeState != core.MergeStateMerged {
+		t.Fatalf("merge state = %q for a commit on the default branch, want %q",
+			related.MergeState, core.MergeStateMerged)
+	}
+
+	prompt := relatedTasksPrompt([]core.RelatedTask{related})
+	for _, required := range []string{
+		`"merge_state":"merged"`,
+		"already on the default branch",
+		"never offer to publish it again",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("the rendered layer is missing %q:\n%s", required, prompt)
+		}
+	}
+}
+
+// The other half of the same distinction, and the behaviour this layer was
+// built for: a change that really is sitting unpublished is still worth
+// offering. A check that answered "merged" to everything would pass the test
+// above and destroy the layer.
+func TestAnUnmergedFixIsStillOfferedForPublication(t *testing.T) {
+	svc, st, ctx := recalledEpisodeService(t)
+	checkout, _, onBranch := tenantInfraCheckout(t)
+	pointRepositoryAt(svc, "tenant-infra", checkout, "main")
+	parkedTraefikTaskCommittedAs(t, st, "COPS", onBranch)
+
+	related := relatedTaskFor(t, svc, ctx, "slack_oom_unmerged")
+	if related.MergeState != core.MergeStateNotMerged {
+		t.Fatalf("merge state = %q for a commit only on a side branch, want %q",
+			related.MergeState, core.MergeStateNotMerged)
+	}
+
+	prompt := relatedTasksPrompt([]core.RelatedTask{related})
+	for _, required := range []string{
+		`"merge_state":"not_merged"`,
+		"offering to publish THAT change is the right move",
+		"instead of proposing to write it again",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("the rendered layer is missing %q:\n%s", required, prompt)
+		}
+	}
+}
+
+// A repository the host cannot read answers nothing, and says so.
+//
+// This is the state the recorded incident itself lands in: f804b18c was
+// committed in a fork, so the tenant-infra checkout has no such object, and
+// there is no honest way to call it merged or unmerged from here. The failure
+// mode being held shut is the confident one — a missing checkout must never
+// read as "not on the default branch", because that is the exact sentence that
+// sent an operator to publish a change that was already there.
+func TestAnUnreadableRepositoryIsUnknownNotMerged(t *testing.T) {
+	svc, st, ctx := recalledEpisodeService(t)
+	pointRepositoryAt(svc, "tenant-infra", filepath.Join(t.TempDir(), "never-cloned"), "main")
+	parkedTraefikTaskCommittedAs(t, st, "COPS", "f804b18c")
+
+	related := relatedTaskFor(t, svc, ctx, "slack_oom_unreadable")
+	if related.MergeState != core.MergeStateUnknown {
+		t.Fatalf("merge state = %q for a checkout that does not exist, want %q",
+			related.MergeState, core.MergeStateUnknown)
+	}
+
+	prompt := relatedTasksPrompt([]core.RelatedTask{related})
+	for _, required := range []string{
+		`"merge_state":"unknown"`,
+		"the host could not read the repository",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("the rendered layer is missing %q:\n%s", required, prompt)
+		}
+	}
+}
+
+// Merged is not deployed, and the layer has to say which question is still
+// open.
+//
+// Responder reads a git checkout; a checkout cannot see what the cluster is
+// running. So the host asserts the half it can prove — the commit is on the
+// default branch — and hands the model the half only live evidence answers.
+// Without that sentence, "merged" would be read as "done", and the 2026-08-16
+// episode was blocked on precisely the thing merged does not cover: the
+// rollout.
+func TestTheLayerSaysMergedIsNotDeployed(t *testing.T) {
+	for _, required := range []string{
+		"merged is not deployed",
+		"whether the running system has it",
+		"live evidence",
+	} {
+		if !strings.Contains(relatedTasksPolicyText, required) {
+			t.Fatalf("the policy text does not draw the merged/deployed line (%q):\n%s",
+				required, relatedTasksPolicyText)
 		}
 	}
 }

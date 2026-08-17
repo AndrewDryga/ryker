@@ -760,7 +760,19 @@ var lineBudget = map[string]int{
 	// are the difference between an error and a note: the rejection type, the
 	// per-file continue where a return used to be, and the prompt section that
 	// tells the model what was dropped and to say so.
-	"service": 23780,
+	//
+	// And 23900 on 2026-08-16, forty-two lines measured, for the merge state on a
+	// related engineering task. The related_engineering_tasks layer had been
+	// parsing a commit id out of a task's own prose and offering to publish it,
+	// without ever asking where that commit was; at 21:09Z an alert investigation
+	// ended blocked on "Publish and roll f804b18c through the governed reviewed
+	// deployment workflow", three days after the same change reached tenant-infra
+	// main as 08f8b671. What was missing was the rollout. Fifteen of these lines
+	// are the policy text that tells the model what to recommend for each state
+	// and that merged is not deployed; the rest are two bounded git reads of the
+	// checkout the repository context already points at, and the guards that make
+	// every unreadable case answer unknown instead of guessing.
+	"service": 23900,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
