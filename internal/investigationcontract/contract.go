@@ -388,14 +388,13 @@ func claimNamespace(value string) string {
 	return value
 }
 
-func (contract InvestigationContract) Prompt() string {
-	data, err := json.Marshal(contract)
-	if err != nil {
-		return ""
-	}
-	result := `<host-investigation-contract>
-` + string(data) + `
-This contract controls effort, never permission. Investigate each required claim with the strongest
+// EvidenceRules and CompletionRules are the contract's fixed prose, named so
+// the prompt archive can elide them: the JSON above them differs per episode
+// and these paragraphs never do. See internal/promptarchive.
+
+// EvidenceRules governs what an evidence record is and how a conflict with an
+// already-recorded claim is retired.
+const EvidenceRules = `This contract controls effort, never permission. Investigate each required claim with the strongest
 available repository and live evidence. Keep evidence atomic and bind it to claim_id, a dimensions
 object carrying a key for every dimension that required claim lists, source time, freshness,
 confidence, and whether it supports or contradicts the claim. Repository state proves declared intent; only
@@ -425,12 +424,11 @@ remains unresolved.
 Use only a verdict listed in completion.allowed_verdicts. Do not introduce an operational health verdict
 for a change review, engineering result, factual assessment, schedule, configuration change, runbook
 draft, or publication workflow. Incomplete work, an unpublished draft, pending verification, risk, and
-missing authorization are not operational degradation. Describe them with the contract's own result state.
-`
-	result += contract.conclusionGuidance()
-	result += contract.planGuidance()
-	result += `
-Keep the final Slack synthesis decision-first and concise. Emit only the result operations listed by the
+missing authorization are not operational degradation. Describe them with the contract's own result state.`
+
+// CompletionRules governs what decision_ready and blocked mean, and what a
+// capability gap is as distinct from a blocker.
+const CompletionRules = `Keep the final Slack synthesis decision-first and concise. Emit only the result operations listed by the
 contract. The host validates each operation and completion against this contract.
 
 completion.status is decision_ready or blocked and nothing else. Needing the operator to decide,
@@ -474,7 +472,21 @@ unknown beneath the result, record the next action, and complete with the suppor
 decision_ready means every gap left cannot change the decision, and material_gaps is where a gap goes
 only under a verdict it cannot reverse. Under healthy, succeeded, confirmed, completed, no_change, or no
 verdict at all, list none: a gap that could change the verdict makes the result blocked or lowers the
-verdict, and one that could not belongs beneath the result in the completion message.
+verdict, and one that could not belongs beneath the result in the completion message.`
+
+func (contract InvestigationContract) Prompt() string {
+	data, err := json.Marshal(contract)
+	if err != nil {
+		return ""
+	}
+	result := `<host-investigation-contract>
+` + string(data) + `
+` + EvidenceRules + `
+`
+	result += contract.conclusionGuidance()
+	result += contract.planGuidance()
+	result += `
+` + CompletionRules + `
 </host-investigation-contract>`
 	return result
 }

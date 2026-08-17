@@ -93,7 +93,12 @@ func (s *Service) ensureAttemptContextManifest(
 		TargetFloor: agentRunTargetFloor(run.Context),
 		// Redacted before the write, never after: this copy outlives the turn
 		// and is the one an export carries. The raw column above is transport.
-		RetainedPrompt: s.sanitizer.Unbounded().Text(prompt),
+		//
+		// And elided before it is redacted, which is the order that matters: the
+		// instruction blocks are matched against the bytes the host itself just
+		// assembled, so a redaction landing inside one can never stop it being
+		// recognized. The sanitizer then walks roughly half the text it used to.
+		RetainedPrompt: s.sanitizer.Unbounded().Text(archivedPrompt(prompt)),
 		Omissions:      core.ContextOmissionReasons(omissions),
 		References: []core.ContextReference{
 			contextReference("source_input", run.SourceKind+":"+run.SourceID, nil, "eligible", map[string]string{

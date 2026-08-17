@@ -15,6 +15,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/promptarchive"
 )
 
 // EpisodeMetric is one answer an operator should get before reading the trace.
@@ -334,6 +335,9 @@ func buildEpisodeTrace(pricing config.Pricing, page episodePage, present func(st
 						"about replaced by [REDACTED] — so it will not hash to the fingerprint under " +
 						"Replay verification below.",
 				})
+			}
+			if elided := elidedInstructionDetail(prompt); elided.Label != "" {
+				promptDetails = append(promptDetails, elided)
 			}
 			components, layers := promptContextDetails(prompt, present, trimmedByKind, page.EffortContract)
 			memoryLayers = layers
@@ -2137,6 +2141,47 @@ func slackReactionDisplay(name string) string {
 	// Custom workspace emoji do not have a universal Unicode representation.
 	// Keep their Slack spelling recognizable instead of presenting a bare API name.
 	return ":" + name + ":"
+}
+
+// elidedInstructionDetail says what the archive is standing in for.
+//
+// The archived copy of a prompt stops carrying Responder's own instruction
+// blocks — ~131 MB/week on tenant, ~60% of it the same block stored a hundred
+// and forty times a day — and leaves a marker naming each one. Without this the
+// panel would render those markers as unexplained tags in the middle of the
+// prompt, and a reader would reasonably conclude the turn had been truncated:
+// a storage bill traded for a false diagnosis.
+//
+// The block is NAMED and MEASURED here rather than rebuilt from the constants
+// it came from, and the reason is correctness before layering. prompt_version
+// is bumped when the contract changes, not when a paragraph is reworded, and
+// the paragraphs are reworded most weeks — so a block reconstructed from
+// today's constants would show a reader words that model was never sent, under
+// a version stamp claiming they were. The name, the byte count and the digest
+// are true, and the digest is what a later reconstruction would have to match.
+func elidedInstructionDetail(prompt string) TraceDetail {
+	markers := promptarchive.Markers(prompt)
+	if len(markers) == 0 {
+		return TraceDetail{}
+	}
+	lines := make([]string, 0, len(markers))
+	for _, marker := range markers {
+		lines = append(lines, fmt.Sprintf("%s — %s bytes (sha256 %s)",
+			marker.Block, groupDigits(int64(marker.Bytes)), marker.Digest))
+	}
+	return TraceDetail{
+		Label: "Host instructions elided from the archive", Status: "Not stored",
+		Kind: "missing", Tone: "missing", ShowCount: true, Count: len(markers),
+		Description: fmt.Sprintf(
+			"%s bytes of Responder's own instructions stood here, byte-identical on "+
+				"every turn of prompt version %s. The archive keeps a marker naming "+
+				"each block instead of another copy of it; everything above and below "+
+				"is what this turn in particular was told.",
+			groupDigits(int64(promptarchive.ElidedBytes(markers))),
+			fallback(markers[0].Version, "unversioned"),
+		),
+		Body: strings.Join(lines, "\n"),
+	}
 }
 
 // promptContextDetails makes the memory envelope inspectable without storing a

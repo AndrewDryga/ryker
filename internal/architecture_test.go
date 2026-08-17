@@ -738,7 +738,19 @@ var lineBudget = map[string]int{
 	// continues an episode. 23652 measured against the merged tree rather than
 	// the 23581 it measured alone, because the recovery hold and the fold landed
 	// beside it.
-	"service": 23652,
+	//
+	// And 23600 on 2026-08-16 for the prompt archive, which is 63 lines and
+	// almost all of them a list. context_manifest_texts was growing ~131 MB/week
+	// on tenant — ~560 MB at the 30-day episode horizon, 426 of 428 prompts
+	// unique so deduplication had nothing to work with — and most of every row
+	// was the host's own instruction block, stored a hundred and forty times a
+	// day. The mechanics went to internal/promptarchive, which is handed a
+	// prompt and a dictionary and knows nothing else. What is left here is the
+	// dictionary itself: thirty-odd lines naming the blocks this package
+	// assembles, and it cannot leave, because half of them are unexported
+	// constants of this package and the other half are only known to be IN a
+	// prompt by the code that puts them there.
+	"service": 23711,
 	// Down from 14100 across six extractions. It has only ever moved down except
 	// twice, both times because a new store operation landed rather than an
 	// existing one moving: rate-limit requeueing, and now per-attempt token
@@ -1348,6 +1360,17 @@ var forbiddenImports = map[string][]string{
 	// promote-fixtures command would have two answers.
 	"fixturepromotionstore": {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "evaluation"},
 	"promptbudget":          {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "core"},
+	// promptarchive is handed a prompt and a list of instruction texts and
+	// returns the copy that outlives the turn. It must stay unable to look
+	// anything up: the caller owns which blocks exist, and a package that could
+	// reach the service or the store would be one that decides for itself what
+	// counts as an instruction — which is how an archive starts deleting the
+	// conversation. It imports nothing outside the standard library today, and
+	// this is the list that keeps it a function of its arguments.
+	"promptarchive": {
+		"service", "store", "slackui", "httpapi", "app", "publisher", "coop",
+		"emisar", "config", "decision", "investigation", "core", "webui",
+	},
 	// promptscope reads a sender type and a message and returns which blocks
 	// apply. It takes decision for the alert vocabulary the host corrections
 	// already use — the block and the correction that enforces it must agree on
