@@ -194,17 +194,28 @@ func agentRunTargetFloor(contextJSON []byte) int {
 	return floor
 }
 
+func agentRunDegradedFallbackPending(contextJSON []byte) bool {
+	if len(contextJSON) == 0 {
+		return false
+	}
+	var envelope struct {
+		Pending bool `json:"degraded_target_fallback_pending,omitempty"`
+	}
+	return json.Unmarshal(contextJSON, &envelope) == nil && envelope.Pending
+}
+
 // submissionTargetFloor is the floor this one Coop admission carries. The
 // desired floor remains in the run envelope: it is history about why the run
 // prefers a stronger model, not a reason to leave the work stuck when every
 // target at or above that floor has reported a provider limit.
 //
-// A successful submission clears LastError, so this is naturally a degraded
-// fallback only while the ladder-exhaustion response is current. The next
-// ordinary escalated turn asks for the desired floor again.
+// A successful submission clears both LastError and the pending fallback flag,
+// so this is naturally one degraded admission. The next ordinary escalated
+// turn asks for the desired floor again.
 func submissionTargetFloor(run core.AgentRun) int {
 	floor := agentRunTargetFloor(run.Context)
-	if floor > 0 && coopLadderExhaustedDetail(run.LastError) {
+	if floor > 0 && (agentRunDegradedFallbackPending(run.Context) ||
+		coopLadderExhaustedDetail(run.LastError)) {
 		return 0
 	}
 	return floor

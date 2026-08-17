@@ -51,12 +51,16 @@ func (s *Store) RequeueRateLimitedFinalization(
 // It is the reason a refused run showed state 'failed' with failure_count 0.
 //
 // last_error still records the detail: `responder status` and the logs should
-// show why a run is waiting, even though Slack does not.
+// show why a run is waiting, even though Slack does not. When the complete
+// ladder above an escalation floor was limited, degradedFallback also arms one
+// floor-zero admission in context. It lives there rather than only in
+// last_error because a later dependency wait may replace the operator-facing
+// reason before this run reaches Coop.
 func (s *Store) RequeueRateLimitedAgentRun(
 	ctx context.Context,
 	id string,
 	detail string,
-	next time.Time,
+	next time.Time, degradedFallback bool,
 ) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -81,11 +85,11 @@ func (s *Store) RequeueRateLimitedAgentRun(
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'pending', coop_turn_id = '', idempotency_key = ?,
-		    last_error = ?, next_attempt_at = ?, updated_at = ?
+		    last_error = ?, next_attempt_at = ?, context_json = CASE WHEN ? THEN json_set(context_json, '$.`+degradedFallbackKey+`', json('true')) ELSE context_json END, updated_at = ?
 		WHERE id = ? AND state IN ('preparing', 'running', 'finalizing')`,
 		"responder:run:"+id+":"+recoveryID,
 		sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat),
-		s.nowText(), id,
+		degradedFallback, s.nowText(), id,
 	)
 	if err := sqlutil.ExpectOne(result, err, "requeue rate-limited agent run"); err != nil {
 		return err

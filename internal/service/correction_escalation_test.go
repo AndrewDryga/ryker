@@ -210,10 +210,12 @@ func TestAnEscalationCoopRefusesStillDeliversItsCorrection(t *testing.T) {
 // Two production investigations stayed queued for roughly six hours after
 // Claude reported its weekly limit even though Codex was healthy. Their stored
 // floor was rung 1, so every retry excluded rung 0 and repeated the same
-// ladder-exhausted error. The exact exhaustion response is the permission to
-// admit the next turn at rung 0. Once that response is no longer the run's last
-// error, an ordinary escalated turn must still require rung 1 so Claude remains
-// preferred when it is available.
+// ladder-exhausted error. After the first fix went live, channel serialization
+// overwrote the second run's last error with "waiting for the previous agent
+// run" before it could submit — forgetting the exhaustion and setting it up to
+// ask for Claude again. The permission to degrade therefore has to ride the run
+// context across unrelated defers. Once consumed, an ordinary escalated turn
+// must still require rung 1 so Claude remains preferred when it is available.
 func TestAFloorLimitedEscalationDegradesOnceWithoutForgettingItsFloor(t *testing.T) {
 	ctx := context.Background()
 	coopClient := newFakeCoop()
@@ -221,9 +223,10 @@ func TestAFloorLimitedEscalationDegradesOnceWithoutForgettingItsFloor(t *testing
 	run := core.AgentRun{
 		ID:             "run_floor_limited",
 		IdempotencyKey: "turn-floor-limited",
-		Context:        json.RawMessage(`{"min_target_index":1}`),
-		LastError: "every target at or above policy ladder rung 1 is rate limited " +
-			"until 2026-08-20T20:00:00Z",
+		Context: json.RawMessage(
+			`{"min_target_index":1,"degraded_target_fallback_pending":true}`,
+		),
+		LastError: "waiting for the previous agent run in this Slack channel",
 	}
 
 	if _, _, err := svc.submitTurnAtLadderFloor(
@@ -241,6 +244,7 @@ func TestAFloorLimitedEscalationDegradesOnceWithoutForgettingItsFloor(t *testing
 
 	healthy := run
 	healthy.IdempotencyKey = "turn-healthy-escalation"
+	healthy.Context = json.RawMessage(`{"min_target_index":1}`)
 	healthy.LastError = ""
 	if _, _, err := svc.submitTurnAtLadderFloor(
 		ctx, healthy, "session_codex_claude", 8, "continue", nil,

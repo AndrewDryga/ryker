@@ -70,25 +70,28 @@ type WatchTurnState struct {
 	ReplyShapeCorrections  int                            `json:"reply_shape_corrections,omitempty"`
 	// CorrectionClasses counts the corrections this run has had of each class,
 	// MinTargetIndex is the rung of the session policy's target ladder its next
-	// turn may not be answered below, and RefusedTargetFloor is the lowest rung
-	// Coop has refused to deliver. All three are written by the store, which
-	// edits the envelope as raw fields; they are declared here because this
-	// struct is decoded strictly and re-encoded whole, so a field it does not
-	// name is first a decode error and then, once tolerated, silently dropped.
-	CorrectionClasses    map[string]int            `json:"correction_classes,omitempty"`
-	MinTargetIndex       int                       `json:"min_target_index,omitempty"`
-	RefusedTargetFloor   int                       `json:"refused_target_floor,omitempty"`
-	PendingStatusSet     bool                      `json:"pending_status_set,omitempty"`
-	PendingStatusAt      int64                     `json:"pending_status_at,omitempty"`
-	FailureDetail        string                    `json:"failure_detail,omitempty"`
-	ApprovalContinuation bool                      `json:"approval_continuation,omitempty"`
-	DecisionSourceID     string                    `json:"decision_source_id,omitempty"`
-	ReplyDeliveryID      string                    `json:"reply_delivery_id,omitempty"`
-	PublicationsCaptured bool                      `json:"publications_captured,omitempty"`
-	ActivePublications   []core.PublicationContext `json:"active_publications,omitempty"`
-	RecheckOriginRunID   string                    `json:"recheck_origin_run_id,omitempty"`
-	RecheckKey           string                    `json:"recheck_key,omitempty"`
-	RecheckAttempt       int                       `json:"recheck_attempt,omitempty"`
+	// turn may not be answered below, RefusedTargetFloor is the lowest rung Coop
+	// has refused to deliver, and DegradedTargetFallbackPending remembers that
+	// provider limits require the next admission to ignore the desired floor.
+	// All four are written by the store, which edits the envelope as raw fields;
+	// they are declared here because this struct is decoded strictly and
+	// re-encoded whole, so a field it does not name is first a decode error and
+	// then, once tolerated, silently dropped.
+	CorrectionClasses             map[string]int            `json:"correction_classes,omitempty"`
+	MinTargetIndex                int                       `json:"min_target_index,omitempty"`
+	RefusedTargetFloor            int                       `json:"refused_target_floor,omitempty"`
+	DegradedTargetFallbackPending bool                      `json:"degraded_target_fallback_pending,omitempty"`
+	PendingStatusSet              bool                      `json:"pending_status_set,omitempty"`
+	PendingStatusAt               int64                     `json:"pending_status_at,omitempty"`
+	FailureDetail                 string                    `json:"failure_detail,omitempty"`
+	ApprovalContinuation          bool                      `json:"approval_continuation,omitempty"`
+	DecisionSourceID              string                    `json:"decision_source_id,omitempty"`
+	ReplyDeliveryID               string                    `json:"reply_delivery_id,omitempty"`
+	PublicationsCaptured          bool                      `json:"publications_captured,omitempty"`
+	ActivePublications            []core.PublicationContext `json:"active_publications,omitempty"`
+	RecheckOriginRunID            string                    `json:"recheck_origin_run_id,omitempty"`
+	RecheckKey                    string                    `json:"recheck_key,omitempty"`
+	RecheckAttempt                int                       `json:"recheck_attempt,omitempty"`
 	// StreamAnsweredAt, StreamAnsweredVerdict and StreamAnsweredAction are what
 	// Responder has already posted about THIS operational stream, in this
 	// thread: when, what it concluded, and what it told the channel to do.

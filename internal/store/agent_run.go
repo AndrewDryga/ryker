@@ -1016,7 +1016,7 @@ func (s *Store) SetAgentRunTargetFloor(ctx context.Context, id string, floor, re
 	})
 }
 
-// The three envelope keys this file owns. Both context envelopes — the assembled
+// The four envelope keys this file owns. Both context envelopes — the assembled
 // one an incident run carries and the watch turn state a triage run carries —
 // serialize as JSON objects, so a field set here survives either without this
 // layer knowing which it holds. Each is declared on both of those structs too:
@@ -1024,9 +1024,9 @@ func (s *Store) SetAgentRunTargetFloor(ctx context.Context, id string, floor, re
 // decoded strictly, so a key neither names is first a failed turn and then a
 // silently dropped field.
 const (
-	correctionClassesKey  = "correction_classes"
-	targetFloorKey        = "min_target_index"
-	refusedTargetFloorKey = "refused_target_floor"
+	correctionClassesKey                       = "correction_classes"
+	targetFloorKey                             = "min_target_index"
+	refusedTargetFloorKey, degradedFallbackKey = "refused_target_floor", "degraded_target_fallback_pending"
 )
 
 // mutateAgentRunContext edits one field of a run's context envelope without
@@ -1158,7 +1158,7 @@ func (s *Store) MarkAgentRunSubmitted(
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'running', coop_turn_id = ?, coop_event_sequence = ?,
-		    last_error = '', started_at = COALESCE(started_at, ?), updated_at = ?
+		    last_error = '', context_json = CASE WHEN json_valid(context_json) THEN json_remove(context_json, '$.`+degradedFallbackKey+`') ELSE context_json END, started_at = COALESCE(started_at, ?), updated_at = ?
 		WHERE id = ? AND state = 'preparing'`,
 		coopTurnID, eventSequence, now, now, id)
 	if err := sqlutil.ExpectOne(result, err, "mark agent run submitted"); err != nil {
@@ -1229,7 +1229,7 @@ func (s *Store) MarkTriageAgentRunSubmitted(
 	result, err := tx.ExecContext(ctx, `
 		UPDATE agent_runs
 		SET state = 'running', coop_turn_id = ?, coop_event_sequence = ?,
-		    last_error = '', started_at = COALESCE(started_at, ?), updated_at = ?
+		    last_error = '', context_json = CASE WHEN json_valid(context_json) THEN json_remove(context_json, '$.`+degradedFallbackKey+`') ELSE context_json END, started_at = COALESCE(started_at, ?), updated_at = ?
 		WHERE id = ? AND state = 'preparing'`,
 		coopTurnID, eventSequence, now, now, id,
 	)

@@ -146,6 +146,55 @@ func TestRateLimitedRunIsRequeuedWithoutSpendingAnAttempt(t *testing.T) {
 	if after.LastError == "" {
 		t.Fatal("last_error is empty; status and logs would not show why work is waiting")
 	}
+	if agentRunDegradedFallbackPending(after.Context) {
+		t.Fatal("an ordinary 429 armed a below-floor fallback; only complete ladder exhaustion may do that")
+	}
+}
+
+// A complete preferred-ladder refusal arms the next admission durably.
+//
+// The second live Tenant run reached its eligibility time while another run was
+// still active in the channel. That ordinary serialization wait replaced
+// last_error, so an implementation that inferred fallback only from the latest
+// error forgot the six-hour Claude exhaustion before it ever submitted. The
+// permission therefore lives beside the desired floor in context, where a
+// later queue reason cannot erase it.
+func TestACompleteLadderRefusalPersistsOneDegradedFallback(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.log = slog.New(slog.DiscardHandler)
+	run := seedPreparingRun(t, st)
+	if err := st.SetAgentRunTargetFloor(ctx, run.ID, 1, 0); err != nil {
+		t.Fatal(err)
+	}
+	run, err = st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handled, requeueErr := svc.requeueIfRateLimited(ctx, run, errors.New(
+		"every target at or above policy ladder rung 1 is rate limited until "+
+			"2026-08-20T20:00:00Z",
+	))
+	if requeueErr != nil || !handled {
+		t.Fatalf("requeue = %t, %v", handled, requeueErr)
+	}
+	after, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if floor := agentRunTargetFloor(after.Context); floor != 1 {
+		t.Fatalf("arming degraded fallback erased desired floor %d, want 1", floor)
+	}
+	if !agentRunDegradedFallbackPending(after.Context) {
+		t.Fatal("complete ladder exhaustion was stored only in last_error and will be lost to the next queue reason")
+	}
 }
 
 // Anything the provider did not refuse must keep failing normally, or a genuine

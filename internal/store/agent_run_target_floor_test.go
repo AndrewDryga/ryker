@@ -130,6 +130,49 @@ func TestTheLowestRefusedRungIsTheOneRemembered(t *testing.T) {
 	}
 }
 
+// Accepting the degraded turn consumes only the one-shot routing permission.
+// The desired rung is history about why the run escalated and must survive so
+// a later healthy turn still prefers that rung.
+func TestASuccessfulSubmissionConsumesOnlyTheDegradedFallback(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	queued, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "C1", ThreadTS: "100.1",
+		ConversationKey: "channel:C1", SourceKind: "watch", SourceID: "input_fallback",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	leased, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextJSON := []byte(
+		`{"min_target_index":1,"degraded_target_fallback_pending":true}`,
+	)
+	if err := st.BindAgentRunSession(
+		ctx, leased.ID, "session_codex_claude", 1, "repo", 0, contextJSON,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunSubmitted(ctx, leased.ID, "turn_codex", 2, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	fields := envelopeOf(t, st, queued.ID)
+	if string(fields["min_target_index"]) != "1" {
+		t.Fatalf("successful degraded submission erased desired floor: %v", fields)
+	}
+	if _, pending := fields["degraded_target_fallback_pending"]; pending {
+		t.Fatalf("successful degraded submission left its one-shot fallback armed: %v", fields)
+	}
+}
+
 func envelopeOf(t *testing.T, st *Store, id string) map[string]json.RawMessage {
 	t.Helper()
 	run, err := st.GetAgentRun(context.Background(), id)

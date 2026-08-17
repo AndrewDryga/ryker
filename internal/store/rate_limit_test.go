@@ -104,7 +104,7 @@ func TestRunningRunIsRequeuedWhenTheProviderRefuses(t *testing.T) {
 
 	next := time.Now().UTC().Add(5 * time.Minute)
 	if err := st.RequeueRateLimitedAgentRun(
-		ctx, "run_running", "ACP request was rejected", next,
+		ctx, "run_running", "ACP request was rejected", next, false,
 	); err != nil {
 		t.Fatalf("a running run could not be requeued, so the refusal becomes a failure: %v", err)
 	}

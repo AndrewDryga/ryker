@@ -1828,7 +1828,11 @@ func (s *Service) requeueIfRateLimited(
 			"detail", detail,
 		)
 	}
-	return true, s.store.RequeueRateLimitedAgentRun(ctx, run.ID, detail, next)
+	degradedFallback := agentRunTargetFloor(run.Context) > 0 &&
+		coopLadderExhaustedDetail(detail)
+	return true, s.store.RequeueRateLimitedAgentRun(
+		ctx, run.ID, detail, next, degradedFallback,
+	)
 }
 
 func (s *Service) retryAgentRun(
