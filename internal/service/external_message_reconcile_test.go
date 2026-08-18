@@ -523,10 +523,15 @@ func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *test
 	materialReview.Completion = &CompletionAssessment{
 		Status: "decision_ready", Verdict: "needs_review", Summary: "Replacement needs review.",
 	}
-	if decision := EnforceExternalLifecycleCommunication(core.SlackInput{
-		Kind: "bot_message", Text: "Run run-abc\nRun Planned - Needs Confirmation",
-	}, materialReview); decision.Action != "reply" {
+	reviewInput := core.SlackInput{
+		Kind: "bot_message",
+		Text: "Run <https://app.terraform.io/app/acme/infra/runs/run-abc|run-abc>\n" +
+			"Run Planned - Needs Confirmation",
+	}
+	if decision := EnforceExternalLifecycleCommunication(reviewInput, materialReview); decision.Action != "reply" {
 		t.Fatalf("material plan review was suppressed: %+v", decision)
+	} else if decision = EnrichExternalLifecycleReply(reviewInput, decision); !strings.Contains(decision.Message, "https://app.terraform.io/app/acme/infra/runs/run-abc") {
+		t.Fatalf("host did not add the source-owned provider URL: %q", decision.Message)
 	}
 	if decision := EnforceExternalLifecycleCommunication(core.SlackInput{
 		Kind: "bot_message", Text: "Run run-abc\nRun Planning",
@@ -586,7 +591,8 @@ func TestTerraformLifecycleContinuationRequiresExactDurableWait(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	input := core.SlackInput{
 		Kind: "bot_message",
-		Text: "Run notification for acme/infra\nRun run-abc\nRun Planning",
+		Text: "Run notification for acme/infra\n" +
+			"Run run-abc\n<https://app.terraform.io/app/acme/infra/runs/run-abc|Open run>\nRun Planning",
 	}
 	state := decisionpkg.WatchTurnState{MatchedRules: []core.StandingRule{{
 		Trigger: "terraform_lifecycle", Action: "monitor_terraform_lifecycle",
@@ -627,7 +633,7 @@ func TestTerraformLifecycleContinuationRequiresExactDurableWait(t *testing.T) {
 		t.Fatal("accepted a Terraform wait for a different run")
 	}
 	review := waiting
-	review.Message = "Review the plan at https://app.terraform.io/app/acme/infra/runs/run-abc."
+	review.Message = "The saved plan needs approval."
 	review.Completion = &CompletionAssessment{
 		Status: "decision_ready", Verdict: "needs_review", Summary: "The saved plan needs approval.",
 	}
@@ -645,10 +651,11 @@ func TestTerraformLifecycleContinuationRequiresExactDurableWait(t *testing.T) {
 	if correction := TerraformLifecycleContinuationCorrection(input, state, review); correction != "" {
 		t.Fatalf("rejected approval-ready review with URL, health, and terminal wait: %s", correction)
 	}
-	reviewWithoutURL := review
-	reviewWithoutURL.Message = "The saved plan needs approval."
-	if correction := TerraformLifecycleContinuationCorrection(input, state, reviewWithoutURL); !strings.Contains(correction, "canonical provider") {
-		t.Fatalf("approval review without provider URL correction = %q", correction)
+	delivered := EnrichExternalLifecycleReply(
+		input, EnforceExternalLifecycleCommunication(input, review),
+	)
+	if !strings.Contains(delivered.Message, "https://app.terraform.io/app/acme/infra/runs/run-abc") {
+		t.Fatalf("approval review did not receive the canonical source URL: %q", delivered.Message)
 	}
 	terminal := decisionpkg.WatchDecision{
 		Action:  "reply",

@@ -2,12 +2,29 @@ package decision
 
 import (
 	"os"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
-	"strings"
 )
+
+func TestStandingRuleReplyDoesNotGuessTitlePresenceFromAProseSubstring(t *testing.T) {
+	decision := StandingRuleIncidentAsReply(WatchDecision{
+		Title:  "API",
+		Reason: "A rapid outage needs investigation.",
+		Memory: core.AgentMemory{Decisions: []string{
+			"Customer incident response is documented in the runbook.",
+		}},
+	}, false)
+	if !strings.HasPrefix(decision.Message, "**API**\n\n") {
+		t.Fatalf("host omitted the structured title because its letters appeared inside prose: %q", decision.Message)
+	}
+	if !slices.Contains(decision.Memory.Decisions, "Customer incident response is documented in the runbook.") {
+		t.Fatalf("host deleted an unrelated memory because its prose contained incident: %#v", decision.Memory.Decisions)
+	}
+}
 
 // The host generates a recheck, marks it a conversation follow-up so the turn
 // carries its thread, and tells the model to return ignore when nothing has

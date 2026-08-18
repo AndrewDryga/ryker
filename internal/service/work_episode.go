@@ -291,66 +291,6 @@ func WorkEpisodePrompt(episode core.WorkEpisode) string {
 	return investigation.Compile(episode).Prompt()
 }
 
-func unsupportedOperationalClaimCorrection(
-	action string,
-	message string,
-	evidence []core.Evidence,
-) string {
-	if action != "reply" {
-		return ""
-	}
-	normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
-	unsupportedExclusivity := decisionpkg.EpisodeContainsAny(normalized,
-		"degraded only in", "unhealthy only in", "failing only in", "broken only in",
-		"the only degraded", "the only unhealthy", "the only failing",
-		"only service above", "only service with errors", "only service failing",
-		"only component above", "only component with errors", "only component failing",
-		"only workload above", "only workload with errors", "only workload failing",
-		"only endpoint above", "only endpoint with errors", "only endpoint failing",
-		"only path above", "only path with errors", "only path failing",
-		"no other service is degraded", "no other component is degraded",
-		"no other workload is degraded", "no other endpoint is degraded",
-		"no other path is degraded", "nothing else is degraded",
-		"nothing else is unhealthy", "nothing else is failing", "nothing else is broken",
-		"everything else is clean", "everything else is healthy",
-		"everything else is normal", "everything else is up",
-	)
-	if unsupportedExclusivity {
-		return "the reply claims operational exclusivity from bounded evidence; state the finding " +
-			"as among the checked services, paths, or indicators and leave unmeasured scope " +
-			"unverified instead of claiming that every other area is healthy"
-	}
-	noImpactClaim := decisionpkg.EpisodeContainsAny(normalized,
-		"no current user impact", "no user impact", "no customer impact",
-		"customers are unaffected", "users are unaffected",
-	)
-	recoveryClaim := decisionpkg.EpisodeContainsAny(normalized,
-		"service recovered", "service has recovered", "fully recovered",
-	)
-	if !noImpactClaim && !recoveryClaim {
-		return ""
-	}
-	hasImpactEvidence := false
-	hasServiceEvidence := false
-	for _, item := range evidence {
-		switch strings.TrimSpace(item.ClaimID) {
-		case "impact.current":
-			hasImpactEvidence = true
-		case "application.functional_behavior":
-			hasServiceEvidence = true
-		}
-	}
-	if noImpactClaim && !hasImpactEvidence {
-		return "the reply claims no user or customer impact without evidence bound to impact.current; " +
-			"state that impact is unverified or record direct service-indicator or user-path evidence"
-	}
-	if recoveryClaim && !hasServiceEvidence {
-		return "the reply claims service recovery without evidence bound to application.functional_behavior; " +
-			"an alert clearing proves only that the alert condition or evaluation cleared"
-	}
-	return ""
-}
-
 // episodeContinuityPrompt hands a turn the claims its own work has already
 // established.
 //

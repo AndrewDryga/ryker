@@ -670,6 +670,8 @@ func (c *Client) CreateSession(
 			status := http.StatusConflict
 			if op.ErrorCode == "internal_error" {
 				status = http.StatusInternalServerError
+			} else if op.ErrorCode == "repository_unavailable" {
+				status = http.StatusServiceUnavailable
 			}
 			return Session{}, op, &APIError{
 				Status: status, Code: op.ErrorCode, Detail: op.ErrorDetail, OperationID: op.ID,

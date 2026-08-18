@@ -554,19 +554,24 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 	}
 
 	bounded := &decisionpkg.AlertAssessment{
-		Verdict:          "confirmed_issue",
-		Impact:           "LoL requests using the ranked-profile endpoint fail for affected accounts.",
-		CauseStatus:      "bounded",
-		Cause:            "The ranked-profile decoder rejects the newly returned rank values.",
-		CauseClaimIDs:    []string{"application.functional_behavior"},
-		EvidenceRefs:     []string{"decoder-values"},
-		ImmediateAction:  "Disable ranked-profile enrichment while preserving the base request.",
-		Verification:     "Repeat affected requests and confirm ingress 5xx returns below 0.1 percent.",
-		LongTermSolution: "Accept the new rank values and add compatibility fixtures.",
+		Verdict:             "confirmed_issue",
+		Impact:              "LoL requests using the ranked-profile endpoint fail for affected accounts.",
+		CauseStatus:         "bounded",
+		Cause:               "The ranked-profile decoder rejects the newly returned rank values.",
+		CauseClaimIDs:       []string{"application.functional_behavior"},
+		EvidenceRefs:        []string{"decoder-values"},
+		ImmediateAction:     "Disable ranked-profile enrichment while preserving the base request.",
+		ImmediateActionKind: "mitigation",
+		Verification:        "Repeat affected requests and confirm ingress 5xx returns below 0.1 percent.",
+		LongTermSolution:    "Accept the new rank values and add compatibility fixtures.",
+		Scope: &decisionpkg.OperationalScope{
+			Status: "bounded", CheckedTargets: []string{"ranked-profile endpoint"},
+			UnverifiedTargets: []string{"other LoL endpoints"}, EvidenceRefs: []string{"decoder-values"},
+		},
 	}
 	evidence := []core.Evidence{{
 		ID: "decoder-values", ClaimID: "application.functional_behavior", Relation: "supports", Claim: "the decoder rejects the new values",
-		Observation: "repository and request logs show the strict decoder on the failing request path",
+		Observation: "repository and request logs show the strict decoder on the failing request path", Target: "ranked-profile endpoint",
 	}}
 	if got := decisionpkg.EpisodeDiagnosisCorrection(
 		episode, "reply", evidence, coverage, bounded, completion,
@@ -589,6 +594,7 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 
 	unfinishedAction := *bounded
 	unfinishedAction.ImmediateAction = "Inspect the current allocations and service registrations."
+	unfinishedAction.ImmediateActionKind = "investigation"
 	if got := decisionpkg.EpisodeDiagnosisCorrection(
 		episode, "reply", evidence, coverage, &unfinishedAction, completion,
 	); !strings.Contains(got, "investigative handoff") {
@@ -605,36 +611,6 @@ func TestDeepEpisodeActiveDegradationRequiresDiagnosticClosure(t *testing.T) {
 		episode, "reply", nil, coverage, nil, blocked,
 	); got != "" {
 		t.Fatalf("exact diagnostic blocker rejected: %s", got)
-	}
-}
-
-// A bounded health review found one degraded path, then turned that positive
-// finding into an exhaustive negative claim about everything it did not check.
-// "Only" is materially stronger than "among the checked paths" and can hide a
-// second incident behind confidence the evidence never earned.
-func TestOperationalReplyCannotClaimExclusiveDegradationFromBoundedChecks(t *testing.T) {
-	evidence := []core.Evidence{{
-		ID: "rivals-errors", ClaimID: "application.functional_behavior",
-		Claim:       "The checked Rivals endpoints are degraded.",
-		Observation: "Two checked Rivals endpoints return 500 responses.",
-		SourceType:  "emisar", SourceName: "VA1 request metrics",
-		ScopeNote: "This query covered the Rivals routes selected for the review.",
-	}}
-	message := "VA1 is degraded only in the Rivals path; everything else is clean."
-	correction := unsupportedOperationalClaimCorrection("reply", message, evidence)
-	if !strings.Contains(correction, "exclusivity") ||
-		!strings.Contains(correction, "among the checked") {
-		t.Fatalf("unsupported only claim was accepted: %q", correction)
-	}
-
-	scoped := "The checked Rivals path is degraded; health outside the measured routes remains unverified."
-	if correction := unsupportedOperationalClaimCorrection("reply", scoped, evidence); correction != "" {
-		t.Fatalf("bounded scope wording was rejected: %q", correction)
-	}
-
-	exhaustivePlan := "Terraform replaced auth; it was the only service changed in the saved plan."
-	if correction := unsupportedOperationalClaimCorrection("reply", exhaustivePlan, evidence); correction != "" {
-		t.Fatalf("a non-health exclusivity claim was rejected: %q", correction)
 	}
 }
 

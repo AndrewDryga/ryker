@@ -43,10 +43,9 @@ func ReplyPolicy(senderType, text string) string {
 	return replypolicy.ReplyShapePolicy
 }
 
-// alertLanguage mirrors the gate on the host correction that enforces the same
-// rules. decision.AlertReplyLanguageCorrectionWithContext fires on a bot message
-// that OperationalAlertEvent recognises, so a turn that correction can never
-// fire on is a turn the block can never govern.
+// alertLanguage selects the alert-specific writing prompt. The matching
+// language checker is retained only by offline evaluation as style telemetry;
+// runtime correctness is validated from typed alert fields and host rendering.
 //
 // It is widened by the OR: a person who pastes a firing Grafana card, or a
 // message-shortcut turn whose selected message is an alert, gets the rules too.

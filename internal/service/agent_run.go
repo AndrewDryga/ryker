@@ -1850,6 +1850,9 @@ func (s *Service) retryAgentRun(
 	if requeued, err := s.requeueIfRateLimited(ctx, run, cause); requeued {
 		return err
 	}
+	if err := s.notifyRepositoryPreparationBlocked(ctx, run, cause); err != nil {
+		return err
+	}
 	terminal := retrydelay.Exhausted(run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts)
 	var apiErr *coop.APIError
 	// "Do not replay this request" is not "do not do this work", and treating
@@ -2579,16 +2582,15 @@ func (s *Service) stageTriageTerminal(
 		// invalidity before anything looked at it.
 		originalCompletion := decision.Completion
 		originalPublicationUpdates := len(decision.PublicationUpdates)
+		originalMessage := decision.Message
 		decision = EnforceExternalLifecycleCommunication(input, decision)
 		var lifecycleEvidenceAdjusted bool
 		decision, lifecycleEvidenceAdjusted = EnforceExternalLifecycleEvidence(
 			input, episode, decision,
 		)
-		var recoveryLinkAdjusted bool
-		decision, recoveryLinkAdjusted = decisionpkg.EnforceRecoveredAlertLink(input, state, decision)
 		if lifecycleEvidenceAdjusted || decision.Action != originalAction ||
 			len(decision.PublicationUpdates) != originalPublicationUpdates ||
-			recoveryLinkAdjusted {
+			decision.Message != originalMessage {
 			if err := staged.setResult(decisionpkg.MarshalWatchDecisionResult(decision)); err != nil {
 				return true, err
 			}
@@ -2635,11 +2637,31 @@ func (s *Service) stageTriageTerminal(
 		if correction == "" {
 			correction = decisionpkg.WatchDecisionCorrection(input, state, validated, OperationalCorrelationKey)
 		}
+		// Render only operational-alert assignments. A stray assessment on an
+		// ordinary conversation must not replace its answer merely because the
+		// object happens to be well shaped. Source-owned links are appended after
+		// rendering so a host rewrite cannot discard them.
 		if correction == "" {
-			correction = decisionpkg.AlertReplyLanguageCorrectionWithContext(input, state, validated)
-		}
-		if correction == "" {
-			correction = ExternalLifecycleReplyLanguageCorrection(input, decision)
+			beforeHostRender := decision.Message
+			renderOperational := decisionpkg.MatchedOperationalAlertRule(state.MatchedRules) ||
+				(input.Kind == "bot_message" && state.AlertPolicy != "" &&
+					decisionpkg.OperationalAlertEvent(input.Text) &&
+					!decisionpkg.ExternalCoordinationOnlyEvent(input.Text))
+			if renderOperational {
+				decision, correction = decisionpkg.RenderOperationalAlertDecision(decision, evidence)
+			}
+			if correction == "" {
+				var recoveryLinkAdjusted bool
+				decision, recoveryLinkAdjusted = decisionpkg.EnforceRecoveredAlertLink(input, state, decision)
+				decision = EnrichExternalLifecycleReply(input, decision)
+				validated.Message = decision.Message
+				validated.FollowupMessages = decision.FollowupMessages
+				if decision.Message != beforeHostRender || recoveryLinkAdjusted {
+					if err := staged.setResult(decisionpkg.MarshalWatchDecisionResult(decision)); err != nil {
+						return true, err
+					}
+				}
+			}
 		}
 		// Before the completion rules below, because all three of these ask
 		// whether there is anything left to do and those ask whether the
@@ -2688,16 +2710,6 @@ func (s *Service) stageTriageTerminal(
 				}
 				correction = investigation.OpenRequiredGoalCorrection(
 					goals, decision.AppliedOperations, checkedCompletion,
-				)
-			}
-			if correction == "" {
-				correction = investigation.ConclusionLanguageCorrection(
-					episode, decision.Action, decision.Message,
-				)
-			}
-			if correction == "" {
-				correction = unsupportedOperationalClaimCorrection(
-					decision.Action, decision.Message, evidence,
 				)
 			}
 			if correction == "" {
@@ -2913,26 +2925,33 @@ func (s *Service) stageIncidentTerminal(
 				Action: "reply", Message: report.Message,
 				FollowupMessages: report.FollowupMessages, Completion: report.Completion,
 				AppliedOperations: report.AppliedOperations, Findings: findings,
-				Evidence: evidence,
+				Evidence: evidence, Coverage: coverage, AlertAssessment: report.AlertAssessment,
 			}
 			correction = decisionpkg.FindingCorrection(episode, reported, findings)
 			if correction == "" {
 				correction = decisionpkg.BoundedCauseCorrection(episode, reported)
 			}
+			if correction == "" {
+				correction = decisionpkg.EpisodeDiagnosisCorrection(
+					episode, "reply", evidence, coverage,
+					report.AlertAssessment, report.Completion,
+				)
+			}
+			if correction == "" && report.AlertAssessment != nil &&
+				(episode.Effort == core.EffortOperationalAssessment ||
+					episode.Effort == core.EffortIncidentInvestigation) {
+				beforeHostRender := report.Message
+				report, correction = decisionpkg.RenderOperationalAlertReport(report, evidence)
+				if correction == "" && report.Message != beforeHostRender {
+					if reportErr = staged.setResult(resultwire.AgentReport(report)); reportErr != nil {
+						return true, reportErr
+					}
+				}
+			}
 		}
 		if correction == "" {
 			correction = investigation.CompletionCorrection(
 				episode, "reply", coverage, report.Completion,
-			)
-		}
-		if correction == "" {
-			correction = investigation.ConclusionLanguageCorrection(
-				episode, "reply", report.Message,
-			)
-		}
-		if correction == "" {
-			correction = unsupportedOperationalClaimCorrection(
-				"reply", report.Message, evidence,
 			)
 		}
 		if correction == "" {
@@ -3867,22 +3886,22 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 	if err := s.recordFeedbackOperations(
 		ctx, run, input, state, decision.AppliedOperations,
 	); err != nil {
-		return err
+		return fmt.Errorf("record triage feedback operations: %w", err)
 	}
 	// Before applyWatchDecision, so a repository description is saved on the
 	// same terms as the rest of the turn's durable output rather than only when
 	// the turn also had something to say in Slack. A silenced turn still read
 	// the repository.
 	if err := s.applyRepositoryContents(ctx, run, decision); err != nil {
-		return err
+		return fmt.Errorf("apply triage repository contents: %w", err)
 	}
 	if err := s.applyWatchDecision(ctx, input, state, decision, run); err != nil {
-		return err
+		return fmt.Errorf("apply triage watch decision: %w", err)
 	}
 	if err := s.scheduleEpisodeRechecks(
 		ctx, run, input, state, decision.Action, decision.Completion,
 	); err != nil {
-		return err
+		return fmt.Errorf("schedule triage episode rechecks: %w", err)
 	}
 	episodeState, phase, status, nextAction := completionEpisodePhase(
 		decision.Completion,
@@ -3892,9 +3911,12 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 	if err := s.store.SetWorkEpisodePhase(
 		ctx, run.ID, episodeState, phase, status, nextAction, time.Time{},
 	); err != nil {
-		return err
+		return fmt.Errorf("set triage episode phase: %w", err)
 	}
-	return s.store.FinishAgentRun(ctx, run.ID)
+	if err := s.store.FinishAgentRun(ctx, run.ID); err != nil {
+		return fmt.Errorf("finish triage agent run: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) hasNewerOperationalInput(
@@ -4299,12 +4321,12 @@ func (s *Service) finalizeIncidentAgentRun(
 					s.sanitizer,
 				)
 			}
-			// The same line for the deep lanes' own replies. An agent report
-			// carries no alert assessment, so the cause fields stay empty and
-			// what reaches Slack is the gap, the unexplained finding, and the
-			// check that will answer it.
+			// The same line for the deep lanes' own replies. Structured alert
+			// assessment now survives escalation, so the open cause boundary and
+			// the next check stay attached to the host-rendered bounded scope.
 			open := openquestions.For(decisionpkg.WatchDecision{
 				Completion: report.Completion, Findings: report.Findings,
+				AlertAssessment:   report.AlertAssessment,
 				AppliedOperations: episodeOperations,
 			})
 			message = slackui.WithOpenQuestions(
@@ -4423,11 +4445,11 @@ func (s *Service) finalizeIncidentAgentRun(
 		if err := s.store.SetWorkEpisodePhase(
 			ctx, run.ID, episodeState, phase, status, nextAction, time.Time{},
 		); err != nil {
-			return err
+			return fmt.Errorf("set incident episode phase: %w", err)
 		}
 	}
 	if err := s.store.FinishAgentRun(ctx, run.ID); err != nil {
-		return err
+		return fmt.Errorf("finish incident agent run: %w", err)
 	}
 	s.forgetNativeStatus(incident.ID)
 	return nil

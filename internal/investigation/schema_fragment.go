@@ -60,19 +60,28 @@ var schemaFragments = []schemaFragment{
 		shape: `{"id":<string>,"type":"record_alert_assessment","alert_assessment":` +
 			`{"verdict":"confirmed_issue"|"likely_issue"|"not_issue"|"unverified",` +
 			`"cause_status":"identified"|"bounded"|"unverified","cause":<string>,` +
-			`"cause_claim_ids":[<claim_id>],"evidence_refs":[<record_evidence id>]}}`,
+			`"cause_claim_ids":[<claim_id>],"evidence_refs":[<record_evidence id>],` +
+			`"immediate_action_kind":"mitigation"|"monitor"|"investigation"|"none",` +
+			`"scope":{"status":"bounded"|"exhaustive","checked_targets":[<target>],` +
+			`"unverified_targets":[<target>],"evidence_refs":[<record_evidence id>],` +
+			`"universe_evidence_ref":<record_evidence id>}}}`,
 		example: `{"id":"alert-1","type":"record_alert_assessment","alert_assessment":` +
-			`{"verdict":"not_issue","cause_status":"bounded","cause":"transient disk latency",` +
-			`"cause_claim_ids":["host.current_state"],"evidence_refs":["evidence-1"]}}`,
+			`{"verdict":"not_issue","impact":"The checked node is healthy now.",` +
+			`"cause_status":"bounded","cause":"transient disk latency",` +
+			`"cause_claim_ids":["host.current_state"],"evidence_refs":["evidence-1"],` +
+			`"immediate_action_kind":"monitor","scope":{"status":"bounded",` +
+			`"checked_targets":["db-1"],"unverified_targets":["other database nodes"],` +
+			`"evidence_refs":["evidence-1"]}}}`,
 	},
 	{
 		matches: []string{"record_finding", "cause_evidence", "finding status", "not_checkable"},
 		field:   "record_finding",
-		shape: `{"id":<string>,"type":"record_finding","finding":{"what":<string>,` +
+		shape: `{"id":<stable string>,"type":"record_finding","finding":{"what":<string>,` +
 			`"scope":<string>,"status":"unexplained"|"explained"|"expected"|"out_of_scope",` +
 			`"cause_evidence":[<record_evidence id>],"alternatives":[{"hypothesis":<string>,` +
-			`"discriminated_by":<record_evidence id>|"not_checkable":<string>}],"reason":<string>}}`,
-		example: `{"id":"finding-1","type":"record_finding","finding":{"what":` +
+			`"claim_id":<claim the evidence contradicts>,"discriminated_by":<record_evidence id>|"not_checkable":<string>}],"reason":<string>}}`,
+		example: `{"id":"finding-1","type":"record_finding","finding":{` +
+			`"what":` +
 			`"VA1 pyke did not deploy; the rollout missed its progress deadline","scope":"va1-apps",` +
 			`"status":"unexplained"}}`,
 	},

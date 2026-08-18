@@ -64,25 +64,43 @@ func TestAlertToSlackAndCompletedCoopTurn(t *testing.T) {
 		t.Fatalf("active turn status = %+v", slack.statuses)
 	}
 
-	coopClient.complete(`{
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	coopClient.complete(fmt.Sprintf(`{
 	  "message":"Verified the alert. The API process is healthy; the load balancer target is stale.",
-	  "coverage":[
-	    {"layer":"change","status":"healthy","source":"repository","detail":"The declared backend topology was checked"},
-	    {"layer":"host","status":"healthy","source":"Emisar","detail":"The API host is responsive"},
-	    {"layer":"runtime","status":"healthy","source":"Emisar","detail":"The API runtime is responsive"},
-	    {"layer":"workload","status":"healthy","source":"Emisar","detail":"The API process is running"},
-	    {"layer":"dependency","status":"unhealthy","source":"Emisar","detail":"The load balancer target is stale"},
-	    {"layer":"application","status":"healthy","source":"Emisar","detail":"The API process responds locally"},
-	    {"layer":"slo","status":"degraded","source":"Grafana","detail":"The availability alert is firing"}
+	  "evidence":[
+	    {"id":"change","claim_id":"change.recent","claim":"the declared backend topology is current","observation":"the declared backend topology was checked","relation":"supports","health_effect":"none","source_type":"repository","source_name":"backend topology","observed_at":%[1]q,"dimensions":{"repository":"repo","environment":"production","revision":"current"}},
+	    {"id":"host","claim_id":"host.current_state","claim":"the API host is responsive","observation":"the API host responds to its current health check","relation":"supports","health_effect":"none","source_type":"emisar","source_name":"API host health","observed_at":%[1]q,"dimensions":{"host":"api-1","environment":"production"}},
+	    {"id":"runtime","claim_id":"runtime.current_state","claim":"the API runtime is responsive","observation":"the API runtime responds to its current health check","relation":"supports","health_effect":"none","source_type":"emisar","source_name":"API runtime health","observed_at":%[1]q,"dimensions":{"runtime":"api","host":"api-1"}},
+	    {"id":"workload","claim_id":"workload.desired_state","claim":"the API process is running at desired state","observation":"the API process is running at desired state","relation":"supports","health_effect":"none","source_type":"emisar","source_name":"API workload state","observed_at":%[1]q,"dimensions":{"service":"api","workload":"api","environment":"production"}},
+	    {"id":"lb-target","claim_id":"dependency.current_health","claim":"the load balancer target is current","observation":"the configured target is stale","relation":"contradicts","health_effect":"unhealthy","source_type":"emisar","source_name":"load balancer target check","target":"API load balancer target","observed_at":%[1]q,"dimensions":{"dependency":"load-balancer","service":"api","environment":"production"}},
+	    {"id":"application","claim_id":"application.functional_behavior","claim":"the API process responds locally","observation":"the API process responds to a current local request","relation":"supports","health_effect":"none","source_type":"emisar","source_name":"API local request","observed_at":%[1]q,"dimensions":{"service":"api","endpoint":"/health","environment":"production","window":"current"}},
+	    {"id":"impact","claim_id":"impact.current","claim":"API availability is within threshold","observation":"the current availability alert is firing","relation":"contradicts","health_effect":"degraded","source_type":"monitoring","source_name":"Grafana availability alert","observed_at":%[1]q,"dimensions":{"service":"api","indicator":"availability","environment":"production","window":"current"}}
 	  ],
-	  "completion":{"status":"decision_ready","summary":"The stale load balancer target is the bounded failure and should be corrected."}
-	}`)
+	  "coverage":[
+	    {"layer":"change","claim_ids":["change.recent"],"status":"healthy","source":"repository","detail":"The declared backend topology was checked"},
+	    {"layer":"host","claim_ids":["host.current_state"],"status":"healthy","source":"Emisar","detail":"The API host is responsive"},
+	    {"layer":"runtime","claim_ids":["runtime.current_state"],"status":"healthy","source":"Emisar","detail":"The API runtime is responsive"},
+	    {"layer":"workload","claim_ids":["workload.desired_state"],"status":"healthy","source":"Emisar","detail":"The API process is running"},
+	    {"layer":"dependency","claim_ids":["dependency.current_health"],"status":"unhealthy","source":"Emisar","detail":"The load balancer target is stale"},
+	    {"layer":"application","claim_ids":["application.functional_behavior"],"status":"healthy","source":"Emisar","detail":"The API process responds locally"},
+	    {"layer":"slo","claim_ids":["impact.current"],"status":"degraded","source":"Grafana","detail":"The availability alert is firing"}
+	  ],
+	  "findings":[
+	    {"key":"stale-api-lb-target","what":"The API load balancer target is stale","scope":"API load balancer","status":"explained","cause_evidence":["lb-target"],"alternatives":[{"hypothesis":"the configured target is current","claim_id":"dependency.current_health","discriminated_by":"lb-target"}]}
+	  ],
+	  "alert_assessment":{"verdict":"confirmed_issue","impact":"The stale load balancer target is degrading API availability.","cause_status":"identified","cause":"The configured API load balancer target is stale.","cause_claim_ids":["dependency.current_health"],"evidence_refs":["lb-target"],"immediate_action_kind":"mitigation","immediate_action":"Replace the stale load balancer target.","verification":"Confirm the replacement target is healthy and API availability returns within threshold.","long_term_solution":"Keep load balancer target registration synchronized with the API workload.","scope":{"status":"bounded","checked_targets":["API load balancer target"],"unverified_targets":["API routes outside the checked local health path"],"evidence_refs":["lb-target"]}},
+	  "completion":{"status":"decision_ready","verdict":"unhealthy","summary":"The stale load balancer target is the bounded failure and should be corrected."}
+	}`, observedAt))
 	incident, _ = st.GetIncident(ctx, incident.ID)
 	if err := svc.pollIncident(ctx, incident); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.processAgentRunFinalization(ctx); err != nil {
-		t.Fatal(err)
+		runs, _ := st.ListAgentRunsForIncident(ctx, incident.ID)
+		if len(runs) == 1 {
+			t.Fatalf("finalize incident run state=%q last error=%q: %v", runs[0].State, runs[0].LastError, err)
+		}
+		t.Fatalf("finalize incident run count=%d: %v", len(runs), err)
 	}
 	svc.channelWrites.Reset()
 	drainSlackDeliveries(t, ctx, svc)
@@ -190,12 +208,13 @@ func TestWatchedAppAlertBurstEvaluatesEveryEventInOrder(t *testing.T) {
 	coopClient.completeQueue = []string{
 		fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"operations":[`+
 			`{"id":"ev-1","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"the deployed Cassandra topology is current","observation":"the repository declares the current Cassandra service and operating threshold","relation":"supports","health_effect":"none","source_type":"repository","source_name":"cassandra topology","dimensions":{"repository":"repo","environment":"production","revision":"current"}}},`+
-			`{"id":"cassandra-throughput","type":"record_evidence","evidence":{"id":"cassandra-throughput","claim_id":"application.functional_behavior","claim":"Cassandra serves requests above its operating threshold","observation":"fresh monitoring reports total RPS below 4k","relation":"contradicts","health_effect":"unhealthy","source_type":"monitoring","source_name":"Cassandra throughput","observed_at":%[1]q,"dimensions":{"service":"cassandra","endpoint":"requests","environment":"production","window":"current"}}},`+
+			`{"id":"cassandra-throughput","type":"record_evidence","evidence":{"id":"cassandra-throughput","claim_id":"application.functional_behavior","claim":"Cassandra serves requests above its operating threshold","observation":"fresh monitoring reports total RPS below 4k","relation":"contradicts","health_effect":"unhealthy","source_type":"monitoring","source_name":"Cassandra throughput","target":"cassandra","observed_at":%[1]q,"dimensions":{"service":"cassandra","endpoint":"requests","environment":"production","window":"current"}}},`+
 			`{"id":"cov-1","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"healthy","detail":"The current Cassandra topology was reconciled."}},`+
 			`{"id":"cov-2","type":"record_coverage","coverage":{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unhealthy","detail":"Current throughput is below 4k."}},`+
 			`{"id":"cov-3","type":"record_coverage","coverage":{"layer":"slo","claim_ids":["impact.current"],"status":"unknown","detail":"No separate user-impact measure is available."}},`+
 			`{"id":"cov-4","type":"record_coverage","coverage":{"layer":"dependency","claim_ids":["dependency.current_health"],"status":"unknown","detail":"Dependency health does not change the confirmed throughput failure."}},`+
-			`{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue","impact":"Current Cassandra throughput is below its operating threshold.","cause_status":"bounded","cause":"The Cassandra service is reachable, but aggregate request throughput remains below 4k.","cause_claim_ids":["application.functional_behavior"],"evidence_refs":["cassandra-throughput"],"immediate_action":"Reduce nonessential Cassandra load while restoring service capacity.","verification":"Confirm fresh total RPS stays above 4k and request errors stop.","long_term_solution":"Add capacity and traffic controls that keep Cassandra above its operating threshold."}},`+
+			`{"id":"finding-throughput","type":"record_finding","finding":{"key":"cassandra-throughput-low","what":"Cassandra throughput is below its operating threshold","scope":"cassandra production","status":"unexplained","alternatives":[{"hypothesis":"one serving node is shedding requests","not_checkable":"the next scheduled per-node sample is not available yet"}]}},`+
+			`{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue","impact":"Current Cassandra throughput is below its operating threshold.","cause_status":"bounded","cause":"The Cassandra service is reachable, but aggregate request throughput remains below 4k.","cause_claim_ids":["application.functional_behavior"],"evidence_refs":["cassandra-throughput"],"immediate_action_kind":"mitigation","immediate_action":"Reduce nonessential Cassandra load while restoring service capacity.","verification":"Confirm fresh total RPS stays above 4k and request errors stop.","long_term_solution":"Add capacity and traffic controls that keep Cassandra above its operating threshold.","scope":{"status":"bounded","checked_targets":["cassandra"],"unverified_targets":["individual Cassandra serving nodes"],"evidence_refs":["cassandra-throughput"]}}},`+
 			// The bounded cause carries the check that would settle it. Without
 			// this wait the first answer is the 2026-08-16 Traefik shape —
 			// confirmed issue, cause bounded, decision_ready, nothing open — and
@@ -206,14 +225,14 @@ func TestWatchedAppAlertBurstEvaluatesEveryEventInOrder(t *testing.T) {
 			`]}`, observedAt, pollAfter, deadline),
 		fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":2,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"operations":[`+
 			`{"id":"ev-1","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"the deployed Cassandra topology is current","observation":"the repository declares the current Cassandra service and operating threshold","relation":"supports","health_effect":"none","source_type":"repository","source_name":"cassandra topology","dimensions":{"repository":"repo","environment":"production","revision":"current"}}},`+
-			`{"id":"ev-2","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"Cassandra serves requests above its operating threshold","observation":"fresh monitoring reports total RPS above 4k and the request check is passing","relation":"supports","health_effect":"none","source_type":"monitoring","source_name":"Cassandra throughput","observed_at":%[1]q,"dimensions":{"service":"cassandra","endpoint":"requests","environment":"production","window":"current"}}},`+
+			`{"id":"ev-2","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"Cassandra serves requests above its operating threshold","observation":"fresh monitoring reports total RPS above 4k and the request check is passing","relation":"supports","health_effect":"none","source_type":"monitoring","source_name":"Cassandra throughput","target":"cassandra","observed_at":%[1]q,"dimensions":{"service":"cassandra","endpoint":"requests","environment":"production","window":"current"}}},`+
 			`{"id":"ev-3","type":"record_evidence","evidence":{"claim_id":"impact.current","claim":"the Cassandra throughput drop has recovered","observation":"the current service indicator is above threshold","relation":"supports","health_effect":"none","source_type":"monitoring","source_name":"Cassandra throughput","observed_at":%[1]q,"dimensions":{"service":"cassandra","indicator":"total_rps","environment":"production","window":"current"}}},`+
 			`{"id":"ev-4","type":"record_evidence","evidence":{"claim_id":"dependency.current_health","claim":"the Cassandra dependency is available","observation":"the current Cassandra request check succeeds","relation":"supports","health_effect":"none","source_type":"monitoring","source_name":"Cassandra request check","observed_at":%[1]q,"dimensions":{"dependency":"cassandra","service":"cassandra","environment":"production"}}},`+
 			`{"id":"cov-1","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"healthy","detail":"The current Cassandra topology was reconciled."}},`+
 			`{"id":"cov-2","type":"record_coverage","coverage":{"layer":"application","claim_ids":["application.functional_behavior"],"status":"healthy","detail":"Current throughput and request checks pass."}},`+
 			`{"id":"cov-3","type":"record_coverage","coverage":{"layer":"slo","claim_ids":["impact.current"],"status":"healthy","detail":"The current throughput indicator is above threshold."}},`+
 			`{"id":"cov-4","type":"record_coverage","coverage":{"layer":"dependency","claim_ids":["dependency.current_health"],"status":"healthy","detail":"The Cassandra request check succeeds."}},`+
-			`{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"not_issue","impact":"The earlier throughput drop is no longer active."}},`+
+			`{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"not_issue","impact":"The earlier throughput drop is no longer active.","immediate_action_kind":"monitor","scope":{"status":"bounded","checked_targets":["cassandra"],"unverified_targets":["individual Cassandra serving nodes"],"evidence_refs":["ev-2"]}}},`+
 			`{"id":"complete","type":"complete_episode","completion":{"message":"Cassandra recovered. Fresh throughput is above 4k and the current request check is passing.","completion":{"status":"decision_ready","verdict":"healthy","summary":"Cassandra throughput and request checks have recovered."}}}`+
 			`]}`, observedAt),
 	}
@@ -250,12 +269,12 @@ func TestWatchedAppAlertBurstEvaluatesEveryEventInOrder(t *testing.T) {
 	for _, input := range inputs {
 		run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
 		if err != nil || run.State != core.AgentRunCompleted {
-			t.Fatalf("agent run for %s = %+v, %v", input.ID, run, err)
+			t.Fatalf("agent run for %s state=%q last error=%q: %v", input.ID, run.State, run.LastError, err)
 		}
 	}
 	if len(slackClient.posts) != 2 ||
-		!strings.Contains(slackClient.posts[0].message.Text, "below 4k") ||
-		!strings.Contains(slackClient.posts[1].message.Text, "recovered") {
+		!strings.Contains(slackClient.posts[0].message.Text, "confirms an active issue") ||
+		!strings.Contains(slackClient.posts[1].message.Text, "does not show the alert condition as active") {
 		t.Fatalf("ordered app alert replies = %+v", slackClient.posts)
 	}
 }

@@ -140,6 +140,43 @@ func TestClientHandsLongSessionCreationBackWithDurableOperation(t *testing.T) {
 	}
 }
 
+// A repository refresh failed before any model turn for twenty consecutive attempts in production.
+// Coop's durable async failure must retain its retryable service-unavailable classification so
+// Responder can both show the preparation blocker and retry it.
+func TestRepositoryPreparationFailureRemainsRetryableAfterAsyncPolling(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/sessions":
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"operation":{"id":"op_refresh","method":"CreateRemoteSession","state":"running"}}`))
+		case "/v1/operations/op_refresh":
+			_, _ = w.Write([]byte(`{"id":"op_refresh","method":"CreateRemoteSession","state":"failed","error_code":"repository_unavailable","error_detail":"workspace preparation could not refresh the configured tenant-core repository from origin/master; no model session was created"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})}
+	go server.Serve(listener)
+	defer server.Shutdown(context.Background())
+
+	client := New(socket, time.Second)
+	client.asyncPollInterval = time.Millisecond
+	_, operation, err := client.CreateSession(context.Background(), "refresh", "observe", "alert")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusServiceUnavailable ||
+		apiErr.Code != "repository_unavailable" || apiErr.OperationID != "op_refresh" ||
+		!strings.Contains(apiErr.Detail, "tenant-core") || !apiErr.Retryable() ||
+		operation.ID != "op_refresh" {
+		t.Fatalf("repository preparation failure = operation=%+v error=%#v", operation, err)
+	}
+}
+
 func TestClientCorrelatesAsyncCreateDeadlineWithOperation(t *testing.T) {
 	socket := shortSocket(t)
 	listener, err := net.Listen("unix", socket)

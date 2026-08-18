@@ -145,6 +145,24 @@ func TestReplyShapeSpendsAtMostOneCorrectionPerTurn(t *testing.T) {
 	}
 }
 
+func TestRuntimeReplyShapeDoesNotBranchOnGeneratedPhrases(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+
+	message := "The rollout is stable. Customer impact is low. No further action is needed."
+	if correction, spent := svc.replyShapeCorrection(
+		ctx, core.AgentRun{ID: "run"}, "did it recover?", "conversation", "reply", message, 0,
+	); correction != "" || spent {
+		t.Fatalf("runtime interpreted arbitrary generated prose: correction=%q spent=%t", correction, spent)
+	}
+}
+
 // The counter has to survive the trip through the run context, or the second
 // attempt looks like the first and the loop never ends.
 func TestReplyShapeCountSurvivesTheContextRoundTrip(t *testing.T) {

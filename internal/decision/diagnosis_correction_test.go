@@ -32,6 +32,7 @@ func TestTheDiagnosisCorrectionNamesWhatIsMissing(t *testing.T) {
 		ID: "checkout-pool", ClaimID: "application.saturation",
 		Relation: "supports", Claim: "the checkout pool is saturated",
 		Observation: "the connection pool has been at its limit for twenty minutes",
+		Target:      "checkout service",
 	}}
 
 	// A bounded cause with the cause sentence itself empty.
@@ -69,6 +70,12 @@ func TestTheDiagnosisCorrectionNamesWhatIsMissing(t *testing.T) {
 	// a correction the model cannot clear.
 	whole := noVerification
 	whole.Verification = "Watch checkout p99 return under its objective for ten minutes."
+	whole.LongTermSolution = "Size the checkout pool from measured concurrency and load-test it before rollout."
+	whole.Scope = &OperationalScope{
+		Status: "bounded", CheckedTargets: []string{"checkout service"},
+		UnverifiedTargets: []string{"other application services"},
+		EvidenceRefs:      []string{"checkout-pool"},
+	}
 	if got := EpisodeDiagnosisCorrection(
 		episode, "reply", evidence, coverage, &whole, completion,
 	); got != "" {

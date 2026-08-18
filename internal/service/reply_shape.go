@@ -25,7 +25,7 @@ func (s *Service) replyShapeCorrection(
 	trigger, lane, action, message string,
 	spent int,
 ) (string, bool) {
-	correction := decisionpkg.ReplyShapeCorrection(trigger, lane, action, message)
+	correction := decisionpkg.RuntimeReplyShapeCorrection(trigger, lane, action, message)
 	switch {
 	case correction == "":
 		return "", false

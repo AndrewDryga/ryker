@@ -2,13 +2,53 @@ package service
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/triageoutcome"
 )
+
+func (s *Service) notifyRepositoryPreparationBlocked(
+	ctx context.Context,
+	run core.AgentRun,
+	cause error,
+) error {
+	if run.Mode != core.AgentRunTriage {
+		return nil
+	}
+	var apiErr *coop.APIError
+	if !errors.As(cause, &apiErr) || apiErr.Code != "repository_unavailable" {
+		return nil
+	}
+	episode, err := s.store.GetWorkEpisode(ctx, run.EpisodeID)
+	if err != nil {
+		return err
+	}
+	if episode.Destination.ChannelID == "" {
+		return nil
+	}
+	owner := core.FirstNonempty(run.EpisodeID, run.ID)
+	body, err := slackui.Encode(s.sanitizeMessage(
+		slackui.RepositoryPreparationBlocked(run.Repository, apiErr.Detail),
+	))
+	if err != nil {
+		return err
+	}
+	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "watch_preparation_blocked_" + owner, EpisodeID: run.EpisodeID,
+		AgentRunID: run.ID, AgentRunKey: run.IdempotencyKey,
+		SourceInputID: run.SourceID, Operation: "post", Kind: "notice",
+		ChannelID: episode.Destination.ChannelID, ThreadTS: episode.Destination.ThreadTS,
+		ExpectedDestinationRevision: episode.DestinationRevision,
+		Body:                        body,
+		ResponseRoot:                false,
+	})
+	return err
+}
 
 func (s *Service) terminalTriageFailureDelivery(
 	run core.AgentRun,

@@ -1105,7 +1105,13 @@ var lineBudget = map[string]int{
 	// and this file says to split one rather than raise a budget for it. They
 	// are pure functions of a sender type and a Slack message, which is what
 	// lets their table be a list of real corpus strings and no Service at all.
-	"promptscope":          145,
+	"promptscope": 145,
+	// operationalscope owns the typed boundary around an alert conclusion, its
+	// evidence-backed exhaustive check, and the host rendering. Extracting it
+	// keeps both the broad decision and investigation packages below their
+	// ratchets while leaving one cohesive policy rather than wrappers and types
+	// split across them. 338 measured; 375 keeps ordinary edit margin.
+	"operationalscope":     375,
 	"repositorycapability": 105,
 	// decision owns the shapes a model result arrives in and the rules for
 	// reading one, so the evaluation family can reach them without the runtime.
@@ -1505,6 +1511,7 @@ var forbiddenImports = map[string][]string{
 	// between. Nothing else: a predicate that could reach the store or the
 	// config is a predicate whose answer depends on where it ran.
 	"promptscope":           {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "investigation"},
+	"operationalscope":      {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "investigation", "evaluation"},
 	"repositorycapability":  {"service", "store", "slackui", "httpapi", "app", "publisher", "emisar", "decision", "investigation"},
 	"investigation":         {"service", "store", "slackui", "httpapi", "app"},
 	"investigationcontract": {"service", "store", "slackui", "httpapi", "app", "decision", "investigation"},

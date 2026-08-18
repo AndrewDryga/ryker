@@ -36,6 +36,23 @@ func TestEvidenceNormalizesScalarDimensions(t *testing.T) {
 	}
 }
 
+// A complete target universe is a host attestation, not something a model can
+// unlock by describing an inventory as complete in its own result.
+func TestEvidenceRejectsAHostOnlyTargetUniverseOnTheWire(t *testing.T) {
+	var item Evidence
+	if err := json.Unmarshal([]byte(`{
+		"claim_id":"scope.target_universe",
+		"claim":"the configured production targets",
+		"observation":"the inventory enumerated auth and payments",
+		"relation":"supports",
+		"source_type":"repository",
+		"source_name":"production routing inventory",
+		"target_universe":["auth","payments"]
+	}`), &item); err == nil {
+		t.Fatal("model-authored target universe was accepted as host proof")
+	}
+}
+
 func TestEvidenceAcceptsBoundedLegacySourceAliases(t *testing.T) {
 	var item Evidence
 	if err := json.Unmarshal([]byte(`{

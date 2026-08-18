@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -34,11 +35,56 @@ const (
 )
 
 var (
-	linkPattern = regexp.MustCompile(`<((?:https?://)[^>|]+)(?:\|[^>]*)?>`)
-	idPattern   = regexp.MustCompile(
+	linkPattern   = regexp.MustCompile(`<((?:https?://)[^>|]+)(?:\|[^>]*)?>`)
+	rawURLPattern = regexp.MustCompile(`https?://[^[:space:]<>|]+`)
+	idPattern     = regexp.MustCompile(
 		`(?i)(?:^|[|>[:space:]])(run|deployment|job|workflow|build|release|plan|apply)[[:space:]:]+([a-z0-9][a-z0-9._:/-]{2,})`,
 	)
 )
+
+// CanonicalProviderURL returns a Terraform-owned link carried by the source
+// event. The host uses this exact reference for approval-ready replies instead
+// of trusting a model-authored message merely because it happens to contain a
+// URL. Workspace links are context, not an approval target.
+func CanonicalProviderURL(text string) string {
+	expectedRun := ""
+	if key := CorrelationKey(text); strings.HasPrefix(key, "run:") {
+		expectedRun = strings.TrimPrefix(key, "run:")
+	}
+	candidates := make([]string, 0)
+	for _, match := range linkPattern.FindAllStringSubmatch(text, -1) {
+		if len(match) > 1 {
+			candidates = append(candidates, match[1])
+		}
+	}
+	candidates = append(candidates, rawURLPattern.FindAllString(text, -1)...)
+	for _, candidate := range candidates {
+		candidate = strings.TrimRight(strings.TrimSpace(candidate), ".,;)")
+		parsed, err := url.Parse(candidate)
+		if err != nil || parsed.Scheme != "https" || parsed.User != nil ||
+			!strings.EqualFold(parsed.Host, "app.terraform.io") {
+			continue
+		}
+		segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+		runID := ""
+		for index := range segments {
+			if strings.EqualFold(segments[index], "runs") && index+1 < len(segments) &&
+				index+2 == len(segments) {
+				runID = strings.ToLower(strings.TrimSpace(segments[index+1]))
+				break
+			}
+		}
+		if runID == "" || (expectedRun != "" && runID != expectedRun) {
+			continue
+		}
+		parsed.RawQuery = ""
+		parsed.ForceQuery = false
+		parsed.Fragment = ""
+		parsed.RawFragment = ""
+		return parsed.String()
+	}
+	return ""
+}
 
 var genericIDs = map[string]struct{}{
 	"notification": {}, "planning": {}, "planned": {}, "pending": {}, "waiting": {},
@@ -237,9 +283,8 @@ func TerraformContinuationCorrection(input TerraformContinuationInput) string {
 		}
 		switch decision.Completion.Verdict {
 		case "needs_review":
-			if !strings.Contains(decision.Message, "https://") &&
-				!strings.Contains(decision.Message, "http://") {
-				return "an approval-ready Terraform review must include the canonical provider run or approval URL in the Slack message"
+			if CanonicalProviderURL(input.Text) == "" {
+				return "the source Terraform event does not carry a canonical provider run URL for an approval-ready Slack review"
 			}
 			if !ReplyAddsFreshOperationalValue(decision, input.Now) {
 				return "before asking for Terraform approval, record fresh affected-scope infrastructure or workload evidence and coverage so the operator can see whether production is safe before the change"

@@ -1841,6 +1841,29 @@ func Notice(text string) Message {
 	return Message{Text: text, Sections: []string{text}}
 }
 
+func RepositoryPreparationBlocked(repository, detail string) Message {
+	repository = strings.TrimSpace(repository)
+	if repository == "" {
+		repository = "the configured repository"
+	} else {
+		repository = "`" + repository + "`"
+	}
+	summary := "Investigation queued, but workspace preparation is blocked while refreshing " + repository + "."
+	message := Message{
+		Text: summary + " No model turn has started.",
+		Sections: []string{
+			summary,
+			"No model turn has started.",
+		},
+	}
+	if detail != "" {
+		message.Sections = []string{
+			message.Sections[0], detail, message.Sections[1],
+		}
+	}
+	return message
+}
+
 func truncateMarkdown(value string, limit int) string {
 	return core.TruncateUTF8WithSuffix(value, limit, "\n\n_Response truncated._")
 }

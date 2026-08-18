@@ -110,6 +110,9 @@ func TestAFindingCannotClaimMoreThanItRecords(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
+			if testCase.finding.Key == "" {
+				testCase.finding.Key = "finding-1"
+			}
 			operation := ResultOperation{
 				ID: "finding-1", Type: "record_finding", Finding: &testCase.finding,
 			}
@@ -150,12 +153,43 @@ func TestAWellFormedFindingIsAccepted(t *testing.T) {
 			Reason: "the partner owns that endpoint and Responder has no read access to it.",
 		},
 	} {
+		finding.Key = "finding-1"
 		operation := ResultOperation{
 			ID: "finding-1", Type: "record_finding", Finding: &finding,
 		}
 		if err := operation.Validate(); err != nil {
 			t.Fatalf("a well-formed finding was refused: %v (%+v)", err, finding)
 		}
+	}
+}
+
+func TestAFindingIdentityMustMatchItsOperationID(t *testing.T) {
+	valid := FindingOperation{
+		Key: "finding-1", What: "VA1 pyke did not deploy", Status: "unexplained",
+	}
+	for _, testCase := range []struct {
+		name string
+		id   string
+		key  string
+		want string
+	}{
+		{name: "missing key is host-derived", id: "finding-1", want: "finding-1"},
+		{name: "forged prior key is ignored", id: "finding-new", key: "finding-1", want: "finding-new"},
+		{name: "correction suffix", id: "finding-1-corrected", key: "finding-1", want: "finding-1"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			finding := valid
+			finding.Key = testCase.key
+			err := (ResultOperation{
+				ID: testCase.id, Type: "record_finding", Finding: &finding,
+			}).Validate()
+			if err != nil {
+				t.Fatalf("finding identity was rejected: %v", err)
+			}
+			if finding.Key != testCase.want {
+				t.Fatalf("host finding key = %q, want %q", finding.Key, testCase.want)
+			}
+		})
 	}
 }
 

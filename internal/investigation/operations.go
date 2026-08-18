@@ -1,15 +1,15 @@
 package investigation
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/assignments"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/knowledgeoffer"
-	"slices"
+	"github.com/AndrewDryga/responder/internal/operationalscope"
 )
 
 type CompletionAssessment struct {
@@ -48,58 +48,8 @@ type RecheckDirective struct {
 	AdditionalAttempts int    `json:"additional_attempts"`
 }
 
-type AlertAssessment struct {
-	Verdict          string   `json:"verdict"`
-	Impact           string   `json:"impact"`
-	CauseStatus      string   `json:"cause_status,omitempty"`
-	Cause            string   `json:"cause,omitempty"`
-	CauseClaimIDs    []string `json:"cause_claim_ids,omitempty"`
-	EvidenceRefs     []string `json:"evidence_refs,omitempty"`
-	ImmediateAction  string   `json:"immediate_action,omitempty"`
-	Verification     string   `json:"verification,omitempty"`
-	LongTermSolution string   `json:"long_term_solution,omitempty"`
-}
-
-// UnmarshalJSON accepts a small set of previously emitted semantic aliases so
-// one naming mismatch cannot discard an otherwise valid investigation. The
-// canonical serialized contract remains the fields on AlertAssessment.
-func (assessment *AlertAssessment) UnmarshalJSON(data []byte) error {
-	var value struct {
-		Verdict          string   `json:"verdict"`
-		Impact           string   `json:"impact"`
-		CauseStatus      string   `json:"cause_status,omitempty"`
-		Cause            string   `json:"cause,omitempty"`
-		CauseClaimIDs    []string `json:"cause_claim_ids,omitempty"`
-		ImmediateAction  string   `json:"immediate_action,omitempty"`
-		Verification     string   `json:"verification,omitempty"`
-		LongTermSolution string   `json:"long_term_solution,omitempty"`
-		DurableSolution  string   `json:"durable_solution,omitempty"`
-		Alert            string   `json:"alert,omitempty"`
-		Component        string   `json:"component,omitempty"`
-		State            string   `json:"state,omitempty"`
-		EvidenceRefs     []string `json:"evidence_refs,omitempty"`
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&value); err != nil {
-		return err
-	}
-	if value.LongTermSolution == "" {
-		value.LongTermSolution = value.DurableSolution
-	}
-	*assessment = AlertAssessment{
-		Verdict:          value.Verdict,
-		Impact:           value.Impact,
-		CauseStatus:      value.CauseStatus,
-		Cause:            value.Cause,
-		CauseClaimIDs:    value.CauseClaimIDs,
-		EvidenceRefs:     value.EvidenceRefs,
-		ImmediateAction:  value.ImmediateAction,
-		Verification:     value.Verification,
-		LongTermSolution: value.LongTermSolution,
-	}
-	return nil
-}
+type AlertAssessment = operationalscope.Assessment
+type OperationalScope = operationalscope.Scope
 
 // FindingOperation is a failure state the turn discovered, written where a
 // contract can see it.
@@ -121,7 +71,11 @@ type FindingOperation struct {
 	// ID is the operation id the finding was recorded under, carried host-side
 	// and deliberately kept out of the JSON contract: it is an identity signal
 	// for CarryFindings, not a field the model fills or the envelope ships.
-	ID            string               `json:"-"`
+	ID string `json:"-"`
+	// Key is a legacy wire field accepted for recorded-result compatibility.
+	// The host always overwrites it from the operation id, so model output cannot
+	// select or merge into another finding's identity.
+	Key           string               `json:"key,omitempty"`
 	What          string               `json:"what"`
 	Scope         string               `json:"scope,omitempty"`
 	Status        string               `json:"status"`
@@ -140,6 +94,7 @@ type FindingOperation struct {
 // nothing.
 type FindingAlternative struct {
 	Hypothesis      string `json:"hypothesis"`
+	ClaimID         string `json:"claim_id,omitempty"`
 	DiscriminatedBy string `json:"discriminated_by,omitempty"`
 	NotCheckable    string `json:"not_checkable,omitempty"`
 }
@@ -728,6 +683,10 @@ func validateFindingOperation(o ResultOperation) error {
 		)
 	}
 	finding := o.Finding
+	// Identity belongs to the host. Older results may carry a model-authored
+	// key, so accept the field for wire compatibility but replace it before it
+	// can match or retire a carried finding.
+	finding.Key = FindingKeyForOperationID(o.ID)
 	status := strings.ToLower(strings.TrimSpace(finding.Status))
 	if !ValidFindingStatus(status) {
 		return fmt.Errorf(
@@ -768,6 +727,17 @@ func validateFindingOperation(o ResultOperation) error {
 		}
 	}
 	return nil
+}
+
+// FindingKeyForOperationID is the host-owned identity rule for finding
+// corrections. The model may add the documented correction suffix, but it
+// cannot choose the key of another open finding and retire that record.
+func FindingKeyForOperationID(id string) string {
+	id = strings.ToLower(strings.TrimSpace(id))
+	for strings.HasSuffix(id, "-corrected") {
+		id = strings.TrimSuffix(id, "-corrected")
+	}
+	return id
 }
 
 // validateRecordRequestOperation checks the one enum a record request carries.
@@ -870,11 +840,11 @@ func CountGoalOperations(operations []ResultOperation) (planned, updated int) {
 func ResultOperationsPrompt() string {
 	return `Return results as a bounded ordered operations array. Each operation has a unique stable id
 and exactly one payload matching its type. The host validates operations independently and records
-accepted operations in the episode event stream.
+accepted operations in the episode stream.
 
-- record_evidence: {"id":"evidence-1","type":"record_evidence","evidence":{"claim_id":"exact required_claims id from the host contract, or a short stable slug when no listed claim applies","claim":"short claim","observation":"what the source established","relation":"supports|contradicts","health_effect":"none|risk|degraded|unhealthy|unknown","source_type":"repository|emisar|monitoring|slack|other","source_id":"stable provider or result id","source_name":"human-readable source","observed_at":"RFC3339 source time","freshness":"source-relative age or revision","confidence":"high|medium|low","dimensions":{"service":"api","environment":"production","replicas":3},"supersedes":["evidence id this record retires"],"scope_note":"optional bounded limitation"}}
+- record_evidence: {"id":"e1","type":"record_evidence","evidence":{"claim_id":"required id or stable slug","claim":"claim","observation":"source result","relation":"supports|contradicts","health_effect":"none|risk|degraded|unhealthy|unknown","source_type":"repository|emisar|monitoring|slack|other","source_id":"provider id","source_name":"source","observed_at":"RFC3339","freshness":"age/revision","confidence":"high|medium|low","dimensions":{"service":"api"},"target":"checked target","supersedes":["retired id"],"scope_note":"limit"}}
 - record_coverage: {"id":"coverage-host","type":"record_coverage","coverage":{"layer":"host","claim_ids":["host.current_state"],"status":"healthy|degraded|unhealthy|unknown|not_applicable","source":"short source label","detail":"bounded assessment","observed_at":"RFC3339 source time"}}
-- record_finding: {"id":"finding-1","type":"record_finding","finding":{"what":"one line naming the failure state","scope":"service or environment","status":"unexplained|explained|expected|out_of_scope","cause_evidence":["evidence id, required when explained"],"alternatives":[{"hypothesis":"strongest rival cause","discriminated_by":"evidence id"|"not_checkable":"why nothing settles it now"}],"reason":"required for expected|out_of_scope"}} — record one for EVERY failure state your reply mentions; unexplained is the honest default until evidence identifies the cause. Exactly one of those two per alternative, never both; an unexplained finding may close only on not_checkable.
+- record_finding: {"id":"f1","type":"record_finding","finding":{"what":"failure","scope":"system","status":"unexplained|explained|expected|out_of_scope","cause_evidence":["if explained"],"alternatives":[{"hypothesis":"rival","claim_id":"claim contradicted","discriminated_by":"evidence id"|"not_checkable":"why unavailable"}],"reason":"for expected|out_of_scope"}} — one per failure. Keep the same id for a rewrite, or add only the -corrected suffix; the host owns the stable key. A discriminator contradicts claim_id. unexplained is the honest default; close with not_checkable.
 - report_progress: {"id":"progress-1","type":"report_progress","progress":{"phase":"investigating","summary":"meaningful operator-facing update","next_due_at":"optional RFC3339"}}
 - plan_goal: {"id":"goal-plan-1","type":"plan_goal","goal":{"id":"goal-1","kind":"check|engineering|operation|schedule","requested_outcome":"...","completion_contract":"observable done condition","required":true,"prerequisite_goal_ids":[],"authority":"read_only|repository_write|governed_operation"}}
 - update_goal: {"id":"goal-done-1","type":"update_goal","goal_state":{"goal_id":"goal-1","state":"ready|working|waiting|completed|blocked|excluded|cancelled","detail":"optional blocker"}}
@@ -884,7 +854,7 @@ accepted operations in the episode event stream.
 - record_feedback: {"id":"feedback-1","type":"record_feedback","feedback":{"category":"ux|correctness|tone|latency|reliability|feature_request|other","sentiment":"negative|positive|suggestion|mixed","summary":"one actionable sentence","details":"optional concise context","target_message_ts":"optional target reply timestamp","needs_followup":false,"followup_question":"required when needs_followup"}}
 - request_approval: {"id":"approval-1","type":"request_approval","approval":{...exact Emisar approval...}}
 - offer_task: {"id":"task-1","type":"offer_task","task":{"kind":"engineering|incident","title":"...","repository":"...","prompt":"..."}}
-- record_alert_assessment: {"id":"alert-1","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue|likely_issue|not_issue|unverified","impact":"current impact","cause_status":"identified|bounded","cause":"bounded cause","cause_claim_ids":["claim_id"],"evidence_refs":["evidence id for claim"],"immediate_action":"safe next step","verification":"success check","long_term_solution":"durable fix"}} — a confirmed_issue or likely_issue verdict REQUIRES cause_status identified or bounded. bounded means narrowed but not identified: pair it with a wait_external or recheck that runs the discriminating check, or a blocked completion naming it.
+- record_alert_assessment: {"id":"a1","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue|likely_issue|not_issue|unverified","impact":"impact within checked scope","cause_status":"identified|bounded","cause":"cause","cause_claim_ids":["claim id"],"evidence_refs":["evidence id"],"immediate_action_kind":"mitigation|monitor|investigation|none","immediate_action":"next step","verification":"success check","long_term_solution":"durable fix","scope":{"status":"bounded|exhaustive","checked_targets":["target"],"unverified_targets":["required when bounded"],"evidence_refs":["per-target evidence"],"universe_evidence_ref":"required when exhaustive"}}} — confirmed/likely requires cause_status. A bounded cause continues via wait/recheck or blocks. Exhaustive is accepted only when the host separately attests the complete target universe; otherwise use bounded. The host writes Slack scope prose.
 - record_repository_contents: {"id":"repo-contents-1","type":"record_repository_contents","repository_contents":{"repository":"exact alias from the repository set","contents":"one sentence naming which part of the product lives there"}}
 - offer_grant_promotion: {"id":"grant-1","type":"offer_grant_promotion","grant_promotion":{"action_id":"exact Emisar action id","pack_ref":"exact pack ref","runner_ref":"exact runner ref","rung":"propose|one_click","verified_successes":3,"rationale":"one sentence for the operator"}} — the host sets the scope itself and never widens it.
 - offer_runbook_draft: {"id":"rb-1","type":"offer_runbook_draft","runbook_draft":{"title":"<=80 chars","slug":"lowercase-slug","summary":"when to run it","action_id":"exact Emisar action id","pack_ref":"exact pack ref","runner_ref":"exact runner ref"}} — the host rebuilds the step from its own approval record.

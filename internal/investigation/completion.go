@@ -691,6 +691,8 @@ func blockedCompletionCorrection(completion *CompletionAssessment) string {
 	return ""
 }
 
+// ConclusionLanguageCorrection is retained for offline style evaluation only.
+// Runtime completion is decided from typed coverage and completion fields.
 func ConclusionLanguageCorrection(
 	episode core.WorkEpisode,
 	action string,

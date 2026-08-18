@@ -147,25 +147,10 @@ func CarryCoverage(prior, current []core.Coverage) []core.Coverage {
 	return carryForward(prior, current, func(item core.Coverage) string { return item.Layer })
 }
 
-// CarryFindings does the same for findings, keyed on the failure state named
-// rather than on an operation id.
-//
-// The id would be the obvious key and it is the wrong one here. A correction
-// round re-emits its operations with ids literally suffixed "-corrected", so
-// keying on the id folds nothing: the round that finally explains a failure
-// would land beside the unexplained record of the same failure and the
-// completion would stay refused forever. What a finding IS is the failure state
-// it names, so that is its identity, and a later round naming the same state
-// replaces the earlier verdict about it.
-//
-// The text alone was not enough. A model that reclassifies a finding almost
-// always rewords it in the same breath — it is writing the sentence again, not
-// editing a row — so the reworded copy landed BESIDE the old verdict instead of
-// replacing it. Live run run_532f8d62871320dc9d0696cb334d3503 was told thirteen
-// times in twenty-three minutes that a finding was unexplained while the finding
-// it was actually emitting said the same thing in new words, and said it
-// out_of_scope with a reason. A prior finding is therefore also dropped when the
-// current round is plainly talking about it; see sameFinding.
+// CarryFindings does the same for findings, keyed on their stable structured
+// identity. A correction suffix on an operation id is transport bookkeeping,
+// not a new failure state, so canonicalFindingKey removes those suffixes once
+// and the serialized Key survives the next context envelope.
 func CarryFindings(
 	prior, current []investigation.FindingOperation,
 ) []investigation.FindingOperation {
@@ -179,194 +164,84 @@ func CarryFindings(
 		unanswered = append(unanswered, earlier)
 	}
 	return carryForward(unanswered, current, func(item investigation.FindingOperation) string {
-		return strings.ToLower(strings.TrimSpace(item.What))
+		if key := strings.TrimSpace(item.Key); key != "" {
+			return "key:" + key
+		}
+		// Compatibility for findings persisted before Key existed. Exact text is
+		// safe; interpreting similar prose as identity is not.
+		return "legacy-what:" + strings.ToLower(strings.TrimSpace(item.What))
 	})
 }
 
-// sameFinding reports whether two findings name the same failure state, so a
-// round that answered one under new words retires the older record of it.
-//
-// Two signals, either sufficient. The operation id is exact where it survives —
-// a finding re-recorded under the same id is the same row by construction — and
-// in practice it is the weaker of the two, because a correction round suffixes
-// its ids "-corrected" and a finding read back out of a context envelope has no
-// id at all. The words carry the rest: one sentence opening the other, or a
-// scope that could be the same system plus a strong overlap of the words long
-// enough to carry a subject.
-//
-// Conservative on purpose, the same way findingFailurePhrases is. A false
-// positive retires an open finding nobody answered, which is the failure this
-// file exists to prevent; a false negative costs one more correction round. The
-// live pair is the calibration: "The tenant-infra refresh reports 121 resources
-// changed outside Terraform, dominated by betteruptime_monitor" and "The refresh
-// observed 121 resources changed outside Terraform, mostly betteruptime_monitor
-// resources." share seven of thirteen subject words.
+// sameFinding deliberately reads no generated prose. A false fuzzy match can
+// retire an open production finding, while an exact stable key is both cheaper
+// and auditable.
 func sameFinding(prior, current investigation.FindingOperation) bool {
-	if prior.ID != "" && prior.ID == current.ID {
+	priorKey, currentKey := strings.TrimSpace(prior.Key), strings.TrimSpace(current.Key)
+	if priorKey != "" || currentKey != "" {
+		if priorKey != "" && currentKey != "" {
+			return priorKey == currentKey
+		}
+		// One side may be a context record persisted before finding keys
+		// existed. Migrate only an exact sentence; paraphrase similarity is not
+		// identity and must never retire an open finding.
+		return strings.TrimSpace(prior.What) != "" &&
+			strings.EqualFold(strings.TrimSpace(prior.What), strings.TrimSpace(current.What))
+	}
+	if prior.ID != "" && canonicalFindingKey(prior.ID) == canonicalFindingKey(current.ID) {
 		return true
 	}
-	if findingOpensTheOther(prior.What, current.What) {
-		return true
-	}
-	return comparableFindingScopes(prior.Scope, current.Scope) &&
-		findingWordOverlap(prior.What, current.What) >= findingOverlapThreshold
+	// Compatibility for records written before Key existed. Do not infer that
+	// paraphrases are equal; the model must carry the stable key to say so.
+	return strings.TrimSpace(prior.What) != "" &&
+		strings.EqualFold(strings.TrimSpace(prior.What), strings.TrimSpace(current.What))
 }
 
-const (
-	// findingOverlapThreshold is the Jaccard index at or above which two failure
-	// states are the same one restated.
-	findingOverlapThreshold = 0.5
-	// findingSubjectLetters is how many letters a word needs before it counts
-	// toward that overlap. Four drops "the", "and", "was" and "121"; it keeps
-	// "drift", "refresh", "terraform" and "betteruptime".
-	findingSubjectLetters = 4
-	// findingOpeningWords is how much of one sentence's opening, appearing
-	// inside the other, says the two are the same statement continued.
-	findingOpeningWords = 6
-)
-
-// findingWords splits a failure state into lower-cased alphanumeric words, so
-// "betteruptime_monitor" and "tenant-infra" compare by their parts rather than by
-// their punctuation.
-func findingWords(text string) []string {
-	return strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	})
-}
-
-// findingSubjects keeps the words long enough to be about something.
-func findingSubjects(text string) map[string]struct{} {
-	subjects := make(map[string]struct{})
-	for _, word := range findingWords(text) {
-		letters := 0
-		for _, symbol := range word {
-			if unicode.IsLetter(symbol) {
-				letters++
-			}
-		}
-		if letters >= findingSubjectLetters {
-			subjects[word] = struct{}{}
-		}
-	}
-	return subjects
-}
-
-// findingWordOverlap is the Jaccard index of two failure states' subject words.
-func findingWordOverlap(prior, current string) float64 {
-	priorSubjects, currentSubjects := findingSubjects(prior), findingSubjects(current)
-	if len(priorSubjects) == 0 || len(currentSubjects) == 0 {
-		return 0
-	}
-	shared := 0
-	for word := range priorSubjects {
-		if _, ok := currentSubjects[word]; ok {
-			shared++
-		}
-	}
-	return float64(shared) / float64(len(priorSubjects)+len(currentSubjects)-shared)
-}
-
-// findingOpensTheOther reports whether either sentence contains the other's
-// opening words. A rewrite that keeps the opening is the same statement
-// continued; the four-word floor keeps a short fragment from swallowing every
-// finding that happens to mention it.
-func findingOpensTheOther(prior, current string) bool {
-	return findingContainsOpening(prior, current) || findingContainsOpening(current, prior)
-}
-
-func findingContainsOpening(text, other string) bool {
-	words := findingWords(other)
-	if len(words) < 4 {
-		return false
-	}
-	opening := strings.Join(words[:min(len(words), findingOpeningWords)], " ")
-	return strings.Contains(" "+strings.Join(findingWords(text), " ")+" ", " "+opening+" ")
-}
-
-// comparableFindingScopes reports whether two findings could be about the same
-// system at all. Equal is the common case; an empty scope on either side says
-// nothing and so refuses nothing; and one subject word in common covers the live
-// rewrite, where drift in "tenant-infra production workspace" was restated
-// against "SME-Tenant/tenant-infra state refresh".
-func comparableFindingScopes(prior, current string) bool {
-	prior, current = strings.TrimSpace(prior), strings.TrimSpace(current)
-	if prior == "" || current == "" || strings.EqualFold(prior, current) {
-		return true
-	}
-	priorSubjects := findingSubjects(prior)
-	for word := range findingSubjects(current) {
-		if _, ok := priorSubjects[word]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-// findingFailurePhrases is the vocabulary that turns a reply into a report of a
-// failure state. It is deliberately conservative and literal: every phrase is
-// one an operator would read as "something broke", and the cost of missing one
-// is a finding nobody recorded, while the cost of a wrong one is a correction
-// round spent on an answer that was already right.
-var findingFailurePhrases = []string{
-	"rolled back", "rollback", "did not deploy", "failed with", "crash loop", "crashloop",
-	"exhausted their retries", "exhausted retries", "missed the progress deadline",
-	"failing", "keeps failing",
-}
-
-// findingRecoveryPhrases take the sentence back. Two real completions are why
-// they are here: "**Sentry recovered.** ... The durable fix is redundancy or a
-// health-gated rollout and rollback procedure" carries the failure vocabulary
-// inside a recommendation about the future, and "Zot's Artifact Registry
-// authentication issue is **not recurring**. The last 24 hours contain no
-// matching auth or upstream-sync failures" reports an absence. Demanding a
-// finding for either is how a correction becomes noise.
-var findingRecoveryPhrases = []string{
-	"not recurring", "no matching", "recovered", "back to baseline", "resolved",
-	"is healthy", "zero ",
+func canonicalFindingKey(id string) string {
+	return investigation.FindingKeyForOperationID(id)
 }
 
 // findingContinuationOperations are the operations that say the work carries on
 // in this same episode rather than concluding here.
 var findingContinuationOperations = []string{"plan_goal", "wait_external"}
 
-// evidenceHedgePhrases are the ways an observation says the rival hypothesis is
-// still standing. An observation containing one of these cannot be the thing
-// that rules that rival out, however confidently a finding cites it.
-//
-// Literal and conservative, on the same reasoning as findingFailurePhrases: the
-// cost of missing a phrasing is the status quo, and the cost of a wrong one is a
-// correction round spent on an answer that was already honest.
-var evidenceHedgePhrases = []string{
-	"not excluded", "cannot be excluded", "can't be excluded",
-	"not ruled out", "cannot rule out", "can't rule out",
-	"cannot distinguish", "does not distinguish", "unresolved",
-}
-
-// evidenceHedgesItsOwnDiscrimination reports whether the named evidence says, in
-// its own observation, that the alternative it is cited against survives.
-//
-// The apostrophe is normalized because models write "can't" with a typographic
-// one about as often as with a straight one, and a rule that reads only ASCII
-// would be silently half-off.
-func evidenceHedgesItsOwnDiscrimination(evidence []core.Evidence, id string) bool {
+// evidenceDiscriminatesAlternative validates adversarial residue from typed
+// evidence. The cited row must contradict the exact claim represented by the
+// alternative; generated observation prose is never interpreted as a verdict.
+func evidenceDiscriminatesAlternative(
+	evidence []core.Evidence, alternative investigation.FindingAlternative,
+) bool {
+	if strings.TrimSpace(alternative.ClaimID) == "" ||
+		strings.TrimSpace(alternative.DiscriminatedBy) == "" {
+		return false
+	}
 	for _, item := range evidence {
-		if item.ID != id {
+		if item.ID != alternative.DiscriminatedBy {
 			continue
 		}
-		observation := strings.ToLower(strings.ReplaceAll(item.Observation, "’", "'"))
-		if EpisodeContainsAny(observation, evidenceHedgePhrases...) {
-			return true
-		}
+		return item.ClaimID == alternative.ClaimID && item.Relation == "contradicts"
 	}
 	return false
 }
 
-// ReplyReportsFailure reads whether a reply tells an operator that something is
-// broken, without a recovery or closure sentence taking it back.
-func ReplyReportsFailure(parts ...string) bool {
-	normalized := strings.ToLower(strings.Join(strings.Fields(strings.Join(parts, " ")), " "))
-	return EpisodeContainsAny(normalized, findingFailurePhrases...) &&
-		!EpisodeContainsAny(normalized, findingRecoveryPhrases...)
+// decisionReportsFailure reads only typed result fields. Model-written prose is
+// presentation data and cannot decide whether another structured record is
+// required.
+func decisionReportsFailure(decision WatchDecision) bool {
+	if decision.AlertAssessment != nil &&
+		(decision.AlertAssessment.Verdict == "confirmed_issue" ||
+			decision.AlertAssessment.Verdict == "likely_issue") {
+		return true
+	}
+	if decision.Completion != nil {
+		switch decision.Completion.Verdict {
+		case "degraded", "unhealthy", "failed", "confirmed", "partial":
+			return true
+		}
+	}
+	return slices.ContainsFunc(decision.Coverage, func(item core.Coverage) bool {
+		return item.Status == "degraded" || item.Status == "unhealthy"
+	})
 }
 
 // findingRestsOnAnUncheckableRival reports whether a finding has named the rival
@@ -406,11 +281,10 @@ func FindingCorrection(
 		return ""
 	}
 	blocked := decision.Completion != nil && decision.Completion.Status == "blocked"
-	// A reply that reports a failure must record it as a typed finding. Prose is
-	// where the Zot rollback went, and prose is the one place no contract reads.
-	if !blocked && len(findings) == 0 && ReplyReportsFailure(
-		ReplySequence(decision.Message, decision.FollowupMessages)...,
-	) {
+	// A typed failure must record its failure state as a typed finding. The
+	// completion, assessment and coverage are the contract; arbitrary prose is
+	// never re-parsed to guess whether this rule applies.
+	if !blocked && len(findings) == 0 && decisionReportsFailure(decision) {
 		return "the reply reports a failure state; record it as a typed finding — status " +
 			"unexplained unless evidence identifies the cause — or classify it expected with the reason"
 	}
@@ -454,9 +328,8 @@ func FindingCorrection(
 		episode.Effort != core.EffortIncidentInvestigation {
 		return ""
 	}
-	// A discriminator that does not discriminate is worse than no residue at all:
-	// it satisfies the check below with the very evidence that says the rival
-	// survives, so the shape passes and the words are never read.
+	// A discriminator has to contradict the rival's typed claim. Merely citing
+	// an evidence id does not establish that relationship.
 	//
 	// On 2026-08-16 finding-1 of the VA1 Traefik investigation was "explained"
 	// and named evidence-impact-growth as ruling out "a pure in-process leak
@@ -474,13 +347,14 @@ func FindingCorrection(
 			}
 			for _, alternative := range item.Alternatives {
 				if alternative.DiscriminatedBy == "" ||
-					!evidenceHedgesItsOwnDiscrimination(decision.Evidence, alternative.DiscriminatedBy) {
+					evidenceDiscriminatesAlternative(decision.Evidence, alternative) {
 					continue
 				}
 				return "finding " + strconv.Quote(item.What) + " names " +
 					alternative.DiscriminatedBy + " as ruling out " +
-					strconv.Quote(alternative.Hypothesis) + ", but that evidence says the rival " +
-					"is not excluded; add the check that actually discriminates, or mark the " +
+					strconv.Quote(alternative.Hypothesis) + ", but it does not contradict the " +
+					"alternative's typed claim_id; add the claim and evidence that actually " +
+					"discriminate, or mark the " +
 					"finding unexplained and keep investigating with a goal, recheck or " +
 					"wait_external, or return blocked with the exact obstacle"
 			}
@@ -667,7 +541,7 @@ func StandingRuleIncidentAsReply(decision WatchDecision, offerIncident bool) Wat
 	if message == "" {
 		message = title
 	}
-	if title != "" && !strings.Contains(strings.ToLower(message), strings.ToLower(title)) {
+	if title != "" && !strings.EqualFold(message, title) {
 		message = "**" + title + "**\n\n" + message
 	}
 	decision.Action = "reply"
@@ -685,7 +559,11 @@ func StandingRuleIncidentAsReply(decision WatchDecision, offerIncident bool) Wat
 	decision.Memory.SituationSummary = title
 	decisions := make([]string, 0, len(decision.Memory.Decisions)+1)
 	for _, item := range decision.Memory.Decisions {
-		if !strings.Contains(strings.ToLower(item), "incident") {
+		switch strings.TrimSpace(item) {
+		case "Offer incident coordination for operator confirmation.",
+			"Continue this alert's investigation in its source thread.":
+			continue
+		default:
 			decisions = append(decisions, item)
 		}
 	}
@@ -742,13 +620,12 @@ func AlertAssessmentCorrection(
 			return "the alert reply has no record_alert_assessment result; continue the read-only investigation " +
 				"until you can state a verdict, impact, immediate action, and durable solution"
 		}
+		evidence := SanitizeEvidence(decision.Evidence, "", "", "", now)
 		if correction := evidencepolicy.AlertCauseCorrection(
-			decision.AlertAssessment,
-			SanitizeEvidence(decision.Evidence, "", "", "", now),
+			decision.AlertAssessment, evidence,
 		); correction != "" {
 			return correction
 		}
-		evidence := SanitizeEvidence(decision.Evidence, "", "", "", now)
 		recovered := decision.AlertAssessment.Verdict == "not_issue" &&
 			OperationalAlertResolvedEvent(input.Text)
 		if recovered && HasFreshOperationalEvidence(evidence, now) &&
@@ -785,6 +662,9 @@ func AlertAssessmentCorrection(
 		if !HasFreshOperationalEvidence(evidence, now) {
 			return "the alert reply has no fresh Emisar or monitoring observation; use the " +
 				"available read-only operational tools and verify the current state before deciding"
+		}
+		if correction := OperationalScopeCorrection(decision.AlertAssessment, evidence); correction != "" {
+			return correction
 		}
 	}
 	return ""
@@ -932,9 +812,10 @@ func HasPriorCorrelatedFiringAlert(
 	return false
 }
 
-// AlertReplyLanguageCorrectionWithContext judges the LANGUAGE of an alert
-// reply — its opener, its verdict labels, its monitoring shorthand, its
-// technical-term density, and whether a recovery links the message it closes.
+// AlertReplyLanguageCorrectionWithContext is an offline evaluation warning for
+// alert-reply style. Runtime acceptance does not call it: generated prose is
+// presentation data, while typed alert fields and host rendering own
+// correctness and recovery links.
 //
 // It deliberately does not judge length. It used to: 90 words active, 60 words
 // recovered, against a prompt that asked for "under 100 words". A model
@@ -1052,8 +933,11 @@ func EnforceRecoveredAlertLink(
 	if link == "" || strings.Contains(decision.Message, link) {
 		return decision, false
 	}
-	decision.Message = strings.TrimSpace(decision.Message) +
-		"\n\nClosing [the earlier alert](" + link + ")."
+	setDecisionReply(
+		&decision,
+		strings.TrimSpace(decision.Message)+"\n\nClosing [the earlier alert]("+link+").",
+		decision.FollowupMessages,
+	)
 	return decision, true
 }
 
@@ -1241,24 +1125,13 @@ func EpisodeDiagnosisCorrection(
 	if strings.TrimSpace(assessment.Verification) == "" {
 		return evidencepolicy.VerificationPlanCorrection(assessment)
 	}
-	if AlertActionIsUnfinishedInvestigation(assessment.ImmediateAction) {
+	if assessment.ImmediateActionKind == "investigation" {
 		return "the active alert's immediate action is still an investigative handoff; perform the available read-only inspection now, then recommend an actual mitigation or return an exact external blocker"
 	}
-	return ""
-}
-
-func AlertActionIsUnfinishedInvestigation(action string) bool {
-	action = strings.ToLower(strings.TrimSpace(action))
-	action = strings.TrimLeft(action, "*_>` -")
-	for _, prefix := range []string{
-		"check ", "inspect ", "investigate ", "look at ", "query ", "review ",
-		"trace ", "determine ", "identify ",
-	} {
-		if strings.HasPrefix(action, prefix) {
-			return true
-		}
+	if correction := OperationalScopeCorrection(assessment, evidence); correction != "" {
+		return correction
 	}
-	return false
+	return ""
 }
 
 type ReferencedThreadContext struct {

@@ -66,6 +66,8 @@ func TestARewordedFindingIsTheSameFinding(t *testing.T) {
 	drift, otherRun := live[0], live[1]
 	reclassified := recordedReply(t, "live_run_532f8d62_result.json").Findings[0]
 	pyke := recordedReply(t, "eval_pyke_rollback_unexplained.json").Findings[0]
+	drift.Key = "finding-refresh-drift"
+	reclassified.Key = "finding-refresh-drift"
 
 	for _, testCase := range []struct {
 		name    string
@@ -73,9 +75,8 @@ func TestARewordedFindingIsTheSameFinding(t *testing.T) {
 		current investigation.FindingOperation
 		same    bool
 	}{
-		// The live pair. Same scope in substance ("tenant-infra production
-		// workspace" against "SME-Tenant/tenant-infra state refresh"), same
-		// failure state, eleven words of the old sentence replaced.
+		// The live pair. The stable key, rather than eleven coincidentally shared
+		// or similar words, says these are the same failure state.
 		{"the wording the model dropped", drift, reclassified, true},
 		{"and the same pair read the other way", reclassified, drift, true},
 		// A prior run's rollback in a different workspace. Nothing about the
@@ -87,16 +88,22 @@ func TestARewordedFindingIsTheSameFinding(t *testing.T) {
 		// The operation id settles it outright when it survives, without
 		// reading a word of either sentence.
 		{
-			"the same operation id under a total rewrite",
+			"the same stable key under a total rewrite",
 			investigation.FindingOperation{
-				ID: "finding-refresh-drift", What: drift.What,
+				Key: "finding-refresh-drift", What: drift.What,
 				Scope: drift.Scope, Status: "unexplained",
 			},
 			investigation.FindingOperation{
-				ID: "finding-refresh-drift", What: pyke.What,
+				Key: "finding-refresh-drift", What: pyke.What,
 				Scope: pyke.Scope, Status: "out_of_scope",
 			},
 			true,
+		},
+		{
+			"similar generated prose has no identity authority",
+			investigation.FindingOperation{What: drift.What, Scope: drift.Scope},
+			investigation.FindingOperation{What: reclassified.What, Scope: reclassified.Scope},
+			false,
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -120,6 +127,7 @@ func TestARewordedFindingIsTheSameFinding(t *testing.T) {
 // longer emitted and could not edit.
 func TestAReclassifiedFindingIsNotJudgedByItsOldWording(t *testing.T) {
 	prior := liveCarriedFindings(t)[:1]
+	prior[0].Key = "finding-refresh-drift"
 	if prior[0].Status != "unexplained" {
 		t.Fatalf("the harvested prior is not the unexplained wording: %+v", prior[0])
 	}

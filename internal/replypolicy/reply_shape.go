@@ -50,18 +50,11 @@ import (
 // finding.
 const HandBackFloor = 60
 
-// ReplyShapeCorrection returns what to tell the model about a reply the host
-// refuses to post as written, or "" when the reply is acceptable.
-//
-// The trigger is the message being answered, because length is only meaningful
-// against the question that earned it. The lane says how much room the answer
-// deserves.
-func ReplyShapeCorrection(trigger, lane, action, message string) string {
-	if action != "reply" {
-		return ""
-	}
+// RuntimeReplyShapeCorrection enforces only properties the host can measure
+// without assigning meaning to arbitrary generated prose.
+func RuntimeReplyShapeCorrection(trigger, lane, action, message string) string {
 	message = strings.TrimSpace(message)
-	if message == "" {
+	if action != "reply" || message == "" {
 		return ""
 	}
 	if correction := binaryUnitCorrection(trigger, message); correction != "" {
@@ -77,6 +70,25 @@ func ReplyShapeCorrection(trigger, lane, action, message string) string {
 			words, len(strings.Fields(trigger)), budget,
 		)
 	}
+	return ""
+}
+
+// ReplyShapeCorrection adds phrase-based style feedback for offline evaluation
+// and corpus replay. Runtime delivery calls RuntimeReplyShapeCorrection: these
+// phrase lists are telemetry, never a correctness or publication dependency.
+//
+// The trigger is the message being answered, because length is only meaningful
+// against the question that earned it. The lane says how much room the answer
+// deserves.
+func ReplyShapeCorrection(trigger, lane, action, message string) string {
+	if correction := RuntimeReplyShapeCorrection(trigger, lane, action, message); correction != "" {
+		return correction
+	}
+	if action != "reply" || strings.TrimSpace(message) == "" {
+		return ""
+	}
+	message = strings.TrimSpace(message)
+	words := ProseWordCount(message)
 	// A scope disclaimer is refused at any length; everything else on the list
 	// keeps the floor, because at that length a caveat is usually the second
 	// half of a two-sentence finding rather than a trailing gap.

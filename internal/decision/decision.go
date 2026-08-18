@@ -27,6 +27,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/evidencepolicy"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/operationalscope"
 	"github.com/AndrewDryga/responder/internal/taskpr"
 )
 
@@ -150,6 +151,7 @@ type PublicationUpdate struct {
 }
 
 type AlertAssessment = investigation.AlertAssessment
+type OperationalScope = investigation.OperationalScope
 
 type AttentionAssessment struct {
 	Addressee    string `json:"addressee,omitempty"`
@@ -712,51 +714,7 @@ func ValidSuggestedEngineeringTaskBoundary(decision WatchDecision) bool {
 }
 
 func ValidateAlertAssessment(assessment *AlertAssessment) error {
-	assessment.Verdict = strings.TrimSpace(assessment.Verdict)
-	assessment.Impact = strings.TrimSpace(assessment.Impact)
-	assessment.CauseStatus = strings.TrimSpace(assessment.CauseStatus)
-	assessment.Cause = strings.TrimSpace(assessment.Cause)
-	assessment.CauseClaimIDs = BoundedUniqueFields(assessment.CauseClaimIDs, 8, 120)
-	assessment.EvidenceRefs = BoundedUniqueFields(assessment.EvidenceRefs, 12, 120)
-	assessment.ImmediateAction = strings.TrimSpace(assessment.ImmediateAction)
-	assessment.Verification = strings.TrimSpace(assessment.Verification)
-	assessment.LongTermSolution = strings.TrimSpace(assessment.LongTermSolution)
-	if len(assessment.Verdict) > 32 || len(assessment.Impact) > 2000 ||
-		len(assessment.CauseStatus) > 32 || len(assessment.Cause) > 2000 ||
-		len(assessment.ImmediateAction) > 2000 || len(assessment.Verification) > 2000 ||
-		len(assessment.LongTermSolution) > 2000 {
-		return errors.New("alert assessment exceeds its field bounds")
-	}
-	switch assessment.Verdict {
-	case "confirmed_issue", "likely_issue":
-		if assessment.Impact == "" || assessment.Cause == "" ||
-			assessment.ImmediateAction == "" || assessment.Verification == "" ||
-			assessment.LongTermSolution == "" {
-			return errors.New(
-				"confirmed or likely alert assessment requires impact, cause, immediate_action, verification, and long_term_solution",
-			)
-		}
-		if assessment.CauseStatus != "identified" && assessment.CauseStatus != "bounded" {
-			return errors.New(
-				"confirmed or likely alert assessment requires cause_status identified or bounded",
-			)
-		}
-	case "not_issue":
-		if assessment.Impact == "" {
-			return errors.New("not_issue alert assessment requires impact")
-		}
-	case "unverified":
-		if assessment.Impact == "" || assessment.ImmediateAction == "" {
-			return errors.New(
-				"unverified alert assessment requires impact and the next verification in immediate_action",
-			)
-		}
-	default:
-		return errors.New(
-			"alert assessment verdict must be confirmed_issue, likely_issue, not_issue, or unverified",
-		)
-	}
-	return nil
+	return operationalscope.ValidateAssessment(assessment)
 }
 
 func NormalizeSlackReactionName(name string) (string, error) {
@@ -833,6 +791,7 @@ type AgentReport struct {
 	// and nothing more: the host recomputes the count before anything is shown.
 	GrantOffer        *core.GrantPromotionOffer           `json:"grant_promotion,omitempty"`
 	PendingApproval   *core.EmisarApproval                `json:"pending_approval,omitempty"`
+	AlertAssessment   *AlertAssessment                    `json:"alert_assessment,omitempty"`
 	Completion        *investigation.CompletionAssessment `json:"completion,omitempty"`
 	Operations        []investigation.ResultOperation     `json:"operations,omitempty"`
 	AppliedOperations []investigation.ResultOperation     `json:"-"`
@@ -1014,6 +973,11 @@ func DecodeAgentReport(message string) (AgentReport, error) {
 	}
 	if err := investigation.ValidateCompletion(report.Completion); err != nil {
 		return AgentReport{}, err
+	}
+	if report.AlertAssessment != nil {
+		if err := ValidateAlertAssessment(report.AlertAssessment); err != nil {
+			return AgentReport{}, err
+		}
 	}
 	if err := investigation.ValidateCapabilityGapEvidence(report.Completion, report.Evidence); err != nil {
 		return AgentReport{}, err
@@ -1207,6 +1171,7 @@ func SanitizeFindings(
 ) []investigation.FindingOperation {
 	result := make([]investigation.FindingOperation, 0, min(len(items), MaxFindings))
 	for _, item := range items[:min(len(items), MaxFindings)] {
+		item.Key = BoundedField(item.Key, 120)
 		item.What = BoundedField(item.What, 400)
 		item.Scope = BoundedField(item.Scope, 200)
 		item.Status = strings.ToLower(BoundedField(item.Status, 40))
@@ -1219,6 +1184,7 @@ func SanitizeFindings(
 		}
 		for index, alternative := range item.Alternatives {
 			alternative.Hypothesis = BoundedField(alternative.Hypothesis, 400)
+			alternative.ClaimID = BoundedField(alternative.ClaimID, 120)
 			alternative.DiscriminatedBy = BoundedField(alternative.DiscriminatedBy, 120)
 			alternative.NotCheckable = BoundedField(alternative.NotCheckable, 400)
 			item.Alternatives[index] = alternative
@@ -1343,6 +1309,7 @@ func ApplyAgentResultOperations(report *AgentReport) error {
 	report.ScheduleOffer = nil
 	report.ScheduleOffers = nil
 	report.PendingApproval = nil
+	report.AlertAssessment = nil
 	report.Completion = nil
 	report.GrantOffer = nil
 	err := FoldResultOperations(report.Operations, OperationTargets{
@@ -1352,9 +1319,9 @@ func ApplyAgentResultOperations(report *AgentReport) error {
 		memoryOffer: &report.MemoryOffer, preferenceOffer: &report.PreferenceOffer,
 		ruleOffer: &report.RuleOffer, scheduleOffer: &report.ScheduleOffer,
 		scheduleOffers: &report.ScheduleOffers,
-		approval:       &report.PendingApproval,
-		completion:     &report.Completion,
-		grantOffer:     &report.GrantOffer,
+		approval:       &report.PendingApproval, alert: &report.AlertAssessment,
+		completion: &report.Completion,
+		grantOffer: &report.GrantOffer,
 	}, &report.AppliedOperations)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidOperations, err)
@@ -1686,6 +1653,9 @@ func foldResultOperations(
 				// is the one exact signal CarryFindings has that a later round is
 				// talking about the same failure state however it reworded it.
 				finding.ID = operation.ID
+				if finding.Key == "" {
+					finding.Key = canonicalFindingKey(operation.ID)
+				}
 				*target.findings = append(*target.findings, finding)
 			}
 		case "record_repository_contents":

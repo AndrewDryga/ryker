@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -76,6 +77,69 @@ func TestTerminalHumanTriageFailurePostsOneSanitizedNotice(t *testing.T) {
 	admitted, err := svc.shouldAdmitChannelMessage(ctx, followup)
 	if err != nil || !admitted {
 		t.Fatalf("plain reply to terminal failure was not admitted = %t, %v", admitted, err)
+	}
+}
+
+// Four Grafana cards were durably accepted but looked ignored for more than two hours while every
+// attempt failed before a model turn: Coop could not refresh a configured repository. The first
+// typed preparation blocker must become one idempotent thread notice, not twenty silent retries.
+func TestRepositoryPreparationBlockerIsDeliveredOnceInTheBoundAlertThread(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	clock := useTestClock(svc, st)
+	run := seedPreparingRun(t, st)
+	run.Repository = "tenant-core"
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	episode, err = st.ChangeEpisodeDestination(ctx, episode.ID, core.BoundDestination{
+		ChannelID: "CBOUND", ThreadTS: "1700.777",
+	}, "explicit_test_binding")
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocker := &coop.APIError{
+		Status: 503, Code: "repository_unavailable",
+		Detail: "workspace preparation could not refresh the configured tenant-core repository from origin/master; no model session was created",
+	}
+	if err := svc.retryAgentRun(ctx, run, blocker); err != nil {
+		t.Fatal(err)
+	}
+	// The production runs reached all twenty preparation attempts without an
+	// operator-visible turn. Replaying the typed failure must keep one durable
+	// status delivery rather than enqueueing one message per attempt.
+	for attempt := 1; attempt < 20; attempt++ {
+		clock.Advance(time.Minute)
+		if err := svc.notifyRepositoryPreparationBlocked(ctx, run, blocker); err != nil {
+			t.Fatal(err)
+		}
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 1 || slack.posts[0].channel != "CBOUND" ||
+		slack.posts[0].thread != "1700.777" {
+		t.Fatalf("preparation blocker posts = %+v", slack.posts)
+	}
+	content := slack.posts[0].message.Text + strings.Join(slack.posts[0].message.Sections, " ")
+	for _, want := range []string{
+		"Investigation queued", "tenant-core", "No model turn has started",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("preparation blocker lacks %q: %q", want, content)
+		}
+	}
+	if recent, err := st.HasRecentWatchReply(
+		ctx, episode.Destination.ChannelID, episode.Destination.ThreadTS,
+		"9999.999", time.Time{},
+	); err != nil || recent {
+		t.Fatalf("preparation status counted as a completed response = %t, %v", recent, err)
 	}
 }
 

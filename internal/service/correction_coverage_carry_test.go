@@ -143,6 +143,12 @@ func freshenHarvest(round string) string {
 	return strings.NewReplacer(
 		"2026-08-15T08:02:14Z", now,
 		"2026-08-15T08:02:38Z", now,
+		`"source_name":"External production page fetches","observed_at"`,
+		`"source_name":"External production page fetches","target":"Emisar portal","observed_at"`,
+		`before changing infrastructure."}},`,
+		`before changing infrastructure.","scope":{"status":"bounded","checked_targets":["Emisar portal"],"unverified_targets":["database-aware readiness"],"evidence_refs":["evidence-user-paths"]}}},`,
+		`correlated with releases."}},`,
+		`correlated with releases.","scope":{"status":"bounded","checked_targets":["Emisar portal"],"unverified_targets":["database-aware readiness"],"evidence_refs":["evidence-user-paths"]}}},`,
 	).Replace(round)
 }
 

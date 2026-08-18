@@ -77,6 +77,9 @@ func RestoreCarriedRecords(
 			if operation.Finding != nil {
 				finding := *operation.Finding
 				finding.ID = operation.ID
+				if finding.Key == "" {
+					finding.Key = canonicalFindingKey(operation.ID)
+				}
 				sentFindings = append(sentFindings, finding)
 			}
 		case "complete_episode":
@@ -146,12 +149,18 @@ func RestoreCarriedRecords(
 			continue
 		}
 		row := item
+		if row.Key == "" {
+			row.Key = canonicalFindingKey(row.ID)
+		}
 		// A finding read back out of a context envelope has no operation id —
-		// the field is deliberately off the JSON contract — so the restored
-		// operation is named after the round it is being restored into. Nothing
-		// references a finding by id, which is why CarryFindings keys on the
-		// failure state instead.
+		// the field is deliberately off the JSON contract. Its host-authored key
+		// is the original canonical operation id, so restore under that id. Using
+		// a fresh carried-finding id here would make validation overwrite the key
+		// and a later correction could no longer replace the same failure state.
 		id := row.ID
+		if id == "" {
+			id = row.Key
+		}
 		if id == "" || used[id] || len(id) > 80 {
 			id = carriedOperationID("carried-finding-", row.What, index)
 		}

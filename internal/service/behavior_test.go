@@ -216,7 +216,7 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 	coopClient.completeQueue = []string{
 		`{"action":"reply","attention":{"addressee":"responder","confidence":3,"ownership":3,"contribution":"decision","material":true},"reason":"lasting channel behavior","operations":[{"id":"off-pref","type":"offer_preference","preference_offer":{"scope":"channel","name":"response_location","value":"prefer_thread","expires_in":"90d"}},{"id":"complete","type":"complete_episode","completion":{"message":"I can remember the thread preference.","followup_messages":["This duplicate explanation must not reach Slack."]}}]}`,
 		`{"action":"incident","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3},"reason":"The critical checkout alert needs investigation.","title":"Critical checkout error rate","evidence":[{"claim":"checkout errors are firing","observation":"the app reports an error rate above 20 percent","source_type":"slack","source_name":"Grafana alert"}],"memory":{}}`,
-		fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"reason":"fresh repository and live evidence confirm the alert","operations":[{"id":"checkout-topology","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"checkout topology has two backends","observation":"the production manifest declares two checkout backends behind the load balancer","source_type":"repository","source_name":"infra/checkout.tf","dimensions":{"repository":"repo","environment":"production","revision":"current"}}},{"id":"checkout-live","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"checkout requests complete successfully","observation":"the live checkout error rate is 20.5 percent and one backend is unhealthy","relation":"contradicts","health_effect":"unhealthy","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","endpoint":"requests","environment":"production","window":"current"}}},{"id":"checkout-impact","type":"record_evidence","evidence":{"claim_id":"impact.current","claim":"checkout user impact is within its error budget","observation":"the current error rate is 20.5 percent","relation":"contradicts","health_effect":"degraded","source_type":"emisar","source_name":"Emisar checkout health","observed_at":%q,"dimensions":{"service":"checkout","indicator":"error_rate","environment":"production","window":"current"}}},{"id":"cov-1","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"healthy","source":"infra/checkout.tf","detail":"the declared two-backend topology was reconciled"}},{"id":"cov-2","type":"record_coverage","coverage":{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unhealthy","source":"Emisar checkout health","detail":"current requests are failing"}},{"id":"cov-3","type":"record_coverage","coverage":{"layer":"slo","claim_ids":["impact.current"],"status":"degraded","source":"Emisar checkout health","detail":"error rate exceeds the alert threshold"}},{"id":"finding-1","type":"record_finding","finding":{"what":"more than 20 percent of checkout requests are failing","scope":"checkout production","status":"explained","cause_evidence":["checkout-live"],"alternatives":[{"hypothesis":"an upstream payment provider is erroring","discriminated_by":"checkout-live"}]}},{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue","impact":"More than 20 percent of current checkout requests fail.","cause_status":"identified","cause":"One load balancer backend is unhealthy after the current deployment.","cause_claim_ids":["application.functional_behavior"],"evidence_refs":["checkout-live"],"immediate_action":"Remove the unhealthy backend from service.","verification":"Confirm checkout errors return below the alert threshold after the backend is removed.","long_term_solution":"Correct the deployment regression and add a checkout-error rollout guard."}},{"id":"mem","type":"update_memory","memory":{"situation_summary":"A critical checkout error-rate alert was confirmed from repository and live evidence.","decisions":["Continue the alert investigation in its source thread."]}},{"id":"complete","type":"complete_episode","completion":{"message":"**Checkout errors are affecting current requests:** more than 20 percent are failing.\n\nRemove the unhealthy backend from service and verify the error rate falls. The durable fix is to correct the deployment regression and add a rollout guard for checkout errors.","completion":{"status":"decision_ready","verdict":"unhealthy","summary":"The checkout alert is a confirmed current issue with a bounded immediate remediation."}}}]}`, observedAt, observedAt),
+		fmt.Sprintf(`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"reason":"fresh repository and live evidence confirm the alert","operations":[{"id":"checkout-topology","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"checkout topology has two backends","observation":"the production manifest declares two checkout backends behind the load balancer","source_type":"repository","source_name":"infra/checkout.tf","dimensions":{"repository":"repo","environment":"production","revision":"current"}}},{"id":"checkout-live","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"checkout requests complete successfully","observation":"the live checkout error rate is 20.5 percent and one backend is unhealthy","relation":"contradicts","health_effect":"unhealthy","source_type":"emisar","source_name":"Emisar checkout health","target":"checkout","observed_at":%q,"dimensions":{"service":"checkout","endpoint":"requests","environment":"production","window":"current"}}},{"id":"checkout-impact","type":"record_evidence","evidence":{"claim_id":"impact.current","claim":"checkout user impact is within its error budget","observation":"the current error rate is 20.5 percent","relation":"contradicts","health_effect":"degraded","source_type":"emisar","source_name":"Emisar checkout health","target":"checkout","observed_at":%q,"dimensions":{"service":"checkout","indicator":"error_rate","environment":"production","window":"current"}}},{"id":"cov-1","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"healthy","source":"infra/checkout.tf","detail":"the declared two-backend topology was reconciled"}},{"id":"cov-2","type":"record_coverage","coverage":{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unhealthy","source":"Emisar checkout health","detail":"current requests are failing"}},{"id":"cov-3","type":"record_coverage","coverage":{"layer":"slo","claim_ids":["impact.current"],"status":"degraded","source":"Emisar checkout health","detail":"error rate exceeds the alert threshold"}},{"id":"finding-1","type":"record_finding","finding":{"key":"checkout-error-rate","what":"more than 20 percent of checkout requests are failing","scope":"checkout production","status":"explained","cause_evidence":["checkout-live"],"alternatives":[{"hypothesis":"an upstream payment provider is erroring","claim_id":"application.functional_behavior","discriminated_by":"checkout-live"}]}},{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue","impact":"More than 20 percent of current checkout requests fail.","cause_status":"identified","cause":"One load balancer backend is unhealthy after the current deployment.","cause_claim_ids":["application.functional_behavior"],"evidence_refs":["checkout-live"],"immediate_action_kind":"mitigation","immediate_action":"Remove the unhealthy backend from service.","verification":"Confirm checkout errors return below the alert threshold after the backend is removed.","long_term_solution":"Correct the deployment regression and add a checkout-error rollout guard.","scope":{"status":"bounded","checked_targets":["checkout"],"unverified_targets":["routes outside checkout"],"evidence_refs":["checkout-live"]}}},{"id":"mem","type":"update_memory","memory":{"situation_summary":"A critical checkout error-rate alert was confirmed from repository and live evidence.","decisions":["Continue the alert investigation in its source thread."]}},{"id":"complete","type":"complete_episode","completion":{"message":"This model-authored scope wording must be replaced by the host.","completion":{"status":"decision_ready","verdict":"unhealthy","summary":"The checkout alert is a confirmed current issue with a bounded immediate remediation."}}}]}`, observedAt, observedAt),
 	}
 	svc := New(
 		cfg, st, coopClient, slackClient, nil,
@@ -360,7 +360,9 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 		t.Fatalf("cleared alert acknowledgement = %+v", slackClient.removedReactions)
 	}
 	last := slackClient.posts[len(slackClient.posts)-1]
-	if last.thread != alert.MessageTS || !strings.Contains(last.message.Text, "Checkout errors") {
+	if last.thread != alert.MessageTS ||
+		!strings.Contains(last.message.Text, "confirms an active issue") ||
+		!strings.Contains(last.message.Text, "Among the checked targets") {
 		t.Fatalf("alert triage reply = %+v", last)
 	}
 	incidents, err := st.ListIncidents(ctx, 10)
@@ -501,6 +503,11 @@ func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 		ImmediateAction:  "Drain the host if latency persists.",
 		Verification:     "Confirm device latency returns below 50 ms after draining.",
 		LongTermSolution: "Repair the shared storage path.",
+		Scope: &decisionpkg.OperationalScope{
+			Status: "bounded", CheckedTargets: []string{"database host"},
+			UnverifiedTargets: []string{"other database hosts"},
+			EvidenceRefs:      []string{"storage-live"},
+		},
 	}
 	now := time.Now().UTC()
 	repositoryEvidence := core.Evidence{
@@ -510,6 +517,7 @@ func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 	liveEvidence := core.Evidence{
 		ID: "storage-live", ClaimID: "dependency.current_health",
 		Claim: "latency is elevated", Observation: "both devices exceed 50 ms",
+		Relation: "contradicts", Target: "database host",
 		SourceType: "emisar", SourceName: "storage health", ObservedAt: now,
 	}
 	for name, decision := range map[string]decisionpkg.WatchDecision{
@@ -561,12 +569,21 @@ func TestRecoveredAlertCanCloseFromFreshExactEvidenceWithoutRepositorySweep(t *t
 		AlertAssessment: &decisionpkg.AlertAssessment{
 			Verdict: "not_issue",
 			Impact:  "The overdue repair condition is no longer active.",
+			Scope: &decisionpkg.OperationalScope{
+				Status: "bounded", CheckedTargets: []string{"scheduled sts_ks repair"},
+				UnverifiedTargets: []string{"other Cassandra repair jobs"},
+				EvidenceRefs:      []string{"repair-status"},
+			},
 		},
 		Evidence: []core.Evidence{{
+			ID:          "repair-status",
+			ClaimID:     "application.functional_behavior",
 			Claim:       "the scheduled repair completed",
 			Observation: "progress reached 100% and the overdue gauge returned to zero",
+			Relation:    "supports",
 			SourceType:  "emisar",
 			SourceName:  "Cassandra repair status",
+			Target:      "scheduled sts_ks repair",
 			ObservedAt:  now,
 		}},
 		Completion: &CompletionAssessment{
@@ -1494,6 +1511,14 @@ func TestStandingRuleRunsWithProactiveOffAndRecordsOneExecution(t *testing.T) {
 	      "status":"unhealthy",
 	      "detail":"The exact Terraform run is terminally errored after apply began."
 	    }},
+	    {"id":"finding-run-failed","type":"record_finding","finding":{
+	      "key":"terraform-run-terminal-failure",
+	      "what":"The Terraform apply is terminally errored after execution began.",
+	      "scope":"SME-Tenant/tenant-infra production apply",
+	      "status":"explained",
+	      "cause_evidence":["run-terminal"],
+	      "alternatives":[{"hypothesis":"The run is still progressing toward success","claim_id":"change.recent","discriminated_by":"run-terminal"}]
+	    }},
 	    {"id":"complete","type":"complete_episode","completion":{
 	      "message":"Apply failed after execution began. Do not retry it yet; inspect the exact diagnostics and reconcile state first because partial changes are still unknown.",
 	      "completion":{
@@ -1863,7 +1888,10 @@ func TestAnsweredAlertCardShowsCheckMark(t *testing.T) {
 	}
 	reply := slackClient.posts[len(slackClient.posts)-1]
 	if reply.thread != alert.MessageTS ||
-		!strings.Contains(reply.message.Text, "Checkout errors") {
+		!strings.Contains(reply.message.Text, "Among the checked targets") ||
+		!strings.Contains(reply.message.Text, "checkout") ||
+		strings.Contains(reply.message.Text, "More than 20 percent") ||
+		strings.Contains(reply.message.Text, "**Checkout errors are affecting current requests:**") {
 		t.Fatalf("alert triage reply = %+v", slackClient.posts)
 	}
 	cleared, answered := 0, 0
@@ -1882,6 +1910,72 @@ func TestAnsweredAlertCardShowsCheckMark(t *testing.T) {
 			"answered alert card cleared %d acknowledgements and carries %d check marks: added=%+v removed=%+v",
 			cleared, answered, slackClient.reactions, slackClient.removedReactions,
 		)
+	}
+}
+
+// A Terraform review may carry a stray, well-shaped alert assessment. It is
+// not an operational-alert assignment, so that object must neither replace the
+// review nor erase the exact source URL before Slack delivery.
+func TestTerraformReviewKeepsItsExactRunLinkWithAStrayAlertAssessment(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CTFALERT"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, _, err := st.Behavior.UpsertStandingRule(ctx, core.StandingRule{
+		ChannelID: "CTFALERT", Repository: "repo",
+		Trigger: "terraform_plan", Action: "review_terraform_plan",
+		SourceKind: "app", Enabled: true, SourceRef: "test", ActorID: "UOPERATOR",
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+	}, cfg.Limits.MaxStandingRules, cfg.Limits.MaxRulesPerChannel); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "CTFALERT", Participation: "proactive",
+		Repository: "repo", AlertPolicy: "reply", ActorID: "UOPERATOR",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	const runURL = "https://app.terraform.io/app/acme/workspaces/infra/runs/run-exact"
+	input := core.SlackInput{
+		ID: "slack_terraform_alert_review", EnvelopeID: "env_terraform_alert_review",
+		EventID: "EvTerraformAlertReview", Kind: "bot_message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CTFALERT", MessageTS: "1703.200", UserID: "BTERRAFORM",
+		ReceivedAt: time.Now().UTC(),
+		Text: "Run notification for <" + runURL +
+			"|acme/infra>\nRun run-exact\nRun Planned - Needs Confirmation",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit Terraform alert = %t, %v", created, err)
+	}
+	result := rewriteFixture(t, confirmedAlertReplyResult(time.Now().UTC().Format(time.RFC3339)),
+		`"verdict":"unhealthy"`, `"verdict":"needs_review"`,
+	)
+	now := time.Now().UTC().Truncate(time.Second)
+	wait := fmt.Sprintf(`{"id":"wait-run-exact","type":"wait_external","external_wait":{"id":"wakeup-run-exact","kind":"terraform_run","event_matcher":{"provider":"hcp_terraform","run_id":"run-exact","desired_state":"reviewable_or_terminal"},"poll_after":%q,"deadline":%q}},`,
+		now.Add(time.Minute).Format(time.RFC3339), now.Add(24*time.Hour).Format(time.RFC3339))
+	result = rewriteFixture(t, result, `{"id":"complete"`, wait+`{"id":"complete"`)
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = result
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != 1 {
+		run, _ := st.GetAgentRunBySource(ctx, "watch", input.ID)
+		t.Fatalf("Terraform alert review posts = %d; run state=%q last error=%q", len(slackClient.posts), run.State, run.LastError)
+	}
+	posted := slackClient.posts[0]
+	if posted.channel != input.ChannelID || posted.thread != input.MessageTS ||
+		!strings.Contains(posted.message.Text, runURL) ||
+		strings.Contains(posted.message.Text, "Among the checked targets") {
+		t.Fatalf("delivered Terraform alert review lost scope or run link: %+v", posted)
 	}
 }
 

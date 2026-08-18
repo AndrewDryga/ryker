@@ -69,8 +69,10 @@ func watchEpisode() core.WorkEpisode {
 // missed progress deadline, the result carries no record_finding, and the
 // completion is decision_ready. Nothing else about it was wrong, which is the
 // point — the contract was the gap.
-func TestAReplyThatReportsAFailureMustRecordAFinding(t *testing.T) {
-	correction := FindingCorrection(watchEpisode(), decisionReady(zotTriageReply), nil)
+func TestATypedFailureMustRecordAFindingRegardlessOfItsProse(t *testing.T) {
+	failure := decisionReady(zotTriageReply)
+	failure.Coverage = []core.Coverage{{Layer: "scheduler", Status: "unhealthy"}}
+	correction := FindingCorrection(watchEpisode(), failure, nil)
 	if correction == "" {
 		t.Fatal("the Zot triage reply reported a rollback and recorded no finding, uncorrected")
 	}
@@ -84,8 +86,26 @@ func TestAReplyThatReportsAFailureMustRecordAFinding(t *testing.T) {
 	// into a second Slack part must not be a way past the rule.
 	split := decisionReady("Production `pyke-server` applied.")
 	split.FollowupMessages = []string{"VA1 `pyke` **did not deploy**: it rolled back to job version 5."}
+	split.Completion.Verdict = "failed"
 	if FindingCorrection(watchEpisode(), split, nil) == "" {
-		t.Fatal("a failure reported in a follow-up message escaped the rule")
+		t.Fatal("a typed failed verdict escaped the finding rule")
+	}
+	neutral := decisionReady("The requested review is complete; see the structured result.")
+	neutral.Completion.Verdict = "failed"
+	if FindingCorrection(watchEpisode(), neutral, nil) == "" {
+		t.Fatal("a typed failure with no magic failure phrase escaped the finding rule")
+	}
+
+	// Arbitrary prose is presentation data. These paraphrases cannot turn a
+	// successful structured result into a failure or take back a typed one.
+	for _, paraphrase := range []string{
+		"The rollout fell over before serving traffic.",
+		"The new allocation never became viable.",
+		"Things went sideways and the previous revision returned.",
+	} {
+		if correction := FindingCorrection(watchEpisode(), decisionReady(paraphrase), nil); correction != "" {
+			t.Fatalf("generated prose changed typed success semantics: %q", correction)
+		}
 	}
 
 	// And the way out is the operation itself, not silence.
@@ -256,7 +276,7 @@ func TestAnIdentifiedCauseMustSurviveItsStrongestAlternative(t *testing.T) {
 	// Either residue satisfies it. "No check discriminates, and here is why" is
 	// an honest answer; the rule is against silence, not against limits.
 	for _, alternative := range []investigation.FindingAlternative{
-		{Hypothesis: "the health check threshold changed", DiscriminatedBy: "evidence-job-diff"},
+		{Hypothesis: "the health check threshold changed", ClaimID: "scheduler.threshold_changed", DiscriminatedBy: "evidence-job-diff"},
 		{Hypothesis: "the node ran out of disk", NotCheckable: "the allocation is already garbage collected"},
 	} {
 		attacked := []investigation.FindingOperation{{
@@ -265,6 +285,12 @@ func TestAnIdentifiedCauseMustSurviveItsStrongestAlternative(t *testing.T) {
 			Alternatives:  []investigation.FindingAlternative{alternative},
 		}}
 		episode := core.WorkEpisode{Effort: core.EffortIncidentInvestigation}
+		if alternative.DiscriminatedBy != "" {
+			reply.Evidence = []core.Evidence{{
+				ID: alternative.DiscriminatedBy, ClaimID: alternative.ClaimID,
+				Relation: "contradicts",
+			}}
+		}
 		if correction := FindingCorrection(episode, reply, attacked); correction != "" {
 			t.Fatalf("an attacked cause was still corrected: %q", correction)
 		}
@@ -330,6 +356,21 @@ func TestFindingsSurviveACorrectionRound(t *testing.T) {
 	}})
 	if len(other) != 2 {
 		t.Fatalf("two distinct failure states collapsed into one: %+v", other)
+	}
+}
+
+func TestAKeyedFindingMigratesAnExactKeylessLegacyRecord(t *testing.T) {
+	legacy := investigation.FindingOperation{
+		What: "VA1 pyke did not deploy", Status: "unexplained",
+	}
+	corrected := investigation.FindingOperation{
+		ID: "finding-pyke-corrected", Key: "finding-pyke",
+		What: "VA1 pyke did not deploy", Status: "explained",
+		CauseEvidence: []string{"evidence-zot-auth"},
+	}
+	got := CarryFindings([]investigation.FindingOperation{legacy}, []investigation.FindingOperation{corrected})
+	if len(got) != 1 || got[0].Key != "finding-pyke" || got[0].Status != "explained" {
+		t.Fatalf("keyless legacy finding survived beside its keyed correction: %+v", got)
 	}
 }
 
@@ -432,7 +473,7 @@ func traefikBoundedCause(t *testing.T) WatchDecision {
 // leak component on top of the load-driven growth is not excluded." The
 // adversarial-residue rule was satisfied by the shape — an alternative, an
 // evidence id — and read none of the words.
-func TestExplainedFindingWhoseDiscriminatorSaysNotExcludedIsSentBack(t *testing.T) {
+func TestExplainedFindingRequiresATypedContradictingDiscriminator(t *testing.T) {
 	decision := traefikBoundedCause(t)
 	episode := core.WorkEpisode{Effort: core.EffortIncidentInvestigation}
 	correction := FindingCorrection(episode, decision, decision.Findings)
@@ -440,7 +481,7 @@ func TestExplainedFindingWhoseDiscriminatorSaysNotExcludedIsSentBack(t *testing.
 		t.Fatal("a finding discriminated by evidence that says the rival is not excluded passed")
 	}
 	for _, required := range []string{
-		"not excluded",
+		"typed claim_id",
 		"evidence-impact-growth",
 		"A pure in-process leak independent of load",
 		"Every VA1 traefik allocation is within 3-10% of its 4,096 MiB memory cap",
@@ -450,13 +491,35 @@ func TestExplainedFindingWhoseDiscriminatorSaysNotExcludedIsSentBack(t *testing.
 		}
 	}
 
+	// Once the relationship is explicit, wording cannot overturn it. This
+	// recorded observation literally says a leak is "not excluded"; that prose
+	// is no longer a hidden second schema.
+	typed := traefikBoundedCause(t)
+	for findingIndex := range typed.Findings {
+		for alternativeIndex := range typed.Findings[findingIndex].Alternatives {
+			alternative := &typed.Findings[findingIndex].Alternatives[alternativeIndex]
+			for _, evidence := range typed.Evidence {
+				if evidence.ID == alternative.DiscriminatedBy {
+					alternative.ClaimID = evidence.ClaimID
+				}
+			}
+		}
+	}
+	if correction := FindingCorrection(episode, typed, typed.Findings); correction != "" {
+		t.Fatalf("observation prose overrode typed contradicting evidence: %q", correction)
+	}
+
 	// The way out the model can always take: say plainly that no check
 	// discriminates. That is an honest answer about a limit, and the rule is
 	// against a discriminator that does not discriminate, not against candour.
 	honest := traefikBoundedCause(t)
-	honest.Findings[0].Alternatives[0] = investigation.FindingAlternative{
-		Hypothesis:   honest.Findings[0].Alternatives[0].Hypothesis,
-		NotCheckable: "no heap profile is available in this session",
+	for findingIndex := range honest.Findings {
+		for alternativeIndex := range honest.Findings[findingIndex].Alternatives {
+			honest.Findings[findingIndex].Alternatives[alternativeIndex] = investigation.FindingAlternative{
+				Hypothesis:   honest.Findings[findingIndex].Alternatives[alternativeIndex].Hypothesis,
+				NotCheckable: "the discriminating check is unavailable in this session",
+			}
+		}
 	}
 	if correction := FindingCorrection(episode, honest, honest.Findings); correction != "" {
 		t.Fatalf("an honestly not-checkable alternative was corrected: %q", correction)
