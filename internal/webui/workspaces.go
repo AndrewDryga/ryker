@@ -305,7 +305,7 @@ func (r *Reader) incidentTitle(ctx context.Context, incidentID string) string {
 		return ""
 	}
 	var title string
-	if err := r.db.QueryRowContext(ctx,
+	if err := r.lookup.QueryRowContext(ctx,
 		`SELECT COALESCE(title,'') FROM incidents WHERE id = ?`, incidentID,
 	).Scan(&title); err != nil {
 		return ""

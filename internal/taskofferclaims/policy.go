@@ -4,6 +4,7 @@ package taskofferclaims
 
 import (
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/completionpolicy"
@@ -22,6 +23,7 @@ func Correction(
 	episode core.WorkEpisode,
 	evidence []core.Evidence,
 	coverage []core.Coverage,
+	targetRepository string,
 	now time.Time,
 	chainStartedAt time.Time,
 ) string {
@@ -40,6 +42,9 @@ func Correction(
 	); correction != "" {
 		return correction
 	}
+	if correction := RepositoryCorrection(evidence, targetRepository); correction != "" {
+		return correction
+	}
 	ledger := investigation.BuildLedgerForChain(
 		contract, evidence, completionpolicy.CurrentCoverage(coverage, now),
 		now.UTC(), chainStartedAt.UTC(),
@@ -47,4 +52,24 @@ func Correction(
 	// A negative verdict can explain why work is useful, but it cannot waive a
 	// contradiction in the evidence that authorizes the Slack control.
 	return ledger.CompletionCorrectionFor("decision_ready", "")
+}
+
+// RepositoryCorrection binds the evidence authorizing a governed task to the
+// repository that task will change. Evidence that merely came from some other
+// checkout proves neither the proposed diagnosis nor the safety of offering a
+// writable action here.
+func RepositoryCorrection(evidence []core.Evidence, targetRepository string) string {
+	targetRepository = strings.TrimSpace(targetRepository)
+	if targetRepository == "" {
+		return ""
+	}
+	for _, item := range evidence {
+		if item.SourceType == "repository" && strings.EqualFold(
+			strings.TrimSpace(item.Dimensions["repository"]), targetRepository,
+		) {
+			return ""
+		}
+	}
+	return "suggested engineering task requires current repository evidence for its target repository `" +
+		targetRepository + "`"
 }

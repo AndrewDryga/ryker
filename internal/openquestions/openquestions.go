@@ -71,8 +71,8 @@ func For(decision decisionpkg.WatchDecision) Questions {
 // unexplainedLine is what the operator reads about a question that is still
 // open. Since 2026-08-16 a finding may rest unexplained when one of its
 // alternatives says which check would settle it and why that check is not
-// available now, so the caveat has to carry both halves: a bare "Unexplained:
-// ..." beside a decision_ready verdict reads as the host having given up, where
+// available now, so the caveat has to carry both halves: a bare uncertainty
+// label beside a decision_ready verdict reads as the host having given up, where
 // "... — not checkable now: the Emisar catalog has no Nomad diagnostic" is a
 // bounded answer an operator can act on.
 func unexplainedLine(finding investigation.FindingOperation) string {

@@ -1305,7 +1305,11 @@ func WithOpenQuestions(
 	// and every finding is still on the episode for anyone who wants the rest.
 	for _, item := range unexplained[:min(len(unexplained), 2)] {
 		if item = clean(item); item != "" {
-			parts = append(parts, "Unexplained: "+item)
+			// These findings reach a decision-ready reply only when the exact
+			// discriminating check is unavailable. Calling the whole result
+			// "Unexplained" made a bounded explanation read as if it did not
+			// exist; name the remaining uncertainty instead.
+			parts = append(parts, "Remaining uncertainty: "+item)
 		}
 	}
 	if !bounded && firstGap != "" {

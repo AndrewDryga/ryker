@@ -19,7 +19,7 @@ import (
 // available — the exit two eval-prompts cases were reaching for on 2026-08-16
 // and could not express. The operator reads the reply, not the ledger, so the
 // caveat has to carry both halves: the question, and the reason it is still a
-// question. A bare "Unexplained: ..." beside a decision_ready verdict reads as
+// question. A bare uncertainty label beside a decision_ready verdict reads as
 // the host having given up rather than as a bounded answer.
 func TestAnUnexplainedFindingSaysWhyItIsNotCheckableNow(t *testing.T) {
 	// The finding is the recorded Nomad rollback, with the sentence the model's
@@ -58,7 +58,7 @@ func TestAnUnexplainedFindingSaysWhyItIsNotCheckableNow(t *testing.T) {
 		t.Fatalf("the caveat lost the reason the check is unavailable: %q", line)
 	}
 	// Bounded below Slack's 500-byte context-element limit, leaving room for the
-	// "Unexplained: " label applied by the renderer.
+	// "Remaining uncertainty: " label applied by the renderer.
 	if len([]byte(line)) > 480 {
 		t.Fatalf("the caveat line is %d runes: %q", len([]rune(line)), line)
 	}

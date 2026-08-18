@@ -1408,8 +1408,8 @@ func TestOpenQuestionsRenderAsOneContextLine(t *testing.T) {
 	line := message.Context[len(message.Context)-1]
 	for _, want := range []string{
 		"Cause bounded, not identified: No Go heap profile was captured",
-		"Unexplained: The va1-nomad-oom-risk alert cleared",
-		"Unexplained: nomad-hst04 has no reclaimable file cache",
+		"Remaining uncertainty: The va1-nomad-oom-risk alert cleared",
+		"Remaining uncertainty: nomad-hst04 has no reclaimable file cache",
 		"Next check: scheduled follow-up at 16:30 UTC",
 		" · ",
 	} {
@@ -1452,6 +1452,18 @@ func TestOpenQuestionsRenderAsOneContextLine(t *testing.T) {
 	)
 	if got := len(long.Context[len(long.Context)-1]); got > 700 {
 		t.Fatalf("the open-questions line is %d bytes, over the 700-byte bound", got)
+	}
+}
+
+func TestDecisionReadyFindingIsLabeledAsRemainingUncertainty(t *testing.T) {
+	message := WithOpenQuestions(
+		Message{}, "", "", nil,
+		[]string{"Rate limiting, protocol drift, and stale sessions remain possible."},
+		"Run one paced-account canary.", NewSanitizer(12000),
+	)
+	if len(message.Context) != 1 ||
+		!strings.Contains(message.Context[0], "Remaining uncertainty: Rate limiting") {
+		t.Fatalf("decision-ready uncertainty is mislabeled: %+v", message.Context)
 	}
 }
 

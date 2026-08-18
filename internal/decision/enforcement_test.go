@@ -85,6 +85,42 @@ func TestStructuredValidationRecheckCannotSilentlyIgnoreTheRejectedResult(t *tes
 	}
 }
 
+// One production alert inspected tenant-infra, then exposed a confirmable
+// "Prepare code fix" control for tenant-rivals-scraper. The unrelated repository
+// record was enough to authorize writable work, even though no source evidence
+// had inspected the repository the task would change.
+func TestEngineeringTaskOfferRequiresEvidenceFromItsTargetRepository(t *testing.T) {
+	now := time.Date(2026, 8, 18, 15, 0, 0, 0, time.UTC)
+	decision := WatchDecision{
+		Action:         "reply",
+		TaskRepository: "tenant-rivals-scraper",
+		TaskPrompt:     "Recycle stale sessions and bound scraper concurrency.",
+		Completion: &investigation.CompletionAssessment{
+			Status: "decision_ready", Verdict: "degraded",
+		},
+		Evidence: []core.Evidence{{
+			ID: "change-repo", ClaimID: "change.recent",
+			Claim:       "The candidate repository was inspected.",
+			Observation: "The current checkout contains the deployment definition.",
+			Relation:    "supports", SourceType: "repository", SourceName: "checkout",
+			ObservedAt: now, Confidence: "high",
+			Dimensions: map[string]string{
+				"repository": "tenant-infra", "environment": "checkout", "revision": "c5b834f",
+			},
+		}},
+	}
+	input := core.SlackInput{Kind: "bot_message", Text: "[VA1 FIRING:1] Rivals scrape failures"}
+	correction := WatchDecisionCorrectionAt(input, WatchTurnState{}, decision, now, nil)
+	if !strings.Contains(correction, "target repository") {
+		t.Fatalf("unrelated repository evidence authorized the task offer: %q", correction)
+	}
+
+	decision.Evidence[0].Dimensions["repository"] = "tenant-rivals-scraper"
+	if correction := WatchDecisionCorrectionAt(input, WatchTurnState{}, decision, now, nil); correction != "" {
+		t.Fatalf("target-repository evidence was rejected: %q", correction)
+	}
+}
+
 // A later point probe and a shorter log query are useful current evidence, but
 // they do not disprove a firing alert over a different window and population.
 // The match is carried in typed dimensions; no alert or result prose is parsed.

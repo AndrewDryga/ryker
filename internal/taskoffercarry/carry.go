@@ -126,6 +126,17 @@ func Present(operations []investigation.ResultOperation) bool {
 	return false
 }
 
+// TargetRepository returns the repository governed by the current engineering
+// offer. Only the current operation stream may authorize a new Slack control.
+func TargetRepository(operations []investigation.ResultOperation) string {
+	for _, operation := range operations {
+		if engineering(operation) {
+			return strings.TrimSpace(operation.Task.Repository)
+		}
+	}
+	return ""
+}
+
 func engineering(operation investigation.ResultOperation) bool {
 	return operation.Type == "offer_task" && operation.Task != nil &&
 		operation.Task.Kind == "engineering"

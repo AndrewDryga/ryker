@@ -370,7 +370,8 @@ func (s *Service) episodeClaimCorrectionWithHistory(
 	}
 	if action == "reply" && completion != nil && taskoffercarry.Present(operations) {
 		return taskofferclaims.Correction(
-			episode, evidence, coverage, now, chainStartedAt,
+			episode, evidence, coverage, taskoffercarry.TargetRepository(operations),
+			now, chainStartedAt,
 		), nil
 	}
 	priorEvidence, err := s.store.Intelligence.ListEpisodeEvidence(ctx, episode.ID, 200)

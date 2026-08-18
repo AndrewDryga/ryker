@@ -33,6 +33,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/recall"
 	"github.com/AndrewDryga/responder/internal/remediation"
 	"github.com/AndrewDryga/responder/internal/repositorycapability"
+	"github.com/AndrewDryga/responder/internal/resultrecovery"
 	"github.com/AndrewDryga/responder/internal/resultwire"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/runreplay"
@@ -2562,6 +2563,17 @@ func (s *Service) stageTriageTerminal(
 		invalid := trimError(decisionErr)
 		correction := "the structured Slack response is invalid: " + invalid +
 			investigation.SchemaFragmentForCorrection(string(correctionUnreadable), invalid)
+		// The complete stream is still rejected, but independently valid
+		// evidence, coverage and findings before an unrelated malformed offer
+		// remain this run's records. The correction contract explicitly tells
+		// the model the host holds them; make that true before persisting the
+		// next round's context.
+		recovered := resultrecovery.Watch(turn.AssistantMessage, resultrecovery.Records{
+			Evidence: state.CarriedEvidence, Coverage: state.CarriedCoverage,
+			Findings: state.CarriedFindings,
+		}, s.now())
+		state.CarriedEvidence, state.CarriedCoverage, state.CarriedFindings =
+			recovered.Evidence, recovered.Coverage, recovered.Findings
 		if !consumeWatchStructuredCorrection(
 			&state, episodeCorrections, s.cfg.Limits.MaxAgentRunAttempts,
 		) {
@@ -2921,8 +2933,13 @@ func (s *Service) stageIncidentTerminal(
 		invalid := trimError(reportErr)
 		correction := "the structured agent report is invalid: " + invalid +
 			investigation.SchemaFragmentForCorrection(string(correctionUnreadable), invalid)
-		// Nothing parsed, so this round establishes nothing to carry.
-		spent, spendErr := s.spendStructuredCorrection(ctx, run, nil, nil, nil)
+		// The full report is unreadable, but an unrelated bad offer must not
+		// erase valid ledger records that preceded it. The next correction round
+		// is promised those records are still held, just like the watch lane.
+		recovered := resultrecovery.AgentReport(turn.AssistantMessage, s.now())
+		spent, spendErr := s.spendStructuredCorrection(
+			ctx, run, recovered.Evidence, recovered.Coverage, recovered.Findings,
+		)
 		if spendErr != nil {
 			return true, spendErr
 		}

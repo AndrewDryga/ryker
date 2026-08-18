@@ -12,6 +12,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/evidencepolicy"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/taskoffercarry"
+	"github.com/AndrewDryga/responder/internal/taskofferclaims"
 )
 
 // The turn state a decision is read against, and the rules that correct a
@@ -761,11 +762,12 @@ func WatchDecisionCorrectionAt(
 		if !ValidSuggestedEngineeringTaskBoundary(decision) {
 			return "suggested engineering task requires a decision-ready result or an exact tool-failure blocker"
 		}
-		if !WatchDecisionHasEvidenceSource(
-			SanitizeEvidence(decision.Evidence, "", "", "", now),
-			"repository",
-		) {
+		sanitizedEvidence := SanitizeEvidence(decision.Evidence, "", "", "", now)
+		if !WatchDecisionHasEvidenceSource(sanitizedEvidence, "repository") {
 			return "suggested engineering task requires repository evidence"
+		}
+		if correction := taskofferclaims.RepositoryCorrection(sanitizedEvidence, decision.TaskRepository); correction != "" {
+			return correction
 		}
 	}
 	if input.Kind == "recheck" && decision.Action == "ignore" &&

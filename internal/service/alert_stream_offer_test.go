@@ -248,6 +248,10 @@ func twoRepositoryConfig(t *testing.T) config.Config {
 // every alert reply of 2026-08-16 carried one.
 func withTaskOffer(t *testing.T, body, title, repository string) string {
 	t.Helper()
+	body = rewriteFixture(t, body,
+		`"dimensions":{"repository":"repo","environment":"production","revision":"current"}`,
+		`"dimensions":{"repository":`+strconv.Quote(repository)+`,"environment":"production","revision":"current"}`,
+	)
 	return rewriteFixture(t, body,
 		`{"id":"complete","type":"complete_episode"`,
 		`{"id":"offer-fix","type":"offer_task","task":{"kind":"engineering","title":`+

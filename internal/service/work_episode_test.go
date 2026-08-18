@@ -969,18 +969,19 @@ func TestAnEngineeringOfferStillNeedsTypedEvidenceAndCoverage(t *testing.T) {
 		Detail: "The exact candidate revision was inspected.", CreatedAt: now,
 	}}
 	if got := taskofferclaims.Correction(
-		episode, nil, coverage, now, now,
+		episode, nil, coverage, "responder", now, now,
 	); !strings.Contains(got, "no typed evidence") {
 		t.Fatalf("ungrounded task offer correction = %q", got)
 	}
 	evidence := []core.Evidence{{
 		ClaimID: "change.recent", Relation: "supports", ObservedAt: now,
+		SourceType: "repository", SourceName: "candidate checkout",
 		Dimensions: map[string]string{
 			"repository": "responder", "environment": "candidate", "revision": "abc123",
 		},
 	}}
 	if got := taskofferclaims.Correction(
-		episode, evidence, coverage, now, now,
+		episode, evidence, coverage, "responder", now, now,
 	); got != "" {
 		t.Fatalf("evidence-backed task offer rejected = %q", got)
 	}
@@ -1022,14 +1023,15 @@ func TestAnEngineeringOfferStillNeedsTypedEvidenceAndCoverage(t *testing.T) {
 				}}
 			}
 			if got := taskofferclaims.Correction(
-				testCase.episode, []core.Evidence{testCase.evidence}, itemCoverage, now, now,
+				testCase.episode, []core.Evidence{testCase.evidence}, itemCoverage,
+				strings.TrimSpace(testCase.evidence.Dimensions["repository"]), now, now,
 			); got == "" {
 				t.Fatal("unsafe task offer was authorized")
 			}
 		})
 	}
 	if got := taskofferclaims.Correction(
-		core.WorkEpisode{RequiredCoverage: []string{"task"}}, nil, nil, now, now,
+		core.WorkEpisode{RequiredCoverage: []string{"task"}}, nil, nil, "", now, now,
 	); got != "" {
 		t.Fatalf("future task outcome was not exempted: %q", got)
 	}

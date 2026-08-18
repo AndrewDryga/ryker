@@ -2,17 +2,196 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
+
+// A partial correction must preserve the typed evidence that an earlier round
+// already established. The live Rivals investigation on 2026-08-18 emitted
+// current workload and application evidence in round one, then spent six
+// correction turns until the host incorrectly asked for those exact records
+// again. Besides delaying the requested answer, the loop consumed more than
+// 200k input tokens for evidence Responder already held.
+func TestPartialCorrectionNeverForgetsRequiredTypedEvidence(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	cfg.Limits.MaxAgentRunAttempts = 10
+	for _, repository := range []string{
+		"tenant-infra", "tenant-rivals-scraper", "tenant-backend-rs",
+	} {
+		cfg.Repositories[repository] = cfg.Repositories["repo"]
+	}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "CWATCH", Participation: "proactive",
+		Repository: "tenant-infra", AlertPolicy: "reply", ActorID: "U123ABC",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	coopClient := newFakeCoop()
+	for round := 1; round <= 6; round++ {
+		path := "testdata/live_rivals_partial_round_0" + string(rune('0'+round)) + ".txt"
+		contents, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("read harvested Rivals round %d: %v", round, readErr)
+		}
+		coopClient.completeQueue = append(
+			coopClient.completeQueue, freshenLiveRivalsRound(string(contents)),
+		)
+	}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	input := core.SlackInput{
+		ID: "live-rivals-evidence-carry", EnvelopeID: "env-live-rivals-evidence-carry",
+		EventID: "event-live-rivals-evidence-carry", Kind: "message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH", ThreadTS: "1787065200.859079",
+		MessageTS: "1787066117.470719", UserID: "U123ABC", ReceivedAt: time.Now().UTC(),
+		Text: "I need you to look into Rivals more closely. It's a service that uses reversed private API. Is there anything we can do to make it more reliable? Just extending timeout won't work.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decodeWatchRunContext(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Lane = "investigation"
+	state.Repository = "tenant-infra"
+	contextJSON, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAgentRunContext(ctx, run.ID, contextJSON); err != nil {
+		t.Fatal(err)
+	}
+
+	for range 8 {
+		if err := svc.processAgentRun(ctx); err != nil && !errors.Is(err, store.ErrNotFound) {
+			t.Fatal(err)
+		}
+		svc.pollAgentRuns(ctx)
+		run, err = st.GetAgentRunBySource(ctx, "watch", input.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.State != core.AgentRunPending && run.State != core.AgentRunRunning &&
+			run.State != core.AgentRunPreparing {
+			break
+		}
+	}
+	for _, correction := range auditOutcomes(t, cfg, "result.correction", "") {
+		if strings.Contains(correction, "has no typed evidence bound to a required claim") ||
+			strings.Contains(correction, "has not assessed required coverage layers") {
+			t.Fatalf("a correction forgot records held from round one: %s", correction)
+		}
+	}
+}
+
+var liveRivalsObservedAt = regexp.MustCompile(`"observed_at":"[^"]+"`)
+
+func freshenLiveRivalsRound(round string) string {
+	return liveRivalsObservedAt.ReplaceAllString(
+		round,
+		`"observed_at":"`+time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)+`"`,
+	)
+}
+
+// The same retention guarantee applies to engineering reports. The harvested
+// release-manager report put four valid evidence rows before an invalid task
+// offer projection. Responder correctly rejected the offer stream, but used to
+// persist no evidence for the correction, making its "host still holds it"
+// instruction false and inviting the same expensive evidence loop.
+func TestInvalidEngineeringReportCarriesValidEvidenceIntoCorrection(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Limits.MaxAgentRunAttempts = 8
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	queued, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunEngineeringTask, ChannelID: "COPS", ThreadTS: "1700.950",
+		ConversationKey: "channel:COPS", SourceKind: "engineering:test",
+		SourceID: "invalid-report-evidence-carry", SessionID: "session-invalid-report",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextJSON, err := json.Marshal(assembledAgentContext{
+		Repository: "repo", CapturedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAgentRunContext(ctx, queued.ID, contextJSON); err != nil {
+		t.Fatal(err)
+	}
+	leased, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunSubmitted(ctx, leased.ID, "turn-invalid-report", 1, 0); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRun(ctx, queued.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile("testdata/live_release_manager_invalid_agent_report.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged := stagedTurn{}
+	handled, err := New(
+		cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil,
+	).stageIncidentTerminal(ctx, run, coop.Turn{
+		ID: "turn-invalid-report", State: "completed", AssistantMessage: string(contents),
+	}, 1, &staged)
+	if err != nil || !handled {
+		t.Fatalf("stage invalid report = handled %t, error %v", handled, err)
+	}
+	requeued, err := st.GetAgentRun(ctx, queued.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	carried, ok := decodeAssembledAgentContext(requeued.Context)
+	if !ok {
+		t.Fatalf("decode corrected report context: %s", requeued.Context)
+	}
+	for _, id := range []string{
+		"evidence-repository-ownership", "evidence-import-failure-current",
+		"evidence-infra-discovery-wiring", "evidence-live-check-attempt",
+	} {
+		if !hasEvidenceID(carried.CarriedEvidence, id) {
+			t.Fatalf("invalid offer erased valid evidence %q: %+v", id, carried.CarriedEvidence)
+		}
+	}
+}
 
 // A partial correction may not turn an accepted engineering-task offer into a
 // blocker with no confirmation control. The harvested live acceptance ended

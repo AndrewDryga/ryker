@@ -28,7 +28,13 @@ import (
 // here are presentation shapes that would otherwise grow internal/store, which
 // is already at its line budget.
 type Reader struct {
-	db         *sql.DB
+	db *sql.DB
+	// lookup is deliberately separate from db. Presentation scans keep db rows
+	// open while shaping a page, and some shapes enrich those rows with a short
+	// lookup. Sharing one bounded pool lets concurrent pages each hold a scan
+	// connection and wait forever for their own enrichment query, pinning the
+	// SQLite WAL for the lifetime of the deadlock.
+	lookup     *sql.DB
 	coop       *sql.DB
 	coopRoot   string
 	diskOnce   sync.Mutex
@@ -96,12 +102,19 @@ func (r *Reader) SetSlackIdentities(labels map[string]string) {
 }
 
 func OpenReader(path string) (*Reader, error) {
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(2000)")
+	dsn := "file:" + path + "?mode=ro&_pragma=busy_timeout(2000)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(2)
-	return &Reader{db: db}, nil
+	lookup, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	lookup.SetMaxOpenConns(2)
+	return &Reader{db: db, lookup: lookup}, nil
 }
 
 func (r *Reader) Close() error {
@@ -111,7 +124,12 @@ func (r *Reader) Close() error {
 	if !r.live() {
 		return nil
 	}
-	return r.db.Close()
+	lookupErr := r.lookup.Close()
+	dbErr := r.db.Close()
+	if lookupErr != nil {
+		return lookupErr
+	}
+	return dbErr
 }
 
 // live reports whether there is a database to read.
@@ -374,7 +392,7 @@ func (r *Reader) channelLookup(ctx context.Context, id string) (string, bool) {
 		return name, name != ""
 	}
 	var name string
-	if err := r.db.QueryRowContext(ctx,
+	if err := r.lookup.QueryRowContext(ctx,
 		`SELECT channel_name FROM slack_channel_memberships WHERE channel_id = ?`, id).
 		Scan(&name); err != nil {
 		name = ""

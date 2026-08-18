@@ -47,7 +47,7 @@ func (r *Reader) recordedChangeSummary(ctx context.Context, changeID string) str
 		return summary
 	}
 	var summary, revision, actor string
-	err := r.db.QueryRowContext(ctx, `
+	err := r.lookup.QueryRowContext(ctx, `
 	  SELECT summary, revision, actor FROM change_events WHERE id = ?`,
 		changeID).Scan(&summary, &revision, &actor)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {

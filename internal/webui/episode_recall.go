@@ -60,7 +60,7 @@ func (r *Reader) recalledEpisodeSummary(ctx context.Context, episodeID string) s
 		return summary
 	}
 	var objective, rootCause string
-	err := r.db.QueryRowContext(ctx, `
+	err := r.lookup.QueryRowContext(ctx, `
 	  SELECT objective, root_cause FROM episode_outcomes WHERE episode_id = ?`,
 		episodeID).Scan(&objective, &rootCause)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {

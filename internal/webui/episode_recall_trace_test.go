@@ -85,6 +85,28 @@ func TestARecalledEpisodeIsNamedByWhatItConcludedNotItsID(t *testing.T) {
 	}
 }
 
+// One episode trace held a context-reference result set open while resolving
+// the recalled episode named by each row. Two concurrent control-plane pages
+// exhausted the two-connection read pool, pinned SQLite's WAL for 35 minutes,
+// grew it to 1.4 GB, and eventually starved /readyz despite empty work queues.
+// Enrichment queries must use capacity independent of the result set they are
+// enriching; reducing the primary pool to one makes that invariant exact.
+func TestManifestReferenceEnrichmentNeverWaitsOnItsOwnResultSet(t *testing.T) {
+	reader := recalledEpisodeFixture(t)
+	defer reader.Close()
+	reader.db.SetMaxOpenConns(1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	manifests, err := reader.Manifests(ctx, "episode-1")
+	if err != nil {
+		t.Fatalf("render manifest references: %v", err)
+	}
+	if len(manifests) != 1 || len(manifests[0].Refs) != 3 {
+		t.Fatalf("manifests = %+v, want one manifest with three recalled references", manifests)
+	}
+}
+
 // The link and the role have to survive the whole render, not just the row
 // builder: the runtime table is assembled in one place and rendered in another,
 // and a row whose Href is set on a cell the template does not link is a row
