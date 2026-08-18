@@ -139,6 +139,34 @@ func TestTheRequestIsTheLastBlockAndTheButtonsComeFirst(t *testing.T) {
 	}
 }
 
+// A two-hour production task card put its ledger and fork identity behind an
+// outer attachment-level "Show more", then showed a second ⋯ beside the first.
+// The request is the only reference material allowed to fold: the work state,
+// ledger, fork and one consolidated overflow menu must be visible immediately.
+func TestTheTaskCardLeavesOnlyTheRequestBehindShowMore(t *testing.T) {
+	card := askCard(t, operatorAsk)
+
+	if !card.TopLevelBlocks {
+		t.Fatal("task card still requests collapsible attachment delivery")
+	}
+	if len(card.Rows) != 0 {
+		t.Fatalf("task card still renders a second record control row: %+v", card.Rows)
+	}
+	menus := renderedOverflowMenus(t, card)
+	if len(menus) != 1 {
+		t.Fatalf("task card renders %d overflow menus, want one: %+v", len(menus), menus)
+	}
+	if len(card.Overflow) == 0 || card.Overflow[0].Label != "Work record" {
+		t.Fatalf("the consolidated menu does not lead with the work record: %+v", card.Overflow)
+	}
+	blocks := card.Blocks()
+	last := blocks[len(blocks)-1]
+	section, ok := last.(*slack.SectionBlock)
+	if !ok || section.Text == nil || !strings.HasPrefix(section.Text.Text, "*The request*") {
+		t.Fatalf("the request is not the one last foldable block: %#v", last)
+	}
+}
+
 // Bounded, because the card renders the request whole and a request can be a
 // pasted twenty-kilobyte log. This is not a display opinion about how much is
 // worth reading — it is the point past which Slack rejects the section and the

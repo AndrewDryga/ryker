@@ -34,6 +34,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/retrydelay"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
+	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackfile"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/standingrule"
@@ -1648,7 +1649,7 @@ func (s *Service) retryAtNextSessionGeneration(
 	defer cancel()
 	ctx = receiptCtx
 	next := retrydelay.NextSessionGeneration(
-		state.Generation, observedGeneration, advanceFailedSessionGeneration(cause),
+		state.Generation, observedGeneration, sessioncreate.TerminalFailure(cause),
 	)
 	if next > state.Generation {
 		state.Generation = next
@@ -1752,13 +1753,6 @@ func (s *Service) persistTriageRunState(
 		return err
 	}
 	return s.store.SetAgentRunContext(ctx, runID, contextJSON)
-}
-
-func advanceFailedSessionGeneration(err error) bool {
-	var apiErr *coop.APIError
-	return errors.As(err, &apiErr) &&
-		apiErr.Status >= 500 &&
-		apiErr.Code == "internal_error"
 }
 
 // requeueIfRateLimited puts a run the provider refused back in the queue and

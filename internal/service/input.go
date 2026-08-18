@@ -93,6 +93,7 @@ var slackActionRoutes = map[string]func(*Service, context.Context, core.SlackInp
 	slackui.ActionRecordEvidence:          (*Service).handleRecordControl,
 	slackui.ActionRecordHandoff:           (*Service).handleRecordControl,
 	slackui.ActionRecordPostmortem:        (*Service).handleRecordControl,
+	slackui.ActionRecordDirectory:         (*Service).handleRecordDirectory,
 }
 
 // acknowledgeLinkAction completes a button whose entire job is its URL.

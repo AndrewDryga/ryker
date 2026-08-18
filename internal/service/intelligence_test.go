@@ -11,6 +11,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/slack-go/slack"
@@ -260,13 +261,13 @@ func TestFailedWatchSessionCreateAdvancesIdempotencyGeneration(t *testing.T) {
 }
 
 func TestFailedSessionGenerationOnlyAdvancesForTerminalCoopCreate(t *testing.T) {
-	if !advanceFailedSessionGeneration(&coop.APIError{
+	if !sessioncreate.TerminalFailure(&coop.APIError{
 		Status: 500, Code: "internal_error",
 	}) {
 		t.Fatal("terminal Coop create failure did not advance generation")
 	}
-	if advanceFailedSessionGeneration(errors.New("connection reset")) ||
-		advanceFailedSessionGeneration(&coop.APIError{
+	if sessioncreate.TerminalFailure(errors.New("connection reset")) ||
+		sessioncreate.TerminalFailure(&coop.APIError{
 			Status: 409, Code: "operation_uncertain",
 		}) {
 		t.Fatal("uncertain create failure advanced generation")

@@ -57,6 +57,11 @@ func engineeringTaskCard(
 		), 4000),
 		Header: state.Header(task.Title),
 		Stripe: state.Stripe,
+		// A stripe requires a legacy attachment, and Slack folds that entire
+		// attachment before the ledger on a real two-hour task. The glyph and
+		// state word keep custody explicit while top-level blocks keep the work
+		// record visible; only the long request section may show its own fold.
+		TopLevelBlocks: true,
 		Sections: []string{state.stateLine(
 			escapeSlackText(repositoryName), cardAge(task.CreatedAt, now), ask,
 		)},
@@ -117,7 +122,7 @@ func engineeringTaskCard(
 	if outcome := taskOutcome(state, publication, followup); outcome != "" {
 		message.Sections = append(message.Sections, outcome)
 	}
-	return AppendRecordRow(message, task.ID)
+	return AppendRecordMenu(message, task.ID)
 }
 
 func firstLiveTurn(live []LiveTurn) LiveTurn {
@@ -488,6 +493,10 @@ func taskBlocker(
 	publication core.Publication,
 ) string {
 	if task.LastError != "" {
+		if task.Workflow == core.WorkflowHolding && task.CoopSessionID == "" {
+			return "*Workspace preparation*\n" +
+				truncateUTF8(escapeSlackText(task.LastError), 800)
+		}
 		return "*Action needed*\n" + truncateUTF8(escapeSlackText(task.LastError), 800)
 	}
 	if publication.State != core.PublicationFailed || publication.LastError == "" {
@@ -576,8 +585,10 @@ func taskFallback(
 		fallback += fmt.Sprintf(" step %d of %d;", position, len(ledger))
 	}
 	fallback += " " + strings.ReplaceAll(ask, "*", "") + "."
-	if task.LastError != "" {
+	if task.LastError != "" && !(task.Workflow == core.WorkflowHolding && task.CoopSessionID == "") {
 		fallback += " Action needed: " + truncateUTF8(escapeSlackText(task.LastError), 500)
+	} else if task.LastError != "" {
+		fallback += " Workspace preparation: " + truncateUTF8(escapeSlackText(task.LastError), 500)
 	}
 	if progress := publicationFallback(publication, followup); progress != "" {
 		fallback += " " + progress

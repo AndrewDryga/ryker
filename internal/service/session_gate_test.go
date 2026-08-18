@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"testing"
 
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -114,5 +117,107 @@ func TestAThreadScopedTaskStartsItsSessionBeforeItsCardLands(t *testing.T) {
 				"to be provisioned is already running",
 			settled.Workflow,
 		)
+	}
+}
+
+// One production task retried a terminal Coop create operation for four hours.
+// Idempotency correctly replayed the same failure every time, which made the
+// workspace unrecoverable after the repository-fetch fix was deployed. A
+// terminal refusal needs one new generation; an operation still running does
+// not, because rotating that key could create a duplicate session.
+func TestTerminalTaskSessionFailureGetsOneFreshIdempotencyGeneration(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, created, err := st.CreateEngineeringTask(
+		ctx, cfg.Slack.DefaultRepository, "session-generation", "Fix delta builder",
+		"Remove the synchronous event-loop block.", cfg.Slack.Operators[0],
+		"CWATCH", "1700.100", 100,
+	)
+	if err != nil || !created {
+		t.Fatalf("create task = %+v, %t, %v", task, created, err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.createErrors = []error{&coop.APIError{
+		Status: 503, Code: "repository_unavailable", OperationID: "op_failed",
+		Detail: "workspace preparation could not refresh tenant-core; no model session was created",
+	}}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.processChannelIncident(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processSessionIncident(ctx, task.ID); err == nil {
+		t.Fatal("terminal workspace preparation failure unexpectedly succeeded")
+	}
+	waiting, err := st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Investigation queued", "tenant-core", "No model turn has started", "Responder will retry"} {
+		if !strings.Contains(waiting.LastError, want) {
+			t.Fatalf("visible preparation status lacks %q: %q", want, waiting.LastError)
+		}
+	}
+	if strings.Contains(waiting.LastError, "Coop API") || strings.Contains(waiting.LastError, "operation=") {
+		t.Fatalf("preparation status leaked transport plumbing: %q", waiting.LastError)
+	}
+	if err := svc.processSessionIncident(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"responder:session:" + task.ID,
+		"responder:session:" + task.ID + ":2",
+	}
+	if !slices.Equal(coopClient.createKeys, want) {
+		t.Fatalf("task session keys = %v, want %v", coopClient.createKeys, want)
+	}
+}
+
+func TestPendingTaskSessionKeepsItsIdempotencyGeneration(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, created, err := st.CreateEngineeringTask(
+		ctx, cfg.Slack.DefaultRepository, "pending-session-generation", "Fix delta builder",
+		"Remove the synchronous event-loop block.", cfg.Slack.Operators[0],
+		"CWATCH", "1700.100", 100,
+	)
+	if err != nil || !created {
+		t.Fatalf("create task = %+v, %t, %v", task, created, err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.createErrors = []error{&coop.OperationPendingError{
+		ID: "op_running", Method: "CreateRemoteSession",
+	}}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.processChannelIncident(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processSessionIncident(ctx, task.ID); err == nil {
+		t.Fatal("pending workspace preparation unexpectedly succeeded")
+	}
+	waiting, err := st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Investigation queued", "still preparing", "No model turn has started"} {
+		if !strings.Contains(waiting.LastError, want) {
+			t.Fatalf("visible pending preparation status lacks %q: %q", want, waiting.LastError)
+		}
+	}
+	if err := svc.processSessionIncident(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"responder:session:" + task.ID, "responder:session:" + task.ID}
+	if !slices.Equal(coopClient.createKeys, want) {
+		t.Fatalf("pending task session keys = %v, want %v", coopClient.createKeys, want)
 	}
 }

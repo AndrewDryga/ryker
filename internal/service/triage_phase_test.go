@@ -9,6 +9,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
+	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/triageoutcome"
 )
 
@@ -143,7 +144,7 @@ func TestRetryAtNextSessionGenerationOnlyMovesForward(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			next := retrydelay.NextSessionGeneration(
 				testCase.state.Generation, testCase.observed,
-				advanceFailedSessionGeneration(testCase.cause),
+				sessioncreate.TerminalFailure(testCase.cause),
 			)
 			if next != testCase.wantAfter {
 				t.Fatalf("generation = %d, want %d", next, testCase.wantAfter)

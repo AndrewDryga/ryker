@@ -94,6 +94,7 @@ type Incident struct {
 	RootTS                string
 	CoopSessionID         string
 	CoopForkName          string
+	CoopSessionGeneration int
 	CoopRevision          int64
 	CoopEventSequence     int64
 	ActiveTurnID          string

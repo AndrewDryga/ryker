@@ -12,6 +12,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/liveturn"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
+	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackfile"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -603,16 +604,20 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 	if incident.IsEngineeringTask() {
 		sessionLabel = "engineering-task:" + incident.ID
 	}
+	generation := max(incident.CoopSessionGeneration, 1)
+	createKey := sessioncreate.Key("responder:session:"+incident.ID, generation)
 	session, _, err := s.coop.CreateSession(
-		ctx, "responder:session:"+incident.ID, sessionPolicy, sessionLabel,
+		ctx, createKey, sessionPolicy, sessionLabel,
 		sessionSources...,
 	)
 	if err != nil {
-		workflow := core.WorkflowHolding
-		if !coop.Retryable(err) {
-			workflow = core.WorkflowBlocked
+		workflow, detail, failureErr := sessioncreate.IncidentFailure(
+			ctx, s.store.Incidents, incident.ID, generation, err,
+		)
+		if failureErr != nil {
+			return failureErr
 		}
-		s.setIncidentError(ctx, incident.ID, workflow, trimError(err))
+		s.setIncidentError(ctx, incident.ID, workflow, detail)
 		if workflow == core.WorkflowBlocked {
 			return nil
 		}

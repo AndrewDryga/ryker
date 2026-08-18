@@ -366,6 +366,14 @@ func (s *Service) handleRecordControl(ctx context.Context, input core.SlackInput
 	return s.finishIncidentIntelligence(ctx, input, command)
 }
 
+func (s *Service) handleRecordDirectory(ctx context.Context, input core.SlackInput) error {
+	incident, err := s.store.GetIncident(ctx, strings.TrimSpace(input.ActionValue))
+	if err != nil {
+		return err
+	}
+	return s.finishSlashMessage(ctx, input, slackui.RecordDirectoryMessage(incident))
+}
+
 // finishSlashAssignments runs what is left of the standing-assignment family:
 // reading them, and pausing, resuming or deleting one.
 //

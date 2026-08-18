@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 86
+const currentSchemaVersion = 87
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -490,4 +490,10 @@ var migrations = map[int]string{
 	// that recovery is exact rather than a guess lives in migrationddl.V85.
 	85: migrationddl.V85,
 	86: migrationddl.V86,
+	// Which idempotent Coop create request owns session preparation for this
+	// work item. A terminal operation cannot be replayed into success after its
+	// cause is fixed, while a pending or ambiguous operation must keep its key
+	// or a second session could be created. Generation advances only for the
+	// former and is bound into the next request key.
+	87: `ALTER TABLE incidents ADD COLUMN coop_session_generation INTEGER NOT NULL DEFAULT 1;`,
 }

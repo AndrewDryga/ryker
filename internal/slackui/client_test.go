@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/gorilla/websocket"
 	"github.com/slack-go/slack"
 	"gopkg.in/yaml.v3"
@@ -812,6 +813,65 @@ func TestCustodyStripeShipsTheCardAsOneColouredAttachment(t *testing.T) {
 	// the unstriped payload keeps carrying it exactly as it always did.
 	if text := calls[1].form.Get("text"); text != plain.Text {
 		t.Errorf("an unstriped card's fallback text = %q, want %q", text, plain.Text)
+	}
+}
+
+// The live task that exposed this spent two hours with its ledger, fork and
+// controls hidden behind Slack's attachment-level Show more. Delivery shape is
+// the invariant: a renderer-only assertion cannot prove chat.update will keep
+// the plumbing in top-level blocks where Slack leaves it expanded.
+func TestEngineeringTaskUpdateDeliversVisiblePlumbingAndOnlyFoldsTheRequest(t *testing.T) {
+	var form url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		form = r.Form
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"ok":true,"channel":"C123","ts":"1700.1"}`)
+	}))
+	defer server.Close()
+	client := &Client{api: slack.New(
+		"test-token",
+		slack.OptionAPIURL(server.URL+"/"),
+		slack.OptionHTTPClient(server.Client()),
+	)}
+	task := taskFixture()
+	task.Workflow = core.WorkflowHolding
+	task.CoopSessionID = ""
+	task.LastError = "Workspace preparation is blocked while refreshing tenant-core. No model turn has started."
+	card := IncidentCardWithPublication(
+		task,
+		"All Tenant repositories",
+		[]core.Signal{{Status: core.SignalFiring, Summary: strings.Repeat("Inspect the delta builder. ", 80)}},
+		true,
+		true,
+		core.Publication{},
+		core.PublicationFollowup{},
+		core.PublicationLifecycleEvent{},
+	)
+	if err := client.Update(context.Background(), "C123", "1700.1", card); err != nil {
+		t.Fatal(err)
+	}
+	if attachments := form.Get("attachments"); attachments != "" {
+		t.Fatalf("engineering task was delivered in Slack's collapsible attachment: %s", attachments)
+	}
+	blocks := form.Get("blocks")
+	for _, want := range []string{"Workspace ready", "All Tenant repositories", "The request", "responder_overflow"} {
+		if !strings.Contains(blocks, want) {
+			t.Fatalf("delivered top-level blocks lost %q: %s", want, blocks)
+		}
+	}
+	for _, want := range []string{"Working", "nothing needed from you", "Workspace preparation"} {
+		if !strings.Contains(blocks, want) {
+			t.Fatalf("host-owned preparation status lost %q: %s", want, blocks)
+		}
+	}
+	if strings.Contains(blocks, "Action needed") || strings.Contains(card.Text, "Action needed") {
+		t.Fatalf("retrying workspace preparation was presented as operator work: %s / %s", card.Text, blocks)
+	}
+	if strings.Count(blocks, `"type":"overflow"`) != 1 {
+		t.Fatalf("delivered task has more than one overflow menu: %s", blocks)
 	}
 }
 

@@ -499,11 +499,9 @@ host rejects them for nonoperators before any repository or session mutation:
   confirmation authorizes Coop to delete clean committed work after an exact discard-plan check.
   Dirty uncommitted files are still refused.
 
-A **Record** row sits on every card that has a record behind it, carrying an overflow menu with
-**Timeline**, **Evidence**, **Handoff summary**, and **Postmortem draft**. It is a separate row
-rather than four more options in the card's own overflow because Block Kit rejects a message whose
-menu holds more than five options, and the lifecycle controls already there vary with card state, so
-folding these in silently drops whichever the renderer reaches last.
+Every work card's single overflow menu includes **Work record**. It opens a compact second-level
+directory with **Timeline**, **Evidence**, **Handoff summary**, and **Postmortem draft**. This keeps
+the primary card to one clearly owned menu while staying below Block Kit's five-option ceiling.
 
 **Timeline** presents the chronological remediation record: alerts, agent runs, operator and
 lifecycle events, Emisar approvals and terminal run results, and draft-PR publication. It derives

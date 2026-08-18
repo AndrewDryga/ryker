@@ -95,7 +95,7 @@ func IncidentCardWithPublication(
 		}
 	}
 	message.Context = append(message.Context, incidentFooter(incident, repositoryName))
-	return AppendRecordRow(message, incident.ID)
+	return AppendRecordMenu(message, incident.ID)
 }
 
 // incidentCardState resolves an incident on two axes at once.
@@ -347,20 +347,35 @@ func RecordControls(workID string) []Action {
 	}
 }
 
-// AppendRecordRow puts the four reads on their own labelled row.
-//
-// Not into the card's own ⋯: Block Kit allows five options in one menu and
-// rejects the whole message over that, and the controls already there depend on
-// card state, so folding four more in silently drops whichever the renderer
-// reaches last. The row also reads better — a menu beside the word "Record" is
-// obviously about the record, where a "Timeline" option buried under a ⋯ full
-// of lifecycle controls is not.
-func AppendRecordRow(message Message, workID string) Message {
-	controls := RecordControls(workID)
-	if len(controls) == 0 {
+// AppendRecordMenu keeps one entry for the durable record in the card's one ⋯.
+// Selecting it opens a compact directory with the four reports, so the main
+// menu stays under Slack's five-option ceiling without growing a second ⋯ row.
+func AppendRecordMenu(message Message, workID string) Message {
+	if strings.TrimSpace(workID) == "" {
 		return message
 	}
-	return AppendRowMenu(message, "*Record* · what happened here", nil, controls)
+	message.Overflow = append([]Action{{
+		ID: ActionRecordDirectory, Label: "Work record", Value: workID,
+	}}, message.Overflow...)
+	return message
+}
+
+// RecordDirectoryMessage is the second level behind Work record. Four plainly
+// labelled buttons are useful here because every control has the same subject;
+// on the work card they were two unrelated ⋯ menus with no visible hierarchy.
+func RecordDirectoryMessage(incident core.Incident) Message {
+	noun := "incident"
+	if incident.IsEngineeringTask() {
+		noun = "engineering task"
+	}
+	return Message{
+		Text:   "Open the durable " + noun + " record.",
+		Header: "Work record",
+		Sections: []string{
+			"Choose the view you need. Each one is rendered from the durable host record.",
+		},
+		Actions: RecordControls(incident.ID),
+	}
 }
 
 func incidentControls(state cardState, actions []Action) ([]Action, []Action) {

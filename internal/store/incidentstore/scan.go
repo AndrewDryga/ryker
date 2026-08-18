@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -94,10 +95,30 @@ func (r *Repository) SetChangesStat(ctx context.Context, incidentID, stat string
 	return err
 }
 
+// AdvanceSessionGeneration records a terminal Coop create refusal. The CAS
+// prevents a stale retry from skipping a generation already claimed by a
+// newer worker.
+func (r *Repository) AdvanceSessionGeneration(
+	ctx context.Context,
+	incidentID string,
+	failedGeneration int,
+) error {
+	if incidentID == "" || failedGeneration < 1 {
+		return errors.New("incident session generation identity is incomplete")
+	}
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE incidents
+		SET coop_session_generation = coop_session_generation + 1, updated_at = ?
+		WHERE id = ? AND coop_session_id = '' AND coop_session_generation = ?`,
+		r.clock().UTC().Format(core.TimestampFormat), incidentID, failedGeneration,
+	)
+	return sqlutil.ExpectOne(result, err, "advance incident session generation")
+}
+
 const Columns = `
 	id, route, repository, correlation_key, source_incident_id, title, severity,
 	status, workflow, signal_count, firing_count, channel_id, channel_name, root_ts,
-	coop_session_id, coop_fork_name, coop_revision, coop_event_sequence, active_turn_id,
+	coop_session_id, coop_fork_name, coop_session_generation, coop_revision, coop_event_sequence, active_turn_id,
 	initial_turn_queued, card_version, card_rendered_version, last_error, latest_update,
 	latest_update_run_id, latest_update_run_key,
 	changes_message_ts, changes_stat,
@@ -116,7 +137,7 @@ func Scan(row interface{ Scan(...any) error }) (core.Incident, error) {
 		&incident.SourceIncidentID, &incident.Title, &incident.Severity, &incident.Status,
 		&incident.Workflow, &incident.SignalCount, &incident.FiringCount, &incident.ChannelID,
 		&incident.ChannelName, &incident.RootTS, &incident.CoopSessionID, &incident.CoopForkName,
-		&incident.CoopRevision, &incident.CoopEventSequence,
+		&incident.CoopSessionGeneration, &incident.CoopRevision, &incident.CoopEventSequence,
 		&incident.ActiveTurnID, &initial, &incident.CardVersion,
 		&incident.CardRenderedVersion, &incident.LastError, &incident.LatestUpdate,
 		&incident.LatestUpdateRunID, &incident.LatestUpdateRunKey,

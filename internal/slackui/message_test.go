@@ -133,14 +133,17 @@ func TestIncidentCardHasVisibleStateAndDeterministicControls(t *testing.T) {
 			}
 		}
 	}
-	// Two action blocks: the record row's menu, and the card's own controls.
-	// The record row is four read-only options behind a labelled menu and does
-	// not compete with the button an operator is looking for.
+	// One action block owns both the card controls and its single overflow menu.
+	// Work record opens a second-level directory for the four durable reads, so
+	// the primary card never presents two indistinguishable ellipses.
 	//
 	// Stop is neutral now. It preserves the fork and the queued work, so it
 	// destroys nothing, and red is reserved for the controls that do — a red
 	// button on every running card is how red stops meaning anything.
-	if actionBlocks != 2 || card.Actions[0].ID != ActionStop ||
+	if actionBlocks != 1 || len(card.Overflow) == 0 ||
+		card.Overflow[0].ID != ActionRecordDirectory ||
+		card.Overflow[0].Label != "Work record" ||
+		card.Actions[0].ID != ActionStop ||
 		card.Actions[0].Label != "Stop current run" ||
 		card.Actions[0].Style != "" || card.Actions[0].Confirm == "" {
 		t.Fatalf("card lacks compact safe stop action: %+v", card.Actions)

@@ -21,6 +21,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/promptscope"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
+	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackfile"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -216,7 +217,7 @@ func (s *Service) ensureConversationSessionAtGeneration(
 	)
 	if err != nil {
 		memory.Generation = generation
-		if advanceFailedSessionGeneration(err) {
+		if sessioncreate.TerminalFailure(err) {
 			if generationErr := s.store.AdvanceConversationSessionGeneration(
 				ctx, channelID, repositoryKey, policy, generation,
 			); generationErr != nil {

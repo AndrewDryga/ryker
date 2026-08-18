@@ -676,7 +676,7 @@ func (c *Client) PostEphemeral(
 // clears it on the next edit.
 func messageOptions(message Message) []slack.MsgOption {
 	blocks := message.Blocks()
-	if message.Stripe == "" {
+	if message.Stripe == "" || message.TopLevelBlocks {
 		return []slack.MsgOption{
 			slack.MsgOptionText(message.Text, false),
 			slack.MsgOptionBlocks(blocks...),

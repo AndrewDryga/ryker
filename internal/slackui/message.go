@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	IncidentCardRevision = "2026-08-13.1"
+	IncidentCardRevision = "2026-08-17.1"
 
 	ActionUpdate          = "responder_update"
 	ActionChanges         = "responder_changes"
@@ -126,6 +126,7 @@ const (
 	ActionRecordEvidence   = "responder_record_evidence"
 	ActionRecordHandoff    = "responder_record_handoff"
 	ActionRecordPostmortem = "responder_record_postmortem"
+	ActionRecordDirectory  = "responder_record_directory"
 
 	// ActionOverflow is the id every overflow menu carries. One id for every
 	// menu on purpose: Slack reports the menu, never the option object, so both
@@ -265,6 +266,11 @@ type Message struct {
 	// Overflow holds the controls that did not earn a button. Slack shows them
 	// behind ⋯, which keeps the bottom row at the few actions worth pressing.
 	Overflow []Action `json:"overflow,omitempty"`
+	// TopLevelBlocks keeps a long, stateful card out of a legacy attachment.
+	// Slack collapses tall attachments as one unit, hiding the ledger and
+	// controls behind an outer Show more. Top-level blocks remain visible and
+	// let only an individually long request section fold itself.
+	TopLevelBlocks bool `json:"top_level_blocks,omitempty"`
 }
 
 // LedgerStep is one step of a run.

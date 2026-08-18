@@ -72,6 +72,7 @@ var routedActionIDs = map[string]bool{
 	ActionSetupIncludeMe: true, ActionCommandStatus: true,
 	ActionRecordTimeline: true, ActionRecordEvidence: true,
 	ActionRecordHandoff: true, ActionRecordPostmortem: true,
+	ActionRecordDirectory: true,
 }
 
 // Every option in every ⋯ menu production can render reaches a handler.
