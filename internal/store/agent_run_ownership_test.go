@@ -289,6 +289,66 @@ func TestFinishAgentRunFailureCannotNotifyForOlderAttempt(t *testing.T) {
 	}
 }
 
+// A provider-limited engineering run finally retried five hours late, after
+// two newer turns had completed. It had never acquired a Coop turn, so its
+// empty turn ID matched the parked card's empty active_turn_id and replaced the
+// newer result with a raw 409 as operator work. A run without a turn may own a
+// card failure only while it is still the newest run for that task.
+func TestOlderRunWithoutTurnCannotOverwriteNewerTaskResult(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, created, err := st.CreateEngineeringTask(
+		ctx, "repo", "EvStaleFailure", "Fix release startup",
+		"Keep health available without discovery.", "UOPERATOR",
+		"COPS", "1700.800", 100,
+	)
+	if err != nil || !created {
+		t.Fatalf("create task = %+v, %t, %v", task, created, err)
+	}
+	older, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunEngineeringTask, IncidentID: task.ID,
+		ChannelID: task.ChannelID, ThreadTS: task.ConversationThreadTS(),
+		ConversationKey: "incident:" + task.ID, SourceKind: "slack", SourceID: "older",
+		IdempotencyKey: "run:older",
+	})
+	if err != nil || !created {
+		t.Fatalf("queue older run = %+v, %t, %v", older, created, err)
+	}
+	if _, err := st.db.ExecContext(ctx,
+		`UPDATE agent_runs SET state = 'preparing' WHERE id = ?`, older.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	newer, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunEngineeringTask, IncidentID: task.ID,
+		ChannelID: task.ChannelID, ThreadTS: task.ConversationThreadTS(),
+		ConversationKey: "incident:" + task.ID, SourceKind: "slack", SourceID: "newer",
+		IdempotencyKey: "run:newer",
+	})
+	if err != nil || !created {
+		t.Fatalf("queue newer run = %+v, %t, %v", newer, created, err)
+	}
+	if err := st.TaskCards.SetUpdate(ctx, task.ID, newer.ID, "The source fix is ready."); err != nil {
+		t.Fatal(err)
+	}
+	if _, applied, err := st.FinishAgentRunFailure(
+		ctx, older.ID, "Coop API revision_conflict (409)", nil, AgentRunFailureEffects{},
+	); err != nil || !applied {
+		t.Fatalf("finish older run = %t, %v", applied, err)
+	}
+	current, err := st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.LastError != "" || current.LatestUpdate != "The source fix is ready." {
+		t.Fatalf("newer task result was overwritten: %+v", current)
+	}
+}
+
 func TestOlderFailureCannotRetireSharedBindingsOwnedByNewEpisode(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(t.TempDir())

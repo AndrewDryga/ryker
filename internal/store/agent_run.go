@@ -2304,8 +2304,13 @@ func (s *Store) finishAgentRunTx(
 			UPDATE incidents
 			SET active_turn_id = '', workflow = 'parked', last_error = ?,
 			    updated_at = ?, card_version = card_version + 1
-			WHERE id = ? AND active_turn_id = ?`,
-			lastError, now, run.IncidentID, run.CoopTurnID); err != nil {
+			WHERE id = ? AND active_turn_id = ?
+			  AND (? != '' OR NOT EXISTS (
+			    SELECT 1 FROM agent_runs AS newer
+			    WHERE newer.incident_id = incidents.id
+			      AND newer.rowid > (SELECT rowid FROM agent_runs WHERE id = ?)
+			  ))`,
+			lastError, now, run.IncidentID, run.CoopTurnID, run.CoopTurnID, run.ID); err != nil {
 			return err
 		}
 	}
