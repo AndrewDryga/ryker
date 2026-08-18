@@ -1281,6 +1281,20 @@ type ContextManifest struct {
 	Latency     ContextLatency
 }
 
+// ExecutionProfileIdentity is the exact Coop execution identity that answered
+// one version of an episode's context. Context events intentionally carry only
+// the immutable manifest ID, so exports use this bounded projection instead of
+// leaking the manifest's prompt and references.
+type ExecutionProfileIdentity struct {
+	ManifestID      string `json:"manifest_id"`
+	Version         int    `json:"version"`
+	Preset          string `json:"preset"`
+	Provider        string `json:"provider"`
+	Model           string `json:"model"`
+	ReasoningEffort string `json:"reasoning_effort"`
+	TargetFloor     int    `json:"target_floor"`
+}
+
 // ContextArtifact is the retained body of one bounded input artifact handed
 // to a turn — a rendered pull-request snapshot, a Slack file — keyed by the
 // digest its manifest reference records, so "what exactly did the model see"

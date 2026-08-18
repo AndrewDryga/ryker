@@ -13,13 +13,14 @@ import (
 )
 
 type fakeEpisodeSource struct {
-	episode  core.WorkEpisode
-	events   []core.WorkEpisodeEvent
-	evidence []core.Evidence
-	run      core.AgentRun
-	runErr   error
-	input    core.SlackInput
-	inputErr error
+	episode   core.WorkEpisode
+	events    []core.WorkEpisodeEvent
+	evidence  []core.Evidence
+	manifests map[string]core.ContextManifest
+	run       core.AgentRun
+	runErr    error
+	input     core.SlackInput
+	inputErr  error
 }
 
 func (f fakeEpisodeSource) GetWorkEpisode(context.Context, string) (core.WorkEpisode, error) {
@@ -44,6 +45,14 @@ func (f fakeEpisodeSource) GetAgentRun(context.Context, string) (core.AgentRun, 
 
 func (f fakeEpisodeSource) GetSlackInput(context.Context, string) (core.SlackInput, error) {
 	return f.input, f.inputErr
+}
+
+func (f fakeEpisodeSource) GetContextManifest(_ context.Context, manifestID string) (core.ContextManifest, error) {
+	manifest, ok := f.manifests[manifestID]
+	if !ok {
+		return core.ContextManifest{}, sql.ErrNoRows
+	}
+	return manifest, nil
 }
 
 // recordingTriggerText is longer than the 180-byte objective headline on
@@ -242,6 +251,80 @@ func TestAControlClickTriggerIsRenderedFromItsRecordedAction(t *testing.T) {
 	}
 	if fixture.Input != "[control] publish_draft_pr" {
 		t.Fatalf("fixture input = %q", fixture.Input)
+	}
+}
+
+// Covers: TestRecordedModelChoiceFixtureCarriesExactExecutionMetadata
+//
+// A retained episode crossed from the conversation profile into the watch
+// profile, but record-episode dropped both manifests. That made the real
+// occurrence incapable of proving the model-choice capability even though all
+// of the exact metadata was still on disk and approaching retention.
+func TestRecordedModelChoiceFixtureCarriesExactExecutionMetadata(t *testing.T) {
+	source := recordingFixtureSource("none")
+	moment := source.events[0].CreatedAt
+	source.events = append(source.events,
+		core.WorkEpisodeEvent{
+			Sequence: 2, Kind: "context_extended", Actor: "host", CreatedAt: moment,
+			Payload: json.RawMessage(`{"manifest_id":"manifest-chat","version":1}`),
+		},
+		core.WorkEpisodeEvent{
+			Sequence: 3, Kind: "context_extended", Actor: "host", CreatedAt: moment,
+			Payload: json.RawMessage(`{"manifest_id":"manifest-watch","version":2}`),
+		},
+	)
+	source.manifests = map[string]core.ContextManifest{
+		"manifest-chat": {
+			ID: "manifest-chat", Version: 1, Preset: "tenant-platform-conversation",
+			Provider: "codex", Model: "gpt-5.6-terra", ReasoningEffort: "high",
+		},
+		"manifest-watch": {
+			ID: "manifest-watch", Version: 2, Preset: "tenant-platform-watch",
+			Provider: "codex", Model: "gpt-5.6-terra", ReasoningEffort: "high",
+		},
+	}
+
+	fixture, err := recordEpisodeFixture(
+		context.Background(), source, config.Config{}, "ep_1", "model-choice-and-byoc", "",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"recorded_execution_profiles"`, `"tenant-platform-conversation"`,
+		`"tenant-platform-watch"`, `"provider":"codex"`, `"model":"gpt-5.6-terra"`,
+	} {
+		if !strings.Contains(string(encoded), want) {
+			t.Errorf("recorded fixture missing %s:\n%s", want, encoded)
+		}
+	}
+}
+
+// One profile is ordinary execution, not evidence that profile choice works.
+// Accepting it would let a hand-labeled fixture close the migration gap while
+// proving only the default path.
+func TestModelChoiceCoverageRequiresTwoExecutionProfiles(t *testing.T) {
+	source := recordingFixtureSource("none")
+	source.events = append(source.events, core.WorkEpisodeEvent{
+		Sequence: 2, Kind: "context_extended", Actor: "host", CreatedAt: source.events[0].CreatedAt,
+		Payload: json.RawMessage(`{"manifest_id":"manifest-chat","version":1}`),
+	})
+	source.manifests = map[string]core.ContextManifest{
+		"manifest-chat": {
+			ID: "manifest-chat", Version: 1, Preset: "tenant-platform-conversation",
+			Provider: "codex", Model: "gpt-5.6-terra", ReasoningEffort: "high",
+		},
+	}
+
+	_, err := recordEpisodeFixture(
+		context.Background(), source, config.Config{}, "ep_1", "model-choice-and-byoc", "",
+	)
+	if err == nil || !strings.Contains(err.Error(), "two execution profiles") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

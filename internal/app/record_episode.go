@@ -87,6 +87,7 @@ type episodeSource interface {
 	ListEpisodeEvidence(ctx context.Context, episodeID string, limit int) ([]core.Evidence, error)
 	GetAgentRun(ctx context.Context, runID string) (core.AgentRun, error)
 	GetSlackInput(ctx context.Context, inputID string) (core.SlackInput, error)
+	GetContextManifest(ctx context.Context, manifestID string) (core.ContextManifest, error)
 }
 
 // episodeTriggerText recovers the text that actually started the episode.
@@ -196,6 +197,8 @@ func recordEpisodeFixture(
 	sanitizer := slackui.NewSanitizer(0, recordingRedactions(cfg)...)
 
 	recorded := make([]evaluation.EvaluationRecordedEvent, 0, len(events))
+	executionProfiles := make([]core.ExecutionProfileIdentity, 0, len(events))
+	seenManifests := make(map[string]bool)
 	for _, event := range events {
 		payload, err := sanitizeJSON(sanitizer, event.Payload)
 		if err != nil {
@@ -208,6 +211,59 @@ func recordEpisodeFixture(
 			OccurredAt: event.CreatedAt.UTC().Format(time.RFC3339),
 			Payload:    payload,
 		})
+		if event.Kind != "context_extended" {
+			continue
+		}
+		var extension struct {
+			ManifestID string `json:"manifest_id"`
+		}
+		if err := json.Unmarshal(event.Payload, &extension); err != nil {
+			return evaluation.EvaluationCase{}, fmt.Errorf("context event %d: %w", event.Sequence, err)
+		}
+		extension.ManifestID = strings.TrimSpace(extension.ManifestID)
+		if extension.ManifestID == "" {
+			return evaluation.EvaluationCase{}, fmt.Errorf(
+				"context event %d records no manifest identity", event.Sequence,
+			)
+		}
+		if seenManifests[extension.ManifestID] {
+			continue
+		}
+		manifest, err := source.GetContextManifest(ctx, extension.ManifestID)
+		if err != nil {
+			return evaluation.EvaluationCase{}, fmt.Errorf(
+				"read context manifest %s: %w", extension.ManifestID, err,
+			)
+		}
+		seenManifests[extension.ManifestID] = true
+		executionProfiles = append(executionProfiles, core.ExecutionProfileIdentity{
+			ManifestID:      extension.ManifestID,
+			Version:         manifest.Version,
+			Preset:          sanitizer.Text(manifest.Preset),
+			Provider:        sanitizer.Text(manifest.Provider),
+			Model:           sanitizer.Text(manifest.Model),
+			ReasoningEffort: sanitizer.Text(manifest.ReasoningEffort),
+			TargetFloor:     manifest.TargetFloor,
+		})
+	}
+	if strings.TrimSpace(capability) == "model-choice-and-byoc" {
+		profiles := make(map[string]bool)
+		for _, profile := range executionProfiles {
+			if strings.TrimSpace(profile.Preset) == "" ||
+				strings.TrimSpace(profile.Provider) == "" ||
+				strings.TrimSpace(profile.Model) == "" ||
+				strings.TrimSpace(profile.ReasoningEffort) == "" {
+				return evaluation.EvaluationCase{}, errors.New(
+					"model choice recording lacks exact execution profile metadata",
+				)
+			}
+			profiles[profile.Preset] = true
+		}
+		if len(profiles) < 2 {
+			return evaluation.EvaluationCase{}, errors.New(
+				"model choice recording requires two execution profiles",
+			)
+		}
 	}
 
 	results := make([]evaluation.EvaluationToolResult, 0, len(evidence))
@@ -247,11 +303,12 @@ func recordEpisodeFixture(
 			// fixture itself carrying private content.
 			"source:episode/" + episode.ID,
 		},
-		Kind:                "watch",
-		Input:               sanitizer.Text(trigger),
-		MentionsResponder:   true,
-		RecordedEvents:      recorded,
-		RecordedToolResults: results,
+		Kind:                      "watch",
+		Input:                     sanitizer.Text(trigger),
+		MentionsResponder:         true,
+		RecordedEvents:            recorded,
+		RecordedToolResults:       results,
+		RecordedExecutionProfiles: executionProfiles,
 	}, nil
 }
 
@@ -339,4 +396,10 @@ func (s storeEpisodeSource) GetSlackInput(
 	ctx context.Context, inputID string,
 ) (core.SlackInput, error) {
 	return s.store.GetSlackInput(ctx, inputID)
+}
+
+func (s storeEpisodeSource) GetContextManifest(
+	ctx context.Context, manifestID string,
+) (core.ContextManifest, error) {
+	return s.store.GetContextManifest(ctx, manifestID)
 }

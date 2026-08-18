@@ -63,7 +63,6 @@ var acknowledgedCoverageGaps = map[string]string{
 	"pr-checks-merge-deployment-verification": "needs a recorded follow-through with a missing webhook",
 	"emisar-actions-and-approvals":            "needs a recorded approval without an incident room",
 	"multi-repository-work":                   "needs a recorded parent episode with child goals",
-	"model-choice-and-byoc":                   "needs recordings across two execution profiles",
 	"cleanup":                                 "needs a recorded retention pass",
 }
 
@@ -364,8 +363,9 @@ func readCorpusInto(t *testing.T, path string, covered map[string][]string) {
 			continue
 		}
 		var fixture struct {
-			Name string   `json:"name"`
-			Tags []string `json:"tags"`
+			Name                      string                          `json:"name"`
+			Tags                      []string                        `json:"tags"`
+			RecordedExecutionProfiles []core.ExecutionProfileIdentity `json:"recorded_execution_profiles"`
 		}
 		if err := json.Unmarshal([]byte(text), &fixture); err != nil {
 			t.Fatalf("%s line %d: %v", filepath.Base(path), line, err)
@@ -379,12 +379,56 @@ func readCorpusInto(t *testing.T, path string, covered map[string][]string) {
 		}
 		for _, tag := range fixture.Tags {
 			if capability, ok := strings.CutPrefix(tag, "capability:"); ok {
+				if capability == "model-choice-and-byoc" &&
+					!executionProfilesProveChoice(fixture.RecordedExecutionProfiles) {
+					t.Fatalf(
+						"%s line %d: model-choice-and-byoc needs exact metadata across two execution profiles",
+						filepath.Base(path), line,
+					)
+				}
 				covered[capability] = append(covered[capability], fixture.Name)
 			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func executionProfilesProveChoice(profiles []core.ExecutionProfileIdentity) bool {
+	distinct := make(map[string]bool)
+	for _, profile := range profiles {
+		if strings.TrimSpace(profile.ManifestID) == "" || profile.Version <= 0 ||
+			strings.TrimSpace(profile.Preset) == "" || strings.TrimSpace(profile.Provider) == "" ||
+			strings.TrimSpace(profile.Model) == "" || strings.TrimSpace(profile.ReasoningEffort) == "" {
+			return false
+		}
+		distinct[profile.Preset] = true
+	}
+	return len(distinct) >= 2
+}
+
+// A capability tag alone is an assertion, not replay evidence. This invariant
+// keeps a hand-edited or older recorder output from closing model-choice on one
+// default execution path with no record of who actually answered.
+func TestModelChoiceCoverageRequiresExactMetadataAcrossTwoProfiles(t *testing.T) {
+	profile := core.ExecutionProfileIdentity{
+		ManifestID: "manifest-chat", Version: 1, Preset: "platform-conversation",
+		Provider: "codex", Model: "gpt-5.6-terra", ReasoningEffort: "high",
+	}
+	if executionProfilesProveChoice([]core.ExecutionProfileIdentity{profile}) {
+		t.Fatal("one execution profile proved model choice")
+	}
+	second := profile
+	second.ManifestID = "manifest-watch"
+	second.Version = 2
+	second.Preset = "platform-watch"
+	if !executionProfilesProveChoice([]core.ExecutionProfileIdentity{profile, second}) {
+		t.Fatal("two exact execution profiles did not prove model choice")
+	}
+	second.Provider = ""
+	if executionProfilesProveChoice([]core.ExecutionProfileIdentity{profile, second}) {
+		t.Fatal("incomplete provider metadata proved model choice")
 	}
 }
 

@@ -36,20 +36,21 @@ type EvaluationCase struct {
 	// messages sitting at channel level above the thread's root. It is the only
 	// way a case can pose a reference that resolves outside its own thread —
 	// "see above", "^", a reply to a notice that asked for one.
-	ChannelAroundRoot      []EvaluationMessage       `json:"channel_around_root,omitempty"`
-	Memories               []EvaluationMemory        `json:"memories,omitempty"`
-	Preferences            []EvaluationPreference    `json:"preferences,omitempty"`
-	StandingRules          []EvaluationStandingRule  `json:"standing_rules,omitempty"`
-	RecordedEvents         []EvaluationRecordedEvent `json:"recorded_events,omitempty"`
-	RecordedToolResults    []EvaluationToolResult    `json:"recorded_tool_results,omitempty"`
-	Output                 string                    `json:"output,omitempty"`
-	WantAction             string                    `json:"want_action,omitempty"`
-	WantReaction           string                    `json:"want_reaction,omitempty"`
-	WantReactionOneOf      []string                  `json:"want_reaction_one_of,omitempty"`
-	WantAttentionAddressee string                    `json:"want_attention_addressee,omitempty"`
-	MinAttentionScore      int                       `json:"min_attention_score,omitempty"`
-	WantOffer              string                    `json:"want_offer,omitempty"`
-	WantOffers             []string                  `json:"want_offers,omitempty"`
+	ChannelAroundRoot         []EvaluationMessage             `json:"channel_around_root,omitempty"`
+	Memories                  []EvaluationMemory              `json:"memories,omitempty"`
+	Preferences               []EvaluationPreference          `json:"preferences,omitempty"`
+	StandingRules             []EvaluationStandingRule        `json:"standing_rules,omitempty"`
+	RecordedEvents            []EvaluationRecordedEvent       `json:"recorded_events,omitempty"`
+	RecordedToolResults       []EvaluationToolResult          `json:"recorded_tool_results,omitempty"`
+	RecordedExecutionProfiles []core.ExecutionProfileIdentity `json:"recorded_execution_profiles,omitempty"`
+	Output                    string                          `json:"output,omitempty"`
+	WantAction                string                          `json:"want_action,omitempty"`
+	WantReaction              string                          `json:"want_reaction,omitempty"`
+	WantReactionOneOf         []string                        `json:"want_reaction_one_of,omitempty"`
+	WantAttentionAddressee    string                          `json:"want_attention_addressee,omitempty"`
+	MinAttentionScore         int                             `json:"min_attention_score,omitempty"`
+	WantOffer                 string                          `json:"want_offer,omitempty"`
+	WantOffers                []string                        `json:"want_offers,omitempty"`
 	// WantOperations names result operations the answer must contain, by type.
 	//
 	// The offer fields above read the folded decision, which is the right level

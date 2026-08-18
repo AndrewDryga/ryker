@@ -67,6 +67,17 @@ func (e episodesByID) GetSlackInput(
 	return core.SlackInput{}, fmt.Errorf("no input %s", inputID)
 }
 
+func (e episodesByID) GetContextManifest(
+	ctx context.Context, manifestID string,
+) (core.ContextManifest, error) {
+	for _, source := range e {
+		if manifest, ok := source.manifests[manifestID]; ok {
+			return source.GetContextManifest(ctx, manifest.ID)
+		}
+	}
+	return core.ContextManifest{}, fmt.Errorf("no context manifest %s", manifestID)
+}
+
 func promotableEpisode(index int) fakeEpisodeSource {
 	source := recordingFixtureSource("none")
 	source.episode.ID = fmt.Sprintf("ep_%d", index)
