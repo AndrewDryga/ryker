@@ -15,6 +15,7 @@ import (
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/store/attemptstore"
 	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
+	"github.com/AndrewDryga/responder/internal/store/lifecyclecheck"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
@@ -416,6 +417,11 @@ func (s *Store) SetWorkEpisodePhase(
 	})
 	if err != nil {
 		return err
+	}
+	if episodepkg.Terminal(state) {
+		if err := lifecyclecheck.CancelWakeupsForRun(ctx, tx, runID, s.nowText()); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

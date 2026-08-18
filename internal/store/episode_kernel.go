@@ -12,6 +12,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
+	"github.com/AndrewDryga/responder/internal/store/lifecyclecheck"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
@@ -967,6 +968,9 @@ func (s *Store) LeaseDueEpisodeWakeup(
 	}
 	defer tx.Rollback()
 	now := s.now().UTC()
+	if err := lifecyclecheck.CancelWakeupsUnderTerminalEpisodes(ctx, tx, now.Format(timestampFormat)); err != nil {
+		return core.EpisodeWakeup{}, err
+	}
 	wakeup, err := scanEpisodeWakeup(tx.QueryRowContext(ctx, episodeWakeupSelect+`
 		WHERE (state = 'pending' OR (state = 'leased' AND lease_expires_at <= ?))
 		  AND (COALESCE(poll_after, due_at) IS NOT NULL)
@@ -974,6 +978,15 @@ func (s *Store) LeaseDueEpisodeWakeup(
 		ORDER BY COALESCE(poll_after, due_at), created_at, id LIMIT 1`,
 		now.Format(timestampFormat), now.Format(timestampFormat),
 	))
+	if errors.Is(err, ErrNotFound) {
+		// The reconciliation above is useful work even when it removed the only
+		// row this lease could have returned. Commit it before reporting an empty
+		// queue, otherwise the deferred rollback resurrects the stale wakeup.
+		if commitErr := tx.Commit(); commitErr != nil {
+			return core.EpisodeWakeup{}, commitErr
+		}
+		return core.EpisodeWakeup{}, ErrNotFound
+	}
 	if err != nil {
 		return core.EpisodeWakeup{}, err
 	}

@@ -651,6 +651,47 @@ func TestEpisodeWakeupSurvivesLeaseAndResolvesWithFence(t *testing.T) {
 	}
 }
 
+// The deployed Svelte recovery exposed a wakeup written by an older binary:
+// its episode was terminal but the row still said pending. A scheduler restart
+// must repair that durable mismatch instead of launching obsolete work.
+func TestWakeupLeaseReconcilesTerminalEpisodeLeftByOlderBinary(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, episode := queueKernelEpisode(t, st, "legacy-terminal-wakeup")
+	now := time.Now().UTC()
+	wakeup, err := st.CreateEpisodeWakeup(ctx, core.EpisodeWakeup{
+		ID: "legacy-terminal-wakeup", EpisodeID: episode.ID, Kind: "scheduled_verification",
+		PollAfter: now.Add(-time.Second), Deadline: now.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetWorkEpisodePhase(
+		ctx, run.ID, core.EpisodeCompleted, "finished", "Completed", "", time.Time{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx, `
+		UPDATE episode_wakeups
+		SET state = 'pending', resolved_at = NULL, updated_at = ?
+		WHERE id = ?`, now.Format(timestampFormat), wakeup.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := st.LeaseDueEpisodeWakeup(ctx, "scheduler", time.Minute); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("terminal episode wakeup was leased: %v", err)
+	}
+	wakeups, err := st.ListEpisodeWakeups(ctx, episode.ID)
+	if err != nil || len(wakeups) != 1 || wakeups[0].State != core.WakeupCancelled ||
+		wakeups[0].ResolvedAt.IsZero() {
+		t.Fatalf("legacy terminal wakeup was not reconciled: %+v, %v", wakeups, err)
+	}
+}
+
 // A manifest remembers which rung of the model ladder its briefing went out on.
 //
 // It is the only record of WHICH MODEL was taught the result contract. A

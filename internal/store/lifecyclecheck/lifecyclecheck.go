@@ -48,6 +48,45 @@ func CancelQueuedUnderTerminalEpisodes(ctx context.Context, tx *sql.Tx, now stri
 	return queueTerminalStatusClears(ctx, tx, now)
 }
 
+// CancelWakeupsUnderTerminalEpisodes repairs scheduling rows left behind by an
+// older binary or an interrupted terminal transition. A terminal episode has
+// no continuation left to run; fencing a leased row also prevents an already
+// executing scheduler from resolving it after the episode ended elsewhere.
+func CancelWakeupsUnderTerminalEpisodes(ctx context.Context, tx *sql.Tx, now string) error {
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE episode_wakeups
+		SET state = 'cancelled', lease_owner = '', lease_expires_at = NULL,
+		    fencing_token = fencing_token + 1,
+		    resolved_at = COALESCE(resolved_at, ?), updated_at = ?
+		WHERE state IN ('pending', 'leased')
+		  AND EXISTS (
+		    SELECT 1 FROM work_episodes AS episode
+		    WHERE episode.id = episode_wakeups.episode_id
+		      AND episode.lifecycle_state IN (
+		        'completed', 'failed', 'refused', 'cancelled', 'superseded'
+		      )
+		  )`, now, now); err != nil {
+		return fmt.Errorf("cancel stale episode wakeup: %w", err)
+	}
+	return nil
+}
+
+// CancelWakeupsForRun is the atomic terminal-transition path. It is scoped to
+// the episode owned by runID so ending one episode never sweeps unrelated work.
+func CancelWakeupsForRun(ctx context.Context, tx *sql.Tx, runID, now string) error {
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE episode_wakeups
+		SET state = 'cancelled', lease_owner = '', lease_expires_at = NULL,
+		    fencing_token = fencing_token + 1,
+		    resolved_at = COALESCE(resolved_at, ?), updated_at = ?
+		WHERE episode_id = (
+		  SELECT episode_id FROM agent_runs WHERE id = ?
+		) AND state IN ('pending', 'leased')`, now, now, runID); err != nil {
+		return fmt.Errorf("cancel terminal episode wakeups: %w", err)
+	}
+	return nil
+}
+
 type pendingStatusClear struct {
 	runID, episodeID, channelID, threadTS string
 }

@@ -245,6 +245,66 @@ func TestWaitingWorkEpisodeRemainsOpenAfterTransportFinishes(t *testing.T) {
 	}
 }
 
+// A Better Stack recovery completed the Svelte /lol episode while its third
+// verification wakeup stayed pending. That left finished work in the scheduler
+// queue and would have launched a redundant model turn 23 minutes later.
+func TestTerminalEpisodeCancelsEveryPendingWakeup(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Date(2026, 8, 18, 21, 55, 0, 0, time.UTC)
+	st.clock = func() time.Time { return now }
+
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "COPS",
+		ConversationKey: "channel:COPS", SourceKind: "watch", SourceID: "recovered-alert",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"verification-pending", "verification-leased"} {
+		if _, err := st.CreateEpisodeWakeup(ctx, core.EpisodeWakeup{
+			ID: id, EpisodeID: episode.ID, Kind: "scheduled_verification",
+			PollAfter: now, Deadline: now.Add(time.Hour),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	leased, err := st.LeaseDueEpisodeWakeup(ctx, "wakeup-worker", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leased.ID != "verification-leased" && leased.ID != "verification-pending" {
+		t.Fatalf("leased unexpected wakeup %q", leased.ID)
+	}
+
+	if err := st.SetWorkEpisodePhase(
+		ctx, run.ID, core.EpisodeCompleted, "finished", "Completed", "", time.Time{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	wakeups, err := st.ListEpisodeWakeups(ctx, episode.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wakeups) != 2 {
+		t.Fatalf("wakeups = %+v", wakeups)
+	}
+	for _, wakeup := range wakeups {
+		if wakeup.State != core.WakeupCancelled || wakeup.LeaseOwner != "" ||
+			!wakeup.LeaseExpiresAt.IsZero() || wakeup.ResolvedAt.IsZero() {
+			t.Fatalf("terminal episode left wakeup active: %+v", wakeup)
+		}
+	}
+}
+
 func TestAcceptedEpisodeWithoutProgressDeadlineBecomesOverdue(t *testing.T) {
 	ctx := context.Background()
 	createdAt := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
