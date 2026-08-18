@@ -2438,9 +2438,9 @@ func (s *Service) appendAlertStreamWait(
 	// having, and holding an episode open for it would keep a wakeup, a session
 	// and an episode alive for six hours over a card that said nothing is wrong.
 	hold := false
-	switch decision.AlertAssessment.Verdict {
-	case "confirmed_issue", "likely_issue":
-	case "not_issue":
+	switch alertstream.WaitFor(input, *decision) {
+	case alertstream.WaitActive:
+	case alertstream.WaitRecovered:
 		live, err := s.streamWasLive(ctx, run.EpisodeID)
 		if err != nil {
 			return err

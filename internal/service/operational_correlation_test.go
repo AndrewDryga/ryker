@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -1220,6 +1221,84 @@ func TestActiveAlertReplyKeepsTheStreamEpisodeOpen(t *testing.T) {
 			secondRun.EpisodeID, secondRun.AttemptNumber, firstRun.EpisodeID,
 		)
 	}
+}
+
+// One live replay on 2026-08-18 correctly told operators that a FIRING alert
+// was lifecycle-unverified, then completed the episode anyway. The matching
+// RESOLVED card had to open a child episode instead of continuing the stream's
+// evidence ledger. An unverified firing is still firing: its bounded answer is
+// delivered, and the host keeps the stream open until lifecycle evidence
+// arrives or the ordinary alert window expires.
+// Covers: TestUnverifiedFiringAlertKeepsItsStreamOpen
+func TestUnverifiedFiringAlertKeepsItsStreamOpen(t *testing.T) {
+	ctx := context.Background()
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	_, st, slackClient, svc, base := streamFixture(
+		t, "CUNVERIFIEDFIRING", harvestedUnverifiedFiringResult(t, observedAt),
+	)
+	card := base
+	card.ID, card.EnvelopeID = "unverified-firing-card", "env-unverified-firing-card"
+	card.EventID, card.MessageTS = "event-unverified-firing-card", "1704.300"
+	card.Text = "[VA1 FIRING:1] WARNING | Ingress 5xx ratio high"
+
+	run := answerStreamCard(t, svc, st, card)
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("the bounded unverified answer was not delivered once: %d posts", len(slackClient.posts))
+	}
+	episode, err := st.GetWorkEpisode(ctx, run.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.State != core.EpisodeWaitingExternal {
+		t.Fatalf(
+			"a lifecycle-unverified FIRING card closed its stream as %q",
+			episode.State,
+		)
+	}
+	if waits := streamWaitCount(t, ctx, st, run.EpisodeID); waits != 1 {
+		t.Fatalf("unverified firing stream wakeups = %d, want exactly one", waits)
+	}
+}
+
+func TestUnverifiedResolvedCardDoesNotOpenANewStream(t *testing.T) {
+	ctx := context.Background()
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	_, st, _, svc, base := streamFixture(
+		t, "CUNVERIFIEDRESOLVED", harvestedUnverifiedFiringResult(t, observedAt),
+	)
+	card := base
+	card.ID, card.EnvelopeID = "unverified-resolved-card", "env-unverified-resolved-card"
+	card.EventID, card.MessageTS = "event-unverified-resolved-card", "1704.400"
+	card.Text = "[VA1 RESOLVED:1] WARNING | Ingress 5xx ratio high"
+
+	run := answerStreamCard(t, svc, st, card)
+	episode, err := st.GetWorkEpisode(ctx, run.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.State != core.EpisodeCompleted {
+		t.Fatalf("a first-seen RESOLVED card opened a stream as %q", episode.State)
+	}
+	if waits := streamWaitCount(t, ctx, st, run.EpisodeID); waits != 0 {
+		t.Fatalf("first-seen resolved stream wakeups = %d, want none", waits)
+	}
+}
+
+// harvestedUnverifiedFiringResult is run_8b71dcdf7099068ee9c01c5ba09970bd,
+// the exact result that exposed the lifecycle defect. Only observation times
+// move so the production evidence remains fresh when this regression runs.
+func harvestedUnverifiedFiringResult(t *testing.T, observedAt string) string {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/unverified_firing_result.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.NewReplacer(
+		"2026-08-18T20:38:03Z", observedAt,
+		"2026-08-18T20:37:47Z", observedAt,
+		"2026-08-18T20:37:53Z", observedAt,
+		"2026-08-18T20:37:58Z", observedAt,
+	).Replace(string(raw))
 }
 
 // The stream stays open only while the alert does. A recovery closes the

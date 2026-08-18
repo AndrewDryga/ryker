@@ -394,6 +394,43 @@ func TestAKeyedFindingMigratesAnExactKeylessLegacyRecord(t *testing.T) {
 	}
 }
 
+// One Tolgee recovery carried f-tolgee-502 as unexplained and accepted a new
+// finding-tolgee-502 record as explained. The two stable ids described the
+// exact same failure, so the stale uncertainty survived beside its resolution
+// and reached Slack. A changed classification must rewrite the original key;
+// inventing a second key cannot make both states true.
+func TestOneFailureCannotFinishWithConflictingFindingStates(t *testing.T) {
+	prior := investigation.FindingOperation{
+		Key: "f-tolgee-502", What: "Tolgee returned HTTP 502 for about three minutes.",
+		Scope: "Tolgee health-check endpoint", Status: "unexplained",
+		Alternatives: []investigation.FindingAlternative{{
+			Hypothesis:   "A transient layer failure caused the 502 interval.",
+			NotCheckable: "The retained evidence has no outage-window layer events.",
+		}},
+	}
+	current := investigation.FindingOperation{
+		Key: "finding-tolgee-502", What: prior.What,
+		Scope: "Tolgee public health-check path", Status: "explained",
+		CauseEvidence: []string{"evidence-recovery"},
+	}
+	carried := CarryFindings([]investigation.FindingOperation{prior}, []investigation.FindingOperation{current})
+	answer := decisionReady("Tolgee recovered and the failure is classified.")
+	answer.Findings = []investigation.FindingOperation{current}
+	if correction := FindingCorrection(watchEpisode(), answer, carried); correction == "" {
+		t.Fatalf("accepted conflicting classifications under different keys: %+v", carried)
+	}
+
+	current.Key = prior.Key
+	settled := CarryFindings([]investigation.FindingOperation{prior}, []investigation.FindingOperation{current})
+	answer.Findings = []investigation.FindingOperation{current}
+	if len(settled) != 1 || settled[0].Status != "explained" {
+		t.Fatalf("the stable-key rewrite did not settle the finding: %+v", settled)
+	}
+	if correction := FindingCorrection(watchEpisode(), answer, settled); correction != "" {
+		t.Fatalf("the corrected classification was rejected: %q", correction)
+	}
+}
+
 // Findings reach the decision the same way evidence and coverage do, or the
 // three rules above are enforcing a field nothing fills.
 func TestFindingsFoldOutOfTheOperationStream(t *testing.T) {

@@ -78,7 +78,7 @@ func RestoreCarriedRecords(
 				finding := *operation.Finding
 				finding.ID = operation.ID
 				if finding.Key == "" {
-					finding.Key = canonicalFindingKey(operation.ID)
+					finding.Key = investigation.FindingKeyForOperationID(operation.ID)
 				}
 				sentFindings = append(sentFindings, finding)
 			}
@@ -150,7 +150,7 @@ func RestoreCarriedRecords(
 		}
 		row := item
 		if row.Key == "" {
-			row.Key = canonicalFindingKey(row.ID)
+			row.Key = investigation.FindingKeyForOperationID(row.ID)
 		}
 		// A finding read back out of a context envelope has no operation id —
 		// the field is deliberately off the JSON contract. Its host-authored key

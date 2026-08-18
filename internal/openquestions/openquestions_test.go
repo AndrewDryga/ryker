@@ -74,6 +74,48 @@ func TestAnUnexplainedFindingSaysWhyItIsNotCheckableNow(t *testing.T) {
 	}
 }
 
+// The Tolgee recovery persisted the same unexplained failure twice under two
+// model-invented keys. Until the next correction can repair that history, the
+// renderer must not repeat one uncertainty twice in the operator's answer.
+func TestTheSameUnexplainedFindingRendersOnlyOnce(t *testing.T) {
+	what := "Tolgee returned HTTP 502 for about three minutes."
+	decision := decisionpkg.WatchDecision{
+		Action: "reply",
+		Completion: &investigation.CompletionAssessment{
+			Status: "decision_ready", Verdict: "confirmed",
+		},
+		Findings: []investigation.FindingOperation{
+			{
+				Key: "finding-tolgee-502", What: what,
+				Scope: "Tolgee health-check endpoint", Status: "unexplained",
+				Alternatives: []investigation.FindingAlternative{{
+					NotCheckable: "The retained evidence contains no outage-window logs.",
+				}},
+			},
+			{
+				Key: "f-tolgee-502", What: what,
+				Scope: "Tolgee health-check endpoint", Status: "unexplained",
+				Alternatives: []investigation.FindingAlternative{{
+					NotCheckable: "The resolution event does not identify the failed layer.",
+				}},
+			},
+		},
+	}
+	open := openquestions.For(decision)
+	message := slackui.WithOpenQuestions(
+		slackui.Notice("Tolgee recovered."), "", "", nil,
+		open.Unexplained, "verify the public path at 19:25 UTC",
+		slackui.NewSanitizer(12000),
+	)
+	rendered := strings.Join(message.Context, "\n")
+	if got := strings.Count(rendered, "Remaining uncertainty: "+what); got != 1 {
+		t.Fatalf("the same uncertainty rendered %d times: %q", got, rendered)
+	}
+	if !strings.Contains(rendered, "Next check:") {
+		t.Fatalf("deduplication lost the scheduled next check: %q", rendered)
+	}
+}
+
 // The typed wait is what Responder actually scheduled. A vague freeform next
 // action must not hide it, and an already-imperative verification must not
 // render as "verify verify".

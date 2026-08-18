@@ -10,6 +10,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/evidencepolicy"
+	"github.com/AndrewDryga/responder/internal/findingpolicy"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/taskoffercarry"
 	"github.com/AndrewDryga/responder/internal/taskofferclaims"
@@ -200,17 +201,13 @@ func sameFinding(prior, current investigation.FindingOperation) bool {
 		return strings.TrimSpace(prior.What) != "" &&
 			strings.EqualFold(strings.TrimSpace(prior.What), strings.TrimSpace(current.What))
 	}
-	if prior.ID != "" && canonicalFindingKey(prior.ID) == canonicalFindingKey(current.ID) {
+	if prior.ID != "" && investigation.FindingKeyForOperationID(prior.ID) == investigation.FindingKeyForOperationID(current.ID) {
 		return true
 	}
 	// Compatibility for records written before Key existed. Do not infer that
 	// paraphrases are equal; the model must carry the stable key to say so.
 	return strings.TrimSpace(prior.What) != "" &&
 		strings.EqualFold(strings.TrimSpace(prior.What), strings.TrimSpace(current.What))
-}
-
-func canonicalFindingKey(id string) string {
-	return investigation.FindingKeyForOperationID(id)
 }
 
 // findingContinuationOperations are the operations that say the work carries on
@@ -294,8 +291,8 @@ func FindingCorrection(
 	decision WatchDecision,
 	findings []investigation.FindingOperation,
 ) string {
-	if decision.Action != "reply" {
-		return ""
+	if correction, stop := findingpolicy.InitialCorrection(decision.Action, findings); stop {
+		return correction
 	}
 	blocked := decision.Completion != nil && decision.Completion.Status == "blocked"
 	// A typed failure must record its failure state as a typed finding. The

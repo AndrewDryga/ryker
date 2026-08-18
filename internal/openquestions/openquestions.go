@@ -59,8 +59,18 @@ func For(decision decisionpkg.WatchDecision) Questions {
 	if decision.Completion != nil && decision.Completion.Status == "decision_ready" {
 		open.MaterialGaps = decision.Completion.MaterialGaps
 	}
+	seenUnexplained := make(map[string]struct{})
 	for _, finding := range decision.Findings {
 		if finding.Status == "unexplained" {
+			// Stable keys own ledger identity, but historical model output can
+			// contain duplicate keys for the exact same failure. Presentation is
+			// defense in depth: one uncertainty should occupy one operator-facing
+			// context item even before a later correction repairs the ledger.
+			identity := strings.ToLower(strings.TrimSpace(finding.What))
+			if _, duplicate := seenUnexplained[identity]; duplicate {
+				continue
+			}
+			seenUnexplained[identity] = struct{}{}
 			open.Unexplained = append(open.Unexplained, unexplainedLine(finding))
 		}
 	}

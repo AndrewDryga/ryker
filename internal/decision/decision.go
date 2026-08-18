@@ -1644,7 +1644,7 @@ func foldResultOperations(
 				// talking about the same failure state however it reworded it.
 				finding.ID = operation.ID
 				if finding.Key == "" {
-					finding.Key = canonicalFindingKey(operation.ID)
+					finding.Key = investigation.FindingKeyForOperationID(operation.ID)
 				}
 				*target.findings = append(*target.findings, finding)
 			}
