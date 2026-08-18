@@ -816,15 +816,16 @@ func (s *Service) applyWatchDecision(
 	// Inverting it makes the description true by construction — a kind added
 	// tomorrow is silent here unless somebody deliberately exempts it.
 	//
-	// The one exemption is an approval continuation: a human decision already
-	// in flight, whose outcome would otherwise strand the person who approved
-	// it. They are not a bystander being protected from noise.
+	// The exemptions are explicit operator actions: an approval continuation,
+	// whose outcome would otherwise strand the person who approved it, and a
+	// replay invoked with --publish. A private replay still obeys shadow mode;
+	// only the public envelope carries authority to produce a Slack message.
 	//
 	// Nothing goes silently dead. finishShadowedWatchDecision answers a mention
 	// ephemerally, so whoever said the name learns the channel is observe-only
 	// and everyone else sees nothing.
 	shadow := false
-	if !state.ApprovalContinuation {
+	if !state.ApprovalContinuation && !strings.HasPrefix(input.EnvelopeID, "replay-public:") {
 		shadow, err = s.shadowEnabled(ctx, input.ChannelID)
 		if err != nil {
 			return err

@@ -177,6 +177,77 @@ func TestWatchedShadowModeRecordsWithoutPosting(t *testing.T) {
 	}
 }
 
+// A production replay of an alert finished its model turn and then waited
+// forever: --publish had inherited the channel's observe-only setting, so no
+// delivery could ever satisfy the replay command's publish contract.
+func TestExplicitPublicReplayPublishesFromAShadowChannel(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	cfg.Slack.ShadowChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{
+	  "action":"reply",
+	  "attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":1,"ownership":3,"contribution":"decision","material":true},
+	  "reason":"The explicit production replay requested a published answer.",
+	  "operations":[
+	    {"id":"declared-capacity","type":"record_evidence","evidence":{
+	      "claim_id":"scheduler.desired_state",
+	      "claim":"Expected production capacity is two instances",
+	      "observation":"infra/main.tf sets target_size to 2",
+	      "source_type":"repository",
+	      "source_name":"infra/main.tf",
+	      "target":"production-mig",
+	      "confidence":"high"
+	    }},
+	    {"id":"cov-scheduler","type":"record_coverage","coverage":{
+	      "layer":"scheduler",
+	      "status":"unknown",
+	      "detail":"No authorized scheduler observation was available"
+	    }},
+	    {"id":"complete","type":"complete_episode","completion":{
+	      "message":"Declared capacity is two instances; scheduler state remains unknown."
+	    }}
+	  ]
+	}`
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	input := core.SlackInput{
+		ID: "slack-public-replay", EnvelopeID: "replay-public:slack-public-replay",
+		EventID: "replay-public:slack-public-replay", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH", ThreadTS: "1700.910",
+		MessageTS: "1700.911", UserID: "U123ABC", Text: "<@U999BOT> verify production.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	decision, err := st.Intelligence.GetEvaluationDecision(ctx, input.ID, "live")
+	if err != nil || decision.Action != "reply" {
+		t.Fatalf("public replay decision = %+v, %v", decision, err)
+	}
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("explicit public replay posts = %+v", slackClient.posts)
+	}
+	if slackClient.posts[0].thread != input.ThreadTS {
+		t.Fatalf("public replay thread = %q, want %q", slackClient.posts[0].thread, input.ThreadTS)
+	}
+}
+
 func TestWatchSessionRotatesAndCarriesDurableMemory(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
