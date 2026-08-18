@@ -30,6 +30,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
 	"github.com/AndrewDryga/responder/internal/store/memorystore"
 	"github.com/AndrewDryga/responder/internal/store/pausecleanupstore"
+	"github.com/AndrewDryga/responder/internal/store/preparationstore"
 	"github.com/AndrewDryga/responder/internal/store/publicationfollowupstore"
 	"github.com/AndrewDryga/responder/internal/store/publicationrecoverystore"
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
@@ -167,6 +168,9 @@ type Store struct {
 	// decided, and whether the engineering task that reply offered is still
 	// open and still reachable.
 	AlertStream *alertstreamstore.Repository
+	// PreparationNotices owns the durable post-to-retirement lifecycle of a
+	// transient workspace blocker.
+	PreparationNotices *preparationstore.Repository
 }
 
 type Metrics struct {
@@ -640,7 +644,7 @@ func applySchemaStep(db *sql.DB, statement string, from, to int) error {
 // Opt-in per migration rather than always on: every other migration benefits
 // from the constraints being enforced while it runs, and a rebuild is rare
 // enough that turning them off should be a deliberate, listed decision.
-var tableRebuildMigrations = map[int]bool{47: true, 50: true, 61: true, 68: true}
+var tableRebuildMigrations = map[int]bool{47: true, 50: true, 61: true, 68: true, 88: true}
 
 // verifyForeignKeys fails if a migration left a reference pointing at nothing.
 type foreignKeyQueryer interface {
@@ -1187,6 +1191,7 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.IncidentSessions = incidentsessionstore.New(db)
 	s.SlackInputs = slackinputstore.New(db)
 	s.AlertStream = alertstreamstore.New(db)
+	s.PreparationNotices = preparationstore.New(db, clock)
 	s.PauseCleanup = pausecleanupstore.New(db)
 	s.ReplayCancellations = replaycancelstore.New(db, clock)
 	s.SelfReport = selfreportstore.New(db)

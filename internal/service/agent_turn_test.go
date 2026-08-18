@@ -472,6 +472,14 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 		ErrorCode:   "acp_protocol_error",
 		ErrorDetail: "turn cleanup failed",
 	}
+	run.Mode = core.AgentRunIncident
+	run.Failures = 0
+	if reason, replay := runreplay.Decide(
+		run, "turn.failed", cleanupFailure, 20,
+	); replay || reason != "" {
+		t.Fatalf("incident cleanup promised an unavailable fresh session = %q, %t", reason, replay)
+	}
+	run.Mode = core.AgentRunTriage
 	for failures := 0; failures < 2; failures++ {
 		run.Failures = failures
 		if reason, replay := runreplay.Decide(
@@ -606,6 +614,7 @@ func TestAgentRunACPProcessFailureRotatesSlackInvestigationSession(t *testing.T)
 	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
 		t.Fatalf("admit Slack input = %v, %v", created, err)
 	}
+	alertStreamChannel(t, ctx, st, cfg, input.ChannelID)
 	coopClient := newFakeCoop()
 	coopClient.submitTurns = []coop.Turn{
 		{
@@ -664,6 +673,81 @@ func TestAgentRunACPProcessFailureRotatesSlackInvestigationSession(t *testing.T)
 		!strings.Contains(slackClient.posts[0].message.Text, "graph is ready") ||
 		strings.Contains(slackClient.posts[0].message.Text, "could not complete") {
 		t.Fatalf("process recovery result = %+v", slackClient.posts)
+	}
+}
+
+// The 2026-08-18 ingress alert reached a valid read-only session, then Coop's
+// runtime cleanup timed out while the host was under test load. Responder
+// treated session_cleanup_error as the investigation's answer, failed the run,
+// and left only a warning reaction. Infrastructure cleanup must instead rotate
+// the disposable session and deliver the accepted alert investigation.
+func TestRuntimeCleanupTimeoutRecoversTheAlertInAFreshSession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CCLEANUP"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack-cleanup-recovery", EnvelopeID: "env-cleanup-recovery",
+		EventID: "event-cleanup-recovery", Kind: "bot_message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CCLEANUP", MessageTS: "1700.712",
+		UserID: "BGRAFANA", Text: "[VA1 FIRING:1] WARNING | Ingress 5xx ratio high",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit Slack input = %v, %v", created, err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{
+		{
+			State:     "failed",
+			ErrorCode: "internal_error",
+			ErrorDetail: "begin native session binding: context deadline exceeded\n" +
+				"session_cleanup_error: runtime cleanup failed: list matching containers: context deadline exceeded",
+		},
+		{
+			State:            "completed",
+			AssistantMessage: confirmedAlertReplyResult(time.Now().UTC().Format(time.RFC3339)),
+		},
+	}
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	requeued, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || requeued.State != core.AgentRunPending || requeued.Failures != 1 {
+		t.Fatalf("cleanup timeout was not requeued = %+v, %v", requeued, err)
+	}
+	firstSession := requeued.SessionID
+	coopClient.openAfterCreateKey = "responder:watch-session:CCLEANUP:2"
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	completed, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || completed.State != core.AgentRunCompleted ||
+		completed.SessionID == firstSession || completed.SessionGeneration != 2 {
+		t.Fatalf("cleanup recovery did not finish in a fresh session = %+v, %v", completed, err)
+	}
+	if len(slackClient.posts) != 1 || slackClient.posts[0].thread != input.MessageTS ||
+		strings.Contains(slackClient.posts[0].message.Text, "cleanup") {
+		t.Fatalf("cleanup recovery Slack result = %+v", slackClient.posts)
 	}
 }
 

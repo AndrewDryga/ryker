@@ -662,6 +662,88 @@ func TestOperationalRecoveryKeepsTheOriginalAlertThread(t *testing.T) {
 	}
 }
 
+// Better Stack's Tolgee recovery on 2026-08-18 reused the firing episode but
+// moved the final Slack answer under the RESOLVED card. Grafana keys already
+// took the original-thread path; lifecycle-link keys must make the same
+// promise all the way through the durable Slack delivery.
+func TestBetterStackRecoveryIsDeliveredInTheOriginalIncidentThread(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+
+	opened := core.SlackInput{
+		ID: "better-stack-opened", EnvelopeID: "env-better-stack-opened",
+		EventID: "event-better-stack-opened", Kind: "bot_message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH", MessageTS: "1700.501",
+		UserID: "BBETTERSTACK", ReceivedAt: time.Now().UTC(),
+		Text: "New incident for Tolgee: health check\n" +
+			"<https://uptime.betterstack.com/team/t22201/incidents/1003304830|View incident>",
+	}
+	resolved := opened
+	resolved.ID, resolved.EnvelopeID, resolved.EventID =
+		"better-stack-resolved", "env-better-stack-resolved", "event-better-stack-resolved"
+	resolved.MessageTS = "1700.502"
+	resolved.ReceivedAt = opened.ReceivedAt.Add(5 * time.Minute)
+	resolved.Text = "Automatically resolved Tolgee: health check incident\n" +
+		"<https://uptime.betterstack.com/team/t22201/incidents/1003304830|View incident>"
+
+	for _, input := range []core.SlackInput{opened, resolved} {
+		if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
+			t.Fatalf("admit %s = %v, %v", input.ID, created, admitErr)
+		}
+		if err := svc.processSlackInput(ctx); err != nil {
+			t.Fatalf("queue %s: %v", input.ID, err)
+		}
+	}
+	openedRun, err := st.GetAgentRunBySource(ctx, "watch", opened.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedRun, err := st.GetAgentRunBySource(ctx, "watch", resolved.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decodeWatchRunContext(resolvedRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseThread := watchDecisionResponseThread(
+		resolvedRun.ConversationKey, resolved, state, resolvedRun.EpisodeID,
+	)
+	if err := svc.postInputMessageAtEpisodeResponse(
+		ctx, "better-stack-recovery-reply", resolvedRun.EpisodeID, resolved.ID,
+		resolved.ChannelID, responseThread, slackui.ConversationResponse(
+			"The exact Tolgee alert condition recovered.", slackui.NewSanitizer(12000),
+		), true,
+	); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 1 || slack.posts[0].thread != opened.MessageTS {
+		t.Fatalf("recovery Slack destination = %+v, want thread %s", slack.posts, opened.MessageTS)
+	}
+	episode, err := st.GetWorkEpisode(ctx, openedRun.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolvedRun.EpisodeID != openedRun.EpisodeID ||
+		episode.Destination.ThreadTS != opened.MessageTS {
+		t.Fatalf("recovery moved episode destination: run=%q episode=%q",
+			resolvedRun.EpisodeID, episode.Destination.ThreadTS)
+	}
+}
+
 func TestDifferentAlertFamiliesInOneBurstUseOnlyNewestModelRun(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

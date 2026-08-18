@@ -1504,6 +1504,7 @@ type fakeSlack struct {
 	channel            slackui.Channel
 	channelErr         error
 	dedupePosts        bool
+	findDeliveryErr    error
 	createChannelErr   error
 	createChannelCalls int
 	history            []slackui.HistoryMessage
@@ -1768,6 +1769,9 @@ func (f *fakeSlack) FindDeliveryMessage(
 	thread string,
 	outboxID string,
 ) (string, error) {
+	if f.findDeliveryErr != nil {
+		return "", f.findDeliveryErr
+	}
 	if f.dedupePosts {
 		for index, post := range f.posts {
 			if post.outboxID == outboxID && post.channel == channel && post.thread == thread {

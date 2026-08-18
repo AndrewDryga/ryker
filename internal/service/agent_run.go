@@ -27,6 +27,7 @@ import (
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/mentioncontext"
 	"github.com/AndrewDryga/responder/internal/openquestions"
+	"github.com/AndrewDryga/responder/internal/preparationnotice"
 	"github.com/AndrewDryga/responder/internal/promptbudget"
 	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/publicationcontext"
@@ -581,7 +582,7 @@ func watchDecisionResponseThread(
 	episodeID string,
 ) string {
 	if input.Kind == "bot_message" &&
-		operationalAlertConversationKey(conversationKey) &&
+		operationalLifecycleConversationKey(conversationKey) &&
 		episodeID != "" && state.ResponseThreadTS != "" {
 		// Correlated lifecycle events keep the destination chosen by the first
 		// event. This makes FIRING -> RESOLVED read as one investigation instead
@@ -595,10 +596,11 @@ func watchDecisionResponseThread(
 	return state.ResponseThreadTS
 }
 
-func operationalAlertConversationKey(conversationKey string) bool {
+func operationalLifecycleConversationKey(conversationKey string) bool {
 	return strings.HasPrefix(conversationKey, "operation:") &&
 		(strings.Contains(conversationKey, ":alert:") ||
-			strings.Contains(conversationKey, ":alert-link:"))
+			strings.Contains(conversationKey, ":alert-link:") ||
+			strings.Contains(conversationKey, ":lifecycle:link:"))
 }
 
 func decodeWatchRunContext(run core.AgentRun) (decisionpkg.WatchTurnState, error) {
@@ -1439,14 +1441,18 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	if err != nil {
 		return s.retryAgentRun(ctx, run, err)
 	}
-	return s.store.MarkTriageAgentRunSubmitted(
+	if err := s.store.MarkTriageAgentRunSubmitted(
 		ctx,
 		run.ID,
 		turn.ID,
 		session.Revision,
 		run.CoopEventSequence,
 		state.Lane,
-	)
+		preparationnotice.Prefix(run),
+	); err != nil {
+		return err
+	}
+	return nil
 }
 
 // turnBoundToRunKey resolves an idempotency conflict on turn submission by
@@ -1703,9 +1709,11 @@ func (s *Service) retryAtNextSessionGeneration(
 			return err
 		}
 		s.parkWatchedStatus(ctx, run, "clear watched Slack status while workspace authority is repaired")
-		return s.store.DeferAgentRun(
-			ctx, run.ID, trimError(cause), s.now().Add(30*time.Minute),
-		)
+		delay := 30 * time.Minute
+		if errors.Is(cause, sessioncreate.ErrHistoricalCreateKeys) {
+			delay = sessioncreate.HistoricalCreateKeysRetryDelay
+		}
+		return s.store.DeferAgentRun(ctx, run.ID, trimError(cause), s.now().Add(delay))
 	}
 	if coop.Retryable(cause) {
 		var pending *coop.OperationPendingError

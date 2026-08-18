@@ -14,6 +14,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/fanout"
 	"github.com/AndrewDryga/responder/internal/store/lifecyclecheck"
+	"github.com/AndrewDryga/responder/internal/store/preparationstore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
@@ -1136,6 +1137,17 @@ func (s *Store) MarkAgentRunSubmitted(
 	revision int64,
 	eventSequence int64,
 ) error {
+	return s.markAgentRunSubmitted(ctx, id, coopTurnID, revision, eventSequence, "")
+}
+
+func (s *Store) markAgentRunSubmitted(
+	ctx context.Context,
+	id string,
+	coopTurnID string,
+	revision int64,
+	eventSequence int64,
+	preparationPrefix string,
+) error {
 	if coopTurnID == "" {
 		return errors.New("submitted agent run requires a Coop turn ID")
 	}
@@ -1193,6 +1205,11 @@ func (s *Store) MarkAgentRunSubmitted(
 	); err != nil {
 		return err
 	}
+	if _, err := preparationstore.RetireTx(
+		ctx, tx, preparationPrefix, now,
+	); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -1203,10 +1220,11 @@ func (s *Store) MarkTriageAgentRunSubmitted(
 	revision int64,
 	eventSequence int64,
 	lane string,
+	preparationPrefix string,
 ) error {
 	if lane != "conversation" {
-		return s.MarkAgentRunSubmitted(
-			ctx, id, coopTurnID, revision, eventSequence,
+		return s.markAgentRunSubmitted(
+			ctx, id, coopTurnID, revision, eventSequence, preparationPrefix,
 		)
 	}
 	if coopTurnID == "" {
@@ -1253,6 +1271,11 @@ func (s *Store) MarkTriageAgentRunSubmitted(
 	if err := s.setWorkEpisodePhaseTx(
 		ctx, tx, id, core.EpisodeWorking, "investigating", "Investigating",
 		"Complete the requested work", time.Time{}, "agent-turn:"+coopTurnID+":started",
+	); err != nil {
+		return err
+	}
+	if _, err := preparationstore.RetireTx(
+		ctx, tx, preparationPrefix, now,
 	); err != nil {
 		return err
 	}

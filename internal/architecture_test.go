@@ -1368,9 +1368,21 @@ var lineBudget = map[string]int{
 	"replaycontrol":     75,
 	"replayinterrupt":   95,
 	"replaycancelstore": 90,
-	"serviceport":       65,
-	"retrydelay":        40,
-	"schemaassets":      1050,
+	// preparationstore owns the one durable blocker-to-retirement epoch. It is
+	// below service and store so an accepted model turn and the removal intent
+	// can share a transaction without teaching either broad package the state
+	// machine for pending, sending and uncertain Slack posts.
+	"preparationstore": 280,
+	// preparationnotice translates one typed workspace-preparation state into
+	// its bounded Slack text and durable post/retirement intent.
+	"preparationnotice": 160,
+	// deliveryretrystore owns the transactional question behind every failed
+	// Slack write: retry it, fail it, or supersede it because a newer coalesced
+	// intent became authoritative while the request was in flight.
+	"deliveryretrystore": 160,
+	"serviceport":        65,
+	"retrydelay":         40,
+	"schemaassets":       1050,
 	// Raised from 50 to 70 on 2026-08-16, eleven lines measured. A failure now
 	// asks a second question before it chooses silence — did this message say
 	// Responder's name, whatever kind of event Slack called it — because a
@@ -1479,19 +1491,22 @@ var lineBudget = map[string]int{
 // internal packages it must never import, keeping the layering acyclic and
 // stopping the domain and persistence layers from depending on presentation.
 var forbiddenImports = map[string][]string{
-	"core":              {"config", "coop", "emisar", "publisher", "service", "slackui", "store", "webhook", "httpapi", "app"},
-	"store":             {"service", "slackui", "publisher", "httpapi", "app", "emisar"},
-	"slackui":           {"service", "store", "httpapi", "app", "publisher"},
-	"coop":              {"service", "store", "slackui", "httpapi", "app"},
-	"replaycontrol":     {"service", "store", "slackui", "httpapi", "app"},
-	"replayinterrupt":   {"service", "store", "slackui", "httpapi", "app"},
-	"replaycancelstore": {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar"},
-	"serviceport":       {"service", "store", "httpapi", "app"},
-	"emisar":            {"service", "store", "slackui", "httpapi", "app"},
-	"webhook":           {"service", "store", "slackui", "httpapi", "app"},
-	"episode":           {"service", "store", "slackui", "httpapi", "app"},
-	"wakeuppolicy":      {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "evaluation"},
-	"pausecleanupstore": {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar"},
+	"core":               {"config", "coop", "emisar", "publisher", "service", "slackui", "store", "webhook", "httpapi", "app"},
+	"store":              {"service", "slackui", "publisher", "httpapi", "app", "emisar"},
+	"slackui":            {"service", "store", "httpapi", "app", "publisher"},
+	"coop":               {"service", "store", "slackui", "httpapi", "app"},
+	"replaycontrol":      {"service", "store", "slackui", "httpapi", "app"},
+	"replayinterrupt":    {"service", "store", "slackui", "httpapi", "app"},
+	"replaycancelstore":  {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar"},
+	"preparationstore":   {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision"},
+	"preparationnotice":  {"service", "store", "httpapi", "app", "publisher", "emisar", "config", "decision"},
+	"deliveryretrystore": {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision"},
+	"serviceport":        {"service", "store", "httpapi", "app"},
+	"emisar":             {"service", "store", "slackui", "httpapi", "app"},
+	"webhook":            {"service", "store", "slackui", "httpapi", "app"},
+	"episode":            {"service", "store", "slackui", "httpapi", "app"},
+	"wakeuppolicy":       {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "evaluation"},
+	"pausecleanupstore":  {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar"},
 	// The receipts are rows. Which correction deserves promoting, what a fixture
 	// is, and where the corpus lives are decisions that belong to the caller —
 	// this package must never learn how to build one, or the drain and the

@@ -18,6 +18,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackfile"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/store/deliveryretrystore"
 	"github.com/AndrewDryga/responder/internal/taskaccess"
 	"github.com/AndrewDryga/responder/internal/taskpr"
 )
@@ -364,6 +365,25 @@ func (s *Service) processSlackDelivery(ctx context.Context, cooling []string) er
 		default:
 			err = fmt.Errorf("unsupported Slack reaction action %q", item.Kind)
 		}
+	case "delete":
+		target, found, resolveErr := s.store.PreparationNotices.ResolveDelete(ctx, item.ID)
+		if resolveErr != nil {
+			err = resolveErr
+			break
+		}
+		if !found {
+			return s.store.FinishSlackDelivery(ctx, item.ID, "", "sending")
+		}
+		item.ChannelID, item.MessageTS = target.ChannelID, target.MessageTS
+		timestamp = item.MessageTS
+		client, ok := unpacedSlack(s.slack).(interface {
+			Delete(context.Context, string, string) error
+		})
+		if !ok {
+			err = errors.New("Slack client does not support deleting a message")
+			break
+		}
+		err = client.Delete(ctx, item.ChannelID, item.MessageTS)
 	case "file":
 		file, decodeErr := slackfile.DecodeDelivery(item.Body)
 		if decodeErr != nil {
@@ -460,7 +480,7 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 			"Slack reconciliation suppressed because the work conversation is "+
 				string(incident.ChannelState),
 			s.now(),
-			true,
+			deliveryretrystore.UncertainTerminal,
 		)
 	}
 	var timestamp string
@@ -468,12 +488,12 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 	if item.Operation == "file" {
 		file, decodeErr := slackfile.DecodeDelivery(item.Body)
 		if decodeErr != nil {
-			return s.store.RetryUncertainSlackDelivery(ctx, item.ID, trimError(decodeErr), s.now(), true)
+			return s.store.RetryUncertainSlackDelivery(ctx, item.ID, trimError(decodeErr), s.now(), deliveryretrystore.UncertainTerminal)
 		}
 		fileDelivery = &file
 		if slackfile.PermanentDeliveryError(errors.New(item.LastError)) {
 			if retryErr := s.store.RetryUncertainSlackDelivery(
-				ctx, item.ID, item.LastError, s.now(), true,
+				ctx, item.ID, item.LastError, s.now(), deliveryretrystore.UncertainTerminal,
 			); retryErr != nil {
 				return retryErr
 			}
@@ -495,7 +515,7 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 		terminal := retrydelay.Exhausted(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts)
 		retryErr := s.store.RetryUncertainSlackDelivery(
 			ctx, item.ID, "Slack history confirmed the message was not posted",
-			s.queueDelay(item.Attempts), terminal,
+			s.queueDelay(item.Attempts), deliveryretrystore.ConfirmedAbsent(terminal),
 		)
 		if terminal {
 			if incident.ID != "" {
@@ -517,7 +537,7 @@ func (s *Service) reconcileSlackDelivery(ctx context.Context) error {
 			item.ID,
 			trimError(err),
 			s.queueDelay(item.Attempts),
-			retrydelay.Exhausted(item.Attempts, s.cfg.Limits.MaxDeliveryAttempts),
+			deliveryretrystore.UncertainAgain,
 		)
 	}
 }

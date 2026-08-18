@@ -7,6 +7,19 @@ trap 'rm -rf "$tmp"' EXIT
 
 "$repository/scripts/focus-check.sh" --help >/dev/null
 
+settings=$(env -u RACE_SHARDS -u RACE_GOMAXPROCS -u RACE_NICE -u RACE_TIMEOUT \
+  "$repository/scripts/race-shards.sh" --settings)
+[[ $settings == "shards=2 gomaxprocs=2 nice=10 timeout=20m" ]] || {
+  echo "dev-workflow-test: unsafe local race defaults: $settings" >&2
+  exit 1
+}
+overrides=$(RACE_SHARDS=3 RACE_GOMAXPROCS=4 RACE_NICE=5 RACE_TIMEOUT=30m \
+  "$repository/scripts/race-shards.sh" --settings)
+[[ $overrides == "shards=3 gomaxprocs=4 nice=5 timeout=30m" ]] || {
+  echo "dev-workflow-test: race overrides were not honored: $overrides" >&2
+  exit 1
+}
+
 plan="$tmp/race-plan"
 "$repository/scripts/race-shards.sh" --plan >"$plan"
 expected=$(cd "$repository" && go test ./internal/service -list '^(Test|Example|Fuzz)' |

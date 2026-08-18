@@ -12,6 +12,8 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
+	"github.com/AndrewDryga/responder/internal/store/deliveryretrystore"
+	"github.com/AndrewDryga/responder/internal/store/preparationstore"
 	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
@@ -59,7 +61,7 @@ func (s *Store) EnqueueSlackDelivery(
 	}
 	if delivery.Operation != "post" && delivery.Operation != "update" &&
 		delivery.Operation != "status" && delivery.Operation != "file" &&
-		delivery.Operation != "reaction" {
+		delivery.Operation != "reaction" && delivery.Operation != "delete" {
 		return false, fmt.Errorf(
 			"unsupported Slack delivery operation %q",
 			delivery.Operation,
@@ -74,6 +76,9 @@ func (s *Store) EnqueueSlackDelivery(
 	if delivery.Operation == "update" &&
 		(delivery.MessageTS == "" || len(delivery.Body) == 0) {
 		return false, errors.New("Slack update delivery target and body are required")
+	}
+	if delivery.Operation == "delete" && delivery.MessageTS == "" {
+		return false, errors.New("Slack delete delivery target is required")
 	}
 	if delivery.Operation == "status" && delivery.ThreadTS == "" {
 		return false, errors.New("Slack status delivery thread is required")
@@ -128,6 +133,7 @@ func (s *Store) EnqueueSlackDelivery(
 		// the answer from a thread back to the channel while the indicator stays
 		// on the message being processed.
 		if delivery.Operation != "status" && delivery.Operation != "reaction" &&
+			delivery.Operation != "delete" &&
 			(delivery.ExpectedDestinationRevision != episode.DestinationRevision ||
 				delivery.ChannelID != episode.Destination.ChannelID ||
 				delivery.ThreadTS != episode.Destination.ThreadTS) {
@@ -207,7 +213,7 @@ func (s *Store) EnqueueSlackDelivery(
 			  AND NOT (
 			    ? = 'status' AND ? = '' AND
 			    operation = 'status' AND status_text != ''
-			  )`,
+			  )`+preparationstore.PreserveCausalRetirementSQL,
 			now,
 			delivery.CoalesceKey,
 			delivery.ID,
@@ -215,6 +221,7 @@ func (s *Store) EnqueueSlackDelivery(
 			delivery.CardVersion,
 			delivery.Operation,
 			delivery.Status,
+			delivery.ID,
 		); err != nil {
 			return false, err
 		}
@@ -361,7 +368,7 @@ func (s *Store) ListSlackDeliveriesByPrefix(
 		SELECT `+slackDeliveryColumns+`
 		FROM slack_deliveries
 		WHERE substr(id, 1, length(?)) = ?
-		ORDER BY created_at, id`, prefix, prefix)
+		ORDER BY rowid`, prefix, prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -585,7 +592,7 @@ func (s *Store) LeaseSlackDelivery(
 		SET state = 'superseded', last_error = 'episode destination changed', updated_at = ?
 		WHERE delivery.state IN ('pending', 'retry')
 		  AND delivery.episode_id != ''
-		  AND delivery.operation NOT IN ('status', 'reaction')
+		  AND delivery.operation NOT IN ('status', 'reaction', 'delete')
 		  AND EXISTS (
 		    SELECT 1 FROM work_episodes AS episode
 		    WHERE episode.id = delivery.episode_id
@@ -602,7 +609,7 @@ func (s *Store) LeaseSlackDelivery(
 	skip := ""
 	arguments := []any{now}
 	if len(coolingChannels) > 0 {
-		skip = "  AND (candidate.operation = 'reaction' OR candidate.channel_id NOT IN (" +
+		skip = "  AND (candidate.operation IN ('reaction', 'delete') OR candidate.channel_id NOT IN (" +
 			strings.TrimSuffix(strings.Repeat("?,", len(coolingChannels)), ",") + "))\n"
 		for _, channelID := range coolingChannels {
 			arguments = append(arguments, channelID)
@@ -629,8 +636,9 @@ func (s *Store) LeaseSlackDelivery(
 		        AND predecessor.state NOT IN ('sent', 'superseded')
 		    )
 		  )
+		`+preparationstore.LeaseBarrierSQL+`
 		ORDER BY
-		  CASE candidate.operation WHEN 'status' THEN 0 WHEN 'reaction' THEN 1 WHEN 'update' THEN 2 ELSE 3 END,
+		  CASE candidate.operation WHEN 'status' THEN 0 WHEN 'delete' THEN 1 WHEN 'reaction' THEN 2 WHEN 'update' THEN 3 ELSE 4 END,
 		  candidate.created_at,
 		  candidate.id
 		LIMIT 1`, arguments...))
@@ -835,6 +843,11 @@ func (s *Store) FinishSlackDelivery(
 			return err
 		}
 	}
+	if operation == "delete" && kind == "notice_retirement" {
+		if err := preparationstore.CloseDeleteEpoch(ctx, tx, id, s.nowText()); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 
@@ -846,60 +859,13 @@ func (s *Store) RetrySlackDelivery(
 	uncertain bool,
 	terminal bool,
 ) error {
-	state := "retry"
-	if uncertain {
-		state = "uncertain"
-	} else if terminal {
-		state = "failed"
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	var operation, coalesceKey, created string
-	var rowID int64
-	if err := tx.QueryRowContext(ctx, `
-		SELECT operation, coalesce_key, created_at, rowid
-		FROM slack_deliveries WHERE id = ? AND state = 'sending'`, id,
-	).Scan(&operation, &coalesceKey, &created, &rowID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("retry Slack delivery: %w", ErrConflict)
-		}
-		return err
-	}
-	if operation == "reaction" && coalesceKey != "" {
-		var newer bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
-			SELECT 1 FROM slack_deliveries
-			WHERE coalesce_key = ? AND operation = 'reaction' AND id != ?
-			  AND (created_at > ? OR (created_at = ? AND rowid > ?))
-		)`, coalesceKey, id, created, created, rowID).Scan(&newer); err != nil {
-			return err
-		}
-		if newer {
-			state, detail = "superseded", "newer reaction intent"
-		}
-	}
-	result, err := tx.ExecContext(ctx, `
-		UPDATE slack_deliveries
-		SET state = ?, failure_count = failure_count + 1,
-		    last_error = ?, next_attempt_at = ?, updated_at = ?
-		WHERE id = ? AND state = 'sending'`,
-		state, sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat),
-		s.nowText(), id)
-	if err := sqlutil.ExpectOne(result, err, "retry Slack delivery"); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return deliveryretrystore.Retry(
+		ctx, s.db, s.nowText(), id, detail, next, uncertain, terminal,
+	)
 }
 
 func (s *Store) SupersedeLeasedSlackDelivery(ctx context.Context, id, detail string) error {
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE slack_deliveries
-		SET state = 'superseded', last_error = ?, updated_at = ?
-		WHERE id = ? AND state = 'sending'`, sqlutil.BoundedError(detail), s.nowText(), id)
-	return sqlutil.ExpectOne(result, err, "supersede leased Slack delivery")
+	return deliveryretrystore.SupersedeLeased(ctx, s.db, s.nowText(), id, detail)
 }
 
 func (s *Store) ListUncertainSlackDeliveries(
@@ -936,18 +902,9 @@ func (s *Store) RetryUncertainSlackDelivery(
 	id string,
 	detail string,
 	next time.Time,
-	terminal bool,
+	disposition deliveryretrystore.UncertainDisposition,
 ) error {
-	state := "retry"
-	if terminal {
-		state = "failed"
-	}
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE slack_deliveries
-		SET state = ?, failure_count = failure_count + 1,
-		    last_error = ?, next_attempt_at = ?, updated_at = ?
-		WHERE id = ? AND state = 'uncertain'`,
-		state, sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat),
-		s.nowText(), id)
-	return sqlutil.ExpectOne(result, err, "retry uncertain Slack delivery")
+	return deliveryretrystore.RetryUncertain(
+		ctx, s.db, s.nowText(), id, detail, next, disposition,
+	)
 }

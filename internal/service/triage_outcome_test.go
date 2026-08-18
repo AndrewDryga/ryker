@@ -10,6 +10,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/preparationnotice"
 	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -153,21 +154,481 @@ func TestRepositoryPreparationBlockerIsDeliveredOnceInTheBoundAlertThread(t *tes
 		t.Fatal(err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
-	if len(slack.posts) != 1 || len(slack.updates) != 1 {
-		t.Fatalf("changed preparation cause did not update its status: posts=%+v updates=%+v",
-			slack.posts, slack.updates)
+	if len(slack.posts) != 1 || len(slack.updates) != 0 || len(slack.deletes) != 1 ||
+		slack.deletes[0].channel != "CBOUND" || slack.deletes[0].timestamp != "1700.001" {
+		deliveries, _ := st.ListSlackDeliveriesByPrefix(ctx, preparationnotice.Prefix(run))
+		t.Fatalf("normal catch-up did not retire the stale blocker: posts=%+v updates=%+v deletes=%+v deliveries=%+v",
+			slack.posts, slack.updates, slack.deletes, deliveries)
 	}
-	updated := renderedSlackMessage(slack.updates[0].message)
-	if !strings.Contains(updated, "finish workspace preparation") ||
-		!strings.Contains(updated, "retry automatically at") || strings.Contains(updated, "refreshing") {
-		t.Fatalf("historical-key status update = %q", updated)
+	// The same run can lose and regain repository access more than once. The
+	// first retirement must close its epoch rather than poisoning the stable ID
+	// or turning the next blocker into an update of a message Slack deleted.
+	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, blocker); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if err := svc.notifyRepositoryPreparationBlocked(
+		ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 2 || len(slack.updates) != 0 || len(slack.deletes) != 2 ||
+		slack.deletes[1].timestamp != "1700.002" {
+		deliveries, _ := st.ListSlackDeliveriesByPrefix(ctx, preparationnotice.Prefix(run))
+		t.Fatalf("second blocker epoch was not independently retired: posts=%+v updates=%+v deletes=%+v deliveries=%+v",
+			slack.posts, slack.updates, slack.deletes, deliveries)
 	}
 }
 
-// Coop returns this only after the synchronous create-session handoff has
-// already consumed its 30-second bound. The next scheduler pass may poll, but
-// Slack must immediately explain that no model turn has started.
-func TestPendingWorkspacePreparationPostsVisibleBoundThreadStatus(t *testing.T) {
+// A repository recovered before the outbox posted its blocker in production.
+// Recovery used to find no Slack timestamp, return without recording an
+// intent, and then let the stale blocker land after the model turn started.
+func TestRecoveryBeforePreparationBlockerDeliveryLeavesNoStaleReply(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run := seedPreparingRun(t, st)
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ChangeEpisodeDestination(ctx, episode.ID, core.BoundDestination{
+		ChannelID: "CBOUND", ThreadTS: "1700.778",
+	}, "pre_delivery_recovery_test"); err != nil {
+		t.Fatal(err)
+	}
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, &coop.APIError{
+		Status: 503, Code: "repository_unavailable", Detail: "refresh failed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.notifyRepositoryPreparationBlocked(
+		ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 0 || len(slack.updates) != 0 || len(slack.deletes) != 0 {
+		t.Fatalf("recovered preparation posted stale Slack work: posts=%+v updates=%+v deletes=%+v",
+			slack.posts, slack.updates, slack.deletes)
+	}
+}
+
+// Slack can accept a blocker while its HTTP response is still in flight. A
+// recovery intent must wait for that post's timestamp and then remove it; it
+// cannot disappear merely because the blocker was already leased.
+func TestRecoveryWhilePreparationBlockerIsSendingRetiresTheDeliveredReply(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run := seedPreparingRun(t, st)
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ChangeEpisodeDestination(ctx, episode.ID, core.BoundDestination{
+		ChannelID: "CBOUND", ThreadTS: "1700.779",
+	}, "sending_recovery_test"); err != nil {
+		t.Fatal(err)
+	}
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, &coop.APIError{
+		Status: 503, Code: "repository_unavailable", Detail: "refresh failed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	blocker, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil || blocker.Operation != "post" {
+		t.Fatalf("leased blocker = %+v, %v", blocker, err)
+	}
+	if err := svc.notifyRepositoryPreparationBlocked(
+		ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.LeaseSlackDelivery(ctx, nil); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("retirement overtook sending blocker: %v", err)
+	}
+	if err := st.FinishSlackDelivery(ctx, blocker.ID, "1700.099", "sending"); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.deletes) != 1 || slack.deletes[0].channel != "CBOUND" ||
+		slack.deletes[0].timestamp != "1700.099" {
+		t.Fatalf("sending blocker was not retired after its timestamp arrived: %+v", slack.deletes)
+	}
+}
+
+// A timed-out Slack post is reconciled separately from the delivery worker.
+// Recovery must remain queued behind that uncertain write and delete it once
+// reconciliation supplies the timestamp.
+func TestRecoveryWhilePreparationBlockerIsUncertainRetiresTheReconciledReply(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run := seedPreparingRun(t, st)
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ChangeEpisodeDestination(ctx, episode.ID, core.BoundDestination{
+		ChannelID: "CBOUND", ThreadTS: "1700.780",
+	}, "uncertain_recovery_test"); err != nil {
+		t.Fatal(err)
+	}
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, &coop.APIError{
+		Status: 503, Code: "repository_unavailable", Detail: "refresh failed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	blocker, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.notifyRepositoryPreparationBlocked(
+		ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RetrySlackDelivery(
+		ctx, blocker.ID, "Slack response timed out", time.Now(), true, false,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.LeaseSlackDelivery(ctx, nil); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("retirement overtook uncertain blocker: %v", err)
+	}
+	if err := st.FinishSlackDelivery(ctx, blocker.ID, "1700.100", "uncertain"); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.deletes) != 1 || slack.deletes[0].timestamp != "1700.100" {
+		t.Fatalf("reconciled blocker was not retired: %+v", slack.deletes)
+	}
+}
+
+// A repository can fail again while the previous blocker is being retired.
+// Pending retirement is cancellable; an in-flight delete is not, so its new
+// blocker must wait behind it and post a fresh message rather than updating a
+// timestamp Slack is deleting.
+func TestRecurringPreparationBlockerSurvivesPendingAndSendingRetirement(t *testing.T) {
+	for _, retirementState := range []string{"pending", "sending"} {
+		for _, changed := range []bool{false, true} {
+			t.Run(retirementState+map[bool]string{false: "/same", true: "/changed"}[changed], func(t *testing.T) {
+				ctx := context.Background()
+				cfg := serviceConfig(t)
+				st, err := store.Open(cfg.StateDir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer st.Close()
+				run := seedPreparingRun(t, st)
+				run.Repository = "repo-a"
+				episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := st.ChangeEpisodeDestination(ctx, episode.ID, core.BoundDestination{
+					ChannelID: "CBOUND", ThreadTS: "1700.781",
+				}, "recurring_blocker_test"); err != nil {
+					t.Fatal(err)
+				}
+				slack := &fakeSlack{}
+				svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+				blocker := &coop.APIError{Status: 503, Code: "repository_unavailable", Detail: "refresh failed"}
+				if err := svc.notifyRepositoryPreparationBlocked(ctx, run, blocker); err != nil {
+					t.Fatal(err)
+				}
+				drainSlackDeliveries(t, ctx, svc)
+				if err := svc.notifyRepositoryPreparationBlocked(
+					ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
+				); err != nil {
+					t.Fatal(err)
+				}
+				var leasedDelete core.SlackDelivery
+				if retirementState == "sending" {
+					leasedDelete, err = st.LeaseSlackDelivery(ctx, nil)
+					if err != nil || leasedDelete.Operation != "delete" {
+						t.Fatalf("leased retirement = %+v, %v", leasedDelete, err)
+					}
+				}
+				if changed {
+					run.Repository = "repo-b"
+				}
+				if err := svc.notifyRepositoryPreparationBlocked(ctx, run, blocker); err != nil {
+					t.Fatal(err)
+				}
+				if retirementState == "sending" {
+					if _, err := st.LeaseSlackDelivery(ctx, nil); !errors.Is(err, store.ErrNotFound) {
+						t.Fatalf("new blocker overtook in-flight retirement: %v", err)
+					}
+					if err := st.FinishSlackDelivery(ctx, leasedDelete.ID, "1700.001", "sending"); err != nil {
+						t.Fatal(err)
+					}
+				}
+				drainSlackDeliveries(t, ctx, svc)
+				if retirementState == "pending" {
+					if len(slack.posts) != 1 || len(slack.updates) != 1 || len(slack.deletes) != 0 {
+						t.Fatalf("pending retirement was not cancelled: posts=%+v updates=%+v deletes=%+v",
+							slack.posts, slack.updates, slack.deletes)
+					}
+				} else if len(slack.posts) != 2 || len(slack.updates) != 0 {
+					t.Fatalf("blocker after sending retirement did not start fresh: posts=%+v updates=%+v",
+						slack.posts, slack.updates)
+				}
+			})
+		}
+	}
+}
+
+// Slack accepted a blocker but the POST response and then the first history
+// lookup both timed out. Neither unknown result may be read as confirmed
+// absence; the outbox must keep reconciling until it learns the timestamp and
+// can retire the real message.
+func TestPreparationRecoveryKeepsUnknownSlackPostUntilHistoryFindsIt(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run := seedPreparingRun(t, st)
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ChangeEpisodeDestination(ctx, episode.ID, core.BoundDestination{
+		ChannelID: "CBOUND", ThreadTS: "1700.782",
+	}, "unknown_slack_post_test"); err != nil {
+		t.Fatal(err)
+	}
+	slack := &fakeSlack{
+		postErr: errors.New("Slack POST timed out"), dedupePosts: true,
+	}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	clock := useTestClock(svc, st)
+	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, &coop.APIError{
+		Status: 503, Code: "repository_unavailable", Detail: "refresh failed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processSlackDelivery(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.notifyRepositoryPreparationBlocked(
+		ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(time.Minute)
+	slack.findDeliveryErr = errors.New("Slack history timed out")
+	if err := svc.reconcileSlackDelivery(ctx); err != nil {
+		t.Fatal(err)
+	}
+	deliveries, err := st.ListSlackDeliveriesByPrefix(ctx, preparationnotice.Prefix(run))
+	if err != nil || len(deliveries) != 2 || deliveries[0].State != "uncertain" {
+		t.Fatalf("unknown history discarded possible Slack post: %+v, %v", deliveries, err)
+	}
+	if _, err := st.LeaseSlackDelivery(ctx, nil); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("retirement overtook unknown Slack post: %v", err)
+	}
+	clock.Advance(time.Minute)
+	slack.findDeliveryErr = nil
+	if err := svc.reconcileSlackDelivery(ctx); err != nil {
+		t.Fatal(err)
+	}
+	slack.postErr = nil
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 1 || len(slack.deletes) != 1 ||
+		slack.deletes[0].timestamp != "1700.001" {
+		t.Fatalf("reconciled Slack blocker was not deleted exactly once: posts=%+v deletes=%+v",
+			slack.posts, slack.deletes)
+	}
+}
+
+// A retirement is cancellable only before Slack has seen it and only when the
+// blocker it follows is durably known. Cancelling a delete behind an ambiguous
+// post, or retrying a delete whose response was lost, can leave duplicates or
+// update a timestamp Slack already removed.
+func TestRecurringPreparationBlockerStaysBehindAmbiguousOrRetriedRetirement(t *testing.T) {
+	for _, predecessor := range []string{"sending", "uncertain"} {
+		t.Run("pending-delete-behind-"+predecessor, func(t *testing.T) {
+			ctx := context.Background()
+			cfg := serviceConfig(t)
+			st, err := store.Open(cfg.StateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer st.Close()
+			run := seedPreparingRun(t, st)
+			episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.ChangeEpisodeDestination(ctx, episode.ID, core.BoundDestination{
+				ChannelID: "CBOUND", ThreadTS: "1700.783",
+			}, "ambiguous_predecessor_test"); err != nil {
+				t.Fatal(err)
+			}
+			slack := &fakeSlack{}
+			svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+			blocker := &coop.APIError{Status: 503, Code: "repository_unavailable", Detail: "refresh failed"}
+			if err := svc.notifyRepositoryPreparationBlocked(ctx, run, blocker); err != nil {
+				t.Fatal(err)
+			}
+			original, err := st.LeaseSlackDelivery(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if predecessor == "uncertain" {
+				if err := st.RetrySlackDelivery(ctx, original.ID, "POST timed out", time.Now(), true, false); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := svc.notifyRepositoryPreparationBlocked(
+				ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
+			); err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.notifyRepositoryPreparationBlocked(ctx, run, blocker); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.LeaseSlackDelivery(ctx, nil); !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("recurring blocker escaped causal retirement: %v", err)
+			}
+			if err := st.FinishSlackDelivery(ctx, original.ID, "1700.101", predecessor); err != nil {
+				t.Fatal(err)
+			}
+			drainSlackDeliveries(t, ctx, svc)
+			if len(slack.deletes) != 1 || len(slack.posts) != 1 || len(slack.updates) != 0 {
+				t.Fatalf("ambiguous predecessor lifecycle = posts=%+v updates=%+v deletes=%+v",
+					slack.posts, slack.updates, slack.deletes)
+			}
+		})
+	}
+
+	t.Run("delete-retry", func(t *testing.T) {
+		ctx := context.Background()
+		cfg := serviceConfig(t)
+		st, err := store.Open(cfg.StateDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		run := seedPreparingRun(t, st)
+		episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.ChangeEpisodeDestination(ctx, episode.ID, core.BoundDestination{
+			ChannelID: "CBOUND", ThreadTS: "1700.784",
+		}, "delete_retry_test"); err != nil {
+			t.Fatal(err)
+		}
+		slack := &fakeSlack{}
+		svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+		clock := useTestClock(svc, st)
+		blocker := &coop.APIError{Status: 503, Code: "repository_unavailable", Detail: "refresh failed"}
+		if err := svc.notifyRepositoryPreparationBlocked(ctx, run, blocker); err != nil {
+			t.Fatal(err)
+		}
+		drainSlackDeliveries(t, ctx, svc)
+		if err := svc.notifyRepositoryPreparationBlocked(
+			ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
+		); err != nil {
+			t.Fatal(err)
+		}
+		slack.deleteErr = errors.New("delete response timed out")
+		if err := svc.processSlackDelivery(ctx, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.notifyRepositoryPreparationBlocked(ctx, run, blocker); err != nil {
+			t.Fatal(err)
+		}
+		slack.deleteErr = nil
+		clock.Advance(time.Minute)
+		drainSlackDeliveries(t, ctx, svc)
+		if len(slack.deletes) != 2 || len(slack.posts) != 2 || len(slack.updates) != 0 {
+			t.Fatalf("retried retirement was cancelled: posts=%+v updates=%+v deletes=%+v",
+				slack.posts, slack.updates, slack.deletes)
+		}
+	})
+}
+
+// A second recovery belongs to the blocker admitted after an older delete.
+// The older delete must not make that newer recovery disappear merely because
+// it is still in flight.
+func TestSecondPreparationRecoverySupersedesBlockerBehindOlderDelete(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run := seedPreparingRun(t, st)
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ChangeEpisodeDestination(ctx, episode.ID, core.BoundDestination{
+		ChannelID: "CBOUND", ThreadTS: "1700.785",
+	}, "second_recovery_test"); err != nil {
+		t.Fatal(err)
+	}
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	blocker := &coop.APIError{Status: 503, Code: "repository_unavailable", Detail: "refresh failed"}
+	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, blocker); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, sessioncreate.HistoricalCreateKeysError("watch")); err != nil {
+		t.Fatal(err)
+	}
+	firstDelete, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil || firstDelete.Operation != "delete" {
+		t.Fatalf("first retirement = %+v, %v", firstDelete, err)
+	}
+	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, blocker); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, sessioncreate.HistoricalCreateKeysError("watch")); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishSlackDelivery(ctx, firstDelete.ID, "1700.001", "sending"); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 1 || len(slack.updates) != 0 {
+		t.Fatalf("second recovery let its blocker post: posts=%+v updates=%+v", slack.posts, slack.updates)
+	}
+}
+
+// A repository refresh can legitimately outlive the synchronous API poll.
+// Posting a permanent thread reply at that ordinary handoff made healthy alerts
+// look blocked even when the next scheduler pass started their model turn.
+// Native work presence is enough until Coop reports an actual refresh failure.
+func TestPendingWorkspacePreparationDoesNotPostAPermanentThreadReply(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -196,14 +657,106 @@ func TestPendingWorkspacePreparationPostsVisibleBoundThreadStatus(t *testing.T) 
 		t.Fatal(err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
-	if len(slack.posts) != 1 || slack.posts[0].channel != "CBOUND" ||
-		slack.posts[0].thread != "1700.777" {
-		t.Fatalf("pending preparation notice = %+v", slack.posts)
+	if len(slack.posts) != 0 || len(slack.updates) != 0 {
+		t.Fatalf("ordinary pending refresh posted a persistent notice: posts=%+v updates=%+v",
+			slack.posts, slack.updates)
 	}
-	rendered := renderedSlackMessage(slack.posts[0].message)
-	if !strings.Contains(rendered, "No model turn has started") ||
-		strings.Contains(rendered, "op_private") || strings.Contains(rendered, "/Users/private") {
-		t.Fatalf("pending preparation notice is unsafe or vague: %q", rendered)
+}
+
+// A refresh can fail once and then succeed directly, without first returning
+// the transient pending shape. The accepted model turn is the authoritative
+// recovery edge, so it must retire the earlier blocker too.
+func TestSuccessfulTriageSubmissionRetiresPreparationBlocker(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CSUBMIT"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "successful-preparation", EnvelopeID: "env-successful-preparation",
+		EventID: "event-successful-preparation", Kind: "bot_message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CSUBMIT", MessageTS: "1700.778",
+		UserID: "BGRAFANA", Text: "[VA1 FIRING:1] WARNING | Ingress 5xx ratio high",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit input = %t, %v", created, err)
+	}
+	alertStreamChannel(t, ctx, st, cfg, input.ChannelID)
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{{State: "running"}}
+	slack := &fakeSlack{}
+	svc := New(cfg, st, coopClient, slack, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocker := &coop.APIError{Status: 503, Code: "repository_unavailable", Detail: "refresh failed"}
+	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, blocker); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 1 {
+		t.Fatalf("precondition blocker posts = %+v", slack.posts)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.deletes) != 1 || slack.deletes[0].channel != input.ChannelID ||
+		slack.deletes[0].timestamp != "1700.001" {
+		t.Fatalf("successful submission did not retire blocker: %+v", slack.deletes)
+	}
+}
+
+// A live alert on 2026-08-18 found 64 durable session-create keys left by old
+// request shapes. Responder preserved the run and its generation, but then
+// waited thirty minutes before continuing the bounded catch-up even though no
+// model turn had started. A busy alert channel must yield between bounded
+// batches without turning one safe batch boundary into a half-hour outage.
+func TestHistoricalSessionKeyCatchupResumesQuicklyWithoutSpendingAnAttempt(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slack := &fakeSlack{}
+	svc := New(
+		cfg, st, newFakeCoop(), slack, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	clock := useTestClock(svc, st)
+	run := seedPreparingRun(t, st)
+	state := decisionpkg.WatchTurnState{Generation: 1}
+
+	if err := svc.retryAtNextSessionGeneration(
+		ctx, run, &state, 65, sessioncreate.HistoricalCreateKeysError("watch"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != core.AgentRunPending || stored.Failures != 0 {
+		t.Fatalf("bounded catch-up spent or lost the run: %+v", stored)
+	}
+	if delay := stored.NextAttemptAt.Sub(clock.Now()); delay > 5*time.Second {
+		t.Fatalf("bounded catch-up retry delay = %s, want at most 5s", delay)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 0 || len(slack.updates) != 0 {
+		t.Fatalf("bounded catch-up posted a persistent notice: posts=%+v updates=%+v",
+			slack.posts, slack.updates)
 	}
 }
 

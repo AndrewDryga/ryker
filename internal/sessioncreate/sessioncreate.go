@@ -31,6 +31,11 @@ const MaxReadOnlyCandidates = 4
 // authority candidates because Coop did not return a workspace to judge.
 const MaxHistoricalCreateKeys = 64
 
+// HistoricalCreateKeysRetryDelay yields the worker after one bounded batch.
+// The next pass resumes from the durably advanced generation; this is a
+// catch-up cursor, not an external outage that warrants a long backoff.
+const HistoricalCreateKeysRetryDelay = time.Second
+
 var ErrReadOnlyAuthority = errors.New("session lacks read-only repository authority")
 var ErrWritableAuthority = errors.New("session lacks writable repository authority")
 var ErrHistoricalCreateKeys = errors.New("historical session-create key window exhausted")

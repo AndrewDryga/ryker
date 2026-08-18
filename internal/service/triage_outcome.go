@@ -16,32 +16,7 @@ func (s *Service) notifyRepositoryPreparationBlocked(
 	run core.AgentRun,
 	cause error,
 ) error {
-	message, eligible := preparationnotice.Message(run, cause, s.now())
-	if !eligible {
-		return nil
-	}
-	episode, err := s.store.GetWorkEpisode(ctx, run.EpisodeID)
-	if err != nil {
-		return err
-	}
-	if episode.Destination.ChannelID == "" {
-		return nil
-	}
-	body, err := slackui.Encode(s.sanitizeMessage(message))
-	if err != nil {
-		return err
-	}
-	prefix := "watch_preparation_blocked_" + core.FirstNonempty(run.EpisodeID, run.ID) + "_"
-	deliveries, err := s.store.ListSlackDeliveriesByPrefix(ctx, prefix)
-	if err != nil {
-		return err
-	}
-	delivery := preparationnotice.Delivery(run, episode, body, deliveries)
-	if delivery == nil {
-		return nil
-	}
-	_, err = s.store.EnqueueSlackDelivery(ctx, *delivery)
-	return err
+	return preparationnotice.Notify(ctx, s.store, s.store.PreparationNotices, s.sanitizeMessage, run, cause, s.now())
 }
 
 func (s *Service) terminalTriageFailureDelivery(

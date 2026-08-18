@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 87
+const currentSchemaVersion = 88
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -496,4 +496,7 @@ var migrations = map[int]string{
 	// or a second session could be created. Generation advances only for the
 	// former and is bound into the next request key.
 	87: `ALTER TABLE incidents ADD COLUMN coop_session_generation INTEGER NOT NULL DEFAULT 1;`,
+	// Durable retirement of stale preparation notices. The table rebuild and
+	// preservation proof live beside the DDL in migrationddl.V88.
+	88: migrationddl.V88,
 }

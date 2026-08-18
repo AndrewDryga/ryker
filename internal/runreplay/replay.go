@@ -64,8 +64,8 @@ func Decide(
 	if turn.ErrorCode == "acp_protocol_error" && provider.Transient(detail) {
 		return "The AI provider dropped the response mid-stream; retrying the turn", true
 	}
-	if run.Failures < 2 && strings.Contains(strings.ToLower(detail), "turn cleanup failed") {
-		return "Coop could not clean up the agent turn; retrying in a fresh turn", true
+	if run.Mode == core.AgentRunTriage && run.Failures < 2 && runtimeCleanupFailure(turn) {
+		return "Coop could not clean up the agent turn; retrying in a fresh session", true
 	}
 	if TerminalEnvironment(turn) {
 		return "", false
@@ -97,9 +97,19 @@ func FreshSession(turn coop.Turn) bool {
 	}
 	detail := strings.ToLower(strings.TrimSpace(turn.ErrorDetail))
 	return (turn.ErrorCode == "acp_cancelled" && detail == "turn cancelled") ||
+		runtimeCleanupFailure(turn) ||
 		(turn.ErrorCode == "acp_process_error" &&
 			strings.Contains(detail, "acp child closed before its response")) ||
 		transcriptOverflow(turn)
+}
+
+func runtimeCleanupFailure(turn coop.Turn) bool {
+	if turn.ErrorCode == "session_cleanup_error" {
+		return true
+	}
+	detail := strings.ToLower(strings.TrimSpace(turn.ErrorDetail))
+	return strings.Contains(detail, "turn cleanup failed") ||
+		strings.Contains(detail, "runtime cleanup failed")
 }
 
 func TerminalEnvironment(turn coop.Turn) bool {
