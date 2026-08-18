@@ -740,6 +740,24 @@ func WatchDecisionCorrectionAt(
 	now time.Time,
 	correlate Correlator,
 ) string {
+	// Task-offer safety is an episode-aware rule, not a transport parsing rule.
+	// A correction round normally returns only the fields it changes, while the
+	// service restores the evidence and coverage accepted from earlier rounds
+	// before calling this function. Enforcing these requirements in the parser
+	// rejected that partial round before its carried records could be restored,
+	// creating an impossible loop between boundary, evidence, and coverage
+	// corrections.
+	if decision.TaskPrompt != "" {
+		if !ValidSuggestedEngineeringTaskBoundary(decision) {
+			return "suggested engineering task requires a decision-ready result or an exact tool-failure blocker"
+		}
+		if !WatchDecisionHasEvidenceSource(
+			SanitizeEvidence(decision.Evidence, "", "", "", now),
+			"repository",
+		) {
+			return "suggested engineering task requires repository evidence"
+		}
+	}
 	if input.Kind == "recheck" && decision.Action == "ignore" &&
 		strings.HasPrefix(state.RecheckKey, "structured:") &&
 		strings.TrimSpace(state.FailureDetail) != "" {

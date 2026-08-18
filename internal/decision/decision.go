@@ -586,21 +586,6 @@ func ValidateReplyDecision(d *WatchDecision, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	if d.TaskPrompt != "" {
-		if !ValidSuggestedEngineeringTaskBoundary(*d) {
-			return errors.New(
-				"suggested engineering task requires a decision-ready result or an exact tool-failure blocker",
-			)
-		}
-		if !WatchDecisionHasEvidenceSource(
-			SanitizeEvidence(d.Evidence, "", "", "", now),
-			"repository",
-		) {
-			return errors.New(
-				"suggested engineering task requires repository evidence",
-			)
-		}
-	}
 	return nil
 }
 

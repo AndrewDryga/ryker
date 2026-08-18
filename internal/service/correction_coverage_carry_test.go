@@ -1,13 +1,61 @@
 package service
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 )
+
+// A task-offer correction must keep the repository evidence that made the
+// offer safe. One live acceptance spent twelve provider turns alternating
+// between "return decision_ready", "add repository evidence", and "add change
+// coverage": the parser rejected each partial correction before the run could
+// carry the records accepted in the preceding round.
+func TestATaskOfferCorrectionKeepsRepositoryEvidenceAcrossRounds(t *testing.T) {
+	now := time.Now().UTC()
+	first, err := decisionpkg.ParseWatchDecision(
+		freshenTaskOfferHarvest(t, "testdata/live_task_offer_blocked.txt", now), now,
+	)
+	if err != nil {
+		t.Fatalf("parse evidence-bearing first round: %v", err)
+	}
+	input := core.SlackInput{Kind: "mention", Text: "Fix one typo and commit it."}
+	if correction := decisionpkg.WatchDecisionCorrectionAt(
+		input, decisionpkg.WatchTurnState{}, first, now, nil,
+	); !strings.Contains(correction, "decision-ready") {
+		t.Fatalf("first round correction = %q, want decision-ready boundary", correction)
+	}
+
+	second, err := decisionpkg.ParseWatchDecision(
+		freshenTaskOfferHarvest(t, "testdata/live_task_offer_corrected.txt", now), now,
+	)
+	if err != nil {
+		t.Fatalf("parse corrected task-offer round: %v", err)
+	}
+	second.Evidence = decisionpkg.CarryEvidence(first.Evidence, second.Evidence)
+	second.Coverage = decisionpkg.CarryCoverage(first.Coverage, second.Coverage)
+	if correction := decisionpkg.WatchDecisionCorrectionAt(
+		input, decisionpkg.WatchTurnState{}, second, now, nil,
+	); correction != "" {
+		t.Fatalf("corrected task offer rejected after carrying proof: %q", correction)
+	}
+}
+
+func freshenTaskOfferHarvest(t *testing.T, path string, now time.Time) string {
+	t.Helper()
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read harvested task-offer turn: %v", err)
+	}
+	return strings.ReplaceAll(
+		string(contents), "2026-08-18T12:55:39Z", now.Format(time.RFC3339),
+	)
+}
 
 // A correction round is judged against the investigation, not against the
 // fragment of it the model resubmitted.
