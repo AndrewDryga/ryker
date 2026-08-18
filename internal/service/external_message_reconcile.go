@@ -105,7 +105,7 @@ func EnrichExternalLifecycleReply(
 	input core.SlackInput,
 	decision decisionpkg.WatchDecision,
 ) decisionpkg.WatchDecision {
-	if input.Kind != "bot_message" || decision.Action != "reply" ||
+	if (input.Kind != "bot_message" && input.Kind != "recheck") || decision.Action != "reply" ||
 		decision.Completion == nil || decision.Completion.Verdict != "needs_review" {
 		return decision
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/terraformwakeup"
 )
 
 const episodeWakeupLeaseOwner = "responder:episode-wakeup"
@@ -90,6 +91,7 @@ func (s *Service) processEpisodeWakeup(ctx context.Context) error {
 		),
 		Frozen: frozen, ReceivedAt: s.now().UTC(),
 	}
+	input = terraformwakeup.RestoreSourceLink(ctx, s.store, episode, input)
 	admitted, err := s.store.AdmitSyntheticSlackInput(ctx, input)
 	if err != nil {
 		return s.retryEpisodeWakeup(ctx, wakeup, err)

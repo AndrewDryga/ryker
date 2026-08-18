@@ -45,6 +45,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/taskcard"
 	"github.com/AndrewDryga/responder/internal/taskcontract"
 	"github.com/AndrewDryga/responder/internal/taskpr"
+	"github.com/AndrewDryga/responder/internal/terraformwakeup"
 	"github.com/AndrewDryga/responder/internal/triageoutcome"
 	"github.com/AndrewDryga/responder/internal/turndelta"
 )
@@ -2609,8 +2610,9 @@ func (s *Service) stageTriageTerminal(
 			).ApplyTo(&decision)
 		}
 		decisionpkg.NormalizeAppAlertCompletion(input, &decision)
+		lifecycleInput := terraformwakeup.RestoreSourceLink(ctx, s.store, episode, input)
 		lifecycleContinuationCorrection := TerraformLifecycleContinuationCorrection(
-			input, state, decision,
+			lifecycleInput, state, decision,
 		)
 		originalAction := decision.Action
 		// Kept because suppression erases them and the completion is persisted
@@ -2694,7 +2696,7 @@ func (s *Service) stageTriageTerminal(
 			if correction == "" {
 				var recoveryLinkAdjusted bool
 				decision, recoveryLinkAdjusted = decisionpkg.EnforceRecoveredAlertLink(input, state, decision)
-				decision = EnrichExternalLifecycleReply(input, decision)
+				decision = EnrichExternalLifecycleReply(lifecycleInput, decision)
 				validated.Message = decision.Message
 				validated.FollowupMessages = decision.FollowupMessages
 				if decision.Message != beforeHostRender || recoveryLinkAdjusted {

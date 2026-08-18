@@ -709,6 +709,12 @@ func TestTerraformLifecycleContinuationRequiresExactDurableWait(t *testing.T) {
 	if !strings.Contains(delivered.Message, "https://app.terraform.io/app/acme/infra/runs/run-abc") {
 		t.Fatalf("approval review did not receive the canonical source URL: %q", delivered.Message)
 	}
+	recheckInput := input
+	recheckInput.Kind = "recheck"
+	delivered = EnrichExternalLifecycleReply(recheckInput, review)
+	if !strings.Contains(delivered.Message, "https://app.terraform.io/app/acme/infra/runs/run-abc") {
+		t.Fatalf("approval-ready wakeup did not receive the canonical source URL: %q", delivered.Message)
+	}
 	terminal := decisionpkg.WatchDecision{
 		Action:  "reply",
 		Message: "The rollout is healthy after the apply.",

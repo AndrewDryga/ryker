@@ -12,6 +12,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/terraformwakeup"
 )
 
 func TestEpisodeWakeupQueuesFreshAttemptOnSameEpisode(t *testing.T) {
@@ -74,6 +75,69 @@ func TestEpisodeWakeupQueuesFreshAttemptOnSameEpisode(t *testing.T) {
 	wakeups, err := st.ListEpisodeWakeups(ctx, run.EpisodeID)
 	if err != nil || len(wakeups) != 1 || wakeups[0].State != core.WakeupResolved {
 		t.Fatalf("wakeups = %+v, %v", wakeups, err)
+	}
+}
+
+// A five-hour Terraform lifecycle emitted 112 wakeups before its bounded
+// deadline finally held. When the saved plan became approval-ready, the 113th
+// synthetic input still carried the exact run ID but had lost Terraform's
+// source-owned URL, leaving the model in a correction it could not satisfy.
+func TestATerraformWakeupKeepsTheSourceOwnedReviewLink(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	const providerURL = "https://app.terraform.io/app/acme/infra/runs/run-abc"
+	source := core.SlackInput{
+		ID: "terraform-source", EnvelopeID: "terraform-source", EventID: "terraform-source",
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: "1.0",
+		Text:       "Run notification for acme/infra\nRun run-abc\n<" + providerURL + "|Open run>\nRun Planning",
+		ReceivedAt: time.Now().UTC(),
+	}
+	if admitted, admitErr := st.AdmitSlackInput(ctx, source); admitErr != nil || !admitted {
+		t.Fatalf("admit Terraform source = %t, %v", admitted, admitErr)
+	}
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: source.ChannelID, ThreadTS: source.ThreadTS,
+		ConversationKey: "operation:terraform:run-abc", SourceKind: "watch", SourceID: source.ID,
+		UserID: "U123ABC", Repository: "repo", Prompt: source.Text,
+		Episode: &core.WorkEpisode{WorkspaceID: cfg.Slack.TeamID, Mode: core.EpisodeCheck},
+	})
+	if err != nil || !created {
+		t.Fatalf("queue Terraform attempt = %+v, %t, %v", run, created, err)
+	}
+	wakeup, err := st.CreateEpisodeWakeup(ctx, core.EpisodeWakeup{
+		EpisodeID: run.EpisodeID, Kind: "terraform_run",
+		DueAt: time.Now().UTC().Add(-time.Second), Deadline: time.Now().UTC().Add(time.Hour),
+		EventMatcher: []byte(`{"provider":"hcp_terraform","run_id":"run-abc"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	episode, err := st.GetWorkEpisode(ctx, run.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := terraformwakeup.RestoreSourceLink(ctx, st, episode, core.SlackInput{
+		ID: "episode_wakeup_" + wakeup.ID, Kind: "recheck",
+		Text: `Resume the terraform_run wait for {"run_id":"run-abc"}.`,
+	})
+	if !strings.Contains(legacy.Text, providerURL) {
+		t.Fatalf("existing Terraform wakeup could not recover the source-owned review link:\n%s", legacy.Text)
+	}
+	if err := svc.processEpisodeWakeup(ctx); err != nil {
+		t.Fatal(err)
+	}
+	input, err := st.GetSlackInput(ctx, "episode_wakeup_"+wakeup.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(input.Text, providerURL) {
+		t.Fatalf("Terraform wakeup lost the source-owned review link:\n%s", input.Text)
 	}
 }
 
