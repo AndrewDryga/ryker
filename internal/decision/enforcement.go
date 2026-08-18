@@ -235,8 +235,13 @@ func decisionReportsFailure(decision WatchDecision) bool {
 		return true
 	}
 	if decision.Completion != nil {
+		// confirmed belongs to the factual-assessment contract: it says the
+		// answer was established, not that the established fact is a failure.
+		// Negative evidence is represented by alert, coverage, or health fields
+		// below and above; treating this overloaded verdict as negative made a
+		// healthy repository-inspection canary pay a correction round.
 		switch decision.Completion.Verdict {
-		case "degraded", "unhealthy", "failed", "confirmed", "partial":
+		case "degraded", "unhealthy", "failed", "partial":
 			return true
 		}
 	}

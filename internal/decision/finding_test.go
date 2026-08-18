@@ -154,6 +154,26 @@ func TestARecoveryReportDoesNotDemandAFinding(t *testing.T) {
 	}
 }
 
+// A factual-assessment verdict confirms the answer, not a failure. Both live
+// canaries paid an extra model turn on 2026-08-18 after a read-only answer used
+// verdict=confirmed with healthy coverage: the host treated the overloaded word
+// as a failed rollout even though every typed health signal was non-negative.
+func TestAConfirmedFactualAnswerDoesNotDemandAFinding(t *testing.T) {
+	answer := decisionReady("The repository's canonical validation entry point is `./run`. I confirmed " +
+		"these commands from `./run help` and the project manuals at the clean current HEAD. " +
+		"I didn't execute the gates, and no files were modified.")
+	answer.Completion.Verdict = "confirmed"
+	answer.Evidence = []core.Evidence{{
+		Claim:        "The observed state is consistent with the intended current revision and recent rollout.",
+		HealthEffect: "none", SourceType: "repository", SourceName: "Emisar checkout",
+	}}
+	answer.Coverage = []core.Coverage{{Layer: "change", Status: "healthy"}}
+
+	if correction := FindingCorrection(watchEpisode(), answer, nil); correction != "" {
+		t.Fatalf("a confirmed factual answer was misclassified as a failure: %q", correction)
+	}
+}
+
 // The governing invariant, in the one place it is enforceable: an unexplained
 // failure in scope means the episode is not done.
 //
