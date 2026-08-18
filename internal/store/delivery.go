@@ -12,6 +12,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
+	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
@@ -560,26 +561,9 @@ func (s *Store) LeaseSlackDelivery(
 	// later when the control lane happens to create an agent run. Enforce that
 	// boundary at the outbox lease so a result cannot pass an earlier service
 	// check and then race a newly durable correction into Slack.
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE slack_deliveries AS delivery
-		SET state = 'superseded', last_error = 'newer human turn admitted', updated_at = ?
-		WHERE delivery.state IN ('pending', 'retry')
-		  AND delivery.source_input_id != ''
-		  AND EXISTS (
-		    SELECT 1
-		    FROM slack_inputs AS source
-		    JOIN slack_inputs AS newer
-		      ON newer.id != source.id
-		     AND newer.channel_id = source.channel_id
-		     AND COALESCE(NULLIF(newer.thread_ts, ''), newer.message_ts) =
-		         COALESCE(NULLIF(source.thread_ts, ''), source.message_ts)
-		     AND newer.kind IN ('message', 'mention', 'direct')
-		     AND (
-		       CAST(newer.message_ts AS REAL) > CAST(source.message_ts AS REAL) OR
-		       (newer.message_ts = source.message_ts AND newer.rowid > source.rowid)
-		     )
-		    WHERE source.id = delivery.source_input_id
-		  )`, now); err != nil {
+	if err := slackinputstore.SupersedeDeliveriesAfterAuthorizedInput(
+		ctx, tx, now,
+	); err != nil {
 		return core.SlackDelivery{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `

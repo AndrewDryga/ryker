@@ -275,6 +275,53 @@ func TestLeaseSlackDeliveryDoesNotTreatBotUpdateAsHumanCorrection(t *testing.T) 
 	}
 }
 
+// A denied reply in a live engineering-task thread left fourteen successive
+// card versions superseded as "newer human turn admitted". The input had not
+// been admitted at all: capability enforcement had rejected it and recorded
+// that decision. A refused speaker must not freeze the authorized task card or
+// suppress the operator's result.
+func TestDeniedNewerInputCannotSupersedeAuthorizedSlackDelivery(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	source := core.SlackInput{
+		ID: "authorized-source", EnvelopeID: "env-authorized", Kind: "message",
+		ChannelID: "C1", ThreadTS: "1700.100", MessageTS: "1700.200",
+		UserID: "UOPERATOR", ReceivedAt: now,
+	}
+	denied := core.SlackInput{
+		ID: "denied-newer", EnvelopeID: "env-denied", Kind: "message",
+		ChannelID: "C1", ThreadTS: "1700.100", MessageTS: "1700.300",
+		UserID: "UBYSTANDER", ReceivedAt: now.Add(time.Second),
+	}
+	for _, input := range []core.SlackInput{source, denied} {
+		if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+			t.Fatalf("admit %s = %t, %v", input.ID, created, err)
+		}
+	}
+	if err := st.Audit(ctx, core.AuditEvent{
+		Kind: "slack.input", ActorID: denied.UserID, ObjectID: denied.ID,
+		Outcome: "denied", Detail: "only configured operators can steer this task",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if created, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "authorized-answer", SourceInputID: source.ID,
+		Operation: "post", Kind: "notice", ChannelID: source.ChannelID,
+		ThreadTS: source.ThreadTS, Body: []byte(`{"text":"answer"}`), ResponseRoot: true,
+	}); err != nil || !created {
+		t.Fatalf("enqueue = %t, %v", created, err)
+	}
+	leased, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil || leased.ID != "authorized-answer" {
+		t.Fatalf("authorized answer after denied input = %+v, %v", leased, err)
+	}
+}
+
 func TestLeaseSlackDeliveryUsesSlackOrderWhenAdmissionTimesTie(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

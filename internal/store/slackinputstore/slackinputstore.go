@@ -15,6 +15,47 @@ type Repository struct{ db *sql.DB }
 
 func New(db *sql.DB) *Repository { return &Repository{db: db} }
 
+type execer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+// SupersedeDeliveriesAfterAuthorizedInput applies Slack input authority at the
+// outbox boundary. Persistence happens before capability enforcement, so a
+// later denial must keep the refused input from suppressing an operator result.
+func SupersedeDeliveriesAfterAuthorizedInput(
+	ctx context.Context,
+	db execer,
+	now string,
+) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE slack_deliveries AS delivery
+		SET state = 'superseded', last_error = 'newer human turn admitted', updated_at = ?
+		WHERE delivery.state IN ('pending', 'retry')
+		  AND delivery.source_input_id != ''
+		  AND EXISTS (
+		    SELECT 1
+		    FROM slack_inputs AS source
+		    JOIN slack_inputs AS newer
+		      ON newer.id != source.id
+		     AND newer.channel_id = source.channel_id
+		     AND COALESCE(NULLIF(newer.thread_ts, ''), newer.message_ts) =
+		         COALESCE(NULLIF(source.thread_ts, ''), source.message_ts)
+		     AND newer.kind IN ('message', 'mention', 'direct')
+		     AND (
+		       CAST(newer.message_ts AS REAL) > CAST(source.message_ts AS REAL) OR
+		       (newer.message_ts = source.message_ts AND newer.rowid > source.rowid)
+		     )
+		    WHERE source.id = delivery.source_input_id
+		      AND NOT EXISTS (
+		        SELECT 1 FROM audit_events AS refusal
+		        WHERE refusal.object_id = newer.id
+		          AND refusal.kind = 'slack.input'
+		          AND refusal.outcome = 'denied'
+		      )
+		  )`, now)
+	return err
+}
+
 func (r *Repository) GetByEventID(ctx context.Context, eventID string) (core.SlackInput, error) {
 	if strings.TrimSpace(eventID) == "" {
 		return core.SlackInput{}, core.ErrNotFound
