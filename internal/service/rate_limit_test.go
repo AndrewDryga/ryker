@@ -203,6 +203,44 @@ func TestACompleteLadderRefusalPersistsOneDegradedFallback(t *testing.T) {
 	}
 }
 
+// A session's durable target can be above the run's desired floor. The live
+// Slack acceptance reproduced exactly that state: the run had floor zero, the
+// session remained on Claude at rung one, and Coop reported every target at or
+// above rung one limited. Requiring a stored run floor here silently excludes
+// the healthy Codex rung forever.
+func TestASessionStrandedAboveAHealthyRungArmsTargetRewind(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.log = slog.New(slog.DiscardHandler)
+	now := time.Date(2026, 8, 18, 11, 46, 0, 0, time.UTC)
+	svc.SetClock(func() time.Time { return now })
+	run := seedPreparingRun(t, st)
+
+	handled, requeueErr := svc.requeueIfRateLimited(ctx, run, errors.New(
+		"every target at or above policy ladder rung 1 is rate limited until "+
+			"2026-08-20T20:00:00Z",
+	))
+	if requeueErr != nil || !handled {
+		t.Fatalf("requeue = %t, %v", handled, requeueErr)
+	}
+	after, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !agentRunDegradedFallbackPending(after.Context) {
+		t.Fatal("a session stranded on rung one did not arm an explicit target rewind")
+	}
+	if !after.NextAttemptAt.Equal(now) {
+		t.Fatalf("target rewind scheduled for %s, want immediate retry at %s", after.NextAttemptAt, now)
+	}
+}
+
 // Anything the provider did not refuse must keep failing normally, or a genuine
 // error would queue forever in silence.
 //

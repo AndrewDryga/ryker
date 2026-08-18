@@ -183,6 +183,17 @@ func (f *fakeCoop) SubmitTurnAtOrAbove(
 	return f.SubmitTurn(ctx, key, sessionID, revision, prompt)
 }
 
+func (f *fakeCoop) SubmitTurnRewound(
+	ctx context.Context,
+	key string,
+	sessionID string,
+	revision int64,
+	prompt string,
+	_ []coop.InputArtifact,
+) (coop.Turn, coop.Operation, error) {
+	return f.SubmitTurn(ctx, key, sessionID, revision, prompt)
+}
+
 func (f *fakeCoop) GetTurn(context.Context, string, string) (coop.Turn, error) {
 	if f.turn.ID == "" {
 		return coop.Turn{}, errors.New("missing turn")

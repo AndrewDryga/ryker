@@ -53,7 +53,7 @@ func TestLiveSlackAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if channel.Name != "test" || !channel.Member || channel.Archived {
+	if !validLiveAcceptanceChannel(channel) {
 		t.Fatalf(
 			"live acceptance requires an active joined #test channel, got %+v",
 			channel,
@@ -123,7 +123,7 @@ func TestLiveSlackAcceptance(t *testing.T) {
 	harness := liveAcceptanceHarness{
 		t: t, ctx: ctx, cfg: cfg, store: st, service: svc,
 		coop: coopClient, slack: slackClient,
-		channelID: channelID, rootTS: rootTS,
+		channelID: channelID, rootTS: rootTS, runID: runID,
 	}
 	t.Cleanup(harness.cleanupSession)
 
@@ -186,6 +186,31 @@ func TestLiveSlackAcceptance(t *testing.T) {
 	}
 }
 
+func validLiveAcceptanceChannel(channel slackui.Channel) bool {
+	testName := channel.Name == "test" || strings.HasSuffix(channel.Name, "-test")
+	return testName && channel.Member && !channel.Archived
+}
+
+// Deployment-specific test channels are the normal live acceptance target.
+// The Tenant acceptance stopped before posting anything on 2026-08-18 because
+// its explicit joined channel was named #emisar-test rather than exactly #test.
+func TestAnExplicitJoinedTestChannelMayUseDeploymentPrefix(t *testing.T) {
+	channel := slackui.Channel{Name: "emisar-test", Member: true}
+	if !validLiveAcceptanceChannel(channel) {
+		t.Fatal("the explicit joined #emisar-test channel was rejected")
+	}
+	for _, unsafe := range []slackui.Channel{
+		{Name: "contest", Member: true},
+		{Name: "test-operations", Member: true},
+		{Name: "emisar-test", Member: false},
+		{Name: "emisar-test", Member: true, Archived: true},
+	} {
+		if validLiveAcceptanceChannel(unsafe) {
+			t.Fatalf("unsafe live acceptance channel was accepted: %+v", unsafe)
+		}
+	}
+}
+
 type liveAcceptanceHarness struct {
 	t         *testing.T
 	ctx       context.Context
@@ -196,13 +221,29 @@ type liveAcceptanceHarness struct {
 	slack     *slackui.Client
 	channelID string
 	rootTS    string
+	runID     string
 	sequence  int
+}
+
+func liveAcceptanceInputID(runID, label string, sequence int) string {
+	return fmt.Sprintf("%s_%s_%d", runID, label, sequence)
+}
+
+// Coop retains operation idempotency beyond the temporary Responder store. A
+// second live acceptance run reused live_reply_1 on 2026-08-18 and replayed a
+// failed workspace preparation from August 12 instead of exercising this run.
+func TestEveryLiveAcceptanceRunOwnsFreshInputIDs(t *testing.T) {
+	first := liveAcceptanceInputID("live-acceptance-1", "reply", 1)
+	second := liveAcceptanceInputID("live-acceptance-2", "reply", 1)
+	if first == second {
+		t.Fatalf("separate live runs reused input id %q", first)
+	}
 }
 
 func (h *liveAcceptanceHarness) triage(label string, text string) slackui.Message {
 	h.t.Helper()
 	h.sequence++
-	inputID := fmt.Sprintf("live_%s_%d", label, h.sequence)
+	inputID := liveAcceptanceInputID(h.runID, label, h.sequence)
 	input := core.SlackInput{
 		ID: inputID, EnvelopeID: "env_" + inputID, EventID: "event_" + inputID,
 		Kind: "mention", TeamID: h.cfg.Slack.TeamID,
@@ -225,6 +266,13 @@ func (h *liveAcceptanceHarness) triage(label string, text string) slackui.Messag
 
 	deadline := time.Now().Add(liveAcceptanceTimeout)
 	for time.Now().Before(deadline) {
+		// A retryable session-creation failure returns the run to pending. Mirror
+		// the scheduler here so the acceptance exercises the eventual retry
+		// instead of polling forever after only one start attempt.
+		if err := h.service.processAgentRun(h.ctx); err != nil &&
+			!errors.Is(err, store.ErrNotFound) {
+			h.t.Fatalf("continue %s: %v", label, err)
+		}
 		h.service.pollAgentRuns(h.ctx)
 		for {
 			err := h.service.processAgentRunFinalization(h.ctx)
@@ -286,7 +334,7 @@ func (h *liveAcceptanceHarness) click(
 ) {
 	h.t.Helper()
 	h.sequence++
-	inputID := fmt.Sprintf("live_%s_%d", label, h.sequence)
+	inputID := liveAcceptanceInputID(h.runID, label, h.sequence)
 	input := core.SlackInput{
 		ID: inputID, EnvelopeID: "env_" + inputID, EventID: "event_" + inputID,
 		Kind: "action", TeamID: h.cfg.Slack.TeamID,

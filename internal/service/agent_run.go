@@ -1846,9 +1846,9 @@ func (s *Service) requeueIfRateLimited(
 	if !waits {
 		return false, nil
 	}
-	degradedFallback := agentRunTargetFloor(run.Context) > 0 &&
-		!agentRunDegradedFallbackPending(run.Context) &&
-		coopLadderExhaustedDetail(detail)
+	limitedFloor, exhaustedAboveFloor := coopLadderExhaustedFloor(detail)
+	degradedFallback := limitedFloor > 0 && exhaustedAboveFloor &&
+		!agentRunDegradedFallbackPending(run.Context)
 	// An exhausted Coop ladder stamps the soonest rung reset into its detail;
 	// waiting for that instant beats polling on the generic interval. The one
 	// exception is a newly armed below-floor fallback: another configured rung

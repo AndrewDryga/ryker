@@ -238,6 +238,10 @@ func TestAFloorLimitedEscalationDegradesOnceWithoutForgettingItsFloor(t *testing
 		t.Fatalf("the Claude-limited retry carried floors %v, want [0] so Codex can answer",
 			coopClient.submitFloors)
 	}
+	if len(coopClient.submitRewinds) != 1 {
+		t.Fatalf("the Claude-limited retry made %d explicit target rewinds, want 1",
+			len(coopClient.submitRewinds))
+	}
 	if floor := agentRunTargetFloor(run.Context); floor != 1 {
 		t.Fatalf("the degraded retry forgot desired escalation floor %d, want 1", floor)
 	}
@@ -254,6 +258,10 @@ func TestAFloorLimitedEscalationDegradesOnceWithoutForgettingItsFloor(t *testing
 	if len(coopClient.submitFloors) != 2 || coopClient.submitFloors[1] != 1 {
 		t.Fatalf("the healthy escalated turn carried floors %v, want [0 1] so Claude stays preferred",
 			coopClient.submitFloors)
+	}
+	if len(coopClient.submitRewinds) != 1 {
+		t.Fatalf("the healthy Claude turn made %d target rewinds, want the prior fallback only",
+			len(coopClient.submitRewinds))
 	}
 }
 

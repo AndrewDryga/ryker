@@ -25,6 +25,9 @@ type Coop interface {
 	// SubmitTurnAtOrAbove carries the escalation floor: the rung of the session
 	// policy's target ladder below which the turn may not be answered.
 	SubmitTurnAtOrAbove(context.Context, string, string, int64, string, []coop.InputArtifact, int) (coop.Turn, coop.Operation, error)
+	// SubmitTurnRewound explicitly starts one turn on the first policy rung.
+	// Unlike a zero floor, it moves a session whose durable target is higher.
+	SubmitTurnRewound(context.Context, string, string, int64, string, []coop.InputArtifact) (coop.Turn, coop.Operation, error)
 	GetTurn(context.Context, string, string) (coop.Turn, error)
 	GetOutputArtifact(context.Context, string, string, string) (coop.OutputArtifact, error)
 	Events(context.Context, string, int64, int) ([]coop.Event, error)

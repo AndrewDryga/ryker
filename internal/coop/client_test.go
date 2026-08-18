@@ -982,8 +982,11 @@ func TestAnUnescalatedTurnIsTheSameRequestItAlwaysWas(t *testing.T) {
 	if _, _, err := client.SubmitTurnAtOrAbove(ctx, "k3", "s1", 4, "Answer.", nil, 1); err != nil {
 		t.Fatal(err)
 	}
-	if len(bodies) != 3 {
-		t.Fatalf("bodies = %d, want 3", len(bodies))
+	if _, _, err := client.SubmitTurnRewound(ctx, "k4", "s1", 4, "Answer.", nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 4 {
+		t.Fatalf("bodies = %d, want 4", len(bodies))
 	}
 	if bodies[0] != bodies[1] {
 		t.Fatalf("a zero floor changed the request bytes:\n old %s\n new %s", bodies[0], bodies[1])
@@ -997,5 +1000,12 @@ func TestAnUnescalatedTurnIsTheSameRequestItAlwaysWas(t *testing.T) {
 	}
 	if escalated["min_target_index"] != float64(1) {
 		t.Fatalf("an escalated turn did not name its rung: %s", bodies[2])
+	}
+	var rewound map[string]any
+	if err := json.Unmarshal([]byte(bodies[3]), &rewound); err != nil {
+		t.Fatal(err)
+	}
+	if rewound["rewind_target"] != true {
+		t.Fatalf("a rewound turn did not request rung zero explicitly: %s", bodies[3])
 	}
 }

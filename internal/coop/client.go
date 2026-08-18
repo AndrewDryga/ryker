@@ -757,6 +757,35 @@ func (c *Client) SubmitTurnAtOrAbove(
 	artifacts []InputArtifact,
 	minTargetIndex int,
 ) (Turn, Operation, error) {
+	return c.submitTurnWithRouting(
+		ctx, key, sessionID, expectedRevision, prompt, artifacts, minTargetIndex, false,
+	)
+}
+
+// SubmitTurnRewound starts one turn on the first policy rung. It is distinct
+// from an ordinary zero floor, which deliberately inherits the session's
+// durable current target and therefore cannot fail back from a higher rung.
+func (c *Client) SubmitTurnRewound(
+	ctx context.Context,
+	key, sessionID string,
+	expectedRevision int64,
+	prompt string,
+	artifacts []InputArtifact,
+) (Turn, Operation, error) {
+	return c.submitTurnWithRouting(
+		ctx, key, sessionID, expectedRevision, prompt, artifacts, 0, true,
+	)
+}
+
+func (c *Client) submitTurnWithRouting(
+	ctx context.Context,
+	key, sessionID string,
+	expectedRevision int64,
+	prompt string,
+	artifacts []InputArtifact,
+	minTargetIndex int,
+	rewindTarget bool,
+) (Turn, Operation, error) {
 	prompt = c.boundedPrompt(prompt)
 	body := map[string]any{
 		"expected_revision": expectedRevision,
@@ -765,6 +794,9 @@ func (c *Client) SubmitTurnAtOrAbove(
 	}
 	if minTargetIndex > 0 {
 		body["min_target_index"] = minTargetIndex
+	}
+	if rewindTarget {
+		body["rewind_target"] = true
 	}
 	var response turnResponse
 	err := c.post(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/turns", key, body, &response)

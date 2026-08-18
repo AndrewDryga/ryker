@@ -221,36 +221,47 @@ func submissionTargetFloor(run core.AgentRun) int {
 	return floor
 }
 
+func submissionRewindsTarget(run core.AgentRun) bool {
+	return agentRunDegradedFallbackPending(run.Context) ||
+		coopLadderExhaustedDetail(run.LastError)
+}
+
 // coopLadderExhaustedDetail recognises only Coop's complete-ladder refusal,
 // not an arbitrary provider message containing "rate limited". A single
 // preferred provider being limited is Coop's job to rotate around; this host
 // relaxes an escalation floor only after Coop says that floor excluded every
 // target it could currently use.
 func coopLadderExhaustedDetail(detail string) bool {
+	_, exhausted := coopLadderExhaustedFloor(detail)
+	return exhausted
+}
+
+func coopLadderExhaustedFloor(detail string) (int, bool) {
 	const prefix = "every target at or above policy ladder rung "
 	const limited = " is rate limited"
 	detail = strings.TrimSpace(detail)
 	rest, found := strings.CutPrefix(detail, prefix)
 	if !found {
-		return false
+		return 0, false
 	}
 	rung, suffix, found := strings.Cut(rest, limited)
 	if !found {
-		return false
+		return 0, false
 	}
-	if _, err := strconv.Atoi(rung); err != nil {
-		return false
+	index, err := strconv.Atoi(rung)
+	if err != nil {
+		return 0, false
 	}
 	if suffix == "" {
-		return true
+		return index, true
 	}
 	const until = " until "
 	reset, found := strings.CutPrefix(suffix, until)
 	if !found {
-		return false
+		return 0, false
 	}
-	_, err := time.Parse(time.RFC3339, reset)
-	return err == nil
+	_, err = time.Parse(time.RFC3339, reset)
+	return index, err == nil
 }
 
 // submitTurnAtLadderFloor submits a turn at or above the rung this run has
@@ -290,6 +301,11 @@ func (s *Service) submitTurnAtLadderFloor(
 	artifacts []coop.InputArtifact,
 ) (coop.Turn, coop.Operation, error) {
 	floor := submissionTargetFloor(run)
+	if submissionRewindsTarget(run) {
+		return s.coop.SubmitTurnRewound(
+			ctx, run.IdempotencyKey, sessionID, revision, prompt, artifacts,
+		)
+	}
 	turn, operation, err := s.coop.SubmitTurnAtOrAbove(
 		ctx, run.IdempotencyKey, sessionID, revision, prompt, artifacts, floor,
 	)

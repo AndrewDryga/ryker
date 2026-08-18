@@ -1030,6 +1030,9 @@ type fakeCoop struct {
 	// before any scripted refusal so a strip-and-retry shows up as two entries
 	// rather than one.
 	submitFloors []int
+	// submitRewinds records explicit rung-zero failbacks. A zero floor alone
+	// does not move a session whose durable target is already higher.
+	submitRewinds []bool
 	// floorErrs refuses the next submission that carries a floor, which is how
 	// a Coop that predates the escalation API — or a policy with no rung above
 	// the one in use — reaches this host.
@@ -1262,6 +1265,18 @@ func (f *fakeCoop) SubmitTurnAtOrAbove(
 		f.complete(message)
 	}
 	return f.turn, coop.Operation{}, nil
+}
+
+func (f *fakeCoop) SubmitTurnRewound(
+	ctx context.Context,
+	key string,
+	sessionID string,
+	revision int64,
+	prompt string,
+	artifacts []coop.InputArtifact,
+) (coop.Turn, coop.Operation, error) {
+	f.submitRewinds = append(f.submitRewinds, true)
+	return f.SubmitTurnAtOrAbove(ctx, key, sessionID, revision, prompt, artifacts, 0)
 }
 func (f *fakeCoop) GetTurn(context.Context, string, string) (coop.Turn, error) {
 	if f.turn.ID == "" {
