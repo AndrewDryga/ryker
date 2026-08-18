@@ -24,6 +24,26 @@ type CreationFailure struct {
 	Message string
 }
 
+var (
+	// ErrContributorChannelUnconfigured means no operator has established the
+	// channel's writable repository boundary. Callers must not replace it with
+	// a deployment default: doing so grants a choice the member does not own.
+	ErrContributorChannelUnconfigured = errors.New("channel contributor repository is not configured")
+	// ErrContributorPolicyUnconfigured means the configured repository is not
+	// enabled for member-authored work.
+	ErrContributorPolicyUnconfigured = errors.New("channel contributor policy is not configured")
+)
+
+func ContributorBoundaryUnavailable(err error) bool {
+	return errors.Is(err, ErrContributorChannelUnconfigured) ||
+		errors.Is(err, ErrContributorPolicyUnconfigured)
+}
+
+func ContributorBoundaryMessage() string {
+	return "This channel is not configured for contributor repository work. " +
+		"Ask an operator to configure it. No writable task has started."
+}
+
 func MemberCreationFailure(err error) (CreationFailure, bool) {
 	switch {
 	case errors.Is(err, store.ErrMemberTaskCapacity):
@@ -145,17 +165,15 @@ func MemberRepository(
 ) (string, error) {
 	configuration, err := st.GetChannelConfiguration(ctx, channelID)
 	if errors.Is(err, store.ErrNotFound) {
-		return "", errors.New("channel has no configured contributor repository")
+		return "", ErrContributorChannelUnconfigured
 	}
 	if err != nil {
 		return "", err
 	}
 	repository, ok := cfg.RepositoryContext(configuration.Repository)
 	if !ok || strings.TrimSpace(repository.ContributorPolicy) == "" {
-		return "", fmt.Errorf(
-			"channel repository %q has no contributor policy",
-			configuration.Repository,
-		)
+		return "", fmt.Errorf("%w: channel repository %q has no contributor policy",
+			ErrContributorPolicyUnconfigured, configuration.Repository)
 	}
 	return configuration.Repository, nil
 }

@@ -664,9 +664,9 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // token. 244 bytes on every turn against that is the trade this pin exists to
 // make explicit.
 //
-// And 50684 on 2026-08-17: structured operational scope replaced semantic
-// phrase policing and removed the obsolete finding key from the model schema.
-const staticWatchPromptBytes = 50684
+// And 50728 on 2026-08-18: active-alert and comparable-trend rules were added
+// while their surrounding contract was compressed enough to preserve context.
+const staticWatchPromptBytes = 50728
 
 // The static prompt must not grow without someone deciding it should.
 //

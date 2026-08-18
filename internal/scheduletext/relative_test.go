@@ -1,14 +1,10 @@
-package schedule
+package scheduletext
 
 import (
 	"slices"
 	"testing"
 )
 
-// "Check tomorrow and in 3 days" came back as three checks at one, two and four
-// days out, and every host validation passed: each offer was a well-formed
-// future one-time schedule and the batch was inside its size limit. Nothing
-// compared the batch with the request.
 func TestRequestedDayOffsetsReadsWhatWasAsked(t *testing.T) {
 	for _, testCase := range []struct {
 		text string

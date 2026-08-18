@@ -1,0 +1,130 @@
+// Package runreplay classifies failed Coop turns that can safely be replayed.
+package runreplay
+
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/AndrewDryga/responder/internal/coop"
+	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/provider"
+	"github.com/AndrewDryga/responder/internal/retrydelay"
+)
+
+// MarkTurnTimeoutReplayed writes the dedicated replay budget without relying
+// on aggregate run failures, which also count preparation and revision races.
+func MarkTurnTimeoutReplayed(contextJSON []byte) ([]byte, error) {
+	fields := make(map[string]json.RawMessage)
+	if len(contextJSON) != 0 {
+		if err := json.Unmarshal(contextJSON, &fields); err != nil {
+			return nil, err
+		}
+	}
+	if fields == nil {
+		fields = make(map[string]json.RawMessage)
+	}
+	fields["turn_timeout_replays"] = json.RawMessage("1")
+	return json.Marshal(fields)
+}
+
+const timeoutReplayReason = "The AI turn reached its deadline; retrying the accepted work once"
+
+func Decide(
+	run core.AgentRun,
+	eventType string,
+	turn coop.Turn,
+	maximumAttempts int,
+) (string, bool) {
+	if eventType != "turn.failed" {
+		return "", false
+	}
+	detail := strings.TrimSpace(turn.ErrorDetail)
+	// failure_count also includes workspace preparation and revision races. The
+	// first actual provider deadline still gets one recovery after those; the
+	// exact durable replay reason is the separate timeout budget marker.
+	if IsTurnTimeout(turn) && !turnTimeoutReplayed(run.Context) {
+		return timeoutReplayReason, true
+	}
+	if retrydelay.Exhausted(run.Failures+1, maximumAttempts) {
+		return "", false
+	}
+	if turn.ErrorCode == "acp_cancelled" && detail == "turn cancelled" {
+		return "Coop turn was interrupted while Responder was stopping", true
+	}
+	if turn.ErrorCode == "turn_interrupted" || turn.State == "interrupted" {
+		return "Coop restarted under the turn; replaying it in a fresh session", true
+	}
+	if run.Failures == 0 && turn.ErrorCode == "acp_protocol_error" &&
+		strings.Contains(detail, "ACP frame exceeded its bound") {
+		return "Coop returned an oversized ACP frame; retrying the turn once", true
+	}
+	if run.Mode == core.AgentRunTriage && transcriptOverflow(turn) {
+		return "Coop ACP transcript exceeded its bound; retrying in a fresh read-only session with narrower evidence queries", true
+	}
+	if turn.ErrorCode == "acp_protocol_error" && provider.Transient(detail) {
+		return "The AI provider dropped the response mid-stream; retrying the turn", true
+	}
+	if run.Failures < 2 && strings.Contains(strings.ToLower(detail), "turn cleanup failed") {
+		return "Coop could not clean up the agent turn; retrying in a fresh turn", true
+	}
+	if TerminalEnvironment(turn) {
+		return "", false
+	}
+	if run.Mode == core.AgentRunTriage && turn.ErrorCode == "acp_process_error" &&
+		strings.Contains(strings.ToLower(detail), "acp child closed before its response") &&
+		run.Failures < maximumAttempts-1 {
+		return "Coop ACP child closed unexpectedly; retrying in a fresh read-only session", true
+	}
+	return "", false
+}
+
+func IsTurnTimeout(turn coop.Turn) bool {
+	return turn.ErrorCode == "acp_timeout" || strings.Contains(
+		strings.ToLower(strings.TrimSpace(turn.ErrorDetail)), "turn deadline exceeded",
+	)
+}
+
+func turnTimeoutReplayed(contextJSON []byte) bool {
+	var marker struct {
+		TurnTimeoutReplays int `json:"turn_timeout_replays"`
+	}
+	return json.Unmarshal(contextJSON, &marker) == nil && marker.TurnTimeoutReplays > 0
+}
+
+func FreshSession(turn coop.Turn) bool {
+	if TerminalEnvironment(turn) {
+		return false
+	}
+	detail := strings.ToLower(strings.TrimSpace(turn.ErrorDetail))
+	return (turn.ErrorCode == "acp_cancelled" && detail == "turn cancelled") ||
+		(turn.ErrorCode == "acp_process_error" &&
+			strings.Contains(detail, "acp child closed before its response")) ||
+		transcriptOverflow(turn)
+}
+
+func TerminalEnvironment(turn coop.Turn) bool {
+	if turn.ErrorCode != "acp_process_error" {
+		return false
+	}
+	detail := strings.ToLower(strings.TrimSpace(turn.ErrorDetail))
+	for _, diagnostic := range []string{
+		"coop box image is not built",
+		"coop runtime storage is full",
+		"coop cannot reach the docker runtime",
+		"configured coop account is not authenticated",
+		"credential is not portable through the turn deadline",
+		"provider credential needs sign-in or renewal",
+	} {
+		if strings.Contains(detail, diagnostic) {
+			return true
+		}
+	}
+	return false
+}
+
+func transcriptOverflow(turn coop.Turn) bool {
+	return turn.ErrorCode == "acp_protocol_error" && strings.Contains(
+		strings.ToLower(strings.TrimSpace(turn.ErrorDetail)),
+		"acp transcript exceeded its bound",
+	)
+}

@@ -59,6 +59,10 @@ func (s *Service) prepareScheduleOffersAction(
 	if len(offers) == 0 || len(offers) > decisionpkg.MaxScheduleOffers {
 		return "", nil, nil, false
 	}
+	if err := s.scheduleBatchMatchesRequest(ctx, input, offers, s.now().UTC()); err != nil {
+		s.recordDiscardedOffer(input, "scheduled task batch", err)
+		return "", nil, nil, false
+	}
 	tasks := make([]core.ScheduledTask, 0, len(offers))
 	whens := make([]string, 0, len(offers))
 	proposals := make([]core.ScheduleProposal, 0, len(offers))

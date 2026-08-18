@@ -2,11 +2,14 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/completionpolicy"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
@@ -183,6 +186,7 @@ func TestIncidentEpisodeSeparatesEngineeringAndOperationalAuthority(t *testing.T
 	}
 }
 
+// Covers: TestIncidentInvestigationVerdictRequiresMatchingVerifiedCoverage
 func TestDeepEpisodeCompletionRequiresDecisionReadyCoverageOrExactBlocker(t *testing.T) {
 	episode := core.WorkEpisode{
 		Effort:           core.EffortOperationalAssessment,
@@ -530,6 +534,317 @@ func TestTypedTaskCoverageCompletesFocusedArtifactAssessment(t *testing.T) {
 		true,
 	); correction != "" {
 		t.Fatalf("claim correction = %q", correction)
+	}
+}
+
+// Elliptical follow-ups in the same Slack thread still belong to the artifact
+// contract the operator opened. The exact production sequence updated a draft
+// twice and then claimed the next scheduled review was covered even though the
+// published revision was unchanged.
+// Covers finding: 20260813T165711Z-run_7acb144748b2946aa3408d011dd36470
+func TestRunbookFollowupsRetainPublicationContract(t *testing.T) {
+	publicationCriterion := completionpolicy.PublishedArtifactCriterion
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := &Service{cfg: cfg, store: st}
+
+	origin := core.SlackInput{
+		ID: "runbook-origin", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CRUNBOOK", ThreadTS: "1700.100", MessageTS: "1700.100",
+		UserID: cfg.Slack.Operators[0],
+		Text:   "Create and publish a platform-health runbook so the next daily review uses it.",
+	}
+	conversationKey := watchConversationKey(origin)
+	parent := svc.episodeForWatchedInput(origin, decisionpkg.WatchTurnState{})
+	parent.Conversation = core.ConversationRef{
+		Platform: "slack", ChannelID: origin.ChannelID, ThreadTS: origin.ThreadTS,
+		AnchorTS: origin.ID, Visibility: "channel",
+	}
+	parent.Destination = core.BoundDestination{
+		ChannelID: origin.ChannelID, ThreadTS: origin.ThreadTS,
+	}
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: origin.ChannelID, ThreadTS: origin.ThreadTS,
+		ConversationKey: conversationKey, SourceKind: "watch", SourceID: origin.ID,
+		UserID: origin.UserID, Episode: parent,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedParent, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent = &storedParent
+	if err := st.SetWorkEpisodePhase(
+		ctx, run.ID, core.EpisodeCompleted, "completed", "Published runbook task answered", "", time.Time{},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	for index, text := range []string{
+		"Also include Sentry issues and failed Terraform applies next time.",
+		"And HTTP 500 rates too.",
+	} {
+		followup := origin
+		followup.ID = fmt.Sprintf("runbook-followup-%d", index+1)
+		followup.MessageTS = fmt.Sprintf("1700.%d", 200+index)
+		followup.Text = text
+		state := decisionpkg.WatchTurnState{ConversationFollowup: true, ResponseThreadTS: origin.ThreadTS}
+		child, same, err := svc.correlateWatchEpisode(ctx, followup, conversationKey, &state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if same || child.ParentEpisodeID != parent.ID {
+			t.Fatalf("follow-up %d correlation = same=%t episode=%+v", index+1, same, child)
+		}
+		if !slices.Contains(child.RequiredCoverage, "task") ||
+			!slices.Contains(child.CompletionCriteria, publicationCriterion) {
+			t.Fatalf("follow-up %d lost publication contract: %+v", index+1, child)
+		}
+
+		now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+		coverage := []core.Coverage{{
+			Layer: "task", ClaimIDs: []string{"task.requested_outcome"}, Status: "healthy",
+			Detail: "The requested checks were added to the draft.",
+		}}
+		completion := &CompletionAssessment{
+			Status: "decision_ready", Verdict: "confirmed", Summary: "The draft was updated.",
+		}
+		draft := []core.Evidence{{
+			ID: "draft", ClaimID: "task.requested_outcome", Relation: "supports",
+			SourceType: "emisar", SourceName: "runbook draft", Observation: "The draft contains the new checks.",
+			ObservedAt: now, Dimensions: map[string]string{
+				"artifact": "whole-platform-health-review", "revision": "draft-v5",
+				"artifact_state": "draft", "adoption_state": "inactive",
+			},
+		}}
+		if correction := investigation.ClaimCorrection(
+			*child, "reply", draft, coverage, completion, now, now, true,
+		); !strings.Contains(correction, "published") {
+			t.Fatalf("draft-only follow-up %d completed: %q", index+1, correction)
+		}
+		published := append([]core.Evidence(nil), draft...)
+		published[0].ID = "published"
+		published[0].SourceID = "op_publish_v5"
+		published[0].Target = "whole-platform-health-review"
+		published[0].Dimensions = maps.Clone(draft[0].Dimensions)
+		published[0].Dimensions["revision"] = "v5"
+		published[0].Dimensions["artifact_state"] = "published"
+		published[0].Dimensions["adoption_state"] = "active"
+		if correction := investigation.ClaimCorrection(
+			*child, "reply", published, coverage, completion, now, now, true,
+		); correction != "" {
+			t.Fatalf("published follow-up %d rejected: %q", index+1, correction)
+		}
+	}
+}
+
+// A parent revision being live is history, not proof that this follow-up's new
+// revision is live. The first policy scan read the whole correlation ancestry,
+// so v4 published/active let a child that only drafted v5 complete.
+func TestPublishedParentArtifactCannotCompleteDraftOnlyFollowup(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	parentRun, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "CRUNBOOK", ConversationKey: "thread:CRUNBOOK:1",
+		SourceKind: "watch", SourceID: "runbook-v4", Episode: &core.WorkEpisode{
+			Effort: core.EffortFocusedCheck, RequiredCoverage: []string{"task"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := st.GetWorkEpisodeByRun(ctx, parentRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Intelligence.RecordEvidence(ctx, []core.Evidence{{
+		ID: "published-v4", ChannelID: "CRUNBOOK", SourceInput: "runbook-v4",
+		ClaimID: "task.requested_outcome", Relation: "supports",
+		Claim: "v4 is published", Observation: "The scheduled review uses v4.",
+		SourceType: "emisar", SourceID: "op_publish_v4", SourceName: "runbook publish receipt",
+		Target: "whole-platform-health-review", ObservedAt: time.Now().UTC(),
+		Dimensions: map[string]string{
+			"artifact": "whole-platform-health-review", "revision": "v4",
+			"artifact_state": "published", "adoption_state": "active",
+		},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	childRun, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "CRUNBOOK", ConversationKey: "thread:CRUNBOOK:1",
+		SourceKind: "watch", SourceID: "runbook-v5", Episode: &core.WorkEpisode{
+			ParentEpisodeID: parent.ID, Effort: core.EffortFocusedCheck,
+			RequiredCoverage:   []string{"task"},
+			CompletionCriteria: []string{completionpolicy.PublishedArtifactCriterion},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := st.GetWorkEpisodeByRun(ctx, childRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	draft := []core.Evidence{{
+		ID: "draft-v5", ClaimID: "task.requested_outcome", Relation: "supports",
+		Claim: "v5 is drafted", Observation: "The workspace contains validated v5.",
+		SourceType: "repository", SourceID: "commit-v5", SourceName: "runbook workspace",
+		Target: "whole-platform-health-review", ObservedAt: now,
+		Dimensions: map[string]string{
+			"artifact": "whole-platform-health-review", "revision": "v5",
+			"artifact_state": "draft", "adoption_state": "inactive",
+		},
+	}}
+	coverage := []core.Coverage{{
+		Layer: "task", ClaimIDs: []string{"task.requested_outcome"}, Status: "healthy",
+		Detail: "v5 is validated in the workspace.", ObservedAt: now,
+	}}
+	completion := &CompletionAssessment{Status: "decision_ready", Verdict: "confirmed", Summary: "v5 is ready."}
+	svc := &Service{cfg: cfg, store: st}
+	correction, err := svc.episodeClaimCorrectionWithHistory(
+		ctx, child, "reply", draft, coverage, completion, now, now, true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(correction, "published") {
+		t.Fatalf("published v4 completed draft-only v5: %q", correction)
+	}
+
+	published := append([]core.Evidence(nil), draft...)
+	published[0].ID = "published-v5"
+	published[0].SourceType = "emisar"
+	published[0].SourceID = "op_publish_v5"
+	published[0].SourceName = "runbook publish receipt"
+	published[0].Dimensions = maps.Clone(draft[0].Dimensions)
+	published[0].Dimensions["artifact_state"] = "published"
+	published[0].Dimensions["adoption_state"] = "active"
+	correction, err = svc.episodeClaimCorrectionWithHistory(
+		ctx, child, "reply", published, coverage, completion, now, now, true,
+	)
+	if err != nil || correction != "" {
+		t.Fatalf("current published v5 rejected: %q, %v", correction, err)
+	}
+
+	// The same ancestry boundary applies to a healthy operational verdict.
+	// A fresh parent check is useful history, but it is not a measurement made
+	// by the child assessment that is claiming the platform is healthy now.
+	historicalHealth := healthyTrendEvidence(now)
+	for index := range historicalHealth {
+		historicalHealth[index].ChannelID = "CRUNBOOK"
+		historicalHealth[index].SourceInput = "runbook-v4"
+	}
+	if _, err := st.Intelligence.RecordEvidence(ctx, historicalHealth); err != nil {
+		t.Fatal(err)
+	}
+	healthRun, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "CRUNBOOK", ConversationKey: "thread:CRUNBOOK:1",
+		SourceKind: "watch", SourceID: "health-v5", Episode: &core.WorkEpisode{
+			ParentEpisodeID: parent.ID, Effort: core.EffortOperationalAssessment,
+			RequiredCoverage: []string{"application"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	healthChild, err := st.GetWorkEpisodeByRun(ctx, healthRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	healthCoverage := []core.Coverage{{
+		Layer: "application", ClaimIDs: []string{"application.functional_behavior"},
+		Status: "healthy", Detail: "Current assessment claims the checked application scope is healthy.",
+	}}
+	healthCompletion := &CompletionAssessment{
+		Status: "decision_ready", Verdict: "healthy", Summary: "The checked scope is healthy.",
+	}
+	correction, err = svc.episodeClaimCorrectionWithHistory(
+		ctx, healthChild, "reply", nil, healthCoverage, healthCompletion, now, now, true,
+	)
+	if err != nil || !strings.Contains(correction, "functional_probe") {
+		t.Fatalf("historical parent trends satisfied current healthy verdict: %q, %v", correction, err)
+	}
+	correction, err = svc.episodeClaimCorrectionWithHistory(
+		ctx, healthChild, "reply", healthyTrendEvidence(now), healthCoverage,
+		healthCompletion, now, now, true,
+	)
+	if err != nil || correction != "" {
+		t.Fatalf("current fresh health evidence rejected: %q, %v", correction, err)
+	}
+}
+
+func healthyTrendEvidence(now time.Time) []core.Evidence {
+	result := []core.Evidence{{
+		ID: "current-functional", ClaimID: "application.functional_behavior",
+		Claim: "the checked path works", Observation: "the functional request passed",
+		Relation: "supports", SourceType: "monitoring", SourceName: "functional probe",
+		ObservedAt: now, Dimensions: map[string]string{
+			"measurement_kind": "functional_probe", "service": "checked services",
+			"endpoint": "/health", "environment": "production", "window": "point-in-time",
+		},
+	}}
+	for _, scope := range []string{"broad", "service"} {
+		population := scope + " requests"
+		for _, kind := range []string{"error_rate", "timeout_rate"} {
+			result = append(result, core.Evidence{
+				ID: scope + "-" + kind, ClaimID: "application.functional_behavior",
+				Claim: kind + " is stable", Observation: "the current and comparison windows agree",
+				Relation: "supports", SourceType: "monitoring", SourceName: "request metrics",
+				ObservedAt: now, Dimensions: map[string]string{
+					"measurement_kind": kind, "measurement_scope": scope,
+					"window": "10m", "comparison_window": "previous 10m",
+					"population": population, "denominator": population,
+				},
+			})
+		}
+	}
+	return result
+}
+
+// The candidate assessment has not been persisted yet, so its zero timestamp
+// used to lose to any older row from the same layer. Stamp the candidate as
+// current before the ledger merge; otherwise a coherent degraded result is
+// repeatedly corrected against history it was explicitly replacing.
+// Covers finding: 20260812T143515Z-run_cd8cfa2e93faa769da04d55ca948c0d5
+func TestCurrentCoverageOutranksPersistedHistoryForTheSameLayer(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	prior := core.Coverage{
+		Layer: "application", ClaimIDs: []string{"application.functional_behavior"},
+		Status: "healthy", Detail: "The earlier point probe passed.",
+		CreatedAt: now.Add(-10 * time.Minute),
+	}
+	candidate := core.Coverage{
+		Layer: "application", ClaimIDs: []string{"application.functional_behavior"},
+		Status: "degraded", Detail: "Current traffic contains 5xx responses.",
+	}
+	stamped := completionpolicy.CurrentCoverage([]core.Coverage{candidate}, now)
+	if len(stamped) != 1 || !stamped[0].CreatedAt.Equal(now) {
+		t.Fatalf("current coverage was not stamped: %+v", stamped)
+	}
+	contract := investigation.Compile(core.WorkEpisode{
+		Effort:           core.EffortOperationalAssessment,
+		RequiredCoverage: []string{"application"},
+	})
+	ledger := investigation.BuildLedger(contract, []core.Evidence{
+		{ID: "probe", ClaimID: "application.functional_behavior", Relation: "supports", HealthEffect: "none", ObservedAt: now.Add(-10 * time.Minute), Dimensions: map[string]string{"service": "checkout", "endpoint": "/ready", "environment": "production", "window": "point-in-time"}},
+		{ID: "errors", ClaimID: "application.functional_behavior", Relation: "contradicts", HealthEffect: "degraded", ObservedAt: now, Dimensions: map[string]string{"service": "checkout", "endpoint": "requests", "environment": "production", "window": "10m"}},
+	}, append([]core.Coverage{prior}, stamped...), now)
+	view := ledger.Claims["application.functional_behavior"]
+	if !view.Resolved || view.CoverageStatus != "degraded" {
+		t.Fatalf("current degraded coverage lost to persisted history: %+v", view)
 	}
 }
 

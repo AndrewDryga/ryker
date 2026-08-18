@@ -668,6 +668,7 @@ SELECT
   input.failure_count AS input_failure_count,
   substr(input.text, 1, 12000) AS input_text,
   substr(CAST(r.result_json AS TEXT), 1, 30000) AS result_text,
+  decision.mode AS recorded_mode,
   decision.action AS recorded_action,
   decision.reason AS recorded_reason,
   decision.evidence_count,
@@ -771,6 +772,7 @@ LIMIT $batch_size;"
       'Decide whether these terminal work episodes reveal one concrete, reproducible product defect in Responder itself.' \
       'Before setting needs_fix=true, inspect the relevant current implementation and existing tests read-only. Record file-and-symbol evidence in code_evidence.' \
       'Judge user-visible behavior from reply_delivery_state and reply_body when present. A null evaluation_decision does not prove that Responder failed to route or reply.' \
+	  'A recorded_mode of shadow with action reply and no Slack delivery is intentional evaluation behavior, not a lost live reply.' \
       'Run completion and evidence observation times are historical facts. Do not manufacture staleness from replayed or altered fixtures.' \
       'A user asking Responder to do work is not a defect. Tool unavailability, correct uncertainty, or a subjective wording preference alone is not a defect.' \
       'Failures, unsupported claims, abandoned accepted work, wrong routing, unsafe authority, repetitive spam, malformed Slack output, and clearly premature conclusions are defects when supported by the record.' \

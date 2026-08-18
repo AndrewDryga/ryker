@@ -1847,7 +1847,7 @@ func Notice(text string) Message {
 	return Message{Text: text, Sections: []string{text}}
 }
 
-func RepositoryPreparationBlocked(repository, detail string) Message {
+func RepositoryPreparationBlocked(repository string) Message {
 	repository = strings.TrimSpace(repository)
 	if repository == "" {
 		repository = "the configured repository"
@@ -1861,11 +1861,6 @@ func RepositoryPreparationBlocked(repository, detail string) Message {
 			summary,
 			"No model turn has started.",
 		},
-	}
-	if detail != "" {
-		message.Sections = []string{
-			message.Sections[0], detail, message.Sections[1],
-		}
 	}
 	return message
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/evalsession"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/service"
 	"github.com/AndrewDryga/responder/internal/serviceport"
@@ -249,11 +250,13 @@ func runLiveEvaluationScenario(
 	if !ok {
 		return nil, 0, fmt.Errorf("repository %q is not configured", repositoryKey)
 	}
-	session, _, err := client.CreateSession(
+	session, _, err := evalsession.Create(
 		ctx,
+		client,
 		"responder:scenario-session:"+scenarioID,
 		repository.CoopPolicy,
 		"Responder stateful evaluation: "+service.TruncateWatchText(scenario.Name, 160),
+		options.PollInterval,
 	)
 	if err != nil {
 		return nil, 0, err

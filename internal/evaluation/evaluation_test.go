@@ -491,6 +491,49 @@ func TestLiveEvaluationCallsCoopWithProductionPromptAndCleansSession(t *testing.
 	}
 }
 
+// Five deploy-gate cases on 2026-08-17 each abandoned a normal tenant-core
+// workspace copy after the transport's 30-second async handoff. The creates
+// completed about two minutes later, but no model turn ran and the five
+// orphaned sessions made a healthy prompt corpus look 0/5.
+func TestLiveEvaluationResumesWorkspacePreparationAfterAsyncHandoff(t *testing.T) {
+	cfg := serviceConfig(t)
+	coopClient := newFakeCoop()
+	coopClient.createErrors = []error{
+		&coop.OperationPendingError{ID: "op_prepare", Method: "CreateRemoteSession"},
+		&coop.OperationPendingError{ID: "op_prepare", Method: "CreateRemoteSession"},
+	}
+	coopClient.completeOnSubmit = `{
+	  "action":"ignore",
+	  "reason":"The humans are talking to each other.",
+	  "operations":[]
+	}`
+	corpus := strings.NewReader(
+		`{"name":"ambient conversation","kind":"watch","input":"Thanks, I will handle the deploy.","want_action":"ignore"}`,
+	)
+
+	summary, err := EvaluateLiveJSONL(
+		context.Background(),
+		corpus,
+		cfg,
+		coopClient,
+		LiveEvaluationOptions{PollInterval: time.Millisecond},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Passed != 1 || summary.ModelCalls != 1 {
+		t.Fatalf("live summary = %+v", summary)
+	}
+	if len(coopClient.createKeys) != 3 {
+		t.Fatalf("create attempts = %d, want 3", len(coopClient.createKeys))
+	}
+	for _, key := range coopClient.createKeys {
+		if key != coopClient.createKeys[0] {
+			t.Fatalf("create keys = %q, want one durable key", coopClient.createKeys)
+		}
+	}
+}
+
 func TestLiveConversationEvaluationPreparesSessionBeforeMeasuredTurn(t *testing.T) {
 	cfg := serviceConfig(t)
 	repository := cfg.Repositories["repo"]

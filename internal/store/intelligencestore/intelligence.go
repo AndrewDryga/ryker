@@ -315,6 +315,35 @@ func (r *Repository) EnsureChannelMemory(
 	return err
 }
 
+// AdvanceChannelSessionGeneration records that Coop durably rejected one
+// watch-session create request. The generation is shared by every operational
+// stream in the channel, so leaving it only in one run's retry context makes a
+// later run replay the same terminal operation and spend its own attempt
+// budget rediscovering that it failed.
+func (r *Repository) AdvanceChannelSessionGeneration(
+	ctx context.Context,
+	channelID string,
+	repository string,
+	failedGeneration int,
+) error {
+	if channelID == "" || repository == "" || failedGeneration < 1 {
+		return errors.New("channel session generation identity is incomplete")
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO channel_memories (
+		  channel_id, repository, generation, updated_at
+		) VALUES (?, ?, ?, ?)
+		ON CONFLICT(channel_id) DO UPDATE SET
+		  repository = excluded.repository,
+		  generation = excluded.generation,
+		  updated_at = excluded.updated_at
+		WHERE channel_memories.session_id = ''
+		  AND channel_memories.generation <= ?`,
+		channelID, repository, failedGeneration+1, r.nowText(), failedGeneration,
+	)
+	return err
+}
+
 func (r *Repository) DetachChannelSession(
 	ctx context.Context,
 	channelID string,

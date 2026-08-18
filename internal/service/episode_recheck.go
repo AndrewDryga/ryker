@@ -148,8 +148,6 @@ func (s *Service) processEpisodeRecheck(ctx context.Context, item store.WorkItem
 	state.DecisionSourceID = ""
 	state.ReplyDeliveryID = ""
 	state.ConversationFollowup = true
-	state.RulesCaptured = true
-	state.MatchedRules = nil
 	frozen, err := json.Marshal(state)
 	if err != nil {
 		return err

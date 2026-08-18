@@ -13,7 +13,7 @@
 # repository one, and this is the only place both are visible at once.
 set -uo pipefail
 
-root=$(cd "$(dirname "$0")/.." && pwd)
+root=${RESPONDER_FINDINGS_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 found=0
 missing=0
 covered=0
@@ -21,16 +21,31 @@ covered=0
 for db in "$@"; do
   [[ -f $db ]] || { echo "findings-coverage: no database at $db" >&2; continue; }
   # Read-only and immutable: a live deployment is writing to this file.
-  while IFS= read -r spec; do
+  while IFS=$'\t' read -r finding_id spec; do
     [[ -n $spec ]] || continue
     found=$((found + 1))
+    # A prose-only spec has no proposed Go identifier. Its stable finding ID
+    # is the only unambiguous join key between the production ledger and the
+    # repository, so the owning regression may claim it explicitly with:
+    #
+    #   // Covers finding: 20260817T...-run_...
+    #
+    # This is also accepted for named specs when one regression intentionally
+    # covers several duplicate findings. A human still has to put the claim on
+    # the actual test; matching prose or summaries would make false coverage
+    # indistinguishable from real coverage.
+    if grep -rqF "Covers finding: $finding_id" \
+      "$root"/internal "$root"/scripts --include='*_test.go' --include='test-*.sh' 2>/dev/null ||
+      grep -rqF "\"finding:$finding_id\"" \
+        "$root"/testdata/eval --include='*.jsonl' 2>/dev/null; then
+      covered=$((covered + 1))
+      continue
+    fi
     # The spec names the test it wants, usually as TestSomething. Where it does
-    # not, there is nothing mechanical to check and it is reported as such
-    # rather than counted as covered — silence about a gap is how this column
-    # went unread in the first place.
+    # not, its finding ID above is the mechanical coverage contract.
     name=$(printf '%s' "$spec" | grep -oE '\bTest[A-Za-z0-9_]{6,}' | head -1)
     if [[ -z $name ]]; then
-      printf 'UNNAMED  %s\n' "$(printf '%s' "$spec" | cut -c1-96)"
+      printf 'UNNAMED  %s  %s\n' "$finding_id" "$(printf '%s' "$spec" | cut -c1-96)"
       missing=$((missing + 1))
       continue
     fi
@@ -46,8 +61,8 @@ for db in "$@"; do
       printf 'MISSING  %s\n' "$name"
       missing=$((missing + 1))
     fi
-  done < <(/usr/bin/sqlite3 -readonly "file:$db?immutable=1" "
-    SELECT DISTINCT replace(replace(regression_test, char(10), ' '), char(13), ' ')
+  done < <(/usr/bin/sqlite3 -readonly -separator $'\t' "file:$db?immutable=1" "
+    SELECT id, replace(replace(replace(regression_test, char(10), ' '), char(13), ' '), char(9), ' ')
     FROM quality_findings
     WHERE verdict = 'confirmed' AND TRIM(regression_test) <> ''
   " 2>/dev/null)

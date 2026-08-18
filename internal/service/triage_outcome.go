@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/coop"
@@ -17,11 +16,7 @@ func (s *Service) notifyRepositoryPreparationBlocked(
 	run core.AgentRun,
 	cause error,
 ) error {
-	if run.Mode != core.AgentRunTriage {
-		return nil
-	}
-	var apiErr *coop.APIError
-	if !errors.As(cause, &apiErr) || apiErr.Code != "repository_unavailable" {
+	if run.Mode != core.AgentRunTriage || !coop.Retryable(cause) {
 		return nil
 	}
 	episode, err := s.store.GetWorkEpisode(ctx, run.EpisodeID)
@@ -33,7 +28,7 @@ func (s *Service) notifyRepositoryPreparationBlocked(
 	}
 	owner := core.FirstNonempty(run.EpisodeID, run.ID)
 	body, err := slackui.Encode(s.sanitizeMessage(
-		slackui.RepositoryPreparationBlocked(run.Repository, apiErr.Detail),
+		slackui.RepositoryPreparationBlocked(run.Repository),
 	))
 	if err != nil {
 		return err

@@ -108,7 +108,7 @@ func TestRepositoryPreparationBlockerIsDeliveredOnceInTheBoundAlertThread(t *tes
 	}
 	blocker := &coop.APIError{
 		Status: 503, Code: "repository_unavailable",
-		Detail: "workspace preparation could not refresh the configured tenant-core repository from origin/master; no model session was created",
+		Detail: "operation op_secret could not refresh /Users/private/tenant-core from origin/master",
 	}
 	if err := svc.retryAgentRun(ctx, run, blocker); err != nil {
 		t.Fatal(err)
@@ -135,11 +135,59 @@ func TestRepositoryPreparationBlockerIsDeliveredOnceInTheBoundAlertThread(t *tes
 			t.Fatalf("preparation blocker lacks %q: %q", want, content)
 		}
 	}
+	for _, secret := range []string{"op_secret", "/Users/private", "origin/master"} {
+		if strings.Contains(content, secret) {
+			t.Fatalf("preparation blocker leaked %q: %q", secret, content)
+		}
+	}
 	if recent, err := st.HasRecentWatchReply(
 		ctx, episode.Destination.ChannelID, episode.Destination.ThreadTS,
 		"9999.999", time.Time{},
 	); err != nil || recent {
 		t.Fatalf("preparation status counted as a completed response = %t, %v", recent, err)
+	}
+}
+
+// Coop returns this only after the synchronous create-session handoff has
+// already consumed its 30-second bound. The next scheduler pass may poll, but
+// Slack must immediately explain that no model turn has started.
+func TestPendingWorkspacePreparationPostsVisibleBoundThreadStatus(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run := seedPreparingRun(t, st)
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ChangeEpisodeDestination(ctx, episode.ID, core.BoundDestination{
+		ChannelID: "CBOUND", ThreadTS: "1700.777",
+	}, "pending_refresh_test"); err != nil {
+		t.Fatal(err)
+	}
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	state := decisionpkg.WatchTurnState{Generation: 1}
+	pending := &coop.OperationPendingError{
+		ID: "op_private", Method: "CreateSession",
+		Cause: errors.New("fetch /Users/private/tenant-core is still running"),
+	}
+	if err := svc.retryAtNextSessionGeneration(ctx, run, &state, 1, pending); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 1 || slack.posts[0].channel != "CBOUND" ||
+		slack.posts[0].thread != "1700.777" {
+		t.Fatalf("pending preparation notice = %+v", slack.posts)
+	}
+	rendered := renderedSlackMessage(slack.posts[0].message)
+	if !strings.Contains(rendered, "No model turn has started") ||
+		strings.Contains(rendered, "op_private") || strings.Contains(rendered, "/Users/private") {
+		t.Fatalf("pending preparation notice is unsafe or vague: %q", rendered)
 	}
 }
 

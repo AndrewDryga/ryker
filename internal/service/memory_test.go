@@ -42,6 +42,75 @@ func TestMemoryOfferRequiresExplicitOperatorRequestAndStrictValue(t *testing.T) 
 	}
 }
 
+// The exact production request was answered with a durable-sounding promise
+// but no offer, so nothing could be confirmed and no memory changed. The first
+// recorded result below is that failure shape; the second is the corrected
+// typed offer. No model call is made by this regression.
+// Covers finding: 20260813T164617Z-run_39a70761f2f3b3239637ec2e3767d51f
+func TestExplicitLastingGuidanceCannotFinishWithoutAConfirmableOffer(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"COPS"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	slackClient := &fakeSlack{dedupePosts: true}
+	coopClient := newFakeCoop()
+	coopClient.completeQueue = []string{
+		`{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"reason":"acknowledge the lasting guidance","operations":[{"id":"complete","type":"complete_episode","completion":{"message":"Understood. I will always use whole-platform-health-review-v5@4.","completion":{"status":"decision_ready","summary":"Accepted the lasting guidance."}}}]}`,
+		`{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"reason":"offer the requested lasting guidance for confirmation","operations":[{"id":"offer-guidance","type":"offer_memory","memory_offer":{"scope":"workspace","subject":"whole_platform_health_review","predicate":"guidance","value":"Use whole-platform-health-review-v5@4 for whole-platform health reviews.","visibility":"operator","expires_in":"90d"}},{"id":"complete","type":"complete_episode","completion":{"message":"I can remember whole-platform-health-review-v5@4 as the preferred health-review runbook. Confirm below.","completion":{"status":"decision_ready","summary":"Offered the requested guidance for confirmation."}}}]}`,
+	}
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	input := core.SlackInput{
+		ID: "slack_lasting_guidance", EnvelopeID: "env_lasting_guidance",
+		EventID: "event_lasting_guidance", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", MessageTS: "1702.100", UserID: cfg.Slack.Operators[0],
+		Text: "<@U999BOT> always use whole-platform-health-review-v5@4",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit lasting guidance = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("durable-sounding reply without an offer reached Slack: %+v", slackClient.posts)
+	}
+	if len(coopClient.submitPrompts) != 1 {
+		t.Fatalf("first result did not enter correction: %d submissions", len(coopClient.submitPrompts))
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || run.State != core.AgentRunPending ||
+		!strings.Contains(run.LastError, "no typed memory") {
+		t.Fatalf("missing-offer correction = %+v, %v", run, err)
+	}
+
+	entries, err := st.Memory.ListMemoryForContext(
+		ctx, cfg.Slack.TeamID, input.ChannelID, "repo", input.UserID, 10,
+	)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("memory changed before confirmation = %+v, %v", entries, err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("corrected offer was not delivered: %+v", slackClient.posts)
+	}
+	message := slackClient.posts[0].message
+	if !strings.Contains(renderedSlackMessage(message), "Nothing is saved yet") {
+		t.Fatalf("memory confirmation boundary missing: %+v", message)
+	}
+	if action := findSlackAction(t, message, slackui.ActionRememberMemory); action.Value == "" {
+		t.Fatal("memory confirmation action has no value")
+	}
+}
+
 func TestGuidanceMemoryIsNormalizedAndAvailableAcrossChannels(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

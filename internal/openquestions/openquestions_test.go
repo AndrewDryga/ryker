@@ -1,12 +1,15 @@
 package openquestions_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/openquestions"
+	"github.com/AndrewDryga/responder/internal/slackui"
 )
 
 // An open question the host has agreed to leave open still has to say why.
@@ -54,9 +57,9 @@ func TestAnUnexplainedFindingSaysWhyItIsNotCheckableNow(t *testing.T) {
 	if !strings.Contains(line, "no Nomad allocation diagnostic") {
 		t.Fatalf("the caveat lost the reason the check is unavailable: %q", line)
 	}
-	// Bounded like every other model-controlled string that reaches a Slack
-	// context line, which already truncates the whole joined caveat at 700.
-	if len([]rune(line)) > 200 {
+	// Bounded below Slack's 500-byte context-element limit, leaving room for the
+	// "Unexplained: " label applied by the renderer.
+	if len([]byte(line)) > 480 {
 		t.Fatalf("the caveat line is %d runes: %q", len([]rune(line)), line)
 	}
 
@@ -68,5 +71,74 @@ func TestAnUnexplainedFindingSaysWhyItIsNotCheckableNow(t *testing.T) {
 	plain.Findings = []investigation.FindingOperation{bare}
 	if got := openquestions.For(plain).Unexplained; len(got) != 1 || got[0] != bare.What {
 		t.Fatalf("a finding with no uncheckable alternative changed shape: %+v", got)
+	}
+}
+
+// The typed wait is what Responder actually scheduled. A vague freeform next
+// action must not hide it, and an already-imperative verification must not
+// render as "verify verify".
+func TestScheduledVerificationOutranksVagueNextActionAndRendersOnce(t *testing.T) {
+	decision := decisionpkg.WatchDecision{
+		Completion: &investigation.CompletionAssessment{
+			Status: "decision_ready", NextAction: "Monitor it later.",
+		},
+		AppliedOperations: []investigation.ResultOperation{{
+			Type: "wait_external", ExternalWait: &investigation.ExternalWaitOperation{
+				Kind:         "scheduled_verification",
+				Verification: "Verify all eight routed services are healthy after the rollout",
+				PollAfter:    time.Date(2026, 8, 17, 19, 25, 0, 0, time.UTC).Format(time.RFC3339),
+			},
+		}},
+	}
+	got := openquestions.For(decision).NextCheck
+	if got != "verify all eight routed services are healthy after the rollout at 19:25 UTC" {
+		t.Fatalf("scheduled next check = %q", got)
+	}
+}
+
+// The complete production caveat is 282 bytes and fits comfortably in one
+// Slack context element. A private 200-byte bound nevertheless cut it after
+// "acknowledgements no", removing the check that would resolve the question.
+func TestUnexplainedFindingKeepsItsNotCheckableReasonWholeWhenItFitsSlack(t *testing.T) {
+	decision := decisionpkg.WatchDecision{
+		Action: "reply",
+		Completion: &investigation.CompletionAssessment{
+			Status: "decision_ready", Verdict: "not_confirmed",
+		},
+		Findings: []investigation.FindingOperation{{
+			What:   "Both long-lived Gate sessions accept requests but return no matching RPC responses before the five-second deadline",
+			Status: "unexplained",
+			Alternatives: []investigation.FindingAlternative{{
+				Hypothesis:   "The connected sessions are stale or half-open and need forced reauthentication",
+				NotCheckable: "The current code records neither heartbeat acknowledgements nor timeout-triggered reconnect outcomes; a controlled reconnect canary is required.",
+			}},
+		}},
+	}
+	open := openquestions.For(decision)
+	message := slackui.WithOpenQuestions(
+		slackui.Notice("Rivals remains degraded."), "", "", nil,
+		open.Unexplained, "", slackui.NewSanitizer(12000),
+	)
+	blocks, err := json.Marshal(message.Blocks())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered := string(blocks)
+	if !strings.Contains(rendered, "a controlled reconnect canary is required.") {
+		t.Fatalf("rendered caveat lost its actionable ending: %s", rendered)
+	}
+	if strings.Contains(rendered, "acknowledgements no\"") {
+		t.Fatalf("rendered caveat kept the production fragment: %s", rendered)
+	}
+
+	long := decision
+	longFinding := long.Findings[0]
+	longFinding.Alternatives = []investigation.FindingAlternative{{
+		NotCheckable: strings.Repeat("bounded evidence remains unavailable ", 40),
+	}}
+	long.Findings = []investigation.FindingOperation{longFinding}
+	bounded := openquestions.For(long).Unexplained[0]
+	if !strings.HasSuffix(bounded, "…") {
+		t.Fatalf("an over-limit caveat hides its elision: %q", bounded)
 	}
 }

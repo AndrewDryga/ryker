@@ -87,6 +87,10 @@ func TestEpisodeWakeupQueuesFreshAttemptOnSameEpisode(t *testing.T) {
 // wait knows where it was talking, so that is the fallback — posting at channel
 // level is the loudest possible reading of missing information, and the one a
 // resumed wait should never choose on its own.
+// Covers: TestScheduledVerificationTerminalOutcomeReachesOriginalThread
+// Covers: TestATerminalEpisodeWakeupDeliversItsCompletion
+// Covers: TestScheduledVerificationReportsItsTerminalOutcome
+// Covers: TestScheduledVerificationBlockerReachesAcceptedWorkThread
 func TestAResumedWaitKeepsTheThreadTheAttemptWasTalkingIn(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

@@ -18,25 +18,15 @@ import (
 // fits, so the cut never happens.
 const StatusMaxRunes = 96
 
-// statusToolCallFloor is when the count is worth its own clause.
-//
-// Below it the number says less than the line it would be shortening. "is
-// running goimports · 2 tool calls" spends eleven characters telling an
-// operator the turn has barely started, which the card already shows and the
-// status has no room to repeat.
-const statusToolCallFloor = 5
-
-// statusThoughtRunes bounds a reasoning summary inside the status.
-const statusThoughtRunes = 60
-
 // Status folds a turn's recorded interior into the assistant status Slack shows
 // beside the thread.
 //
-// It exists for the same measured failure the rest of this package does, at the
-// other end of it: while 596 tool calls were being recorded, the status said
-// "is gathering and reconciling evidence…" — a sentence true of every turn ever
-// run, refreshed every two minutes to say it again. The stream underneath was
-// already specific and already on disk.
+// The status is intentionally coarser than the card's activity window. The
+// window is the auditable work record and may name a command or path; the
+// status is ambient channel chrome. Relaying a transcript-authored command or
+// thought there exposed SKILL.md reads, checkout paths, and internal operation
+// names in production. Typed activity kind is enough to say useful progress
+// without turning execution plumbing into operator-facing prose.
 //
 // It reports false when there is nothing displayable, which is what keeps the
 // static status in place rather than replacing it with a guess. A turn that has
@@ -51,11 +41,7 @@ func Status(tail core.AgentActivityTail) (string, bool) {
 	if status == "" {
 		return "", false
 	}
-	suffix := ""
-	if tail.ToolCalls >= statusToolCallFloor {
-		suffix = fmt.Sprintf(" · %d tool calls", tail.ToolCalls)
-	}
-	return boundStatus(status, suffix), true
+	return status, true
 }
 
 // Progress is the activity clause the host adds to its own checkin prose.
@@ -108,49 +94,20 @@ func latestLine(tail core.AgentActivityTail) (slackui.ActivityLine, bool) {
 // expects: it renders as "Emisar <status>", so every phrase here begins with a
 // verb in the third person and never with a capital.
 func statusPhrase(line slackui.ActivityLine) string {
-	if line.Kind == slackui.ActivityThinking {
-		thought := statusText(line.Title, statusThoughtRunes)
-		if thought == "" {
-			return ""
-		}
-		return "is thinking — " + thought
-	}
-	subject := statusSubject(line)
-	if subject == "" {
+	switch {
+	case line.Kind == slackui.ActivityThinking:
+		return "is reasoning through the evidence..."
+	case line.Kind == slackui.ActivityEdit:
+		return "is editing the change..."
+	case statusReadTitle(line.Title), strings.HasPrefix(
+		strings.ToLower(strings.TrimSpace(line.Title)), "search",
+	):
+		return "is inspecting the workspace..."
+	case line.Kind == slackui.ActivityTool:
+		return "is checking evidence..."
+	default:
 		return ""
 	}
-	// A verb taken from the title must not then be followed by the title. `Edit
-	// 'input.go'` arrives split into `Edit` and the path, and "is editing Edit
-	// input.go" is the harness narrating itself — the exact stutter the window
-	// below the status was built to stop.
-	verb, titleIsVerb := statusVerb(line)
-	if titleIsVerb {
-		if target := statusText(line.Target, statusSubjectRunes); target != "" {
-			subject = target
-		} else {
-			// The title is all there is, so it is the object rather than the
-			// verb, and the general verb goes in front of it.
-			verb = "is running"
-		}
-	}
-	return verb + " " + subject
-}
-
-// statusVerb reads what kind of act the call was, and says whether the title
-// was what told it.
-//
-// The verb comes from the line's own title because that is where the runtimes
-// put it — a file tool is titled `Read file`, an edit `Edit` — and a card that
-// said "is running Read file" would be narrating the tool harness rather than
-// the work. Anything unrecognised runs, which is true of every tool call.
-func statusVerb(line slackui.ActivityLine) (verb string, titleIsVerb bool) {
-	if line.Kind == slackui.ActivityEdit {
-		return "is editing", true
-	}
-	if statusReadTitle(line.Title) {
-		return "is reading", true
-	}
-	return "is running", false
 }
 
 // statusReadTitle reports that a title is a file tool's verb rather than the
@@ -213,18 +170,4 @@ func statusText(value string, limit int) string {
 		return value
 	}
 	return string([]rune(value)[:max(limit-1, 0)]) + "…"
-}
-
-// boundStatus fits the phrase and its count clause into the field.
-//
-// The count is never what gives way. It is the one number in the line that the
-// window on the card does not already show, and a clause of eight characters
-// cannot be the reason a status does not fit — so the phrase is shortened
-// around it.
-func boundStatus(status, suffix string) string {
-	room := StatusMaxRunes - utf8.RuneCountInString(suffix)
-	if utf8.RuneCountInString(status) > room {
-		status = string([]rune(status)[:max(room-1, 0)]) + "…"
-	}
-	return status + suffix
 }

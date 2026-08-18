@@ -37,6 +37,7 @@ func TestOperationalCorrelationKeyTracksAlertLifecycle(t *testing.T) {
 	}
 }
 
+// Covers: TestBetterStackRefireSupersedesEarlierResolutionResult
 func TestOperationalCorrelationKeyPrefersStableAlertLinkOverDashboardRange(t *testing.T) {
 	first := core.SlackInput{
 		Kind: "bot_message", UserID: "BGRAFANA",
@@ -360,6 +361,86 @@ func TestNewOperationalInputAdmittedDuringFinalizationSuppressesOldResult(t *tes
 	}
 }
 
+// A wait is durable as soon as result operations are recorded. The superseded
+// check therefore has to run during staging, before recordResultOperationEvents,
+// not only when Slack delivery is finalized.
+// Covers finding: 20260811T001118Z-run_63d34b6821f777c7555d54c19eff016c
+func TestSupersededTerraformTurnCannotLeaveAStaleWakeup(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CTERRAFORM"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, _, err := st.Behavior.UpsertStandingRule(ctx, core.StandingRule{
+		ChannelID: "CTERRAFORM", Repository: "repo", Trigger: "terraform_lifecycle",
+		Action: "monitor_terraform_lifecycle", SourceKind: "app", Enabled: true,
+		SourceRef: "test", ActorID: cfg.Slack.Operators[0],
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+	}, cfg.Limits.MaxStandingRules, cfg.Limits.MaxRulesPerChannel); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "CTERRAFORM", Participation: "proactive", Repository: "repo",
+		AlertPolicy: "reply", ActorID: cfg.Slack.Operators[0],
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT"}
+	now := time.Now().UTC()
+	older := core.SlackInput{
+		ID: "terraform-planning", EnvelopeID: "env-terraform-planning",
+		EventID: "event-terraform-planning", Kind: "bot_message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CTERRAFORM", MessageTS: "1700.100", UserID: "BTERRAFORM",
+		ReceivedAt: now,
+		Text: "Run notification for acme/infra\nRun run-abc\n" +
+			"<https://app.terraform.io/app/acme/infra/runs/run-abc|Open run>\nRun Planning",
+	}
+	if created, err := st.AdmitSlackInput(ctx, older); err != nil || !created {
+		t.Fatalf("admit planning card = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", older.ID)
+	if err != nil || run.State != core.AgentRunRunning {
+		t.Fatalf("planning run = %+v, %v", run, err)
+	}
+
+	newer := older
+	newer.ID, newer.EnvelopeID, newer.EventID = "terraform-applied", "env-terraform-applied", "event-terraform-applied"
+	newer.MessageTS, newer.ReceivedAt = "1700.200", now.Add(time.Minute)
+	newer.Text = strings.Replace(older.Text, "Run Planning", "Run Applied", 1)
+	if created, err := st.AdmitSlackInput(ctx, newer); err != nil || !created {
+		t.Fatalf("admit applied card = %t, %v", created, err)
+	}
+
+	pollAfter := now.Add(10 * time.Minute).Format(time.RFC3339)
+	deadline := now.Add(time.Hour).Format(time.RFC3339)
+	coopClient.complete(fmt.Sprintf(`{"action":"ignore","reason":"the exact run is still planning","operations":[{"id":"wait-run","type":"wait_external","external_wait":{"id":"wakeup-run","kind":"terraform_run","verification":"Read the exact run until it is terminal.","event_matcher":{"provider":"hcp_terraform","run_id":"run-abc"},"poll_after":%q,"deadline":%q}},{"id":"complete","type":"complete_episode","completion":{"message":"Still planning.","completion":{"status":"decision_ready","verdict":"in_progress","summary":"The exact run is still planning."}}}]}`, pollAfter, deadline))
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil && !errors.Is(err, store.ErrNotFound) {
+		t.Fatal(err)
+	}
+	run, err = st.GetAgentRun(ctx, run.ID)
+	if err != nil || run.State != core.AgentRunSuperseded {
+		t.Fatalf("older Terraform turn = %+v, %v", run, err)
+	}
+	wakeups, err := st.ListEpisodeWakeups(ctx, run.EpisodeID)
+	if err != nil || len(wakeups) != 0 {
+		t.Fatalf("superseded Terraform turn left wakeups = %+v, %v", wakeups, err)
+	}
+}
+
 // An answer that is written and queued is delivered. A newer card on the same
 // stream is not evidence that the answer is stale — on 2026-08-16 that reading
 // threw away four of them, one of which an investigation had spent fifteen
@@ -367,6 +448,8 @@ func TestNewOperationalInputAdmittedDuringFinalizationSuppressesOldResult(t *tes
 //
 // Staleness has an observable criterion: a NEWER reply already went out in this
 // thread. Nothing else supersedes a written answer.
+// Covers finding: 20260810T204844Z-run_d7a57ffc976c9cccd0abd99562b685e5
+// Covers: TestCompletedMaterialResultSurvivesANewerAttemptThatPublishesNothing
 func TestStagedAlertReplyIsDeliveredDespiteANewerCard(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

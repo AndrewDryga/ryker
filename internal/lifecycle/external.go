@@ -96,7 +96,7 @@ var genericIDs = map[string]struct{}{
 
 func ShouldReconcile(text string) bool {
 	for _, line := range strings.Split(strings.ToLower(text), "\n") {
-		line = strings.TrimSpace(line)
+		line = normalizedStatusLine(line)
 		if line == "" {
 			continue
 		}
@@ -124,7 +124,7 @@ func ShouldReconcile(text string) bool {
 func Classify(text string) Phase {
 	phase := Unknown
 	for _, line := range strings.Split(strings.ToLower(text), "\n") {
-		line = strings.TrimSpace(line)
+		line = normalizedStatusLine(line)
 		if line == "" || !statusLine(line) {
 			continue
 		}
@@ -133,7 +133,7 @@ func Classify(text string) Phase {
 			return Failed
 		case containsState(line, "discarded", "cancelled", "canceled", "stopped"):
 			return Stopped
-		case containsState(line, "applied", "succeeded", "successful", "completed", "finished"):
+		case containsState(line, "applied", "success", "succeeded", "successful", "completed", "finished"):
 			phase = Succeeded
 		case containsState(line, "applying", "apply in progress"):
 			if phase != Succeeded {
@@ -154,6 +154,15 @@ func Classify(text string) Phase {
 		}
 	}
 	return phase
+}
+
+// normalizedStatusLine removes Slack's mrkdwn emphasis from explicit source
+// field labels. GitHub Actions emits `*Status:* Success`; the asterisks are
+// presentation, not part of the lifecycle vocabulary. Classification remains
+// bounded to statusLine, so removing them cannot turn conversational prose
+// into a lifecycle event.
+func normalizedStatusLine(line string) string {
+	return strings.TrimSpace(strings.ReplaceAll(line, "*", ""))
 }
 
 func statusLine(line string) bool {

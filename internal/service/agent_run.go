@@ -13,6 +13,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/alertstream"
 	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
 	"github.com/AndrewDryga/responder/internal/changeledger"
+	"github.com/AndrewDryga/responder/internal/completionpolicy"
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -32,6 +33,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/repositorycapability"
 	"github.com/AndrewDryga/responder/internal/resultwire"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
+	"github.com/AndrewDryga/responder/internal/runreplay"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
 	"github.com/AndrewDryga/responder/internal/sessioncreate"
@@ -40,6 +42,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/standingrule"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskcard"
+	"github.com/AndrewDryga/responder/internal/taskcontract"
 	"github.com/AndrewDryga/responder/internal/taskpr"
 	"github.com/AndrewDryga/responder/internal/triageoutcome"
 	"github.com/AndrewDryga/responder/internal/turndelta"
@@ -462,6 +465,7 @@ func (s *Service) correlateWatchEpisode(
 				return episode, true, nil
 			}
 			episode.ParentEpisodeID = previous.ID
+			taskcontract.InheritParent(episode, previous)
 		}
 	} else if !errors.Is(previousErr, store.ErrNotFound) {
 		return nil, false, previousErr
@@ -868,6 +872,18 @@ func (s *Service) prepareIncidentAgentRun(
 		artifacts,
 	)
 	if err != nil {
+		// A revision conflict accepted no turn. Release the stale binding so the
+		// accepted work retries with the shared session's current revision.
+		if isCoopRevisionConflict(err) {
+			if releaseErr := s.store.ReleaseAgentRunRevision(ctx, run.ID); releaseErr != nil {
+				return s.retryIncidentAgentRun(
+					ctx, run, incident,
+					fmt.Errorf("release stale Coop revision after conflict: %w", releaseErr),
+					false,
+				)
+			}
+			return s.retryIncidentAgentRun(ctx, run, incident, err, false)
+		}
 		return s.retryIncidentAgentRun(ctx, run, incident, err, !coop.Retryable(err))
 	}
 	session, err = s.coop.GetSession(ctx, incident.CoopSessionID)
@@ -1657,6 +1673,34 @@ func (s *Service) retryAtNextSessionGeneration(
 			return s.retryAgentRun(ctx, run, err)
 		}
 	}
+	// Session creation is preparation, not a model attempt. A retryable Coop
+	// outage must not consume the ceiling and discard already-accepted work.
+	if coop.Retryable(cause) {
+		var pending *coop.OperationPendingError
+		if errors.As(cause, &pending) {
+			if err := s.notifyRepositoryPreparationBlocked(ctx, run, cause); err != nil {
+				return err
+			}
+			s.parkWatchedStatus(ctx, run, "clear watched Slack status while workspace preparation continues")
+			return s.retryAgentRun(ctx, run, cause)
+		}
+		if requeued, err := s.requeueIfRateLimited(ctx, run, cause); requeued {
+			return err
+		}
+		if err := s.notifyRepositoryPreparationBlocked(ctx, run, cause); err != nil {
+			return err
+		}
+		if retrydelay.Exhausted(run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts) {
+			// Keep a bounded circuit-breaker poll after the ordinary retry budget.
+			return s.store.DeferAgentRun(
+				ctx, run.ID, trimError(cause), s.now().Add(30*time.Minute),
+			)
+		}
+		_, err := s.store.RetryAgentRunIfOwned(
+			ctx, run.ID, trimError(cause), s.queueDelay(run.Failures+1), false,
+		)
+		return err
+	}
 	return s.retryAgentRun(ctx, run, cause)
 }
 
@@ -1842,9 +1886,6 @@ func (s *Service) retryAgentRun(
 		return s.store.DeferAgentRun(ctx, run.ID, trimError(cause), s.now().Add(time.Second))
 	}
 	if requeued, err := s.requeueIfRateLimited(ctx, run, cause); requeued {
-		return err
-	}
-	if err := s.notifyRepositoryPreparationBlocked(ctx, run, cause); err != nil {
 		return err
 	}
 	terminal := retrydelay.Exhausted(run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts)
@@ -2600,7 +2641,7 @@ func (s *Service) stageTriageTerminal(
 		state.CarriedEvidence = decisionpkg.CarryEvidence(state.CarriedEvidence,
 			decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", s.now()))
 		state.CarriedCoverage = decisionpkg.CarryCoverage(state.CarriedCoverage,
-			currentCoverage(decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", s.now()), s.now()))
+			completionpolicy.CurrentCoverage(decisionpkg.SanitizeCoverage(decision.Coverage, "", "", "", s.now()), s.now()))
 		state.CarriedFindings = decisionpkg.CarryFindings(
 			state.CarriedFindings, decisionpkg.SanitizeFindings(decision.Findings),
 		)
@@ -2721,6 +2762,14 @@ func (s *Service) stageTriageTerminal(
 				if episodeErr != nil {
 					return true, episodeErr
 				}
+			}
+			if correction == "" {
+				correction = taskcontract.ScheduledResultCorrection(episode, input, decision)
+			}
+			if correction == "" {
+				correction = s.missingRequestedBehaviorOfferCorrection(
+					input, state.Repository, decision,
+				)
 			}
 			if correction == "" {
 				if rejected := s.offerRejectionCorrection(ctx, input, decision); rejected != "" {
@@ -2883,7 +2932,7 @@ func (s *Service) stageIncidentTerminal(
 		evidence := decisionpkg.CarryEvidence(carried.CarriedEvidence,
 			decisionpkg.SanitizeEvidence(report.Evidence, "", "", "", s.now()))
 		coverage := decisionpkg.CarryCoverage(carried.CarriedCoverage,
-			currentCoverage(decisionpkg.SanitizeCoverage(report.Coverage, "", "", "", s.now()), s.now()))
+			completionpolicy.CurrentCoverage(decisionpkg.SanitizeCoverage(report.Coverage, "", "", "", s.now()), s.now()))
 		findings := decisionpkg.CarryFindings(
 			carried.CarriedFindings, decisionpkg.SanitizeFindings(report.Findings),
 		)
@@ -3128,11 +3177,21 @@ func (s *Service) stagePolledAgentRunTerminal(
 			return nil
 		}
 	}
-	if reason, replay := replayAgentRunFailure(
+	if reason, replay := runreplay.Decide(
 		run, eventType, turn, s.cfg.Limits.MaxAgentRunAttempts,
 	); replay {
+		if runreplay.IsTurnTimeout(turn) {
+			contextJSON, err := runreplay.MarkTurnTimeoutReplayed(run.Context)
+			if err != nil {
+				return err
+			}
+			if err := s.store.SetAgentRunContext(ctx, run.ID, contextJSON); err != nil {
+				return err
+			}
+			run.Context = contextJSON
+		}
 		if run.Mode == core.AgentRunTriage &&
-			replayAgentRunInFreshSession(turn) {
+			runreplay.FreshSession(turn) {
 			state, err := decodeWatchRunContext(run)
 			if err != nil {
 				return err
@@ -3456,66 +3515,6 @@ func interruptedAsFailed(eventType string) string {
 	return eventType
 }
 
-func replayAgentRunFailure(
-	run core.AgentRun,
-	eventType string,
-	turn coop.Turn,
-	maximumAttempts int,
-) (string, bool) {
-	if eventType != "turn.failed" ||
-		retrydelay.Exhausted(run.Failures+1, maximumAttempts) {
-		return "", false
-	}
-	detail := strings.TrimSpace(turn.ErrorDetail)
-	if turn.ErrorCode == "acp_cancelled" && detail == "turn cancelled" {
-		return "Coop turn was interrupted while Responder was stopping", true
-	}
-	if turn.ErrorCode == "turn_interrupted" || turn.State == "interrupted" {
-		return "Coop restarted under the turn; replaying it in a fresh session", true
-	}
-	if run.Failures == 0 &&
-		turn.ErrorCode == "acp_protocol_error" &&
-		strings.Contains(detail, "ACP frame exceeded its bound") {
-		return "Coop returned an oversized ACP frame; retrying the turn once", true
-	}
-	if run.Mode == core.AgentRunTriage && transcriptOverflow(turn) {
-		return "Coop ACP transcript exceeded its bound; retrying in a fresh read-only session with narrower evidence queries", true
-	}
-	// A dropped stream is not a failed check. Coop now carries the adapter's reason, so these are
-	// finally distinguishable from a real rejection instead of all reading "ACP request was
-	// rejected" — and a socket dying is the one outcome an operator can do nothing with.
-	if turn.ErrorCode == "acp_protocol_error" && provider.Transient(detail) {
-		return "The AI provider dropped the response mid-stream; retrying the turn", true
-	}
-	if run.Failures < 2 &&
-		strings.Contains(strings.ToLower(detail), "turn cleanup failed") {
-		return "Coop could not clean up the agent turn; retrying in a fresh turn", true
-	}
-	if terminalACPEnvironmentFailure(turn) {
-		return "", false
-	}
-	if run.Mode == core.AgentRunTriage &&
-		turn.ErrorCode == "acp_process_error" &&
-		strings.Contains(
-			strings.ToLower(detail),
-			"acp child closed before its response",
-		) && run.Failures < maximumAttempts-1 {
-		return "Coop ACP child closed unexpectedly; retrying in a fresh read-only session", true
-	}
-	return "", false
-}
-
-func replayAgentRunInFreshSession(turn coop.Turn) bool {
-	if terminalACPEnvironmentFailure(turn) {
-		return false
-	}
-	detail := strings.ToLower(strings.TrimSpace(turn.ErrorDetail))
-	return (turn.ErrorCode == "acp_cancelled" && detail == "turn cancelled") ||
-		(turn.ErrorCode == "acp_process_error" &&
-			strings.Contains(detail, "acp child closed before its response")) ||
-		transcriptOverflow(turn)
-}
-
 // parkWatchedStatus clears a watched channel's pending Slack status when a run
 // is about to wait rather than answer, so the channel does not sit showing work
 // in progress. Failing to clear it is cosmetic and never blocks the wait.
@@ -3528,37 +3527,10 @@ func (s *Service) parkWatchedStatus(ctx context.Context, run core.AgentRun, why 
 	}
 }
 
-func terminalACPEnvironmentFailure(turn coop.Turn) bool {
-	if turn.ErrorCode != "acp_process_error" {
-		return false
-	}
-	detail := strings.ToLower(strings.TrimSpace(turn.ErrorDetail))
-	for _, diagnostic := range []string{
-		"coop box image is not built",
-		"coop runtime storage is full",
-		"coop cannot reach the docker runtime",
-		"configured coop account is not authenticated",
-		"credential is not portable through the turn deadline",
-		"provider credential needs sign-in or renewal",
-	} {
-		if strings.Contains(detail, diagnostic) {
-			return true
-		}
-	}
-	return false
-}
-
 func missingCoopImageFailure(turn coop.Turn) bool {
 	return turn.ErrorCode == "acp_process_error" && strings.Contains(
 		strings.ToLower(strings.TrimSpace(turn.ErrorDetail)),
 		"coop box image is not built",
-	)
-}
-
-func transcriptOverflow(turn coop.Turn) bool {
-	return turn.ErrorCode == "acp_protocol_error" && strings.Contains(
-		strings.ToLower(strings.TrimSpace(turn.ErrorDetail)),
-		"acp transcript exceeded its bound",
 	)
 }
 

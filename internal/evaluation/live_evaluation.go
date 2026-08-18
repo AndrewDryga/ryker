@@ -18,6 +18,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/evalsession"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/service"
 	"github.com/AndrewDryga/responder/internal/serviceport"
@@ -750,11 +751,13 @@ func runAuxiliaryEvaluation(
 			repositoryKey,
 		)
 	}
-	session, _, err := client.CreateSession(
+	session, _, err := evalsession.Create(
 		ctx,
+		client,
 		"responder:live-eval-aux-session:"+caseID,
 		repository.CoopPolicy,
 		"Responder evaluation verifier: "+service.TruncateWatchText(testCase.Name, 160),
+		options.PollInterval,
 	)
 	if err != nil {
 		return "", 0, err
@@ -908,11 +911,13 @@ func runLiveEvaluationCase(
 			errEvaluationCaseInvalid, repositoryKey,
 		)
 	}
-	session, _, err := client.CreateSession(
+	session, _, err := evalsession.Create(
 		ctx,
+		client,
 		"responder:live-eval-session:"+caseID,
 		policy,
 		"Responder live model evaluation: "+service.TruncateWatchText(testCase.Name, 160),
+		pollInterval,
 	)
 	if err != nil {
 		return "", "", 0, WorkspaceAssessment{}, 0, err

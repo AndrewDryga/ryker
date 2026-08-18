@@ -61,6 +61,7 @@ type fakeCoop struct {
 	events           []coop.Event
 	createKeys       []string
 	createPolicies   []string
+	createErrors     []error
 	prepareSessions  []string
 	submitKeys       []string
 	submitPrompts    []string
@@ -86,6 +87,11 @@ func (f *fakeCoop) CreateSession(
 ) (coop.Session, coop.Operation, error) {
 	f.createKeys = append(f.createKeys, key)
 	f.createPolicies = append(f.createPolicies, policy)
+	if len(f.createErrors) > 0 {
+		err := f.createErrors[0]
+		f.createErrors = f.createErrors[1:]
+		return coop.Session{}, coop.Operation{}, err
+	}
 	if f.session.State == "closed" {
 		f.session.State = "open"
 		f.session.Activity = "parked"

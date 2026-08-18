@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/investigation"
 )
 
 func TestStandingRuleReplyDoesNotGuessTitlePresenceFromAProseSubstring(t *testing.T) {
@@ -31,6 +32,7 @@ func TestStandingRuleReplyDoesNotGuessTitlePresenceFromAProseSubstring(t *testin
 // changed. Validation then rejected that ignore as an unanswered operator, so
 // the only way a recheck could pass was to say something — the opposite of what
 // a quiet recheck is for.
+// Covers finding: 20260810T203749Z-run_4a24bd58eb2ac48341340c40580aac9e
 func TestWatchDecisionCorrectionAllowsSilentHostRecheck(t *testing.T) {
 	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
 	input := core.SlackInput{
@@ -57,11 +59,130 @@ func TestWatchDecisionCorrectionAllowsSilentHostRecheck(t *testing.T) {
 	}
 }
 
+// A host-generated retry for a rejected structured result is not an ordinary
+// quiet recheck. Accepting ignore here abandoned the exact validation failure
+// that scheduled the retry, leaving the episode blocked with no visible answer.
+// Covers: TestStructuredValidationRecheckCannotSilentlyIgnoreTheRejectedResult
+func TestStructuredValidationRecheckCannotSilentlyIgnoreTheRejectedResult(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	input := core.SlackInput{
+		ID: "recheck-structured", Kind: "recheck", ChannelID: "C1",
+		MessageTS: "1700.501", ReceivedAt: now,
+	}
+	state := WatchTurnState{
+		ConversationFollowup: true,
+		RecheckKey:           "structured:run_rejected",
+		FailureDetail:        "the alert assessment omitted its evidence references",
+	}
+	silent := WatchDecision{
+		Action: "ignore", Reason: "nothing changed",
+		Attention: AttentionAssessment{
+			Addressee: "responder", Urgency: 1, Confidence: 3,
+		},
+	}
+	if correction := WatchDecisionCorrectionAt(input, state, silent, now, nil); correction == "" {
+		t.Fatal("a structured-validation retry silently abandoned the rejected result")
+	}
+}
+
+// A later point probe and a shorter log query are useful current evidence, but
+// they do not disprove a firing alert over a different window and population.
+// The match is carried in typed dimensions; no alert or result prose is parsed.
+// Covers finding: 20260814T035709Z-run_5f96f5d4b8d800f69374d2987f574d26
+func TestFiringAlertCannotBeDismissedByAnIncompatibleEvidenceWindow(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	input := core.SlackInput{
+		Kind: "bot_message", ReceivedAt: now,
+		Text: "[VA1 FIRING:1] Two-hour application error count exceeded 10000000",
+	}
+	state := WatchTurnState{MatchedRules: []core.StandingRule{{
+		Trigger: "operational_alert", Action: "triage_alert",
+	}}}
+	evidence := []core.Evidence{
+		{ID: "repo", ClaimID: "change.recent", Relation: "supports", SourceType: "repository", SourceName: "tenant repository", Observation: "The route exists."},
+		{ID: "probe", ClaimID: "application.functional_behavior", Relation: "supports", HealthEffect: "none", SourceType: "monitoring", SourceName: "HTTP probe", Observation: "A later request returned 200.", Target: "App_svelte", ObservedAt: now, Dimensions: map[string]string{"service": "App_svelte", "indicator": "http_status", "window": "point-in-time", "population": "one synthetic request"}},
+		{ID: "logs", ClaimID: "impact.current", Relation: "supports", HealthEffect: "none", SourceType: "monitoring", SourceName: "VictoriaLogs", Observation: "A different 15-minute query found no matching rows.", Target: "App_svelte", ObservedAt: now, Dimensions: map[string]string{"service": "App_svelte", "indicator": "log_matches", "window": "15m", "population": "selected log messages"}},
+	}
+	decision := WatchDecision{
+		Action: "reply", Evidence: evidence,
+		AlertAssessment: &AlertAssessment{
+			Verdict: "not_issue", Impact: "The historical count is not credible.",
+			EvidenceRefs:        []string{"probe", "logs"},
+			ImmediateActionKind: "monitor",
+			Scope: &OperationalScope{
+				Status: "bounded", CheckedTargets: []string{"App_svelte"},
+				UnverifiedTargets: []string{"the alerted two-hour population"},
+				EvidenceRefs:      []string{"probe", "logs"},
+			},
+		},
+		Completion: &investigation.CompletionAssessment{
+			Status: "decision_ready", Verdict: "healthy", Summary: "Dismissed the alert.",
+		},
+	}
+	correction := WatchDecisionCorrectionAt(input, state, decision, now, nil)
+	if !strings.Contains(correction, "still firing") {
+		t.Fatalf("incompatible windows dismissed a firing alert: %q", correction)
+	}
+}
+
+// The result is untrusted. Calling its own shorter query an exact match cannot
+// overrule the host-owned fact that the Grafana condition is still firing.
+// The production guard accepted these five nonempty strings as proof without
+// comparing any of them with the alert card.
+func TestFiringAlertCannotDismissItselfWithModelAttestedExactDimensions(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	input := core.SlackInput{
+		Kind: "bot_message", ReceivedAt: now,
+		Text: "[VA1 FIRING:1] Two-hour application error count exceeded 10000000",
+	}
+	state := WatchTurnState{MatchedRules: []core.StandingRule{{
+		Trigger: "operational_alert", Action: "triage_alert",
+	}}}
+	decision := WatchDecision{
+		Action: "reply",
+		Evidence: []core.Evidence{
+			{ID: "repo", ClaimID: "change.recent", Relation: "supports", SourceType: "repository", SourceName: "tenant repository", Observation: "The route exists."},
+			{
+				ID: "self-attested", ClaimID: "impact.current", Relation: "supports",
+				HealthEffect: "none", SourceType: "monitoring", SourceName: "short query",
+				Observation: "A different 15-minute query found no rows.", Target: "App_svelte",
+				ObservedAt: now, Dimensions: map[string]string{
+					"condition_match": "exact", "indicator": "log_matches", "window": "15m",
+					"population": "selected logs", "denominator": "selected logs",
+				},
+			},
+		},
+		AlertAssessment: &AlertAssessment{
+			Verdict: "not_issue", Impact: "The alert is not credible.",
+			EvidenceRefs: []string{"self-attested"}, ImmediateActionKind: "monitor",
+			Scope: &OperationalScope{
+				Status: "bounded", CheckedTargets: []string{"App_svelte"},
+				UnverifiedTargets: []string{"the alerted two-hour population"},
+				EvidenceRefs:      []string{"self-attested"},
+			},
+		},
+		Completion: &investigation.CompletionAssessment{
+			Status: "decision_ready", Verdict: "healthy", Summary: "Dismissed the alert.",
+		},
+	}
+	if correction := WatchDecisionCorrectionAt(input, state, decision, now, nil); !strings.Contains(correction, "still firing") {
+		t.Fatalf("model-authored exact dimensions dismissed a firing alert: %q", correction)
+	}
+}
+
 // A resolution notification confirms an incident happened. It is not evidence
 // that the problem is still happening, and the two were conflated: the recovery
 // check only ever ran when the model had already said not_issue, so a
 // confirmed_issue verdict on a cleared alert went straight through and
 // Responder recommended halting a rollout for a condition that had recovered.
+// Covers: TestResolvedAlertRejectsActiveAssessmentWithHealthyCompletion
+// Covers: TestResolvedAlertRejectsHistoricalWindowAsCurrentDegradation
+// Covers: TestRecoveredAlertCannotBeKeptDegradedByUnrelatedFreshFailure
+// Covers finding: 20260810T174527Z-run_b9de8df304246d7931ce96f9520e24a7
+// Covers finding: 20260811T033054Z-run_0568ada64142416024262416cd646afa
+// Covers finding: 20260812T064909Z-run_04abca0ef360818547439d6c1700807a
+// Covers finding: 20260812T164616Z-run_40431d35113ac3726dfb18c469838e15
+// Covers finding: 20260816T184357Z-run_ce80c26e8af15a710cdaf9f5fd813e88
 func TestResolvedAlertCannotClaimActiveDegradationWithoutSeeingIt(t *testing.T) {
 	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
 	input := core.SlackInput{

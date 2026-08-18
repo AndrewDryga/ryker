@@ -13,6 +13,20 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
+// Covers: TestTerminalLifecycleUpdateStartsChildEpisodeInsteadOfBeingCancelled
+// Covers: TestOperationalRecoveryAfterCompletedInvestigationReopensEpisode
+// Covers: TestCompletedTerraformLifecycleEpisodeAdmitsLaterTerminalUpdate
+// Covers finding: 20260811T144951Z-run_b2a58fcdb33869de9aeb62cfdb8daf2b
+// Covers finding: 20260811T160845Z-run_7b4bec27797c7b4dae12e526b55a8f52
+// Covers finding: 20260811T162826Z-run_79dfcfbecc70bf5b2e7ed3465173724d
+// Covers finding: 20260811T174802Z-run_7030f033bde4aa4db2c733c3d16610bd
+// Covers finding: 20260811T182939Z-run_5174a0deb68c7534943916642d95c036
+// Covers finding: 20260811T211140Z-run_26214903f653f84d82516ee23b6fd5e4
+// Covers finding: 20260811T213151Z-run_bfe7b078a638e25c6d92b65bca9aa77b
+// Covers finding: 20260811T220114Z-run_2012e5904cf262f75daae8352282672f
+// Covers finding: 20260811T235807Z-run_2f2154b97e0ba8cd55f623e7608f54a8
+// Covers finding: 20260812T011123Z-run_fc64fdcc141eb09d2072d402e469b0ee
+// Covers finding: 20260812T013813Z-run_6b03d24a3fe40e68fbe307a29b621492
 func TestOperationalUpdateAfterTerminalEpisodeStartsLinkedRunnableEpisode(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

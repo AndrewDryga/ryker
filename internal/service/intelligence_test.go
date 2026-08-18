@@ -225,7 +225,11 @@ func TestWatchSessionRotatesAndCarriesDurableMemory(t *testing.T) {
 	}
 }
 
-func TestFailedWatchSessionCreateAdvancesIdempotencyGeneration(t *testing.T) {
+// Five later alerts replayed the same terminal Coop create operations and one
+// run spent all 20 attempts without starting. A failed generation therefore
+// belongs to channel memory, not only to the run that happened to discover it.
+// Covers: TestFailedWatchSessionGenerationSurvivesTheRunThatDiscoveredIt
+func TestFailedWatchSessionCreateAdvancesDurableGeneration(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -246,9 +250,16 @@ func TestFailedWatchSessionCreateAdvancesIdempotencyGeneration(t *testing.T) {
 	); err == nil {
 		t.Fatal("first watch session creation unexpectedly succeeded")
 	}
-	if _, _, err := svc.ensureWatchSessionAtGeneration(
-		ctx, "CWATCH", 2,
-	); err != nil {
+	failed, err := st.Intelligence.GetChannelMemory(ctx, "CWATCH")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.SessionID != "" || failed.Generation != 2 {
+		t.Fatalf("failed watch generation was not durable: %+v", failed)
+	}
+	// A separate caller supplies only the normal minimum. It must recover the
+	// advanced generation from shared channel memory rather than being told 2.
+	if _, _, err := svc.ensureWatchSessionAtGeneration(ctx, "CWATCH", 1); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
@@ -257,6 +268,95 @@ func TestFailedWatchSessionCreateAdvancesIdempotencyGeneration(t *testing.T) {
 	}
 	if !slices.Equal(coopClient.createKeys, want) {
 		t.Fatalf("watch session create keys = %v, want %v", coopClient.createKeys, want)
+	}
+}
+
+// A Grafana alert was accepted, then every one of its twenty preparation
+// attempts met Coop's retryable internal_error before a model turn existed.
+// Ambient bot traffic deliberately has no terminal-failure post, so spending
+// the ordinary attempt budget here silently discarded the whole stream.
+// Covers: TestRetryableCoopPreparationExhaustionStaysQueued
+func TestAcceptedWatchRunSurvivesExhaustedCoopSessionCreationOutage(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Limits.MaxAgentRunAttempts = 20
+	cfg.Slack.WatchChannels = []string{"CALERTS"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	coopClient := newFakeCoop()
+	for range cfg.Limits.MaxAgentRunAttempts {
+		coopClient.createErrors = append(coopClient.createErrors, &coop.APIError{
+			Status: 500, Code: "internal_error",
+			Detail: "operation op_secret failed while refreshing /Users/private/tenant-core",
+		})
+	}
+	coopClient.completeOnSubmit = `{"action":"ignore"}`
+	slack := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slack, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B_GRAFANA",
+	}
+	clock := useTestClock(svc, st)
+	input := core.SlackInput{
+		ID: "slack-grafana-create-outage", EnvelopeID: "env-grafana-create-outage",
+		EventID: "EvGrafanaCreateOutage", Kind: "bot_message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CALERTS", MessageTS: "1700.950", UserID: "B_GRAFANA",
+		Text: "FIRING: scrape target nats-metrics is down",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit alert = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for range cfg.Limits.MaxAgentRunAttempts {
+		if err := svc.processAgentRun(ctx); err != nil {
+			t.Fatal(err)
+		}
+		clock.Advance(time.Hour)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.TerminalState != "" || run.State != core.AgentRunPending {
+		t.Fatalf(
+			"accepted alert was abandoned during Coop outage: state=%q terminal=%q failures=%d error=%q",
+			run.State, run.TerminalState, run.Failures, run.LastError,
+		)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 1 || slack.posts[0].channel != input.ChannelID ||
+		slack.posts[0].thread != input.MessageTS {
+		t.Fatalf("retryable preparation notice = %+v", slack.posts)
+	}
+	rendered := renderedSlackMessage(slack.posts[0].message)
+	for _, want := range []string{"Investigation queued", "No model turn has started"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("preparation notice lacks %q: %q", want, rendered)
+		}
+	}
+	for _, secret := range []string{"op_secret", "/Users/private", "internal operation"} {
+		if strings.Contains(rendered, secret) {
+			t.Fatalf("preparation notice leaked %q: %q", secret, rendered)
+		}
+	}
+
+	// Coop is healthy again. The exact accepted run, not a replacement Slack
+	// event, now gets its first model turn and reaches a normal completion.
+	finishQueuedAgentRun(t, ctx, svc)
+	run, err = st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || run.State != core.AgentRunCompleted ||
+		run.TerminalState != string(core.AgentRunCompleted) {
+		t.Fatalf("preserved alert did not recover = %+v, %v", run, err)
 	}
 }
 

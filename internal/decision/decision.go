@@ -1338,10 +1338,11 @@ func ApplyWatchResultOperations(decision *WatchDecision) error {
 		return nil
 	}
 	if decision.Action == "ignore" {
+		// A silent external wait is already a complete host-owned action and may
+		// have been suppressed as an intermediate lifecycle update. Preserve it
+		// before considering reply suppression, whose generic fold requires a
+		// complete_episode operation.
 		for _, operation := range decision.Operations {
-			if operation.Type == "update_memory" {
-				return ApplySilentWatchMemoryOperation(decision)
-			}
 			if operation.Type == "wait_external" {
 				completion := watchOperationCompletion(decision.Operations)
 				if completion == nil || completion.Verdict == "in_progress" {
@@ -1350,14 +1351,18 @@ func ApplyWatchResultOperations(decision *WatchDecision) error {
 				break
 			}
 		}
+		// Host suppression outranks an ordinary model-authored ignore. A
+		// suppressed reply may retain evidence plus memory, so validating its
+		// first update_memory as the entire result would reject a valid record.
+		if strings.TrimSpace(decision.Suppressed) != "" {
+			return ApplySuppressedWatchOperations(decision)
+		}
+		for _, operation := range decision.Operations {
+			if operation.Type == "update_memory" {
+				return ApplySilentWatchMemoryOperation(decision)
+			}
+		}
 	}
-	// Host suppression outranks the operation stream. Everything below this
-	// point exists to rebuild a reply from the operations, and a decision the
-	// host silenced must not acquire one on the way back out of the database —
-	// which is what happened: policy converted a redundant Terraform-success
-	// notice to ignore, the operations survived because they carry evidence
-	// worth keeping, and finalization read those same operations as proof that
-	// a reply was intended.
 	if strings.TrimSpace(decision.Suppressed) != "" {
 		return ApplySuppressedWatchOperations(decision)
 	}

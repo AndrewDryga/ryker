@@ -41,6 +41,8 @@ func boundedScopeEvidence() []core.Evidence {
 // Arbitrary completion prose cannot be the scope contract. These paraphrases all made the same
 // exhaustive claim, and a finite phrase list can only catch the versions it happened to imagine.
 // Once scope is structured, the host renders one bounded message independent of those words.
+// Covers: TestDegradedReplyDoesNotClaimOnlyAffectedPathFromBoundedChecks
+// Covers finding: 20260810T185132Z-run_cbc406b198923d271f43044f136369ff
 func TestBoundedOperationalScopeMakesExclusiveParaphrasesIrrelevant(t *testing.T) {
 	assessment := boundedAlertAssessment()
 	want := ""
@@ -76,6 +78,8 @@ func TestBoundedOperationalScopeMakesExclusiveParaphrasesIrrelevant(t *testing.T
 	}
 }
 
+// Covers: TestDesktopWebSocketRecoveryRequiresDesktopEvidence
+// Covers: TestUnsupportedOperationalClaimRejectsServingClaimWithoutApplicationEvidence
 func TestBoundedOperationalScopeRequiresEvidenceForEveryCheckedTarget(t *testing.T) {
 	assessment := boundedAlertAssessment()
 	if correction := OperationalScopeCorrection(assessment, boundedScopeEvidence()); correction != "" {
@@ -161,6 +165,7 @@ func TestExhaustiveOperationalScopeRequiresAValidatedCompleteUniverse(t *testing
 	}
 }
 
+// Covers: TestScopedRepositorySearchCannotBecomeCategoricalOwnershipExclusion
 func TestDeepOperationalReportCarriesAndRendersStructuredScope(t *testing.T) {
 	raw := `{"operations":[
 		{"id":"rivals-errors","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"route health","observation":"the checked route returns errors","relation":"contradicts","health_effect":"degraded","source_type":"monitoring","source_name":"route probe","target":"Rivals routes"}},

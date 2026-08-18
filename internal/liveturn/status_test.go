@@ -10,15 +10,10 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
-// The status beside a thread has to name this turn, not the kind of turn.
-//
-// Cost: on the tenant instance one episode recorded 596 tool.started, 594
-// tool.completed and 247 model.thought rows while the thread status said "is
-// gathering and reconciling evidence…" — a sentence that is true of every
-// investigation ever run — rewritten every two minutes to say it again. The
-// stream that could have said which call was already on disk and already being
-// read by the card two lines below the status.
-func TestStatusNamesTheCallInsteadOfTheKindOfWork(t *testing.T) {
+// The status beside a thread says which kind of progress is happening without
+// copying the transcript. Exact calls, paths, thoughts and counts belong to the
+// card's work record, where they have context and room.
+func TestStatusNamesProgressWithoutCopyingTheTranscript(t *testing.T) {
 	cases := []struct {
 		name      string
 		tail      core.AgentActivityTail
@@ -33,7 +28,7 @@ func TestStatusNamesTheCallInsteadOfTheKindOfWork(t *testing.T) {
 				`{"input":{"server":"emisar","tool":"run_action","arguments":{"action_id":"vl.query"}}}`,
 			)},
 		},
-		want: "is running emisar vl.query", wantFound: true,
+		want: "is checking evidence...", wantFound: true,
 	}, {
 		name: "a file read is about its path",
 		tail: core.AgentActivityTail{
@@ -42,14 +37,14 @@ func TestStatusNamesTheCallInsteadOfTheKindOfWork(t *testing.T) {
 				toolMoment("Read file '/Users/x/remote-bf1a4735b267827eceebd9f1/terraform/apps_cms.tf'", "read", ""),
 			},
 		},
-		want: "is reading terraform/apps_cms.tf", wantFound: true,
+		want: "is inspecting the workspace...", wantFound: true,
 	}, {
 		name: "an edit says so",
 		tail: core.AgentActivityTail{
 			ToolCalls: 1,
 			Lines:     []core.AgentActivity{toolMoment("Edit 'internal/service/input.go'", "edit", "")},
 		},
-		want: "is editing internal/service/input.go", wantFound: true,
+		want: "is editing the change...", wantFound: true,
 	}, {
 		name: "a shell call is the command it ran, not the word Terminal",
 		tail: core.AgentActivityTail{
@@ -58,7 +53,7 @@ func TestStatusNamesTheCallInsteadOfTheKindOfWork(t *testing.T) {
 				"Terminal", "execute", `{"input":{"command":"go test ./internal/service"}}`,
 			)},
 		},
-		want: "is running go test ./internal/service", wantFound: true,
+		want: "is checking evidence...", wantFound: true,
 	}, {
 		name: "a thought is the summary, never the reasoning",
 		tail: core.AgentActivityTail{
@@ -68,7 +63,7 @@ func TestStatusNamesTheCallInsteadOfTheKindOfWork(t *testing.T) {
 				Detail: json.RawMessage(`{"text":"Checking the Data API timeouts\nagainst the deploy"}`),
 			}},
 		},
-		want: "is thinking — Checking the Data API timeouts", wantFound: true,
+		want: "is reasoning through the evidence...", wantFound: true,
 	}, {
 		name: "the count earns its clause at five calls",
 		tail: core.AgentActivityTail{
@@ -78,14 +73,14 @@ func TestStatusNamesTheCallInsteadOfTheKindOfWork(t *testing.T) {
 				`{"input":{"server":"emisar","tool":"run_action","arguments":{"action_id":"vl.query"}}}`,
 			)},
 		},
-		want: "is running emisar vl.query · 54 tool calls", wantFound: true,
+		want: "is checking evidence...", wantFound: true,
 	}, {
 		name: "and does not below it",
 		tail: core.AgentActivityTail{
 			ToolCalls: 4,
 			Lines:     []core.AgentActivity{toolMoment("Edit 'go.mod'", "edit", "")},
 		},
-		want: "is editing go.mod", wantFound: true,
+		want: "is editing the change...", wantFound: true,
 	}, {
 		// The whole point of reporting false rather than a phrase: the caller
 		// keeps the status it would have set, so a turn that has not started
@@ -110,6 +105,43 @@ func TestStatusNamesTheCallInsteadOfTheKindOfWork(t *testing.T) {
 				t.Fatalf("status = %q, want %q", status, test.want)
 			}
 		})
+	}
+}
+
+// Twenty-three statuses in the 2026-08-17 Slack delivery ledger exposed the
+// agent harness instead of useful progress: complete shell commands, checkout
+// paths, and even a SKILL.md read. The detailed activity stays in the work
+// record; the narrow assistant status must describe the kind of progress and
+// must never relay transcript-authored command or reasoning text.
+func TestThreadStatusKeepsExecutionPlumbingInTheWorkRecord(t *testing.T) {
+	cases := []core.AgentActivityTail{
+		{
+			ToolCalls: 9,
+			Lines: []core.AgentActivity{toolMoment(
+				"Terminal", "execute",
+				`{"input":{"command":"sed -n '1,240p' .agent/skills/work/SKILL.md && git status --short"}}`,
+			)},
+		},
+		{
+			ToolCalls: 8,
+			Lines: []core.AgentActivity{{
+				Kind: coop.EventModelThought, Title: "Reasoning",
+				Detail: json.RawMessage(`{"text":"Correcting report to include only complete_episode"}`),
+			}},
+		},
+	}
+	for index, tail := range cases {
+		status, ok := Status(tail)
+		if !ok {
+			t.Fatalf("case %d produced no status", index)
+		}
+		for _, plumbing := range []string{
+			"sed -n", "SKILL.md", "git status", "complete_episode", "tool calls",
+		} {
+			if strings.Contains(status, plumbing) {
+				t.Fatalf("case %d leaked %q in %q", index, plumbing, status)
+			}
+		}
 	}
 }
 
@@ -150,12 +182,10 @@ func TestStatusFitsTheFieldSlackActuallyHas(t *testing.T) {
 	}
 }
 
-// The count is the one clause that never gives way.
-//
-// It is the only number in the line the card's window does not already show,
-// and eight characters cannot be the reason a status does not fit — so the
-// phrase is shortened around it rather than the other way round.
-func TestStatusKeepsTheCountWhenThePhraseWillNotFit(t *testing.T) {
+// Counts are useful in the work record and meaningless in ambient channel
+// chrome. Keeping them out also keeps the public status stable while a turn
+// emits hundreds of activity moments.
+func TestStatusKeepsToolCountsInTheWorkRecord(t *testing.T) {
 	status, ok := Status(core.AgentActivityTail{
 		ToolCalls: 119,
 		Lines: []core.AgentActivity{toolMoment(
@@ -165,11 +195,8 @@ func TestStatusKeepsTheCountWhenThePhraseWillNotFit(t *testing.T) {
 	if !ok {
 		t.Fatal("no status")
 	}
-	if !strings.HasSuffix(status, "· 119 tool calls") {
-		t.Fatalf("the count was truncated away: %q", status)
-	}
-	if !strings.Contains(status, "…") {
-		t.Fatalf("the phrase was not marked as cut: %q", status)
+	if strings.Contains(status, "119") || strings.Contains(status, "tool calls") {
+		t.Fatalf("the execution count reached the public status: %q", status)
 	}
 }
 
@@ -195,8 +222,8 @@ func TestStatusNeverCarriesAPackDigest(t *testing.T) {
 	if strings.Contains(status, "sha256") {
 		t.Fatalf("the digest reached the status: %q", status)
 	}
-	if !strings.Contains(status, "victoriametrics@0.1.7") {
-		t.Fatalf("the readable half of the ref was lost too: %q", status)
+	if status != "is checking evidence..." {
+		t.Fatalf("tool detail reached the public status: %q", status)
 	}
 }
 

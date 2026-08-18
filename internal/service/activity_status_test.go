@@ -12,13 +12,14 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
-// The thread status names this turn's work once the turn has narrated any.
+// The thread status names this turn's kind of progress once it has narrated
+// any, while the exact call remains in the task card and work record.
 //
 // The general sentence stays for a turn that has not: "is investigating..."
 // about a run that has made no call is a placeholder, and "is running" about a
 // call that has not happened would be a lie. So the fallback is tested beside
 // the derivation, in the same run, before and after the first moment lands.
-func TestThreadStatusNamesTheCallOnceTheTurnHasNarratedOne(t *testing.T) {
+func TestThreadStatusNamesProgressWithoutRelayingTheCall(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -39,7 +40,7 @@ func TestThreadStatusNamesTheCallOnceTheTurnHasNarratedOne(t *testing.T) {
 			`{"input":{"server":"emisar","tool":"run_action","arguments":{"action_id":"vl.query"}}}`,
 		),
 	}})
-	if status := svc.agentRunNativeStatus(ctx, run); status != "is running emisar vl.query" {
+	if status := svc.agentRunNativeStatus(ctx, run); status != "is checking evidence..." {
 		t.Fatalf("status = %q", status)
 	}
 
@@ -48,7 +49,7 @@ func TestThreadStatusNamesTheCallOnceTheTurnHasNarratedOne(t *testing.T) {
 		Kind: "tool.started", ToolKind: "read",
 		Title: "Read file '/coop/repositories/infra/terraform/apps_cms.tf'",
 	}})
-	if status := svc.agentRunNativeStatus(ctx, run); status != "is reading terraform/apps_cms.tf" {
+	if status := svc.agentRunNativeStatus(ctx, run); status != "is inspecting the workspace..." {
 		t.Fatalf("status did not follow the turn: %q", status)
 	}
 }

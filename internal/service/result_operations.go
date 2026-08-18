@@ -13,6 +13,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/fanout"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/reportcanvas"
+	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -267,6 +268,9 @@ func (s *Service) applyResultOperation(
 		if parseErr != nil {
 			return fmt.Errorf("result operation %q deadline: %w", operation.ID, parseErr)
 		}
+		pollAfter = schedulepkg.BoundedExternalPollAfter(
+			wait.Kind, pollAfter, deadline, s.now(),
+		)
 		wakeup, err := s.store.CreateEpisodeWakeup(ctx, core.EpisodeWakeup{
 			ID: wait.ID, EpisodeID: episode.ID, Kind: wait.Kind,
 			Verification: wait.Verification,

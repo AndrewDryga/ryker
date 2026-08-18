@@ -72,6 +72,10 @@ type assembledAgentContext struct {
 	// asked for. Separate from the count above because it has its own budget:
 	// exactly one, after which the answer is posted as written.
 	ReplyShapeCorrections int `json:"reply_shape_corrections,omitempty"`
+	// TurnTimeoutReplays is a separate execution-failure budget. Aggregate
+	// failure_count also includes preparation and cannot answer whether the
+	// accepted model turn has already received its one deadline recovery.
+	TurnTimeoutReplays int `json:"turn_timeout_replays,omitempty"`
 	// CorrectionClasses counts the corrections this run has had of each class,
 	// MinTargetIndex is the rung of the session policy's target ladder its next
 	// turn may not be answered below, RefusedTargetFloor is the lowest rung Coop

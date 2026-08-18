@@ -259,7 +259,8 @@ func episodeConclusionKind(episode core.WorkEpisode) string {
 // way. A guard against misreading a title must not itself misread a word.
 var reusableArtifactAuthoringVerbs = regexp.MustCompile(
 	`\b(creat(e|es|ed|ing)|author(s|ed|ing)?|writ(e|es|ing)|rewrit(e|es|ing)|` +
-		`draft(s|ed|ing)?|revis(e|es|ing)|extend(s|ed|ing)?|edit(s|ed|ing)?|reusable)\b`,
+		`draft(s|ed|ing)?|revis(e|es|ing)|extend(s|ed|ing)?|edit(s|ed|ing)?|` +
+		`ship(s|ped|ping)?|reusable)\b`,
 )
 
 func ReusableArtifactAuthoring(text string) bool {
@@ -528,8 +529,8 @@ func (contract InvestigationContract) conclusionGuidance() string {
 	case "operational_health":
 		return `
 This is an operational health assessment. Set completion.verdict to exactly healthy, degraded, or
-unhealthy. Use functional behavior, errors and timeouts versus comparable baselines, active alerts,
-failures, dependencies, saturation, and recent changes. Missing evidence alone is not degradation,
+unhealthy. Healthy requires functional_probe plus broad/service error_rate+timeout_rate comparisons.
+Also use active alerts, failures, dependencies, saturation, and recent changes. Missing evidence alone is not degradation,
 and healthy infrastructure alone does not prove application health. A verified reduced capability is
 degraded; material unavailability or broad impact is unhealthy. Formal SLOs are optional. When none
 exists, use current operational indicators and mark the SLO layer not_applicable. Finish with one

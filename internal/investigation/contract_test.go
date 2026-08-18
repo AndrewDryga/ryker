@@ -1,6 +1,7 @@
 package investigation
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -238,6 +239,96 @@ func TestLedgerAcceptsReconciledNegativeConclusions(t *testing.T) {
 	ledger = BuildLedger(contract, evidence, coverage, now)
 	if correction := ledger.CompletionCorrection("decision_ready"); !strings.Contains(correction, "contradictions") {
 		t.Fatalf("healthy contradiction correction = %q", correction)
+	}
+}
+
+// A handful of successful point probes cannot establish platform-wide
+// application health. The successful sibling records the two exact scopes and
+// the equivalent-window error and timeout indicators that the scheduled health
+// contract asks for; these are typed dimensions, not phrases recovered from
+// model prose.
+// Covers: TestHealthyAssessmentRequiresComparableApplicationTrendEvidence
+// Covers finding: 20260810T150529Z-run_b7706a1c89c3a252c0392bdcd0058e92
+func TestHealthyAssessmentRequiresComparableApplicationTrendEvidence(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	episode := core.WorkEpisode{
+		Effort:           core.EffortOperationalAssessment,
+		RequiredCoverage: []string{"application", "slo"},
+	}
+	probe := core.Evidence{
+		ID: "probe", ClaimID: "application.functional_behavior",
+		Relation: "supports", HealthEffect: "none", SourceType: "monitoring",
+		SourceName: "HTTP probe", Observation: "Three bounded endpoints returned 200.",
+		ObservedAt: now, Dimensions: map[string]string{
+			"service": "platform", "endpoint": "/,/api/a,/api/b",
+			"environment": "production", "window": "point-in-time",
+			"measurement_kind": "functional_probe",
+		},
+	}
+	coverage := []core.Coverage{
+		{Layer: "application", ClaimIDs: []string{"application.functional_behavior"}, Status: "healthy", Detail: "Three bounded endpoints returned 200."},
+		{Layer: "slo", ClaimIDs: []string{"impact.current"}, Status: "healthy", Detail: "No formal SLO exists."},
+	}
+	completion := &CompletionAssessment{
+		Status: "decision_ready", Verdict: "healthy", Summary: "The platform is healthy.",
+	}
+	if correction := ClaimCorrection(
+		episode, "reply", []core.Evidence{probe}, coverage, completion, now, now, true,
+	); !strings.Contains(correction, "equivalent-window") {
+		t.Fatalf("bounded HTTP probes did not request comparable trends: %q", correction)
+	}
+
+	evidence := []core.Evidence{probe}
+	for _, item := range []struct {
+		id, scope, kind, service string
+	}{
+		{"broad-errors", "broad", "error_rate", "platform"},
+		{"broad-timeouts", "broad", "timeout_rate", "platform"},
+		{"service-errors", "service", "error_rate", "checkout"},
+		{"service-timeouts", "service", "timeout_rate", "checkout"},
+	} {
+		evidence = append(evidence, core.Evidence{
+			ID: item.id, ClaimID: "application.functional_behavior",
+			Relation: "supports", HealthEffect: "none", SourceType: "monitoring",
+			SourceName: "VictoriaMetrics", Observation: "Equivalent windows show no spike.",
+			ObservedAt: now, Dimensions: map[string]string{
+				"service": item.service, "endpoint": "all requests",
+				"environment": "production", "window": "15m",
+				"comparison_window": "previous 15m", "population": "all requests",
+				"denominator": "requests", "measurement_scope": item.scope,
+				"measurement_kind": item.kind,
+			},
+		})
+	}
+	coverage[1].Status = "not_applicable"
+	coverage[1].Detail = "No formal SLO exists; current operational indicators are assessed in application coverage."
+	if correction := ClaimCorrection(
+		episode, "reply", evidence, coverage, completion, now, now, true,
+	); correction != "" {
+		t.Fatalf("equivalent-window functional and trend evidence was rejected: %q", correction)
+	}
+
+	// Presence is not comparability. This is the exact false green the first
+	// implementation admitted: each bucket was populated, but error and timeout
+	// rates described different populations and windows.
+	mismatched := append([]core.Evidence(nil), evidence...)
+	mismatched[len(mismatched)-1].Dimensions = maps.Clone(mismatched[len(mismatched)-1].Dimensions)
+	mismatched[len(mismatched)-1].Dimensions["window"] = "24h"
+	mismatched[len(mismatched)-1].Dimensions["population"] = "background jobs"
+	if correction := ClaimCorrection(
+		episode, "reply", mismatched, coverage, completion, now, now, true,
+	); !strings.Contains(correction, "do not share") {
+		t.Fatalf("incompatible trend signatures counted as equivalent: %q", correction)
+	}
+
+	stale := append([]core.Evidence(nil), evidence...)
+	for index := range stale {
+		stale[index].ObservedAt = now.Add(-time.Hour)
+	}
+	if correction := ClaimCorrection(
+		episode, "reply", stale, coverage, completion, now, now, true,
+	); !strings.Contains(correction, "fresh") {
+		t.Fatalf("stale health rows satisfied a current verdict: %q", correction)
 	}
 }
 

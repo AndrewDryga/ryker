@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/completionpolicy"
 	"github.com/AndrewDryga/responder/internal/core"
 )
 
@@ -763,6 +764,20 @@ func ClaimCorrection(
 		if !matched {
 			return "coverage for required claim " + requirement.ID + " must include its exact claim_id"
 		}
+	}
+	completionStatus, completionVerdict := "", ""
+	if completion != nil {
+		completionStatus, completionVerdict = completion.Status, completion.Verdict
+	}
+	if correction := completionpolicy.PublishedArtifactCorrection(
+		episode.CompletionCriteria, evidence, completionStatus,
+	); correction != "" {
+		return correction
+	}
+	if correction := completionpolicy.HealthyOperationalTrendCorrection(
+		episode.Effort, evidence, coverage, completionVerdict, now,
+	); correction != "" {
+		return correction
 	}
 	ledger := BuildLedgerForChain(contract, evidence, coverage, now.UTC(), chainStartedAt.UTC())
 	return ledger.CompletionCorrectionFor(completion.Status, completion.Verdict)

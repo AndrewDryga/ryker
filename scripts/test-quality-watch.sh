@@ -196,6 +196,7 @@ INSERT INTO evaluation_decisions VALUES (
 	'run_one', 'run:key:one'
 );
 SQL
+# Covers finding: 20260811T203924Z-run_2a293b9775f37b09db9a434d899785dc
 run_watch clean --once
 grep -Fq 'Production is healthy within the checked scope.' "$capture"
 grep -Fq '"reply_delivery_state": "sent"' "$capture"
@@ -230,6 +231,7 @@ INSERT INTO slack_deliveries VALUES (
 	'inc_task', 2, 'run_future', 'slack_future', 0, 'run:key:future'
 );
 SQL
+# Covers finding: 20260812T040150Z-run_b2234abae4eaaf3900a01db09b64e1e3
 run_watch challenge --once
 grep -Fq 'The deployment is healthy.' "$capture"
 if grep -Fq 'Wrong card from a newer task turn.' "$capture"; then
@@ -275,7 +277,7 @@ INSERT INTO slack_deliveries VALUES (
   '', 'slack_requeued', 1, ''
 );
 INSERT INTO evaluation_decisions VALUES (
-  'slack_requeued', 'live', 'reply', 'decision from the earlier execution', 1, 1,
+	'slack_requeued', 'live', 'reply', 'decision from the earlier execution', 1, 1,
   '', ''
 );
 SQL
@@ -286,6 +288,38 @@ if grep -Fq 'Answer from the earlier failed execution.' "$capture"; then
 fi
 grep -Fq '"reply_delivery_state": null' "$capture"
 grep -Fq '"recorded_action": null' "$capture"
+
+rm -f "$count_file"
+sqlite3 "$state_dir/responder.db" <<'SQL'
+INSERT INTO slack_inputs (
+  id, kind, channel_id, thread_ts, user_id, message_ts, text, state,
+  failure_count, last_error, received_at, updated_at
+) VALUES (
+  'slack_shadow', 'bot_message', 'C0TENANTX01', '', 'BGRAFANA', '2999.0058',
+  'FIRING: checkout errors', 'done', 0, '',
+  '2999-01-01T00:00:05.800Z', '2999-01-01T00:00:05.900Z'
+);
+INSERT INTO agent_runs VALUES (
+  'run_shadow', 'triage', 'completed', 'completed', 'C0TENANTX01', '',
+  'watch', 'slack_shadow', 'emisar', '',
+  '2999-01-01T00:00:05.800Z', '2999-01-01T00:00:05.850Z',
+  '2999-01-01T00:00:05.900Z', '2999-01-01T00:00:05.900Z',
+  '{"action":"reply"}', 0, '', 'run:key:shadow'
+);
+INSERT INTO evaluation_decisions VALUES (
+  'slack_shadow', 'shadow', 'reply', 'evaluated silently by channel policy', 2, 2,
+  'run_shadow', 'run:key:shadow'
+);
+SQL
+# A shadow reply intentionally has no Slack delivery. The observer must retain
+# that mode or it is indistinguishable from a lost live reply.
+# Covers finding: 20260814T045645Z-run_060ddfec5e5b47fd73aa67054d68d9ee
+run_watch clean --once
+sed -n '/^<episodes_json>$/,/^<\/episodes_json>$/p' "$capture" |
+  sed '1d;$d' |
+  jq -e '[.[] | select(.run_id == "run_shadow") |
+    .recorded_mode == "shadow" and .recorded_action == "reply" and
+    .reply_delivery_state == null] == [true]' >/dev/null
 
 rm -f "$count_file"
 sqlite3 "$state_dir/responder.db" <<'SQL'

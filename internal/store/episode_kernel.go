@@ -603,7 +603,12 @@ func validateManifestLineage(ctx context.Context, tx *sql.Tx, manifest core.Cont
 	if parentEpisode != manifest.EpisodeID || parentVersion != manifest.Version-1 {
 		return errors.New("context manifest parent is not the preceding episode version")
 	}
-	// Only the parent's actual context has to be accounted for. A row carrying
+	// Only the parent's actual context has to be accounted for. The execution
+	// profile describes that single attempt's route and is replaced, not
+	// inherited, when a continuation moves between watch, chat, investigate or
+	// engineer. Requiring it here made that legal transition look like lost
+	// evidence and deterministically rejected every retry before a turn started.
+	// A row carrying
 	// an omission reason records something the parent attempt did NOT send, so
 	// there is nothing for the child to have dropped and nothing for it to
 	// explain — and requiring the child to repeat it would make every omission
@@ -611,7 +616,8 @@ func validateManifestLineage(ctx context.Context, tx *sql.Tx, manifest core.Cont
 	// the attempts that carried it in full.
 	rows, err := tx.QueryContext(ctx, `
 		SELECT source_ref, content_digest FROM context_manifest_refs
-		WHERE manifest_id = ? AND omitted_reason = ''`,
+		WHERE manifest_id = ? AND omitted_reason = ''
+		  AND kind <> 'execution_profile'`,
 		manifest.ParentManifestID)
 	if err != nil {
 		return err

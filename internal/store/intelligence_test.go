@@ -480,6 +480,22 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 // left a finished investigation with no reply in Slack.
 // Covers: TestRecordEvidenceHandlesSuppliedIDCollisionAcrossSources
 // Covers: TestTriageFinalizationSurvivesEvidenceOperationIDReusedByAnotherInput
+// Covers: TestRecordEvidenceScopesExplicitIDsBySource
+// Covers finding: 20260812T184947Z-run_8063dd0ae7befb00931b0890ae8d594b
+// Covers finding: 20260812T190204Z-run_dcee987eac042207ad1f0e0d1d4596fb
+// Covers finding: 20260812T201226Z-run_9cc54bc9596224056b54326894e6698c
+// Covers finding: 20260812T202342Z-run_0e635fa06b9d9b27d55545330755f929
+// Covers finding: 20260812T203545Z-run_19b256c4bcd790080d72efbb76526fb8
+// Covers finding: 20260812T210821Z-run_ca2d7d6fbf27376fa06ecdffb501a3d5
+// Covers finding: 20260812T212445Z-run_845cfb9193b3ee27f6e9c3c8b28b6114
+// Covers finding: 20260812T222230Z-run_87e3339d905d489aae01b71ced6545c0
+// Covers finding: 20260812T223350Z-run_56e1d2e6b39efec5e05ac0235cb9d9c8
+// Covers finding: 20260812T225223Z-run_4c34667b68af47a37ae25caae3d48a8c
+// Covers finding: 20260813T005901Z-run_514f0962c21948a41c34428eb9d2bd05
+// Covers finding: 20260813T020120Z-run_37b8d650a5f3422c82c824c54ee6a186
+// Covers finding: 20260813T052123Z-run_ae4bd70b81bc926db476ee7579040bb9
+// Covers finding: 20260813T094753Z-run_4c2ec75890ea9d8c415dea81996de36d
+// Covers finding: 20260813T100327Z-run_429d561615014e3fde000dc20c497aa8
 //
 // The largest cluster in the recorded history: sixteen confirmed findings and
 // nineteen lost replies in a day. Models name evidence with stable slugs and

@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: eval-prompts findings-coverage watchdog-check promote-corrections build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-memory eval-episode-replay eval-regressions eval-live-canary eval-trend eval-baseline-update model-release-check eval-replay customer-check focus dev-workflow-check dev-check candidate canary promote quality-watch-check eval-trend-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
+.PHONY: eval-prompts findings-coverage findings-coverage-check watchdog-check promote-corrections build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-memory eval-episode-replay eval-regressions eval-live-canary eval-trend eval-baseline-update model-release-check eval-replay customer-check focus dev-workflow-check dev-check candidate canary promote quality-watch-check eval-trend-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/AndrewDryga/responder/internal/version.Version=$(VERSION)
@@ -312,6 +312,9 @@ findings-coverage:
 		"$$HOME/Projects/tenant/.responder/state/responder.db" \
 		"$$HOME/Projects/os/emisar/.responder/state/responder.db"
 
+findings-coverage-check:
+	scripts/test-findings-coverage.sh
+
 # The watchdog's failure mode is silence, and so is its healthy state. It is
 # gated here because the only way to know it still fires is to break something
 # on purpose every time the tree changes.
@@ -321,7 +324,7 @@ watchdog-check:
 # Fast deterministic feedback for a completed edit batch. Independent checks
 # run concurrently; CI and candidate promotion still use the complete gate.
 dev-check:
-	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) tidy-check lint test eval-replay build dev-workflow-check watchdog-check
+	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) tidy-check lint test eval-replay build dev-workflow-check findings-coverage-check watchdog-check
 
 # Release mechanics have explicit names so a developer never has to remember
 # which script proves, stages, canaries, or promotes an exact commit.

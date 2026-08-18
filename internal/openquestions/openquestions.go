@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 )
@@ -78,22 +79,35 @@ func unexplainedLine(finding investigation.FindingOperation) string {
 	what := strings.TrimSpace(finding.What)
 	for _, alternative := range finding.Alternatives {
 		if why := strings.TrimSpace(alternative.NotCheckable); why != "" {
-			return decisionpkg.BoundedField(what+" — not checkable now: "+why, 200)
+			return boundedDisplayLine(what+" — not checkable now: "+why, 480)
 		}
 	}
 	return what
 }
 
+// boundedDisplayLine preserves a complete caveat whenever Slack can carry it,
+// and makes shortening visible when it cannot. The former 200-byte cut removed
+// the actionable end of a 282-byte explanation even though its context element
+// had room; core.TruncateUTF8 then left the reader with a sentence ending in
+// the middle of "not".
+func boundedDisplayLine(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= limit {
+		return value
+	}
+	const suffix = "…"
+	short := core.TruncateUTF8(value, limit-len(suffix))
+	if boundary := strings.LastIndexAny(short, " \t\n"); boundary > 0 {
+		short = strings.TrimSpace(short[:boundary])
+	}
+	return short + suffix
+}
+
 // nextCheckFor names the thing that will answer the open question, in the order
-// the host trusts: what the model wrote down, then what it actually scheduled,
-// then the host's own recheck. Empty is an honest answer — it means nothing will
+// the host trusts: what it actually scheduled, then the model's freeform next
+// action, then the host's own recheck. Empty is an honest answer — it means nothing will
 // answer it, which is exactly what decision.BoundedCauseCorrection refuses.
 func nextCheckFor(decision decisionpkg.WatchDecision) string {
-	if decision.Completion != nil {
-		if next := strings.TrimSpace(decision.Completion.NextAction); next != "" {
-			return next
-		}
-	}
 	for _, operation := range decision.AppliedOperations {
 		if operation.Type != "wait_external" || operation.ExternalWait == nil ||
 			operation.ExternalWait.Kind != scheduledVerificationWait {
@@ -105,19 +119,39 @@ func nextCheckFor(decision decisionpkg.WatchDecision) string {
 		verification := strings.TrimSpace(operation.ExternalWait.Verification)
 		if at, err := time.Parse(time.RFC3339, operation.ExternalWait.PollAfter); err == nil {
 			if verification != "" {
-				return "verify " + lowerFirst(verification) + " at " + at.UTC().Format("15:04") + " UTC"
+				return verificationCheck(verification) + " at " + at.UTC().Format("15:04") + " UTC"
 			}
 			return "scheduled follow-up at " + at.UTC().Format("15:04") + " UTC"
 		}
 		if verification != "" {
-			return "verify " + lowerFirst(verification)
+			return verificationCheck(verification)
 		}
 		return "scheduled follow-up"
+	}
+	if decision.Completion != nil {
+		if next := strings.TrimSpace(decision.Completion.NextAction); next != "" {
+			return next
+		}
 	}
 	if decision.Completion != nil && decision.Completion.Recheck != nil {
 		return "recheck scheduled"
 	}
 	return ""
+}
+
+func verificationCheck(value string) string {
+	words := strings.Fields(strings.TrimSpace(value))
+	if len(words) == 0 {
+		return "verify"
+	}
+	switch strings.ToLower(strings.TrimRight(words[0], ":")) {
+	case "verify", "check", "confirm":
+		words = words[1:]
+	}
+	if len(words) == 0 {
+		return "verify"
+	}
+	return "verify " + lowerFirst(strings.Join(words, " "))
 }
 
 func lowerFirst(value string) string {

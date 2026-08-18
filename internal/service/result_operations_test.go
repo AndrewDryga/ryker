@@ -161,6 +161,40 @@ func TestScheduledVerificationKeepsItsObservableSuccessCheck(t *testing.T) {
 	}
 }
 
+// Three confirmable Terraform plans each started a two-minute model-powered
+// terminal-refresh loop on 2026-08-17. By refresh nine the state was still the
+// same human approval wait, and the loops were consuming the provider quota
+// that real Slack work needed. Lifecycle cards remain the fast path; the host
+// poll is a fallback and must not run more than once per ten minutes.
+func TestTerraformWaitCannotPollMoreThanOncePerTenMinutes(t *testing.T) {
+	ctx, st, svc, _, run := activityRunFixture(t)
+	now := time.Date(2026, 8, 18, 4, 30, 0, 0, time.UTC)
+	svc.SetClock(func() time.Time { return now })
+	deadline := now.Add(2 * time.Hour)
+	if err := svc.recordResultOperationEvents(ctx, run.ID, []investigation.ResultOperation{{
+		ID: "wait-terminal-refresh", Type: "wait_external",
+		ExternalWait: &investigation.ExternalWaitOperation{
+			ID: "wakeup-terminal-refresh", Kind: "terraform_run",
+			Verification: "verify the exact run after its terminal result",
+			EventMatcher: []byte(`{"provider":"hcp_terraform","run_id":"run-abc"}`),
+			PollAfter:    now.Add(2 * time.Minute).Format(time.RFC3339),
+			Deadline:     deadline.Format(time.RFC3339),
+		},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	wakeups, err := st.ListEpisodeWakeups(ctx, run.EpisodeID)
+	if err != nil || len(wakeups) != 1 {
+		t.Fatalf("Terraform wakeups = %+v, %v", wakeups, err)
+	}
+	if want := now.Add(10 * time.Minute); !wakeups[0].PollAfter.Equal(want) {
+		t.Fatalf("Terraform fallback poll = %s, want %s", wakeups[0].PollAfter, want)
+	}
+	if !wakeups[0].Deadline.Equal(deadline) {
+		t.Fatalf("Terraform deadline changed = %s, want %s", wakeups[0].Deadline, deadline)
+	}
+}
+
 // The prerequisite variant of the same wedge, caught live the same evening the
 // wakeup variant was fixed: run_dba732ef poll-looped on `goal prerequisite
 // "goal-impact" is not in episode` — a plan_goal referencing a goal the model

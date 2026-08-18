@@ -170,6 +170,63 @@ func TestARoutedRetryCarriesForwardTheContextAndNotThePreviousProfile(t *testing
 	}
 }
 
+// A scheduled verification changed legally from watch to investigate, but the
+// store treated the attempt-local routing label like durable context. The same
+// manifest error then consumed all 20 retries over roughly 64 minutes without
+// starting one model turn. Persisting the merged child is the boundary the
+// older in-memory-only test did not cross.
+func TestARoutedRetryPersistsOnlyItsCurrentProfile(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "CROUTE",
+		ConversationKey: "channel:CROUTE", SourceKind: "recheck", SourceID: "wake-profile",
+		Episode: &core.WorkEpisode{Effort: core.EffortFocusedCheck},
+	})
+	if err != nil || !created {
+		t.Fatalf("queue routed retry = %+v, %t, %v", run, created, err)
+	}
+	parentRefs := []core.ContextReference{
+		{Kind: "source_input", SourceRef: "slack:1700.100", Visibility: "eligible"},
+		{Kind: executionProfileKind, SourceRef: "profile:watch", Visibility: "private"},
+	}
+	parent, err := st.CreateContextManifest(ctx, core.ContextManifest{
+		EpisodeID: run.EpisodeID, AttemptID: run.AttemptID,
+		References: parentRefs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	childRefs := mergeContextReferences(parentRefs, []core.ContextReference{{
+		Kind: executionProfileKind, SourceRef: "profile:investigate", Visibility: "private",
+	}})
+	child, err := st.CreateContextManifest(ctx, core.ContextManifest{
+		EpisodeID: run.EpisodeID, AttemptID: run.AttemptID,
+		ParentManifestID: parent.ID, References: childRefs,
+	})
+	if err != nil {
+		t.Fatalf("persist routed retry manifest: %v", err)
+	}
+	var profiles []string
+	var carriedSource bool
+	for _, ref := range child.References {
+		if ref.Kind == executionProfileKind {
+			profiles = append(profiles, ref.SourceRef)
+		}
+		if ref.Kind == "source_input" && ref.SourceRef == "slack:1700.100" {
+			carriedSource = true
+		}
+	}
+	if !slices.Equal(profiles, []string{"profile:investigate"}) || !carriedSource {
+		t.Fatalf("persisted routed references = %+v", child.References)
+	}
+}
+
 // workRoom creates one incident or engineering task ready for its Coop session.
 func workRoom(
 	t *testing.T,

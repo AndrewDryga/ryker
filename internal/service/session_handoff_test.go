@@ -253,6 +253,69 @@ func TestATerminalRotatedSessionDoesNotQueueAnImpossibleHandoff(t *testing.T) {
 	}
 }
 
+// A session can become terminal after rotation admitted its handoff but before
+// that background run is leased. This happened when a provider-limited handoff
+// was retried after Coop discarded the outgoing session: no Slack work was
+// lost, yet the bookkeeping episode was recorded as an operator-facing failure.
+func TestQueuedHandoffWhoseSessionBecomesTerminalFinishesAsABenignFallback(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	if err := st.Intelligence.BindChannelSession(
+		ctx, "CTERMINALAFTERQUEUE", "emisar", "ses_1", 1, 1,
+		time.Now().UTC().Add(-time.Minute),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Intelligence.ApplyWatchDecision(ctx, core.EvaluationDecision{
+		ChannelID: "CTERMINALAFTERQUEUE", Repository: "emisar",
+		MessageTS: "1700.902", SourceInput: "terminal-after-queue",
+		Mode: "live", Action: "reply",
+	}, "investigation", 2, core.AgentMemory{}); err != nil {
+		t.Fatal(err)
+	}
+
+	coopClient := newFakeCoop()
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	if !svc.queueSessionHandoff(ctx, "ses_1", outgoingSession{
+		memoryChannelID: "CTERMINALAFTERQUEUE", repository: "emisar",
+		lane: "watch", turnCount: 1,
+	}) {
+		t.Fatal("handoff was not queued while the outgoing session was open")
+	}
+	coopClient.session.State = "discarded"
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	run, err := st.GetAgentRunBySource(
+		ctx, handoffSourceKind, handoffSourceKind+":ses_1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.State != core.AgentRunSuperseded || run.TerminalState != "" ||
+		run.Failures != 0 {
+		t.Fatalf("terminal-after-queue handoff = %+v", run)
+	}
+	episode, err := st.GetWorkEpisode(ctx, run.EpisodeID)
+	if err != nil || episode.State != core.EpisodeSuperseded {
+		t.Fatalf("benign handoff fallback episode = %+v, %v", episode, err)
+	}
+	cleanup, err := st.NextCleanup(ctx, svc.now().UTC())
+	if err != nil || cleanup.SessionID != "ses_1" {
+		t.Fatalf("terminal session cleanup = %+v, %v", cleanup, err)
+	}
+}
+
 func admitWatchedMention(
 	t *testing.T,
 	ctx context.Context,

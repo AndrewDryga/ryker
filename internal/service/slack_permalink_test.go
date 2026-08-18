@@ -36,6 +36,8 @@ func TestParseSlackPermalinkExtractsThreadAndMessage(t *testing.T) {
 	}
 }
 
+// Covers: TestWatchedSlackPermalinkHydratesCrossChannelReferencedThread
+// Covers finding: 20260812T005823Z-run_ea41eecf88b56f45ac2c776c1c20dd1e
 func TestSlackPermalinkHydratesConfiguredCrossChannelThread(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

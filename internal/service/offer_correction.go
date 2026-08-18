@@ -3,9 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +11,7 @@ import (
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/offerreason"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
+	"github.com/AndrewDryga/responder/internal/scheduletext"
 )
 
 // offerCheck is one offer the host will not accept, paired with the reason and
@@ -130,11 +128,29 @@ func (s *Service) scheduleBatchMatchesRequest(
 	offers []*core.ScheduleOffer,
 	now time.Time,
 ) error {
-	wanted := schedulepkg.RequestedDayOffsets(input.Text)
-	if len(wanted) == 0 {
+	if len(scheduletext.RequestedDayOffsets(input.Text)) == 0 {
 		return nil
 	}
-	proposed := map[int]bool{}
+	requestedAt := input.ReceivedAt
+	if requestedAt.IsZero() {
+		requestedAt = now
+	}
+	var sameTimeAt *time.Time
+	if scheduletext.SameTimeRequested(input.Text) {
+		reference := requestedAt
+		sameTimeAt = &reference
+	} else if scheduletext.TerseRelativeSelection(input.Text) && s.store != nil {
+		reference, ok, err := scheduletext.PriorSameTimeRequest(
+			ctx, s.store, input, min(100, max(20, s.cfg.Slack.WatchContext)),
+		)
+		if err != nil && s.log != nil {
+			s.log.Warn("read prior schedule request", "source_input", input.ID, "error", err)
+		}
+		if ok {
+			sameTimeAt = &reference
+		}
+	}
+	occurrences := make([]scheduletext.Occurrence, 0, len(offers))
 	for _, offer := range offers {
 		task, err := s.scheduledTaskFromOffer(ctx, input, *offer, now)
 		if err != nil || task.Recurrence != "once" {
@@ -142,46 +158,9 @@ func (s *Service) scheduleBatchMatchesRequest(
 			// malformed one is already reported by the per-offer check.
 			return nil
 		}
-		location := schedulepkg.MustLocation(task.Timezone)
-		asked := now.In(location)
-		days := int(task.NextRunAt.In(location).Truncate(24*time.Hour).
-			Sub(asked.Truncate(24*time.Hour)).Hours() / 24)
-		proposed[days] = true
+		occurrences = append(occurrences, scheduletext.Occurrence{At: task.NextRunAt, Timezone: task.Timezone})
 	}
-	if len(proposed) == len(wanted) {
-		matched := true
-		for _, day := range wanted {
-			matched = matched && proposed[day]
-		}
-		if matched {
-			return nil
-		}
-	}
-	return fmt.Errorf(
-		"the request named %d check(s), at %s from now, and the batch proposes %d at %s; "+
-			"return exactly the occurrences that were asked for, at a consistent local time",
-		len(wanted), dayList(wanted), len(offers), dayList(sortedDays(proposed)),
-	)
-}
-
-func sortedDays(days map[int]bool) []int {
-	out := make([]int, 0, len(days))
-	for day := range days {
-		out = append(out, day)
-	}
-	sort.Ints(out)
-	return out
-}
-
-func dayList(days []int) string {
-	parts := make([]string, 0, len(days))
-	for _, day := range days {
-		parts = append(parts, strconv.Itoa(day)+"d")
-	}
-	if len(parts) == 0 {
-		return "none"
-	}
-	return strings.Join(parts, ", ")
+	return scheduletext.ValidateRelativeOccurrences(input.Text, requestedAt, sameTimeAt, occurrences)
 }
 
 // offerRejectionCorrection tells the model what is wrong with an offer it
@@ -214,6 +193,36 @@ func (s *Service) offerRejectionCorrection(
 		". Fix the offer and send the reply again, or send the reply without" +
 		" the offer if it cannot be stated correctly — but do not tell the" +
 		" user something was saved when it was not."
+}
+
+// missingRequestedBehaviorOfferCorrection keeps an explicit lasting request
+// from being acknowledged as though it were durable when the result contains
+// no typed offer the operator could confirm. Any one of the typed behavior
+// offers is sufficient: the model owns whether a request is best represented
+// as memory, a preference, a standing rule, or a schedule; the host owns the
+// invariant that "always" cannot silently become a one-turn promise.
+func (s *Service) missingRequestedBehaviorOfferCorrection(
+	input core.SlackInput,
+	repository string,
+	decision decisionpkg.WatchDecision,
+) string {
+	if !s.cfg.IsOperator(input.UserID) ||
+		(!behaviorofferpkg.ExplicitRequest(input.Text) &&
+			!behaviorofferpkg.MemoryRequest(input.Text)) {
+		return ""
+	}
+	offers, _, _ := normalizedOffers(input, repository, operatorOffers{
+		Memory: decision.MemoryOffer, Preference: decision.PreferenceOffer,
+		Rule: decision.RuleOffer, Schedule: decision.ScheduleOffer,
+		Schedules: decision.ScheduleOffers,
+	})
+	if offers.Memory != nil || offers.Preference != nil || offers.Rule != nil ||
+		offers.Schedule != nil || len(offers.Schedules) > 0 {
+		return ""
+	}
+	return "the operator explicitly requested lasting behavior, but the result contains no " +
+		"typed memory, preference, standing-rule, or schedule offer they can confirm; return the " +
+		"answer with the appropriate typed offer, or explain why this request cannot be saved"
 }
 
 // dropRejectedOffers takes the offers the host will not accept off the reply,

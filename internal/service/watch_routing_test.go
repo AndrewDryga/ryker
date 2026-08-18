@@ -85,6 +85,62 @@ func TestWatchedEngineeringRequestRequiresRepositoryWhenSeveralAreConfigured(t *
 	}
 }
 
+// A workspace member cannot choose a writable repository until the channel has
+// an explicit contributor boundary. Falling back to the deployment default
+// rendered a button that the click handler would later refuse, while asking a
+// repository question implied the member could broaden their own authority.
+// Covers: TestUnconfiguredChannelExplainsContributorBoundaryInsteadOfAskingForRepository
+func TestUnconfiguredChannelExplainsContributorBoundaryInsteadOfAskingForRepository(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	slackClient := &fakeSlack{dedupePosts: true}
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{
+		"action":"reply",
+		"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
+		"operations":[
+			{"id":"off-task","type":"offer_task","task":{"kind":"engineering","title":"Update deployment packs"}},
+			{"id":"complete","type":"complete_episode","completion":{"message":"I can make that repository change.","completion":{"status":"decision_ready","summary":"Offered the deployment pack change."}}}
+		]
+	}`
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	source := core.SlackInput{
+		ID: "slack-unconfigured-contributor", EnvelopeID: "env-unconfigured-contributor",
+		EventID: "event-unconfigured-contributor", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", MessageTS: "1700.955", UserID: "UMEMBER",
+		Text: "<@U999BOT> update the deployment packs.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, source); err != nil || !created {
+		t.Fatalf("admit source = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("unconfigured contributor response = %+v", slackClient.posts)
+	}
+	message := slackClient.posts[0].message
+	rendered := renderedSlackMessage(message)
+	if !strings.Contains(rendered, "not configured for contributor repository work") ||
+		!strings.Contains(rendered, "No writable task has started") {
+		t.Fatalf("contributor boundary was not explained: %q", rendered)
+	}
+	if strings.Contains(rendered, "Which configured repository") || len(message.Actions) != 0 {
+		t.Fatalf("unconfigured member was offered a repository choice: %+v", message)
+	}
+}
+
 // A question with one answer is not a question.
 //
 // On 2026-08-16 Responder answered five alert investigations with "Which

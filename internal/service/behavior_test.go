@@ -555,6 +555,7 @@ func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
 	}
 }
 
+// Covers: TestExactRecoveredAlertDoesNotRequireBroadPlatformHealthCoverage
 func TestRecoveredAlertCanCloseFromFreshExactEvidenceWithoutRepositorySweep(t *testing.T) {
 	now := time.Date(2026, 8, 5, 15, 0, 20, 0, time.UTC)
 	input := core.SlackInput{

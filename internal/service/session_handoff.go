@@ -12,7 +12,6 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
-	"github.com/AndrewDryga/responder/internal/store"
 )
 
 // handoffSourceKind marks the one agent run nobody in Slack is waiting for.
@@ -238,8 +237,12 @@ func (s *Service) finalizeSessionHandoffTurn(ctx context.Context, run core.Agent
 	return s.retireHandedOffSession(ctx, run)
 }
 
-// abandonSessionHandoff gives up on the handoff without spending an attempt and
-// puts the session back on the path rotation would have taken.
+// abandonSessionHandoff gives up on the optional handoff without spending an
+// attempt and puts the session back on the path rotation would have taken.
+// Nobody in Slack is waiting for this bookkeeping run and the durable memory
+// already on disk is its designed fallback, so an unavailable retiring session
+// is a benignly superseded optional run rather than an operator-actionable
+// failed episode.
 func (s *Service) abandonSessionHandoff(
 	ctx context.Context,
 	run core.AgentRun,
@@ -251,9 +254,9 @@ func (s *Service) abandonSessionHandoff(
 		"a rotating session could not hand its memory forward",
 		"run", run.ID, "session", run.SessionID, "error", trimError(cause),
 	)
-	if _, _, err := s.store.FinishAgentRunFailure(
-		receiptCtx, run.ID, trimError(cause), nil, store.AgentRunFailureEffects{},
-	); err != nil {
+	status := "Used existing channel memory; the retiring session could not summarize itself: " +
+		trimError(cause)
+	if err := s.store.SupersedeAgentRun(receiptCtx, run.ID, status); err != nil {
 		return err
 	}
 	return s.retireHandedOffSession(receiptCtx, run)

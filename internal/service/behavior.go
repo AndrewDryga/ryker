@@ -229,7 +229,8 @@ Step meanings:
 - follow_terraform_run: own the exact run from plan creation through its terminal result. Query
   HCP by the exact run ID now; the Slack card can be delayed or stale. If the saved plan is not ready,
   stay silent and emit wait_external kind=terraform_run with an event matcher containing the provider
-  and exact run ID, a poll_after about 60-120 seconds from now, and a bounded deadline. On each wakeup,
+  and exact run ID, a poll_after about 10 minutes from now, and a bounded deadline. The Slack lifecycle
+  event remains the fast path; this poll is only a fallback for a delayed or missed card. On each wakeup,
   query HCP again and schedule another quiet wait while it is still planning. When the plan becomes
   confirmable, retrieve the exact saved plan with tfc.plan_summary and post one approval-ready reply in the original thread:
   include the canonical HCP approval URL returned by the provider, a short material-change summary,

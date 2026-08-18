@@ -60,6 +60,7 @@ func TestMergeSlackContextCentersTargetAndExcludesOtherThreads(t *testing.T) {
 	}
 }
 
+// Covers finding: 20260811T195209Z-run_cf56b495201e401bcce3f7df8004c925
 func TestPinnedTaskContextKeepsItsApprovedRepository(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

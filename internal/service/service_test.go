@@ -1023,6 +1023,7 @@ type fakeCoop struct {
 	openAfterCreateKey string
 	submitKeys         []string
 	submitSessions     []string
+	submitRevisions    []int64
 	submitPrompts      []string
 	submitArtifacts    [][]coop.InputArtifact
 	// submitFloors is every escalation floor a submission carried, recorded
@@ -1192,7 +1193,7 @@ func (f *fakeCoop) SubmitTurnAtOrAbove(
 	_ context.Context,
 	key string,
 	sessionID string,
-	_ int64,
+	revision int64,
 	prompt string,
 	artifacts []coop.InputArtifact,
 	minTargetIndex int,
@@ -1210,6 +1211,7 @@ func (f *fakeCoop) SubmitTurnAtOrAbove(
 	}
 	f.submitKeys = append(f.submitKeys, key)
 	f.submitSessions = append(f.submitSessions, sessionID)
+	f.submitRevisions = append(f.submitRevisions, revision)
 	f.submitPrompts = append(f.submitPrompts, prompt)
 	f.submitArtifacts = append(f.submitArtifacts, artifacts)
 	if len(f.submitErrs) > 0 {
@@ -1798,6 +1800,7 @@ func drainSlackDeliveries(
 // the input gave up — so a valid command produced no visible response at all. A
 // DM is already private, so the reason to prefer ephemeral there does not
 // apply.
+// Covers: TestSlashPreferencesInDirectMessageUsesResponseURL
 func TestSlashCommandInDirectMessageFallsBackToAVisibleReply(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

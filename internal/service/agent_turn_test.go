@@ -15,6 +15,7 @@ import (
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/emisar"
 	"github.com/AndrewDryga/responder/internal/provider"
+	"github.com/AndrewDryga/responder/internal/runreplay"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/storetest"
@@ -404,14 +405,14 @@ func TestExhaustedTargetLadderWaitsInsteadOfBurningAttempts(t *testing.T) {
 	if !provider.LadderExhausted(limited.ErrorCode) {
 		t.Fatal("an exhausted ladder was not recognised as a provider refusal")
 	}
-	if terminalACPEnvironmentFailure(limited) {
+	if runreplay.TerminalEnvironment(limited) {
 		t.Fatal("an exhausted ladder was treated as a terminal environment failure")
 	}
-	if replayAgentRunInFreshSession(limited) {
+	if runreplay.FreshSession(limited) {
 		t.Fatal("an exhausted ladder discarded the session; the session is fine, the rungs are cooling")
 	}
 	// It must not reach the ordinary replay path, which counts the attempt.
-	if reason, replay := replayAgentRunFailure(
+	if reason, replay := runreplay.Decide(
 		core.AgentRun{Failures: 0}, "turn.failed", limited, 20,
 	); replay || reason != "" {
 		t.Fatalf("an exhausted ladder was replayed as a failure = %q, %t", reason, replay)
@@ -425,13 +426,13 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 		ErrorCode:   "acp_protocol_error",
 		ErrorDetail: "ACP frame exceeded its bound",
 	}
-	if reason, replay := replayAgentRunFailure(
+	if reason, replay := runreplay.Decide(
 		run, "turn.failed", oversized, 20,
 	); !replay || !strings.Contains(reason, "oversized ACP frame") {
 		t.Fatalf("oversized frame replay = %q, %t", reason, replay)
 	}
 	run.Failures = 1
-	if reason, replay := replayAgentRunFailure(
+	if reason, replay := runreplay.Decide(
 		run, "turn.failed", oversized, 20,
 	); replay || reason != "" {
 		t.Fatalf("oversized frame replay was not bounded = %q, %t", reason, replay)
@@ -443,7 +444,7 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 	run.Mode = core.AgentRunTriage
 	for _, failures := range []int{0, 3, 18} {
 		run.Failures = failures
-		if reason, replay := replayAgentRunFailure(
+		if reason, replay := runreplay.Decide(
 			run, "turn.failed", transcript, 20,
 		); !replay || !strings.Contains(reason, "fresh read-only session") {
 			t.Fatalf(
@@ -455,14 +456,14 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 		}
 	}
 	run.Failures = 19
-	if reason, replay := replayAgentRunFailure(
+	if reason, replay := runreplay.Decide(
 		run, "turn.failed", transcript, 20,
 	); replay || reason != "" {
 		t.Fatalf("transcript overflow ignored configured poison budget = %q, %t", reason, replay)
 	}
 	run.Mode = core.AgentRunIncident
 	run.Failures = 0
-	if reason, replay := replayAgentRunFailure(
+	if reason, replay := runreplay.Decide(
 		run, "turn.failed", transcript, 20,
 	); replay || reason != "" {
 		t.Fatalf("writable transcript overflow replayed = %q, %t", reason, replay)
@@ -473,7 +474,7 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 	}
 	for failures := 0; failures < 2; failures++ {
 		run.Failures = failures
-		if reason, replay := replayAgentRunFailure(
+		if reason, replay := runreplay.Decide(
 			run, "turn.failed", cleanupFailure, 20,
 		); !replay || !strings.Contains(reason, "retrying") {
 			t.Fatalf(
@@ -485,7 +486,7 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 		}
 	}
 	run.Failures = 2
-	if reason, replay := replayAgentRunFailure(
+	if reason, replay := runreplay.Decide(
 		run, "turn.failed", cleanupFailure, 20,
 	); replay || reason != "" {
 		t.Fatalf("cleanup failure replay was not bounded = %q, %t", reason, replay)
@@ -497,7 +498,7 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 	run.Mode = core.AgentRunTriage
 	for failures := 0; failures < 19; failures++ {
 		run.Failures = failures
-		if reason, replay := replayAgentRunFailure(
+		if reason, replay := runreplay.Decide(
 			run, "turn.failed", childClosed, 20,
 		); !replay || !strings.Contains(reason, "fresh read-only session") {
 			t.Fatalf(
@@ -509,7 +510,7 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 		}
 	}
 	run.Failures = 19
-	if reason, replay := replayAgentRunFailure(
+	if reason, replay := runreplay.Decide(
 		run, "turn.failed", childClosed, 20,
 	); replay || reason != "" {
 		t.Fatalf("ACP process failure replay was not bounded = %q, %t", reason, replay)
@@ -527,24 +528,24 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 			ErrorDetail: detail,
 		}
 		run.Failures = 0
-		if reason, replay := replayAgentRunFailure(
+		if reason, replay := runreplay.Decide(
 			run, "turn.failed", environmentFailure, 20,
-		); replay || reason != "" || replayAgentRunInFreshSession(environmentFailure) {
+		); replay || reason != "" || runreplay.FreshSession(environmentFailure) {
 			t.Fatalf("environment failure replayed = %q, %t, %q", reason, replay, detail)
 		}
 	}
 	run.Mode = core.AgentRunIncident
 	run.Failures = 0
-	if reason, replay := replayAgentRunFailure(
+	if reason, replay := runreplay.Decide(
 		run, "turn.failed", childClosed, 20,
 	); replay || reason != "" {
 		t.Fatalf("writable ACP process failure replayed = %q, %t", reason, replay)
 	}
-	if !replayAgentRunInFreshSession(childClosed) ||
-		!replayAgentRunInFreshSession(transcript) ||
-		!replayAgentRunInFreshSession(coop.Turn{
+	if !runreplay.FreshSession(childClosed) ||
+		!runreplay.FreshSession(transcript) ||
+		!runreplay.FreshSession(coop.Turn{
 			ErrorCode: "acp_cancelled", ErrorDetail: "turn cancelled",
-		}) || replayAgentRunInFreshSession(coop.Turn{
+		}) || runreplay.FreshSession(coop.Turn{
 		ErrorCode: "acp_cancelled", ErrorDetail: "operator cancelled",
 	}) {
 		t.Fatal("fresh-session recovery classification is not exact")
@@ -568,7 +569,7 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 			},
 		},
 	} {
-		if reason, replay := replayAgentRunFailure(
+		if reason, replay := runreplay.Decide(
 			run, candidate.event, candidate.turn, 20,
 		); replay || reason != "" {
 			t.Fatalf(
@@ -579,7 +580,7 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 			)
 		}
 	}
-	if reason, replay := replayAgentRunFailure(
+	if reason, replay := runreplay.Decide(
 		run, "turn.failed", oversized, 1,
 	); replay || reason != "" {
 		t.Fatalf("configured terminal attempt replayed = %q, %t", reason, replay)
@@ -1330,6 +1331,10 @@ func TestCleanupStopsRetryingPersistentCoopFailures(t *testing.T) {
 // first one did. One alert spent sixty-five minutes and twenty attempts
 // arriving at the same byte count before giving up, which is the whole of what
 // three findings describe.
+// Covers: TestRequiredPromptTooLargeIsTerminalWithoutRetry
+// Covers finding: 20260812T192848Z-run_7a12ba12d18680a2427c7756acdb4d77
+// Covers finding: 20260812T230405Z-run_70ea71a600693f0fea2607359e66d01e
+// Covers finding: 20260813T001719Z-run_0d79af1fe87a900dfb4ecf251813a075
 func TestRequiredPromptTooLargeIsTerminalOnFirstPreparationAttempt(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -1390,6 +1395,8 @@ func TestRequiredPromptTooLargeIsTerminalOnFirstPreparationAttempt(t *testing.T)
 // running. Responder read "409 is not retryable" as "this work is finished",
 // retired the session and failed the run — dropping an alert whose
 // investigation was at that moment underway.
+// Covers finding: 20260813T033451Z-run_d2a8415466305a982ca258139dd34120
+// Covers finding: 20260813T075635Z-run_25b110743fbb84f011fd577502fb611a
 func TestTriageSubmitIdempotencyConflictRecoversExistingTurn(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -1447,6 +1454,7 @@ func TestTriageSubmitIdempotencyConflictRecoversExistingTurn(t *testing.T) {
 // so each of its twenty attempts failed for precisely the reason the previous
 // one had, and a watched Terraform failure was abandoned before its turn ever
 // started.
+// Covers finding: 20260810T201255Z-run_a6cd1b01e09dcc9e044e56b857876b25
 func TestRevisionConflictReleasesTheFrozenRevisionAndRetries(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -1495,12 +1503,104 @@ func TestRevisionConflictReleasesTheFrozenRevisionAndRetries(t *testing.T) {
 	}
 }
 
+// This exact production task had already been accepted and had spent real
+// model work when another turn advanced its shared session from revision 1 to
+// 3. Triage already treated that 409 as a recoverable race; the engineering
+// lane parked the task after one failure and never submitted it again.
+func TestEngineeringTaskRevisionConflictReleasesTheFrozenRevisionAndRetries(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Limits.MaxAgentRunAttempts = 20
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, created, err := st.CreateEngineeringTask(
+		ctx, "repo", "slack-task-revision", "Fix the release manager",
+		"Keep the web app online without delta-builder discovery.",
+		cfg.Slack.Operators[0], "COPS", "1700.903", 100,
+	)
+	if err != nil || !created {
+		t.Fatalf("create engineering task = %+v, %t, %v", task, created, err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.904"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_1", "task-revision", 1); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.submitErrs = []error{&coop.APIError{
+		Status: 409, Code: "revision_conflict",
+		Detail: "expected revision 1, current revision 3",
+	}}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	clock := useTestClock(svc, st)
+	run, queued, err := svc.queueIncidentAgentRun(
+		ctx, task, "initial", task.ID, "", "Make the focused change.",
+	)
+	if err != nil || !queued {
+		t.Fatalf("queue engineering run = %+v, %t, %v", run, queued, err)
+	}
+	firstKey := run.IdempotencyKey
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	retrying, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retrying.State != core.AgentRunPending || retrying.TerminalState != "" ||
+		retrying.Failures != 1 {
+		t.Fatalf("recoverable task race became terminal: %+v", retrying)
+	}
+	if retrying.ExpectedRevision != 0 {
+		t.Fatalf("expected revision = %d after conflict, want released", retrying.ExpectedRevision)
+	}
+	if retrying.IdempotencyKey == firstKey {
+		t.Fatalf("retry reused changed request identity %q", firstKey)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Workflow == core.WorkflowParked {
+		t.Fatalf("recoverable task was parked: %+v", task)
+	}
+
+	coopClient.session.Revision = 3
+	clock.Advance(time.Hour)
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	running, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if running.State != core.AgentRunRunning || running.CoopTurnID == "" {
+		t.Fatalf("task did not submit after the race: %+v", running)
+	}
+	if len(coopClient.submitRevisions) != 2 || coopClient.submitRevisions[1] != 3 {
+		t.Fatalf("submitted revisions = %v, want stale 1 then current 3", coopClient.submitRevisions)
+	}
+}
+
 // A retry or a host correction puts work back into pending, which exposed it
 // to the supersession check on its next lease. An investigation into a
 // human-reported production failure — mid-retry, carrying everything it had
 // established — was dropped for a follow-up like "this started around 3pm",
 // and the successor inherits no obligation and is free to ignore. The failure
 // went uninvestigated and nobody was told.
+// Covers finding: 20260811T205408Z-run_bad5570c0ab1d70b802405d05c47523b
+// Covers finding: 20260813T171625Z-run_08dbd0352d76510b4642d62acd7fd643
 func TestAttemptedRunSurvivesANewerContextualMessage(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -1592,6 +1692,7 @@ func TestAttemptedRunSurvivesANewerContextualMessage(t *testing.T) {
 // operator got silence, nudged with a bare mention, and was asked "What would
 // you like me to check?" — by the same system that had his question in its
 // transcript.
+// Covers: TestAttemptedRunSurvivesANewerClassifiedChannelMessage
 func TestAnAttemptedRunSurvivesAClassifiedBystanderMessage(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -1787,6 +1888,7 @@ func TestASilentTurnIsCancelledInsteadOfHoldingItsChannel(t *testing.T) {
 // then retried finalization every five minutes for three hours — forty
 // attempts — against a required goal one of its own earlier turns had planned;
 // the kernel's refusal was a store error nobody relayed to anyone.
+// Covers: TestDecisionReadyCompletionCannotLeaveANewRequiredGoalReady
 func TestACompletionOverAnOpenRequiredGoalIsSentBackNotDeferred(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -2020,6 +2122,95 @@ func TestAnInterruptedTurnIsReplayedInsteadOfHoldingItsRun(t *testing.T) {
 	}
 	if run.CoopTurnID == "turn_interrupted" {
 		t.Fatalf("the replay is still bound to the interrupted turn")
+	}
+}
+
+// A provider turn deadline is transient once: six production findings were
+// accepted investigations that went terminal on their first acp_timeout even
+// though the ordinary attempt budget still had room. One bounded replay keeps
+// the work, while a second timeout stops a genuinely non-progressing run.
+// Covers: TestTurnDeadlineExceededRetriesBeforeTerminalFailure
+// Covers: TestAcceptedWorkSurvivesATurnDeadline
+// Covers: TestWatchedTurnDeadlinePreservesTheEpisodeForABoundedRetry
+// Covers: TestTimedOutTurnRetriesBeforeTheAttemptBudgetIsExhausted
+// Covers: TestAgentRunDeadlineTimeoutRetriesBeforeFailing
+func TestTimedOutAgentTurnGetsOneRecoveryAttempt(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.SummonChannels = []string{"CTIMEOUT"}
+	cfg.Slack.WatchChannels = nil
+	cfg.Limits.MaxAgentRunAttempts = 20
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+
+	input := core.SlackInput{
+		ID: "slack-timeout", EnvelopeID: "env-timeout", EventID: "event-timeout",
+		Kind: "mention", TeamID: cfg.Slack.TeamID, ChannelID: "CTIMEOUT",
+		MessageTS: "1700.510", UserID: "U123ABC",
+		Text: "<@U999BOT> check production health",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %v, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	timeOut := func() {
+		t.Helper()
+		coopClient.turn.State = "failed"
+		coopClient.turn.ErrorCode = "acp_timeout"
+		coopClient.turn.ErrorDetail = "turn deadline exceeded"
+		coopClient.session.ActiveTurnID = ""
+		svc.pollAgentRuns(ctx)
+	}
+	timeOut()
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.State != core.AgentRunPending || run.Failures != 1 || run.TerminalState != "" {
+		t.Fatalf("first timeout did not get its bounded replay: %+v", run)
+	}
+
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	timeOut()
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err = st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.State != core.AgentRunFailed || run.TerminalState != string(core.AgentRunFailed) {
+		t.Fatalf("second timeout did not stop after the bounded recovery: %+v", run)
+	}
+}
+
+// Preparation and turn execution have different budgets. Seven repository
+// refresh failures do not make the first accepted model timeout the second
+// timeout; it still receives exactly one bounded recovery.
+func TestFirstTurnTimeoutStillRetriesAfterPreparationFailures(t *testing.T) {
+	run := core.AgentRun{Failures: 7, LastError: "workspace refresh failed"}
+	timedOut := coop.Turn{ErrorCode: "acp_timeout", ErrorDetail: "turn deadline exceeded"}
+	reason, replay := runreplay.Decide(run, "turn.failed", timedOut, 20)
+	if !replay || !strings.Contains(reason, "deadline") {
+		t.Fatalf("first model timeout after preparation failures = %q, %t", reason, replay)
+	}
+	run.Context = []byte(`{"turn_timeout_replays":1}`)
+	if reason, replay := runreplay.Decide(run, "turn.failed", timedOut, 20); replay || reason != "" {
+		t.Fatalf("second model timeout was not bounded = %q, %t", reason, replay)
 	}
 }
 

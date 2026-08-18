@@ -477,6 +477,12 @@ func TestExternalLifecycleReconciliationIsProviderNeutralAndBounded(t *testing.T
 	}
 }
 
+// Covers: TestExternalLifecycleCommunicationKeepsMaterialRiskReviewAfterRunAdvanced
+// Covers: TestMaterialPlanReviewSurvivesApplyInProgress
+// Covers: TestAppliedTerraformCapabilityBlockerReachesTheChannel
+// Covers: TestSuppressedLifecycleBlockKeepsItsBoundedRecheck
+// Covers finding: 20260810T210012Z-run_ce6ee4d605b6463e4849082b5338f3ec
+// Covers finding: 20260814T085412Z-run_22ab784b1e170054788bb97f906f149d
 func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *testing.T) {
 	updates := []decisionpkg.PublicationUpdate{{
 		IncidentID: "task-1", Kind: "terraform", State: "pending",
@@ -584,6 +590,52 @@ func TestExternalLifecycleCommunicationSuppressesOnlyNonActionablePhases(t *test
 		Kind: "bot_message", Text: "Run run-abc\nRun Applied",
 	}, verifiedRollout); decision.Action != "reply" {
 		t.Fatalf("fresh rollout verification was suppressed: %+v", decision)
+	}
+}
+
+// GitHub Actions formats its field label with Slack mrkdwn. The lifecycle
+// source still says success; the punctuation must not turn it into an unknown
+// event and allow Responder to narrate the green card without runtime proof.
+// Covers: TestGitHubActionsSuccessWithoutFreshRuntimeEvidenceStaysSilent
+func TestGitHubActionsSuccessWithoutFreshRuntimeEvidenceStaysSilent(t *testing.T) {
+	input := core.SlackInput{
+		Kind: "bot_message",
+		Text: "*Workflow:* deploy\n*Status:* :large_green_circle: Success\n*Branch:* main",
+	}
+	decision := decisionpkg.WatchDecision{
+		Action: "reply", Message: "The workflow succeeded.",
+		Completion: &CompletionAssessment{
+			Status: "decision_ready", Verdict: "healthy", Summary: "CI passed.",
+		},
+	}
+	if got := EnforceExternalLifecycleCommunication(input, decision); got.Action != "ignore" {
+		t.Fatalf("source-only GitHub Actions success reached Slack: %+v", got)
+	}
+}
+
+// A correction recheck stays quiet until its bounded last attempt, then turns
+// into one visible blocker. Earlier retries must retain the recheck directive.
+// Covers: TestStructuredCorrectionRecheckContinuesSilentlyUntilFinalAttempt
+func TestStructuredCorrectionRecheckContinuesSilentlyUntilFinalAttempt(t *testing.T) {
+	run := core.AgentRun{ID: "run_rejected"}
+	input := core.SlackInput{Kind: "bot_message"}
+	for _, test := range []struct {
+		attempt     int
+		wantAction  string
+		wantRecheck bool
+	}{
+		{attempt: 1, wantAction: "ignore", wantRecheck: true},
+		{attempt: 2, wantAction: "reply", wantRecheck: false},
+	} {
+		state := decisionpkg.WatchTurnState{RecheckAttempt: test.attempt}
+		decision := blockedWatchContinuation(run, input, state, "invalid result", nil)
+		if decision.Action != test.wantAction {
+			t.Fatalf("attempt %d action = %q", test.attempt, decision.Action)
+		}
+		gotRecheck := decision.Completion != nil && decision.Completion.Recheck != nil
+		if gotRecheck != test.wantRecheck {
+			t.Fatalf("attempt %d recheck = %t", test.attempt, gotRecheck)
+		}
 	}
 }
 
@@ -877,6 +929,29 @@ func TestExternalLifecyclePhaseDoesNotClassifyConversationProse(t *testing.T) {
 // stream is also what a reply is rebuilt from, so finalization read it back and
 // posted the exact message policy had just decided not to send. Seventeen
 // separate quality findings are this one round trip.
+// Covers: TestSuccessfulLifecycleSuppressionSurvivesTypedOperationsRoundTrip
+// Covers: TestSuppressedTypedLifecycleReplyStaysSilentAcrossPersistence
+// Covers: TestSuppressedTypedWatchDecisionRemainsIgnoredAfterPersistenceRoundTrip
+// Covers: TestSuppressedTypedLifecycleDecisionSurvivesResultRoundTrip
+// Covers: TestSuppressedTypedLifecycleDecisionStaysIgnoredAfterRoundTrip
+// Covers: TestSuppressedLifecycleResultWithMemorySurvivesPersistence
+// Covers: TestSuppressedLifecycleReplyWithMemorySurvivesPersistence
+// Covers: TestSuppressedLifecycleReplyWithMemoryStaysSuppressedAfterPersistence
+// Covers finding: 20260810T192406Z-run_89281c05e23669a4d67c84432a174b28
+// Covers finding: 20260810T211848Z-run_a195db0a00fe4148317f0a0ef672e38f
+// Covers finding: 20260810T231750Z-run_8d88406b670383df3aee6f50692a887f
+// Covers finding: 20260811T172159Z-run_3f946d903c7596bda2f5eb213a22ce58
+// Covers finding: 20260811T201852Z-run_d04e2c56d1efc4905478e2de3ef3b28f
+// Covers finding: 20260812T144840Z-run_bb6a463310db34f3b6933bf6a9289db8
+// Covers finding: 20260812T154716Z-run_a7f9bd0bdff77d2b41b236d07036cc79
+// Covers finding: 20260812T172232Z-run_7c97056964b4781bff28319da752dfec
+// Covers finding: 20260812T173311Z-run_800fb7b1925a7feb803e4ea975f84745
+// Covers finding: 20260812T182339Z-run_7f1f8bba54763e43ae047001560eb2c4
+// Covers finding: 20260813T205845Z-run_f87173737dd525259b51c1682812b863
+// Covers finding: 20260813T214950Z-run_970d12c802d3638357f92994c87626fd
+// Covers finding: 20260813T221030Z-run_1bce224533f703e67cc34fe06132a2fd
+// Covers finding: 20260813T222052Z-run_38c1180e80e87577eec7fbd9844636d5
+// Covers finding: 20260814T163231Z-run_6b2d6ab9ea58dcc59bb543d7afd5ca8a
 func TestSuppressedLifecycleReplyStaysSuppressedAfterPersistence(t *testing.T) {
 	input := core.SlackInput{
 		ID: "slack-run-succeeded", EventID: "EvRunOK", Kind: "bot_message",
@@ -888,6 +963,7 @@ func TestSuppressedLifecycleReplyStaysSuppressedAfterPersistence(t *testing.T) {
 		`{"id":"evidence-change","type":"record_evidence","evidence":{"claim_id":"change.recent",` +
 		`"observation":"The apply completed cleanly.","source_type":"terraform","source_name":"acme/infra",` +
 		`"relation":"supports","health_effect":"none"}},` +
+		`{"id":"memory","type":"update_memory","memory":{"situation_summary":"The apply completed cleanly."}},` +
 		`{"id":"complete","type":"complete_episode","completion":{"message":"The Terraform apply succeeded.",` +
 		`"completion":{"status":"decision_ready","verdict":"healthy","summary":"Apply succeeded."}}}` +
 		`]}`
@@ -923,6 +999,9 @@ func TestSuppressedLifecycleReplyStaysSuppressedAfterPersistence(t *testing.T) {
 	if len(reparsed.Evidence) != 1 || reparsed.Evidence[0].ClaimID != "change.recent" {
 		t.Fatalf("suppression discarded the evidence it should keep: %+v", reparsed.Evidence)
 	}
+	if reparsed.Memory.SituationSummary != "The apply completed cleanly." {
+		t.Fatalf("suppression discarded durable memory: %+v", reparsed.Memory)
+	}
 }
 
 // Suppression decides what Slack hears. It does not decide whether the model's
@@ -932,6 +1011,7 @@ func TestSuppressedLifecycleReplyStaysSuppressedAfterPersistence(t *testing.T) {
 // finalized silently, because policy removed the evidence of its own
 // invalidity before anything looked at it.
 // Covers: TestLifecycleSuppressionDoesNotBypassCompletionValidation
+// Covers finding: 20260813T172916Z-run_1d689933cac8c443eb2dffc2f23feef6
 func TestSuppressedLifecycleResultIsStillValidatedAgainstItsContract(t *testing.T) {
 	input := core.SlackInput{
 		ID: "slack-run-invalid", EventID: "EvRunInvalid", Kind: "bot_message",
@@ -983,6 +1063,10 @@ func TestSuppressedLifecycleResultIsStillValidatedAgainstItsContract(t *testing.
 // so a reply whose whole point was that the change landed and the service
 // answers — fresh probe evidence bound to change.recent, change coverage
 // healthy — was suppressed as redundant narration.
+// Covers: TestAppliedTerraformSuccessWithUnobservableRuntimeStaysSilent
+// Covers finding: 20260813T184608Z-run_bdabfcc0665da45a3f939e0dc7ccc13b
+// Covers finding: 20260813T193840Z-run_013c9bade228ec7b3f84235ebf44dcc1
+// Covers finding: 20260814T162201Z-run_7679d23d37147598601f9188ad0e90ed
 func TestAppliedTerraformReplyWithContractShapedFreshRuntimeEvidenceIsNotSuppressed(t *testing.T) {
 	observed := time.Now().UTC()
 	input := core.SlackInput{

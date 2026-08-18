@@ -13,6 +13,7 @@ import (
 // confirmed or likely issue. A claim about why something broke needs the same
 // support whether or not it is still broken.
 // Covers: TestAlertCauseCorrectionRejectsUnboundCauseOnRecoveredAssessment
+// Covers finding: 20260812T113223Z-run_7115f6706614a17526ce5db4c7817732
 func TestRecoveredAlertMustStillBindTheCauseItNames(t *testing.T) {
 	naming := &investigation.AlertAssessment{
 		Verdict: "not_issue", Impact: "none",

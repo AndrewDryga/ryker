@@ -68,6 +68,7 @@ type WatchTurnState struct {
 	OfferedTaskPullRequest *core.PullRequestTarget        `json:"offered_task_pull_request,omitempty"`
 	StructuredCorrections  int                            `json:"structured_corrections,omitempty"`
 	ReplyShapeCorrections  int                            `json:"reply_shape_corrections,omitempty"`
+	TurnTimeoutReplays     int                            `json:"turn_timeout_replays,omitempty"`
 	// CorrectionClasses counts the corrections this run has had of each class,
 	// MinTargetIndex is the rung of the session policy's target ladder its next
 	// turn may not be answered below, RefusedTargetFloor is the lowest rung Coop
@@ -628,6 +629,15 @@ func AlertAssessmentCorrection(
 		}
 		recovered := decision.AlertAssessment.Verdict == "not_issue" &&
 			OperationalAlertResolvedEvent(input.Text)
+		if decision.AlertAssessment.Verdict == "not_issue" && !recovered {
+			// A live Grafana firing state is host-observed input. Evidence rows and
+			// their dimensions are model output, so they may bound the impact or
+			// justify an unverified verdict but cannot attest that the source alert
+			// itself cleared. Only a matching resolved lifecycle event can do that.
+			return "the source alert is still firing; model-authored evidence cannot classify " +
+				"that host-observed condition as not_issue — return unverified with the checked " +
+				"scope, or wait for the matching resolved event"
+		}
 		if recovered && HasFreshOperationalEvidence(evidence, now) &&
 			decision.Completion != nil && decision.Completion.Status == "blocked" {
 			return "fresh evidence verifies that the exact alert condition recovered; return " +
@@ -725,6 +735,13 @@ func WatchDecisionCorrectionAt(
 	now time.Time,
 	correlate Correlator,
 ) string {
+	if input.Kind == "recheck" && decision.Action == "ignore" &&
+		strings.HasPrefix(state.RecheckKey, "structured:") &&
+		strings.TrimSpace(state.FailureDetail) != "" {
+		return "this recheck was scheduled because the prior structured result was rejected: " +
+			BoundedField(state.FailureDetail, 500) +
+			"; return a corrected complete result instead of ignoring the validation failure"
+	}
 	if decision.Action == "reply" && state.ConversationFollowup &&
 		decision.Attention.Addressee == "human" &&
 		decision.Completion != nil && decision.Completion.Status == "decision_ready" &&
@@ -965,7 +982,7 @@ var (
 		"run", "deployment", "job", "workflow", "build", "release", "plan", "apply",
 	}
 	externalTerminalSuccessStates = []string{
-		"applied", "succeeded", "successful", "completed", "finished",
+		"applied", "success", "succeeded", "successful", "completed", "finished",
 	}
 )
 
@@ -980,7 +997,7 @@ var (
 // Confirmation` — is not terminal, so a plan awaiting a human owes no verdict.
 func ExternalAppEventIsTerminalSuccess(text string) bool {
 	for _, raw := range strings.Split(strings.ToLower(text), "\n") {
-		line := strings.Join(strings.Fields(raw), " ")
+		line := strings.Join(strings.Fields(strings.ReplaceAll(raw, "*", "")), " ")
 		if !externalLifecycleStatusLine(line) {
 			continue
 		}

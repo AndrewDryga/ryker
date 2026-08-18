@@ -2,12 +2,17 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/slackui"
+	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/store/schedulestore"
 )
 
 // A malformed offer must come back to the model as a repair instruction rather
@@ -265,5 +270,138 @@ func TestOfferOutsideTheHostsScopeIsNotCorrected(t *testing.T) {
 		context.Background(), activation, decision,
 	); correction != "" {
 		t.Fatalf("corrected an offer the host never validates: %q", correction)
+	}
+}
+
+// Three wrong occurrences survived the model-facing correction boundary in
+// two private replays on 2026-08-11. The operator asked for two checks; the
+// result supplied three valid-looking timestamps, so the proposal writer
+// stored a batch it could not prove belonged to the request. Proposal writing
+// is the last authority boundary and must repeat the semantic check itself.
+//
+// Covers: TestScheduleOfferBatchRejectsMismatchWithExplicitRelativeRequest
+// Covers: TestSeveralScheduleOffersMustMatchExplicitOccurrences
+func TestScheduleProposalsMatchEveryExplicitRelativeOccurrence(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	now := time.Date(2026, 8, 11, 20, 0, 23, 0, time.UTC)
+	svc := New(
+		cfg, st, newFakeCoop(),
+		&fakeSlack{channel: slackui.Channel{ID: "COPS", Name: "operations", Member: true}},
+		nil, slackui.NewSanitizer(12000), nil,
+	)
+	svc.SetClock(func() time.Time { return now })
+	st.SetClock(func() time.Time { return now })
+	input := core.SlackInput{
+		ID: "slack_exact_relative_batch", EnvelopeID: "env_exact_relative_batch",
+		EventID: "EvExactRelativeBatch", Kind: "message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: "1700.100",
+		MessageTS: "1786478423.000000", UserID: cfg.Slack.Operators[0],
+		Text:       "Check tomorrow and in 3 days that Zot authentication failures are gone.",
+		ReceivedAt: now,
+	}
+	offerAt := func(offset time.Duration) *core.ScheduleOffer {
+		return &core.ScheduleOffer{
+			Title: "Verify Zot authentication", Prompt: "Check Zot logs and report here.",
+			Repository: "repo", Recurrence: "once",
+			StartAt:  now.Add(offset).Format(time.RFC3339),
+			Timezone: "UTC", CatchUp: "latest", ExpiresIn: "7d",
+		}
+	}
+
+	if _, _, _, ok := svc.prepareScheduleOffersAction(ctx, input, []*core.ScheduleOffer{
+		offerAt(24 * time.Hour), offerAt(48 * time.Hour), offerAt(96 * time.Hour),
+	}); ok {
+		t.Fatal("a three-occurrence batch was proposed for a two-occurrence request")
+	}
+	if proposal, err := st.Schedules.GetPendingForConversation(
+		ctx, input.TeamID, input.ChannelID, input.ThreadTS, input.UserID,
+	); !errors.Is(err, schedulestore.ErrNotFound) {
+		t.Fatalf("mismatched batch left a pending proposal: proposal=%+v err=%v", proposal, err)
+	}
+
+	if _, tasks, _, ok := svc.prepareScheduleOffersAction(ctx, input, []*core.ScheduleOffer{
+		offerAt(24 * time.Hour), offerAt(72 * time.Hour),
+	}); !ok || len(tasks) != 2 {
+		t.Fatalf("the exact requested occurrences were refused: ok=%t tasks=%+v", ok, tasks)
+	}
+}
+
+// One real confirmation card on 2026-08-11 shifted "same time tomorrow" by
+// eleven minutes because the model's RFC3339 value was only checked for shape.
+// The terse selection still belongs to the preceding operator request: the
+// host must preserve its timestamp, normalize it to a minute, and refuse a
+// different model-authored clock before any proposal exists.
+// Covers finding: 20260811T200655Z-run_5cc27f35e9374bda6b2ae289ad29556d
+func TestSameTimeScheduleSelectionKeepsTheOperatorsPriorLocalMinute(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	reference := time.Date(2026, 8, 11, 20, 1, 32, 0, time.UTC)
+	now := reference.Add(90 * time.Second)
+	svc := New(
+		cfg, st, newFakeCoop(),
+		&fakeSlack{channel: slackui.Channel{ID: "COPS", Name: "operations", Member: true}},
+		nil, slackui.NewSanitizer(12000), nil,
+	)
+	svc.SetClock(func() time.Time { return now })
+	st.SetClock(func() time.Time { return now })
+	prior := core.SlackInput{
+		ID: "slack_same_time_request", EnvelopeID: "env_same_time_request",
+		EventID: "EvSameTimeRequest", Kind: "message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: "1700.100",
+		MessageTS: "1786478492.660349", UserID: cfg.Slack.Operators[0],
+		Text:       "Same time tomorrow and after tomorrow, my local timezone.",
+		ReceivedAt: reference,
+	}
+	selection := core.SlackInput{
+		ID: "slack_same_time_selection", EnvelopeID: "env_same_time_selection",
+		EventID: "EvSameTimeSelection", Kind: "message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", ThreadTS: prior.ThreadTS,
+		MessageTS: "1786478582.660349", UserID: cfg.Slack.Operators[0],
+		Text: "Tomorrow.", ReceivedAt: now,
+	}
+	for _, input := range []core.SlackInput{prior, selection} {
+		if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+			t.Fatalf("admit %s: created=%t err=%v", input.ID, created, err)
+		}
+	}
+	offerAt := func(start string) *core.ScheduleOffer {
+		return &core.ScheduleOffer{
+			Title:      "Verify Zot authentication tomorrow",
+			Prompt:     "Check Zot logs for recurring authentication failures and report here.",
+			Repository: "repo", Recurrence: "once", StartAt: start,
+			Timezone: "America/Merida", CatchUp: "latest", ExpiresIn: "7d",
+		}
+	}
+
+	if _, _, _, ok := svc.prepareScheduleOfferAction(
+		ctx, selection, offerAt("2026-08-12T19:50:00Z"),
+	); ok {
+		t.Fatal("the model-authored 13:50 local proposal replaced the requested 14:01 local time")
+	}
+	if proposal, err := st.Schedules.GetPendingForConversation(
+		ctx, selection.TeamID, selection.ChannelID, selection.ThreadTS, selection.UserID,
+	); !errors.Is(err, schedulestore.ErrNotFound) {
+		t.Fatalf("wrong-time offer left a pending proposal: proposal=%+v err=%v", proposal, err)
+	}
+
+	want := time.Date(2026, 8, 12, 20, 1, 0, 0, time.UTC)
+	_, task, _, ok := svc.prepareScheduleOfferAction(
+		ctx, selection, offerAt(want.Format(time.RFC3339)),
+	)
+	if !ok || !task.NextRunAt.Equal(want) {
+		t.Fatalf("same-time proposal = ok=%t start=%s, want %s", ok, task.NextRunAt, want)
 	}
 }

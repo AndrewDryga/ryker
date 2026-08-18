@@ -203,6 +203,10 @@ func TestEpisodeRecheckCreatesOneSilentSyntheticInput(t *testing.T) {
 	stateJSON, err := json.Marshal(decisionpkg.WatchTurnState{
 		SessionID: "session_origin", SessionChannelID: "COPS",
 		Repository: "repo", RouteCaptured: true, ResponseThreadTS: "100.1",
+		ConversationFollowup: true, RulesCaptured: true,
+		MatchedRules: []core.StandingRule{{
+			ID: "rule-alert", Trigger: "operational_alert", Action: "triage_alert",
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -253,6 +257,10 @@ func TestEpisodeRecheckCreatesOneSilentSyntheticInput(t *testing.T) {
 		recheckState.RecheckAttempt != 1 || !recheckState.ConversationFollowup {
 		t.Fatalf("recheck state = %+v", recheckState)
 	}
+	if len(recheckState.MatchedRules) != 1 ||
+		recheckState.MatchedRules[0].Trigger != "operational_alert" {
+		t.Fatalf("app alert recheck lost origin alert validation = %+v", recheckState.MatchedRules)
+	}
 
 	if err := svc.processEpisodeRecheck(ctx, store.WorkItem{
 		Kind: workEpisodeRecheck, SubjectID: episodeRecheckSubject(run.ID, 1),
@@ -264,6 +272,9 @@ func TestEpisodeRecheckCreatesOneSilentSyntheticInput(t *testing.T) {
 		t.Fatalf("idempotent recheck = %+v, %v", stored, err)
 	}
 }
+
+// Covers: TestAppAlertRecheckRetainsOriginAlertValidation
+// Covers: TestResolvedAlertRecheckCannotPublishBlockedReplyWithoutAlertAssessment
 
 func TestSyntheticRecheckBypassesHumanSlackMembershipValidation(t *testing.T) {
 	ctx := context.Background()

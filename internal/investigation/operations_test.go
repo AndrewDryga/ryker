@@ -106,6 +106,7 @@ func TestProposeActionIsRefusedWithItsReason(t *testing.T) {
 // as never assessed at all — so the model rechecked what it had just checked,
 // with nothing in the record saying its answer had been thrown away for its
 // spelling.
+// Covers finding: 20260812T041309Z-run_a21ad5364c78204678ff48604cc9fa87
 func TestCoverageOperationRejectsUnsupportedStatusWithTheAllowedSet(t *testing.T) {
 	invalid := ResultOperation{
 		ID: "coverage-app", Type: "record_coverage",

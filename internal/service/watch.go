@@ -116,6 +116,13 @@ func (s *Service) ensureWatchSessionForRepositoryAtGeneration(
 	)
 	if err != nil {
 		memory.Generation = generation
+		if sessioncreate.TerminalFailure(err) {
+			if generationErr := s.store.Intelligence.AdvanceChannelSessionGeneration(
+				ctx, channelID, repositoryKey, generation,
+			); generationErr != nil {
+				return memory, coop.Session{}, errors.Join(err, generationErr)
+			}
+		}
 		return memory, coop.Session{}, err
 	}
 	if session.ID == "" {
@@ -539,29 +546,37 @@ func (s *Service) applyReplyDecision(
 				active = member
 			}
 		}
-		if err != nil {
+		boundaryUnavailable := !operator && taskaccess.ContributorBoundaryUnavailable(err)
+		if err != nil && !boundaryUnavailable {
 			if single, ok := taskaccess.SingleChoice(s.cfg, operator, active); ok {
 				repository, defaulted = single, true
 				err = nil
 			}
 		}
 		if err != nil {
-			question := taskaccess.RepositoryQuestion("", taskaccess.Choices(
+			question := taskaccess.RepositoryQuestion("", taskaccess.Choices(s.cfg, operator, active))
+			response := taskaccess.RepositoryQuestion(finalReply, taskaccess.Choices(
 				s.cfg, operator, active,
 			))
+			if boundaryUnavailable {
+				question = taskaccess.ContributorBoundaryMessage()
+				response = question
+			}
 			if schedulePresent {
 				message.Sections = append(message.Sections, question)
 			} else {
 				message = s.watchReplyMessage(
 					input,
-					taskaccess.RepositoryQuestion(finalReply, taskaccess.Choices(
-						s.cfg, operator, active,
-					)),
+					response,
 					decision.Evidence,
 					decision.Coverage,
 				)
 			}
-			outcome = "engineering_task_repository_required"
+			if boundaryUnavailable {
+				outcome = "engineering_task_contributor_boundary_required"
+			} else {
+				outcome = "engineering_task_repository_required"
+			}
 		} else if open, found, openErr := s.openStreamTaskOffer(
 			ctx, input, episodeID, repository, decision.TaskTitle,
 		); openErr != nil {

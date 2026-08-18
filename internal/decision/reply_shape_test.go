@@ -207,6 +207,7 @@ func TestReplyShapeIgnoresNonReplyActions(t *testing.T) {
 	}
 }
 
+// Covers finding: 20260812T031526Z-run_c426845274b07b77b5d17561a63133f4
 func TestReplyShapeCorrectsExplicitBinaryUnitConversion(t *testing.T) {
 	trigger := "The process used 305,282 MiB of memory."
 	wrong := decisionpkg.ReplyShapeCorrection(trigger, "investigation", "reply", "It used about 305 GiB.")

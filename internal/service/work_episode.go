@@ -8,12 +8,14 @@ import (
 	"time"
 
 	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
+	"github.com/AndrewDryga/responder/internal/completionpolicy"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/liveturn"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
+	"github.com/AndrewDryga/responder/internal/taskcontract"
 )
 
 // CompletionAssessment is the model's own verdict on whether a turn finished.
@@ -165,6 +167,8 @@ func (s *Service) episodeForWatchedInput(
 			episode.Authority = core.AuthorityGovernedOperation
 		}
 	}
+	taskcontract.ApplyScheduledResult(episode, input.Kind)
+	taskcontract.ApplyReusableArtifact(episode, text)
 	return episode
 }
 
@@ -334,25 +338,6 @@ func (s *Service) episodeContinuityPrompt(
 		string(payload) + "\n</episode-continuity>"
 }
 
-// currentCoverage stamps this turn's assessment so it outranks the stored one
-// for the same layer.
-//
-// The ledger picks one item per layer by observation time, and a candidate that
-// has not been stored yet carries none — so the turn's own fresh reading lost
-// every time to the older row it was meant to replace. A reconciled result was
-// rejected against its own superseded history, repeatedly, and the episode
-// spent its rechecks failing to update a layer it had already updated.
-func currentCoverage(coverage []core.Coverage, now time.Time) []core.Coverage {
-	stamped := make([]core.Coverage, 0, len(coverage))
-	for _, item := range coverage {
-		if item.ObservedAt.IsZero() && item.CreatedAt.IsZero() {
-			item.CreatedAt = now
-		}
-		stamped = append(stamped, item)
-	}
-	return stamped
-}
-
 func (s *Service) episodeClaimCorrectionWithHistory(
 	ctx context.Context,
 	episode core.WorkEpisode,
@@ -364,6 +349,17 @@ func (s *Service) episodeClaimCorrectionWithHistory(
 	chainStartedAt time.Time,
 	strict bool,
 ) (string, error) {
+	// Older correlated evidence cannot prove this attempt's outcome.
+	completionStatus, completionVerdict := "", ""
+	if completion != nil {
+		completionStatus, completionVerdict = completion.Status, completion.Verdict
+	}
+	if correction := completionpolicy.CurrentCandidateCorrection(
+		episode.CompletionCriteria, episode.Effort, evidence, coverage,
+		completionStatus, completionVerdict, now,
+	); correction != "" {
+		return correction, nil
+	}
 	priorEvidence, err := s.store.Intelligence.ListEpisodeEvidence(ctx, episode.ID, 200)
 	if err != nil {
 		return "", err
@@ -376,7 +372,7 @@ func (s *Service) episodeClaimCorrectionWithHistory(
 		episode,
 		action,
 		append(priorEvidence, evidence...),
-		append(priorCoverage, currentCoverage(coverage, now)...),
+		append(priorCoverage, completionpolicy.CurrentCoverage(coverage, now)...),
 		completion,
 		now,
 		chainStartedAt,
