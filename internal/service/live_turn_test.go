@@ -49,6 +49,7 @@ func liveTurnFixture(t *testing.T) (
 		t.Fatal(err)
 	}
 	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
 	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
 	run, created, err := svc.queueIncidentAgentRun(
 		ctx, task, "initial", task.ID, "", "Make the focused change.",

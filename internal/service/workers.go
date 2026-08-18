@@ -10,6 +10,8 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/incidentauthority"
+	"github.com/AndrewDryga/responder/internal/incidentprovision"
 	"github.com/AndrewDryga/responder/internal/liveturn"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/sessioncreate"
@@ -169,7 +171,11 @@ func (s *Service) processChannelIncident(ctx context.Context, incidentID string)
 		channel, err = s.adoptChannel(ctx, incident, name, err)
 	}
 	if err != nil {
-		s.setIncidentError(ctx, incident.ID, core.WorkflowProvisioningChannel, trimError(err))
+		workflow := core.WorkflowProvisioningChannel
+		if permanentSlackInputError(err) {
+			workflow = core.WorkflowBlocked
+		}
+		s.setIncidentError(ctx, incident.ID, workflow, trimError(err))
 		return err
 	}
 	if err := s.store.SetChannel(ctx, incident.ID, channel.ID, channel.Name); err != nil {
@@ -604,15 +610,21 @@ func (s *Service) processSessionIncident(ctx context.Context, incidentID string)
 	if incident.IsEngineeringTask() {
 		sessionLabel = "engineering-task:" + incident.ID
 	}
-	generation := max(incident.CoopSessionGeneration, 1)
-	createKey := sessioncreate.Key("responder:session:"+incident.ID, generation)
-	session, _, err := s.coop.CreateSession(
-		ctx, createKey, sessionPolicy, sessionLabel,
-		sessionSources...,
+	session, generation, err := incidentprovision.Resolve(
+		ctx, s.coop, s.store, s.store.Incidents, incident,
+		sessionPolicy, sessionLabel, sessionSources, s.now(),
 	)
 	if err != nil {
+		if errors.Is(err, sessioncreate.ErrReadOnlyAuthority) ||
+			errors.Is(err, sessioncreate.ErrWritableAuthority) ||
+			errors.Is(err, sessioncreate.ErrHistoricalCreateKeys) {
+			detail := trimError(err)
+			s.setIncidentError(ctx, incident.ID, core.WorkflowHolding, detail)
+			return deferScheduledWork(s.now().Add(30*time.Minute), detail)
+		}
 		workflow, detail, failureErr := sessioncreate.IncidentFailure(
-			ctx, s.store.Incidents, incident.ID, generation, err,
+			ctx, s.store.Incidents, incident.ID, generation,
+			s.repositoryName(incident.Repository), err,
 		)
 		if failureErr != nil {
 			return failureErr
@@ -794,15 +806,14 @@ func (s *Service) pollIncident(ctx context.Context, incident core.Incident) erro
 	if err != nil {
 		return err
 	}
+	if handled, authorityErr := incidentauthority.Reconcile(
+		ctx, s.coop, s.store, s.store.IncidentSessions,
+		incident, session, cursor, s.now(),
+	); handled {
+		return authorityErr
+	}
 	workflow := core.WorkflowParked
 	switch {
-	case session.State == "closed" && !incident.ChannelWritable():
-		workflow = core.WorkflowBlocked
-	case session.State == "closed":
-		if incident.Status != core.IncidentClosed {
-			return s.store.CloseIncident(ctx, incident.ID)
-		}
-		workflow = core.WorkflowClosed
 	case session.State == "exhausted":
 		limit, limitErr := s.effectiveTurnLimit(ctx, incident.ChannelID)
 		if limitErr != nil {
@@ -1003,6 +1014,13 @@ func (s *Service) incidentCard(
 	if turnErr != nil {
 		s.log.Warn("read the turn's interior for the card",
 			"incident", incident.ID, "error", trimError(turnErr))
+	}
+	queuedBranches, branchErr := s.store.IncidentSessions.CountRetryingBranches(ctx, incident.ID)
+	if branchErr != nil {
+		s.log.Warn("count queued investigation branches for card",
+			"incident", incident.ID, "error", trimError(branchErr))
+	} else {
+		turn.QueuedBranches = queuedBranches
 	}
 	return slackui.IncidentCardWithPublication(
 		incident,

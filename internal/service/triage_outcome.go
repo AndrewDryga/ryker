@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/preparationnotice"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/triageoutcome"
 )
@@ -16,7 +16,8 @@ func (s *Service) notifyRepositoryPreparationBlocked(
 	run core.AgentRun,
 	cause error,
 ) error {
-	if run.Mode != core.AgentRunTriage || !coop.Retryable(cause) {
+	message, eligible := preparationnotice.Message(run, cause, s.now())
+	if !eligible {
 		return nil
 	}
 	episode, err := s.store.GetWorkEpisode(ctx, run.EpisodeID)
@@ -26,22 +27,20 @@ func (s *Service) notifyRepositoryPreparationBlocked(
 	if episode.Destination.ChannelID == "" {
 		return nil
 	}
-	owner := core.FirstNonempty(run.EpisodeID, run.ID)
-	body, err := slackui.Encode(s.sanitizeMessage(
-		slackui.RepositoryPreparationBlocked(run.Repository),
-	))
+	body, err := slackui.Encode(s.sanitizeMessage(message))
 	if err != nil {
 		return err
 	}
-	_, err = s.store.EnqueueSlackDelivery(ctx, core.SlackDelivery{
-		ID: "watch_preparation_blocked_" + owner, EpisodeID: run.EpisodeID,
-		AgentRunID: run.ID, AgentRunKey: run.IdempotencyKey,
-		SourceInputID: run.SourceID, Operation: "post", Kind: "notice",
-		ChannelID: episode.Destination.ChannelID, ThreadTS: episode.Destination.ThreadTS,
-		ExpectedDestinationRevision: episode.DestinationRevision,
-		Body:                        body,
-		ResponseRoot:                false,
-	})
+	prefix := "watch_preparation_blocked_" + core.FirstNonempty(run.EpisodeID, run.ID) + "_"
+	deliveries, err := s.store.ListSlackDeliveriesByPrefix(ctx, prefix)
+	if err != nil {
+		return err
+	}
+	delivery := preparationnotice.Delivery(run, episode, body, deliveries)
+	if delivery == nil {
+		return nil
+	}
+	_, err = s.store.EnqueueSlackDelivery(ctx, *delivery)
 	return err
 }
 

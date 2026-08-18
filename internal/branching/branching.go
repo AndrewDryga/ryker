@@ -33,6 +33,8 @@ import (
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/fanout"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/sessionauthority"
+	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/fanoutstore"
 )
@@ -60,10 +62,11 @@ const branchTurnBudget = 12
 // steer, cancel or submit a turn, which stays with the service that owns the
 // run loop.
 type Sessions interface {
+	sessionauthority.CandidateClient
+	OperationByKey(context.Context, string) (coop.Operation, error)
 	CreateSession(
 		ctx context.Context, key, policy, externalRef string, sources ...coop.SessionSource,
 	) (coop.Session, coop.Operation, error)
-	GetSession(ctx context.Context, id string) (coop.Session, error)
 }
 
 // Runner opens and closes the branches of a parallel investigation.
@@ -149,14 +152,29 @@ func (r *Runner) Session(
 	ctx context.Context,
 	run core.AgentRun,
 	incident core.Incident,
-) (coop.Session, error) {
+) (coop.Session, int, error) {
+	generation := max(run.SessionGeneration, 1)
 	if run.SessionID != "" {
-		return r.coop.GetSession(ctx, run.SessionID)
+		session, err := r.coop.GetSession(ctx, run.SessionID)
+		if err != nil && !sessioncreate.SessionNotFound(err) {
+			return coop.Session{}, generation, err
+		}
+		if err == nil && sessioncreate.ReusableReadOnly(session) {
+			return session, generation, nil
+		}
+		if err == nil {
+			if err := sessionauthority.RejectCandidate(
+				ctx, r.coop, r.store, session, incident.ID, "branch", r.now(),
+			); err != nil {
+				return coop.Session{}, generation, err
+			}
+		}
+		generation++
 	}
 	goalID, _ := fanout.GoalOf(run.ConversationKey)
 	repository, ok := r.cfg.RepositoryContext(incident.Repository)
 	if !ok {
-		return coop.Session{}, fmt.Errorf(
+		return coop.Session{}, generation, fmt.Errorf(
 			"repository binding for %q was removed", incident.Repository,
 		)
 	}
@@ -167,13 +185,22 @@ func (r *Runner) Session(
 	policy := repository.SessionProfilePolicy(
 		config.ProfileInvestigate, repository.CoopPolicy,
 	)
-	session, _, err := r.coop.CreateSession(
-		ctx,
-		"responder:session:"+incident.ID+fanout.BranchMarker+goalID,
-		policy,
-		"incident:"+incident.ID+" branch:"+goalID,
-	)
-	return session, err
+	baseKey := "responder:session:" + incident.ID + fanout.BranchMarker + goalID
+	return sessioncreate.ResolveCandidates(ctx, sessioncreate.CandidateRequest{
+		Lane: "branch", Generation: generation, RepositoryReadOnly: true,
+		BaseKey: baseKey, AttemptStarted: r.now().UTC(), Lookup: r.coop,
+		Create: func(ctx context.Context, key string, _ int) (coop.Session, error) {
+			session, _, err := r.coop.CreateSession(
+				ctx, key, policy, "incident:"+incident.ID+" branch:"+goalID,
+			)
+			return session, err
+		},
+		Reject: func(ctx context.Context, session coop.Session) error {
+			return sessionauthority.RejectCandidate(
+				ctx, r.coop, r.store, session, incident.ID, "branch", r.now(),
+			)
+		},
+	})
 }
 
 // GoalOf names the goal a run is a branch for, empty for everything else.

@@ -75,6 +75,7 @@ func newFakeCoop() *fakeCoop {
 	return &fakeCoop{session: coop.Session{
 		ID: "ses_1", ForkName: "responder-api-unavailable",
 		Revision: 1, State: "open", Activity: "parked", MaxTurns: 100,
+		RepositoryReadOnly: true,
 	}}
 }
 
@@ -199,6 +200,13 @@ func (f *fakeCoop) GetTurn(context.Context, string, string) (coop.Turn, error) {
 		return coop.Turn{}, errors.New("missing turn")
 	}
 	return f.turn, nil
+}
+
+func (f *fakeCoop) ListTurns(context.Context, string, int64, int) ([]coop.Turn, error) {
+	if f.turn.ID == "" {
+		return nil, nil
+	}
+	return []coop.Turn{f.turn}, nil
 }
 
 func (f *fakeCoop) GetOutputArtifact(

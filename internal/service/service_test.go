@@ -20,6 +20,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/emisar"
+	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/slack-go/slack"
@@ -1000,11 +1001,16 @@ func stageAgentRunWithMissingConversationSource(
 }
 
 type fakeCoop struct {
-	session     coop.Session
-	turn        coop.Turn
-	changes     coop.Changes
-	cancelCalls int
-	events      []coop.Event
+	session         coop.Session
+	turn            coop.Turn
+	listTurns       []coop.Turn
+	changes         coop.Changes
+	cancelCalls     int
+	cancelTurns     []string
+	cancelKeys      []string
+	cancelRevisions []int64
+	cancelErrors    []error
+	events          []coop.Event
 	// eventsErr fails the event read every poll, and eventsCalls counts the
 	// reads that got through — together they are how a test can tell a poll
 	// that is being held off from one that is merely failing quietly.
@@ -1021,6 +1027,7 @@ type fakeCoop struct {
 	createErrors       []error
 	createResultState  string
 	openAfterCreateKey string
+	operations         map[string]coop.Operation
 	submitKeys         []string
 	submitSessions     []string
 	submitRevisions    []int64
@@ -1053,6 +1060,7 @@ type fakeCoop struct {
 	discardAccepts    []bool
 	outputArtifacts   map[string]coop.OutputArtifact
 	getSessionErr     error
+	closeErrors       []error
 	getSessionStarted chan<- struct{}
 	releaseGetSession <-chan struct{}
 	// completeUsage is what the provider reported for each completed turn.
@@ -1071,6 +1079,7 @@ func newFakeCoop() *fakeCoop {
 	return &fakeCoop{session: coop.Session{
 		ID: "ses_1", ForkName: "responder-api-unavailable",
 		Revision: 1, State: "open", Activity: "parked", MaxTurns: 100,
+		RepositoryReadOnly: true,
 	}}
 }
 
@@ -1111,6 +1120,7 @@ func (f *fakeCoop) CreateSession(
 		f.session.State = "open"
 		f.session.Activity = "parked"
 		f.session.Revision = 1
+		f.session.RepositoryReadOnly = true
 	}
 	result := f.session
 	if f.createResultState != "" {
@@ -1141,7 +1151,13 @@ func (f *fakeCoop) GetSession(ctx context.Context, _ string) (coop.Session, erro
 	}
 	return f.session, nil
 }
+func (f *fakeCoop) ListTurns(context.Context, string, int64, int) ([]coop.Turn, error) {
+	return append([]coop.Turn(nil), f.listTurns...), nil
+}
 func (f *fakeCoop) OperationByKey(_ context.Context, key string) (coop.Operation, error) {
+	if operation, ok := f.operations[key]; ok {
+		return operation, nil
+	}
 	for index, submittedKey := range f.submitKeys {
 		if submittedKey == key {
 			turnID := fmt.Sprintf("coop_turn_%d", index+1)
@@ -1310,8 +1326,35 @@ func (f *fakeCoop) Changes(context.Context, string) (coop.Changes, error) {
 func (f *fakeCoop) Review(context.Context, string, string, int64) (coop.Review, coop.Operation, error) {
 	return coop.Review{}, coop.Operation{}, nil
 }
-func (f *fakeCoop) Cancel(context.Context, string, string, string, int64) (coop.Turn, coop.Operation, error) {
+func (f *fakeCoop) Cancel(_ context.Context, key string, _ string, turnID string, revision int64) (coop.Turn, coop.Operation, error) {
 	f.cancelCalls++
+	f.cancelTurns = append(f.cancelTurns, turnID)
+	f.cancelKeys = append(f.cancelKeys, key)
+	f.cancelRevisions = append(f.cancelRevisions, revision)
+	if len(f.cancelErrors) > 0 {
+		err := f.cancelErrors[0]
+		f.cancelErrors = f.cancelErrors[1:]
+		if err != nil {
+			if sessioncreate.RevisionConflict(err) {
+				f.session.Revision++
+			}
+			return coop.Turn{}, coop.Operation{}, err
+		}
+	}
+	for index := range f.listTurns {
+		if f.listTurns[index].ID != turnID {
+			continue
+		}
+		if f.listTurns[index].State == "queued" && f.session.QueuedTurnCount > 0 {
+			f.session.QueuedTurnCount--
+		}
+		if f.session.ActiveTurnID == turnID {
+			f.session.ActiveTurnID = ""
+		}
+		f.listTurns[index].State = "cancelled"
+		f.session.Revision++
+		return f.listTurns[index], coop.Operation{}, nil
+	}
 	// Coop's real cancel drives the turn to its cancelled terminal; the fake
 	// models that so the silent-turn deadline can be proven end to end.
 	f.turn.State = "cancelled"
@@ -1327,6 +1370,13 @@ func (f *fakeCoop) Extend(_ context.Context, _ string, _ string, _ int64, additi
 	return f.session, coop.Operation{}, nil
 }
 func (f *fakeCoop) Close(context.Context, string, string, int64) (coop.Session, coop.Operation, error) {
+	if len(f.closeErrors) > 0 {
+		err := f.closeErrors[0]
+		f.closeErrors = f.closeErrors[1:]
+		if err != nil {
+			return coop.Session{}, coop.Operation{}, err
+		}
+	}
 	f.session.State = "closed"
 	return f.session, coop.Operation{}, nil
 }
@@ -1454,6 +1504,7 @@ type fakeSlack struct {
 	channel            slackui.Channel
 	channelErr         error
 	dedupePosts        bool
+	createChannelErr   error
 	createChannelCalls int
 	history            []slackui.HistoryMessage
 	channelHistory     []slackui.HistoryMessage
@@ -1502,6 +1553,9 @@ func (f *fakeSlack) Auth(context.Context) (slackui.Identity, error) {
 }
 func (f *fakeSlack) CreateChannel(_ context.Context, name string, _ bool, _ string) (slackui.Channel, error) {
 	f.createChannelCalls++
+	if f.createChannelErr != nil {
+		return slackui.Channel{}, f.createChannelErr
+	}
 	return slackui.Channel{ID: "CINCIDENT", Name: name, Creator: "U999BOT", Created: time.Now()}, nil
 }
 func (f *fakeSlack) FindChannelByName(context.Context, string, string) (slackui.Channel, error) {

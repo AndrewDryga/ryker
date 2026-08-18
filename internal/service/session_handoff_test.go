@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -253,6 +255,161 @@ func TestATerminalRotatedSessionDoesNotQueueAnImpossibleHandoff(t *testing.T) {
 	}
 }
 
+// Revoking writable authority may not spend one last model turn inside the
+// rejected workspace. The live legacy sessions were idle, but their stale
+// transcripts made them eligible for exactly this handoff during rotation.
+func TestAWritableRotatedSessionNeverReceivesAHandoffTurn(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.Intelligence.BindChannelSession(
+		ctx, "CWRITABLE", "repo", "ses_1", 1, 1, time.Now().UTC().Add(-time.Minute),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Intelligence.ApplyWatchDecision(ctx, core.EvaluationDecision{
+		ChannelID: "CWRITABLE", Repository: "repo", MessageTS: "1700.903",
+		SourceInput: "writable-turn", Mode: "live", Action: "reply",
+	}, "investigation", 2, core.AgentMemory{}); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.retireRotatedSession(ctx, "ses_1", "close-writable", "authority rotation", outgoingSession{
+		memoryChannelID: "CWRITABLE", repository: "repo", lane: "watch", turnCount: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetAgentRunBySource(
+		ctx, handoffSourceKind, handoffSourceKind+":ses_1",
+	); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("writable session received a handoff run: %v", err)
+	}
+	cleanup, err := st.NextCleanup(ctx, svc.now().UTC())
+	if err != nil || cleanup.SessionID != "ses_1" {
+		t.Fatalf("writable session was not retired directly: %+v, %v", cleanup, err)
+	}
+}
+
+// A transient Coop read is not evidence that the outgoing workspace vanished.
+// Treating it as successful retirement lets the channel bind a replacement
+// while the old writable session and its turns remain live and cleanup-unowned.
+func TestATransientSessionReadFailureCannotCompleteRetirement(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	coopClient.getSessionErr = &coop.APIError{Status: 503, Code: "internal_error"}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+
+	err = svc.retireRotatedSession(
+		ctx, coopClient.session.ID, "close-transient", "rotation",
+		outgoingSession{memoryChannelID: "CTRANSIENT", repository: "repo", lane: "watch"},
+	)
+	if err == nil || !coop.Retryable(err) {
+		t.Fatalf("transient retirement read returned %v", err)
+	}
+	if _, cleanupErr := st.GetCoopCleanup(ctx, coopClient.session.ID); !errors.Is(cleanupErr, store.ErrNotFound) {
+		t.Fatalf("unproven retirement entered cleanup: %v", cleanupErr)
+	}
+}
+
+// Confirmed absence is terminal, but it still needs a durable cleanup receipt
+// so the outgoing session identity is not lost between rotation and audit.
+func TestAMissingSessionRecordsCleanupOwnershipBeforeRetirementCompletes(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	coopClient.getSessionErr = &coop.APIError{Status: 404, Code: "session_not_found"}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.retireRotatedSession(
+		ctx, coopClient.session.ID, "close-missing", "rotation",
+		outgoingSession{memoryChannelID: "CMISSING", repository: "repo", lane: "watch"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	cleanup, err := st.GetCoopCleanup(ctx, coopClient.session.ID)
+	if err != nil || cleanup.State != "pending" {
+		t.Fatalf("missing session cleanup ownership = %+v, %v", cleanup, err)
+	}
+}
+
+// An active read-only session is still the channel's current owner. Rotation
+// must wait for its turn, not report success and strand it after rebinding.
+func TestAnActiveReadOnlySessionDefersRotation(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	coopClient.session.ActiveTurnID = "turn_read_only"
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	err = svc.retireRotatedSession(
+		ctx, coopClient.session.ID, "close-busy-read-only", "rotation",
+		outgoingSession{memoryChannelID: "CBUSY", repository: "repo", lane: "watch"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "still has active or queued work") {
+		t.Fatalf("active read-only retirement returned %v", err)
+	}
+	if coopClient.session.State != "open" {
+		t.Fatalf("active read-only session was closed: %+v", coopClient.session)
+	}
+	if _, cleanupErr := st.GetCoopCleanup(ctx, coopClient.session.ID); !errors.Is(cleanupErr, store.ErrNotFound) {
+		t.Fatalf("active bound session was orphaned into cleanup: %v", cleanupErr)
+	}
+}
+
+// An active writable turn is authority still in use, not a reason to abandon
+// rotation. Leaving it alive after rebinding the channel lets the rejected
+// workspace keep writing with no durable owner.
+func TestWritableTurnsAreRevokedBeforeSessionRetirement(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
+	coopClient.session.ActiveTurnID = "turn_writable"
+	coopClient.listTurns = []coop.Turn{{
+		ID: "turn_writable", SessionID: coopClient.session.ID, Ordinal: 1, State: "running",
+	}}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+
+	if err := svc.retireRotatedSession(
+		ctx, coopClient.session.ID, "close-active-writable", "authority rotation",
+		outgoingSession{memoryChannelID: "CWRITABLE", repository: "repo", lane: "watch", turnCount: 1},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(coopClient.cancelTurns, []string{"turn_writable"}) {
+		t.Fatalf("revoked turns = %v", coopClient.cancelTurns)
+	}
+	cleanup, err := st.GetCoopCleanup(ctx, coopClient.session.ID)
+	if err != nil || cleanup.State != "pending" || coopClient.session.State != "closed" {
+		t.Fatalf("retired writable session = %+v cleanup %+v, %v", coopClient.session, cleanup, err)
+	}
+}
+
 // A session can become terminal after rotation admitted its handoff but before
 // that background run is leased. This happened when a provider-limited handoff
 // was retried after Coop discarded the outgoing session: no Slack work was
@@ -313,6 +470,116 @@ func TestQueuedHandoffWhoseSessionBecomesTerminalFinishesAsABenignFallback(t *te
 	cleanup, err := st.NextCleanup(ctx, svc.now().UTC())
 	if err != nil || cleanup.SessionID != "ses_1" {
 		t.Fatalf("terminal session cleanup = %+v, %v", cleanup, err)
+	}
+}
+
+// Retirement is part of completing the handoff, not best-effort work after
+// completion. Otherwise a transient Coop read makes the durable run terminal
+// while its outgoing workspace is still open and has no cleanup owner.
+func TestAHandoffFallbackRemainsRetryableUntilRetirementIsOwned(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, SourceKind: handoffSourceKind,
+		SourceID: handoffSourceKind + ":ses_fallback", SessionID: "ses_fallback",
+		ChannelID: "CHANDOFF", ConversationKey: "handoff:CHANDOFF",
+		Repository: "repo", Prompt: "summarize",
+		Episode: &core.WorkEpisode{Mode: core.EpisodeConversation},
+	})
+	if err != nil || !created {
+		t.Fatalf("queue handoff = %+v, %t, %v", run, created, err)
+	}
+	run, err = st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.session.ID = "ses_fallback"
+	coopClient.getSessionErr = &coop.APIError{Status: 503, Code: "internal_error"}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.abandonSessionHandoff(ctx, run, errors.New("handoff unavailable")); err == nil {
+		t.Fatal("transient retirement failure was hidden")
+	}
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State == core.AgentRunSuperseded || stored.State == core.AgentRunCompleted {
+		t.Fatalf("handoff became terminal before retirement: %+v", stored)
+	}
+	coopClient.getSessionErr = nil
+	if err := svc.abandonSessionHandoff(ctx, stored, errors.New("handoff unavailable")); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = st.GetAgentRun(ctx, run.ID)
+	if err != nil || stored.State != core.AgentRunSuperseded {
+		t.Fatalf("retired fallback handoff = %+v, %v", stored, err)
+	}
+}
+
+// The successful handoff path has the same ordering invariant. A transient
+// close failure must leave finalization leasable until cleanup ownership is on
+// disk, rather than completing a run that can never be finalized again.
+func TestACompletedHandoffRemainsRetryableUntilRetirementIsOwned(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, SourceKind: handoffSourceKind,
+		SourceID: handoffSourceKind + ":ses_complete", SessionID: "ses_complete",
+		ChannelID: "CHANDOFF", ConversationKey: "handoff:CHANDOFF",
+		Repository: "repo", Prompt: "summarize",
+		Episode: &core.WorkEpisode{Mode: core.EpisodeConversation},
+	})
+	if err != nil || !created {
+		t.Fatalf("queue handoff = %+v, %t, %v", run, created, err)
+	}
+	run, err = st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunSubmitted(ctx, run.ID, "turn_handoff", 1, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.StageAgentRunResult(ctx, run.ID, "failed", nil, "handoff result unavailable", 0); err != nil {
+		t.Fatal(err)
+	}
+	run, err = st.LeaseAgentRunFinalization(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.session.ID = "ses_complete"
+	coopClient.closeErrors = []error{&coop.APIError{Status: 503, Code: "internal_error"}}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.finalizeSessionHandoffTurn(ctx, run); err == nil {
+		t.Fatal("transient close failure was hidden")
+	}
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State == core.AgentRunCompleted {
+		t.Fatalf("handoff completed before cleanup ownership: %+v", stored)
+	}
+	if err := svc.finalizeSessionHandoffTurn(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = st.GetAgentRun(ctx, run.ID)
+	if err != nil || stored.State != core.AgentRunFailed {
+		t.Fatalf("retired completed handoff = %+v, %v", stored, err)
+	}
+	if _, err := st.GetCoopCleanup(ctx, "ses_complete"); err != nil {
+		t.Fatalf("retired completed handoff has no cleanup owner: %v", err)
 	}
 }
 

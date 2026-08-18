@@ -454,6 +454,7 @@ func TestCustomerJourneySchedulesEngineeringFollowupWithoutStalePRControls(t *te
 	startAt := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Second)
 	coopClient := newFakeCoop()
 	coopClient.session.ID = "ses_followup"
+	coopClient.session.RepositoryReadOnly = false
 	coopClient.session.ForkName = "task-cms"
 	coopClient.session.Revision = 1
 	coopClient.changes = coop.Changes{
@@ -589,6 +590,7 @@ func TestCustomerJourneyActivatesExistingScheduleInsideEngineeringTask(t *testin
 
 	coopClient := newFakeCoop()
 	coopClient.session.ID = "ses_schedule"
+	coopClient.session.RepositoryReadOnly = false
 	coopClient.session.ForkName = "task-runbook"
 	coopClient.session.Revision = 1
 	coopClient.completeQueue = []string{

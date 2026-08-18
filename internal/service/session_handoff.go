@@ -12,6 +12,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
+	"github.com/AndrewDryga/responder/internal/sessionretirement"
 )
 
 // handoffSourceKind marks the one agent run nobody in Slack is waiting for.
@@ -59,25 +60,10 @@ func (s *Service) retireRotatedSession(
 	reason string,
 	outgoing outgoingSession,
 ) error {
-	session, err := s.coop.GetSession(ctx, sessionID)
-	// Unchanged from the two copies this replaces: a session Coop cannot
-	// describe is neither closed nor scheduled, and that is not an error worth
-	// failing the rotation over.
-	if err != nil || session.ActiveTurnID != "" {
-		return nil
-	}
-	if watchSessionTerminal(session.State) {
-		return s.store.ScheduleCleanup(ctx, sessionID, "", reason, false, s.now().UTC())
-	}
-	if s.queueSessionHandoff(ctx, sessionID, outgoing) {
-		return nil
-	}
-	if _, _, closeErr := s.coop.Close(
-		ctx, closeKey, session.ID, session.Revision,
-	); closeErr != nil {
-		return closeErr
-	}
-	return s.store.ScheduleCleanup(ctx, sessionID, "", reason, false, s.now().UTC())
+	return sessionretirement.Retire(
+		ctx, s.coop, s.store, sessionID, closeKey, reason, s.now(),
+		func() bool { return s.queueSessionHandoff(ctx, sessionID, outgoing) },
+	)
 }
 
 // queueSessionHandoff admits one bounded turn against the outgoing session and
@@ -209,6 +195,7 @@ func (s *Service) prepareSessionHandoffTurn(ctx context.Context, run core.AgentR
 // a promise kept only on success leaves a fork open forever.
 func (s *Service) finalizeSessionHandoffTurn(ctx context.Context, run core.AgentRun) error {
 	status := "The retiring session did not summarize itself"
+	var memory *core.AgentMemory
 	if run.TerminalState == "completed" {
 		decision, err := decisionpkg.ParseWatchDecision(string(run.Result), s.now())
 		switch {
@@ -218,12 +205,21 @@ func (s *Service) finalizeSessionHandoffTurn(ctx context.Context, run core.Agent
 				"run", run.ID, "session", run.SessionID, "error", trimError(err),
 			)
 		default:
-			if err := s.store.Intelligence.ApplyHandoffMemory(
-				ctx, run.ChannelID, decision.Memory.WithoutThreadScope(),
-			); err != nil {
-				return err
-			}
+			carried := decision.Memory.WithoutThreadScope()
+			memory = &carried
 			status = "Carried the retiring session's context forward"
+		}
+	}
+	// Retirement is part of the durable completion. If it is transiently
+	// unavailable, leave the run finalizing so the same result can retry.
+	if err := s.retireHandedOffSession(ctx, run); err != nil {
+		return err
+	}
+	if memory != nil {
+		if err := s.store.Intelligence.ApplyHandoffMemory(
+			ctx, run.ChannelID, *memory,
+		); err != nil {
+			return err
 		}
 	}
 	if err := s.store.SetWorkEpisodePhase(
@@ -231,10 +227,7 @@ func (s *Service) finalizeSessionHandoffTurn(ctx context.Context, run core.Agent
 	); err != nil {
 		return err
 	}
-	if err := s.store.FinishAgentRun(ctx, run.ID); err != nil {
-		return err
-	}
-	return s.retireHandedOffSession(ctx, run)
+	return s.store.FinishAgentRun(ctx, run.ID)
 }
 
 // abandonSessionHandoff gives up on the optional handoff without spending an
@@ -256,31 +249,21 @@ func (s *Service) abandonSessionHandoff(
 	)
 	status := "Used existing channel memory; the retiring session could not summarize itself: " +
 		trimError(cause)
+	if err := s.retireHandedOffSession(receiptCtx, run); err != nil {
+		return err
+	}
 	if err := s.store.SupersedeAgentRun(receiptCtx, run.ID, status); err != nil {
 		return err
 	}
-	return s.retireHandedOffSession(receiptCtx, run)
+	return nil
 }
 
 // retireHandedOffSession performs the close and cleanup that rotation deferred.
 func (s *Service) retireHandedOffSession(ctx context.Context, run core.AgentRun) error {
-	session, err := s.coop.GetSession(ctx, run.SessionID)
-	if err != nil {
-		// The same tolerance rotation itself has, for the same reason: the
-		// orphan sweep in maintainLifecycle is the backstop for a session Coop
-		// will not describe, and failing here would only replay this turn.
-		return nil
-	}
-	if !watchSessionTerminal(session.State) && session.ActiveTurnID == "" {
-		if _, _, closeErr := s.coop.Close(
-			ctx, "responder:handoff-close:"+run.SessionID, session.ID, session.Revision,
-		); closeErr != nil {
-			return closeErr
-		}
-	}
-	return s.store.ScheduleCleanup(
-		ctx, run.SessionID, "", "session retired after its memory handoff",
-		false, s.now().UTC(),
+	return sessionretirement.Retire(
+		ctx, s.coop, s.store, run.SessionID,
+		"responder:handoff-close:"+run.SessionID,
+		"session retired after its memory handoff", s.now(), nil,
 	)
 }
 

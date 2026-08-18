@@ -1264,7 +1264,14 @@ func (s *Store) DeferAgentRun(
 	id string,
 	detail string,
 	next time.Time,
+	preparingWorkspace ...bool,
 ) error {
+	episodeState, phase := core.EpisodeAcknowledged, "queued"
+	nextAction, progressDue, eventSuffix := "Resume when the dependency is ready", time.Time{}, "deferred"
+	if len(preparingWorkspace) > 0 && preparingWorkspace[0] {
+		episodeState, phase = core.EpisodeRetrying, "preparing_workspace"
+		nextAction, progressDue, eventSuffix = "Responder will retry this investigation branch automatically", next, "deferred:preparing_workspace"
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -1284,8 +1291,8 @@ func (s *Store) DeferAgentRun(
 		return err
 	}
 	if err := s.setWorkEpisodePhaseTx(
-		ctx, tx, id, core.EpisodeAcknowledged, "queued", sqlutil.BoundedError(detail),
-		"Resume when the dependency is ready", time.Time{},
+		ctx, tx, id, episodeState, phase, sqlutil.BoundedError(detail),
+		nextAction, progressDue,
 		// Keyed on the run alone, deliberately. Including the next attempt time
 		// made every key unique, so a run polling once a second appended a
 		// phase_changed event every second: 5,483 identical "waiting for the
@@ -1294,7 +1301,7 @@ func (s *Store) DeferAgentRun(
 		// lasts, and the UNIQUE(episode_id, idempotency_key) constraint now
 		// collapses the repeats where they are written rather than where they
 		// are displayed.
-		"agent-run:"+id+":deferred",
+		"agent-run:"+id+":"+eventSuffix,
 	); err != nil {
 		return err
 	}

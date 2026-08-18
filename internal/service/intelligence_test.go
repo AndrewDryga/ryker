@@ -327,7 +327,7 @@ func TestAcceptedWatchRunSurvivesExhaustedCoopSessionCreationOutage(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run.TerminalState != "" || run.State != core.AgentRunPending {
+	if run.TerminalState != "" || run.State != core.AgentRunPending || run.Failures != 0 {
 		t.Fatalf(
 			"accepted alert was abandoned during Coop outage: state=%q terminal=%q failures=%d error=%q",
 			run.State, run.TerminalState, run.Failures, run.LastError,
@@ -357,6 +357,64 @@ func TestAcceptedWatchRunSurvivesExhaustedCoopSessionCreationOutage(t *testing.T
 	if err != nil || run.State != core.AgentRunCompleted ||
 		run.TerminalState != string(core.AgentRunCompleted) {
 		t.Fatalf("preserved alert did not recover = %+v, %v", run, err)
+	}
+}
+
+// A bounded human conversation uses a different session table from an alert,
+// but session creation is still preparation. Twenty retryable Coop failures
+// previously spent all twenty model attempts before any turn existed.
+func TestAcceptedConversationRunSurvivesExhaustedCoopSessionCreationOutage(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Limits.MaxAgentRunAttempts = 20
+	cfg.Slack.WatchChannels = []string{"CCONVERSATION"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	repository := cfg.Repositories["repo"]
+	repository.ConversationPolicy = "repo-conversation"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	for range cfg.Limits.MaxAgentRunAttempts {
+		coopClient.createErrors = append(coopClient.createErrors, &coop.APIError{
+			Status: 500, Code: "internal_error", Detail: "conversation workspace unavailable",
+		})
+	}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	clock := useTestClock(svc, st)
+	input := core.SlackInput{
+		ID: "slack-conversation-create-outage", EnvelopeID: "env-conversation-outage",
+		EventID: "EvConversationOutage", Kind: "message", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CCONVERSATION", MessageTS: "1700.951", UserID: "U123ABC",
+		Text: "Can you keep looking into this here?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit conversation = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAgentRunContext(ctx, run.ID, []byte(`{"conversation_followup":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	for range cfg.Limits.MaxAgentRunAttempts {
+		if err := svc.processAgentRun(ctx); err != nil {
+			t.Fatal(err)
+		}
+		clock.Advance(time.Hour)
+	}
+	run, err = st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || run.State != core.AgentRunPending || run.TerminalState != "" ||
+		run.Failures != 0 || len(coopClient.submitSessions) != 0 {
+		t.Fatalf("conversation preparation spent accepted work: run=%+v submits=%v err=%v", run, coopClient.submitSessions, err)
 	}
 }
 
@@ -463,6 +521,184 @@ func TestConversationSessionSearchesPastHistoricalCollisionWindow(t *testing.T) 
 			"historical collision recovery = session=%+v generation=%d keys=%d",
 			session, generation, len(coopClient.createKeys),
 		)
+	}
+}
+
+// Twenty-one session keys in production still named durable CreateSession
+// operations that had failed under the old 30-second repository refresh
+// deadline. Retrying one of those keys can only replay its failed outcome; it
+// must not spend one accepted Slack run attempt per historical operation.
+func TestWatchSessionSearchesPastHistoricalFailedCreateOperations(t *testing.T) {
+	now := time.Now().UTC()
+	coopClient := newFakeCoop()
+	coopClient.operations = map[string]coop.Operation{}
+	for generation := 2; generation <= 21; generation++ {
+		key := sessioncreate.Key("responder:watch-session:CHISTORYFAILED", generation)
+		coopClient.createErrors = append(coopClient.createErrors, &coop.APIError{
+			Status: 500, Code: "internal_error", OperationID: "op_failed",
+		})
+		coopClient.operations[key] = coop.Operation{
+			ID: "op_failed", Method: "CreateSession", State: "failed",
+			UpdatedAt: now.Add(-time.Hour),
+		}
+	}
+	svc := &Service{cfg: serviceConfig(t), coop: coopClient, clock: func() time.Time { return now }}
+	session, generation, err := svc.createWatchSession(
+		context.Background(), "CHISTORYFAILED", "observe", 2,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ID == "" || generation != 22 || len(coopClient.createKeys) != 21 {
+		t.Fatalf("historical failed-create recovery = session=%+v generation=%d keys=%d",
+			session, generation, len(coopClient.createKeys))
+	}
+}
+
+func TestWatchSessionBoundsHistoricalCreateKeySearch(t *testing.T) {
+	coopClient := newFakeCoop()
+	for range sessioncreate.MaxHistoricalCreateKeys + 1 {
+		coopClient.createErrors = append(coopClient.createErrors, &coop.APIError{
+			Status: 409, Code: "idempotency_conflict",
+		})
+	}
+	svc := &Service{cfg: serviceConfig(t), coop: coopClient}
+	_, _, err := svc.createWatchSession(context.Background(), "CBOUND", "observe", 2)
+	if !errors.Is(err, sessioncreate.ErrHistoricalCreateKeys) {
+		t.Fatalf("historical key window returned %v", err)
+	}
+	if len(coopClient.createKeys) != sessioncreate.MaxHistoricalCreateKeys {
+		t.Fatalf("historical key probes = %d", len(coopClient.createKeys))
+	}
+}
+
+// Covers: TestSuccessfulWritableSessionCreationIsBoundedAndVisible
+// Successful but over-authorized session creation once made both read-only
+// lanes create managed forks forever. Bound the authority rejection so the
+// Slack work can become visibly blocked instead of leaking silently.
+func TestSuccessfulWritableSessionCreationIsBoundedAndVisible(t *testing.T) {
+	ctx := context.Background()
+	for _, testCase := range []struct {
+		name   string
+		create func(*Service) error
+	}{
+		{
+			name: "watch",
+			create: func(svc *Service) error {
+				_, _, err := svc.createWatchSession(ctx, "CAUTH", "watch-policy", 1)
+				return err
+			},
+		},
+		{
+			name: "conversation",
+			create: func(svc *Service) error {
+				_, _, err := svc.createConversationSession(
+					ctx, "CAUTH", "conversation-policy", 1,
+				)
+				return err
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg := serviceConfig(t)
+			st, err := store.Open(cfg.StateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { st.Close() })
+			coopClient := newFakeCoop()
+			coopClient.session.RepositoryReadOnly = false
+			coopClient.session.ActiveTurnID = "turn_rejected_candidate"
+			coopClient.listTurns = []coop.Turn{{
+				ID: "turn_rejected_candidate", SessionID: coopClient.session.ID,
+				Ordinal: 1, State: "running",
+			}}
+			coopClient.createErrors = []error{
+				nil, nil, nil, nil, errors.New("unbounded create sentinel"),
+			}
+			svc := New(
+				cfg, st, coopClient, &fakeSlack{}, nil,
+				slackui.NewSanitizer(12000), nil,
+			)
+
+			err = testCase.create(svc)
+			if err == nil || !strings.Contains(
+				err.Error(), "without read-only repository authority",
+			) {
+				t.Fatalf("successful writable creates returned %v, want visible authority error", err)
+			}
+			if len(coopClient.createKeys) != sessioncreate.MaxReadOnlyCandidates {
+				t.Fatalf(
+					"created %d writable sessions, want bound %d",
+					len(coopClient.createKeys), sessioncreate.MaxReadOnlyCandidates,
+				)
+			}
+			if !slices.Equal(coopClient.cancelTurns, []string{"turn_rejected_candidate"}) ||
+				coopClient.session.State != "closed" {
+				t.Fatalf("rejected candidate retained authority: cancelled=%v session=%+v", coopClient.cancelTurns, coopClient.session)
+			}
+			cleanup, cleanupErr := st.GetCoopCleanup(ctx, coopClient.session.ID)
+			if cleanupErr != nil || cleanup.State != "pending" {
+				t.Fatalf("rejected writable session cleanup = %+v, %v", cleanup, cleanupErr)
+			}
+		})
+	}
+}
+
+// Four rejected authority candidates are one preparation failure, not four
+// invisible model attempts. The first accepted Slack card must receive a
+// durable bound-thread status and the run must park on the circuit breaker.
+func TestReadOnlyAuthorityFailurePostsOneVisibleStatusAndParksTheRun(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CAUTHCARD"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B_GRAFANA"}
+	clock := useTestClock(svc, st)
+	input := core.SlackInput{
+		ID: "slack-authority-card", EnvelopeID: "env-authority-card", EventID: "EvAuthorityCard",
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CAUTHCARD",
+		MessageTS: "1700.960", UserID: "B_GRAFANA", Text: "FIRING: scrape target is down",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.State != core.AgentRunPending || run.TerminalState != "" ||
+		run.NextAttemptAt.Before(clock.Now().Add(29*time.Minute)) {
+		t.Fatalf("authority-blocked run was not parked: %+v", run)
+	}
+	if len(coopClient.submitSessions) != 0 {
+		t.Fatalf("authority-blocked run submitted model turns: %v", coopClient.submitSessions)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slackClient.posts) != 1 || slackClient.posts[0].channel != input.ChannelID ||
+		slackClient.posts[0].thread != input.MessageTS {
+		t.Fatalf("authority blocker posts = %+v", slackClient.posts)
+	}
+	rendered := renderedSlackMessage(slackClient.posts[0].message)
+	for _, want := range []string{"Investigation queued", "read-only workspace", "No model turn has started"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("authority blocker lacks %q: %q", want, rendered)
+		}
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/taskofferclaims"
 )
 
 func TestWatchedInputEffortAndAuthorityAreIndependent(t *testing.T) {
@@ -953,6 +954,160 @@ func TestEpisodeClaimCorrectionRequiresTypedEvidenceAndCoverageBinding(t *testin
 	coverage[0].ClaimIDs = []string{"change.recent"}
 	if got := investigation.ClaimCorrection(episode, "reply", evidence, coverage, completion, now, now, true); got != "" {
 		t.Fatalf("bound evidence rejected = %q", got)
+	}
+}
+
+// A task offer changes which outcome is being completed; it does not let an
+// ungrounded repository guess become a confirmable engineering action.
+func TestAnEngineeringOfferStillNeedsTypedEvidenceAndCoverage(t *testing.T) {
+	now := time.Now().UTC()
+	episode := core.WorkEpisode{
+		Effort: core.EffortFocusedCheck, RequiredCoverage: []string{"change"},
+	}
+	coverage := []core.Coverage{{
+		Layer: "change", ClaimIDs: []string{"change.recent"}, Status: "healthy",
+		Detail: "The exact candidate revision was inspected.", CreatedAt: now,
+	}}
+	if got := taskofferclaims.Correction(
+		episode, nil, coverage, now, now,
+	); !strings.Contains(got, "no typed evidence") {
+		t.Fatalf("ungrounded task offer correction = %q", got)
+	}
+	evidence := []core.Evidence{{
+		ClaimID: "change.recent", Relation: "supports", ObservedAt: now,
+		Dimensions: map[string]string{
+			"repository": "responder", "environment": "candidate", "revision": "abc123",
+		},
+	}}
+	if got := taskofferclaims.Correction(
+		episode, evidence, coverage, now, now,
+	); got != "" {
+		t.Fatalf("evidence-backed task offer rejected = %q", got)
+	}
+
+	for _, testCase := range []struct {
+		name     string
+		episode  core.WorkEpisode
+		evidence core.Evidence
+	}{
+		{
+			name:    "contradicted",
+			episode: episode,
+			evidence: core.Evidence{
+				ClaimID: "change.recent", Relation: "contradicts", ObservedAt: now,
+				Dimensions: evidence[0].Dimensions,
+			},
+		},
+		{
+			name: "missing dimensions", episode: episode,
+			evidence: core.Evidence{ClaimID: "change.recent", Relation: "supports", ObservedAt: now},
+		},
+		{
+			name: "stale live evidence",
+			episode: core.WorkEpisode{
+				Effort: core.EffortFocusedCheck, RequiredCoverage: []string{"host"},
+			},
+			evidence: core.Evidence{
+				ClaimID: "host.current_state", Relation: "supports", ObservedAt: now.Add(-time.Hour),
+				Dimensions: map[string]string{"host": "node-1", "environment": "production"},
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			itemCoverage := coverage
+			if testCase.episode.RequiredCoverage[0] == "host" {
+				itemCoverage = []core.Coverage{{
+					Layer: "host", ClaimIDs: []string{"host.current_state"}, Status: "healthy",
+					Detail: "One production host was checked.", CreatedAt: now,
+				}}
+			}
+			if got := taskofferclaims.Correction(
+				testCase.episode, []core.Evidence{testCase.evidence}, itemCoverage, now, now,
+			); got == "" {
+				t.Fatal("unsafe task offer was authorized")
+			}
+		})
+	}
+	if got := taskofferclaims.Correction(
+		core.WorkEpisode{RequiredCoverage: []string{"task"}}, nil, nil, now, now,
+	); got != "" {
+		t.Fatalf("future task outcome was not exempted: %q", got)
+	}
+}
+
+// A confirmation control does not change what the assessment claims about the
+// system that motivated it. One production path returned "healthy" beside an
+// engineering offer and bypassed the fresh functional/trend gate entirely.
+func TestAHealthyAssessmentWithATaskOfferStillNeedsCurrentTrends(t *testing.T) {
+	now := time.Now().UTC()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	svc := &Service{store: st}
+	correction, err := svc.episodeClaimCorrectionWithHistory(
+		context.Background(),
+		core.WorkEpisode{Effort: core.EffortOperationalAssessment},
+		"reply", nil, nil,
+		&CompletionAssessment{Status: "decision_ready", Verdict: "healthy"},
+		now, now,
+		[]investigation.ResultOperation{{
+			ID: "offer-fix", Type: "offer_task",
+			Task: &investigation.TaskOffer{Kind: "engineering", Title: "Fix the unhealthy path"},
+		}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(correction, "typed functional_probe") {
+		t.Fatalf("healthy offer bypassed current trend validation: %q", correction)
+	}
+}
+
+// A blocked investigation may still offer a repair, but the button must be
+// grounded in the same current evidence as any other confirmable task.
+func TestABlockedTaskOfferStillNeedsCurrentClaimEvidence(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	svc := &Service{store: st}
+	now := time.Now().UTC()
+	correction, err := svc.episodeClaimCorrectionWithHistory(
+		ctx,
+		core.WorkEpisode{Effort: core.EffortFocusedCheck, RequiredCoverage: []string{"change"}},
+		"reply",
+		[]core.Evidence{{
+			ClaimID: "change.recent", Relation: "contradicts", ObservedAt: now,
+			Dimensions: map[string]string{
+				"repository": "responder", "environment": "candidate", "revision": "abc123",
+			},
+		}},
+		[]core.Coverage{{
+			Layer: "change", ClaimIDs: []string{"change.recent"}, Status: "healthy",
+			CreatedAt: now,
+		}},
+		&CompletionAssessment{
+			Status: "blocked", Summary: "The repair needs operator confirmation.",
+			MaterialGaps: []string{"write authority"}, BlockerKind: "approval_required",
+			Attempts: []string{"Inspected the candidate"}, NextAction: "Confirm the offered task",
+		},
+		now, now,
+		[]investigation.ResultOperation{{
+			ID: "offer-fix", Type: "offer_task",
+			Task: &investigation.TaskOffer{Kind: "engineering", Title: "Apply the repair"},
+		}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if correction == "" {
+		t.Fatal("blocked task offer bypassed contradictory current evidence")
 	}
 }
 

@@ -150,6 +150,67 @@ func TestIncidentCardHasVisibleStateAndDeterministicControls(t *testing.T) {
 	}
 }
 
+func TestIncidentWorkspacePreparationRemainsResponderOwned(t *testing.T) {
+	incident := core.Incident{
+		ID: "incident_preparing", Title: "Scrape target down", Severity: "critical",
+		Status: core.IncidentActive, Workflow: core.WorkflowHolding,
+		SignalCount: 1, FiringCount: 1,
+		LastError: "branch session lacks read-only repository authority; no model turn started",
+		CreatedAt: time.Now().Add(-time.Minute),
+	}
+	card := IncidentCardWithPublication(
+		incident, "tenant-core", nil, false, true,
+		core.Publication{}, core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
+	)
+	body, err := Encode(card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, want := range []string{"Workspace preparation", "nothing needed from you", "Responder will retry automatically"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("preparation card lost %q: %s", want, text)
+		}
+	}
+	for _, forbidden := range []string{"Action needed", "Needs you", "reply here"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("preparation card assigned operator work via %q: %s", forbidden, text)
+		}
+	}
+}
+
+func TestReadOnlyWorkspaceNoticeNamesItsAutomaticRetryTime(t *testing.T) {
+	retryAt := time.Date(2026, 8, 18, 16, 5, 0, 0, time.UTC)
+	message := ReadOnlyWorkspaceBlocked("tenant-core", retryAt)
+	body, err := Encode(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if !strings.Contains(text, "Responder will retry automatically at 16:05 UTC") ||
+		strings.Contains(text, "circuit breaker") {
+		t.Fatalf("read-only preparation notice = %s", text)
+	}
+}
+
+func TestHistoricalWorkspaceNoticeNamesItsAutomaticRetryTime(t *testing.T) {
+	retryAt := time.Date(2026, 8, 18, 16, 5, 0, 0, time.UTC)
+	message := WorkspacePreparationBlocked("tenant-core", retryAt)
+	body, err := Encode(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, want := range []string{"finish workspace preparation", "Responder will retry automatically at 16:05 UTC"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("historical preparation notice lost %q: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "refreshing") {
+		t.Fatalf("historical key exhaustion was called a refresh: %s", text)
+	}
+}
+
 func TestIncidentCardControlsFollowLifecycle(t *testing.T) {
 	base := core.Incident{
 		ID: "inc_1234567890abcdef", Title: "API failed", Status: core.IncidentActive,

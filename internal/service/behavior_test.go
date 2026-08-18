@@ -13,6 +13,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/offerreason"
+	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/standingrule"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -941,8 +942,8 @@ func TestWatchSessionTerminalIncludesDiscarded(t *testing.T) {
 	for state, want := range map[string]bool{
 		"open": false, "exhausted": false, "closed": true, "discarded": true,
 	} {
-		if got := watchSessionTerminal(state); got != want {
-			t.Fatalf("watchSessionTerminal(%q) = %t, want %t", state, got, want)
+		if got := sessioncreate.TerminalState(state); got != want {
+			t.Fatalf("sessioncreate.TerminalState(%q) = %t, want %t", state, got, want)
 		}
 	}
 }
@@ -1005,11 +1006,16 @@ func TestDiscardedPersistedWatchSessionRotatesWithoutFailureNotice(t *testing.T)
 
 func TestCreateWatchSessionRefreshesStaleCreateReplay(t *testing.T) {
 	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
 	coopClient := newFakeCoop()
 	coopClient.session.State = "discarded"
 	coopClient.createResultState = "open"
 	coopClient.openAfterCreateKey = "responder:watch-session:COPS:2"
-	svc := &Service{cfg: cfg, coop: coopClient}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
 
 	session, generation, err := svc.createWatchSession(
 		context.Background(), "COPS", "observe", 1,

@@ -281,6 +281,10 @@ func TestOrphanReconciliationSchedulesOnlyResponderManagedSessions(t *testing.T)
 			ForkName: "remote-orphan", State: "closed", UpdatedAt: now.Add(-time.Hour),
 		},
 		{
+			ID: "ses_bounded_orphan", ExternalRef: "Slack bounded conversation C123/1700.1",
+			ForkName: "remote-bounded-orphan", State: "closed", UpdatedAt: now.Add(-time.Hour),
+		},
+		{
 			ID: "ses_unrelated", ExternalRef: "catalog-roadmap",
 			ForkName: "catalog-roadmap", State: "closed", UpdatedAt: now.Add(-time.Hour),
 		},
@@ -301,6 +305,10 @@ func TestOrphanReconciliationSchedulesOnlyResponderManagedSessions(t *testing.T)
 	}
 	if item.SessionID != "ses_orphan" || item.Reason != "orphaned Responder session" {
 		t.Fatalf("scheduled cleanup = %+v", item)
+	}
+	known, err := st.ResponderSessionKnown(ctx, "ses_bounded_orphan")
+	if err != nil || !known {
+		t.Fatalf("bounded conversation session was orphaned outside cleanup: known=%t err=%v", known, err)
 	}
 	for _, sessionID := range []string{"ses_unrelated", "ses_fresh"} {
 		known, err := st.ResponderSessionKnown(ctx, sessionID)

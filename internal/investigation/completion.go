@@ -732,6 +732,36 @@ func ClaimCorrection(
 		return ""
 	}
 	contract := Compile(episode)
+	typed := slices.ContainsFunc(evidence, func(item core.Evidence) bool { return claimRequired(contract, item.ClaimID) })
+	if !typed && (!strict || len(contract.Claims) == 0) {
+		return ""
+	}
+	if correction := ClaimShapeCorrection(episode, evidence, coverage, strict); correction != "" {
+		return correction
+	}
+	completionStatus, completionVerdict := completion.Status, completion.Verdict
+	if correction := completionpolicy.PublishedArtifactCorrection(
+		episode.CompletionCriteria, evidence, completionStatus,
+	); correction != "" {
+		return correction
+	}
+	if correction := completionpolicy.HealthyOperationalTrendCorrection(
+		episode.Effort, evidence, coverage, completionVerdict, now,
+	); correction != "" {
+		return correction
+	}
+	ledger := BuildLedgerForChain(contract, evidence, coverage, now.UTC(), chainStartedAt.UTC())
+	return ledger.CompletionCorrectionFor(completion.Status, completion.Verdict)
+}
+
+// ClaimShapeCorrection requires the evidence and coverage shape of a completed
+// contract without asserting that the future outcome offered by a task already
+// exists.
+func ClaimShapeCorrection(episode core.WorkEpisode, evidence []core.Evidence, coverage []core.Coverage, strict bool) string {
+	return ClaimShapeCorrectionForContract(Compile(episode), evidence, coverage, strict)
+}
+
+func ClaimShapeCorrectionForContract(contract InvestigationContract, evidence []core.Evidence, coverage []core.Coverage, strict bool) string {
 	typed := false
 	for _, item := range evidence {
 		if claimRequired(contract, item.ClaimID) {
@@ -765,22 +795,7 @@ func ClaimCorrection(
 			return "coverage for required claim " + requirement.ID + " must include its exact claim_id"
 		}
 	}
-	completionStatus, completionVerdict := "", ""
-	if completion != nil {
-		completionStatus, completionVerdict = completion.Status, completion.Verdict
-	}
-	if correction := completionpolicy.PublishedArtifactCorrection(
-		episode.CompletionCriteria, evidence, completionStatus,
-	); correction != "" {
-		return correction
-	}
-	if correction := completionpolicy.HealthyOperationalTrendCorrection(
-		episode.Effort, evidence, coverage, completionVerdict, now,
-	); correction != "" {
-		return correction
-	}
-	ledger := BuildLedgerForChain(contract, evidence, coverage, now.UTC(), chainStartedAt.UTC())
-	return ledger.CompletionCorrectionFor(completion.Status, completion.Verdict)
+	return ""
 }
 
 func claimRequired(contract InvestigationContract, claimID string) bool {

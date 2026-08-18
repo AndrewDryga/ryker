@@ -45,7 +45,11 @@ func IncidentCardWithPublication(
 		incident.FiringCount, incident.SignalCount, escapeSlackText(repositoryName),
 	)
 	if incident.LastError != "" {
-		fallback += " Action needed: " + truncateUTF8(escapeSlackText(incident.LastError), 500)
+		if incidentPreparationOwned(incident) {
+			fallback += " Workspace preparation: " + truncateUTF8(escapeSlackText(incident.LastError), 500)
+		} else {
+			fallback += " Action needed: " + truncateUTF8(escapeSlackText(incident.LastError), 500)
+		}
 	}
 	message := Message{
 		Text:   truncateUTF8(fallback, 4000),
@@ -67,9 +71,15 @@ func IncidentCardWithPublication(
 		Overflow: overflow,
 	}
 	if incident.LastError != "" {
+		title := "*Action needed*\n"
+		detail := truncateUTF8(escapeSlackText(incident.LastError), 800)
+		if incidentPreparationOwned(incident) {
+			title = "*Workspace preparation*\n"
+			detail += "\nResponder will retry automatically."
+		}
 		message.Sections = append(
 			message.Sections,
-			"*Action needed*\n"+truncateUTF8(escapeSlackText(incident.LastError), 800),
+			title+detail,
 		)
 	}
 	signal, hasSignal := primarySignal(signals)
@@ -80,6 +90,16 @@ func IncidentCardWithPublication(
 	// gets the same window onto it. Only while one runs: a firing incident
 	// with nobody working on it is the state this must not be confused with.
 	message = withLiveTurn(message, turn, incident.ActiveTurnID != "", now)
+	if turn.QueuedBranches > 0 {
+		label := "investigation branches"
+		if turn.QueuedBranches == 1 {
+			label = "investigation branch"
+		}
+		message.Sections = append(message.Sections, fmt.Sprintf(
+			"*Parallel checks*\n%d %s queued for workspace preparation; Responder will retry automatically.",
+			turn.QueuedBranches, label,
+		))
+	}
 	// Coverage — which layers were checked and which were never looked at — is
 	// the strip this card most wants and cannot have: core.Coverage never
 	// reaches this function, and the signature is shared with every caller.
@@ -121,15 +141,25 @@ func incidentCardState(incident core.Incident) cardState {
 		state.Stripe = StripeFailed
 	}
 	switch {
-	case incident.Workflow == core.WorkflowBlocked || incident.LastError != "":
+	case incident.Workflow == core.WorkflowBlocked:
 		return cardState{StripeNeedsYou, "✋", "Needs you", custodyOperator}
 	case incident.Workflow == core.WorkflowParked:
 		// Nothing is running and the next move is a person's, whatever the
 		// signals are doing.
 		state.Stripe = StripeNeedsYou
 		state.Custody = custodyOperator
+	case incidentPreparationOwned(incident):
+		return state
+	case incident.LastError != "":
+		return cardState{StripeNeedsYou, "✋", "Needs you", custodyOperator}
 	}
 	return state
+}
+
+func incidentPreparationOwned(incident core.Incident) bool {
+	return incident.Workflow == core.WorkflowHolding ||
+		incident.Workflow == core.WorkflowProvisioningChannel ||
+		incident.Workflow == core.WorkflowProvisioningSession
 }
 
 // severeSeverity decides which firing incidents are red.
@@ -957,7 +987,11 @@ func IncidentStatusMessage(incident core.Incident) Message {
 	case core.WorkflowProvisioningChannel, core.WorkflowProvisioningSession:
 		next = "Wait for preparation to finish. The work card will update automatically."
 	case core.WorkflowHolding:
-		next = "Responder will start when capacity is available. Close another work item if this is urgent."
+		if incident.LastError != "" {
+			next = "Workspace preparation is queued. Responder will retry automatically."
+		} else {
+			next = "Responder will start automatically when capacity is available."
+		}
 	case core.WorkflowInvestigating:
 		next = "An agent turn is running or queued. Wait for its update, or press Stop on the card to cancel it."
 		if incident.IsEngineeringTask() {

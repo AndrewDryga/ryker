@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -11,6 +12,47 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
+
+func TestPermanentChannelPreparationFailureNeedsOperatorAction(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	incident, created, err := st.CreateManualIncident(
+		ctx, "repo", "missing-scope", "Create the incident room", "summary",
+		"U123ABC", "CSOURCE", "1700.1", cfg.Limits.MaxOpenIncidents,
+	)
+	if err != nil || !created {
+		t.Fatalf("create incident = %+v, %t, %v", incident, created, err)
+	}
+	slackClient := &fakeSlack{createChannelErr: errors.New("missing_scope")}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.processChannelIncident(ctx, incident.ID); err == nil {
+		t.Fatal("permanent Slack refusal was hidden")
+	}
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if incident.Workflow != core.WorkflowBlocked {
+		t.Fatalf("permanent channel preparation remained automatic: %+v", incident)
+	}
+	card, err := svc.incidentCard(ctx, incident)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := slackui.Encode(card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(rendered), "Action needed") ||
+		strings.Contains(string(rendered), "nothing needed from you") {
+		t.Fatalf("permanent Slack refusal custody = %s", rendered)
+	}
+}
 
 // The Coop session every tool use needs used to be bound only after a room's
 // root card landed — store.SetCoopSession refused a row whose root_ts was empty in its WHERE
@@ -46,7 +88,9 @@ func TestAThreadScopedTaskStartsItsSessionBeforeItsCardLands(t *testing.T) {
 		t.Fatalf("engineering task is not thread scoped: %+v", task)
 	}
 
-	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
 
 	// One pass binds the thread and enqueues the card. Nothing delivers it:
 	// this is the channel that went away, or the post that will never succeed.
@@ -128,6 +172,9 @@ func TestAThreadScopedTaskStartsItsSessionBeforeItsCardLands(t *testing.T) {
 func TestTerminalTaskSessionFailureGetsOneFreshIdempotencyGeneration(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
+	repository := cfg.Repositories[cfg.Slack.DefaultRepository]
+	repository.DisplayName = "tenant-core"
+	cfg.Repositories[cfg.Slack.DefaultRepository] = repository
 	st, err := store.Open(cfg.StateDir)
 	if err != nil {
 		t.Fatal(err)
@@ -142,6 +189,7 @@ func TestTerminalTaskSessionFailureGetsOneFreshIdempotencyGeneration(t *testing.
 		t.Fatalf("create task = %+v, %t, %v", task, created, err)
 	}
 	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
 	coopClient.createErrors = []error{&coop.APIError{
 		Status: 503, Code: "repository_unavailable", OperationID: "op_failed",
 		Detail: "workspace preparation could not refresh tenant-core; no model session was created",
@@ -194,6 +242,7 @@ func TestPendingTaskSessionKeepsItsIdempotencyGeneration(t *testing.T) {
 		t.Fatalf("create task = %+v, %t, %v", task, created, err)
 	}
 	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
 	coopClient.createErrors = []error{&coop.OperationPendingError{
 		ID: "op_running", Method: "CreateRemoteSession",
 	}}

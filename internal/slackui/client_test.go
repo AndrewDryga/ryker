@@ -15,7 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/gorilla/websocket"
 	"github.com/slack-go/slack"
 	"gopkg.in/yaml.v3"
@@ -872,6 +874,54 @@ func TestEngineeringTaskUpdateDeliversVisiblePlumbingAndOnlyFoldsTheRequest(t *t
 	}
 	if strings.Count(blocks, `"type":"overflow"`) != 1 {
 		t.Fatalf("delivered task has more than one overflow menu: %s", blocks)
+	}
+}
+
+// Workspace preparation is Responder-owned even when the durable incident has
+// a LastError. This crosses the Slack update boundary so a future renderer or
+// transport change cannot turn an automatic retry into operator action.
+func TestIncidentUpdateDeliversResponderOwnedWorkspacePreparation(t *testing.T) {
+	var form url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		form = r.Form
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"ok":true,"channel":"C123","ts":"1700.1"}`)
+	}))
+	defer server.Close()
+	client := &Client{api: slack.New(
+		"test-token", slack.OptionAPIURL(server.URL+"/"), slack.OptionHTTPClient(server.Client()),
+	)}
+	secret := "/Users/operator/private/token-ref op_secret_123"
+	incident := core.Incident{
+		ID: "incident_preparing", Title: "Scrape target down", Severity: "critical",
+		Status: core.IncidentActive, Workflow: core.WorkflowHolding,
+		SignalCount: 1, FiringCount: 1,
+		LastError: sessioncreate.Status("tenant-core", &coop.APIError{
+			Status: 500, Code: "repository_unavailable", Detail: secret,
+		}),
+		CreatedAt: time.Now().Add(-time.Minute),
+	}
+	card := IncidentCardWithPublication(
+		incident, "tenant-core", nil, false, true,
+		core.Publication{}, core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
+	)
+	if err := client.Update(context.Background(), "C123", "1700.1", card); err != nil {
+		t.Fatal(err)
+	}
+	blocks := form.Get("blocks") + form.Get("attachments")
+	for _, want := range []string{"Workspace preparation", "nothing needed from you", "Responder will retry automatically"} {
+		if !strings.Contains(blocks, want) {
+			t.Fatalf("delivered incident lost %q: %s", want, blocks)
+		}
+	}
+	if strings.Contains(blocks, "Action needed") || strings.Contains(blocks, "Needs you") {
+		t.Fatalf("delivered incident assigned automatic preparation to the operator: %s", blocks)
+	}
+	if strings.Contains(blocks, secret) || strings.Contains(blocks, "op_secret_123") {
+		t.Fatalf("delivered incident exposed Coop transport detail: %s", blocks)
 	}
 }
 

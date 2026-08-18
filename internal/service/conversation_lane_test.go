@@ -372,6 +372,75 @@ func TestPrewarmConversationSessionsRotatesChangedPolicy(t *testing.T) {
 	}
 }
 
+// An ordinary Slack session must not retain the authority of a session created
+// before repository read-only policies were enforced. The live test channel
+// reused one such writable session after the policy rollout, so every later
+// conversation inherited a checkout it was no longer allowed to mutate.
+func TestAReadOnlyPolicyNeverReusesLegacyWritableConversationSession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.ConversationPolicy = "repo-conversation"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.BindConversationSession(
+		ctx, "CLEGACY", "repo", "repo-conversation", "ses_legacy", 1, 1, time.Now(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.session.ID = "ses_legacy"
+	coopClient.session.RepositoryReadOnly = false
+	coopClient.openAfterCreateKey = "responder:conversation-session:CLEGACY:2"
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+
+	memory, session, err := svc.ensureConversationSession(
+		ctx, "CLEGACY", "repo", "repo-conversation",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ID != "ses_2" || !session.RepositoryReadOnly || memory.SessionID != "ses_2" ||
+		memory.Generation != 2 {
+		t.Fatalf("legacy writable session was reused: memory=%+v session=%+v", memory, session)
+	}
+}
+
+func TestAReadOnlyPolicyNeverReusesLegacyWritableWatchSession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.Intelligence.BindChannelSession(
+		ctx, "CLEGACY", "repo", "ses_legacy", 1, 1, time.Now(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.session.ID = "ses_legacy"
+	coopClient.session.RepositoryReadOnly = false
+	coopClient.openAfterCreateKey = "responder:watch-session:CLEGACY:2"
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+
+	memory, session, err := svc.ensureWatchSessionForRepositoryAtGeneration(
+		ctx, "CLEGACY", "repo", 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ID != "ses_2" || !session.RepositoryReadOnly || memory.SessionID != "ses_2" ||
+		memory.Generation != 2 {
+		t.Fatalf("legacy writable watch session was reused: memory=%+v session=%+v", memory, session)
+	}
+}
+
 func TestFailedConversationPrewarmAdvancesDurableGeneration(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

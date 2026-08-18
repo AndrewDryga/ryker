@@ -11,6 +11,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/evidencepolicy"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/taskoffercarry"
 )
 
 // The turn state a decision is read against, and the rules that correct a
@@ -118,6 +119,15 @@ type WatchTurnState struct {
 	// completion, so a round that dropped the finding it was not asked about
 	// would be judged as having discovered nothing.
 	CarriedFindings []investigation.FindingOperation `json:"carried_findings,omitempty"`
+	// CarriedTaskOffer preserves the governed action a correction round is
+	// refining. Without it, a later evidence-only correction can post the
+	// explanation while silently dropping the only control that lets the
+	// operator start the writable work.
+	CarriedTaskOffer *taskoffercarry.Offer `json:"carried_task_offer,omitempty"`
+}
+
+func (state *WatchTurnState) ReconcileCarriedTaskOffer(decision *WatchDecision) {
+	state.CarriedTaskOffer = taskoffercarry.Reconcile(state.CarriedTaskOffer, taskoffercarry.Round{Operations: &decision.Operations, Applied: &decision.AppliedOperations, Title: &decision.TaskTitle, Repository: &decision.TaskRepository, Prompt: &decision.TaskPrompt, PullRequest: &decision.TaskPullRequest})
 }
 
 // CarryEvidence and CarryCoverage fold a round's rows into what the run already

@@ -161,28 +161,29 @@ type Operation struct {
 }
 
 type Session struct {
-	ID                string                `json:"id"`
-	ExternalRef       string                `json:"external_ref"`
-	Target            string                `json:"target"`
-	Policy            string                `json:"policy"`
-	PolicyDigest      string                `json:"policy_digest"`
-	BaseCommit        string                `json:"base_commit"`
-	PullRequest       *PullRequestBinding   `json:"pull_request,omitempty"`
-	Companions        []CompanionRepository `json:"companions,omitempty"`
-	ForkName          string                `json:"fork_name"`
-	Revision          int64                 `json:"revision"`
-	State             string                `json:"state"`
-	Activity          string                `json:"activity"`
-	MaxTurns          int                   `json:"max_turns"`
-	MaxQueuedTurns    int                   `json:"max_queued_turns"`
-	MaxQueuedBytes    int                   `json:"max_queued_bytes"`
-	TurnsUsed         int                   `json:"turns_used"`
-	QueuedTurnCount   int                   `json:"queued_turn_count"`
-	QueuedPromptBytes int                   `json:"queued_prompt_bytes"`
-	ActiveTurnID      string                `json:"active_turn_id,omitempty"`
-	LastEventSequence int64                 `json:"last_event_sequence"`
-	CreatedAt         time.Time             `json:"created_at"`
-	UpdatedAt         time.Time             `json:"updated_at"`
+	ID                 string                `json:"id"`
+	ExternalRef        string                `json:"external_ref"`
+	Target             string                `json:"target"`
+	Policy             string                `json:"policy"`
+	PolicyDigest       string                `json:"policy_digest"`
+	RepositoryReadOnly bool                  `json:"repository_read_only"`
+	BaseCommit         string                `json:"base_commit"`
+	PullRequest        *PullRequestBinding   `json:"pull_request,omitempty"`
+	Companions         []CompanionRepository `json:"companions,omitempty"`
+	ForkName           string                `json:"fork_name"`
+	Revision           int64                 `json:"revision"`
+	State              string                `json:"state"`
+	Activity           string                `json:"activity"`
+	MaxTurns           int                   `json:"max_turns"`
+	MaxQueuedTurns     int                   `json:"max_queued_turns"`
+	MaxQueuedBytes     int                   `json:"max_queued_bytes"`
+	TurnsUsed          int                   `json:"turns_used"`
+	QueuedTurnCount    int                   `json:"queued_turn_count"`
+	QueuedPromptBytes  int                   `json:"queued_prompt_bytes"`
+	ActiveTurnID       string                `json:"active_turn_id,omitempty"`
+	LastEventSequence  int64                 `json:"last_event_sequence"`
+	CreatedAt          time.Time             `json:"created_at"`
+	UpdatedAt          time.Time             `json:"updated_at"`
 }
 
 type PullRequestBinding struct {
@@ -833,6 +834,31 @@ func BoundPrompt(prompt string) (string, bool) {
 func (c *Client) GetTurn(ctx context.Context, sessionID, turnID string) (Turn, error) {
 	var response Turn
 	err := c.get(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/turns/"+url.PathEscape(turnID), nil, &response)
+	return response, err
+}
+
+func (c *Client) ListTurns(
+	ctx context.Context,
+	sessionID string,
+	afterOrdinal int64,
+	limit int,
+) ([]Turn, error) {
+	if afterOrdinal < 0 || limit < 1 || limit > 1000 {
+		return nil, errors.New(
+			"Coop turn list requires a non-negative cursor and limit between 1 and 1000",
+		)
+	}
+	query := url.Values{
+		"after": {strconv.FormatInt(afterOrdinal, 10)},
+		"limit": {strconv.Itoa(limit)},
+	}
+	var response []Turn
+	err := c.get(
+		ctx,
+		"/v1/sessions/"+url.PathEscape(sessionID)+"/turns",
+		query,
+		&response,
+	)
 	return response, err
 }
 

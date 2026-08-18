@@ -746,6 +746,8 @@ func TestReadPathsCarryCursorsAndRevisions(t *testing.T) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/events"):
 			fmt.Fprint(w, `[{"id":"e1","session_id":"s1","sequence":12,"type":"turn.completed"}]`)
+		case strings.HasSuffix(r.URL.Path, "/turns"):
+			fmt.Fprint(w, `[{"id":"turn_10","session_id":"s1","ordinal":10,"state":"queued"}]`)
 		case strings.HasSuffix(r.URL.Path, "/changes"):
 			fmt.Fprint(w, `{"base_commit":"abc","committed":[{"path":"x","status":"modified"}]}`)
 		case strings.HasSuffix(r.URL.Path, "/review"):
@@ -801,6 +803,14 @@ func TestReadPathsCarryCursorsAndRevisions(t *testing.T) {
 
 	if _, err := client.GetTurn(ctx, "s1", "turn_9"); err != nil {
 		t.Fatal(err)
+	}
+	turns, err := client.ListTurns(ctx, "s1", 9, 10)
+	if err != nil || len(turns) != 1 || turns[0].Ordinal != 10 {
+		t.Fatalf("turns = %+v err=%v", turns, err)
+	}
+	if query := queries[len(queries)-1]; !strings.Contains(query, "after=9") ||
+		!strings.Contains(query, "limit=10") {
+		t.Fatalf("turns query = %q", query)
 	}
 	if sessions, err := client.ListSessions(ctx, 10); err != nil || len(sessions) != 1 {
 		t.Fatalf("sessions = %+v err=%v", sessions, err)

@@ -1177,6 +1177,7 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 			t.Fatalf("second click rewrote the offer message = %+v", update)
 		}
 	}
+	coopClient.session.RepositoryReadOnly = false
 	if err := svc.processSession(ctx); err != nil {
 		t.Fatal(err)
 	}

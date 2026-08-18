@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +13,110 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
+
+// A partial correction may not turn an accepted engineering-task offer into a
+// blocker with no confirmation control. The harvested live acceptance ended
+// exactly that way after one provider fallback: the
+// evidence correction omitted offer_task, and Slack posted the explanation but
+// no button that could start the required writable work.
+func TestAPartialCorrectionRoundNeverDropsTheTaskOffer(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	cfg.Limits.MaxAgentRunAttempts = 8
+	cfg.Repositories["tenant-infra"] = cfg.Repositories["repo"]
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	coopClient := newFakeCoop()
+	for _, path := range []string{
+		"testdata/live_task_offer_initial.txt",
+		"testdata/live_task_offer_partial.txt",
+		"testdata/live_task_offer_decision_ready.txt",
+	} {
+		coopClient.completeQueue = append(
+			coopClient.completeQueue, freshenLiveTaskOffer(t, path),
+		)
+	}
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	input := core.SlackInput{
+		ID: "live-task-offer-carry", EnvelopeID: "env-live-task-offer-carry",
+		EventID: "event-live-task-offer-carry", Kind: "mention",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH", ThreadTS: "1700.900",
+		MessageTS: "1700.901", UserID: "U123ABC", ReceivedAt: time.Now().UTC(),
+		Text: "Find one genuine typo, fix only that typo, validate it, and commit it.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var run core.AgentRun
+	for range 20 {
+		if err := svc.processAgentRun(ctx); err != nil && !errors.Is(err, store.ErrNotFound) {
+			t.Fatal(err)
+		}
+		svc.pollAgentRuns(ctx)
+		if err := svc.processAgentRunFinalization(ctx); err != nil &&
+			!errors.Is(err, store.ErrNotFound) {
+			t.Fatal(err)
+		}
+		run, err = st.GetAgentRunBySource(ctx, "watch", input.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.State == core.AgentRunCompleted || run.State == core.AgentRunFailed ||
+			run.State == core.AgentRunCancelled || run.State == core.AgentRunSuperseded {
+			break
+		}
+	}
+	if run.State != core.AgentRunCompleted {
+		t.Fatalf("the harvested task-offer correction loop ended in %s", run.State)
+	}
+	decision := parseStagedWatchResult(t, run)
+	if decision.TaskTitle == "" || decision.TaskRepository != "tenant-infra" ||
+		decision.TaskPrompt == "" {
+		t.Fatalf("the partial correction dropped the task offer: %+v", decision)
+	}
+	corrections := auditOutcomes(t, cfg, "result.correction", "")
+	if len(corrections) != 2 {
+		t.Fatalf("task offer needed %d corrections, want 2: %v", len(corrections), corrections)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("delivered task offer posts = %+v", slackClient.posts)
+	}
+	message := slackClient.posts[0].message
+	if len(message.Actions) != 1 || message.Actions[0].ID != slackui.ActionStartTask ||
+		message.Actions[0].Value != input.ID {
+		t.Fatalf("delivered task offer action = %+v", message.Actions)
+	}
+	state, err := decodeWatchRunContext(run)
+	if err != nil || state.OfferedTaskTitle != decision.TaskTitle ||
+		state.OfferedTaskRepository != "tenant-infra" ||
+		state.OfferedTaskPrompt != decision.TaskPrompt {
+		t.Fatalf("persisted task offer = %+v, %v", state, err)
+	}
+}
+
+func freshenLiveTaskOffer(t *testing.T, path string) string {
+	t.Helper()
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read harvested live task-offer turn: %v", err)
+	}
+	now := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+	return strings.NewReplacer(
+		"2026-08-18T13:21:48Z", now,
+		"2026-08-18T13:23:18Z", now,
+	).Replace(string(contents))
+}
 
 // A correction round returns what it is changing, and the host puts back the
 // rest.

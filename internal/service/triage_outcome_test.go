@@ -10,6 +10,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -145,6 +146,21 @@ func TestRepositoryPreparationBlockerIsDeliveredOnceInTheBoundAlertThread(t *tes
 		"9999.999", time.Time{},
 	); err != nil || recent {
 		t.Fatalf("preparation status counted as a completed response = %t, %v", recent, err)
+	}
+	if err := svc.notifyRepositoryPreparationBlocked(
+		ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 1 || len(slack.updates) != 1 {
+		t.Fatalf("changed preparation cause did not update its status: posts=%+v updates=%+v",
+			slack.posts, slack.updates)
+	}
+	updated := renderedSlackMessage(slack.updates[0].message)
+	if !strings.Contains(updated, "finish workspace preparation") ||
+		!strings.Contains(updated, "retry automatically at") || strings.Contains(updated, "refreshing") {
+		t.Fatalf("historical-key status update = %q", updated)
 	}
 }
 

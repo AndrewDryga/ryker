@@ -2,14 +2,20 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/config"
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/store/storetest"
 )
 
 // routedTurn is what one proactively watched message asked Coop for.
@@ -288,12 +294,648 @@ func TestAWorkRoomAsksForTheProfileThatNamesTheWorkItIs(t *testing.T) {
 		t.Fatal(err)
 	}
 	task := workRoom(t, ctx, st, cfg, "task", "CTASK", "U123ABC", true)
+	coopClient.session.RepositoryReadOnly = false
 	if err := svc.processSessionIncident(ctx, task.ID); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(coopClient.createPolicies, []string{"repo-incident", "repo-engineer"}) {
 		t.Fatalf("work rooms asked Coop for %v, want [repo-incident repo-engineer]",
 			coopClient.createPolicies)
+	}
+}
+
+// Six parked production incidents still owned writable observe sessions after
+// the policy changed. A new read-only incident must reject that authority
+// before binding it.
+func TestAReadOnlyIncidentNeverBindsANewWritableCoopSession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
+	coopClient.session.ActiveTurnID = "turn_candidate"
+	coopClient.listTurns = []coop.Turn{{
+		ID: "turn_candidate", SessionID: coopClient.session.ID, Ordinal: 1, State: "running",
+	}}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+
+	created := workRoom(t, ctx, st, cfg, "new-read-only", "CNEW", "U123ABC", false)
+	err = svc.processSessionIncident(ctx, created.ID)
+	var deferred scheduledWorkDeferral
+	if !errors.As(err, &deferred) {
+		t.Fatalf("authority mismatch returned %v, want slow circuit-breaker deferral", err)
+	}
+	created, err = st.GetIncident(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.CoopSessionID != "" || created.CoopSessionGeneration != 5 ||
+		created.Workflow != core.WorkflowHolding {
+		t.Fatalf("writable created session remained bound: %+v", created)
+	}
+	if len(coopClient.createKeys) != sessioncreate.MaxReadOnlyCandidates {
+		t.Fatalf("created %d writable candidates, want bounded %d", len(coopClient.createKeys), sessioncreate.MaxReadOnlyCandidates)
+	}
+	if !slices.Equal(coopClient.cancelTurns, []string{"turn_candidate"}) {
+		t.Fatalf("rejected candidate turns were not revoked: %v", coopClient.cancelTurns)
+	}
+	cleanup, err := st.NextCleanup(ctx, time.Now().Add(time.Minute))
+	if err != nil || cleanup.SessionID != coopClient.session.ID {
+		t.Fatalf("writable created session cleanup = %+v, %v", cleanup, err)
+	}
+}
+
+// Engineering is an exact authority lane too. Binding a read-only session to
+// confirmed work produces a healthy-looking room whose first edit can never
+// succeed.
+func TestAnEngineeringTaskNeverBindsAReadOnlyCoopSession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = true
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	task := workRoom(t, ctx, st, cfg, "read-only-task", "CTASKRO", "U123ABC", true)
+
+	err = svc.processSessionIncident(ctx, task.ID)
+	var deferred scheduledWorkDeferral
+	if !errors.As(err, &deferred) {
+		t.Fatalf("engineering authority mismatch returned %v, want slow circuit-breaker deferral", err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.CoopSessionID != "" || task.CoopSessionGeneration != 5 ||
+		task.Workflow != core.WorkflowHolding {
+		t.Fatalf("read-only engineering session was bound: %+v", task)
+	}
+	if len(coopClient.createKeys) != sessioncreate.MaxReadOnlyCandidates {
+		t.Fatalf("created %d read-only candidates, want bounded %d", len(coopClient.createKeys), sessioncreate.MaxReadOnlyCandidates)
+	}
+}
+
+func TestAReadOnlyIncidentRotatesALegacyWritableCoopSession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	legacy := workRoom(t, ctx, st, cfg, "legacy-read-only", "CLEGACY", "U123ABC", false)
+	if err := st.SetCoopSession(ctx, legacy.ID, coopClient.session.ID, "legacy-fork", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.pollIncident(ctx, legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err = st.GetIncident(ctx, legacy.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy.CoopSessionID != "" || legacy.CoopSessionGeneration != 2 ||
+		legacy.Workflow != core.WorkflowProvisioningSession {
+		t.Fatalf("legacy writable session remained bound: %+v", legacy)
+	}
+	cleanup, err := st.NextCleanup(ctx, time.Now().Add(time.Minute))
+	if err != nil || cleanup.SessionID != coopClient.session.ID {
+		t.Fatalf("writable session cleanup = %+v, %v", cleanup, err)
+	}
+}
+
+func TestAnEngineeringTaskStillBindsAWritableCoopSession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+
+	task := workRoom(t, ctx, st, cfg, "writable-task", "CTASK", "U123ABC", true)
+	if err := svc.processSessionIncident(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.CoopSessionID != coopClient.session.ID || task.CoopSessionGeneration != 1 {
+		t.Fatalf("writable engineering session was rotated: %+v", task)
+	}
+	if _, err := st.GetCoopCleanup(ctx, coopClient.session.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("writable engineering session unexpectedly entered cleanup: %v", err)
+	}
+}
+
+// A crash can leave generation one bound to the previous request shape. The
+// accepted work is still valid; generation two is the first key with the exact
+// current policy and must be tried without turning the card into a blocker.
+func TestAnIncidentAdvancesPastACreateSessionIdempotencyCollision(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	coopClient.createErrors = []error{&coop.APIError{Status: 409, Code: "idempotency_conflict"}}
+	coopClient.openAfterCreateKey = "responder:session:placeholder:2"
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	incident := workRoom(t, ctx, st, cfg, "collision", "CCOLLISION", "U123ABC", false)
+	coopClient.openAfterCreateKey = sessioncreate.Key("responder:session:"+incident.ID, 2)
+	if err := svc.processSessionIncident(ctx, incident.ID); err != nil {
+		t.Fatal(err)
+	}
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if incident.CoopSessionID != "ses_2" || incident.CoopSessionGeneration != 2 ||
+		incident.Workflow == core.WorkflowBlocked {
+		t.Fatalf("incident collision recovery = %+v", incident)
+	}
+}
+
+// Exact authority is checked on reuse as well as creation. Otherwise an
+// engineering task created before the policy migration keeps a read-only
+// checkout forever and every edit fails despite a healthy-looking task card.
+func TestAnEngineeringTaskRotatesAnAlreadyBoundReadOnlySession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = true
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	task := workRoom(t, ctx, st, cfg, "legacy-engineering", "CLEGACYENG", "U123ABC", true)
+	if err := st.SetCoopSession(ctx, task.ID, coopClient.session.ID, "legacy-read-only", 1); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.pollIncident(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.CoopSessionID != "" || task.CoopSessionGeneration != 2 ||
+		task.Workflow != core.WorkflowProvisioningSession {
+		t.Fatalf("legacy read-only engineering session remained bound: %+v", task)
+	}
+}
+
+// A queued run can race the poller after a policy migration. The submission
+// path is therefore an authority boundary of its own: no model turn may start
+// in the writable session while the poller is still waiting to rotate it.
+func TestAReadOnlyIncidentRunNeverSubmitsToALegacyWritableSession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	incident := workRoom(t, ctx, st, cfg, "queued-read-only", "CQUEUED", "U123ABC", false)
+	if err := svc.processSessionIncident(ctx, incident.ID); err != nil {
+		t.Fatal(err)
+	}
+	coopClient.session.RepositoryReadOnly = false
+
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.submitSessions) != 0 {
+		t.Fatalf("read-only run submitted through writable session: %v", coopClient.submitSessions)
+	}
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if incident.CoopSessionID != "" || incident.CoopSessionGeneration != 2 {
+		t.Fatalf("writable incident session was not rotated: %+v", incident)
+	}
+}
+
+func TestAnEngineeringRunNeverSubmitsToALegacyReadOnlySession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	task := workRoom(t, ctx, st, cfg, "queued-engineering", "CQUEUEDENG", "U123ABC", true)
+	if err := svc.processSessionIncident(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	coopClient.session.RepositoryReadOnly = true
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.submitSessions) != 0 {
+		t.Fatalf("engineering run submitted through read-only session: %v", coopClient.submitSessions)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.CoopSessionID != "" || task.CoopSessionGeneration != 2 {
+		t.Fatalf("read-only engineering session was not rotated: %+v", task)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "initial", task.ID)
+	if err != nil || !strings.Contains(run.LastError, "read-only session") ||
+		!strings.Contains(run.LastError, "writable engineering turn") {
+		t.Fatalf("engineering authority rotation status = %+v, %v", run, err)
+	}
+}
+
+// A queued incident run can reach the submission seam while a legacy turn is
+// still using write authority. That is convergence work, not a terminal model
+// failure: cancel it, preserve the accepted run, and rotate on the next pass.
+func TestAnActiveWritableIncidentSessionDefersTheReadOnlyRunAfterRevocation(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	incident := workRoom(t, ctx, st, cfg, "queued-active-read-only", "CACTIVEQ", "U123ABC", false)
+	if err := svc.processSessionIncident(ctx, incident.ID); err != nil {
+		t.Fatal(err)
+	}
+	coopClient.session.RepositoryReadOnly = false
+	coopClient.session.ActiveTurnID = "turn_legacy_active"
+	coopClient.listTurns = []coop.Turn{{
+		ID: "turn_legacy_active", SessionID: coopClient.session.ID, Ordinal: 1, State: "running",
+	}}
+
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.submitSessions) != 0 ||
+		!slices.Equal(coopClient.cancelTurns, []string{"turn_legacy_active"}) {
+		t.Fatalf("authority convergence submitted=%v cancelled=%v", coopClient.submitSessions, coopClient.cancelTurns)
+	}
+	runs, err := st.ListAgentRunsForIncident(ctx, incident.ID)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("incident runs = %+v, %v", runs, err)
+	}
+	run := runs[0]
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.State != core.AgentRunPending || run.TerminalState != "" {
+		t.Fatalf("accepted run was lost during authority convergence: %+v", run)
+	}
+}
+
+// A transient Coop failure while revoking legacy write authority used to spend
+// the accepted run's model-attempt budget even though no safe session existed
+// and no model turn had started. Enough transient failures then discarded the
+// operator's request at the repository-authority boundary.
+func TestAuthorityConvergenceFailuresNeverSpendModelAttempts(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	incident := workRoom(t, ctx, st, cfg, "convergence-failure", "CCONVERGE", "U123ABC", false)
+	if err := svc.processSessionIncident(ctx, incident.ID); err != nil {
+		t.Fatal(err)
+	}
+	coopClient.session.RepositoryReadOnly = false
+	coopClient.session.ActiveTurnID = "turn_legacy_active"
+	coopClient.listTurns = []coop.Turn{{
+		ID: "turn_legacy_active", SessionID: coopClient.session.ID, Ordinal: 1, State: "running",
+	}}
+	coopClient.cancelErrors = []error{
+		&coop.APIError{Status: 503, Code: "internal_error"},
+	}
+
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := st.ListAgentRunsForIncident(ctx, incident.ID)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("incident runs = %+v, %v", runs, err)
+	}
+	if runs[0].State != core.AgentRunPending || runs[0].Failures != 0 ||
+		runs[0].TerminalState != "" {
+		t.Fatalf("authority convergence spent or lost accepted work: %+v", runs[0])
+	}
+}
+
+// Two transient reads of the bound Coop session used to spend two model
+// attempts even though neither read reached submission. A long Coop outage
+// could therefore discard an accepted lead investigation without a turn.
+func TestLeadSessionLookupFailuresNeverSpendModelAttempts(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	incident := workRoom(t, ctx, st, cfg, "lookup-failure", "CLOOKUP", "U123ABC", false)
+	if err := svc.processSessionIncident(ctx, incident.ID); err != nil {
+		t.Fatal(err)
+	}
+	coopClient.getSessionErr = &coop.APIError{Status: 503, Code: "internal_error"}
+
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			storetest.MakeAgentRunDue(t, cfg.StateDir, "initial", incident.ID)
+		}
+		leased, err := st.LeaseAgentRun(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.prepareIncidentAgentRun(ctx, leased); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runs, err := st.ListAgentRunsForIncident(ctx, incident.ID)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("incident runs = %+v, %v", runs, err)
+	}
+	if runs[0].State != core.AgentRunPending || runs[0].Failures != 0 ||
+		runs[0].TerminalState != "" || len(coopClient.submitSessions) != 0 {
+		t.Fatalf("lead lookup spent or submitted accepted work: run=%+v submits=%v", runs[0], coopClient.submitSessions)
+	}
+}
+
+// The incident binding can be cleared after a run leases but before it reads
+// the session. That race used to classify the vanished binding as terminal and
+// fail the request immediately. It must instead preserve the run and let the
+// incident provision the next durable generation.
+func TestLeadBindingLossReprovisionsWithoutLosingTheAcceptedRun(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	incident := workRoom(t, ctx, st, cfg, "binding-loss", "CBINDLOSS", "U123ABC", false)
+	if err := svc.processSessionIncident(ctx, incident.ID); err != nil {
+		t.Fatal(err)
+	}
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leased, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotated, err := st.IncidentSessions.RotateReadOnly(
+		ctx, incident.ID, incident.CoopSessionID, incident.CoopSessionGeneration,
+		"test binding loss", time.Now().UTC(),
+	); err != nil || !rotated {
+		t.Fatalf("clear bound session = %t, %v", rotated, err)
+	}
+	if err := svc.prepareIncidentAgentRun(ctx, leased); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRun(ctx, leased.ID)
+	if err != nil || run.State != core.AgentRunPending || run.Failures != 0 ||
+		run.TerminalState != "" || len(coopClient.submitSessions) != 0 {
+		t.Fatalf("binding-loss custody run=%+v submits=%v err=%v", run, coopClient.submitSessions, err)
+	}
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil || incident.CoopSessionID != "" ||
+		incident.Workflow != core.WorkflowProvisioningSession {
+		t.Fatalf("binding loss did not return to provisioning: %+v, %v", incident, err)
+	}
+}
+
+// A session can close after the incident queues its lead run. The old path
+// treated that pre-submission lifecycle race as a terminal run failure. The
+// accepted investigation instead needs a fresh generation and durable cleanup
+// ownership for the closed session.
+func TestLeadTerminalSessionReprovisionsWithoutSpendingTheRun(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	incident := workRoom(t, ctx, st, cfg, "terminal-session", "CTERMINAL", "U123ABC", false)
+	if err := svc.processSessionIncident(ctx, incident.ID); err != nil {
+		t.Fatal(err)
+	}
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coopClient.session.State = "closed"
+	leased, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.prepareIncidentAgentRun(ctx, leased); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRun(ctx, leased.ID)
+	if err != nil || run.State != core.AgentRunPending || run.Failures != 0 ||
+		run.TerminalState != "" || len(coopClient.submitSessions) != 0 {
+		t.Fatalf("terminal-session custody run=%+v submits=%v err=%v", run, coopClient.submitSessions, err)
+	}
+	refreshed, err := st.GetIncident(ctx, incident.ID)
+	if err != nil || refreshed.CoopSessionID != "" ||
+		refreshed.CoopSessionGeneration != incident.CoopSessionGeneration+1 ||
+		refreshed.Workflow != core.WorkflowProvisioningSession {
+		t.Fatalf("terminal session did not return to provisioning: %+v, %v", refreshed, err)
+	}
+	cleanup, err := st.GetCoopCleanup(ctx, incident.CoopSessionID)
+	if err != nil || cleanup.State != "pending" {
+		t.Fatalf("terminal session cleanup = %+v, %v", cleanup, err)
+	}
+}
+
+// Coop revisions move during cancellation. A retry with the old operation key
+// but a new expected revision is a different request and Coop rejects it as an
+// idempotency conflict, leaving the writable turn alive forever.
+func TestWritableAuthorityRevocationQualifiesRetryKeysByRevision(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
+	coopClient.session.ActiveTurnID = "turn_conflict"
+	coopClient.listTurns = []coop.Turn{{
+		ID: "turn_conflict", SessionID: coopClient.session.ID, Ordinal: 1, State: "running",
+	}}
+	coopClient.cancelErrors = []error{&coop.APIError{Status: 409, Code: "revision_conflict"}}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	incident := workRoom(t, ctx, st, cfg, "revision-read-only", "CREVISION", "U123ABC", false)
+	if err := st.SetCoopSession(ctx, incident.ID, coopClient.session.ID, "legacy-fork", 1); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.pollIncident(ctx, incident); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.cancelKeys) != 2 || coopClient.cancelKeys[0] == coopClient.cancelKeys[1] ||
+		!strings.HasSuffix(coopClient.cancelKeys[0], ":1") ||
+		!strings.HasSuffix(coopClient.cancelKeys[1], ":2") {
+		t.Fatalf("revision-qualified cancel keys = %v revisions=%v", coopClient.cancelKeys, coopClient.cancelRevisions)
+	}
+}
+
+// A terminal session is an outcome, not a candidate for migration. Rotating
+// one reopened completed production work under a new generation instead of
+// closing the incident that had finished.
+func TestAClosedLegacyWritableSessionClosesItsIncident(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
+	coopClient.session.State = "closed"
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	incident := workRoom(t, ctx, st, cfg, "closed-read-only", "CCLOSED", "U123ABC", false)
+	if err := st.SetCoopSession(ctx, incident.ID, coopClient.session.ID, "legacy-fork", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.pollIncident(ctx, incident); err != nil {
+		t.Fatal(err)
+	}
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if incident.Status != core.IncidentClosed || incident.CoopSessionGeneration != 1 {
+		t.Fatalf("closed legacy session was reopened: %+v", incident)
+	}
+}
+
+// Discarded is just as terminal as closed. Treating it as a migration
+// candidate reopened completed work or produced a misleading authority error.
+func TestADiscardedSessionClosesItsIncidentRegardlessOfRepositoryAuthority(t *testing.T) {
+	for _, readOnly := range []bool{false, true} {
+		t.Run(map[bool]string{false: "writable", true: "read-only"}[readOnly], func(t *testing.T) {
+			ctx := context.Background()
+			cfg := serviceConfig(t)
+			st, err := store.Open(cfg.StateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { st.Close() })
+			coopClient := newFakeCoop()
+			coopClient.session.RepositoryReadOnly = readOnly
+			coopClient.session.State = "discarded"
+			svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+			incident := workRoom(t, ctx, st, cfg, fmt.Sprintf("discarded-%t", readOnly), "CDISCARD", "U123ABC", false)
+			if err := st.SetCoopSession(ctx, incident.ID, coopClient.session.ID, "legacy-fork", 1); err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.pollIncident(ctx, incident); err != nil {
+				t.Fatal(err)
+			}
+			incident, err = st.GetIncident(ctx, incident.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if incident.Status != core.IncidentClosed || incident.CoopSessionGeneration != 1 {
+				t.Fatalf("discarded session was reopened: %+v", incident)
+			}
+		})
+	}
+}
+
+// Covers: TestLegacyWritableTurnsAreRevokedBeforeAuthorityRotation
+// A migration cannot merely wait for old writable turns: a queued turn can
+// start at any moment and retain ambient write authority after the policy has
+// been revoked. Cancel the entire nonterminal cohort before replacing it.
+func TestLegacyWritableTurnsAreRevokedBeforeAuthorityRotation(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
+	coopClient.session.ActiveTurnID = "turn_active"
+	coopClient.session.QueuedTurnCount = 1
+	coopClient.listTurns = []coop.Turn{
+		{ID: "turn_active", SessionID: coopClient.session.ID, Ordinal: 1, State: "running"},
+		{ID: "turn_queued", SessionID: coopClient.session.ID, Ordinal: 2, State: "queued"},
+	}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	incident := workRoom(t, ctx, st, cfg, "active-read-only", "CACTIVE", "U123ABC", false)
+	if err := st.SetCoopSession(ctx, incident.ID, coopClient.session.ID, "legacy-fork", 1); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.pollIncident(ctx, incident); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(coopClient.cancelTurns, []string{"turn_active", "turn_queued"}) {
+		t.Fatalf("revoked turns = %v", coopClient.cancelTurns)
+	}
+	if err := svc.pollIncident(ctx, incident); err != nil {
+		t.Fatal(err)
+	}
+	incident, err = st.GetIncident(ctx, incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if incident.CoopSessionID != "" || incident.CoopSessionGeneration != 2 {
+		t.Fatalf("revoked writable session remained bound: %+v", incident)
 	}
 }
 

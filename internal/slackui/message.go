@@ -348,6 +348,9 @@ type LiveTurn struct {
 	// never generated for the card. It outlives the turn that planned it, which
 	// is why nothing here is gated on Active.
 	Plan []PlanStep
+	// QueuedBranches are parallel checks waiting on workspace preparation.
+	// They are not the incident's custody: the lead and siblings may be live.
+	QueuedBranches int
 }
 
 // PlanStep is one goal the work laid out for itself.
@@ -1655,7 +1658,7 @@ func workflowStateLabel(workflow core.WorkflowState) string {
 	case core.WorkflowProvisioningSession:
 		return "Preparing isolated workspace"
 	case core.WorkflowHolding:
-		return "Queued for capacity"
+		return "Queued"
 	case core.WorkflowInvestigating:
 		return "Investigating"
 	case core.WorkflowParked:
@@ -1863,6 +1866,44 @@ func RepositoryPreparationBlocked(repository string) Message {
 		},
 	}
 	return message
+}
+
+func ReadOnlyWorkspaceBlocked(repository string, retryAt time.Time) Message {
+	return workspacePreparationBlocked(
+		repository,
+		"Coop could not provide a read-only workspace for ",
+		retryAt,
+	)
+}
+
+func WorkspacePreparationBlocked(repository string, retryAt time.Time) Message {
+	return workspacePreparationBlocked(
+		repository,
+		"Coop could not finish workspace preparation for ",
+		retryAt,
+	)
+}
+
+func workspacePreparationBlocked(repository, reason string, retryAt time.Time) Message {
+	repository = strings.TrimSpace(repository)
+	if repository == "" {
+		repository = "the configured repository"
+	} else {
+		repository = "`" + repository + "`"
+	}
+	summary := "Investigation queued, but " + reason + repository + "."
+	retry := "Responder will retry automatically"
+	if !retryAt.IsZero() {
+		retry += " at " + retryAt.UTC().Format("15:04 UTC")
+	}
+	retry += "."
+	return Message{
+		Text: summary + " No model turn has started. " + retry,
+		Sections: []string{
+			summary,
+			"No model turn has started. " + retry,
+		},
+	}
 }
 
 func truncateMarkdown(value string, limit int) string {

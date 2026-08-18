@@ -1538,6 +1538,7 @@ func TestEngineeringTaskRevisionConflictReleasesTheFrozenRevisionAndRetries(t *t
 		t.Fatal(err)
 	}
 	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
 	coopClient.submitErrs = []error{&coop.APIError{
 		Status: 409, Code: "revision_conflict",
 		Detail: "expected revision 1, current revision 3",

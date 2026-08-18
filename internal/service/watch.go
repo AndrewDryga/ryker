@@ -21,6 +21,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/promptscope"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
+	"github.com/AndrewDryga/responder/internal/sessionauthority"
 	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackfile"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -75,7 +76,7 @@ func (s *Service) ensureWatchSessionForRepositoryAtGeneration(
 	}
 	if !rotate {
 		session, err := s.coop.GetSession(ctx, memory.SessionID)
-		if err == nil && !watchSessionTerminal(session.State) {
+		if err == nil && sessioncreate.ReusableReadOnly(session) {
 			return memory, session, nil
 		}
 		if err != nil && coop.Retryable(err) {
@@ -193,7 +194,7 @@ func (s *Service) ensureConversationSessionAtGeneration(
 			time.Since(memory.SessionStarted) >= s.cfg.Coop.WatchSessionAge.Duration)
 	if !rotate {
 		session, sessionErr := s.coop.GetSession(ctx, memory.SessionID)
-		if sessionErr == nil && !watchSessionTerminal(session.State) {
+		if sessionErr == nil && sessioncreate.ReusableReadOnly(session) {
 			return memory, session, nil
 		}
 		if sessionErr != nil && coop.Retryable(sessionErr) {
@@ -260,45 +261,28 @@ func (s *Service) createConversationSession(
 	policy string,
 	generation int,
 ) (coop.Session, int, error) {
-	for {
-		if err := ctx.Err(); err != nil {
-			return coop.Session{}, generation, err
-		}
-		sessionKey := "responder:conversation-session:" + channelID
-		if generation > 1 {
-			sessionKey = fmt.Sprintf("%s:%d", sessionKey, generation)
-		}
-		session, _, err := s.coop.CreateSession(
-			ctx,
-			sessionKey,
-			policy,
-			fmt.Sprintf(
-				"Slack bounded conversation %s generation %d",
-				channelID,
-				generation,
-			),
-		)
-		if err == nil {
-			if session.ID == "" {
-				return coop.Session{}, generation, errors.New(
-					"Coop returned an empty conversation session ID",
-				)
+	return sessioncreate.ResolveCandidates(ctx, sessioncreate.CandidateRequest{
+		Lane: "conversation", Generation: generation, RepositoryReadOnly: true,
+		BaseKey:        "responder:conversation-session:" + channelID,
+		AttemptStarted: s.now().UTC(), Lookup: s.coop,
+		Create: func(ctx context.Context, key string, candidate int) (coop.Session, error) {
+			session, _, err := s.coop.CreateSession(ctx, key, policy, fmt.Sprintf(
+				"Slack bounded conversation %s generation %d", channelID, candidate,
+			))
+			if err != nil || session.ID == "" {
+				if err == nil {
+					err = errors.New("Coop returned an empty conversation session ID")
+				}
+				return coop.Session{}, err
 			}
-			session, err = s.coop.GetSession(ctx, session.ID)
-			if err != nil {
-				return coop.Session{}, generation, err
-			}
-			if watchSessionTerminal(session.State) {
-				generation++
-				continue
-			}
-			return session, generation, nil
-		}
-		if !isCoopIdempotencyConflict(err) {
-			return coop.Session{}, generation, err
-		}
-		generation++
-	}
+			return s.coop.GetSession(ctx, session.ID)
+		},
+		Reject: func(ctx context.Context, session coop.Session) error {
+			return sessionauthority.RejectCandidate(
+				ctx, s.coop, s.store, session, "", "conversation", s.now(),
+			)
+		},
+	})
 }
 
 func (s *Service) createWatchSession(
@@ -307,66 +291,35 @@ func (s *Service) createWatchSession(
 	policy string,
 	generation int,
 ) (coop.Session, int, error) {
-	for {
-		if err := ctx.Err(); err != nil {
-			return coop.Session{}, generation, err
-		}
-		sessionKey := "responder:watch-session:" + channelID
-		if generation > 1 {
-			sessionKey = fmt.Sprintf("%s:%d", sessionKey, generation)
-		}
-		session, _, err := s.coop.CreateSession(
-			ctx,
-			sessionKey,
-			policy,
-			fmt.Sprintf("Slack operations channel %s generation %d", channelID, generation),
-		)
-		if isCoopIdempotencyConflict(err) && generation == 1 {
-			// Before durable channel memory, generation one used this exact key
-			// with a different task label. Replay that request to recover its
-			// session and accumulated context instead of abandoning it.
-			session, _, err = s.coop.CreateSession(
-				ctx,
-				sessionKey,
-				policy,
-				"Slack alert triage channel "+channelID,
-			)
-		}
-		if err == nil {
-			if session.ID == "" {
-				return coop.Session{}, generation, errors.New(
-					"Coop returned an empty watch session ID",
+	return sessioncreate.ResolveCandidates(ctx, sessioncreate.CandidateRequest{
+		Lane: "watch", Generation: generation, RepositoryReadOnly: true,
+		BaseKey:        "responder:watch-session:" + channelID,
+		AttemptStarted: s.now().UTC(), Lookup: s.coop,
+		Create: func(ctx context.Context, key string, candidate int) (coop.Session, error) {
+			session, _, err := s.coop.CreateSession(ctx, key, policy, fmt.Sprintf(
+				"Slack operations channel %s generation %d", channelID, candidate,
+			))
+			if sessioncreate.IdempotencyConflict(err) && candidate == 1 {
+				// Generation one once used the alert-triage label. Replay that exact
+				// historical request before advancing to the current request shape.
+				session, _, err = s.coop.CreateSession(
+					ctx, key, policy, "Slack alert triage channel "+channelID,
 				)
 			}
-			session, err = s.coop.GetSession(ctx, session.ID)
-			if err != nil {
-				return coop.Session{}, generation, err
+			if err != nil || session.ID == "" {
+				if err == nil {
+					err = errors.New("Coop returned an empty watch session ID")
+				}
+				return coop.Session{}, err
 			}
-			if watchSessionTerminal(session.State) {
-				generation++
-				continue
-			}
-			return session, generation, nil
-		}
-		if !isCoopIdempotencyConflict(err) {
-			return coop.Session{}, generation, err
-		}
-		generation++
-	}
-}
-
-func isCoopRevisionConflict(err error) bool {
-	var apiErr *coop.APIError
-	return errors.As(err, &apiErr) && apiErr.Code == "revision_conflict"
-}
-
-func isCoopIdempotencyConflict(err error) bool {
-	var apiErr *coop.APIError
-	return errors.As(err, &apiErr) && apiErr.Code == "idempotency_conflict"
-}
-
-func watchSessionTerminal(state string) bool {
-	return state == "closed" || state == "discarded"
+			return s.coop.GetSession(ctx, session.ID)
+		},
+		Reject: func(ctx context.Context, session coop.Session) error {
+			return sessionauthority.RejectCandidate(
+				ctx, s.coop, s.store, session, "", "watch", s.now(),
+			)
+		},
+	})
 }
 
 func watchTurnIdempotencyKey(inputID string, generation int) string {

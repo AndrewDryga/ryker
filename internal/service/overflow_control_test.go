@@ -268,8 +268,10 @@ func taskOverflowFixture(t *testing.T, ctx context.Context, ask string) (
 		t.Fatal(err)
 	}
 	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
 	svc := New(
-		cfg, st, newFakeCoop(), slackClient, &fakeSocket{}, slackui.NewSanitizer(12000), nil,
+		cfg, st, coopClient, slackClient, &fakeSocket{}, slackui.NewSanitizer(12000), nil,
 	)
 	svc.identity = slackui.Identity{
 		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",

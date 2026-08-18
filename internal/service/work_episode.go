@@ -16,6 +16,8 @@ import (
 	"github.com/AndrewDryga/responder/internal/liveturn"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/taskcontract"
+	"github.com/AndrewDryga/responder/internal/taskoffercarry"
+	"github.com/AndrewDryga/responder/internal/taskofferclaims"
 	"github.com/AndrewDryga/responder/internal/wakeuppolicy"
 )
 
@@ -355,16 +357,21 @@ func (s *Service) episodeClaimCorrectionWithHistory(
 	); correction != "" || err != nil {
 		return correction, err
 	}
+	// An offer completes the read-only offer contract, not its future change.
+	// Validate only current candidate evidence here: ancestry can inform the
+	// explanation but cannot authorize a new Slack control.
+	completionStatus, completionVerdict := taskofferclaims.CompletionIdentity(completion)
 	// Older correlated evidence cannot prove this attempt's outcome.
-	completionStatus, completionVerdict := "", ""
-	if completion != nil {
-		completionStatus, completionVerdict = completion.Status, completion.Verdict
-	}
 	if correction := completionpolicy.CurrentCandidateCorrection(
 		episode.CompletionCriteria, episode.Effort, evidence, coverage,
 		completionStatus, completionVerdict, now,
 	); correction != "" {
 		return correction, nil
+	}
+	if action == "reply" && completion != nil && taskoffercarry.Present(operations) {
+		return taskofferclaims.Correction(
+			episode, evidence, coverage, now, chainStartedAt,
+		), nil
 	}
 	priorEvidence, err := s.store.Intelligence.ListEpisodeEvidence(ctx, episode.ID, 200)
 	if err != nil {

@@ -2,14 +2,17 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/fanout"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/fanoutstore"
@@ -161,6 +164,265 @@ func TestAdmittedFanOutOpensChildEpisodesUnderTheLeadIncident(t *testing.T) {
 	}
 	if !seen["goal-host"] || !seen["goal-dependency"] {
 		t.Fatalf("branches went to %v, want one per cluster", seen)
+	}
+}
+
+// The branch session is the authority and transcript the branch was granted.
+// Submitting through the lead session collapses both isolation and read-only
+// enforcement, which left the carefully created branch fork entirely unused.
+func TestABranchTurnSubmitsToItsOwnSession(t *testing.T) {
+	ctx := context.Background()
+	h := newFanOutHarness(t)
+	if err := h.svc.branches.Open(ctx, h.lead, twoIndependentGoals()); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if err := h.svc.processAgentRun(ctx); err != nil && !errors.Is(err, store.ErrNotFound) {
+			t.Fatal(err)
+		}
+		if len(h.svc.coop.(*fakeCoop).submitSessions) > 0 {
+			break
+		}
+	}
+	if len(h.svc.coop.(*fakeCoop).submitSessions) != 1 ||
+		h.svc.coop.(*fakeCoop).submitSessions[0] != "ses_1" {
+		t.Fatalf("branch submitted through %v, want its own ses_1", h.svc.coop.(*fakeCoop).submitSessions)
+	}
+}
+
+// A branch is read-only by contract even when it resumes a fork created before
+// Coop exposed repository authority. Reusing that fork would preserve ambient
+// write access in the one lane whose isolation exists specifically to prevent
+// it.
+func TestABranchReplacesALegacyWritableSessionBeforeSubmitting(t *testing.T) {
+	ctx := context.Background()
+	h := newFanOutHarness(t)
+	if err := h.svc.branches.Open(ctx, h.lead, twoIndependentGoals()); err != nil {
+		t.Fatal(err)
+	}
+	branches, err := h.store.Branches.ListForLead(ctx, h.episode.ID, 32)
+	if err != nil || len(branches) == 0 {
+		t.Fatalf("branches = %+v, %v", branches, err)
+	}
+	run, err := h.store.GetAgentRun(ctx, branches[0].RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.SessionID = "ses_legacy_branch"
+	run.SessionGeneration = 1
+	goalID, _ := fanout.GoalOf(run.ConversationKey)
+	coopClient := h.svc.coop.(*fakeCoop)
+	coopClient.session.ID = run.SessionID
+	coopClient.session.RepositoryReadOnly = false
+	coopClient.session.ActiveTurnID = "turn_legacy_branch"
+	coopClient.listTurns = []coop.Turn{{
+		ID: "turn_legacy_branch", SessionID: run.SessionID, Ordinal: 1, State: "running",
+	}}
+	coopClient.openAfterCreateKey = sessioncreate.Key(
+		"responder:session:"+h.incident.ID+fanout.BranchMarker+goalID, 2,
+	)
+
+	session, generation, err := h.svc.branches.Session(ctx, run, h.incident)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ID != "ses_2" || !session.RepositoryReadOnly || generation != 2 {
+		t.Fatalf("replacement branch session = %+v generation %d", session, generation)
+	}
+	if len(coopClient.cancelTurns) != 1 || coopClient.cancelTurns[0] != "turn_legacy_branch" {
+		t.Fatalf("legacy branch turn remained live: %v", coopClient.cancelTurns)
+	}
+	cleanup, err := h.store.GetCoopCleanup(ctx, run.SessionID)
+	if err != nil || cleanup.State != "pending" {
+		t.Fatalf("legacy branch cleanup = %+v, %v", cleanup, err)
+	}
+}
+
+// A historical branch key can be bound to an older request shape. That
+// collision spends one generation; retrying the identical key simply burns
+// every run attempt without ever reaching the fresh read-only fork.
+func TestABranchAdvancesPastAnIdempotencyConflict(t *testing.T) {
+	ctx := context.Background()
+	h := newFanOutHarness(t)
+	if err := h.svc.branches.Open(ctx, h.lead, twoIndependentGoals()); err != nil {
+		t.Fatal(err)
+	}
+	branches, err := h.store.Branches.ListForLead(ctx, h.episode.ID, 32)
+	if err != nil || len(branches) == 0 {
+		t.Fatalf("branches = %+v, %v", branches, err)
+	}
+	run, err := h.store.GetAgentRun(ctx, branches[0].RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	goalID, _ := fanout.GoalOf(run.ConversationKey)
+	coopClient := h.svc.coop.(*fakeCoop)
+	coopClient.createErrors = []error{&coop.APIError{Status: 409, Code: "idempotency_conflict"}}
+	coopClient.openAfterCreateKey = sessioncreate.Key(
+		"responder:session:"+h.incident.ID+fanout.BranchMarker+goalID, 2,
+	)
+
+	session, generation, err := h.svc.branches.Session(ctx, run, h.incident)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ID != "ses_2" || generation != 2 || len(coopClient.createKeys) != 2 {
+		t.Fatalf("branch collision recovery = session %+v generation %d keys %v", session, generation, coopClient.createKeys)
+	}
+}
+
+// Four rejected candidates are a per-attempt safety bound, not a permanent
+// dead end. Persist the next generation so a later retry can move beyond the
+// legacy idempotency keys after the policy is repaired.
+func TestRejectedBranchAuthorityAdvancesItsDurableGeneration(t *testing.T) {
+	ctx := context.Background()
+	h := newFanOutHarness(t)
+	if err := h.svc.branches.Open(ctx, h.lead, twoIndependentGoals()); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := h.svc.coop.(*fakeCoop)
+	coopClient.session.RepositoryReadOnly = false
+	if err := h.svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	branches, err := h.store.Branches.ListForLead(ctx, h.episode.ID, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advanced := false
+	var retryingEpisode string
+	for _, branch := range branches {
+		run, err := h.store.GetAgentRun(ctx, branch.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.SessionGeneration == 5 {
+			if run.SessionGeneration != 5 {
+				t.Fatalf("rejected branch generation = %d, want 5", run.SessionGeneration)
+			}
+			if run.Failures != 0 || run.NextAttemptAt.Before(time.Now().Add(25*time.Minute)) {
+				t.Fatalf("branch preparation spent model attempts or retried too soon: %+v", run)
+			}
+			advanced = true
+			retryingEpisode = run.EpisodeID
+		}
+	}
+	if !advanced {
+		t.Fatal("no branch reached the authority rejection")
+	}
+	episode, err := h.store.GetWorkEpisode(ctx, retryingEpisode)
+	if err != nil || episode.State != core.EpisodeRetrying {
+		t.Fatalf("branch preparation state = %+v, %v", episode, err)
+	}
+	incident, err := h.store.GetIncident(ctx, h.incident.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if incident.Workflow == core.WorkflowHolding || incident.LastError != "" {
+		t.Fatalf("one branch replaced incident-wide custody: %+v", incident)
+	}
+	card, err := h.svc.incidentCard(ctx, incident)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := slackui.Encode(card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(rendered), "1 investigation branch queued") {
+		t.Fatalf("queued branch was invisible on incident card: %s", rendered)
+	}
+}
+
+// Two repository preparation failures used to spend two of the branch's model
+// attempts even though Coop never created a session and no model turn started.
+// A prolonged repository outage could therefore terminally fail accepted work
+// while its card showed no queued branch for the operator to account for.
+func TestBranchPreparationFailuresNeverSpendModelAttempts(t *testing.T) {
+	ctx := context.Background()
+	h := newFanOutHarness(t)
+	if err := h.svc.branches.Open(ctx, h.lead, twoIndependentGoals()); err != nil {
+		t.Fatal(err)
+	}
+	branches, err := h.store.Branches.ListForLead(ctx, h.episode.ID, 32)
+	if err != nil || len(branches) != 2 {
+		t.Fatalf("branches = %+v, %v", branches, err)
+	}
+	if err := h.svc.processAgentRun(ctx); err != nil { // submit the older lead run
+		t.Fatal(err)
+	}
+	coopClient := h.svc.coop.(*fakeCoop)
+	coopClient.createErrors = []error{
+		&coop.APIError{Status: 503, Code: "repository_unavailable"},
+		&coop.APIError{Status: 503, Code: "repository_unavailable"},
+	}
+
+	for range 2 {
+		if err := h.svc.processAgentRun(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, branch := range branches {
+		run, err := h.store.GetAgentRun(ctx, branch.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.State != core.AgentRunPending || run.Failures != 0 || run.TerminalState != "" {
+			t.Fatalf("workspace preparation spent or lost the accepted branch: %+v", run)
+		}
+		episode, err := h.store.GetWorkEpisode(ctx, run.EpisodeID)
+		if err != nil || episode.State != core.EpisodeRetrying ||
+			episode.Phase != "preparing_workspace" {
+			t.Fatalf("branch preparation custody = %+v, %v", episode, err)
+		}
+	}
+}
+
+// A branch fork can disappear after its run has durably bound it. The missing
+// session used to be treated as a terminal model failure. Its generation must
+// advance, and a simultaneous preparation outage must leave the branch queued
+// without submitting or spending an attempt.
+func TestMissingBoundBranchSessionAdvancesWithoutLosingTheRun(t *testing.T) {
+	ctx := context.Background()
+	h := newFanOutHarness(t)
+	if err := h.svc.branches.Open(ctx, h.lead, twoIndependentGoals()); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.svc.processAgentRun(ctx); err != nil { // submit the older lead
+		t.Fatal(err)
+	}
+	branches, err := h.store.Branches.ListForLead(ctx, h.episode.ID, 32)
+	if err != nil || len(branches) != 2 {
+		t.Fatalf("branches = %+v, %v", branches, err)
+	}
+	leased, err := h.store.LeaseAgentRun(ctx)
+	if err != nil || leased.ID != branches[0].RunID {
+		t.Fatalf("leased branch = %+v, %v", leased, err)
+	}
+	if err := h.store.BindAgentRunSession(
+		ctx, leased.ID, "ses_missing_branch", 1, leased.Repository, 0, leased.Context,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.DeferAgentRun(ctx, leased.ID, "test bound branch", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := h.svc.coop.(*fakeCoop)
+	coopClient.getSessionErr = &coop.APIError{Status: 404, Code: "session_not_found"}
+	coopClient.createErrors = []error{
+		&coop.APIError{Status: 503, Code: "repository_unavailable"},
+	}
+	if err := h.svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := h.store.GetAgentRun(ctx, leased.ID)
+	if err != nil || run.State != core.AgentRunPending || run.TerminalState != "" ||
+		run.Failures != 0 || run.SessionGeneration != 2 || len(coopClient.submitSessions) != 0 {
+		t.Fatalf("missing branch custody run=%+v submits=%v err=%v", run, coopClient.submitSessions, err)
 	}
 }
 

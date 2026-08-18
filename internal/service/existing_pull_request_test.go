@@ -781,6 +781,7 @@ func TestEngineeringTaskSessionUsesApprovedExistingPullRequestHead(t *testing.T)
 	}
 
 	coopClient := newFakeCoop()
+	coopClient.session.RepositoryReadOnly = false
 	svc := New(
 		cfg, st, coopClient, &fakeSlack{}, nil,
 		slackui.NewSanitizer(12000), nil,

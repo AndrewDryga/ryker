@@ -25,6 +25,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/fixturepromotionstore"
 	"github.com/AndrewDryga/responder/internal/store/goalstore"
 	"github.com/AndrewDryga/responder/internal/store/grantstore"
+	"github.com/AndrewDryga/responder/internal/store/incidentsessionstore"
 	"github.com/AndrewDryga/responder/internal/store/incidentstore"
 	"github.com/AndrewDryga/responder/internal/store/intelligencestore"
 	"github.com/AndrewDryga/responder/internal/store/memorystore"
@@ -132,6 +133,8 @@ type Store struct {
 	PublicationRecovery *publicationrecoverystore.Repository
 	// Incidents owns durable task-source bindings and shared incident decoding.
 	Incidents *incidentstore.Repository
+	// IncidentSessions owns authority-safe incident session replacement.
+	IncidentSessions *incidentsessionstore.Repository
 	// SlackInputs owns source-message provenance lookups used after admission.
 	SlackInputs *slackinputstore.Repository
 	// PauseCleanup owns discovery of terminal messages carrying the legacy
@@ -1181,6 +1184,7 @@ func (s *Store) attachRepositories(db *sql.DB) {
 	s.PublicationFollowups = publicationfollowupstore.New(db, clock)
 	s.PublicationRecovery = publicationrecoverystore.New(db, clock)
 	s.Incidents = incidentstore.New(db, clock)
+	s.IncidentSessions = incidentsessionstore.New(db)
 	s.SlackInputs = slackinputstore.New(db)
 	s.AlertStream = alertstreamstore.New(db)
 	s.PauseCleanup = pausecleanupstore.New(db)

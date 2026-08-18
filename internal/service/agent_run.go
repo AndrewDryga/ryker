@@ -20,6 +20,7 @@ import (
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/fanout"
+	"github.com/AndrewDryga/responder/internal/incidentrun"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/lifecycle"
 	"github.com/AndrewDryga/responder/internal/liveturn"
@@ -37,6 +38,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/runreplay"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
+	"github.com/AndrewDryga/responder/internal/sessionauthority"
 	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackfile"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -679,25 +681,42 @@ func (s *Service) prepareIncidentAgentRun(
 	// previous shape fell straight into GetSession(""), an opaque transport
 	// error that sent whoever read the log to debug a service that was never
 	// asked anything.
-	var session coop.Session
-	if fanout.IsBranch(run.ConversationKey) {
-		session, err = s.branches.Session(ctx, run, incident)
-	} else {
-		if incident.CoopSessionID == "" {
-			return s.retryIncidentAgentRun(
-				ctx, run, incident,
-				errors.New("the isolated session for this work is not bound yet"),
-				false,
+	session, sessionGeneration, rotated, err := incidentrun.ResolveSession(
+		ctx, run, incident, s.coop, s.branches, s.store.IncidentSessions, s.now(),
+	)
+	if err != nil {
+		branchPreparation := fanout.IsBranch(run.ConversationKey) &&
+			(coop.Retryable(err) || errors.Is(err, sessioncreate.ErrReadOnlyAuthority) ||
+				errors.Is(err, sessioncreate.ErrHistoricalCreateKeys) ||
+				errors.Is(err, sessionauthority.ErrConvergence))
+		if branchPreparation {
+			detail := sessioncreate.Status(incident.Repository, err)
+			retryAt := s.now().Add(30 * time.Second)
+			if errors.Is(err, sessioncreate.ErrReadOnlyAuthority) ||
+				errors.Is(err, sessioncreate.ErrHistoricalCreateKeys) {
+				detail = trimError(err)
+				retryAt = s.now().Add(30 * time.Minute)
+			}
+			return s.store.DeferAgentRun(ctx, run.ID, detail, retryAt, true)
+		}
+		if coop.Retryable(err) || errors.Is(err, sessionauthority.ErrConvergence) {
+			detail := sessioncreate.Status(incident.Repository, err)
+			s.setIncidentError(ctx, incident.ID, core.WorkflowHolding, detail)
+			return s.store.DeferAgentRun(
+				ctx, run.ID, detail, s.now().Add(30*time.Second),
 			)
 		}
-		session, err = s.coop.GetSession(ctx, incident.CoopSessionID)
+		terminal := !coop.Retryable(err) &&
+			!errors.Is(err, sessioncreate.ErrReadOnlyAuthority) &&
+			!errors.Is(err, sessioncreate.ErrHistoricalCreateKeys) &&
+			!errors.Is(err, sessionauthority.ErrConvergence)
+		return s.retryIncidentAgentRun(ctx, run, incident, err, terminal)
 	}
-	if err != nil {
-		return s.retryIncidentAgentRun(ctx, run, incident, err, !coop.Retryable(err))
-	}
-	if session.State == "closed" {
-		return s.retryIncidentAgentRun(
-			ctx, run, incident, errors.New("the Coop session is closed"), true,
+	if rotated {
+		return s.store.DeferAgentRun(
+			ctx, run.ID,
+			incidentrun.RotationStatus(incident, session),
+			s.now(),
 		)
 	}
 	session, err = s.ensureTurnCapacity(
@@ -784,7 +803,7 @@ func (s *Service) prepareIncidentAgentRun(
 		ctx,
 		run.ID,
 		session.ID,
-		0,
+		sessionGeneration,
 		incident.Repository,
 		incident.CoopEventSequence,
 		run.Context,
@@ -868,7 +887,7 @@ func (s *Service) prepareIncidentAgentRun(
 	turn, _, err := s.submitTurnAtLadderFloor(
 		ctx,
 		run,
-		incident.CoopSessionID,
+		session.ID,
 		revision,
 		submissionPrompt,
 		artifacts,
@@ -876,7 +895,7 @@ func (s *Service) prepareIncidentAgentRun(
 	if err != nil {
 		// A revision conflict accepted no turn. Release the stale binding so the
 		// accepted work retries with the shared session's current revision.
-		if isCoopRevisionConflict(err) {
+		if sessioncreate.RevisionConflict(err) {
 			if releaseErr := s.store.ReleaseAgentRunRevision(ctx, run.ID); releaseErr != nil {
 				return s.retryIncidentAgentRun(
 					ctx, run, incident,
@@ -888,7 +907,7 @@ func (s *Service) prepareIncidentAgentRun(
 		}
 		return s.retryIncidentAgentRun(ctx, run, incident, err, !coop.Retryable(err))
 	}
-	session, err = s.coop.GetSession(ctx, incident.CoopSessionID)
+	session, err = s.coop.GetSession(ctx, session.ID)
 	if err != nil {
 		return s.retryIncidentAgentRun(ctx, run, incident, err, false)
 	}
@@ -1402,7 +1421,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			// revision fails for the same reason every time, so the attempt
 			// budget was spent proving that twenty times over. Release it and
 			// let the next attempt read the session it is actually racing.
-			if isCoopRevisionConflict(err) {
+			if sessioncreate.RevisionConflict(err) {
 				if releaseErr := s.store.ReleaseAgentRunRevision(ctx, run.ID); releaseErr != nil {
 					s.log.Warn("release frozen Coop revision",
 						"run", run.ID, "error", releaseErr)
@@ -1450,7 +1469,7 @@ func (s *Service) turnBoundToRunKey(
 	session coop.Session,
 	cause error,
 ) (coop.Turn, bool) {
-	if !isCoopIdempotencyConflict(cause) {
+	if !sessioncreate.IdempotencyConflict(cause) {
 		return coop.Turn{}, false
 	}
 	operation, err := s.coop.OperationByKey(ctx, run.IdempotencyKey)
@@ -1677,31 +1696,31 @@ func (s *Service) retryAtNextSessionGeneration(
 	}
 	// Session creation is preparation, not a model attempt. A retryable Coop
 	// outage must not consume the ceiling and discard already-accepted work.
+	if errors.Is(cause, sessioncreate.ErrReadOnlyAuthority) ||
+		errors.Is(cause, sessioncreate.ErrHistoricalCreateKeys) {
+		if err := s.notifyRepositoryPreparationBlocked(ctx, run, cause); err != nil {
+			return err
+		}
+		s.parkWatchedStatus(ctx, run, "clear watched Slack status while workspace authority is repaired")
+		return s.store.DeferAgentRun(
+			ctx, run.ID, trimError(cause), s.now().Add(30*time.Minute),
+		)
+	}
 	if coop.Retryable(cause) {
 		var pending *coop.OperationPendingError
-		if errors.As(cause, &pending) {
-			if err := s.notifyRepositoryPreparationBlocked(ctx, run, cause); err != nil {
-				return err
-			}
-			s.parkWatchedStatus(ctx, run, "clear watched Slack status while workspace preparation continues")
-			return s.retryAgentRun(ctx, run, cause)
-		}
 		if requeued, err := s.requeueIfRateLimited(ctx, run, cause); requeued {
 			return err
 		}
 		if err := s.notifyRepositoryPreparationBlocked(ctx, run, cause); err != nil {
 			return err
 		}
-		if retrydelay.Exhausted(run.Failures+1, s.cfg.Limits.MaxAgentRunAttempts) {
-			// Keep a bounded circuit-breaker poll after the ordinary retry budget.
-			return s.store.DeferAgentRun(
-				ctx, run.ID, trimError(cause), s.now().Add(30*time.Minute),
-			)
+		delay := 30 * time.Second
+		if errors.As(cause, &pending) {
+			delay = time.Second
 		}
-		_, err := s.store.RetryAgentRunIfOwned(
-			ctx, run.ID, trimError(cause), s.queueDelay(run.Failures+1), false,
+		return s.store.DeferAgentRun(
+			ctx, run.ID, trimError(cause), s.now().Add(delay),
 		)
-		return err
 	}
 	return s.retryAgentRun(ctx, run, cause)
 }
@@ -1902,7 +1921,7 @@ func (s *Service) retryAgentRun(
 	// turn ever started. A revision conflict says the session moved on and
 	// nothing was accepted; with the frozen revision released, the next attempt
 	// is a genuinely different request rather than the same one again.
-	if errors.As(cause, &apiErr) && !apiErr.Retryable() && !isCoopRevisionConflict(cause) {
+	if errors.As(cause, &apiErr) && !apiErr.Retryable() && !sessioncreate.RevisionConflict(cause) {
 		terminal = true
 	}
 	if slackfile.PermanentInputError(cause) || permanentPreparationError(cause) {
@@ -2608,6 +2627,7 @@ func (s *Service) stageTriageTerminal(
 				decision.Operations,
 				state.CarriedEvidence, state.CarriedCoverage, state.CarriedFindings,
 			).ApplyTo(&decision)
+			state.ReconcileCarriedTaskOffer(&decision)
 		}
 		decisionpkg.NormalizeAppAlertCompletion(input, &decision)
 		lifecycleInput := terraformwakeup.RestoreSourceLink(ctx, s.store, episode, input)
