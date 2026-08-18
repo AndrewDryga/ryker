@@ -1845,9 +1845,16 @@ func (s *Service) requeueIfRateLimited(
 	if !waits {
 		return false, nil
 	}
+	degradedFallback := agentRunTargetFloor(run.Context) > 0 &&
+		!agentRunDegradedFallbackPending(run.Context) &&
+		coopLadderExhaustedDetail(detail)
 	// An exhausted Coop ladder stamps the soonest rung reset into its detail;
-	// waiting for that instant beats polling on the generic interval.
-	if kind == provider.KindRateLimit {
+	// waiting for that instant beats polling on the generic interval. The one
+	// exception is a newly armed below-floor fallback: another configured rung
+	// is usable now, so waiting for the preferred rung defeats the fallback.
+	if degradedFallback {
+		delay = 0
+	} else if kind == provider.KindRateLimit {
 		if reset := provider.LadderRetryDelay(detail, s.now()); reset > delay {
 			delay = reset
 		}
@@ -1867,8 +1874,6 @@ func (s *Service) requeueIfRateLimited(
 			"detail", detail,
 		)
 	}
-	degradedFallback := agentRunTargetFloor(run.Context) > 0 &&
-		coopLadderExhaustedDetail(detail)
 	return true, s.store.RequeueRateLimitedAgentRun(
 		ctx, run.ID, detail, next, degradedFallback,
 	)

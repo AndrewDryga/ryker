@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/provider"
@@ -169,6 +170,8 @@ func TestACompleteLadderRefusalPersistsOneDegradedFallback(t *testing.T) {
 	defer st.Close()
 	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
 	svc.log = slog.New(slog.DiscardHandler)
+	now := time.Date(2026, 8, 18, 9, 25, 0, 0, time.UTC)
+	svc.SetClock(func() time.Time { return now })
 	run := seedPreparingRun(t, st)
 	if err := st.SetAgentRunTargetFloor(ctx, run.ID, 1, 0); err != nil {
 		t.Fatal(err)
@@ -194,6 +197,9 @@ func TestACompleteLadderRefusalPersistsOneDegradedFallback(t *testing.T) {
 	}
 	if !agentRunDegradedFallbackPending(after.Context) {
 		t.Fatal("complete ladder exhaustion was stored only in last_error and will be lost to the next queue reason")
+	}
+	if !after.NextAttemptAt.Equal(now) {
+		t.Fatalf("degraded fallback scheduled for %s, want immediate retry at %s", after.NextAttemptAt, now)
 	}
 }
 
