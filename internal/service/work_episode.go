@@ -16,6 +16,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/liveturn"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/taskcontract"
+	"github.com/AndrewDryga/responder/internal/wakeuppolicy"
 )
 
 // CompletionAssessment is the model's own verdict on whether a turn finished.
@@ -347,8 +348,13 @@ func (s *Service) episodeClaimCorrectionWithHistory(
 	completion *CompletionAssessment,
 	now time.Time,
 	chainStartedAt time.Time,
-	strict bool,
+	operations []investigation.ResultOperation,
 ) (string, error) {
+	if correction, err := wakeuppolicy.Correction(
+		ctx, s.store, episode.ID, operations,
+	); correction != "" || err != nil {
+		return correction, err
+	}
 	// Older correlated evidence cannot prove this attempt's outcome.
 	completionStatus, completionVerdict := "", ""
 	if completion != nil {
@@ -376,43 +382,8 @@ func (s *Service) episodeClaimCorrectionWithHistory(
 		completion,
 		now,
 		chainStartedAt,
-		strict,
+		len(operations) > 0,
 	), nil
-}
-
-func completionEpisodePhase(
-	completion *CompletionAssessment,
-	pendingApproval *core.EmisarApproval,
-	operations []investigation.ResultOperation,
-) (core.WorkEpisodeState, string, string, string) {
-	if pendingApproval != nil {
-		return core.EpisodeWaitingApproval, "waiting_for_approval",
-			"Waiting for Emisar approval", "Continue automatically after the Emisar decision"
-	}
-	for _, operation := range operations {
-		switch operation.Type {
-		case "request_operator_input":
-			return core.EpisodeWaitingOperator, "waiting_for_operator",
-				"Waiting for your answer", operation.OperatorInput.Question
-		case "wait_external":
-			// An alert stream is the host's own wait and reads as itself. "Waiting
-			// for an external update" is true of a GitHub check and misleading
-			// here: nobody owes this episode anything, the alert is simply still
-			// on and the thread stays where the answers go.
-			if operation.ExternalWait != nil &&
-				operation.ExternalWait.Kind == alertStreamWaitKind {
-				return core.EpisodeWaitingExternal, "waiting_for_external_event",
-					"Watching the alert stream",
-					"Replies stay in this thread until the alert recovers"
-			}
-			return core.EpisodeWaitingExternal, "waiting_for_external_event",
-				"Waiting for an external update", "Resume when the matching event arrives"
-		}
-	}
-	if completion != nil && completion.Status == "blocked" {
-		return core.EpisodeBlocked, "blocked", completion.Summary, completion.NextAction
-	}
-	return core.EpisodeCompleted, "finished", "Completed", ""
 }
 
 func episodeProgressDue(interval time.Duration, now time.Time) time.Time {

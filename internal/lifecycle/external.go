@@ -211,6 +211,38 @@ func CorrelationKey(text string) string {
 	return ""
 }
 
+// CompletionEpisodePhase projects a finished turn onto its durable episode
+// lifecycle. The caller has already persisted every accepted operation.
+func CompletionEpisodePhase(
+	completion *investigation.CompletionAssessment,
+	pendingApproval bool,
+	operations []investigation.ResultOperation,
+	alertStreamWaitKind string,
+) (core.WorkEpisodeState, string, string, string) {
+	if pendingApproval {
+		return core.EpisodeWaitingApproval, "waiting_for_approval",
+			"Waiting for Emisar approval", "Continue automatically after the Emisar decision"
+	}
+	for _, operation := range operations {
+		switch operation.Type {
+		case "request_operator_input":
+			return core.EpisodeWaitingOperator, "waiting_for_operator",
+				"Waiting for your answer", operation.OperatorInput.Question
+		case "wait_external":
+			if operation.ExternalWait != nil && operation.ExternalWait.Kind == alertStreamWaitKind {
+				return core.EpisodeWaitingExternal, "waiting_for_external_event",
+					"Watching the alert stream", "Replies stay in this thread until the alert recovers"
+			}
+			return core.EpisodeWaitingExternal, "waiting_for_external_event",
+				"Waiting for an external update", "Resume when the matching event arrives"
+		}
+	}
+	if completion != nil && completion.Status == "blocked" {
+		return core.EpisodeBlocked, "blocked", completion.Summary, completion.NextAction
+	}
+	return core.EpisodeCompleted, "finished", "Completed", ""
+}
+
 func HasTerraformRule(rules []core.StandingRule) bool {
 	for _, rule := range rules {
 		if (rule.Trigger == "terraform_plan" && rule.Action == "review_terraform_plan") ||

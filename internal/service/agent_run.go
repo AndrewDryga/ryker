@@ -21,6 +21,7 @@ import (
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/fanout"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/lifecycle"
 	"github.com/AndrewDryga/responder/internal/liveturn"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/mentioncontext"
@@ -2757,7 +2758,7 @@ func (s *Service) stageTriageTerminal(
 					decision.Completion,
 					s.now(),
 					run.StartedAt,
-					len(decision.AppliedOperations) > 0,
+					decision.AppliedOperations,
 				)
 				if episodeErr != nil {
 					return true, episodeErr
@@ -3007,7 +3008,7 @@ func (s *Service) stageIncidentTerminal(
 				report.Completion,
 				s.now(),
 				run.StartedAt,
-				len(report.AppliedOperations) > 0,
+				report.AppliedOperations,
 			)
 			if episodeErr != nil {
 				return true, episodeErr
@@ -3869,10 +3870,11 @@ func (s *Service) finalizeTriageAgentRun(ctx context.Context, run core.AgentRun)
 	); err != nil {
 		return fmt.Errorf("schedule triage episode rechecks: %w", err)
 	}
-	episodeState, phase, status, nextAction := completionEpisodePhase(
+	episodeState, phase, status, nextAction := lifecycle.CompletionEpisodePhase(
 		decision.Completion,
-		decision.PendingApproval,
+		decision.PendingApproval != nil,
 		decision.AppliedOperations,
+		alertStreamWaitKind,
 	)
 	if err := s.store.SetWorkEpisodePhase(
 		ctx, run.ID, episodeState, phase, status, nextAction, time.Time{},
@@ -4403,10 +4405,11 @@ func (s *Service) finalizeIncidentAgentRun(
 		return err
 	}
 	if state == "completed" {
-		episodeState, phase, status, nextAction := completionEpisodePhase(
+		episodeState, phase, status, nextAction := lifecycle.CompletionEpisodePhase(
 			episodeCompletion,
-			pendingApproval,
+			pendingApproval != nil,
 			episodeOperations,
+			alertStreamWaitKind,
 		)
 		if err := s.store.SetWorkEpisodePhase(
 			ctx, run.ID, episodeState, phase, status, nextAction, time.Time{},

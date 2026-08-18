@@ -1323,6 +1323,10 @@ var lineBudget = map[string]int{
 	// above service the way app does: it may import service, and nothing imports
 	// it back.
 	"evaluation": 4050,
+	// wakeuppolicy is a small guard over recorded wakeup identities and proposed
+	// operations. Keeping it below service prevents a persistence-backed lifecycle
+	// correction from consuming the service package's remaining budget.
+	"wakeuppolicy": 80,
 	// 130 on 2026-08-16, from 100. The cause-binding rule is unchanged and its
 	// branches are the same three; what grew is what each one says. Naming the
 	// offending evidence id, the claim it actually carries, and the ids the
@@ -1486,6 +1490,7 @@ var forbiddenImports = map[string][]string{
 	"emisar":            {"service", "store", "slackui", "httpapi", "app"},
 	"webhook":           {"service", "store", "slackui", "httpapi", "app"},
 	"episode":           {"service", "store", "slackui", "httpapi", "app"},
+	"wakeuppolicy":      {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar", "config", "decision", "evaluation"},
 	"pausecleanupstore": {"service", "store", "slackui", "httpapi", "app", "publisher", "coop", "emisar"},
 	// The receipts are rows. Which correction deserves promoting, what a fixture
 	// is, and where the corpus lives are decisions that belong to the caller —

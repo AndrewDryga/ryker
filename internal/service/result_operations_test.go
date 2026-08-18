@@ -161,6 +161,65 @@ func TestScheduledVerificationKeepsItsObservableSuccessCheck(t *testing.T) {
 	}
 }
 
+// Four Terraform episodes on 2026-08-18 finished in waiting_external after
+// their model reused the wakeup ID that had just resumed the turn. The store
+// correctly returned the already-resolved row, but finalization trusted the
+// proposed operation and left each episode parked with no clock behind it.
+func TestAResolvedWakeupIdentityCannotLeaveAnEpisodeWaitingWithoutAClock(t *testing.T) {
+	ctx, st, svc, _, run := activityRunFixture(t)
+	now := time.Now().UTC()
+	wakeup, err := st.CreateEpisodeWakeup(ctx, core.EpisodeWakeup{
+		ID: "terraform-run-terminal", EpisodeID: run.EpisodeID, Kind: "terraform_run",
+		Verification: "verify the rollout after the exact run becomes terminal",
+		EventMatcher: []byte(`{"provider":"hcp_terraform","run_id":"run-abc"}`),
+		PollAfter:    now.Add(-time.Second), Deadline: now.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	leased, err := st.LeaseDueEpisodeWakeup(ctx, "test-worker", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ResolveEpisodeWakeup(
+		ctx, leased.ID, "test-worker", leased.FencingToken, []byte(`{"state":"planning"}`),
+	); err != nil {
+		t.Fatal(err)
+	}
+	operation := investigation.ResultOperation{
+		ID: "wait-again", Type: "wait_external",
+		ExternalWait: &investigation.ExternalWaitOperation{
+			ID: wakeup.ID, Kind: wakeup.Kind, Verification: wakeup.Verification,
+			EventMatcher: wakeup.EventMatcher,
+			PollAfter:    now.Add(time.Minute).Format(time.RFC3339),
+			Deadline:     now.Add(time.Hour).Format(time.RFC3339),
+		},
+	}
+
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	correction, err := svc.episodeClaimCorrectionWithHistory(
+		ctx, episode, "silence", nil, nil, nil, now, run.StartedAt,
+		[]investigation.ResultOperation{operation},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(correction, "already resolved") ||
+		!strings.Contains(correction, "fresh external_wait.id") {
+		t.Fatalf("correction = %q", correction)
+	}
+	operation.ExternalWait.ID = "terraform-run-terminal-refresh"
+	if correction, err := svc.episodeClaimCorrectionWithHistory(
+		ctx, episode, "silence", nil, nil, nil, now, run.StartedAt,
+		[]investigation.ResultOperation{operation},
+	); err != nil || correction != "" {
+		t.Fatalf("fresh wakeup correction = %q, %v", correction, err)
+	}
+}
+
 // Three confirmable Terraform plans each started a two-minute model-powered
 // terminal-refresh loop on 2026-08-17. By refresh nine the state was still the
 // same human approval wait, and the loops were consuming the provider quota
