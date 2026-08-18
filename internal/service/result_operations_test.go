@@ -254,6 +254,74 @@ func TestTerraformWaitCannotPollMoreThanOncePerTenMinutes(t *testing.T) {
 	}
 }
 
+// One planned-and-saved Terraform run produced 112 model turns in five hours
+// on 2026-08-18. Every turn called the same run, found it still awaiting human
+// confirmation, and moved its supposedly bounded deadline forward another
+// twenty minutes. A deadline bounds the external wait chain, not one row in it.
+func TestTerraformWaitChainCannotRenewItsOriginalDeadline(t *testing.T) {
+	ctx, st, svc, _, run := activityRunFixture(t)
+	now := time.Now().UTC()
+	originalDeadline := now.Add(30 * time.Minute)
+	first, err := st.CreateEpisodeWakeup(ctx, core.EpisodeWakeup{
+		ID: "terraform-run-abc-terminal", EpisodeID: run.EpisodeID, Kind: "terraform_run",
+		Verification: "verify the exact run after apply",
+		EventMatcher: []byte(`{"provider":"hcp_terraform","run_id":"run-abc"}`),
+		PollAfter:    now.Add(-time.Second), Deadline: originalDeadline,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	leased, err := st.LeaseDueEpisodeWakeup(ctx, "test-worker", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ResolveEpisodeWakeup(
+		ctx, leased.ID, "test-worker", leased.FencingToken, []byte(`{"state":"planned_and_saved"}`),
+	); err != nil {
+		t.Fatal(err)
+	}
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := investigation.ResultOperation{
+		ID: "wait-refresh", Type: "wait_external",
+		ExternalWait: &investigation.ExternalWaitOperation{
+			ID: first.ID + "-refresh", Kind: first.Kind, Verification: first.Verification,
+			EventMatcher: first.EventMatcher,
+			PollAfter:    now.Add(20 * time.Minute).Format(time.RFC3339),
+			Deadline:     now.Add(time.Hour).Format(time.RFC3339),
+		},
+	}
+
+	correction, err := svc.episodeClaimCorrectionWithHistory(
+		ctx, episode, "silence", nil, nil, nil, now, run.StartedAt,
+		[]investigation.ResultOperation{operation},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(correction, "original Terraform wait deadline") ||
+		!strings.Contains(correction, originalDeadline.Format(time.RFC3339)) {
+		t.Fatalf("renewed deadline correction = %q", correction)
+	}
+
+	operation.ExternalWait.Deadline = originalDeadline.Format(time.RFC3339)
+	if correction, err := svc.episodeClaimCorrectionWithHistory(
+		ctx, episode, "silence", nil, nil, nil, now, run.StartedAt,
+		[]investigation.ResultOperation{operation},
+	); err != nil || correction != "" {
+		t.Fatalf("bounded refresh correction = %q, %v", correction, err)
+	}
+	if correction, err := svc.episodeClaimCorrectionWithHistory(
+		ctx, episode, "silence", nil, nil, nil,
+		originalDeadline.Add(time.Second), run.StartedAt,
+		[]investigation.ResultOperation{operation},
+	); err != nil || !strings.Contains(correction, "has elapsed") {
+		t.Fatalf("elapsed deadline correction = %q, %v", correction, err)
+	}
+}
+
 // The prerequisite variant of the same wedge, caught live the same evening the
 // wakeup variant was fixed: run_dba732ef poll-looped on `goal prerequisite
 // "goal-impact" is not in episode` — a plan_goal referencing a goal the model

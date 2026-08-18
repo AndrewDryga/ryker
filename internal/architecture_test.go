@@ -1323,10 +1323,10 @@ var lineBudget = map[string]int{
 	// above service the way app does: it may import service, and nothing imports
 	// it back.
 	"evaluation": 4050,
-	// wakeuppolicy is a small guard over recorded wakeup identities and proposed
-	// operations. Keeping it below service prevents a persistence-backed lifecycle
-	// correction from consuming the service package's remaining budget.
-	"wakeuppolicy": 80,
+	// wakeuppolicy guards recorded wakeup identities and the lifetime of exact
+	// Terraform wait chains. Keeping it below service prevents persistence-backed
+	// lifecycle correction from consuming the service package's remaining budget.
+	"wakeuppolicy": 140,
 	// 130 on 2026-08-16, from 100. The cause-binding rule is unchanged and its
 	// branches are the same three; what grew is what each one says. Naming the
 	// offending evidence id, the claim it actually carries, and the ids the

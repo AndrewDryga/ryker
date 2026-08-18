@@ -351,7 +351,7 @@ func (s *Service) episodeClaimCorrectionWithHistory(
 	operations []investigation.ResultOperation,
 ) (string, error) {
 	if correction, err := wakeuppolicy.Correction(
-		ctx, s.store, episode.ID, operations,
+		ctx, s.store, episode.ID, operations, now,
 	); correction != "" || err != nil {
 		return correction, err
 	}
