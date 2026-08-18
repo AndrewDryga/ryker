@@ -495,6 +495,18 @@ func (a *dashboardActions) ConvertFeedback(ctx context.Context, feedbackID, acto
 	if err != nil {
 		return err
 	}
+	derived, err := a.store.Memory.ListMemoryEntriesBySourceRef(ctx, entry.SourceRef)
+	if err != nil {
+		return err
+	}
+	for _, previous := range derived {
+		if previous.ID == saved.ID {
+			continue
+		}
+		if _, err := a.store.Memory.DeleteMemoryEntry(ctx, previous.ID); err != nil {
+			return err
+		}
+	}
 	if err := a.store.ResolveFeedback(ctx, item.ID, "converted", actor); err != nil &&
 		!errors.Is(err, store.ErrFeedbackNotOpen) {
 		return err

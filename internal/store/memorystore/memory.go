@@ -276,6 +276,23 @@ func (r *Repository) ListMemoryForContext(
 	return scanMemoryEntries(rows)
 }
 
+// ListMemoryEntriesBySourceRef finds every current row derived from one source.
+// More than one can exist while a legacy guidance row is being migrated to its
+// narrower scope and stable subject.
+func (r *Repository) ListMemoryEntriesBySourceRef(
+	ctx context.Context,
+	sourceRef string,
+) ([]core.MemoryEntry, error) {
+	rows, err := r.db.QueryContext(ctx, memorySelect+`
+		WHERE source_ref = ?
+		ORDER BY id`, strings.TrimSpace(sourceRef))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanMemoryEntries(rows)
+}
+
 // ListRepositoryContents reads the one durable sentence per repository that
 // says which part of the product lives there, keyed by repository alias.
 //

@@ -10,6 +10,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
+	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/store"
 	_ "modernc.org/sqlite"
 )
@@ -198,12 +199,32 @@ func TestFeedbackActionsMirrorTheSlackHandlers(t *testing.T) {
 	if _, err := st.Memory.DeleteMemoryEntry(ctx, saved.ID); err != nil {
 		t.Fatal(err)
 	}
+	legacy, _, err := st.Memory.UpsertMemoryEntry(ctx, core.MemoryEntry{
+		ScopeKind: "workspace", ScopeKey: "T1", SubjectKey: "tone",
+		Predicate: "guidance", Value: item.Summary,
+		VisibilityKind: "workspace", VisibilityID: "T1",
+		SourceRef: "feedback:" + item.ID, ActorID: "control-plane@localhost",
+		ExpiresAt: time.Now().UTC().Add(memorypkg.DefaultTTL),
+	}, 100, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := actions.ConvertFeedback(ctx, item.ID, "control-plane@localhost"); err != nil {
 		t.Fatalf("a converted item could not repair its missing guidance: %v", err)
 	}
-	restored, err := st.Memory.GetMemoryEntry(ctx, guidanceEntryID(t, st))
-	if err != nil || restored.SourceRef != "feedback:"+item.ID {
-		t.Fatalf("converted feedback did not restore its guidance: %+v, %v", restored, err)
+	entries, err := st.Memory.ListMemoryForContext(ctx, "T1", "C1", "", "U1", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored []core.MemoryEntry
+	for _, entry := range entries {
+		if entry.SourceRef == "feedback:"+item.ID {
+			restored = append(restored, entry)
+		}
+	}
+	if len(restored) != 1 || restored[0].ID == legacy.ID ||
+		restored[0].ScopeKind != "channel" || !restored[0].ExpiresAt.Equal(core.PermanentExpiry) {
+		t.Fatalf("converted feedback did not migrate its guidance: %+v", restored)
 	}
 
 	second, err := st.RecordFeedback(ctx, store.FeedbackItem{
