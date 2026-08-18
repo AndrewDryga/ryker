@@ -297,12 +297,15 @@ func (h *liveAcceptanceHarness) triage(label string, text string) slackui.Messag
 					run.LastError,
 				)
 			}
-			delivery, err := h.store.GetSlackDelivery(
-				h.ctx,
-				"watch_reply_"+inputID,
+			deliveries, err := h.store.ListSlackDeliveriesByPrefix(
+				h.ctx, "watch_reply_"+inputID,
 			)
 			if err != nil {
-				h.t.Fatalf("load %s Slack response: %v", label, err)
+				h.t.Fatalf("list %s Slack responses: %v", label, err)
+			}
+			delivery, ok := liveAcceptanceResponseDelivery(deliveries, run, inputID)
+			if !ok {
+				h.t.Fatalf("load %s Slack response: not found in %+v", label, deliveries)
 			}
 			if delivery.State != "sent" || delivery.ThreadTS != h.rootTS ||
 				delivery.ChannelID != h.channelID {
@@ -325,6 +328,41 @@ func (h *liveAcceptanceHarness) triage(label string, text string) slackui.Messag
 	}
 	h.t.Fatalf("%s did not complete within %s", label, liveAcceptanceTimeout)
 	return slackui.Message{}
+}
+
+func liveAcceptanceResponseDelivery(
+	deliveries []core.SlackDelivery,
+	run core.AgentRun,
+	inputID string,
+) (core.SlackDelivery, bool) {
+	for _, delivery := range deliveries {
+		if delivery.ResponseRoot && delivery.SourceInputID == inputID &&
+			delivery.AgentRunID == run.ID && delivery.AgentRunKey == run.IdempotencyKey {
+			return delivery, true
+		}
+	}
+	return core.SlackDelivery{}, false
+}
+
+// Corrections and recovered submissions suffix their delivery identity with
+// the execution key. The live acceptance reached a valid preference offer on
+// 2026-08-18, then called it missing because it looked only for the legacy
+// unsuffixed ID instead of the durable response ownership fields.
+func TestLiveAcceptanceFindsTheCurrentRunsSuffixedResponse(t *testing.T) {
+	run := core.AgentRun{ID: "run-current", IdempotencyKey: "run:current:recovery_2"}
+	delivery, ok := liveAcceptanceResponseDelivery([]core.SlackDelivery{
+		{
+			ID: "watch_reply_input_exec_old", SourceInputID: "input",
+			AgentRunID: "run-old", AgentRunKey: "run:old", ResponseRoot: true,
+		},
+		{
+			ID: "watch_reply_input_exec_recovery_2", SourceInputID: "input",
+			AgentRunID: run.ID, AgentRunKey: run.IdempotencyKey, ResponseRoot: true,
+		},
+	}, run, "input")
+	if !ok || delivery.ID != "watch_reply_input_exec_recovery_2" {
+		t.Fatalf("current response = %+v, found=%t", delivery, ok)
+	}
 }
 
 func (h *liveAcceptanceHarness) click(
@@ -443,7 +481,30 @@ func findMessageAction(message slackui.Message, actionID string) slackui.Action 
 			return action
 		}
 	}
+	for _, row := range message.Rows {
+		for _, action := range append(append([]slackui.Action{}, row.Actions...), row.Overflow...) {
+			if action.ID == actionID {
+				return action
+			}
+		}
+	}
+	for _, action := range message.Overflow {
+		if action.ID == actionID {
+			return action
+		}
+	}
 	return slackui.Action{}
+}
+
+// Modern cards keep controls beside the row they affect. The live acceptance
+// found a valid Remember button on its preference row, then called it missing
+// because its helper searched only the retired bottom action bar.
+func TestLiveAcceptanceFindsActionsAcrossTheWholeCard(t *testing.T) {
+	want := slackui.Action{ID: slackui.ActionRememberPreference, Value: "offer"}
+	message := slackui.Message{Rows: []slackui.Row{{Actions: []slackui.Action{want}}}}
+	if got := findMessageAction(message, want.ID); got != want {
+		t.Fatalf("row action = %+v, want %+v", got, want)
+	}
 }
 
 func assertLiveSlackMessage(t *testing.T, message slackui.Message) {
