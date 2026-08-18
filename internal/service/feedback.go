@@ -10,8 +10,8 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/feedbackguidance"
 	"github.com/AndrewDryga/responder/internal/investigation"
-	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -342,47 +342,10 @@ func (s *Service) handleConvertFeedback(ctx context.Context, input core.SlackInp
 			ctx, input, "*That feedback was already resolved.* Nothing changed.",
 		)
 	}
-	// The subject carries the guidance, and the scope follows the complaint.
-	//
-	// Both used to be wrong in the same direction — too coarse. The subject was
-	// the category alone, and memory entries are unique on
-	// (scope_kind, scope_key, subject_key, predicate) with category a seven
-	// value enum, so a workspace could hold at most seven pieces of
-	// feedback-derived guidance and converting a second "correctness" item
-	// silently overwrote the first. The overwrite was recorded in
-	// memory_supersessions, which nothing reads, so it left no trace anywhere a
-	// person would look.
-	//
-	// The scope was always the whole workspace, even when the feedback was
-	// plainly about one channel. The one real complaint either deployment has
-	// received was "update channel memory/settings/rules so that you do what
-	// I've said when you see terraform notifications" — a rule for that channel,
-	// which as workspace guidance would have applied everywhere.
-	scopeKind, scopeKey := "workspace", s.cfg.Slack.TeamID
-	if item.ChannelID != "" {
-		scopeKind, scopeKey = "channel", item.ChannelID
-	}
-	entry := core.MemoryEntry{
-		ScopeKind: scopeKind, ScopeKey: scopeKey,
-		SubjectKey: memorypkg.NormalizeGuidanceSubject(
-			item.Category + " " + item.Summary,
-		),
-		Predicate:      "guidance",
-		Value:          core.BoundedText(item.Summary, 1000),
-		VisibilityKind: scopeKind, VisibilityID: scopeKey,
-		// Permanent, like any other guidance an operator gives.
-		//
-		// This route hard-coded DefaultTTL while every other one could offer
-		// permanence — so the single path that begins with a person saying "you
-		// got this wrong, do it this way" was the one that deleted the
-		// instruction thirty days later, on a schedule, without asking. The
-		// pressure the clock provided is kept rather than dropped: a permanent
-		// entry that goes ReviewStaleAfter unrecalled surfaces in the memory
-		// review queue, which asks whether it still holds.
-		ExpiresAt: memorypkg.ExpiryFrom(s.now().UTC(), memorypkg.PermanentTTL),
-		SourceRef: "feedback:" + item.ID,
-		ActorID:   input.UserID,
-	}
+	entry := feedbackguidance.Entry(
+		s.cfg.Slack.TeamID, item.ChannelID, item.Category, item.Summary,
+		"feedback:"+item.ID, input.UserID, s.now(),
+	)
 	if err := s.validateMemoryValue(&entry); err != nil {
 		return s.memoryActionFeedback(
 			ctx, input,

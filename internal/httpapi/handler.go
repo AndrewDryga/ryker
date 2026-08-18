@@ -21,6 +21,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
+	"github.com/AndrewDryga/responder/internal/feedbackguidance"
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/service"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -460,7 +461,7 @@ func (a *dashboardActions) DismissFeedback(ctx context.Context, feedbackID, acto
 }
 
 // ConvertFeedback mirrors handleConvertFeedback field for field: the summary
-// becomes workspace-scoped guidance with the feedback item as its source, the
+// becomes channel-scoped guidance when the feedback came from a channel, the
 // item resolves as converted, and the feedback.convert audit row names the
 // memory it became. The same refusals apply — multiline or credential-like
 // text cannot become guidance — because a second door with fewer checks is
@@ -470,19 +471,17 @@ func (a *dashboardActions) ConvertFeedback(ctx context.Context, feedbackID, acto
 	if err != nil {
 		return err
 	}
-	if item.Status != "open" {
+	// Converted is deliberately repairable. Older dashboard conversions could
+	// mark two same-category items converted while the second overwrote the
+	// first guidance row; replaying the action must reconstruct that missing
+	// durable instruction. Dismissed feedback still cannot be converted.
+	if item.Status != "open" && item.Status != "converted" {
 		return errors.New("that feedback was already resolved")
 	}
-	entry := core.MemoryEntry{
-		ScopeKind: "workspace", ScopeKey: a.cfg.Slack.TeamID,
-		SubjectKey:     memorypkg.NormalizeGuidanceSubject(item.Category),
-		Predicate:      "guidance",
-		Value:          core.BoundedText(item.Summary, 1000),
-		VisibilityKind: "workspace", VisibilityID: a.cfg.Slack.TeamID,
-		ExpiresAt: time.Now().UTC().Add(memorypkg.DefaultTTL),
-		SourceRef: "feedback:" + item.ID,
-		ActorID:   actor,
-	}
+	entry := feedbackguidance.Entry(
+		a.cfg.Slack.TeamID, item.ChannelID, item.Category, item.Summary,
+		"feedback:"+item.ID, actor, time.Now(),
+	)
 	if entry.SubjectKey == "" || entry.Value == "" ||
 		strings.ContainsAny(entry.SubjectKey+entry.Value, "\r\n\t") ||
 		memorypkg.ContainsSecretLikeValue(entry.SubjectKey) ||

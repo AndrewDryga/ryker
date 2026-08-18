@@ -195,8 +195,15 @@ func TestFeedbackActionsMirrorTheSlackHandlers(t *testing.T) {
 	if saved.Predicate != "guidance" || saved.SourceRef != "feedback:"+item.ID {
 		t.Fatalf("converted entry = %+v; guidance must trace back to its feedback", saved)
 	}
-	if err := actions.ConvertFeedback(ctx, item.ID, "control-plane@localhost"); err == nil {
-		t.Error("a resolved item converted twice")
+	if _, err := st.Memory.DeleteMemoryEntry(ctx, saved.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := actions.ConvertFeedback(ctx, item.ID, "control-plane@localhost"); err != nil {
+		t.Fatalf("a converted item could not repair its missing guidance: %v", err)
+	}
+	restored, err := st.Memory.GetMemoryEntry(ctx, guidanceEntryID(t, st))
+	if err != nil || restored.SourceRef != "feedback:"+item.ID {
+		t.Fatalf("converted feedback did not restore its guidance: %+v, %v", restored, err)
 	}
 
 	second, err := st.RecordFeedback(ctx, store.FeedbackItem{
@@ -215,10 +222,71 @@ func TestFeedbackActionsMirrorTheSlackHandlers(t *testing.T) {
 	}
 }
 
+// Two correctness complaints were converted together during the 2026-08-18
+// self-improvement pass. The dashboard keyed both as correctness/guidance,
+// marked both feedback rows converted, and silently superseded the first rule.
+// Conversion must preserve every distinct instruction exactly as Slack does.
+func TestConvertingTwoFeedbackItemsInTheSameCategoryPreservesBothGuidanceRules(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	items := []store.FeedbackItem{
+		{
+			ID: "fb_temporal", WorkspaceID: "T1", ChannelID: "C1", UserID: "U1",
+			Source: "reaction", Category: "correctness", Sentiment: "negative",
+			Summary: "Do not attribute a new incident to longstanding configuration without temporal evidence.",
+		},
+		{
+			ID: "fb_errors", WorkspaceID: "T1", ChannelID: "C1", UserID: "U1",
+			Source: "reaction", Category: "correctness", Sentiment: "negative",
+			Summary: "Treat the errors as genuine when alert counts are difficult to reconcile.",
+		},
+	}
+	actions := &dashboardActions{store: st, cfg: config.Config{
+		Slack:  config.SlackConfig{TeamID: "T1"},
+		Limits: config.Limits{MaxMemoryEntries: 100, MaxMemoryEntriesPerScope: 50},
+	}}
+	for _, item := range items {
+		if _, err := st.RecordFeedback(ctx, item); err != nil {
+			t.Fatal(err)
+		}
+		if err := actions.ConvertFeedback(ctx, item.ID, "control-plane@localhost"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := st.Memory.ListMemoryForContext(ctx, "T1", "C1", "", "U1", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	converted := make(map[string]core.MemoryEntry)
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.SourceRef, "feedback:") {
+			converted[entry.SourceRef] = entry
+		}
+	}
+	if len(converted) != 2 {
+		t.Fatalf("two converted rules became %d memory entries: %+v", len(converted), converted)
+	}
+	for _, item := range items {
+		entry := converted["feedback:"+item.ID]
+		if entry.ScopeKind != "channel" || entry.ScopeKey != "C1" {
+			t.Fatalf("feedback %s widened beyond its channel: %+v", item.ID, entry)
+		}
+		if !entry.ExpiresAt.Equal(core.PermanentExpiry) {
+			t.Fatalf("feedback %s expires at %s, want permanent", item.ID, entry.ExpiresAt)
+		}
+	}
+}
+
 // guidanceEntryID finds the one guidance entry the conversion wrote.
 func guidanceEntryID(t *testing.T, st *store.Store) string {
 	t.Helper()
-	entries, err := st.Memory.ListMemoryForHome(context.Background(), "T1", "U1", 50)
+	entries, err := st.Memory.ListMemoryForContext(
+		context.Background(), "T1", "C1", "", "U1", 50,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
