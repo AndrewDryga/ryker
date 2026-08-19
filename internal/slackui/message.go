@@ -26,18 +26,22 @@ const (
 	// ActionCloseDiff puts an opened diff away. Without it View diff could only
 	// ever post another one, so a task checked four times left four diffs of
 	// the same fork stacked in the thread with the oldest one wrong.
-	ActionCloseDiff     = "responder_close_diff"
-	ActionReview        = "responder_review"
-	ActionRepairReview  = "responder_repair_review"
-	ActionPublishPR     = "responder_publish_pr"
-	ActionViewPR        = "responder_view_pr"
-	ActionCheckDelivery = "responder_check_delivery"
-	ActionDiscardWork   = "responder_discard_work"
-	ActionStop          = "responder_stop"
-	ActionExtend        = "responder_extend"
-	ActionResolve       = "responder_resolve"
-	ActionHelp          = "responder_help"
-	ActionOpenIncident  = "responder_open_incident"
+	ActionCloseDiff = "responder_close_diff"
+	// ActionDismissMessage removes one Responder-owned temporary Slack message.
+	// The interaction callback supplies the exact channel and timestamp; the
+	// value stays empty so it cannot name or mutate any underlying work.
+	ActionDismissMessage = "responder_dismiss_message"
+	ActionReview         = "responder_review"
+	ActionRepairReview   = "responder_repair_review"
+	ActionPublishPR      = "responder_publish_pr"
+	ActionViewPR         = "responder_view_pr"
+	ActionCheckDelivery  = "responder_check_delivery"
+	ActionDiscardWork    = "responder_discard_work"
+	ActionStop           = "responder_stop"
+	ActionExtend         = "responder_extend"
+	ActionResolve        = "responder_resolve"
+	ActionHelp           = "responder_help"
+	ActionOpenIncident   = "responder_open_incident"
 	// A link out to the conversation an item lives in, so the page that says
 	// something needs a decision can also get the reader to it.
 	ActionOpenWorkThread    = "responder_open_work_thread"
@@ -271,6 +275,10 @@ type Message struct {
 	// controls behind an outer Show more. Top-level blocks remain visible and
 	// let only an individually long request section fold itself.
 	TopLevelBlocks bool `json:"top_level_blocks,omitempty"`
+	// Temporary means this Slack surface is safe to remove without changing the
+	// work it describes. Blocks turns the marker into one consistent visible
+	// Dismiss button; callers never assemble that control themselves.
+	Temporary bool `json:"temporary,omitempty"`
 }
 
 // LedgerStep is one step of a run.
@@ -419,7 +427,7 @@ func AppendRowMenu(message Message, text string, actions, overflow []Action) Mes
 // attached here" and would silently answer no for a proposal whose confirmation
 // had moved onto the proposal.
 func (m Message) HasControls() bool {
-	if len(m.Actions) > 0 || len(m.Overflow) > 0 {
+	if m.Temporary || len(m.Actions) > 0 || len(m.Overflow) > 0 {
 		return true
 	}
 	for _, row := range m.Rows {
@@ -473,10 +481,16 @@ func Decode(data []byte) (Message, error) {
 
 func (m Message) Blocks() []slack.Block {
 	blocks := make([]slack.Block, 0, 12)
+	actions := m.Actions
+	if m.Temporary {
+		actions = append(append([]Action(nil), actions...), Action{
+			ID: ActionDismissMessage, Label: "Dismiss",
+		})
+	}
 	// Slack rejects a surface whose action_ids repeat, and a list UI repeats one
 	// by nature: five "Keep" buttons all carry the keep action. Counted across
 	// the whole surface, not per block, because a view is rejected either way.
-	occurrences := make(map[string]int, len(m.Actions))
+	occurrences := make(map[string]int, len(actions))
 	if m.Header != "" {
 		blocks = append(blocks, slack.NewHeaderBlock(
 			slack.NewTextBlockObject(slack.PlainTextType, truncateUTF8(singleLine(m.Header), 150), false, false),
@@ -510,14 +524,14 @@ func (m Message) Blocks() []slack.Block {
 	// has two places to put its controls, and rendering them twice from two
 	// copies of this is how one of the copies stops matching the other.
 	emitActions := func() {
-		if len(m.Actions) == 0 && len(m.Overflow) == 0 {
+		if len(actions) == 0 && len(m.Overflow) == 0 {
 			return
 		}
 		blocks = append(blocks, slack.NewDividerBlock())
-		actionBlocks := make([]*slack.ActionBlock, 0, len(m.Actions)/4+1)
-		for begin := 0; begin < len(m.Actions); begin += 4 {
-			stop := min(begin+4, len(m.Actions))
-			elements := buttonElements(m.Actions[begin:stop], occurrences)
+		actionBlocks := make([]*slack.ActionBlock, 0, len(actions)/4+1)
+		for begin := 0; begin < len(actions); begin += 4 {
+			stop := min(begin+4, len(actions))
+			elements := buttonElements(actions[begin:stop], occurrences)
 			if len(elements) == 0 {
 				continue
 			}
@@ -1564,6 +1578,7 @@ func EvidenceDirectoryMessage(
 		message.Context,
 		"Evidence is retained separately from agent prose so operators can audit freshness and source coverage.",
 	)
+	message.Temporary = true
 	return message
 }
 
@@ -1591,6 +1606,7 @@ func CommitmentDirectoryMessage(items []core.Commitment) Message {
 			Header: "No unfinished commitments",
 			Markdown: "I do not currently owe the team an investigation, response, or retry. " +
 				"Closed incidents and completed engineering tasks remain available in the work history.",
+			Temporary: true,
 		}
 	}
 	message := Message{
@@ -1601,6 +1617,7 @@ func CommitmentDirectoryMessage(items []core.Commitment) Message {
 				"blocked work stays visible until it is retried, resolved, or aged out.",
 			countLabel(len(items), "unfinished commitment"),
 		)},
+		Temporary: true,
 	}
 	entries := make([]directoryEntry, 0, len(items))
 	for _, item := range items {
@@ -1840,10 +1857,11 @@ func HelpMessage(incident core.Incident) Message {
 			"continues the same isolated session."
 	}
 	return Message{
-		Text:     "Help — " + summary,
-		Stripe:   StripeIdle,
-		Sections: []string{conversation},
-		Ledger:   reference,
+		Text:      "Help — " + summary,
+		Stripe:    StripeIdle,
+		Sections:  []string{conversation},
+		Ledger:    reference,
+		Temporary: true,
 		Context: []string{
 			"Controls never merge, sign, or deploy; publication pushes one lease-protected branch.",
 		},
@@ -1851,7 +1869,7 @@ func HelpMessage(incident core.Incident) Message {
 }
 
 func Notice(text string) Message {
-	return Message{Text: text, Sections: []string{text}}
+	return Message{Text: text, Sections: []string{text}, Temporary: true}
 }
 
 func RepositoryPreparationBlocked(repository string) Message {
@@ -1868,6 +1886,7 @@ func RepositoryPreparationBlocked(repository string) Message {
 			summary,
 			"No model turn has started.",
 		},
+		Temporary: true,
 	}
 	return message
 }
@@ -1907,6 +1926,7 @@ func workspacePreparationBlocked(repository, reason string, retryAt time.Time) M
 			summary,
 			"No model turn has started. " + retry,
 		},
+		Temporary: true,
 	}
 }
 

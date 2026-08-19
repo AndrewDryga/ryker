@@ -147,5 +147,6 @@ func GrantDemotedMessage(grant remediation.Grant, reason remediation.DemotionRea
 		Context: []string{
 			"Demotion is automatic and needs no confirmation; a promotion always does.",
 		},
+		Temporary: true,
 	}
 }

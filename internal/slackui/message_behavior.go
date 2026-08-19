@@ -392,7 +392,10 @@ func ScheduleSavedMessage(task core.ScheduledTask) Message {
 
 func SchedulesSavedMessage(tasks []core.ScheduledTask) Message {
 	if len(tasks) == 0 {
-		return Message{Text: "No scheduled tasks were created.", Header: "Nothing scheduled"}
+		return Message{
+			Text: "No scheduled tasks were created.", Header: "Nothing scheduled",
+			Temporary: true,
+		}
 	}
 	if len(tasks) > 1 {
 		// Undo is one action value, and the action behind it deletes one task by
@@ -440,10 +443,11 @@ func ScheduledRunStartedMessage(task core.ScheduledTask, scheduledFor time.Time)
 		title = "Scheduled check"
 	}
 	return Message{
-		Text:     fmt.Sprintf("%s started", title),
-		Header:   title,
-		Sections: []string{"Scheduled check started. Emisar is gathering fresh evidence and will report in this thread."},
-		Context:  []string{"Scheduled for " + scheduledFor.UTC().Format("2006-01-02 15:04 UTC")},
+		Text:      fmt.Sprintf("%s started", title),
+		Header:    title,
+		Sections:  []string{"Scheduled check started. Emisar is gathering fresh evidence and will report in this thread."},
+		Context:   []string{"Scheduled for " + scheduledFor.UTC().Format("2006-01-02 15:04 UTC")},
+		Temporary: true,
 	}
 }
 
@@ -485,8 +489,9 @@ func ScheduleDeletedMessage() Message {
 
 func ScheduleDirectoryMessage(tasks []core.ScheduledTask) Message {
 	message := Message{
-		Text:   "Emisar has " + countLabel(len(tasks), "unexpired scheduled task") + " in this channel.",
-		Header: "Scheduled tasks for this channel",
+		Text:      "Emisar has " + countLabel(len(tasks), "unexpired scheduled task") + " in this channel.",
+		Header:    "Scheduled tasks for this channel",
+		Temporary: true,
 	}
 	if len(tasks) == 0 {
 		message.Context = []string{"Schedules decide when to submit a request. Every occurrence still uses current Coop, repository, tool, and Emisar policy."}
@@ -572,8 +577,9 @@ func PreferenceDirectoryMessage(
 	preferences []core.ResponderPreference,
 ) Message {
 	message := Message{
-		Text:   "Responder has " + countLabel(len(preferences), "unexpired preference") + " visible here.",
-		Header: "Responder preferences",
+		Text:      "Responder has " + countLabel(len(preferences), "unexpired preference") + " visible here.",
+		Header:    "Responder preferences",
+		Temporary: true,
 	}
 	if len(preferences) == 0 {
 		message.Context = []string{
@@ -689,8 +695,9 @@ func RuleDeletedMessage() Message {
 
 func RuleDirectoryMessage(rules []core.StandingRule) Message {
 	message := Message{
-		Text:   "Responder has " + countLabel(len(rules), "unexpired standing rule") + " in this channel.",
-		Header: "Standing rules for this channel",
+		Text:      "Responder has " + countLabel(len(rules), "unexpired standing rule") + " in this channel.",
+		Header:    "Standing rules for this channel",
+		Temporary: true,
 	}
 	if len(rules) == 0 {
 		message.Context = []string{
@@ -967,8 +974,9 @@ func memoryDirectoryEntry(entry core.MemoryEntry) directoryEntry {
 
 func MemoryDirectoryMessage(entries []core.MemoryEntry) Message {
 	message := Message{
-		Text:   "Responder has " + countLabel(len(entries), "active memory entry", "active memory entries") + " visible here.",
-		Header: "What Responder remembers here",
+		Text:      "Responder has " + countLabel(len(entries), "active memory entry", "active memory entries") + " visible here.",
+		Header:    "What Responder remembers here",
+		Temporary: true,
 	}
 	if len(entries) == 0 {
 		message.Context = []string{

@@ -404,7 +404,8 @@ func RecordDirectoryMessage(incident core.Incident) Message {
 		Sections: []string{
 			"Choose the view you need. Each one is rendered from the durable host record.",
 		},
-		Actions: RecordControls(incident.ID),
+		Actions:   RecordControls(incident.ID),
+		Temporary: true,
 	}
 }
 
@@ -533,6 +534,7 @@ func TimelineMessage(record core.RemediationRecord) Message {
 		Context: []string{
 			"Built from the alert, agent runs, evidence, Emisar approvals, and publication state. The latest events are shown oldest first.",
 		},
+		Temporary: true,
 	}
 }
 
@@ -588,6 +590,7 @@ func HandoffMessage(
 		"This handoff is generated from durable "+workNoun(incident)+
 			" state; unknown coverage remains explicit.",
 	)
+	message.Temporary = true
 	return message
 }
 
@@ -697,6 +700,7 @@ func PostmortemDraft(record core.RemediationRecord) Message {
 		message.Context,
 		"Generated from the durable remediation record. It does not invent impact, root cause, owners, or actions that were not recorded.",
 	)
+	message.Temporary = true
 	return message
 }
 
@@ -756,7 +760,8 @@ func handoffMessage(channelID, header, room, workspace, boundary string) Message
 		Sections: []string{
 			"Moved to " + mention + " — I'm preparing " + workspace + " there.",
 		},
-		Context: []string{boundary},
+		Context:   []string{boundary},
+		Temporary: true,
 	}
 }
 
@@ -1025,6 +1030,7 @@ func IncidentStatusMessage(incident core.Incident) Message {
 			"*" + stateLabel + ": " + status + "* · Status is read-only. No publication, " +
 				"merge, signing, deployment, or infrastructure change was requested.",
 		},
+		Temporary: true,
 	}
 	// The only control a status readout has earned. There is no card URL to
 	// link back to, so a second button would have nowhere to send anyone.

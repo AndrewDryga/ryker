@@ -4,7 +4,56 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/slack-go/slack"
 )
+
+// A temporary card is deliberately safe to remove, so putting that fact on
+// the message must be enough to give every such card the same one-click exit.
+// Without this contract each constructor grows its own button, and the next
+// transient notice is the one that stays stuck in the channel.
+func TestTemporaryCardRendersExactlyOneDismissButton(t *testing.T) {
+	temporary := Message{
+		Text:      "Workspace preparation is blocked.",
+		Temporary: true,
+		Actions: []Action{{
+			ID: ActionHelp, Label: "Help", Value: "incident_1",
+		}},
+	}
+
+	dismisses := 0
+	for _, block := range temporary.Blocks() {
+		actions, ok := block.(*slack.ActionBlock)
+		if !ok {
+			continue
+		}
+		for _, element := range actions.Elements.ElementSet {
+			button, ok := element.(*slack.ButtonBlockElement)
+			if ok && BaseActionID(button.ActionID) == ActionDismissMessage {
+				dismisses++
+				if button.Text == nil || button.Text.Text != "Dismiss" {
+					t.Fatalf("dismiss button label = %+v", button.Text)
+				}
+			}
+		}
+	}
+	if dismisses != 1 {
+		t.Fatalf("temporary card rendered %d dismiss buttons, want 1", dismisses)
+	}
+
+	for _, block := range (Message{Text: "Durable result."}).Blocks() {
+		actions, ok := block.(*slack.ActionBlock)
+		if !ok {
+			continue
+		}
+		for _, element := range actions.Elements.ElementSet {
+			button, ok := element.(*slack.ButtonBlockElement)
+			if ok && BaseActionID(button.ActionID) == ActionDismissMessage {
+				t.Fatal("a durable card rendered a dismiss button")
+			}
+		}
+	}
+}
 
 // Slack rejects a whole surface when two elements in one block share an
 // action_id, and a list UI repeats an action by nature: five corrections mean

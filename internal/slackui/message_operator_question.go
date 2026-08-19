@@ -163,9 +163,10 @@ const operatorChoiceLabelLimit = 75
 // being asked for anything by this line.
 func OperatorChoiceAnswer(answer string) Message {
 	return Message{
-		Text:     "Answered: " + answer,
-		Stripe:   StripeIdle,
-		Sections: []string{"*Answered:* " + escapeSlackText(answer)},
-		Context:  []string{"Chosen from the options above. Reply in this thread to say more."},
+		Text:      "Answered: " + answer,
+		Stripe:    StripeIdle,
+		Sections:  []string{"*Answered:* " + escapeSlackText(answer)},
+		Context:   []string{"Chosen from the options above. Reply in this thread to say more."},
+		Temporary: true,
 	}
 }

@@ -27,7 +27,8 @@ func AssignmentDirectoryMessage(
 	message := Message{
 		Text: "Responder has " +
 			countLabel(len(assignmentList), "standing assignment") + " in this channel.",
-		Header: "Standing assignments for this channel",
+		Header:    "Standing assignments for this channel",
+		Temporary: true,
 	}
 	if len(assignmentList) == 0 {
 		message.Sections = []string{

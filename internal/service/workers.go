@@ -16,6 +16,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackfile"
+	slackinputpkg "github.com/AndrewDryga/responder/internal/slackinput"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/deliveryretrystore"
@@ -173,7 +174,7 @@ func (s *Service) processChannelIncident(ctx context.Context, incidentID string)
 	}
 	if err != nil {
 		workflow := core.WorkflowProvisioningChannel
-		if permanentSlackInputError(err) {
+		if slackinputpkg.PermanentError(err) {
 			workflow = core.WorkflowBlocked
 		}
 		s.setIncidentError(ctx, incident.ID, workflow, trimError(err))

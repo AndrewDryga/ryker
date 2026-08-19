@@ -169,10 +169,11 @@ func EvidenceReport(
 // message form beside the document.
 func ReportCanvasCard(report Report, canvasURL string) Message {
 	message := Message{
-		Text:     report.Title + " — " + report.Headline,
-		Header:   report.Title,
-		Stripe:   StripeIdle,
-		Sections: []string{report.Headline},
+		Text:      report.Title + " — " + report.Headline,
+		Header:    report.Title,
+		Stripe:    StripeIdle,
+		Sections:  []string{report.Headline},
+		Temporary: true,
 	}
 	if report.Counts != "" {
 		message.Context = append(message.Context, report.Counts)

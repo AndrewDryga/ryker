@@ -51,9 +51,10 @@ type TurnReceipt struct {
 // already finished — there is nothing here to decide and nobody is waiting.
 func TurnReceiptMessage(receipt TurnReceipt) Message {
 	message := Message{
-		Text:   turnReceiptFallback(receipt),
-		Stripe: StripeIdle,
-		Ledger: turnReceiptLedger(receipt),
+		Text:      turnReceiptFallback(receipt),
+		Stripe:    StripeIdle,
+		Ledger:    turnReceiptLedger(receipt),
+		Temporary: true,
 	}
 	if receipt.Moments == 0 {
 		// Rows of zeroes would read as a measurement; this is the absence of

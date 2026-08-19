@@ -29,6 +29,7 @@ import (
 // option value started carrying its own action id.
 var routedActionIDs = map[string]bool{
 	ActionOverflow: true, ActionFullRequest: true, ActionTurnReceipt: true,
+	ActionDismissMessage: true,
 	// A URL button still reports its click, and Slack shows the operator a
 	// failure on an interaction nobody answered. acknowledgeLinkAction is the
 	// answer: the link already did the work.

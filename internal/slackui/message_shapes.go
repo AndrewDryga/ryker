@@ -94,10 +94,11 @@ func proposalText(proposal offerProposal) string {
 // mistake is a toll on the wrong person; re-saving is one message away.
 func receiptCard(fallback, verb, restatement string, facts []string, actions ...Action) Message {
 	message := Message{
-		Text:     fallback,
-		Stripe:   StripeDone,
-		Sections: []string{strings.TrimSpace("*" + verb + "* " + restatement)},
-		Actions:  actions,
+		Text:      fallback,
+		Stripe:    StripeDone,
+		Sections:  []string{strings.TrimSpace("*" + verb + "* " + restatement)},
+		Actions:   actions,
+		Temporary: true,
 	}
 	if line := joinFacts(facts); line != "" {
 		message.Context = []string{line}
@@ -125,10 +126,11 @@ func undoAction(actionID, value string) Action {
 // does not exist any more.
 func stateChangeCard(fallback, statement, note string, actions ...Action) Message {
 	message := Message{
-		Text:     fallback,
-		Stripe:   StripeIdle,
-		Sections: []string{statement},
-		Actions:  actions,
+		Text:      fallback,
+		Stripe:    StripeIdle,
+		Sections:  []string{statement},
+		Actions:   actions,
+		Temporary: true,
 	}
 	if note != "" {
 		message.Context = []string{note}
@@ -154,6 +156,7 @@ type directoryEntry struct {
 // listing is bounded and saying so is the difference between a short list and a
 // wrong one.
 func directoryCard(message Message, entries []directoryEntry, more string) Message {
+	message.Temporary = true
 	for _, entry := range entries[:min(len(entries), directoryRowLimit)] {
 		message = AppendRowMenu(message, entry.Text, entry.Actions, entry.Overflow)
 	}

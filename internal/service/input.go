@@ -19,7 +19,9 @@ import (
 	publicationreview "github.com/AndrewDryga/responder/internal/publicationreview"
 	"github.com/AndrewDryga/responder/internal/reportcanvas"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
+	"github.com/AndrewDryga/responder/internal/slackdismiss"
 	"github.com/AndrewDryga/responder/internal/slackfile"
+	slackinputpkg "github.com/AndrewDryga/responder/internal/slackinput"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
@@ -53,6 +55,7 @@ const inputAppHome = "app_home"
 // deterministic slash-command buttons, channel-setup actions with a structured
 // ID, and incident-scoped controls all need their own predicate.
 var slackActionRoutes = map[string]func(*Service, context.Context, core.SlackInput) error{
+	slackui.ActionDismissMessage:          (*Service).handleDismissMessage,
 	slackui.ActionOpenIncident:            (*Service).handleWatchIncidentOfferAction,
 	slackui.ActionStartTask:               (*Service).handleWatchTaskOfferAction,
 	slackui.ActionReviewPullRequest:       (*Service).handlePullRequestReviewAction,
@@ -94,6 +97,23 @@ var slackActionRoutes = map[string]func(*Service, context.Context, core.SlackInp
 	slackui.ActionRecordHandoff:           (*Service).handleRecordControl,
 	slackui.ActionRecordPostmortem:        (*Service).handleRecordControl,
 	slackui.ActionRecordDirectory:         (*Service).handleRecordDirectory,
+}
+
+func (s *Service) handleDismissMessage(ctx context.Context, input core.SlackInput) error {
+	deleter, _ := unpacedSlack(s.slack).(slackdismiss.Deleter)
+	result, err := slackdismiss.Handle(ctx, s.store, s.slack, deleter, slackdismiss.Request{
+		UserID: input.UserID, ChannelID: input.ChannelID, MessageTS: input.MessageTS,
+		TeamID: s.cfg.Slack.TeamID, Operator: s.cfg.IsOperator(input.UserID),
+	})
+	if err != nil {
+		return err
+	}
+	if result.Denial != "" {
+		s.denyInput(ctx, input, result.Denial)
+	} else {
+		s.audit(ctx, result.Audit(input))
+	}
+	return s.finishSlackInput(ctx, input)
 }
 
 // acknowledgeLinkAction completes a button whose entire job is its URL.
@@ -1977,13 +1997,13 @@ func (s *Service) slackInputFailureIsTerminal(
 	// Slack has already given its final answer for these. Retrying a missing
 	// channel eleven more times cannot find it, and the only thing the attempts
 	// buy is a longer audit trail of the same rejection.
-	if permanentSlackInputError(err) {
+	if slackinputpkg.PermanentError(err) {
 		terminal = true
 	}
 	// A cosmetic surface repaint is worth a couple of attempts, not the full
 	// budget reserved for work an operator asked for. Nobody loses an answer
 	// when suggested prompts fail to refresh.
-	if surfaceRefreshInput(input.Kind) && retrydelay.Exhausted(attempt, surfaceRefreshAttempts) {
+	if input.Kind == inputAppHome && retrydelay.Exhausted(attempt, surfaceRefreshAttempts) {
 		terminal = true
 	}
 	return terminal
@@ -2056,35 +2076,6 @@ func (s *Service) reportAbandonedInput(
 // operator typed is expensive; spending twelve Slack API calls to fail at
 // redrawing a dashboard is not the same trade.
 const surfaceRefreshAttempts = 3
-
-func surfaceRefreshInput(kind string) bool {
-	return kind == inputAppHome
-}
-
-// permanentSlackInputError reports whether Slack's answer will be the same
-// next time.
-//
-// These fall in two families. Addressing errors mean the target does not exist
-// or cannot be reached from this token — a retry re-asks a question Slack has
-// already answered. Installation errors mean the app itself needs a scope
-// change or a reinstall, which no amount of waiting performs.
-func permanentSlackInputError(err error) bool {
-	detail := strings.ToLower(trimError(err))
-	if detail == "" {
-		return false
-	}
-	for _, marker := range []string{
-		"channel_not_found", "user_not_found", "users_not_found",
-		"message_not_found", "is_archived",
-		"invalid_auth", "not_authed", "account_inactive", "token_revoked",
-		"missing_scope", "not_allowed_token_type",
-	} {
-		if strings.Contains(detail, marker) {
-			return true
-		}
-	}
-	return false
-}
 
 func (s *Service) finishSlackInput(ctx context.Context, input core.SlackInput) error {
 	if err := s.store.FinishSlackInput(ctx, input.ID); err != nil {

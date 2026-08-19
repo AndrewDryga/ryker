@@ -271,17 +271,19 @@ func ChannelSetupMoved(intoThread bool) Message {
 		place = "in a thread"
 	}
 	return Message{
-		Text:     "Emisar channel setup continues " + place,
-		Header:   "Channel setup moved",
-		Markdown: "The rest of this setup continues " + place + ".",
+		Text:      "Emisar channel setup continues " + place,
+		Header:    "Channel setup moved",
+		Markdown:  "The rest of this setup continues " + place + ".",
+		Temporary: true,
 	}
 }
 
 func ChannelSetupCancelled() Message {
 	return Message{
-		Text:     "Emisar channel setup cancelled",
-		Header:   "Channel setup cancelled",
-		Markdown: "No channel settings were changed. Emisar will keep using the previous configuration and deployment defaults.",
+		Text:      "Emisar channel setup cancelled",
+		Header:    "Channel setup cancelled",
+		Markdown:  "No channel settings were changed. Emisar will keep using the previous configuration and deployment defaults.",
+		Temporary: true,
 	}
 }
 

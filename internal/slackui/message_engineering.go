@@ -909,6 +909,7 @@ func PublicationMessage(publication core.Publication, updated bool) Message {
 			// overflow routing gap; this moves the day that gap is closed.
 			{ID: ActionCheckDelivery, Label: "Check delivery", Value: publication.IncidentID},
 		},
+		Temporary: true,
 	}
 }
 
@@ -1001,6 +1002,7 @@ func PublicationLifecycleMessage(
 			{ID: ActionViewPR, Label: "Open PR", Value: publication.IncidentID, URL: publication.PRURL},
 			{ID: ActionCheckDelivery, Label: "Refresh status", Value: publication.IncidentID},
 		},
+		Temporary: true,
 	}
 }
 
@@ -1193,10 +1195,11 @@ func ChangesMessage(
 		)
 	}
 	message := Message{
-		Text:     "Code changes for " + work + " " + ShortID(incident.ID) + ": " + summary,
-		Header:   "Code changes",
-		Markdown: truncateMarkdown(markdown.String(), 12000),
-		Context:  []string{context},
+		Text:      "Code changes for " + work + " " + ShortID(incident.ID) + ": " + summary,
+		Header:    "Code changes",
+		Markdown:  truncateMarkdown(markdown.String(), 12000),
+		Context:   []string{context},
+		Temporary: true,
 	}
 	if navigation.PreviousValue != "" {
 		message.Actions = append(message.Actions, Action{

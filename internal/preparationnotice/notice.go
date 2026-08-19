@@ -26,6 +26,8 @@ type Retirer interface {
 	Retire(context.Context, string) (bool, error)
 }
 
+const CoalescePrefix = "watch_preparation_blocked_"
+
 // Notify owns the complete blocker lifecycle so service cannot accidentally
 // make posting durable while leaving recovery as a best-effort side effect.
 func Notify(
@@ -92,7 +94,7 @@ func Transient(cause error) bool {
 }
 
 func Prefix(run core.AgentRun) string {
-	return "watch_preparation_blocked_" + core.FirstNonempty(run.EpisodeID, run.ID) + "_"
+	return CoalescePrefix + core.FirstNonempty(run.EpisodeID, run.ID) + "_"
 }
 
 func Delivery(
@@ -101,8 +103,7 @@ func Delivery(
 	body []byte,
 	existing []core.SlackDelivery,
 ) *core.SlackDelivery {
-	owner := core.FirstNonempty(run.EpisodeID, run.ID)
-	prefix := "watch_preparation_blocked_" + owner + "_"
+	prefix := Prefix(run)
 	var latestSent core.SlackDelivery
 	retirements := 0
 	epochStart := 0

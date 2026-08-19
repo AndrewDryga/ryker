@@ -1028,7 +1028,7 @@ func TestHelpNamesTheCardRatherThanACommand(t *testing.T) {
 // second `!respond <verb>` spelling of every control — posted into a thread
 // that already carried the task card. That is a wall. It is now lead,
 // reference, limit: one section, one monospace strip, one context line, and
-// nothing else.
+// the standard one-click exit every temporary card carries.
 func TestHelpIsOneSentenceOneStripAndOneBoundary(t *testing.T) {
 	for _, variant := range []struct {
 		name     string
@@ -1073,14 +1073,15 @@ func TestHelpIsOneSentenceOneStripAndOneBoundary(t *testing.T) {
 				t.Errorf("fallback text = %q, want a one-sentence \"Help — …\"", message.Text)
 			}
 
-			// Three blocks: the sentence, the strip, the boundary. Counted on the
-			// rendered surface because that is what the operator scrolls.
+			// Five blocks: the sentence, the strip, the boundary, then the standard
+			// temporary-card divider and Dismiss row. Counted on the rendered
+			// surface because that is what the operator scrolls.
 			blocks := message.Blocks()
-			if len(blocks) != 3 {
-				t.Fatalf("help renders %d blocks, want 3:\n%s", len(blocks), helpBlockTypes(blocks))
+			if len(blocks) != 5 {
+				t.Fatalf("help renders %d blocks, want 5:\n%s", len(blocks), helpBlockTypes(blocks))
 			}
-			if types := helpBlockTypes(blocks); types != "section rich_text context" {
-				t.Errorf("help block order = %q, want \"section rich_text context\"", types)
+			if types := helpBlockTypes(blocks); types != "section rich_text context divider actions" {
+				t.Errorf("help block order = %q, want the temporary-card exit last", types)
 			}
 
 			// The strip is the reference, so nothing in it may be clipped: a
