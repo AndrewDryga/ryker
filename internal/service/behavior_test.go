@@ -1736,7 +1736,7 @@ func TestStandingRuleEvaluationIsPersistedAcrossQueueRetries(t *testing.T) {
 	}
 }
 
-func TestStandingRuleEvaluationRecordsEverySkippedRuleWithoutReaction(t *testing.T) {
+func TestStandingRuleEvaluationRecordsSkippedRulesAndWatchCustody(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	cfg.Slack.NativeStatus = false
@@ -1781,8 +1781,10 @@ func TestStandingRuleEvaluationRecordsEverySkippedRuleWithoutReaction(t *testing
 	if !state.RulesCaptured || !state.RuleEvaluationCaptured || len(state.MatchedRules) != 0 {
 		t.Fatalf("captured state = %+v", state)
 	}
-	if len(slackClient.reactions) != 0 {
-		t.Fatalf("unexpected reactions = %+v", slackClient.reactions)
+	if len(slackClient.reactions) != 1 || slackClient.reactions[0].name != "eyes" ||
+		slackClient.reactions[0].timestamp != input.MessageTS ||
+		!state.RuleAcknowledged || state.RuleAcknowledgement != "eyes" {
+		t.Fatalf("watched app acknowledgement = %+v, state=%+v", slackClient.reactions, state)
 	}
 
 	outcomes := auditOutcomes(t, cfg, "standing_rules.evaluated", input.ID)
@@ -1833,11 +1835,11 @@ func findSlackAction(
 	return slackui.Action{}
 }
 
-// Once its acknowledgement came off, an answered alert card looked exactly like
-// a card nobody had seen, and the reply lives in the stream's first card's
-// thread rather than this one — so on 2026-08-16 an operator scanning the
-// channel could not tell which Grafana cards had been handled.
-func TestAnsweredAlertCardShowsCheckMark(t *testing.T) {
+// On 2026-08-18 three watched Grafana and Better Stack cards were investigated
+// and answered without ever showing one reaction because the channel had no
+// standing rule. Watching the channel is enough to own the card: a rule may
+// customize the acknowledgement, but it cannot be required for visible custody.
+func TestWatchedAppCardShowsEyesThenCheckWithoutStandingRule(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	cfg.Slack.WatchChannels = []string{"CALERTCARD"}
@@ -1847,14 +1849,6 @@ func TestAnsweredAlertCardShowsCheckMark(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if _, _, err := st.Behavior.UpsertStandingRule(ctx, core.StandingRule{
-		ChannelID: "CALERTCARD", Repository: "repo",
-		Trigger: "operational_alert", Action: "triage_alert",
-		SourceKind: "app", Enabled: true, SourceRef: "test", ActorID: "UOPERATOR",
-		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
-	}, cfg.Limits.MaxStandingRules, cfg.Limits.MaxRulesPerChannel); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
 		ChannelID: "CALERTCARD", Participation: "proactive",
 		Repository: "repo", AlertPolicy: "reply", ActorID: "UOPERATOR",

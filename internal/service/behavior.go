@@ -19,6 +19,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/standingrule"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/schedulestore"
+	"github.com/AndrewDryga/responder/internal/watchpresence"
 )
 
 // repositoryCatalog answers the two questions internal/behavioroffer asks of
@@ -446,25 +447,27 @@ func (s *Service) recordStandingRuleEvaluation(
 		root, _ = s.store.GetSlackInputForMessage(ctx, input.ChannelID, input.ThreadTS)
 	}
 	evaluation := standingrule.Evaluate(allRules, rules, input, root)
-	reaction := standingrule.Acknowledgement(rules)
+	reaction := watchpresence.Acknowledgement(input.Kind, standingrule.Acknowledgement(rules))
+	// A standing rule may customize the acknowledgement, but watching an app
+	// message is itself ownership. Without this fallback, proactively watched
+	// Grafana, Better Stack and Terraform cards in channels with no rules were
+	// fully investigated while looking untouched in Slack.
 	acknowledged := ""
-	client, ok := unpacedSlack(s.slack).(interface {
-		React(context.Context, string, string, string) error
-	})
-	if acknowledge && reaction != "" && input.MessageTS != "" && ok {
-		if err := client.React(ctx, input.ChannelID, input.MessageTS, reaction); err != nil {
-			if s.log != nil {
-				s.log.Warn(
-					"acknowledge matched standing workflow",
-					"channel", input.ChannelID,
-					"message", input.MessageTS,
-					"error", err,
-				)
-			}
-		} else {
-			acknowledged = reaction
-			evaluation.Acknowledged = reaction
+	marked, markErr := watchpresence.Acknowledge(
+		ctx, unpacedSlack(s.slack), input.ChannelID, input.MessageTS, reaction, acknowledge,
+	)
+	if markErr != nil {
+		if s.log != nil {
+			s.log.Warn(
+				"acknowledge watched app message",
+				"channel", input.ChannelID,
+				"message", input.MessageTS,
+				"error", markErr,
+			)
 		}
+	} else if marked {
+		acknowledged = reaction
+		evaluation.Acknowledged = reaction
 	}
 	audit, err := standingrule.EvaluationAuditEvent(input, evaluation)
 	if err != nil {

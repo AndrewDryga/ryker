@@ -52,6 +52,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/terraformwakeup"
 	"github.com/AndrewDryga/responder/internal/triageoutcome"
 	"github.com/AndrewDryga/responder/internal/turndelta"
+	"github.com/AndrewDryga/responder/internal/watchpresence"
 )
 
 func (s *Service) queueIncidentAgentRun(
@@ -510,13 +511,19 @@ func (s *Service) completeIgnoredLifecycleInput(
 	}
 	if !isPrivateSlackVerificationReplay(input) {
 		phase := externalMessageLifecyclePhase(input.Text)
-		if _, err := s.recordStandingRuleEvaluation(
+		acknowledgement, err := s.recordStandingRuleEvaluation(
 			ctx,
 			input,
 			rules,
 			phase == externalLifecycleCreated || phase == externalLifecyclePlanning,
-		); err != nil {
+		)
+		if err != nil {
 			return err
+		}
+		if err := watchpresence.FinishHandled(
+			ctx, unpacedSlack(s.slack), input.ChannelID, input.MessageTS, acknowledgement,
+		); err != nil && s.log != nil {
+			s.log.Warn("mark handled external lifecycle card", "input", input.ID, "error", err)
 		}
 	}
 	s.audit(ctx, core.AuditEvent{
@@ -4537,7 +4544,7 @@ func (s *Service) finishTriageRunFailureIfOwned(
 		})
 		return true, nil
 	}
-	if err := s.clearWatchRuleAcknowledgement(ctx, input, state); err != nil && s.log != nil {
+	if err := s.clearWatchAcknowledgement(ctx, input, state); err != nil && s.log != nil {
 		s.log.Warn("clear terminal triage acknowledgement", "run", run.ID, "error", err)
 	}
 	s.clearInputPaused(ctx, input)

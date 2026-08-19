@@ -28,6 +28,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskaccess"
 	"github.com/AndrewDryga/responder/internal/taskpr"
+	"github.com/AndrewDryga/responder/internal/watchpresence"
 )
 
 // WatchContextTextLimit caps how much of any one message body the watch
@@ -858,14 +859,15 @@ func (s *Service) applyWatchDecision(
 		// this card — an operational stream replies in the thread of its first
 		// alert — so the card has to carry its own state.
 		//
-		// Only when a standing rule acknowledged it, because that is the only
-		// case where the card is being handled on the channel's behalf rather
-		// than as part of a conversation, and only for a decision that produces
-		// something visible: ignore, react and shadow mode answer nothing, so
-		// there is nothing for a check mark to confirm.
-		answered := state.RuleAcknowledged && !shadow &&
-			(decision.Action == "reply" || decision.Action == "incident")
-		if err := s.clearWatchRuleAcknowledgement(ctx, input, state); err != nil {
+		// Every watched app card claimed with an acknowledgement gets a terminal
+		// mark when handling finishes. A model-owned reaction is already its own
+		// terminal mark; shadow mode deliberately leaves the channel untouched.
+		// Ignore still means the card was inspected and deliberately folded or
+		// suppressed, so leaving it bare would again look like it was missed.
+		answered := watchpresence.LeavesHandledMark(
+			state.RuleAcknowledged, shadow, decision.Action,
+		)
+		if err := s.clearWatchAcknowledgement(ctx, input, state); err != nil {
 			return err
 		}
 		if answered {
@@ -1767,7 +1769,7 @@ func (s *Service) clearWatchPendingStatus(
 	input core.SlackInput,
 	state decisionpkg.WatchTurnState,
 ) error {
-	if err := s.clearWatchRuleAcknowledgement(ctx, input, state); err != nil {
+	if err := s.clearWatchAcknowledgement(ctx, input, state); err != nil {
 		return err
 	}
 	return s.clearWatchNativeStatus(ctx, input, state)
@@ -1819,7 +1821,7 @@ func watchDecisionWaitsExternal(decision decisionpkg.WatchDecision) bool {
 	return false
 }
 
-func (s *Service) clearWatchRuleAcknowledgement(
+func (s *Service) clearWatchAcknowledgement(
 	ctx context.Context,
 	input core.SlackInput,
 	state decisionpkg.WatchTurnState,
@@ -1829,58 +1831,28 @@ func (s *Service) clearWatchRuleAcknowledgement(
 	}
 	reaction := state.RuleAcknowledgement
 	if reaction == "" {
-		reaction = "eyes"
+		reaction = watchpresence.Working
 	}
-	client, ok := unpacedSlack(s.slack).(interface {
-		Unreact(context.Context, string, string, string) error
-	})
-	if !ok {
-		return nil
+	if event := watchpresence.ClearEvent(
+		ctx, unpacedSlack(s.slack), input.ChannelID, input.MessageTS, reaction, input.ID,
+	); event != nil {
+		s.audit(ctx, *event)
 	}
-	if err := client.Unreact(ctx, input.ChannelID, input.MessageTS, reaction); err != nil {
-		s.audit(ctx, core.AuditEvent{
-			Kind: "standing_rule.acknowledgement_clear_failed", ActorID: "responder",
-			ObjectID: input.ID, Outcome: "failed", Detail: s.cleanStructuredField(err.Error(), 500),
-		})
-		return nil
-	}
-	s.audit(ctx, core.AuditEvent{
-		Kind: "standing_rule.acknowledgement_cleared", ActorID: "responder",
-		ObjectID: input.ID, Outcome: "unreacted", Detail: reaction,
-	})
 	return nil
 }
 
-// markWatchInputAnswered puts a check mark on a card whose standing-rule
-// acknowledgement has just been handed back because the run answered it.
+// markWatchInputAnswered puts a check mark on a watched app card whose working
+// acknowledgement has just been handed back because the host handled it.
 //
 // Failing to react is cosmetic: it is audited and swallowed, exactly as a
 // failed unreact is, because a mark on a card is never a reason to fail a turn
 // that has already produced its answer.
 func (s *Service) markWatchInputAnswered(ctx context.Context, input core.SlackInput) {
-	if input.MessageTS == "" {
-		return
+	if event := watchpresence.HandledEvent(
+		ctx, unpacedSlack(s.slack), input.ChannelID, input.MessageTS, input.ID,
+	); event != nil {
+		s.audit(ctx, *event)
 	}
-	client, ok := unpacedSlack(s.slack).(interface {
-		React(context.Context, string, string, string) error
-	})
-	if !ok {
-		return
-	}
-	if err := client.React(
-		ctx, input.ChannelID, input.MessageTS, "white_check_mark",
-	); err != nil {
-		s.audit(ctx, core.AuditEvent{
-			Kind: "standing_rule.acknowledgement_answer_failed", ActorID: "responder",
-			ObjectID: input.ID, Outcome: "failed",
-			Detail: s.cleanStructuredField(err.Error(), 500),
-		})
-		return
-	}
-	s.audit(ctx, core.AuditEvent{
-		Kind: "standing_rule.acknowledgement_answered", ActorID: "responder",
-		ObjectID: input.ID, Outcome: "reacted", Detail: "white_check_mark",
-	})
 }
 
 // retireWatchRunPresence removes everything that tells a channel this run is

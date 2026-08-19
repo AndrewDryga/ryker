@@ -231,6 +231,44 @@ func TestExternalLifecycleFastPathSkipsCoopAndCompletesPrivateReplay(t *testing.
 	}
 }
 
+// The Terraform Run Created and Run Applying cards at 19:30 on 2026-08-18
+// were consumed by the deterministic lifecycle fast path but looked completely
+// untouched in Slack. Host-owned handling is still handling, so it must leave
+// the same terminal mark as a successful model-owned turn.
+func TestHostHandledLifecycleUpdateShowsCheckWithoutStandingRule(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CPLAN"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, newFakeCoop(), slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	input := core.SlackInput{
+		ID: "slack-applying-live", EnvelopeID: "env-applying-live",
+		EventID: "event-applying-live", Kind: "bot_message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CPLAN", MessageTS: "1700.802",
+		UserID: "BTERRAFORM", ReceivedAt: time.Now().UTC(),
+		Text: "Run notification for acme/infra\nRun run-abc\nRun Applying",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit applying input = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.reactions) != 1 ||
+		slackClient.reactions[0].name != "white_check_mark" ||
+		slackClient.reactions[0].timestamp != input.MessageTS {
+		t.Fatalf("handled lifecycle reactions = %+v", slackClient.reactions)
+	}
+}
+
 func TestExternalLifecyclePlanningRuleStartsQuietDurableExactRunWatch(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
