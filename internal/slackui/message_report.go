@@ -34,6 +34,9 @@ type Report struct {
 	Headline string
 	// Counts is the arithmetic behind the headline, as a context line.
 	Counts string
+	// Preview is a bounded set of real record entries kept on the Slack card
+	// when an oversized document moves to Canvas.
+	Preview string
 	// Message is the report posted the way it is posted today.
 	Message Message
 }
@@ -55,6 +58,7 @@ func TimelineReport(record core.RemediationRecord) Report {
 		Markdown: message.Markdown,
 		Headline: headline,
 		Counts:   reportCounts(record),
+		Preview:  timelineReportPreview(core.RemediationTimeline(record)),
 		Message:  message,
 	}
 }
@@ -86,6 +90,7 @@ func HandoffReport(record core.RemediationRecord) Report {
 		Markdown: message.Markdown,
 		Headline: headline,
 		Counts:   reportCounts(record),
+		Preview:  timelineReportPreview(core.RemediationTimeline(record)),
 		Message:  message,
 	}
 }
@@ -122,6 +127,7 @@ func PostmortemReport(record core.RemediationRecord) Report {
 		Markdown: message.Markdown,
 		Headline: headline,
 		Counts:   reportCounts(record),
+		Preview:  reportRecordPreview(record),
 		Message:  message,
 	}
 }
@@ -152,6 +158,7 @@ func EvidenceReport(
 			countLabel(len(coverage), "coverage layer"),
 			unknownCoverageCount(coverage),
 		),
+		Preview: evidenceReportPreview(evidence),
 		Message: message,
 	}
 }
@@ -178,12 +185,58 @@ func ReportCanvasCard(report Report, canvasURL string) Message {
 	if report.Counts != "" {
 		message.Context = append(message.Context, report.Counts)
 	}
+	message.Markdown = truncateMarkdown(strings.TrimSpace(report.Preview), 2400)
 	if canvasURL != "" {
 		message.Actions = []Action{{
 			ID: ActionOpenCanvas, Label: "Open the canvas", URL: canvasURL,
 		}}
 	}
 	return message
+}
+
+func timelineReportPreview(events []core.TimelineEvent) string {
+	if len(events) == 0 {
+		return ""
+	}
+	var preview strings.Builder
+	preview.WriteString("*Latest events*")
+	for _, event := range events[max(0, len(events)-5):] {
+		fmt.Fprintf(&preview, "\n- *%s* — %s",
+			event.CreatedAt.UTC().Format("15:04 UTC"), escapeSlackText(event.Title))
+		if detail := strings.TrimSpace(event.Detail); detail != "" {
+			fmt.Fprintf(&preview, "\n  %s", truncateUTF8(escapeSlackText(detail), 240))
+		}
+	}
+	return preview.String()
+}
+
+func evidenceReportPreview(evidence []core.Evidence) string {
+	if len(evidence) == 0 {
+		return ""
+	}
+	var preview strings.Builder
+	preview.WriteString("*Latest evidence*")
+	for _, item := range evidence[max(0, len(evidence)-4):] {
+		fmt.Fprintf(&preview, "\n- *%s* — %s",
+			escapeSlackText(item.Claim),
+			truncateUTF8(escapeSlackText(item.Observation), 320),
+		)
+	}
+	return preview.String()
+}
+
+func reportRecordPreview(record core.RemediationRecord) string {
+	parts := []string{
+		evidenceReportPreview(record.Evidence),
+		timelineReportPreview(core.RemediationTimeline(record)),
+	}
+	kept := parts[:0]
+	for _, part := range parts {
+		if strings.TrimSpace(part) != "" {
+			kept = append(kept, part)
+		}
+	}
+	return strings.Join(kept, "\n\n")
 }
 
 // reportTitle takes the document's name from the document.

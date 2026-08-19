@@ -18,6 +18,10 @@ type Deleter interface {
 	Delete(context.Context, string, string) error
 }
 
+type ResponseDeleter interface {
+	DeleteResponse(context.Context, string) error
+}
+
 type Request struct {
 	UserID, ChannelID, MessageTS, TeamID string
 	Operator                             bool
@@ -33,6 +37,20 @@ func (r Result) Audit(input core.SlackInput) core.AuditEvent {
 		ObjectID: input.ChannelID + ":" + input.MessageTS,
 		Outcome:  "succeeded", Detail: r.AuditDetail,
 	}
+}
+
+// HandleEphemeral removes the private message addressed by an interactive
+// response URL. Ephemeral messages have no durable Slack timestamp that
+// chat.delete can remove, so this is intentionally presentation-only.
+func HandleEphemeral(ctx context.Context, candidate any, responseURL string) (Result, error) {
+	deleter, ok := candidate.(ResponseDeleter)
+	if !ok || deleter == nil || strings.TrimSpace(responseURL) == "" {
+		return Result{}, errors.New("private Slack dismissal has no response deletion capability")
+	}
+	if err := deleter.DeleteResponse(ctx, responseURL); err != nil {
+		return Result{}, err
+	}
+	return Result{AuditDetail: "private temporary Responder message removed"}, nil
 }
 
 // Handle removes only the clicked Slack surface. Mutable preparation notices

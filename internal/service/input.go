@@ -1141,8 +1141,7 @@ func (s *Service) handleControl(
 		return s.enqueue(ctx, "out_status_"+input.ID, incident, "notice", threadTS,
 			slackui.IncidentStatusMessage(incident))
 	case slackui.ActionHelp:
-		return s.enqueue(ctx, "out_help_"+input.ID, incident, "notice",
-			threadTS, slackui.HelpMessage(incident))
+		return s.finishSlashMessage(ctx, input, slackui.HelpMessage(incident), threadTS)
 	case slackui.ActionUpdate:
 		request := "Give a concise incident update: verified facts, current hypothesis, code changes, blockers, and next action."
 		prompt := operatorPrompt(input.UserID, request)

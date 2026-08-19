@@ -1,6 +1,7 @@
 package slackui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -172,16 +173,47 @@ func TestReportCanvasCardIsAPointerWithOneWayIn(t *testing.T) {
 		action.URL != "https://acme.slack.com/docs/T1/F0CANVAS" || action.Style != "" {
 		t.Fatalf("canvas action = %+v", action)
 	}
-	// The card never carries the document. Putting the timeline on the card as
-	// well as the canvas would defeat the whole point of moving it.
-	if card.Markdown != "" {
-		t.Fatalf("the card carries the document: %q", card.Markdown)
+	// A Canvas link without any of the entries is not a summary. Keep a bounded
+	// preview of the real record in Slack so the operator knows whether opening
+	// the full document is useful.
+	if !strings.Contains(card.Markdown, "Alert received") ||
+		!strings.Contains(card.Markdown, "Live state checked") {
+		t.Fatalf("the canvas card has no useful record preview: %q", card.Markdown)
 	}
 	// Notifications strip the button, so the fallback line has to say what the
 	// card is and what it found.
 	if !strings.Contains(card.Text, report.Title) ||
 		!strings.Contains(card.Text, report.Headline) {
 		t.Fatalf("fallback text = %q", card.Text)
+	}
+}
+
+func TestRecordDirectoryShowsCountsAndDoesNotOfferEmptyEvidence(t *testing.T) {
+	record := reportFixture()
+	message := RecordDirectoryMessage(record)
+	content := cardText(message)
+	for _, want := range []string{"3 events", "1 observation", "3 coverage layers"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("record directory lacks %q: %s", want, content)
+		}
+	}
+	if !slices.Contains(cardActionIDs(message), ActionRecordEvidence) {
+		t.Fatalf("record directory hid recorded evidence: %+v", cardActions(message))
+	}
+
+	empty := core.RemediationRecord{Incident: core.Incident{
+		ID: "inc_empty", Title: "Empty task", WorkKind: core.WorkKindEngineeringTask,
+		CreatedAt: time.Date(2026, 8, 19, 0, 20, 0, 0, time.UTC),
+	}}
+	message = RecordDirectoryMessage(empty)
+	content = cardText(message)
+	if slices.Contains(cardActionIDs(message), ActionRecordEvidence) {
+		t.Fatalf("empty record still offers Evidence: %+v", cardActions(message))
+	}
+	for _, want := range []string{"1 event", "0 observations", "0 coverage layers", "No evidence recorded yet"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("empty record directory lacks %q: %s", want, content)
+		}
 	}
 }
 

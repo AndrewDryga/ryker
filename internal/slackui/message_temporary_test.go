@@ -24,7 +24,7 @@ func TestEveryTemporaryCardFamilyIsMarkedDismissible(t *testing.T) {
 		"status":                          IncidentStatusMessage(incident),
 		"diff":                            ChangesMessage(incident, "One file changed.", nil, ChangesNavigation{}),
 		"turn receipt":                    TurnReceiptMessage(TurnReceipt{}),
-		"record directory":                RecordDirectoryMessage(incident),
+		"record directory":                RecordDirectoryMessage(core.RemediationRecord{Incident: incident}),
 		"evidence directory":              EvidenceDirectoryMessage(incident, nil, nil),
 		"assignment directory empty":      AssignmentDirectoryMessage(nil, nil),
 		"schedule directory empty":        ScheduleDirectoryMessage(nil),

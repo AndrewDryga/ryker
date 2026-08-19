@@ -11,6 +11,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/slackdismiss"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/slack-go/slack"
@@ -636,6 +637,19 @@ func (s *Service) admitInteraction(ctx context.Context, event socketmode.Event) 
 		ActionID:    actionID,
 		ActionValue: actionValue,
 		ReceivedAt:  s.now().UTC(),
+	}
+	// Ephemeral dismissal uses its response URL and never becomes durable work.
+	if actionID == slackui.ActionDismissMessage && callback.Container.IsEphemeral {
+		if err := s.socket.Ack(*event.Request); err != nil {
+			s.log.Warn("acknowledge private Slack dismissal", "error", err)
+		}
+		result, err := slackdismiss.HandleEphemeral(ctx, unpacedSlack(s.slack), callback.ResponseURL)
+		if err != nil {
+			s.log.Warn("delete private Slack message", "error", trimError(err))
+			return
+		}
+		s.audit(ctx, result.Audit(input))
+		return
 	}
 	if _, err := s.store.AdmitSlackInput(ctx, input); err != nil {
 		s.log.Error("persist Slack interaction before acknowledgement",

@@ -367,11 +367,11 @@ func (s *Service) handleRecordControl(ctx context.Context, input core.SlackInput
 }
 
 func (s *Service) handleRecordDirectory(ctx context.Context, input core.SlackInput) error {
-	incident, err := s.store.GetIncident(ctx, strings.TrimSpace(input.ActionValue))
+	record, err := s.store.LoadRemediationRecord(ctx, strings.TrimSpace(input.ActionValue))
 	if err != nil {
 		return err
 	}
-	return s.finishSlashMessage(ctx, input, slackui.RecordDirectoryMessage(incident))
+	return s.finishSlashMessage(ctx, input, slackui.RecordDirectoryMessage(record))
 }
 
 // finishSlashAssignments runs what is left of the standing-assignment family:

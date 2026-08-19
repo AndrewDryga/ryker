@@ -1058,23 +1058,16 @@ func TestThePostmortemButtonReadsTheLatestClosedIncidentRecord(t *testing.T) {
 	if len(slackClient.ephemerals) != 1 {
 		t.Fatalf("postmortem responses = %+v", slackClient.ephemerals)
 	}
-	// The draft is a document now, so the record it was built from is asserted
-	// on the canvas rather than in the reply. The reply is the card pointing at
-	// it, and what it must not do is claim a root cause the draft has not
-	// assigned.
-	if len(slackClient.canvases) != 1 {
-		t.Fatalf("postmortem canvases = %+v", slackClient.canvases)
-	}
-	canvas := slackClient.canvases[0]
-	if canvas.channel != "CPOSTMORTEM" ||
-		!strings.Contains(canvas.title, "Post-incident draft") ||
-		!strings.Contains(canvas.markdown, "Post-incident draft") ||
-		!strings.Contains(canvas.markdown, "API recovered") ||
-		strings.Contains(canvas.markdown, "Still open") {
-		t.Fatalf("postmortem canvas = %+v", canvas)
+	// A short record belongs in the private reply itself. Canvas is reserved for
+	// records that cannot fit, so this one must expose the evidence immediately.
+	if len(slackClient.canvases) != 0 {
+		t.Fatalf("short postmortem was needlessly moved to Canvas: %+v", slackClient.canvases)
 	}
 	message := slackClient.ephemerals[0].message
-	if !strings.Contains(renderedSlackMessage(message), "Root cause is not assigned") {
+	rendered := renderedSlackMessage(message)
+	if !strings.Contains(rendered, "API recovered") ||
+		!strings.Contains(rendered, "Confirm root cause from cited evidence") ||
+		strings.Contains(rendered, "Root cause:") || strings.Contains(rendered, "Still open") {
 		t.Fatalf("postmortem card = %+v", message)
 	}
 }

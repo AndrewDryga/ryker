@@ -390,23 +390,54 @@ func AppendRecordMenu(message Message, workID string) Message {
 	return message
 }
 
-// RecordDirectoryMessage is the second level behind Work record. Four plainly
-// labelled buttons are useful here because every control has the same subject;
-// on the work card they were two unrelated ⋯ menus with no visible hierarchy.
-func RecordDirectoryMessage(incident core.Incident) Message {
+// RecordDirectoryMessage is the second level behind Work record. Each choice
+// names how much durable material exists before asking the operator to open it;
+// an empty evidence ledger is stated, not offered as a button to nowhere.
+func RecordDirectoryMessage(record core.RemediationRecord) Message {
+	incident := record.Incident
 	noun := "incident"
 	if incident.IsEngineeringTask() {
 		noun = "engineering task"
 	}
-	return Message{
-		Text:   "Open the durable " + noun + " record.",
-		Header: "Work record",
-		Sections: []string{
-			"Choose the view you need. Each one is rendered from the durable host record.",
-		},
-		Actions:   RecordControls(incident.ID),
+	events := core.RemediationTimeline(record)
+	message := Message{
+		Text:      "Open the durable " + noun + " record.",
+		Header:    "Work record",
 		Temporary: true,
 	}
+	message = AppendRow(message, "*Timeline* · "+countLabel(len(events), "event"), []Action{{
+		ID: ActionRecordTimeline, Label: "Open timeline", Value: incident.ID,
+	}})
+	evidenceCounts := countsLine(
+		countLabel(len(record.Evidence), "observation"),
+		countLabel(len(record.Coverage), "coverage layer"),
+	)
+	evidenceActions := []Action(nil)
+	evidenceText := "*Evidence* · " + evidenceCounts
+	if len(record.Evidence) == 0 {
+		evidenceText += "\nNo evidence recorded yet."
+	} else {
+		evidenceActions = []Action{{
+			ID: ActionRecordEvidence, Label: "Open evidence", Value: incident.ID,
+		}}
+	}
+	message = AppendRow(message, evidenceText, evidenceActions)
+	recordCounts := countsLine(countLabel(len(events), "event"), evidenceCounts)
+	message = AppendRow(message, "*Handoff summary* · "+recordCounts, []Action{{
+		ID: ActionRecordHandoff, Label: "Open handoff", Value: incident.ID,
+	}})
+	draft := "Postmortem draft"
+	if incident.IsEngineeringTask() {
+		draft = "Engineering review draft"
+	}
+	message = AppendRow(message, "*"+draft+"* · "+countsLine(
+		recordCounts,
+		countLabel(len(record.Approvals), "approval"),
+		countLabel(len(record.Commitments), "follow-up"),
+	), []Action{{
+		ID: ActionRecordPostmortem, Label: "Open review draft", Value: incident.ID,
+	}})
+	return message
 }
 
 func incidentControls(state cardState, actions []Action) ([]Action, []Action) {
@@ -531,6 +562,7 @@ func TimelineMessage(record core.RemediationRecord) Message {
 	return Message{
 		Text:     fallback,
 		Markdown: truncateMarkdown(body.String(), 12000),
+		Stripe:   StripeIdle,
 		Context: []string{
 			"Built from the alert, agent runs, evidence, Emisar approvals, and publication state. The latest events are shown oldest first.",
 		},

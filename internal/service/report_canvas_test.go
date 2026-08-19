@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -107,34 +108,37 @@ func askForReport(
 	}
 }
 
-// The document goes to the canvas and the summary stays in the room, and the
-// two halves have to stay apart.
-//
-// A forty-event timeline pasted into a channel pushes every other message off
-// the screen and is unfindable a day later. What replaces it is a card carrying
-// the one judgement a reader needs — so a card that also carried the body would
-// be the wall of text it replaced with a link stapled to it, and a canvas
-// holding only the summary would have thrown the report away.
-func TestATimelineIsPublishedAsACanvasAndAnsweredWithASummaryCard(t *testing.T) {
+func addOversizedTimeline(
+	t *testing.T,
+	ctx context.Context,
+	st *store.Store,
+	incident core.Incident,
+) {
+	t.Helper()
+	for index := range 30 {
+		if err := st.Intelligence.RecordTimeline(ctx, core.TimelineEvent{
+			ID: fmt.Sprintf("long-event-%02d", index), IncidentID: incident.ID,
+			Kind:      "test.verification",
+			Title:     fmt.Sprintf("Detailed verification %02d", index),
+			Detail:    strings.Repeat(fmt.Sprintf("measurement-%02d ", index), 25),
+			CreatedAt: time.Now().UTC().Add(time.Duration(index) * time.Second),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A short record belongs in the private answer itself. Moving four events into
+// a Canvas and leaving only their count makes the operator click merely to
+// discover whether the record contains anything useful.
+func TestAShortTimelineIsAnsweredInlineWithItsRecordedEvents(t *testing.T) {
 	ctx := context.Background()
 	st, svc, slackClient, incident := reportFixture(t, ctx, nil)
 	slackClient.canvasURL = "https://example.slack.com/docs/T123ABC/F0TIMELINE"
 	askForReport(t, ctx, st, svc, incident, "timeline")
 
-	if len(slackClient.canvases) != 1 {
-		t.Fatalf("timeline canvases = %+v, want exactly one", slackClient.canvases)
-	}
-	canvas := slackClient.canvases[0]
-	if canvas.channel != incident.ChannelID {
-		t.Fatalf("canvas channel = %q, want the room the report was asked for, %q",
-			canvas.channel, incident.ChannelID)
-	}
-	// The body the message form would have carried, verbatim: the heading the
-	// report opens with, and an event that only exists because this fixture
-	// recorded it.
-	if !strings.Contains(canvas.markdown, "Remediation timeline") ||
-		!strings.Contains(canvas.markdown, "Alert fired: API errors") {
-		t.Fatalf("canvas body = %q, want the whole long-form report", canvas.markdown)
+	if len(slackClient.canvases) != 0 {
+		t.Fatalf("short timeline was needlessly moved to Canvas: %+v", slackClient.canvases)
 	}
 
 	if len(slackClient.ephemerals) != 1 {
@@ -146,25 +150,14 @@ func TestATimelineIsPublishedAsACanvasAndAnsweredWithASummaryCard(t *testing.T) 
 	if message.Stripe != slackui.StripeIdle {
 		t.Fatalf("report card stripe = %q, want %q", message.Stripe, slackui.StripeIdle)
 	}
-	// One control, and it is the way in. A "post it here instead" button would
-	// need a handler that could rebuild the report at click time, and a button
-	// that cannot do what its label says is worse than no button.
-	if len(message.Actions) != 1 {
-		t.Fatalf("report card actions = %+v, want only the way into the canvas",
-			message.Actions)
+	if !strings.Contains(message.Markdown, "Remediation timeline") ||
+		!strings.Contains(message.Markdown, "Alert fired: API errors") {
+		t.Fatalf("short timeline omitted its actual events: %+v", message)
 	}
-	action := message.Actions[0]
-	if action.ID != slackui.ActionOpenCanvas || action.URL != slackClient.canvasURL {
-		t.Fatalf("report card action = %+v, want %q pointing at %q",
-			action, slackui.ActionOpenCanvas, slackClient.canvasURL)
-	}
-	if message.Markdown != "" {
-		t.Fatalf("the summary card is still carrying the document: %q", message.Markdown)
-	}
-	if rendered := renderedSlackMessage(message); strings.Contains(
-		rendered, "Alert fired: API errors",
-	) {
-		t.Fatalf("the summary card repeated the canvas body: %q", rendered)
+	for _, action := range message.Actions {
+		if action.ID == slackui.ActionOpenCanvas {
+			t.Fatalf("short timeline still offers a Canvas: %+v", message.Actions)
+		}
 	}
 }
 
@@ -188,6 +181,7 @@ func TestAReportSlackWillNotHoldAsACanvasIsPostedAsItsMessage(t *testing.T) {
 		slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelWarn}),
 	))
 	slackClient.canvasErr = errors.New("missing_scope")
+	addOversizedTimeline(t, ctx, st, incident)
 	askForReport(t, ctx, st, svc, incident, "timeline")
 
 	if len(slackClient.canvases) != 1 {
@@ -222,7 +216,7 @@ func TestAReportSlackWillNotHoldAsACanvasIsPostedAsItsMessage(t *testing.T) {
 // directory and a shift handoff are the same shape of thing — so a change that
 // escalates one of them and leaves another pasting itself into the room is a
 // regression the postmortem test alone would not catch.
-func TestEveryLongFormReportEscalatesToACanvas(t *testing.T) {
+func TestEveryShortRecordViewAnswersWithItsActualContent(t *testing.T) {
 	ctx := context.Background()
 	for _, command := range []string{"timeline", "postmortem", "evidence", "handoff"} {
 		t.Run(command, func(t *testing.T) {
@@ -231,31 +225,36 @@ func TestEveryLongFormReportEscalatesToACanvas(t *testing.T) {
 			st, svc, slackClient, incident := reportFixture(t, ctx, nil)
 			askForReport(t, ctx, st, svc, incident, command)
 
-			if len(slackClient.canvases) != 1 {
-				t.Fatalf("the %s control canvases = %+v, want exactly one",
+			if len(slackClient.canvases) != 0 {
+				t.Fatalf("the short %s control needlessly canvased = %+v",
 					command, slackClient.canvases)
-			}
-			canvas := slackClient.canvases[0]
-			if strings.TrimSpace(canvas.title) == "" {
-				t.Fatalf("the %s control made an untitled canvas: %+v", command, canvas)
-			}
-			if strings.TrimSpace(canvas.markdown) == "" {
-				t.Fatalf("the %s control made an empty canvas: %+v", command, canvas)
 			}
 			if len(slackClient.ephemerals) != 1 {
 				t.Fatalf("the %s control replies = %+v", command, slackClient.ephemerals)
 			}
 			message := slackClient.ephemerals[0].message
-			opened := false
-			for _, action := range message.Actions {
-				if action.ID == slackui.ActionOpenCanvas && action.URL != "" {
-					opened = true
-				}
-			}
-			if !opened {
-				t.Fatalf("the %s control card has no way into its canvas: %+v",
-					command, message.Actions)
+			if strings.TrimSpace(message.Markdown) == "" {
+				t.Fatalf("the %s control returned a summary without record detail: %+v",
+					command, message)
 			}
 		})
+	}
+}
+
+// An oversized record still belongs in a Canvas, but the Slack answer must
+// preview real entries rather than state only a count and date range.
+func TestAnOversizedTimelineUsesCanvasAndKeepsAUsefulPreview(t *testing.T) {
+	ctx := context.Background()
+	st, svc, slackClient, incident := reportFixture(t, ctx, nil)
+	slackClient.canvasURL = "https://example.slack.com/docs/T123ABC/F0LONG"
+	addOversizedTimeline(t, ctx, st, incident)
+	askForReport(t, ctx, st, svc, incident, "timeline")
+
+	if len(slackClient.canvases) != 1 {
+		t.Fatalf("oversized timeline canvases = %+v", slackClient.canvases)
+	}
+	if len(slackClient.ephemerals) != 1 ||
+		!strings.Contains(slackClient.ephemerals[0].message.Markdown, "Detailed verification") {
+		t.Fatalf("oversized timeline has no useful Slack preview: %+v", slackClient.ephemerals)
 	}
 }

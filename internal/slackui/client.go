@@ -127,19 +127,21 @@ type FileUpload struct {
 }
 
 type Client struct {
-	api       *slack.Client
-	socket    *socketmode.Client
-	connected atomic.Bool
+	api            *slack.Client
+	socket         *socketmode.Client
+	responseClient *http.Client
+	connected      atomic.Bool
 }
 
 func New(botToken, appToken string) *Client {
+	httpClient := &http.Client{Timeout: 20 * time.Second}
 	api := slack.New(
 		botToken,
 		slack.OptionAppLevelToken(appToken),
 		slack.OptionLog(log.New(discardLogger{}, "", 0)),
-		slack.OptionHTTPClient(&http.Client{Timeout: 20 * time.Second}),
+		slack.OptionHTTPClient(httpClient),
 	)
-	return &Client{api: api, socket: socketmode.New(api)}
+	return &Client{api: api, socket: socketmode.New(api), responseClient: httpClient}
 }
 
 type discardLogger struct{}
@@ -719,6 +721,37 @@ func (c *Client) Delete(ctx context.Context, channel, timestamp string) error {
 		return nil
 	}
 	return err
+}
+
+// DeleteResponse removes the source of an interactive response. Slack does not
+// allow chat.delete to remove ephemeral messages; their button interaction
+// instead carries a short-lived response URL with authority over that exact
+// private message.
+func (c *Client) DeleteResponse(ctx context.Context, responseURL string) error {
+	if strings.TrimSpace(responseURL) == "" {
+		return errors.New("Slack interaction has no response URL")
+	}
+	request, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, responseURL, strings.NewReader(`{"delete_original":true}`),
+	)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	client := c.responseClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, response.Body)
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("Slack response deletion returned HTTP %d", response.StatusCode)
+	}
+	return nil
 }
 
 func (c *Client) Pin(ctx context.Context, channel, timestamp string) error {

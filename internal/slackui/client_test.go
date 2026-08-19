@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -969,5 +970,37 @@ func TestEphemeralCarriesTheThreadItWasAskedFor(t *testing.T) {
 	}
 	if got := forms[1].Get("thread_ts"); got != "" {
 		t.Fatalf("unthreaded ephemeral carried thread_ts=%q", got)
+	}
+}
+
+// Slack's chat.delete method explicitly cannot remove an ephemeral message.
+// A button click supplies a response URL that can delete its source message,
+// and the request must carry only that intent: publishing replacement text
+// would turn a one-click dismissal into another temporary message.
+func TestDeleteResponseRemovesTheOriginalInteractiveMessage(t *testing.T) {
+	var body []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("response deletion method = %s", r.Method)
+		}
+		var err error
+		body, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = fmt.Fprint(w, "ok")
+	}))
+	defer server.Close()
+	client := &Client{responseClient: server.Client()}
+
+	if err := client.DeleteResponse(context.Background(), server.URL); err != nil {
+		t.Fatal(err)
+	}
+	var request map[string]any
+	if err := json.Unmarshal(body, &request); err != nil {
+		t.Fatalf("response deletion body = %q: %v", body, err)
+	}
+	if len(request) != 1 || request["delete_original"] != true {
+		t.Fatalf("response deletion payload = %#v", request)
 	}
 }

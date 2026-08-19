@@ -1490,6 +1490,8 @@ type fakeSlack struct {
 	removedReactions   []slackReaction
 	deletes            []slackReaction
 	deleteErr          error
+	responseDeletes    []string
+	responseDeleteErr  error
 	homes              []slackPost
 	homeErr            error
 	joined             []string
@@ -1633,6 +1635,11 @@ func (f *fakeSlack) Pin(context.Context, string, string) error { return nil }
 func (f *fakeSlack) Delete(_ context.Context, channel, timestamp string) error {
 	f.deletes = append(f.deletes, slackReaction{channel: channel, timestamp: timestamp})
 	return f.deleteErr
+}
+
+func (f *fakeSlack) DeleteResponse(_ context.Context, responseURL string) error {
+	f.responseDeletes = append(f.responseDeletes, responseURL)
+	return f.responseDeleteErr
 }
 
 func (f *fakeSlack) React(

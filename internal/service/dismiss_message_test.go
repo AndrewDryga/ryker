@@ -11,6 +11,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/socketmode"
 )
 
 // A transient card used to need Slack's multi-step message menu to remove it,
@@ -72,13 +73,121 @@ func TestDismissRefusesSomeoneWhoCannotRemoveSharedCards(t *testing.T) {
 			"configured operator") {
 		t.Fatalf("denial response = %+v", slackClient.ephemerals)
 	}
-	if slackClient.ephemerals[0].message.Temporary {
-		t.Fatal("an ephemeral refusal carries a Dismiss button that chat.delete cannot remove")
+	if !slackClient.ephemerals[0].message.Temporary {
+		t.Fatal("the private refusal lost the Dismiss button its response URL can remove")
 	}
 	input, err := st.SlackInputs.GetByEventID(ctx, "interaction:env-dismiss-denied")
 	if err != nil || input.State != "done" {
 		t.Fatalf("denied dismiss input = %+v, %v", input, err)
 	}
+}
+
+// The record directory and all four record views are private Slack messages.
+// They were the exact temporary cards an operator wanted to clear, but the
+// pacer stripped their marker because chat.delete cannot delete ephemerals.
+// Slack gives a clicked ephemeral its own response URL; that is the deletion
+// capability this path must use, without admitting a durable control action.
+func TestDismissRemovesAPrivateRecordCardThroughItsInteractionResponse(t *testing.T) {
+	ctx := context.Background()
+	st, svc, slackClient, socket, incident := overflowFixture(t, ctx)
+
+	deliverInteraction(t, ctx, svc, incident, "env-record-directory", "U123ABC",
+		&slack.BlockAction{ActionID: slackui.ActionRecordDirectory, Value: incident.ID})
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.ephemerals) != 1 {
+		t.Fatalf("record directory replies = %+v", slackClient.ephemerals)
+	}
+	message := slackClient.ephemerals[0].message
+	if !message.Temporary {
+		t.Fatal("private record directory lost its temporary marker")
+	}
+	action := dismissAction(t, message)
+
+	svc.admitInteraction(ctx, socketmode.Event{
+		Type: socketmode.EventTypeInteractive,
+		Data: slack.InteractionCallback{
+			Type:        slack.InteractionTypeBlockActions,
+			Team:        slack.Team{ID: svc.cfg.Slack.TeamID},
+			User:        slack.User{ID: "U123ABC"},
+			ResponseURL: "https://hooks.slack.test/response/private-record",
+			Container: slack.Container{
+				ChannelID: incident.ChannelID, MessageTs: "1700.ephemeral", IsEphemeral: true,
+			},
+			ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{action}},
+		},
+		Request: &socketmode.Request{EnvelopeID: "env-dismiss-private-record"},
+	})
+
+	if !reflect.DeepEqual(slackClient.responseDeletes, []string{
+		"https://hooks.slack.test/response/private-record",
+	}) {
+		t.Fatalf("private dismiss response deletes = %v", slackClient.responseDeletes)
+	}
+	if len(slackClient.deletes) != 0 {
+		t.Fatalf("private dismiss incorrectly used chat.delete: %+v", slackClient.deletes)
+	}
+	if socket.acks != 2 {
+		t.Fatalf("socket acknowledgements = %d, want directory and dismiss", socket.acks)
+	}
+	if _, err := st.SlackInputs.GetByEventID(ctx, "interaction:env-dismiss-private-record"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("private presentation-only dismiss was admitted as work: %v", err)
+	}
+}
+
+func TestPrivateDismissStillAcknowledgesWhenSlackCannotRemoveTheCard(t *testing.T) {
+	ctx := context.Background()
+	_, svc, slackClient, socket, incident := overflowFixture(t, ctx)
+	slackClient.responseDeleteErr = errors.New("expired_response_url")
+
+	svc.admitInteraction(ctx, socketmode.Event{
+		Type: socketmode.EventTypeInteractive,
+		Data: slack.InteractionCallback{
+			Type: slack.InteractionTypeBlockActions,
+			Team: slack.Team{ID: svc.cfg.Slack.TeamID},
+			User: slack.User{ID: "U123ABC"}, ResponseURL: "https://hooks.slack.test/expired",
+			Container: slack.Container{
+				ChannelID: incident.ChannelID, MessageTs: "1700.ephemeral", IsEphemeral: true,
+			},
+			ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{{
+				ActionID: slackui.ActionDismissMessage,
+			}}},
+		},
+		Request: &socketmode.Request{EnvelopeID: "env-dismiss-private-expired"},
+	})
+
+	if socket.acks != 1 {
+		t.Fatalf("failed private dismiss acknowledgements = %d, want 1", socket.acks)
+	}
+	if len(slackClient.responseDeletes) != 1 {
+		t.Fatalf("failed private dismiss attempts = %v", slackClient.responseDeletes)
+	}
+}
+
+func TestHelpIsPrivateToTheOperatorWhoAskedForIt(t *testing.T) {
+	ctx := context.Background()
+	_, svc, slackClient, _, incident := overflowFixture(t, ctx)
+
+	deliverInteraction(t, ctx, svc, incident, "env-private-help", "U123ABC",
+		&slack.BlockAction{ActionID: slackui.ActionHelp, Value: incident.ID})
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+
+	if len(slackClient.posts) != 0 {
+		t.Fatalf("Help was posted to everyone: %+v", slackClient.posts)
+	}
+	if len(slackClient.ephemerals) != 1 {
+		t.Fatalf("private Help replies = %+v", slackClient.ephemerals)
+	}
+	help := slackClient.ephemerals[0]
+	if help.user != "U123ABC" || help.thread != incident.ConversationThreadTS() ||
+		!help.message.Temporary {
+		t.Fatalf("private Help destination/message = %+v", help)
+	}
+	dismissAction(t, help.message)
 }
 
 func TestDismissRefusesAnInactiveConfiguredOperator(t *testing.T) {

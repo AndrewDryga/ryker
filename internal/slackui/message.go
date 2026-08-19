@@ -1816,55 +1816,27 @@ func safeInlineCode(value string) string {
 	return escapeSlackText(strings.ReplaceAll(value, "`", "'"))
 }
 
-// HelpMessage answers one question — how do I say the next thing, and what do I
-// press — for a reader who is in a hurry and has forgotten one command.
-//
-// It used to answer six: Conversation, Read-only inspection, Lifecycle
-// controls, Automatic capacity, Thread scope, and a paragraph advertising a
-// second `!respond <verb>` spelling of every control. In a thread that already
-// carries the task card that is a wall, and the operator who opened it wanted
-// one line of it. So it is now one sentence about replying, one monospace strip
-// of controls, and one line of boundary: lead, reference, limit.
-//
-// Un-advertising the second spelling came first; deleting it followed. Nobody
-// arrives at Slack needing a text spelling of a control the card already shows,
-// and a router reading every thread message for one is a way to run a control
-// nobody asked for.
+// HelpMessage answers only how to continue. The work card already presents its
+// current controls, so copying them into prose creates a second, stale legend.
 func HelpMessage(incident core.Incident) Message {
-	// The strip named four slash commands until 2026-08-15, when they were
-	// removed. It had already been wrong for the thread-scoped case — those
-	// commands resolved the incident attached to a *channel*
-	// (FindIncidentByChannel filters work_scope = 'room'), so a thread task
-	// could not be selected from the composer at all, and printing
-	// `/responder changes` to a task thread was an instruction that silently
-	// targeted the wrong thing. Every case names the card now, which is the
-	// thing that was true in the thread case all along.
-	conversation := "*Just reply in this channel* — no `@mention` needed; every message here " +
-		"continues the same incident conversation."
+	conversation := "*Just reply in this channel* — no `@mention` needed; that continues the same " +
+		"incident conversation. Use the work card above for actions and its record; ask for " +
+		"anything else in plain language."
 	if incident.IsEngineeringTask() {
-		conversation = "*Just reply in this channel* — no `@mention` needed; every message here " +
-			"continues the same engineering task."
+		conversation = "*Just reply in this channel* — no `@mention` needed; that continues the same " +
+			"engineering task. Use the work card above for actions and its record; ask for " +
+			"anything else in plain language."
 	}
-	reference := []LedgerStep{
-		// A blank glyph: these are label/value rows, not steps of a run.
-		{Glyph: " ", Label: "the card", Detail: "stop · diff · publish · close"},
-		{Glyph: " ", Label: "its ⋯ menu", Detail: "timeline · evidence · handoff"},
-		{Glyph: " ", Label: "ask here", Detail: "anything else"},
-	}
-	summary := "just reply here; the card above has the controls."
 	if incident.IsThreadScoped() {
-		conversation = "*Just reply in this thread* — no `@mention` needed; every authorized reply " +
-			"continues the same isolated session."
+		conversation = "*Just reply in this thread* — no `@mention` needed; that continues the same " +
+			"isolated session. Use the work card above for actions and its record; ask for " +
+			"anything else in plain language."
 	}
 	return Message{
-		Text:      "Help — " + summary,
+		Text:      "Help — reply here or use the work card above.",
 		Stripe:    StripeIdle,
 		Sections:  []string{conversation},
-		Ledger:    reference,
 		Temporary: true,
-		Context: []string{
-			"Controls never merge, sign, or deploy; publication pushes one lease-protected branch.",
-		},
 	}
 }
 

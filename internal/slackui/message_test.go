@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/slack-go/slack"
@@ -979,17 +978,26 @@ func TestIncidentStatusExplainsStateAndNextAction(t *testing.T) {
 	}
 }
 
-func TestHelpExplainsControlEffectsAndSafety(t *testing.T) {
+func TestHelpExplainsTheNextMoveWithoutAControlLegend(t *testing.T) {
 	message := HelpMessage(core.Incident{ID: "inc_1234567890abcdef"})
 	content := helpSurface(t, message)
 	for _, required := range []string{
 		"no `@mention` needed",
-		"the card",
-		"stop · diff · publish · close",
-		"never merge, sign, or deploy",
+		"work card above",
+		"plain language",
 	} {
 		if !strings.Contains(content, required) {
 			t.Fatalf("help lacks %q: %+v", required, message)
+		}
+	}
+	for _, unwanted := range []string{
+		"stop · diff · publish · close",
+		"timeline · evidence · handoff",
+		"never merge, sign, or deploy",
+		"lease-protected branch",
+	} {
+		if strings.Contains(content, unwanted) {
+			t.Fatalf("help still carries %q: %+v", unwanted, message)
 		}
 	}
 }
@@ -1009,8 +1017,8 @@ func TestHelpNamesTheCardRatherThanACommand(t *testing.T) {
 	content := helpSurface(t, message)
 	for _, required := range []string{
 		"*Just reply in this thread*",
-		"stop · diff · publish · close",
-		"timeline · evidence · handoff",
+		"work card above",
+		"plain language",
 	} {
 		if !strings.Contains(content, required) {
 			t.Fatalf("thread help lacks %q: %+v", required, message)
@@ -1021,15 +1029,9 @@ func TestHelpNamesTheCardRatherThanACommand(t *testing.T) {
 	}
 }
 
-// Help is read in a hurry by somebody who has forgotten one command.
-//
-// It used to answer six questions at once — Conversation, Read-only inspection,
-// Lifecycle controls, Automatic capacity, Thread scope, and a paragraph about a
-// second `!respond <verb>` spelling of every control — posted into a thread
-// that already carried the task card. That is a wall. It is now lead,
-// reference, limit: one section, one monospace strip, one context line, and
-// the standard one-click exit every temporary card carries.
-func TestHelpIsOneSentenceOneStripAndOneBoundary(t *testing.T) {
+// Help is read in a hurry, so it says how to continue and points at the work
+// card instead of encoding the card's current controls into a second legend.
+func TestHelpIsOneClearInstructionAndOneDismissButton(t *testing.T) {
 	for _, variant := range []struct {
 		name     string
 		incident core.Incident
@@ -1060,11 +1062,11 @@ func TestHelpIsOneSentenceOneStripAndOneBoundary(t *testing.T) {
 			if len(message.Sections) != 1 || !strings.HasPrefix(message.Sections[0], variant.lead) {
 				t.Fatalf("help prose = %+v, want the one lead sentence %q", message.Sections, variant.lead)
 			}
-			if len(message.Ledger) == 0 || len(message.Ledger) > 5 {
-				t.Errorf("the reference strip has %d rows, want 1 to 5", len(message.Ledger))
+			if len(message.Ledger) != 0 {
+				t.Errorf("help still renders the ambiguous control strip: %+v", message.Ledger)
 			}
-			if len(message.Context) != 1 {
-				t.Errorf("help context = %+v, want the one boundary line", message.Context)
+			if len(message.Context) != 0 {
+				t.Errorf("help still renders a disclaimer: %+v", message.Context)
 			}
 			if len(message.Actions) != 0 || len(message.Fields) != 0 {
 				t.Errorf("help grew controls or tiles: %+v %+v", message.Actions, message.Fields)
@@ -1073,27 +1075,14 @@ func TestHelpIsOneSentenceOneStripAndOneBoundary(t *testing.T) {
 				t.Errorf("fallback text = %q, want a one-sentence \"Help — …\"", message.Text)
 			}
 
-			// Five blocks: the sentence, the strip, the boundary, then the standard
-			// temporary-card divider and Dismiss row. Counted on the rendered
-			// surface because that is what the operator scrolls.
+			// Three blocks: one instruction, then the standard temporary-card
+			// divider and Dismiss row.
 			blocks := message.Blocks()
-			if len(blocks) != 5 {
-				t.Fatalf("help renders %d blocks, want 5:\n%s", len(blocks), helpBlockTypes(blocks))
+			if len(blocks) != 3 {
+				t.Fatalf("help renders %d blocks, want 3:\n%s", len(blocks), helpBlockTypes(blocks))
 			}
-			if types := helpBlockTypes(blocks); types != "section rich_text context divider actions" {
+			if types := helpBlockTypes(blocks); types != "section divider actions" {
 				t.Errorf("help block order = %q, want the temporary-card exit last", types)
-			}
-
-			// The strip is the reference, so nothing in it may be clipped: a
-			// truncated command is a command that does not run.
-			for index, line := range stripLines(t, message, 0) {
-				if runes := utf8.RuneCountInString(line); runes > monospaceLineRunes {
-					t.Errorf("strip line %d is %d runes, over the %d it has: %q",
-						index, runes, monospaceLineRunes, line)
-				}
-				if strings.Contains(line, "…") {
-					t.Errorf("strip line %d was truncated, so it no longer reads: %q", index, line)
-				}
 			}
 
 			// The six sections are gone, and so is the second spelling the

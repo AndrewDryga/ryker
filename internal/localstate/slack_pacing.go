@@ -101,10 +101,6 @@ func (p *pacedSlack) PostEphemeral(
 	message slackui.Message,
 ) error {
 	defer p.record(channel)
-	// Ephemeral messages already have Slack's own private dismissal and cannot
-	// be removed with chat.delete. Keeping the shared-message Dismiss button on
-	// one would acknowledge the click while leaving the message in place.
-	message.Temporary = false
 	return p.API.PostEphemeral(ctx, channel, user, threadTS, message)
 }
 

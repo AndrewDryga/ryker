@@ -28,6 +28,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -73,6 +74,11 @@ func Publish(
 	channelID string,
 	report slackui.Report,
 ) slackui.Message {
+	// Most records are short enough to be useful in the private Slack answer.
+	// Canvas is an overflow surface, not the default destination for four lines.
+	if utf8.RuneCountInString(report.Markdown) <= 6000 {
+		return report.Message
+	}
 	// A canvas nobody can open is worse than a long message, and read access is
 	// granted to the room the report was asked for. With no room — the App Home
 	// answers reports too — there is nothing to grant it to, so the message
