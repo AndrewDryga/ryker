@@ -376,6 +376,16 @@ func TestIntelligenceEvidenceCoverageTimelineAndMemory(t *testing.T) {
 		len(memory.State.OpenLoops) != 1 {
 		t.Fatalf("memory = %+v", memory)
 	}
+	if err := st.Intelligence.BindChannelSession(
+		ctx, "watch-shard:COPS:1", "emisar", "ses_alert_lane", 1, 1, started,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AdvanceChannelMemory(ctx, "watch-shard:COPS:1", 2, core.AgentMemory{
+		SituationSummary: "Internal alert-session state",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	situations, err := st.Intelligence.ListChannelSituations(ctx, 10)
 	if err != nil || len(situations) != 1 ||
 		situations[0].State.OpenLoops[0] != "Confirm database latency" {

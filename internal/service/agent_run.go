@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"strings"
 	"time"
 
@@ -200,6 +201,11 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 		return err
 	}
 	conversationKey := watchConversationKey(input)
+	if state.SessionChannelID == "" {
+		state.SessionChannelID = operationalWatchSessionChannelID(
+			input, conversationKey, s.cfg.Limits.BackgroundWorkers,
+		)
+	}
 	episode, resumeEpisode, err := s.correlateWatchEpisode(ctx, input, conversationKey, &state)
 	if err != nil {
 		return err
@@ -580,6 +586,31 @@ func watchConversationKey(input core.SlackInput) string {
 		}
 	}
 	return "channel:" + input.ChannelID
+}
+
+// operationalWatchSessionChannelID maps independent alert streams onto the
+// same bounded concurrency the background scheduler can actually execute.
+//
+// The conversation key already separates Grafana, Better Stack, and Terraform
+// lifecycles for episode history, but watch sessions used only the Slack
+// channel. One investigation that spent an hour in correction rounds therefore
+// queued twenty-three unrelated alerts behind the same Coop session while two
+// background workers sat unable to help. A stable shard keeps FIRING and
+// RESOLVED for one stream together, bounds the number of long-lived sessions,
+// and lets the configured workers make progress on unrelated streams.
+func operationalWatchSessionChannelID(
+	input core.SlackInput,
+	conversationKey string,
+	shards int,
+) string {
+	if shards <= 1 || input.Kind != "bot_message" ||
+		!strings.HasPrefix(conversationKey, "operation:") {
+		return ""
+	}
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(conversationKey))
+	shard := int(hash.Sum32()%uint32(shards)) + 1
+	return fmt.Sprintf("watch-shard:%s:%d", input.ChannelID, shard)
 }
 
 func watchDecisionResponseThread(
@@ -1161,6 +1192,11 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 		)
 	}
 	input = mentioncontext.Apply(input, state.ResolvedMentionRequest)
+	if state.SessionChannelID == "" {
+		state.SessionChannelID = operationalWatchSessionChannelID(
+			input, run.ConversationKey, s.cfg.Limits.BackgroundWorkers,
+		)
+	}
 	if decided, err := s.admitTriageRun(ctx, run, input, &state); decided {
 		return err
 	}
@@ -1176,6 +1212,14 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 			run,
 			fmt.Errorf("repository context %q is not configured", state.Repository),
 		)
+	}
+	if state.SessionChannelID != "" && state.SessionChannelID != input.ChannelID {
+		if err := s.store.Intelligence.EnsureChannelMemory(
+			ctx, input.ChannelID,
+			core.FirstNonempty(state.Repository, s.cfg.Slack.DefaultRepository),
+		); err != nil {
+			return s.retryAgentRun(ctx, run, err)
+		}
 	}
 	if state.Lane == "" {
 		state.Lane = triageoutcome.Lane(

@@ -42,7 +42,7 @@ func TestChannelMembershipRunsConfirmedConversationalSetup(t *testing.T) {
 	}
 	if session.Step != "participation" || session.ThreadTS == "" ||
 		len(slack.posts) != 1 ||
-		!strings.Contains(slack.posts[0].message.Markdown, "Nothing is saved") {
+		!strings.Contains(slack.posts[0].message.Markdown, "configured operator must confirm") {
 		t.Fatalf("initial setup = %+v, posts = %+v", session, slack.posts)
 	}
 
@@ -84,7 +84,8 @@ func TestChannelMembershipRunsConfirmedConversationalSetup(t *testing.T) {
 		len(confirmation.Actions) != 3 ||
 		confirmation.Actions[0].ID != slackui.ActionSaveChannelConfig ||
 		confirmation.Actions[0].Value != session.ID ||
-		!strings.Contains(confirmation.Markdown, "does not authorize") {
+		len(confirmation.Fields) < 3 ||
+		!strings.Contains(confirmation.Fields[2].Value, "edits require a confirmed engineering task") {
 		t.Fatalf("confirmation card = %+v", confirmation)
 	}
 

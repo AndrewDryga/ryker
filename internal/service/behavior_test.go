@@ -265,7 +265,7 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 			t.Fatalf("compound offer lacks %q:\n%s", expected, content)
 		}
 	}
-	if strings.Count(content, "Not active yet") != 1 {
+	if strings.Count(content, "read-only") != 1 {
 		t.Fatalf("compound offer repeated its confirmation boundary:\n%s", content)
 	}
 	if strings.Contains(content, "operational_alert") || strings.Contains(content, "triage_alert") {

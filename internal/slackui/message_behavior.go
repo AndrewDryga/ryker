@@ -132,7 +132,7 @@ func WithPreferenceOffer(
 	if offer.Name == "response_location" {
 		label = "Use this reply style"
 	}
-	return offerCard(message, behaviorOfferContext, offerProposal{
+	return offerCard(message, "", offerProposal{
 		Quote: description,
 		Facts: joinFacts([]string{
 			title,
@@ -165,7 +165,7 @@ func WithRuleOffer(
 	if description == "." {
 		description = fmt.Sprintf("Watch matching messages and reply in their threads using `%s`.", offer.Repository)
 	}
-	return offerCard(message, behaviorOfferContext, offerProposal{
+	return offerCard(message, ruleOfferContext, offerProposal{
 		Quote: description,
 		Facts: joinFacts([]string{
 			title,
@@ -183,7 +183,7 @@ func WithRuleOffer(
 	})
 }
 
-const behaviorOfferContext = ""
+const ruleOfferContext = "Standing rules use read-only access."
 
 func WithScheduleOffer(
 	message Message,

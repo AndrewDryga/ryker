@@ -266,7 +266,7 @@ func TestAFingerprintSaysWhichSourceItCouldSettleFor(t *testing.T) {
 	for _, testCase := range []struct {
 		source, wantStat, wantNote string
 	}{
-		{"trigger_text", "the trigger message", "what the operator actually wrote"},
+		{"trigger_text", "the trigger message", "operator's request text"},
 		{"trigger_control", "a Slack control", "no message text"},
 		{"alert_labels", "alert labels", "came from a webhook"},
 		{"objective", "the objective headline", "A weak fingerprint"},

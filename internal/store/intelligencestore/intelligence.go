@@ -58,6 +58,7 @@ func (r *Repository) ListChannelSituations(
 		FROM channel_memories
 		WHERE state_json != '{}' AND state_json != ''
 		  AND channel_id NOT LIKE 'scheduled:%'
+		  AND channel_id NOT LIKE 'watch-shard:%'
 		ORDER BY updated_at DESC
 		LIMIT ?`, limit)
 	if err != nil {

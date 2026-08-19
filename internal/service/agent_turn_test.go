@@ -731,7 +731,11 @@ func TestRuntimeCleanupTimeoutRecoversTheAlertInAFreshSession(t *testing.T) {
 		t.Fatalf("cleanup timeout was not requeued = %+v, %v", requeued, err)
 	}
 	firstSession := requeued.SessionID
-	coopClient.openAfterCreateKey = "responder:watch-session:CCLEANUP:2"
+	state, err := decodeWatchRunContext(requeued)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coopClient.openAfterCreateKey = "responder:watch-session:" + state.SessionChannelID + ":2"
 	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}

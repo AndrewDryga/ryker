@@ -38,6 +38,126 @@ func TestOperationalCorrelationKeyTracksAlertLifecycle(t *testing.T) {
 	}
 }
 
+// Twenty-three unrelated production alerts waited behind one Better Stack
+// investigation because every operational stream in the channel shared one
+// Coop session. The worker pool could run three turns, but the session could
+// only advance them serially. Give alert streams the same bounded concurrency
+// as the background workers while keeping one lifecycle on one session shard.
+func TestUnrelatedOperationalStreamsUseTheBoundedWatchSessionPool(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Limits.BackgroundWorkers = 3
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	firing := core.SlackInput{
+		Kind: "bot_message", ChannelID: "CWATCH", UserID: "BGRAFANA",
+		Text: "[VA1 FIRING:1] WARNING | shared lifecycle\nService: api",
+	}
+	resolved := firing
+	resolved.Text = "[VA1 RESOLVED:1] WARNING | shared lifecycle\nService: api"
+	firingShard := operationalWatchSessionChannelID(
+		firing, watchConversationKey(firing), cfg.Limits.BackgroundWorkers,
+	)
+	resolvedShard := operationalWatchSessionChannelID(
+		resolved, watchConversationKey(resolved), cfg.Limits.BackgroundWorkers,
+	)
+	if firingShard == "" || resolvedShard != firingShard {
+		t.Fatalf("one alert lifecycle changed session shard: firing=%q resolved=%q", firingShard, resolvedShard)
+	}
+
+	shards := map[string]bool{}
+	for index := 0; index < 30; index++ {
+		input := core.SlackInput{
+			ID:         fmt.Sprintf("pooled-alert-%02d", index),
+			EnvelopeID: fmt.Sprintf("env-pooled-alert-%02d", index),
+			EventID:    fmt.Sprintf("event-pooled-alert-%02d", index),
+			Kind:       "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH",
+			MessageTS: fmt.Sprintf("1700.%03d", index), UserID: "BGRAFANA",
+			ReceivedAt: time.Now().UTC().Add(time.Duration(index) * time.Second),
+			Text:       fmt.Sprintf("[VA1 FIRING:1] WARNING | component-%02d unavailable\nService: component-%02d", index, index),
+		}
+		if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+			t.Fatalf("admit alert %d = %t, %v", index, created, err)
+		}
+		if err := svc.processSlackInput(ctx); err != nil {
+			t.Fatalf("queue alert %d: %v", index, err)
+		}
+		run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		state, err := decodeWatchRunContext(run)
+		if err != nil {
+			t.Fatal(err)
+		}
+		shards[state.SessionChannelID] = true
+	}
+	if len(shards) != cfg.Limits.BackgroundWorkers {
+		t.Fatalf("operational session shards = %v, want %d bounded lanes", shards, cfg.Limits.BackgroundWorkers)
+	}
+}
+
+// Runs accepted before session sharding already have an empty
+// session_channel_id in their frozen context. The production backlog must move
+// onto the pool after deployment instead of remaining pinned to the busy
+// legacy channel session.
+func TestQueuedOperationalRunAdoptsTheWatchSessionPoolBeforeSubmission(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Limits.BackgroundWorkers = 3
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	input := core.SlackInput{
+		ID: "legacy-pooled-alert", EnvelopeID: "env-legacy-pooled-alert",
+		EventID: "event-legacy-pooled-alert", Kind: "bot_message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH", MessageTS: "1700.100",
+		UserID: "BGRAFANA", ReceivedAt: time.Now().UTC(),
+		Text: "[VA1 FIRING:1] WARNING | legacy queued alert\nService: api",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAgentRunContext(ctx, run.ID, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err = st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decodeWatchRunContext(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(state.SessionChannelID, "watch-shard:CWATCH:") {
+		t.Fatalf("legacy queued run session channel = %q", state.SessionChannelID)
+	}
+	if len(coopClient.createKeys) != 1 ||
+		!strings.HasPrefix(coopClient.createKeys[0], "responder:watch-session:watch-shard:CWATCH:") {
+		t.Fatalf("legacy queued run create keys = %v", coopClient.createKeys)
+	}
+}
+
 // Covers: TestBetterStackRefireSupersedesEarlierResolutionResult
 func TestOperationalCorrelationKeyPrefersStableAlertLinkOverDashboardRange(t *testing.T) {
 	first := core.SlackInput{
