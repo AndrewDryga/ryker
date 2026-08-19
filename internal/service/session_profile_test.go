@@ -438,6 +438,9 @@ func TestAnEngineeringTaskStillBindsAWritableCoopSession(t *testing.T) {
 	if task.CoopSessionID != coopClient.session.ID || task.CoopSessionGeneration != 1 {
 		t.Fatalf("writable engineering session was rotated: %+v", task)
 	}
+	if !slices.Equal(coopClient.createPolicies, []string{"repo-contributor"}) {
+		t.Fatalf("engineering task asked Coop for %v, want writable repository policy", coopClient.createPolicies)
+	}
 	if _, err := st.GetCoopCleanup(ctx, coopClient.session.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("writable engineering session unexpectedly entered cleanup: %v", err)
 	}

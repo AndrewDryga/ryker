@@ -123,8 +123,8 @@ func SessionPolicy(
 	if err != nil {
 		return "", false, err
 	}
-	if contributor {
-		return strings.TrimSpace(repository.ContributorPolicy), true, nil
+	if incident.IsEngineeringTask() {
+		return strings.TrimSpace(repository.ContributorPolicy), contributor, nil
 	}
 	return repository.CoopPolicy, false, nil
 }

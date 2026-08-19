@@ -71,6 +71,30 @@ func accessStore(t *testing.T, channelID, repository string) *store.Store {
 	return st
 }
 
+// An operator-started Rivals task created and rejected nine read-only Coop
+// sessions in thirty minutes, so its accepted engineering run never started.
+// Engineering work needs the repository's writable policy regardless of which
+// authorized person created it; contributor remains the separate member flag.
+func TestOperatorEngineeringTaskUsesTheWritableRepositoryPolicy(t *testing.T) {
+	ctx := context.Background()
+	cfg := accessConfig()
+	st := accessStore(t, "CALERTS", "tenant-infra")
+	task, created, err := st.CreateEngineeringTask(
+		ctx, "tenant-infra", "operator-engineering", "Fix the drift", "Apply the fix",
+		"UOPERATOR", "CALERTS", "1700.001", 10,
+	)
+	if err != nil || !created {
+		t.Fatalf("create operator engineering task = %+v, %t, %v", task, created, err)
+	}
+	policy, contributor, err := SessionPolicy(ctx, cfg, st, task, cfg.Repositories["tenant-infra"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policy != "infra-contributor" || contributor {
+		t.Fatalf("operator engineering policy = %q, contributor=%t", policy, contributor)
+	}
+}
+
 func alertInput(channelID string) core.SlackInput {
 	return core.SlackInput{
 		ID: "slack-alert", EventID: "event-alert", Kind: "bot_message",
