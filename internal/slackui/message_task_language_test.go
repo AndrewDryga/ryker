@@ -123,7 +123,7 @@ func TestAnUnreadableResultNamesTheWorkThatProducedIt(t *testing.T) {
 		{
 			name: "incident",
 			text: cardText(AgentReportFailureMessage(taskLanguageIncident())),
-			says: []string{"The investigation ran", "The findings are preserved"},
+			says: []string{"The investigation ran", "The findings and workspace are preserved"},
 		},
 	})
 }
@@ -215,7 +215,7 @@ func TestAProvisioningRoomIsDescribedAsTheRoomItWillBe(t *testing.T) {
 		{
 			name: "thread-scoped task",
 			text: workflowStateDescription(threadTask),
-			says: []string{"durable task card"},
+			says: []string{"task card", "isolated work session"},
 		},
 	})
 }
@@ -300,13 +300,13 @@ func TestTheRecordReportsNameTheWorkTheyWereBuiltFrom(t *testing.T) {
 		{
 			name:   "handoff for a task",
 			text:   cardText(HandoffMessage(taskRecord)),
-			says:   []string{"durable engineering task state"},
+			says:   []string{"Shift handoff", "Rename the retry helper"},
 			denies: []string{"Signals:", "Severity:"},
 		},
 		{
 			name: "handoff for an incident",
 			text: cardText(HandoffMessage(incidentRecord)),
-			says: []string{"**Signals:**", "**Severity:**", "durable incident state"},
+			says: []string{"**Signals:**", "**Severity:**", "Checkout latency"},
 		},
 		{
 			name:   "handoff report headline for a task",

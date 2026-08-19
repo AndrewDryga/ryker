@@ -68,7 +68,9 @@ func TurnReceiptMessage(receipt TurnReceipt) Message {
 				"things or finished before Responder was watching it.",
 		}
 	}
-	message.Context = []string{turnReceiptSource(receipt)}
+	if source := turnReceiptSource(receipt); source != "" {
+		message.Context = []string{source}
+	}
 	return message
 }
 
@@ -113,11 +115,10 @@ func turnReceiptCost(cost float64) string {
 // turnReceiptSource names where the numbers came from, because a receipt whose
 // provenance is unstated is indistinguishable from one the model wrote.
 func turnReceiptSource(receipt TurnReceipt) string {
-	source := "from the durable turn record"
-	if receipt.RunID != "" {
-		source += " · " + ShortID(receipt.RunID)
+	if receipt.RunID == "" {
+		return ""
 	}
-	return source
+	return "Run `" + ShortID(receipt.RunID) + "`"
 }
 
 func turnReceiptFallback(receipt TurnReceipt) string {

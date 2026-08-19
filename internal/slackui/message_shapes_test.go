@@ -144,9 +144,8 @@ func TestOffersAttachTheConfirmToTheProposal(t *testing.T) {
 			if !strings.HasPrefix(message.Rows[0].Text, "> ") {
 				t.Errorf("proposal is not quoted: %q", message.Rows[0].Text)
 			}
-			// One line of boundary, not a paragraph restating the button.
-			if len(message.Context) != 1 {
-				t.Errorf("offer boundary = %d lines, want 1: %+v", len(message.Context), message.Context)
+			if len(message.Context) > 1 {
+				t.Errorf("offer has %d context lines, want at most one: %+v", len(message.Context), message.Context)
 			}
 		})
 	}
@@ -429,10 +428,8 @@ func TestReviewLeadsWithTheEntry(t *testing.T) {
 			if strings.Contains(cardText(message), "has not been used recently") {
 				t.Error("review still narrates the fact its own entry states")
 			}
-			// No invented position: the caller does not know how many remain.
-			if len(message.Context) != 1 ||
-				!strings.Contains(message.Context[0], "Nothing changes until you choose") {
-				t.Errorf("review context = %+v", message.Context)
+			if len(message.Context) != 0 {
+				t.Errorf("review added a redundant disclaimer: %+v", message.Context)
 			}
 			ids := cardActionIDs(message)
 			if len(ids) != 2 || ids[0] != testCase.want[0] || ids[1] != testCase.want[1] {

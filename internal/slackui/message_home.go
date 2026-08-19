@@ -313,7 +313,7 @@ func OperationsHome(
 	if memoryActive > 0 || len(memories) > 0 {
 		message.Context = append(
 			message.Context,
-			"Saved memory is an operator-confirmed hint, never current health evidence. Fresh live observations and repository state take precedence.",
+			"Saved memory guides investigations; current evidence decides health.",
 		)
 	}
 	return message

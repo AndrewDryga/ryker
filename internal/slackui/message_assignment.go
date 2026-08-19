@@ -39,14 +39,11 @@ func AssignmentDirectoryMessage(
 				"failures here and open dependency PRs, 2 a day, for 30 days\" — and Responder " +
 				"will show you the exact normalized bounds to confirm.",
 		}
-		message.Context = []string{
-			"Every assignment is created in shadow: it is evaluated by the real gate and " +
-				"records what it would have done, and opens nothing.",
-		}
+		message.Context = []string{"New assignments start in shadow mode and record proposed PRs for review."}
 		return message
 	}
 	message.Context = []string{fmt.Sprintf(
-		"%s here · each records what it would have done, and opens nothing while shadowed.",
+		"%s here · shadow mode records proposed PRs for review.",
 		countLabel(len(assignmentList), "standing assignment"),
 	)}
 	entries := make([]directoryEntry, 0, len(assignmentList))
@@ -87,16 +84,8 @@ func assignmentPathFact(assignment core.StandingAssignment) string {
 	return "paths " + strings.Join(assignment.PathGlobs, ", ")
 }
 
-// assignmentOfferContext is the boundary line every assignment card carries.
-//
-// Both halves are load-bearing. Nothing exists until the button is pressed —
-// which is the claim the whole offer discipline rests on — and what the button
-// creates is still shadowed, because an operator reading "scoped authority to
-// open pull requests" and pressing a primary-styled button is entitled to know
-// that the first thing it does is rehearse rather than act.
-const assignmentOfferContext = "Nothing is granted yet. Confirming creates this in shadow: " +
-	"it is evaluated by the real gate and records what it would have done, and opens nothing " +
-	"until the shadow flag is cleared as a separate decision."
+// assignmentOfferContext states the assignment's initial operating mode.
+const assignmentOfferContext = "New assignments start in shadow mode and record proposed PRs for review."
 
 // WithAssignmentOffer asks an operator to grant one standing assignment, and
 // shows them the grant rather than the request.
@@ -138,16 +127,17 @@ func WithAssignmentOffer(
 			fmt.Sprintf("up to %d a day", assignment.DailyBudget),
 			assignmentPathFact(assignment),
 			fmt.Sprintf("expires %d days after confirmation", expiryDays),
-			"shadow, opens nothing",
+			"starts in shadow mode",
 		}),
 		Actions: []Action{{
 			ID:    ActionConfirmAssignmentOffer,
 			Label: "Grant this assignment",
 			Value: actionValue,
 			Style: "primary",
-			Confirm: "Let Responder decide, without asking again, whether to open a " + class +
-				" pull request in " + assignment.Repository + "? It is created in shadow and " +
-				"opens nothing until that is cleared.",
+			Confirm: fmt.Sprintf(
+				"Create this standing assignment to rehearse up to %d %s changes per day in %s before an operator enables autonomous draft PR creation?",
+				assignment.DailyBudget, class, assignment.Repository,
+			),
 		}},
 	})
 }
@@ -176,25 +166,19 @@ func AssignmentSavedMessage(assignment core.StandingAssignment) Message {
 	)
 }
 
-// AssignmentOperatorOnly refuses an assignment confirmation from an actor who
-// is not on the configured operator list. It says nothing was granted because
-// that is the fact they need before deciding whether to try again.
-const AssignmentOperatorOnly = "*Only configured Responder operators can grant a standing " +
-	"assignment.* Nothing was granted."
+// AssignmentOperatorOnly refuses an actor outside the configured operator list.
+const AssignmentOperatorOnly = "*A configured Responder operator must grant standing assignments.*"
 
 // AssignmentMembershipRequired refuses an operator whose Slack account is not
 // an active full workspace member and names that distinct remedy.
-const AssignmentMembershipRequired = "*This Slack account cannot grant a standing assignment.* " +
-	"Active full workspace membership is required. Nothing was granted."
+const AssignmentMembershipRequired = "*Active full workspace membership is required to grant standing assignments.*"
 
-const AssignmentConfirmationStale = "*This confirmation is invalid or stale.* Nothing was " +
-	"granted. Ask again in the channel and use the new confirmation button."
+const AssignmentConfirmationStale = "*This confirmation expired; ask again and use the new button.*"
 
 // AssignmentRefusedNotice is what an operator reads when the host can no longer
 // normalize the bounds it offered — an offer written by an older binary against
 // a class or a range this one no longer allows.
-const AssignmentRefusedNotice = "*Responder refused this.* The bounds it offered are not ones " +
-	"it can grant now. Nothing was granted; ask again and confirm the new card."
+const AssignmentRefusedNotice = "*The offered bounds expired; ask again and confirm the new card.*"
 
 const AssignmentGrantFailed = "*Responder could not create this standing assignment.* "
 

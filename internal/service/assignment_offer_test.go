@@ -152,14 +152,14 @@ func TestAnUnconfirmedAssignmentOfferGrantsNothingAndShowsNormalizedBounds(t *te
 		t.Fatalf("no assignment offer card was posted: %v", err)
 	}
 	for _, want := range []string{
-		"AndrewDryga/responder",         // repository, trimmed
-		"dependency upgrade",            // change class, off the allowlist
-		"up to 2 a day",                 // daily budget
-		"expires 30 days after confirm", // expiry, as the span that was agreed
-		"infra/**",                      // path globs
-		"terraform plan drift",          // signal pattern, collapsed
-		"shadow, opens nothing",         // the authority that is withheld
-		"Nothing is granted yet",        // and that nothing exists yet
+		"AndrewDryga/responder",          // repository, trimmed
+		"dependency upgrade",             // change class, off the allowlist
+		"up to 2 a day",                  // daily budget
+		"expires 30 days after confirm",  // expiry, as the span that was agreed
+		"infra/**",                       // path globs
+		"terraform plan drift",           // signal pattern, collapsed
+		"starts in shadow mode",          // initial authority
+		"record proposed PRs for review", // operator-visible effect
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the confirmation card omits the normalized bound %q:\n%s", want, body)

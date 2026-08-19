@@ -156,8 +156,8 @@ func TestReviewVerdictColoursCustodyAndInventsNoChecklist(t *testing.T) {
 		ready.Sections[0] != "Repository gate passed. Rebase is clean." {
 		t.Fatalf("review rewrote or decomposed the summary: %+v", ready.Sections)
 	}
-	if !strings.Contains(strings.Join(ready.Context, "\n"), "will not merge or deploy") {
-		t.Fatalf("ready review lost its boundary: %+v", ready.Context)
+	if !strings.Contains(strings.Join(ready.Context, "\n"), "Candidate tree pinned") {
+		t.Fatalf("ready review lost its useful receipt: %+v", ready.Context)
 	}
 	notReady := ReviewMessage(incident, "The repository gate failed.", false)
 	if notReady.Stripe != StripeNeedsYou || notReady.Header != "✋ Not ready for review" {

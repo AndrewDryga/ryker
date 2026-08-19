@@ -84,7 +84,7 @@ func WithEmisarApproval(message Message, approval core.EmisarApproval) Message {
 	// sidebar strip the colour and the glyph and leave only this line.
 	message.Text = truncateUTF8(
 		"Needs you — Emisar paused "+approval.ActionID+
-			" for approval. Nothing has executed. Review it in Emisar: "+approval.ApprovalURL,
+			" for approval before execution. Review it in Emisar: "+approval.ApprovalURL,
 		4000,
 	)
 	// One section, not three. It used to say that Emisar paused the action,
@@ -92,19 +92,12 @@ func WithEmisarApproval(message Message, approval core.EmisarApproval) Message {
 	// the request — three blocks between the reply and the button, two of which
 	// were about Responder rather than about the decision.
 	message.Sections = append(message.Sections,
-		"Emisar paused this before anything ran. Review the exact target, arguments, "+
-			"evidence, blast radius, and policy decision in Emisar.",
-	)
+		"Review the exact target, arguments, evidence, blast radius, and policy decision in Emisar.")
 	message.Ledger = append(message.Ledger, approvalBlastRadius(approval)...)
 	message.Context = append(message.Context, joinFacts([]string{
 		"Run `" + safeInlineCode(approval.RunID) + "`",
 		approvalExpiry(approval.ExpiresAt),
-		"Approval happens only in Emisar; opening the link does not execute it.",
 	}))
-	message.Context = append(
-		message.Context,
-		"I’ll watch this request and update this card automatically.",
-	)
 	// The proposal approve and reject buttons used to be filtered out here so an
 	// Emisar approval card could not also offer a Slack approval for the same
 	// work. Nothing composes those buttons any more, so there is nothing to
@@ -187,15 +180,15 @@ func EmisarApprovalStateMessage(
 	case "denied":
 		header = "Emisar action was not approved"
 		summary = "Emisar reports that `" + action + "` was denied and did not run."
-		next = "No operational change was made by this request. I’ll carry on without it."
+		next = "I’ll continue without this action."
 	case "cancelled":
 		header = "Emisar action was cancelled"
 		summary = "Emisar reports that `" + action + "` was cancelled."
-		next = "The run is terminal; check Emisar for its authoritative audit trail."
+		next = "See Emisar for the run record."
 	case "failed", "error", "validation_failed", "unknown_action", "timed_out", "refused":
 		header = "Emisar action did not complete"
 		summary = "Emisar reports that `" + action + "` ended as `" + status + "` on `" + runner + "`."
-		next = "The run is terminal; check Emisar for its authoritative error and audit trail."
+		next = "See Emisar for the error and run record."
 	}
 	if continuing {
 		next += " I’m checking the terminal result and will post a concise follow-up here."
@@ -218,9 +211,7 @@ func EmisarApprovalStateMessage(
 		Header:   state.Header(header),
 		Stripe:   state.Stripe,
 		Sections: sections,
-		Context: []string{
-			"Run `" + safeInlineCode(approval.RunID) + "` · Emisar remains authoritative for execution, policy, and audit.",
-		},
+		Context:  []string{"Run `" + safeInlineCode(approval.RunID) + "`"},
 	}
 	if url != "" {
 		control := Action{

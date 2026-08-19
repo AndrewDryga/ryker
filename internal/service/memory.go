@@ -402,8 +402,7 @@ func (s *Service) authorizeMemoryAction(
 	if !s.cfg.IsOperator(input.UserID) {
 		return false, s.memoryActionFeedback(
 			ctx, input,
-			"*Only configured Responder operators can manage durable memory.* No memory "+
-				"was changed.",
+			"*A configured Responder operator must manage saved memory.*",
 		)
 	}
 	allowed, err := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
@@ -413,8 +412,7 @@ func (s *Service) authorizeMemoryAction(
 	if !allowed {
 		return false, s.memoryActionFeedback(
 			ctx, input,
-			"*This Slack account cannot manage Responder memory.* Active full workspace "+
-				"membership is required. No memory was changed.",
+			"*Active full workspace membership is required to manage saved memory.*",
 		)
 	}
 	return true, nil

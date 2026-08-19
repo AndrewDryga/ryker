@@ -77,7 +77,7 @@ func TestTheAssignmentOfferCardConfirmsWhatIsBeingGranted(t *testing.T) {
 	if actions[0].Confirm == "" {
 		t.Fatal("the widest grant in the product is one unconfirmed click away")
 	}
-	for _, required := range []string{"without asking again", "dependency upgrade", "shadow"} {
+	for _, required := range []string{"dependency upgrade", "standing assignment"} {
 		if !strings.Contains(actions[0].Confirm, required) {
 			t.Errorf("the dialog does not say %q:\n%s", required, actions[0].Confirm)
 		}
@@ -87,7 +87,7 @@ func TestTheAssignmentOfferCardConfirmsWhatIsBeingGranted(t *testing.T) {
 		rendered += "\n" + row.Text
 	}
 	for _, required := range []string{
-		"Nothing is granted yet", "shadow, opens nothing",
+		"New assignments start in shadow mode", "starts in shadow mode",
 		// The expiry is a span rather than a date on this card alone: it is
 		// read before the grant exists, and a date would be the one it would
 		// have expired on had the button been pressed the instant it was posted.

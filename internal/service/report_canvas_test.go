@@ -13,6 +13,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/slack-go/slack"
 )
 
 // reportFixture is a closed incident with an alert behind it and one recorded
@@ -59,18 +60,73 @@ func reportFixture(
 	}}); err != nil {
 		t.Fatal(err)
 	}
+	if err := st.Intelligence.RecordTimeline(ctx, core.TimelineEvent{
+		ID: "tl_report_verified", IncidentID: incident.ID, ChannelID: "CREPORT",
+		Kind: "verification", Title: "Live state checked",
+		Detail: "API recovered after the probe returned HTTP 200", CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.CloseIncident(ctx, incident.ID); err != nil {
 		t.Fatal(err)
 	}
 	if incident, err = st.GetIncident(ctx, incident.ID); err != nil {
 		t.Fatal(err)
 	}
-	slackClient := &fakeSlack{}
+	slackClient := &fakeSlack{rejectEphemeralTimelineMarkdown: true}
+	socket := &fakeSocket{}
 	svc := New(
-		cfg, st, newFakeCoop(), slackClient, nil,
+		cfg, st, newFakeCoop(), slackClient, socket,
 		slackui.NewSanitizer(12000), logger,
 	)
 	return st, svc, slackClient, incident
+}
+
+// The Work record directory used to prove only that its Timeline button was
+// present. In production Slack accepted that button, then rejected the reply
+// ten times, so the operator saw a no-op. Drive both clicks through the real
+// input lane and assert the delivered private answer uses stable blocks.
+func TestWorkRecordTimelineButtonDeliversTheInlineTimeline(t *testing.T) {
+	ctx := context.Background()
+	_, svc, slackClient, incident := reportFixture(t, ctx, nil)
+
+	deliverInteraction(t, ctx, svc, incident, "env-record-directory-timeline", "U123ABC",
+		&slack.BlockAction{ActionID: slackui.ActionRecordDirectory, Value: incident.ID})
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.ephemerals) != 1 {
+		t.Fatalf("record directory replies = %+v", slackClient.ephemerals)
+	}
+	var timeline *slack.BlockAction
+	for _, row := range slackClient.ephemerals[0].message.Rows {
+		for _, action := range row.Actions {
+			if slackui.BaseActionID(action.ID) == slackui.ActionRecordTimeline {
+				timeline = &slack.BlockAction{ActionID: action.ID, Value: action.Value}
+				break
+			}
+		}
+	}
+	if timeline == nil {
+		t.Fatalf("record directory has no Timeline action: %+v", slackClient.ephemerals[0].message)
+	}
+	deliverInteraction(t, ctx, svc, incident, "env-open-record-timeline", "U123ABC", timeline)
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.ephemerals) != 2 {
+		t.Fatalf("Timeline click delivered %+v, want the directory and timeline", slackClient.ephemerals)
+	}
+	answer := slackClient.ephemerals[1]
+	if answer.thread != incident.ConversationThreadTS() {
+		t.Fatalf("timeline thread = %q, want %q", answer.thread, incident.ConversationThreadTS())
+	}
+	rendered := renderedSlackMessage(answer.message)
+	for _, expected := range []string{"Remediation timeline", "Live state checked", "API recovered", "HTTP 200"} {
+		if !strings.Contains(rendered, expected) {
+			t.Fatalf("delivered Timeline answer lacks %q:\n%s", expected, rendered)
+		}
+	}
 }
 
 // askForReport presses one of the card's four record controls and drives it
@@ -150,8 +206,9 @@ func TestAShortTimelineIsAnsweredInlineWithItsRecordedEvents(t *testing.T) {
 	if message.Stripe != slackui.StripeIdle {
 		t.Fatalf("report card stripe = %q, want %q", message.Stripe, slackui.StripeIdle)
 	}
-	if !strings.Contains(message.Markdown, "Remediation timeline") ||
-		!strings.Contains(message.Markdown, "Alert fired: API errors") {
+	rendered := renderedSlackMessage(message)
+	if !strings.Contains(rendered, "Remediation timeline") ||
+		!strings.Contains(rendered, "Alert fired: API errors") {
 		t.Fatalf("short timeline omitted its actual events: %+v", message)
 	}
 	for _, action := range message.Actions {
@@ -191,8 +248,9 @@ func TestAReportSlackWillNotHoldAsACanvasIsPostedAsItsMessage(t *testing.T) {
 		t.Fatalf("timeline replies = %+v, want exactly one", slackClient.ephemerals)
 	}
 	message := slackClient.ephemerals[0].message
-	if !strings.Contains(message.Markdown, "Remediation timeline") ||
-		!strings.Contains(message.Markdown, "Alert fired: API errors") {
+	rendered := renderedSlackMessage(message)
+	if !strings.Contains(rendered, "Remediation timeline") ||
+		!strings.Contains(rendered, "Alert fired: API errors") {
 		t.Fatalf("the fallback reply dropped the report: %+v", message)
 	}
 	for _, action := range message.Actions {
@@ -218,7 +276,10 @@ func TestAReportSlackWillNotHoldAsACanvasIsPostedAsItsMessage(t *testing.T) {
 // regression the postmortem test alone would not catch.
 func TestEveryShortRecordViewAnswersWithItsActualContent(t *testing.T) {
 	ctx := context.Background()
-	for _, command := range []string{"timeline", "postmortem", "evidence", "handoff"} {
+	for command, expected := range map[string]string{
+		"timeline": "Live state checked", "postmortem": "Post-incident draft",
+		"evidence": "API recovered", "handoff": "Shift handoff",
+	} {
 		t.Run(command, func(t *testing.T) {
 			// A fresh service and store per report, so "exactly one canvas" is
 			// a statement about this command rather than about the loop.
@@ -233,7 +294,7 @@ func TestEveryShortRecordViewAnswersWithItsActualContent(t *testing.T) {
 				t.Fatalf("the %s control replies = %+v", command, slackClient.ephemerals)
 			}
 			message := slackClient.ephemerals[0].message
-			if strings.TrimSpace(message.Markdown) == "" {
+			if rendered := renderedSlackMessage(message); !strings.Contains(rendered, expected) {
 				t.Fatalf("the %s control returned a summary without record detail: %+v",
 					command, message)
 			}

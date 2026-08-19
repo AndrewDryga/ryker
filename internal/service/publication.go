@@ -192,7 +192,7 @@ func (s *Service) publishDraftPR(
 		s.clearNativeStatus(ctx, incident)
 		return s.refuseControl(ctx, input, incident,
 			"*There is nothing new to publish.* The reviewed task tree already matches "+
-				"the pull request baseline. No branch was pushed and no pull request was updated.")
+				"the pull request baseline.")
 	}
 	review := publicationreview.NormalizeReview(rawReview)
 	if !review.Publishable {
@@ -221,7 +221,7 @@ func (s *Service) publishDraftPR(
 		return s.refuseControl(ctx, input, incident,
 			"*Draft PR publication stopped because the complete reviewed patch could "+
 				"not be verified.* "+detail+"\n\nThe isolated task and review "+
-				"remain available. No branch was pushed and no pull request was created.")
+				"remain available for retry.")
 	}
 
 	headBranch, err := s.publisher.HeadBranch(incident, existing)
@@ -286,10 +286,8 @@ func (s *Service) publishDraftPR(
 			Outcome: "failed", Detail: record.LastError,
 		})
 		return s.refuseControl(ctx, input, incident,
-			"*PR publication stopped safely.* "+record.LastError+
-				"\n\nResponder did not merge or deploy anything. The Coop fork and "+
-				"reviewed publication record were retained so an operator can correct "+
-				"the issue and retry.")
+			"*PR publication stopped.* "+record.LastError+
+				"\n\nThe Coop fork and reviewed publication record remain available for retry.")
 	}
 	record.State = core.PublicationPublished
 	record.LastError = ""

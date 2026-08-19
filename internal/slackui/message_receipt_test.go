@@ -143,10 +143,7 @@ func TestTurnReceiptIsAHeaderlessStatementWithNoControls(t *testing.T) {
 	if len(message.Actions) != 0 || len(message.Overflow) != 0 {
 		t.Fatalf("controls = %+v / %+v", message.Actions, message.Overflow)
 	}
-	// Provenance, because a receipt whose source is unstated is
-	// indistinguishable from one the model wrote about itself.
-	if len(message.Context) != 1 ||
-		!strings.HasPrefix(message.Context[0], "from the durable turn record · ") {
+	if len(message.Context) != 1 || !strings.HasPrefix(message.Context[0], "Run `") {
 		t.Fatalf("context = %v", message.Context)
 	}
 	// The run id is a footnote, abbreviated: it is here to match a receipt to a

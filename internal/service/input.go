@@ -932,8 +932,7 @@ func (s *Service) createManualIncident(ctx context.Context, input core.SlackInpu
 		}, "notice", thread,
 		slackui.Notice(
 			"*Incident accepted.* I’m creating a dedicated Slack channel and an isolated "+
-				"working copy now. I’ll post the channel link in this thread when it is ready. "+
-				"No merge, push, deployment, or infrastructure change has occurred.",
+				"working copy now; I’ll post the channel link here when it is ready.",
 		),
 	); err != nil {
 		return s.retrySlackInput(ctx, input, err)
@@ -1553,8 +1552,7 @@ func (s *Service) reviewFix(ctx context.Context, input core.SlackInput, incident
 	if incident.ActiveTurnID != "" {
 		return s.refuseControl(ctx, input, incident,
 			"*Fix review did not start because an agent turn is still running.* Wait for "+
-				"that run to finish, or use *Stop current run*, then request review again. "+
-				"The review is read-only and never merges or deploys.")
+				"that run to finish, or use *Stop current run*, then request review again.")
 	}
 	changes, err := s.coop.Changes(ctx, incident.CoopSessionID)
 	if err != nil {
@@ -1721,7 +1719,7 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 		auditKind = "engineering_task.close"
 		timelineKind = "engineering_task.closed"
 		timelineTitle = "Engineering task closed"
-		retainedAudience = "teammate action"
+		retainedAudience = "manual inspection and recovery"
 	}
 	s.audit(ctx, core.AuditEvent{
 		IncidentID: incident.ID, Kind: auditKind, ActorID: input.UserID,
@@ -1732,19 +1730,12 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 		IncidentID: incident.ID, ChannelID: incident.ChannelID,
 		Kind: timelineKind, ActorID: input.UserID,
 		Title: timelineTitle,
-		Detail: "The Coop session was closed. Responder will reclaim zero-change or " +
-			"published workspace state after the configured grace period; unpublished " +
-			"changes are retained for " + retainedAudience + ".",
+		Detail: "The Coop session closed; remaining workspace changes are retained for " +
+			retainedAudience + " during cleanup.",
 	})
-	closeMessage := "*Incident closed.* Responder will not start more investigation turns for this " +
-		"incident. Zero-change workspace state is reclaimed after the retention grace period; " +
-		"unpublished changes are retained for operator action. Closing did not merge, push, " +
-		"sign, or deploy anything."
+	closeMessage := "*Incident closed.* Remaining workspace changes are retained for operator action."
 	if incident.IsEngineeringTask() {
-		closeMessage = "*Engineering task closed.* Responder will not start more turns for this " +
-			"task. Published or zero-change workspace state is reclaimed after the retention " +
-			"grace period; unpublished changes are retained. Closing did not merge, push, sign, " +
-			"deploy, or change infrastructure."
+		closeMessage = "*Engineering task closed.* Remaining workspace changes are archived for manual inspection and recovery."
 	}
 	if err := s.enqueue(
 		ctx, "out_close_"+input.ID, incident, "notice", incident.ConversationThreadTS(),

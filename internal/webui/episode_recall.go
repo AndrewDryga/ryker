@@ -137,7 +137,7 @@ func (r *Reader) EpisodeOutcome(ctx context.Context, episodeID string) (OutcomeR
 // concluding the corpus is broken.
 var fingerprintSource = map[string][2]string{
 	"trigger_text": {"the trigger message",
-		"Built from what the operator actually wrote, which is the strongest fingerprint available."},
+		"Uses the operator's request text."},
 	"trigger_control": {"a Slack control",
 		"The trigger was a button or menu with no message text, so the control id and the objective stood in for it."},
 	"alert_labels": {"alert labels",

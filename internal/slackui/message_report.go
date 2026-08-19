@@ -17,16 +17,14 @@ import (
 // document of that length belongs. What stays in the room is a card — the one
 // judgement the reader needs, the counts standing behind it, and a way in.
 //
-// Message is the same report rendered the way it is rendered today, and it is
-// not a second-class fallback. A workspace whose token cannot make canvases
-// keeps exactly what it has now; the canvas is an escalation on top, never a
-// replacement underneath.
+// Message is the Slack-safe inline form. Markdown is the Canvas document; the
+// two stay separate because Slack rejects some translated document blocks.
 type Report struct {
 	// Title names the document. It is the report's own header line rather than
 	// a second name invented here, so the canvas and the card cannot come to
 	// disagree about what the reader is opening.
 	Title string
-	// Markdown is the document. It is whatever the report already builds.
+	// Markdown is the Canvas document.
 	Markdown string
 	// Headline is the one sentence the reader needs if they read nothing else,
 	// and for the drafts it is the sentence stating what the draft refuses to
@@ -37,13 +35,14 @@ type Report struct {
 	// Preview is a bounded set of real record entries kept on the Slack card
 	// when an oversized document moves to Canvas.
 	Preview string
-	// Message is the report posted the way it is posted today.
+	// Message is the bounded inline Slack form and Canvas fallback.
 	Message Message
 }
 
 func TimelineReport(record core.RemediationRecord) Report {
 	message := TimelineMessage(record)
 	events := core.RemediationTimeline(record)
+	document := timelineDocument(record)
 	headline := "No " + workNoun(record.Incident) + " activity has been recorded yet."
 	if len(events) > 0 {
 		headline = fmt.Sprintf(
@@ -54,8 +53,8 @@ func TimelineReport(record core.RemediationRecord) Report {
 		)
 	}
 	return Report{
-		Title:    reportTitle(message.Markdown, "Remediation timeline"),
-		Markdown: message.Markdown,
+		Title:    reportTitle(document, "Remediation timeline"),
+		Markdown: document,
 		Headline: headline,
 		Counts:   reportCounts(record),
 		Preview:  timelineReportPreview(core.RemediationTimeline(record)),
@@ -107,10 +106,8 @@ func PostmortemReport(record core.RemediationRecord) Report {
 	message := PostmortemDraft(record)
 	headline := "Root cause is not assigned — no structured evidence was recorded."
 	if len(record.Evidence) > 0 {
-		headline = fmt.Sprintf(
-			"Root cause is not assigned — %s recorded, and confirming a cause from them is a human judgement.",
-			countLabel(len(record.Evidence), "observation"),
-		)
+		headline = fmt.Sprintf("Root cause is not assigned — %s recorded.",
+			countLabel(len(record.Evidence), "observation"))
 	}
 	if unchecked := uncheckedLayers(record.Coverage); unchecked != "" {
 		headline = strings.TrimSuffix(headline, ".") + "; " + unchecked + " never checked."
@@ -140,11 +137,8 @@ func EvidenceReport(
 	message := EvidenceDirectoryMessage(incident, evidence, coverage)
 	headline := "No evidence has been recorded for this " + workNoun(incident) + " yet."
 	if len(evidence) > 0 {
-		headline = fmt.Sprintf(
-			"%s across %s.",
-			countLabel(len(evidence), "durable observation"),
-			countLabel(len(coverage), "coverage layer"),
-		)
+		headline = fmt.Sprintf("%s across %s.",
+			countLabel(len(evidence), "observation"), countLabel(len(coverage), "coverage layer"))
 	}
 	return Report{
 		Title: reportTitle(

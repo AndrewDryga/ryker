@@ -261,6 +261,11 @@ type Message struct {
 	// Ledger states where a run has got to by position instead of by
 	// adjective, so "step 4 of 5" is read rather than inferred from prose.
 	Ledger []LedgerStep `json:"ledger,omitempty"`
+	// MilestoneLedger renders Ledger as a wrapping Slack progress list instead
+	// of a fixed-width diagnostic strip. Engineering steps carry prose and
+	// nested goals; forcing those through a terminal column clips the facts the
+	// operator opened the card to read.
+	MilestoneLedger bool `json:"milestone_ledger,omitempty"`
 	// Activity is the live window onto the turn. It exists because the model's
 	// own progress prose is structurally thin — "Still working", twice, byte
 	// for byte — while the tool calls underneath it are specific and already
@@ -564,7 +569,14 @@ func (m Message) Blocks() []slack.Block {
 	if m.ActionsEarly {
 		emitActions()
 	}
-	if block := preformattedBlock(ledgerLines(m.Ledger, 0)); block != nil {
+	if m.MilestoneLedger {
+		if progress := milestoneLedgerText(m.Ledger); progress != "" {
+			blocks = append(blocks, slack.NewSectionBlock(
+				slack.NewTextBlockObject(slack.MarkdownType, truncateUTF8(progress, 2900), false, true),
+				nil, nil,
+			))
+		}
+	} else if block := preformattedBlock(ledgerLines(m.Ledger, 0)); block != nil {
 		blocks = append(blocks, block)
 	}
 	if block := preformattedBlock(activityLines(m.Activity)); block != nil {
@@ -879,6 +891,63 @@ func ledgerGlyph(step LedgerStep) string {
 		return "▸"
 	default:
 		return "·"
+	}
+}
+
+func milestoneLedgerText(steps []LedgerStep) string {
+	if len(steps) == 0 {
+		return ""
+	}
+	var body strings.Builder
+	body.WriteString("*Progress*")
+	for _, step := range steps {
+		glyph := "○"
+		switch {
+		case step.Glyph == "✓":
+			glyph = "✅"
+		case step.Glyph != "":
+			glyph = step.Glyph
+		case step.Current:
+			glyph = "▶️"
+		}
+		fmt.Fprintf(&body, "\n%s  *%s*", glyph, escapeSlackText(step.Label))
+		facts := make([]string, 0, 2)
+		if detail := strings.TrimSpace(step.Detail); detail != "" {
+			facts = append(facts, escapeSlackText(detail))
+		}
+		if when := strings.TrimSpace(step.When); when != "" {
+			facts = append(facts, escapeSlackText(when))
+		} else if owner := strings.TrimSpace(step.Owner); step.Current && owner != "" {
+			facts = append(facts, ownerLabel(owner))
+		}
+		if len(facts) > 0 {
+			body.WriteString("  ·  ")
+			body.WriteString(strings.Join(facts, "  ·  "))
+		}
+		for _, child := range step.Children {
+			mark := "•"
+			if child.Glyph == "✓" {
+				mark = "✓"
+			} else if child.Current {
+				mark = "→"
+			}
+			fmt.Fprintf(&body, "\n ↳ %s %s", mark, escapeSlackText(child.Label))
+			if detail := strings.TrimSpace(child.Detail); detail != "" {
+				body.WriteString("  ·  ")
+				body.WriteString(escapeSlackText(detail))
+			}
+		}
+	}
+	return body.String()
+}
+
+func ownerLabel(owner string) string {
+	owner = strings.TrimSpace(owner)
+	switch strings.ToLower(owner) {
+	case "yours", "your turn", "yours to publish":
+		return "Your turn"
+	default:
+		return escapeSlackText(owner)
 	}
 }
 
@@ -1477,10 +1546,6 @@ func TurnFailureMessage(incident core.Incident, state, detail string) Message {
 		survived,
 		"Reply in this thread to continue, or use the controls on the work card.",
 	)
-	message.Context = append(
-		message.Context,
-		"No merge, push, signing, or deployment occurred.",
-	)
 	return message
 }
 
@@ -1491,17 +1556,17 @@ func TurnFailureMessage(incident core.Incident, state, detail string) Message {
 // callers with something operator-facing to add", and the only thing callers
 // ever had was the parse error — so the parameter was a hole that put
 // `json: cannot unmarshal ...` in front of someone waiting on an incident.
-// What they need is what survived, that nothing changed, and what to do next.
+// What they need is what survived and what to do next.
 //
 // It does take the work item, because "the findings are preserved" is the wrong
 // reassurance for an engineering task: nothing was being found, and what the
 // reader is anxious about is the working copy.
 func AgentReportFailureMessage(incident core.Incident) Message {
 	ran := "The investigation ran, but its final summary did not come back in a form I could publish."
-	survived := "The findings are preserved — nothing was lost and nothing was changed."
+	survived := "The findings and workspace are preserved."
 	if incident.IsEngineeringTask() {
 		ran = "The engineering task ran, but its final summary did not come back in a form I could publish."
-		survived = "The isolated changes are preserved — nothing was lost and nothing was published."
+		survived = "The isolated changes are preserved."
 	}
 	// No "Write it up again" button, though this is the card that most wants
 	// one. The rerun control routes on an incident id carried in the button's
@@ -1516,11 +1581,6 @@ func AgentReportFailureMessage(incident core.Incident) Message {
 		survived,
 		"Reply in this thread and I’ll write it up again from the same work.",
 	)
-	message.Context = append(
-		message.Context,
-		"No merge, push, signing, or deployment occurred. "+
-			"Raw transcripts and tool output are not posted to Slack.",
-	)
 	return message
 }
 
@@ -1532,12 +1592,8 @@ func TriageFailureMessage() Message {
 		StripeFailed,
 		"🛑 Request needs a retry",
 		"I stopped retrying this request so it would not remain silently queued.",
-		"Nothing ran on it, so there is nothing half-finished to undo.",
+		"This request stopped before a model turn started.",
 		"Reply in this thread to try again. Verify current state before repeating any operation.",
-	)
-	message.Context = append(
-		message.Context,
-		"Internal provider and transport errors were kept out of the channel.",
 	)
 	return message
 }
@@ -1550,12 +1606,8 @@ func ApprovalVerificationFailureMessage() Message {
 		StripeFailed,
 		"🛑 Verification needs attention",
 		"The governed run finished, but I stopped verifying its result after the retry limit.",
-		"Emisar holds the authoritative record of what that run did.",
+		"The Emisar run record shows what happened.",
 		"Check the run and current state before repeating any action, then reply here to continue verification.",
-	)
-	message.Context = append(
-		message.Context,
-		"Internal provider and transport errors were kept out of the channel.",
 	)
 	return message
 }
@@ -1566,17 +1618,12 @@ func EvidenceDirectoryMessage(
 ) Message {
 	message := EvidenceResponse(
 		fmt.Sprintf(
-			"## Evidence for %s `%s`\n\nThe entries below are the latest durable "+
-				"observations and coverage assessments.",
+			"## Evidence for %s `%s`\n\nLatest observations and coverage assessments.",
 			workNoun(incident), ShortID(incident.ID),
 		),
 		evidence,
 		coverage,
 		NewSanitizer(30000),
-	)
-	message.Context = append(
-		message.Context,
-		"Evidence is retained separately from agent prose so operators can audit freshness and source coverage.",
 	)
 	message.Temporary = true
 	return message
@@ -1699,7 +1746,7 @@ func workflowStateDescription(incident core.Incident) string {
 	switch incident.Workflow {
 	case core.WorkflowProvisioningChannel:
 		if incident.IsThreadScoped() {
-			return "Responder is attaching a durable task card and isolated work session to this Slack thread."
+			return "Responder is attaching a task card and isolated work session to this Slack thread."
 		}
 		if incident.IsEngineeringTask() {
 			return "Slack is creating and preparing the dedicated engineering room."
@@ -2021,9 +2068,7 @@ func CommitmentOverdueMessage(
 			"*Current state:* " + displayOr(episode.Status, "working") +
 				"\n*Next action:* " + displayOr(episode.NextAction, "none recorded"),
 		},
-		Context: []string{
-			"Ask me to retry, narrow the request, or close it. Nothing has been lost.",
-		},
+		Context: []string{"Work is preserved; ask me to retry, narrow, or close it."},
 	}
 }
 

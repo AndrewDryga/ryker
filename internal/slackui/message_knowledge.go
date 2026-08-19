@@ -4,24 +4,18 @@ import (
 	"github.com/AndrewDryga/responder/internal/knowledgeoffer"
 )
 
-// KnowledgeConfirmationStale is what an operator reads when a knowledge click
-// can no longer be acted on. It says the two things they need: nothing was
-// created, and how to get a fresh offer.
-const KnowledgeConfirmationStale = "*This confirmation is invalid or stale.* Nothing was " +
-	"created. Ask Responder to propose it again and use the new confirmation button."
+// KnowledgeConfirmationStale tells an operator how to get a fresh proposal.
+const KnowledgeConfirmationStale = "*This confirmation expired; ask Responder for a new proposal.*"
 
 // KnowledgeOperatorOnly refuses a knowledge confirmation from an actor who is
 // not on the configured operator list.
-const KnowledgeOperatorOnly = "*Only configured Responder operators can keep an episode's " +
-	"knowledge.* Nothing was created."
+const KnowledgeOperatorOnly = "*A configured Responder operator must keep episode knowledge.*"
 
 // KnowledgeMembershipRequired refuses an operator whose Slack account is not
 // an active full workspace member and names that distinct remedy.
-const KnowledgeMembershipRequired = "*This Slack account cannot create a runbook draft or a " +
-	"pull request.* Active full workspace membership is required. Nothing was created."
+const KnowledgeMembershipRequired = "*Active full workspace membership is required to create this draft.*"
 
-// KnowledgeDraftFailed prefixes a runbook-draft failure with the fact that
-// nothing was created before appending Emisar's reason.
+// KnowledgeDraftFailed prefixes a runbook-draft failure with Emisar's reason.
 const KnowledgeDraftFailed = "*Responder could not create this runbook draft.* Emisar said: "
 
 // KnowledgeCardFailed prefixes a task-card failure with the fact that nothing
@@ -34,21 +28,7 @@ const KnowledgeCardFailed = "*Responder could not start the task that writes thi
 // It names the two things that could be missing, because they lead to different
 // next steps: an episode that never verified its fix is a gap in the
 // investigation, and an action the record does not hold is a gap in the offer.
-const KnowledgeRefusedNotice = "*Responder refused this.* Its own record no longer shows this " +
-	"episode verifying the remediation, or shows it running the exact Emisar action this draft " +
-	"names. Nothing was created."
-
-// knowledgeOfferContext is the boundary line every knowledge card carries.
-//
-// Both sentences are load-bearing and both are about what confirming does NOT
-// do. A runbook draft is a draft: Emisar holds it, a person reviews it there,
-// and publishing is a decision this product does not make. A knowledge card is
-// a draft pull request: Responder opens it and never merges it. An operator who
-// read either of those as "and then it goes live" would be confirming something
-// nobody offered.
-const knowledgeOfferContext = "Nothing exists yet. Confirming asks Emisar to hold an unpublished " +
-	"runbook draft, or opens a draft pull request for review — Responder publishes neither, and " +
-	"merges nothing."
+const KnowledgeRefusedNotice = "*Current evidence no longer supports this draft; verify the remediation and try again.*"
 
 // WithKnowledgeOffer renders whichever artefact was graded.
 //
@@ -89,7 +69,7 @@ func WithRunbookDraftOffer(
 	if text := externalText(rationale); text != "" {
 		quote = text
 	}
-	return offerCard(message, knowledgeOfferContext, offerProposal{
+	return offerCard(message, "", offerProposal{
 		Quote: quote,
 		Facts: joinFacts([]string{
 			"Runbook `" + safeInlineCode(draft.Slug) + "` — " + externalText(draft.Title),
@@ -99,12 +79,11 @@ func WithRunbookDraftOffer(
 			"From episode `" + safeInlineCode(draft.EpisodeID) + "`, which verified this fix",
 		}),
 		Actions: []Action{{
-			ID:    ActionConfirmKnowledgeOffer,
-			Label: "Draft this runbook",
-			Value: actionValue,
-			Style: "primary",
-			Confirm: "Ask Emisar to hold an unpublished draft of " + draft.Slug +
-				"? Nothing is published, and no action runs.",
+			ID:      ActionConfirmKnowledgeOffer,
+			Label:   "Draft this runbook",
+			Value:   actionValue,
+			Style:   "primary",
+			Confirm: "Create an unpublished draft of " + draft.Slug + " in Emisar?",
 		}},
 	})
 }
@@ -125,7 +104,7 @@ func WithKnowledgeCardOffer(
 	if text := externalText(rationale); text != "" {
 		quote = text
 	}
-	return offerCard(message, knowledgeOfferContext, offerProposal{
+	return offerCard(message, "", offerProposal{
 		Quote: quote,
 		Facts: joinFacts([]string{
 			"Card `" + safeInlineCode(card.Path()) + "`",
@@ -138,7 +117,7 @@ func WithKnowledgeCardOffer(
 			Value: actionValue,
 			Style: "primary",
 			Confirm: "Start an engineering task that writes " + card.Path() +
-				" and opens a draft pull request? Responder never merges it.",
+				" and opens a draft PR for review?",
 		}},
 	})
 }
@@ -154,12 +133,12 @@ func RunbookDraftedNotice(slug string, digest string) string {
 	if digest != "" {
 		receipt += " Definition `" + safeInlineCode(ShortID(digest)) + "`."
 	}
-	return receipt + " Review and publish it in Emisar; Responder cannot, and no action has run."
+	return receipt + " Review and publish it in Emisar."
 }
 
 // KnowledgeCardStartedNotice is the receipt for a card that is now an
 // engineering task on its way to a draft pull request.
 func KnowledgeCardStartedNotice(path string) string {
 	return "*Started.* An engineering task is writing `" + safeInlineCode(path) +
-		"`. It ends at a draft pull request for review, and Responder never merges it."
+		"` and will open a draft PR for review."
 }

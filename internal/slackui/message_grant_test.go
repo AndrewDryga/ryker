@@ -54,8 +54,8 @@ func TestAPromotionCardOffersExactlyOneConfirmationAndNoApproval(t *testing.T) {
 	if actions[0].Confirm == "" {
 		t.Fatal("a grant of authority is confirmed without a confirmation dialog")
 	}
-	if !strings.Contains(actions[0].Confirm, "Emisar still approves every run") {
-		t.Fatalf("the confirm dialog %q does not say Emisar still approves", actions[0].Confirm)
+	if !strings.Contains(actions[0].Confirm, "Emisar decides whether each run can execute") {
+		t.Fatalf("the confirm dialog %q loses Emisar's execution decision", actions[0].Confirm)
 	}
 }
 
@@ -78,11 +78,8 @@ func TestAPromotionCardShowsTheHostsOwnCountAndTheFullActionIdentity(t *testing.
 			t.Fatalf("the promotion card never says %q:\n%s", want, rendered)
 		}
 	}
-	if !strings.Contains(rendered, "Nothing is granted yet") {
-		t.Fatalf("the card does not say nothing is granted yet:\n%s", rendered)
-	}
-	if !strings.Contains(rendered, "never approves a run") {
-		t.Fatalf("the card does not disclaim approving runs:\n%s", rendered)
+	if !strings.Contains(rendered, "Emisar decides whether each run can execute") {
+		t.Fatalf("the card lost its approval boundary:\n%s", rendered)
 	}
 }
 

@@ -224,7 +224,7 @@ func (s *Service) processConfigurationReply(
 			)
 			if renewed {
 				message.Context = append(
-					[]string{"The previous setup expired, so I renewed it. Nothing is saved yet."},
+					[]string{"The previous setup expired, so I renewed it for review."},
 					message.Context...,
 				)
 			}
@@ -246,7 +246,7 @@ func (s *Service) processConfigurationReply(
 		message := slackui.ChannelSetupQuestion(channel.Name, session, s.setupRepositoryChoices())
 		if renewed {
 			message.Context = append(
-				[]string{"The previous setup expired, so I renewed it. Nothing is saved yet."},
+				[]string{"The previous setup expired, so I renewed it for review."},
 				message.Context...,
 			)
 		}
@@ -280,7 +280,7 @@ func (s *Service) processConfigurationReply(
 	if renewed {
 		message.Context = append(
 			[]string{
-				"The previous setup expired, so I renewed it and applied your answer. Nothing is saved yet.",
+				"The previous setup expired, so I renewed it and applied your answer for review.",
 			},
 			message.Context...,
 		)

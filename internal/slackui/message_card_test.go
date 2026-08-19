@@ -49,6 +49,52 @@ func stripLines(t *testing.T, message Message, index int) []string {
 	return strings.Split(strips[index], "\n")
 }
 
+// The engineering progress view used to be a 46-column terminal table. Real
+// tasks clipped both the change summary and every readiness goal, while the
+// final owner floated alone as "yours". Milestones are ordinary Slack text:
+// they wrap, keep their hierarchy, and name the operator's turn plainly.
+func TestTaskProgressUsesReadableSlackMilestones(t *testing.T) {
+	message := Message{
+		Text: "task", MilestoneLedger: true,
+		Ledger: []LedgerStep{
+			{Glyph: "✓", Label: "Workspace ready", When: "42m ago"},
+			{Glyph: "✓", Label: "Make the change", Detail: "5 files · +446 −12"},
+			{Current: true, Label: "Readiness review", Children: []LedgerStep{{
+				Glyph: "✓", Label: "Confirm Gate dispatch and telemetry coverage",
+			}}},
+			{Label: "Draft PR"},
+			{Label: "Review and merge", Owner: "your turn"},
+		},
+	}
+	blocks := message.Blocks()
+	var progress string
+	for _, block := range blocks {
+		section, ok := block.(*slack.SectionBlock)
+		if ok && section.Text != nil && strings.Contains(section.Text.Text, "*Progress*") {
+			progress = section.Text.Text
+		}
+		if _, ok := block.(*slack.RichTextBlock); ok {
+			t.Fatal("milestones rendered as a preformatted terminal strip")
+		}
+	}
+	for _, want := range []string{
+		"*Progress*", "✅  *Workspace ready*", "5 files · +446 −12",
+		"Confirm Gate dispatch and telemetry coverage", "Review and merge",
+	} {
+		if !strings.Contains(progress, want) {
+			t.Fatalf("progress is missing %q:\n%s", want, progress)
+		}
+	}
+	if strings.Contains(progress, "Your turn") {
+		t.Fatalf("an upcoming review step claims operator custody:\n%s", progress)
+	}
+	message.Ledger[2].Current = false
+	message.Ledger[4].Current = true
+	if final := milestoneLedgerText(message.Ledger); !strings.Contains(final, "Your turn") {
+		t.Fatalf("the current review step lost operator custody:\n%s", final)
+	}
+}
+
 // column reports where a cell starts in display terms. Byte offsets are not
 // comparable across these lines: "·" is two bytes and "▸" is three, so two
 // lines whose columns line up on screen have different indexes in memory.

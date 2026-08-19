@@ -103,8 +103,8 @@ func TestExplicitLastingGuidanceCannotFinishWithoutAConfirmableOffer(t *testing.
 		t.Fatalf("corrected offer was not delivered: %+v", slackClient.posts)
 	}
 	message := slackClient.posts[0].message
-	if !strings.Contains(renderedSlackMessage(message), "Nothing is saved yet") {
-		t.Fatalf("memory confirmation boundary missing: %+v", message)
+	if !strings.Contains(renderedSlackMessage(message), "Saved memory guides investigations") {
+		t.Fatalf("memory confirmation scope missing: %+v", message)
 	}
 	if action := findSlackAction(t, message, slackui.ActionRememberMemory); action.Value == "" {
 		t.Fatal("memory confirmation action has no value")

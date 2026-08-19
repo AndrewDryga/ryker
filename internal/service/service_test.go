@@ -1482,51 +1482,52 @@ type slackHistoryRequest struct {
 }
 
 type fakeSlack struct {
-	posts              []slackPost
-	ephemerals         []slackPost
-	updates            []slackUpdate
-	statuses           []slackStatus
-	reactions          []slackReaction
-	removedReactions   []slackReaction
-	deletes            []slackReaction
-	deleteErr          error
-	responseDeletes    []string
-	responseDeleteErr  error
-	homes              []slackPost
-	homeErr            error
-	joined             []string
-	joinErr            error
-	postErr            error
-	ephemeralErr       error
-	inviteErr          error
-	inviteByChannel    map[string]error
-	statusErr          error
-	updateErr          error
-	updateCall         int
-	channel            slackui.Channel
-	channelErr         error
-	dedupePosts        bool
-	findDeliveryErr    error
-	createChannelErr   error
-	createChannelCalls int
-	history            []slackui.HistoryMessage
-	channelHistory     []slackui.HistoryMessage
-	historyErr         error
-	historyRequests    []slackHistoryRequest
-	channels           []slackui.Channel
-	listChannelsErr    error
-	files              map[string][]byte
-	fileInfo           map[string]slackui.HistoryFile
-	fileInfoRequests   []string
-	fileInfoErr        error
-	downloadErr        error
-	downloads          []string
-	uploads            []slackFileUpload
-	uploadErr          error
-	deniedUsers        map[string]bool
-	canvases           []slackCanvas
-	canvasURL          string
-	canvasErr          error
+	posts                           []slackPost
+	ephemerals                      []slackPost
+	updates                         []slackUpdate
+	statuses                        []slackStatus
+	reactions                       []slackReaction
+	removedReactions                []slackReaction
+	deletes                         []slackReaction
+	deleteErr                       error
+	responseDeletes                 []string
+	responseDeleteErr               error
+	homes                           []slackPost
+	homeErr                         error
+	joined                          []string
+	joinErr                         error
+	postErr                         error
+	ephemeralErr                    error
+	rejectEphemeralTimelineMarkdown bool
+	inviteErr                       error
+	inviteByChannel                 map[string]error
+	statusErr                       error
+	updateErr                       error
+	updateCall                      int
+	channel                         slackui.Channel
+	channelErr                      error
+	dedupePosts                     bool
+	findDeliveryErr                 error
+	createChannelErr                error
+	createChannelCalls              int
+	history                         []slackui.HistoryMessage
+	channelHistory                  []slackui.HistoryMessage
+	historyErr                      error
+	historyRequests                 []slackHistoryRequest
+	channels                        []slackui.Channel
+	listChannelsErr                 error
+	files                           map[string][]byte
+	fileInfo                        map[string]slackui.HistoryFile
+	fileInfoRequests                []string
+	fileInfoErr                     error
+	downloadErr                     error
+	downloads                       []string
+	uploads                         []slackFileUpload
+	uploadErr                       error
+	deniedUsers                     map[string]bool
+	canvases                        []slackCanvas
+	canvasURL                       string
+	canvasErr                       error
 }
 
 // slackCanvas is one long-form report Slack was asked to hold.
@@ -1617,6 +1618,11 @@ func (f *fakeSlack) PostEphemeral(
 	channel, user, threadTS string,
 	message slackui.Message,
 ) error {
+	if f.rejectEphemeralTimelineMarkdown &&
+		(strings.Contains(message.Markdown, "## Remediation timeline") ||
+			strings.Contains(message.Markdown, "## Engineering task timeline")) {
+		return errors.New("Slack API internal_error (500): translated timeline markdown rejected")
+	}
 	f.ephemerals = append(f.ephemerals, slackPost{
 		channel: channel, user: user, thread: threadTS, message: message,
 	})

@@ -1,12 +1,14 @@
 package slackui
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/slack-go/slack"
 )
 
 func reportFixture() core.RemediationRecord {
@@ -37,6 +39,24 @@ func reportFixture() core.RemediationRecord {
 	}
 }
 
+func TestTimelineDisclosesWhenOlderEventsAreOmitted(t *testing.T) {
+	record := reportFixture()
+	record.Events = make([]core.TimelineEvent, 41)
+	for index := range record.Events {
+		record.Events[index] = core.TimelineEvent{
+			Title:     "Event " + fmt.Sprint(index+1),
+			CreatedAt: time.Date(2026, 7, 27, 19, index, 0, 0, time.UTC),
+		}
+	}
+	want := fmt.Sprintf("Showing the latest 40 of %d events.", len(core.RemediationTimeline(record)))
+	if inline := strings.Join(TimelineMessage(record).Sections, "\n"); !strings.Contains(inline, want) {
+		t.Fatalf("inline timeline hides its bound:\n%s", inline)
+	}
+	if document := TimelineReport(record).Markdown; !strings.Contains(document, want) {
+		t.Fatalf("Canvas timeline hides its bound:\n%s", document)
+	}
+}
+
 // A report card names the document by the document's own heading.
 //
 // The title is taken out of the Markdown rather than composed a second time
@@ -63,15 +83,50 @@ func TestReportTitlesComeFromTheReportsOwnHeading(t *testing.T) {
 			if testCase.report.Title != testCase.want {
 				t.Fatalf("title = %q, want %q", testCase.report.Title, testCase.want)
 			}
-			// The document is the report the constructors already build, not a
-			// second rendering of the same facts.
-			if testCase.report.Markdown != testCase.report.Message.Markdown {
-				t.Fatal("the canvas body is not the report the message form carries")
+			if testCase.report.Markdown == "" {
+				t.Fatal("the Canvas document is empty")
 			}
 			if testCase.report.Headline == "" || testCase.report.Counts == "" {
 				t.Fatalf("report = %+v", testCase.report)
 			}
 		})
+	}
+}
+
+// A six-event production timeline was accepted as an interaction and then
+// failed chat.postEphemeral on every retry because it depended on Slack's
+// translated Markdown block. The private control must use the oldest, stable
+// message primitives while the complete Markdown document remains available
+// to Canvas.
+func TestTimelineControlUsesStableInlineEventBlocks(t *testing.T) {
+	record := reportFixture()
+	record.Events = append(record.Events, core.TimelineEvent{
+		Title:     "Readiness review completed",
+		Detail:    "All configured checks passed and the exact candidate tree was pinned.",
+		CreatedAt: time.Date(2026, 7, 27, 20, 45, 0, 0, time.UTC),
+	})
+	message := TimelineMessage(record)
+	var rendered strings.Builder
+	rendered.WriteString(message.Header)
+	rendered.WriteByte('\n')
+	for _, block := range message.Blocks() {
+		switch typed := block.(type) {
+		case *slack.MarkdownBlock:
+			t.Fatalf("interactive timeline still uses translated Markdown: %+v", typed)
+		case *slack.SectionBlock:
+			if typed.Text != nil {
+				rendered.WriteString(typed.Text.Text)
+				rendered.WriteByte('\n')
+			}
+		}
+	}
+	for _, want := range []string{"Remediation timeline", "Readiness review completed", "exact candidate tree"} {
+		if !strings.Contains(rendered.String(), want) {
+			t.Fatalf("inline timeline omitted %q:\n%s", want, rendered.String())
+		}
+	}
+	if report := TimelineReport(record); !strings.Contains(report.Markdown, "Readiness review completed") {
+		t.Fatalf("Canvas timeline lost the full document: %q", report.Markdown)
 	}
 }
 
@@ -118,7 +173,7 @@ func TestEachReportLeadsWithItsOwnJudgement(t *testing.T) {
 	}, {
 		name:     "evidence is counts",
 		headline: EvidenceReport(record.Incident, record.Evidence, record.Coverage).Headline,
-		want:     []string{"1 durable observation", "3 coverage layers"},
+		want:     []string{"1 observation", "3 coverage layers"},
 	}} {
 		t.Run(testCase.name, func(t *testing.T) {
 			for _, want := range testCase.want {

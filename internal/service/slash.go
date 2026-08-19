@@ -420,9 +420,7 @@ func (s *Service) finishIncidentIntelligence(
 	if errors.Is(err, store.ErrNotFound) {
 		return s.refuseSlashInput(
 			ctx, input,
-			"*There is no incident attached to this channel.* The timeline, evidence, "+
-				"handoff, and postmortem records read the durable record for the latest "+
-				"incident room. Open the App Home to find one.",
+			"*There is no incident attached to this channel; open App Home to find one.*",
 		)
 	}
 	if err != nil {
@@ -447,7 +445,7 @@ func (s *Service) publishIncidentRecord(
 	}
 	return s.finishSlashMessage(ctx, input, reportcanvas.Publish(
 		ctx, s.slack, s.log, input.ChannelID, report,
-	))
+	), incident.ConversationThreadTS())
 }
 
 func (s *Service) configureShadow(
@@ -946,7 +944,7 @@ func slashStatusMessage(
 				"Priority is: channel override, channel setup, workspace override, then deployment configuration.",
 			mentionBehavior(summon),
 			fmt.Sprintf(
-				"*Durable behavior*\n%d enabled preference%s affect investigation method or "+
+				"*Saved behavior*\n%d enabled preference%s affect investigation method or "+
 					"presentation. %d enabled standing rule%s can admit only their typed "+
 					"matching messages and run read-only threaded checks, even when broad "+
 					"proactive triage is off. The App Home lists the exact entries.",
@@ -964,9 +962,6 @@ func slashStatusMessage(
 				Label: "New incident repository",
 				Value: "`" + repository + "` - new Slack incidents use this repository and its configured policies",
 			},
-		},
-		Context: []string{
-			"Only you can see this status. Slack settings are durable and audited.",
 		},
 	}
 	if incident == nil {

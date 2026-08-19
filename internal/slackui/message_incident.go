@@ -401,7 +401,7 @@ func RecordDirectoryMessage(record core.RemediationRecord) Message {
 	}
 	events := core.RemediationTimeline(record)
 	message := Message{
-		Text:      "Open the durable " + noun + " record.",
+		Text:      "Open the " + noun + " record.",
 		Header:    "Work record",
 		Temporary: true,
 	}
@@ -472,12 +472,11 @@ func ConversationResponseWithIncidentOffer(
 ) Message {
 	message := ConversationResponse(text, sanitizer)
 	message.Actions = []Action{{
-		ID:    ActionOpenIncident,
-		Label: "Open incident room",
-		Value: sourceInputID,
-		Style: "primary",
-		Confirm: "Create a dedicated incident room and isolated Coop working copy from this message? " +
-			"No merge, push, deployment, or infrastructure change will occur.",
+		ID:      ActionOpenIncident,
+		Label:   "Open incident room",
+		Value:   sourceInputID,
+		Style:   "primary",
+		Confirm: "Create a dedicated incident room and isolated investigation workspace from this message?",
 	}}
 	return message
 }
@@ -495,9 +494,8 @@ func WithIncidentOffer(message Message, sourceInputID string) Message {
 	message.Context = nil
 	message.Actions = append(message.Actions, Action{
 		ID: ActionOpenIncident, Label: "Open incident room", Value: sourceInputID,
-		Style: "primary",
-		Confirm: "Create a dedicated incident room and isolated Coop working copy from this message? " +
-			"No merge, push, deployment, or infrastructure change will occur.",
+		Style:   "primary",
+		Confirm: "Create a dedicated incident room and isolated investigation workspace from this message?",
 	})
 	return message
 }
@@ -511,43 +509,35 @@ func IncidentEvidenceResponse(
 	message := ConciseEvidenceResponse(text, evidence, coverage, sanitizer)
 	message.Header = "Investigation update"
 	message.Text = truncateUTF8("Investigation update: "+message.Text, 4000)
-	message.Context = append(
-		message.Context,
-		"The card's ⋯ menu has the detailed source ledger. Internal tool output and hidden reasoning are omitted.",
-	)
 	return message
 }
 
 func TimelineMessage(record core.RemediationRecord) Message {
 	incident := record.Incident
 	events := core.RemediationTimeline(record)
-	var body strings.Builder
 	title := "Remediation timeline"
 	if incident.IsEngineeringTask() {
-		// Nothing was remediated: the room holds a change someone asked for.
 		title = "Engineering task timeline"
 	}
-	body.WriteString("## " + title + "\n")
+	sections := make([]string, 0, max(1, len(events)))
 	if len(events) == 0 {
-		body.WriteString("\nNo " + workNoun(incident) + " activity has been recorded yet.")
+		sections = append(sections, "No "+workNoun(incident)+" activity has been recorded yet.")
 	}
 	start := max(0, len(events)-40)
+	if start > 0 {
+		sections = append(sections, fmt.Sprintf("Showing the latest 40 of %d events.", len(events)))
+	}
 	for _, event := range events[start:] {
-		fmt.Fprintf(
-			&body,
-			"\n- **%s** - %s",
+		section := fmt.Sprintf("*%s  ·  %s*",
 			event.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"),
-			escapeSlackText(event.Title),
-		)
+			escapeSlackText(event.Title))
 		if event.Detail != "" {
-			fmt.Fprintf(
-				&body, "  \n  %s",
-				truncateUTF8(escapeSlackText(event.Detail), 600),
-			)
+			section += "\n" + truncateUTF8(escapeSlackText(event.Detail), 600)
 		}
 		if link := sourceLink(event.URL); link != "" {
-			fmt.Fprintf(&body, "  \n  %s", link)
+			section += "\n" + link
 		}
+		sections = append(sections, section)
 	}
 	fallback := fmt.Sprintf(
 		"Incident %s remediation timeline with %d events.",
@@ -560,14 +550,37 @@ func TimelineMessage(record core.RemediationRecord) Message {
 		)
 	}
 	return Message{
-		Text:     fallback,
-		Markdown: truncateMarkdown(body.String(), 12000),
-		Stripe:   StripeIdle,
-		Context: []string{
-			"Built from the alert, agent runs, evidence, Emisar approvals, and publication state. The latest events are shown oldest first.",
-		},
+		Text: fallback, Header: title, Sections: sections, Stripe: StripeIdle,
 		Temporary: true,
 	}
+}
+
+func timelineDocument(record core.RemediationRecord) string {
+	events := core.RemediationTimeline(record)
+	title := "Remediation timeline"
+	if record.Incident.IsEngineeringTask() {
+		title = "Engineering task timeline"
+	}
+	var body strings.Builder
+	body.WriteString("## " + title + "\n")
+	if len(events) == 0 {
+		body.WriteString("\nNo " + workNoun(record.Incident) + " activity has been recorded yet.")
+	}
+	start := max(0, len(events)-40)
+	if start > 0 {
+		fmt.Fprintf(&body, "\n\nShowing the latest 40 of %d events.\n", len(events))
+	}
+	for _, event := range events[start:] {
+		fmt.Fprintf(&body, "\n- **%s** - %s",
+			event.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"), escapeSlackText(event.Title))
+		if event.Detail != "" {
+			fmt.Fprintf(&body, "  \n  %s", truncateUTF8(escapeSlackText(event.Detail), 600))
+		}
+		if link := sourceLink(event.URL); link != "" {
+			fmt.Fprintf(&body, "  \n  %s", link)
+		}
+	}
+	return truncateMarkdown(body.String(), 12000)
 }
 
 func HandoffMessage(
@@ -616,11 +629,6 @@ func HandoffMessage(
 		body.String(), record.Evidence[:min(len(record.Evidence), 6)],
 		record.Coverage[:min(len(record.Coverage), 12)],
 		NewSanitizer(30000),
-	)
-	message.Context = append(
-		message.Context,
-		"This handoff is generated from durable "+workNoun(incident)+
-			" state; unknown coverage remains explicit.",
 	)
 	message.Temporary = true
 	return message
@@ -728,10 +736,6 @@ func PostmortemDraft(record core.RemediationRecord) Message {
 		body.String(), nil, record.Coverage[:min(len(record.Coverage), 12)],
 		NewSanitizer(30000),
 	)
-	message.Context = append(
-		message.Context,
-		"Generated from the durable remediation record. It does not invent impact, root cause, owners, or actions that were not recorded.",
-	)
 	message.Temporary = true
 	return message
 }
@@ -773,7 +777,7 @@ func EngineeringTaskHandoff(channelID string) Message {
 	return handoffMessage(
 		channelID, "Engineering room ready", "engineering room",
 		"an isolated writable working copy",
-		"No merge, push, deployment, or infrastructure change occurs without separate authorization.",
+		"Publication requires operator approval.",
 	)
 }
 
@@ -826,7 +830,7 @@ func incidentActions(
 	}
 	review := Action{
 		ID: ActionReview, Label: "Run readiness check", Value: incident.ID,
-		Confirm: "Compare the isolated changes with the current repository state, check rebase and configured validation and policy gates, and report whether the fix is ready for external review. This does not merge, push, sign, or deploy.",
+		Confirm: "Compare the isolated changes with the current repository, rebase state, validation, and policy gates?",
 	}
 	publish := publishAction(incident, publication)
 	viewPR := Action{
@@ -948,13 +952,12 @@ func incidentActions(
 // actually do to the PR that already exists — or does not.
 //
 // Shared by the incident and task cards so the four label variants and their
-// confirmations cannot drift apart: the confirmation is the only place the
-// operator is told that lease-protected publication cannot merge or deploy.
+// confirmations cannot drift apart.
 func publishAction(incident core.Incident, publication core.Publication) Action {
 	publish := Action{
 		ID: ActionPublishPR, Label: "Create draft PR (operator)",
 		Value: PublicationActionValue(incident.ID, publication.Generation), Style: "primary",
-		Confirm: "Run a fresh Coop readiness review, recreate the exact approved tree in an isolated checkout, push a Responder-owned branch, and create a draft pull request? This cannot merge or deploy.",
+		Confirm: "Run a fresh readiness review and create a draft PR from the approved tree?",
 	}
 	if publication.HasPR() {
 		publish.Label = "Update PR"
@@ -962,7 +965,7 @@ func publishAction(incident core.Incident, publication core.Publication) Action 
 			publish.Label = "Retry PR update"
 		}
 		publish.Confirm = fmt.Sprintf(
-			"Run a fresh Coop readiness review and update existing PR #%d using lease-protected branch publication? This cannot merge or deploy.",
+			"Run a fresh readiness review and update PR #%d from the approved tree?",
 			publication.PRNumber,
 		)
 	} else if publication.State == core.PublicationFailed {
@@ -983,12 +986,12 @@ func closeWorkAction(
 ) Action {
 	closeWork := Action{
 		ID: ActionResolve, Label: "Close incident", Value: incident.ID, Style: "danger",
-		Confirm: "Close this work? Responder later reclaims zero-change or published workspace state. Unpublished changes remain retained for operator action.",
+		Confirm: "Close this work and retain any remaining workspace changes for operator action?",
 	}
 	if incident.IsEngineeringTask() {
 		closeWork.Label = "Close task"
 		if hasCodeChanges && !publication.Published() {
-			closeWork.Confirm = "Close this task and retain its unpublished changes? Closed Coop sessions cannot be reviewed or published. Create the draft PR first unless you intend to inspect and explicitly discard the retained work later."
+			closeWork.Confirm = "Close this task and archive its remaining changes for manual inspection and recovery outside the task?"
 		}
 	}
 	return closeWork
@@ -1056,12 +1059,9 @@ func IncidentStatusMessage(incident core.Incident) Message {
 			activity, noun, ShortID(incident.ID), strings.ToLower(status),
 			signalStateSummary(incident), next,
 		),
-		Header:   noun + " " + ShortID(incident.ID) + ": " + activity,
-		Sections: []string{workflowStateDescription(incident) + " " + next},
-		Context: []string{
-			"*" + stateLabel + ": " + status + "* · Status is read-only. No publication, " +
-				"merge, signing, deployment, or infrastructure change was requested.",
-		},
+		Header:    noun + " " + ShortID(incident.ID) + ": " + activity,
+		Sections:  []string{workflowStateDescription(incident) + " " + next},
+		Context:   []string{"*" + stateLabel + ": " + status + "*"},
 		Temporary: true,
 	}
 	// The only control a status readout has earned. There is no card URL to

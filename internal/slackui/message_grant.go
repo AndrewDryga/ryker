@@ -7,16 +7,12 @@ import (
 	"github.com/AndrewDryga/responder/internal/remediation"
 )
 
-// GrantConfirmationStale is what an operator reads when a promotion click can
-// no longer be acted on. It says the two things they need: nothing happened,
-// and how to get a fresh offer.
-const GrantConfirmationStale = "*This promotion confirmation is invalid or stale.* Nothing was " +
-	"granted. Ask Responder to propose it again and use the new confirmation button."
+// GrantConfirmationStale tells an operator how to get a fresh offer.
+const GrantConfirmationStale = "*This promotion expired; ask Responder for a new one.*"
 
 // GrantRefusedNotice is the refusal an operator reads when the host can no
 // longer reproduce the evidence the card was composed on.
-const GrantRefusedNotice = "*Responder refused this promotion.* Its own count of verified " +
-	"successes for this exact action no longer supports the rung on this card. Nothing was granted."
+const GrantRefusedNotice = "*Current verified successes no longer support this promotion.*"
 
 // GrantExpiryLabel renders a grant's remaining life the way the offer cards
 // render every other expiry.
@@ -36,20 +32,11 @@ func GrantConfirmedNotice(grant remediation.Grant, verified int) string {
 	return "*Granted.* I may now offer `" + safeInlineCode(grant.Action.ActionID) +
 		"` for this alert at `" + safeInlineCode(string(grant.Rung)) + "`, on " +
 		strconv.Itoa(verified) + " verified successes, until " +
-		grant.ExpiresAt.Format("2006-01-02") + ". Emisar still approves every run, and this " +
-		"drops a rung on its own if one fails."
+		grant.ExpiresAt.Format("2006-01-02") + "; Emisar decides whether each run can execute and a failure lowers the grant automatically."
 }
 
-// grantOfferContext is the boundary line every promotion card carries.
-//
-// It says the two things a reader of this card most needs and is least likely
-// to assume. Nothing is granted until the button is pressed, and what the button
-// grants is permission to OFFER — Emisar still decides every individual run,
-// exactly as it does today. A card that let anyone read "approved" into it would
-// be reintroducing the Slack-side approval this product deliberately deleted.
-const grantOfferContext = "Nothing is granted yet. Confirming lets Responder offer this exact " +
-	"action for this exact alert; it never approves a run. Emisar still decides every execution, " +
-	"and the grant expires on its own."
+// grantOfferContext keeps the execution decision boundary explicit.
+const grantOfferContext = "Emisar decides whether each run can execute."
 
 // rungPhrase says what a rung actually permits, in the reader's terms.
 //
@@ -108,7 +95,7 @@ func WithGrantPromotionOffer(
 			Value: actionValue,
 			Style: "primary",
 			Confirm: "Let Responder offer " + grant.Action.ActionID + " for this alert " +
-				rememberPhrase(expiresLabel) + "? Emisar still approves every run.",
+				rememberPhrase(expiresLabel) + " while Emisar decides whether each run can execute?",
 		}},
 	})
 }
@@ -143,9 +130,6 @@ func GrantDemotedMessage(grant remediation.Grant, reason remediation.DemotionRea
 			"`" + safeInlineCode(grant.Action.ActionID) + "` is now at `" +
 				safeInlineCode(string(grant.Rung)) + "` for `" +
 				safeInlineCode(grant.Trigger.AlertGroupKey) + "`.",
-		},
-		Context: []string{
-			"Demotion is automatic and needs no confirmation; a promotion always does.",
 		},
 		Temporary: true,
 	}

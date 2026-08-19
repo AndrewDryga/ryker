@@ -129,7 +129,7 @@ func TestChannelSetupExplainsMultiRepositoryAccess(t *testing.T) {
 		message.Actions[0].Style != "primary" ||
 		message.Actions[1].Label != "Backend" ||
 		!strings.Contains(message.Markdown, "read-only companion repositories") ||
-		!strings.Contains(message.Markdown, "does not grant write access") {
+		!strings.Contains(message.Markdown, "edits require a confirmed engineering task") {
 		t.Fatalf("multi-repository question = %+v", message)
 	}
 
@@ -138,8 +138,8 @@ func TestChannelSetupExplainsMultiRepositoryAccess(t *testing.T) {
 	}, choices[1])
 	fields := fmt.Sprint(confirmation.Fields)
 	if !strings.Contains(fields, "All product repositories (multi-repo)") ||
-		!strings.Contains(fields, "Read Infrastructure plus its configured read-only companions") ||
-		!strings.Contains(fields, "exact repository named on its confirmation card") {
+		!strings.Contains(fields, "Read Infrastructure and its companion repositories") ||
+		!strings.Contains(fields, "edits require a confirmed engineering task") {
 		t.Fatalf("multi-repository confirmation = %+v", confirmation)
 	}
 }

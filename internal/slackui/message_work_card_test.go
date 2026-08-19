@@ -288,8 +288,8 @@ func TestTaskCardControlsFollowCustody(t *testing.T) {
 			primaries, readyCard.Actions)
 	}
 	publish, found := findAction(readyCard.Actions, ActionPublishPR)
-	if !found || !strings.Contains(publish.Confirm, "cannot merge or deploy") {
-		t.Fatalf("the primary lost the boundary its confirmation carries: %+v", publish)
+	if !found || !strings.Contains(publish.Confirm, "create a draft PR") {
+		t.Fatalf("the primary does not name its result: %+v", publish)
 	}
 
 	// Discard is the one irreversible control on any task card, and it stays a
@@ -304,6 +304,18 @@ func TestTaskCardControlsFollowCustody(t *testing.T) {
 	discard, found := findAction(closedCard.Actions, ActionDiscardWork)
 	if !found || discard.Style != "danger" || discard.Confirm == "" {
 		t.Fatalf("closed task with retained work lost its discard control: %+v", closedCard.Actions)
+	}
+}
+
+func TestClosingChangedTaskNamesManualRecoveryBoundary(t *testing.T) {
+	task := taskFixture()
+	card := IncidentCardWithPublication(
+		task, "Tenant Infrastructure", nil, true, true, core.Publication{},
+		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
+	)
+	close, found := findAction(card.Actions, ActionResolve)
+	if !found || !strings.Contains(close.Confirm, "manual inspection and recovery outside the task") {
+		t.Fatalf("changed-task close confirmation hides the recovery boundary: %+v", close)
 	}
 }
 
@@ -371,7 +383,7 @@ func TestTaskLedgerStatesPositionAndTerminalCardsShrinkToAReceipt(t *testing.T) 
 	position, steps := ledgerMarker(card.Ledger)
 	if position != 2 || steps != 5 ||
 		card.Ledger[1].Label != "Investigate" ||
-		card.Ledger[0].Glyph != "✓" || card.Ledger[4].Owner != "yours" {
+		card.Ledger[0].Glyph != "✓" || card.Ledger[4].Owner != "your turn" {
 		t.Fatalf("ledger does not state the run's position: %+v", card.Ledger)
 	}
 	// The fallback carries the position too, because a notification gets the
@@ -701,37 +713,34 @@ func TestEverySurfaceLabelsTheDiffControlByWhetherOneIsOpen(t *testing.T) {
 	}
 }
 
-// One boundary, or none, and never a stack of them.
+// Cards and confirmations name the requested action without stacking boilerplate.
 //
 // The card used to state one in its footer while the publication receipt beside
 // it stated another and the confirmation on the button stated a third, all
-// saying that Responder cannot merge or deploy. A disclaimer read three times
-// is a disclaimer read none, so the card states none: the boundary lives on the
-// confirmation, which is the only place it can still change a decision.
+// saying that Responder could not merge or deploy. The card now states the
+// concrete result: create or update a draft PR from the approved tree.
 //
 // Run over every state, including the receipts a finished task shrinks to.
 // Merged and closed are where a stacked disclaimer would hide longest, because
 // nobody re-reads a card about work that is over.
 func TestTheTaskCardStacksNoDisclaimers(t *testing.T) {
-	boundary := []string{
+	boilerplate := []string{
 		"cannot merge or deploy", "did not merge, deploy, sign",
 		"Lease-protected", "lease-protected", "No merge, signing, push",
 	}
 	for _, card := range everyTaskCardState(t) {
 		t.Run(card.name, func(t *testing.T) {
 			for _, line := range card.message.Context {
-				for _, phrase := range boundary {
+				for _, phrase := range boilerplate {
 					if strings.Contains(line, phrase) {
 						t.Errorf("a context line restates the boundary: %q", line)
 					}
 				}
 			}
-			// The confirmations are where it belongs, and they still carry it.
+			// Publication confirmations name their concrete result.
 			for _, action := range card.message.Actions {
-				if action.ID == ActionPublishPR && !strings.Contains(
-					action.Confirm, "cannot merge or deploy",
-				) {
-					t.Errorf("the publish confirmation dropped the boundary: %q", action.Confirm)
+				if action.ID == ActionPublishPR && !strings.Contains(action.Confirm, "PR") {
+					t.Errorf("the publish confirmation does not name its result: %q", action.Confirm)
 				}
 			}
 		})
@@ -740,7 +749,7 @@ func TestTheTaskCardStacksNoDisclaimers(t *testing.T) {
 	// either: the publish control confirmed with it and the PR body carries it.
 	receipt := PublicationMessage(openPublication(), false)
 	for _, line := range receipt.Context {
-		for _, phrase := range boundary {
+		for _, phrase := range boilerplate {
 			if strings.Contains(line, phrase) {
 				t.Errorf("the publication receipt restates the boundary: %q", line)
 			}

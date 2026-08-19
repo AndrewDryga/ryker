@@ -807,8 +807,7 @@ func publicationBody(request Request, result Result) string {
 	return fmt.Sprintf(
 		"## Responder task\n\n%s\n\n## Publication proof\n\n"+
 			"- Coop session: `%s`\n- Reviewed parent: `%s`\n- Reviewed tree: `%s`\n"+
-			"- Publication commit: `%s`\n- Gate: `%s`\n- Rebase: `%s`\n\n"+
-			"This is a draft PR. Responder did not merge, deploy, sign, or change infrastructure.\n",
+			"- Publication commit: `%s`\n- Gate: `%s`\n- Rebase: `%s`\n",
 		safeTitle(request.Incident.Title),
 		request.Incident.CoopSessionID,
 		request.Review.ParentHead,

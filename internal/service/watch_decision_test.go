@@ -1337,8 +1337,8 @@ func TestWatchedEngineeringOfferConditionsPrimaryReplyOnConfirmation(t *testing.
 		}
 	}
 	if len(offer.Actions) != 1 ||
-		!strings.Contains(offer.Actions[0].Confirm, "cannot merge or deploy") {
-		t.Fatalf("engineering task confirmation boundary = %+v", offer.Actions)
+		!strings.Contains(offer.Actions[0].Confirm, "isolated working copy") {
+		t.Fatalf("engineering task confirmation does not name its workspace = %+v", offer.Actions)
 	}
 	if incidents, err := st.ListIncidents(ctx, 10); err != nil || len(incidents) != 0 {
 		t.Fatalf("engineering task started before confirmation = %+v, %v", incidents, err)

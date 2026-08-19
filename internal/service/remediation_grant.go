@@ -234,7 +234,7 @@ func (s *Service) handleConfirmGrantPromotion(
 	if err != nil {
 		return s.finishSlashInput(
 			ctx, input,
-			"*Responder could not record this grant.* "+err.Error()+" Nothing was granted.",
+			"*Responder could not record this grant.* "+err.Error(),
 		)
 	}
 	s.audit(ctx, core.AuditEvent{
@@ -257,8 +257,7 @@ func (s *Service) authorizeGrantAction(
 	if !s.cfg.IsOperator(input.UserID) {
 		return false, s.finishSlashInput(
 			ctx, input,
-			"*Only configured Responder operators can grant remediation authority.* Nothing "+
-				"was granted.",
+			"*A configured Responder operator must grant remediation authority.*",
 		)
 	}
 	allowed, err := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
@@ -268,8 +267,7 @@ func (s *Service) authorizeGrantAction(
 	if !allowed {
 		return false, s.finishSlashInput(
 			ctx, input,
-			"*This Slack account cannot grant remediation authority.* Active full workspace "+
-				"membership is required. Nothing was granted.",
+			"*Active full workspace membership is required to grant remediation authority.*",
 		)
 	}
 	return true, nil

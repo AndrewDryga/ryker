@@ -65,9 +65,10 @@ func engineeringTaskCard(
 		Sections: []string{state.stateLine(
 			escapeSlackText(repositoryName), cardAge(task.CreatedAt, now), ask,
 		)},
-		Ledger:  ledger,
-		Context: []string{taskFooter(task, repositoryName)},
-		Actions: actions,
+		Ledger:          ledger,
+		MilestoneLedger: true,
+		Context:         []string{taskFooter(task, repositoryName)},
+		Actions:         actions,
 		// The card ends in the whole request, which has no bound worth
 		// promising, so the controls have to be above it rather than under it.
 		ActionsEarly: true,
@@ -391,7 +392,7 @@ func taskLedger(
 		{Label: changeStepLabel(task, changesMade)},
 		{Label: "Readiness review"},
 		{Label: "Draft PR"},
-		{Label: "Review & merge", Owner: "yours"},
+		{Label: "Review and merge", Owner: "your turn"},
 	}
 	done := []bool{task.CoopSessionID != "", changesMade, reviewPassed, prLanded, false}
 	if done[0] && !task.CreatedAt.IsZero() {
@@ -511,8 +512,7 @@ func taskBlocker(
 		return detail + "\n\nAdd or restore the intended code changes before trying again."
 	default:
 		return detail + "\n\nCorrect the blocker, then use *" +
-			publishAction(task, publication).Label + "*. Responder will confirm that the " +
-			"task still has changes before it reviews or publishes anything."
+			publishAction(task, publication).Label + "*."
 	}
 }
 
@@ -720,7 +720,7 @@ func taskActions(
 			actions = append(actions, Action{
 				ID: ActionDiscardWork, Label: "Discard retained work",
 				Value: task.ID, Style: "danger",
-				Confirm: "Permanently delete this closed task's unpublished committed work and isolated Coop state? This cannot be undone. Dirty uncommitted work is never discarded.",
+				Confirm: "Permanently delete this closed task's unpublished committed work while preserving uncommitted files?",
 			})
 		}
 		return actions, overflow
@@ -1074,7 +1074,7 @@ func WithExistingTaskOfferPointer(
 func WithPullRequestReview(message Message, sourceInputID string) Message {
 	message.Actions = append(message.Actions, Action{
 		ID: ActionReviewPullRequest, Label: "Review PR", Value: sourceInputID,
-		Confirm: "Review the exact PR diff, discussion, risks, and missing work? This is read-only.",
+		Confirm: "Review the exact PR diff, discussion, risks, and missing work using read-only access?",
 	})
 	return message
 }
@@ -1098,10 +1098,10 @@ func withEngineeringTaskOffer(
 		))
 	}
 	confirmation := "Start this task for " + repositoryLabel +
-		" in an isolated working copy? Emisar may edit, test, and commit there, but cannot merge or deploy."
+		" in an isolated working copy where Emisar can edit, test, and commit?"
 	if pullRequest != "" {
 		confirmation = "Start this task from the exact authenticated head of " + pullRequest +
-			" and allow its reviewed result to update that same PR? Emisar cannot merge or deploy."
+			" and allow its reviewed result to update that PR?"
 	}
 	message.Actions = append(message.Actions, Action{
 		ID: ActionStartTask, Label: label, Value: sourceInputID,
@@ -1168,9 +1168,9 @@ func ChangesMessage(
 	patch []byte,
 	navigation ChangesNavigation,
 ) Message {
-	context := "The fork remains isolated. No merge, signing, push, or deployment occurred."
+	context := ""
 	if incident.CoopForkName != "" {
-		context = "Fork `" + incident.CoopForkName + "`. No merge, signing, push, or deployment occurred."
+		context = "Fork `" + incident.CoopForkName + "`"
 	}
 	work := "incident"
 	if incident.IsEngineeringTask() {
@@ -1198,8 +1198,10 @@ func ChangesMessage(
 		Text:      "Code changes for " + work + " " + ShortID(incident.ID) + ": " + summary,
 		Header:    "Code changes",
 		Markdown:  truncateMarkdown(markdown.String(), 12000),
-		Context:   []string{context},
 		Temporary: true,
+	}
+	if context != "" {
+		message.Context = []string{context}
 	}
 	if navigation.PreviousValue != "" {
 		message.Actions = append(message.Actions, Action{
@@ -1260,13 +1262,12 @@ func ReviewMessage(incident core.Incident, summary string, publishable bool) Mes
 		Header:   glyph + " " + state,
 		Stripe:   stripe,
 		Sections: []string{summary},
-		Context:  []string{"No branch was pushed and no pull request was created."},
 	}
 	if publishable && incident.IsEngineeringTask() {
-		message.Context = []string{"The reviewed tree is pinned. Creating a draft PR will not merge or deploy it."}
+		message.Context = []string{"Candidate tree pinned for a draft PR."}
 	} else if !publishable && incident.IsEngineeringTask() {
 		message.Context = []string{
-			"The isolated change is preserved. Use the controls on the durable task card after correcting the blocker.",
+			"Changes preserved. Correct the blocker on the task card.",
 		}
 	}
 	return message

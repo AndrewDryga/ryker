@@ -227,7 +227,6 @@ func reviewCard(header, why string, entries []string, actions ...Action) Message
 		Header:   header,
 		Stripe:   StripeNeedsYou,
 		Sections: append(append([]string{}, entries...), why),
-		Context:  []string{"Nothing changes until you choose."},
 		Actions:  actions,
 	}
 }

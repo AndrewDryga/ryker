@@ -39,8 +39,7 @@ func ChannelSetupQuestion(
 				"use `" + session.Draft.Repository + "` for code context, keep app-alert " +
 				"triage in place, and invite no additional people to incident rooms.\n\n" +
 				"Choose **Be proactive** if I should also follow the channel and contribute when " +
-				"an SRE teammate reasonably would. Nothing is saved until a configured operator " +
-				"chooses an option."
+				"an SRE teammate reasonably would. A configured operator must confirm these settings."
 			return Message{
 				Text:     "Configure Emisar for " + channel,
 				Header:   "Emisar joined " + channel,
@@ -63,8 +62,7 @@ func ChannelSetupQuestion(
 		}
 		intro = "I can configure how Emisar participates in " + channel + ". " +
 			"Use a button or reply naturally. I’ll continue wherever you answer: in the channel " +
-			"or in a thread. Only configured operators can answer. Nothing is saved until you " +
-			"review and confirm it.\n\n"
+			"or in a thread. A configured operator must review and confirm the result.\n\n"
 		question = "**1 of 4 - When should I participate?**\n\n" +
 			"- **Mentions only:** answer direct mentions and explicit requests.\n" +
 			"- **Proactive:** read channel context and reply when an SRE teammate reasonably would.\n" +
@@ -82,8 +80,7 @@ func ChannelSetupQuestion(
 			"A **multi-repository context** lets Emisar read its primary repository and the " +
 			"configured read-only companion repositories. A **single repository** limits the " +
 			"channel's default code context to that repository.\n\n" +
-			"This choice does not grant write access. If code needs to change, Emisar will name " +
-			"the exact repository and ask you to confirm that engineering task."
+			"Repository edits require a confirmed engineering task for the exact repository."
 		orderedRepositories := append([]RepositoryChoice(nil), repositories...)
 		sort.SliceStable(orderedRepositories, func(i, j int) bool {
 			if orderedRepositories[i].Set != orderedRepositories[j].Set {
@@ -100,8 +97,7 @@ func ChannelSetupQuestion(
 		}
 	case "alerts":
 		question = "**3 of 4 - What should happen when an app posts a credible unresolved alert?**\n\n" +
-			"Human questions never create incidents automatically. Automatic creation applies only " +
-			"to authenticated Slack app alerts that the evidence check classifies as unresolved."
+			"Automatic creation applies to authenticated app alerts verified as unresolved."
 		actions = []Action{
 			setupChoiceAction(ActionSetupAlertReply, "Reply here", session.ID,
 				session.Draft.AlertPolicy == "reply"),
@@ -171,10 +167,8 @@ func ChannelSetupConfirmation(
 	return Message{
 		Text:   "Review Emisar configuration for " + channel,
 		Header: "Review channel behavior",
-		Markdown: "Nothing is saved yet. Confirm the typed settings below, or start over.\n\n" +
-			"**Safety boundary:** this config controls listening, repository context, alert " +
-			"escalation, and invitations. It does not authorize repository edits, approvals, " +
-			"deployments, or infrastructure changes.",
+		Markdown: "Confirm these settings or start over.\n\n" +
+			"This configuration controls participation, repository context, alert escalation, and invitations.",
 		Fields: []Field{
 			{Label: "Participation", Value: setupParticipationLabel(session.Draft.Participation)},
 			{Label: "Code context", Value: repositoryChoiceSummary(repository)},
@@ -247,14 +241,13 @@ func repositoryChoiceSummary(repository RepositoryChoice) string {
 
 func repositoryAccessSummary(repository RepositoryChoice) string {
 	if !repository.Set {
-		return "This repository only; any code change still requires a confirmed engineering task."
+		return "Read this repository; edits require a confirmed engineering task."
 	}
 	primary := strings.TrimSpace(repository.PrimaryDisplayName)
 	if primary == "" {
 		primary = "the primary repository"
 	}
-	return "Read " + primary + " plus its configured read-only companions. " +
-		"An engineering task can edit only the exact repository named on its confirmation card."
+	return "Read " + primary + " and its companion repositories; edits require a confirmed engineering task."
 }
 
 // ChannelSetupMoved replaces the card an operator left behind when they asked to

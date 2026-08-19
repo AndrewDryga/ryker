@@ -242,7 +242,7 @@ func TestFailureCardsAnswerTheSameThreeQuestions(t *testing.T) {
 		stripe:   StripeFailed,
 		header:   "🛑 Summary needs another pass",
 		stopped:  "did not come back in a form I could publish",
-		survived: "findings are preserved",
+		survived: "workspace are preserved",
 		next:     "I’ll write it up again",
 	}, {
 		name:     "triage gave up",
@@ -250,7 +250,7 @@ func TestFailureCardsAnswerTheSameThreeQuestions(t *testing.T) {
 		stripe:   StripeFailed,
 		header:   "🛑 Request needs a retry",
 		stopped:  "stopped retrying this request",
-		survived: "nothing half-finished to undo",
+		survived: "before a model turn started",
 		next:     "Reply in this thread to try again",
 	}, {
 		name:     "verification gave up",
@@ -258,7 +258,7 @@ func TestFailureCardsAnswerTheSameThreeQuestions(t *testing.T) {
 		stripe:   StripeFailed,
 		header:   "🛑 Verification needs attention",
 		stopped:  "stopped verifying its result",
-		survived: "Emisar holds the authoritative record",
+		survived: "Emisar run record shows what happened",
 		next:     "before repeating any action",
 	}} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -303,12 +303,9 @@ func TestFailureCardsAnswerTheSameThreeQuestions(t *testing.T) {
 	}
 }
 
-// The boundary line survives the reshape.
-//
-// "No merge, push, signing, or deployment occurred" is the sentence that makes
-// a failure safe to walk away from, and it is the kind of line a layout change
-// drops without anybody noticing until it is needed.
-func TestFailureCardsKeepTheirSafetyBoundary(t *testing.T) {
+// Failure cards say what survived and what to do next without appending the
+// same merge/deploy disclaimer to every unrelated failure.
+func TestFailureCardsKeepRecoveryWithoutBoilerplate(t *testing.T) {
 	for name, message := range map[string]Message{
 		"turn":         TurnFailureMessage(core.Incident{}, "failed", "provider timed out"),
 		"report":       AgentReportFailureMessage(core.Incident{}),
@@ -316,10 +313,14 @@ func TestFailureCardsKeepTheirSafetyBoundary(t *testing.T) {
 		"verification": ApprovalVerificationFailureMessage(),
 	} {
 		t.Run(name, func(t *testing.T) {
-			context := strings.Join(message.Context, "\n")
-			if !strings.Contains(context, "No merge, push, signing, or deployment occurred") &&
-				!strings.Contains(context, "kept out of the channel") {
-				t.Fatalf("failure card lost its boundary line: %+v", message.Context)
+			content := cardText(message)
+			if len(message.Context) == 0 {
+				t.Fatalf("failure card lost its next step: %+v", message)
+			}
+			for _, boilerplate := range []string{"No merge, push", "kept out of the channel"} {
+				if strings.Contains(content, boilerplate) {
+					t.Fatalf("failure card still carries %q: %s", boilerplate, content)
+				}
 			}
 		})
 	}

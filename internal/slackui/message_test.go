@@ -321,7 +321,7 @@ func TestIncidentCardControlsExplainTheirEffects(t *testing.T) {
 		{ID: ActionChanges, Label: "View diff", Value: incident.ID},
 		{
 			ID: ActionReview, Label: "Run readiness check", Value: incident.ID,
-			Confirm: "Compare the isolated changes with the current repository state, check rebase and configured validation and policy gates, and report whether the fix is ready for external review. This does not merge, push, sign, or deploy.",
+			Confirm: "Compare the isolated changes with the current repository, rebase state, validation, and policy gates?",
 		},
 	}
 	if len(card.Actions) != 4 || !slices.Equal(card.Actions[:3], want) {
@@ -515,7 +515,7 @@ func TestConversationIncidentOfferExplainsAndConfirmsCreation(t *testing.T) {
 		message.Actions[0].Value != "slack-source-1" ||
 		message.Actions[0].Label != "Open incident room" ||
 		message.Actions[0].Style != "primary" ||
-		!strings.Contains(message.Actions[0].Confirm, "No merge, push, deployment") ||
+		message.Actions[0].Confirm != "Create a dedicated incident room and isolated investigation workspace from this message?" ||
 		len(message.Context) != 0 {
 		t.Fatalf("incident offer = %+v", message)
 	}
@@ -814,7 +814,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		!strings.Contains(strings.Join(failed.Sections, "\n"), "Retry PR update") ||
 		!slices.ContainsFunc(failed.Actions, func(action Action) bool {
 			return action.ID == ActionPublishPR && action.Label == "Retry PR update" &&
-				strings.Contains(action.Confirm, "update existing PR #42")
+				strings.Contains(action.Confirm, "update PR #42")
 		}) || !slices.ContainsFunc(failed.Actions, func(action Action) bool {
 		return action.ID == ActionViewPR && action.URL == "https://github.example/pull/42"
 	}) {
@@ -1189,9 +1189,9 @@ func TestEmisarApprovalCardLinksToAuthoritativeConsole(t *testing.T) {
 	// it renders in the reader's own timezone; see the token assertion below.
 	if message.Header != "✋ Approval needed: nomad.alloc_restart" ||
 		message.Stripe != StripeNeedsYou ||
-		!strings.Contains(strings.Join(message.Sections, "\n"), "Emisar paused this before anything ran") ||
+		!strings.Contains(strings.Join(message.Sections, "\n"), "Review the exact target") ||
 		!strings.Contains(strings.Join(message.Context, "\n"), "2026-07-28 06:30 UTC") ||
-		!strings.Contains(strings.Join(message.Context, "\n"), "Approval happens only in Emisar") {
+		strings.Contains(strings.Join(message.Context, "\n"), "Approval happens only") {
 		t.Fatalf("approval card copy = %+v", message)
 	}
 	// The decorator adds one section. The reply it decorates keeps its own —
@@ -1265,12 +1265,10 @@ func TestEmisarApprovalCardSupportsCurrentConversationWithoutIncident(t *testing
 			ExpiresAt:   time.Date(2099, 8, 1, 0, 0, 0, 0, time.UTC),
 		},
 	)
-	// Superseded: "I'll watch this request" was a section between the reply and
-	// the button. It is a promise about Responder rather than a fact about the
-	// decision, so it is one context line now.
+	// The card keeps only the typed request identity and the approval link.
 	content := cardText(message)
-	if !strings.Contains(strings.Join(message.Context, "\n"), "update this card automatically") ||
-		strings.Contains(content, "pinned card") || len(message.Actions) != 1 ||
+	if !strings.Contains(strings.Join(message.Context, "\n"), "Run `run_shared`") ||
+		strings.Contains(content, "automatically") || len(message.Actions) != 1 ||
 		message.Actions[0].URL != "https://emisar.dev/app/acme/approvals/apr_shared" {
 		t.Fatalf("shared approval card = %+v", message)
 	}
@@ -1294,7 +1292,7 @@ func TestEmisarApprovalStateMessagesExplainProgressAndCompletion(t *testing.T) {
 	completed := EmisarApprovalStateMessage(approval, true)
 	if completed.Header != "✅ Emisar action completed" ||
 		!strings.Contains(strings.Join(completed.Sections, "\n"), "concise follow-up") ||
-		!strings.Contains(strings.Join(completed.Context, "\n"), "authoritative") {
+		!strings.Contains(strings.Join(completed.Context, "\n"), "Run `run_state`") {
 		t.Fatalf("completed approval state = %+v", completed)
 	}
 }
@@ -1497,18 +1495,11 @@ func TestAgentReportFailureSpeaksToTheOperatorNotAboutTheParser(t *testing.T) {
 	for _, required := range []string{
 		"preserved", // what survived
 		"Reply",     // what to do
-		"nothing was lost",
+		"workspace are preserved",
 	} {
 		if !strings.Contains(content, required) {
 			t.Errorf("failure message does not tell the operator %q:\n%s", required, content)
 		}
-	}
-
-	// The safety statement stays: no merge, push, signing or deployment, and no
-	// raw transcript. That is the one piece of plumbing an operator does care
-	// about, because it bounds what could have happened while they were away.
-	if !strings.Contains(content, "No merge, push, signing, or deployment occurred") {
-		t.Error("failure message dropped the statement bounding what happened")
 	}
 
 	// It takes no detail argument at all now. The parameter existed "for
@@ -1559,18 +1550,14 @@ func TestTimelineHandoffAndPostmortemRemainEvidenceGrounded(t *testing.T) {
 	timeline := TimelineMessage(record)
 	handoff := HandoffMessage(record)
 	postmortem := PostmortemDraft(record)
-	if !strings.Contains(timeline.Markdown, "Live state checked") ||
-		!strings.Contains(timeline.Markdown, "Emisar run succeeded") ||
+	if !strings.Contains(strings.Join(timeline.Sections, "\n"), "Live state checked") ||
+		!strings.Contains(strings.Join(timeline.Sections, "\n"), "Emisar run succeeded") ||
 		!strings.Contains(handoff.Markdown, "Shift handoff") ||
 		!strings.Contains(handoff.Markdown, "## Evidence") ||
 		!strings.Contains(postmortem.Markdown, "Post-incident draft") ||
 		!strings.Contains(postmortem.Markdown, "2026-07-27 21:00 UTC") ||
 		!strings.Contains(postmortem.Markdown, "service.restart") ||
-		!strings.Contains(postmortem.Markdown, "Confirm root cause") ||
-		!strings.Contains(
-			strings.Join(postmortem.Context, "\n"),
-			"does not invent impact, root cause, owners, or actions",
-		) {
+		!strings.Contains(postmortem.Markdown, "Confirm root cause") {
 		t.Fatalf(
 			"timeline=%+v\nhandoff=%+v\npostmortem=%+v",
 			timeline, handoff, postmortem,
@@ -1630,7 +1617,7 @@ func TestMemoryOfferAndDirectoryExplainExactOperatorAction(t *testing.T) {
 	content := cardText(message)
 	for _, expected := range []string{
 		"old portal", "alias_of", "service:portal",
-		"Nothing is saved yet", "not live evidence",
+		"Saved memory guides investigations", "current evidence decides health",
 	} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("memory offer missing %q: %+v", expected, message)
@@ -1638,7 +1625,7 @@ func TestMemoryOfferAndDirectoryExplainExactOperatorAction(t *testing.T) {
 	}
 	actions := cardActions(message)
 	if len(actions) != 1 || actions[0].ID != ActionRememberMemory ||
-		!strings.Contains(actions[0].Confirm, "cannot establish current health") {
+		actions[0].Confirm != "Save this channel memory for 30 days?" {
 		t.Fatalf("memory offer action = %+v", actions)
 	}
 	if strings.Contains(content, "**") {
@@ -1670,7 +1657,7 @@ func TestScheduleOfferAndDirectoryExplainExecutionBoundary(t *testing.T) {
 	offer := WithScheduleOffer(ConversationResponse("I can do that.", NewSanitizer(12000)), task, `{"version":1}`, "Every day at 09:00 UTC")
 	offerActions := cardActions(offer)
 	if len(offerActions) != 1 || offerActions[0].ID != ActionRememberSchedule ||
-		!strings.Contains(strings.Join(offer.Context, " "), "cannot reuse an old approval") {
+		!strings.Contains(strings.Join(offer.Context, " "), "current policy") {
 		t.Fatalf("schedule offer = %+v", offer)
 	}
 	// Every control still reaches the row it belongs to; two of them now sit in
@@ -1712,7 +1699,7 @@ func TestScheduleOfferMakesFutureCommitmentConditional(t *testing.T) {
 		t.Fatalf("schedule confirmation action = %+v", actions)
 	}
 	if !strings.Contains(content, "Confirm the schedule below") ||
-		!strings.Contains(content, "Nothing is scheduled yet") ||
+		strings.Contains(content, "I’ll recheck") ||
 		message.Text == "I’ll recheck cms-web in 24 hours and report here." {
 		t.Fatalf("schedule offer retained an unconditional commitment: %+v", message)
 	}
@@ -1722,8 +1709,16 @@ func TestScheduleOfferMakesFutureCommitmentConditional(t *testing.T) {
 	// confirmation on a row now, so clearing only the bottom pile would have
 	// deleted the sentence and left the button that agreed to it.
 	if len(cardActions(unavailable)) != 0 || unavailable.Stripe != StripeIdle ||
-		!strings.Contains(unavailable.Text, "Nothing was scheduled") {
+		!strings.Contains(unavailable.Text, "Schedule could not be prepared") {
 		t.Fatalf("invalid schedule offer = %+v", unavailable)
+	}
+
+	diagnosis := WithScheduleOffer(
+		ConversationResponse("The rollout is healthy among the checked routes.", NewSanitizer(12000)),
+		task, `{"version":1}`, "Once on Aug 3, 2026 at 19:18 UTC",
+	)
+	if !strings.Contains(cardText(diagnosis), "The rollout is healthy among the checked routes") {
+		t.Fatalf("schedule offer discarded the answer it followed: %+v", diagnosis)
 	}
 }
 
@@ -1744,7 +1739,7 @@ func TestSeveralScheduleOffersUseOneAtomicConfirmation(t *testing.T) {
 		!strings.Contains(actions[0].Confirm, "all 2") ||
 		!strings.Contains(content, "Check Zot tomorrow") ||
 		!strings.Contains(content, "Check Zot in three days") ||
-		!strings.Contains(content, "none are") {
+		!strings.Contains(actions[0].Confirm, "as one set") {
 		t.Fatalf("schedule batch card = %+v", message)
 	}
 	// One confirmation, and it is on the first proposal rather than repeated
@@ -1774,7 +1769,7 @@ func TestGuidanceMemoryUsesNaturalConfirmationAndManagementCopy(t *testing.T) {
 	actions := cardActions(message)
 	for _, expected := range []string{
 		"Start with a simple summary", "only you, across this workspace",
-		"cannot start work", "Remember this",
+		"Saved guidance shapes replies", "Remember this",
 	} {
 		if !strings.Contains(content+"\n"+actions[0].Label, expected) {
 			t.Fatalf("guidance offer missing %q: %+v", expected, message)
@@ -1829,7 +1824,7 @@ func TestFailedEngineeringReviewOffersSameTaskRecovery(t *testing.T) {
 		t.Fatalf("failed review recovery = %+v", message)
 	}
 	if len(message.Context) != 1 ||
-		!strings.Contains(message.Context[0], "durable task card") {
+		!strings.Contains(message.Context[0], "Correct the blocker on the task card") {
 		t.Fatalf("failed review context = %+v", message.Context)
 	}
 }
@@ -1861,8 +1856,7 @@ func TestMemoryHealthAndReviewCardsAreExplicit(t *testing.T) {
 		ID: "review_1", Kind: "stale", Reason: "Not recently recalled.",
 	}, []core.MemoryEntry{entry})
 	if len(review.Actions) != 2 || review.Actions[0].ID != ActionKeepMemoryReview ||
-		review.Actions[1].ID != ActionForgetMemoryReview ||
-		!strings.Contains(strings.Join(review.Context, "\n"), "Nothing changes until you choose") {
+		review.Actions[1].ID != ActionForgetMemoryReview || len(review.Context) != 0 {
 		t.Fatalf("review = %+v", review)
 	}
 }
@@ -1887,7 +1881,7 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 	)
 	preferenceContent := cardText(preferenceMessage)
 	for _, expected := range []string{
-		"Health-check depth", "deep", "Not active yet", "read-only",
+		"Health-check depth", "deep", "You (operator preference)",
 	} {
 		if !strings.Contains(preferenceContent, expected) {
 			t.Fatalf("preference offer lacks %q: %+v", expected, preferenceMessage)
@@ -1962,7 +1956,7 @@ func TestBehaviorOfferCardsAndDirectoriesExplainScopeAndSafety(t *testing.T) {
 	ruleContent := cardText(ruleMessage)
 	for _, expected := range []string{
 		"Review Terraform plans", "saved plan", "red flags",
-		"read-only", "Not active yet",
+		"This channel",
 	} {
 		if !strings.Contains(ruleContent, expected) {
 			t.Fatalf("rule offer lacks %q: %+v", expected, ruleMessage)
@@ -2126,7 +2120,7 @@ func TestOverdueCardDistinguishesAStallFromAQuietTurn(t *testing.T) {
 			if !strings.Contains(message.Sections[1], "*Next action:* Investigating") {
 				t.Fatalf("overdue card dropped the next action: %+v", message)
 			}
-			if !strings.Contains(spoken, "Ask me to retry") {
+			if !strings.Contains(strings.ToLower(spoken), "ask me to retry") {
 				t.Fatalf("overdue card stopped saying what the operator can do:\n%s", spoken)
 			}
 			if strings.Contains(strings.ToLower(spoken), "sorry") {

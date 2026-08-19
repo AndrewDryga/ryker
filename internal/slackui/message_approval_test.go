@@ -72,10 +72,10 @@ func TestEmisarApprovalStatesAgreeOnColourGlyphAndWord(t *testing.T) {
 
 // A denied approval is reported, not editorialised.
 //
-// The card says what is true — it did not run, nothing changed — and does not
-// grade the decision or ask for it again. This is the one state where the
+// The card says what is true and continues without the declined action. It does
+// not grade the decision or ask for it again. This is the one state where the
 // temptation to argue is real, and the copy is the guard against it.
-func TestDeniedApprovalStaysAcceptingAndStatesWhatDidNotHappen(t *testing.T) {
+func TestDeniedApprovalStaysAcceptingAndStatesWhatHappensNext(t *testing.T) {
 	message := EmisarApprovalStateMessage(core.EmisarApproval{
 		RequestID: "apr_1", RunID: "run_1", ActionID: "nomad.alloc_restart",
 		RunnerRef: "prod~abc", Status: "denied",
@@ -83,8 +83,8 @@ func TestDeniedApprovalStaysAcceptingAndStatesWhatDidNotHappen(t *testing.T) {
 	}, false)
 	content := cardText(message)
 	if !strings.Contains(content, "was denied and did not run") ||
-		!strings.Contains(content, "No operational change was made") {
-		t.Fatalf("denied approval lost what did not happen: %q", content)
+		!strings.Contains(content, "continue without this action") {
+		t.Fatalf("denied approval lost the next step: %q", content)
 	}
 	for _, forbidden := range []string{"unfortunate", "should", "try again", "reconsider"} {
 		if strings.Contains(strings.ToLower(content), forbidden) {
