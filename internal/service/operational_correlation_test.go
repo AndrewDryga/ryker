@@ -2423,6 +2423,71 @@ func TestARefireAfterTheRecoveredHoldStartsAtTheNewCard(t *testing.T) {
 	}
 }
 
+// Signing Server and Internal Utils fired twenty seconds apart. The second
+// lifecycle was linked to the first for useful operational history, but the
+// host also copied the first card's Slack destination. Even with shadow mode
+// fixed, the Internal Utils decision would have appeared under another alert.
+// A parent is evidence continuity, never reply routing.
+func TestANewOperationalLifecycleKeepsHistoryWithoutBorrowingItsThread(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "CUTILS", Participation: "proactive",
+		Repository: "repo", AlertPolicy: "reply", ActorID: "UOPERATOR",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	now := time.Now().UTC()
+	first := core.SlackInput{
+		ID: "signing-firing", EnvelopeID: "env-signing-firing", EventID: "event-signing-firing",
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CUTILS",
+		MessageTS: "1700.100", UserID: "BBETTERSTACK", ReceivedAt: now,
+		Text: "New incident for Signing Server\nCause: Status 502\n" +
+			"Incident: <https://uptime.betterstack.com/team/t57321/incidents/1003449400|Incident>",
+	}
+	second := first
+	second.ID, second.EnvelopeID, second.EventID = "utils-firing", "env-utils-firing", "event-utils-firing"
+	second.MessageTS, second.ReceivedAt = "1700.200", now.Add(20*time.Second)
+	second.Text = "New incident for Internal Utils\nCause: Status 502\n" +
+		"Incident: <https://uptime.betterstack.com/team/t57321/incidents/1003449411|Incident>"
+	for _, input := range []core.SlackInput{first, second} {
+		if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+			t.Fatalf("admit %s = %t, %v", input.ID, created, err)
+		}
+		if err := svc.processSlackInput(ctx); err != nil {
+			t.Fatalf("queue %s: %v", input.ID, err)
+		}
+	}
+	firstRun, err := st.GetAgentRunBySource(ctx, "watch", first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRun, err := st.GetAgentRunBySource(ctx, "watch", second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondEpisode, err := st.GetWorkEpisode(ctx, secondRun.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondEpisode.ParentEpisodeID != firstRun.EpisodeID {
+		t.Fatalf("new lifecycle history parent = %q, want %q",
+			secondEpisode.ParentEpisodeID, firstRun.EpisodeID)
+	}
+	if secondRun.ThreadTS != second.MessageTS ||
+		secondEpisode.Destination.ThreadTS != second.MessageTS {
+		t.Fatalf("new lifecycle destination = run %q episode %q, want %q",
+			secondRun.ThreadTS, secondEpisode.Destination.ThreadTS, second.MessageTS)
+	}
+}
+
 // A card that repeats what the stream just answered costs no model turn.
 //
 // A1 stopped a newer card from destroying the investigation in flight, and A3

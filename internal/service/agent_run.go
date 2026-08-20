@@ -14,6 +14,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/alertstream"
 	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
 	"github.com/AndrewDryga/responder/internal/changeledger"
+	"github.com/AndrewDryga/responder/internal/channelparticipation"
 	"github.com/AndrewDryga/responder/internal/completionpolicy"
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
@@ -359,8 +360,12 @@ func (s *Service) captureWatchTurnState(
 	}
 	if !isPrivateSlackVerificationReplay(input) &&
 		!state.RuleEvaluationCaptured && standingrule.EvaluationEligible(input) {
+		shadow, err := s.watchDecisionShadowed(ctx, input, *state)
+		if err != nil {
+			return err
+		}
 		acknowledgement, err := s.recordStandingRuleEvaluation(
-			ctx, input, state.MatchedRules, true,
+			ctx, input, state.MatchedRules, !shadow,
 		)
 		if err != nil {
 			return err
@@ -488,10 +493,6 @@ func (s *Service) correlateWatchEpisode(
 		)
 		if operationalErr == nil {
 			episode.ParentEpisodeID = previous.ID
-			if previous.Destination.ChannelID == input.ChannelID &&
-				previous.Destination.ThreadTS != "" {
-				state.ResponseThreadTS = previous.Destination.ThreadTS
-			}
 		} else if !errors.Is(operationalErr, store.ErrNotFound) {
 			return nil, false, operationalErr
 		}
@@ -516,20 +517,32 @@ func (s *Service) completeIgnoredLifecycleInput(
 		}
 	}
 	if !isPrivateSlackVerificationReplay(input) {
+		shadow, err := s.shadowEnabled(ctx, input.ChannelID)
+		if err != nil {
+			return err
+		}
+		visible, err := channelparticipation.LifecyclePresenceVisible(
+			ctx, s.store, watchConversationKey(input), shadow,
+		)
+		if err != nil {
+			return err
+		}
 		phase := externalMessageLifecyclePhase(input.Text)
 		acknowledgement, err := s.recordStandingRuleEvaluation(
 			ctx,
 			input,
 			rules,
-			phase == externalLifecycleCreated || phase == externalLifecyclePlanning,
+			visible && (phase == externalLifecycleCreated || phase == externalLifecyclePlanning),
 		)
 		if err != nil {
 			return err
 		}
-		if err := watchpresence.FinishHandled(
-			ctx, unpacedSlack(s.slack), input.ChannelID, input.MessageTS, acknowledgement,
-		); err != nil && s.log != nil {
-			s.log.Warn("mark handled external lifecycle card", "input", input.ID, "error", err)
+		if visible {
+			if err := watchpresence.FinishHandled(
+				ctx, unpacedSlack(s.slack), input.ChannelID, input.MessageTS, acknowledgement,
+			); err != nil && s.log != nil {
+				s.log.Warn("mark handled external lifecycle card", "input", input.ID, "error", err)
+			}
 		}
 	}
 	s.audit(ctx, core.AuditEvent{
@@ -568,7 +581,6 @@ func (s *Service) completeIgnoredLifecycleInput(
 	}
 	return s.finishSlackInput(ctx, input)
 }
-
 func watchInputWantsPendingStatus(
 	input core.SlackInput,
 	state decisionpkg.WatchTurnState,

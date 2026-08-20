@@ -2451,7 +2451,7 @@ func (r *Reader) Channel(ctx context.Context, id string) (ChannelDetail, bool, e
 // failures; nothing here is the answer to the page's question.
 func mustSlice[T any](items []T, _ error) []T { return items }
 
-// channelSettings resolves each override the way the host resolves it.
+// channelSettings resolves participation the way the host resolves it.
 //
 // The precedence is the slash command's, restated here because the dashboard
 // reads the database directly and cannot call into the service to ask. It is
@@ -2474,10 +2474,10 @@ func (r *Reader) channelSettings(ctx context.Context, id, participation string) 
 			}
 		}
 		switch {
-		case setting.Channel != "inherit":
-			setting.Effective, setting.Source = setting.Channel, "channel override"
 		case setting.Config != "inherit":
 			setting.Effective, setting.Source = setting.Config, "channel setup"
+		case setting.Channel != "inherit":
+			setting.Effective, setting.Source = setting.Channel, "channel override"
 		case setting.Global != "inherit":
 			setting.Effective, setting.Source = setting.Global, "workspace override"
 		default:

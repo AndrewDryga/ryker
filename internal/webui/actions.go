@@ -68,9 +68,8 @@ type Actions interface {
 	// The memory and feedback actions mirror the Slack handlers' store calls
 	// and audit kinds one for one, so the log reads the same whichever surface
 	// the operator used.
-	// SetChannelSetting writes a participation override the way the slash
-	// command writes it, "inherit" included — an override storing the word
-	// would shadow the workspace default it is meant to defer to.
+	// SetChannelSetting uses the slash command's participation path. Confirmed
+	// channels update their configuration; unconfigured channels use overrides.
 	SetChannelSetting(ctx context.Context, channelID, name, value, actor string) error
 	ForgetMemory(ctx context.Context, entryID, actor string) error
 	KeepMemoryReview(ctx context.Context, reviewID, actor string) error

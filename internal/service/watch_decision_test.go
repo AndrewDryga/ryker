@@ -1756,18 +1756,16 @@ func TestTheShadowGateIsNotAnAllowlistOfInputKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const marker = "shadow, err = s.shadowEnabled(ctx, input.ChannelID)"
-	index := strings.Index(string(source), marker)
-	if index < 0 {
+	const marker = "func (s *Service) watchDecisionShadowed("
+	start := strings.Index(string(source), marker)
+	if start < 0 {
 		t.Fatal("the shadow gate has moved; this guard is reading nothing")
 	}
-	// The condition sits immediately above the call.
-	head := string(source[:index])
-	start := strings.LastIndex(head, "shadow := false")
-	if start < 0 {
-		t.Fatal("could not find the start of the shadow gate")
+	end := strings.Index(string(source[start:]), "func watchDecisionCanActivateSchedule")
+	if end < 0 {
+		t.Fatal("could not find the end of the shadow gate")
 	}
-	gate := head[start:]
+	gate := string(source[start : start+end])
 	if strings.Contains(gate, "input.Kind") {
 		t.Errorf(
 			"the shadow gate compares input.Kind again:\n%s\n"+

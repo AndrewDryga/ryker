@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/AndrewDryga/responder/internal/assignments"
+	"github.com/AndrewDryga/responder/internal/channelparticipation"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/reportcanvas"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -86,12 +87,12 @@ func (s *Service) shadowStatus(
 	}
 	err = nil
 	switch {
-	case status.ChannelOverride != "inherit":
-		status.Enabled, err = parseOnOff(status.ChannelOverride)
-		status.EffectiveSource = "channel override"
 	case status.ConfiguredDefault != "inherit":
 		status.Enabled, err = parseOnOff(status.ConfiguredDefault)
 		status.EffectiveSource = "channel setup"
+	case status.ChannelOverride != "inherit":
+		status.Enabled, err = parseOnOff(status.ChannelOverride)
+		status.EffectiveSource = "channel override"
 	case status.GlobalOverride != "inherit":
 		status.Enabled, err = parseOnOff(status.GlobalOverride)
 		status.EffectiveSource = "workspace override"
@@ -128,11 +129,6 @@ func (s *Service) proactiveStatus(
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return proactiveStatus{}, err
 	}
-	if status.ChannelOverride != "inherit" {
-		status.Enabled, err = parseOnOff(status.ChannelOverride)
-		status.EffectiveSource = "channel override"
-		return status, err
-	}
 	if configured, configuredErr := s.store.GetChannelConfiguration(ctx, channelID); configuredErr == nil {
 		status.ConfiguredDefault = "off"
 		if configured.Participation == "proactive" ||
@@ -145,6 +141,11 @@ func (s *Service) proactiveStatus(
 	if status.ConfiguredDefault != "inherit" {
 		status.Enabled, err = parseOnOff(status.ConfiguredDefault)
 		status.EffectiveSource = "channel setup"
+		return status, err
+	}
+	if status.ChannelOverride != "inherit" {
+		status.Enabled, err = parseOnOff(status.ChannelOverride)
+		status.EffectiveSource = "channel override"
 		return status, err
 	}
 	if status.GlobalOverride != "inherit" {
@@ -486,14 +487,8 @@ func (s *Service) configureShadow(
 	if value != "on" && value != "off" && value != "inherit" {
 		return s.refuseSlashInput(ctx, input, slashUsage("shadow"))
 	}
-	if value == "inherit" {
-		if err := s.store.DeleteSlackSetting(
-			ctx, scope, channelID, shadowSettingName,
-		); err != nil {
-			return err
-		}
-	} else if err := s.store.SetSlackSetting(
-		ctx, scope, channelID, shadowSettingName, value, input.UserID,
+	if err := channelparticipation.Set(
+		ctx, s.store, scope, channelID, shadowSettingName, value, input.UserID,
 	); err != nil {
 		return err
 	}
@@ -567,14 +562,8 @@ func (s *Service) configureProactive(
 			)
 		}
 	}
-	if value == "inherit" {
-		if err := s.store.DeleteSlackSetting(
-			ctx, scope, channelID, proactiveSettingName,
-		); err != nil {
-			return err
-		}
-	} else if err := s.store.SetSlackSetting(
-		ctx, scope, channelID, proactiveSettingName, value, input.UserID,
+	if err := channelparticipation.Set(
+		ctx, s.store, scope, channelID, proactiveSettingName, value, input.UserID,
 	); err != nil {
 		return err
 	}

@@ -168,6 +168,83 @@ func TestChannelMembershipRunsConfirmedConversationalSetup(t *testing.T) {
 	}
 }
 
+// A stale control-plane shadow row suppressed a real eight-minute outage even
+// though the channel's confirmed setup said proactive + reply. The model found
+// the deregistered Nomad job, but the host threw the answer away after eight
+// correction rounds. Once setup is confirmed, it is the participation source
+// of truth; legacy overrides must not silently contradict it.
+func TestConfirmedChannelParticipationCannotBeShadowedByLegacyOverride(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "COUTAGE", Participation: "proactive",
+		Repository: cfg.Slack.DefaultRepository, AlertPolicy: "reply",
+		ActorID: "UOPERATOR",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSlackSetting(
+		ctx, "channel", "COUTAGE", shadowSettingName, "on", "control-plane@localhost",
+	); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if enabled, err := svc.shadowEnabled(ctx, "COUTAGE"); err != nil || enabled {
+		t.Fatalf("confirmed proactive channel shadow = %v, %v", enabled, err)
+	}
+	if enabled, err := svc.proactiveEnabled(ctx, "COUTAGE"); err != nil || !enabled {
+		t.Fatalf("confirmed proactive channel watch = %v, %v", enabled, err)
+	}
+}
+
+// Participation used to have two writers: confirmed channel setup and a
+// higher-priority override row. Removing the override precedence must not turn
+// the control-plane buttons into no-ops; they update the confirmed mode now.
+func TestChannelParticipationControlsUpdateTheConfirmedMode(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "CCONTROLS", Participation: "proactive",
+		Repository: cfg.Slack.DefaultRepository, AlertPolicy: "reply",
+		ActorID: "UOPERATOR",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	for _, change := range []struct {
+		name, value, want string
+	}{
+		{name: "shadow", value: "on", want: "shadow"},
+		{name: "shadow", value: "off", want: "proactive"},
+		{name: "proactive", value: "off", want: "mentions"},
+		{name: "proactive", value: "on", want: "proactive"},
+	} {
+		if err := svc.ControlPlaneChannelSetting(
+			ctx, "CCONTROLS", change.name, change.value, "control-plane@localhost",
+		); err != nil {
+			t.Fatalf("set %s=%s: %v", change.name, change.value, err)
+		}
+		configuration, err := st.GetChannelConfiguration(ctx, "CCONTROLS")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if configuration.Participation != change.want {
+			t.Fatalf("%s=%s left participation %q, want %q",
+				change.name, change.value, configuration.Participation, change.want)
+		}
+	}
+}
+
 func TestChannelJoinCanUseProactiveDefaultsWithoutFullWizard(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

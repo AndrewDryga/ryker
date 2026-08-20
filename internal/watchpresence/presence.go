@@ -111,13 +111,13 @@ func HandledEvent(
 // Acknowledgement returns the configured standing-rule reaction or the
 // default custody mark for a watched app message.
 func Acknowledgement(inputKind, configured string) string {
+	if inputKind != "bot_message" {
+		return ""
+	}
 	if configured != "" {
 		return configured
 	}
-	if inputKind == "bot_message" {
-		return Working
-	}
-	return ""
+	return Working
 }
 
 // LeavesHandledMark reports whether finishing the decision should replace the

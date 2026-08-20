@@ -1914,6 +1914,105 @@ func TestWatchedAppCardShowsEyesThenCheckWithoutStandingRule(t *testing.T) {
 	}
 }
 
+// Internal Utils was genuinely down for eight minutes. Responder found the
+// deregistered Nomad job and recorded the decision, but a stale shadow row won
+// over the channel's confirmed proactive + reply setup and no Slack message
+// was delivered. This exercises the whole input -> model result -> Slack reply
+// path so a settings-only unit test cannot hide the production symptom.
+func TestConfiguredProactiveOutageDeliversDespiteLegacyShadowRow(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "CUTILSOUTAGE", Participation: "proactive",
+		Repository: "repo", AlertPolicy: "reply", ActorID: "UOPERATOR",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSlackSetting(
+		ctx, "channel", "CUTILSOUTAGE", shadowSettingName, "on", "control-plane@localhost",
+	); err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{}
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = confirmedAlertReplyResult(time.Now().UTC().Format(time.RFC3339))
+	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	alert := core.SlackInput{
+		ID: "slack-utils-outage", EnvelopeID: "env-utils-outage", EventID: "event-utils-outage",
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CUTILSOUTAGE",
+		MessageTS: "1703.812", UserID: "BBETTERSTACK", ReceivedAt: time.Now().UTC(),
+		Text: "New incident for Internal Utils and 1 similar incident\n" +
+			"*Monitor: * <https://uptime.betterstack.com/team/t57321/monitors/3338713|Internal Utils>\n" +
+			"*Cause: * Status 502\n*Checked URL:* `GET <https://utils.iesdev.com/__internal__>`\n" +
+			"*Response:* ```Bad Gateway```\n*Group:* Utils\nPlease acknowledge the incident:\n" +
+			":warning: <https://uptime.betterstack.com/team/t57321/incidents/1003449411|Incident>\n" +
+			":globe_with_meridians: <https://uptime.betterstack.com/team/t57321/monitors/3338713|Monitor>",
+	}
+	if created, err := st.AdmitSlackInput(ctx, alert); err != nil || !created {
+		t.Fatalf("admit outage = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("outage Slack replies = %+v", slackClient.posts)
+	}
+	if slackClient.posts[0].thread != alert.MessageTS ||
+		!strings.Contains(slackClient.posts[0].message.Text, "Among the checked targets") {
+		t.Fatalf("outage reply destination/body = %+v", slackClient.posts[0])
+	}
+}
+
+// Shadow is an observe-only contract, not "react while working, then clean it
+// up later." A temporary eyes reaction is still a public write and tells the
+// channel work is underway, so the host must decide visibility before claiming
+// the alert card.
+func TestShadowedAlertNeverShowsHostPresence(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "CSHADOWALERT", Participation: "shadow",
+		Repository: "repo", AlertPolicy: "reply", ActorID: "UOPERATOR",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	alert := core.SlackInput{
+		ID: "slack-shadow-outage", EnvelopeID: "env-shadow-outage", EventID: "event-shadow-outage",
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "CSHADOWALERT",
+		MessageTS: "1703.900", UserID: "BBETTERSTACK", ReceivedAt: time.Now().UTC(),
+		Text: "New incident for Internal Utils\nCause: Status 502\n" +
+			"Incident: <https://uptime.betterstack.com/team/t57321/incidents/1003449411|Incident>",
+	}
+	if created, err := st.AdmitSlackInput(ctx, alert); err != nil || !created {
+		t.Fatalf("admit shadow alert = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.reactions) != 0 || len(slackClient.removedReactions) != 0 {
+		t.Fatalf("shadowed alert changed reactions: added=%+v removed=%+v",
+			slackClient.reactions, slackClient.removedReactions)
+	}
+}
+
 // A Terraform review may carry a stray, well-shaped alert assessment. It is
 // not an operational-alert assignment, so that object must neither replace the
 // review nor erase the exact source URL before Slack delivery.

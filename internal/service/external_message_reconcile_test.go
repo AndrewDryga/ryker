@@ -269,6 +269,99 @@ func TestHostHandledLifecycleUpdateShowsCheckWithoutStandingRule(t *testing.T) {
 	}
 }
 
+// Better Stack edited one firing card while its investigation was still
+// running. The edit was a coordination-only acknowledgement, and the fast
+// path added a terminal check beside the working eyes four minutes before the
+// outage decision existed. A card has one owner: lifecycle decoration cannot
+// declare it handled while the exact alert episode is active.
+func TestCoordinationEditCannotMarkAnActiveAlertHandled(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "COUTAGE", Participation: "proactive",
+		Repository: "repo", AlertPolicy: "reply", ActorID: "UOPERATOR",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	now := time.Now().UTC()
+	const incident = "https://uptime.betterstack.com/team/t57321/incidents/1003449411"
+	firing := core.SlackInput{
+		ID: "slack-outage-firing", EnvelopeID: "env-outage-firing", EventID: "event-outage-firing",
+		Kind: "bot_message", TeamID: cfg.Slack.TeamID, ChannelID: "COUTAGE",
+		MessageTS: "1700.812", UserID: "BBETTERSTACK", ReceivedAt: now,
+		Text: "New incident for Internal Utils\nCause: Status 502\nIncident: <" + incident + "|Incident>",
+	}
+	if created, err := st.AdmitSlackInput(ctx, firing); err != nil || !created {
+		t.Fatalf("admit firing card = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	coordination := firing
+	coordination.ID = "slack-outage-acknowledged"
+	coordination.EnvelopeID = "env-outage-acknowledged"
+	coordination.EventID = "event-outage-acknowledged"
+	coordination.ReceivedAt = now.Add(4 * time.Minute)
+	coordination.Text = "<@UOPERATOR> acknowledged Internal Utils incident\nIncident: <" + incident + "|Incident>"
+	if created, err := st.AdmitSlackInput(ctx, coordination); err != nil || !created {
+		t.Fatalf("admit coordination edit = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, reaction := range slackClient.reactions {
+		if reaction.name == "white_check_mark" && reaction.timestamp == firing.MessageTS {
+			t.Fatalf("active alert card was marked handled: %+v", slackClient.reactions)
+		}
+	}
+}
+
+// Shadow means observe without writing. The deterministic lifecycle fast path
+// bypassed the decision gate and left a public check mark even though replies
+// from the same channel were correctly suppressed.
+func TestShadowedLifecycleUpdateLeavesNoReaction(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.SaveChannelConfiguration(ctx, core.ChannelConfiguration{
+		ChannelID: "CSHADOW", Participation: "shadow",
+		Repository: "repo", AlertPolicy: "reply", ActorID: "UOPERATOR",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+	input := core.SlackInput{
+		ID: "slack-shadow-applying", EnvelopeID: "env-shadow-applying",
+		EventID: "event-shadow-applying", Kind: "bot_message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CSHADOW", MessageTS: "1700.900",
+		UserID: "BTERRAFORM", ReceivedAt: time.Now().UTC(),
+		Text: "Run notification for acme/infra\nRun run-abc\nRun Applying",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit shadow lifecycle = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.reactions) != 0 || len(slackClient.removedReactions) != 0 {
+		t.Fatalf("shadow lifecycle changed Slack reactions: added=%+v removed=%+v",
+			slackClient.reactions, slackClient.removedReactions)
+	}
+}
+
 func TestExternalLifecyclePlanningRuleStartsQuietDurableExactRunWatch(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

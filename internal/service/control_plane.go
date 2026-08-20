@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/AndrewDryga/responder/internal/channelparticipation"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
-	"github.com/AndrewDryga/responder/internal/store"
 )
 
 // ControlPlaneAct runs one incident-scoped operator action for the local web
@@ -71,11 +71,10 @@ func (s *Service) ControlPlaneAct(ctx context.Context, action, id, actor string)
 	}
 }
 
-// ControlPlaneChannelSetting writes a participation override the way
-// `/responder proactive` and `/responder shadow` write it: the same store call,
-// the same three values, and "inherit" deleting the row rather than storing the
-// word — an override that stored "inherit" would shadow the workspace default
-// it is meant to defer to.
+// ControlPlaneChannelSetting changes participation through the same path as
+// `/responder proactive` and `/responder shadow`. A channel with confirmed
+// setup updates that configuration; an unconfigured channel retains the
+// deployment/workspace override behavior.
 //
 // Only the two overrides are offered. The channel-setup flow that writes
 // channel_configurations is a guided Slack conversation with a repository
@@ -94,14 +93,7 @@ func (s *Service) ControlPlaneChannelSetting(
 	if strings.TrimSpace(channelID) == "" {
 		return errors.New("a channel is required")
 	}
-	if value == "inherit" {
-		if err := s.store.DeleteSlackSetting(ctx, "channel", channelID, name); err != nil &&
-			!errors.Is(err, store.ErrNotFound) {
-			return err
-		}
-		return nil
-	}
-	return s.store.SetSlackSetting(ctx, "channel", channelID, name, value, actor)
+	return channelparticipation.Set(ctx, s.store, "channel", channelID, name, value, actor)
 }
 
 // ControlPlaneDiscardSession reclaims a retained workspace that belongs to no

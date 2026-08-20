@@ -670,6 +670,17 @@ func (s *Service) applyReplyDecision(
 	return nil
 }
 
+func (s *Service) watchDecisionShadowed(
+	ctx context.Context,
+	input core.SlackInput,
+	state decisionpkg.WatchTurnState,
+) (bool, error) {
+	if state.ApprovalContinuation || strings.HasPrefix(input.EnvelopeID, "replay-public:") {
+		return false, nil
+	}
+	return s.shadowEnabled(ctx, input.ChannelID)
+}
+
 func watchDecisionCanActivateSchedule(decision decisionpkg.WatchDecision) bool {
 	return len(OrderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers)) != 0 && decision.MemoryOffer == nil &&
 		decision.PreferenceOffer == nil && decision.RuleOffer == nil &&
@@ -817,20 +828,12 @@ func (s *Service) applyWatchDecision(
 	// Inverting it makes the description true by construction — a kind added
 	// tomorrow is silent here unless somebody deliberately exempts it.
 	//
-	// The exemptions are explicit operator actions: an approval continuation,
-	// whose outcome would otherwise strand the person who approved it, and a
-	// replay invoked with --publish. A private replay still obeys shadow mode;
-	// only the public envelope carries authority to produce a Slack message.
-	//
 	// Nothing goes silently dead. finishShadowedWatchDecision answers a mention
 	// ephemerally, so whoever said the name learns the channel is observe-only
 	// and everyone else sees nothing.
-	shadow := false
-	if !state.ApprovalContinuation && !strings.HasPrefix(input.EnvelopeID, "replay-public:") {
-		shadow, err = s.shadowEnabled(ctx, input.ChannelID)
-		if err != nil {
-			return err
-		}
+	shadow, err := s.watchDecisionShadowed(ctx, input, state)
+	if err != nil {
+		return err
 	}
 	mode := "live"
 	if shadow {
