@@ -46,6 +46,7 @@ func SupersedeDeliveriesAfterAuthorizedInput(
 		       (newer.message_ts = source.message_ts AND newer.rowid > source.rowid)
 		     )
 		    WHERE source.id = delivery.source_input_id
+		      AND source.envelope_id NOT LIKE 'replay-public:%'
 		      AND NOT EXISTS (
 		        SELECT 1 FROM audit_events AS refusal
 		        WHERE refusal.object_id = newer.id

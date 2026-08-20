@@ -103,6 +103,77 @@ func TestOperationalUpdateAfterTerminalEpisodeStartsLinkedRunnableEpisode(t *tes
 	}
 }
 
+// A published replay of the current Host OOM card inherited the destination of
+// a day-old alert episode. Its investigation correctly targeted the selected
+// card, but the finished answer was queued under historical Slack context.
+// Replay history may link episodes; it never changes the requested destination.
+func TestExplicitOperationalReplayUsesTheSelectedCardAsItsDestination(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT"}
+
+	original := core.SlackInput{
+		ID: "historical-alert", EnvelopeID: "env-historical-alert",
+		EventID: "event-historical-alert", Kind: "bot_message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH", MessageTS: "1700.100",
+		UserID: "BGRAFANA", ReceivedAt: time.Now().UTC(),
+		Text: "<https://grafana.example.com/alerting/grafana/oom/view?orgId=1|" +
+			"[VA1 FIRING:1] WARNING | Host OOM kills>",
+	}
+	if created, err := st.AdmitSlackInput(ctx, original); err != nil || !created {
+		t.Fatalf("admit original = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	originalRun, err := st.GetAgentRunBySource(ctx, "watch", original.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetEpisodePhase(
+		ctx, originalRun.EpisodeID, core.EpisodeCompleted,
+		"finished", "Completed", "", time.Time{},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	replay := original
+	replay.ID, replay.EventID = "public-alert-replay", "event-public-alert-replay"
+	replay.EnvelopeID = "replay-public:public-alert-replay"
+	replay.MessageTS = "1700.900"
+	replay.ReceivedAt = original.ReceivedAt.Add(time.Minute)
+	if created, err := st.AdmitSlackInput(ctx, replay); err != nil || !created {
+		t.Fatalf("admit replay = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	replayRun, err := st.GetAgentRunBySource(ctx, "watch", replay.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayEpisode, err := st.GetWorkEpisode(ctx, replayRun.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayEpisode.ParentEpisodeID != originalRun.EpisodeID {
+		t.Fatalf("replay lost historical parent: %+v", replayEpisode)
+	}
+	if replayRun.ThreadTS != replay.MessageTS ||
+		replayEpisode.Destination.ThreadTS != replay.MessageTS {
+		t.Fatalf("replay destination = run %q episode %q, want selected card %q",
+			replayRun.ThreadTS, replayEpisode.Destination.ThreadTS, replay.MessageTS)
+	}
+}
+
 func TestTerminalEpisodeCancellationClearsPendingSlackStatus(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

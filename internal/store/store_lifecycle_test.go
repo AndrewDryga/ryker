@@ -275,6 +275,50 @@ func TestLeaseSlackDeliveryDoesNotTreatBotUpdateAsHumanCorrection(t *testing.T) 
 	}
 }
 
+// A published verification replay completed a five-minute OOM investigation
+// and passed two host corrections, then its queued Slack reply was discarded
+// because a human had spoken in the target thread while the replay ran. The
+// replay is the operator's explicit request to publish that result; ordinary
+// conversational staleness must not cancel it at the outbox boundary.
+func TestNewerHumanInputCannotSupersedeExplicitPublicReplay(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	replay := core.SlackInput{
+		ID: "public-replay", EnvelopeID: "replay-public:public-replay",
+		Kind: "bot_message", TeamID: "T1", ChannelID: "C1",
+		MessageTS: "1700.100", UserID: "BGRAFANA", ReceivedAt: now,
+	}
+	if created, err := st.AdmitSlackInput(ctx, replay); err != nil || !created {
+		t.Fatalf("admit replay = %t, %v", created, err)
+	}
+	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "public-replay-answer", SourceInputID: replay.ID,
+		Operation: "post", Kind: "notice", ChannelID: replay.ChannelID,
+		ThreadTS: replay.MessageTS, Body: []byte(`{"text":"deep result"}`),
+		ResponseRoot: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if created, err := st.AdmitSlackInput(ctx, core.SlackInput{
+		ID: "human-during-replay", EnvelopeID: "env-human-during-replay",
+		Kind: "message", TeamID: "T1", ChannelID: "C1",
+		ThreadTS: replay.MessageTS, MessageTS: "1700.200",
+		UserID: "UOPERATOR", ReceivedAt: now.Add(time.Second),
+	}); err != nil || !created {
+		t.Fatalf("admit human reply = %t, %v", created, err)
+	}
+
+	leased, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil || leased.ID != "public-replay-answer" {
+		t.Fatalf("explicit replay delivery = %+v, %v", leased, err)
+	}
+}
+
 // A denied reply in a live engineering-task thread left fourteen successive
 // card versions superseded as "newer human turn admitted". The input had not
 // been admitted at all: capability enforcement had rejected it and recorded

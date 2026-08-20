@@ -459,7 +459,7 @@ func (s *Service) correlateWatchEpisode(
 					input.ReceivedAt.Before(previous.CompletedAt.Add(
 						s.cfg.Slack.AlertStreamOpenWindow.Duration,
 					)))
-				if withinHold && previous.Destination.ChannelID == input.ChannelID &&
+				if withinHold && !isSlackVerificationReplay(input) && previous.Destination.ChannelID == input.ChannelID &&
 					previous.Destination.ThreadTS != "" {
 					episode.Destination = previous.Destination
 					state.ResponseThreadTS = previous.Destination.ThreadTS
