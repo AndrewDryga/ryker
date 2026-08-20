@@ -904,11 +904,11 @@ func milestoneLedgerText(steps []LedgerStep) string {
 		glyph := "○"
 		switch {
 		case step.Glyph == "✓":
-			glyph = "✅"
+			glyph = "✓"
 		case step.Glyph != "":
 			glyph = step.Glyph
 		case step.Current:
-			glyph = "▶️"
+			glyph = "▸"
 		}
 		fmt.Fprintf(&body, "\n%s  *%s*", glyph, escapeSlackText(step.Label))
 		facts := make([]string, 0, 2)

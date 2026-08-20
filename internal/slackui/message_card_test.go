@@ -49,11 +49,11 @@ func stripLines(t *testing.T, message Message, index int) []string {
 	return strings.Split(strips[index], "\n")
 }
 
-// The engineering progress view used to be a 46-column terminal table. Real
-// tasks clipped both the change summary and every readiness goal, while the
-// final owner floated alone as "yours". Milestones are ordinary Slack text:
-// they wrap, keep their hierarchy, and name the operator's turn plainly.
-func TestTaskProgressUsesReadableSlackMilestones(t *testing.T) {
+// Slack renders emoji-presentation marks at icon size, which made every
+// completed or current milestone about twice as tall as its label. Milestones
+// are ordinary Slack text: they wrap, keep their hierarchy, and use text-sized
+// marks so the progress list reads as one compact unit.
+func TestTaskProgressMilestonesStayTextSized(t *testing.T) {
 	message := Message{
 		Text: "task", MilestoneLedger: true,
 		Ledger: []LedgerStep{
@@ -78,11 +78,17 @@ func TestTaskProgressUsesReadableSlackMilestones(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"*Progress*", "✅  *Workspace ready*", "5 files · +446 −12",
+		"*Progress*", "✓  *Workspace ready*", "▸  *Readiness review*",
+		"5 files · +446 −12",
 		"Confirm Gate dispatch and telemetry coverage", "Review and merge",
 	} {
 		if !strings.Contains(progress, want) {
 			t.Fatalf("progress is missing %q:\n%s", want, progress)
+		}
+	}
+	for _, emoji := range []string{"✅", "▶️"} {
+		if strings.Contains(progress, emoji) {
+			t.Fatalf("progress uses oversized emoji %q:\n%s", emoji, progress)
 		}
 	}
 	if strings.Contains(progress, "Your turn") {
