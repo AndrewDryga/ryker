@@ -11,6 +11,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/preparationnotice"
+	"github.com/AndrewDryga/responder/internal/sessionauthority"
 	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -660,6 +661,37 @@ func TestPendingWorkspacePreparationDoesNotPostAPermanentThreadReply(t *testing.
 	if len(slack.posts) != 0 || len(slack.updates) != 0 {
 		t.Fatalf("ordinary pending refresh posted a persistent notice: posts=%+v updates=%+v",
 			slack.posts, slack.updates)
+	}
+}
+
+// A live replay waited for another turn in its read-only Coop session to park.
+// Every poll counted as a model failure even though this run had submitted no
+// turn; seven retries accumulated while the other turn was still healthy.
+func TestAuthorityConvergenceWaitDoesNotSpendAWatchModelAttempt(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run := seedPreparingRun(t, st)
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	state := decisionpkg.WatchTurnState{Generation: 1}
+	cause := errors.Join(
+		sessionauthority.ErrConvergence,
+		errors.New("read-only session still has active or queued work"),
+	)
+
+	if err := svc.retryAtNextSessionGeneration(ctx, run, &state, 1, cause); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != core.AgentRunPending || stored.Failures != 0 || stored.TerminalState != "" {
+		t.Fatalf("authority convergence spent or lost accepted watch work: %+v", stored)
 	}
 }
 

@@ -1803,6 +1803,11 @@ func (s *Service) retryAtNextSessionGeneration(
 			s.now().Add(time.Second),
 		)
 	}
+	if errors.Is(cause, sessionauthority.ErrConvergence) {
+		now := s.now()
+		return s.store.DeferAgentRun(ctx, run.ID, trimError(cause),
+			now.Add(retrydelay.DependencyWait(now.Sub(run.CreatedAt))))
+	}
 	if coop.Retryable(cause) {
 		var pending *coop.OperationPendingError
 		if requeued, err := s.requeueIfRateLimited(ctx, run, cause); requeued {
