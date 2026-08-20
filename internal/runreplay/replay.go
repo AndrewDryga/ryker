@@ -14,6 +14,17 @@ import (
 // MarkTurnTimeoutReplayed writes the dedicated replay budget without relying
 // on aggregate run failures, which also count preparation and revision races.
 func MarkTurnTimeoutReplayed(contextJSON []byte) ([]byte, error) {
+	return markReplay(contextJSON, "turn_timeout_replays")
+}
+
+// MarkTransientSessionReplayed records the one disposable-session rotation a
+// provider transport failure receives. Further refusals wait on provider
+// backoff instead of creating a new session every few seconds.
+func MarkTransientSessionReplayed(contextJSON []byte) ([]byte, error) {
+	return markReplay(contextJSON, "transient_session_replays")
+}
+
+func markReplay(contextJSON []byte, key string) ([]byte, error) {
 	fields := make(map[string]json.RawMessage)
 	if len(contextJSON) != 0 {
 		if err := json.Unmarshal(contextJSON, &fields); err != nil {
@@ -23,7 +34,7 @@ func MarkTurnTimeoutReplayed(contextJSON []byte) ([]byte, error) {
 	if fields == nil {
 		fields = make(map[string]json.RawMessage)
 	}
-	fields["turn_timeout_replays"] = json.RawMessage("1")
+	fields[key] = json.RawMessage("1")
 	return json.Marshal(fields)
 }
 
@@ -45,6 +56,10 @@ func Decide(
 	if IsTurnTimeout(turn) && !turnTimeoutReplayed(run.Context) {
 		return timeoutReplayReason, true
 	}
+	if run.Mode == core.AgentRunTriage && IsTransientProviderFailure(turn) &&
+		!transientSessionReplayed(run.Context) {
+		return "The AI provider dropped the response; retrying in a fresh session", true
+	}
 	if retrydelay.Exhausted(run.Failures+1, maximumAttempts) {
 		return "", false
 	}
@@ -61,11 +76,12 @@ func Decide(
 	if run.Mode == core.AgentRunTriage && transcriptOverflow(turn) {
 		return "Coop ACP transcript exceeded its bound; retrying in a fresh read-only session with narrower evidence queries", true
 	}
-	if turn.ErrorCode == "acp_protocol_error" && provider.Transient(detail) {
-		return "The AI provider dropped the response mid-stream; retrying the turn", true
-	}
 	if run.Mode == core.AgentRunTriage && run.Failures < 2 && runtimeCleanupFailure(turn) {
 		return "Coop could not clean up the agent turn; retrying in a fresh session", true
+	}
+	if run.Mode != core.AgentRunTriage &&
+		turn.ErrorCode == "acp_protocol_error" && provider.Transient(detail) {
+		return "The AI provider dropped the response mid-stream; retrying the turn", true
 	}
 	if TerminalEnvironment(turn) {
 		return "", false
@@ -91,6 +107,19 @@ func turnTimeoutReplayed(contextJSON []byte) bool {
 	return json.Unmarshal(contextJSON, &marker) == nil && marker.TurnTimeoutReplays > 0
 }
 
+func transientSessionReplayed(contextJSON []byte) bool {
+	var marker struct {
+		TransientSessionReplays int `json:"transient_session_replays"`
+	}
+	return json.Unmarshal(contextJSON, &marker) == nil && marker.TransientSessionReplays > 0
+}
+
+// IsTransientProviderFailure reports a transport-level provider failure whose
+// native session may be poisoned even though the accepted work is still valid.
+func IsTransientProviderFailure(turn coop.Turn) bool {
+	return turn.ErrorCode == "acp_protocol_error" && provider.Transient(turn.ErrorDetail)
+}
+
 func FreshSession(turn coop.Turn) bool {
 	if TerminalEnvironment(turn) {
 		return false
@@ -98,6 +127,7 @@ func FreshSession(turn coop.Turn) bool {
 	detail := strings.ToLower(strings.TrimSpace(turn.ErrorDetail))
 	return (turn.ErrorCode == "acp_cancelled" && detail == "turn cancelled") ||
 		runtimeCleanupFailure(turn) ||
+		IsTransientProviderFailure(turn) ||
 		(turn.ErrorCode == "acp_process_error" &&
 			strings.Contains(detail, "acp child closed before its response")) ||
 		transcriptOverflow(turn)

@@ -437,6 +437,28 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 	); replay || reason != "" {
 		t.Fatalf("oversized frame replay was not bounded = %q, %t", reason, replay)
 	}
+	internalError := coop.Turn{
+		ErrorCode:   "acp_protocol_error",
+		ErrorDetail: "ACP request was rejected: Internal error",
+	}
+	run.Mode = core.AgentRunTriage
+	run.Failures = 19
+	if reason, replay := runreplay.Decide(
+		run, "turn.failed", internalError, 20,
+	); !replay || !runreplay.FreshSession(internalError) ||
+		!strings.Contains(reason, "fresh session") {
+		t.Fatalf("poisoned ACP session replay = %q, %t", reason, replay)
+	}
+	contextJSON, err := runreplay.MarkTransientSessionReplayed(run.Context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Context = contextJSON
+	if reason, replay := runreplay.Decide(
+		run, "turn.failed", internalError, 20,
+	); replay || reason != "" {
+		t.Fatalf("poisoned ACP session created more than one fresh replay = %q, %t", reason, replay)
+	}
 	transcript := coop.Turn{
 		ErrorCode:   "acp_protocol_error",
 		ErrorDetail: "ACP transcript exceeded its bound",
@@ -752,6 +774,83 @@ func TestRuntimeCleanupTimeoutRecoversTheAlertInAFreshSession(t *testing.T) {
 	if len(slackClient.posts) != 1 || slackClient.posts[0].thread != input.MessageTS ||
 		strings.Contains(slackClient.posts[0].message.Text, "cleanup") {
 		t.Fatalf("cleanup recovery Slack result = %+v", slackClient.posts)
+	}
+}
+
+// Five accepted Tenant alerts spent nineteen attempts each in under a minute
+// after an old Codex ACP session began rejecting every turn with an internal
+// error. Replaying a transport failure in the same poisoned native session can
+// never recover it; the first replay must rotate the disposable watch session.
+func TestACPInternalErrorRecoversTheAlertInAFreshSession(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CINTERNAL"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack-internal-recovery", EnvelopeID: "env-internal-recovery",
+		EventID: "event-internal-recovery", Kind: "bot_message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CINTERNAL", MessageTS: "1700.713",
+		UserID: "BGRAFANA", Text: "[VA1 FIRING:1] WARNING | Ingress 5xx ratio high",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit Slack input = %v, %v", created, err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.submitTurns = []coop.Turn{
+		{
+			State:       "failed",
+			ErrorCode:   "acp_protocol_error",
+			ErrorDetail: "ACP request was rejected: Internal error",
+		},
+		{
+			State:            "completed",
+			AssistantMessage: confirmedAlertReplyResult(time.Now().UTC().Format(time.RFC3339)),
+		},
+	}
+	slackClient := &fakeSlack{}
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	requeued, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || requeued.State != core.AgentRunPending || requeued.Failures != 1 {
+		t.Fatalf("ACP internal error was not requeued = %+v, %v", requeued, err)
+	}
+	firstSession := requeued.SessionID
+	state, err := decodeWatchRunContext(requeued)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coopClient.openAfterCreateKey = "responder:watch-session:" + state.SessionChannelID + ":2"
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	completed, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || completed.State != core.AgentRunCompleted ||
+		completed.SessionID == firstSession || completed.SessionGeneration != 2 {
+		t.Fatalf("ACP internal error did not recover in a fresh session = %+v, %v", completed, err)
+	}
+	if len(slackClient.posts) != 1 || slackClient.posts[0].thread != input.MessageTS ||
+		strings.Contains(slackClient.posts[0].message.Text, "Internal error") {
+		t.Fatalf("ACP recovery Slack result = %+v", slackClient.posts)
 	}
 }
 

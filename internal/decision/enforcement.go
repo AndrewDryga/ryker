@@ -42,36 +42,37 @@ type WatchTurnState struct {
 	// exactly there. Separate from RecentMessages on purpose: that list is
 	// captured once and deduplicated against the resolved mention, and neither
 	// rule should ever be applied to messages from outside the thread.
-	ChannelAroundRoot      []WatchContextMessage          `json:"channel_around_root,omitempty"`
-	Memory                 core.AgentMemory               `json:"memory,omitempty"`
-	RelatedSituations      []ConversationSituationContext `json:"related_situations,omitempty"`
-	ReferencedThread       *ReferencedThreadContext       `json:"referenced_thread,omitempty"`
-	ResponseThreadTS       string                         `json:"response_thread_ts,omitempty"`
-	ReferencedChannelID    string                         `json:"referenced_channel_id,omitempty"`
-	ReferencedThreadTS     string                         `json:"referenced_thread_ts,omitempty"`
-	ReferencedMessageTS    string                         `json:"referenced_message_ts,omitempty"`
-	ReferenceCaptured      bool                           `json:"reference_captured,omitempty"`
-	RouteCaptured          bool                           `json:"route_captured,omitempty"`
-	EscalationReason       string                         `json:"escalation_reason,omitempty"`
-	Prior                  OperationalMemoryContext       `json:"prior_operational_context,omitempty"`
-	SimilarPastEpisodes    []core.SimilarEpisode          `json:"similar_past_episodes,omitempty"`
-	RelatedTasks           []core.RelatedTask             `json:"related_engineering_tasks,omitempty"`
-	RecentChanges          []core.RecentChange            `json:"recent_changes,omitempty"`
-	PriorCaptured          bool                           `json:"prior_captured,omitempty"`
-	RulesCaptured          bool                           `json:"rules_captured,omitempty"`
-	MatchedRules           []core.StandingRule            `json:"matched_rules,omitempty"`
-	RuleEvaluationCaptured bool                           `json:"rule_evaluation_captured,omitempty"`
-	RuleAcknowledged       bool                           `json:"rule_acknowledged,omitempty"`
-	RuleAcknowledgement    string                         `json:"rule_acknowledgement,omitempty"`
-	ConversationFollowup   bool                           `json:"conversation_followup,omitempty"`
-	OfferedIncidentTitle   string                         `json:"offered_incident_title,omitempty"`
-	OfferedTaskTitle       string                         `json:"offered_task_title,omitempty"`
-	OfferedTaskRepository  string                         `json:"offered_task_repository,omitempty"`
-	OfferedTaskPrompt      string                         `json:"offered_task_prompt,omitempty"`
-	OfferedTaskPullRequest *core.PullRequestTarget        `json:"offered_task_pull_request,omitempty"`
-	StructuredCorrections  int                            `json:"structured_corrections,omitempty"`
-	ReplyShapeCorrections  int                            `json:"reply_shape_corrections,omitempty"`
-	TurnTimeoutReplays     int                            `json:"turn_timeout_replays,omitempty"`
+	ChannelAroundRoot       []WatchContextMessage          `json:"channel_around_root,omitempty"`
+	Memory                  core.AgentMemory               `json:"memory,omitempty"`
+	RelatedSituations       []ConversationSituationContext `json:"related_situations,omitempty"`
+	ReferencedThread        *ReferencedThreadContext       `json:"referenced_thread,omitempty"`
+	ResponseThreadTS        string                         `json:"response_thread_ts,omitempty"`
+	ReferencedChannelID     string                         `json:"referenced_channel_id,omitempty"`
+	ReferencedThreadTS      string                         `json:"referenced_thread_ts,omitempty"`
+	ReferencedMessageTS     string                         `json:"referenced_message_ts,omitempty"`
+	ReferenceCaptured       bool                           `json:"reference_captured,omitempty"`
+	RouteCaptured           bool                           `json:"route_captured,omitempty"`
+	EscalationReason        string                         `json:"escalation_reason,omitempty"`
+	Prior                   OperationalMemoryContext       `json:"prior_operational_context,omitempty"`
+	SimilarPastEpisodes     []core.SimilarEpisode          `json:"similar_past_episodes,omitempty"`
+	RelatedTasks            []core.RelatedTask             `json:"related_engineering_tasks,omitempty"`
+	RecentChanges           []core.RecentChange            `json:"recent_changes,omitempty"`
+	PriorCaptured           bool                           `json:"prior_captured,omitempty"`
+	RulesCaptured           bool                           `json:"rules_captured,omitempty"`
+	MatchedRules            []core.StandingRule            `json:"matched_rules,omitempty"`
+	RuleEvaluationCaptured  bool                           `json:"rule_evaluation_captured,omitempty"`
+	RuleAcknowledged        bool                           `json:"rule_acknowledged,omitempty"`
+	RuleAcknowledgement     string                         `json:"rule_acknowledgement,omitempty"`
+	ConversationFollowup    bool                           `json:"conversation_followup,omitempty"`
+	OfferedIncidentTitle    string                         `json:"offered_incident_title,omitempty"`
+	OfferedTaskTitle        string                         `json:"offered_task_title,omitempty"`
+	OfferedTaskRepository   string                         `json:"offered_task_repository,omitempty"`
+	OfferedTaskPrompt       string                         `json:"offered_task_prompt,omitempty"`
+	OfferedTaskPullRequest  *core.PullRequestTarget        `json:"offered_task_pull_request,omitempty"`
+	StructuredCorrections   int                            `json:"structured_corrections,omitempty"`
+	ReplyShapeCorrections   int                            `json:"reply_shape_corrections,omitempty"`
+	TurnTimeoutReplays      int                            `json:"turn_timeout_replays,omitempty"`
+	TransientSessionReplays int                            `json:"transient_session_replays,omitempty"`
 	// CorrectionClasses counts the corrections this run has had of each class,
 	// MinTargetIndex is the rung of the session policy's target ladder its next
 	// turn may not be answered below, RefusedTargetFloor is the lowest rung Coop

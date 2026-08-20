@@ -3319,6 +3319,9 @@ func (s *Service) stagePolledAgentRunTerminal(
 			) + 1
 			state.ExpectedRevision = 0
 			state.TurnID = ""
+			if runreplay.IsTransientProviderFailure(turn) {
+				state.TransientSessionReplays = 1
+			}
 			contextJSON, err := json.Marshal(state)
 			if err != nil {
 				return err
@@ -3327,10 +3330,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 				return err
 			}
 		}
-		// Not a correction: the session was rotated or the transport failed, and
-		// the model was never told it did anything wrong. Counting this would
-		// make the correction rate track infrastructure health instead of
-		// answer quality.
+		// Transport recovery is not a model correction and must not inflate its rate.
 		if err := s.store.RequeueAgentRun(
 			ctx, run.ID, reason, cursor, s.now(), true,
 		); err != nil {
