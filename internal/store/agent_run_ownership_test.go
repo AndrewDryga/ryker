@@ -312,6 +312,11 @@ func TestFinishAgentRunFailureCannotNotifyForOlderAttempt(t *testing.T) {
 	if err != nil || !created {
 		t.Fatalf("queue replacement = %+v, %t, %v", second, created, err)
 	}
+	if _, err := st.db.ExecContext(ctx,
+		`UPDATE agent_runs SET state = 'preparing' WHERE id = ?`, first.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
 	delivery := &core.SlackDelivery{
 		ID: "watch_failure_older-request", EpisodeID: episode.ID,
 		ChannelID: episode.Destination.ChannelID, Operation: "post", Kind: "notice",
@@ -320,6 +325,19 @@ func TestFinishAgentRunFailureCannotNotifyForOlderAttempt(t *testing.T) {
 	_, applied, err := st.FinishAgentRunFailure(ctx, first.ID, "stale worker", delivery, AgentRunFailureEffects{})
 	if err != nil || applied {
 		t.Fatalf("stale finish = applied %t, %v", applied, err)
+	}
+	// Three older alert attempts reached this ownership boundary after a
+	// restart and stayed `preparing` forever. They no longer owned the shared
+	// episode, but returning a successful no-op also left no worker responsible
+	// for them. The newer attempt keeps the episode; the stale transport attempt
+	// must still become terminal.
+	stale, err := st.GetAgentRun(ctx, first.ID)
+	if err != nil || stale.State != core.AgentRunSuperseded {
+		t.Fatalf("stale run = %+v, %v; want superseded", stale, err)
+	}
+	staleAttempt, err := st.GetEpisodeAttempt(ctx, first.AttemptID)
+	if err != nil || staleAttempt.State != core.AttemptCancelled {
+		t.Fatalf("stale attempt = %+v, %v; want cancelled", staleAttempt, err)
 	}
 	if _, err := st.GetSlackDelivery(ctx, delivery.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("stale worker created delivery: %v", err)

@@ -2075,15 +2075,15 @@ func (s *Store) FinishAgentRunFailure(
 	if err != nil {
 		return "", false, err
 	}
-	if run.EpisodeID != "" {
-		var latestAttempt string
+	if latestAttempt := ""; run.EpisodeID != "" {
 		if err := tx.QueryRowContext(ctx,
 			`SELECT latest_attempt_id FROM work_episodes WHERE id = ?`, run.EpisodeID,
 		).Scan(&latestAttempt); err != nil {
 			return "", false, err
 		}
 		if latestAttempt != run.AttemptID {
-			return "", false, nil
+			_ = tx.Rollback()
+			return "", false, s.SupersedeAgentRun(ctx, run.ID, "superseded by a newer episode attempt")
 		}
 	}
 	var responseStaged bool

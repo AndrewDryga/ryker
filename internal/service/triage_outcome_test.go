@@ -1091,7 +1091,7 @@ func TestOlderFailedAttemptCannotRetireNewerAttemptsSession(t *testing.T) {
 		t.Fatalf("older attempt retired shared session: %+v", coopClient.session)
 	}
 	stored, err := st.GetAgentRun(ctx, older.ID)
-	if err != nil || stored.State != core.AgentRunPreparing {
+	if err != nil || stored.State != core.AgentRunSuperseded {
 		t.Fatalf("older attempt state = %+v, %v", stored, err)
 	}
 	if _, err := st.GetSlackDelivery(ctx, "watch_failure_"+input.ID); err == nil {
