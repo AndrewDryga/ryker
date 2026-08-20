@@ -41,6 +41,47 @@ func TestRetryAgentRunIfOwnedRequeuesCurrentOwner(t *testing.T) {
 	}
 }
 
+func TestReplacingAnAgentSessionDropsOnlyTheOldFrozenRevision(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, _ := queueKernelEpisode(t, st, "replacement-session-revision")
+	if _, err := st.LeaseAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindAgentRunSession(
+		ctx, run.ID, "session-old", 1, "repo", 0, []byte(`{}`),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.FreezeAgentRunRevision(ctx, run.ID, 32); err != nil {
+		t.Fatal(err)
+	}
+	// Rebinding the same session is an idempotent retry and must retain the
+	// frozen request revision.
+	if err := st.BindAgentRunSession(
+		ctx, run.ID, "session-old", 1, "repo", 0, []byte(`{}`),
+	); err != nil {
+		t.Fatal(err)
+	}
+	stable, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil || stable.ExpectedRevision != 32 {
+		t.Fatalf("same-session revision = %+v, %v", stable, err)
+	}
+	if err := st.BindAgentRunSession(
+		ctx, run.ID, "session-new", 2, "repo", 0, []byte(`{}`),
+	); err != nil {
+		t.Fatal(err)
+	}
+	replaced, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil || replaced.ExpectedRevision != 0 {
+		t.Fatalf("replacement-session revision = %+v, %v", replaced, err)
+	}
+}
+
 func TestFinishAgentRunFailureCommitsLifecycleAndOutboxAtomically(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(t.TempDir())

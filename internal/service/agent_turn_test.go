@@ -854,6 +854,98 @@ func TestACPInternalErrorRecoversTheAlertInAFreshSession(t *testing.T) {
 	}
 }
 
+// Five accepted alerts were parked on a poisoned session at revision 32. Once
+// that session was retired, Responder correctly created generation 2 at
+// revision 1 but submitted its first turn with the old frozen revision. Every
+// replacement therefore began with an impossible 409 before any model turn.
+func TestFreshAlertSessionDoesNotInheritTheRetiredSessionsRevision(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CSTALE-REVISION"}
+	cfg.Slack.WatchSettleDelay.Duration = 0
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	input := core.SlackInput{
+		ID: "slack-stale-session-revision", EnvelopeID: "env-stale-session-revision",
+		EventID: "event-stale-session-revision", Kind: "bot_message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CSTALE-REVISION", MessageTS: "1700.714",
+		UserID: "BGRAFANA", Text: "[VA1 FIRING:1] CRITICAL | Public API is down",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit Slack input = %v, %v", created, err)
+	}
+	coopClient := newFakeCoop()
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decodeWatchRunContext(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.SessionChannelID = input.ChannelID
+	state.SessionID = "ses_1"
+	state.Repository = cfg.Slack.DefaultRepository
+	state.Generation = 1
+	contextJSON, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Intelligence.BindChannelSession(
+		ctx, input.ChannelID, cfg.Slack.DefaultRepository,
+		"ses_1", 32, 1, time.Now().UTC(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	leased, err := st.LeaseAgentRun(ctx)
+	if err != nil || leased.ID != run.ID {
+		t.Fatalf("lease alert = %+v, %v", leased, err)
+	}
+	if err := st.BindTriageAgentRunSession(
+		ctx, run.ID, input.ChannelID, "ses_1", 1, false,
+		cfg.Slack.DefaultRepository, 0, contextJSON,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.FreezeAgentRunRevision(ctx, run.ID, 32); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RetryAgentRun(
+		ctx, run.ID, "old provider session failed", time.Now().UTC(), false,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	coopClient.session.State = "closed"
+	coopClient.session.Revision = 32
+	coopClient.openAfterCreateKey = "responder:watch-session:CSTALE-REVISION:2"
+	coopClient.validateSubmitRevision = true
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.State != core.AgentRunRunning || prepared.SessionID != "ses_2" {
+		t.Fatalf("fresh alert submission = %+v", prepared)
+	}
+	if len(coopClient.submitRevisions) != 1 || coopClient.submitRevisions[0] != 1 {
+		t.Fatalf("fresh session revisions = %v, want [1]", coopClient.submitRevisions)
+	}
+}
+
 func TestAgentRunMissingCoopImageRepairsAndRetriesWithoutSlackFailure(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

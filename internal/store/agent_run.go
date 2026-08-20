@@ -821,10 +821,10 @@ func (s *Store) BindAgentRunSession(
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE agent_runs
-		SET session_id = ?, session_generation = ?, repository = ?,
+		SET expected_revision = CASE WHEN session_id = ? AND session_generation = ? THEN expected_revision ELSE 0 END, session_id = ?, session_generation = ?, repository = ?,
 		    coop_event_sequence = ?, context_json = ?, updated_at = ?
 		WHERE id = ? AND state IN ('preparing', 'finalizing')`,
-		sessionID, generation, repository, eventSequence, contextJSON, s.nowText(), id)
+		sessionID, generation, sessionID, generation, repository, eventSequence, contextJSON, s.nowText(), id)
 	return sqlutil.ExpectOne(result, err, "bind agent run session")
 }
 
@@ -849,7 +849,7 @@ func (s *Store) BindTriageAgentRunSession(
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE agent_runs
-		SET session_id = ?, session_generation = ?, repository = ?,
+		SET expected_revision = CASE WHEN session_id = ? AND session_generation = ? THEN expected_revision ELSE 0 END, session_id = ?, session_generation = ?, repository = ?,
 		    coop_event_sequence = ?, context_json = ?, updated_at = ?
 		WHERE id = ? AND state IN ('preparing', 'finalizing')
 		  AND EXISTS (
@@ -857,7 +857,7 @@ func (s *Store) BindTriageAgentRunSession(
 		    WHERE channel_id = ? AND session_id = ? AND generation = ?
 		  )
 		  AND NOT EXISTS (SELECT 1 FROM coop_cleanup WHERE session_id = ?)`,
-		sessionID, generation, repository, eventSequence, contextJSON, s.nowText(), id,
+		sessionID, generation, sessionID, generation, repository, eventSequence, contextJSON, s.nowText(), id,
 		sessionChannelID, sessionID, generation, sessionID)
 	return sqlutil.ExpectOne(result, err, "bind triage agent run session")
 }

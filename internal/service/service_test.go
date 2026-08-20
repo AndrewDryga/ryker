@@ -1014,25 +1014,26 @@ type fakeCoop struct {
 	// eventsErr fails the event read every poll, and eventsCalls counts the
 	// reads that got through — together they are how a test can tell a poll
 	// that is being held off from one that is merely failing quietly.
-	eventsErr          error
-	eventsCalls        int
-	createKeys         []string
-	createPolicies     []string
-	createTasks        []string
-	createSources      []coop.SessionSource
-	prepareKeys        []string
-	prepareSessions    []string
-	prepareErrors      []error
-	listSessions       []coop.Session
-	createErrors       []error
-	createResultState  string
-	openAfterCreateKey string
-	operations         map[string]coop.Operation
-	submitKeys         []string
-	submitSessions     []string
-	submitRevisions    []int64
-	submitPrompts      []string
-	submitArtifacts    [][]coop.InputArtifact
+	eventsErr              error
+	eventsCalls            int
+	createKeys             []string
+	createPolicies         []string
+	createTasks            []string
+	createSources          []coop.SessionSource
+	prepareKeys            []string
+	prepareSessions        []string
+	prepareErrors          []error
+	listSessions           []coop.Session
+	createErrors           []error
+	createResultState      string
+	openAfterCreateKey     string
+	operations             map[string]coop.Operation
+	submitKeys             []string
+	submitSessions         []string
+	submitRevisions        []int64
+	validateSubmitRevision bool
+	submitPrompts          []string
+	submitArtifacts        [][]coop.InputArtifact
 	// submitFloors is every escalation floor a submission carried, recorded
 	// before any scripted refusal so a strip-and-retry shows up as two entries
 	// rather than one.
@@ -1218,6 +1219,16 @@ func (f *fakeCoop) SubmitTurnAtOrAbove(
 	minTargetIndex int,
 ) (coop.Turn, coop.Operation, error) {
 	f.submitFloors = append(f.submitFloors, minTargetIndex)
+	if f.validateSubmitRevision && revision != f.session.Revision {
+		f.submitRevisions = append(f.submitRevisions, revision)
+		return coop.Turn{}, coop.Operation{}, &coop.APIError{
+			Status: 409, Code: "revision_conflict",
+			Detail: fmt.Sprintf(
+				"expected revision %d, current revision %d",
+				revision, f.session.Revision,
+			),
+		}
+	}
 	// Consumed only by a submission that actually carried a floor, so the
 	// ordinary turns before the first escalation do not eat the refusal the
 	// test scripted for it.
