@@ -38,12 +38,11 @@ func TestOperationalCorrelationKeyTracksAlertLifecycle(t *testing.T) {
 	}
 }
 
-// Twenty-three unrelated production alerts waited behind one Better Stack
-// investigation because every operational stream in the channel shared one
-// Coop session. The worker pool could run three turns, but the session could
-// only advance them serially. Give alert streams the same bounded concurrency
-// as the background workers while keeping one lifecycle on one session shard.
-func TestUnrelatedOperationalStreamsUseTheBoundedWatchSessionPool(t *testing.T) {
+// The Host OOM model session contained earlier website OOM turns when a new
+// VictoriaLogs OOM arrived. Bounded worker concurrency does not require shared
+// model context: each operational stream owns a session, while the scheduler
+// still limits how many turns can run at once.
+func TestUnrelatedOperationalStreamsNeverShareModelContext(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	cfg.Limits.BackgroundWorkers = 3
@@ -70,7 +69,7 @@ func TestUnrelatedOperationalStreamsUseTheBoundedWatchSessionPool(t *testing.T) 
 		t.Fatalf("one alert lifecycle changed session shard: firing=%q resolved=%q", firingShard, resolvedShard)
 	}
 
-	shards := map[string]bool{}
+	sessions := map[string]bool{}
 	for index := 0; index < 30; index++ {
 		input := core.SlackInput{
 			ID:         fmt.Sprintf("pooled-alert-%02d", index),
@@ -95,10 +94,10 @@ func TestUnrelatedOperationalStreamsUseTheBoundedWatchSessionPool(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		shards[state.SessionChannelID] = true
+		sessions[state.SessionChannelID] = true
 	}
-	if len(shards) != cfg.Limits.BackgroundWorkers {
-		t.Fatalf("operational session shards = %v, want %d bounded lanes", shards, cfg.Limits.BackgroundWorkers)
+	if len(sessions) != 30 {
+		t.Fatalf("operational sessions = %v, want one per stream", sessions)
 	}
 }
 

@@ -2,10 +2,10 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"strings"
 	"time"
 
@@ -51,6 +51,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskcard"
 	"github.com/AndrewDryga/responder/internal/taskcontract"
+	"github.com/AndrewDryga/responder/internal/taskofferrejection"
 	"github.com/AndrewDryga/responder/internal/taskpr"
 	"github.com/AndrewDryga/responder/internal/terraformwakeup"
 	"github.com/AndrewDryga/responder/internal/triageoutcome"
@@ -602,29 +603,24 @@ func watchConversationKey(input core.SlackInput) string {
 	return "channel:" + input.ChannelID
 }
 
-// operationalWatchSessionChannelID maps independent alert streams onto the
-// same bounded concurrency the background scheduler can actually execute.
+// operationalWatchSessionChannelID gives each independent alert stream its
+// own model conversation. The worker pool still bounds execution concurrency;
+// sharing a conversation is not required to enforce that limit.
 //
-// The conversation key already separates Grafana, Better Stack, and Terraform
-// lifecycles for episode history, but watch sessions used only the Slack
-// channel. One investigation that spent an hour in correction rounds therefore
-// queued twenty-three unrelated alerts behind the same Coop session while two
-// background workers sat unable to help. A stable shard keeps FIRING and
-// RESOLVED for one stream together, bounds the number of long-lived sessions,
-// and lets the configured workers make progress on unrelated streams.
+// FIRING and RESOLVED for one occurrence retain the same conversation key.
+// Another incident receives another key and cannot inherit the first one's
+// unstructured model history, even when both came from one generic alert rule.
 func operationalWatchSessionChannelID(
 	input core.SlackInput,
 	conversationKey string,
-	shards int,
+	_ int,
 ) string {
-	if shards <= 1 || input.Kind != "bot_message" ||
+	if input.Kind != "bot_message" ||
 		!strings.HasPrefix(conversationKey, "operation:") {
 		return ""
 	}
-	hash := fnv.New32a()
-	_, _ = hash.Write([]byte(conversationKey))
-	shard := int(hash.Sum32()%uint32(shards)) + 1
-	return fmt.Sprintf("watch-shard:%s:%d", input.ChannelID, shard)
+	sum := sha256.Sum256([]byte(conversationKey))
+	return fmt.Sprintf("watch-shard:%s:%x", input.ChannelID, sum[:8])
 }
 
 func watchDecisionResponseThread(
@@ -2805,6 +2801,7 @@ func (s *Service) stageTriageTerminal(
 		correction := lifecycleContinuationCorrection
 		// The default class; a rejected artifact overrides it below.
 		correctionKind := correctionIncomplete
+		taskOfferRejected := false
 		// First, because everything below asks what the result says and this
 		// asks whether it said anything. A correction round may return only
 		// what it changes; it may not return nothing and inherit an answer.
@@ -2823,7 +2820,10 @@ func (s *Service) stageTriageTerminal(
 			}
 		}
 		if correction == "" {
-			correction = decisionpkg.WatchDecisionCorrection(input, state, validated, OperationalCorrelationKey)
+			correction, taskOfferRejected = taskofferrejection.WatchCorrection(
+				input, state, validated, s.now(), OperationalCorrelationKey,
+			)
+			correctionKind = correctionClass(taskofferrejection.CorrectionClass(taskOfferRejected, string(correctionKind)))
 		}
 		// Render only governed alerts; ordinary conversations keep their answer.
 		if correction == "" {
@@ -2980,6 +2980,7 @@ func (s *Service) stageTriageTerminal(
 			switch correctionKind {
 			case correctionRejected:
 				s.dropRejectedOffers(ctx, input, &decision, run)
+				taskofferrejection.ForgetCarried(&state.CarriedTaskOffer, taskOfferRejected)
 			case correctionShape:
 				// Same reasoning, one step further: the answer is not merely
 				// salvageable, it is correct. Replacing it with "I couldn't

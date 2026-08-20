@@ -28,6 +28,10 @@ var operationalCounterPattern = regexp.MustCompile(
 
 var operationalLinkPattern = regexp.MustCompile(`<((?:https?://)[^>|]+)(?:\|[^>]*)?>`)
 
+var grafanaStartedPattern = regexp.MustCompile(
+	`(?im)(?:^|\n)[[:space:]]*\*{0,2}Started:\*{0,2}[^\n]*<!date\^([0-9]{9,})\^`,
+)
+
 func stableAlertLink(text string) string {
 	for _, match := range operationalLinkPattern.FindAllStringSubmatch(text, -1) {
 		if len(match) < 2 {
@@ -41,6 +45,27 @@ func stableAlertLink(text string) string {
 			link = link[:index]
 		}
 		return link
+	}
+	return ""
+}
+
+// grafanaOccurrence returns the provider's stable start epoch when the card
+// describes exactly one alert occurrence. FIRING and RESOLVED cards retain
+// this value, while a later recurrence of a generic rule receives a new one.
+// Multi-alert aggregate cards can contain several starts, so they deliberately
+// retain the rule-level fallback instead of inventing an unstable identity.
+func grafanaOccurrence(text string) string {
+	starts := map[string]struct{}{}
+	for _, match := range grafanaStartedPattern.FindAllStringSubmatch(text, -1) {
+		if len(match) > 1 {
+			starts[match[1]] = struct{}{}
+		}
+	}
+	if len(starts) != 1 {
+		return ""
+	}
+	for started := range starts {
+		return started
 	}
 	return ""
 }
@@ -76,6 +101,9 @@ func bounded(value string) string {
 func Key(input core.SlackInput) string {
 	if decisionpkg.OperationalAlertEvent(input.Text) {
 		if key := stableAlertLink(input.Text); key != "" {
+			if occurrence := grafanaOccurrence(input.Text); occurrence != "" {
+				key += ":started:" + occurrence
+			}
 			return bounded("alert-link:" + key)
 		}
 	}
