@@ -436,7 +436,7 @@ func (s *Service) correlateWatchEpisode(
 	if previous, previousErr := s.store.GetLatestWorkEpisodeByConversationKey(
 		ctx, conversationKey, preferredWaitingThread,
 	); previousErr == nil {
-		if operationalLifecycle {
+		if operationalLifecycle && !strings.HasPrefix(input.EnvelopeID, "replay-public:") {
 			expiredRecovery, err := s.store.AlertStream.RecoveredCycleExpired(ctx, conversationKey, input, s.cfg.Slack.AlertStreamOpenWindow.Duration)
 			if err != nil {
 				return nil, false, err

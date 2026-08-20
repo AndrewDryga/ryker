@@ -139,8 +139,9 @@ func TestExplicitOperationalReplayUsesTheSelectedCardAsItsDestination(t *testing
 		t.Fatal(err)
 	}
 	if err := st.SetEpisodePhase(
-		ctx, originalRun.EpisodeID, core.EpisodeCompleted,
-		"finished", "Completed", "", time.Time{},
+		ctx, originalRun.EpisodeID, core.EpisodeWaitingExternal,
+		"waiting_external", "Watching the alert stream", "Wait for the next card",
+		original.ReceivedAt.Add(time.Hour),
 	); err != nil {
 		t.Fatal(err)
 	}
