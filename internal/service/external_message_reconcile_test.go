@@ -10,6 +10,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/resultrecovery"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -759,7 +760,7 @@ func TestStructuredCorrectionRecheckContinuesSilentlyUntilFinalAttempt(t *testin
 		{attempt: 2, wantAction: "reply", wantRecheck: false},
 	} {
 		state := decisionpkg.WatchTurnState{RecheckAttempt: test.attempt}
-		decision := blockedWatchContinuation(run, input, state, "invalid result", nil)
+		decision := resultrecovery.BlockedWatch(run, input, state, "invalid result", nil)
 		if decision.Action != test.wantAction {
 			t.Fatalf("attempt %d action = %q", test.attempt, decision.Action)
 		}

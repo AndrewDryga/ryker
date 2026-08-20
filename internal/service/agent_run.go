@@ -2634,6 +2634,7 @@ func (s *Service) stageTriageTerminal(
 	input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
 	state, stateErr := decodeWatchRunContext(run)
 	decision, decisionErr := decisionpkg.ParseWatchDecision(turn.AssistantMessage, s.now())
+	schemaErr := decisionErr
 	// Asked against the model's own result, before the host enforcement below
 	// rewrites its fields: what is being rejected is what the model sent, and a
 	// message policy applied afterwards is not the model answering in the
@@ -2674,9 +2675,11 @@ func (s *Service) stageTriageTerminal(
 		}, s.now())
 		state.CarriedEvidence, state.CarriedCoverage, state.CarriedFindings =
 			recovered.Evidence, recovered.Coverage, recovered.Findings
-		if !consumeWatchStructuredCorrection(
-			&state, episodeCorrections, s.cfg.Limits.MaxAgentRunAttempts,
-		) {
+		correctionLimit := s.cfg.Limits.MaxAgentRunAttempts
+		if schemaErr != nil {
+			correctionLimit = min(correctionLimit, resultrecovery.UnreadableAttemptLimit)
+		}
+		if !resultrecovery.ConsumeWatchCorrection(&state, episodeCorrections, correctionLimit) {
 			state.FailureDetail = correction
 			contextJSON, marshalErr := json.Marshal(state)
 			if marshalErr != nil {
@@ -2693,7 +2696,13 @@ func (s *Service) stageTriageTerminal(
 			_ = s.advanceTriageSessionEvents(ctx, run, cursor)
 			return true, nil
 		}
-		decision = blockedWatchContinuation(run, input, state, correction, nil)
+		if reply, ok := resultrecovery.CompletionReply(turn.AssistantMessage, true); schemaErr != nil && ok {
+			decision = resultrecovery.ReplyOnlyWatch(run, input, state, correction, reply)
+			s.audit(ctx, resultrecovery.ReplyFallbackAudit(run, "schema_invalid",
+				"Rejected invalid operations and delivered the single bounded completion reply."))
+		} else {
+			decision = resultrecovery.BlockedWatch(run, input, state, correction, nil)
+		}
 		if decisionErr = staged.setResult(decisionpkg.MarshalWatchDecisionResult(decision)); decisionErr != nil {
 			return true, decisionErr
 		}
@@ -2726,6 +2735,10 @@ func (s *Service) stageTriageTerminal(
 		episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
 		if episodeErr != nil {
 			return true, episodeErr
+		}
+		episodeRecords, episodeEvidenceErr := resultrecovery.EpisodeRecords(ctx, s.store.Intelligence, episode.ID)
+		if episodeEvidenceErr != nil {
+			return true, episodeEvidenceErr
 		}
 		// Before anything else reads this result. A correction round returns
 		// only the records it is changing, and every reader below — the
@@ -2785,7 +2798,11 @@ func (s *Service) stageTriageTerminal(
 		state.CarriedFindings = decisionpkg.CarryFindings(
 			state.CarriedFindings, decisionpkg.SanitizeFindings(decision.Findings),
 		)
-		evidence, coverage := state.CarriedEvidence, state.CarriedCoverage
+		// A record shown in episode-continuity is citeable here. Current correction
+		// rounds still win on the same ID, while historical coverage stays out of
+		// the current-attempt completion checks below.
+		evidence := decisionpkg.CarryEvidence(episodeRecords.Evidence, state.CarriedEvidence)
+		coverage := state.CarriedCoverage
 		validated := decision
 		validated.Evidence, validated.Coverage = evidence, coverage
 		validated.Findings = state.CarriedFindings
@@ -2939,8 +2956,9 @@ func (s *Service) stageTriageTerminal(
 			}
 		}
 		if correction != "" {
-			if !consumeWatchStructuredCorrection(
-				&state, episodeCorrections, s.cfg.Limits.MaxAgentRunAttempts,
+			if !resultrecovery.ConsumeWatchCorrection(
+				&state, episodeCorrections,
+				min(s.cfg.Limits.MaxAgentRunAttempts, resultrecovery.SemanticAttemptLimit),
 			) {
 				state.FailureDetail = correction
 				contextJSON, marshalErr := json.Marshal(state)
@@ -2977,7 +2995,14 @@ func (s *Service) stageTriageTerminal(
 				// the rule eating the answer it exists to improve.
 				s.recordUnshapedReply(ctx, run, correction)
 			default:
-				decision = blockedWatchContinuation(run, input, state, correction, &decision)
+				var delivered bool
+				decision, delivered = resultrecovery.SemanticWatch(
+					run, input, state, correction, decision,
+				)
+				if delivered {
+					s.audit(ctx, resultrecovery.ReplyFallbackAudit(run, "semantic_invalid",
+						"Rejected unsafe structured claims and delivered the bounded completion reply."))
+				}
 			}
 			if err := staged.setResult(decisionpkg.MarshalWatchDecisionResult(decision)); err != nil {
 				return true, err
@@ -3029,6 +3054,7 @@ func (s *Service) stageIncidentTerminal(
 	staged *stagedTurn,
 ) (bool, error) {
 	report, _, reportErr := decisionpkg.ParseAgentReport(turn.AssistantMessage)
+	schemaErr := reportErr
 	if reportErr != nil {
 		invalid := trimError(reportErr)
 		correction := "the structured agent report is invalid: " + invalid +
@@ -3037,8 +3063,13 @@ func (s *Service) stageIncidentTerminal(
 		// erase valid ledger records that preceded it. The next correction round
 		// is promised those records are still held, just like the watch lane.
 		recovered := resultrecovery.AgentReport(turn.AssistantMessage, s.now())
-		spent, spendErr := s.spendStructuredCorrection(
+		correctionLimit := s.cfg.Limits.MaxAgentRunAttempts
+		if schemaErr != nil {
+			correctionLimit = min(correctionLimit, resultrecovery.UnreadableAttemptLimit)
+		}
+		spent, spendErr := s.spendStructuredCorrectionWithin(
 			ctx, run, recovered.Evidence, recovered.Coverage, recovered.Findings,
+			correctionLimit,
 		)
 		if spendErr != nil {
 			return true, spendErr
@@ -3051,7 +3082,13 @@ func (s *Service) stageIncidentTerminal(
 			}
 			return true, nil
 		}
-		report = blockedAgentContinuation(correction, nil)
+		if reply, ok := resultrecovery.CompletionReply(turn.AssistantMessage, false); schemaErr != nil && ok {
+			report = resultrecovery.ReplyOnlyAgent(correction, reply)
+			s.audit(ctx, resultrecovery.ReplyFallbackAudit(run, "schema_invalid",
+				"Rejected invalid operations and delivered the single bounded completion reply."))
+		} else {
+			report = resultrecovery.BlockedAgent(correction, nil)
+		}
 		if reportErr = staged.setResult(resultwire.AgentReport(report)); reportErr != nil {
 			return true, reportErr
 		}
@@ -3059,6 +3096,10 @@ func (s *Service) stageIncidentTerminal(
 		episode, episodeErr := s.store.GetWorkEpisodeByRun(ctx, run.ID)
 		if episodeErr != nil {
 			return true, episodeErr
+		}
+		episodeRecords, episodeEvidenceErr := resultrecovery.EpisodeRecords(ctx, s.store.Intelligence, episode.ID)
+		if episodeEvidenceErr != nil {
+			return true, episodeEvidenceErr
 		}
 		correction := ""
 		correctionKind := correctionIncomplete
@@ -3074,8 +3115,9 @@ func (s *Service) stageIncidentTerminal(
 			report.Operations,
 			carried.CarriedEvidence, carried.CarriedCoverage, carried.CarriedFindings,
 		).ApplyToReport(&report)
-		evidence := decisionpkg.CarryEvidence(carried.CarriedEvidence,
+		currentEvidence := decisionpkg.CarryEvidence(carried.CarriedEvidence,
 			decisionpkg.SanitizeEvidence(report.Evidence, "", "", "", s.now()))
+		evidence := decisionpkg.CarryEvidence(episodeRecords.Evidence, currentEvidence)
 		coverage := decisionpkg.CarryCoverage(carried.CarriedCoverage,
 			completionpolicy.CurrentCoverage(decisionpkg.SanitizeCoverage(report.Coverage, "", "", "", s.now()), s.now()))
 		findings := decisionpkg.CarryFindings(
@@ -3185,7 +3227,10 @@ func (s *Service) stageIncidentTerminal(
 			}
 		}
 		if correction != "" {
-			spent, spendErr := s.spendStructuredCorrection(ctx, run, evidence, coverage, findings)
+			spent, spendErr := s.spendStructuredCorrectionWithin(
+				ctx, run, evidence, coverage, findings,
+				min(s.cfg.Limits.MaxAgentRunAttempts, resultrecovery.SemanticAttemptLimit),
+			)
 			if spendErr != nil {
 				return true, spendErr
 			}
@@ -3211,7 +3256,9 @@ func (s *Service) stageIncidentTerminal(
 				// replyShapeCorrection for why the alternative is worse.
 				s.recordUnshapedReply(ctx, run, correction)
 			default:
-				report = blockedAgentContinuation(correction, &report)
+				report = resultrecovery.SemanticAgent(correction, report)
+				s.audit(ctx, resultrecovery.ReplyFallbackAudit(run, "semantic_invalid",
+					"Rejected unsafe structured claims and delivered the bounded completion reply."))
 			}
 			if reportErr = staged.setResult(resultwire.AgentReport(report)); reportErr != nil {
 				return true, reportErr
@@ -3474,6 +3521,19 @@ func (s *Service) spendStructuredCorrection(
 	coverage []core.Coverage,
 	findings []investigation.FindingOperation,
 ) (bool, error) {
+	return s.spendStructuredCorrectionWithin(
+		ctx, run, evidence, coverage, findings, s.cfg.Limits.MaxAgentRunAttempts,
+	)
+}
+
+func (s *Service) spendStructuredCorrectionWithin(
+	ctx context.Context,
+	run core.AgentRun,
+	evidence []core.Evidence,
+	coverage []core.Coverage,
+	findings []investigation.FindingOperation,
+	maximum int,
+) (bool, error) {
 	assembled, ok := decodeAssembledAgentContext(run.Context)
 	if !ok {
 		return true, nil
@@ -3486,8 +3546,8 @@ func (s *Service) spendStructuredCorrection(
 	if err != nil {
 		return true, err
 	}
-	if terminalStructuredCorrection(
-		assembled.StructuredCorrections, episodeCorrections, s.cfg.Limits.MaxAgentRunAttempts,
+	if resultrecovery.CorrectionSpent(
+		assembled.StructuredCorrections, episodeCorrections, maximum,
 	) {
 		return true, nil
 	}
@@ -3509,100 +3569,6 @@ func (s *Service) episodeStructuredCorrections(
 		return 0, nil
 	}
 	return s.store.SumEpisodeStructuredCorrections(ctx, run.EpisodeID)
-}
-
-// terminalStructuredCorrection reports that this turn may not be corrected
-// again, against two budgets rather than one.
-//
-// Within a run, the attempt count stops a model that keeps failing the same
-// way. Across runs, the corrections the whole episode has spent stop the case
-// the first budget cannot see: a re-triggered alert opens a *new* run with a
-// fresh count, so an hourly trigger bought nineteen more corrections every hour.
-// One episode took twenty-one runs and a hundred and thirty corrections that
-// way, over twenty-one hours, burning 220 minutes of wall clock, and ended
-// needing an operator regardless — which it had needed since about the second
-// hour.
-//
-// The second budget counted the episode's ATTEMPT NUMBER until 2026-08-16,
-// which was the same measurement while every re-triggered alert opened its own
-// episode. An alert stream is now one episode across every card and wakeup it
-// produces, so the attempt number counts cards: the Traefik memory stream would
-// have reached attempt twenty-one in an afternoon and been refused its first
-// correction having spent none. Counting the corrections themselves says what
-// the budget always meant.
-//
-// The same maximum bounds both because they measure the same patience from two
-// directions, and a second number to tune would be a second number to get
-// wrong. Only one episode in the recorded history has ever passed it.
-func terminalStructuredCorrection(attempt, episodeCorrections, maximum int) bool {
-	return retrydelay.Exhausted(attempt, maximum) ||
-		(maximum > 0 && episodeCorrections > maximum)
-}
-
-func consumeWatchStructuredCorrection(
-	state *decisionpkg.WatchTurnState,
-	episodeCorrections, maximum int,
-) bool {
-	state.StructuredCorrections++
-	return terminalStructuredCorrection(state.StructuredCorrections, episodeCorrections, maximum)
-}
-
-func blockedWatchContinuation(
-	run core.AgentRun,
-	input core.SlackInput,
-	state decisionpkg.WatchTurnState,
-	reason string,
-	prior *decisionpkg.WatchDecision,
-) decisionpkg.WatchDecision {
-	decision := decisionpkg.WatchDecision{}
-	if prior != nil {
-		decision.Evidence = prior.Evidence
-		decision.Coverage = prior.Coverage
-		decision.Memory = prior.Memory
-	}
-	finalAttempt := state.RecheckAttempt >= 2
-	if input.Kind == "bot_message" && !finalAttempt {
-		decision.Action = "ignore"
-	} else {
-		decision.Action = "reply"
-		decision.Message = "I couldn't finish this check safely yet. I saved the evidence and kept the investigation open for a clean retry."
-	}
-	completion := &CompletionAssessment{
-		Status:       "blocked",
-		Summary:      "The host could not validate the final structured result.",
-		MaterialGaps: []string{decisionpkg.BoundedField(reason, 500)},
-		BlockerKind:  "tool_failure",
-		Attempts:     []string{"Responder validated the result and requested a corrected completion."},
-		NextAction:   "Retry the same investigation from its saved evidence.",
-	}
-	if !finalAttempt {
-		completion.Recheck = &investigation.RecheckDirective{
-			Key: "structured:" + run.ID, Reason: "Retry structured completion after host validation.",
-			AfterSeconds: 60, AdditionalAttempts: 2,
-		}
-	}
-	decision.Completion = completion
-	return decision
-}
-
-func blockedAgentContinuation(reason string, prior *decisionpkg.AgentReport) decisionpkg.AgentReport {
-	report := decisionpkg.AgentReport{
-		Message: "I couldn't finish this check safely yet. The evidence is saved in this task, so it can continue without starting over.",
-		Completion: &CompletionAssessment{
-			Status:       "blocked",
-			Summary:      "The host could not validate the final structured result.",
-			MaterialGaps: []string{decisionpkg.BoundedField(reason, 500)},
-			BlockerKind:  "tool_failure",
-			Attempts:     []string{"Responder validated the result and requested a corrected completion."},
-			NextAction:   "Continue the same task from its saved evidence.",
-		},
-	}
-	if prior != nil {
-		report.Evidence = prior.Evidence
-		report.Coverage = prior.Coverage
-		report.Memory = prior.Memory
-	}
-	return report
 }
 
 func (s *Service) advanceTriageSessionEvents(

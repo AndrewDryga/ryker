@@ -15,6 +15,7 @@ import (
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/liveturn"
+	"github.com/AndrewDryga/responder/internal/resultrecovery"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/taskcontract"
 	"github.com/AndrewDryga/responder/internal/taskoffercarry"
@@ -321,15 +322,14 @@ func (s *Service) episodeContinuityPrompt(
 	ctx context.Context,
 	episode core.WorkEpisode,
 ) string {
-	evidence, evidenceErr := s.store.Intelligence.ListEpisodeEvidence(ctx, episode.ID, 30)
-	coverage, coverageErr := s.store.Intelligence.ListEpisodeCoverage(ctx, episode.ID, 20)
-	if evidenceErr != nil || coverageErr != nil || (len(evidence) == 0 && len(coverage) == 0) {
+	records, err := resultrecovery.EpisodeRecords(ctx, s.store.Intelligence, episode.ID)
+	if err != nil || (len(records.Evidence) == 0 && len(records.Coverage) == 0) {
 		return ""
 	}
 	payload, err := json.Marshal(struct {
 		Evidence []core.Evidence `json:"evidence,omitempty"`
 		Coverage []core.Coverage `json:"coverage,omitempty"`
-	}{Evidence: evidence, Coverage: coverage})
+	}{Evidence: records.Evidence, Coverage: records.Coverage})
 	if err != nil {
 		return ""
 	}

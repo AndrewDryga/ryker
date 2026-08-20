@@ -666,7 +666,13 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 //
 // And 50728 on 2026-08-18: active-alert and comparable-trend rules were added
 // while their surrounding contract was compressed enough to preserve context.
-const staticWatchPromptBytes = 50728
+//
+// And 51866 on 2026-08-20: every result-producing turn now receives the exact
+// JSON Schema and the exact jv command that checks its candidate before return.
+// This is a deliberate reliability cost: the linked production episode spent
+// fifteen correction turns without answering, which costs far more context than
+// one deterministic validation instruction on the first turn.
+const staticWatchPromptBytes = 51866
 
 // The static prompt must not grow without someone deciding it should.
 //

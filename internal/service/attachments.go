@@ -10,12 +10,13 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/resultcontract"
 	"github.com/AndrewDryga/responder/internal/slackfile"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/taskpr"
 )
 
-const maxAgentInputArtifacts = 4
+const maxAgentInputArtifacts = 5
 
 // RejectedAttachment is a Slack file the host would not hand to the model, and
 // the reason, in the words the model is given.
@@ -206,9 +207,13 @@ func (s *Service) augmentAgentRunArtifacts(
 	artifacts []coop.InputArtifact,
 ) ([]coop.InputArtifact, error) {
 	client, _ := s.publisher.(taskpr.Inspector)
-	return taskpr.AugmentArtifacts(
-		ctx, prompt, artifacts, maxAgentInputArtifacts, s.cfg.Repositories, client,
+	artifacts, err := taskpr.AugmentArtifacts(
+		ctx, prompt, artifacts, maxAgentInputArtifacts-1, s.cfg.Repositories, client,
 	)
+	if err != nil {
+		return nil, err
+	}
+	return resultcontract.AppendArtifact(artifacts, maxAgentInputArtifacts)
 }
 
 func (s *Service) latestHumanThreadAttachments(

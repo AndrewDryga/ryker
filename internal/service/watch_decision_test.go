@@ -1205,10 +1205,11 @@ func TestWatchedEngineeringRequestStaysInSourceThread(t *testing.T) {
 	}
 	taskPrompt := coopClient.submitPrompts[len(coopClient.submitPrompts)-1]
 	taskArtifacts := coopClient.submitArtifacts[len(coopClient.submitArtifacts)-1]
-	if len(taskArtifacts) != 1 || taskArtifacts[0].Name != "task.png" ||
+	if len(taskArtifacts) != 2 || taskArtifacts[0].Name != "task.png" ||
 		string(taskArtifacts[0].Data) != string(testPNG) {
 		t.Fatalf("engineering task lost source attachment = %+v", taskArtifacts)
 	}
+	assertResultContractArtifact(t, taskArtifacts[1])
 	for _, required := range []string{
 		"Complete this workspace-member-confirmed engineering task",
 		"Repository code and repository-owned configuration changes are allowed",

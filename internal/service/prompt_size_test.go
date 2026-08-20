@@ -106,7 +106,9 @@ var promptCeilings = map[string]int{
 	// restores what a round omits; these bytes are what tell the model it may
 	// omit them, which is the half no validator can supply. Measured 43,227,
 	// which left 42 KiB nothing; 43 KiB + 256 is 1,061.
-	"watch": 43*1024 + 256,
+	// Raised to 44 KiB on 2026-08-20 for the exact jv self-validation command
+	// and the corrected conditional schedule shape it validates.
+	"watch": 44 * 1024,
 
 	// The ambient measurement above is the cheap case, and for a while it was
 	// the only one — so this test reported "37% left for context" while an
@@ -186,7 +188,10 @@ var promptCeilings = map[string]int{
 	// And 244 bytes on 2026-08-16 for the partial correction round — the same
 	// shared operation list again, measured against the same recorded episode.
 	// Measured 49,831, which left 48 KiB + 512 nothing; 49 KiB + 512 is 857.
-	"watch-operator": 49*1024 + 512,
+	// Raised to 50 KiB + 512 on 2026-08-20 for the attached JSON Schema's exact
+	// jv self-validation command. The model now checks the whole candidate once
+	// before return instead of learning one host rejection per correction turn.
+	"watch-operator": 50*1024 + 512,
 
 	// The expensive turn, kept measured on purpose. Conditional inclusion means
 	// the two entries above now describe turns that skip 5,391 bytes of rules,
@@ -209,7 +214,10 @@ var promptCeilings = map[string]int{
 	// bytes, the same shared operation list. The alert variant is also where the
 	// saving lands: the recorded sixteen-turn episode this was measured on was an
 	// alert-lane run notification. 52 KiB + 512 had 136 left; 53 KiB + 512 is 888.
-	"watch-operator-alert": 53*1024 + 512,
+	// Raised to 54 KiB + 512 on 2026-08-20 for that same validator instruction.
+	// Alert turns need it most: the production regression spent fifteen rejected
+	// turns and never delivered the answer it had already written.
+	"watch-operator-alert": 54*1024 + 512,
 }
 
 func TestStaticPromptSizeIsBounded(t *testing.T) {

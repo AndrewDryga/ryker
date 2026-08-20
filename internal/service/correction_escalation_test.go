@@ -408,20 +408,11 @@ func TestAShapeOrRejectedCorrectionNeverClimbsTheLadder(t *testing.T) {
 	}
 }
 
-// A model that has just been re-briefed owes nothing to the rounds before it.
-//
-// Raising the floor also restates the whole briefing, because the rung it
-// raises to is a different model. That model has not yet failed to read
-// anything, so carrying the previous rung's `unreadable` tally forward would
-// charge it for a schema it had never been shown — on tenant on 2026-08-16 the
-// escalated model answered `unknown field "completion_contract"` and then
-// `unknown field "record_evidence"`, two rounds spent learning a contract the
-// host had not sent it, against a counter that was already at its limit.
-//
-// Deliberately only this class, and deliberately not the run-wide budget:
-// `StructuredCorrections` is the hard bound on how long one run may argue with
-// the model, and a reset there would turn a bounded loop into an unbounded one.
-func TestRebriefedModelStartsWithAFreshUnreadableCount(t *testing.T) {
+// Once the model has the exact schema and a validator, unreadable output gets
+// one repair turn. A second copy with one usable completion message is answered
+// through the reply-only fallback, not sent up a ladder for more formatting
+// rounds. The linked ads.txt episode spent 15 corrections doing exactly that.
+func TestRepeatedUnreadableResultUsesReplyFallbackBeforeTheLadder(t *testing.T) {
 	// The recorded shape of the production failure: a well-formed envelope
 	// carrying a field the result contract does not have, which strict decoding
 	// refuses as unreadable rather than merely incomplete.
@@ -443,19 +434,14 @@ func TestRebriefedModelStartsWithAFreshUnreadableCount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if floor := agentRunTargetFloor(run.Context); floor != 1 {
-		t.Fatalf("two unreadable answers left the run on rung %d, so this test "+
-			"never reached the escalation it is about: %s", floor, run.LastError)
+	if floor := agentRunTargetFloor(run.Context); floor != 0 {
+		t.Fatalf("two unreadable answers climbed to rung %d instead of using the reply fallback", floor)
 	}
-	if repeats := state.CorrectionClasses[string(correctionUnreadable)]; repeats != 0 {
-		t.Fatalf("the re-briefed model starts owing %d unreadable rounds it did "+
-			"not spend", repeats)
+	if run.State == core.AgentRunPending {
+		t.Fatalf("the second unreadable answer started another correction round: %+v", state)
 	}
-	// The hard bound is untouched. It is what stops a run arguing forever, and
-	// the reset above must never be mistaken for a second chance at it.
-	if state.StructuredCorrections < 2 {
-		t.Fatalf("the run-wide correction budget was reset to %d; only the class "+
-			"counter starts fresh", state.StructuredCorrections)
+	if state.StructuredCorrections != 1 {
+		t.Fatalf("recorded schema repair rounds = %d, want exactly one", state.StructuredCorrections)
 	}
 }
 

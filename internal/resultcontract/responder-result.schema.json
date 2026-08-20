@@ -1,0 +1,1232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://responder.emisar.dev/schema/result-v1.json",
+  "title": "Responder model result",
+  "description": "The complete result returned by a Responder model turn. Return exactly one object and no surrounding prose.",
+  "type": "object",
+  "if": { "required": ["action"] },
+  "then": { "$ref": "#/$defs/watchEnvelope" },
+  "else": { "$ref": "#/$defs/agentEnvelope" },
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "shortID": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "operationID": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "stringList": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/nonEmptyString" },
+      "uniqueItems": true
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "scalar": { "type": ["string", "number", "boolean"] },
+    "scalarMap": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/scalar" }
+    },
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "operationArray": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/operation" },
+      "allOf": [
+        { "$ref": "#/$defs/atMostOneApproval" },
+        { "$ref": "#/$defs/atMostOneMemoryUpdate" },
+        { "$ref": "#/$defs/atMostOneMemoryOffer" },
+        { "$ref": "#/$defs/atMostOnePreferenceOffer" },
+        { "$ref": "#/$defs/atMostOneRuleOffer" },
+        { "$ref": "#/$defs/atMostOneGrantOffer" },
+        { "$ref": "#/$defs/atMostOneAlertAssessment" },
+        {
+          "contains": {
+            "properties": {
+              "type": { "const": "offer_task" },
+              "task": {
+                "properties": { "kind": { "const": "incident" } },
+                "required": ["kind"]
+              }
+            },
+            "required": ["type", "task"]
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "type": { "const": "offer_task" },
+              "task": {
+                "properties": { "kind": { "const": "engineering" } },
+                "required": ["kind"]
+              }
+            },
+            "required": ["type", "task"]
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": { "type": { "const": "offer_schedule" } },
+            "required": ["type"]
+          },
+          "minContains": 0,
+          "maxContains": 8
+        },
+        {
+          "contains": {
+            "properties": { "type": { "const": "attach_visual" } },
+            "required": ["type"]
+          },
+          "minContains": 0,
+          "maxContains": 4
+        }
+      ]
+    },
+    "atMostOneApproval": {
+      "contains": { "properties": { "type": { "const": "request_approval" } }, "required": ["type"] },
+      "minContains": 0,
+      "maxContains": 1
+    },
+    "atMostOneMemoryUpdate": {
+      "contains": { "properties": { "type": { "const": "update_memory" } }, "required": ["type"] },
+      "minContains": 0,
+      "maxContains": 1
+    },
+    "atMostOneMemoryOffer": {
+      "contains": { "properties": { "type": { "const": "offer_memory" } }, "required": ["type"] },
+      "minContains": 0,
+      "maxContains": 1
+    },
+    "atMostOnePreferenceOffer": {
+      "contains": { "properties": { "type": { "const": "offer_preference" } }, "required": ["type"] },
+      "minContains": 0,
+      "maxContains": 1
+    },
+    "atMostOneRuleOffer": {
+      "contains": { "properties": { "type": { "const": "offer_rule" } }, "required": ["type"] },
+      "minContains": 0,
+      "maxContains": 1
+    },
+    "atMostOneGrantOffer": {
+      "contains": { "properties": { "type": { "const": "offer_grant_promotion" } }, "required": ["type"] },
+      "minContains": 0,
+      "maxContains": 1
+    },
+    "atMostOneAlertAssessment": {
+      "contains": { "properties": { "type": { "const": "record_alert_assessment" } }, "required": ["type"] },
+      "minContains": 0,
+      "maxContains": 1
+    },
+    "agentEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operations"],
+      "properties": {
+        "operations": {
+          "allOf": [
+            { "$ref": "#/$defs/operationArray" },
+            {
+              "contains": {
+                "type": "object",
+                "required": ["type"],
+                "properties": { "type": { "const": "complete_episode" } }
+              },
+              "minContains": 1,
+              "maxContains": 1
+            }
+          ]
+        }
+      }
+    },
+    "watchEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "operations"],
+      "properties": {
+        "action": { "enum": ["ignore", "react", "reply", "incident", "escalate"] },
+        "reaction": {
+          "oneOf": [
+            { "const": "" },
+            {
+              "type": "string",
+              "maxLength": 255,
+              "pattern": "^[a-z0-9_+\\-]{1,255}(?:::skin-tone-[2-6])?$"
+            }
+          ]
+        },
+        "title": { "type": "string", "maxLength": 200 },
+        "attention": { "$ref": "#/$defs/attention" },
+        "reason": { "type": "string", "maxLength": 2000 },
+        "task_pull_request": {
+          "oneOf": [
+            { "const": "" },
+            { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "\\S" }
+          ]
+        },
+        "publication_updates": {
+          "type": "array",
+          "maxItems": 4,
+          "items": { "$ref": "#/$defs/publicationUpdate" }
+        },
+        "operations": { "$ref": "#/$defs/operationArray" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "action": { "const": "react" } }, "required": ["action"] },
+          "then": {
+            "required": ["reaction"],
+            "not": {
+              "anyOf": [
+                { "properties": { "title": { "minLength": 1 } }, "required": ["title"] },
+                { "properties": { "task_pull_request": { "minLength": 1 } }, "required": ["task_pull_request"] },
+                { "properties": { "publication_updates": { "minItems": 1 } }, "required": ["publication_updates"] }
+              ]
+            },
+            "properties": {
+              "operations": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "action": { "const": "incident" } }, "required": ["action"] },
+          "then": {
+            "required": ["title"],
+            "not": {
+              "anyOf": [
+                { "properties": { "reaction": { "minLength": 1 } }, "required": ["reaction"] },
+                { "properties": { "task_pull_request": { "minLength": 1 } }, "required": ["task_pull_request"] },
+                { "properties": { "publication_updates": { "minItems": 1 } }, "required": ["publication_updates"] }
+              ]
+            },
+            "properties": {
+              "title": { "$ref": "#/$defs/nonEmptyString" },
+              "operations": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "action": { "const": "reply" } }, "required": ["action"] },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "properties": { "reaction": { "minLength": 1 } }, "required": ["reaction"] },
+                { "properties": { "title": { "minLength": 1 } }, "required": ["title"] }
+              ]
+            },
+            "properties": {
+              "operations": {
+                "contains": {
+                  "type": "object",
+                  "required": ["type"],
+                  "properties": { "type": { "const": "complete_episode" } }
+                },
+                "minContains": 1,
+                "maxContains": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": { "enum": ["ignore", "react", "incident", "escalate"] }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "operations": {
+                "not": {
+                  "contains": {
+                    "type": "object",
+                    "required": ["type"],
+                    "properties": { "type": { "const": "complete_episode" } }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "action": { "const": "escalate" } }, "required": ["action"] },
+          "then": {
+            "required": ["reason"],
+            "not": {
+              "anyOf": [
+                { "properties": { "reaction": { "minLength": 1 } }, "required": ["reaction"] },
+                { "properties": { "title": { "minLength": 1 } }, "required": ["title"] },
+                { "properties": { "task_pull_request": { "minLength": 1 } }, "required": ["task_pull_request"] },
+                { "properties": { "publication_updates": { "minItems": 1 } }, "required": ["publication_updates"] }
+              ]
+            },
+            "properties": {
+              "reason": { "$ref": "#/$defs/nonEmptyString" },
+              "operations": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "action": { "const": "ignore" } }, "required": ["action"] },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "properties": { "reaction": { "minLength": 1 } }, "required": ["reaction"] },
+                { "properties": { "title": { "minLength": 1 } }, "required": ["title"] },
+                { "properties": { "task_pull_request": { "minLength": 1 } }, "required": ["task_pull_request"] }
+              ]
+            },
+            "properties": {
+              "operations": {
+                "oneOf": [
+                  { "maxItems": 0 },
+                  {
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": ["type"],
+                      "properties": { "type": { "const": "update_memory" } }
+                    }
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "required": ["type"],
+                      "properties": { "type": { "const": "wait_external" } }
+                    },
+                    "minContains": 1,
+                    "items": {
+                      "allOf": [
+                        { "$ref": "#/$defs/operation" },
+                        {
+                          "properties": {
+                            "type": {
+                              "enum": [
+                                "record_evidence",
+                                "record_coverage",
+                                "record_finding",
+                                "plan_goal",
+                                "update_goal",
+                                "wait_external"
+                              ]
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "task_pull_request": { "minLength": 1 } },
+            "required": ["task_pull_request"]
+          },
+          "then": {
+            "properties": {
+              "operations": {
+                "contains": {
+                  "type": "object",
+                  "required": ["type"],
+                  "properties": { "type": { "const": "offer_task" } }
+                },
+                "minContains": 1,
+                "maxContains": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "attention": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "addressee": { "enum": ["responder", "channel", "human", "unclear"] },
+        "urgency": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "confidence": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "novelty": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "ownership": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "contribution": {
+          "enum": ["none", "material_correction", "new_evidence", "decision", "completed_action", "necessary_question"]
+        },
+        "material": { "type": "boolean" }
+      },
+      "dependentRequired": {
+        "urgency": ["addressee"],
+        "confidence": ["addressee"],
+        "novelty": ["addressee"],
+        "ownership": ["addressee"],
+        "contribution": ["addressee"],
+        "material": ["addressee"]
+      },
+      "if": {
+        "properties": { "material": { "const": true } },
+        "required": ["material"]
+      },
+      "then": {
+        "required": ["contribution"],
+        "properties": {
+          "contribution": {
+            "enum": ["material_correction", "new_evidence", "decision", "completed_action", "necessary_question"]
+          }
+        }
+      }
+    },
+    "publicationUpdate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["incident_id", "kind", "state", "reference", "summary"],
+      "properties": {
+        "incident_id": { "$ref": "#/$defs/nonEmptyString" },
+        "kind": { "enum": ["deployment", "terraform"] },
+        "state": { "enum": ["pending", "succeeded", "failed"] },
+        "reference": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 1200 }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "description": "Exactly three keys: id, the full verb-form type, and the one payload named by that type.",
+      "additionalProperties": false,
+      "minProperties": 3,
+      "maxProperties": 3,
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "$ref": "#/$defs/operationID" },
+        "type": {
+          "enum": [
+            "record_evidence",
+            "record_coverage",
+            "record_finding",
+            "report_progress",
+            "plan_goal",
+            "update_goal",
+            "request_operator_input",
+            "wait_external",
+            "record_feedback",
+            "request_record",
+            "offer_task",
+            "request_approval",
+            "attach_visual",
+            "update_memory",
+            "offer_memory",
+            "offer_preference",
+            "offer_rule",
+            "offer_schedule",
+            "record_alert_assessment",
+            "record_repository_contents",
+            "offer_grant_promotion",
+            "offer_runbook_draft",
+            "offer_kb_card",
+            "offer_assignment",
+            "complete_episode"
+          ]
+        },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "coverage": { "$ref": "#/$defs/coverage" },
+        "finding": { "$ref": "#/$defs/finding" },
+        "progress": { "$ref": "#/$defs/progress" },
+        "goal": { "$ref": "#/$defs/goal" },
+        "goal_state": { "$ref": "#/$defs/goalState" },
+        "operator_input": { "$ref": "#/$defs/operatorInput" },
+        "external_wait": { "$ref": "#/$defs/externalWait" },
+        "feedback": { "$ref": "#/$defs/feedback" },
+        "record": { "$ref": "#/$defs/recordRequest" },
+        "task": { "$ref": "#/$defs/taskOffer" },
+        "approval": { "$ref": "#/$defs/approval" },
+        "visual": { "$ref": "#/$defs/visual" },
+        "memory": { "$ref": "#/$defs/memory" },
+        "memory_offer": { "$ref": "#/$defs/memoryOffer" },
+        "preference_offer": { "$ref": "#/$defs/preferenceOffer" },
+        "rule_offer": { "$ref": "#/$defs/ruleOffer" },
+        "schedule_offer": { "$ref": "#/$defs/scheduleOffer" },
+        "alert_assessment": { "$ref": "#/$defs/alertAssessment" },
+        "repository_contents": { "$ref": "#/$defs/repositoryContents" },
+        "grant_promotion": { "$ref": "#/$defs/grantPromotion" },
+        "runbook_draft": { "$ref": "#/$defs/runbookDraft" },
+        "kb_card": { "$ref": "#/$defs/kbCard" },
+        "assignment": { "$ref": "#/$defs/assignment" },
+        "completion": { "$ref": "#/$defs/completeEpisode" }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "record_evidence" } } }, "then": { "required": ["evidence"] } },
+        { "if": { "properties": { "type": { "const": "record_coverage" } } }, "then": { "required": ["coverage"] } },
+        { "if": { "properties": { "type": { "const": "record_finding" } } }, "then": { "required": ["finding"] } },
+        { "if": { "properties": { "type": { "const": "report_progress" } } }, "then": { "required": ["progress"] } },
+        { "if": { "properties": { "type": { "const": "plan_goal" } } }, "then": { "required": ["goal"] } },
+        { "if": { "properties": { "type": { "const": "update_goal" } } }, "then": { "required": ["goal_state"] } },
+        { "if": { "properties": { "type": { "const": "request_operator_input" } } }, "then": { "required": ["operator_input"] } },
+        { "if": { "properties": { "type": { "const": "wait_external" } } }, "then": { "required": ["external_wait"] } },
+        { "if": { "properties": { "type": { "const": "record_feedback" } } }, "then": { "required": ["feedback"] } },
+        { "if": { "properties": { "type": { "const": "request_record" } } }, "then": { "required": ["record"] } },
+        { "if": { "properties": { "type": { "const": "offer_task" } } }, "then": { "required": ["task"] } },
+        { "if": { "properties": { "type": { "const": "request_approval" } } }, "then": { "required": ["approval"] } },
+        { "if": { "properties": { "type": { "const": "attach_visual" } } }, "then": { "required": ["visual"] } },
+        { "if": { "properties": { "type": { "const": "update_memory" } } }, "then": { "required": ["memory"] } },
+        { "if": { "properties": { "type": { "const": "offer_memory" } } }, "then": { "required": ["memory_offer"] } },
+        { "if": { "properties": { "type": { "const": "offer_preference" } } }, "then": { "required": ["preference_offer"] } },
+        { "if": { "properties": { "type": { "const": "offer_rule" } } }, "then": { "required": ["rule_offer"] } },
+        { "if": { "properties": { "type": { "const": "offer_schedule" } } }, "then": { "required": ["schedule_offer"] } },
+        { "if": { "properties": { "type": { "const": "record_alert_assessment" } } }, "then": { "required": ["alert_assessment"] } },
+        { "if": { "properties": { "type": { "const": "record_repository_contents" } } }, "then": { "required": ["repository_contents"] } },
+        { "if": { "properties": { "type": { "const": "offer_grant_promotion" } } }, "then": { "required": ["grant_promotion"] } },
+        { "if": { "properties": { "type": { "const": "offer_runbook_draft" } } }, "then": { "required": ["runbook_draft"] } },
+        { "if": { "properties": { "type": { "const": "offer_kb_card" } } }, "then": { "required": ["kb_card"] } },
+        { "if": { "properties": { "type": { "const": "offer_assignment" } } }, "then": { "required": ["assignment"] } },
+        { "if": { "properties": { "type": { "const": "complete_episode" } } }, "then": { "required": ["completion"] } }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_id", "source_type", "source_name"],
+      "properties": {
+        "claim_id": { "$ref": "#/$defs/shortID" },
+        "claim": { "type": "string" },
+        "observation": { "type": "string" },
+        "relation": { "enum": ["supports", "contradicts"] },
+        "health_effect": { "enum": ["none", "risk", "degraded", "unhealthy", "unknown"] },
+        "source_type": { "enum": ["repository", "emisar", "monitoring", "slack", "other"] },
+        "source_id": { "type": "string", "maxLength": 1000 },
+        "source_name": { "$ref": "#/$defs/nonEmptyString" },
+        "source_url": { "type": "string", "format": "uri", "maxLength": 2048 },
+        "target": { "type": "string", "maxLength": 200 },
+        "scope_note": { "type": "string", "maxLength": 2000 },
+        "freshness": { "$ref": "#/$defs/nonEmptyString" },
+        "confidence": { "enum": ["high", "medium", "low"] },
+        "observed_at": { "$ref": "#/$defs/timestamp" },
+        "valid_until": { "$ref": "#/$defs/timestamp" },
+        "dimensions": { "$ref": "#/$defs/scalarMap" },
+        "metadata": { "$ref": "#/$defs/stringMap" },
+        "supersedes": { "allOf": [{ "$ref": "#/$defs/stringList" }, { "maxItems": 10 }] }
+      },
+      "anyOf": [
+        { "required": ["observation"], "properties": { "observation": { "$ref": "#/$defs/nonEmptyString" } } },
+        { "required": ["dimensions"], "properties": { "dimensions": { "minProperties": 1 } } }
+      ]
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "layer": { "enum": ["task", "hardware", "host", "runtime", "scheduler", "workload", "dependency", "application", "slo", "change"] },
+        "claim_ids": { "allOf": [{ "$ref": "#/$defs/stringList" }, { "minItems": 1, "maxItems": 20 }] },
+        "status": { "enum": ["healthy", "degraded", "unhealthy", "unknown", "not_applicable"] },
+        "source": { "$ref": "#/$defs/nonEmptyString" },
+        "detail": { "$ref": "#/$defs/nonEmptyString" },
+        "observed_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["what", "status"],
+      "properties": {
+        "key": { "type": "string", "maxLength": 120 },
+        "what": { "$ref": "#/$defs/nonEmptyString" },
+        "scope": { "type": "string", "maxLength": 2000 },
+        "status": { "enum": ["unexplained", "explained", "expected", "out_of_scope"] },
+        "cause_evidence": { "allOf": [{ "$ref": "#/$defs/stringList" }, { "maxItems": 10 }] },
+        "alternatives": {
+          "type": "array",
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/findingAlternative" }
+        },
+        "reason": { "type": "string", "maxLength": 2000 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "explained" } } },
+          "then": {
+            "required": ["cause_evidence"],
+            "properties": { "cause_evidence": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "enum": ["expected", "out_of_scope"] } } },
+          "then": {
+            "required": ["reason"],
+            "properties": { "reason": { "$ref": "#/$defs/nonEmptyString" } }
+          }
+        }
+      ]
+    },
+    "findingAlternative": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hypothesis"],
+      "properties": {
+        "hypothesis": { "$ref": "#/$defs/nonEmptyString" },
+        "claim_id": { "$ref": "#/$defs/shortID" },
+        "discriminated_by": { "$ref": "#/$defs/shortID" },
+        "not_checkable": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "oneOf": [
+        {
+          "required": ["discriminated_by"],
+          "not": { "required": ["not_checkable"] }
+        },
+        {
+          "required": ["not_checkable"],
+          "not": { "required": ["discriminated_by"] }
+        }
+      ]
+    },
+    "progress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "summary"],
+      "properties": {
+        "phase": { "$ref": "#/$defs/nonEmptyString" },
+        "summary": { "$ref": "#/$defs/nonEmptyString" },
+        "next_due_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "requested_outcome", "completion_contract", "required", "authority"],
+      "properties": {
+        "id": { "$ref": "#/$defs/shortID" },
+        "kind": { "$ref": "#/$defs/nonEmptyString" },
+        "requested_outcome": { "$ref": "#/$defs/nonEmptyString" },
+        "completion_contract": { "$ref": "#/$defs/nonEmptyString" },
+        "required": { "type": "boolean" },
+        "prerequisite_goal_ids": { "$ref": "#/$defs/stringList" },
+        "writable_repository": { "$ref": "#/$defs/nonEmptyString" },
+        "read_only_repositories": { "$ref": "#/$defs/stringList" },
+        "authority": { "enum": ["read_only", "repository_write", "governed_operation"] }
+      }
+    },
+    "goalState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["goal_id", "state"],
+      "properties": {
+        "goal_id": { "$ref": "#/$defs/shortID" },
+        "state": { "enum": ["ready", "working", "waiting", "completed", "blocked", "excluded", "cancelled"] },
+        "detail": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "operatorInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["question"],
+      "properties": {
+        "question": { "$ref": "#/$defs/nonEmptyString" },
+        "choices": { "allOf": [{ "$ref": "#/$defs/stringList" }, { "maxItems": 10 }] }
+      }
+    },
+    "externalWait": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "$ref": "#/$defs/shortID" },
+        "kind": { "$ref": "#/$defs/nonEmptyString" },
+        "verification": { "type": "string", "maxLength": 500 },
+        "event_matcher": { "type": "object" },
+        "due_at": { "$ref": "#/$defs/timestamp" },
+        "poll_after": { "$ref": "#/$defs/timestamp" },
+        "deadline": { "$ref": "#/$defs/timestamp" }
+      },
+      "anyOf": [
+        { "required": ["due_at"] },
+        { "required": ["poll_after"] }
+      ],
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "scheduled_verification" } } },
+          "then": {
+            "required": ["verification"],
+            "properties": { "verification": { "$ref": "#/$defs/nonEmptyString" } }
+          }
+        }
+      ]
+    },
+    "feedback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "sentiment", "summary"],
+      "properties": {
+        "category": { "enum": ["ux", "correctness", "tone", "latency", "reliability", "feature_request", "other"] },
+        "sentiment": { "enum": ["negative", "positive", "suggestion", "mixed"] },
+        "summary": { "$ref": "#/$defs/nonEmptyString" },
+        "details": { "type": "string", "maxLength": 2000 },
+        "target_message_ts": { "type": "string" },
+        "needs_followup": { "type": "boolean" },
+        "followup_question": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "needs_followup": { "const": true } },
+            "required": ["needs_followup"]
+          },
+          "then": {
+            "required": ["followup_question"],
+            "properties": { "followup_question": { "$ref": "#/$defs/nonEmptyString" } }
+          }
+        }
+      ]
+    },
+    "recordRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["timeline", "evidence", "handoff", "postmortem"] }
+      }
+    },
+    "taskOffer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "title"],
+      "properties": {
+        "kind": { "enum": ["engineering", "incident"] },
+        "title": { "allOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "maxLength": 200 }] },
+        "repository": { "type": "string", "maxLength": 63 },
+        "prompt": { "type": "string", "maxLength": 4000 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "engineering" } }, "required": ["kind"] },
+          "then": {
+            "if": { "properties": { "prompt": { "minLength": 1 } }, "required": ["prompt"] },
+            "then": {
+              "required": ["repository"],
+              "properties": { "repository": { "$ref": "#/$defs/nonEmptyString" } }
+            }
+          }
+        }
+      ]
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "run_id", "operation_id", "action_id", "pack_ref", "runner_ref", "status", "approval_url", "expires_at"],
+      "properties": {
+        "incident_id": { "type": "string" },
+        "episode_id": { "type": "string" },
+        "channel_id": { "type": "string" },
+        "source_input": { "type": "string" },
+        "requested_by": { "type": "string" },
+        "delivery_id": { "type": "string" },
+        "message_ts": { "type": "string" },
+        "request_id": { "$ref": "#/$defs/nonEmptyString" },
+        "run_id": { "$ref": "#/$defs/nonEmptyString" },
+        "operation_id": { "$ref": "#/$defs/nonEmptyString" },
+        "action_id": { "$ref": "#/$defs/nonEmptyString" },
+        "pack_ref": { "$ref": "#/$defs/nonEmptyString" },
+        "runner_ref": { "$ref": "#/$defs/nonEmptyString" },
+        "status": { "$ref": "#/$defs/nonEmptyString" },
+        "approval_url": { "type": "string", "format": "uri" },
+        "run_url": { "type": "string", "format": "uri" },
+        "last_error": { "type": "string" },
+        "failure_count": { "type": "integer", "minimum": 0 },
+        "continuation_queued": { "type": "boolean" },
+        "next_check_at": { "$ref": "#/$defs/timestamp" },
+        "expires_at": { "$ref": "#/$defs/timestamp" },
+        "terminal_at": { "$ref": "#/$defs/timestamp" },
+        "created_at": { "$ref": "#/$defs/timestamp" },
+        "updated_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "visual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact", "title", "alt_text"],
+      "properties": {
+        "artifact": { "$ref": "#/$defs/nonEmptyString" },
+        "title": { "$ref": "#/$defs/nonEmptyString" },
+        "alt_text": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "knowledgeItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "kind", "statement", "status", "confidence", "source_ref"],
+      "properties": {
+        "subject": { "$ref": "#/$defs/nonEmptyString" },
+        "kind": { "$ref": "#/$defs/nonEmptyString" },
+        "statement": { "$ref": "#/$defs/nonEmptyString" },
+        "status": { "$ref": "#/$defs/nonEmptyString" },
+        "confidence": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "source_ref": { "$ref": "#/$defs/nonEmptyString" },
+        "source_message_ts": { "type": "string" }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "goal": { "type": "string" },
+        "channel_purpose": { "type": "string" },
+        "situation_summary": { "type": "string" },
+        "active_topics": { "$ref": "#/$defs/stringList" },
+        "open_loops": { "$ref": "#/$defs/stringList" },
+        "topology": { "$ref": "#/$defs/stringList" },
+        "decisions": { "$ref": "#/$defs/stringList" },
+        "unresolved_questions": { "$ref": "#/$defs/stringList" },
+        "evidence_refs": { "$ref": "#/$defs/stringList" },
+        "knowledge": {
+          "type": "array",
+          "maxItems": 30,
+          "items": { "$ref": "#/$defs/knowledgeItem" }
+        }
+      }
+    },
+    "memoryOffer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "subject", "predicate", "value", "visibility"],
+      "properties": {
+        "scope": { "$ref": "#/$defs/nonEmptyString" },
+        "repository": { "type": "string" },
+        "subject": { "$ref": "#/$defs/nonEmptyString" },
+        "predicate": { "$ref": "#/$defs/nonEmptyString" },
+        "value": { "$ref": "#/$defs/nonEmptyString" },
+        "visibility": { "$ref": "#/$defs/nonEmptyString" },
+        "expires_in": { "type": "string" },
+        "source_revision": { "type": "string" }
+      }
+    },
+    "preferenceOffer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "name", "value"],
+      "properties": {
+        "scope": { "$ref": "#/$defs/nonEmptyString" },
+        "repository": { "type": "string" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "value": { "$ref": "#/$defs/nonEmptyString" },
+        "expires_in": { "type": "string" }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "name", "trigger", "steps", "delivery"],
+      "properties": {
+        "version": { "const": 1 },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "trigger": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["event"],
+          "properties": {
+            "event": { "$ref": "#/$defs/nonEmptyString" },
+            "states": { "$ref": "#/$defs/stringList" }
+          }
+        },
+        "steps": { "allOf": [{ "$ref": "#/$defs/stringList" }, { "minItems": 1 }] },
+        "delivery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["location"],
+          "properties": {
+            "location": { "$ref": "#/$defs/nonEmptyString" },
+            "reply_when": { "$ref": "#/$defs/stringList" },
+            "mention_operator_when": { "$ref": "#/$defs/stringList" },
+            "quiet_when": { "$ref": "#/$defs/stringList" },
+            "acknowledge": { "type": "string" }
+          }
+        }
+      }
+    },
+    "ruleOffer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "repository"],
+      "properties": {
+        "scope": { "$ref": "#/$defs/nonEmptyString" },
+        "repository": { "$ref": "#/$defs/nonEmptyString" },
+        "workflow": { "$ref": "#/$defs/workflow" },
+        "trigger": { "type": "string" },
+        "action": { "type": "string" },
+        "source_kind": { "type": "string" },
+        "expires_in": { "type": "string" }
+      },
+      "anyOf": [
+        { "required": ["workflow"] },
+        { "required": ["trigger", "action"] }
+      ]
+    },
+    "scheduleOffer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "prompt", "repository", "recurrence"],
+      "properties": {
+        "title": { "$ref": "#/$defs/nonEmptyString" },
+        "prompt": { "$ref": "#/$defs/nonEmptyString" },
+        "repository": { "$ref": "#/$defs/nonEmptyString" },
+        "delivery_channel_id": { "type": "string" },
+        "recurrence": { "enum": ["once", "interval", "daily", "weekly", "monthly"] },
+        "start_at": { "$ref": "#/$defs/timestamp" },
+        "interval_seconds": { "type": "integer", "minimum": 300, "maximum": 31536000 },
+        "weekdays": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+          }
+        },
+        "day_of_month": { "type": "integer", "minimum": 1, "maximum": 31 },
+        "local_time": { "type": "string", "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$" },
+        "timezone": { "type": "string" },
+        "catch_up": { "type": "string" },
+        "expires_in": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "recurrence": { "const": "once" } } },
+          "then": { "required": ["start_at"] }
+        },
+        {
+          "if": { "properties": { "recurrence": { "const": "interval" } } },
+          "then": { "required": ["interval_seconds"] }
+        },
+        {
+          "if": { "properties": { "recurrence": { "enum": ["daily", "weekly", "monthly"] } } },
+          "then": { "required": ["local_time", "timezone"] }
+        },
+        {
+          "if": { "properties": { "recurrence": { "const": "weekly" } } },
+          "then": {
+            "required": ["weekdays"],
+            "properties": { "weekdays": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": { "properties": { "recurrence": { "const": "monthly" } } },
+          "then": { "required": ["day_of_month"] }
+        }
+      ]
+    },
+    "alertAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict", "impact"],
+      "properties": {
+        "verdict": { "enum": ["confirmed_issue", "likely_issue", "not_issue", "unverified"] },
+        "impact": { "allOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "maxLength": 2000 }] },
+        "cause_status": { "enum": ["identified", "bounded"] },
+        "cause": { "type": "string", "maxLength": 2000 },
+        "cause_claim_ids": { "allOf": [{ "$ref": "#/$defs/stringList" }, { "maxItems": 8 }] },
+        "evidence_refs": {
+          "allOf": [{ "$ref": "#/$defs/stringList" }, { "maxItems": 12 }],
+          "description": "Only evidence that establishes the cause. Every referenced evidence record must use one of cause_claim_ids. Put impact, change, and other boundary evidence in scope.evidence_refs instead."
+        },
+        "immediate_action_kind": { "enum": ["mitigation", "monitor", "investigation", "none"] },
+        "immediate_action": { "type": "string", "maxLength": 2000 },
+        "verification": { "type": "string", "maxLength": 2000 },
+        "long_term_solution": { "type": "string", "maxLength": 2000 },
+        "scope": { "$ref": "#/$defs/operationalScope" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "verdict": { "enum": ["confirmed_issue", "likely_issue"] } }
+          },
+          "then": {
+            "required": [
+              "cause_status",
+              "cause",
+              "cause_claim_ids",
+              "evidence_refs",
+              "immediate_action",
+              "verification",
+              "long_term_solution"
+            ],
+            "properties": {
+              "cause": { "$ref": "#/$defs/nonEmptyString" },
+              "cause_claim_ids": { "minItems": 1 },
+              "evidence_refs": { "minItems": 1 },
+              "immediate_action": { "$ref": "#/$defs/nonEmptyString" },
+              "verification": { "$ref": "#/$defs/nonEmptyString" },
+              "long_term_solution": { "$ref": "#/$defs/nonEmptyString" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "verdict": { "const": "unverified" } } },
+          "then": {
+            "required": ["immediate_action"],
+            "properties": { "immediate_action": { "$ref": "#/$defs/nonEmptyString" } }
+          }
+        }
+      ]
+    },
+    "operationalScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "checked_targets", "evidence_refs"],
+      "properties": {
+        "status": { "enum": ["bounded", "exhaustive"] },
+        "checked_targets": {
+          "allOf": [{ "$ref": "#/$defs/stringList" }, { "minItems": 1, "maxItems": 50 }],
+          "description": "Copy each exact evidence.target string. Never paraphrase, shorten, or invent a target."
+        },
+        "unverified_targets": {
+          "allOf": [{ "$ref": "#/$defs/stringList" }, { "maxItems": 50 }]
+        },
+        "evidence_refs": {
+          "allOf": [{ "$ref": "#/$defs/stringList" }, { "minItems": 1, "maxItems": 50 }],
+          "description": "Per-target and boundary evidence for the checked scope. These references need not all establish the cause."
+        },
+        "universe_evidence_ref": { "$ref": "#/$defs/shortID" }
+      },
+      "oneOf": [
+        {
+          "properties": { "status": { "const": "bounded" } },
+          "required": ["unverified_targets"],
+          "not": { "required": ["universe_evidence_ref"] }
+        },
+        {
+          "properties": {
+            "status": { "const": "exhaustive" },
+            "unverified_targets": { "maxItems": 0 }
+          },
+          "required": ["universe_evidence_ref"]
+        }
+      ]
+    },
+    "repositoryContents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "contents"],
+      "properties": {
+        "repository": { "$ref": "#/$defs/nonEmptyString" },
+        "contents": {
+          "allOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "maxLength": 240 }]
+        }
+      }
+    },
+    "grantPromotion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action_id", "pack_ref", "runner_ref", "rung", "verified_successes"],
+      "properties": {
+        "action_id": { "$ref": "#/$defs/nonEmptyString" },
+        "pack_ref": { "$ref": "#/$defs/nonEmptyString" },
+        "runner_ref": { "$ref": "#/$defs/nonEmptyString" },
+        "rung": { "enum": ["propose", "one_click"] },
+        "verified_successes": { "type": "integer", "minimum": 0 },
+        "rationale": { "type": "string" }
+      }
+    },
+    "runbookDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "slug", "summary", "action_id", "pack_ref", "runner_ref"],
+      "properties": {
+        "title": { "allOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "maxLength": 80 }] },
+        "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "summary": { "$ref": "#/$defs/nonEmptyString" },
+        "action_id": { "$ref": "#/$defs/nonEmptyString" },
+        "pack_ref": { "$ref": "#/$defs/nonEmptyString" },
+        "runner_ref": { "$ref": "#/$defs/nonEmptyString" },
+        "rationale": { "type": "string" }
+      }
+    },
+    "kbCard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug", "title", "body"],
+      "properties": {
+        "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "title": { "allOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "maxLength": 80 }] },
+        "body": { "allOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "maxLength": 4096 }] },
+        "rationale": { "type": "string" }
+      }
+    },
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "change_class", "signal_pattern"],
+      "properties": {
+        "repository": { "$ref": "#/$defs/nonEmptyString" },
+        "change_class": { "enum": ["dependency_upgrade", "alert_threshold", "flaky_test_quarantine", "observability", "documentation"] },
+        "signal_pattern": { "$ref": "#/$defs/nonEmptyString" },
+        "path_globs": { "allOf": [{ "$ref": "#/$defs/stringList" }, { "maxItems": 10 }] },
+        "daily_budget": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "expiry_days": { "type": "integer", "minimum": 1, "maximum": 90 },
+        "rationale": { "type": "string" }
+      }
+    },
+    "capabilityGap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "status", "evidence_refs", "recommendation"],
+      "properties": {
+        "capability": { "allOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "maxLength": 240 }] },
+        "status": { "enum": ["not_installed", "not_trusted", "not_advertised", "incompatible", "not_found"] },
+        "pack_id": { "type": "string", "maxLength": 120 },
+        "pack_ref": { "type": "string", "maxLength": 300 },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": { "allOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "maxLength": 240 }] }
+        },
+        "recommendation": { "allOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "maxLength": 500 }] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "not_found" } } },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["pack_id"] },
+                { "required": ["pack_ref"] }
+              ]
+            }
+          },
+          "else": { "required": ["pack_id"] }
+        }
+      ]
+    },
+    "recheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "reason", "after_seconds", "additional_attempts"],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:._/@-]{0,159}$" },
+        "reason": { "allOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "maxLength": 500 }] },
+        "after_seconds": { "type": "integer", "minimum": 30, "maximum": 1800 },
+        "additional_attempts": { "type": "integer", "minimum": 1, "maximum": 4 }
+      }
+    },
+    "completionAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "summary"],
+      "properties": {
+        "status": { "enum": ["decision_ready", "blocked"] },
+        "verdict": {
+          "enum": [
+            "healthy", "degraded", "unhealthy", "in_progress", "needs_review",
+            "succeeded", "failed", "inconclusive", "confirmed", "not_confirmed",
+            "completed", "no_change", "partial"
+          ]
+        },
+        "summary": { "allOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "maxLength": 1000 }] },
+        "material_gaps": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": { "allOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "maxLength": 500 }] }
+        },
+        "blocker_kind": { "enum": ["source_unavailable", "access_denied", "operator_input_required", "authority_boundary", "tool_failure", "capability_unavailable"] },
+        "attempts": {
+          "type": "array",
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": { "allOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "maxLength": 500 }] }
+        },
+        "next_action": { "type": "string", "maxLength": 1000 },
+        "recheck": { "$ref": "#/$defs/recheck" },
+        "capability_gaps": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/capabilityGap" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "blocked" } } },
+          "then": {
+            "required": ["material_gaps", "blocker_kind", "attempts", "next_action"],
+            "not": { "required": ["verdict"] },
+            "properties": {
+              "material_gaps": { "minItems": 1 },
+              "attempts": { "minItems": 1 },
+              "next_action": { "$ref": "#/$defs/nonEmptyString" }
+            }
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                { "required": ["blocker_kind"] },
+                { "required": ["attempts"] },
+                { "required": ["recheck"] },
+                { "required": ["capability_gaps"] }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "blocker_kind": { "const": "capability_unavailable" } },
+            "required": ["blocker_kind"]
+          },
+          "then": {
+            "required": ["capability_gaps"],
+            "properties": { "capability_gaps": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": { "required": ["recheck"] },
+          "then": {
+            "properties": {
+              "status": { "const": "blocked" },
+              "blocker_kind": { "enum": ["source_unavailable", "tool_failure"] }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["material_gaps"],
+            "properties": { "material_gaps": { "minItems": 1 } }
+          },
+          "then": {
+            "if": { "properties": { "status": { "const": "decision_ready" } } },
+            "then": {
+              "required": ["verdict"],
+              "properties": {
+                "verdict": {
+                  "enum": ["degraded", "unhealthy", "in_progress", "needs_review", "failed", "inconclusive", "not_confirmed", "partial"]
+                }
+              },
+              "allOf": [
+                {
+                  "if": { "properties": { "verdict": { "const": "failed" } } },
+                  "then": {
+                    "required": ["next_action"],
+                    "properties": { "next_action": { "$ref": "#/$defs/nonEmptyString" } }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "completeEpisode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message", "completion"],
+      "properties": {
+        "message": {
+          "allOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "maxLength": 12288 }]
+        },
+        "followup_messages": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "allOf": [{ "$ref": "#/$defs/nonEmptyString" }, { "maxLength": 12288 }]
+          }
+        },
+        "completion": { "$ref": "#/$defs/completionAssessment" }
+      }
+    }
+  }
+}

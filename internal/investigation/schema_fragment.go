@@ -126,7 +126,9 @@ var schemaFragments = []schemaFragment{
 		field:   "offer_schedule",
 		shape: `{"id":<string>,"type":"offer_schedule","schedule_offer":{"title":<string>,` +
 			`"prompt":<string>,"repository":<string>,"recurrence":"once"|"interval"|"daily"|` +
-			`"weekly"|"monthly","start_at":<RFC3339>,"local_time":"HH:MM","timezone":<IANA name>}}`,
+			`"weekly"|"monthly","start_at":<RFC3339 required for once>,"interval_seconds":` +
+			`<300..31536000 required for interval>,"local_time":"HH:MM" and "timezone":` +
+			`<IANA name> required for calendar recurrence}}`,
 		example: `{"id":"schedule-1","type":"offer_schedule","schedule_offer":{"title":` +
 			`"Daily platform health report","prompt":"Run the published whole-platform health ` +
 			`review and report the verdict here.","repository":"tenant-infra","recurrence":"daily",` +

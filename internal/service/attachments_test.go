@@ -13,6 +13,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/publisher"
+	"github.com/AndrewDryga/responder/internal/resultcontract"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskpr"
@@ -91,7 +92,7 @@ func TestConfiguredPrivatePullRequestBecomesExactAgentArtifact(t *testing.T) {
 	if client.repository != "tenantcorp/tenant-infra" || client.number != 514 {
 		t.Fatalf("GitHub request = %s#%d", client.repository, client.number)
 	}
-	if len(artifacts) != 2 || artifacts[1].Name != "github-pr-514.md" ||
+	if len(artifacts) != 3 || artifacts[1].Name != "github-pr-514.md" ||
 		artifacts[1].MediaType != "text/markdown" {
 		t.Fatalf("artifacts = %+v", artifacts)
 	}
@@ -110,6 +111,7 @@ func TestConfiguredPrivatePullRequestBecomesExactAgentArtifact(t *testing.T) {
 	if artifacts[1].SHA256 != hex.EncodeToString(digest[:]) {
 		t.Fatalf("artifact digest = %q", artifacts[1].SHA256)
 	}
+	assertResultContractArtifact(t, artifacts[2])
 }
 
 func TestPrivatePullRequestDiscoveryUsesDurableRunContextAndAdvertisesArtifact(t *testing.T) {
@@ -134,9 +136,10 @@ func TestPrivatePullRequestDiscoveryUsesDurableRunContextAndAdvertisesArtifact(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(artifacts) != 1 || artifacts[0].Name != "github-pr-514.md" {
+	if len(artifacts) != 2 || artifacts[0].Name != "github-pr-514.md" {
 		t.Fatalf("artifacts = %+v", artifacts)
 	}
+	assertResultContractArtifact(t, artifacts[1])
 	prompt := taskpr.ArtifactsPrompt(artifacts)
 	for _, want := range []string{
 		"github-pr-514.md", artifacts[0].SHA256,
@@ -161,9 +164,10 @@ func TestUnconfiguredPullRequestIsNotFetched(t *testing.T) {
 		"Review https://github.com/tenantcorp/tenant-infra/pull/514",
 		nil,
 	)
-	if err != nil || len(artifacts) != 0 || client.repository != "" {
+	if err != nil || len(artifacts) != 1 || client.repository != "" {
 		t.Fatalf("unconfigured PR = artifacts %+v request %q error %v", artifacts, client.repository, err)
 	}
+	assertResultContractArtifact(t, artifacts[0])
 }
 
 func TestSlackAttachmentReachesQueuedCoopTurn(t *testing.T) {
@@ -207,7 +211,7 @@ func TestSlackAttachmentReachesQueuedCoopTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(coopClient.submitArtifacts) != 1 ||
-		len(coopClient.submitArtifacts[0]) != 1 {
+		len(coopClient.submitArtifacts[0]) != 2 {
 		t.Fatalf("submitted artifacts = %#v", coopClient.submitArtifacts)
 	}
 	artifact := coopClient.submitArtifacts[0][0]
@@ -217,6 +221,7 @@ func TestSlackAttachmentReachesQueuedCoopTurn(t *testing.T) {
 		string(artifact.Data) != string(testPNG) {
 		t.Fatalf("submitted artifact = %+v", artifact)
 	}
+	assertResultContractArtifact(t, coopClient.submitArtifacts[0][1])
 	if len(slackClient.downloads) != 1 || slackClient.downloads[0] != privateURL {
 		t.Fatalf("Slack downloads = %v", slackClient.downloads)
 	}
@@ -330,8 +335,22 @@ func TestTheUnreadableAttachmentReachesThePrompt(t *testing.T) {
 			t.Fatalf("prompt does not name the dropped attachment (%q):\n%s", want, prompt)
 		}
 	}
-	if len(coopClient.submitArtifacts) != 1 || len(coopClient.submitArtifacts[0]) != 0 {
+	if len(coopClient.submitArtifacts) != 1 || len(coopClient.submitArtifacts[0]) != 1 {
 		t.Fatalf("unreadable bytes were attached anyway: %#v", coopClient.submitArtifacts)
+	}
+	assertResultContractArtifact(t, coopClient.submitArtifacts[0][0])
+}
+
+func assertResultContractArtifact(t *testing.T, artifact coop.InputArtifact) {
+	t.Helper()
+	if artifact.Name != resultcontract.FileName ||
+		artifact.MediaType != "application/json" ||
+		string(artifact.Data) != string(resultcontract.Schema()) {
+		t.Fatalf("result contract artifact = name %q media %q bytes %d", artifact.Name, artifact.MediaType, len(artifact.Data))
+	}
+	digest := sha256.Sum256(artifact.Data)
+	if artifact.SHA256 != hex.EncodeToString(digest[:]) {
+		t.Fatalf("result contract digest = %q", artifact.SHA256)
 	}
 }
 

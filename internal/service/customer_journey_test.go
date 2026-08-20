@@ -1161,11 +1161,12 @@ func TestCustomerJourneyThreadFollowupUsesPreviousThreadScreenshot(t *testing.T)
 	}
 	finishQueuedAgentRun(t, ctx, svc)
 	if len(coopClient.submitArtifacts) != 1 ||
-		len(coopClient.submitArtifacts[0]) != 1 ||
+		len(coopClient.submitArtifacts[0]) != 2 ||
 		coopClient.submitArtifacts[0][0].Name != "failing-check.png" ||
 		string(coopClient.submitArtifacts[0][0].Data) != string(testPNG) {
 		t.Fatalf("contextual screenshot artifacts = %+v", coopClient.submitArtifacts)
 	}
+	assertResultContractArtifact(t, coopClient.submitArtifacts[0][1])
 	if len(coopClient.submitPrompts) != 1 ||
 		!strings.Contains(coopClient.submitPrompts[0], "See image") ||
 		!strings.Contains(coopClient.submitPrompts[0], "failing-check.png") {
