@@ -189,6 +189,7 @@ func SemanticWatch(
 	}
 	blocked := BlockedWatch(run, input, state, reason, &decision)
 	blocked.Action = "reply"
+	blocked.Attention = decision.Attention
 	blocked.Message = decision.Message
 	blocked.FollowupMessages = decision.FollowupMessages
 	return blocked, true

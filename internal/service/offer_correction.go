@@ -12,15 +12,12 @@ import (
 	"github.com/AndrewDryga/responder/internal/offerreason"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/scheduletext"
+	"github.com/AndrewDryga/responder/internal/taskofferrejection"
 )
 
 // offerCheck is one offer the host will not accept, paired with the reason and
 // the ability to take it off the reply.
-type offerCheck struct {
-	kind     string
-	rejected error
-	clear    func()
-}
+type offerCheck = taskofferrejection.Check
 
 // rejectedOffers reports which of the offers on a reply the host will not
 // accept, in the order the persistence path considers them.
@@ -61,32 +58,32 @@ func (s *Service) rejectedOffers(
 		offer = decision.RuleOffer
 		if _, _, err := s.standingRuleFromOffer(input, *offer, now); err != nil {
 			rejected = append(rejected, offerCheck{
-				kind: "standing rule", rejected: err,
-				clear: func() { decision.RuleOffer = nil },
+				Kind: "standing rule", Rejected: err,
+				Clear: func() { decision.RuleOffer = nil },
 			})
 		}
 	}
 	if offer := decision.PreferenceOffer; offer != nil && s.preferenceOfferInScope(input) {
 		if _, _, err := s.preferenceFromOffer(input, *offer, now); err != nil {
 			rejected = append(rejected, offerCheck{
-				kind: "preference", rejected: err,
-				clear: func() { decision.PreferenceOffer = nil },
+				Kind: "preference", Rejected: err,
+				Clear: func() { decision.PreferenceOffer = nil },
 			})
 		}
 	}
 	if offer := decision.MemoryOffer; offer != nil && s.memoryOfferInScope(input) {
 		if _, _, err := s.memoryEntryFromOffer(input, *offer, now); err != nil {
 			rejected = append(rejected, offerCheck{
-				kind: "memory", rejected: err,
-				clear: func() { decision.MemoryOffer = nil },
+				Kind: "memory", Rejected: err,
+				Clear: func() { decision.MemoryOffer = nil },
 			})
 		}
 	}
 	if offers := OrderedScheduleOffers(decision.ScheduleOffer, decision.ScheduleOffers); len(offers) != 0 && s.scheduleOfferInScope(input) {
 		if err := s.scheduleBatchMatchesRequest(ctx, input, offers, now); err != nil {
 			rejected = append(rejected, offerCheck{
-				kind: "scheduled task batch", rejected: err,
-				clear: func() {
+				Kind: "scheduled task batch", Rejected: err,
+				Clear: func() {
 					decision.ScheduleOffer = nil
 					decision.ScheduleOffers = nil
 				},
@@ -98,8 +95,8 @@ func (s *Service) rejectedOffers(
 				continue
 			} else {
 				rejected = append(rejected, offerCheck{
-					kind: "scheduled task batch", rejected: err,
-					clear: func() {
+					Kind: "scheduled task batch", Rejected: err,
+					Clear: func() {
 						decision.ScheduleOffer = nil
 						decision.ScheduleOffers = nil
 					},
@@ -108,7 +105,7 @@ func (s *Service) rejectedOffers(
 			}
 		}
 	}
-	return rejected
+	return taskofferrejection.Append(rejected, decision, now)
 }
 
 // scheduleBatchMatchesRequest checks the proposed occurrences against the ones
@@ -188,8 +185,8 @@ func (s *Service) offerRejectionCorrection(
 	if len(rejected) == 0 {
 		return ""
 	}
-	return "the " + rejected[0].kind + " you offered was rejected: " +
-		trimError(rejected[0].rejected) +
+	return "the " + rejected[0].Kind + " you offered was rejected: " +
+		trimError(rejected[0].Rejected) +
 		". Fix the offer and send the reply again, or send the reply without" +
 		" the offer if it cannot be stated correctly — but do not tell the" +
 		" user something was saved when it was not."
@@ -248,8 +245,8 @@ func (s *Service) dropRejectedOffers(
 	}
 	kinds := make([]string, 0, len(rejected))
 	for _, offer := range rejected {
-		offer.clear()
-		kinds = append(kinds, offer.kind)
+		offer.Clear()
+		kinds = append(kinds, offer.Kind)
 	}
 	if s.log != nil {
 		s.log.Warn(

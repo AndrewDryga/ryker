@@ -10,6 +10,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/schedulestore"
@@ -270,6 +271,41 @@ func TestOfferOutsideTheHostsScopeIsNotCorrected(t *testing.T) {
 		context.Background(), activation, decision,
 	); correction != "" {
 		t.Fatalf("corrected an offer the host never validates: %q", correction)
+	}
+}
+
+// A live Better Stack investigation established the failing requests and
+// current service health, then vanished because an optional engineering offer
+// was not permitted beside its blocked completion. The offer is disposable;
+// the evidence-backed answer is not.
+func TestAnInvalidEngineeringOfferIsDroppedWithoutDroppingTheAnswer(t *testing.T) {
+	s, _ := discardLog(t)
+	input := core.SlackInput{Kind: "bot_message", ChannelID: "COPS", UserID: "BBETTERSTACK"}
+	decision := decisionpkg.WatchDecision{
+		Action: "reply", Message: "Starfall match recording is degraded.",
+		TaskTitle: "Improve Starfall error telemetry", TaskRepository: "repo",
+		TaskPrompt: "Give createMatch and fetchSeasons distinct structured errors.",
+		Completion: &investigation.CompletionAssessment{
+			Status: "blocked", BlockerKind: "access_denied",
+			Summary: "One raw client event is still required.",
+		},
+		Operations: []investigation.ResultOperation{{
+			ID: "offer-telemetry", Type: "offer_task",
+			Task: &investigation.TaskOffer{
+				Kind: "engineering", Title: "Improve Starfall error telemetry",
+				Repository: "repo", Prompt: "Separate the two failure paths.",
+			},
+		}},
+	}
+
+	s.dropRejectedOffers(context.Background(), input, &decision, core.AgentRun{ID: "run-better-stack"})
+
+	if decision.Message != "Starfall match recording is degraded." || decision.Action != "reply" {
+		t.Fatalf("dropping the offer altered the answer: %+v", decision)
+	}
+	if decision.TaskTitle != "" || decision.TaskRepository != "" || decision.TaskPrompt != "" ||
+		len(decision.Operations) != 0 {
+		t.Fatalf("invalid engineering offer survived: %+v", decision)
 	}
 }
 

@@ -61,6 +61,10 @@ func TestReplyFallbackNeverTurnsSilenceOrAmbiguityIntoSpeech(t *testing.T) {
 func TestSemanticFallbackKeepsValidRecordsAndDropsUnsafeClaims(t *testing.T) {
 	prior := decisionpkg.WatchDecision{
 		Action: "reply", Message: "The service is degraded.",
+		Attention: decisionpkg.AttentionAssessment{
+			Addressee: "channel", Urgency: 2, Confidence: 3,
+			Novelty: 3, Ownership: 2, Contribution: "new_evidence", Material: true,
+		},
 		Evidence:        []core.Evidence{{ID: "e-1"}},
 		Coverage:        []core.Coverage{{Layer: "application"}},
 		AlertAssessment: &investigation.AlertAssessment{Verdict: "confirmed_issue"},
@@ -72,7 +76,8 @@ func TestSemanticFallbackKeepsValidRecordsAndDropsUnsafeClaims(t *testing.T) {
 	)
 	if !delivered || got.Message != prior.Message || len(got.Evidence) != 1 ||
 		len(got.Coverage) != 1 || got.AlertAssessment != nil || len(got.Operations) != 0 ||
-		got.Completion == nil || got.Completion.Status != "blocked" {
+		got.Completion == nil || got.Completion.Status != "blocked" ||
+		got.Attention != prior.Attention {
 		t.Fatalf("semantic fallback = %+v, delivered=%t", got, delivered)
 	}
 }
