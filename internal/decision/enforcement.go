@@ -365,10 +365,7 @@ func FindingCorrection(
 					evidenceDiscriminatesAlternative(decision.Evidence, alternative) {
 					continue
 				}
-				identity := "finding " + strconv.Quote(item.What)
-				if item.Key != "" {
-					identity += " (key " + strconv.Quote(item.Key) + ")"
-				}
+				identity := findingpolicy.Identity(item)
 				return identity + " names " +
 					alternative.DiscriminatedBy + " as ruling out " +
 					strconv.Quote(alternative.Hypothesis) + ", but it does not contradict the " +

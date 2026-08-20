@@ -8,6 +8,15 @@ import (
 	"github.com/AndrewDryga/responder/internal/investigation"
 )
 
+// Identity names the model-visible finding and its stable replacement key.
+func Identity(item investigation.FindingOperation) string {
+	identity := "finding " + strconv.Quote(item.What)
+	if item.Key != "" {
+		identity += " (key " + strconv.Quote(item.Key) + ")"
+	}
+	return identity
+}
+
 // InitialCorrection applies the finding checks that precede completion policy.
 // A false second result means later checks should continue.
 func InitialCorrection(action string, findings []investigation.FindingOperation) (string, bool) {
