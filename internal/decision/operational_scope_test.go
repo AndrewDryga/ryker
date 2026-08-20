@@ -89,13 +89,22 @@ func TestOperationalAlertRendersTheConcreteValidatedAssessment(t *testing.T) {
 	assessment.Verification = "Confirm the restart count, current memory headroom, and representative website health."
 	assessment.Scope.CheckedTargets = []string{"website allocation on nomad-hst01"}
 	assessment.Scope.UnverifiedTargets = []string{"request impact during the kill", "the memory-growth mechanism"}
-	assessment.Scope.EvidenceRefs = []string{"website-oom"}
-	evidence := []core.Evidence{{
-		ID: "website-oom", ClaimID: "host.current_state", Relation: "contradicts",
-		HealthEffect: "degraded", Target: "website allocation on nomad-hst01",
-		SourceType: "emisar", SourceName: "kernel and Nomad inspection",
-		Observation: assessment.Impact,
-	}}
+	assessment.EvidenceRefs = []string{"website-oom", "website-cause"}
+	assessment.Scope.EvidenceRefs = []string{"website-oom", "website-cause"}
+	evidence := []core.Evidence{
+		{
+			ID: "website-oom", ClaimID: "workload.desired_state", Relation: "contradicts",
+			HealthEffect: "degraded", Target: "website allocation on nomad-hst01",
+			SourceType: "emisar", SourceName: "Nomad allocation inspection",
+			Observation: assessment.Impact,
+		},
+		{
+			ID: "website-cause", ClaimID: "host.current_state", Relation: "contradicts",
+			HealthEffect: "degraded", Target: "website allocation on nomad-hst01",
+			SourceType: "emisar", SourceName: "kernel cgroup inspection",
+			Observation: assessment.Cause,
+		},
+	}
 
 	rendered, correction := RenderOperationalAlertDecision(WatchDecision{
 		Action: "reply", Message: "generic model completion", AlertAssessment: assessment,
@@ -105,6 +114,7 @@ func TestOperationalAlertRendersTheConcreteValidatedAssessment(t *testing.T) {
 	}
 	for _, want := range []string{
 		assessment.Impact,
+		assessment.Cause,
 		assessment.ImmediateAction,
 		assessment.Verification,
 		"request impact during the kill",
@@ -125,6 +135,54 @@ func TestOperationalAlertRendersTheConcreteValidatedAssessment(t *testing.T) {
 	} {
 		if strings.Contains(rendered.Message, boilerplate) {
 			t.Fatalf("rendered assessment retained boilerplate %q:\n%s", boilerplate, rendered.Message)
+		}
+	}
+}
+
+// The first correct VictoriaLogs replay printed seven evidence records as
+// seven paragraphs. Scheduler repeated workload state, and impact repeated the
+// application error check, turning a 17-second restart into a wall of text.
+// The public reply keeps causal evidence plus one result per operational layer.
+func TestOperationalAlertCollapsesDuplicateRuntimeEvidence(t *testing.T) {
+	assessment := boundedAlertAssessment()
+	assessment.EvidenceRefs = []string{"oom"}
+	assessment.Scope = &OperationalScope{
+		Status: "bounded",
+		CheckedTargets: []string{
+			"kernel event", "allocation", "scheduler", "service errors", "impact",
+		},
+		UnverifiedTargets: []string{"requests during the restart"},
+		EvidenceRefs:      []string{"oom", "workload", "scheduler", "application", "impact"},
+	}
+	evidence := []core.Evidence{
+		{ID: "oom", ClaimID: "host.current_state", Relation: "contradicts", Target: "kernel event", Observation: "The kernel OOM-killed VictoriaLogs."},
+		{ID: "workload", ClaimID: "workload.desired_state", Relation: "supports", Target: "allocation", Observation: "The allocation restarted and is running."},
+		{ID: "scheduler", ClaimID: "scheduler.desired_state", Relation: "supports", Target: "scheduler", Observation: "Nomad reports the allocation running."},
+		{ID: "application", ClaimID: "application.functional_behavior", Relation: "supports", Target: "service errors", Observation: "Current service errors are zero."},
+		{ID: "impact", ClaimID: "impact.current", Relation: "supports", Target: "impact", Observation: "The current error increase is zero."},
+	}
+	rendered, correction := RenderOperationalAlertDecision(WatchDecision{
+		Action: "reply", AlertAssessment: assessment,
+	}, evidence)
+	if correction != "" {
+		t.Fatalf("valid assessment rejected: %s", correction)
+	}
+	for _, want := range []string{
+		"The kernel OOM-killed VictoriaLogs.",
+		"The allocation restarted and is running.",
+		"Current service errors are zero.",
+		"I checked 5 targets in this alert's scope.",
+	} {
+		if !strings.Contains(rendered.Message, want) {
+			t.Fatalf("rendered alert lost %q:\n%s", want, rendered.Message)
+		}
+	}
+	for _, duplicate := range []string{
+		"Nomad reports the allocation running.",
+		"The current error increase is zero.",
+	} {
+		if strings.Contains(rendered.Message, duplicate) {
+			t.Fatalf("rendered alert repeated %q:\n%s", duplicate, rendered.Message)
 		}
 	}
 }

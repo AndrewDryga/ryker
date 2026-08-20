@@ -328,27 +328,19 @@ func Render(assessment *Assessment, evidence []core.Evidence) (string, bool) {
 	for _, item := range evidence {
 		byID[strings.TrimSpace(item.ID)] = item
 	}
-	parts := make([]string, 0, 6)
-	observations := make([]string, 0, len(scope.EvidenceRefs))
-	for _, ref := range scope.EvidenceRefs {
-		if ref == scope.UniverseEvidenceRef {
-			continue
-		}
-		observation := strings.TrimSpace(byID[ref].Observation)
-		if observation != "" && !slices.Contains(observations, observation) {
-			observations = append(observations, observation)
-		}
-	}
+	parts := make([]string, 0, 8)
+	observations := renderObservations(assessment, byID)
 	for _, observation := range observations {
 		parts = append(parts, sentence(observation))
 	}
 	if scope.Status == "exhaustive" {
 		parts = append(parts, "I checked all configured targets: "+strings.Join(scope.CheckedTargets, ", ")+".")
 	} else {
-		parts = append(parts,
-			"I checked "+strings.Join(scope.CheckedTargets, ", ")+". I haven’t verified "+
-				strings.Join(scope.UnverifiedTargets, ", ")+".",
-		)
+		checked := "I checked " + strings.Join(scope.CheckedTargets, ", ") + "."
+		if len(scope.CheckedTargets) > 3 {
+			checked = fmt.Sprintf("I checked %d targets in this alert's scope.", len(scope.CheckedTargets))
+		}
+		parts = append(parts, checked+" I haven’t verified "+strings.Join(scope.UnverifiedTargets, ", ")+".")
 	}
 	if assessment.ImmediateAction != "" {
 		parts = append(parts, "Next: "+sentence(assessment.ImmediateAction))
@@ -357,6 +349,59 @@ func Render(assessment *Assessment, evidence []core.Evidence) (string, bool) {
 		parts = append(parts, "Verification: "+sentence(assessment.Verification))
 	}
 	return strings.Join(parts, "\n\n"), true
+}
+
+// renderObservations leads with evidence cited for the assessment itself, then
+// adds at most one current observation from each operational layer. This keeps
+// a scheduler projection from restating the workload result and an impact
+// counter from restating the application check, while preserving the concrete
+// evidence instead of trusting arbitrary completion prose.
+func renderObservations(assessment *Assessment, byID map[string]core.Evidence) []string {
+	refs := append(slices.Clone(assessment.EvidenceRefs), assessment.Scope.EvidenceRefs...)
+	causal := make(map[string]struct{}, len(assessment.EvidenceRefs))
+	for _, ref := range assessment.EvidenceRefs {
+		causal[strings.TrimSpace(ref)] = struct{}{}
+	}
+	seenRefs, seenObservations, seenLayers := map[string]struct{}{}, map[string]struct{}{}, map[string]struct{}{}
+	result := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref = strings.TrimSpace(ref); ref == "" || ref == assessment.Scope.UniverseEvidenceRef {
+			continue
+		}
+		if _, seen := seenRefs[ref]; seen {
+			continue
+		}
+		seenRefs[ref] = struct{}{}
+		item, ok := byID[ref]
+		observation := strings.TrimSpace(item.Observation)
+		if !ok || observation == "" {
+			continue
+		}
+		layer := renderLayer(item.ClaimID)
+		if _, isCausal := causal[ref]; !isCausal && layer != "" {
+			if _, seen := seenLayers[layer]; seen {
+				continue
+			}
+			seenLayers[layer] = struct{}{}
+		}
+		if _, seen := seenObservations[observation]; seen {
+			continue
+		}
+		seenObservations[observation] = struct{}{}
+		result = append(result, observation)
+	}
+	return result
+}
+
+func renderLayer(claimID string) string {
+	switch strings.TrimSpace(claimID) {
+	case "workload.desired_state", "scheduler.desired_state":
+		return "runtime"
+	case "application.functional_behavior", "impact.current":
+		return "application"
+	default:
+		return strings.TrimSpace(claimID)
+	}
 }
 
 func sentence(value string) string {
