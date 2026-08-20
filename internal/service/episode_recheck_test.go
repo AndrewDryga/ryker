@@ -40,6 +40,31 @@ func TestCompletionRecheckIsTypedAndBounded(t *testing.T) {
 	}
 }
 
+// A channel alert policy is the assignment. Replaying its timer as Kind=recheck
+// must not shed the alert assessment, incident contract, or host renderer merely
+// because no standing-rule row was involved.
+// Covers: TestAlertPolicyRecheckCannotBypassOriginAlertValidation
+// Covers: TestOperationalAlertRecheckRetainsValidationWithoutAStandingRule
+func TestConfiguredAlertRecheckWithoutAStandingRuleRetainsOperationalValidation(t *testing.T) {
+	input := core.SlackInput{
+		Kind: "recheck", TeamID: "T1", ChannelID: "COPS", MessageTS: "1700.1",
+		Text: "[VA1 FIRING:1] CRITICAL | Search target down",
+	}
+	state := decisionpkg.WatchTurnState{AlertPolicy: "reply", RulesCaptured: true}
+	decision := decisionpkg.WatchDecision{
+		Action: "reply", Message: "Search recovered.",
+	}
+	if correction := decisionpkg.WatchDecisionCorrection(
+		input, state, decision, OperationalCorrelationKey,
+	); correction == "" {
+		t.Fatal("channel-policy recheck published without an alert assessment")
+	}
+	episode := (&Service{}).episodeForWatchedInput(input, state)
+	if episode.Effort != core.EffortIncidentInvestigation {
+		t.Fatalf("channel-policy recheck effort = %q, want incident investigation", episode.Effort)
+	}
+}
+
 func TestEpisodeRechecksAreChainedAfterEachCompletedAttempt(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -182,6 +207,7 @@ func TestEpisodeRecheckIsSilentWhileBackgroundWorkRunsOrFails(t *testing.T) {
 	}
 }
 
+// Covers: TestStructuredRecheckStaysOnItsOriginEpisodeWhenTheThreadHasNewerWork
 func TestEpisodeRecheckCreatesOneSilentSyntheticInput(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -233,6 +259,15 @@ func TestEpisodeRecheckCreatesOneSilentSyntheticInput(t *testing.T) {
 	if err != nil || !created {
 		t.Fatalf("queue origin run = %+v, %t, %v", run, created, err)
 	}
+	newer, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		ID: "run_newer_thread_work", Mode: core.AgentRunTriage,
+		ChannelID: origin.ChannelID, ConversationKey: "channel:" + origin.ChannelID,
+		SourceKind: "watch", SourceID: "newer-thread-work", UserID: origin.UserID,
+		Context: stateJSON,
+	})
+	if err != nil || !created || newer.EpisodeID == run.EpisodeID {
+		t.Fatalf("queue newer thread episode = %+v, %t, %v", newer, created, err)
+	}
 	svc := &Service{cfg: cfg, store: st}
 	if err := svc.processEpisodeRecheck(ctx, store.WorkItem{
 		Kind: workEpisodeRecheck, SubjectID: episodeRecheckSubject(run.ID, 1),
@@ -256,6 +291,10 @@ func TestEpisodeRecheckCreatesOneSilentSyntheticInput(t *testing.T) {
 		recheckState.RecheckKey != "emisar:pack:gcp-billing" ||
 		recheckState.RecheckAttempt != 1 || !recheckState.ConversationFollowup {
 		t.Fatalf("recheck state = %+v", recheckState)
+	}
+	recheckRun, err := st.GetAgentRunBySource(ctx, "watch", recheck.ID)
+	if err != nil || recheckRun.EpisodeID != run.EpisodeID {
+		t.Fatalf("recheck episode = %q, want origin %q: %v", recheckRun.EpisodeID, run.EpisodeID, err)
 	}
 	if len(recheckState.MatchedRules) != 1 ||
 		recheckState.MatchedRules[0].Trigger != "operational_alert" {
@@ -299,6 +338,13 @@ func TestSyntheticRecheckBypassesHumanSlackMembershipValidation(t *testing.T) {
 	}
 	if err := st.FinishSlackInput(ctx, leased.ID); err != nil {
 		t.Fatal(err)
+	}
+	if run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		ID: "run_origin", Mode: core.AgentRunTriage, ChannelID: origin.ChannelID,
+		ConversationKey: "operation:disk-latency", SourceKind: "watch", SourceID: origin.ID,
+		UserID: origin.UserID, ThreadTS: origin.MessageTS, State: core.AgentRunRunning,
+	}); err != nil || !created || run.EpisodeID == "" {
+		t.Fatalf("queue durable recheck origin = %+v, %t, %v", run, created, err)
 	}
 	frozen, err := json.Marshal(decisionpkg.WatchTurnState{
 		RouteCaptured: true, ResponseThreadTS: "1700.100", RulesCaptured: true,

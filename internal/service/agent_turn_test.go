@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -503,20 +504,21 @@ func TestAgentRunProtocolReplayIsExactAndBounded(t *testing.T) {
 		t.Fatalf("incident cleanup promised an unavailable fresh session = %q, %t", reason, replay)
 	}
 	run.Mode = core.AgentRunTriage
-	for failures := 0; failures < 2; failures++ {
-		run.Failures = failures
+	run.Failures = 19
+	for cleanupReplays := 0; cleanupReplays < 2; cleanupReplays++ {
+		run.Context = []byte(fmt.Sprintf(`{"runtime_cleanup_replays":%d}`, cleanupReplays))
 		if reason, replay := runreplay.Decide(
 			run, "turn.failed", cleanupFailure, 20,
 		); !replay || !strings.Contains(reason, "retrying") {
 			t.Fatalf(
 				"cleanup failure %d replay = %q, %t",
-				failures,
+				cleanupReplays,
 				reason,
 				replay,
 			)
 		}
 	}
-	run.Failures = 2
+	run.Context = []byte(`{"runtime_cleanup_replays":2}`)
 	if reason, replay := runreplay.Decide(
 		run, "turn.failed", cleanupFailure, 20,
 	); replay || reason != "" {
@@ -748,15 +750,25 @@ func TestRuntimeCleanupTimeoutRecoversTheAlertInAFreshSession(t *testing.T) {
 	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
 	}
+	attempted, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAgentRunFailuresForTest(ctx, attempted.ID, 7); err != nil {
+		t.Fatal(err)
+	}
 	svc.pollAgentRuns(ctx)
 	requeued, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
-	if err != nil || requeued.State != core.AgentRunPending || requeued.Failures != 1 {
+	if err != nil || requeued.State != core.AgentRunPending || requeued.Failures != 8 {
 		t.Fatalf("cleanup timeout was not requeued = %+v, %v", requeued, err)
 	}
 	firstSession := requeued.SessionID
 	state, err := decodeWatchRunContext(requeued)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if state.RuntimeCleanupReplays != 1 {
+		t.Fatalf("runtime cleanup replay marker = %d, want 1", state.RuntimeCleanupReplays)
 	}
 	coopClient.openAfterCreateKey = "responder:watch-session:" + state.SessionChannelID + ":2"
 	if err := svc.processAgentRun(ctx); err != nil {
@@ -2609,6 +2621,109 @@ func TestFirstTurnTimeoutStillRetriesAfterPreparationFailures(t *testing.T) {
 	run.Context = []byte(`{"turn_timeout_replays":1}`)
 	if reason, replay := runreplay.Decide(run, "turn.failed", timedOut, 20); replay || reason != "" {
 		t.Fatalf("second model timeout was not bounded = %q, %t", reason, replay)
+	}
+}
+
+// A Typesense investigation accumulated two session-revision conflicts before
+// its first runtime cleanup failure. The cleanup was real model work with its
+// own bounded recovery, but the shared failure counter made Responder abandon
+// the alert without a reply.
+func TestFirstRuntimeCleanupFailureSurvivesEarlierRevisionConflicts(t *testing.T) {
+	run := core.AgentRun{Mode: core.AgentRunTriage, Failures: 7}
+	cleanup := coop.Turn{ErrorCode: "session_cleanup_error", ErrorDetail: "runtime cleanup failed"}
+	if reason, replay := runreplay.Decide(run, "turn.failed", cleanup, 20); !replay ||
+		!strings.Contains(reason, "fresh session") {
+		t.Fatalf("first cleanup failure after unrelated retries = %q, %t", reason, replay)
+	}
+	run.Context = []byte(`{"runtime_cleanup_replays":1}`)
+	if reason, replay := runreplay.Decide(run, "turn.failed", cleanup, 20); !replay || reason == "" {
+		t.Fatalf("second bounded cleanup recovery = %q, %t", reason, replay)
+	}
+	run.Context = []byte(`{"runtime_cleanup_replays":2}`)
+	if reason, replay := runreplay.Decide(run, "turn.failed", cleanup, 20); replay || reason != "" {
+		t.Fatalf("third cleanup failure was not bounded = %q, %t", reason, replay)
+	}
+}
+
+// A Coop turn that spent its context budget used to fail the entire alert
+// stream on its first occurrence. Accepted operational work gets one fresh
+// read-only session instead of disappearing without an assessment.
+func TestTurnBudgetExhaustionDoesNotAbandonAnAcceptedAlertStream(t *testing.T) {
+	run := core.AgentRun{Mode: core.AgentRunTriage, Failures: 6}
+	exhausted := coop.Turn{State: "budget_exhausted", StopReason: "budget exhausted"}
+	if reason, replay := runreplay.Decide(run, "turn.failed", exhausted, 20); !replay ||
+		!runreplay.FreshSession(exhausted) || !strings.Contains(reason, "fresh") {
+		t.Fatalf("first budget exhaustion = %q, %t", reason, replay)
+	}
+	run.Context = []byte(`{"budget_exhaustion_replays":1}`)
+	if reason, replay := runreplay.Decide(run, "turn.failed", exhausted, 20); replay || reason != "" {
+		t.Fatalf("budget exhaustion replay was not bounded = %q, %t", reason, replay)
+	}
+}
+
+// Coop can return its deliberately sanitized public failure after preserving
+// the exact transport error in the terminal event. The exact internal-operation
+// shape is disposable infrastructure failure, so accepted alert work gets one
+// fresh read-only session.
+// Covers: TestAnInternalOperationFailureRetriesReadOnlyTriageWork
+func TestInternalOperationFailureRecoversAcceptedAlertInFreshSession(t *testing.T) {
+	run := core.AgentRun{Mode: core.AgentRunTriage}
+	failure := coop.Turn{ErrorCode: "internal_error", ErrorDetail: "internal operation failure"}
+	if reason, replay := runreplay.Decide(run, "turn.failed", failure, 20); !replay ||
+		!runreplay.FreshSession(failure) || !strings.Contains(reason, "fresh") {
+		t.Fatalf("internal operation recovery = %q, %t", reason, replay)
+	}
+	run.Context = []byte(`{"transient_session_replays":1}`)
+	if reason, replay := runreplay.Decide(run, "turn.failed", failure, 20); replay || reason != "" {
+		t.Fatalf("internal operation recovery was not bounded = %q, %t", reason, replay)
+	}
+}
+
+// The terminal event retained Claude's real quota reset while GetTurn exposed
+// only "internal operation failure". Trusting the latter abandoned the alert
+// instead of leaving it queued for a healthy credential.
+func TestTerminalEventRateLimitSurvivesSanitizedTurnDetail(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run := seedPreparingRun(t, st)
+	coopClient := newFakeCoop()
+	if err := st.BindAgentRunSession(
+		ctx, run.ID, coopClient.session.ID, 1, "repo", 0, []byte(`{}`),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunSubmitted(ctx, run.ID, "turn_limited", 1, 0); err != nil {
+		t.Fatal(err)
+	}
+	coopClient.turn = coop.Turn{
+		ID: "turn_limited", SessionID: coopClient.session.ID, State: "failed",
+		ErrorCode: "internal_error", ErrorDetail: "internal operation failure",
+	}
+	detail := "every target in the policy ladder is rate limited until 2026-08-21T20:00:00Z"
+	payload, err := json.Marshal(map[string]any{"error_code": "rate_limited", "detail": detail})
+	if err != nil {
+		t.Fatal(err)
+	}
+	coopClient.events = []coop.Event{{
+		ID: "evt_limited", SessionID: coopClient.session.ID, Sequence: 1,
+		TurnID: coopClient.turn.ID, Type: "turn.failed", Payload: payload,
+	}}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.log = slog.New(slog.DiscardHandler)
+	svc.pollAgentRuns(ctx)
+
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != core.AgentRunPending || stored.Failures != 0 || stored.TerminalState != "" ||
+		stored.CoopTurnID != "" || !strings.Contains(stored.LastError, "rate limited") {
+		t.Fatalf("rate-limited terminal event = %+v", stored)
 	}
 }
 

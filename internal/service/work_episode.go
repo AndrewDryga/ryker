@@ -147,7 +147,7 @@ func (s *Service) episodeForWatchedInput(
 			}
 		}
 	}
-	if decisionpkg.MatchedOperationalAlertRule(state.MatchedRules) || (input.Kind == "bot_message" && state.AlertPolicy != "" && decisionpkg.OperationalAlertEvent(input.Text) && !decisionpkg.ExternalCoordinationOnlyEvent(input.Text)) {
+	if alertstreampkg.GovernedOperationalAlert(input, state) {
 		episode.Effort = core.EffortIncidentInvestigation
 		episode.RequiredCoverage = alertInvestigationCoverage(text)
 		episode.CompletionCriteria = []string{

@@ -81,6 +81,9 @@ func TestBoundedOperationalScopeMakesExclusiveParaphrasesIrrelevant(t *testing.T
 // replaced every one of those facts with "the checked evidence confirms an
 // active issue", leaving the operator with less information than the ledger.
 // Validated evidence is the public result; structured scope bounds it.
+// Covers: TestOperationalAlertReplyStatesIdentifiedCauseAndMitigation
+// Covers: TestOperationalAlertReplyRetainsEvidenceBackedCauseAndAction
+// Covers: TestIdentifiedOperationalCauseAndMitigationReachSlackReply
 func TestOperationalAlertRendersTheConcreteValidatedAssessment(t *testing.T) {
 	assessment := boundedAlertAssessment()
 	assessment.Impact = "A Node.js worker in the website allocation was OOM-killed; the allocation is running and fresh website requests succeed."

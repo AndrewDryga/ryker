@@ -110,7 +110,7 @@ func (s *Service) alertReplyRepeats(
 	run core.AgentRun,
 	decision decisionpkg.WatchDecision,
 ) (bool, string, error) {
-	if decision.Action != "reply" || input.Kind != "bot_message" ||
+	if decision.Action != "reply" || (input.Kind != "bot_message" && input.Kind != "recheck") ||
 		run.EpisodeID == "" || !strings.HasPrefix(run.ConversationKey, "operation:") {
 		return false, "", nil
 	}
@@ -137,7 +137,7 @@ func (s *Service) recordAlertReplyPosted(
 	decision decisionpkg.WatchDecision,
 	run core.AgentRun,
 ) error {
-	if input.Kind != "bot_message" || run.EpisodeID == "" ||
+	if (input.Kind != "bot_message" && input.Kind != "recheck") || run.EpisodeID == "" ||
 		!strings.HasPrefix(run.ConversationKey, "operation:") {
 		return nil
 	}

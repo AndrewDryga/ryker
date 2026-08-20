@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/agentprompt"
+	"github.com/AndrewDryga/responder/internal/alertstream"
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -1079,7 +1080,9 @@ func evaluationStructuredCorrection(
 				)
 				decision = service.EnforceExternalLifecycleCommunication(input, decision)
 				decision, _ = service.EnforceExternalLifecycleEvidence(input, *episode, decision)
-				decision, _ = decisionpkg.EnforceRecoveredAlertLink(input, state, decision)
+				decision, _ = decisionpkg.EnforceRecoveredAlertLink(
+					input, decision, alertstream.PriorFiringMessageLink(input, state.RecentMessages),
+				)
 				for _, correction := range []string{
 					lifecycleContinuationCorrection,
 					decisionpkg.WatchDecisionCorrectionAt(input, state, decision, now, service.OperationalCorrelationKey),

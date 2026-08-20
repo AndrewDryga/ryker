@@ -1945,6 +1945,28 @@ func TestUnchangedFlapDoesNotPostAgain(t *testing.T) {
 	}
 }
 
+// A synthetic timer is another attempt in the same alert stream. It must use
+// the same decision signature as app cards so an unchanged assessment stays
+// quiet instead of posting once per scheduled recheck.
+func TestUnchangedOperationalAlertRecheckDoesNotPostAgain(t *testing.T) {
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	_, st, _, svc, base := streamFixture(t, "CRECHECK-REPEAT")
+	svc.coop.(*fakeCoop).completeQueue = []string{confirmedAlertReplyResult(observedAt)}
+	base.ID, base.EnvelopeID, base.EventID = "recheck-base", "env-recheck-base", "event-recheck-base"
+	base.MessageTS = "1706.250"
+	run := answerStreamCard(t, svc, st, base)
+	decision, err := decisionpkg.ParseWatchDecision(confirmedAlertReplyResult(observedAt), svc.now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recheck := base
+	recheck.Kind, recheck.ID = "recheck", "synthetic-recheck"
+	repeated, _, err := svc.alertReplyRepeats(context.Background(), recheck, run, decision)
+	if err != nil || !repeated {
+		t.Fatalf("unchanged recheck repeated=%t, err=%v", repeated, err)
+	}
+}
+
 // The other half: a decision that actually changed still reaches the channel.
 // A stream that recovered says something the last reply did not, and this is
 // also the case that proves the suppression above is about the decision rather

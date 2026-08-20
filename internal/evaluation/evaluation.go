@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/alertstream"
 	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -694,7 +695,7 @@ func evaluateCaseWithConfig(
 				cfg.Slack.ReplyAttention,
 				cfg.Slack.ReactionAttention,
 			)
-			decision, _ = decisionpkg.EnforceRecoveredAlertLink(input, state, decision)
+			decision, _ = decisionpkg.EnforceRecoveredAlertLink(input, decision, alertstream.PriorFiringMessageLink(input, state.RecentMessages))
 			// The channel's own alert policy, read here exactly as
 			// WatchDecisionCorrectionAt reads it in production and in the
 			// correction round: same gate, same post-enforcement decision. A

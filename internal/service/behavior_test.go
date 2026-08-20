@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/alertstream"
 	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
@@ -644,9 +645,39 @@ func TestRecoveredAlertCorrectsBlockedBroadAssessmentAndRequiresPriorLink(t *tes
 		t.Fatalf("rejected linked recovery closure: %s", correction)
 	}
 	decision.Message = "The scheduled repair completed."
-	linked, adjusted := decisionpkg.EnforceRecoveredAlertLink(input, state, decision)
+	linked, adjusted := decisionpkg.EnforceRecoveredAlertLink(
+		input, decision, alertstream.PriorFiringMessageLink(input, state.RecentMessages),
+	)
 	if !adjusted || !strings.Contains(linked.Message, state.RecentMessages[0].MessageLink) {
 		t.Fatalf("host-linked recovery = %+v, adjusted=%t", linked, adjusted)
+	}
+}
+
+// Two independent Grafana streams shared recent channel context. A Search
+// recovery used to close the newer CMS firing card because the host selected
+// by recency instead of operational identity.
+func TestRecoveredAlertLinksOnlyItsCorrelatedFiringMessage(t *testing.T) {
+	searchFiring := "[VA1 FIRING:1] CRITICAL | Search down <https://grafana.example/alerting/search/view|Search alert>"
+	cmsFiring := "[VA1 FIRING:1] CRITICAL | CMS down <https://grafana.example/alerting/cms/view|CMS alert>"
+	input := core.SlackInput{
+		Kind: "bot_message",
+		Text: "[VA1 RESOLVED:1] CRITICAL | Search down <https://grafana.example/alerting/search/view|Search alert>",
+	}
+	state := decisionpkg.WatchTurnState{RecentMessages: []decisionpkg.WatchContextMessage{
+		{SenderID: "BGRAFANA", SenderType: "external_app", Text: searchFiring, MessageLink: "https://slack.example/search-firing"},
+		{SenderID: "BGRAFANA", SenderType: "external_app", Text: cmsFiring, MessageLink: "https://slack.example/cms-firing"},
+	}}
+	decision := decisionpkg.WatchDecision{
+		Action: "reply", Message: "Search recovered.",
+		AlertAssessment: &decisionpkg.AlertAssessment{Verdict: "not_issue"},
+	}
+
+	linked, adjusted := decisionpkg.EnforceRecoveredAlertLink(
+		input, decision, alertstream.PriorFiringMessageLink(input, state.RecentMessages),
+	)
+	if !adjusted || !strings.Contains(linked.Message, "https://slack.example/search-firing") ||
+		strings.Contains(linked.Message, "https://slack.example/cms-firing") {
+		t.Fatalf("recovery link = %q, adjusted=%t", linked.Message, adjusted)
 	}
 }
 

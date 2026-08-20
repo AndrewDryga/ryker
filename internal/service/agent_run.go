@@ -34,6 +34,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/provider"
 	"github.com/AndrewDryga/responder/internal/publicationcontext"
 	"github.com/AndrewDryga/responder/internal/recall"
+	"github.com/AndrewDryga/responder/internal/recheckorigin"
 	"github.com/AndrewDryga/responder/internal/remediation"
 	"github.com/AndrewDryga/responder/internal/repositorycapability"
 	"github.com/AndrewDryga/responder/internal/resultrecovery"
@@ -202,13 +203,14 @@ func (s *Service) queueWatchedInput(ctx context.Context, input core.SlackInput) 
 	if err != nil {
 		return err
 	}
-	conversationKey := watchConversationKey(input)
+	conversationKey, episode, resumeEpisode, err := recheckorigin.ResolveOrCorrelate(
+		ctx, s.store, &state, input, watchConversationKey(input), s.correlateWatchEpisode,
+	)
 	if state.SessionChannelID == "" {
 		state.SessionChannelID = operationalWatchSessionChannelID(
 			input, conversationKey, s.cfg.Limits.BackgroundWorkers,
 		)
 	}
-	episode, resumeEpisode, err := s.correlateWatchEpisode(ctx, input, conversationKey, &state)
 	if err != nil {
 		return err
 	}
@@ -410,13 +412,6 @@ func (s *Service) watchRunReadyAt(
 	return readyAt, nil
 }
 
-// correlateWatchEpisode decides whether this input continues an existing unit
-// of work or starts a new one, and binds it to the same Slack destination when
-// it continues.
-//
-// The distinction matters to an operator: a deployment's success notification
-// belongs in the thread where its failure was discussed, not in a fresh one
-// that has lost the context of why anyone cared.
 func (s *Service) correlateWatchEpisode(
 	ctx context.Context,
 	input core.SlackInput,
@@ -2237,6 +2232,7 @@ func (s *Service) pollAgentRunOnce(ctx context.Context, run core.AgentRun) error
 			if err != nil {
 				return err
 			}
+			turn = runreplay.TerminalTurnWithEventDetail(turn, event.Payload)
 			// An interruption is Coop's daemon restarting under the turn — a
 			// terminal of its own, which the switch above did not name, so
 			// the event was skipped and the run stayed running on a turn that
@@ -2829,22 +2825,18 @@ func (s *Service) stageTriageTerminal(
 		if correction == "" {
 			correction = decisionpkg.WatchDecisionCorrection(input, state, validated, OperationalCorrelationKey)
 		}
-		// Render only operational-alert assignments. A stray assessment on an
-		// ordinary conversation must not replace its answer merely because the
-		// object happens to be well shaped. Source-owned links are appended after
-		// rendering so a host rewrite cannot discard them.
+		// Render only governed alerts; ordinary conversations keep their answer.
 		if correction == "" {
 			beforeHostRender := decision.Message
-			renderOperational := decisionpkg.MatchedOperationalAlertRule(state.MatchedRules) ||
-				(input.Kind == "bot_message" && state.AlertPolicy != "" &&
-					decisionpkg.OperationalAlertEvent(input.Text) &&
-					!decisionpkg.ExternalCoordinationOnlyEvent(input.Text))
+			renderOperational := alertstream.GovernedOperationalAlert(input, state)
 			if renderOperational {
 				decision, correction = decisionpkg.RenderOperationalAlertDecision(decision, evidence)
 			}
 			if correction == "" {
 				var recoveryLinkAdjusted bool
-				decision, recoveryLinkAdjusted = decisionpkg.EnforceRecoveredAlertLink(input, state, decision)
+				decision, recoveryLinkAdjusted = decisionpkg.EnforceRecoveredAlertLink(
+					input, decision, alertstream.PriorFiringMessageLink(input, state.RecentMessages),
+				)
 				decision = EnrichExternalLifecycleReply(lifecycleInput, decision)
 				validated.Message = decision.Message
 				validated.FollowupMessages = decision.FollowupMessages
@@ -3372,11 +3364,11 @@ func (s *Service) stagePolledAgentRunTerminal(
 	if reason, replay := runreplay.Decide(
 		run, eventType, turn, s.cfg.Limits.MaxAgentRunAttempts,
 	); replay {
-		if runreplay.IsTurnTimeout(turn) {
-			contextJSON, err := runreplay.MarkTurnTimeoutReplayed(run.Context)
-			if err != nil {
-				return err
-			}
+		contextJSON, changed, err := runreplay.MarkReplayed(run.Context, turn)
+		if err != nil {
+			return err
+		}
+		if changed {
 			if err := s.store.SetAgentRunContext(ctx, run.ID, contextJSON); err != nil {
 				return err
 			}
@@ -3395,9 +3387,6 @@ func (s *Service) stagePolledAgentRunTerminal(
 			) + 1
 			state.ExpectedRevision = 0
 			state.TurnID = ""
-			if runreplay.IsTransientProviderFailure(turn) {
-				state.TransientSessionReplays = 1
-			}
 			contextJSON, err := json.Marshal(state)
 			if err != nil {
 				return err
@@ -3450,7 +3439,6 @@ func (s *Service) stagePolledAgentRunTerminal(
 	}
 	return nil
 }
-
 func (s *Service) parkWatchRunPendingStatus(
 	ctx context.Context,
 	run core.AgentRun,

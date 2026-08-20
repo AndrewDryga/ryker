@@ -73,6 +73,8 @@ type WatchTurnState struct {
 	ReplyShapeCorrections   int                            `json:"reply_shape_corrections,omitempty"`
 	TurnTimeoutReplays      int                            `json:"turn_timeout_replays,omitempty"`
 	TransientSessionReplays int                            `json:"transient_session_replays,omitempty"`
+	RuntimeCleanupReplays   int                            `json:"runtime_cleanup_replays,omitempty"`
+	BudgetExhaustionReplays int                            `json:"budget_exhaustion_replays,omitempty"`
 	// CorrectionClasses counts the corrections this run has had of each class,
 	// MinTargetIndex is the rung of the session policy's target ladder its next
 	// turn may not be answered below, RefusedTargetFloor is the lowest rung Coop
@@ -792,14 +794,13 @@ func WatchDecisionCorrectionAt(
 			"metric recovery from service recovery instead of discarding the earlier failure"
 	}
 	requiresAlertAssessment := MatchedOperationalAlertRule(state.MatchedRules) ||
-		(input.Kind == "bot_message" && state.AlertPolicy != "" &&
-			OperationalAlertEvent(input.Text) && !ExternalCoordinationOnlyEvent(input.Text))
+		((input.Kind == "bot_message" || input.Kind == "recheck") && state.AlertPolicy != "" && OperationalAlertEvent(input.Text) && !ExternalCoordinationOnlyEvent(input.Text))
 	if requiresAlertAssessment {
 		if correction := AlertAssessmentCorrection(input, state, decision, now); correction != "" {
 			return correction
 		}
 	}
-	if input.Kind == "bot_message" && state.AlertPolicy != "" &&
+	if (input.Kind == "bot_message" || input.Kind == "recheck") && state.AlertPolicy != "" &&
 		state.AlertPolicy != "automatic" {
 		if correction := AlertPolicyCorrection(input, state, decision); correction != "" {
 			return correction
@@ -972,15 +973,14 @@ func PriorFiringMessageLink(messages []WatchContextMessage) string {
 
 func EnforceRecoveredAlertLink(
 	input core.SlackInput,
-	state WatchTurnState,
 	decision WatchDecision,
+	link string,
 ) (WatchDecision, bool) {
 	if input.Kind != "bot_message" || decision.Action != "reply" ||
 		!OperationalAlertResolvedEvent(input.Text) || decision.AlertAssessment == nil ||
 		decision.AlertAssessment.Verdict != "not_issue" {
 		return decision, false
 	}
-	link := PriorFiringMessageLink(state.RecentMessages)
 	if link == "" || strings.Contains(decision.Message, link) {
 		return decision, false
 	}

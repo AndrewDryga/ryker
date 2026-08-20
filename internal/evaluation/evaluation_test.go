@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/agentprompt"
+	"github.com/AndrewDryga/responder/internal/alertstream"
 	"github.com/AndrewDryga/responder/internal/coop"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -315,10 +316,10 @@ func TestEvaluationProjectsRecoveredAlertLinkFromRecentContext(t *testing.T) {
 		Name:       "recovered alert link",
 		Kind:       "watch",
 		SenderType: "external_app",
-		Input:      "[VA1 RESOLVED:1] WARNING | Cassandra repair overdue",
+		Input:      "[VA1 RESOLVED:1] WARNING | Cassandra repair overdue <https://grafana.example/alerting/cassandra/view|alert>",
 		RecentMessages: []EvaluationMessage{{
 			SenderType: "external_app",
-			Text:       "[VA1 FIRING:1] WARNING | Cassandra repair overdue",
+			Text:       "[VA1 FIRING:1] WARNING | Cassandra repair overdue <https://grafana.example/alerting/cassandra/view|alert>",
 		}},
 	}
 	input, recent, _, err := liveEvaluationWatchContext(testCase, "eval", "UEVALOPERATOR")
@@ -327,11 +328,11 @@ func TestEvaluationProjectsRecoveredAlertLinkFromRecentContext(t *testing.T) {
 	}
 	state := evaluationWatchState(testCase)
 	state.RecentMessages = recent
-	decision, adjusted := decisionpkg.EnforceRecoveredAlertLink(input, state, decisionpkg.WatchDecision{
+	decision, adjusted := decisionpkg.EnforceRecoveredAlertLink(input, decisionpkg.WatchDecision{
 		Action:          "reply",
 		Message:         "The scheduled repair completed.",
 		AlertAssessment: &decisionpkg.AlertAssessment{Verdict: "not_issue", Impact: "The alert cleared."},
-	})
+	}, alertstream.PriorFiringMessageLink(input, state.RecentMessages))
 	if !adjusted || !strings.Contains(
 		decision.Message,
 		"https://app.slack.com/client/TEVALUATION/CEVALUATION/thread/",

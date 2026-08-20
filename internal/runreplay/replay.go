@@ -24,6 +24,57 @@ func MarkTransientSessionReplayed(contextJSON []byte) ([]byte, error) {
 	return markReplay(contextJSON, "transient_session_replays")
 }
 
+// MarkRuntimeCleanupReplayed records one of the two bounded recoveries owned by
+// runtime cleanup, independently from unrelated preparation failures.
+func MarkRuntimeCleanupReplayed(contextJSON []byte) ([]byte, error) {
+	return incrementReplay(contextJSON, "runtime_cleanup_replays")
+}
+
+// MarkBudgetExhaustionReplayed records the single fresh-session recovery owned
+// by a turn that exhausted its context budget.
+func MarkBudgetExhaustionReplayed(contextJSON []byte) ([]byte, error) {
+	return incrementReplay(contextJSON, "budget_exhaustion_replays")
+}
+
+// MarkReplayed advances the dedicated budget owned by this failure class.
+func MarkReplayed(contextJSON []byte, turn coop.Turn) ([]byte, bool, error) {
+	switch {
+	case IsTurnTimeout(turn):
+		updated, err := MarkTurnTimeoutReplayed(contextJSON)
+		return updated, true, err
+	case IsTransientProviderFailure(turn):
+		updated, err := MarkTransientSessionReplayed(contextJSON)
+		return updated, true, err
+	case IsBudgetExhaustion(turn):
+		updated, err := MarkBudgetExhaustionReplayed(contextJSON)
+		return updated, true, err
+	case runtimeCleanupFailure(turn):
+		updated, err := MarkRuntimeCleanupReplayed(contextJSON)
+		return updated, true, err
+	default:
+		return nil, false, nil
+	}
+}
+
+// TerminalTurnWithEventDetail restores the exact durable terminal diagnostic
+// when Coop's public GetTurn projection intentionally sanitizes it.
+func TerminalTurnWithEventDetail(turn coop.Turn, payload json.RawMessage) coop.Turn {
+	var terminal struct {
+		ErrorCode string `json:"error_code"`
+		Detail    string `json:"detail"`
+	}
+	if len(payload) == 0 || json.Unmarshal(payload, &terminal) != nil {
+		return turn
+	}
+	if terminal.ErrorCode != "" {
+		turn.ErrorCode = terminal.ErrorCode
+	}
+	if terminal.Detail != "" {
+		turn.ErrorDetail = terminal.Detail
+	}
+	return turn
+}
+
 func markReplay(contextJSON []byte, key string) ([]byte, error) {
 	fields := make(map[string]json.RawMessage)
 	if len(contextJSON) != 0 {
@@ -35,6 +86,22 @@ func markReplay(contextJSON []byte, key string) ([]byte, error) {
 		fields = make(map[string]json.RawMessage)
 	}
 	fields[key] = json.RawMessage("1")
+	return json.Marshal(fields)
+}
+
+func incrementReplay(contextJSON []byte, key string) ([]byte, error) {
+	fields := make(map[string]json.RawMessage)
+	if len(contextJSON) != 0 {
+		if err := json.Unmarshal(contextJSON, &fields); err != nil {
+			return nil, err
+		}
+	}
+	if fields == nil {
+		fields = make(map[string]json.RawMessage)
+	}
+	count := 0
+	_ = json.Unmarshal(fields[key], &count)
+	fields[key], _ = json.Marshal(count + 1)
 	return json.Marshal(fields)
 }
 
@@ -60,6 +127,14 @@ func Decide(
 		!transientSessionReplayed(run.Context) {
 		return "The AI provider dropped the response; retrying in a fresh session", true
 	}
+	if run.Mode == core.AgentRunTriage && IsBudgetExhaustion(turn) &&
+		replayCount(run.Context, "budget_exhaustion_replays") == 0 {
+		return "The AI turn exhausted its context budget; retrying in a fresh read-only session", true
+	}
+	if run.Mode == core.AgentRunTriage && runtimeCleanupFailure(turn) &&
+		replayCount(run.Context, "runtime_cleanup_replays") < 2 {
+		return "Coop could not clean up the agent turn; retrying in a fresh session", true
+	}
 	if retrydelay.Exhausted(run.Failures+1, maximumAttempts) {
 		return "", false
 	}
@@ -75,9 +150,6 @@ func Decide(
 	}
 	if run.Mode == core.AgentRunTriage && transcriptOverflow(turn) {
 		return "Coop ACP transcript exceeded its bound; retrying in a fresh read-only session with narrower evidence queries", true
-	}
-	if run.Mode == core.AgentRunTriage && run.Failures < 2 && runtimeCleanupFailure(turn) {
-		return "Coop could not clean up the agent turn; retrying in a fresh session", true
 	}
 	if run.Mode != core.AgentRunTriage &&
 		turn.ErrorCode == "acp_protocol_error" && provider.Transient(detail) {
@@ -114,10 +186,32 @@ func transientSessionReplayed(contextJSON []byte) bool {
 	return json.Unmarshal(contextJSON, &marker) == nil && marker.TransientSessionReplays > 0
 }
 
+func replayCount(contextJSON []byte, key string) int {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(contextJSON, &fields) != nil {
+		return 0
+	}
+	count := 0
+	_ = json.Unmarshal(fields[key], &count)
+	return count
+}
+
+// IsBudgetExhaustion recognizes Coop's terminal state and the provider-neutral
+// detail/stop-reason forms used by older session servers.
+func IsBudgetExhaustion(turn coop.Turn) bool {
+	if turn.State == "budget_exhausted" || turn.ErrorCode == "budget_exhausted" {
+		return true
+	}
+	detail := strings.ToLower(strings.TrimSpace(turn.ErrorDetail + " " + turn.StopReason))
+	return strings.Contains(detail, "budget exhausted")
+}
+
 // IsTransientProviderFailure reports a transport-level provider failure whose
 // native session may be poisoned even though the accepted work is still valid.
 func IsTransientProviderFailure(turn coop.Turn) bool {
-	return turn.ErrorCode == "acp_protocol_error" && provider.Transient(turn.ErrorDetail)
+	detail := strings.ToLower(strings.TrimSpace(turn.ErrorDetail))
+	return (turn.ErrorCode == "acp_protocol_error" && provider.Transient(turn.ErrorDetail)) ||
+		(turn.ErrorCode == "internal_error" && detail == "internal operation failure")
 }
 
 func FreshSession(turn coop.Turn) bool {
@@ -127,6 +221,7 @@ func FreshSession(turn coop.Turn) bool {
 	detail := strings.ToLower(strings.TrimSpace(turn.ErrorDetail))
 	return (turn.ErrorCode == "acp_cancelled" && detail == "turn cancelled") ||
 		runtimeCleanupFailure(turn) ||
+		IsBudgetExhaustion(turn) ||
 		IsTransientProviderFailure(turn) ||
 		(turn.ErrorCode == "acp_process_error" &&
 			strings.Contains(detail, "acp child closed before its response")) ||
