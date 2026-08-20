@@ -539,6 +539,8 @@ func TestExplainedFindingRequiresATypedContradictingDiscriminator(t *testing.T) 
 	}
 	for _, required := range []string{
 		"typed claim_id",
+		`key "finding-1"`,
+		"same key",
 		"evidence-impact-growth",
 		"A pure in-process leak independent of load",
 		"Every VA1 traefik allocation is within 3-10% of its 4,096 MiB memory cap",

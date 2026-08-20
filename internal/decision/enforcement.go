@@ -365,10 +365,14 @@ func FindingCorrection(
 					evidenceDiscriminatesAlternative(decision.Evidence, alternative) {
 					continue
 				}
-				return "finding " + strconv.Quote(item.What) + " names " +
+				identity := "finding " + strconv.Quote(item.What)
+				if item.Key != "" {
+					identity += " (key " + strconv.Quote(item.Key) + ")"
+				}
+				return identity + " names " +
 					alternative.DiscriminatedBy + " as ruling out " +
 					strconv.Quote(alternative.Hypothesis) + ", but it does not contradict the " +
-					"alternative's typed claim_id; add the claim and evidence that actually " +
+					"alternative's typed claim_id; replace that finding with the same key, then add the claim and evidence that actually " +
 					"discriminate, or mark the " +
 					"finding unexplained and keep investigating with a goal, recheck or " +
 					"wait_external, or return blocked with the exact obstacle"
