@@ -22,18 +22,13 @@ type Ledger interface {
 	EnqueueSlackDelivery(context.Context, core.SlackDelivery) (bool, error)
 }
 
-type Retirer interface {
-	Retire(context.Context, string) (bool, error)
-}
-
 const CoalescePrefix = "watch_preparation_blocked_"
 
-// Notify owns the complete blocker lifecycle so service cannot accidentally
-// make posting durable while leaving recovery as a best-effort side effect.
+// Notify admits one durable blocker. The store retires it atomically with an
+// accepted model turn; preparation progress alone is not recovery.
 func Notify(
 	ctx context.Context,
 	ledger Ledger,
-	retirer Retirer,
 	sanitize func(slackui.Message) slackui.Message,
 	run core.AgentRun,
 	cause error,
@@ -41,10 +36,6 @@ func Notify(
 ) error {
 	message, eligible := Message(run, cause, now)
 	if !eligible {
-		if run.Mode == core.AgentRunTriage && Transient(cause) {
-			_, err := retirer.Retire(ctx, Prefix(run))
-			return err
-		}
 		return nil
 	}
 	episode, err := ledger.GetWorkEpisode(ctx, run.EpisodeID)
@@ -76,9 +67,9 @@ func Message(run core.AgentRun, cause error, now time.Time) (slackui.Message, bo
 		return slackui.Message{}, false
 	}
 	// An asynchronous refresh and the bounded historical-key cursor are normal
-	// preparation progress, not blockers. Slack's native work presence already
-	// represents them; a permanent thread reply would outlive the transient
-	// state and make a healthy investigation look stuck.
+	// preparation progress, not new blockers. If an earlier hard failure already
+	// posted a blocker, pending work does not mean recovery and must not retire
+	// it. The accepted model turn owns that recovery edge atomically.
 	if Transient(cause) {
 		return slackui.Message{}, false
 	}

@@ -483,7 +483,9 @@ func TestAcceptedWatchRunSurvivesExhaustedCoopSessionCreationOutage(t *testing.T
 		t.Fatalf("retryable preparation notice = %+v", slack.posts)
 	}
 	rendered := renderedSlackMessage(slack.posts[0].message)
-	for _, want := range []string{"Investigation queued", "No model turn has started"} {
+	for _, want := range []string{
+		"Investigation queued", "keep retrying this investigation automatically",
+	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("preparation notice lacks %q: %q", want, rendered)
 		}

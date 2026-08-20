@@ -17,6 +17,25 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
+// The production recovery edge is an accepted model turn, which retires the
+// blocker in the same store transaction. Lifecycle tests below exercise the
+// outbox races after that edge directly; store tests cover the atomic pairing.
+func retirePreparationAfterRecovery(
+	t *testing.T,
+	ctx context.Context,
+	st *store.Store,
+	run core.AgentRun,
+) {
+	t.Helper()
+	created, err := st.PreparationNotices.Retire(ctx, preparationnotice.Prefix(run))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Fatal("accepted-turn recovery did not create a preparation retirement")
+	}
+}
+
 func TestTerminalHumanTriageFailurePostsOneSanitizedNotice(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
@@ -132,7 +151,7 @@ func TestRepositoryPreparationBlockerIsDeliveredOnceInTheBoundAlertThread(t *tes
 	}
 	content := slack.posts[0].message.Text + strings.Join(slack.posts[0].message.Sections, " ")
 	for _, want := range []string{
-		"Investigation queued", "tenant-core", "No model turn has started",
+		"Investigation queued", "tenant-core", "keep retrying this investigation automatically",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("preparation blocker lacks %q: %q", want, content)
@@ -149,11 +168,7 @@ func TestRepositoryPreparationBlockerIsDeliveredOnceInTheBoundAlertThread(t *tes
 	); err != nil || recent {
 		t.Fatalf("preparation status counted as a completed response = %t, %v", recent, err)
 	}
-	if err := svc.notifyRepositoryPreparationBlocked(
-		ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
-	); err != nil {
-		t.Fatal(err)
-	}
+	retirePreparationAfterRecovery(t, ctx, st, run)
 	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.posts) != 1 || len(slack.updates) != 0 || len(slack.deletes) != 1 ||
 		slack.deletes[0].channel != "CBOUND" || slack.deletes[0].timestamp != "1700.001" {
@@ -168,17 +183,61 @@ func TestRepositoryPreparationBlockerIsDeliveredOnceInTheBoundAlertThread(t *tes
 		t.Fatal(err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
-	if err := svc.notifyRepositoryPreparationBlocked(
-		ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
-	); err != nil {
-		t.Fatal(err)
-	}
+	retirePreparationAfterRecovery(t, ctx, st, run)
 	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.posts) != 2 || len(slack.updates) != 0 || len(slack.deletes) != 2 ||
 		slack.deletes[1].timestamp != "1700.002" {
 		deliveries, _ := st.ListSlackDeliveriesByPrefix(ctx, preparationnotice.Prefix(run))
 		t.Fatalf("second blocker epoch was not independently retired: posts=%+v updates=%+v deletes=%+v deliveries=%+v",
 			slack.posts, slack.updates, slack.deletes, deliveries)
+	}
+}
+
+// Seven copies of this notice were posted and deleted in fourteen minutes for
+// run_7a3e49251ccac6c4972168958d2023eb. A refresh failure posted the blocker,
+// the next attempt's ordinary pending state deleted it, and the eventual
+// failure posted it again. Pending is still blocked: only an accepted model
+// turn is recovery.
+func TestPendingPreparationDoesNotDeleteAndRepostTheVisibleBlocker(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run := seedPreparingRun(t, st)
+	episode, err := st.GetWorkEpisodeByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ChangeEpisodeDestination(ctx, episode.ID, core.BoundDestination{
+		ChannelID: "CBOUND", ThreadTS: "1700.790",
+	}, "pending_after_failure_test"); err != nil {
+		t.Fatal(err)
+	}
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	blocker := &coop.APIError{
+		Status: 503, Code: "repository_unavailable", Detail: "refresh failed",
+	}
+	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, blocker); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, &coop.OperationPendingError{
+		ID: "op_refresh", Method: "CreateRemoteSession",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, blocker); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 1 || len(slack.updates) != 0 || len(slack.deletes) != 0 {
+		t.Fatalf("pending refresh churned the blocker: posts=%+v updates=%+v deletes=%+v",
+			slack.posts, slack.updates, slack.deletes)
 	}
 }
 
@@ -210,11 +269,7 @@ func TestRecoveryBeforePreparationBlockerDeliveryLeavesNoStaleReply(t *testing.T
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.notifyRepositoryPreparationBlocked(
-		ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
-	); err != nil {
-		t.Fatal(err)
-	}
+	retirePreparationAfterRecovery(t, ctx, st, run)
 	drainSlackDeliveries(t, ctx, svc)
 	if len(slack.posts) != 0 || len(slack.updates) != 0 || len(slack.deletes) != 0 {
 		t.Fatalf("recovered preparation posted stale Slack work: posts=%+v updates=%+v deletes=%+v",
@@ -254,11 +309,7 @@ func TestRecoveryWhilePreparationBlockerIsSendingRetiresTheDeliveredReply(t *tes
 	if err != nil || blocker.Operation != "post" {
 		t.Fatalf("leased blocker = %+v, %v", blocker, err)
 	}
-	if err := svc.notifyRepositoryPreparationBlocked(
-		ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
-	); err != nil {
-		t.Fatal(err)
-	}
+	retirePreparationAfterRecovery(t, ctx, st, run)
 	if _, err := st.LeaseSlackDelivery(ctx, nil); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("retirement overtook sending blocker: %v", err)
 	}
@@ -304,11 +355,7 @@ func TestRecoveryWhilePreparationBlockerIsUncertainRetiresTheReconciledReply(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.notifyRepositoryPreparationBlocked(
-		ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
-	); err != nil {
-		t.Fatal(err)
-	}
+	retirePreparationAfterRecovery(t, ctx, st, run)
 	if err := st.RetrySlackDelivery(
 		ctx, blocker.ID, "Slack response timed out", time.Now(), true, false,
 	); err != nil {
@@ -359,11 +406,7 @@ func TestRecurringPreparationBlockerSurvivesPendingAndSendingRetirement(t *testi
 					t.Fatal(err)
 				}
 				drainSlackDeliveries(t, ctx, svc)
-				if err := svc.notifyRepositoryPreparationBlocked(
-					ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
-				); err != nil {
-					t.Fatal(err)
-				}
+				retirePreparationAfterRecovery(t, ctx, st, run)
 				var leasedDelete core.SlackDelivery
 				if retirementState == "sending" {
 					leasedDelete, err = st.LeaseSlackDelivery(ctx, nil)
@@ -435,11 +478,7 @@ func TestPreparationRecoveryKeepsUnknownSlackPostUntilHistoryFindsIt(t *testing.
 	if err := svc.processSlackDelivery(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.notifyRepositoryPreparationBlocked(
-		ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
-	); err != nil {
-		t.Fatal(err)
-	}
+	retirePreparationAfterRecovery(t, ctx, st, run)
 	clock.Advance(time.Minute)
 	slack.findDeliveryErr = errors.New("Slack history timed out")
 	if err := svc.reconcileSlackDelivery(ctx); err != nil {
@@ -505,11 +544,7 @@ func TestRecurringPreparationBlockerStaysBehindAmbiguousOrRetriedRetirement(t *t
 					t.Fatal(err)
 				}
 			}
-			if err := svc.notifyRepositoryPreparationBlocked(
-				ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
-			); err != nil {
-				t.Fatal(err)
-			}
+			retirePreparationAfterRecovery(t, ctx, st, run)
 			if err := svc.notifyRepositoryPreparationBlocked(ctx, run, blocker); err != nil {
 				t.Fatal(err)
 			}
@@ -553,11 +588,7 @@ func TestRecurringPreparationBlockerStaysBehindAmbiguousOrRetriedRetirement(t *t
 			t.Fatal(err)
 		}
 		drainSlackDeliveries(t, ctx, svc)
-		if err := svc.notifyRepositoryPreparationBlocked(
-			ctx, run, sessioncreate.HistoricalCreateKeysError("watch"),
-		); err != nil {
-			t.Fatal(err)
-		}
+		retirePreparationAfterRecovery(t, ctx, st, run)
 		slack.deleteErr = errors.New("delete response timed out")
 		if err := svc.processSlackDelivery(ctx, nil); err != nil {
 			t.Fatal(err)
@@ -603,9 +634,7 @@ func TestSecondPreparationRecoverySupersedesBlockerBehindOlderDelete(t *testing.
 		t.Fatal(err)
 	}
 	drainSlackDeliveries(t, ctx, svc)
-	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, sessioncreate.HistoricalCreateKeysError("watch")); err != nil {
-		t.Fatal(err)
-	}
+	retirePreparationAfterRecovery(t, ctx, st, run)
 	firstDelete, err := st.LeaseSlackDelivery(ctx, nil)
 	if err != nil || firstDelete.Operation != "delete" {
 		t.Fatalf("first retirement = %+v, %v", firstDelete, err)
@@ -613,9 +642,7 @@ func TestSecondPreparationRecoverySupersedesBlockerBehindOlderDelete(t *testing.
 	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, blocker); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.notifyRepositoryPreparationBlocked(ctx, run, sessioncreate.HistoricalCreateKeysError("watch")); err != nil {
-		t.Fatal(err)
-	}
+	retirePreparationAfterRecovery(t, ctx, st, run)
 	if err := st.FinishSlackDelivery(ctx, firstDelete.ID, "1700.001", "sending"); err != nil {
 		t.Fatal(err)
 	}

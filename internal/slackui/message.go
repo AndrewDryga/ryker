@@ -1952,11 +1952,12 @@ func RepositoryPreparationBlocked(repository string) Message {
 		repository = "`" + repository + "`"
 	}
 	summary := "Investigation queued, but workspace preparation is blocked while refreshing " + repository + "."
+	retry := "Responder will keep retrying this investigation automatically."
 	message := Message{
-		Text: summary + " No model turn has started.",
+		Text: summary + " " + retry,
 		Sections: []string{
 			summary,
-			"No model turn has started.",
+			retry,
 		},
 		Temporary: true,
 	}

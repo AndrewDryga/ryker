@@ -16,7 +16,7 @@ func (s *Service) notifyRepositoryPreparationBlocked(
 	run core.AgentRun,
 	cause error,
 ) error {
-	return preparationnotice.Notify(ctx, s.store, s.store.PreparationNotices, s.sanitizeMessage, run, cause, s.now())
+	return preparationnotice.Notify(ctx, s.store, s.sanitizeMessage, run, cause, s.now())
 }
 
 func (s *Service) terminalTriageFailureDelivery(
