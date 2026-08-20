@@ -455,7 +455,9 @@ func TestPromptSectionsAppearOnlyWhenTheyApply(t *testing.T) {
 	svc := &Service{cfg: cfg}
 	operator := cfg.Slack.Operators[0]
 
-	build := func(input core.SlackInput) string { return watchPromptFor(svc, input) }
+	build := func(input core.SlackInput) string {
+		return watchPromptFor(svc, input) + includeWhen(input.Kind == "recheck", hostRecheckPolicyText)
+	}
 
 	ambient := build(core.SlackInput{ChannelID: "C1", Text: "is checkout slow?"})
 	for _, absent := range []struct{ name, marker string }{
@@ -494,6 +496,27 @@ func TestPromptSectionsAppearOnlyWhenTheyApply(t *testing.T) {
 	}
 	t.Logf("ambient turn %d bytes, operator turn %d bytes, saving %d",
 		len(ambient), len(fromOperator), len(fromOperator)-len(ambient))
+}
+
+// A production structured-result recheck was told both to choose ignore when
+// operational evidence was unchanged and to replace the result the host had
+// rejected. It chose ignore, spent every correction round being rejected, and
+// posted a failure fallback instead of the completed investigation.
+func TestRejectedStructuredResultNeverReceivesQuietRecheckInstruction(t *testing.T) {
+	cfg := serviceConfig(t)
+	svc := &Service{cfg: cfg}
+	input := core.SlackInput{ChannelID: "C1", Kind: "recheck", Text: "retry rejected result"}
+	failure := "the prior structured result omitted its completion verdict"
+
+	prompt := watchPromptFor(svc, input) +
+		includeWhen(input.Kind == "recheck" && strings.TrimSpace(failure) == "", hostRecheckPolicyText) +
+		watchDecisionCorrectionPrompt(failure)
+	if strings.Contains(prompt, "result are unchanged, choose action=ignore") {
+		t.Fatal("a structured-result retry was also told to ignore unchanged evidence")
+	}
+	if !strings.Contains(prompt, "do not silently ignore") {
+		t.Fatal("the structured-result retry did not require a corrected answer")
+	}
 }
 
 // watchPromptFor builds the static watch prompt for one target message.

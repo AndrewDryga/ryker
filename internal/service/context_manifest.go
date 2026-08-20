@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	responderPromptVersion       = "responder-prompt-v3"
+	responderPromptVersion       = "responder-prompt-v4"
 	investigationContractVersion = "investigation-contract-v1"
 	resultOperationsVersion      = "result-operations-v2"
 	// executionProfileKind carries the requested profile on a reference row

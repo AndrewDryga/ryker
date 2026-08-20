@@ -2512,9 +2512,6 @@ context for comparison only; they must not cause action=ignore or replace the re
 	scheduledOccurrencePolicy := includeWhen(
 		target.SenderType == "operator_schedule", scheduledOccurrencePolicyText,
 	)
-	hostRecheckPolicy := includeWhen(
-		target.SenderType == "host_recheck", hostRecheckPolicyText,
-	)
 	// Correlation only matters when the host actually supplied publications to
 	// correlate against, which it does for an external app message.
 	publicationCorrelationPolicy := includeWhen(
@@ -2600,7 +2597,7 @@ context for comparison only; they must not cause action=ignore or replace the re
 
 ` + channelAroundRootPolicy + similarEpisodePolicy + relatedTaskPolicy + recentChangePolicy + watchAddressingPolicy + `
 
-` + scheduledOccurrencePolicy + hostRecheckPolicy + `` + operationalMemoryPolicy + `
+` + scheduledOccurrencePolicy + operationalMemoryPolicy + `
 
 ` + evidenceSourcePolicy + `
 

@@ -1346,6 +1346,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	}
 	late.WriteString("\n\n" + repositorycapability.Prompt(repositorycapability.Build(s.cfg, repositoryKey, session, repositorycapability.PinnedReadOnly)))
 	late.WriteString(publicationcontext.ActivePrompt(state.ActivePublications))
+	late.WriteString(includeWhen(input.Kind == "recheck" && strings.TrimSpace(state.FailureDetail) == "", hostRecheckPolicyText))
 	late.WriteString(watchDecisionCorrectionPrompt(state.FailureDetail))
 	// late, never early: early is what the conversation lane drops, and the
 	// reason the answer cannot describe the screenshot has to survive that.

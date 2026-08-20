@@ -110,7 +110,8 @@ func (s *Service) deltaTurnPrompt(
 	if state.Lane != "conversation" {
 		host = turndelta.Escalation(boundedOperatorText(state.EscalationReason))
 	}
-	host += watchDecisionCorrectionPrompt(state.FailureDetail) +
+	host += includeWhen(input.Kind == "recheck" && strings.TrimSpace(state.FailureDetail) == "", hostRecheckPolicyText) +
+		watchDecisionCorrectionPrompt(state.FailureDetail) +
 		alertstream.AnsweredPrompt(state) + agentprompt.Continuation(run)
 	return turndelta.Prompt(turndelta.Sections{
 		Input:    turndelta.NewInput(input.UserID, boundedOperatorText(input.Text)),
