@@ -1065,9 +1065,11 @@ func (s *Service) retryIncidentAgentRun(
 	cause error,
 	terminal bool,
 ) error {
-	receiptCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	ctx = receiptCtx
+	if errors.Is(cause, context.Canceled) {
+		return s.store.DeferAgentRun(ctx, run.ID, trimError(cause), s.now().Add(time.Second))
+	}
 	if requeued, err := s.requeueIfRateLimited(ctx, run, cause); requeued {
 		return err
 	}
@@ -1978,11 +1980,10 @@ func (s *Service) retryAgentRun(
 	run core.AgentRun,
 	cause error,
 ) error {
-	receiptCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	ctx = receiptCtx
 	var pending *coop.OperationPendingError
-	if errors.As(cause, &pending) {
+	if errors.Is(cause, context.Canceled) || errors.As(cause, &pending) {
 		return s.store.DeferAgentRun(ctx, run.ID, trimError(cause), s.now().Add(time.Second))
 	}
 	if requeued, err := s.requeueIfRateLimited(ctx, run, cause); requeued {

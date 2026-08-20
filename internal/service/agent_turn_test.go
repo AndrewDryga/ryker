@@ -1883,6 +1883,38 @@ func TestEngineeringTaskRevisionConflictReleasesTheFrozenRevisionAndRetries(t *t
 	}
 }
 
+// A routine deploy cancelled a GitHub read before any model turn started and
+// charged the queued investigation a failed attempt. Enough restarts would
+// exhaust accepted work without a provider ever seeing it.
+func TestShutdownDuringPreparationNeverSpendsAModelAttempt(t *testing.T) {
+	for _, mode := range []string{"triage", "incident"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := context.Background()
+			cfg := serviceConfig(t)
+			st, err := store.Open(cfg.StateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer st.Close()
+			run := seedPreparingRun(t, st)
+			svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+			if mode == "incident" {
+				err = svc.retryIncidentAgentRun(ctx, run, core.Incident{}, context.Canceled, false)
+			} else {
+				err = svc.retryAgentRun(ctx, run, context.Canceled)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			stored, err := st.GetAgentRun(ctx, run.ID)
+			if err != nil || stored.State != core.AgentRunPending || stored.Failures != 0 ||
+				stored.IdempotencyKey != run.IdempotencyKey {
+				t.Fatalf("cancelled preparation = %+v, %v", stored, err)
+			}
+		})
+	}
+}
+
 // A retry or a host correction puts work back into pending, which exposed it
 // to the supersession check on its next lease. An investigation into a
 // human-reported production failure — mid-retry, carrying everything it had
