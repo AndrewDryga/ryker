@@ -101,6 +101,51 @@ func TestTaskProgressMilestonesStayTextSized(t *testing.T) {
 	}
 }
 
+// The activity window used to sit below every milestone, so on a four-step
+// task the live tool calls looked detached from the active second step. Keep
+// the safe preformatted block in the sequence: directly after the current
+// milestone and before every stage that has not started.
+func TestActivityWindowSitsImmediatelyUnderCurrentMilestone(t *testing.T) {
+	message := Message{
+		Text: "task", MilestoneLedger: true,
+		Ledger: []LedgerStep{
+			{Glyph: "✓", Label: "Workspace ready"},
+			{Current: true, Label: "Investigate"},
+			{Label: "Readiness review"},
+			{Label: "Draft PR"},
+		},
+		Activity: []ActivityLine{{
+			Kind: ActivityThinking, Title: "Exploring MCP resources for live metrics",
+		}},
+	}
+	blocks := message.Blocks()
+	if len(blocks) != 3 {
+		t.Fatalf("expected progress before, activity, and progress after; got %d blocks", len(blocks))
+	}
+	before, ok := blocks[0].(*slack.SectionBlock)
+	if !ok || before.Text == nil {
+		t.Fatalf("block before activity is %T, want a progress section", blocks[0])
+	}
+	if !strings.Contains(before.Text.Text, "*Investigate*") ||
+		strings.Contains(before.Text.Text, "Readiness review") {
+		t.Fatalf("progress before activity = %q", before.Text.Text)
+	}
+	if _, ok := blocks[1].(*slack.RichTextBlock); !ok {
+		t.Fatalf("block under current milestone is %T, want safe preformatted activity", blocks[1])
+	}
+	after, ok := blocks[2].(*slack.SectionBlock)
+	if !ok || after.Text == nil {
+		t.Fatalf("block after activity is %T, want upcoming milestones", blocks[2])
+	}
+	if !strings.Contains(after.Text.Text, "*Readiness review*") ||
+		strings.Contains(after.Text.Text, "Investigate") {
+		t.Fatalf("progress after activity = %q", after.Text.Text)
+	}
+	if !strings.HasPrefix(after.Text.Text, "○  *Readiness review*") {
+		t.Fatalf("upcoming milestones start with visual whitespace: %q", after.Text.Text)
+	}
+}
+
 // column reports where a cell starts in display terms. Byte offsets are not
 // comparable across these lines: "·" is two bytes and "▸" is three, so two
 // lines whose columns line up on screen have different indexes in memory.

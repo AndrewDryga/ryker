@@ -570,17 +570,14 @@ func (m Message) Blocks() []slack.Block {
 		emitActions()
 	}
 	if m.MilestoneLedger {
-		if progress := milestoneLedgerText(m.Ledger); progress != "" {
-			blocks = append(blocks, slack.NewSectionBlock(
-				slack.NewTextBlockObject(slack.MarkdownType, truncateUTF8(progress, 2900), false, true),
-				nil, nil,
-			))
+		blocks = append(blocks, milestoneLedgerBlocks(m.Ledger, m.Activity)...)
+	} else {
+		if block := preformattedBlock(ledgerLines(m.Ledger, 0)); block != nil {
+			blocks = append(blocks, block)
 		}
-	} else if block := preformattedBlock(ledgerLines(m.Ledger, 0)); block != nil {
-		blocks = append(blocks, block)
-	}
-	if block := preformattedBlock(activityLines(m.Activity)); block != nil {
-		blocks = append(blocks, block)
+		if block := preformattedBlock(activityLines(m.Activity)); block != nil {
+			blocks = append(blocks, block)
+		}
 	}
 	// Slack allows ten fields in a section and rejects the whole surface over
 	// that, which is how the App Home came to publish nothing at all: the
@@ -895,12 +892,25 @@ func ledgerGlyph(step LedgerStep) string {
 }
 
 func milestoneLedgerText(steps []LedgerStep) string {
+	return milestoneLedgerPart(steps, true)
+}
+
+func milestoneLedgerContinuationText(steps []LedgerStep) string {
+	return milestoneLedgerPart(steps, false)
+}
+
+func milestoneLedgerPart(steps []LedgerStep, heading bool) string {
 	if len(steps) == 0 {
 		return ""
 	}
 	var body strings.Builder
-	body.WriteString("*Progress*")
+	if heading {
+		body.WriteString("*Progress*")
+	}
 	for _, step := range steps {
+		if body.Len() > 0 {
+			body.WriteByte('\n')
+		}
 		glyph := "○"
 		switch {
 		case step.Glyph == "✓":
@@ -910,7 +920,7 @@ func milestoneLedgerText(steps []LedgerStep) string {
 		case step.Current:
 			glyph = "▸"
 		}
-		fmt.Fprintf(&body, "\n%s  *%s*", glyph, escapeSlackText(step.Label))
+		fmt.Fprintf(&body, "%s  *%s*", glyph, escapeSlackText(step.Label))
 		facts := make([]string, 0, 2)
 		if detail := strings.TrimSpace(step.Detail); detail != "" {
 			facts = append(facts, escapeSlackText(detail))
@@ -939,6 +949,49 @@ func milestoneLedgerText(steps []LedgerStep) string {
 		}
 	}
 	return body.String()
+}
+
+// milestoneLedgerBlocks places the live window inside the workflow rather
+// than below it. A preformatted block cannot be nested inside a mrkdwn section,
+// so the current step closes the first section, the activity block follows it,
+// and unstarted steps continue in a second section.
+func milestoneLedgerBlocks(steps []LedgerStep, activity []ActivityLine) []slack.Block {
+	activityBlock := preformattedBlock(activityLines(activity))
+	current := -1
+	if activityBlock != nil {
+		for index, step := range steps {
+			if step.Current {
+				current = index
+				break
+			}
+		}
+	}
+	if current < 0 {
+		blocks := make([]slack.Block, 0, 2)
+		if progress := milestoneLedgerText(steps); progress != "" {
+			blocks = append(blocks, milestoneLedgerSection(progress))
+		}
+		if activityBlock != nil {
+			blocks = append(blocks, activityBlock)
+		}
+		return blocks
+	}
+
+	blocks := []slack.Block{
+		milestoneLedgerSection(milestoneLedgerText(steps[:current+1])),
+		activityBlock,
+	}
+	if upcoming := milestoneLedgerContinuationText(steps[current+1:]); upcoming != "" {
+		blocks = append(blocks, milestoneLedgerSection(upcoming))
+	}
+	return blocks
+}
+
+func milestoneLedgerSection(text string) slack.Block {
+	return slack.NewSectionBlock(
+		slack.NewTextBlockObject(slack.MarkdownType, truncateUTF8(text, 2900), false, true),
+		nil, nil,
+	)
 }
 
 func ownerLabel(owner string) string {
