@@ -248,6 +248,79 @@ func TestExplicitPublicReplayPublishesFromAShadowChannel(t *testing.T) {
 	}
 }
 
+// A published replay of a Grafana alert failed before any model turn on
+// 2026-08-20. The alert thread already owned an engineering task, so the bot
+// replay was mistaken for a task collaborator and Slack rejected the bot ID
+// with user_not_found instead of rerunning the investigation.
+func TestExplicitBotReplayInvestigatesEvenWhenItsThreadOwnsATask(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, created, createErr := st.CreateEngineeringTask(
+		ctx, "repo", "source-task", "Fix the earlier alert", "", "UOPERATOR",
+		"CWATCH", "1700.921", 10,
+	); createErr != nil || !created {
+		t.Fatalf("create task = %t, %v", created, createErr)
+	}
+	slackClient := &fakeSlack{deniedUsers: map[string]bool{"BGRAFANA": true}}
+	coopClient := newFakeCoop()
+	coopClient.completeOnSubmit = `{
+	  "action":"reply",
+	  "attention":{"addressee":"channel","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"new_evidence","material":true},
+	  "reason":"The explicit bot replay requested a fresh investigation.",
+	  "operations":[
+	    {"id":"runtime","type":"record_evidence","evidence":{
+	      "claim_id":"workload.desired_state",
+	      "claim":"The current workload state is known",
+	      "observation":"The workload is running now",
+	      "source_type":"monitoring",
+	      "source_name":"runtime status",
+	      "target":"production workload",
+	      "confidence":"high"
+	    }},
+	    {"id":"coverage","type":"record_coverage","coverage":{
+	      "layer":"workload",
+	      "status":"healthy",
+	      "detail":"The current workload was checked"
+	    }},
+	    {"id":"complete","type":"complete_episode","completion":{
+	      "message":"The current workload is running."
+	    }}
+	  ]
+	}`
+	svc := New(
+		cfg, st, coopClient, slackClient, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	input := core.SlackInput{
+		ID: "slack-public-bot-replay", EnvelopeID: "replay-public:slack-public-bot-replay",
+		EventID: "replay-public:slack-public-bot-replay", Kind: "bot_message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "CWATCH", MessageTS: "1700.921",
+		UserID: "BGRAFANA", Text: "External application status needs verification.",
+	}
+	if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
+		t.Fatalf("admit = %v, %v", created, admitErr)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(slackClient.posts) != 1 {
+		t.Fatalf("explicit bot replay posts = %+v", slackClient.posts)
+	}
+	if slackClient.posts[0].thread != input.MessageTS {
+		t.Fatalf("bot replay thread = %q, want %q", slackClient.posts[0].thread, input.MessageTS)
+	}
+}
+
 func TestWatchSessionRotatesAndCarriesDurableMemory(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

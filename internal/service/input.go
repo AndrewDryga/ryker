@@ -159,7 +159,8 @@ func (s *Service) routeSlackInputKind(
 		}
 		return true, s.finishSlackInput(ctx, input)
 	}
-	if input.Kind == "recheck" {
+	if input.Kind == "recheck" || (input.Kind == "bot_message" &&
+		strings.HasPrefix(input.EnvelopeID, "replay-public:")) {
 		if err := s.queueWatchedInput(ctx, input); err != nil {
 			return true, s.retrySlackInput(ctx, input, err)
 		}
