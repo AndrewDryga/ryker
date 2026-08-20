@@ -38,7 +38,7 @@ func (s *Store) SumEpisodeStructuredCorrections(
 	var total int
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT COALESCE(SUM(
-		  COALESCE(json_extract(context_json, '$.structured_corrections'), 0)
+		  CASE WHEN json_valid(context_json) THEN COALESCE(json_extract(context_json, '$.structured_corrections'), 0) ELSE 0 END
 		), 0)
 		FROM agent_runs
 		WHERE episode_id = ?`, episodeID,

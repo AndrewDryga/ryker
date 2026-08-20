@@ -802,6 +802,43 @@ func TestEpisodeCorrectionTotalCountsCorrectionsNotAttempts(t *testing.T) {
 	}
 }
 
+// A live OOM replay completed a three-minute investigation, then never got the
+// one correction its result needed. Two older runs in the same alert episode
+// predated structured contexts and stored an empty context blob; json_extract
+// failed on that legacy row, so Responder discarded the useful result before
+// it could ask the model to repair it.
+func TestEpisodeCorrectionTotalTreatsLegacyInvalidContextsAsZero(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	first, episode := queueKernelEpisode(t, st, "legacy-stream-card")
+	if err := st.SetAgentRunContext(ctx, first.ID, []byte(`{`)); err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := st.QueueEpisodeAttempt(ctx, episode.ID, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: first.ChannelID,
+		ConversationKey: first.ConversationKey, SourceKind: "watch",
+		SourceID: "current-stream-card",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAgentRunContext(
+		ctx, second.ID, []byte(`{"structured_corrections":2}`),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	total, err := st.SumEpisodeStructuredCorrections(ctx, episode.ID)
+	if err != nil || total != 2 {
+		t.Fatalf("episode corrections = %d (%v), want 2 with legacy context ignored", total, err)
+	}
+}
+
 // An answer already written and queued is withdrawn on one criterion: a newer
 // reply for the same thread has already been posted. On 2026-08-16 the criterion
 // was "a newer input was admitted", which threw away four finished Grafana
