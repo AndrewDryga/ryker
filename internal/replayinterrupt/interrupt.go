@@ -53,7 +53,7 @@ func Cancel(ctx context.Context, client Coop, run core.AgentRun) error {
 		op, err := client.OperationByKey(ctx, run.IdempotencyKey)
 		if err != nil {
 			var apiErr *coop.APIError
-			if errors.As(err, &apiErr) && apiErr.Code == "not_found" {
+			if errors.As(err, &apiErr) && (apiErr.Status == 404 || apiErr.Code == "not_found" || apiErr.Code == "operation_not_found") {
 				return fmt.Errorf("%w: %v", ErrSubmitOperationNotFound, err)
 			}
 			return fmt.Errorf("recover submitted Coop turn: %w", err)

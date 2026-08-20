@@ -58,7 +58,7 @@ func TestAgentRunCancellationCheckReadsDurableStateAfterWorkerCancellation(t *te
 type missingSubmitCoop struct{ *fakeCoop }
 
 func (m missingSubmitCoop) OperationByKey(context.Context, string) (coop.Operation, error) {
-	return coop.Operation{}, &coop.APIError{Status: 404, Code: "not_found"}
+	return coop.Operation{}, &coop.APIError{Status: 404, Code: "operation_not_found"}
 }
 
 func TestPersistedReplayCancellationSettlesNoSubmitAfterRestartGrace(t *testing.T) {
