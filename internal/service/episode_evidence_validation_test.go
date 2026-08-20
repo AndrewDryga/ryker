@@ -16,10 +16,11 @@ import (
 )
 
 // Fifteen corrections on episode_run_6f5409ee1bc67c42adf6ed2c08040dda,
-// among 745 corrections in two days, started when the model cited these exact
-// host-recorded evidence IDs from episode-continuity and the validator said
-// they did not exist. A correction the model cannot satisfy is a host bug.
-func TestAnIncidentMayCiteHostRecordedEpisodeEvidence(t *testing.T) {
+// among 745 corrections in two days, started when the model cited evidence
+// gathered earlier in the same run and the validator said it did not exist. A
+// correction the model cannot satisfy is a host bug. Correlation ancestry is
+// different: it is history and must be observed again before proving today.
+func TestAnIncidentMayCiteEvidenceCarriedByItsCurrentRun(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	cfg.Limits.MaxAgentRunAttempts = 10
@@ -39,23 +40,7 @@ func TestAnIncidentMayCiteHostRecordedEpisodeEvidence(t *testing.T) {
 	if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
 		t.Fatalf("admit linked alert = %t, %v", created, admitErr)
 	}
-	state, err := json.Marshal(decisionWatchStateForEpisodeEvidence())
-	if err != nil {
-		t.Fatal(err)
-	}
-	queued, _, err := st.QueueAgentRun(ctx, core.AgentRun{
-		Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
-		ConversationKey: "operation:COPS:alert:BGRAFANA:ads.txt",
-		SourceKind:      "watch", SourceID: input.ID, UserID: input.UserID,
-		SessionID: "session-linked-ads", Context: state,
-		Episode: &core.WorkEpisode{
-			Effort: core.EffortOperationalAssessment, Authority: core.AuthorityReadOnly,
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.Intelligence.RecordEvidence(ctx, []core.Evidence{
+	currentEvidence := []core.Evidence{
 		{
 			ID: "e-application-ads-3915664-recheck2", ChannelID: input.ChannelID,
 			SourceInput: input.ID, ClaimID: "application.functional_behavior",
@@ -76,7 +61,26 @@ func TestAnIncidentMayCiteHostRecordedEpisodeEvidence(t *testing.T) {
 			Target:     "Recent configuration affecting tenant.example", Freshness: "current authenticated PR snapshot",
 			Confidence: "high", ObservedAt: now.Add(-3 * time.Minute), CreatedAt: now.Add(-3 * time.Minute),
 		},
-	}); err != nil {
+	}
+	watchState := decisionWatchStateForEpisodeEvidence()
+	watchState["carried_evidence"] = currentEvidence
+	state, err := json.Marshal(watchState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: input.ChannelID,
+		ConversationKey: "operation:COPS:alert:BGRAFANA:ads.txt",
+		SourceKind:      "watch", SourceID: input.ID, UserID: input.UserID,
+		SessionID: "session-linked-ads", Context: state,
+		Episode: &core.WorkEpisode{
+			Effort: core.EffortOperationalAssessment, Authority: core.AuthorityReadOnly,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Intelligence.RecordEvidence(ctx, currentEvidence); err != nil {
 		t.Fatal(err)
 	}
 	leased, err := st.LeaseAgentRun(ctx)
@@ -114,7 +118,7 @@ func TestAnIncidentMayCiteHostRecordedEpisodeEvidence(t *testing.T) {
 	}
 	if strings.Contains(corrected.FailureDetail, "which is not a recorded evidence id") ||
 		strings.Contains(corrected.FailureDetail, "cites absent evidence") {
-		t.Fatalf("the host rejected evidence it put in episode-continuity: %s", corrected.FailureDetail)
+		t.Fatalf("the host rejected evidence carried by the current run: %s", corrected.FailureDetail)
 	}
 	if !handled || len(staged.result) != 0 {
 		t.Fatalf("the first semantic refusal did not request a repair: handled=%t result=%q", handled, staged.result)

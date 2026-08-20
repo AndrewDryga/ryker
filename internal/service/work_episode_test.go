@@ -1297,4 +1297,8 @@ func TestASlackFollowupSeesThePriorEpisodesFindings(t *testing.T) {
 	if !strings.Contains(prompt, "p99 write latency is 40ms on va1-cass-3") {
 		t.Fatalf("the parent episode's evidence did not reach the follow-up turn:\n%.2000s", prompt)
 	}
+	if !strings.Contains(prompt, "history, not current proof") ||
+		!strings.Contains(prompt, "re-record any observation this result relies on") {
+		t.Fatalf("the continuity block does not keep historical evidence out of the current verdict:\n%.2000s", prompt)
+	}
 }

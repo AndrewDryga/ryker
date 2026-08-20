@@ -334,8 +334,8 @@ func (s *Service) episodeContinuityPrompt(
 		return ""
 	}
 	return "\n\n<episode-continuity>\n" +
-		"These are bounded, host-recorded observations from earlier events in the same " +
-		"operational lifecycle. Reconcile them with fresh evidence. A newer observation " +
+		"These are bounded, host-recorded observations from earlier events in the same operational lifecycle. They are history, not current proof: re-record any " +
+		"observation this result relies on and cite its current evidence id. Reconcile them with fresh evidence. A newer observation " +
 		"from the same source supersedes an older one; do not publish a conclusion that " +
 		"contradicts this history without naming the newer evidence that changed it.\n" +
 		string(payload) + "\n</episode-continuity>"

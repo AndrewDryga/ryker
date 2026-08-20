@@ -38,8 +38,9 @@ type EpisodeLedger interface {
 	ListEpisodeCoverage(context.Context, string, int) ([]core.Coverage, error)
 }
 
-// EpisodeRecords reads the one continuity ledger shared by the prompt and the
-// result validator. Any evidence shown to the model is therefore citeable.
+// EpisodeRecords reads the continuity ledger shown as historical context. It
+// can inform a new investigation, but current-state and completion validators
+// must still use the candidate run's own evidence.
 func EpisodeRecords(ctx context.Context, ledger EpisodeLedger, episodeID string) (Records, error) {
 	evidence, err := ledger.ListEpisodeEvidence(ctx, episodeID, episodeEvidenceLimit)
 	if err != nil {

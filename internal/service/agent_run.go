@@ -2798,13 +2798,13 @@ func (s *Service) stageTriageTerminal(
 		state.CarriedFindings = decisionpkg.CarryFindings(
 			state.CarriedFindings, decisionpkg.SanitizeFindings(decision.Findings),
 		)
-		// A record shown in episode-continuity is citeable here. Current correction
-		// rounds still win on the same ID, while historical coverage stays out of
-		// the current-attempt completion checks below.
-		evidence := decisionpkg.CarryEvidence(episodeRecords.Evidence, state.CarriedEvidence)
-		coverage := state.CarriedCoverage
+		// Correlation ancestry informs rendering and contradiction checks, but it
+		// is not this run's observation. Current-state, scope and completion claims
+		// must be supported by evidence gathered by this run.
+		currentEvidence, coverage := state.CarriedEvidence, state.CarriedCoverage
+		evidence := decisionpkg.CarryEvidence(episodeRecords.Evidence, currentEvidence)
 		validated := decision
-		validated.Evidence, validated.Coverage = evidence, coverage
+		validated.Evidence, validated.Coverage = currentEvidence, coverage
 		validated.Findings = state.CarriedFindings
 		correction := lifecycleContinuationCorrection
 		// The default class; a rejected artifact overrides it below.
@@ -2909,7 +2909,7 @@ func (s *Service) stageTriageTerminal(
 					ctx,
 					episode,
 					decision.Action,
-					evidence,
+					currentEvidence,
 					coverage,
 					decision.Completion,
 					s.now(),
@@ -2935,7 +2935,7 @@ func (s *Service) stageTriageTerminal(
 			}
 			if correction == "" {
 				correction = decisionpkg.EpisodeDiagnosisCorrection(
-					episode, decision.Action, evidence, coverage,
+					episode, decision.Action, currentEvidence, coverage,
 					decision.AlertAssessment,
 					decision.Completion,
 				)
@@ -3155,7 +3155,7 @@ func (s *Service) stageIncidentTerminal(
 				Action: "reply", Message: report.Message,
 				FollowupMessages: report.FollowupMessages, Completion: report.Completion,
 				AppliedOperations: report.AppliedOperations, Findings: findings,
-				Evidence: evidence, Coverage: coverage, AlertAssessment: report.AlertAssessment,
+				Evidence: currentEvidence, Coverage: coverage, AlertAssessment: report.AlertAssessment,
 			}
 			correction = decisionpkg.FindingCorrection(episode, reported, findings)
 			if correction == "" {
@@ -3163,7 +3163,7 @@ func (s *Service) stageIncidentTerminal(
 			}
 			if correction == "" {
 				correction = decisionpkg.EpisodeDiagnosisCorrection(
-					episode, "reply", evidence, coverage,
+					episode, "reply", currentEvidence, coverage,
 					report.AlertAssessment, report.Completion,
 				)
 			}
@@ -3171,7 +3171,7 @@ func (s *Service) stageIncidentTerminal(
 				(episode.Effort == core.EffortOperationalAssessment ||
 					episode.Effort == core.EffortIncidentInvestigation) {
 				beforeHostRender := report.Message
-				report, correction = decisionpkg.RenderOperationalAlertReport(report, evidence)
+				report, correction = decisionpkg.RenderOperationalAlertReport(report, currentEvidence)
 				if correction == "" && report.Message != beforeHostRender {
 					if reportErr = staged.setResult(resultwire.AgentReport(report)); reportErr != nil {
 						return true, reportErr
@@ -3189,7 +3189,7 @@ func (s *Service) stageIncidentTerminal(
 				ctx,
 				episode,
 				"reply",
-				evidence,
+				currentEvidence,
 				coverage,
 				report.Completion,
 				s.now(),
