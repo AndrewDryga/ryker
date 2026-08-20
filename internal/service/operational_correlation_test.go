@@ -1179,7 +1179,7 @@ func TestAttemptedAlertRunSurvivesANewerNotificationOnTheSameStream(t *testing.T
 	}
 	replied := false
 	for _, post := range slackClient.posts {
-		if strings.Contains(post.message.Text, "confirms an active issue") {
+		if strings.Contains(post.message.Text, "the live checkout error rate is 20.5 percent") {
 			replied = true
 		}
 	}
@@ -1257,7 +1257,7 @@ func TestActiveAlertReplyKeepsTheStreamEpisodeOpen(t *testing.T) {
 	}
 	answered := false
 	for _, post := range slackClient.posts {
-		if strings.Contains(post.message.Text, "confirms an active issue") {
+		if strings.Contains(post.message.Text, "the live checkout error rate is 20.5 percent") {
 			answered = true
 		}
 	}
@@ -2420,6 +2420,76 @@ func TestARefireAfterTheRecoveredHoldStartsAtTheNewCard(t *testing.T) {
 	}
 	if thirdEpisode.Destination.ThreadTS != again.MessageTS {
 		t.Fatalf("the new cycle inherited the historical destination %q", thirdEpisode.Destination.ThreadTS)
+	}
+}
+
+// The Host OOM stream stayed non-terminal while provider and correction
+// failures accumulated. Three recovered cycles then re-fired hours later, but
+// each new OOM was admitted into the day-old episode and inherited evidence
+// from a different killed process. Recovery plus an expired hold ends the
+// cycle even when the old investigation failed to terminalize itself.
+func TestARefireAfterAnExpiredRecoveryStartsANewEpisodeWhenTheOldOneIsStillOpen(t *testing.T) {
+	ctx := context.Background()
+	firstAt := time.Now().UTC()
+	recoveredAt := firstAt.Add(10 * time.Minute)
+	cfg, st, _, svc, base := streamFixture(
+		t, "CSTREAMSTUCKCYCLE",
+		confirmedAlertReplyResult(firstAt.Format(time.RFC3339)),
+		supersedingRecoveredAlertReply(t, recoveredAt.Format(time.RFC3339)),
+	)
+	base.Text = "[VA1 FIRING:1] WARNING | checkout errors\n" + base.Text
+	clock := firstAt
+	svc.clock = func() time.Time { return clock }
+
+	firing := base
+	firing.ID, firing.EnvelopeID = "stuck-cycle-card-1", "env-stuck-cycle-card-1"
+	firing.EventID, firing.MessageTS = "event-stuck-cycle-card-1", "1715.410"
+	firing.ReceivedAt = firstAt
+	first := answerStreamCard(t, svc, st, firing)
+
+	clock = recoveredAt
+	recovered := base
+	recovered.ID, recovered.EnvelopeID = "stuck-cycle-card-2", "env-stuck-cycle-card-2"
+	recovered.EventID, recovered.MessageTS = "event-stuck-cycle-card-2", "1715.420"
+	recovered.ReceivedAt = recoveredAt
+	recovered.Text = "[VA1 RESOLVED:1] " + base.Text
+	answerStreamCard(t, svc, st, recovered)
+
+	old, err := st.GetWorkEpisode(ctx, first.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.State == core.EpisodeCompleted {
+		t.Fatalf("fixture unexpectedly terminalized the recovered hold: %+v", old)
+	}
+
+	again := base
+	again.ID, again.EnvelopeID = "stuck-cycle-card-3", "env-stuck-cycle-card-3"
+	again.EventID, again.MessageTS = "event-stuck-cycle-card-3", "1715.430"
+	again.ReceivedAt = recoveredAt.Add(cfg.Slack.AlertStreamOpenWindow.Duration + time.Minute)
+	clock = again.ReceivedAt
+	if created, err := st.AdmitSlackInput(ctx, again); err != nil || !created {
+		t.Fatalf("admit new cycle = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	third, err := st.GetAgentRunBySource(ctx, "watch", again.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.EpisodeID == first.EpisodeID {
+		t.Fatalf("expired recovered cycle reused old episode %q", third.EpisodeID)
+	}
+	if third.ThreadTS != again.MessageTS {
+		t.Fatalf("new cycle destination = %q, want current card %q", third.ThreadTS, again.MessageTS)
+	}
+	thirdEpisode, err := st.GetWorkEpisode(ctx, third.EpisodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if thirdEpisode.ParentEpisodeID != first.EpisodeID {
+		t.Fatalf("new cycle lost historical parent: %+v", thirdEpisode)
 	}
 }
 

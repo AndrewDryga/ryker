@@ -187,6 +187,29 @@ func TestIncidentEpisodeSeparatesEngineeringAndOperationalAuthority(t *testing.T
 	}
 }
 
+// A Host OOM investigation on 2026-08-20 found a kernel counter and stopped
+// without reporting the killed process, Nomad restart outcome, or current task
+// memory. These are the diagnosis, recovery, and impact checks an operator
+// performs before answering; the generic host/workload/application labels did
+// not tell the model that explicitly.
+func TestOOMAlertContractNamesTheProcessRecoveryMemoryAndImpactChecks(t *testing.T) {
+	svc := &Service{}
+	episode := svc.episodeForWatchedInput(core.SlackInput{
+		Kind:   "bot_message",
+		UserID: "BGRAFANA",
+		Text:   "[VA1 FIRING:1] WARNING | Host OOM kills\nKernel OOM-killed a process on nomad-hst01",
+	}, decisionpkg.WatchTurnState{AlertPolicy: "reply"})
+	joined := strings.Join(episode.CompletionCriteria, "\n")
+	for _, want := range []string{
+		"killed process", "owning allocation or task", "restart or replacement",
+		"current task memory", "host memory pressure", "user impact",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("OOM completion contract omits %q:\n%s", want, joined)
+		}
+	}
+}
+
 // Covers: TestIncidentInvestigationVerdictRequiresMatchingVerifiedCoverage
 func TestDeepEpisodeCompletionRequiresDecisionReadyCoverageOrExactBlocker(t *testing.T) {
 	episode := core.WorkEpisode{

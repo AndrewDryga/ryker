@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	alertstreampkg "github.com/AndrewDryga/responder/internal/alertstream"
 	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
 	"github.com/AndrewDryga/responder/internal/completionpolicy"
 	"github.com/AndrewDryga/responder/internal/core"
@@ -145,9 +146,7 @@ func (s *Service) episodeForWatchedInput(
 			}
 		}
 	}
-	if decisionpkg.MatchedOperationalAlertRule(state.MatchedRules) ||
-		(input.Kind == "bot_message" && state.AlertPolicy != "" &&
-			decisionpkg.OperationalAlertEvent(input.Text) && !decisionpkg.ExternalCoordinationOnlyEvent(input.Text)) {
+	if decisionpkg.MatchedOperationalAlertRule(state.MatchedRules) || (input.Kind == "bot_message" && state.AlertPolicy != "" && decisionpkg.OperationalAlertEvent(input.Text) && !decisionpkg.ExternalCoordinationOnlyEvent(input.Text)) {
 		episode.Effort = core.EffortIncidentInvestigation
 		episode.RequiredCoverage = alertInvestigationCoverage(text)
 		episode.CompletionCriteria = []string{
@@ -155,6 +154,7 @@ func (s *Service) episodeForWatchedInput(
 			"verify impact with fresh operational evidence",
 			"recommend the safest immediate action and durable solution",
 		}
+		episode.CompletionCriteria = alertstreampkg.WithOOMCompletionCriteria(episode.CompletionCriteria, text)
 	}
 	if explicitGovernedOperationRequest(text) {
 		if episode.Effort == core.EffortConversational {

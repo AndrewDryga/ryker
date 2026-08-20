@@ -362,8 +362,8 @@ func TestCompoundThreadAndAlertBehaviorRequestPreservesEveryClause(t *testing.T)
 	}
 	last := slackClient.posts[len(slackClient.posts)-1]
 	if last.thread != alert.MessageTS ||
-		!strings.Contains(last.message.Text, "confirms an active issue") ||
-		!strings.Contains(last.message.Text, "Among the checked targets") {
+		!strings.Contains(last.message.Text, "the live checkout error rate is 20.5 percent") ||
+		!strings.Contains(last.message.Text, "I checked checkout") {
 		t.Fatalf("alert triage reply = %+v", last)
 	}
 	incidents, err := st.ListIncidents(ctx, 10)
@@ -1889,7 +1889,7 @@ func TestWatchedAppCardShowsEyesThenCheckWithoutStandingRule(t *testing.T) {
 	}
 	reply := slackClient.posts[len(slackClient.posts)-1]
 	if reply.thread != alert.MessageTS ||
-		!strings.Contains(reply.message.Text, "Among the checked targets") ||
+		!strings.Contains(reply.message.Text, "I checked checkout") ||
 		!strings.Contains(reply.message.Text, "checkout") ||
 		strings.Contains(reply.message.Text, "More than 20 percent") ||
 		strings.Contains(reply.message.Text, "**Checkout errors are affecting current requests:**") {
@@ -1968,7 +1968,7 @@ func TestConfiguredProactiveOutageDeliversDespiteLegacyShadowRow(t *testing.T) {
 		t.Fatalf("outage Slack replies = %+v", slackClient.posts)
 	}
 	if slackClient.posts[0].thread != alert.MessageTS ||
-		!strings.Contains(slackClient.posts[0].message.Text, "Among the checked targets") {
+		!strings.Contains(slackClient.posts[0].message.Text, "I checked checkout") {
 		t.Fatalf("outage reply destination/body = %+v", slackClient.posts[0])
 	}
 }

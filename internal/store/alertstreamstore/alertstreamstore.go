@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/alertstream"
 	"github.com/AndrewDryga/responder/internal/core"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 )
@@ -25,6 +26,75 @@ import (
 type Repository struct{ db *sql.DB }
 
 func New(db *sql.DB) *Repository { return &Repository{db: db} }
+
+// LifecycleInput is the last app card that changed one operational stream.
+// Episode state alone is insufficient: an investigation can remain retrying
+// after Grafana recovered, but that does not keep the recovered cycle open
+// forever.
+type LifecycleInput struct {
+	Text       string
+	ReceivedAt time.Time
+}
+
+// LatestLifecycleInput returns the newest app card already admitted for an
+// operational conversation. Synthetic rechecks deliberately do not replace
+// the source lifecycle state.
+func (r *Repository) LatestLifecycleInput(
+	ctx context.Context,
+	conversationKey string,
+) (LifecycleInput, error) {
+	if strings.TrimSpace(conversationKey) == "" {
+		return LifecycleInput{}, core.ErrNotFound
+	}
+	var value LifecycleInput
+	var receivedAt string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT input.text, input.received_at
+		FROM agent_runs AS run
+		JOIN slack_inputs AS input ON input.id = run.source_id
+		WHERE run.conversation_key = ?
+		  AND input.kind = 'bot_message'
+		ORDER BY input.received_at DESC, run.created_at DESC, run.id DESC
+		LIMIT 1`, conversationKey,
+	).Scan(&value.Text, &receivedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return LifecycleInput{}, core.ErrNotFound
+	}
+	if err != nil {
+		return LifecycleInput{}, err
+	}
+	value.ReceivedAt, err = time.Parse(core.TimestampParseFormat, receivedAt)
+	if err != nil {
+		return LifecycleInput{}, err
+	}
+	return value, nil
+}
+
+// RecoveredCycleExpired identifies a new firing that arrived after the prior
+// recovery's hold window. A stuck episode does not keep an alert cycle open.
+func (r *Repository) RecoveredCycleExpired(
+	ctx context.Context,
+	conversationKey string,
+	input core.SlackInput,
+	hold time.Duration,
+) (bool, error) {
+	firing, _ := alertstream.AlertCounts(input.Text)
+	if firing == 0 || hold <= 0 {
+		return false, nil
+	}
+	previous, err := r.LatestLifecycleInput(ctx, conversationKey)
+	if errors.Is(err, core.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	previousFiring, previousResolved := alertstream.AlertCounts(previous.Text)
+	if previousFiring != 0 || previousResolved == 0 || previous.ReceivedAt.IsZero() {
+		return false, nil
+	}
+	return !input.ReceivedAt.Before(previous.ReceivedAt.Add(hold)), nil
+}
 
 // RepliesPosted returns the answers this episode has already posted, newest
 // first.

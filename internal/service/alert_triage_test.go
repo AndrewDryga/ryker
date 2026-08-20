@@ -273,8 +273,8 @@ func TestWatchedAppAlertBurstEvaluatesEveryEventInOrder(t *testing.T) {
 		}
 	}
 	if len(slackClient.posts) != 2 ||
-		!strings.Contains(slackClient.posts[0].message.Text, "confirms an active issue") ||
-		!strings.Contains(slackClient.posts[1].message.Text, "does not show the alert condition as active") {
+		!strings.Contains(slackClient.posts[0].message.Text, "total RPS below 4k") ||
+		!strings.Contains(slackClient.posts[1].message.Text, "total RPS above 4k") {
 		t.Fatalf("ordered app alert replies = %+v", slackClient.posts)
 	}
 }

@@ -38,7 +38,7 @@ func RenderOperationalAlertDecision(
 	); correction != "" {
 		return decision, correction
 	}
-	message, ok := operationalscope.Render(decision.AlertAssessment)
+	message, ok := operationalscope.Render(decision.AlertAssessment, evidence)
 	if !ok {
 		return decision, "the operational alert assessment could not be rendered from validated structured scope"
 	}
@@ -60,7 +60,7 @@ func RenderOperationalAlertReport(
 	); correction != "" {
 		return report, correction
 	}
-	message, ok := operationalscope.Render(report.AlertAssessment)
+	message, ok := operationalscope.Render(report.AlertAssessment, evidence)
 	if !ok {
 		return report, "the operational alert assessment could not be rendered from validated structured scope"
 	}

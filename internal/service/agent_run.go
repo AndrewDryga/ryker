@@ -437,10 +437,14 @@ func (s *Service) correlateWatchEpisode(
 		ctx, conversationKey, preferredWaitingThread,
 	); previousErr == nil {
 		if operationalLifecycle {
+			expiredRecovery, err := s.store.AlertStream.RecoveredCycleExpired(ctx, conversationKey, input, s.cfg.Slack.AlertStreamOpenWindow.Duration)
+			if err != nil {
+				return nil, false, err
+			}
 			// Updates share an active unit of work. Once that unit is terminal, the
 			// next alert is new accepted work linked to the prior investigation;
 			// attaching it to the old episode makes the lifecycle guard cancel it.
-			if episodepkg.Terminal(previous.State) {
+			if episodepkg.Terminal(previous.State) || expiredRecovery {
 				episode.ParentEpisodeID = previous.ID
 				episode.Conversation = core.ConversationRef{
 					Platform: "slack", ChannelID: input.ChannelID,
@@ -451,10 +455,10 @@ func (s *Service) correlateWatchEpisode(
 				// Keep that stream in its accepted thread through the hold window;
 				// after the window, the new card becomes the new destination while
 				// the parent link preserves history.
-				withinHold := previous.CompletedAt.IsZero() ||
+				withinHold := !expiredRecovery && (previous.CompletedAt.IsZero() ||
 					input.ReceivedAt.Before(previous.CompletedAt.Add(
 						s.cfg.Slack.AlertStreamOpenWindow.Duration,
-					))
+					)))
 				if withinHold && previous.Destination.ChannelID == input.ChannelID &&
 					previous.Destination.ThreadTS != "" {
 					episode.Destination = previous.Destination
@@ -469,8 +473,10 @@ func (s *Service) correlateWatchEpisode(
 			}
 			// What this stream already told the channel, so the next card can be
 			// judged against it instead of arriving as if it were the first.
-			if err := s.captureAnsweredStream(ctx, previous, state); err != nil {
-				return nil, false, err
+			if !expiredRecovery {
+				if err := s.captureAnsweredStream(ctx, previous, state); err != nil {
+					return nil, false, err
+				}
 			}
 		} else {
 			if episodepkg.AcceptsOperatorAnswer(

@@ -202,8 +202,18 @@ func CorrectionWithUniverse(
 		byID[strings.TrimSpace(item.ID)] = item
 	}
 	for _, ref := range scope.EvidenceRefs {
-		if _, ok := byID[ref]; !ok {
+		item, ok := byID[ref]
+		if !ok {
 			return fmt.Sprintf("the alert scope cites absent evidence %q", ref)
+		}
+		if ref != scope.UniverseEvidenceRef && strings.TrimSpace(item.Target) != "" && !slices.Contains(
+			normalizedSet(scope.CheckedTargets),
+			strings.ToLower(strings.TrimSpace(item.Target)),
+		) {
+			return fmt.Sprintf(
+				"the alert scope cites evidence %q for target %q outside its checked targets; keep background or comparison evidence in alert_assessment.evidence_refs, not scope.evidence_refs",
+				ref, item.Target,
+			)
 		}
 	}
 	for _, target := range scope.CheckedTargets {
@@ -306,46 +316,53 @@ func bounded(value string, limit int) string {
 	return strings.TrimSpace(core.TruncateUTF8(strings.TrimSpace(value), limit))
 }
 
-// Render returns host-owned Slack prose for a validated assessment. Free-form
-// model fields remain in the durable assessment for review, but they are not
-// public assertions: scope, verdict, cause state, and next-step kind are the
-// structured facts the host can render without interpreting prose.
-func Render(assessment *Assessment) (string, bool) {
+// Render returns the concrete validated assessment inside its structured scope.
+// The scope owns how far each assertion reaches; replacing the assessment with
+// enum boilerplate destroys the evidence the operator asked Responder to find.
+func Render(assessment *Assessment, evidence []core.Evidence) (string, bool) {
 	if assessment == nil || assessment.Scope == nil {
 		return "", false
 	}
 	scope := assessment.Scope
-	parts := make([]string, 0, 5)
+	byID := make(map[string]core.Evidence, len(evidence))
+	for _, item := range evidence {
+		byID[strings.TrimSpace(item.ID)] = item
+	}
+	parts := make([]string, 0, 6)
+	observations := make([]string, 0, len(scope.EvidenceRefs))
+	for _, ref := range scope.EvidenceRefs {
+		if ref == scope.UniverseEvidenceRef {
+			continue
+		}
+		observation := strings.TrimSpace(byID[ref].Observation)
+		if observation != "" && !slices.Contains(observations, observation) {
+			observations = append(observations, observation)
+		}
+	}
+	for _, observation := range observations {
+		parts = append(parts, sentence(observation))
+	}
 	if scope.Status == "exhaustive" {
-		parts = append(parts, "**All configured targets were checked:** "+strings.Join(scope.CheckedTargets, ", ")+".")
+		parts = append(parts, "I checked all configured targets: "+strings.Join(scope.CheckedTargets, ", ")+".")
 	} else {
-		parts = append(parts, "**Among the checked targets:** "+strings.Join(scope.CheckedTargets, ", ")+".")
+		parts = append(parts,
+			"I checked "+strings.Join(scope.CheckedTargets, ", ")+". I haven’t verified "+
+				strings.Join(scope.UnverifiedTargets, ", ")+".",
+		)
 	}
-	switch assessment.Verdict {
-	case "confirmed_issue":
-		parts = append(parts, "**Status:** The checked evidence confirms an active issue on this bounded scope.")
-	case "likely_issue":
-		parts = append(parts, "**Status:** The checked evidence indicates a likely active issue on this bounded scope.")
-	case "not_issue":
-		parts = append(parts, "**Status:** The checked evidence does not show the alert condition as active on this bounded scope.")
-	case "unverified":
-		parts = append(parts, "**Status:** The alert condition remains unverified on this bounded scope.")
+	if assessment.ImmediateAction != "" {
+		parts = append(parts, "Next: "+sentence(assessment.ImmediateAction))
 	}
-	if scope.Status == "bounded" {
-		parts = append(parts, "**Still unverified:** Targets outside the checked set remain unverified.")
-	}
-	if assessment.CauseStatus == "identified" {
-		parts = append(parts, "**Cause:** Identified by the cited evidence for the checked scope.")
-	} else if assessment.CauseStatus == "bounded" {
-		parts = append(parts, "**Cause:** Bounded by the cited evidence; the exact cause is not fully identified.")
-	}
-	switch assessment.ImmediateActionKind {
-	case "mitigation":
-		parts = append(parts, "**Next:** Mitigate the affected checked targets, then verify the same scope again.")
-	case "monitor":
-		parts = append(parts, "**Next:** Continue monitoring the checked targets for recurrence.")
-	case "investigation":
-		parts = append(parts, "**Next:** Continue investigating the checked targets and record the next bounded verification.")
+	if assessment.Verification != "" {
+		parts = append(parts, "Verification: "+sentence(assessment.Verification))
 	}
 	return strings.Join(parts, "\n\n"), true
+}
+
+func sentence(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value[len(value)-1:], ".!?") {
+		return value
+	}
+	return value + "."
 }
