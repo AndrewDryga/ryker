@@ -1086,11 +1086,12 @@ func (s *Store) mutateAgentRunContext(
 // requeueRunColumns drops what bound a run to the attempt that failed.
 const requeueRunColumns = `expected_revision = 0, coop_turn_id = '', result_json = X'', terminal_state = '', completed_at = NULL,`
 
-// ReleaseAgentRunRevision unfreezes a preparing run's revision, so a run that
-// lost a revision race stops replaying the same stale number.
+// ReleaseAgentRunRevision unfreezes a preparing run's revision and request key,
+// so a run that lost a revision race stops replaying the rejected request.
 func (s *Store) ReleaseAgentRunRevision(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `
-		UPDATE agent_runs SET expected_revision = 0, updated_at = ?
+		UPDATE agent_runs SET expected_revision = 0, coop_turn_id = '',
+		  idempotency_key = 'responder:run:' || id || ':revision:' || lower(hex(randomblob(16))), updated_at = ?
 		WHERE id = ? AND state = 'preparing'`, s.nowText(), id)
 	return err
 }

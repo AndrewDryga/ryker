@@ -1764,6 +1764,10 @@ func TestRevisionConflictReleasesTheFrozenRevisionAndRetries(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
+	queued, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	drainSlackDeliveries(t, ctx, svc)
 	if err := svc.processAgentRun(ctx); err != nil {
 		t.Fatal(err)
@@ -1774,6 +1778,12 @@ func TestRevisionConflictReleasesTheFrozenRevisionAndRetries(t *testing.T) {
 	}
 	if run.TerminalState != "" {
 		t.Fatalf("a revision race went terminal: state=%q error=%q", run.TerminalState, run.LastError)
+	}
+	if run.State != core.AgentRunPending || run.Failures != 0 {
+		t.Fatalf("revision race spent a model attempt: state=%q failures=%d", run.State, run.Failures)
+	}
+	if run.IdempotencyKey == queued.IdempotencyKey {
+		t.Fatal("revision race kept the request key Coop already rejected")
 	}
 	// The frozen number is gone, so the next attempt races the session it is
 	// actually in rather than the one it remembered.
@@ -1839,7 +1849,7 @@ func TestEngineeringTaskRevisionConflictReleasesTheFrozenRevisionAndRetries(t *t
 		t.Fatal(err)
 	}
 	if retrying.State != core.AgentRunPending || retrying.TerminalState != "" ||
-		retrying.Failures != 1 {
+		retrying.Failures != 0 {
 		t.Fatalf("recoverable task race became terminal: %+v", retrying)
 	}
 	if retrying.ExpectedRevision != 0 {

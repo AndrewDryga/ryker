@@ -956,7 +956,7 @@ func (s *Service) prepareIncidentAgentRun(
 					false,
 				)
 			}
-			return s.retryIncidentAgentRun(ctx, run, incident, err, false)
+			return s.store.DeferAgentRun(ctx, run.ID, trimError(err), s.now().Add(time.Second))
 		}
 		return s.retryIncidentAgentRun(ctx, run, incident, err, !coop.Retryable(err))
 	}
@@ -1491,6 +1491,8 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 				if releaseErr := s.store.ReleaseAgentRunRevision(ctx, run.ID); releaseErr != nil {
 					s.log.Warn("release frozen Coop revision",
 						"run", run.ID, "error", releaseErr)
+				} else {
+					return s.store.DeferAgentRun(ctx, run.ID, trimError(err), s.now().Add(time.Second))
 				}
 			}
 			return s.retryAgentRun(ctx, run, err)
