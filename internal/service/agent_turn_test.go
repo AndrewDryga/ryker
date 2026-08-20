@@ -20,6 +20,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/store/storetest"
 	"github.com/AndrewDryga/responder/internal/taskcard"
+	"github.com/AndrewDryga/responder/internal/turncapacity"
 )
 
 func TestEmisarApprovalMonitorUpdatesCardAndQueuesOneContinuation(t *testing.T) {
@@ -1533,12 +1534,87 @@ func TestAutomaticTurnCapacityHonorsConfiguredCeiling(t *testing.T) {
 		slackui.NewSanitizer(12000), nil,
 	)
 	_, err = svc.ensureTurnCapacity(ctx, "CWATCH", "", coopClient.session)
-	var limitErr *automaticTurnLimitError
+	var limitErr *turncapacity.LimitError
 	if !errors.As(err, &limitErr) || limitErr.Limit != 100 {
 		t.Fatalf("configured ceiling error = %T %v", err, err)
 	}
 	if coopClient.session.MaxTurns != 100 {
 		t.Fatalf("capacity changed beyond ceiling: %+v", coopClient.session)
+	}
+}
+
+// Nine Grafana investigations waited overnight after their shared watch session spent all
+// 1,000 accepted requests. Every retry stopped at the same safety ceiling before Coop could
+// submit a turn, so its healthy second Codex credential never had a chance to run the work.
+func TestAnExhaustedWatchSessionStartsFreshWithoutSpendingAcceptedWork(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Coop.TurnLimit = 100
+	cfg.Slack.SummonChannels = []string{"CCEILING"}
+	cfg.Slack.WatchChannels = nil
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+	coopClient.session.State = "exhausted"
+	coopClient.session.MaxTurns = cfg.Coop.TurnLimit
+	coopClient.openAfterCreateKey = "responder:watch-session:CCEILING:2"
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	clock := useTestClock(svc, st)
+	if err := st.Intelligence.BindChannelSession(
+		ctx, "CCEILING", "repo", "ses_1", 1, 1, time.Now().UTC(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	input := core.SlackInput{
+		ID: "watch-ceiling", EnvelopeID: "watch-ceiling-envelope",
+		EventID: "watch-ceiling-event", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CCEILING", MessageTS: "1700.710", UserID: "U123ABC",
+		Text: "<@U999BOT> investigate the active alert",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit input = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waiting, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decodeWatchRunContext(waiting)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waiting.State != core.AgentRunPending || waiting.Failures != 0 || state.Generation != 2 {
+		t.Fatalf("exhausted-session retry spent work or kept its generation: run=%+v state=%+v",
+			waiting, state)
+	}
+	if len(coopClient.submitKeys) != 0 {
+		t.Fatalf("submitted into the exhausted session: %v", coopClient.submitKeys)
+	}
+
+	clock.Advance(2 * time.Second)
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	delivered, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || delivered.State != core.AgentRunRunning ||
+		delivered.Failures != 0 || delivered.SessionID != "ses_2" ||
+		delivered.SessionGeneration != 2 {
+		t.Fatalf("fresh-session delivery = %+v, %v", delivered, err)
+	}
+	if len(coopClient.submitSessions) != 1 || coopClient.submitSessions[0] != "ses_2" {
+		t.Fatalf("submitted sessions = %v", coopClient.submitSessions)
 	}
 }
 

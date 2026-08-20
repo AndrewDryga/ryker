@@ -22,6 +22,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/deliveryretrystore"
 	"github.com/AndrewDryga/responder/internal/taskaccess"
 	"github.com/AndrewDryga/responder/internal/taskpr"
+	"github.com/AndrewDryga/responder/internal/turncapacity"
 )
 
 func (s *Service) processWebhook(ctx context.Context) error {
@@ -878,7 +879,7 @@ func (s *Service) pollIncident(ctx context.Context, incident core.Incident) erro
 		}
 		detail := ""
 		if session.MaxTurns >= limit {
-			detail = turnLimitReachedMessage(limit)
+			detail = turncapacity.Message(limit)
 		}
 		if incident.Workflow == workflow && incident.LastError == detail {
 			return nil

@@ -53,6 +53,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/taskpr"
 	"github.com/AndrewDryga/responder/internal/terraformwakeup"
 	"github.com/AndrewDryga/responder/internal/triageoutcome"
+	"github.com/AndrewDryga/responder/internal/turncapacity"
 	"github.com/AndrewDryga/responder/internal/turndelta"
 	"github.com/AndrewDryga/responder/internal/watchpresence"
 )
@@ -776,9 +777,9 @@ func (s *Service) prepareIncidentAgentRun(
 		ctx, incident.ChannelID, incident.ID, session,
 	)
 	if err != nil {
-		var limitErr *automaticTurnLimitError
+		var limitErr *turncapacity.LimitError
 		if errors.As(err, &limitErr) {
-			detail := turnLimitReachedMessage(limitErr.Limit)
+			detail := turncapacity.Message(limitErr.Limit)
 			s.setIncidentError(ctx, incident.ID, core.WorkflowBlocked, detail)
 			return s.store.DeferAgentRun(
 				ctx, run.ID, detail, s.now().Add(30*time.Second),
@@ -1266,6 +1267,12 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	case "exhausted":
 		session, err = s.ensureTurnCapacity(ctx, input.ChannelID, "", session)
 		if err != nil {
+			var limitErr *turncapacity.LimitError
+			if errors.As(err, &limitErr) {
+				return s.retryAtNextSessionGeneration(
+					ctx, run, &state, generation, err,
+				)
+			}
 			return s.retryAgentRun(ctx, run, err)
 		}
 	case "open":
@@ -1759,9 +1766,9 @@ func (s *Service) retryAtNextSessionGeneration(
 	receiptCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	ctx = receiptCtx
-	next := retrydelay.NextSessionGeneration(
-		state.Generation, observedGeneration, sessioncreate.TerminalFailure(cause),
-	)
+	var limitErr *turncapacity.LimitError
+	unusable := sessioncreate.TerminalFailure(cause) || errors.As(cause, &limitErr)
+	next := retrydelay.NextSessionGeneration(state.Generation, observedGeneration, unusable)
 	if next > state.Generation {
 		state.Generation = next
 		if err := s.persistTriageRunState(ctx, run.ID, *state); err != nil {
@@ -1781,6 +1788,14 @@ func (s *Service) retryAtNextSessionGeneration(
 			delay = sessioncreate.HistoricalCreateKeysRetryDelay
 		}
 		return s.store.DeferAgentRun(ctx, run.ID, trimError(cause), s.now().Add(delay))
+	}
+	if limitErr != nil {
+		return s.store.DeferAgentRun(
+			ctx,
+			run.ID,
+			"opening a fresh model session after reaching the automatic request ceiling",
+			s.now().Add(time.Second),
+		)
 	}
 	if coop.Retryable(cause) {
 		var pending *coop.OperationPendingError

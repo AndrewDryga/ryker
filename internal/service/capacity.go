@@ -6,20 +6,8 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/turncapacity"
 )
-
-const turnLimitReachedPrefix = "Responder reached this channel's automatic safety ceiling"
-
-type automaticTurnLimitError struct {
-	Limit int
-}
-
-func (e *automaticTurnLimitError) Error() string {
-	return fmt.Sprintf(
-		"automatic turn ceiling %d reached; raise coop.turn_limit in responder.yaml to continue",
-		e.Limit,
-	)
-}
 
 func (s *Service) ensureTurnCapacity(
 	ctx context.Context,
@@ -35,7 +23,7 @@ func (s *Service) ensureTurnCapacity(
 		return coop.Session{}, err
 	}
 	if session.MaxTurns >= limit {
-		return coop.Session{}, &automaticTurnLimitError{Limit: limit}
+		return coop.Session{}, &turncapacity.LimitError{Limit: limit}
 	}
 	additional := min(s.cfg.Coop.ExtendTurns, limit-session.MaxTurns)
 	extended, _, err := s.coop.Extend(
@@ -66,17 +54,4 @@ func (s *Service) ensureTurnCapacity(
 		),
 	})
 	return extended, nil
-}
-
-func turnLimitReachedMessage(limit int) string {
-	return fmt.Sprintf(
-		turnLimitReachedPrefix+" of %d agent requests. "+
-			"The pending request and Coop session are preserved. The ceiling is "+
-			"`coop.turn_limit` in responder.yaml; raising it needs a deployment change, "+
-			"because a session that has spent %d accepted requests is usually looping "+
-			"rather than short of room. This counts accepted requests, not tool calls or "+
-			"investigation steps within a request.",
-		limit,
-		limit,
-	)
 }
