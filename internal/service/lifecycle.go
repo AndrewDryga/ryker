@@ -243,8 +243,8 @@ func (s *Service) reconcileOrphanedResponderSessions(
 }
 
 func isResponderManagedSession(session coop.Session) bool {
-	return strings.HasPrefix(session.ExternalRef, "incident:") ||
-		strings.HasPrefix(session.ExternalRef, "engineering-task:") ||
+	return strings.HasPrefix(session.ExternalRef, "incident:") || strings.HasPrefix(session.ExternalRef, "engineering-task:") ||
+		strings.HasPrefix(session.ExternalRef, "Responder live model evaluation:") ||
 		strings.HasPrefix(session.ExternalRef, "Slack bounded conversation ") ||
 		strings.HasPrefix(session.ExternalRef, "Slack operations channel ") ||
 		strings.HasPrefix(session.ExternalRef, "Slack alert triage channel ")
