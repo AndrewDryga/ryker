@@ -129,32 +129,11 @@ func SessionPolicy(
 	return repository.CoopPolicy, false, nil
 }
 
-func CanSteer(
-	ctx context.Context,
-	cfg config.Config,
-	st *store.Store,
-	incident core.Incident,
-	userID string,
-) (bool, bool, error) {
-	contributor, err := UsesContributorAuthority(ctx, cfg, st, incident)
-	return contributor, contributor || cfg.IsOperator(userID), err
-}
-
-func Prompt(
-	ctx context.Context,
-	cfg config.Config,
-	st *store.Store,
-	incident core.Incident,
-	userID, message string,
-) (string, error) {
-	contributor, err := UsesContributorAuthority(ctx, cfg, st, incident)
-	if err != nil {
-		return "", err
+func Prompt(cfg config.Config, userID, message string) string {
+	if !cfg.IsOperator(userID) {
+		return taskprompt.Member(userID, message)
 	}
-	if contributor {
-		return taskprompt.Member(userID, message), nil
-	}
-	return agentprompt.Operator(userID, message), nil
+	return agentprompt.Operator(userID, message)
 }
 
 func MemberRepository(

@@ -259,7 +259,7 @@ func mustJSON(t *testing.T, value any) []byte {
 	return data
 }
 
-func TestMemberCannotSteerOperatorCapabilityTask(t *testing.T) {
+func TestOperatorCreatedTaskKeepsEachParticipantsOwnAuthority(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)
 	st, err := store.Open(cfg.StateDir)
@@ -302,12 +302,12 @@ func TestMemberCannotSteerOperatorCapabilityTask(t *testing.T) {
 	if err := svc.processSlackInput(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.GetAgentRunBySource(ctx, "slack", member.ID); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("member entered operator task = %v", err)
-	}
-	if len(slackClient.ephemerals) != 1 ||
-		!strings.Contains(renderedSlackMessage(slackClient.ephemerals[0].message), "configured-operator capabilities") {
-		t.Fatalf("operator task member refusal = %+v", slackClient.ephemerals)
+	memberRun, err := st.GetAgentRunBySource(ctx, "slack", member.ID)
+	if err != nil ||
+		!strings.Contains(memberRun.Prompt, "active full workspace members") ||
+		!strings.Contains(memberRun.Prompt, "does not authorize applying configuration") ||
+		strings.Contains(memberRun.Prompt, "one exact governed action") {
+		t.Fatalf("member task authority = %q, err=%v", memberRun.Prompt, err)
 	}
 
 	operator := member
@@ -328,6 +328,69 @@ func TestMemberCannotSteerOperatorCapabilityTask(t *testing.T) {
 		!strings.Contains(run.Prompt, "one exact governed action") ||
 		strings.Contains(run.Prompt, "contributor session") {
 		t.Fatalf("operator task prompt = %q, err=%v", run.Prompt, err)
+	}
+}
+
+// Bruno's ordinary review request was rejected solely because Andrew created
+// the task. Code feedback in an isolated fork must use the current teammate's
+// contributor authority instead of inheriting or requiring the creator's role.
+func TestWorkspaceMemberCanSteerOperatorCreatedTaskWithContributorAuthority(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "operator-task-feedback", "Add bounded context", "summary",
+		cfg.Slack.Operators[0], "COPS", "1700.700", cfg.Limits.MaxOpenIncidents,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.701"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_operator", "operator-task", 1); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slackClient := &fakeSlack{dedupePosts: true}
+	svc := New(cfg, st, newFakeCoop(), slackClient, nil, slackui.NewSanitizer(12000), nil)
+
+	input := core.SlackInput{
+		ID: "bruno-feedback", EnvelopeID: "env-bruno-feedback", EventID: "event-bruno-feedback",
+		Kind: "mention", TeamID: cfg.Slack.TeamID, ChannelID: task.ChannelID,
+		ThreadTS: task.ConversationThreadTS(), MessageTS: "1700.702", UserID: "UBRUNO",
+		Text: "<@U999BOT> Modify API failure logging to aggregate failures by request parameters.",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit Bruno feedback = %t, %v", created, err)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.GetAgentRunBySource(ctx, "slack", input.ID)
+	if err != nil {
+		t.Fatalf("Bruno feedback did not queue: %v", err)
+	}
+	if !strings.Contains(run.Prompt, "active full workspace members") ||
+		!strings.Contains(run.Prompt, "does not authorize applying configuration") ||
+		strings.Contains(run.Prompt, "configured operators") ||
+		strings.Contains(run.Prompt, "one exact governed action") {
+		t.Fatalf("Bruno feedback authority = %q", run.Prompt)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slackClient.posts) != 0 || len(slackClient.ephemerals) != 0 {
+		t.Fatalf("accepted feedback produced a refusal: posts=%+v ephemerals=%+v",
+			slackClient.posts, slackClient.ephemerals)
 	}
 }
 

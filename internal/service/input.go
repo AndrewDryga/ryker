@@ -539,21 +539,9 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 	if incidentErr != nil {
 		return s.retrySlackInput(ctx, input, incidentErr)
 	}
-	contributorTask, canSteer := false, true
+	contributorActor := false
 	if incident.IsEngineeringTask() {
-		contributorTask, canSteer, err = taskaccess.CanSteer(
-			ctx, s.cfg, s.store, incident, input.UserID,
-		)
-		if err != nil {
-			return s.retrySlackInput(ctx, input, err)
-		}
-		if !canSteer {
-			s.denyInput(
-				ctx, input,
-				"This engineering task was started with configured-operator capabilities. Only configured operators can steer it.",
-			)
-			return s.finishSlackInput(ctx, input)
-		}
+		contributorActor = !s.cfg.IsOperator(input.UserID)
 	}
 	if input.Kind != "action" &&
 		decisionpkg.LocationOnlyRequest(s.stripBotMention(input.Text)) {
@@ -594,7 +582,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 		return s.finishSlackInput(ctx, input)
 	}
 	if input.Kind == "action" {
-		if contributorTask && !s.cfg.IsOperator(input.UserID) &&
+		if contributorActor &&
 			!taskaccess.MemberControlAllowed(input.ActionID) {
 			s.denyInput(
 				ctx, input,
@@ -659,7 +647,7 @@ func (s *Service) processSlackInput(ctx context.Context) error {
 			text = "Please inspect the attached file."
 		}
 		prompt := taskprompt.ForConversation(
-			input.UserID, text, direct, incident.IsEngineeringTask(), contributorTask,
+			input.UserID, text, direct, incident.IsEngineeringTask(), contributorActor,
 		)
 		_, _, err = s.queueIncidentAgentRun(
 			ctx, incident, "slack", input.ID, input.UserID, prompt,
@@ -1148,11 +1136,7 @@ func (s *Service) handleControl(
 		prompt := operatorPrompt(input.UserID, request)
 		if incident.IsEngineeringTask() {
 			request = "Give a concise engineering task update: completed work, verification, code changes, blockers, and next action."
-			var err error
-			prompt, err = taskaccess.Prompt(ctx, s.cfg, s.store, incident, input.UserID, request)
-			if err != nil {
-				return err
-			}
+			prompt = taskaccess.Prompt(s.cfg, input.UserID, request)
 		}
 		_, _, err := s.queueIncidentAgentRun(
 			ctx,
@@ -1315,11 +1299,8 @@ func (s *Service) repairReview(
 		"failure is only a missing tool or broken execution environment, report the exact command, " +
 		"error, and required environment fix instead of changing product code to hide it. Do not push, " +
 		"merge, deploy, or mutate infrastructure."
-	prompt, err := taskaccess.Prompt(ctx, s.cfg, s.store, incident, input.UserID, request)
-	if err != nil {
-		return err
-	}
-	_, _, err = s.queueIncidentAgentRun(
+	prompt := taskaccess.Prompt(s.cfg, input.UserID, request)
+	_, _, err := s.queueIncidentAgentRun(
 		ctx, incident, "control", input.ID, input.UserID,
 		prompt,
 	)
