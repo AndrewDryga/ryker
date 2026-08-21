@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
@@ -83,11 +84,6 @@ func Handle(
 		return result(choice.EpisodeID, "invalid", "the press does not match the delivered card",
 			"*That choice is no longer valid.* Reply in this thread with your answer instead."), nil
 	}
-	if choice.AskedUser != input.UserID {
-		return result(choice.EpisodeID, "denied",
-			"press came from a member the question was not asked of",
-			"*That question was asked of someone else.* Reply in this thread if you want to answer it in your own words."), nil
-	}
 	episode, err := st.GetWorkEpisode(ctx, choice.EpisodeID)
 	if errors.Is(err, store.ErrNotFound) {
 		return result(choice.EpisodeID, "invalid", "the work this question belongs to no longer exists",
@@ -110,7 +106,7 @@ func Handle(
 	if episode.State != core.EpisodeWaitingOperator {
 		existing, existingErr := st.GetSlackInput(ctx, answer.ID)
 		if existingErr == nil && existing.Text == answer.Text && existing.UserID == answer.UserID {
-			if err := queueResolution(ctx, st, input, episode.ID, answer.ID, delivery, message); err != nil {
+			if _, err := queueResolution(ctx, st, input, episode.ID, answer.ID, delivery, message); err != nil {
 				return Result{}, err
 			}
 			return result(episode.ID, "already_answered",
@@ -138,11 +134,40 @@ func Handle(
 				"*This question has already been answered.* Reply in this thread to add anything else."), nil
 		}
 	}
-	queued, err := Queue(ctx, st, episode, answer, operator)
+	resolved, err := queueResolution(ctx, st, input, episode.ID, answer.ID, delivery, message)
 	if err != nil {
 		return Result{}, err
 	}
-	if err := queueResolution(ctx, st, input, episode.ID, answer.ID, delivery, message); err != nil {
+	answers, pending, err := collectedAnswers(ctx, st, input.MessageTS, resolved)
+	if err != nil {
+		return Result{}, err
+	}
+	if pending {
+		if err := st.FinishSlackInput(ctx, answer.ID); err != nil {
+			return Result{}, fmt.Errorf("finish the collected operator answer: %w", err)
+		}
+		return result(episode.ID, "recorded", choice.Answer, ""), nil
+	}
+	queuedAnswer := answer
+	if len(answers) > 1 {
+		if err := st.FinishSlackInput(ctx, answer.ID); err != nil {
+			return Result{}, fmt.Errorf("finish the last collected operator answer: %w", err)
+		}
+		queuedAnswer = batchedAnswer(answer, input.MessageTS, answers)
+		created, admitErr := st.AdmitSyntheticSlackInput(ctx, queuedAnswer)
+		if admitErr != nil {
+			return Result{}, admitErr
+		}
+		if !created {
+			existing, existingErr := st.GetSlackInput(ctx, queuedAnswer.ID)
+			if existingErr != nil {
+				return Result{}, existingErr
+			}
+			queuedAnswer = existing
+		}
+	}
+	queued, err := Queue(ctx, st, episode, queuedAnswer, operator)
+	if err != nil {
 		return Result{}, err
 	}
 	return Result{
@@ -235,14 +260,14 @@ func queueResolution(
 	answerID string,
 	delivery core.SlackDelivery,
 	message slackui.Message,
-) error {
+) (slackui.Message, error) {
 	resolved, ok := slackui.ResolveOperatorChoice(message, input.ActionValue, input.UserID)
 	if !ok {
-		return errors.New("resolve the operator choice on its delivered card")
+		return slackui.Message{}, errors.New("resolve the operator choice on its delivered card")
 	}
 	body, err := slackui.Encode(resolved)
 	if err != nil {
-		return fmt.Errorf("encode the resolved operator question: %w", err)
+		return slackui.Message{}, fmt.Errorf("encode the resolved operator question: %w", err)
 	}
 	if _, err := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
 		ID: "out_resolve_" + answerID, IncidentID: delivery.IncidentID,
@@ -250,9 +275,61 @@ func queueResolution(
 		ChannelID: input.ChannelID, ThreadTS: input.ThreadTS, MessageTS: input.MessageTS,
 		Body: body, CoalesceKey: "operator_choice:" + input.ChannelID + ":" + input.MessageTS,
 	}); err != nil {
-		return fmt.Errorf("queue the resolved operator question: %w", err)
+		return slackui.Message{}, fmt.Errorf("queue the resolved operator question: %w", err)
 	}
-	return nil
+	return resolved, nil
+}
+
+type collectedAnswer struct {
+	Question int
+	Input    core.SlackInput
+}
+
+func collectedAnswers(
+	ctx context.Context,
+	st *store.Store,
+	messageTS string,
+	message slackui.Message,
+) ([]collectedAnswer, bool, error) {
+	expected := map[int]bool{}
+	for _, row := range message.Rows {
+		for _, action := range row.Actions {
+			if action.ID != slackui.ActionOperatorChoice {
+				continue
+			}
+			choice, ok := slackui.DecodeOperatorChoice(action.Value)
+			if ok {
+				expected[choice.Question] = true
+			}
+		}
+	}
+	answers := make([]collectedAnswer, 0, slackui.MaxOperatorQuestions)
+	for question := 0; question < slackui.MaxOperatorQuestions; question++ {
+		answer, err := st.GetSlackInput(ctx, AnswerInputID(messageTS, question))
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		expected[question] = true
+		answers = append(answers, collectedAnswer{Question: question, Input: answer})
+	}
+	return answers, len(answers) < len(expected), nil
+}
+
+func batchedAnswer(last core.SlackInput, messageTS string, answers []collectedAnswer) core.SlackInput {
+	var body strings.Builder
+	body.WriteString("The team selected all requested implementation decisions:\n")
+	for _, answer := range answers {
+		fmt.Fprintf(&body, "- Question %d: %s (selected by %s)\n",
+			answer.Question+1, answer.Input.Text, answer.Input.UserID)
+	}
+	last.ID = "operator_batch_" + messageTS
+	last.EnvelopeID = "operator_choice_batch:" + messageTS
+	last.EventID = last.EnvelopeID
+	last.Text = strings.TrimSpace(body.String())
+	return last
 }
 
 func offeredChoice(

@@ -164,12 +164,17 @@ func TestSelectingAnOperatorChoiceResolvesTheOriginalCardInPlace(t *testing.T) {
 	if resolved.Temporary || MessageOffersControl(resolved, ActionOperatorChoice, selected) {
 		t.Fatalf("resolved question remained temporary or actionable: %+v", resolved)
 	}
+	remaining := 0
 	for _, row := range resolved.Rows {
 		for _, action := range row.Actions {
 			if action.ID == ActionOperatorChoice {
-				t.Fatalf("another stale question remained actionable: %+v", resolved.Rows)
+				remaining++
 			}
 		}
+	}
+	if remaining != 2 {
+		t.Fatalf("answering the first question left %d controls, want the second question's 2: %+v",
+			remaining, resolved.Rows)
 	}
 	rendered := renderedText(t, resolved)
 	for _, want := range []string{
@@ -215,7 +220,7 @@ func TestAnsweredChoiceAttributionStaysOutsideTheCollapsedQuestion(t *testing.T)
 		t.Fatalf("selection was folded into the long question row: %q", resolved.Rows[0].Text)
 	}
 	want := "<@U123ABC> selected “Use 5-minute windows with the same 100-combination cap”."
-	if got := resolved.Rows[questionRows].Text; got != want {
+	if got := resolved.Rows[1].Text; got != want {
 		t.Fatalf("standalone attribution = %q, want %q", got, want)
 	}
 	standalone := false

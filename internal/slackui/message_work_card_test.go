@@ -338,7 +338,7 @@ func TestTaskCardStateResolverCoversEveryLifecycleCombination(t *testing.T) {
 		{
 			name: "tree changed after the PR", workflow: core.WorkflowParked,
 			status: core.IncidentActive, hasChanges: true, known: true, publication: stale,
-			stripe: StripeNeedsYou, glyph: "📦", word: "Ready to publish",
+			stripe: StripeWorking, glyph: "⚙️", word: "Updating PR",
 		},
 		{
 			name: "PR open while checks run", workflow: core.WorkflowParked,

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
@@ -70,7 +71,7 @@ func (s *Store) AdmitSlackChannelJoin(
 	}
 	created := false
 	if semanticDuplicate == 0 {
-		created, err = admitSlackInput(ctx, tx, input, "pending", 0, s.nowText())
+		created, err = slackinputstore.Admit(ctx, tx, input, "pending", 0, s.nowText(), false)
 		if err != nil {
 			return false, err
 		}

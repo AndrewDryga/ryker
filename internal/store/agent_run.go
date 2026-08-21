@@ -15,6 +15,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/fanout"
 	"github.com/AndrewDryga/responder/internal/store/lifecyclecheck"
 	"github.com/AndrewDryga/responder/internal/store/preparationstore"
+	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
 	"github.com/AndrewDryga/responder/internal/store/sqlutil"
 )
 
@@ -2032,7 +2033,11 @@ func (s *Store) StageAgentRunResult(
 	return tx.Commit()
 }
 
-func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
+// FinishAgentRun can commit one synthetic follow-up with the completed turn.
+func (s *Store) FinishAgentRun(ctx context.Context, id string, followup ...core.SlackInput) error {
+	if len(followup) > 1 {
+		return errors.New("finish agent run accepts at most one follow-up")
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -2052,6 +2057,11 @@ func (s *Store) FinishAgentRun(ctx context.Context, id string) error {
 	}
 	if err := s.finishAgentRunTx(ctx, tx, run, finalState, run.LastError, nil); err != nil {
 		return err
+	}
+	if len(followup) == 1 {
+		if _, err := slackinputstore.Admit(ctx, tx, followup[0], "pending", 0, s.nowText(), false); err != nil {
+			return fmt.Errorf("queue agent run follow-up: %w", err)
+		}
 	}
 	return tx.Commit()
 }

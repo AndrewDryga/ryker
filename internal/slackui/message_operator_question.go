@@ -194,7 +194,8 @@ func removeResolvedAssessmentContext(values []string) []string {
 // ResolveOperatorChoice turns the delivered question into its durable decision
 // record. The complete options remain visible, the exact selection is
 // attributed with a host-created Slack user mention in its own unfurled row,
-// and every choice control on the answered row is retired.
+// and only the answered row is retired. Other questions stay actionable so
+// one card can collect a small batch before another model turn starts.
 func ResolveOperatorChoice(message Message, selectedValue, userID string) (Message, bool) {
 	selectedRow := -1
 	var selected OperatorChoice
@@ -218,22 +219,14 @@ func ResolveOperatorChoice(message Message, selectedValue, userID string) (Messa
 	if selectedRow < 0 {
 		return message, false
 	}
-	// Resuming the episode retires every choice on the asking, not only the
-	// pressed row. A second row left live would offer an answer to the old
-	// attempt while the model is already working on the selected one.
-	lastChoiceRow := selectedRow
-	for rowIndex := range message.Rows {
-		row := &message.Rows[rowIndex]
-		kept := make([]Action, 0, len(row.Actions))
-		for _, action := range row.Actions {
-			if action.ID != ActionOperatorChoice {
-				kept = append(kept, action)
-				continue
-			}
-			lastChoiceRow = rowIndex
+	row := &message.Rows[selectedRow]
+	kept := make([]Action, 0, len(row.Actions))
+	for _, action := range row.Actions {
+		if action.ID != ActionOperatorChoice {
+			kept = append(kept, action)
 		}
-		row.Actions = kept
 	}
+	row.Actions = kept
 	message.Context = removeResolvedAssessmentContext(message.Context)
 	message.blockedAssessmentContext = ""
 	actor := "The operator"
@@ -242,11 +235,11 @@ func ResolveOperatorChoice(message Message, selectedValue, userID string) (Messa
 	}
 	attribution := Row{
 		Text:  actor + " selected “" + escapeSlackText(selected.Answer) + "”.",
-		After: message.Rows[lastChoiceRow].After,
+		After: message.Rows[selectedRow].After,
 	}
 	message.Rows = append(message.Rows, Row{})
-	copy(message.Rows[lastChoiceRow+2:], message.Rows[lastChoiceRow+1:])
-	message.Rows[lastChoiceRow+1] = attribution
+	copy(message.Rows[selectedRow+2:], message.Rows[selectedRow+1:])
+	message.Rows[selectedRow+1] = attribution
 	message.Temporary = false
 	return message, true
 }

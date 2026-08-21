@@ -19,6 +19,62 @@ type execer interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }
 
+func Admit(
+	ctx context.Context,
+	db execer,
+	input core.SlackInput,
+	state string,
+	attempts int,
+	now string,
+	deduplicate bool,
+) (bool, error) {
+	if input.ID == "" {
+		var err error
+		input.ID, err = core.NewID("slack")
+		if err != nil {
+			return false, err
+		}
+	}
+	attachments, err := json.Marshal(input.Attachments)
+	if err != nil {
+		return false, fmt.Errorf("encode Slack input attachments: %w", err)
+	}
+	received := input.ReceivedAt
+	if received.IsZero() {
+		received = sqlutil.ParseTime(now)
+	}
+	result, err := db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO slack_inputs
+		  (id, envelope_id, event_id, kind, team_id, channel_id, thread_ts, message_ts,
+		   user_id, text, action_id, action_value, attachments_json, frozen_json, state, attempts, next_attempt_at,
+		   received_at, updated_at)
+		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+		WHERE ? = 0 OR NOT EXISTS (
+		  SELECT 1 FROM slack_inputs AS existing
+		  WHERE existing.team_id = ? AND existing.channel_id = ?
+		    AND existing.message_ts = ? AND existing.user_id = ?
+		    AND existing.text = ? AND existing.attachments_json = ?
+		)`,
+		input.ID, input.EnvelopeID, input.EventID, input.Kind, input.TeamID, input.ChannelID,
+		input.ThreadTS, input.MessageTS, input.UserID, input.Text, input.ActionID,
+		input.ActionValue, attachments, input.Frozen, state, attempts, now,
+		received.UTC().Format(core.TimestampFormat), now,
+		boolInt(deduplicate), input.TeamID, input.ChannelID, input.MessageTS,
+		input.UserID, input.Text, attachments)
+	if err != nil {
+		return false, fmt.Errorf("admit Slack input: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	return rows == 1, err
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
 // SupersedeDeliveriesAfterAuthorizedInput applies Slack input authority at the
 // outbox boundary. Persistence happens before capability enforcement, so a
 // later denial must keep the refused input from suppressing an operator result.

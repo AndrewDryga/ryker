@@ -26,6 +26,16 @@ const askedWithChoices = `{
 	]
 }`
 
+const askedWithTwoQuestions = `{
+	"action":"reply",
+	"attention":{"addressee":"responder","urgency":2,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},
+	"operations":[
+		{"id":"window","type":"request_operator_input","operator_input":{"question":"Which aggregation window should I use?","choices":["Use 5-minute windows","Use 1-minute windows"]}},
+		{"id":"cap","type":"request_operator_input","operator_input":{"question":"Should the cap be configurable?","choices":["Make the cap configurable","Keep the cap fixed"]}},
+		{"id":"complete-review","type":"complete_episode","completion":{"message":"I need both decisions before changing the implementation.","completion":{"status":"blocked","summary":"Two implementation decisions remain.","material_gaps":["aggregation window","configuration policy"],"blocker_kind":"operator_input_required","attempts":["Inspected the current implementation."],"next_action":"Choose one answer for each question."}}}
+	]
+}`
+
 // askedEpisode is one episode parked on a question, with the buttons its card
 // offered and everything a test needs to press one.
 type askedEpisode struct {
@@ -38,6 +48,10 @@ type askedEpisode struct {
 }
 
 func askQuestion(t *testing.T, ctx context.Context) askedEpisode {
+	return askQuestions(t, ctx, askedWithChoices, 2)
+}
+
+func askQuestions(t *testing.T, ctx context.Context, result string, wantButtons int) askedEpisode {
 	t.Helper()
 	cfg := serviceConfig(t)
 	cfg.Slack.WatchChannels = []string{"CWATCH"}
@@ -48,7 +62,7 @@ func askQuestion(t *testing.T, ctx context.Context) askedEpisode {
 	}
 	t.Cleanup(func() { st.Close() })
 	coopClient := newFakeCoop()
-	coopClient.completeOnSubmit = askedWithChoices
+	coopClient.completeOnSubmit = result
 	slack := &fakeSlack{}
 	svc := New(cfg, st, coopClient, slack, nil, slackui.NewSanitizer(12000), nil)
 	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
@@ -85,8 +99,8 @@ func askQuestion(t *testing.T, ctx context.Context) askedEpisode {
 			}
 		}
 	}
-	if len(buttons) != 2 {
-		t.Fatalf("the card offered %d choice buttons, want 2: %+v", len(buttons), slack.posts)
+	if len(buttons) != wantButtons {
+		t.Fatalf("the card offered %d choice buttons, want %d: %+v", len(buttons), wantButtons, slack.posts)
 	}
 	return askedEpisode{
 		svc: svc, store: st, cfg: cfg, slack: slack,
@@ -378,41 +392,95 @@ func TestAnAcceptedChoiceReconcilesItsStaleCardAfterRestart(t *testing.T) {
 	}
 }
 
-// A press is made in somebody else's name, so only theirs counts.
-//
-// Typing an answer says who said it. A press says only that a control was
-// clicked, and the host is what turns it into "U123ABC answered Discard the
-// run" — so a bystander's click would put words in the mouth of the person the
-// question was asked of, on a card whose choices are "Discard the run" and
-// "Confirm the run". Anyone may still answer by typing, which is exactly the
-// freedom this refusal leaves alone.
-func TestOnlyTheAskedOperatorsPressAnswersTheQuestion(t *testing.T) {
+// Any active full workspace member can help an engineering task started by a
+// teammate. Production rejected Bruno's requested logging decision merely
+// because Andrew opened the task, leaving a valid answer inert in the thread.
+func TestAnActiveTeammateCanAnswerAQuestionAskedOnSomeoneElsesTask(t *testing.T) {
 	ctx := context.Background()
 	asked := askQuestion(t, ctx)
 
 	asked.press(t, ctx, asked.buttons[0], "slack-press-bystander", "U456DEF")
 
-	still, err := asked.store.GetWorkEpisode(ctx, asked.episode.ID)
+	if attempt := asked.latestAttempt(t, ctx); attempt.Number != 2 {
+		t.Fatalf("an active teammate's press started attempt %d, want 2", attempt.Number)
+	}
+	outcomes := auditOutcomes(t, asked.cfg, "slack.operator_choice", "")
+	if len(outcomes) != 1 || !strings.HasPrefix(outcomes[0], "answered") {
+		t.Fatalf("audit trail for the teammate answer = %v", outcomes)
+	}
+	if len(asked.slack.ephemerals) != 0 {
+		t.Fatalf("active teammate was refused with %+v", asked.slack.ephemerals)
+	}
+}
+
+// Covers: TestMultipleOperatorDecisionsResumeOneTurn
+//
+// Four separate feedback turns for four adjacent policy questions rerun the
+// same repository setup and review four times. The card already presents a
+// bounded set, so it should collect every answer and resume once.
+func TestMultipleOperatorDecisionsResumeOneTurn(t *testing.T) {
+	ctx := context.Background()
+	asked := askQuestions(t, ctx, askedWithTwoQuestions, 4)
+
+	asked.press(t, ctx, asked.buttons[0], "slack-press-window", "U123ABC")
+	if attempt := asked.latestAttempt(t, ctx); attempt.Number != 1 {
+		t.Fatalf("first of two decisions started attempt %d", attempt.Number)
+	}
+	updated := asked.slack.updates[len(asked.slack.updates)-1].message
+	remaining := 0
+	for _, row := range updated.Rows {
+		for _, action := range row.Actions {
+			if action.ID == slackui.ActionOperatorChoice {
+				remaining++
+			}
+		}
+	}
+	if remaining != 2 {
+		t.Fatalf("first decision left %d controls, want the second question's 2: %+v", remaining, updated.Rows)
+	}
+
+	// Use the button from the updated card, exactly as Slack does after the
+	// first in-place update has landed.
+	var second slackui.Action
+	for _, row := range updated.Rows {
+		for _, action := range row.Actions {
+			if action.ID == slackui.ActionOperatorChoice {
+				second = action
+				break
+			}
+		}
+		if second.Value != "" {
+			break
+		}
+	}
+	asked.press(t, ctx, second, "slack-press-cap", "U456DEF")
+	attempt := asked.latestAttempt(t, ctx)
+	if attempt.Number != 2 {
+		t.Fatalf("two decisions started %d attempts, want one resumed attempt", attempt.Number)
+	}
+	resumed, err := asked.store.GetAgentRun(ctx, attempt.AgentRunID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if still.State != core.EpisodeWaitingOperator {
-		t.Fatalf("a bystander's press answered the question: episode is %+v", still)
+	for _, answer := range []string{"Use 5-minute windows", "Make the cap configurable"} {
+		if !strings.Contains(resumed.Prompt, answer) {
+			t.Fatalf("batched prompt lost %q: %s", answer, resumed.Prompt)
+		}
 	}
+}
+
+func TestAWorkspaceGuestCannotAnswerAnOperatorChoice(t *testing.T) {
+	ctx := context.Background()
+	asked := askQuestion(t, ctx)
+	asked.slack.deniedUsers = map[string]bool{"UGUEST": true}
+
+	asked.press(t, ctx, asked.buttons[0], "slack-press-guest", "UGUEST")
 	if attempt := asked.latestAttempt(t, ctx); attempt.Number != 1 {
-		t.Fatalf("a bystander's press started attempt %d", attempt.Number)
+		t.Fatalf("guest press started attempt %d", attempt.Number)
 	}
-	outcomes := auditOutcomes(t, asked.cfg, "slack.operator_choice", "")
-	if len(outcomes) != 1 || !strings.HasPrefix(outcomes[0], "denied") {
-		t.Fatalf("audit trail for the refused press = %v", outcomes)
-	}
-	// And the person who pressed it is told, privately. A button that visibly
-	// does nothing is read as a broken button, and the next thing that happens
-	// is somebody pressing it again.
 	if len(asked.slack.ephemerals) != 1 ||
-		asked.slack.ephemerals[0].user != "U456DEF" ||
-		!strings.Contains(asked.slack.ephemerals[0].message.Sections[0], "asked of someone else") {
-		t.Fatalf("the refused press was answered with %+v", asked.slack.ephemerals)
+		!strings.Contains(renderedSlackMessage(asked.slack.ephemerals[0].message), "active workspace member") {
+		t.Fatalf("guest refusal = %+v", asked.slack.ephemerals)
 	}
 }
 

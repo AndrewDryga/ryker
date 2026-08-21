@@ -16,7 +16,30 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/publicationstore"
 	"github.com/AndrewDryga/responder/internal/taskaccess"
 	"github.com/AndrewDryga/responder/internal/taskpr"
+	"github.com/AndrewDryga/responder/internal/taskpublication"
 )
+
+func (s *Service) processAutomaticTaskPublication(
+	ctx context.Context,
+	input core.SlackInput,
+) error {
+	result, err := taskpublication.Process(ctx, s.store, input, taskpublication.Policy{
+		Now: s.now, RetryAt: s.queueDelay, Terminal: s.slackInputFailureIsTerminal,
+		SafeError:   func(err error) string { return safePublicationError(s, err) },
+		ControlKind: controlPlaneInput, Publish: s.publishDraftPR,
+	})
+	if err != nil {
+		return err
+	}
+	if result.TerminalFailure {
+		s.audit(ctx, core.AuditEvent{
+			IncidentID: input.ActionValue, Kind: "publication.automatic_update",
+			ActorID: input.UserID, ObjectID: input.ID, Outcome: "failed",
+			Detail: result.Detail,
+		})
+	}
+	return nil
+}
 
 func (s *Service) publishDraftPR(
 	ctx context.Context,
@@ -421,7 +444,7 @@ func (s *Service) markTaskPublicationStale(
 		return publication, err
 	}
 	reason := "The engineering task changed after this draft PR was published. " +
-		"Run Update draft PR to review and publish the current task tree."
+		"Responder will review and update the draft PR automatically."
 	changed, err := s.store.MarkPublicationStale(ctx, incident.ID, reason)
 	if err != nil {
 		return publication, err

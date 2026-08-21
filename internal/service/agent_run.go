@@ -51,6 +51,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/standingrule"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskcard"
+	"github.com/AndrewDryga/responder/internal/taskcompletion"
 	"github.com/AndrewDryga/responder/internal/taskcontract"
 	"github.com/AndrewDryga/responder/internal/taskofferrejection"
 	"github.com/AndrewDryga/responder/internal/taskpr"
@@ -3195,6 +3196,14 @@ func (s *Service) stageIncidentTerminal(
 				return true, episodeErr
 			}
 		}
+		if correction == "" && run.Mode == core.AgentRunEngineeringTask &&
+			report.Completion != nil && report.Completion.Status == "decision_ready" &&
+			!taskcompletion.RequestsOperatorInput(report.AppliedOperations) {
+			correction, episodeErr = s.engineeringWorkspaceCompletionCorrection(ctx, run)
+			if episodeErr != nil {
+				return true, episodeErr
+			}
+		}
 		// After everything about the answer, before anything about how it reads:
 		// the same position and the same reason as the watch lane. An offer is
 		// an artifact attached to a conclusion, so there is no point spending a
@@ -3275,6 +3284,20 @@ func (s *Service) stageIncidentTerminal(
 		return true, err
 	}
 	return false, nil
+}
+
+func (s *Service) engineeringWorkspaceCompletionCorrection(
+	ctx context.Context,
+	run core.AgentRun,
+) (string, error) {
+	assembled, _ := decodeAssembledAgentContext(run.Context)
+	changes, err := s.coop.Changes(ctx, run.SessionID)
+	if err != nil {
+		return "", fmt.Errorf("inspect engineering workspace before completion: %w", err)
+	}
+	return taskcompletion.WorkspaceCorrection(
+		assembled.InitialTaskChangesFingerprint, changes,
+	), nil
 }
 
 // recordTurnCost keeps what a finished Coop turn cost — provider-reported
@@ -4081,13 +4104,20 @@ func (s *Service) reportTurnFailure(
 // nothing while leaving a dirty tree would otherwise leave a published diff
 // that no longer matches the branch, which is the worst kind of wrong — it
 // looks reviewed.
+type engineeringTaskChanges struct {
+	Message     slackui.Message
+	Changed     bool
+	Publication core.Publication
+}
+
 func (s *Service) withEngineeringTaskChanges(
 	ctx context.Context,
 	run core.AgentRun,
 	incident core.Incident,
 	state string,
 	message slackui.Message,
-) slackui.Message {
+) engineeringTaskChanges {
+	result := engineeringTaskChanges{Message: message}
 	changes, err := s.coop.Changes(ctx, incident.CoopSessionID)
 	if err != nil {
 		s.log.Warn(
@@ -4095,7 +4125,7 @@ func (s *Service) withEngineeringTaskChanges(
 			"incident", incident.ID,
 			"error", err,
 		)
-		return message
+		return result
 	}
 	// The one fetch per turn that holds the whole patch rather than a page, so
 	// the one place the stat can be computed honestly without asking Coop
@@ -4114,9 +4144,11 @@ func (s *Service) withEngineeringTaskChanges(
 	}
 	assembled, _ := decodeAssembledAgentContext(run.Context)
 	if !taskcard.TurnCreatedChanges(assembled.InitialTaskChangesFingerprint, changes) {
-		return message
+		return result
 	}
+	result.Changed = true
 	publication, publicationErr := s.markTaskPublicationStale(ctx, incident)
+	result.Publication = publication
 	if publicationErr != nil {
 		s.log.Error(
 			"mark changed engineering task publication stale",
@@ -4125,7 +4157,7 @@ func (s *Service) withEngineeringTaskChanges(
 		)
 	}
 	if state != "completed" {
-		return message
+		return result
 	}
 	var followup core.PublicationFollowup
 	followup, followupErr := s.store.PublicationFollowups.Get(ctx, incident.ID)
@@ -4135,9 +4167,10 @@ func (s *Service) withEngineeringTaskChanges(
 			"incident", incident.ID, "error", followupErr,
 		)
 	}
-	return slackui.WithEngineeringTaskDelivery(
+	result.Message = slackui.WithEngineeringTaskDelivery(
 		message, incident, true, publication, followup,
 	)
+	return result
 }
 
 func (s *Service) finalizeIncidentAgentRun(
@@ -4438,8 +4471,21 @@ func (s *Service) finalizeIncidentAgentRun(
 	// remain attached to the exact proposal the operator is accepting.
 	standaloneTaskResult := incident.IsEngineeringTask() &&
 		(pendingApproval != nil || message.HasControls())
+	var automaticPublication *core.SlackInput
 	if incident.IsEngineeringTask() {
-		message = s.withEngineeringTaskChanges(ctx, run, incident, state, message)
+		changes := s.withEngineeringTaskChanges(ctx, run, incident, state, message)
+		message = changes.Message
+		if state == "completed" && changes.Changed && changes.Publication.NeedsUpdate() &&
+			!standaloneTaskResult {
+			automaticPublication = &core.SlackInput{
+				ID: "auto_publish_" + run.ID, EnvelopeID: "agent_run:" + run.ID,
+				EventID: run.ID, Kind: inputTaskPublication, TeamID: s.cfg.Slack.TeamID,
+				ChannelID: incident.ChannelID, ThreadTS: incident.ConversationThreadTS(),
+				UserID:   run.UserID,
+				ActionID: slackui.ActionPublishPR, ActionValue: incident.ID,
+				ReceivedAt: s.now().UTC(),
+			}
+		}
 	}
 	baseDeliveryID := executionDeliveryID("out_run_"+run.ID, run.IdempotencyKey)
 	if incident.IsEngineeringTask() && !standaloneTaskResult {
@@ -4518,8 +4564,14 @@ func (s *Service) finalizeIncidentAgentRun(
 			return fmt.Errorf("set incident episode phase: %w", err)
 		}
 	}
-	if err := s.store.FinishAgentRun(ctx, run.ID); err != nil {
-		return fmt.Errorf("finish incident agent run: %w", err)
+	var finishErr error
+	if automaticPublication == nil {
+		finishErr = s.store.FinishAgentRun(ctx, run.ID)
+	} else {
+		finishErr = s.store.FinishAgentRun(ctx, run.ID, *automaticPublication)
+	}
+	if finishErr != nil {
+		return fmt.Errorf("finish incident agent run: %w", finishErr)
 	}
 	s.forgetNativeStatus(incident.ID)
 	return nil

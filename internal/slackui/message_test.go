@@ -707,12 +707,12 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		task, "Emisar", nil, true, true, stalePublication,
 		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 	)
-	if !slices.ContainsFunc(stale.Actions, func(action Action) bool {
-		return action.ID == ActionPublishPR && action.Label == "Update PR"
+	if slices.ContainsFunc(stale.Actions, func(action Action) bool {
+		return action.ID == ActionPublishPR
 	}) || !slices.ContainsFunc(stale.Actions, func(action Action) bool {
 		return action.ID == ActionViewPR && action.URL == stalePublication.PRURL
 	}) || !strings.Contains(ledgerText(stale.Ledger), "needs update") ||
-		!strings.HasPrefix(stale.Text, "Ready to publish — ") {
+		!strings.HasPrefix(stale.Text, "Updating PR — ") {
 		// "*PR needs an update*\nThe task changed after…" is now the Draft PR
 		// step's detail: the same fact, on the step it is about.
 		t.Fatalf("stale task lacks update state: %+v", stale)
@@ -721,10 +721,10 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		ConversationResponse("Done.", NewSanitizer(12000)), task, true, stalePublication,
 		core.PublicationFollowup{},
 	)
-	if !slices.ContainsFunc(delivery.Actions, func(action Action) bool {
-		return action.ID == ActionPublishPR && action.Label == "Update PR"
+	if slices.ContainsFunc(delivery.Actions, func(action Action) bool {
+		return action.ID == ActionPublishPR
 	}) || len(delivery.Context) != 0 {
-		t.Fatalf("stale task delivery offered a new PR: %+v", delivery)
+		t.Fatalf("stale task delivery required a manual PR update: %+v", delivery)
 	}
 	for _, progress := range []struct {
 		state string

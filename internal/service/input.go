@@ -46,6 +46,10 @@ type coopChangesPager interface {
 // performed by the control lane rather than on the socket consumer.
 const inputAppHome = "app_home"
 
+// inputTaskPublication is the durable handoff from a completed committed
+// engineering feedback turn to review and update of an already-open PR.
+const inputTaskPublication = "task_publication"
+
 // slackActionRoutes maps a host-owned Slack button to the handler that owns it.
 // Routing is a table rather than a branch chain so the full set of interactive
 // controls is greppable in one place and adding a control cannot accidentally
@@ -159,6 +163,9 @@ func (s *Service) routeSlackInputKind(
 			return true, s.retrySlackInput(ctx, input, err)
 		}
 		return true, s.finishSlackInput(ctx, input)
+	}
+	if input.Kind == inputTaskPublication {
+		return true, s.processAutomaticTaskPublication(ctx, input)
 	}
 	if input.Kind == "recheck" || (input.Kind == "bot_message" &&
 		strings.HasPrefix(input.EnvelopeID, "replay-public:")) {

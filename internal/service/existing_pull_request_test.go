@@ -800,3 +800,131 @@ func TestEngineeringTaskSessionUsesApprovedExistingPullRequestHead(t *testing.T)
 		t.Fatalf("bound PR task prompt = %q, %v", initial.Prompt, err)
 	}
 }
+
+// A live feedback decision already resumed the Rivals task and passed thirty
+// tests, yet Responder stopped at a manual Update PR button. The operator then
+// hit Coop's clean-workspace guard. A completed committed feedback turn must
+// carry itself through review and update the existing PR without another click.
+func TestCommittedEngineeringFeedbackAutomaticallyUpdatesTheExistingPullRequest(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	repository := cfg.Repositories["repo"]
+	repository.Path = t.TempDir()
+	repository.GitHubRepository = "owner/repo"
+	repository.GitHubBaseBranch = "main"
+	cfg.Repositories["repo"] = repository
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	target := core.PullRequestTarget{
+		Repository: "owner/repo", Number: 20,
+		URL:        "https://github.com/owner/repo/pull/20",
+		BaseBranch: "main", HeadBranch: "responder/rivals-logs",
+		HeadCommit: strings.Repeat("a", 40),
+	}
+	task, created, err := st.CreateEngineeringTask(
+		ctx, "repo", "auto-update-existing-pr", "Update failure aggregation",
+		"Apply the selected five-minute aggregation policy.", cfg.Slack.Operators[0],
+		"COPS", "1700.100", cfg.Limits.MaxOpenIncidents, target,
+	)
+	if err != nil || !created {
+		t.Fatalf("create task = %+v, %t, %v", task, created, err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.101"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_auto_update", "task-rivals", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SavePublication(ctx, core.Publication{
+		IncidentID: task.ID, Repository: target.Repository, BaseBranch: target.BaseBranch,
+		HeadBranch: target.HeadBranch, ParentHead: "parent", CandidateTree: "old-tree",
+		CommitSHA: target.HeadCommit, RemoteSHA: target.HeadCommit,
+		PRNumber: target.Number, PRURL: target.URL, State: core.PublicationPublished,
+		PublishedAt: time.Now().UTC().Add(-time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunEngineeringTask, IncidentID: task.ID,
+		ChannelID: task.ChannelID, ThreadTS: task.ConversationThreadTS(),
+		ConversationKey: "incident:" + task.ID, SourceKind: "initial", SourceID: task.ID,
+		UserID: cfg.Slack.Operators[0], Repository: task.Repository,
+		Prompt:    "Apply the selected five-minute aggregation policy.",
+		SessionID: "ses_auto_update", CommitmentTitle: task.Title,
+	})
+	if err != nil || !created {
+		t.Fatalf("queue feedback = %+v, %t, %v", run, created, err)
+	}
+
+	baseCoop := newFakeCoop()
+	baseCoop.session.ID = "ses_auto_update"
+	baseCoop.session.ForkName = "task-rivals"
+	baseCoop.session.Revision = 1
+	baseCoop.session.RepositoryReadOnly = false
+	baseCoop.session.PullRequest = &coop.PullRequestBinding{
+		Number: target.Number, Ref: "refs/pull/20/head", HeadCommit: target.HeadCommit,
+	}
+	baseCoop.completeOnSubmit = `{"operations":[{"id":"complete","type":"complete_episode","completion":{"message":"Implemented the selected aggregation policy and committed it. All focused tests pass.","completion":{"status":"decision_ready","verdict":"completed","summary":"The feedback is implemented, tested, and committed."}}}]}`
+	coopClient := &publicationCoop{
+		fakeCoop: baseCoop,
+		changes: coop.Changes{
+			BaseCommit: target.HeadCommit, ForkHead: target.HeadCommit,
+			ForkTree: "old-tree", PullRequestTree: "old-tree",
+		},
+		review: coop.Review{
+			OperationID: "op_auto_review", SessionID: "ses_auto_update",
+			SessionRevision: 2, ParentHead: target.HeadCommit,
+			CandidateTree: "new-tree", Rebase: "clean", Gate: "passed",
+			Publishable: true, Patch: []byte("+aggregate failures\n"),
+			PullRequest: &coop.PullRequestBinding{
+				Number: target.Number, Ref: "refs/pull/20/head", HeadCommit: target.HeadCommit,
+			},
+		},
+	}
+	publisherClient := &recordingPublisher{result: publisher.Result{
+		HeadBranch: target.HeadBranch, CommitSHA: strings.Repeat("b", 40),
+		RemoteSHA: strings.Repeat("b", 40), PRNumber: target.Number, PRURL: target.URL,
+	}}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.SetPublisher(publisherClient)
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	coopClient.changes = coop.Changes{
+		BaseCommit: target.HeadCommit, ForkHead: strings.Repeat("c", 40),
+		ForkTree: "new-tree", PullRequestTree: "old-tree",
+		Committed: []coop.Change{{Path: "src/scraper_app.py", Status: "modified"}},
+		Patch:     []byte("+aggregate failures\n"),
+	}
+	svc.pollAgentRuns(ctx)
+	if err := svc.processAgentRunFinalization(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if publisherClient.publishCalls != 0 {
+		t.Fatal("publication ran inside finalization instead of through durable queued work")
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if publisherClient.publishCalls != 1 {
+		storedTask, _ := st.GetIncident(ctx, task.ID)
+		autoInput, _ := st.GetSlackInput(ctx, "auto_publish_"+run.ID)
+		storedPublication, _ := st.GetPublication(ctx, task.ID)
+		t.Fatalf("automatic existing-PR updates = %d, want 1; task=%+v input=%+v publication=%+v",
+			publisherClient.publishCalls, storedTask, autoInput, storedPublication)
+	}
+	publication, err := st.GetPublication(ctx, task.ID)
+	if err != nil || !publication.Published() || publication.RemoteSHA != strings.Repeat("b", 40) {
+		t.Fatalf("updated publication = %+v, %v", publication, err)
+	}
+}

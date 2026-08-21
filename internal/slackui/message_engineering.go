@@ -170,7 +170,7 @@ func taskCardState(
 	case publication.InProgress():
 		return cardState{StripeWorking, "⚙️", "Working", custodyEmisar}
 	case publication.NeedsUpdate():
-		return cardState{StripeNeedsYou, "📦", "Ready to publish", custodyOperator}
+		return cardState{StripeWorking, "⚙️", "Updating PR", custodyEmisar}
 	case publication.Published():
 		return publishedTaskState(followup)
 	case task.Workflow == core.WorkflowBlocked:
@@ -253,6 +253,8 @@ func taskAsk(
 			return fmt.Sprintf("update PR #%d with the current tree", publication.PRNumber)
 		}
 		return "create the draft PR"
+	case "Updating PR":
+		return fmt.Sprintf("reviewing and updating PR #%d", publication.PRNumber)
 	case "PR open":
 		if state.Custody == custodyOperator {
 			return fmt.Sprintf("review and merge PR #%d", publication.PRNumber)
@@ -667,6 +669,14 @@ func taskActions(
 			actions = append(actions, viewPR)
 		}
 		overflow = append([]Action{askUpdate}, overflow...)
+		return actions, overflow
+	case "Updating PR":
+		if showDiff {
+			actions = append(actions, changes)
+		}
+		if publication.HasPR() {
+			actions = append(actions, viewPR)
+		}
 		return actions, overflow
 	case "Needs you":
 		if publication.State == core.PublicationFailed {
@@ -1299,7 +1309,7 @@ func WithEngineeringTaskDelivery(
 	// controls are the two that read: the diff this task still holds, and the
 	// PR it went to. Which of those is true is stated by the task card's state,
 	// not restated here.
-	if !followup.Terminal() {
+	if !followup.Terminal() && (!publication.HasPR() || publication.State == core.PublicationFailed) {
 		message.Actions = append(message.Actions, publishAction(incident, publication))
 	}
 	if publication.HasPR() {

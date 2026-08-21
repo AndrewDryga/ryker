@@ -932,12 +932,17 @@ func TestTerminalPublicationCardsUseDurableStateWithoutCoop(t *testing.T) {
 		t.Fatalf("empty failure offered impossible controls: %+v", emptyCard.Actions)
 	}
 	staleCard := assertImmediate(stale)
-	for _, actionID := range []string{slackui.ActionChanges, slackui.ActionPublishPR, slackui.ActionViewPR} {
+	for _, actionID := range []string{slackui.ActionChanges, slackui.ActionViewPR} {
 		if !slices.ContainsFunc(staleCard.Actions, func(action slackui.Action) bool {
 			return action.ID == actionID
 		}) {
 			t.Fatalf("stale card lacks %s: %+v", actionID, staleCard.Actions)
 		}
+	}
+	if slices.ContainsFunc(staleCard.Actions, func(action slackui.Action) bool {
+		return action.ID == slackui.ActionPublishPR
+	}) {
+		t.Fatalf("stale card asks a person to perform the automatic PR update: %+v", staleCard.Actions)
 	}
 }
 

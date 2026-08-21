@@ -928,7 +928,7 @@ func incidentActions(
 		return []Action{viewPR, checkDelivery, closeIncident}
 	}
 	if publication.NeedsUpdate() {
-		return []Action{changes, publish, viewPR, closeIncident}
+		return []Action{changes, viewPR, closeIncident}
 	}
 	if incident.Workflow == core.WorkflowInvestigating {
 		actions := make([]Action, 0, 1)

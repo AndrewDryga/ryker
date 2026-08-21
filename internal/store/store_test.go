@@ -41,6 +41,74 @@ func TestOpenLiveWritesCurrentDatabaseWithoutMigration(t *testing.T) {
 	}
 }
 
+// A completed feedback turn and its automatic PR update are one handoff. If
+// the process dies after finishing the run but before queueing publication,
+// the task looks done while the existing PR stays stale forever.
+func TestFinishAgentRunQueuesItsAutomaticPublicationAtomically(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	task, created, err := st.CreateEngineeringTask(
+		ctx, "repo", "finish-auto-publication", "Update the PR", "Apply feedback.",
+		"U123", "COPS", "1700.100", 10,
+	)
+	if err != nil || !created {
+		t.Fatalf("create task = %+v, %t, %v", task, created, err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.101"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_1", "task-fork", 1); err != nil {
+		t.Fatal(err)
+	}
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunEngineeringTask, IncidentID: task.ID,
+		ChannelID: "COPS", ThreadTS: "1700.100", ConversationKey: "incident:inc_task",
+		SourceKind: "initial", SourceID: task.ID, Repository: "repo",
+	})
+	if err != nil || !created {
+		t.Fatalf("queue run = %+v, %t, %v", run, created, err)
+	}
+	leased, err := st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindAgentRunSession(ctx, leased.ID, "ses_1", 0, "repo", 0, leased.Context); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentRunSubmitted(ctx, leased.ID, "turn_1", 1, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.StageAgentRunResult(ctx, leased.ID, "completed", []byte(`{"operations":[]}`), "", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.BeginAgentRunFinalization(ctx, leased.ID); err != nil {
+		t.Fatal(err)
+	}
+	auto := core.SlackInput{
+		ID: "auto_publish_" + run.ID, EventID: run.ID, Kind: "task_publication",
+		TeamID: "T123", ChannelID: "COPS", ThreadTS: "1700.100",
+		UserID: "U123", ActionID: "responder_publish_pr", ActionValue: task.ID,
+	}
+	if err := st.FinishAgentRun(ctx, run.ID, auto); err != nil {
+		t.Fatal(err)
+	}
+	finished, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil || finished.State != core.AgentRunCompleted {
+		t.Fatalf("finished run = %+v, %v", finished, err)
+	}
+	leasedInput, err := st.LeaseSlackInput(ctx)
+	if err != nil || leasedInput.ID != auto.ID || leasedInput.Kind != auto.Kind {
+		t.Fatalf("automatic publication = %+v, %v", leasedInput, err)
+	}
+}
+
 func TestListSlackDeliveriesByPrefixIncludesMultipartAndFilesOnly(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))

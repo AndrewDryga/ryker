@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
 )
 
 // AdmitSyntheticSlackInput queues an input Responder generated for itself.
@@ -16,5 +17,5 @@ func (s *Store) AdmitSyntheticSlackInput(ctx context.Context, input core.SlackIn
 	// Synthetic work is already owned by the caller. Insert it as processing in
 	// one statement so a generic pending-input worker cannot claim the row
 	// between admission and context freezing.
-	return admitSlackInput(ctx, s.db, input, "processing", 1, s.nowText())
+	return slackinputstore.Admit(ctx, s.db, input, "processing", 1, s.nowText(), false)
 }

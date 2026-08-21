@@ -11,6 +11,21 @@ import (
 // service-owned effects here: the work timeline, audit trail, and Slack input
 // receipt all use clients and policy owned by Service.
 func (s *Service) handleOperatorChoice(ctx context.Context, input core.SlackInput) error {
+	allowed, err := s.slack.UserAllowed(ctx, input.UserID, s.cfg.Slack.TeamID)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		s.audit(ctx, core.AuditEvent{
+			Kind: "slack.operator_choice", ActorID: input.UserID,
+			ObjectID: input.ID, Outcome: "denied",
+			Detail: "requester is not an active full workspace member",
+		})
+		return s.finishSlashInput(
+			ctx, input,
+			"*Only active workspace members can answer this question.*",
+		)
+	}
 	result, err := operatorchoice.Handle(
 		ctx, s.store, input, s.cfg.IsOperator(input.UserID), s.now().UTC(),
 	)
