@@ -2624,8 +2624,10 @@ func (s *Store) HasNewerAgentRun(
 			       COALESCE(NULLIF(source.thread_ts, ''), source.message_ts)
 			   AND newer.kind IN ('message', 'mention', 'direct')
 			   AND (
-			     CAST(newer.message_ts AS REAL) > CAST(source.message_ts AS REAL) OR
-			     (newer.message_ts = source.message_ts AND newer.rowid > source.rowid)
+			     (source.message_ts != '' AND (CAST(newer.message_ts AS REAL) >
+			       CAST(source.message_ts AS REAL) OR (newer.message_ts = source.message_ts AND newer.rowid > source.rowid))) OR
+			     (source.message_ts = '' AND (newer.received_at > source.received_at OR
+			       (newer.received_at = source.received_at AND newer.rowid > source.rowid)))
 			   )
 			  WHERE source.id = ?
 			)`, run.SourceID).Scan(&exists)

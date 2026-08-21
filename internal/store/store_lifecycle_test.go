@@ -366,6 +366,88 @@ func TestDeniedNewerInputCannotSupersedeAuthorizedSlackDelivery(t *testing.T) {
 	}
 }
 
+// An accepted Slack choice resumed PR #20 and completed its engineering turn,
+// but the final task-card update was superseded as "newer human turn admitted".
+// Choice answers are synthetic inputs and therefore have no Slack message
+// timestamp; comparing that empty value as zero made every earlier message in
+// the thread look newer and left the card visibly stuck on Working.
+func TestEarlierThreadMessageCannotSupersedeSyntheticChoiceResult(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	source := core.SlackInput{
+		ID: "operator-answer", EnvelopeID: "operator-choice:click", Kind: "message",
+		ChannelID: "C1", ThreadTS: "1700.100", UserID: "UOPERATOR",
+		Text: "Use the proposed sampling policy", ReceivedAt: now,
+	}
+	earlier := core.SlackInput{
+		ID: "earlier-thread-message", EnvelopeID: "env-earlier", Kind: "message",
+		ChannelID: "C1", ThreadTS: "1700.100", MessageTS: "1700.200",
+		UserID: "UOPERATOR", Text: "We should add sampling", ReceivedAt: now.Add(-time.Minute),
+	}
+	for _, input := range []core.SlackInput{source, earlier} {
+		if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
+			t.Fatalf("admit %s = %t, %v", input.ID, created, admitErr)
+		}
+	}
+	if created, enqueueErr := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "choice-result-card", SourceInputID: source.ID,
+		Operation: "update", Kind: "card", ChannelID: source.ChannelID,
+		MessageTS: "1700.300", Body: []byte(`{"text":"Ready to publish"}`),
+	}); enqueueErr != nil || !created {
+		t.Fatalf("enqueue = %t, %v", created, enqueueErr)
+	}
+	leased, err := st.LeaseSlackDelivery(ctx, nil)
+	if err != nil || leased.ID != "choice-result-card" {
+		t.Fatalf("synthetic choice result = %+v, %v", leased, err)
+	}
+}
+
+func TestLaterThreadMessageSupersedesSyntheticChoiceResult(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	inputs := []core.SlackInput{
+		{
+			ID: "operator-answer", EnvelopeID: "operator-choice:click", Kind: "message",
+			ChannelID: "C1", ThreadTS: "1700.100", UserID: "UOPERATOR",
+			Text: "Use the proposed sampling policy", ReceivedAt: now,
+		},
+		{
+			ID: "later-thread-message", EnvelopeID: "env-later", Kind: "message",
+			ChannelID: "C1", ThreadTS: "1700.100", MessageTS: "1700.400",
+			UserID: "UOPERATOR", Text: "Change that requirement", ReceivedAt: now.Add(time.Minute),
+		},
+	}
+	for _, input := range inputs {
+		if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
+			t.Fatalf("admit %s = %t, %v", input.ID, created, admitErr)
+		}
+	}
+	if created, enqueueErr := st.EnqueueSlackDelivery(ctx, core.SlackDelivery{
+		ID: "stale-choice-result", SourceInputID: inputs[0].ID,
+		Operation: "update", Kind: "card", ChannelID: "C1",
+		MessageTS: "1700.300", Body: []byte(`{"text":"Ready to publish"}`),
+	}); enqueueErr != nil || !created {
+		t.Fatalf("enqueue = %t, %v", created, enqueueErr)
+	}
+	if _, err := st.LeaseSlackDelivery(ctx, nil); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("stale synthetic choice result leased after later feedback: %v", err)
+	}
+	delivery, err := st.GetSlackDelivery(ctx, "stale-choice-result")
+	if err != nil || delivery.State != "superseded" {
+		t.Fatalf("stale synthetic choice result = %+v, %v", delivery, err)
+	}
+}
+
 func TestLeaseSlackDeliveryUsesSlackOrderWhenAdmissionTimesTie(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "state"))
