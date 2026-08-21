@@ -382,6 +382,7 @@ func taskLedger(
 		steps[4].Detail = strings.TrimSpace(
 			fmt.Sprintf("#%d %s", publication.PRNumber, steps[4].Detail),
 		)
+		steps[4].DetailURL = publication.PRURL
 		if !publication.PublishedAt.IsZero() {
 			steps[4].When = compactDuration(now.Sub(publication.PublishedAt)) + " ago"
 		}
@@ -456,7 +457,7 @@ func githubChecksStep(
 	if !publication.HasPR() {
 		return LedgerStep{}, false
 	}
-	step := LedgerStep{Label: "GitHub checks"}
+	step := LedgerStep{Label: "GitHub checks", DetailURL: publication.PRURL}
 	switch strings.ToLower(strings.TrimSpace(followup.ChecksState)) {
 	case "passing", "passed", "success", "succeeded":
 		step.Glyph = "✓"

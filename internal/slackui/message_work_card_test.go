@@ -167,6 +167,21 @@ func TestPRDeliveryAndFeedbackLiveUnderReviewAndMerge(t *testing.T) {
 		card.Ledger[6].Label != "Review and merge" {
 		t.Fatalf("compact delivery progress = %+v", card.Ledger)
 	}
+	var progress strings.Builder
+	for _, block := range card.Blocks() {
+		section, ok := block.(*slack.SectionBlock)
+		if ok && section.Text != nil {
+			progress.WriteString(section.Text.Text)
+		}
+	}
+	for _, want := range []string{
+		"<https://github.example/pull/20|#20>",
+		"<https://github.example/pull/20|passed (2/2)>",
+	} {
+		if !strings.Contains(progress.String(), want) {
+			t.Errorf("progress lost link %q:\n%s", want, progress.String())
+		}
+	}
 	if strings.Contains(strings.Join(card.Sections, "\n"), "Delivery update") {
 		t.Fatalf("delivery still renders as a detached section: %+v", card.Sections)
 	}

@@ -207,6 +207,7 @@ func (s *Sanitizer) ledger(steps []LedgerStep) []LedgerStep {
 	for index := range cleaned {
 		cleaned[index].Label = s.Text(cleaned[index].Label)
 		cleaned[index].Detail = s.Text(cleaned[index].Detail)
+		cleaned[index].DetailURL = safeActionURL(cleaned[index].DetailURL)
 		cleaned[index].When = s.Text(cleaned[index].When)
 		cleaned[index].Owner = s.Text(cleaned[index].Owner)
 		cleaned[index].Children = s.ledger(cleaned[index].Children)

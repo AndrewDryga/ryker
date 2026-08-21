@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	IncidentCardRevision = "2026-08-20.3"
+	IncidentCardRevision = "2026-08-20.4"
 
 	ActionUpdate          = "responder_update"
 	ActionChanges         = "responder_changes"
@@ -299,12 +299,15 @@ type Message struct {
 // step needs both. Children are the checks under a running step, not steps of
 // their own.
 type LedgerStep struct {
-	Glyph    string `json:"glyph,omitempty"`
-	Label    string `json:"label"`
-	Detail   string `json:"detail,omitempty"`
-	When     string `json:"when,omitempty"`
-	Duration string `json:"duration,omitempty"`
-	Owner    string `json:"owner,omitempty"`
+	Glyph  string `json:"glyph,omitempty"`
+	Label  string `json:"label"`
+	Detail string `json:"detail,omitempty"`
+	// DetailURL makes the compact status fact actionable without adding a
+	// second button row. The renderer accepts ordinary HTTPS links only.
+	DetailURL string `json:"detail_url,omitempty"`
+	When      string `json:"when,omitempty"`
+	Duration  string `json:"duration,omitempty"`
+	Owner     string `json:"owner,omitempty"`
 	// Subtext is stable context that belongs to this exact milestone.
 	Subtext string `json:"subtext,omitempty"`
 	// Current marks where the run is now. It picks the glyph when the caller
@@ -932,7 +935,7 @@ func milestoneLedgerPart(steps []LedgerStep, heading bool) string {
 		fmt.Fprintf(&body, "%s  *%s*", glyph, escapeSlackText(step.Label))
 		facts := make([]string, 0, 3)
 		if detail := strings.TrimSpace(step.Detail); detail != "" {
-			facts = append(facts, escapeSlackText(detail))
+			facts = append(facts, slackDetailLink(detail, step.DetailURL))
 		}
 		if when := strings.TrimSpace(step.When); when != "" {
 			facts = append(facts, escapeSlackText(when))
@@ -961,6 +964,15 @@ func milestoneLedgerPart(steps []LedgerStep, heading bool) string {
 		}
 	}
 	return body.String()
+}
+
+func slackDetailLink(label, target string) string {
+	label = escapeSlackText(strings.TrimSpace(label))
+	target = safeActionURL(target)
+	if target == "" || strings.ContainsAny(target, "<>|") {
+		return label
+	}
+	return "<" + target + "|" + label + ">"
 }
 
 // milestoneLedgerBlocks places supporting detail and the live window inside
