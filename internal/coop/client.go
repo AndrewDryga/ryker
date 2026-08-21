@@ -63,9 +63,16 @@ type OutputContract struct {
 // exact structured-output contract. Call it during service construction,
 // before the client is used concurrently.
 func (c *Client) RequireOutputContract(schema []byte) {
-	digest := sha256.Sum256(schema)
+	// encoding/json compacts RawMessage values while embedding them in the HTTP
+	// request. Bind the digest to those exact transmitted bytes, not the
+	// pretty-printed source file that produced them.
+	normalized, err := json.Marshal(json.RawMessage(schema))
+	if err != nil {
+		normalized = append([]byte(nil), schema...)
+	}
+	digest := sha256.Sum256(normalized)
 	c.outputContract = &OutputContract{
-		JSONSchema: append(json.RawMessage(nil), schema...),
+		JSONSchema: append(json.RawMessage(nil), normalized...),
 		SHA256:     fmt.Sprintf("%x", digest),
 	}
 }

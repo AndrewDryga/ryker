@@ -315,6 +315,8 @@ func TestClientSubmitsTypedTurnArtifacts(t *testing.T) {
 	defer listener.Close()
 	data := []byte("screenshot")
 	digest := sha256.Sum256(data)
+	contractSchema := []byte("{\n  \"type\": \"object\"\n}\n")
+	compactContract := []byte(`{"type":"object"}`)
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			ExpectedRevision int64           `json:"expected_revision"`
@@ -330,8 +332,8 @@ func TestClientSubmitsTypedTurnArtifacts(t *testing.T) {
 			string(body.Artifacts[0].Data) != string(data) ||
 			body.Artifacts[0].SHA256 != fmt.Sprintf("%x", digest) ||
 			body.OutputContract == nil ||
-			string(body.OutputContract.JSONSchema) != `{"type":"object"}` ||
-			body.OutputContract.SHA256 != fmt.Sprintf("%x", sha256.Sum256([]byte(`{"type":"object"}`))) {
+			string(body.OutputContract.JSONSchema) != string(compactContract) ||
+			body.OutputContract.SHA256 != fmt.Sprintf("%x", sha256.Sum256(compactContract)) {
 			t.Errorf("turn body = %+v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -344,7 +346,7 @@ func TestClientSubmitsTypedTurnArtifacts(t *testing.T) {
 	defer server.Shutdown(context.Background())
 
 	client := New(socket, time.Second)
-	client.RequireOutputContract([]byte(`{"type":"object"}`))
+	client.RequireOutputContract(contractSchema)
 	turn, operation, err := client.SubmitTurnWithArtifacts(
 		context.Background(), "turn-1", "ses_1", 2, "inspect it",
 		[]InputArtifact{{
