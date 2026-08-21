@@ -61,7 +61,8 @@ func (r *Repository) Reset(
 		  created_at, updated_at
 		) VALUES (?, 'open', 'unknown', ?, ?, ?)
 		ON CONFLICT(incident_id) DO UPDATE SET
-		  pr_state = 'open', checks_state = 'unknown', merge_sha = '',
+		  pr_state = 'open', checks_state = 'unknown', checks_total = 0,
+		  checks_passed = 0, checks_failed = 0, merge_sha = '',
 		  merged_at = NULL, next_check_at = excluded.next_check_at,
 		  failure_count = 0, last_error = '', last_event_key = '',
 		  updated_at = excluded.updated_at
@@ -79,11 +80,12 @@ func (r *Repository) Get(
 	var merged sql.NullString
 	var next, created, updated string
 	err := r.db.QueryRowContext(ctx, `
-		SELECT incident_id, pr_state, checks_state, merge_sha, merged_at,
+		SELECT incident_id, pr_state, checks_state, checks_total, checks_passed,
+		  checks_failed, merge_sha, merged_at,
 		  next_check_at, failure_count, last_error, last_event_key,
 		  created_at, updated_at
 		FROM publication_followups WHERE incident_id = ?`, incidentID).Scan(
-		&item.IncidentID, &item.PRState, &item.ChecksState, &item.MergeSHA,
+		&item.IncidentID, &item.PRState, &item.ChecksState, &item.ChecksTotal, &item.ChecksPassed, &item.ChecksFailed, &item.MergeSHA,
 		&merged, &next, &item.FailureCount, &item.LastError,
 		&item.LastEventKey, &created, &updated,
 	)
@@ -109,7 +111,8 @@ func (r *Repository) Next(
 	var merged, published sql.NullString
 	var next, followupCreated, followupUpdated, publicationCreated, publicationUpdated string
 	err := r.db.QueryRowContext(ctx, `
-		SELECT f.incident_id, f.pr_state, f.checks_state, f.merge_sha, f.merged_at,
+		SELECT f.incident_id, f.pr_state, f.checks_state, f.checks_total,
+		  f.checks_passed, f.checks_failed, f.merge_sha, f.merged_at,
 		  f.next_check_at, f.failure_count, f.last_error, f.last_event_key,
 		  f.created_at, f.updated_at,
 		  p.repository, p.base_branch, p.head_branch, p.parent_head,
@@ -120,7 +123,7 @@ func (r *Repository) Next(
 		WHERE p.state IN ('published', 'stale') AND f.next_check_at <= ?
 		ORDER BY f.next_check_at, f.updated_at
 		LIMIT 1`, now.UTC().Format(core.TimestampFormat)).Scan(
-		&followup.IncidentID, &followup.PRState, &followup.ChecksState,
+		&followup.IncidentID, &followup.PRState, &followup.ChecksState, &followup.ChecksTotal, &followup.ChecksPassed, &followup.ChecksFailed,
 		&followup.MergeSHA, &merged, &next, &followup.FailureCount,
 		&followup.LastError, &followup.LastEventKey, &followupCreated,
 		&followupUpdated, &publication.Repository, &publication.BaseBranch,
@@ -194,10 +197,11 @@ func (r *Repository) saveTransition(
 	var previous core.PublicationFollowup
 	var previousUpdated, previousNext string
 	if err := tx.QueryRowContext(ctx, `
-		SELECT pr_state, checks_state, merge_sha, last_error, updated_at,
+		SELECT pr_state, checks_state, checks_total, checks_passed, checks_failed,
+		  merge_sha, last_error, updated_at,
 		  next_check_at, failure_count, last_event_key
 		FROM publication_followups WHERE incident_id = ?`, item.IncidentID).Scan(
-		&previous.PRState, &previous.ChecksState, &previous.MergeSHA, &previous.LastError,
+		&previous.PRState, &previous.ChecksState, &previous.ChecksTotal, &previous.ChecksPassed, &previous.ChecksFailed, &previous.MergeSHA, &previous.LastError,
 		&previousUpdated, &previousNext, &previous.FailureCount, &previous.LastEventKey,
 	); err != nil {
 		return false, err
@@ -212,18 +216,22 @@ func (r *Repository) saveTransition(
 	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE publication_followups SET
-		  pr_state = ?, checks_state = ?, merge_sha = ?, merged_at = ?,
+		  pr_state = ?, checks_state = ?, checks_total = ?, checks_passed = ?,
+		  checks_failed = ?, merge_sha = ?, merged_at = ?,
 		  next_check_at = ?, failure_count = ?, last_error = ?,
 		  last_event_key = ?, updated_at = ?
 		WHERE incident_id = ? AND updated_at = ? AND pr_state = ?
-		  AND checks_state = ? AND merge_sha = ? AND last_error = ?
+		  AND checks_state = ? AND checks_total = ? AND checks_passed = ?
+		  AND checks_failed = ? AND merge_sha = ? AND last_error = ?
 		  AND last_event_key = ? AND failure_count = ? AND next_check_at = ?
 		  AND (pr_state NOT IN ('merged', 'closed') OR pr_state = ?)`,
-		item.PRState, item.ChecksState, item.MergeSHA, merged,
+		item.PRState, item.ChecksState, item.ChecksTotal, item.ChecksPassed,
+		item.ChecksFailed, item.MergeSHA, merged,
 		item.NextCheckAt.UTC().Format(core.TimestampFormat), item.FailureCount,
 		item.LastError, item.LastEventKey, now.Format(core.TimestampFormat),
 		item.IncidentID, expected.UpdatedAt.UTC().Format(core.TimestampFormat),
-		expected.PRState, expected.ChecksState, expected.MergeSHA, expected.LastError,
+		expected.PRState, expected.ChecksState, expected.ChecksTotal,
+		expected.ChecksPassed, expected.ChecksFailed, expected.MergeSHA, expected.LastError,
 		expected.LastEventKey, expected.FailureCount,
 		expected.NextCheckAt.UTC().Format(core.TimestampFormat), item.PRState,
 	)
@@ -270,6 +278,8 @@ func (r *Repository) saveTransition(
 		}
 	}
 	if previous.PRState != item.PRState || previous.ChecksState != item.ChecksState ||
+		previous.ChecksTotal != item.ChecksTotal || previous.ChecksPassed != item.ChecksPassed ||
+		previous.ChecksFailed != item.ChecksFailed ||
 		previous.MergeSHA != item.MergeSHA || previous.LastError != item.LastError || inserted {
 		result, err = tx.ExecContext(ctx, `
 			UPDATE incidents SET updated_at = ?, card_version = card_version + 1

@@ -192,6 +192,7 @@ func TestDelayedFollowupCannotOverwriteNewerSuccess(t *testing.T) {
 				t.Fatalf("delayed write = %v, want conflict", err)
 			}
 			if followups.current.ChecksState != "passing" ||
+				followups.current.ChecksTotal != 1 || followups.current.ChecksPassed != 1 ||
 				followups.current.FailureCount != 0 || followups.current.LastError != "" {
 				t.Fatalf("newer success overwritten = %+v", followups.current)
 			}

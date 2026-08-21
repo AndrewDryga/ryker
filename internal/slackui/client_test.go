@@ -860,7 +860,7 @@ func TestEngineeringTaskUpdateDeliversVisiblePlumbingAndOnlyFoldsTheRequest(t *t
 		t.Fatalf("engineering task was delivered in Slack's collapsible attachment: %s", attachments)
 	}
 	blocks := form.Get("blocks")
-	for _, want := range []string{"Workspace ready", "All Tenant repositories", "The request", "responder_overflow"} {
+	for _, want := range []string{"Isolated fork of All Tenant repositories ready", "The request", "responder_overflow"} {
 		if !strings.Contains(blocks, want) {
 			t.Fatalf("delivered top-level blocks lost %q: %s", want, blocks)
 		}

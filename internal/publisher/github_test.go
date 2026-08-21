@@ -114,7 +114,10 @@ func TestPublishRecoversAfterPullRequestCreationResponseIsLost(t *testing.T) {
 	}
 }
 
-func TestPublishUpdatesAuthenticatedExistingPullRequestWithLease(t *testing.T) {
+// PR #20 was updated successfully, but GitHub's pull-request API still returned
+// the previous head during the immediate post-push check. Responder called the
+// whole publication failed even though the branch and both checks were green.
+func TestExistingPullRequestUpdateSurvivesGitHubHeadLagAfterPush(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "source")
 	mustGit(t, "", "init", "-q", "-b", "main", source)
 	mustWrite(t, filepath.Join(source, "README.md"), "base\n")
@@ -135,13 +138,18 @@ func TestPublishUpdatesAuthenticatedExistingPullRequestWithLease(t *testing.T) {
 	mustGit(t, source, "push", "-q", remote, "HEAD:refs/heads/existing-pr")
 	oldHead := strings.TrimSpace(mustGit(t, "", "--git-dir="+remote, "rev-parse", "existing-pr"))
 	const prURL = "https://github.example/owner/repository/pull/514"
+	prReads := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/pulls/514") {
 			t.Errorf("unexpected GitHub mutation: %s %s", r.Method, r.URL.Path)
 			http.NotFound(w, r)
 			return
 		}
-		head := strings.TrimSpace(mustGit(t, "", "--git-dir="+remote, "rev-parse", "existing-pr"))
+		prReads++
+		head := oldHead
+		if prReads > 2 {
+			head = strings.TrimSpace(mustGit(t, "", "--git-dir="+remote, "rev-parse", "existing-pr"))
+		}
 		_, _ = fmt.Fprintf(w, `{"number":514,"html_url":%q,"state":"open","draft":false,"merged":false,"head":{"ref":"existing-pr","sha":%q},"base":{"ref":"main"}}`, prURL, head)
 	}))
 	defer server.Close()

@@ -62,7 +62,7 @@ func TestEngineeringTaskCardReadsRequestProgressAndActionsInWorkOrder(t *testing
 		t.Fatal("task controls still render above progress")
 	}
 	wantSteps := []string{
-		"Workspace ready", "Plan the changes", "Implement changes",
+		"Isolated fork of Tenant Rivals Scraper ready", "Plan the changes", "Implement changes",
 		"Readiness review", "Draft PR", "Review and merge",
 	}
 	if len(card.Ledger) != len(wantSteps) {
@@ -74,11 +74,8 @@ func TestEngineeringTaskCardReadsRequestProgressAndActionsInWorkOrder(t *testing
 		}
 	}
 	workspace := card.Ledger[0]
-	if !strings.Contains(
-		workspace.Subtext,
-		"Isolated fork of Tenant Rivals Scraper `remote-44f3f67`",
-	) {
-		t.Fatalf("workspace step lost the exact fork: %+v", workspace)
+	if workspace.Subtext != "" || strings.Contains(ledgerText(card.Ledger), "remote-44f3f67") {
+		t.Fatalf("workspace step still exposes internal fork plumbing: %+v", workspace)
 	}
 	current := card.Ledger[3]
 	for _, want := range []string{"working", "last activity", "18 tool calls"} {
@@ -97,7 +94,7 @@ func TestEngineeringTaskCardReadsRequestProgressAndActionsInWorkOrder(t *testing
 	}
 
 	blocks := card.Blocks()
-	requestAt, progressAt, activityAt, actionsAt, forkContextAt := -1, -1, -1, -1, -1
+	requestAt, progressAt, activityAt, actionsAt := -1, -1, -1, -1
 	for index, block := range blocks {
 		switch typed := block.(type) {
 		case *slack.SectionBlock:
@@ -110,16 +107,6 @@ func TestEngineeringTaskCardReadsRequestProgressAndActionsInWorkOrder(t *testing
 			if strings.Contains(typed.Text.Text, "*Progress*") {
 				progressAt = index
 			}
-			if strings.Contains(typed.Text.Text, "Isolated fork of") {
-				t.Fatalf("fork identity still renders at full section size: %q", typed.Text.Text)
-			}
-		case *slack.ContextBlock:
-			for _, element := range typed.ContextElements.Elements {
-				text, ok := element.(*slack.TextBlockObject)
-				if ok && strings.Contains(text.Text, "Isolated fork of Tenant Rivals Scraper") {
-					forkContextAt = index
-				}
-			}
 		case *slack.RichTextBlock:
 			activityAt = index
 		case *slack.ActionBlock:
@@ -128,10 +115,6 @@ func TestEngineeringTaskCardReadsRequestProgressAndActionsInWorkOrder(t *testing
 	}
 	if !(requestAt >= 0 && requestAt < progressAt && progressAt < activityAt && activityAt < actionsAt) {
 		t.Fatalf("block order request=%d progress=%d activity=%d actions=%d", requestAt, progressAt, activityAt, actionsAt)
-	}
-	if !(progressAt < forkContextAt && forkContextAt < activityAt) {
-		t.Fatalf("small fork context is not attached below Workspace ready: progress=%d fork=%d activity=%d",
-			progressAt, forkContextAt, activityAt)
 	}
 	for index, block := range blocks {
 		section, ok := block.(*slack.SectionBlock)
@@ -157,7 +140,10 @@ func TestPRDeliveryAndFeedbackLiveUnderReviewAndMerge(t *testing.T) {
 	publication.PRURL = "https://github.example/pull/20"
 	card := IncidentCardWithPublication(
 		task, "Tenant Rivals Scraper", nil, true, true, publication,
-		core.PublicationFollowup{PRState: "open", ChecksState: "success"},
+		core.PublicationFollowup{
+			PRState: "open", ChecksState: "passing",
+			ChecksTotal: 2, ChecksPassed: 2,
+		},
 		core.PublicationLifecycleEvent{
 			ID: "github-checks-20", Kind: "checks", State: "success",
 			Summary: "GitHub checks passed for PR #20 (2 of 2). It is ready for review or merge.",
@@ -169,41 +155,29 @@ func TestPRDeliveryAndFeedbackLiveUnderReviewAndMerge(t *testing.T) {
 		review.Owner != "" {
 		t.Fatalf("feedback did not return Review and merge to working: %+v", review)
 	}
-	for _, want := range []string{
-		"Draft PR #20 is open", "exact tree", "GitHub checks passed for PR #20 (2 of 2)",
-	} {
-		if !strings.Contains(review.Subtext, want) {
-			t.Errorf("review substatus lacks %q: %q", want, review.Subtext)
-		}
+	if review.Subtext != "" {
+		t.Fatalf("review step still repeats PR prose: %q", review.Subtext)
+	}
+	if len(card.Ledger) != 7 || card.Ledger[4].Label != "Draft PR" ||
+		card.Ledger[5].Glyph != "✓" || card.Ledger[5].Label != "GitHub checks" ||
+		card.Ledger[5].Detail != "passed (2/2)" ||
+		card.Ledger[6].Label != "Review and merge" {
+		t.Fatalf("compact delivery progress = %+v", card.Ledger)
 	}
 	if strings.Contains(strings.Join(card.Sections, "\n"), "Delivery update") {
 		t.Fatalf("delivery still renders as a detached section: %+v", card.Sections)
 	}
-	var reviewContext string
-	for _, block := range card.Blocks() {
-		switch typed := block.(type) {
-		case *slack.SectionBlock:
-			if typed.Text != nil && (strings.Contains(typed.Text.Text, "Draft PR #20 is open") ||
-				strings.Contains(typed.Text.Text, "GitHub checks passed for PR #20")) {
-				t.Fatalf("PR delivery status still renders at full section size: %q", typed.Text.Text)
-			}
-		case *slack.ContextBlock:
-			for _, element := range typed.ContextElements.Elements {
-				if text, ok := element.(*slack.TextBlockObject); ok {
-					reviewContext += "\n" + text.Text
-				}
-			}
-		}
-	}
-	for _, want := range []string{"Draft PR #20 is open", "GitHub checks passed for PR #20 (2 of 2)"} {
-		if !strings.Contains(reviewContext, want) {
-			t.Errorf("small review context lacks %q: %q", want, reviewContext)
+	for _, stale := range []string{"exact tree", "It is ready for review or merge"} {
+		if strings.Contains(cardText(card), stale) {
+			t.Errorf("card still repeats delivery prose %q", stale)
 		}
 	}
 	task.ActiveTurnID = ""
 	queued := IncidentCardWithPublication(
 		task, "Tenant Rivals Scraper", nil, true, true, publication,
-		core.PublicationFollowup{PRState: "open", ChecksState: "success"},
+		core.PublicationFollowup{
+			PRState: "open", ChecksState: "passing", ChecksTotal: 2, ChecksPassed: 2,
+		},
 		core.PublicationLifecycleEvent{},
 	)
 	queuedReview := queued.Ledger[len(queued.Ledger)-1]
@@ -846,16 +820,13 @@ func TestBusiestTaskCardStaysAnInstrument(t *testing.T) {
 		t.Fatalf("the busiest task card renders %d blocks; it is becoming a log", blocks)
 	}
 	// Every part the design says must be there is still there at that height.
-	if len(card.Fields) != 0 || len(card.Context) != 0 || len(card.Ledger) != 6 ||
+	if len(card.Fields) != 0 || len(card.Context) != 0 || len(card.Ledger) != 7 ||
 		len(card.Tail) != 0 {
 		t.Fatalf("the busiest card lost a required part: %+v", card)
 	}
-	// The footer says where the work is happening and stops. It used to say
-	// five things separated by interpuncts — a boundary sentence, a sentence
-	// about replies, a short id, the fork and a start date — and it was the
-	// line every operator had learned to skip.
-	if card.Ledger[0].Subtext != "Isolated fork of Tenant Infrastructure `remote-44f3f67`" {
-		t.Fatalf("workspace detail = %q", card.Ledger[0].Subtext)
+	if card.Ledger[0].Label != "Isolated fork of Tenant Infrastructure ready" ||
+		card.Ledger[0].Subtext != "" {
+		t.Fatalf("workspace step = %+v", card.Ledger[0])
 	}
 }
 

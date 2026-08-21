@@ -740,7 +740,12 @@ func (g *GitHub) ensureDraftPR(
 	result Result,
 ) (pullRequest, error) {
 	if request.Existing.PRNumber > 0 {
-		return g.existingPullRequest(ctx, token, request, result.RemoteSHA)
+		// A successful lease-protected push can become visible through Git before
+		// GitHub's pull-request API updates head.sha. Both values are bound: the old
+		// head is the recorded lease and the new head is the commit we just pushed.
+		return g.existingPullRequest(
+			ctx, token, request, request.Existing.RemoteSHA, result.RemoteSHA,
+		)
 	}
 
 	title := safeTitle(request.Incident.Title)

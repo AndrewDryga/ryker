@@ -49,7 +49,7 @@ func engineeringTaskCard(
 	ask := taskAsk(state, task, hasCodeChanges, codeChangesKnown, publication)
 	ledger := taskLedger(task, state, hasCodeChanges, publication, followup, lifecycle, turn, now)
 	if len(ledger) > 0 {
-		ledger[0].Subtext = taskFooter(task, repositoryName)
+		ledger[0].Label = workspaceReadyLabel(repositoryName)
 	}
 	actions, overflow := taskActions(
 		task, state, hasCodeChanges, codeChangesKnown, publication, followup,
@@ -268,7 +268,8 @@ func taskAsk(
 	}
 }
 
-// taskLedger renders the run as six positions.
+// taskLedger renders the run as six durable positions, plus a GitHub checks
+// row when the forge has reported one.
 //
 // Every publication and followup state lands on one of them rather than on a
 // section of its own: "publishing" is a detail on Draft PR, not a paragraph
@@ -306,7 +307,7 @@ func taskLedger(
 		{Label: "Draft PR"},
 		{Label: "Review and merge", Owner: "your turn"},
 	}
-	steps[5].Subtext = reviewAndMergeSubtext(publication, followup, lifecycle)
+	steps[5].Subtext = deliverySubtext(lifecycle)
 	planDone := !turn.Milestones.PlanningFinishedAt.IsZero() ||
 		turn.ToolCalls > 0 || len(turn.Plan) > 0 || changesMade
 	done := []bool{task.CoopSessionID != "", planDone, changesMade, reviewPassed, prLanded, false}
@@ -385,9 +386,6 @@ func taskLedger(
 			steps[4].When = compactDuration(now.Sub(publication.PublishedAt)) + " ago"
 		}
 	}
-	// Checks nest under Draft PR as Children when lifecycle data reaches this
-	// function. It does not yet — the card is handed one lifecycle event, not
-	// the check set — so the seam stays empty rather than guessed at.
 	current := len(steps) - 1
 	for index, complete := range done {
 		if !complete {
@@ -435,31 +433,50 @@ func taskLedger(
 		steps[4].When == "" && steps[4].Detail == "" {
 		steps[4].Owner = "yours to publish"
 	}
+	if checks, ok := githubChecksStep(publication, followup); ok {
+		steps = append(steps, LedgerStep{})
+		copy(steps[6:], steps[5:])
+		steps[5] = checks
+	}
 	return steps
 }
 
-func reviewAndMergeSubtext(
+func deliverySubtext(lifecycle core.PublicationLifecycleEvent) string {
+	if lifecycle.ID == "" || lifecycle.Kind == "checks" || lifecycle.Kind == "merged" ||
+		lifecycle.Kind == "closed" {
+		return ""
+	}
+	return strings.TrimSpace(lifecycle.Summary)
+}
+
+func githubChecksStep(
 	publication core.Publication,
 	followup core.PublicationFollowup,
-	lifecycle core.PublicationLifecycleEvent,
-) string {
-	lines := make([]string, 0, 2)
-	if publication.HasPR() && followup.PRState != "merged" && followup.PRState != "closed" {
-		lines = append(lines, fmt.Sprintf(
-			"Draft PR #%d is open — it carries the exact tree the latest Coop readiness review approved.",
-			publication.PRNumber,
-		))
+) (LedgerStep, bool) {
+	if !publication.HasPR() {
+		return LedgerStep{}, false
 	}
-	if lifecycle.ID != "" && lifecycle.Kind != "merged" && lifecycle.Kind != "closed" &&
-		strings.TrimSpace(lifecycle.Summary) != "" {
-		lines = append(lines, strings.TrimSpace(lifecycle.Summary))
-	} else if publication.HasPR() && followup.ChecksState == "success" {
-		lines = append(lines, fmt.Sprintf(
-			"GitHub checks passed for PR #%d. It is ready for review or merge.",
-			publication.PRNumber,
-		))
+	step := LedgerStep{Label: "GitHub checks"}
+	switch strings.ToLower(strings.TrimSpace(followup.ChecksState)) {
+	case "passing", "passed", "success", "succeeded":
+		step.Glyph = "✓"
+		step.Detail = "passed"
+		if followup.ChecksTotal > 0 {
+			step.Detail += fmt.Sprintf(" (%d/%d)", followup.ChecksPassed, followup.ChecksTotal)
+		}
+	case "failing", "failed":
+		step.Glyph = "!"
+		step.Detail = "failed"
+		if followup.ChecksTotal > 0 {
+			step.Detail += fmt.Sprintf(" (%d/%d)", followup.ChecksFailed, followup.ChecksTotal)
+		}
+	case "pending", "queued", "running":
+		step.Glyph = "○"
+		step.Detail = "running"
+	default:
+		return LedgerStep{}, false
 	}
-	return strings.Join(lines, "\n")
+	return step, true
 }
 
 func coloredChangesStat(stat string) string {
@@ -534,26 +551,12 @@ func taskOutcome(
 	}
 }
 
-// taskFooter says where the work is happening, and nothing else.
-//
-// It used to say five things — a boundary sentence, a sentence about replies, a
-// short id, the fork, and a start date — separated by interpuncts, and it was
-// the line every operator had learned to skip. Four of the five were never read
-// twice: the boundary is stated where it matters, in the confirmation on every
-// control that could cross it; the reply rule is learned once by replying; the
-// short id is a search key nobody searches from the card; and the age is
-// already in the state line. What is left is the one fact the card cannot be
-// read without — which repository this fork was cut from, and which fork.
-func taskFooter(task core.Incident, repositoryName string) string {
+func workspaceReadyLabel(repositoryName string) string {
 	name := strings.TrimSpace(repositoryName)
 	if name == "" {
 		name = "the repository"
 	}
-	footer := "Isolated fork of " + escapeSlackText(name)
-	if task.CoopForkName != "" {
-		footer += " `" + safeInlineCode(task.CoopForkName) + "`"
-	}
-	return footer
+	return "Isolated fork of " + escapeSlackText(name) + " ready"
 }
 
 // taskFallback leads with the state word.

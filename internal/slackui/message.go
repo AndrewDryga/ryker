@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	IncidentCardRevision = "2026-08-20.1"
+	IncidentCardRevision = "2026-08-20.2"
 
 	ActionUpdate          = "responder_update"
 	ActionChanges         = "responder_changes"
@@ -305,9 +305,7 @@ type LedgerStep struct {
 	When     string `json:"when,omitempty"`
 	Duration string `json:"duration,omitempty"`
 	Owner    string `json:"owner,omitempty"`
-	// Subtext is stable context that belongs to this exact milestone. The
-	// engineering workspace identity sits under Workspace ready instead of in
-	// a footer detached from the step that created it.
+	// Subtext is stable context that belongs to this exact milestone.
 	Subtext string `json:"subtext,omitempty"`
 	// Current marks where the run is now. It picks the glyph when the caller
 	// did not supply one, so the mark survives a caller that only knows the
@@ -908,10 +906,6 @@ func ledgerGlyph(step LedgerStep) string {
 
 func milestoneLedgerText(steps []LedgerStep) string {
 	return milestoneLedgerPart(steps, true)
-}
-
-func milestoneLedgerContinuationText(steps []LedgerStep) string {
-	return milestoneLedgerPart(steps, false)
 }
 
 func milestoneLedgerPart(steps []LedgerStep, heading bool) string {

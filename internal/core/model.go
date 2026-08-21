@@ -1897,6 +1897,9 @@ type PublicationFollowup struct {
 	IncidentID   string
 	PRState      string
 	ChecksState  string
+	ChecksTotal  int
+	ChecksPassed int
+	ChecksFailed int
 	MergeSHA     string
 	MergedAt     time.Time
 	NextCheckAt  time.Time

@@ -172,6 +172,9 @@ func TestPublicationControlMigrationDirtiesExistingTaskCard(t *testing.T) {
 	if _, err := st.db.Exec(`
 		UPDATE schema_version SET version = 59;
 		ALTER TABLE incidents DROP COLUMN coop_session_generation;
+		ALTER TABLE publication_followups DROP COLUMN checks_total;
+		ALTER TABLE publication_followups DROP COLUMN checks_passed;
+		ALTER TABLE publication_followups DROP COLUMN checks_failed;
 		ALTER TABLE publications DROP COLUMN attempt_input_id;
 		ALTER TABLE publications DROP COLUMN failure_code;
 		ALTER TABLE publications DROP COLUMN generation;

@@ -86,6 +86,9 @@ func TestCheckMigrationCatchesAMigrationThatDestroysRows(t *testing.T) {
 		 ALTER TABLE context_manifests DROP COLUMN usage_costed_turns;
 		 ALTER TABLE context_manifests DROP COLUMN target_floor;
 		 ALTER TABLE incidents DROP COLUMN coop_session_generation;
+		 ALTER TABLE publication_followups DROP COLUMN checks_total;
+		 ALTER TABLE publication_followups DROP COLUMN checks_passed;
+		 ALTER TABLE publication_followups DROP COLUMN checks_failed;
 		 UPDATE schema_version SET version = ?`, currentSchemaVersion-1,
 	); err != nil {
 		t.Fatal(err)
@@ -189,6 +192,9 @@ func TestCheckMigrationReportsADeclaredDeletionWithoutExcusingAnythingElse(t *te
 	if _, err := target.Exec(`
 		UPDATE schema_version SET version = 50;
 		ALTER TABLE incidents DROP COLUMN coop_session_generation;
+		ALTER TABLE publication_followups DROP COLUMN checks_total;
+		ALTER TABLE publication_followups DROP COLUMN checks_passed;
+		ALTER TABLE publication_followups DROP COLUMN checks_failed;
 		ALTER TABLE configuration_sessions DROP COLUMN card_ts;
 		ALTER TABLE standing_rules DROP COLUMN acted_count;
 		ALTER TABLE standing_rules DROP COLUMN quiet_count;
@@ -335,6 +341,9 @@ func windBackAndRecreateProposalTables(t *testing.T, stateDir string) {
 	if _, err := db.Exec(`
 		UPDATE schema_version SET version = 54;
 		ALTER TABLE incidents DROP COLUMN coop_session_generation;
+		ALTER TABLE publication_followups DROP COLUMN checks_total;
+		ALTER TABLE publication_followups DROP COLUMN checks_passed;
+		ALTER TABLE publication_followups DROP COLUMN checks_failed;
 		ALTER TABLE standing_rules DROP COLUMN workflow_name;
 		ALTER TABLE standing_rules DROP COLUMN workflow_json;
 		ALTER TABLE context_manifests DROP COLUMN submitted_prompt;

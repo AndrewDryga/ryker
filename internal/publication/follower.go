@@ -96,6 +96,9 @@ func (f *Follower) refresh(
 	}
 	followup.PRState = core.FirstNonempty(status.PRState, "unknown")
 	followup.ChecksState = core.FirstNonempty(status.ChecksState, "unknown")
+	followup.ChecksTotal = status.ChecksTotal
+	followup.ChecksPassed = status.ChecksPassed
+	followup.ChecksFailed = status.ChecksFailed
 	followup.MergeSHA = status.MergeSHA
 	followup.MergedAt = status.MergedAt
 	followup.FailureCount = 0

@@ -725,6 +725,8 @@ func TestPublicationFollowupPersistsLifecycleAndActiveContext(t *testing.T) {
 	}
 	followup.PRState = "merged"
 	followup.ChecksState = "passing"
+	followup.ChecksTotal = 2
+	followup.ChecksPassed = 2
 	followup.MergeSHA = "abcdefabcdef"
 	followup.MergedAt = now
 	followup.NextCheckAt = now.Add(24 * time.Hour)
@@ -745,6 +747,7 @@ func TestPublicationFollowupPersistsLifecycleAndActiveContext(t *testing.T) {
 	}
 	reset, err := st.PublicationFollowups.Get(ctx, incident.ID)
 	if err != nil || reset.PRState != "merged" || reset.ChecksState != "passing" ||
+		reset.ChecksTotal != 2 || reset.ChecksPassed != 2 || reset.ChecksFailed != 0 ||
 		reset.MergeSHA != "abcdefabcdef" {
 		t.Fatalf("terminal publication follow-up reopened by reset = %+v, %v", reset, err)
 	}
