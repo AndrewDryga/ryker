@@ -73,7 +73,7 @@ var routedActionIDs = map[string]bool{
 	ActionSetupIncludeMe: true, ActionCommandStatus: true,
 	ActionRecordTimeline: true, ActionRecordEvidence: true,
 	ActionRecordHandoff: true, ActionRecordPostmortem: true,
-	ActionRecordDirectory: true,
+	ActionRecordDirectory: true, ActionRecordBack: true,
 }
 
 // Every option in every ⋯ menu production can render reaches a handler.
@@ -194,7 +194,7 @@ func TestEveryOverflowOptionDecodesToARoutedAction(t *testing.T) {
 	// from every menu. It stays routed for the cards that still carry it.
 	for _, want := range []string{
 		ActionUpdate, ActionReview, ActionCheckDelivery, ActionHelp,
-		ActionTurnReceipt, ActionToggleSchedule, ActionEditSchedule,
+		ActionToggleSchedule, ActionEditSchedule,
 	} {
 		if !routed[want] {
 			t.Errorf("no production ⋯ menu offers %q; the audit covers nothing", want)

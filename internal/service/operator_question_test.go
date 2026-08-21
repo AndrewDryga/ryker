@@ -8,6 +8,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/operatorchoice"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -150,6 +151,7 @@ func TestAPressedChoiceResumesTheEpisodeTheTypedAnswerWouldHave(t *testing.T) {
 	ctx := context.Background()
 	asked := askQuestion(t, ctx)
 	before := len(asked.slack.posts)
+	updatesBefore := len(asked.slack.updates)
 
 	asked.press(t, ctx, asked.buttons[0], "slack-press", "U123ABC")
 
@@ -174,14 +176,205 @@ func TestAPressedChoiceResumesTheEpisodeTheTypedAnswerWouldHave(t *testing.T) {
 		t.Fatalf("the answer reached the model as %q from %q",
 			answered.Text, answered.UserID)
 	}
-	// And the thread says so, because a transcript where a decision was taken
-	// and nothing was said is a transcript nobody can audit.
-	said := ""
-	for _, post := range asked.slack.posts[before:] {
-		said += post.message.Text + " " + strings.Join(post.message.Sections, " ")
+	// The question itself becomes the decision record. A second receipt below
+	// it made one click look like two unrelated messages and left the stale
+	// buttons inviting another answer.
+	if len(asked.slack.posts) != before {
+		t.Fatalf("answer posted a second receipt: %+v", asked.slack.posts[before:])
 	}
-	if !strings.Contains(said, "Discard the run") {
-		t.Errorf("the thread never records what was answered: %q", said)
+	if len(asked.slack.updates) != updatesBefore+1 {
+		t.Fatalf("answer updated %d cards, want the original once: %+v",
+			len(asked.slack.updates)-updatesBefore, asked.slack.updates[updatesBefore:])
+	}
+	updated := asked.slack.updates[len(asked.slack.updates)-1]
+	updatedBody, err := slackui.Encode(updated.message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ts != "1700.001" ||
+		!strings.Contains(string(updatedBody), "U123ABC") ||
+		!strings.Contains(string(updatedBody), "Discard the run") ||
+		slackui.MessageOffersControl(updated.message, slackui.ActionOperatorChoice, asked.buttons[0].Value) ||
+		updated.message.Temporary {
+		t.Errorf("original question was not resolved in place: %+v", updated)
+	}
+}
+
+// A choice on an engineering task must continue the task, not fall through the
+// channel watcher and start an unrelated triage episode.
+//
+// This happened on 2026-08-20 after draft PR #20 asked for a sampling policy:
+// the answer was admitted, but the general watcher created
+// run_ed2ffc0453253007ab44b49903d0c4d7 with no incident while the engineering
+// episode stayed parked. The visible receipt said "Answered" even though no
+// follow-up commit could ever reach the PR.
+func TestAPressedEngineeringChoiceContinuesTheSameTaskAndPullRequest(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	task, created, err := st.CreateEngineeringTask(
+		ctx, "repo", "sampling-task", "Bound Gate failure logs", "Add bounded logging.",
+		"U123ABC", "CWATCH", "1700.100", 100,
+	)
+	if err != nil || !created {
+		t.Fatalf("create task = %+v, %t, %v", task, created, err)
+	}
+	if err := st.BindThreadWork(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRoot(ctx, task.ID, "1700.101"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_1", "fork-sampling", 7); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunEngineeringTask, IncidentID: task.ID,
+		ChannelID: task.ChannelID, ThreadTS: task.ConversationThreadTS(),
+		ConversationKey: "incident:" + task.ID,
+		SourceKind:      "initial", SourceID: "sampling-turn", UserID: "U123ABC",
+		Repository: task.Repository, Prompt: "Add bounded logging.",
+		SessionID: "ses_1", CommitmentTitle: task.Title,
+	})
+	if err != nil || !created {
+		t.Fatalf("queue first task turn = %+v, %t, %v", first, created, err)
+	}
+	if err := st.SetWorkEpisodePhase(
+		ctx, first.ID, core.EpisodeWaitingOperator, "waiting_for_operator",
+		"Waiting for your answer", "Choose the sampling policy", time.Time{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetIncidentError(ctx, task.ID, core.WorkflowParked, ""); err != nil {
+		t.Fatal(err)
+	}
+	episode, err := st.GetWorkEpisodeByRun(ctx, first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	question := "Should I use configurable deterministic 1% sampling per RPC, while always logging the first failure for each RPC every minute?"
+	answer := "Yes — use the proposed 1% plus first-per-minute default"
+	message := slackui.WithOperatorQuestions(
+		slackui.Message{Text: question}, episode.ID, "U123ABC",
+		[]slackui.OperatorQuestion{{Question: question, Choices: []string{
+			answer, "Sample every failure uniformly at 1%",
+		}}}, slackui.NewSanitizer(12000),
+	)
+	deliverStoredCard(t, ctx, &Service{store: st, sanitizer: slackui.NewSanitizer(12000)}, task, "1700.001", message)
+	var button slackui.Action
+	for _, row := range message.Rows {
+		for _, action := range row.Actions {
+			if action.ID == slackui.ActionOperatorChoice {
+				button = action
+				break
+			}
+		}
+	}
+	if button.Value == "" {
+		t.Fatal("question did not render a choice")
+	}
+
+	coopClient := newFakeCoop()
+	coopClient.session.ID = "ses_1"
+	coopClient.session.Revision = 7
+	coopClient.session.RepositoryReadOnly = false
+	slack := &fakeSlack{}
+	svc := New(cfg, st, coopClient, slack, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+	asked := askedEpisode{
+		svc: svc, store: st, cfg: cfg, slack: slack, episode: episode,
+		buttons: []slackui.Action{button},
+	}
+	asked.press(t, ctx, button, "slack-press-engineering", "U123ABC")
+
+	attempt := asked.latestAttempt(t, ctx)
+	resumed, err := st.GetAgentRun(ctx, attempt.AgentRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempt.Number != 2 || resumed.EpisodeID != episode.ID ||
+		resumed.Mode != core.AgentRunEngineeringTask || resumed.IncidentID != task.ID ||
+		resumed.Repository != task.Repository || resumed.ConversationKey != "incident:"+task.ID {
+		t.Fatalf("pressed choice escaped the task: attempt=%+v run=%+v", attempt, resumed)
+	}
+	if !strings.Contains(resumed.Prompt, answer) {
+		t.Fatalf("resumed task prompt lost the full answer: %q", resumed.Prompt)
+	}
+	// The card is the operator's custody surface. It must move out of the old
+	// waiting state in the same transaction that accepts the resumed attempt;
+	// waiting for Coop submission left production PR #20 looking abandoned
+	// after its answer had already been accepted.
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Workflow != core.WorkflowInvestigating {
+		t.Fatalf("accepted feedback left the task card in %q", task.Workflow)
+	}
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.ActiveTurnID == "" || task.Workflow != core.WorkflowInvestigating {
+		t.Fatalf("task card never returned to working: %+v", task)
+	}
+}
+
+// A crash after accepting an answer but before queueing the Slack update must
+// not leave live-looking choice buttons behind. That exact split made a real
+// answer resume its engineering episode while the question still invited a
+// second, contradictory answer after restart.
+func TestAnAcceptedChoiceReconcilesItsStaleCardAfterRestart(t *testing.T) {
+	ctx := context.Background()
+	asked := askQuestion(t, ctx)
+	choice, ok := slackui.DecodeOperatorChoice(asked.buttons[0].Value)
+	if !ok {
+		t.Fatal("decode offered choice")
+	}
+	answer := core.SlackInput{
+		ID:         operatorchoice.AnswerInputID("1700.001", choice.Question),
+		EnvelopeID: "operator_choice:crashed-press",
+		EventID:    "operator_choice:crashed-press",
+		Kind:       "message",
+		TeamID:     asked.cfg.Slack.TeamID,
+		ChannelID:  asked.episode.Destination.ChannelID,
+		ThreadTS:   asked.episode.Destination.ThreadTS,
+		UserID:     "U123ABC",
+		Text:       choice.Answer,
+		ReceivedAt: time.Now().UTC(),
+	}
+	if created, err := asked.store.AdmitSyntheticSlackInput(ctx, answer); err != nil || !created {
+		t.Fatalf("admit answer before simulated restart = %t, %v", created, err)
+	}
+	if _, err := operatorchoice.Queue(
+		ctx, asked.store, asked.episode, answer, asked.cfg.IsOperator(answer.UserID),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	updatesBefore := len(asked.slack.updates)
+	asked.press(t, ctx, asked.buttons[0], "slack-press-after-restart", "U123ABC")
+	if attempt := asked.latestAttempt(t, ctx); attempt.Number != 2 {
+		t.Fatalf("reconciliation queued attempt %d, want the accepted second attempt", attempt.Number)
+	}
+	if len(asked.slack.updates) != updatesBefore+1 {
+		t.Fatalf("restart reconciliation updated %d cards, want the stale question once",
+			len(asked.slack.updates)-updatesBefore)
+	}
+	updated := asked.slack.updates[len(asked.slack.updates)-1].message
+	if slackui.MessageOffersControl(updated, slackui.ActionOperatorChoice, asked.buttons[0].Value) {
+		t.Fatalf("reconciled question still offers the accepted answer: %+v", updated)
 	}
 }
 

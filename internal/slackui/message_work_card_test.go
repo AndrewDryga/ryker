@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/slack-go/slack"
 )
 
 func taskFixture() core.Incident {
@@ -26,6 +27,170 @@ func openPublication() core.Publication {
 	return core.Publication{
 		State: core.PublicationPublished, PRNumber: 482,
 		PRURL: "https://github.example/owner/repository/pull/482",
+	}
+}
+
+// The old task card led with a generated state sentence, put the controls at
+// the top, and left the request below the fold after the progress instrument.
+// That made the thing being changed the hardest part of the card to find. The
+// card is one durable work surface: request first, then progress with the live
+// window inside it, then the controls.
+func TestEngineeringTaskCardReadsRequestProgressAndActionsInWorkOrder(t *testing.T) {
+	task := taskFixture()
+	task.Workflow = core.WorkflowInvestigating
+	task.ActiveTurnID = "turn_1"
+	task.ChangesStat = "2 files · +121 −3"
+	now := time.Now()
+	card := IncidentCardWithPublication(
+		task, "Tenant Rivals Scraper", []core.Signal{{
+			Status:  core.SignalFiring,
+			Summary: "In src/scraper_app.py, add bounded Gate request context.",
+		}}, true, true, core.Publication{State: core.PublicationReviewing},
+		core.PublicationFollowup{}, core.PublicationLifecycleEvent{}, LiveTurn{
+			Active: true, ToolCalls: 18, LastActivity: now.Add(-time.Second),
+			Lines: []ActivityLine{{Kind: ActivityTool, Title: "pytest -q", Target: "tests/unit"}},
+		},
+	)
+
+	if len(card.Sections) == 0 || !strings.HasPrefix(card.Sections[0], "*The request*") {
+		t.Fatalf("request is not first: sections=%v tail=%v", card.Sections, card.Tail)
+	}
+	if len(card.Tail) != 0 {
+		t.Fatalf("request still renders after the card: %v", card.Tail)
+	}
+	if card.ActionsEarly {
+		t.Fatal("task controls still render above progress")
+	}
+	wantSteps := []string{
+		"Workspace ready", "Plan the changes", "Implement changes",
+		"Readiness review", "Draft PR", "Review and merge",
+	}
+	if len(card.Ledger) != len(wantSteps) {
+		t.Fatalf("progress = %+v, want %d steps", card.Ledger, len(wantSteps))
+	}
+	for index, want := range wantSteps {
+		if card.Ledger[index].Label != want {
+			t.Errorf("step %d = %q, want %q", index, card.Ledger[index].Label, want)
+		}
+	}
+	workspace := card.Ledger[0]
+	if !strings.Contains(
+		workspace.Subtext,
+		"Isolated fork of Tenant Rivals Scraper `remote-44f3f67`",
+	) {
+		t.Fatalf("workspace step lost the exact fork: %+v", workspace)
+	}
+	current := card.Ledger[3]
+	for _, want := range []string{"working", "last activity", "18 tool calls"} {
+		if !strings.Contains(current.Detail, want) {
+			t.Errorf("current step detail %q lacks %q", current.Detail, want)
+		}
+	}
+	if len(card.Chips) != 0 || len(card.Context) != 0 {
+		t.Fatalf("progress facts still float below the workflow: chips=%+v context=%+v",
+			card.Chips, card.Context)
+	}
+	for _, action := range card.Overflow {
+		if action.ID == ActionTurnReceipt {
+			t.Fatalf("per-turn receipt still appears in the task menu: %+v", card.Overflow)
+		}
+	}
+
+	blocks := card.Blocks()
+	requestAt, progressAt, activityAt, actionsAt := -1, -1, -1, -1
+	for index, block := range blocks {
+		switch typed := block.(type) {
+		case *slack.SectionBlock:
+			if typed.Text == nil {
+				continue
+			}
+			if strings.HasPrefix(typed.Text.Text, "*The request*") {
+				requestAt = index
+			}
+			if strings.Contains(typed.Text.Text, "*Progress*") {
+				progressAt = index
+			}
+		case *slack.RichTextBlock:
+			activityAt = index
+		case *slack.ActionBlock:
+			actionsAt = index
+		}
+	}
+	if !(requestAt >= 0 && requestAt < progressAt && progressAt < activityAt && activityAt < actionsAt) {
+		t.Fatalf("block order request=%d progress=%d activity=%d actions=%d", requestAt, progressAt, activityAt, actionsAt)
+	}
+	for index, block := range blocks {
+		section, ok := block.(*slack.SectionBlock)
+		if !ok || section.Text == nil {
+			continue
+		}
+		if strings.Contains(section.Text.Text, "*Progress*") && !section.Expand {
+			t.Errorf("progress block %d can still collapse behind Show more", index)
+		}
+		if strings.HasPrefix(section.Text.Text, "*The request*") && section.Expand {
+			t.Errorf("long request block %d cannot use Slack's own Show more", index)
+		}
+	}
+}
+
+func TestPRDeliveryAndFeedbackLiveUnderReviewAndMerge(t *testing.T) {
+	task := taskFixture()
+	task.Workflow = core.WorkflowInvestigating
+	task.ActiveTurnID = "turn_feedback"
+	publication := openPublication()
+	publication.State = core.PublicationPublished
+	publication.PRNumber = 20
+	publication.PRURL = "https://github.example/pull/20"
+	card := IncidentCardWithPublication(
+		task, "Tenant Rivals Scraper", nil, true, true, publication,
+		core.PublicationFollowup{PRState: "open", ChecksState: "success"},
+		core.PublicationLifecycleEvent{
+			ID: "github-checks-20", Kind: "checks", State: "success",
+			Summary: "GitHub checks passed for PR #20 (2 of 2). It is ready for review or merge.",
+		},
+		LiveTurn{Active: true, LastActivity: time.Now().Add(-time.Second), ToolCalls: 4},
+	)
+	review := card.Ledger[len(card.Ledger)-1]
+	if !review.Current || !strings.Contains(review.Detail, "Working on feedback received") ||
+		review.Owner != "" {
+		t.Fatalf("feedback did not return Review and merge to working: %+v", review)
+	}
+	for _, want := range []string{
+		"Draft PR #20 is open", "exact tree", "GitHub checks passed for PR #20 (2 of 2)",
+	} {
+		if !strings.Contains(review.Subtext, want) {
+			t.Errorf("review substatus lacks %q: %q", want, review.Subtext)
+		}
+	}
+	if strings.Contains(strings.Join(card.Sections, "\n"), "Delivery update") {
+		t.Fatalf("delivery still renders as a detached section: %+v", card.Sections)
+	}
+	task.ActiveTurnID = ""
+	queued := IncidentCardWithPublication(
+		task, "Tenant Rivals Scraper", nil, true, true, publication,
+		core.PublicationFollowup{PRState: "open", ChecksState: "success"},
+		core.PublicationLifecycleEvent{},
+	)
+	queuedReview := queued.Ledger[len(queued.Ledger)-1]
+	if !queuedReview.Current || queuedReview.Detail != "Working on feedback received" ||
+		queuedReview.Owner != "" {
+		t.Fatalf("accepted feedback still looks like the operator's turn: %+v", queuedReview)
+	}
+}
+
+func TestEngineeringTaskHelpExplainsTheForkAndHowToSteerIt(t *testing.T) {
+	help := cardText(HelpMessage(taskFixture()))
+	for _, want := range []string{
+		"Emisar is working on code changes in an isolated fork.",
+		"It cannot merge or deploy them.",
+		"reply in this thread", "no `@mention` needed",
+		"continues the same isolated session",
+		"Use the work card above for actions and its record.",
+		"Ask for anything else in plain language.",
+	} {
+		if !strings.Contains(help, want) {
+			t.Errorf("help lacks %q:\n%s", want, help)
+		}
 	}
 }
 
@@ -237,11 +402,8 @@ func TestTaskCardStateResolverCoversEveryLifecycleCombination(t *testing.T) {
 				!strings.HasPrefix(card.Text, test.word+" — ") {
 				t.Fatalf("card does not state its state three ways: %+v", card)
 			}
-			// Rule 1: the state line always ends with the ask or its absence.
-			if !strings.Contains(card.Sections[0], "*"+test.word+"*") ||
-				!strings.HasSuffix(strings.TrimSpace(card.Sections[0]), "*") {
-				t.Fatalf("state line does not close on the ask: %q", card.Sections[0])
-			}
+			// The request, when present, leads; state is carried by fallback,
+			// header glyph and stripe instead of a repeated prose line.
 		})
 	}
 }
@@ -366,9 +528,8 @@ func TestConfirmableActionsNeverReachTheOverflowMenu(t *testing.T) {
 	}
 }
 
-// Position, not adjective: the run states where it has got to rather than
-// naming its phase and leaving the reader to place it in a sequence they
-// cannot see. A finished run states nothing at all — it is a receipt.
+// The card names each durable part of the engineering workflow. A finished
+// run states nothing at all — it is a receipt.
 func TestTaskLedgerStatesPositionAndTerminalCardsShrinkToAReceipt(t *testing.T) {
 	task := taskFixture()
 	task.Workflow = core.WorkflowInvestigating
@@ -377,31 +538,31 @@ func TestTaskLedgerStatesPositionAndTerminalCardsShrinkToAReceipt(t *testing.T) 
 		task, "Tenant Infrastructure", nil, false, true, core.Publication{},
 		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 	)
-	if len(card.Ledger) != 5 {
+	if len(card.Ledger) != 6 {
 		t.Fatalf("mid-investigation ledger = %+v", card.Ledger)
 	}
 	position, steps := ledgerMarker(card.Ledger)
-	if position != 2 || steps != 5 ||
-		card.Ledger[1].Label != "Investigate" ||
-		card.Ledger[0].Glyph != "✓" || card.Ledger[4].Owner != "your turn" {
+	if position != 2 || steps != 6 ||
+		card.Ledger[1].Label != "Plan the changes" ||
+		card.Ledger[0].Glyph != "✓" || card.Ledger[5].Owner != "your turn" {
 		t.Fatalf("ledger does not state the run's position: %+v", card.Ledger)
 	}
 	// The fallback carries the position too, because a notification gets the
 	// string and never the strip.
-	if !strings.Contains(card.Text, "step 2 of 5") {
+	if !strings.Contains(card.Text, "step 2 of 6") {
 		t.Fatalf("fallback lost the run's position: %q", card.Text)
 	}
 
-	// Once a change exists the middle step is named for the change, not for
-	// the investigation that produced it.
+	// Once a change exists planning and implementation are complete, and the
+	// current marker advances to the readiness review.
 	changed := IncidentCardWithPublication(
 		taskFixture(), "Tenant Infrastructure", nil, true, true, core.Publication{},
 		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 	)
-	if changed.Ledger[1].Label != "Make the change" || changed.Ledger[1].Glyph != "✓" {
+	if changed.Ledger[2].Label != "Implement changes" || changed.Ledger[2].Glyph != "✓" {
 		t.Fatalf("ledger did not follow the phase: %+v", changed.Ledger)
 	}
-	if position, _ := ledgerMarker(changed.Ledger); position != 3 {
+	if position, _ := ledgerMarker(changed.Ledger); position != 4 {
 		t.Fatalf("ready-to-publish run is at step %d, want the readiness review", position)
 	}
 
@@ -419,7 +580,7 @@ func TestTaskLedgerStatesPositionAndTerminalCardsShrinkToAReceipt(t *testing.T) 
 	}
 }
 
-// The middle ledger step names the phase, and never an object.
+// Workflow labels are stable host language and never guessed from the task.
 //
 // It read "Investigate the trigger" in every state, carried over from a mock
 // whose task happened to be an OOM investigation. On "Bump the pinned admin
@@ -433,33 +594,27 @@ func TestTheChangeStepNamesThePhaseAndNeverAnObject(t *testing.T) {
 		workflow       core.WorkflowState
 		hasCodeChanges bool
 		publication    core.Publication
-		label          string
 	}{
 		{
 			name:     "nothing has run, so the step ahead is working out what to do",
 			workflow: core.WorkflowProvisioningChannel,
-			label:    "Plan the work",
 		},
 		{
 			name:     "the workspace is still coming up",
 			workflow: core.WorkflowProvisioningSession,
-			label:    "Plan the work",
 		},
 		{
 			name:     "a turn is running and has produced no change",
 			workflow: core.WorkflowInvestigating,
-			label:    "Investigate",
 		},
 		{
 			name:     "a turn has run and produced no change",
 			workflow: core.WorkflowParked,
-			label:    "Investigate",
 		},
 		{
 			name:           "the fork holds a change",
 			workflow:       core.WorkflowInvestigating,
 			hasCodeChanges: true,
-			label:          "Make the change",
 		},
 		{
 			// Nobody probes the fork while a publication runs, so the caller
@@ -469,7 +624,6 @@ func TestTheChangeStepNamesThePhaseAndNeverAnObject(t *testing.T) {
 			name:        "a PR exists, so a change exists whatever the fork probe says",
 			workflow:    core.WorkflowParked,
 			publication: openPublication(),
-			label:       "Make the change",
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -486,13 +640,19 @@ func TestTheChangeStepNamesThePhaseAndNeverAnObject(t *testing.T) {
 			)
 			ledger := taskLedger(
 				task, state, testCase.hasCodeChanges, testCase.publication,
-				LiveTurn{}, time.Now(),
+				core.PublicationFollowup{}, core.PublicationLifecycleEvent{}, LiveTurn{}, time.Now(),
 			)
-			if len(ledger) != 5 {
+			if len(ledger) != 6 {
 				t.Fatalf("ledger = %+v", ledger)
 			}
-			if ledger[1].Label != testCase.label {
-				t.Fatalf("change step = %q, want %q", ledger[1].Label, testCase.label)
+			want := []string{
+				"Workspace ready", "Plan the changes", "Implement changes",
+				"Readiness review", "Draft PR", "Review and merge",
+			}
+			for index, label := range want {
+				if ledger[index].Label != label {
+					t.Fatalf("step %d = %q, want %q", index+1, ledger[index].Label, label)
+				}
 			}
 			for _, step := range ledger {
 				if strings.Contains(step.Label, "trigger") {
@@ -512,10 +672,11 @@ func TestTheChangeStepNamesThePhaseAndNeverAnObject(t *testing.T) {
 		task,
 		taskCardState(task, true, true, core.Publication{}, core.PublicationFollowup{}),
 		true, core.Publication{},
+		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 		LiveTurn{ToolCalls: 119, Evidence: 2}, time.Now(),
 	)
-	if ledger[1].Label != "Make the change" ||
-		ledger[1].Detail != "119 calls · 2 evidence" {
+	if ledger[2].Label != "Implement changes" ||
+		ledger[2].Detail != "119 calls · 2 evidence" {
 		t.Fatalf("the completed step lost its receipt: %+v", ledger)
 	}
 }
@@ -534,7 +695,7 @@ func TestTheStateLineNeverPointsAtASectionTheCardDidNotRender(t *testing.T) {
 		blocked, "Tenant Infrastructure", nil, false, true, core.Publication{},
 		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 	)
-	body := strings.Join(card.Sections, "\n")
+	body := card.Text + "\n" + strings.Join(card.Sections, "\n")
 	if strings.Contains(body, "*Action needed*") {
 		t.Fatalf("a blocker with no recorded reason rendered a section: %q", body)
 	}
@@ -548,10 +709,11 @@ func TestTheStateLineNeverPointsAtASectionTheCardDidNotRender(t *testing.T) {
 		blocked, "Tenant Infrastructure", nil, false, true, core.Publication{},
 		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 	)
-	reason := strings.Join(withReason.Sections, "\n")
-	if !strings.Contains(reason, "*Action needed*") ||
-		!strings.Contains(reason, "read *Action needed*") {
-		t.Fatalf("a recorded blocker lost its section or its pointer: %q", reason)
+	sections := strings.Join(withReason.Sections, "\n")
+	if !strings.Contains(sections, "*Action needed*") ||
+		!strings.Contains(withReason.Text, "read Action needed") {
+		t.Fatalf("a recorded blocker lost its section or its pointer: %q / %q",
+			withReason.Text, sections)
 	}
 }
 
@@ -649,16 +811,16 @@ func TestBusiestTaskCardStaysAnInstrument(t *testing.T) {
 		t.Fatalf("the busiest task card renders %d blocks; it is becoming a log", blocks)
 	}
 	// Every part the design says must be there is still there at that height.
-	if len(card.Fields) != 0 || len(card.Context) != 1 || len(card.Ledger) != 5 ||
-		len(card.Tail) != 1 {
+	if len(card.Fields) != 0 || len(card.Context) != 0 || len(card.Ledger) != 6 ||
+		len(card.Tail) != 0 {
 		t.Fatalf("the busiest card lost a required part: %+v", card)
 	}
 	// The footer says where the work is happening and stops. It used to say
 	// five things separated by interpuncts — a boundary sentence, a sentence
 	// about replies, a short id, the fork and a start date — and it was the
 	// line every operator had learned to skip.
-	if card.Context[0] != "Isolated fork of Tenant Infrastructure `remote-44f3f67`" {
-		t.Fatalf("footer = %q", card.Context[0])
+	if card.Ledger[0].Subtext != "Isolated fork of Tenant Infrastructure `remote-44f3f67`" {
+		t.Fatalf("workspace detail = %q", card.Ledger[0].Subtext)
 	}
 }
 

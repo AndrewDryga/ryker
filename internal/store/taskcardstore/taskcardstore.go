@@ -25,6 +25,25 @@ func (r *Repository) nowText() string {
 	return r.clock().UTC().Format(core.TimestampFormat)
 }
 
+// ProjectResumedTx moves accepted engineering feedback back into machine
+// custody in the same transaction that admits its next episode attempt.
+func (r *Repository) ProjectResumedTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	run core.AgentRun,
+) error {
+	if run.Mode != core.AgentRunEngineeringTask || run.IncidentID == "" {
+		return nil
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE incidents
+		SET workflow = 'investigating', last_error = '', updated_at = ?,
+		    card_version = card_version + CASE
+		      WHEN workflow != 'investigating' OR last_error != '' THEN 1 ELSE 0 END
+		WHERE id = ? AND work_kind = 'engineering_task'`, r.nowText(), run.IncidentID)
+	return sqlutil.ExpectOne(result, err, "project resumed engineering work")
+}
+
 // BumpActiveTurn marks the pinned card stale because the running turn narrated
 // something new, and reports whether it did.
 //
@@ -70,4 +89,36 @@ func (r *Repository) SetUpdate(ctx context.Context, id, runID, update string) er
 		WHERE incidents.id = ? AND work_kind = 'engineering_task'`,
 		update, runID, now, update, runID, runID, id)
 	return sqlutil.ExpectOne(result, err, "update task card")
+}
+
+// Milestones reads the first durable boundary for each completed engineering
+// step. A retry or feedback turn may add later rows, but it cannot rewrite when
+// the workspace or plan became ready; the first publication review is the
+// durable boundary proving implementation handed off to readiness review.
+func (r *Repository) Milestones(ctx context.Context, incidentID string) (core.WorkMilestones, error) {
+	var result core.WorkMilestones
+	var workspace, planningStarted, planningFinished, implementationFinished string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT
+		  COALESCE((SELECT MIN(created_at) FROM timeline_events
+		    WHERE incident_id = ? AND kind = 'coop.session.created'), ''),
+		  COALESCE((SELECT MIN(created_at) FROM agent_runs
+		    WHERE incident_id = ? AND mode = 'engineering_task'), ''),
+		  COALESCE((SELECT MIN(activity.occurred_at)
+		    FROM agent_activity AS activity
+		    JOIN agent_runs AS run ON run.id = activity.agent_run_id
+		    WHERE run.incident_id = ? AND run.mode = 'engineering_task'
+		      AND activity.kind IN ('model.plan', 'tool.started')), ''),
+		  COALESCE((SELECT MIN(created_at) FROM publications
+		    WHERE incident_id = ?), '')`,
+		incidentID, incidentID, incidentID, incidentID,
+	).Scan(&workspace, &planningStarted, &planningFinished, &implementationFinished)
+	if err != nil {
+		return result, err
+	}
+	result.WorkspaceReadyAt = sqlutil.ParseTime(workspace)
+	result.PlanningStartedAt = sqlutil.ParseTime(planningStarted)
+	result.PlanningFinishedAt = sqlutil.ParseTime(planningFinished)
+	result.ImplementationFinishedAt = sqlutil.ParseTime(implementationFinished)
+	return result, nil
 }

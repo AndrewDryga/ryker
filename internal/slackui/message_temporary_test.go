@@ -44,7 +44,6 @@ func TestEveryTemporaryCardFamilyIsMarkedDismissible(t *testing.T) {
 		"nothing-scheduled receipt":       SchedulesSavedMessage(nil),
 		"setup moved receipt":             ChannelSetupMoved(true),
 		"setup cancelled receipt":         ChannelSetupCancelled(),
-		"operator-choice receipt":         OperatorChoiceAnswer("Retry now"),
 		"publication receipt":             PublicationMessage(core.Publication{PRNumber: 42}, false),
 		"publication lifecycle receipt": PublicationLifecycleMessage(
 			core.Publication{PRNumber: 42}, "Fix health check", "checks", "succeeded",

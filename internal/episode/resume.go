@@ -1,6 +1,25 @@
 package episode
 
-import "github.com/AndrewDryga/responder/internal/core"
+import (
+	"fmt"
+
+	"github.com/AndrewDryga/responder/internal/core"
+)
+
+// BindAttempt preserves an episode's durable identity while clearing the
+// transport identity that each retry must mint for itself.
+func BindAttempt(episode core.WorkEpisode, run core.AgentRun) (core.AgentRun, error) {
+	if Terminal(episode.State) {
+		return core.AgentRun{}, fmt.Errorf(
+			"cannot resume terminal episode %q in state %q", episode.ID, episode.State,
+		)
+	}
+	run.Episode = &episode
+	run.EpisodeID = episode.ID
+	run.AttemptID = ""
+	run.AttemptNumber = 0
+	return run, nil
+}
 
 // PreferredWaitingThread returns the exact Slack thread that may own an older
 // waiting episode. Operational app streams use different correlation rules.

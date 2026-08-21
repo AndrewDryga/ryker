@@ -1466,6 +1466,11 @@ type slackUpdate struct {
 	message slackui.Message
 }
 
+type slackResponseReplacement struct {
+	url     string
+	message slackui.Message
+}
+
 type slackStatus struct {
 	channel string
 	thread  string
@@ -1503,6 +1508,8 @@ type fakeSlack struct {
 	deleteErr                       error
 	responseDeletes                 []string
 	responseDeleteErr               error
+	responseReplacements            []slackResponseReplacement
+	responseReplacementErr          error
 	homes                           []slackPost
 	homeErr                         error
 	joined                          []string
@@ -1657,6 +1664,17 @@ func (f *fakeSlack) Delete(_ context.Context, channel, timestamp string) error {
 func (f *fakeSlack) DeleteResponse(_ context.Context, responseURL string) error {
 	f.responseDeletes = append(f.responseDeletes, responseURL)
 	return f.responseDeleteErr
+}
+
+func (f *fakeSlack) ReplaceResponse(
+	_ context.Context,
+	responseURL string,
+	message slackui.Message,
+) error {
+	f.responseReplacements = append(f.responseReplacements, slackResponseReplacement{
+		url: responseURL, message: message,
+	})
+	return f.responseReplacementErr
 }
 
 func (f *fakeSlack) React(

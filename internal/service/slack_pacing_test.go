@@ -100,6 +100,10 @@ var slackOptionalCapabilities = map[string]string{
 	// reached by pressing a control on a message that already exists, and the
 	// press deletes that message.
 	"Delete": "chat.delete removes a message and does not spend the posting budget",
+	// response_url replaces one private interaction response. It cannot add a
+	// channel message and exists only for the short lifetime Slack assigns the
+	// interaction URL.
+	"ReplaceResponse": "response_url replaces one private interaction response outside the channel posting budget",
 }
 
 // Nothing may reach the Slack client for a write that the pacer cannot see.

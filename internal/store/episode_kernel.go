@@ -59,15 +59,10 @@ func (s *Store) QueueEpisodeAttempt(
 	if err != nil {
 		return core.AgentRun{}, false, err
 	}
-	if episodepkg.Terminal(episode.State) {
-		return core.AgentRun{}, false, fmt.Errorf(
-			"cannot resume terminal episode %q in state %q", episodeID, episode.State,
-		)
+	run, err = episodepkg.BindAttempt(episode, run)
+	if err != nil {
+		return core.AgentRun{}, false, err
 	}
-	run.Episode = &episode
-	run.EpisodeID = episode.ID
-	run.AttemptID = ""
-	run.AttemptNumber = 0
 	return s.queueAgentRun(ctx, run, episode.ID)
 }
 

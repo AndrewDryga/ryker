@@ -1037,6 +1037,15 @@ func (s *Service) incidentCard(
 		s.log.Warn("read the turn's interior for the card",
 			"incident", incident.ID, "error", trimError(turnErr))
 	}
+	if incident.IsEngineeringTask() {
+		milestones, milestoneErr := s.store.TaskCards.Milestones(ctx, incident.ID)
+		if milestoneErr != nil {
+			s.log.Warn("read engineering milestones for the card",
+				"incident", incident.ID, "error", trimError(milestoneErr))
+		} else {
+			turn.Milestones = milestones
+		}
+	}
 	queuedBranches, branchErr := s.store.IncidentSessions.CountRetryingBranches(ctx, incident.ID)
 	if branchErr != nil {
 		s.log.Warn("count queued investigation branches for card",

@@ -240,6 +240,13 @@ func (s *Store) queueAgentRun(
 		); err != nil {
 			return core.AgentRun{}, false, err
 		}
+		// Accepted engineering feedback is already work in Responder's custody,
+		// even before Coop starts the next model turn. Project that state in the
+		// same transaction as the new attempt so the task card cannot remain
+		// parked with answered controls while the run waits in the queue.
+		if err := s.TaskCards.ProjectResumedTx(ctx, tx, stored); err != nil {
+			return core.AgentRun{}, false, err
+		}
 	}
 	// After the episode, not before: the commitment is keyed by episode, so the
 	// episode row has to exist for it to reference.

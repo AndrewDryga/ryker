@@ -217,12 +217,12 @@ func TestUndecodableOverflowSelectionIsAcknowledgedAndDropped(t *testing.T) {
 // stopped agreeing with it.
 func theAsk(t *testing.T, message slackui.Message) string {
 	t.Helper()
-	for _, section := range message.Tail {
+	for _, section := range append(append([]string{}, message.Sections...), message.Tail...) {
 		if strings.HasPrefix(section, "*The request*") {
 			return section
 		}
 	}
-	t.Fatalf("the card has no request in its tail: %+v", message)
+	t.Fatalf("the card has no request section: %+v", message)
 	return ""
 }
 

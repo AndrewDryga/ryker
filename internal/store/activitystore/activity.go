@@ -221,6 +221,25 @@ func (r *Repository) TailForIncident(
 	return r.tail(ctx, fmt.Sprintf(tailQuery, selector), incidentID, limit)
 }
 
+// TailForWork keeps cumulative task totals across feedback/review episodes.
+// Operational incident cards deliberately use TailForIncident and retain their
+// newest-episode window; an engineering task is a single delivery record whose
+// tool count must not reset every time a teammate replies.
+func (r *Repository) TailForWork(
+	ctx context.Context,
+	incidentID string,
+	limit int,
+) (core.AgentActivityTail, error) {
+	selector := `(SELECT DISTINCT episode_id FROM agent_runs
+		WHERE incident_id = ? AND episode_id != '')`
+	query := strings.ReplaceAll(
+		tailQuery,
+		"episode_id = %[1]s",
+		"episode_id IN %[1]s",
+	)
+	return r.tail(ctx, fmt.Sprintf(query, selector), incidentID, limit)
+}
+
 // CountsForTurn totals what one turn did.
 //
 // The tails above answer a card's question and span the whole episode on

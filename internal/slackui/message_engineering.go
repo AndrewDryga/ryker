@@ -47,7 +47,10 @@ func engineeringTaskCard(
 	now := time.Now()
 	state := taskCardState(task, hasCodeChanges, codeChangesKnown, publication, followup)
 	ask := taskAsk(state, task, hasCodeChanges, codeChangesKnown, publication)
-	ledger := taskLedger(task, state, hasCodeChanges, publication, turn, now)
+	ledger := taskLedger(task, state, hasCodeChanges, publication, followup, lifecycle, turn, now)
+	if len(ledger) > 0 {
+		ledger[0].Subtext = taskFooter(task, repositoryName)
+	}
 	actions, overflow := taskActions(
 		task, state, hasCodeChanges, codeChangesKnown, publication, followup,
 	)
@@ -61,49 +64,28 @@ func engineeringTaskCard(
 		// attachment before the ledger on a real two-hour task. The glyph and
 		// state word keep custody explicit while top-level blocks keep the work
 		// record visible; only the long request section may show its own fold.
-		TopLevelBlocks: true,
-		Sections: []string{state.stateLine(
-			escapeSlackText(repositoryName), cardAge(task.CreatedAt, now), ask,
-		)},
+		TopLevelBlocks:  true,
 		Ledger:          ledger,
 		MilestoneLedger: true,
-		Context:         []string{taskFooter(task, repositoryName)},
 		Actions:         actions,
-		// The card ends in the whole request, which has no bound worth
-		// promising, so the controls have to be above it rather than under it.
-		ActionsEarly: true,
-		Overflow:     overflow,
+		Overflow:        overflow,
 	}
-	// Position two, directly under the state line, because it is the reason
-	// the card is salmon and the only thing on it the operator can act on.
+	// The request is the subject of the card, so it comes before its progress.
+	// Slack folds only this long section when needed; the workflow below stays
+	// visible and the controls remain at the bottom where an action row belongs.
+	if signal, ok := primarySignal(signals); ok && strings.TrimSpace(signal.Summary) != "" {
+		message.Sections = append(message.Sections,
+			"*The request*\n"+requestText(signal.Summary))
+	}
+	// Directly under the request because it is the only exceptional fact the
+	// operator may need before reading progress.
 	if blocker := taskBlocker(task, codeChangesKnown, hasCodeChanges, publication); blocker != "" {
 		message.Sections = append(message.Sections, blocker)
-	}
-	// The ask is reference material: it is what was wanted, not what is
-	// happening, and it was the tallest block on every card that carried it.
-	//
-	// It used to be a lede with a button that swapped it for the whole request,
-	// which spent a control and a round trip on a job Slack already does: a long
-	// message folds itself behind "Show more". So the whole request goes on the
-	// card, last, where the fold is — no toggle, nothing truncated to a sentence
-	// nobody asked for, and every id intact because a shortened revision is not
-	// a revision.
-	if signal, ok := primarySignal(signals); ok && strings.TrimSpace(signal.Summary) != "" {
-		message.Tail = append(message.Tail, "*The request*\n"+requestQuote(signal.Summary))
 	}
 	// Directly above the model's own summary, because it is the same subject
 	// told two ways and the recorded one is the one that cannot be wrong.
 	working := state.Word == "Working" && task.ActiveTurnID != ""
 	message = withLiveTurn(message, turn, working, now)
-	// Beside the other counters rather than in the state line, because it is a
-	// count of the same run and because a card that already says "Working"
-	// does not need a second sentence about it. Only where the counters are:
-	// what the fork holds is answered by the buttons once the turn stops.
-	if len(message.Chips) > 0 {
-		if chip, ok := changesChip(hasCodeChanges, codeChangesKnown); ok {
-			message.Chips = append(message.Chips, chip)
-		}
-	}
 	// The model's own summary of its turn. Between activity windows it is the
 	// only account of what actually happened, so it keeps its own section.
 	if strings.TrimSpace(task.LatestUpdate) != "" {
@@ -112,15 +94,7 @@ func engineeringTaskCard(
 			"*Latest*\n"+truncateUTF8(task.LatestUpdate, 1500),
 		)
 	}
-	// Delivery news outlives the PR: a Terraform apply that fails after a merge
-	// is the most important thing on a card whose ledger is already complete.
-	if lifecycle.ID != "" && lifecycle.Kind != "merged" && lifecycle.Kind != "closed" {
-		message.Sections = append(
-			message.Sections,
-			"*Delivery update*\n"+truncateUTF8(escapeSlackText(lifecycle.Summary), 1200),
-		)
-	}
-	if outcome := taskOutcome(state, publication, followup); outcome != "" {
+	if outcome := taskOutcome(state, publication, followup, lifecycle); outcome != "" {
 		message.Sections = append(message.Sections, outcome)
 	}
 	return AppendRecordMenu(message, task.ID)
@@ -150,23 +124,6 @@ func withLiveTurn(message Message, turn LiveTurn, active bool, now time.Time) Me
 		return message
 	}
 	message.Activity = turn.Lines
-	// Freshness first. It is the one counter that answers "is this stuck",
-	// which is the question the card is being looked at to answer.
-	if !turn.LastActivity.IsZero() {
-		message.Chips = append(message.Chips, Chip{
-			Label: "last activity",
-			Value: compactDuration(now.Sub(turn.LastActivity)) + " ago",
-			Live:  true,
-		})
-	}
-	message.Chips = append(message.Chips, Chip{
-		Value: fmt.Sprintf("%d tool calls", turn.ToolCalls),
-	})
-	if turn.Evidence > 0 {
-		message.Chips = append(message.Chips, Chip{
-			Value: fmt.Sprintf("%d evidence", turn.Evidence),
-		})
-	}
 	// The claim as it was written when it was recorded. Re-summarizing model
 	// text on every refresh would let a finding drift without anything having
 	// been found.
@@ -177,23 +134,6 @@ func withLiveTurn(message Message, turn LiveTurn, active bool, now time.Time) Me
 		)
 	}
 	return message
-}
-
-// changesChip states what the fork holds, and says nothing when nobody has
-// asked it.
-//
-// Unknown is a real third state here: while a publication runs the caller has
-// not inspected the fork, and rendering that as "none yet" would tell an
-// operator their work is gone.
-func changesChip(hasChanges, known bool) (Chip, bool) {
-	switch {
-	case !known:
-		return Chip{}, false
-	case hasChanges:
-		return Chip{Label: "changes", Value: "present"}, true
-	default:
-		return Chip{Label: "changes", Value: "none yet"}, true
-	}
 }
 
 // taskCardState maps every combination the old switch enumerated onto one of
@@ -328,38 +268,7 @@ func taskAsk(
 	}
 }
 
-// changeStepLabel names the middle ledger step for the phase the work is in,
-// and names no object.
-//
-// It used to read "Investigate the trigger", carried over from a design mock
-// whose task happened to be an OOM investigation. On "Bump the pinned admin
-// runner release" that label asks a question the card cannot answer — which
-// trigger? There is no trigger. This function knows the phase and knows
-// nothing whatever about the subject, so it states the phase and stops.
-//
-// Three positions from the two signals that reach here. A change exists, so
-// the step is making it. Or nothing has run yet — the workspace is still being
-// provisioned, so there is nothing that could have been investigated and the
-// step ahead is working out what to do. Otherwise a turn has run, or is
-// running, and has not produced a change: that is investigation.
-//
-// changesMade rather than hasCodeChanges, so the label agrees with the ✓ beside
-// it. The caller treats an open PR or a running publication as proof a change
-// exists even while the fork is uninspected, and a step marked done under the
-// word "Investigate" would be the two columns contradicting each other.
-func changeStepLabel(task core.Incident, changesMade bool) string {
-	switch {
-	case changesMade:
-		return "Make the change"
-	case task.Workflow == core.WorkflowProvisioningChannel,
-		task.Workflow == core.WorkflowProvisioningSession:
-		return "Plan the work"
-	default:
-		return "Investigate"
-	}
-}
-
-// taskLedger renders the run as five positions.
+// taskLedger renders the run as six positions.
 //
 // Every publication and followup state lands on one of them rather than on a
 // section of its own: "publishing" is a detail on Draft PR, not a paragraph
@@ -370,6 +279,8 @@ func taskLedger(
 	state cardState,
 	hasCodeChanges bool,
 	publication core.Publication,
+	followup core.PublicationFollowup,
+	lifecycle core.PublicationLifecycleEvent,
 	turn LiveTurn,
 	now time.Time,
 ) []LedgerStep {
@@ -389,16 +300,41 @@ func taskLedger(
 		publication.State != core.PublicationFailed && !publication.NeedsUpdate()
 	steps := []LedgerStep{
 		{Label: "Workspace ready"},
-		{Label: changeStepLabel(task, changesMade)},
+		{Label: "Plan the changes"},
+		{Label: "Implement changes"},
 		{Label: "Readiness review"},
 		{Label: "Draft PR"},
 		{Label: "Review and merge", Owner: "your turn"},
 	}
-	done := []bool{task.CoopSessionID != "", changesMade, reviewPassed, prLanded, false}
-	if done[0] && !task.CreatedAt.IsZero() {
-		// The only per-step timestamp the record actually holds. Inventing the
-		// other four from the task's updated_at would be four confident lies.
-		steps[0].When = compactDuration(now.Sub(task.CreatedAt)) + " ago"
+	steps[5].Subtext = reviewAndMergeSubtext(publication, followup, lifecycle)
+	planDone := !turn.Milestones.PlanningFinishedAt.IsZero() ||
+		turn.ToolCalls > 0 || len(turn.Plan) > 0 || changesMade
+	done := []bool{task.CoopSessionID != "", planDone, changesMade, reviewPassed, prLanded, false}
+	if done[0] {
+		readyAt := turn.Milestones.WorkspaceReadyAt
+		if readyAt.IsZero() {
+			readyAt = task.CreatedAt
+		}
+		if !readyAt.IsZero() {
+			steps[0].When = compactDuration(now.Sub(readyAt)) + " ago"
+			if !task.CreatedAt.IsZero() && readyAt.After(task.CreatedAt) {
+				steps[0].Duration = compactDuration(readyAt.Sub(task.CreatedAt))
+			}
+		}
+	}
+	if done[1] && !turn.Milestones.PlanningFinishedAt.IsZero() {
+		steps[1].When = compactDuration(now.Sub(turn.Milestones.PlanningFinishedAt)) + " ago"
+		if start := turn.Milestones.PlanningStartedAt; !start.IsZero() &&
+			turn.Milestones.PlanningFinishedAt.After(start) {
+			steps[1].Duration = compactDuration(turn.Milestones.PlanningFinishedAt.Sub(start))
+		}
+	}
+	if done[2] && !turn.Milestones.ImplementationFinishedAt.IsZero() {
+		steps[2].When = compactDuration(now.Sub(turn.Milestones.ImplementationFinishedAt)) + " ago"
+		if start := turn.Milestones.PlanningFinishedAt; !start.IsZero() &&
+			turn.Milestones.ImplementationFinishedAt.After(start) {
+			steps[2].Duration = compactDuration(turn.Milestones.ImplementationFinishedAt.Sub(start))
+		}
 	}
 	// What the window was showing, once there is no window.
 	//
@@ -409,9 +345,9 @@ func taskLedger(
 	// rather than two. It attaches to the position, not to the wording, so the
 	// receipt survives the step being named for a different phase.
 	if !turn.Active && turn.ToolCalls > 0 {
-		steps[1].Detail = fmt.Sprintf("%d calls", turn.ToolCalls)
+		steps[2].Detail = fmt.Sprintf("%d calls", turn.ToolCalls)
 		if turn.Evidence > 0 {
-			steps[1].Detail += fmt.Sprintf(" · %d evidence", turn.Evidence)
+			steps[2].Detail += fmt.Sprintf(" · %d evidence", turn.Evidence)
 		}
 	}
 	// And what the calls came to. "3 files · +48 −12" is what the operator
@@ -419,34 +355,34 @@ func taskLedger(
 	// step that is about the change itself — how much work was done is a
 	// weaker fact than what the work amounts to, and the column fits one.
 	if stat := strings.TrimSpace(task.ChangesStat); stat != "" {
-		steps[1].Detail = escapeSlackText(stat)
+		steps[2].Detail = coloredChangesStat(stat)
 	}
 	// One word each. The detail column is the first to give way when a line
 	// runs long, and "needs a…" is not a state anybody can act on — the state
 	// line and the ask carry the full sentence.
 	switch publication.State {
 	case core.PublicationReviewing:
-		steps[2].Detail = "running"
+		steps[3].Detail = "working"
 	case core.PublicationRetrying:
-		steps[3].Detail = "retrying"
+		steps[4].Detail = "retrying"
 	case core.PublicationPublishing:
-		steps[3].Detail = "publishing"
+		steps[4].Detail = "publishing"
 	case core.PublicationFailed:
-		steps[3].Detail = "failed"
+		steps[4].Detail = "failed"
 	case core.PublicationStale:
-		steps[3].Detail = "needs update"
+		steps[4].Detail = "needs update"
 	}
-	if reviewPassed && steps[2].Detail == "" {
-		steps[2].Detail = "green"
+	if reviewPassed && steps[3].Detail == "" {
+		steps[3].Detail = "green"
 	}
 	if publication.HasPR() {
 		// "#482", not "PR #482": the step is already labelled Draft PR, and the
 		// repetition costs the characters the status word needs.
-		steps[3].Detail = strings.TrimSpace(
-			fmt.Sprintf("#%d %s", publication.PRNumber, steps[3].Detail),
+		steps[4].Detail = strings.TrimSpace(
+			fmt.Sprintf("#%d %s", publication.PRNumber, steps[4].Detail),
 		)
 		if !publication.PublishedAt.IsZero() {
-			steps[3].When = compactDuration(now.Sub(publication.PublishedAt)) + " ago"
+			steps[4].When = compactDuration(now.Sub(publication.PublishedAt)) + " ago"
 		}
 	}
 	// Checks nest under Draft PR as Children when lifecycle data reaches this
@@ -461,6 +397,26 @@ func taskLedger(
 		steps[index].Glyph = "✓"
 	}
 	steps[current].Current = true
+	if !turn.Active && publication.State == core.PublicationPublished &&
+		task.Workflow == core.WorkflowInvestigating {
+		steps[current].Detail = "Working on feedback received"
+		steps[current].Owner = ""
+	}
+	if turn.Active {
+		working := "working"
+		if publication.State == core.PublicationPublished {
+			working = "Working on feedback received"
+		}
+		facts := []string{working}
+		if !turn.LastActivity.IsZero() {
+			facts = append(facts, "last activity "+compactDuration(now.Sub(turn.LastActivity))+" ago")
+		}
+		if turn.ToolCalls > 0 {
+			facts = append(facts, fmt.Sprintf("%d tool calls", turn.ToolCalls))
+		}
+		steps[current].Detail = strings.Join(facts, " · ")
+		steps[current].Owner = ""
+	}
 	// The model's own plan nests under wherever the run has got to, which is
 	// the step its goals are being worked inside. It attaches after the current
 	// position is known for that reason, and to the position rather than to a
@@ -471,15 +427,46 @@ func taskLedger(
 	// update, kind `model.plan`, which no runtime sends today and which has
 	// never written a row — they project into the same []PlanStep and land
 	// here, rather than growing a second checklist beside this one.
-	steps[current].Children = planChildren(turn.Plan)
+	steps[1].Children = planChildren(turn.Plan)
 	// Only when the step has nothing else to say. A step already reporting
 	// "#482 needs update" does not need a second column repeating that
 	// somebody has to act on it, and the two together squeeze both.
-	if current == 3 && state.Custody == custodyOperator &&
-		steps[3].When == "" && steps[3].Detail == "" {
-		steps[3].Owner = "yours to publish"
+	if current == 4 && state.Custody == custodyOperator &&
+		steps[4].When == "" && steps[4].Detail == "" {
+		steps[4].Owner = "yours to publish"
 	}
 	return steps
+}
+
+func reviewAndMergeSubtext(
+	publication core.Publication,
+	followup core.PublicationFollowup,
+	lifecycle core.PublicationLifecycleEvent,
+) string {
+	lines := make([]string, 0, 2)
+	if publication.HasPR() && followup.PRState != "merged" && followup.PRState != "closed" {
+		lines = append(lines, fmt.Sprintf(
+			"Draft PR #%d is open — it carries the exact tree the latest Coop readiness review approved.",
+			publication.PRNumber,
+		))
+	}
+	if lifecycle.ID != "" && lifecycle.Kind != "merged" && lifecycle.Kind != "closed" &&
+		strings.TrimSpace(lifecycle.Summary) != "" {
+		lines = append(lines, strings.TrimSpace(lifecycle.Summary))
+	} else if publication.HasPR() && followup.ChecksState == "success" {
+		lines = append(lines, fmt.Sprintf(
+			"GitHub checks passed for PR #%d. It is ready for review or merge.",
+			publication.PRNumber,
+		))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func coloredChangesStat(stat string) string {
+	stat = escapeSlackText(strings.TrimSpace(stat))
+	stat = strings.Replace(stat, " · +", " · 🟢 +", 1)
+	stat = strings.Replace(stat, " −", " 🔴 −", 1)
+	return stat
 }
 
 // taskBlocker is the one section that says what to do about a stopped card.
@@ -522,20 +509,26 @@ func taskOutcome(
 	state cardState,
 	publication core.Publication,
 	followup core.PublicationFollowup,
+	lifecycle core.PublicationLifecycleEvent,
 ) string {
+	delivery := ""
+	if lifecycle.ID != "" && lifecycle.Kind != "merged" && lifecycle.Kind != "closed" &&
+		strings.TrimSpace(lifecycle.Summary) != "" {
+		delivery = "\n\n*Delivery update*\n" + strings.TrimSpace(lifecycle.Summary)
+	}
 	switch state.Word {
 	case "Merged":
 		detail := fmt.Sprintf("*PR merged*\n<%s|PR #%d> was merged.", publication.PRURL, publication.PRNumber)
 		if followup.MergeSHA != "" {
 			detail += " Merge commit `" + escapeSlackText(shortSHA(followup.MergeSHA)) + "`."
 		}
-		return detail + "\nStart a new engineering task to publish another change."
+		return detail + "\nStart a new engineering task to publish another change." + delivery
 	case "PR closed":
 		return fmt.Sprintf(
 			"*PR closed*\n<%s|PR #%d> was closed without merging. Start a new engineering "+
 				"task to publish another change.",
 			publication.PRURL, publication.PRNumber,
-		)
+		) + delivery
 	default:
 		return ""
 	}
@@ -646,7 +639,6 @@ func taskActions(
 	// minute later. This is where it stays askable, on every state of the card:
 	// a turn that has finished is exactly what a receipt is about, and a card
 	// with none yet answers that plainly rather than hiding the question.
-	receipt := Action{ID: ActionTurnReceipt, Label: "What did that turn do?", Value: task.ID}
 	help := Action{ID: ActionHelp, Label: "How this works", Value: task.ID}
 	// The overflow copies of these drop their confirmations deliberately: both
 	// are read-only, and the alternative is one dialog guarding every option
@@ -659,7 +651,7 @@ func taskActions(
 	showDiff := hasCodeChanges || !codeChangesKnown
 
 	var actions []Action
-	overflow := []Action{receipt, help}
+	overflow := []Action{help}
 	switch state.Word {
 	case "Working":
 		if task.ActiveTurnID != "" {
@@ -769,12 +761,8 @@ const requestQuoteBytes = 2800
 // shortened revision is not a revision; the lede that used to shorten them did
 // so because one 40-character token reserved a whole line's width on a block
 // that had to stay two lines tall, and that block no longer exists.
-func requestQuote(summary string) string {
-	lines := strings.Split(escapeSlackText(strings.TrimSpace(summary)), "\n")
-	for index, line := range lines {
-		lines[index] = "> " + line
-	}
-	return truncateUTF8(strings.Join(lines, "\n"), requestQuoteBytes)
+func requestText(summary string) string {
+	return truncateUTF8(escapeSlackText(strings.TrimSpace(summary)), requestQuoteBytes)
 }
 
 func publicationFallback(

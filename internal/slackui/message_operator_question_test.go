@@ -48,7 +48,7 @@ func TestEachQuestionChoiceRendersAsItsOwnButton(t *testing.T) {
 		if len(block) != 2 {
 			t.Fatalf("question %d rendered %d buttons, want 2", questionIndex, len(block))
 		}
-		for _, element := range block {
+		for choiceIndex, element := range block {
 			if seen[element.ActionID] {
 				t.Errorf("action_id %q appears twice; Slack rejects the whole surface",
 					element.ActionID)
@@ -70,11 +70,8 @@ func TestEachQuestionChoiceRendersAsItsOwnButton(t *testing.T) {
 				t.Errorf("button under question %d says it answers question %d",
 					questionIndex, choice.Question)
 			}
-			// The answer posted on the operator's behalf is the text they read
-			// on the button. Anything else attributes words to them that they
-			// never saw.
-			if choice.Answer != element.Text {
-				t.Errorf("button reads %q and answers %q", element.Text, choice.Answer)
+			if element.Text != "Choose "+string(rune('1'+choiceIndex)) {
+				t.Errorf("button %d reads %q, want a bounded numbered label", choiceIndex, element.Text)
 			}
 			answers[questionIndex] = append(answers[questionIndex], choice.Answer)
 		}
@@ -92,6 +89,93 @@ func TestEachQuestionChoiceRendersAsItsOwnButton(t *testing.T) {
 	for _, question := range harvestedQuestions() {
 		if !strings.Contains(rendered, question.Question) {
 			t.Errorf("the card never states the question %q", question.Question)
+		}
+		for _, choice := range question.Choices {
+			if !strings.Contains(rendered, choice) {
+				t.Errorf("the card never states the full choice %q", choice)
+			}
+		}
+	}
+}
+
+// Slack button labels are too short for a policy sentence. The complete answer
+// must remain visible and must be what the next model turn receives; only the
+// accelerator label is allowed to be short.
+func TestALongOperatorChoiceIsVisibleInFullAndSubmittedInFull(t *testing.T) {
+	answer := "Yes — use the proposed configurable deterministic 1% sampling per RPC while always logging the first failure for each RPC every minute"
+	message := WithOperatorQuestions(
+		Message{Text: "Choose the sampling policy."}, "epi_sampling", "U0ASKER",
+		[]OperatorQuestion{{Question: "Which sampling policy should I implement?", Choices: []string{answer}}},
+		NewSanitizer(12000),
+	)
+	buttons := renderedActionBlocks(t, message)
+	if len(buttons) != 1 || len(buttons[0]) != 1 {
+		t.Fatalf("long choice buttons = %+v", buttons)
+	}
+	choice, ok := DecodeOperatorChoice(buttons[0][0].Value)
+	if !ok || choice.Answer != answer {
+		t.Fatalf("button submitted %q, want full answer %q", choice.Answer, answer)
+	}
+	if buttons[0][0].Text != "Choose 1" || !strings.Contains(renderedText(t, message), answer) {
+		t.Fatalf("long choice was not legible: button=%q card=%s", buttons[0][0].Text, renderedText(t, message))
+	}
+}
+
+func TestAnOperatorQuestionReplacesTheRedundantBlockedFooter(t *testing.T) {
+	message := WithBlockedAssessment(
+		Message{Text: "Choose the sampling policy."},
+		"The sampling policy needs operator confirmation.", nil, nil,
+		"Confirm the proposed default.", NewSanitizer(12000),
+	)
+	message = WithOperatorQuestions(
+		message, "epi_sampling", "U0ASKER",
+		[]OperatorQuestion{{Question: "Which sampling policy should I implement?", Choices: []string{"Use 1%"}}},
+		NewSanitizer(12000),
+	)
+	for _, line := range message.Context {
+		if strings.Contains(line, "Blocked:") || strings.Contains(line, "Next:") {
+			t.Fatalf("question repeated itself in the footer: %+v", message.Context)
+		}
+	}
+}
+
+func TestSelectingAnOperatorChoiceResolvesTheOriginalCardInPlace(t *testing.T) {
+	message := WithOperatorQuestions(
+		Message{Text: "Sampling should cap volume. Should I implement that?", Sections: []string{
+			"Sampling should cap volume. Should I implement that?",
+		}}, "epi_sampling", "U0ASKER",
+		[]OperatorQuestion{
+			{Question: "Which policy should I use?", Choices: []string{
+				"Yes — use the proposed 1% plus first-per-minute default",
+				"Sample every failure uniformly at 1%",
+			}},
+			{Question: "Should the setting be configurable?", Choices: []string{
+				"Yes, make it configurable", "No, keep it fixed",
+			}},
+		}, NewSanitizer(12000),
+	)
+	selected := message.Rows[0].Actions[0].Value
+	resolved, ok := ResolveOperatorChoice(message, selected, "U123ABC")
+	if !ok {
+		t.Fatal("the exact rendered choice was not resolved")
+	}
+	if resolved.Temporary || MessageOffersControl(resolved, ActionOperatorChoice, selected) {
+		t.Fatalf("resolved question remained temporary or actionable: %+v", resolved)
+	}
+	for _, row := range resolved.Rows {
+		for _, action := range row.Actions {
+			if action.ID == ActionOperatorChoice {
+				t.Fatalf("another stale question remained actionable: %+v", resolved.Rows)
+			}
+		}
+	}
+	rendered := renderedText(t, resolved)
+	for _, want := range []string{
+		"Options:", "Sample every failure uniformly at 1%", "U123ABC",
+		"selected", "Yes — use the proposed 1% plus first-per-minute default",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("resolved card does not contain %q: %s", want, rendered)
 		}
 	}
 }
@@ -113,7 +197,11 @@ func TestOnlyAChoiceTheModelMarkedRendersAsTheProposal(t *testing.T) {
 	styles := map[string]string{}
 	for _, block := range blocks {
 		for _, element := range block {
-			styles[element.Text] = element.Style
+			choice, ok := DecodeOperatorChoice(element.Value)
+			if !ok {
+				t.Fatalf("choice value does not decode: %q", element.Value)
+			}
+			styles[choice.Answer] = element.Style
 		}
 	}
 	if styles["At least one (Recommended)"] != "primary" {

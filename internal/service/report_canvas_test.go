@@ -14,6 +14,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/socketmode"
 )
 
 // reportFixture is a closed incident with an alert behind it and one recorded
@@ -126,6 +127,70 @@ func TestWorkRecordTimelineButtonDeliversTheInlineTimeline(t *testing.T) {
 		if !strings.Contains(rendered, expected) {
 			t.Fatalf("delivered Timeline answer lacks %q:\n%s", expected, rendered)
 		}
+	}
+}
+
+// Four private record buttons used to post four new ephemeral messages. A
+// directory click followed by Timeline must instead replace that same private
+// surface, keeping Back and Dismiss together on the detail view.
+func TestPrivateWorkRecordNavigationReplacesTheOriginalMessage(t *testing.T) {
+	ctx := context.Background()
+	_, svc, slackClient, socket, incident := overflowFixture(t, ctx)
+
+	deliverInteraction(t, ctx, svc, incident, "env-record-directory-replace", "U123ABC",
+		&slack.BlockAction{ActionID: slackui.ActionRecordDirectory, Value: incident.ID})
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackClient.ephemerals) != 1 {
+		t.Fatalf("directory replies = %+v", slackClient.ephemerals)
+	}
+	var timeline *slack.BlockAction
+	for _, row := range slackClient.ephemerals[0].message.Rows {
+		for _, action := range row.Actions {
+			if slackui.BaseActionID(action.ID) == slackui.ActionRecordTimeline {
+				timeline = &slack.BlockAction{ActionID: action.ID, Value: action.Value}
+			}
+		}
+	}
+	if timeline == nil {
+		t.Fatal("record directory has no Timeline action")
+	}
+	svc.admitInteraction(ctx, socketmode.Event{
+		Type: socketmode.EventTypeInteractive,
+		Data: slack.InteractionCallback{
+			Type: slack.InteractionTypeBlockActions,
+			Team: slack.Team{ID: svc.cfg.Slack.TeamID}, User: slack.User{ID: "U123ABC"},
+			ResponseURL: "https://hooks.slack.test/response/work-record",
+			Container: slack.Container{
+				ChannelID: incident.ChannelID, MessageTs: "1700.ephemeral", IsEphemeral: true,
+			},
+			ActionCallback: slack.ActionCallbacks{BlockActions: []*slack.BlockAction{timeline}},
+		},
+		Request: &socketmode.Request{EnvelopeID: "env-record-timeline-replace"},
+	})
+
+	if len(slackClient.ephemerals) != 1 {
+		t.Fatalf("record navigation posted a second message: %+v", slackClient.ephemerals)
+	}
+	if len(slackClient.responseReplacements) != 1 {
+		t.Fatalf("response replacements = %+v", slackClient.responseReplacements)
+	}
+	replacement := slackClient.responseReplacements[0]
+	if replacement.url != "https://hooks.slack.test/response/work-record" {
+		t.Fatalf("replacement URL = %q", replacement.url)
+	}
+	rendered := renderedSlackMessage(replacement.message)
+	back := false
+	for _, action := range replacement.message.Actions {
+		back = back || slackui.BaseActionID(action.ID) == slackui.ActionRecordBack
+	}
+	if !strings.Contains(rendered, "Remediation timeline") ||
+		!back || !replacement.message.Temporary {
+		t.Fatalf("replacement lost its report or navigation:\n%s", rendered)
+	}
+	if socket.acks != 2 {
+		t.Fatalf("socket acknowledgements = %d, want directory and replacement", socket.acks)
 	}
 }
 

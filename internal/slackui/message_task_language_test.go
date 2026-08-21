@@ -173,7 +173,7 @@ func TestHelpOffersToContinueTheWorkTheChannelActuallyHolds(t *testing.T) {
 		{
 			name:   "room-scoped task",
 			text:   cardText(HelpMessage(taskLanguageRoomTask())),
-			says:   []string{"continues the same engineering task"},
+			says:   []string{"continues the same isolated session"},
 			denies: []string{"incident conversation"},
 		},
 		{

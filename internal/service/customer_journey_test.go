@@ -370,7 +370,7 @@ func TestCustomerJourneyDraftPRCardShowsEveryInFlightTransition(t *testing.T) {
 	// Progress is durable before the first Coop read. Keep session validation
 	// blocked and prove the card worker does not wait on the integration it is reporting.
 	waitFor("session validation", getSessionStarted)
-	assertCard("reviewing", "Readiness review · running")
+	assertCard("reviewing", "Readiness review · working")
 	releaseGetSessionOnce.Do(func() { close(releaseGetSession) })
 	waitFor("reviewing", changesStarted)
 	releaseChangesOnce.Do(func() { close(releaseChanges) })

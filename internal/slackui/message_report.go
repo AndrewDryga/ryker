@@ -180,10 +180,15 @@ func ReportCanvasCard(report Report, canvasURL string) Message {
 		message.Context = append(message.Context, report.Counts)
 	}
 	message.Markdown = truncateMarkdown(strings.TrimSpace(report.Preview), 2400)
+	for _, action := range report.Message.Actions {
+		if action.ID == ActionRecordBack {
+			message.Actions = append(message.Actions, action)
+		}
+	}
 	if canvasURL != "" {
-		message.Actions = []Action{{
+		message.Actions = append(message.Actions, Action{
 			ID: ActionOpenCanvas, Label: "Open the canvas", URL: canvasURL,
-		}}
+		})
 	}
 	return message
 }

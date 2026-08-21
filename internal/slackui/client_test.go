@@ -865,7 +865,7 @@ func TestEngineeringTaskUpdateDeliversVisiblePlumbingAndOnlyFoldsTheRequest(t *t
 			t.Fatalf("delivered top-level blocks lost %q: %s", want, blocks)
 		}
 	}
-	for _, want := range []string{"Working", "nothing needed from you", "Workspace preparation"} {
+	for _, want := range []string{"Workspace preparation", "No model turn has started"} {
 		if !strings.Contains(blocks, want) {
 			t.Fatalf("host-owned preparation status lost %q: %s", want, blocks)
 		}
@@ -1002,5 +1002,38 @@ func TestDeleteResponseRemovesTheOriginalInteractiveMessage(t *testing.T) {
 	}
 	if len(request) != 1 || request["delete_original"] != true {
 		t.Fatalf("response deletion payload = %#v", request)
+	}
+}
+
+func TestReplaceResponseUpdatesTheOriginalPrivateMessage(t *testing.T) {
+	var body []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("response replacement method = %s", r.Method)
+		}
+		var err error
+		body, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = fmt.Fprint(w, "ok")
+	}))
+	defer server.Close()
+	client := &Client{responseClient: server.Client()}
+	message := Message{Text: "Work record", Header: "Timeline", Temporary: true}
+
+	if err := client.ReplaceResponse(context.Background(), server.URL, message); err != nil {
+		t.Fatal(err)
+	}
+	var request struct {
+		ReplaceOriginal bool            `json:"replace_original"`
+		Text            string          `json:"text"`
+		Blocks          json.RawMessage `json:"blocks"`
+	}
+	if err := json.Unmarshal(body, &request); err != nil {
+		t.Fatalf("response replacement body = %q: %v", body, err)
+	}
+	if !request.ReplaceOriginal || request.Text != message.Text || len(request.Blocks) == 0 || string(request.Blocks) == "null" {
+		t.Fatalf("response replacement payload = %#v", request)
 	}
 }

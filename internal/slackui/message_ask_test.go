@@ -26,14 +26,14 @@ func askCard(t *testing.T, ask string) Message {
 	)
 }
 
-func requestTail(t *testing.T, card Message) string {
+func requestSection(t *testing.T, card Message) string {
 	t.Helper()
-	for _, section := range card.Tail {
+	for _, section := range card.Sections {
 		if strings.HasPrefix(section, "*The request*") {
 			return section
 		}
 	}
-	t.Fatalf("the card has no request in its tail: %+v", card)
+	t.Fatalf("the card has no request section: %+v", card)
 	return ""
 }
 
@@ -42,7 +42,7 @@ func requestTail(t *testing.T, card Message) string {
 // edit on a job Slack does for itself: a long message folds behind "Show more".
 func TestTheCardCarriesTheWholeRequestWithNoToggle(t *testing.T) {
 	card := askCard(t, operatorAsk)
-	tail := requestTail(t, card)
+	tail := requestSection(t, card)
 
 	if !strings.Contains(tail, "document the rollout checks in the runbook") {
 		t.Fatalf("the card stops short of the whole request: %q", tail)
@@ -74,12 +74,11 @@ func TestTheCardCarriesTheWholeRequestWithNoToggle(t *testing.T) {
 			}
 		}
 	}
-	// Every line stays inside the quote, or a request with structure in it
-	// reads half as the card talking.
-	multi := requestTail(t, askCard(t, "Do this:\nfirst step\nsecond step"))
-	for _, line := range strings.Split(strings.TrimPrefix(multi, "*The request*\n"), "\n") {
-		if !strings.HasPrefix(line, "> ") {
-			t.Fatalf("a line of the request left the quote: %q", multi)
+	// Structured request text stays intact without a decorative quote rail.
+	multi := requestSection(t, askCard(t, "Do this:\nfirst step\nsecond step"))
+	for _, line := range []string{"Do this:", "first step", "second step"} {
+		if !strings.Contains(multi, line) {
+			t.Fatalf("request structure lost %q: %q", line, multi)
 		}
 	}
 }
@@ -87,7 +86,7 @@ func TestTheCardCarriesTheWholeRequestWithNoToggle(t *testing.T) {
 // The fold is the whole design: Slack hides what is at the bottom, so what is
 // at the bottom has to be the one block nobody needs to see to act. Buttons
 // above it, request below it, and nothing between the request and the end.
-func TestTheRequestIsTheLastBlockAndTheButtonsComeFirst(t *testing.T) {
+func TestTheRequestComesFirstAndTheButtonsComeLast(t *testing.T) {
 	task := taskFixture()
 	task.LastError = "The readiness gate needs a repository validation command."
 	task.LatestUpdate = "Raised the allocation memory and added the two alert rules."
@@ -111,31 +110,25 @@ func TestTheRequestIsTheLastBlockAndTheButtonsComeFirst(t *testing.T) {
 	}
 
 	blocks := card.Blocks()
-	action, last := -1, len(blocks)-1
+	action, request, progress := -1, -1, -1
 	for index, block := range blocks {
 		if _, ok := block.(*slack.ActionBlock); ok && action < 0 {
 			action = index
+		}
+		if section, ok := block.(*slack.SectionBlock); ok && section.Text != nil {
+			if strings.HasPrefix(section.Text.Text, "*The request*") {
+				request = index
+			}
+			if strings.Contains(section.Text.Text, "*Progress*") {
+				progress = index
+			}
 		}
 	}
 	if action < 0 {
 		t.Fatalf("the card rendered no action block: %+v", blocks)
 	}
-	// header, state line, action needed, latest, delivery update, divider, then
-	// the buttons. Asserted as a position rather than a pixel height: what the
-	// fold can reach is decided by order, and order is the thing this file owns.
-	const budget = 7
-	if action > budget {
-		t.Fatalf("the first action block is at position %d of %d, past the %d "+
-			"that keeps it above the fold", action, len(blocks), budget)
-	}
-	// Everything the card states about the run — the ledger, the counters, the
-	// footer — sits between the buttons and the request.
-	section, ok := blocks[last].(*slack.SectionBlock)
-	if !ok || section.Text == nil || !strings.HasPrefix(section.Text.Text, "*The request*") {
-		t.Fatalf("the last block is not the request: %#v", blocks[last])
-	}
-	if _, ok := blocks[last-1].(*slack.ContextBlock); !ok {
-		t.Fatalf("the block above the request is not the footer: %#v", blocks[last-1])
+	if !(request >= 0 && request < progress && progress < action && action == len(blocks)-1) {
+		t.Fatalf("block order request=%d progress=%d actions=%d of %d", request, progress, action, len(blocks))
 	}
 }
 
@@ -160,10 +153,17 @@ func TestTheTaskCardLeavesOnlyTheRequestBehindShowMore(t *testing.T) {
 		t.Fatalf("the consolidated menu does not lead with the work record: %+v", card.Overflow)
 	}
 	blocks := card.Blocks()
-	last := blocks[len(blocks)-1]
-	section, ok := last.(*slack.SectionBlock)
-	if !ok || section.Text == nil || !strings.HasPrefix(section.Text.Text, "*The request*") {
-		t.Fatalf("the request is not the one last foldable block: %#v", last)
+	for _, block := range blocks {
+		section, ok := block.(*slack.SectionBlock)
+		if !ok || section.Text == nil {
+			continue
+		}
+		if strings.HasPrefix(section.Text.Text, "*The request*") && section.Expand {
+			t.Fatal("request cannot fold")
+		}
+		if strings.Contains(section.Text.Text, "*Progress*") && !section.Expand {
+			t.Fatal("progress can fold")
+		}
 	}
 }
 
@@ -173,7 +173,7 @@ func TestTheTaskCardLeavesOnlyTheRequestBehindShowMore(t *testing.T) {
 // whole delivery fails after the work is done.
 func TestTheRequestIsBounded(t *testing.T) {
 	huge := strings.Repeat("reload the allocation and watch the resident set grow ", 400)
-	tail := requestTail(t, askCard(t, huge))
+	tail := requestSection(t, askCard(t, huge))
 
 	if len(tail) > requestQuoteBytes+len("*The request*\n") {
 		t.Fatalf("the request runs %d bytes, over the %d it is allowed",
@@ -182,7 +182,7 @@ func TestTheRequestIsBounded(t *testing.T) {
 	// Still under what the sanitizer would cut, so the bound is this file's
 	// decision rather than a silent trim somewhere downstream.
 	if sanitized := NewSanitizer(12000).Message(askCard(t, huge)); len(
-		requestTail(t, sanitized),
+		requestSection(t, sanitized),
 	) != len(tail) {
 		t.Fatal("the sanitizer had to cut the request, so the bound is not honest")
 	}

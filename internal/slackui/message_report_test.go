@@ -202,7 +202,8 @@ func TestEmptyReportsSayThereIsNothingToRead(t *testing.T) {
 //
 // Grey with no primary because a report is informational: nothing here is
 // waiting on the reader, and a green button would say the opposite. One
-// control, and it is the way in — a "post it here instead" button would need a
+// The report keeps Back beside the way in so private record navigation remains
+// one surface — a "post it here instead" button would need a
 // handler able to rebuild the report at click time, and a control that cannot
 // do what its label says is worse than no control.
 func TestReportCanvasCardIsAPointerWithOneWayIn(t *testing.T) {
@@ -220,10 +221,10 @@ func TestReportCanvasCardIsAPointerWithOneWayIn(t *testing.T) {
 	if len(card.Context) != 1 || card.Context[0] != report.Counts {
 		t.Fatalf("context = %v", card.Context)
 	}
-	if len(card.Actions) != 1 {
-		t.Fatalf("actions = %+v, want only the way into the canvas", card.Actions)
+	if len(card.Actions) != 2 || card.Actions[0].ID != ActionRecordBack {
+		t.Fatalf("actions = %+v, want Back and the way into the canvas", card.Actions)
 	}
-	action := card.Actions[0]
+	action := card.Actions[1]
 	if action.ID != ActionOpenCanvas || action.Label != "Open the canvas" ||
 		action.URL != "https://acme.slack.com/docs/T1/F0CANVAS" || action.Style != "" {
 		t.Fatalf("canvas action = %+v", action)
@@ -272,11 +273,32 @@ func TestRecordDirectoryShowsCountsAndDoesNotOfferEmptyEvidence(t *testing.T) {
 	}
 }
 
-// A card with no link offers no button rather than a button that goes nowhere.
-func TestReportCanvasCardWithoutALinkOffersNoControl(t *testing.T) {
+// A record view is navigation inside one private surface, not a new Slack
+// answer. Every detail therefore needs one way back to the counted directory;
+// Temporary adds Dismiss beside it at render time.
+func TestEveryRecordDetailCanReturnToItsDirectory(t *testing.T) {
+	record := reportFixture()
+	views := []Message{
+		TimelineMessage(record),
+		EvidenceDirectoryMessage(record.Incident, record.Evidence, record.Coverage),
+		HandoffMessage(record),
+		PostmortemDraft(record),
+	}
+	for _, view := range views {
+		if !view.Temporary {
+			t.Fatalf("record detail is not dismissible: %+v", view)
+		}
+		if !slices.Contains(cardActionIDs(view), "responder_record_back") {
+			t.Fatalf("record detail has no Back action: %+v", cardActions(view))
+		}
+	}
+}
+
+// A card with no link still returns to the record directory.
+func TestReportCanvasCardWithoutALinkOffersOnlyBack(t *testing.T) {
 	card := ReportCanvasCard(TimelineReport(reportFixture()), "")
-	if len(card.Actions) != 0 {
-		t.Fatalf("actions = %+v", card.Actions)
+	if len(card.Actions) != 1 || card.Actions[0].ID != ActionRecordBack {
+		t.Fatalf("actions = %+v, want only Back", card.Actions)
 	}
 }
 

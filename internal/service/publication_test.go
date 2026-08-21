@@ -1210,6 +1210,9 @@ func TestPublicationUpdateReturnsToOriginalTaskThreadAndDeduplicates(t *testing.
 	}
 	update := slackClient.updates[0]
 	rendered := update.message.Text + "\n" + strings.Join(update.message.Sections, "\n")
+	for _, step := range update.message.Ledger {
+		rendered += "\n" + step.Label + "\n" + step.Detail + "\n" + step.Subtext
+	}
 	if update.channel != "CTASKS" || update.ts != incident.RootTS ||
 		!strings.Contains(rendered, "HCP reports the exact run as applied") {
 		t.Fatalf("publication update card = %+v", update)

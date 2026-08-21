@@ -1689,6 +1689,16 @@ type AgentRun struct {
 	Episode           *WorkEpisode
 }
 
+// WorkMilestones are host-stamped engineering workflow boundaries. They are
+// separate from model progress prose so card durations survive retries and
+// feedback turns without being estimated from the latest message.
+type WorkMilestones struct {
+	WorkspaceReadyAt         time.Time
+	PlanningStartedAt        time.Time
+	PlanningFinishedAt       time.Time
+	ImplementationFinishedAt time.Time
+}
+
 type CommitmentState string
 
 const (

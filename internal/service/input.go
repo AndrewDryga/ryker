@@ -97,6 +97,7 @@ var slackActionRoutes = map[string]func(*Service, context.Context, core.SlackInp
 	slackui.ActionRecordHandoff:           (*Service).handleRecordControl,
 	slackui.ActionRecordPostmortem:        (*Service).handleRecordControl,
 	slackui.ActionRecordDirectory:         (*Service).handleRecordDirectory,
+	slackui.ActionRecordBack:              (*Service).handleRecordDirectory,
 }
 
 func (s *Service) handleDismissMessage(ctx context.Context, input core.SlackInput) error {

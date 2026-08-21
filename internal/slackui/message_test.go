@@ -574,10 +574,10 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		card.Actions[len(card.Actions)-1].Label != "Close task" {
 		t.Fatalf("engineering task card = %+v", card)
 	}
-	// The whole request is on the card, in the tail, where Slack's own fold
-	// handles its height — no lede, and no control to reveal the rest.
-	if len(card.Tail) != 1 || !strings.HasPrefix(card.Tail[0], "*The request*") {
-		t.Fatalf("the request is not the card's tail: %+v", card.Tail)
+	// The whole request leads the card; Slack may fold that section without
+	// hiding the progress instrument below it.
+	if len(card.Sections) == 0 || !strings.HasPrefix(card.Sections[0], "*The request*") {
+		t.Fatalf("the request is not first: %+v", card.Sections)
 	}
 	if !strings.Contains(offer.Actions[0].Confirm, "isolated") {
 		t.Fatalf("engineering task thread copy = offer:%+v", offer)
@@ -585,7 +585,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 	// The "*Delivery state*\nThe isolated task has no code changes…" paragraph
 	// is superseded by the ledger: an unstarted step states the same fact as a
 	// position instead of as a paragraph the reader has to place in a sequence.
-	if position, steps := ledgerMarker(card.Ledger); position != 2 || steps != 5 {
+	if position, steps := ledgerMarker(card.Ledger); position != 2 || steps != 6 {
 		t.Fatalf("zero-change task ledger = step %d of %d: %+v", position, steps, card.Ledger)
 	}
 	task.Workflow = core.WorkflowBlocked
@@ -734,7 +734,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		// Publication progress used to be a paragraph per state. It is now a
 		// detail on the ledger step it belongs to, so the reader sees which
 		// step is running instead of an adjective they have to place.
-		{state: "reviewing", text: "running"},
+		{state: "reviewing", text: "working"},
 		{state: "publishing", text: "publishing", prURL: "https://github.example/pull/42"},
 		{state: "retrying", text: "retrying"},
 	} {
@@ -1059,8 +1059,8 @@ func TestHelpIsOneClearInstructionAndOneDismissButton(t *testing.T) {
 			if message.Stripe != StripeIdle {
 				t.Errorf("help stripe = %q, want the idle colour %q", message.Stripe, StripeIdle)
 			}
-			if len(message.Sections) != 1 || !strings.HasPrefix(message.Sections[0], variant.lead) {
-				t.Fatalf("help prose = %+v, want the one lead sentence %q", message.Sections, variant.lead)
+			if len(message.Sections) != 1 || !strings.Contains(message.Sections[0], variant.lead) {
+				t.Fatalf("help prose = %+v, want %q", message.Sections, variant.lead)
 			}
 			if len(message.Ledger) != 0 {
 				t.Errorf("help still renders the ambiguous control strip: %+v", message.Ledger)

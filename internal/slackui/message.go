@@ -131,6 +131,7 @@ const (
 	ActionRecordHandoff    = "responder_record_handoff"
 	ActionRecordPostmortem = "responder_record_postmortem"
 	ActionRecordDirectory  = "responder_record_directory"
+	ActionRecordBack       = "responder_record_back"
 
 	// ActionOverflow is the id every overflow menu carries. One id for every
 	// menu on purpose: Slack reports the menu, never the option object, so both
@@ -284,6 +285,11 @@ type Message struct {
 	// work it describes. Blocks turns the marker into one consistent visible
 	// Dismiss button; callers never assemble that control themselves.
 	Temporary bool `json:"temporary,omitempty"`
+	// blockedAssessmentContext remembers the exact host-rendered footer so a
+	// structured operator question can remove that redundant line without
+	// guessing at model wording. It is construction state only and never crosses
+	// the Slack or durable JSON boundary.
+	blockedAssessmentContext string
 }
 
 // LedgerStep is one step of a run.
@@ -293,11 +299,16 @@ type Message struct {
 // step needs both. Children are the checks under a running step, not steps of
 // their own.
 type LedgerStep struct {
-	Glyph  string `json:"glyph,omitempty"`
-	Label  string `json:"label"`
-	Detail string `json:"detail,omitempty"`
-	When   string `json:"when,omitempty"`
-	Owner  string `json:"owner,omitempty"`
+	Glyph    string `json:"glyph,omitempty"`
+	Label    string `json:"label"`
+	Detail   string `json:"detail,omitempty"`
+	When     string `json:"when,omitempty"`
+	Duration string `json:"duration,omitempty"`
+	Owner    string `json:"owner,omitempty"`
+	// Subtext is stable context that belongs to this exact milestone. The
+	// engineering workspace identity sits under Workspace ready instead of in
+	// a footer detached from the step that created it.
+	Subtext string `json:"subtext,omitempty"`
 	// Current marks where the run is now. It picks the glyph when the caller
 	// did not supply one, so the mark survives a caller that only knows the
 	// order of its steps.
@@ -364,6 +375,10 @@ type LiveTurn struct {
 	// QueuedBranches are parallel checks waiting on workspace preparation.
 	// They are not the incident's custody: the lead and siblings may be live.
 	QueuedBranches int
+	// Milestones are durable host timestamps for the engineering workflow.
+	// They survive retries and let completed steps say both when they finished
+	// and how long they took without estimating from the current turn.
+	Milestones core.WorkMilestones
 }
 
 // PlanStep is one goal the work laid out for itself.
@@ -921,7 +936,7 @@ func milestoneLedgerPart(steps []LedgerStep, heading bool) string {
 			glyph = "▸"
 		}
 		fmt.Fprintf(&body, "%s  *%s*", glyph, escapeSlackText(step.Label))
-		facts := make([]string, 0, 2)
+		facts := make([]string, 0, 3)
 		if detail := strings.TrimSpace(step.Detail); detail != "" {
 			facts = append(facts, escapeSlackText(detail))
 		}
@@ -930,9 +945,16 @@ func milestoneLedgerPart(steps []LedgerStep, heading bool) string {
 		} else if owner := strings.TrimSpace(step.Owner); step.Current && owner != "" {
 			facts = append(facts, ownerLabel(owner))
 		}
+		if duration := strings.TrimSpace(step.Duration); duration != "" {
+			facts = append(facts, "took "+escapeSlackText(duration))
+		}
 		if len(facts) > 0 {
 			body.WriteString("  ·  ")
 			body.WriteString(strings.Join(facts, "  ·  "))
+		}
+		if subtext := strings.TrimSpace(step.Subtext); subtext != "" {
+			body.WriteByte('\n')
+			body.WriteString(escapeSlackText(subtext))
 		}
 		for _, child := range step.Children {
 			mark := "•"
@@ -990,7 +1012,7 @@ func milestoneLedgerBlocks(steps []LedgerStep, activity []ActivityLine) []slack.
 func milestoneLedgerSection(text string) slack.Block {
 	return slack.NewSectionBlock(
 		slack.NewTextBlockObject(slack.MarkdownType, truncateUTF8(text, 2900), false, true),
-		nil, nil,
+		nil, nil, slack.SectionBlockOptionExpand(true),
 	)
 }
 
@@ -1398,7 +1420,8 @@ func WithBlockedAssessment(
 		parts = append(parts, "Next: "+nextAction)
 	}
 	if len(parts) > 0 {
-		message.Context = append(message.Context, truncateUTF8(strings.Join(parts, " · "), 700))
+		message.blockedAssessmentContext = truncateUTF8(strings.Join(parts, " · "), 700)
+		message.Context = append(message.Context, message.blockedAssessmentContext)
 	}
 	return message
 }
@@ -1670,7 +1693,7 @@ func EvidenceDirectoryMessage(
 		NewSanitizer(30000),
 	)
 	message.Temporary = true
-	return message
+	return WithRecordBack(message, incident.ID)
 }
 
 func commitmentStateLabel(state core.CommitmentState) string {
@@ -1914,14 +1937,14 @@ func HelpMessage(incident core.Incident) Message {
 		"incident conversation. Use the work card above for actions and its record; ask for " +
 		"anything else in plain language."
 	if incident.IsEngineeringTask() {
-		conversation = "*Just reply in this channel* — no `@mention` needed; that continues the same " +
-			"engineering task. Use the work card above for actions and its record; ask for " +
-			"anything else in plain language."
-	}
-	if incident.IsThreadScoped() {
-		conversation = "*Just reply in this thread* — no `@mention` needed; that continues the same " +
-			"isolated session. Use the work card above for actions and its record; ask for " +
-			"anything else in plain language."
+		place := "channel"
+		if incident.IsThreadScoped() {
+			place = "thread"
+		}
+		conversation = "Emisar is working on code changes in an isolated fork. It cannot merge or deploy them.\n\n" +
+			"*Just reply in this " + place + "* — no `@mention` needed — to steer the work or comment on its delivery. " +
+			"That continues the same isolated session.\n\n" +
+			"Use the work card above for actions and its record. Ask for anything else in plain language."
 	}
 	return Message{
 		Text:      "Help — reply here or use the work card above.",

@@ -11,6 +11,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/reportcanvas"
 	"github.com/AndrewDryga/responder/internal/slackdismiss"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -649,6 +650,27 @@ func (s *Service) admitInteraction(ctx context.Context, event socketmode.Event) 
 			return
 		}
 		s.audit(ctx, result.Audit(input))
+		return
+	}
+	if callback.Container.IsEphemeral && reportcanvas.NavigationAction(actionID) {
+		if err := s.socket.Ack(*event.Request); err != nil {
+			s.log.Warn("acknowledge private record navigation", "error", err)
+		}
+		message, err := reportcanvas.Navigate(ctx, s.store, s.slack, s.log, input)
+		if err != nil {
+			s.log.Warn("render private work record", "error", trimError(err))
+			return
+		}
+		replacer, ok := unpacedSlack(s.slack).(interface {
+			ReplaceResponse(context.Context, string, slackui.Message) error
+		})
+		if !ok {
+			s.log.Warn("Slack client cannot replace a private work record")
+			return
+		}
+		if err := replacer.ReplaceResponse(ctx, callback.ResponseURL, message); err != nil {
+			s.log.Warn("replace private work record", "error", trimError(err))
+		}
 		return
 	}
 	if _, err := s.store.AdmitSlackInput(ctx, input); err != nil {

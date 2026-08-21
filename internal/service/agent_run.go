@@ -29,6 +29,7 @@ import (
 	memorypkg "github.com/AndrewDryga/responder/internal/memory"
 	"github.com/AndrewDryga/responder/internal/mentioncontext"
 	"github.com/AndrewDryga/responder/internal/openquestions"
+	"github.com/AndrewDryga/responder/internal/operatorchoice"
 	"github.com/AndrewDryga/responder/internal/preparationnotice"
 	"github.com/AndrewDryga/responder/internal/promptbudget"
 	"github.com/AndrewDryga/responder/internal/provider"
@@ -4405,7 +4406,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			// engineering task's ask off the durable card and on a message of
 			// its own: standaloneTaskResult below reads HasControls, and the
 			// card discards everything but the reply text.
-			if questions := operatorQuestions(episodeOperations); len(questions) > 0 {
+			if questions := operatorchoice.Questions(episodeOperations); len(questions) > 0 {
 				message = slackui.WithOperatorQuestions(
 					message,
 					run.EpisodeID,

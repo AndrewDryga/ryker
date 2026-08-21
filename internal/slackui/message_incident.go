@@ -390,6 +390,18 @@ func AppendRecordMenu(message Message, workID string) Message {
 	return message
 }
 
+// WithRecordBack keeps record navigation inside one private message. Dismiss
+// is added by Temporary; Back returns to the counted directory.
+func WithRecordBack(message Message, workID string) Message {
+	if strings.TrimSpace(workID) == "" {
+		return message
+	}
+	message.Actions = append([]Action{{
+		ID: ActionRecordBack, Label: "Back", Value: workID,
+	}}, message.Actions...)
+	return message
+}
+
 // RecordDirectoryMessage is the second level behind Work record. Each choice
 // names how much durable material exists before asking the operator to open it;
 // an empty evidence ledger is stated, not offered as a button to nowhere.
@@ -549,10 +561,10 @@ func TimelineMessage(record core.RemediationRecord) Message {
 			ShortID(incident.ID), len(events),
 		)
 	}
-	return Message{
+	return WithRecordBack(Message{
 		Text: fallback, Header: title, Sections: sections, Stripe: StripeIdle,
 		Temporary: true,
-	}
+	}, incident.ID)
 }
 
 func timelineDocument(record core.RemediationRecord) string {
@@ -631,7 +643,7 @@ func HandoffMessage(
 		NewSanitizer(30000),
 	)
 	message.Temporary = true
-	return message
+	return WithRecordBack(message, incident.ID)
 }
 
 func PostmortemDraft(record core.RemediationRecord) Message {
@@ -737,7 +749,7 @@ func PostmortemDraft(record core.RemediationRecord) Message {
 		NewSanitizer(30000),
 	)
 	message.Temporary = true
-	return message
+	return WithRecordBack(message, incident.ID)
 }
 
 func incidentDirectoryStatus(incident core.Incident) string {

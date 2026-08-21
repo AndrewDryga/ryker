@@ -26,6 +26,8 @@ package reportcanvas
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"unicode/utf8"
@@ -38,6 +40,51 @@ import (
 // a report goes and must not be able to reach the rest of Slack while deciding.
 type Canvases interface {
 	CreateCanvas(ctx context.Context, channelID, title, markdown string) (string, error)
+}
+
+type Records interface {
+	LoadRemediationRecord(context.Context, string) (core.RemediationRecord, error)
+}
+
+func NavigationAction(actionID string) bool {
+	switch slackui.BaseActionID(actionID) {
+	case slackui.ActionRecordTimeline, slackui.ActionRecordEvidence,
+		slackui.ActionRecordHandoff, slackui.ActionRecordPostmortem,
+		slackui.ActionRecordBack:
+		return true
+	default:
+		return false
+	}
+}
+
+func Navigate(
+	ctx context.Context,
+	records Records,
+	canvases Canvases,
+	log *slog.Logger,
+	input core.SlackInput,
+) (slackui.Message, error) {
+	record, err := records.LoadRemediationRecord(ctx, strings.TrimSpace(input.ActionValue))
+	if err != nil {
+		return slackui.Message{}, err
+	}
+	if slackui.BaseActionID(input.ActionID) == slackui.ActionRecordBack {
+		return slackui.RecordDirectoryMessage(record), nil
+	}
+	command := map[string]string{
+		slackui.ActionRecordTimeline:   "timeline",
+		slackui.ActionRecordEvidence:   "evidence",
+		slackui.ActionRecordHandoff:    "handoff",
+		slackui.ActionRecordPostmortem: "postmortem",
+	}[slackui.BaseActionID(input.ActionID)]
+	if command == "" {
+		return slackui.Message{}, fmt.Errorf("unknown private record control %q", input.ActionID)
+	}
+	report, ok := For(command, record)
+	if !ok {
+		return slackui.Message{}, errors.New("unknown incident record")
+	}
+	return Publish(ctx, canvases, log, input.ChannelID, report), nil
 }
 
 // For names the report a command asks for.

@@ -3,6 +3,7 @@ package slackui
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -750,6 +751,52 @@ func (c *Client) DeleteResponse(ctx context.Context, responseURL string) error {
 	_, _ = io.Copy(io.Discard, response.Body)
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return fmt.Errorf("Slack response deletion returned HTTP %d", response.StatusCode)
+	}
+	return nil
+}
+
+// ReplaceResponse rewrites the exact ephemeral message that carried an
+// interaction. Ephemeral messages cannot be updated through chat.update; Slack
+// grants this one-message capability through the interaction response URL.
+func (c *Client) ReplaceResponse(
+	ctx context.Context,
+	responseURL string,
+	message Message,
+) error {
+	if strings.TrimSpace(responseURL) == "" {
+		return errors.New("Slack interaction has no response URL")
+	}
+	payload, err := json.Marshal(struct {
+		ReplaceOriginal bool          `json:"replace_original"`
+		Text            string        `json:"text"`
+		Blocks          []slack.Block `json:"blocks"`
+	}{
+		ReplaceOriginal: true,
+		Text:            message.Text,
+		Blocks:          message.Blocks(),
+	})
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, responseURL, bytes.NewReader(payload),
+	)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	client := c.responseClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, response.Body)
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("Slack response replacement returned HTTP %d", response.StatusCode)
 	}
 	return nil
 }

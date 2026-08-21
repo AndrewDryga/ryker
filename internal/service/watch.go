@@ -18,6 +18,7 @@ import (
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/openquestions"
+	"github.com/AndrewDryga/responder/internal/operatorchoice"
 	"github.com/AndrewDryga/responder/internal/promptscope"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
@@ -604,7 +605,7 @@ func (s *Service) applyReplyDecision(
 			s.sanitizer,
 		)
 	}
-	if questions := operatorQuestions(decision.AppliedOperations); len(questions) > 0 {
+	if questions := operatorchoice.Questions(decision.AppliedOperations); len(questions) > 0 {
 		message = slackui.WithOperatorQuestions(
 			message, episodeID, input.UserID, questions, s.sanitizer,
 		)

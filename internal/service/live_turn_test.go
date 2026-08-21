@@ -177,18 +177,22 @@ func TestRunningCardShowsTheRecordedTurnRatherThanItsSelfReport(t *testing.T) {
 		}
 	}
 
-	// The counters describe the whole turn, not the window. The gap between
-	// three lines and three tool calls is small here and was 119 in the run
-	// this was built from; the shape is the same.
-	chips := chipValues(card.Chips)
-	if chips["tool calls"] != "3 tool calls" {
-		t.Fatalf("tool call chip = %+v, want the whole turn's three", card.Chips)
+	// The counters describe the whole engineering task, not one turn that
+	// resets whenever feedback starts another attempt. They live on the active
+	// progress step instead of in detached per-turn chips.
+	var active slackui.LedgerStep
+	for _, step := range card.Ledger {
+		if step.Current {
+			active = step
+			break
+		}
 	}
-	if chips["evidence"] != "1 evidence" {
-		t.Fatalf("evidence chip = %+v", card.Chips)
+	if !strings.Contains(active.Detail, "3 tool calls") ||
+		!strings.Contains(active.Detail, "last activity") {
+		t.Fatalf("active progress does not carry cumulative activity: %+v", active)
 	}
-	if chips["last activity"] == "" {
-		t.Fatalf("nothing on the card answers whether the turn is stuck: %+v", card.Chips)
+	if len(card.Chips) != 0 {
+		t.Fatalf("engineering task still renders resetting per-turn chips: %+v", card.Chips)
 	}
 	if !hasSection(card, "Found so far") ||
 		!hasSection(card, "Traefik reloads correlate with the RSS step") {
@@ -342,20 +346,6 @@ func TestActivityRefreshesTheCardAtMostOncePerThrottleWindow(t *testing.T) {
 	if reopened := version(); reopened != first+1 {
 		t.Fatalf("the card never reopened after the window: %d -> %d", first, reopened)
 	}
-}
-
-func chipValues(chips []slackui.Chip) map[string]string {
-	values := map[string]string{}
-	for _, chip := range chips {
-		key := chip.Label
-		if key == "" {
-			if _, rest, found := strings.Cut(chip.Value, " "); found {
-				key = rest
-			}
-		}
-		values[key] = strings.TrimSpace(chip.Label + " " + chip.Value)
-	}
-	return values
 }
 
 func hasSection(message slackui.Message, needle string) bool {

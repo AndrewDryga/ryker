@@ -25,14 +25,6 @@ func liveTaskCard(task core.Incident, hasChanges, changesKnown bool, live LiveTu
 	)
 }
 
-func chipText(message Message) string {
-	parts := make([]string, 0, len(message.Chips))
-	for _, chip := range message.Chips {
-		parts = append(parts, chip.Label+"="+chip.Value)
-	}
-	return strings.Join(parts, " ")
-}
-
 // The window is the present tense, and only the present tense.
 //
 // A card carrying a turn's last three lines after that turn stopped would be
@@ -52,8 +44,14 @@ func TestTheWindowRendersOnlyWhileTheTurnIsRunning(t *testing.T) {
 	if len(running.Activity) != 1 {
 		t.Fatalf("a running turn rendered no window: %+v", running.Activity)
 	}
-	if !strings.Contains(chipText(running), "119 tool calls") {
-		t.Fatalf("the counters do not describe the whole turn: %s", chipText(running))
+	current := ""
+	for _, step := range running.Ledger {
+		if step.Current {
+			current = step.Detail
+		}
+	}
+	if !strings.Contains(current, "119 tool calls") {
+		t.Fatalf("the active step does not describe the whole task: %s", current)
 	}
 
 	stopped := runningTask()
@@ -83,22 +81,22 @@ func TestTheWindowRendersOnlyWhileTheTurnIsRunning(t *testing.T) {
 // While a publication runs nobody has inspected the fork, so the count is not
 // zero, it is unasked. Rendering that as "none yet" tells an operator their
 // work is gone — the one thing a card must never say by accident.
-func TestTheChangesChipRefusesToGuessWhatTheForkHolds(t *testing.T) {
+func TestTheImplementationStepRefusesToGuessWhatTheForkHolds(t *testing.T) {
 	live := LiveTurn{
 		Active: true, ToolCalls: 4,
 		Lines: []ActivityLine{{Kind: ActivityEdit, Title: "Edit traefik.nomad.hcl"}},
 	}
-	known := chipText(liveTaskCard(runningTask(), true, true, live))
-	if !strings.Contains(known, "changes=present") {
-		t.Fatalf("a fork with changes did not say so: %s", known)
+	knownCard := liveTaskCard(runningTask(), true, true, live)
+	if knownCard.Ledger[2].Label != "Implement changes" {
+		t.Fatalf("a fork with changes lost its implementation step: %+v", knownCard.Ledger)
 	}
-	empty := chipText(liveTaskCard(runningTask(), false, true, live))
-	if !strings.Contains(empty, "changes=none yet") {
-		t.Fatalf("an empty fork did not say so: %s", empty)
+	empty := liveTaskCard(runningTask(), false, true, live)
+	if empty.Ledger[2].Glyph == "✓" {
+		t.Fatalf("an empty fork completed implementation: %+v", empty.Ledger)
 	}
-	unknown := chipText(liveTaskCard(runningTask(), false, false, live))
-	if strings.Contains(unknown, "changes=") {
-		t.Fatalf("an uninspected fork was reported as a count: %s", unknown)
+	unknown := liveTaskCard(runningTask(), false, false, live)
+	if strings.Contains(unknown.Ledger[2].Detail, "none") {
+		t.Fatalf("an uninspected fork was reported as empty: %+v", unknown.Ledger[2])
 	}
 }
 

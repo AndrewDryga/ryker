@@ -377,6 +377,108 @@ func TestIncidentActivityTailReadsTheNewestEpisodeBehindTheIncident(t *testing.T
 	}
 }
 
+// Engineering work often returns from review feedback in a new episode. The
+// work card is a task receipt, so its totals span those episodes while its
+// visible window still shows the latest activity.
+func TestEngineeringTaskActivityTailKeepsCumulativeTotalsAcrossFeedbackEpisodes(t *testing.T) {
+	ctx := context.Background()
+	st := openAt(t, t.TempDir())
+	seedEpisodeWithRun(t, st, "ep_first", "completed",
+		map[string][2]string{"run_first": {"completed", "2026-08-07T11:00:00.000000000Z"}})
+	seedEpisodeWithRun(t, st, "ep_feedback", "working",
+		map[string][2]string{"run_feedback": {"running", "2026-08-07T13:00:00.000000000Z"}})
+	if _, err := st.db.ExecContext(ctx, `
+		INSERT INTO incidents (id, route, repository, correlation_key, title, status,
+		  workflow, work_kind, created_at, updated_at)
+		VALUES ('task_1','manual','repo','k','Sampling','active','investigating',
+		  'engineering_task','2026-08-07T11:00:00.000000000Z','2026-08-07T11:00:00.000000000Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx,
+		`UPDATE agent_runs SET incident_id = 'task_1' WHERE id IN ('run_first','run_feedback')`); err != nil {
+		t.Fatal(err)
+	}
+	for sequence := int64(1); sequence <= 3; sequence++ {
+		recordActivity(t, st, core.AgentActivity{
+			EpisodeID: "ep_first", AgentRunID: "run_first", Sequence: sequence,
+			Kind: "tool.started", Title: "initial implementation",
+			OccurredAt: time.Date(2026, 8, 7, 11, int(sequence), 0, 0, time.UTC),
+		})
+	}
+	recordActivity(t, st, core.AgentActivity{
+		EpisodeID: "ep_feedback", AgentRunID: "run_feedback", Sequence: 1,
+		Kind: "tool.started", Title: "apply review feedback",
+		OccurredAt: time.Date(2026, 8, 7, 13, 1, 0, 0, time.UTC),
+	})
+
+	tail, err := st.Activity.TailForWork(ctx, "task_1", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tail.Recorded != 4 || tail.ToolCalls != 4 {
+		t.Fatalf("task totals reset on feedback: %+v", tail)
+	}
+	if len(tail.Lines) != 3 || tail.Lines[0].Title != "apply review feedback" {
+		t.Fatalf("task window is not the newest activity: %+v", tail.Lines)
+	}
+}
+
+func TestEngineeringTaskMilestonesUseDurableHostTimestamps(t *testing.T) {
+	ctx := context.Background()
+	st := openAt(t, t.TempDir())
+	seedEpisodeWithRun(t, st, "ep_milestones", "completed",
+		map[string][2]string{"run_milestones": {"completed", "2026-08-07T11:00:00.000000000Z"}})
+	if _, err := st.db.ExecContext(ctx, `
+		INSERT INTO incidents (id, route, repository, correlation_key, title, status,
+		  workflow, work_kind, created_at, updated_at)
+		VALUES ('task_milestones','manual','repo','km','Milestones','active','parked',
+		  'engineering_task','2026-08-07T10:58:00.000000000Z','2026-08-07T11:06:00.000000000Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx, `
+		UPDATE agent_runs SET incident_id = 'task_milestones', mode = 'engineering_task'
+		WHERE id = 'run_milestones'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx, `
+		INSERT INTO publications (
+		  incident_id, repository, base_branch, head_branch, parent_head,
+		  candidate_tree, state, created_at, updated_at
+		) VALUES (
+		  'task_milestones','repo','main','responder/task','parent','candidate',
+		  'reviewing','2026-08-07T11:05:00.000000000Z','2026-08-07T11:05:00.000000000Z'
+		)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx, `
+		INSERT INTO timeline_events (id, incident_id, kind, title, created_at)
+		VALUES ('tl_workspace','task_milestones','coop.session.created','Workspace ready',
+		  '2026-08-07T10:59:00.000000000Z')`); err != nil {
+		t.Fatal(err)
+	}
+	recordActivity(t, st, core.AgentActivity{
+		EpisodeID: "ep_milestones", AgentRunID: "run_milestones", Sequence: 1,
+		Kind: "model.plan", Title: "Plan", OccurredAt: time.Date(2026, 8, 7, 11, 1, 0, 0, time.UTC),
+	})
+
+	milestones, err := st.TaskCards.Milestones(ctx, "task_milestones")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := milestones.WorkspaceReadyAt.Format(time.RFC3339); got != "2026-08-07T10:59:00Z" {
+		t.Fatalf("workspace ready = %s", got)
+	}
+	if got := milestones.PlanningStartedAt.Format(time.RFC3339); got != "2026-08-07T11:00:00Z" {
+		t.Fatalf("planning started = %s", got)
+	}
+	if got := milestones.PlanningFinishedAt.Format(time.RFC3339); got != "2026-08-07T11:01:00Z" {
+		t.Fatalf("planning finished = %s", got)
+	}
+	if got := milestones.ImplementationFinishedAt.Format(time.RFC3339); got != "2026-08-07T11:05:00Z" {
+		t.Fatalf("implementation finished = %s", got)
+	}
+}
+
 // The episode carries its own freshness stamp so the watchdog can read one row
 // instead of aggregating the narration under it, and the two are written in one
 // transaction so a crash cannot leave a stamp the stored rows contradict.

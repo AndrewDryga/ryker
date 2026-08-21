@@ -241,7 +241,7 @@ func TestTheCardStatesWhatTheChangeAmountsTo(t *testing.T) {
 	}
 	card := mustCard(t, ctx, svc, task)
 	for _, step := range card.Ledger {
-		if strings.Contains(step.Detail, task.ChangesStat) {
+		if strings.Contains(step.Detail, "🟢 +1") && strings.Contains(step.Detail, "🔴 −1") {
 			return
 		}
 	}

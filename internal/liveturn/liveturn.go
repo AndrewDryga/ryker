@@ -51,6 +51,12 @@ type Tail interface {
 	) (core.AgentActivityTail, error)
 }
 
+type cumulativeWorkTail interface {
+	TailForWork(
+		ctx context.Context, incidentID string, limit int,
+	) (core.AgentActivityTail, error)
+}
+
 // Findings reads what the work has established.
 type Findings interface {
 	SummarizeIncidentEvidence(
@@ -100,6 +106,11 @@ func Fetch(
 	}
 	active := incident.ActiveTurnID != ""
 	moments, err := tail.TailForIncident(ctx, incident.ID, WindowLines)
+	if incident.IsEngineeringTask() {
+		if cumulative, ok := tail.(cumulativeWorkTail); ok {
+			moments, err = cumulative.TailForWork(ctx, incident.ID, WindowLines)
+		}
+	}
 	if err != nil {
 		return slackui.LiveTurn{Active: active}, err
 	}

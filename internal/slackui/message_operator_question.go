@@ -76,6 +76,7 @@ func WithOperatorQuestions(
 		return message
 	}
 	asked := 0
+	interactive := false
 	for index, question := range questions {
 		text := operatorQuestionText(question.Question, sanitizer)
 		if text == "" {
@@ -84,11 +85,22 @@ func WithOperatorQuestions(
 		if asked++; asked > MaxOperatorQuestions {
 			break
 		}
-		message = AppendRow(
-			message,
-			"*"+text+"*",
-			operatorChoiceActions(episodeID, askedUserID, index, question.Choices, sanitizer),
+		actions, choices := operatorChoiceActions(
+			episodeID, askedUserID, index, question.Choices, sanitizer,
 		)
+		row := "*" + text + "*"
+		if len(actions) > 0 {
+			interactive = true
+			row += "\n\n*Options:*"
+			for choiceIndex, choice := range choices {
+				row += "\n" + choiceNumber(choiceIndex) + ". " + escapeSlackText(choice)
+			}
+		}
+		message = AppendRow(message, row, actions)
+	}
+	if interactive && message.blockedAssessmentContext != "" {
+		message.Context = removeExactString(message.Context, message.blockedAssessmentContext)
+		message.blockedAssessmentContext = ""
 	}
 	return message
 }
@@ -108,8 +120,9 @@ func operatorChoiceActions(
 	question int,
 	choices []string,
 	sanitizer *Sanitizer,
-) []Action {
+) ([]Action, []string) {
 	actions := make([]Action, 0, len(choices))
+	visible := make([]string, 0, len(choices))
 	for _, raw := range choices {
 		choice := strings.TrimSpace(raw)
 		if sanitizer != nil {
@@ -125,10 +138,9 @@ func operatorChoiceActions(
 		// value has to carry the same string the operator read. Slack would
 		// truncate the label alone and leave the button answering something
 		// longer than it says.
-		label := truncateUTF8(choice, operatorChoiceLabelLimit)
 		value := EncodeOperatorChoice(OperatorChoice{
 			EpisodeID: episodeID, AskedUser: askedUserID,
-			Question: question, Answer: label,
+			Question: question, Answer: choice,
 		})
 		// A value over the bound is dropped rather than cut: a truncated one
 		// does not decode, so the button would render and then refuse the press
@@ -137,36 +149,79 @@ func operatorChoiceActions(
 		if value == "" || len(value) > buttonValueLimit {
 			continue
 		}
-		action := Action{ID: ActionOperatorChoice, Label: label, Value: value}
-		if proposalMarker.MatchString(label) {
+		action := Action{
+			ID: ActionOperatorChoice, Label: "Choose " + choiceNumber(len(actions)), Value: value,
+		}
+		if proposalMarker.MatchString(choice) {
 			action.Style = "primary"
 		}
 		actions = append(actions, action)
+		visible = append(visible, choice)
 	}
-	return actions
+	return actions, visible
 }
 
-// operatorChoiceLabelLimit is Slack's bound on button text. A choice longer
-// than this is a sentence rather than a choice; it still reaches the operator
-// in the question, which states the options in the model's own words.
-const operatorChoiceLabelLimit = 75
-
-// OperatorChoiceAnswer records a pressed choice where the question was asked.
-//
-// A press is silent. Without this the thread would show a question, then the
-// work resuming on an answer nobody in the channel ever saw — and the person
-// reading it back a week later would have no way to learn what was decided or
-// that a decision had been taken at all. The words are the ones on the button,
-// so the transcript and the model receive the same answer.
-//
-// Grey: the decision has been made and passed back to the work, so nobody is
-// being asked for anything by this line.
-func OperatorChoiceAnswer(answer string) Message {
-	return Message{
-		Text:      "Answered: " + answer,
-		Stripe:    StripeIdle,
-		Sections:  []string{"*Answered:* " + escapeSlackText(answer)},
-		Context:   []string{"Chosen from the options above. Reply in this thread to say more."},
-		Temporary: true,
-	}
+func choiceNumber(index int) string {
+	return string(rune('1' + index))
 }
+
+func removeExactString(values []string, target string) []string {
+	for index, value := range values {
+		if value == target {
+			return append(values[:index:index], values[index+1:]...)
+		}
+	}
+	return values
+}
+
+// ResolveOperatorChoice turns the delivered question into its durable decision
+// record. The complete options remain visible, the exact selection is
+// attributed with a host-created Slack user mention, and every choice control
+// on the answered row is retired.
+func ResolveOperatorChoice(message Message, selectedValue, userID string) (Message, bool) {
+	selectedRow := -1
+	var selected OperatorChoice
+	for rowIndex := range message.Rows {
+		for _, action := range message.Rows[rowIndex].Actions {
+			if action.ID != ActionOperatorChoice || action.Value != selectedValue {
+				continue
+			}
+			var ok bool
+			selected, ok = DecodeOperatorChoice(action.Value)
+			if !ok {
+				return message, false
+			}
+			selectedRow = rowIndex
+			break
+		}
+		if selectedRow >= 0 {
+			break
+		}
+	}
+	if selectedRow < 0 {
+		return message, false
+	}
+	// Resuming the episode retires every choice on the asking, not only the
+	// pressed row. A second row left live would offer an answer to the old
+	// attempt while the model is already working on the selected one.
+	for rowIndex := range message.Rows {
+		row := &message.Rows[rowIndex]
+		kept := make([]Action, 0, len(row.Actions))
+		for _, action := range row.Actions {
+			if action.ID != ActionOperatorChoice {
+				kept = append(kept, action)
+			}
+		}
+		row.Actions = kept
+	}
+	actor := "The operator"
+	if slackUserIDPattern.MatchString(userID) {
+		actor = "<@" + userID + ">"
+	}
+	message.Rows[selectedRow].Text += "\n\n" + actor + " selected “" +
+		escapeSlackText(selected.Answer) + "”."
+	message.Temporary = false
+	return message, true
+}
+
+var slackUserIDPattern = regexp.MustCompile(`^[UW][A-Z0-9]+$`)

@@ -41,3 +41,22 @@ func TestWaitingEpisodeOnlyAcceptsItsOperatorAnswer(t *testing.T) {
 		t.Fatal("active channel follow-up did not answer a channel-level question")
 	}
 }
+
+func TestBindAttemptPreservesEpisodeAndClearsTransportIdentity(t *testing.T) {
+	episode := core.WorkEpisode{ID: "episode_1", State: core.EpisodeRetrying}
+	run, err := BindAttempt(episode, core.AgentRun{
+		EpisodeID: "other", AttemptID: "old", AttemptNumber: 7,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Episode == nil || run.Episode.ID != episode.ID || run.EpisodeID != episode.ID ||
+		run.AttemptID != "" || run.AttemptNumber != 0 {
+		t.Fatalf("bound attempt = %+v", run)
+	}
+	if _, err := BindAttempt(core.WorkEpisode{
+		ID: "done", State: core.EpisodeCompleted,
+	}, core.AgentRun{}); err == nil {
+		t.Fatal("terminal episode was resumable")
+	}
+}
