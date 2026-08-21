@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	IncidentCardRevision = "2026-08-20.4"
+	IncidentCardRevision = "2026-08-20.5"
 
 	ActionUpdate          = "responder_update"
 	ActionChanges         = "responder_changes"

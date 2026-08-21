@@ -539,6 +539,7 @@ func (g *GitHub) PublicationStatus(
 	status.ChecksTotal = checks.total
 	status.ChecksPassed = checks.passed
 	status.ChecksFailed = checks.failed
+	status.ChecksURL = checks.url
 	return status, nil
 }
 
@@ -547,6 +548,7 @@ type commitCheckSummary struct {
 	total  int
 	passed int
 	failed int
+	url    string
 }
 
 func (g *GitHub) commitChecks(
@@ -559,6 +561,7 @@ func (g *GitHub) commitChecks(
 		CheckRuns []struct {
 			Status     string `json:"status"`
 			Conclusion string `json:"conclusion"`
+			DetailsURL string `json:"details_url"`
 		} `json:"check_runs"`
 	}
 	path := "/repos/" + repository + "/commits/" + sha + "/check-runs?per_page=100"
@@ -567,7 +570,8 @@ func (g *GitHub) commitChecks(
 	}
 	var combined struct {
 		Statuses []struct {
-			State string `json:"state"`
+			State     string `json:"state"`
+			TargetURL string `json:"target_url"`
 		} `json:"statuses"`
 	}
 	path = "/repos/" + repository + "/commits/" + sha + "/status"
@@ -576,8 +580,25 @@ func (g *GitHub) commitChecks(
 	}
 	result := commitCheckSummary{}
 	pending := 0
+	sharedRunURL := ""
+	allShareRun := true
+	recordRun := func(value string) {
+		current := githubWorkflowRunURL(value)
+		if current == "" {
+			allShareRun = false
+			return
+		}
+		if sharedRunURL == "" {
+			sharedRunURL = current
+			return
+		}
+		if sharedRunURL != current {
+			allShareRun = false
+		}
+	}
 	for _, check := range checkRuns.CheckRuns {
 		result.total++
+		recordRun(check.DetailsURL)
 		if check.Status != "completed" || check.Conclusion == "" {
 			pending++
 			continue
@@ -591,6 +612,7 @@ func (g *GitHub) commitChecks(
 	}
 	for _, check := range combined.Statuses {
 		result.total++
+		recordRun(check.TargetURL)
 		switch check.State {
 		case "success":
 			result.passed++
@@ -610,7 +632,32 @@ func (g *GitHub) commitChecks(
 	default:
 		result.state = "none"
 	}
+	if allShareRun {
+		result.url = sharedRunURL
+	}
 	return result, nil
+}
+
+func githubWorkflowRunURL(value string) string {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	for index := 0; index+2 < len(parts); index++ {
+		if parts[index] != "actions" || parts[index+1] != "runs" {
+			continue
+		}
+		if _, err := strconv.ParseUint(parts[index+2], 10, 64); err != nil {
+			return ""
+		}
+		parsed.Path = "/" + strings.Join(parts[:index+3], "/")
+		parsed.RawPath = ""
+		parsed.RawQuery = ""
+		parsed.Fragment = ""
+		return parsed.String()
+	}
+	return ""
 }
 
 func (g *GitHub) token(ctx context.Context) (string, error) { return Token(ctx, g.cfg) }

@@ -457,7 +457,10 @@ func githubChecksStep(
 	if !publication.HasPR() {
 		return LedgerStep{}, false
 	}
-	step := LedgerStep{Label: "GitHub checks", DetailURL: publication.PRURL}
+	step := LedgerStep{
+		Label:     "GitHub checks",
+		DetailURL: core.FirstNonempty(followup.ChecksURL, publication.PRURL),
+	}
 	switch strings.ToLower(strings.TrimSpace(followup.ChecksState)) {
 	case "passing", "passed", "success", "succeeded":
 		step.Glyph = "✓"

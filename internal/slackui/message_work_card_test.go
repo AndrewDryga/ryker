@@ -146,6 +146,7 @@ func TestPRDeliveryAndFeedbackLiveUnderReviewAndMerge(t *testing.T) {
 		core.PublicationFollowup{
 			PRState: "open", ChecksState: "passing",
 			ChecksTotal: 2, ChecksPassed: 2,
+			ChecksURL: "https://github.example/actions/runs/991",
 		},
 		core.PublicationLifecycleEvent{
 			ID: "github-checks-20", Kind: "checks", State: "success",
@@ -176,7 +177,7 @@ func TestPRDeliveryAndFeedbackLiveUnderReviewAndMerge(t *testing.T) {
 	}
 	for _, want := range []string{
 		"<https://github.example/pull/20|#20>",
-		"<https://github.example/pull/20|passed (2/2)>",
+		"<https://github.example/actions/runs/991|passed (2/2)>",
 	} {
 		if !strings.Contains(progress.String(), want) {
 			t.Errorf("progress lost link %q:\n%s", want, progress.String())
@@ -202,6 +203,16 @@ func TestPRDeliveryAndFeedbackLiveUnderReviewAndMerge(t *testing.T) {
 	if !queuedReview.Current || queuedReview.Detail != "Working on feedback received" ||
 		queuedReview.Owner != "" {
 		t.Fatalf("accepted feedback still looks like the operator's turn: %+v", queuedReview)
+	}
+	var queuedProgress strings.Builder
+	for _, block := range queued.Blocks() {
+		section, ok := block.(*slack.SectionBlock)
+		if ok && section.Text != nil {
+			queuedProgress.WriteString(section.Text.Text)
+		}
+	}
+	if want := "<https://github.example/pull/20|passed (2/2)>"; !strings.Contains(queuedProgress.String(), want) {
+		t.Errorf("checks without a workflow URL lost the PR fallback %q:\n%s", want, queuedProgress.String())
 	}
 }
 

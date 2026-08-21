@@ -1900,6 +1900,7 @@ type PublicationFollowup struct {
 	ChecksTotal  int
 	ChecksPassed int
 	ChecksFailed int
+	ChecksURL    string
 	MergeSHA     string
 	MergedAt     time.Time
 	NextCheckAt  time.Time
@@ -1950,6 +1951,7 @@ type PublicationLifecycleStatus struct {
 	ChecksTotal  int
 	ChecksPassed int
 	ChecksFailed int
+	ChecksURL    string
 	MergedAt     time.Time
 }
 

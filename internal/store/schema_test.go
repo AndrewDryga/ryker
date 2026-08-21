@@ -175,6 +175,7 @@ func TestPublicationControlMigrationDirtiesExistingTaskCard(t *testing.T) {
 		ALTER TABLE publication_followups DROP COLUMN checks_total;
 		ALTER TABLE publication_followups DROP COLUMN checks_passed;
 		ALTER TABLE publication_followups DROP COLUMN checks_failed;
+		ALTER TABLE publication_followups DROP COLUMN checks_url;
 		ALTER TABLE publications DROP COLUMN attempt_input_id;
 		ALTER TABLE publications DROP COLUMN failure_code;
 		ALTER TABLE publications DROP COLUMN generation;

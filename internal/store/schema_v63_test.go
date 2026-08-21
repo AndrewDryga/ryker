@@ -68,6 +68,7 @@ func TestSchemaV63RepaintsPublicationLifecycleCards(t *testing.T) {
 		ALTER TABLE publication_followups DROP COLUMN checks_total;
 		ALTER TABLE publication_followups DROP COLUMN checks_passed;
 		ALTER TABLE publication_followups DROP COLUMN checks_failed;
+		ALTER TABLE publication_followups DROP COLUMN checks_url;
 		ALTER TABLE slack_deliveries DROP COLUMN response_root;
 		ALTER TABLE slack_deliveries DROP COLUMN agent_run_id;
 		ALTER TABLE slack_deliveries DROP COLUMN agent_run_key;

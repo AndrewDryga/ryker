@@ -72,6 +72,7 @@ func (s *orderingStatus) PublicationStatus(
 	return core.PublicationLifecycleStatus{
 		PRState: "open", ChecksState: "passing", HeadSHA: "remote",
 		ChecksTotal: 1, ChecksPassed: 1,
+		ChecksURL: "https://github.com/owner/repository/actions/runs/991",
 	}, nil
 }
 
@@ -193,6 +194,7 @@ func TestDelayedFollowupCannotOverwriteNewerSuccess(t *testing.T) {
 			}
 			if followups.current.ChecksState != "passing" ||
 				followups.current.ChecksTotal != 1 || followups.current.ChecksPassed != 1 ||
+				followups.current.ChecksURL != "https://github.com/owner/repository/actions/runs/991" ||
 				followups.current.FailureCount != 0 || followups.current.LastError != "" {
 				t.Fatalf("newer success overwritten = %+v", followups.current)
 			}

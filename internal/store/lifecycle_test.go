@@ -727,6 +727,7 @@ func TestPublicationFollowupPersistsLifecycleAndActiveContext(t *testing.T) {
 	followup.ChecksState = "passing"
 	followup.ChecksTotal = 2
 	followup.ChecksPassed = 2
+	followup.ChecksURL = "https://github.com/owner/tenant-infra/actions/runs/991"
 	followup.MergeSHA = "abcdefabcdef"
 	followup.MergedAt = now
 	followup.NextCheckAt = now.Add(24 * time.Hour)
@@ -748,6 +749,7 @@ func TestPublicationFollowupPersistsLifecycleAndActiveContext(t *testing.T) {
 	reset, err := st.PublicationFollowups.Get(ctx, incident.ID)
 	if err != nil || reset.PRState != "merged" || reset.ChecksState != "passing" ||
 		reset.ChecksTotal != 2 || reset.ChecksPassed != 2 || reset.ChecksFailed != 0 ||
+		reset.ChecksURL != "https://github.com/owner/tenant-infra/actions/runs/991" ||
 		reset.MergeSHA != "abcdefabcdef" {
 		t.Fatalf("terminal publication follow-up reopened by reset = %+v, %v", reset, err)
 	}

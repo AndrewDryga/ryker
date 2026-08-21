@@ -5,7 +5,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/store/schemaassets"
 )
 
-const currentSchemaVersion = 89
+const currentSchemaVersion = 90
 
 const connectionPragmas = `
 PRAGMA foreign_keys = ON;
@@ -499,5 +499,6 @@ var migrations = map[int]string{
 	// Durable retirement of stale preparation notices. The table rebuild and
 	// preservation proof live beside the DDL in migrationddl.V88. V89 stores
 	// structured check counts so cards never recover data from a human sentence.
-	88: migrationddl.V88, 89: migrationddl.V89,
+	// V90 retains the exact workflow destination that produced those counts.
+	88: migrationddl.V88, 89: migrationddl.V89, 90: migrationddl.V90,
 }

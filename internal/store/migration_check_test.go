@@ -89,6 +89,7 @@ func TestCheckMigrationCatchesAMigrationThatDestroysRows(t *testing.T) {
 		 ALTER TABLE publication_followups DROP COLUMN checks_total;
 		 ALTER TABLE publication_followups DROP COLUMN checks_passed;
 		 ALTER TABLE publication_followups DROP COLUMN checks_failed;
+		 ALTER TABLE publication_followups DROP COLUMN checks_url;
 		 UPDATE schema_version SET version = ?`, currentSchemaVersion-1,
 	); err != nil {
 		t.Fatal(err)
@@ -195,6 +196,7 @@ func TestCheckMigrationReportsADeclaredDeletionWithoutExcusingAnythingElse(t *te
 		ALTER TABLE publication_followups DROP COLUMN checks_total;
 		ALTER TABLE publication_followups DROP COLUMN checks_passed;
 		ALTER TABLE publication_followups DROP COLUMN checks_failed;
+		ALTER TABLE publication_followups DROP COLUMN checks_url;
 		ALTER TABLE configuration_sessions DROP COLUMN card_ts;
 		ALTER TABLE standing_rules DROP COLUMN acted_count;
 		ALTER TABLE standing_rules DROP COLUMN quiet_count;
@@ -344,6 +346,7 @@ func windBackAndRecreateProposalTables(t *testing.T, stateDir string) {
 		ALTER TABLE publication_followups DROP COLUMN checks_total;
 		ALTER TABLE publication_followups DROP COLUMN checks_passed;
 		ALTER TABLE publication_followups DROP COLUMN checks_failed;
+		ALTER TABLE publication_followups DROP COLUMN checks_url;
 		ALTER TABLE standing_rules DROP COLUMN workflow_name;
 		ALTER TABLE standing_rules DROP COLUMN workflow_json;
 		ALTER TABLE context_manifests DROP COLUMN submitted_prompt;

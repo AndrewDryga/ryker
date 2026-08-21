@@ -99,6 +99,7 @@ func (f *Follower) refresh(
 	followup.ChecksTotal = status.ChecksTotal
 	followup.ChecksPassed = status.ChecksPassed
 	followup.ChecksFailed = status.ChecksFailed
+	followup.ChecksURL = status.ChecksURL
 	followup.MergeSHA = status.MergeSHA
 	followup.MergedAt = status.MergedAt
 	followup.FailureCount = 0

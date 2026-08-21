@@ -374,11 +374,14 @@ func TestPublicationStatusAggregatesChecksAndMergedState(t *testing.T) {
 			}`))
 		case "/repos/owner/repository/commits/" + sha + "/check-runs":
 			_, _ = w.Write([]byte(`{"check_runs":[
-				{"status":"completed","conclusion":"success"},
-				{"status":"completed","conclusion":"skipped"}
+				{"status":"completed","conclusion":"success",
+				 "details_url":"https://github.com/owner/repository/actions/runs/991/job/1"},
+				{"status":"completed","conclusion":"skipped",
+				 "details_url":"https://github.com/owner/repository/actions/runs/991/job/2"}
 			]}`))
 		case "/repos/owner/repository/commits/" + sha + "/status":
-			_, _ = w.Write([]byte(`{"statuses":[{"state":"success"}]}`))
+			_, _ = w.Write([]byte(`{"statuses":[{"state":"success",
+				"target_url":"https://github.com/owner/repository/actions/runs/991"}]}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -396,8 +399,37 @@ func TestPublicationStatusAggregatesChecksAndMergedState(t *testing.T) {
 	}
 	if status.PRState != "merged" || status.ChecksState != "passing" ||
 		status.ChecksTotal != 3 || status.ChecksPassed != 3 || status.ChecksFailed != 0 ||
+		status.ChecksURL != "https://github.com/owner/repository/actions/runs/991" ||
 		status.MergeSHA == "" || status.MergedAt.IsZero() {
 		t.Fatalf("publication status = %+v", status)
+	}
+}
+
+func TestCheckSummaryLinksOnlyOneSharedGitHubWorkflowRun(t *testing.T) {
+	const sha = "0123456789abcdef0123456789abcdef01234567"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repository/commits/" + sha + "/check-runs":
+			_, _ = w.Write([]byte(`{"check_runs":[
+				{"status":"completed","conclusion":"success",
+				 "details_url":"https://github.com/owner/repository/actions/runs/991/job/1"},
+				{"status":"completed","conclusion":"success",
+				 "details_url":"https://github.com/owner/repository/actions/runs/992/job/2"}
+			]}`))
+		case "/repos/owner/repository/commits/" + sha + "/status":
+			_, _ = w.Write([]byte(`{"statuses":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := New(config.GitHubConfig{Enabled: true, APIURL: server.URL})
+	summary, err := client.commitChecks(context.Background(), "token", "owner/repository", sha)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.total != 2 || summary.passed != 2 || summary.url != "" {
+		t.Fatalf("multi-run check summary = %+v", summary)
 	}
 }
 
