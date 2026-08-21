@@ -845,7 +845,11 @@ func TestCommittedEngineeringFeedbackAutomaticallyUpdatesTheExistingPullRequest(
 		IncidentID: task.ID, Repository: target.Repository, BaseBranch: target.BaseBranch,
 		HeadBranch: target.HeadBranch, ParentHead: "parent", CandidateTree: "old-tree",
 		CommitSHA: target.HeadCommit, RemoteSHA: target.HeadCommit,
-		PRNumber: target.Number, PRURL: target.URL, State: core.PublicationPublished,
+		// A previous manual update reached Coop with the dirty workspace and
+		// failed. New committed feedback must rearm that same PR automatically;
+		// otherwise the exact production failure leaves the task stuck forever.
+		PRNumber: target.Number, PRURL: target.URL, State: core.PublicationFailed,
+		LastError:   "review requires a clean committed task workspace",
 		PublishedAt: time.Now().UTC().Add(-time.Hour),
 	}); err != nil {
 		t.Fatal(err)

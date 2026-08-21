@@ -143,7 +143,8 @@ func (r *Repository) MarkStale(
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE publications SET state = 'stale', last_error = ?, updated_at = ?
-		WHERE incident_id = ? AND state = 'published'
+		WHERE incident_id = ? AND state IN ('published', 'failed')
+		  AND pr_number > 0 AND pr_url != ''
 		  AND NOT EXISTS (
 		    SELECT 1 FROM publication_followups AS followup
 		    WHERE followup.incident_id = publications.incident_id

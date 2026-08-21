@@ -440,7 +440,8 @@ func (s *Service) markTaskPublicationStale(
 	if errors.Is(err, store.ErrNotFound) {
 		return core.Publication{}, nil
 	}
-	if err != nil || !publication.Published() {
+	if err != nil || !publication.HasPR() ||
+		(publication.State != core.PublicationPublished && publication.State != core.PublicationFailed) {
 		return publication, err
 	}
 	reason := "The engineering task changed after this draft PR was published. " +
