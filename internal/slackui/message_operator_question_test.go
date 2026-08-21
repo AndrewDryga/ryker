@@ -180,6 +180,45 @@ func TestSelectingAnOperatorChoiceResolvesTheOriginalCardInPlace(t *testing.T) {
 	}
 }
 
+// A real sampling-policy choice was answered after its question card had been
+// delivered by an older renderer. The update retired the buttons but left the
+// old "Blocked / Next" footer beneath the recorded decision, telling the
+// operator to make the decision they had just made. Exercise the durable
+// encode/decode boundary because that is where construction-only state is lost.
+func TestAnAnsweredChoiceDropsItsLegacyBlockedFooter(t *testing.T) {
+	message := WithOperatorQuestions(
+		Message{Text: "Choose the sampling policy."}, "epi_sampling", "U0ASKER",
+		[]OperatorQuestion{{
+			Question: "Which sampling policy should I implement?",
+			Choices:  []string{"Use 1% sampling", "Use rate limiting"},
+		}}, NewSanitizer(12000),
+	)
+	selected := message.Rows[0].Actions[0].Value
+	message.Context = append(message.Context,
+		"Details saved: 2 evidence records.",
+		"Blocked: The sampling policy needs operator confirmation before changing the committed logging behavior. · Next: Confirm the proposed default or select another sampling policy.",
+	)
+	body, err := Encode(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, ok := ResolveOperatorChoice(decoded, selected, "U123ABC")
+	if !ok {
+		t.Fatal("the durable rendered choice was not resolved")
+	}
+	context := strings.Join(resolved.Context, "\n")
+	if strings.Contains(context, "Blocked:") || strings.Contains(context, "Next:") {
+		t.Fatalf("answered question kept its stale blocker: %q", context)
+	}
+	if !strings.Contains(context, "Details saved: 2 evidence records.") {
+		t.Fatalf("answer discarded unrelated useful context: %q", context)
+	}
+}
+
 // The default is the model's claim, not the host's guess.
 //
 // The contract asks for "your proposed default" and gives the operation nowhere

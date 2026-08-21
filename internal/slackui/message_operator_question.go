@@ -174,6 +174,23 @@ func removeExactString(values []string, target string) []string {
 	return values
 }
 
+// removeResolvedAssessmentContext removes only the host-owned footer grammar
+// emitted by WithBlockedAssessment. The text after these prefixes may be model
+// output, but the prefixes and the fact that the whole context entry is a
+// blocker are typed by Responder. That makes this safe for legacy cards whose
+// construction-only exact marker did not survive durable encoding.
+func removeResolvedAssessmentContext(values []string) []string {
+	kept := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if strings.HasPrefix(trimmed, "Blocked: ") || strings.HasPrefix(trimmed, "Next: ") {
+			continue
+		}
+		kept = append(kept, value)
+	}
+	return kept
+}
+
 // ResolveOperatorChoice turns the delivered question into its durable decision
 // record. The complete options remain visible, the exact selection is
 // attributed with a host-created Slack user mention, and every choice control
@@ -214,6 +231,8 @@ func ResolveOperatorChoice(message Message, selectedValue, userID string) (Messa
 		}
 		row.Actions = kept
 	}
+	message.Context = removeResolvedAssessmentContext(message.Context)
+	message.blockedAssessmentContext = ""
 	actor := "The operator"
 	if slackUserIDPattern.MatchString(userID) {
 		actor = "<@" + userID + ">"
