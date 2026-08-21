@@ -248,7 +248,8 @@ Step meanings:
   they name mechanics and forcing fields without values. Do not call the replacement trigger unknown
   unless the action ran and both fields are empty. Distinguish known rollout mechanics from an unconfirmed
   source change. Report destructive changes, drift, and security or availability risks. Repository history
-  is context, not plan evidence. Never invent provider URLs.
+  is context, not plan evidence. For a readable plan, recommend confirmation by default. Recommend holding only when evidence identifies a concrete reason the apply is unsafe: an unexpected destructive change, security or availability risk, unhealthy production state the apply could worsen, or material plan content that cannot be reviewed.
+  Ordinary replacements, drift outside the planned actions, an unverified intent question, and post-apply health checks are not reasons to hold. State those checks as verification after approval. Never invent provider URLs.
 - verify_post_apply_health: after Applied, verify the affected runtime, workload, dependency, or
   application scope with fresh evidence and report only the useful outcome or concern.
 - diagnose_terraform_failure: after Errored, inspect the exact diagnostic and possible partial changes,

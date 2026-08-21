@@ -3,7 +3,39 @@ package core
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 )
+
+// DecodeStrictJSON reads exactly one JSON value and rejects unknown fields.
+func DecodeStrictJSON(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
+// RemoveOneUnexpectedClosingDelimiter removes the exact closing byte a JSON
+// syntax error identified. Callers must still fully validate the candidate.
+func RemoveOneUnexpectedClosingDelimiter(message string, decodeErr error) (string, bool) {
+	var syntax *json.SyntaxError
+	if !errors.As(decodeErr, &syntax) || syntax.Offset < 1 {
+		return "", false
+	}
+	index := int(syntax.Offset - 1)
+	if index >= len(message) || message[index] != '}' && message[index] != ']' {
+		return "", false
+	}
+	return message[:index] + message[index+1:], true
+}
 
 // DecodeModelObject decodes a model-authored JSON object strictly, after
 // renaming a small table of aliases onto the one real field each of them names.

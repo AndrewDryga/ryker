@@ -30,6 +30,12 @@ const typedWatchReply = `{
   ]
 }`
 
+// This is the model result that production rejected for the operator's
+// ship-fast Terraform guidance. Its only syntax defect is the third `}` before
+// the operations array closes at the very end; the reply and memory operation
+// themselves are complete and valid.
+const watchReplyWithOneSpuriousObjectClose = `{"action":"reply","attention":{"addressee":"responder","urgency":0,"confidence":3,"novelty":1,"ownership":2,"contribution":"decision","material":true},"reason":"The operator set a clear approval policy that can be acknowledged directly.","operations":[{"id":"complete","type":"complete_episode","completion":{"message":"Understood. I’ll recommend holding approval only when there is a concrete risk. Otherwise I’ll default to shipping.","completion":{"status":"decision_ready","summary":"Accepted the ship-fast approval policy."}}},{"id":"learned","type":"update_memory","memory":{"knowledge":[{"subject":"Terraform deployment approval guidance","kind":"decision","statement":"Default to shipping Terraform changes quickly. Recommend holding approval only for a concrete production risk.","status":"accepted","confidence":3,"source_ref":"https://app.slack.com/client/T/C/thread/C-1700.900","source_message_ts":"1700.901"}]}}}]}`
+
 // envelopeDialectService is the arrangement these cases share: one watched
 // channel, one mention, and a scripted Coop.
 func envelopeDialectService(
@@ -242,6 +248,38 @@ func TestTypedWatchResultDrawsNoCorrection(t *testing.T) {
 	}
 	if len(slackClient.posts) != 1 {
 		t.Fatalf("typed answer did not reach Slack: %+v", slackClient.posts)
+	}
+}
+
+// Three production turns repeated the same one-character closing-delimiter
+// mistake. Responder discarded the valid acknowledgment and accepted memory
+// each time, then told the operator it could not finish. A syntactically
+// impossible extra close must not cost the whole result when deleting that one
+// byte produces a result that still passes the complete strict contract.
+func TestOneSpuriousObjectCloseDoesNotDiscardReplyAndMemory(t *testing.T) {
+	ctx := context.Background()
+	svc, coopClient, slackClient, st, input := envelopeDialectService(
+		t, ctx, []string{watchReplyWithOneSpuriousObjectClose},
+	)
+
+	finishQueuedAgentRun(t, ctx, svc)
+
+	completed, err := st.GetAgentRunBySource(ctx, "watch", input.ID)
+	if err != nil || completed.State != core.AgentRunCompleted {
+		t.Fatalf("recovered run = %+v, %v", completed, err)
+	}
+	if len(coopClient.submitPrompts) != 1 {
+		t.Fatalf("submitted turns = %d, want one: a harmless extra close must not draw corrections",
+			len(coopClient.submitPrompts))
+	}
+	if len(slackClient.posts) != 1 ||
+		!strings.Contains(slackClient.posts[0].message.Text, "default to shipping") {
+		t.Fatalf("accepted guidance did not reach Slack: %+v", slackClient.posts)
+	}
+	memory, err := st.Intelligence.GetConversationMemory(ctx, input.ChannelID, "")
+	if err != nil || len(memory.State.Knowledge) != 1 ||
+		memory.State.Knowledge[0].Subject != "Terraform deployment approval guidance" {
+		t.Fatalf("accepted guidance memory = %+v, %v", memory, err)
 	}
 }
 

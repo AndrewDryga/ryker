@@ -1637,6 +1637,26 @@ func TestTerraformStandingWorkflowReadsReplacementPathsBeforeCallingTheTriggerUn
 	}
 }
 
+// The first review of run-kbC5v8cv7PRvhC1J told the operator not to confirm a
+// readable three-change plan merely because another rollout might not have
+// been intended and runtime checks still had to happen after apply. That slows
+// every ordinary release without identifying a production risk.
+func TestTerraformStandingWorkflowRecommendsShippingUnlessItFindsConcreteRisk(t *testing.T) {
+	prompt := standingRulePrompt([]core.StandingRule{{
+		ID: "rule-terraform", Action: "follow_terraform_run",
+	}})
+	for _, required := range []string{
+		"recommend confirmation by default",
+		"concrete reason the apply is unsafe",
+		"not reasons to hold",
+		"verification after approval",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("Terraform workflow approval policy lacks %q:\n%s", required, prompt)
+		}
+	}
+}
+
 func TestStandingWorkflowMatcherExplainsMatchesAndSkips(t *testing.T) {
 	workflow, _, _, err := core.NormalizeStandingWorkflow(
 		core.StandingWorkflow{

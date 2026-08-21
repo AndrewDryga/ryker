@@ -232,6 +232,11 @@ func ParseWatchDecision(message string, now time.Time) (WatchDecision, error) {
 	if err == nil {
 		return decision, nil
 	}
+	if repaired, ok := core.RemoveOneUnexpectedClosingDelimiter(trimmed, err); ok {
+		if recovered, recoverErr := DecodeWatchDecision(repaired, now); recoverErr == nil {
+			return recovered, nil
+		}
+	}
 	if strings.HasPrefix(trimmed, "{") {
 		if object, objectErr := FirstJSONObject(trimmed); objectErr == nil {
 			if recovered, recoverErr := DecodeWatchDecision(object, now); recoverErr == nil {
@@ -744,18 +749,7 @@ func ValidateAttentionAssessment(value AttentionAssessment) error {
 }
 
 func DecodeStrictJSON(data []byte, target any) error {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return errors.New("multiple JSON values")
-		}
-		return err
-	}
-	return nil
+	return core.DecodeStrictJSON(data, target)
 }
 
 type AgentReport struct {
