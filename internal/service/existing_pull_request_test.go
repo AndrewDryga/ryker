@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskpr"
+	"github.com/AndrewDryga/responder/internal/taskpublication"
 )
 
 func (s *Service) engineeringTaskPullRequestTarget(
@@ -930,5 +932,66 @@ func TestCommittedEngineeringFeedbackAutomaticallyUpdatesTheExistingPullRequest(
 	publication, err := st.GetPublication(ctx, task.ID)
 	if err != nil || !publication.Published() || publication.RemoteSHA != strings.Repeat("b", 40) {
 		t.Fatalf("updated publication = %+v, %v", publication, err)
+	}
+}
+
+func TestRestartQueuesLegacyDirtyWorkspacePublicationAfterTheCommitAppears(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	target := core.PullRequestTarget{
+		Repository: "owner/repo", Number: 20,
+		URL: "https://github.com/owner/repo/pull/20", BaseBranch: "main",
+		HeadBranch: "responder/rivals-logs", HeadCommit: strings.Repeat("a", 40),
+	}
+	task, _, err := st.CreateEngineeringTask(
+		ctx, "repo", "recover-dirty-publication", "Update failure aggregation", "summary",
+		cfg.Slack.Operators[0], "COPS", "1700.100", cfg.Limits.MaxOpenIncidents, target,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCoopSession(ctx, task.ID, "ses_recover", "task-rivals", 2); err != nil {
+		t.Fatal(err)
+	}
+	publication := core.Publication{
+		IncidentID: task.ID, Repository: target.Repository, BaseBranch: target.BaseBranch,
+		HeadBranch: target.HeadBranch, CommitSHA: target.HeadCommit, RemoteSHA: target.HeadCommit,
+		PRNumber: target.Number, PRURL: target.URL, State: core.PublicationFailed,
+		LastError:   taskpublication.LegacyDirtyWorkspaceReviewError,
+		PublishedAt: time.Now().UTC().Add(-time.Hour),
+	}
+	if err := st.SavePublication(ctx, publication); err != nil {
+		t.Fatal(err)
+	}
+	task, err = st.GetIncident(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	coopClient.changes = coop.Changes{
+		BaseCommit: target.HeadCommit, ForkHead: strings.Repeat("b", 40),
+		Committed: []coop.Change{{Path: "src/scraper_app.py", Status: "modified"}},
+	}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	if err := taskpublication.RecoverLegacyDirtyFailures(ctx, st, coopClient,
+		taskpublication.RecoveryPolicy{
+			TeamID: cfg.Slack.TeamID, InputKind: inputTaskPublication, Now: svc.now,
+		}); err != nil {
+		t.Fatal(err)
+	}
+	publication, err = st.GetPublication(ctx, task.ID)
+	if err != nil || !publication.NeedsUpdate() {
+		t.Fatalf("recovered publication = %+v, %v", publication, err)
+	}
+	inputID := "auto_recover_publish_" + task.ID + "_" + strconv.FormatInt(publication.Generation, 10)
+	input, err := st.GetSlackInput(ctx, inputID)
+	if err != nil || input.Kind != inputTaskPublication || input.State != "pending" ||
+		input.ActionValue != task.ID {
+		t.Fatalf("automatic recovery input = %+v, %v", input, err)
 	}
 }

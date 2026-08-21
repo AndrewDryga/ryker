@@ -24,6 +24,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskpr"
+	"github.com/AndrewDryga/responder/internal/taskpublication"
 )
 
 type CoopAPI = serviceport.Coop
@@ -294,6 +295,15 @@ func (s *Service) Initialize(ctx context.Context) error {
 	}
 	if err := s.catchUpSlackAppMessages(ctx); err != nil {
 		return fmt.Errorf("recover missed Slack app messages: %w", err)
+	}
+	if err := taskpublication.RecoverLegacyDirtyFailures(ctx, s.store, s.coop,
+		taskpublication.RecoveryPolicy{
+			TeamID: s.cfg.Slack.TeamID, InputKind: inputTaskPublication, Now: s.now,
+			Warn: func(message, incidentID string, err error) {
+				s.log.Warn(message, "incident", incidentID, "error", trimError(err))
+			},
+		}); err != nil {
+		return fmt.Errorf("recover committed draft PR updates: %w", err)
 	}
 	if err := s.seedExternalMessageReconciliations(ctx); err != nil {
 		return fmt.Errorf("initialize external Slack lifecycle reconciliation: %w", err)
