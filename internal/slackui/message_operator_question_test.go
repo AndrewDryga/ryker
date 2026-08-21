@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/slack-go/slack"
 )
 
 // Two questions harvested from production, one of which marks its own default.
@@ -177,6 +179,63 @@ func TestSelectingAnOperatorChoiceResolvesTheOriginalCardInPlace(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("resolved card does not contain %q: %s", want, rendered)
 		}
+	}
+}
+
+// A long answered question collapsed its decision attribution behind Slack's
+// Show more control. The choice was recorded, but the one line people needed
+// to scan disappeared with the question prose. Keep the durable attribution in
+// its own row after every option so Slack renders it as an independent section.
+func TestAnsweredChoiceAttributionStaysOutsideTheCollapsedQuestion(t *testing.T) {
+	message := WithOperatorQuestions(
+		Message{Text: "Choose the aggregation window."}, "epi_window", "U0ASKER",
+		[]OperatorQuestion{
+			{Question: strings.Repeat("Why this window matters. ", 90), Choices: []string{
+				"Use 5-minute windows with the same 100-combination cap",
+				"Use 1-minute windows with a smaller cap",
+			}},
+			{Question: "Should the cap be configurable?", Choices: []string{
+				"Yes, make it configurable", "No, keep it fixed",
+			}},
+		}, NewSanitizer(12000),
+	)
+	selected := message.Rows[0].Actions[0].Value
+	questionRows := len(message.Rows)
+	originalQuestion := message.Rows[0].Text
+
+	resolved, ok := ResolveOperatorChoice(message, selected, "U123ABC")
+	if !ok {
+		t.Fatal("the exact rendered choice was not resolved")
+	}
+	if len(resolved.Rows) != questionRows+1 {
+		t.Fatalf("resolved rows = %d, want %d question rows plus one attribution: %+v",
+			len(resolved.Rows), questionRows, resolved.Rows)
+	}
+	if resolved.Rows[0].Text != originalQuestion {
+		t.Fatalf("selection was folded into the long question row: %q", resolved.Rows[0].Text)
+	}
+	want := "<@U123ABC> selected “Use 5-minute windows with the same 100-combination cap”."
+	if got := resolved.Rows[questionRows].Text; got != want {
+		t.Fatalf("standalone attribution = %q, want %q", got, want)
+	}
+	standalone := false
+	for _, block := range resolved.Blocks() {
+		section, ok := block.(*slack.SectionBlock)
+		if !ok || section.Text == nil {
+			continue
+		}
+		if section.Text.Text == want {
+			standalone = true
+		}
+		if strings.Contains(section.Text.Text, "Why this window matters") &&
+			strings.Contains(section.Text.Text, "selected “") {
+			t.Fatalf("delivered Slack section folds the attribution with the question: %q",
+				section.Text.Text)
+		}
+	}
+	if !standalone {
+		t.Fatalf("delivered Slack blocks do not contain a standalone attribution: %+v",
+			resolved.Blocks())
 	}
 }
 
