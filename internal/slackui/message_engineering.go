@@ -356,7 +356,7 @@ func taskLedger(
 	// step that is about the change itself — how much work was done is a
 	// weaker fact than what the work amounts to, and the column fits one.
 	if stat := strings.TrimSpace(task.ChangesStat); stat != "" {
-		steps[2].Detail = coloredChangesStat(stat)
+		steps[2].Detail = escapeSlackText(stat)
 	}
 	// One word each. The detail column is the first to give way when a line
 	// runs long, and "needs a…" is not a state anybody can act on — the state
@@ -477,13 +477,6 @@ func githubChecksStep(
 		return LedgerStep{}, false
 	}
 	return step, true
-}
-
-func coloredChangesStat(stat string) string {
-	stat = escapeSlackText(strings.TrimSpace(stat))
-	stat = strings.Replace(stat, " · +", " · 🟢 +", 1)
-	stat = strings.Replace(stat, " −", " 🔴 −", 1)
-	return stat
 }
 
 // taskBlocker is the one section that says what to do about a stopped card.

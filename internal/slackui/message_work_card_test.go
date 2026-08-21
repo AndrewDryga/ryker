@@ -73,6 +73,9 @@ func TestEngineeringTaskCardReadsRequestProgressAndActionsInWorkOrder(t *testing
 			t.Errorf("step %d = %q, want %q", index, card.Ledger[index].Label, want)
 		}
 	}
+	if got := card.Ledger[2].Detail; got != "2 files · +121 −3" {
+		t.Errorf("change summary = %q, want compact git-style counts", got)
+	}
 	workspace := card.Ledger[0]
 	if workspace.Subtext != "" || strings.Contains(ledgerText(card.Ledger), "remote-44f3f67") {
 		t.Fatalf("workspace step still exposes internal fork plumbing: %+v", workspace)

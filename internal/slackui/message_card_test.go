@@ -96,7 +96,7 @@ func TestTaskProgressMilestonesStayTextSized(t *testing.T) {
 	}
 	message.Ledger[2].Current = false
 	message.Ledger[4].Current = true
-	if final := milestoneLedgerText(message.Ledger); !strings.Contains(final, "Your turn") {
+	if final := milestoneLedgerText(message.Ledger); !strings.Contains(final, "your turn") {
 		t.Fatalf("the current review step lost operator custody:\n%s", final)
 	}
 }

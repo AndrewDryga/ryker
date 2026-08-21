@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	IncidentCardRevision = "2026-08-20.2"
+	IncidentCardRevision = "2026-08-20.3"
 
 	ActionUpdate          = "responder_update"
 	ActionChanges         = "responder_changes"
@@ -1024,7 +1024,7 @@ func ownerLabel(owner string) string {
 	owner = strings.TrimSpace(owner)
 	switch strings.ToLower(owner) {
 	case "yours", "your turn", "yours to publish":
-		return "Your turn"
+		return "your turn"
 	default:
 		return escapeSlackText(owner)
 	}
