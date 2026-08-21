@@ -1428,31 +1428,22 @@ func WithOpenQuestions(
 	if len(materialGaps) > 0 {
 		firstGap = clean(materialGaps[0])
 	}
-	parts := make([]string, 0, 4)
-	bounded := strings.EqualFold(strings.TrimSpace(causeStatus), "bounded")
-	if bounded {
-		// The gap is the better sentence when there is one: it says what is
-		// missing, where the cause only says how far the answer got.
-		if qualifier := core.FirstNonempty(firstGap, clean(cause)); qualifier != "" {
-			parts = append(parts, "Cause bounded, not identified: "+qualifier)
-		}
+	// cause_status is durable machine state, not operator-facing copy. The main
+	// answer already carries the bounded assessment; repeating that enum as
+	// "Cause bounded, not identified" made a useful conclusion sound like an
+	// internal audit record.
+	_ = causeStatus
+	_ = cause
+	parts := make([]string, 0, 2)
+	uncertainty := firstGap
+	if uncertainty == "" && len(unexplained) > 0 {
+		uncertainty = clean(unexplained[0])
 	}
-	// Two. A caveat line an operator scrolls past is the same as no caveat line,
-	// and every finding is still on the episode for anyone who wants the rest.
-	for _, item := range unexplained[:min(len(unexplained), 2)] {
-		if item = clean(item); item != "" {
-			// These findings reach a decision-ready reply only when the exact
-			// discriminating check is unavailable. Calling the whole result
-			// "Unexplained" made a bounded explanation read as if it did not
-			// exist; name the remaining uncertainty instead.
-			parts = append(parts, "Remaining uncertainty: "+item)
-		}
-	}
-	if !bounded && firstGap != "" {
-		parts = append(parts, "Open: "+firstGap)
+	if uncertainty != "" {
+		parts = append(parts, "Still unknown: "+uncertainty)
 	}
 	if nextCheck = clean(nextCheck); nextCheck != "" {
-		parts = append(parts, "Next check: "+nextCheck)
+		parts = append(parts, "Next: "+nextCheck)
 	}
 	if len(parts) == 0 {
 		return message

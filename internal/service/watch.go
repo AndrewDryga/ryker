@@ -367,7 +367,7 @@ func (s *Service) applyReplyDecision(
 	// on every one of these results and rendered on none of them unless the
 	// completion was blocked, so on 2026-08-16 a bounded cause with an
 	// unresolved leak question reached Slack as "raise the cap and roll the job".
-	open := openquestions.For(decision)
+	open := openquestions.ForPublicReply(decision)
 	message = slackui.WithOpenQuestions(
 		message, open.CauseStatus, open.Cause, open.MaterialGaps,
 		open.Unexplained, open.NextCheck, s.sanitizer,

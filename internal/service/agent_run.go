@@ -4392,7 +4392,7 @@ func (s *Service) finalizeIncidentAgentRun(
 			// The same line for the deep lanes' own replies. Structured alert
 			// assessment now survives escalation, so the open cause boundary and
 			// the next check stay attached to the host-rendered bounded scope.
-			open := openquestions.For(decisionpkg.WatchDecision{
+			open := openquestions.ForPublicReply(decisionpkg.WatchDecision{
 				Completion: report.Completion, Findings: report.Findings,
 				AlertAssessment:   report.AlertAssessment,
 				AppliedOperations: episodeOperations,

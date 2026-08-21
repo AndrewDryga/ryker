@@ -1395,18 +1395,20 @@ func TestOpenQuestionsRenderAsOneContextLine(t *testing.T) {
 	}
 	line := message.Context[len(message.Context)-1]
 	for _, want := range []string{
-		"Cause bounded, not identified: No Go heap profile was captured",
-		"Remaining uncertainty: The va1-nomad-oom-risk alert cleared",
-		"Remaining uncertainty: nomad-hst04 has no reclaimable file cache",
-		"Next check: scheduled follow-up at 16:30 UTC",
+		"Still unknown: No Go heap profile was captured",
+		"Next: scheduled follow-up at 16:30 UTC",
 		" · ",
 	} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("the open-questions line lacks %q: %q", want, line)
 		}
 	}
-	// Two, not the whole ledger. A context line an operator scrolls past is the
-	// same as no context line, and the typed findings are still on the episode.
+	// One, not the whole ledger. A context line an operator scrolls past is the
+	// same as no context line, and every finding is still on the episode.
+	if strings.Contains(line, "va1-nomad-oom-risk") ||
+		strings.Contains(line, "nomad-hst04") {
+		t.Fatalf("findings repeated beside the more direct material gap: %q", line)
+	}
 	if strings.Contains(line, "a third thing nobody has room to read") {
 		t.Fatalf("a third unexplained finding reached the reply: %q", line)
 	}
@@ -1414,14 +1416,13 @@ func TestOpenQuestionsRenderAsOneContextLine(t *testing.T) {
 		t.Fatalf("open questions leaked into sections: %+v", message.Sections)
 	}
 
-	// An identified cause with a material gap still says the gap, under a word
-	// that does not overclaim what is missing.
+	// An identified cause with a material gap still says the gap plainly.
 	identified := WithOpenQuestions(
 		base, "identified", "the 4,096 MiB cap", []string{"peak-hour request rate per node"},
 		nil, "", NewSanitizer(12000),
 	)
-	if got := identified.Context[len(identified.Context)-1]; !strings.HasPrefix(got, "Open: ") {
-		t.Fatalf("an identified cause with a gap did not render it as Open: %q", got)
+	if got := identified.Context[len(identified.Context)-1]; !strings.HasPrefix(got, "Still unknown: ") {
+		t.Fatalf("an identified cause with a gap did not render plainly: %q", got)
 	}
 
 	// Nothing to say, nothing said. A reply that knows what it knows must not
@@ -1443,15 +1444,41 @@ func TestOpenQuestionsRenderAsOneContextLine(t *testing.T) {
 	}
 }
 
-func TestDecisionReadyFindingIsLabeledAsRemainingUncertainty(t *testing.T) {
+func TestDecisionReadyFindingIsLabeledAsStillUnknown(t *testing.T) {
 	message := WithOpenQuestions(
 		Message{}, "", "", nil,
 		[]string{"Rate limiting, protocol drift, and stale sessions remain possible."},
 		"Run one paced-account canary.", NewSanitizer(12000),
 	)
 	if len(message.Context) != 1 ||
-		!strings.Contains(message.Context[0], "Remaining uncertainty: Rate limiting") {
+		!strings.Contains(message.Context[0], "Still unknown: Rate limiting") {
 		t.Fatalf("decision-ready uncertainty is mislabeled: %+v", message.Context)
+	}
+}
+
+// The Valorant reply ended with a second, machine-shaped conclusion beginning
+// "Cause bounded, not identified" and repeating the finding under "Remaining
+// uncertainty". The typed ledger already preserves those classifications; the
+// Slack line should read like one teammate naming the remaining question.
+func TestOpenQuestionContextUsesPlainHumanWording(t *testing.T) {
+	message := WithOpenQuestions(
+		Message{}, "bounded", "The failure is inside an unidentified client path.", nil,
+		[]string{"The failed Flutter URL and affected build are still unknown."},
+		"Inspect the Flutter HTTP wrapper and current fingerprint events.",
+		NewSanitizer(12000),
+	)
+	if len(message.Context) != 1 {
+		t.Fatalf("open question context = %+v", message.Context)
+	}
+	line := message.Context[0]
+	if !strings.Contains(line, "Still unknown: The failed Flutter URL") ||
+		!strings.Contains(line, "Next: Inspect the Flutter HTTP wrapper") {
+		t.Fatalf("open question is not direct human wording: %q", line)
+	}
+	for _, label := range []string{"Cause bounded", "Remaining uncertainty", "Next check"} {
+		if strings.Contains(line, label) {
+			t.Fatalf("open question retained internal label %q: %q", label, line)
+		}
 	}
 }
 

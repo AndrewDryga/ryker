@@ -78,6 +78,21 @@ func For(decision decisionpkg.WatchDecision) Questions {
 	return open
 }
 
+// ForPublicReply removes uncertainty already rendered by a structured alert
+// assessment. A scheduled check remains because it is a concrete promise about
+// future work, not a second copy of the assessment ledger.
+func ForPublicReply(decision decisionpkg.WatchDecision) Questions {
+	open := For(decision)
+	if decision.AlertAssessment == nil {
+		return open
+	}
+	open.CauseStatus = ""
+	open.Cause = ""
+	open.MaterialGaps = nil
+	open.Unexplained = nil
+	return open
+}
+
 // unexplainedLine is what the operator reads about a question that is still
 // open. Since 2026-08-16 a finding may rest unexplained when one of its
 // alternatives says which check would settle it and why that check is not
@@ -89,10 +104,18 @@ func unexplainedLine(finding investigation.FindingOperation) string {
 	what := strings.TrimSpace(finding.What)
 	for _, alternative := range finding.Alternatives {
 		if why := strings.TrimSpace(alternative.NotCheckable); why != "" {
-			return boundedDisplayLine(what+" — not checkable now: "+why, 480)
+			return boundedDisplayLine(sentence(what)+" "+sentence(why), 480)
 		}
 	}
 	return what
+}
+
+func sentence(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value[len(value)-1:], ".!?") {
+		return value
+	}
+	return value + "."
 }
 
 // boundedDisplayLine preserves a complete caveat whenever Slack can carry it,

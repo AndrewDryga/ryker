@@ -2,6 +2,7 @@ package decision
 
 import (
 	"github.com/AndrewDryga/responder/internal/core"
+	"github.com/AndrewDryga/responder/internal/operationalreply"
 	"github.com/AndrewDryga/responder/internal/operationalscope"
 )
 
@@ -38,7 +39,7 @@ func RenderOperationalAlertDecision(
 	); correction != "" {
 		return decision, correction
 	}
-	message, ok := operationalscope.Render(decision.AlertAssessment, evidence)
+	message, ok := operationalreply.Render(decision.AlertAssessment, evidence)
 	if !ok {
 		return decision, "the operational alert assessment could not be rendered from validated structured scope"
 	}
@@ -60,7 +61,7 @@ func RenderOperationalAlertReport(
 	); correction != "" {
 		return report, correction
 	}
-	message, ok := operationalscope.Render(report.AlertAssessment, evidence)
+	message, ok := operationalreply.Render(report.AlertAssessment, evidence)
 	if !ok {
 		return report, "the operational alert assessment could not be rendered from validated structured scope"
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/evidencepolicy"
 	"github.com/AndrewDryga/responder/internal/findingpolicy"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/sourcecausepolicy"
 	"github.com/AndrewDryga/responder/internal/taskoffercarry"
 	"github.com/AndrewDryga/responder/internal/taskofferclaims"
 )
@@ -639,9 +640,7 @@ func AlertAssessmentCorrection(
 				"until you can state a verdict, impact, immediate action, and durable solution"
 		}
 		evidence := SanitizeEvidence(decision.Evidence, "", "", "", now)
-		if correction := evidencepolicy.AlertCauseCorrection(
-			decision.AlertAssessment, evidence,
-		); correction != "" {
+		if correction := sourcecausepolicy.Correction(decision.AlertAssessment, evidence, decision.Completion != nil && decision.Completion.Status == "decision_ready" && !OperationalAlertResolvedEvent(input.Text)); correction != "" {
 			return correction
 		}
 		recovered := decision.AlertAssessment.Verdict == "not_issue" &&

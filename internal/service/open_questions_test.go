@@ -49,7 +49,7 @@ func TestBoundedCauseReachesTheSlackReply(t *testing.T) {
 		slackui.NewSanitizer(12000),
 	)
 	line := strings.Join(message.Context, "\n")
-	for _, want := range []string{"Cause bounded, not identified", "heap profile", "unresolved"} {
+	for _, want := range []string{"Still unknown", "heap profile", "unresolved"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("the reply does not say %q: %q", want, line)
 		}
@@ -127,13 +127,14 @@ func TestABoundedCauseReplyNamesTheCheckThatWillSettleIt(t *testing.T) {
 	coopClient.completeQueue = []string{fmt.Sprintf(
 		`{"action":"reply","attention":{"addressee":"channel","urgency":3,"confidence":3,"novelty":3,"ownership":3,"contribution":"decision","material":true},"operations":[`+
 			`{"id":"ev-1","type":"record_evidence","evidence":{"claim_id":"change.recent","claim":"the deployed Cassandra topology is current","observation":"the repository declares the current Cassandra service and operating threshold","relation":"supports","health_effect":"none","source_type":"repository","source_name":"cassandra topology","dimensions":{"repository":"repo","environment":"production","revision":"current"}}},`+
+			`{"id":"cassandra-source","type":"record_evidence","evidence":{"claim_id":"application.functional_behavior","claim":"the Cassandra serving path and operating threshold are declared","observation":"the repository inspection identified the serving path and its 4k operating threshold","relation":"supports","health_effect":"unknown","source_type":"repository","source_name":"cassandra serving configuration","target":"cassandra","dimensions":{"repository":"repo","environment":"production","revision":"current"}}},`+
 			`{"id":"cassandra-throughput","type":"record_evidence","evidence":{"id":"cassandra-throughput","claim_id":"application.functional_behavior","claim":"Cassandra serves requests above its operating threshold","observation":"fresh monitoring reports total RPS below 4k","relation":"contradicts","health_effect":"unhealthy","source_type":"monitoring","source_name":"Cassandra throughput","target":"cassandra","observed_at":%[1]q,"dimensions":{"service":"cassandra","endpoint":"requests","environment":"production","window":"current"}}},`+
 			`{"id":"cov-1","type":"record_coverage","coverage":{"layer":"change","claim_ids":["change.recent"],"status":"healthy","detail":"The current Cassandra topology was reconciled."}},`+
 			`{"id":"cov-2","type":"record_coverage","coverage":{"layer":"application","claim_ids":["application.functional_behavior"],"status":"unhealthy","detail":"Current throughput is below 4k."}},`+
 			`{"id":"cov-3","type":"record_coverage","coverage":{"layer":"slo","claim_ids":["impact.current"],"status":"unknown","detail":"No separate user-impact measure is available."}},`+
 			`{"id":"cov-4","type":"record_coverage","coverage":{"layer":"dependency","claim_ids":["dependency.current_health"],"status":"unknown","detail":"Dependency health does not change the confirmed throughput failure."}},`+
 			`{"id":"finding-throughput","type":"record_finding","finding":{"key":"cassandra-throughput-low","what":"Cassandra throughput is below its operating threshold","scope":"cassandra production","status":"unexplained","alternatives":[{"hypothesis":"one serving node is shedding requests","not_checkable":"the scheduled per-node sample has not run yet"}]}},`+
-			`{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue","impact":"Current Cassandra throughput is below its operating threshold.","cause_status":"bounded","cause":"Throughput falls with no topology change, so the loss is inside the serving path rather than in the deployment.","cause_claim_ids":["application.functional_behavior"],"evidence_refs":["cassandra-throughput"],"immediate_action_kind":"mitigation","immediate_action":"Reduce nonessential Cassandra load while restoring service capacity.","verification":"Confirm fresh total RPS stays above 4k and request errors stop.","long_term_solution":"Add capacity and traffic controls that keep Cassandra above its operating threshold.","scope":{"status":"bounded","checked_targets":["cassandra"],"unverified_targets":["individual Cassandra serving nodes"],"evidence_refs":["cassandra-throughput"]}}},`+
+			`{"id":"alert","type":"record_alert_assessment","alert_assessment":{"verdict":"confirmed_issue","impact":"Current Cassandra throughput is below its operating threshold.","cause_status":"bounded","cause":"Throughput falls with no topology change, so the loss is inside the serving path rather than in the deployment.","cause_claim_ids":["application.functional_behavior"],"evidence_refs":["cassandra-source","cassandra-throughput"],"immediate_action_kind":"mitigation","immediate_action":"Reduce nonessential Cassandra load while restoring service capacity.","verification":"Confirm fresh total RPS stays above 4k and request errors stop.","long_term_solution":"Add capacity and traffic controls that keep Cassandra above its operating threshold.","scope":{"status":"bounded","checked_targets":["cassandra"],"unverified_targets":["individual Cassandra serving nodes"],"evidence_refs":["cassandra-throughput"]}}},`+
 			`{"id":"wait-throughput","type":"wait_external","external_wait":{"id":"wakeup-cassandra-rps","kind":"scheduled_verification","verification":"fresh total RPS stays above 4k and request errors stop","poll_after":%[2]q,"deadline":%[3]q}},`+
 			`{"id":"complete","type":"complete_episode","completion":{"message":"Cassandra throughput is below 4k. Reduce nonessential load while restoring capacity, then verify RPS stays above 4k and errors stop.","completion":{"status":"decision_ready","verdict":"unhealthy","summary":"Cassandra throughput is currently below its operating threshold.","material_gaps":["Which of the serving nodes is shedding the requests is unresolved until the next sample lands."]}}}`+
 			`]}`,
@@ -161,12 +162,14 @@ func TestABoundedCauseReplyNamesTheCheckThatWillSettleIt(t *testing.T) {
 		t.Fatalf("bounded-cause reply posts = %+v", slackClient.posts)
 	}
 	context := strings.Join(slackClient.posts[0].message.Context, "\n")
-	for _, want := range []string{
-		"Cause bounded, not identified: Which of the serving nodes",
-		"Next check: verify fresh total RPS stays above 4k and request errors stop at " + pollAfter.Format("15:04") + " UTC",
-	} {
-		if !strings.Contains(context, want) {
-			t.Fatalf("the posted reply does not say %q: %q", want, context)
-		}
+	if !strings.Contains(slackClient.posts[0].message.Text,
+		"I haven’t yet verified individual Cassandra serving nodes",
+	) {
+		t.Fatalf("the main reply lost its bounded scope: %q", slackClient.posts[0].message.Text)
+	}
+	want := "Next: verify fresh total RPS stays above 4k and request errors stop at " +
+		pollAfter.Format("15:04") + " UTC"
+	if context != want {
+		t.Fatalf("the posted follow-up check = %q, want %q", context, want)
 	}
 }

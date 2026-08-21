@@ -64,8 +64,7 @@ func TestBoundedOperationalScopeMakesExclusiveParaphrasesIrrelevant(t *testing.T
 		if strings.Contains(decision.Message, paraphrase) {
 			t.Fatalf("host retained arbitrary scope prose %q in %q", paraphrase, decision.Message)
 		}
-		if !strings.Contains(decision.Message, "I checked Rivals routes") ||
-			!strings.Contains(decision.Message, "I haven’t verified other VA1 routes") {
+		if !strings.Contains(decision.Message, "I haven’t yet verified other VA1 routes") {
 			t.Fatalf("host did not render bounded scope: %q", decision.Message)
 		}
 		if want == "" {
@@ -119,7 +118,6 @@ func TestOperationalAlertRendersTheConcreteValidatedAssessment(t *testing.T) {
 		assessment.Impact,
 		assessment.Cause,
 		assessment.ImmediateAction,
-		assessment.Verification,
 		"request impact during the kill",
 		"the memory-growth mechanism",
 	} {
@@ -172,21 +170,77 @@ func TestOperationalAlertCollapsesDuplicateRuntimeEvidence(t *testing.T) {
 	}
 	for _, want := range []string{
 		"The kernel OOM-killed VictoriaLogs.",
-		"The allocation restarted and is running.",
-		"Current service errors are zero.",
-		"I checked 5 targets in this alert's scope.",
+		"Allocation and service errors look healthy.",
+		"I haven’t yet verified requests during the restart.",
 	} {
 		if !strings.Contains(rendered.Message, want) {
 			t.Fatalf("rendered alert lost %q:\n%s", want, rendered.Message)
 		}
 	}
 	for _, duplicate := range []string{
+		"The allocation restarted and is running.",
 		"Nomad reports the allocation running.",
+		"Current service errors are zero.",
 		"The current error increase is zero.",
 	} {
 		if strings.Contains(rendered.Message, duplicate) {
 			t.Fatalf("rendered alert repeated %q:\n%s", duplicate, rendered.Message)
 		}
+	}
+}
+
+// The Valorant Flutter investigation led with a successful backend probe and
+// two paragraphs of server metrics before it mentioned the client failure that
+// opened the alert. It then printed the scope ledger verbatim. The public reply
+// must start with the affected signal, use healthy checks as contrast, and keep
+// the machine-readable target inventory out of conversational prose.
+func TestOperationalAlertLeadsWithAffectedSignalNotSuccessfulChecks(t *testing.T) {
+	assessment := boundedAlertAssessment()
+	assessment.EvidenceRefs = []string{"backend-health", "backend-rates", "client-errors", "infra-change"}
+	assessment.Scope = &OperationalScope{
+		Status: "bounded",
+		CheckedTargets: []string{
+			"declared Valorant backend image", "Valorant backend health endpoint",
+			"Valorant backend HTTP outcomes", "Valorant Flutter client request failures",
+		},
+		UnverifiedTargets: []string{
+			"current fingerprint rate", "failed Flutter request path", "affected client build",
+		},
+		EvidenceRefs: []string{"infra-change", "backend-health", "backend-rates", "client-errors"},
+	}
+	assessment.ImmediateAction = "Inspect the Flutter HTTP wrapper and current fingerprint events."
+	assessment.Verification = "Confirm the fingerprint stops while backend health remains normal."
+	evidence := []core.Evidence{
+		{ID: "backend-health", ClaimID: "application.functional_behavior", Relation: "supports", HealthEffect: "none", Target: "Valorant backend health endpoint", Observation: "A governed probe returned HTTP 200 in 70 ms."},
+		{ID: "backend-rates", ClaimID: "impact.current", Relation: "supports", HealthEffect: "none", Target: "Valorant backend HTTP outcomes", Observation: "Backend 499 and 502 responses remained zero."},
+		{ID: "client-errors", ClaimID: "impact.current", Relation: "contradicts", HealthEffect: "degraded", Target: "Valorant Flutter client request failures", Observation: "Better Stack recorded 69 Valorant Flutter HTTP request failures under fingerprint 92803b2."},
+		{ID: "infra-change", ClaimID: "change.recent", Relation: "supports", HealthEffect: "risk", SourceType: "repository", Target: "declared Valorant backend image", Observation: "The declared backend image tag changed before the alert window, but deployment timing is unknown."},
+	}
+	rendered, correction := RenderOperationalAlertDecision(WatchDecision{
+		Action: "reply", AlertAssessment: assessment,
+	}, evidence)
+	if correction != "" {
+		t.Fatalf("valid bounded assessment rejected: %s", correction)
+	}
+	if !strings.HasPrefix(rendered.Message, evidence[2].Observation) {
+		t.Fatalf("reply did not lead with the affected client signal:\n%s", rendered.Message)
+	}
+	if !strings.Contains(rendered.Message,
+		"Valorant backend health endpoint and Valorant backend HTTP outcomes look healthy.",
+	) {
+		t.Fatalf("reply did not turn successful backend checks into useful contrast:\n%s", rendered.Message)
+	}
+	for _, bureaucratic := range []string{
+		"I checked 4 targets", "declared Valorant backend image, Valorant backend health endpoint",
+		"Verification:", "A governed probe returned", "Backend 499 and 502 responses",
+	} {
+		if strings.Contains(rendered.Message, bureaucratic) {
+			t.Fatalf("reply retained ledger prose %q:\n%s", bureaucratic, rendered.Message)
+		}
+	}
+	if !strings.Contains(rendered.Message, "I haven’t yet verified current fingerprint rate") ||
+		!strings.Contains(rendered.Message, "Next: Inspect the Flutter HTTP wrapper") {
+		t.Fatalf("reply lost the concise uncertainty or active next step:\n%s", rendered.Message)
 	}
 }
 
@@ -283,8 +337,8 @@ func TestExhaustiveOperationalScopeRequiresAValidatedCompleteUniverse(t *testing
 	if correction != "" {
 		t.Fatalf("validated exhaustive rendering rejected: %s", correction)
 	}
-	if !strings.Contains(rendered.Message, "I checked all configured targets") {
-		t.Fatalf("exhaustive scope was not rendered: %q", rendered.Message)
+	if strings.Contains(rendered.Message, "I haven’t") {
+		t.Fatalf("exhaustive scope was rendered as incomplete: %q", rendered.Message)
 	}
 
 	inventoryOnlyAssessment := *assessment
@@ -331,7 +385,7 @@ func TestDeepOperationalReportCarriesAndRendersStructuredScope(t *testing.T) {
 			t.Fatalf("deep report retained unsupported prose %q in %q", unsupported, report.Message)
 		}
 	}
-	if !strings.Contains(report.Message, "I checked Rivals routes") {
+	if !strings.Contains(report.Message, "I haven’t yet verified other VA1 routes") {
 		t.Fatalf("deep report lacks host-rendered bounded scope: %q", report.Message)
 	}
 }

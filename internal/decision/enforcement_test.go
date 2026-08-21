@@ -121,6 +121,84 @@ func TestEngineeringTaskOfferRequiresEvidenceFromItsTargetRepository(t *testing.
 	}
 }
 
+// Better Stack reported a Flutter client failure, but the investigation only
+// inspected the backend health endpoint, backend status rates, and tenant-infra.
+// It then declared the client path unknowable without ever opening the source
+// repository that owned that path. The repository requirement is about the
+// implicated claim, not whether any repository happened to be mentioned.
+func TestBoundedApplicationAlertRequiresSourceEvidenceForItsCause(t *testing.T) {
+	now := time.Date(2026, 8, 21, 1, 6, 0, 0, time.UTC)
+	input := core.SlackInput{
+		Kind:       "bot_message",
+		Text:       "New incident for Flutter · 92803b2 · valorant",
+		ReceivedAt: now,
+	}
+	state := WatchTurnState{MatchedRules: []core.StandingRule{{
+		Trigger: "operational_alert", Action: "triage_alert",
+	}}}
+	evidence := []core.Evidence{
+		{
+			ID: "infra-change", ClaimID: "change.recent", Relation: "supports",
+			HealthEffect: "risk", SourceType: "repository", SourceName: "tenant-infra",
+			Target: "declared Valorant backend image", Observation: "The image tag changed before the alert window.",
+		},
+		{
+			ID: "backend-health", ClaimID: "application.functional_behavior", Relation: "supports",
+			HealthEffect: "none", SourceType: "emisar", SourceName: "HTTP probe",
+			Target: "Valorant backend", Observation: "The backend health endpoint returns HTTP 200.", ObservedAt: now,
+		},
+		{
+			ID: "client-errors", ClaimID: "impact.current", Relation: "contradicts",
+			HealthEffect: "degraded", SourceType: "monitoring", SourceName: "Better Stack",
+			Target: "Valorant Flutter client", Observation: "Flutter recorded 69 HTTP request failures.", ObservedAt: now,
+		},
+	}
+	decision := WatchDecision{
+		Action: "reply", Evidence: evidence,
+		AlertAssessment: &AlertAssessment{
+			Verdict: "confirmed_issue", Impact: "Flutter requests failed while the backend stayed healthy.",
+			CauseStatus: "bounded", Cause: "The failed client HTTP path is not identified.",
+			CauseClaimIDs:       []string{"application.functional_behavior", "impact.current"},
+			EvidenceRefs:        []string{"backend-health", "client-errors"},
+			ImmediateActionKind: "monitor", ImmediateAction: "Watch the client fingerprint.",
+			Verification: "Confirm the client errors stop.", LongTermSolution: "Record the failed URL in client telemetry.",
+			Scope: &OperationalScope{
+				Status: "bounded", CheckedTargets: []string{"Valorant backend", "Valorant Flutter client"},
+				UnverifiedTargets: []string{"failed Flutter request path"},
+				EvidenceRefs:      []string{"backend-health", "client-errors"},
+			},
+		},
+		Completion: &investigation.CompletionAssessment{
+			Status: "decision_ready", Verdict: "degraded", Summary: "The client alert is real.",
+		},
+	}
+	correction := AlertAssessmentCorrection(input, state, decision, now)
+	if !strings.Contains(correction, "source repository") ||
+		!strings.Contains(correction, "application.functional_behavior") {
+		t.Fatalf("an infrastructure checkout stood in for the unexplored client source: %q", correction)
+	}
+	blocked := decision
+	blocked.Completion = &investigation.CompletionAssessment{
+		Status: "blocked", Summary: "The configured checkout does not contain the Flutter client.",
+		MaterialGaps: []string{"The owning client source is unavailable."},
+		Attempts:     []string{"Searched every configured repository for the client wrapper."},
+		NextAction:   "Configure the owning Flutter repository.",
+	}
+	if correction := AlertAssessmentCorrection(input, state, blocked, now); strings.Contains(correction, "source repository") {
+		t.Fatalf("an exact source-access blocker was forced back into investigation: %q", correction)
+	}
+
+	decision.Evidence = append(decision.Evidence, core.Evidence{
+		ID: "client-source", ClaimID: "application.functional_behavior", Relation: "supports",
+		HealthEffect: "unknown", SourceType: "repository", SourceName: "tenant-flutter HTTP client",
+		Target: "Valorant Flutter client", Observation: "The client wrapper records a generic error without the failed URL.",
+	})
+	decision.AlertAssessment.EvidenceRefs = append(decision.AlertAssessment.EvidenceRefs, "client-source")
+	if correction := AlertAssessmentCorrection(input, state, decision, now); correction != "" {
+		t.Fatalf("source evidence for the implicated application claim was rejected: %q", correction)
+	}
+}
+
 // A later point probe and a shorter log query are useful current evidence, but
 // they do not disprove a firing alert over a different window and population.
 // The match is carried in typed dimensions; no alert or result prose is parsed.

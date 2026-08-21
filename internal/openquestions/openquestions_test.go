@@ -48,9 +48,6 @@ func TestAnUnexplainedFindingSaysWhyItIsNotCheckableNow(t *testing.T) {
 		t.Fatalf("the unexplained finding did not reach the caveat: %+v", open)
 	}
 	line := open.Unexplained[0]
-	if !strings.Contains(line, "not checkable now:") {
-		t.Fatalf("the caveat does not say why the question is still open: %q", line)
-	}
 	if !strings.Contains(line, "VA1 pyke failed to deploy") {
 		t.Fatalf("the caveat lost the open question itself: %q", line)
 	}
@@ -108,10 +105,10 @@ func TestTheSameUnexplainedFindingRendersOnlyOnce(t *testing.T) {
 		slackui.NewSanitizer(12000),
 	)
 	rendered := strings.Join(message.Context, "\n")
-	if got := strings.Count(rendered, "Remaining uncertainty: "+what); got != 1 {
+	if got := strings.Count(rendered, "Still unknown: "+what); got != 1 {
 		t.Fatalf("the same uncertainty rendered %d times: %q", got, rendered)
 	}
-	if !strings.Contains(rendered, "Next check:") {
+	if !strings.Contains(rendered, "Next:") {
 		t.Fatalf("deduplication lost the scheduled next check: %q", rendered)
 	}
 }
@@ -135,6 +132,38 @@ func TestScheduledVerificationOutranksVagueNextActionAndRendersOnce(t *testing.T
 	got := openquestions.For(decision).NextCheck
 	if got != "verify all eight routed services are healthy after the rollout at 19:25 UTC" {
 		t.Fatalf("scheduled next check = %q", got)
+	}
+}
+
+// Structured operational replies already render their bounded targets and
+// active next action in the main message. Repeating the same finding beneath
+// it made the Valorant reply read like a human summary followed by an internal
+// audit record. A real scheduled check remains useful and must survive.
+func TestStructuredAlertReplyKeepsOnlyItsScheduledNextCheck(t *testing.T) {
+	decision := decisionpkg.WatchDecision{
+		AlertAssessment: &decisionpkg.AlertAssessment{
+			Verdict: "confirmed_issue", CauseStatus: "bounded", Cause: "The client path is unknown.",
+		},
+		Completion: &investigation.CompletionAssessment{
+			Status: "decision_ready", MaterialGaps: []string{"The failed URL is unknown."},
+		},
+		Findings: []investigation.FindingOperation{{
+			What: "Flutter HTTP failures remain unexplained.", Status: "unexplained",
+		}},
+		AppliedOperations: []investigation.ResultOperation{{
+			Type: "wait_external", ExternalWait: &investigation.ExternalWaitOperation{
+				Kind: "scheduled_verification", Verification: "check the current fingerprint rate",
+				PollAfter: "2026-08-21T02:00:00Z",
+			},
+		}},
+	}
+	open := openquestions.ForPublicReply(decision)
+	if open.CauseStatus != "" || open.Cause != "" || len(open.MaterialGaps) != 0 ||
+		len(open.Unexplained) != 0 {
+		t.Fatalf("structured alert repeated its ledger below the main reply: %+v", open)
+	}
+	if open.NextCheck != "verify the current fingerprint rate at 02:00 UTC" {
+		t.Fatalf("structured alert lost its scheduled check: %+v", open)
 	}
 }
 
