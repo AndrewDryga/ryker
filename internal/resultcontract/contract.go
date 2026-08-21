@@ -33,6 +33,15 @@ func Schema() []byte {
 	return append([]byte(nil), schemaBytes...)
 }
 
+// InstallOn binds the published schema before the caller shares a client with workers.
+func InstallOn[T interface{ RequireOutputContract([]byte) }](client T) T {
+	if any(client) == nil {
+		return client
+	}
+	client.RequireOutputContract(Schema())
+	return client
+}
+
 // AppendArtifact reserves the final model-input slot for the exact published
 // schema. A customer file with the same name is retained under a clear prefix.
 func AppendArtifact(artifacts []coop.InputArtifact, limit int) ([]coop.InputArtifact, error) {

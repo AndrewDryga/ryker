@@ -41,6 +41,13 @@ type Coop interface {
 	Discard(context.Context, string, string, string) (coop.Session, coop.Operation, error)
 }
 
+// RuntimeCoop is the production coordinator boundary. Evaluation helpers can
+// use Coop directly; a live service must install its result contract first.
+type RuntimeCoop interface {
+	Coop
+	RequireOutputContract([]byte)
+}
+
 type Publication interface {
 	Enabled() bool
 	HeadBranch(core.Incident, core.Publication) (string, error)

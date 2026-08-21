@@ -20,6 +20,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/emisar"
+	"github.com/AndrewDryga/responder/internal/resultcontract"
 	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
@@ -27,6 +28,27 @@ import (
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
 )
+
+// Thirty production turns reached Responder with a syntactically malformed
+// result after the model had been shown the schema. Construction is the one
+// boundary every runtime lane shares, so the contract belongs here rather than
+// in each alert, conversation, wakeup, correction, or handoff caller.
+func TestEveryRuntimeLaneInstallsTheExactResultContract(t *testing.T) {
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	coopClient := newFakeCoop()
+
+	New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+
+	want := resultcontract.Schema()
+	if !slices.Equal(coopClient.requiredOutputContract, want) {
+		t.Fatalf("installed output contract differs: got %d bytes want %d", len(coopClient.requiredOutputContract), len(want))
+	}
+}
 
 func TestGeneratedVisualLegacyUncertainMissingScopeFailsImmediately(t *testing.T) {
 	ctx := context.Background()
@@ -1074,6 +1096,7 @@ type fakeCoop struct {
 	completeQueuedAt         time.Time
 	completeQueuedFor        time.Duration
 	completeProviderDuration time.Duration
+	requiredOutputContract   []byte
 }
 
 func newFakeCoop() *fakeCoop {
@@ -1082,6 +1105,10 @@ func newFakeCoop() *fakeCoop {
 		Revision: 1, State: "open", Activity: "parked", MaxTurns: 100,
 		RepositoryReadOnly: true,
 	}}
+}
+
+func (f *fakeCoop) RequireOutputContract(schema []byte) {
+	f.requiredOutputContract = append([]byte(nil), schema...)
 }
 
 func (f *fakeCoop) Ready(context.Context) error { return nil }

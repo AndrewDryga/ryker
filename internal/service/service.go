@@ -19,6 +19,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/publisher"
 	"github.com/AndrewDryga/responder/internal/replaycontrol"
 	"github.com/AndrewDryga/responder/internal/repomirror"
+	"github.com/AndrewDryga/responder/internal/resultcontract"
 	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/serviceport"
 	"github.com/AndrewDryga/responder/internal/slackui"
@@ -27,7 +28,6 @@ import (
 	"github.com/AndrewDryga/responder/internal/taskpublication"
 )
 
-type CoopAPI = serviceport.Coop
 type PublicationAPI = serviceport.Publication
 
 func (s *Service) taskPullRequestResolver(inspector taskpr.Inspector) taskpr.IncidentResolver {
@@ -68,7 +68,7 @@ type Service struct {
 	// trade would be worth revisiting.
 	store             *store.Store
 	branches          *branching.Runner
-	coop              CoopAPI
+	coop              serviceport.Coop
 	repairCoopRuntime func(context.Context) error
 	coopRepairHealth  func() (int, error)
 	slack             slackui.API
@@ -207,7 +207,7 @@ type SchedulerLaneSnapshot struct {
 func New(
 	cfg config.Config,
 	st *store.Store,
-	coopClient CoopAPI,
+	coopClient serviceport.RuntimeCoop,
 	slackClient slackui.API,
 	socket Socket,
 	sanitizer *slackui.Sanitizer,
@@ -222,7 +222,7 @@ func New(
 		sanitizer = slackui.NewSanitizer(cfg.Limits.MaxAssistantBytes)
 	}
 	svc := &Service{
-		cfg: cfg, store: st, coop: coopClient, socket: socket,
+		cfg: cfg, store: st, coop: resultcontract.InstallOn(coopClient), socket: socket,
 		sanitizer: sanitizer, log: logger,
 		publisher:     publisher.New(cfg.GitHub),
 		channelWrites: localstate.NewChannelWriteSlots(localstate.SlackWriteInterval),

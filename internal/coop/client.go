@@ -3,6 +3,7 @@ package coop
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,6 +47,27 @@ type Client struct {
 	// backstop, not a strategy: it cuts the middle out, which can slice through
 	// structured context, so a caller that trips it needs to know.
 	truncated func(originalBytes, cap int)
+
+	// outputContract is installed once, before this client is shared with
+	// workers. Every turn method passes through submitTurnWithRouting, so no
+	// Responder lane can silently forget the contract.
+	outputContract *OutputContract
+}
+
+type OutputContract struct {
+	JSONSchema json.RawMessage `json:"json_schema"`
+	SHA256     string          `json:"sha256"`
+}
+
+// RequireOutputContract makes every later turn submission declare the same
+// exact structured-output contract. Call it during service construction,
+// before the client is used concurrently.
+func (c *Client) RequireOutputContract(schema []byte) {
+	digest := sha256.Sum256(schema)
+	c.outputContract = &OutputContract{
+		JSONSchema: append(json.RawMessage(nil), schema...),
+		SHA256:     fmt.Sprintf("%x", digest),
+	}
 }
 
 // SetTruncationObserver installs a callback invoked whenever a prompt exceeds
@@ -792,6 +814,9 @@ func (c *Client) submitTurnWithRouting(
 		"expected_revision": expectedRevision,
 		"prompt":            prompt,
 		"artifacts":         artifacts,
+	}
+	if c.outputContract != nil {
+		body["output_contract"] = c.outputContract
 	}
 	if minTargetIndex > 0 {
 		body["min_target_index"] = minTargetIndex
