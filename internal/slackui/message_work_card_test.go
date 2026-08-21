@@ -97,7 +97,7 @@ func TestEngineeringTaskCardReadsRequestProgressAndActionsInWorkOrder(t *testing
 	}
 
 	blocks := card.Blocks()
-	requestAt, progressAt, activityAt, actionsAt := -1, -1, -1, -1
+	requestAt, progressAt, activityAt, actionsAt, forkContextAt := -1, -1, -1, -1, -1
 	for index, block := range blocks {
 		switch typed := block.(type) {
 		case *slack.SectionBlock:
@@ -110,6 +110,16 @@ func TestEngineeringTaskCardReadsRequestProgressAndActionsInWorkOrder(t *testing
 			if strings.Contains(typed.Text.Text, "*Progress*") {
 				progressAt = index
 			}
+			if strings.Contains(typed.Text.Text, "Isolated fork of") {
+				t.Fatalf("fork identity still renders at full section size: %q", typed.Text.Text)
+			}
+		case *slack.ContextBlock:
+			for _, element := range typed.ContextElements.Elements {
+				text, ok := element.(*slack.TextBlockObject)
+				if ok && strings.Contains(text.Text, "Isolated fork of Tenant Rivals Scraper") {
+					forkContextAt = index
+				}
+			}
 		case *slack.RichTextBlock:
 			activityAt = index
 		case *slack.ActionBlock:
@@ -118,6 +128,10 @@ func TestEngineeringTaskCardReadsRequestProgressAndActionsInWorkOrder(t *testing
 	}
 	if !(requestAt >= 0 && requestAt < progressAt && progressAt < activityAt && activityAt < actionsAt) {
 		t.Fatalf("block order request=%d progress=%d activity=%d actions=%d", requestAt, progressAt, activityAt, actionsAt)
+	}
+	if !(progressAt < forkContextAt && forkContextAt < activityAt) {
+		t.Fatalf("small fork context is not attached below Workspace ready: progress=%d fork=%d activity=%d",
+			progressAt, forkContextAt, activityAt)
 	}
 	for index, block := range blocks {
 		section, ok := block.(*slack.SectionBlock)
@@ -164,6 +178,27 @@ func TestPRDeliveryAndFeedbackLiveUnderReviewAndMerge(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(card.Sections, "\n"), "Delivery update") {
 		t.Fatalf("delivery still renders as a detached section: %+v", card.Sections)
+	}
+	var reviewContext string
+	for _, block := range card.Blocks() {
+		switch typed := block.(type) {
+		case *slack.SectionBlock:
+			if typed.Text != nil && (strings.Contains(typed.Text.Text, "Draft PR #20 is open") ||
+				strings.Contains(typed.Text.Text, "GitHub checks passed for PR #20")) {
+				t.Fatalf("PR delivery status still renders at full section size: %q", typed.Text.Text)
+			}
+		case *slack.ContextBlock:
+			for _, element := range typed.ContextElements.Elements {
+				if text, ok := element.(*slack.TextBlockObject); ok {
+					reviewContext += "\n" + text.Text
+				}
+			}
+		}
+	}
+	for _, want := range []string{"Draft PR #20 is open", "GitHub checks passed for PR #20 (2 of 2)"} {
+		if !strings.Contains(reviewContext, want) {
+			t.Errorf("small review context lacks %q: %q", want, reviewContext)
+		}
 	}
 	task.ActiveTurnID = ""
 	queued := IncidentCardWithPublication(

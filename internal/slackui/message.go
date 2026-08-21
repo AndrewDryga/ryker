@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	IncidentCardRevision = "2026-08-17.2"
+	IncidentCardRevision = "2026-08-20.1"
 
 	ActionUpdate          = "responder_update"
 	ActionChanges         = "responder_changes"
@@ -952,10 +952,6 @@ func milestoneLedgerPart(steps []LedgerStep, heading bool) string {
 			body.WriteString("  ·  ")
 			body.WriteString(strings.Join(facts, "  ·  "))
 		}
-		if subtext := strings.TrimSpace(step.Subtext); subtext != "" {
-			body.WriteByte('\n')
-			body.WriteString(escapeSlackText(subtext))
-		}
 		for _, child := range step.Children {
 			mark := "•"
 			if child.Glyph == "✓" {
@@ -973,38 +969,43 @@ func milestoneLedgerPart(steps []LedgerStep, heading bool) string {
 	return body.String()
 }
 
-// milestoneLedgerBlocks places the live window inside the workflow rather
-// than below it. A preformatted block cannot be nested inside a mrkdwn section,
-// so the current step closes the first section, the activity block follows it,
-// and unstarted steps continue in a second section.
+// milestoneLedgerBlocks places supporting detail and the live window inside
+// the workflow rather than below it. Slack cannot nest a context or
+// preformatted block inside a mrkdwn section, so either one closes the current
+// progress section, renders at its native visual weight, and then lets the
+// remaining milestones continue below it.
 func milestoneLedgerBlocks(steps []LedgerStep, activity []ActivityLine) []slack.Block {
 	activityBlock := preformattedBlock(activityLines(activity))
-	current := -1
-	if activityBlock != nil {
-		for index, step := range steps {
-			if step.Current {
-				current = index
-				break
-			}
+	blocks := make([]slack.Block, 0, 5)
+	start := 0
+	heading := true
+	flush := func(end int) {
+		if end <= start {
+			return
 		}
-	}
-	if current < 0 {
-		blocks := make([]slack.Block, 0, 2)
-		if progress := milestoneLedgerText(steps); progress != "" {
+		if progress := milestoneLedgerPart(steps[start:end], heading); progress != "" {
 			blocks = append(blocks, milestoneLedgerSection(progress))
+			heading = false
 		}
-		if activityBlock != nil {
+		start = end
+	}
+	for index, step := range steps {
+		hasSubtext := strings.TrimSpace(step.Subtext) != ""
+		hasActivity := activityBlock != nil && step.Current
+		if !hasSubtext && !hasActivity {
+			continue
+		}
+		flush(index + 1)
+		if hasSubtext {
+			blocks = append(blocks, milestoneLedgerContext(step.Subtext))
+		}
+		if hasActivity {
 			blocks = append(blocks, activityBlock)
 		}
-		return blocks
 	}
-
-	blocks := []slack.Block{
-		milestoneLedgerSection(milestoneLedgerText(steps[:current+1])),
-		activityBlock,
-	}
-	if upcoming := milestoneLedgerContinuationText(steps[current+1:]); upcoming != "" {
-		blocks = append(blocks, milestoneLedgerSection(upcoming))
+	flush(len(steps))
+	if len(steps) == 0 && activityBlock != nil {
+		blocks = append(blocks, activityBlock)
 	}
 	return blocks
 }
@@ -1014,6 +1015,15 @@ func milestoneLedgerSection(text string) slack.Block {
 		slack.NewTextBlockObject(slack.MarkdownType, truncateUTF8(text, 2900), false, true),
 		nil, nil, slack.SectionBlockOptionExpand(true),
 	)
+}
+
+func milestoneLedgerContext(text string) slack.Block {
+	return slack.NewContextBlock("", slack.NewTextBlockObject(
+		slack.MarkdownType,
+		truncateUTF8(escapeSlackText(strings.TrimSpace(text)), 1900),
+		false,
+		true,
+	))
 }
 
 func ownerLabel(owner string) string {
