@@ -670,6 +670,53 @@ func TestConversationSessionSearchesPastHistoricalCollisionWindow(t *testing.T) 
 	}
 }
 
+// A production @mention started at generation 12 while generations 12 through
+// 19 named discarded read-only sessions. They were historical create keys, but
+// the four-candidate authority guard treated them as live writable sessions and
+// delayed the accepted investigation for an hour before any model turn began.
+func TestConversationSessionSearchesPastHistoricalTerminalSessions(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	coopClient := newFakeCoop()
+	coopClient.session.State = "discarded"
+	coopClient.operations = map[string]coop.Operation{}
+	for generation := 12; generation <= 19; generation++ {
+		key := sessioncreate.Key(
+			"responder:conversation-session:CHISTORYTERMINAL", generation,
+		)
+		coopClient.operations[key] = coop.Operation{
+			ID: "op_historical_terminal", Method: "CreateRemoteSession",
+			State: "succeeded", ResourceType: "session", ResourceID: "ses_1",
+			UpdatedAt: time.Now().UTC().Add(-time.Hour),
+		}
+	}
+	coopClient.openAfterCreateKey = sessioncreate.Key(
+		"responder:conversation-session:CHISTORYTERMINAL", 20,
+	)
+	svc := New(
+		cfg, st, coopClient, &fakeSlack{}, nil,
+		slackui.NewSanitizer(12000), nil,
+	)
+	session, generation, err := svc.createConversationSession(
+		ctx, "CHISTORYTERMINAL", "conversation", 12,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ID != "ses_2" || session.State != "open" ||
+		generation != 20 || len(coopClient.createKeys) != 9 {
+		t.Fatalf(
+			"historical terminal recovery = session=%+v generation=%d keys=%v",
+			session, generation, coopClient.createKeys,
+		)
+	}
+}
+
 // Twenty-one session keys in production still named durable CreateSession
 // operations that had failed under the old 30-second repository refresh
 // deadline. Retrying one of those keys can only replay its failed outcome; it

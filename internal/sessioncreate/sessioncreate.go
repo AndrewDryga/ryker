@@ -96,6 +96,29 @@ func ResolveCandidates(
 		if reusable {
 			return session, generation, nil
 		}
+		if HistoricalTerminalSession(
+			ctx, request.Lookup, key, request.AttemptStarted, session,
+		) {
+			if session.State == "closed" {
+				if request.Reject == nil {
+					return coop.Session{}, generation, errors.New("session candidate rejection is not configured")
+				}
+				if err := request.Reject(ctx, session); err != nil {
+					return coop.Session{}, generation, err
+				}
+			}
+			historical++
+			if historical >= MaxHistoricalCreateKeys {
+				return coop.Session{}, generation, HistoricalCreateKeysError(request.Lane)
+			}
+			if request.Advance != nil {
+				if err := request.Advance(ctx, generation); err != nil {
+					return coop.Session{}, generation, err
+				}
+			}
+			generation++
+			continue
+		}
 		if request.Reject == nil {
 			return coop.Session{}, generation, errors.New("session candidate rejection is not configured")
 		}
@@ -141,6 +164,29 @@ func HistoricalFailedCreate(
 	}
 	operation, err := lookup.OperationByKey(ctx, key)
 	if err != nil || operation.State != "failed" || operation.UpdatedAt.IsZero() ||
+		!operation.UpdatedAt.Before(attemptStarted) {
+		return false
+	}
+	return operation.Method == "CreateSession" || operation.Method == "CreateRemoteSession"
+}
+
+// HistoricalTerminalSession reports an idempotent replay of a session that
+// completed its lifecycle before this preparation attempt began. It is a spent
+// create key, not evidence that Coop granted the wrong authority.
+func HistoricalTerminalSession(
+	ctx context.Context,
+	lookup OperationLookup,
+	key string,
+	attemptStarted time.Time,
+	session coop.Session,
+) bool {
+	if !TerminalState(session.State) || session.ID == "" ||
+		lookup == nil || attemptStarted.IsZero() {
+		return false
+	}
+	operation, err := lookup.OperationByKey(ctx, key)
+	if err != nil || operation.State != "succeeded" ||
+		operation.ResourceID != session.ID || operation.UpdatedAt.IsZero() ||
 		!operation.UpdatedAt.Before(attemptStarted) {
 		return false
 	}
