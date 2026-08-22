@@ -222,13 +222,18 @@ func TestOperationalAlertLeadsWithAffectedSignalNotSuccessfulChecks(t *testing.T
 	if correction != "" {
 		t.Fatalf("valid bounded assessment rejected: %s", correction)
 	}
-	if !strings.HasPrefix(rendered.Message, evidence[2].Observation) {
+	firstLine, _, _ := strings.Cut(rendered.Message, "\n")
+	if !strings.Contains(firstLine, evidence[2].Observation) {
 		t.Fatalf("reply did not lead with the affected client signal:\n%s", rendered.Message)
 	}
-	if !strings.Contains(rendered.Message,
-		"Valorant backend health endpoint and Valorant backend HTTP outcomes look healthy.",
-	) {
+	healthyContrast := "Valorant backend health endpoint and Valorant backend HTTP outcomes look healthy."
+	affectedAt := strings.Index(rendered.Message, evidence[2].Observation)
+	healthyAt := strings.Index(rendered.Message, healthyContrast)
+	if healthyAt < 0 {
 		t.Fatalf("reply did not turn successful backend checks into useful contrast:\n%s", rendered.Message)
+	}
+	if affectedAt > healthyAt {
+		t.Fatalf("successful checks preceded the affected signal:\n%s", rendered.Message)
 	}
 	for _, bureaucratic := range []string{
 		"I checked 4 targets", "declared Valorant backend image, Valorant backend health endpoint",

@@ -20,7 +20,15 @@ func Render(assessment *operationalscope.Assessment, evidence []core.Evidence) (
 		byID[strings.TrimSpace(item.ID)] = item
 	}
 	parts := make([]string, 0, 5)
+	// No host-rendered lead line above these observations. A bolded
+	// assessment.Impact was tried on 2026-08-22 and reverted the same hour: the
+	// field carries arbitrary model prose, and the exclusive paraphrases
+	// TestBoundedOperationalScopeMakesExclusiveParaphrasesIrrelevant pins
+	// ("Rivals stands alone as the unhealthy path") reach Slack as an exhaustive
+	// claim the bounded scope never supported. The affected signal leads on its
+	// own merit because referencedEvidence sorts it first.
 	items := referencedEvidence(assessment, byID)
+	lines := make([]string, 0, 3)
 	problems := make([]string, 0, 2)
 	for _, item := range items {
 		if evidencePriority(item) > 1 || strings.TrimSpace(item.Observation) == "" {
@@ -32,18 +40,17 @@ func Render(assessment *operationalscope.Assessment, evidence []core.Evidence) (
 		}
 	}
 	if len(problems) > 0 {
-		parts = append(parts, strings.Join(problems, " "))
+		lines = append(lines, problems...)
 		if healthy := healthyTargetSummary(items); healthy != "" {
-			parts = append(parts, healthy)
+			lines = append(lines, healthy)
 		}
 	} else {
-		observations := make([]string, 0, min(len(items), 3))
 		for _, item := range items[:min(len(items), 3)] {
-			observations = append(observations, sentence(item.Observation))
+			lines = append(lines, sentence(item.Observation))
 		}
-		if len(observations) > 0 {
-			parts = append(parts, strings.Join(observations, " "))
-		}
+	}
+	if len(lines) > 0 {
+		parts = append(parts, bulletList(lines))
 	}
 	if assessment.Scope.Status == "bounded" {
 		parts = append(parts, "I haven’t yet verified "+humanList(assessment.Scope.UnverifiedTargets, 3)+".")
@@ -98,6 +105,17 @@ func referencedEvidence(
 		result = append(result, item)
 	}
 	return result
+}
+
+// bulletList gives each statement its own line. Slack mrkdwn has no list
+// syntax, so the glyph is literal; the point is that three separate findings
+// occupy three lines instead of one paragraph the reader has to re-split.
+func bulletList(lines []string) string {
+	rendered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		rendered = append(rendered, "\u2022 "+line)
+	}
+	return strings.Join(rendered, "\n")
 }
 
 func healthyTargetSummary(items []core.Evidence) string {

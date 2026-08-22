@@ -672,7 +672,14 @@ func TestEngineeringTaskPromptAllowsOnlyForkScopedRepositoryWork(t *testing.T) {
 // This is a deliberate reliability cost: the linked production episode spent
 // fifteen correction turns without answering, which costs far more context than
 // one deterministic validation instruction on the first turn.
-const staticWatchPromptBytes = 51866
+// And 52242 on 2026-08-22: evidence.observation is rendered verbatim into the
+// Slack reply, and its entire guidance was the two words "source result", so the
+// field was written as a transcript. A live alert reply opened with DNS, TLS,
+// etag, and pull-zone detail and reached its "no operational action" verdict a
+// hundred words later, which is the part an on-call actually reads. 376 bytes
+// naming the reader and showing one contrast pair is the cheapest place to fix
+// that; the host cannot rewrite prose it did not author.
+const staticWatchPromptBytes = 52242
 
 // The static prompt must not grow without someone deciding it should.
 //
