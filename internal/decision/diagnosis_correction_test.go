@@ -3,6 +3,7 @@ package decision
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/investigation"
@@ -80,5 +81,49 @@ func TestTheDiagnosisCorrectionNamesWhatIsMissing(t *testing.T) {
 		episode, "reply", evidence, coverage, &whole, completion,
 	); got != "" {
 		t.Fatalf("a complete diagnosis was corrected anyway: %q", got)
+	}
+}
+
+// A website OOM follow-up on 2026-08-21 produced a valid engineering-task
+// offer three times. The standing alert rule still forced the human's "Make a
+// PR" message through a fresh alert assessment, spent every correction round,
+// and the safe fallback discarded the button while telling the operator to
+// confirm it. Alert history belongs in context; it does not redefine the
+// contract of a later human request.
+func TestHumanTaskFollowupInAlertThreadDoesNotRequireAnotherAlertAssessment(t *testing.T) {
+	input := core.SlackInput{
+		Kind: "message", UserID: "U123ABC", Text: "Make a PR to add what you need",
+	}
+	state := WatchTurnState{
+		ConversationFollowup: true,
+		MatchedRules: []core.StandingRule{{
+			Trigger: "operational_alert", Action: "triage_alert",
+		}},
+	}
+	decision := WatchDecision{
+		Action: "reply",
+		Attention: AttentionAssessment{
+			Addressee: "responder", Urgency: 1, Confidence: 3,
+			Novelty: 2, Ownership: 3, Contribution: "decision", Material: true,
+		},
+		TaskTitle:      "Add website worker OOM diagnostics",
+		TaskRepository: "tenant-app-svelte",
+		TaskPrompt:     "Add bounded worker diagnostics and focused tests.",
+		Evidence: []core.Evidence{{
+			ID: "e-current-runtime", ClaimID: "change.recent",
+			Claim:       "The current runtime has no worker-level OOM diagnostics.",
+			Observation: "The pinned repository revision starts four workers without per-worker memory metrics.",
+			Relation:    "supports", HealthEffect: "risk", SourceType: "repository",
+			SourceID: "tenant-app-svelte@abc1234", SourceName: "pinned repository",
+			Target: "website worker runtime", Freshness: "pinned current revision",
+			Confidence: "high", ObservedAt: time.Now().UTC(),
+			Dimensions: map[string]string{"repository": "tenant-app-svelte"},
+		}},
+		Completion: &investigation.CompletionAssessment{
+			Status: "decision_ready", Summary: "The PR is scoped.",
+		},
+	}
+	if got := WatchDecisionCorrectionAt(input, state, decision, time.Now().UTC(), nil); got != "" {
+		t.Fatalf("human task follow-up inherited the alert assessment contract: %s", got)
 	}
 }

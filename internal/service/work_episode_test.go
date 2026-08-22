@@ -91,6 +91,20 @@ func TestWatchedInputEffortAndAuthorityAreIndependent(t *testing.T) {
 			coverage: []string{"change", "application", "slo", "host"},
 		},
 		{
+			name: "human engineering followup keeps alert history without inheriting its contract",
+			input: core.SlackInput{
+				Kind: "message", UserID: "U123ABC",
+				Text: "Make a PR to add what you need",
+			},
+			state: decisionpkg.WatchTurnState{
+				ConversationFollowup: true,
+				MatchedRules: []core.StandingRule{{
+					Trigger: "operational_alert", Action: "triage_alert",
+				}},
+			},
+			effort: core.EffortConversational, authority: core.AuthorityReadOnly,
+		},
+		{
 			name: "configured app alert without standing rule",
 			input: core.SlackInput{
 				Kind: "bot_message", UserID: "BGRAFANA",

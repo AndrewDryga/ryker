@@ -493,7 +493,7 @@ func TestWatchDecisionNormalizesRecoverableCompletionVerdictMistakes(t *testing.
 }
 
 func TestAlertTriageCorrectionRejectsShallowEvidence(t *testing.T) {
-	input := core.SlackInput{Text: "FIRING: storage latency is above 50 ms"}
+	input := core.SlackInput{Kind: "bot_message", Text: "FIRING: storage latency is above 50 ms"}
 	state := decisionpkg.WatchTurnState{MatchedRules: []core.StandingRule{{
 		Trigger: "operational_alert", Action: "triage_alert",
 	}}}

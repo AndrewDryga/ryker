@@ -25,6 +25,5 @@ func PriorFiringMessageLink(input core.SlackInput, messages []decisionpkg.WatchC
 }
 
 func GovernedOperationalAlert(input core.SlackInput, state decisionpkg.WatchTurnState) bool {
-	return decisionpkg.MatchedOperationalAlertRule(state.MatchedRules) ||
-		((input.Kind == "bot_message" || input.Kind == "recheck") && state.AlertPolicy != "" && decisionpkg.OperationalAlertEvent(input.Text) && !decisionpkg.ExternalCoordinationOnlyEvent(input.Text))
+	return decisionpkg.GovernedOperationalAlertInput(input, state)
 }

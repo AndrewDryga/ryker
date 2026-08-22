@@ -792,9 +792,7 @@ func WatchDecisionCorrectionAt(
 			"finish that investigation and return one concise evidence-backed closure that distinguishes " +
 			"metric recovery from service recovery instead of discarding the earlier failure"
 	}
-	requiresAlertAssessment := MatchedOperationalAlertRule(state.MatchedRules) ||
-		((input.Kind == "bot_message" || input.Kind == "recheck") && state.AlertPolicy != "" && OperationalAlertEvent(input.Text) && !ExternalCoordinationOnlyEvent(input.Text))
-	if requiresAlertAssessment {
+	if GovernedOperationalAlertInput(input, state) {
 		if correction := AlertAssessmentCorrection(input, state, decision, now); correction != "" {
 			return correction
 		}
@@ -827,6 +825,20 @@ func WatchDecisionCorrectionAt(
 			"answer the current message instead of treating it as a duplicate of an earlier turn"
 	}
 	return ""
+}
+
+// GovernedOperationalAlertInput reports whether this input is the alert event
+// (or its host-scheduled recheck), rather than a later human message that merely
+// shares the alert's thread and history. The standing rule remains in the
+// conversation context so follow-ups can use what the investigation learned;
+// it must not turn a new human request into another full alert assessment.
+func GovernedOperationalAlertInput(input core.SlackInput, state WatchTurnState) bool {
+	if input.Kind != "bot_message" && input.Kind != "recheck" {
+		return false
+	}
+	return MatchedOperationalAlertRule(state.MatchedRules) ||
+		(state.AlertPolicy != "" && OperationalAlertEvent(input.Text) &&
+			!ExternalCoordinationOnlyEvent(input.Text))
 }
 
 // Correlator maps an inbound message to the stable identity of the operational
