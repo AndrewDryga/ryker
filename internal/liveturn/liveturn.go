@@ -228,6 +228,16 @@ func Line(moment core.AgentActivity) (slackui.ActivityLine, bool) {
 		raw := ""
 		if isExec(moment.ToolKind) {
 			raw = shellCommand(moment.Detail)
+			// The start of a shell call is not always the moment that knows
+			// what ran. A Claude runtime sends title "Terminal" and an input of
+			// {} when the call opens and names the command only when it
+			// settles, so the payload reading above finds nothing and the
+			// window said "Terminal" three times about three different
+			// commands. The settled title is that same call's later moment, and
+			// it is used only when it says more than the placeholder did.
+			if raw == "" && !uninformativeTitle(moment.SettledTitle, moment.ToolKind) {
+				raw = moment.SettledTitle
+			}
 		}
 		if command := firstLine(normalizeCommand(raw)); command != "" {
 			switch {

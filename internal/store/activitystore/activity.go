@@ -175,6 +175,7 @@ const tailQuery = `
 	  FROM agent_activity WHERE episode_id = %[1]s
 	), recent AS (
 	  SELECT kind, title, tool_kind, status, detail, occurred_at, sequence,
+	         episode_id, tool_call_id,
 	         ROW_NUMBER() OVER (ORDER BY occurred_at DESC, sequence DESC) AS position
 	  FROM agent_activity
 	  WHERE episode_id = %[1]s AND kind IN ('tool.started', 'model.thought')
@@ -184,7 +185,17 @@ const tailQuery = `
 	       COALESCE(recent.kind, ''), COALESCE(recent.title, ''),
 	       COALESCE(recent.tool_kind, ''), COALESCE(recent.status, ''),
 	       COALESCE(recent.detail, CAST('' AS BLOB)),
-	       COALESCE(recent.occurred_at, ''), COALESCE(recent.sequence, 0)
+	       COALESCE(recent.occurred_at, ''), COALESCE(recent.sequence, 0),
+	       COALESCE((
+	         SELECT settled.title FROM agent_activity settled
+	         WHERE settled.episode_id = recent.episode_id
+	           AND settled.tool_call_id = recent.tool_call_id
+	           AND recent.tool_call_id <> ''
+	           AND settled.sequence > recent.sequence
+	           AND settled.title <> ''
+	           AND settled.title <> recent.title
+	         ORDER BY settled.sequence LIMIT 1
+	       ), '')
 	FROM totals LEFT JOIN recent ON recent.position <= ?
 	ORDER BY recent.position`
 
@@ -320,7 +331,7 @@ func (r *Repository) tail(
 		if err := rows.Scan(
 			&tail.Recorded, &tail.ToolCalls, &lastActivity,
 			&line.Kind, &line.Title, &line.ToolKind, &line.Status, &detail,
-			&occurredAt, &line.Sequence,
+			&occurredAt, &line.Sequence, &line.SettledTitle,
 		); err != nil {
 			return core.AgentActivityTail{}, err
 		}

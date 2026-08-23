@@ -1576,6 +1576,16 @@ type AgentActivity struct {
 	Status     string
 	Detail     json.RawMessage
 	OccurredAt time.Time
+	// SettledTitle is the title a later moment for this same ToolCallID
+	// carried, when it differs from this one's.
+	//
+	// It exists because a tool.started row is not always the row that knows
+	// what ran. A Claude runtime announces a shell call as title "Terminal"
+	// with an input of {} and names the command only when the call settles, so
+	// 1,249 of the 1,251 "Terminal" rows on the tenant instance had their
+	// command sitting two rows away under the same tool call id while the card
+	// showed the operator three identical placeholders.
+	SettledTitle string
 }
 
 // AgentActivityTail is a turn's interior as a card needs it: the newest few
@@ -1589,8 +1599,13 @@ type AgentActivity struct {
 type AgentActivityTail struct {
 	// Lines are newest first and displayable only — the kinds a reader can act
 	// on seeing. Completions, plans, permission decisions and elisions are
-	// counted below but never shown: a completion repeats the line its start
-	// already put on the card.
+	// counted below but never shown as rows of their own.
+	//
+	// They are not always redundant, though, which is what SettledTitle is for:
+	// a completion usually repeats the line its start already put on the card,
+	// but for a runtime that titles a shell start "Terminal" it carries the
+	// only copy of the command. The later moment fills the earlier row in
+	// rather than adding one.
 	Lines []AgentActivity
 	// ToolCalls counts tool.started, which is the number the operator means by
 	// "what has it been doing".

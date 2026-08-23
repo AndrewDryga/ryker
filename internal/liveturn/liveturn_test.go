@@ -24,9 +24,14 @@ func toolStarted(title, toolKind, detail string) core.AgentActivity {
 	return moment
 }
 
-// genericTerminal is the most common shell call on disk — 118 of them — and it
+// genericTerminal is the most common shell call on disk, and its own payload
 // carries nothing to show. It is the floor: the fix must not make a row with no
 // command render worse than it did.
+//
+// "Its own payload" is the whole qualifier. These rows are not commandless —
+// the runtime names the command on a later moment under the same tool call id,
+// and 1,249 of the 1,251 on the tenant instance could be recovered that way. The
+// floor is a call that has not settled yet, which is the case below.
 const (
 	genericTerminalTitle  = "Terminal"
 	genericTerminalDetail = `{"input":{}}`
@@ -648,5 +653,60 @@ func TestIsExecMatchesRuntimeVocabularyCaseInsensitively(t *testing.T) {
 		if isExec(kind) {
 			t.Fatalf("isExec(%q) = true", kind)
 		}
+	}
+}
+
+// The measured failure: a start moment that names the tool, an empty payload,
+// and the command sitting on the same call's later moment. Three of these in a
+// row is the window telling an operator "Terminal" three times about three
+// different commands, which is what a real Tenant Realtime Gateway task card
+// showed while it was running cargo clippy.
+func TestLineNamesTheCommandTheSettledMomentSupplied(t *testing.T) {
+	moment := toolStarted(genericTerminalTitle, "execute", genericTerminalDetail)
+	moment.SettledTitle = `git stash -q && cargo clippy --locked --all-targets`
+
+	line, ok := Line(moment)
+	if !ok {
+		t.Fatal("row dropped")
+	}
+
+	if line.Title != moment.SettledTitle {
+		t.Fatalf("title = %q, want the command %q", line.Title, moment.SettledTitle)
+	}
+	if line.Target != "" {
+		t.Fatalf("target = %q, want the command as the label only", line.Target)
+	}
+}
+
+// A settled title that is another placeholder is not an improvement, and
+// swapping one uninformative word for another would only look like a fix.
+func TestLineIgnoresASettledTitleThatNamesTheToolAgain(t *testing.T) {
+	moment := toolStarted(genericTerminalTitle, "execute", genericTerminalDetail)
+	moment.SettledTitle = "tool call"
+
+	line, ok := Line(moment)
+	if !ok {
+		t.Fatal("row dropped")
+	}
+
+	if line.Title != "Terminal" {
+		t.Fatalf("title = %q, want the original placeholder kept", line.Title)
+	}
+}
+
+// The payload still wins when it has the command: it is the call's own input,
+// where a settled title is a label a runtime chose afterwards.
+func TestLinePrefersTheStoredCommandOverASettledTitle(t *testing.T) {
+	moment := toolStarted(genericTerminalTitle, "execute",
+		`{"input":{"command":"go test ./internal/liveturn/"}}`)
+	moment.SettledTitle = "something the runtime relabelled it"
+
+	line, ok := Line(moment)
+	if !ok {
+		t.Fatal("row dropped")
+	}
+
+	if line.Title != "go test ./internal/liveturn/" {
+		t.Fatalf("title = %q, want the stored command", line.Title)
 	}
 }

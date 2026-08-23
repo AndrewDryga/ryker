@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -530,5 +531,117 @@ func TestEpisodeActivityIsDeletedWithItsEpisode(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Fatalf("activity outlived its episode: %d rows", len(items))
+	}
+}
+
+// The card said "Terminal" three times while the command sat two rows away.
+//
+// A Claude runtime opens a shell call as title "Terminal" with an input of {}
+// and names the command only when the call settles, under the same tool call
+// id. The tail window selects tool.started rows, so it read the one moment of
+// the three that does not know what ran: on the deployed tenant instance 1,249
+// of 1,251 "Terminal" rows had a recoverable command already on disk.
+func TestActivityTailRecoversTheCommandASettledMomentSupplied(t *testing.T) {
+	st := activityFixture(t)
+	const command = `git stash -q && cargo clippy --locked --all-targets`
+	for _, moment := range []core.AgentActivity{
+		{
+			Sequence: 1, Kind: "tool.started", ToolKind: "execute",
+			ToolCallID: "toolu_a", Title: "Terminal",
+			Detail: json.RawMessage(`{"input":{}}`),
+		},
+		{
+			Sequence: 2, Kind: "permission.decided",
+			ToolCallID: "toolu_a", Title: command, Status: "allowed",
+		},
+		{
+			Sequence: 3, Kind: "tool.completed", ToolKind: "execute",
+			ToolCallID: "toolu_a", Title: command, Status: "completed",
+		},
+	} {
+		recordActivity(t, st, moment)
+	}
+
+	tail, err := st.Activity.TailForEpisode(context.Background(), "ep_1", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(tail.Lines) != 1 {
+		t.Fatalf("the settled moments became rows of their own: %d lines", len(tail.Lines))
+	}
+	if got := tail.Lines[0].SettledTitle; got != command {
+		t.Fatalf("settled title = %q, want the command the later moment carried %q", got, command)
+	}
+}
+
+// The floor beside the test above: a call still in flight has no later moment,
+// and inventing one would be worse than the placeholder.
+func TestActivityTailLeavesAnUnsettledCallWithoutASettledTitle(t *testing.T) {
+	st := activityFixture(t)
+	recordActivity(t, st, core.AgentActivity{
+		Sequence: 1, Kind: "tool.started", ToolKind: "execute",
+		ToolCallID: "toolu_b", Title: "Terminal",
+		Detail: json.RawMessage(`{"input":{}}`),
+	})
+
+	tail, err := st.Activity.TailForEpisode(context.Background(), "ep_1", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(tail.Lines) != 1 {
+		t.Fatalf("want the running call as one line, got %d", len(tail.Lines))
+	}
+	if got := tail.Lines[0].SettledTitle; got != "" {
+		t.Fatalf("settled title = %q, want empty for a call that has not settled", got)
+	}
+}
+
+// The screenshot that started this was an engineering task card, and a task
+// reads TailForWork rather than TailForIncident — a different query, built by
+// rewriting the episode predicate to span every episode behind the task. The
+// recovery has to survive that rewrite, or the one card shape that showed the
+// defect is the one shape still showing it.
+func TestEngineeringTaskActivityTailAlsoRecoversTheSettledCommand(t *testing.T) {
+	ctx := context.Background()
+	st := openAt(t, t.TempDir())
+	seedEpisodeWithRun(t, st, "ep_task", "working",
+		map[string][2]string{"run_task": {"running", "2026-08-07T13:00:00.000000000Z"}})
+	if _, err := st.db.ExecContext(ctx, `
+		INSERT INTO incidents (id, route, repository, correlation_key, title, status,
+		  workflow, work_kind, created_at, updated_at)
+		VALUES ('task_1','manual','repo','k','Realtime Gateway','active','investigating',
+		  'engineering_task','2026-08-07T11:00:00.000000000Z','2026-08-07T11:00:00.000000000Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx,
+		`UPDATE agent_runs SET incident_id = 'task_1' WHERE id = 'run_task'`); err != nil {
+		t.Fatal(err)
+	}
+	const command = `cargo clippy --locked --all-targets -- -D warnings`
+	recordActivity(t, st, core.AgentActivity{
+		EpisodeID: "ep_task", AgentRunID: "run_task", Sequence: 1,
+		Kind: "tool.started", ToolKind: "execute", ToolCallID: "toolu_c",
+		Title: "Terminal", Detail: json.RawMessage(`{"input":{}}`),
+		OccurredAt: time.Date(2026, 8, 7, 13, 1, 0, 0, time.UTC),
+	})
+	recordActivity(t, st, core.AgentActivity{
+		EpisodeID: "ep_task", AgentRunID: "run_task", Sequence: 2,
+		Kind: "tool.completed", ToolKind: "execute", ToolCallID: "toolu_c",
+		Title: command, Status: "completed",
+		OccurredAt: time.Date(2026, 8, 7, 13, 2, 0, 0, time.UTC),
+	})
+
+	tail, err := st.Activity.TailForWork(ctx, "task_1", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(tail.Lines) != 1 {
+		t.Fatalf("want the one shell call as one line, got %d", len(tail.Lines))
+	}
+	if got := tail.Lines[0].SettledTitle; got != command {
+		t.Fatalf("settled title = %q, want %q", got, command)
 	}
 }
