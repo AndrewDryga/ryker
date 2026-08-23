@@ -846,7 +846,7 @@ func incidentActions(
 	}
 	publish := publishAction(incident, publication)
 	viewPR := Action{
-		ID: ActionViewPR, Label: "Open PR", Value: incident.ID,
+		ID: ActionViewPR, Label: pullRequestLabel(followup), Value: incident.ID,
 		URL: publication.PRURL,
 	}
 	checkDelivery := Action{

@@ -1723,10 +1723,10 @@ func (s *Service) closeIncident(ctx context.Context, input core.SlackInput, inci
 		Detail: "The Coop session closed; remaining workspace changes are retained for " +
 			retainedAudience + " during cleanup.",
 	})
-	closeMessage := "*Incident closed.* Remaining workspace changes are retained for operator action."
-	if incident.IsEngineeringTask() {
-		closeMessage = "*Engineering task closed.* Remaining workspace changes are archived for manual inspection and recovery."
-	}
+	// A read failure falls back to the archive sentence this close always used.
+	delivered, _, _ := s.terminalPublicationFollowup(ctx, incident.ID)
+	published, _ := s.store.GetPublication(ctx, incident.ID)
+	closeMessage := slackui.ClosedNotice(incident.IsEngineeringTask(), published, delivered)
 	if err := s.enqueue(
 		ctx, "out_close_"+input.ID, incident, "notice", incident.ConversationThreadTS(),
 		slackui.Notice(closeMessage),

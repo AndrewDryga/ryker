@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -500,10 +501,26 @@ func Decode(data []byte) (Message, error) {
 	return message, nil
 }
 
+// dismisses reports that an action already puts this message away, so Blocks
+// does not offer a second control for the same thing.
+func dismisses(action Action) bool {
+	switch action.ID {
+	case ActionDismissMessage, ActionCloseDiff:
+		return true
+	default:
+		return false
+	}
+}
+
 func (m Message) Blocks() []slack.Block {
 	blocks := make([]slack.Block, 0, 12)
 	actions := m.Actions
-	if m.Temporary {
+	// A temporary message gets a way out unless it already carries one. The
+	// diff view brought its own Close diff — which deletes the message rather
+	// than merely hiding it — and the generic Dismiss appended beside it gave
+	// the surface two buttons that read as the same offer, so whichever one a
+	// reader picked they had to wonder what the other would have done.
+	if m.Temporary && !slices.ContainsFunc(actions, dismisses) {
 		actions = append(append([]Action(nil), actions...), Action{
 			ID: ActionDismissMessage, Label: "Dismiss",
 		})

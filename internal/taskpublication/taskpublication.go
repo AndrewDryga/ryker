@@ -253,3 +253,55 @@ func AutomaticInput(
 		ReceivedAt:  now,
 	}
 }
+
+// CloseMergedTasks closes engineering tasks whose pull request already merged.
+//
+// The work is delivered and the fork is dead weight, but nothing used to say
+// so: the follower marks the followup merged, parks its next check in the year
+// 9999 and stops looking, and the task stays open holding its Coop session
+// until a person presses Close task. On 2026-08-23 three tasks across two
+// deployments had been sitting like that for eight to twelve days.
+//
+// It is a sweep rather than a branch in the follower because the follower never
+// revisits a terminal followup, so a merge it missed — a crash between the
+// status read and the close, a task merged before this existed — would stay
+// missed forever. A sweep converges from any state, which is the property that
+// matters for something whose whole job is cleaning up after the fact.
+// close is a callback rather than a store write because closing a task is not a
+// row update: it releases the Coop fork on the retention grace, writes the audit
+// and timeline records, and tells the thread. Only the service owns that
+// sequence, and a second implementation here would be a second answer to "what
+// does closing mean".
+func CloseMergedTasks(
+	ctx context.Context,
+	st *store.Store,
+	close func(context.Context, core.Incident) error,
+) error {
+	failures := []error{}
+	const pageSize = 100
+	for offset := 0; ; offset += pageSize {
+		incidents, total, err := st.ListIncidentPage(ctx, true, pageSize, offset)
+		if err != nil {
+			return err
+		}
+		for _, incident := range incidents {
+			if !incident.IsEngineeringTask() || incident.ActiveTurnID != "" ||
+				incident.Status == core.IncidentClosed {
+				continue
+			}
+			followup, err := st.PublicationFollowups.Get(ctx, incident.ID)
+			if err != nil || followup.PRState != "merged" {
+				continue
+			}
+			// One task that refuses to close must not strand the rest: a turn
+			// still running, a cleanup conflict, a session already gone are all
+			// per-task conditions, and the sweep converges next tick anyway.
+			if err := close(ctx, incident); err != nil {
+				failures = append(failures, fmt.Errorf("close %s: %w", incident.ID, err))
+			}
+		}
+		if offset+len(incidents) >= total {
+			return errors.Join(failures...)
+		}
+	}
+}

@@ -633,7 +633,9 @@ func taskActions(
 	if task.ChangesMessageTS != "" {
 		changes.Label = "Hide diff"
 	}
-	viewPR := Action{ID: ActionViewPR, Label: "Open PR", Value: task.ID, URL: publication.PRURL}
+	viewPR := Action{
+		ID: ActionViewPR, Label: pullRequestLabel(followup), Value: task.ID, URL: publication.PRURL,
+	}
 	checkDelivery := Action{ID: ActionCheckDelivery, Label: "Check delivery", Value: task.ID}
 	closeTask := closeWorkAction(task, hasCodeChanges, publication)
 	// The card shows what the turn is doing while it runs and then rewrites
@@ -1318,4 +1320,44 @@ func WithEngineeringTaskDelivery(
 		})
 	}
 	return message
+}
+
+// ClosedNotice is what closing an incident or a task says happened.
+//
+// A task whose PR merged is delivered, and the salvage sentence every other
+// close uses — remaining changes archived for manual inspection and recovery —
+// reads on that card as a warning that something was left behind. It made
+// closing a merged task look like it had done nothing worth doing, when what it
+// actually did was release the isolated fork. Same action, honest sentence.
+func ClosedNotice(
+	isTask bool,
+	publication core.Publication,
+	followup core.PublicationFollowup,
+) string {
+	if !isTask {
+		return "*Incident closed.* Remaining workspace changes are retained for operator action."
+	}
+	if followup.PRState == "merged" && publication.HasPR() {
+		return fmt.Sprintf(
+			"*Engineering task closed.* The work is delivered in <%s|PR #%d>; "+
+				"its isolated fork is released.", publication.PRURL, publication.PRNumber)
+	}
+	return "*Engineering task closed.* Remaining workspace changes are archived " +
+		"for manual inspection and recovery."
+}
+
+// pullRequestLabel names the PR control by what became of the PR.
+//
+// "Open PR" beside "Close task" on a merged card reads as unfinished business,
+// and leaves how the work ended to be inferred from the copy above. The button
+// is what an eye lands on, so it is where the outcome belongs.
+func pullRequestLabel(followup core.PublicationFollowup) string {
+	switch followup.PRState {
+	case "merged":
+		return "View merged PR"
+	case "closed":
+		return "View closed PR"
+	default:
+		return "Open PR"
+	}
 }

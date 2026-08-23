@@ -14,9 +14,26 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 	"github.com/AndrewDryga/responder/internal/taskpr"
+	"github.com/AndrewDryga/responder/internal/taskpublication"
 )
 
 const cleanupRetryLimit = 12
+
+// closeDeliveredTask is the seam CloseMergedTasks closes through: the sweep
+// decides which tasks are done, and this is the one implementation of what
+// closing means — fork cleanup on the retention grace, audit, timeline, and the
+// notice in the thread. It carries a control-plane input for the same reason
+// the dashboard's does, so the audit trail names the host rather than a person
+// who did not press anything.
+func (s *Service) closeDeliveredTask(ctx context.Context, incident core.Incident) error {
+	id, err := core.NewID("merge")
+	if err != nil {
+		return err
+	}
+	return s.closeIncident(
+		ctx, core.SlackInput{ID: id, UserID: "responder", Kind: controlPlaneInput}, incident,
+	)
+}
 
 func (s *Service) maintainLifecycle(ctx context.Context) {
 	now := s.now().UTC()
@@ -31,6 +48,11 @@ func (s *Service) maintainLifecycle(ctx context.Context) {
 			ctx.Err() == nil {
 			s.log.Warn("automatic fixture promotion failed", "error", err)
 		}
+	}
+	if err := taskpublication.CloseMergedTasks(
+		ctx, s.store, s.closeDeliveredTask,
+	); err != nil && ctx.Err() == nil {
+		s.log.Warn("close tasks whose PR merged", "error", err)
 	}
 	grace := s.cfg.Retention.ClosedSessionGrace.Duration
 	if err := s.reconcileOrphanedResponderSessions(ctx, now.Add(-grace), now); err != nil &&
