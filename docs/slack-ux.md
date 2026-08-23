@@ -483,6 +483,9 @@ host rejects them for nonoperators before any repository or session mutation:
   approved tree in an isolated checkout, and publishes only a lease-protected Responder branch.
   A cleanly rebased, policy-compliant exact tree can still publish when repository validation is
   incomplete; the result warns that the diff and GitHub checks require review before merge.
+  Under the default `github.automatic_draft_pr_creation: operator_tasks` an operator's own task
+  runs this without the press, and a contributor task still waits for one; updates to an open PR
+  have always been automatic.
   After publication the task shows **Open PR** and **Check delivery**. Responder polls GitHub for
   check and merge transitions without occupying a model turn. After merge, matching deployment and
   Terraform app messages from other watched channels return to the original task thread only when

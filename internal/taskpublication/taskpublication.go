@@ -9,10 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/coop"
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
+	"github.com/AndrewDryga/responder/internal/taskaccess"
 )
 
 const LegacyDirtyWorkspaceReviewError = "review requires a clean committed task workspace"
@@ -161,4 +163,93 @@ func retry(
 	detail := policy.SafeError(cause)
 	err := st.RetrySlackInputFailure(ctx, input.ID, detail, policy.RetryAt(attempt), terminal)
 	return Result{TerminalFailure: terminal, Detail: detail}, err
+}
+
+// CreationDue decides whether a finished task's committed changes reach GitHub
+// without anyone pressing a button.
+//
+// Updating a PR that already exists has been automatic since this handoff was
+// written and stays that way: the decision that this work belongs on GitHub was
+// made when the PR was opened, and re-asking for it every turn is how a review
+// loop acquires one button press per iteration. Opening the first PR is that
+// decision, and github.automatic_draft_pr_creation is who may make it.
+//
+// A task whose provenance the host cannot read counts as a contributor's,
+// matching UsesContributorAuthority: missing provenance must never imply
+// operator authority, and the control is still on the card either way.
+func CreationDue(
+	ctx context.Context,
+	cfg config.Config,
+	st *store.Store,
+	incident core.Incident,
+	publication core.Publication,
+) (bool, error) {
+	if publication.InProgress() {
+		return false, nil
+	}
+	if publication.NeedsUpdate() {
+		return true, nil
+	}
+	if publication.HasPR() {
+		return false, nil
+	}
+	switch cfg.GitHub.AutomaticDraftPRCreation {
+	case config.AutomaticDraftPRAllTasks:
+		return true, nil
+	case config.AutomaticDraftPROperatorTasks:
+		contributor, err := taskaccess.UsesContributorAuthority(ctx, cfg, st, incident)
+		if err != nil {
+			return false, err
+		}
+		return !contributor, nil
+	default:
+		return false, nil
+	}
+}
+
+// AutomaticPublication is the handoff a finished task should queue to reach its
+// PR without a press, or nil when this task still wants the button.
+//
+// One entry point rather than a predicate and a constructor: whether to publish
+// and what publishing looks like are the same question asked once per finished
+// turn, and splitting them left the caller holding a boolean it had to remember
+// to pair with the right input shape.
+//
+// An unreadable creator returns the error and no input. The caller logs it; the
+// task keeps its control, which is the same outcome as a contributor task.
+func AutomaticPublication(
+	ctx context.Context,
+	cfg config.Config,
+	st *store.Store,
+	incident core.Incident,
+	publication core.Publication,
+	kind, runID, userID string,
+	now time.Time,
+) (*core.SlackInput, error) {
+	due, err := CreationDue(ctx, cfg, st, incident, publication)
+	if err != nil || !due {
+		return nil, err
+	}
+	input := AutomaticInput(kind, cfg.Slack.TeamID, runID, userID, incident, now)
+	return &input, nil
+}
+
+// AutomaticInput is the queued handoff a finished task uses to reach its PR
+// without a press. It lives here beside RecoverLegacyDirtyFailures, which
+// queues the same shape for the same reason, so the two cannot drift into
+// disagreeing about what an automatic publication looks like.
+func AutomaticInput(
+	kind, teamID, runID, userID string,
+	incident core.Incident,
+	now time.Time,
+) core.SlackInput {
+	return core.SlackInput{
+		ID: "auto_publish_" + runID, EnvelopeID: "agent_run:" + runID,
+		EventID: runID, Kind: kind, TeamID: teamID,
+		ChannelID: incident.ChannelID, ThreadTS: incident.ConversationThreadTS(),
+		UserID:      userID,
+		ActionID:    slackui.ActionPublishPR,
+		ActionValue: incident.ID,
+		ReceivedAt:  now,
+	}
 }

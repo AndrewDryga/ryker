@@ -55,6 +55,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/taskcontract"
 	"github.com/AndrewDryga/responder/internal/taskofferrejection"
 	"github.com/AndrewDryga/responder/internal/taskpr"
+	"github.com/AndrewDryga/responder/internal/taskpublication"
 	"github.com/AndrewDryga/responder/internal/terraformwakeup"
 	"github.com/AndrewDryga/responder/internal/triageoutcome"
 	"github.com/AndrewDryga/responder/internal/turncapacity"
@@ -4475,16 +4476,15 @@ func (s *Service) finalizeIncidentAgentRun(
 	if incident.IsEngineeringTask() {
 		changes := s.withEngineeringTaskChanges(ctx, run, incident, state, message)
 		message = changes.Message
-		if state == "completed" && changes.Changed && changes.Publication.NeedsUpdate() &&
-			!standaloneTaskResult {
-			automaticPublication = &core.SlackInput{
-				ID: "auto_publish_" + run.ID, EnvelopeID: "agent_run:" + run.ID,
-				EventID: run.ID, Kind: inputTaskPublication, TeamID: s.cfg.Slack.TeamID,
-				ChannelID: incident.ChannelID, ThreadTS: incident.ConversationThreadTS(),
-				UserID:   run.UserID,
-				ActionID: slackui.ActionPublishPR, ActionValue: incident.ID,
-				ReceivedAt: s.now().UTC(),
+		if state == "completed" && changes.Changed && !standaloneTaskResult {
+			input, err := taskpublication.AutomaticPublication(
+				ctx, s.cfg, s.store, incident, changes.Publication,
+				inputTaskPublication, run.ID, run.UserID, s.now().UTC())
+			if err != nil {
+				s.log.Warn("resolve task authority for automatic draft PR",
+					"incident", incident.ID, "error", trimError(err))
 			}
+			automaticPublication = input
 		}
 	}
 	baseDeliveryID := executionDeliveryID("out_run_"+run.ID, run.IdempotencyKey)

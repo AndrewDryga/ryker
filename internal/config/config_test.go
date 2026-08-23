@@ -773,3 +773,58 @@ func TestRepositoryFetchIntervalIsBounded(t *testing.T) {
 		}
 	}
 }
+
+// Opening the first draft PR is the moment a task's code reaches GitHub, and
+// the setting that governs it has to fail closed on a typo: a value nobody
+// recognises must stop the deployment rather than pick a policy for the
+// operator. Silently falling back to a default here would mean a config that
+// says "off" and a host that publishes.
+func TestAutomaticDraftPRCreationIsConfigurableAndDefaultsToOperatorTasks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "responder.yaml")
+	body := `version: 1
+listen: 127.0.0.1:8080
+state_dir: state
+slack:
+  team_id: T123ABC
+  default_repository: emisar
+  operators: [U123ABC]
+coop: {}
+repositories:
+  emisar:
+    display_name: Emisar
+    coop_policy: emisar-observe
+    path: /srv/repos/repo
+webhooks:
+  grafana:
+    kind: grafana
+    auth: bearer
+    secret_env: GRAFANA_TOKEN
+    repository: emisar
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GitHub.AutomaticDraftPRCreation != AutomaticDraftPROperatorTasks {
+		t.Fatalf("default = %q, want %q",
+			cfg.GitHub.AutomaticDraftPRCreation, AutomaticDraftPROperatorTasks)
+	}
+
+	for _, valid := range []string{
+		AutomaticDraftPROff, AutomaticDraftPROperatorTasks, AutomaticDraftPRAllTasks,
+	} {
+		cfg.GitHub.AutomaticDraftPRCreation = valid
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("%q was refused: %v", valid, err)
+		}
+	}
+	for _, invalid := range []string{"", "operator", "true", "all"} {
+		cfg.GitHub.AutomaticDraftPRCreation = invalid
+		if err := cfg.Validate(); err == nil {
+			t.Fatalf("%q was accepted as a publication policy", invalid)
+		}
+	}
+}

@@ -108,6 +108,15 @@ github:
   followup_interval: 2m
   # Keep exact PR/branch/SHA delivery and Terraform signals linked after merge.
   delivery_correlation_window: 336h
+  # Who gets a first draft PR opened without a button press. Updating a PR that
+  # already exists has always been automatic and is not governed here.
+  #   off            - an operator presses "Create draft PR" for every first PR
+  #   operator_tasks - automatic when an operator started the task; a task a
+  #                    workspace teammate started still needs one operator press
+  #   all_tasks      - automatic for every engineering task, including a
+  #                    teammate's. Nothing stands between a contributor task and
+  #                    a branch on the real repository.
+  automatic_draft_pr_creation: operator_tasks
 
 retention:
   # Reclaim only Responder-recorded Coop sessions. Unpublished or dirty work is never auto-discarded.

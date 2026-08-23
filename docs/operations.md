@@ -555,6 +555,14 @@ uses only read-only tools to verify the live effect before posting a concise res
 recovery rehydrates unfinished monitors from `responder.db`; transient status-check failures use
 bounded backoff without losing the run identity.
 
+`github.automatic_draft_pr_creation` decides who gets a first draft PR opened without a button
+press. Updating a PR that already exists has always been automatic and is not governed by it. `off`
+keeps the **Create draft PR** press for every first PR; `operator_tasks`, the default, opens it
+automatically when a configured operator started the task and leaves a workspace member's
+contributor task to an operator; `all_tasks` opens every task's first PR automatically, including a
+contributor's, which is the one value that removes the operator requirement described above. A task
+whose creator the host cannot read counts as a contributor's.
+
 Draft-PR follow-up uses the same durable-worker pattern. `github.followup_interval` controls GitHub
 check and merge polling; `github.delivery_correlation_window` controls how long a merged
 publication remains eligible for exact cross-channel deployment and Terraform correlation. The

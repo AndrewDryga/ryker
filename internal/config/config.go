@@ -464,6 +464,29 @@ func (c Config) RepositoryContextKeys() []string {
 	return keys
 }
 
+// AutomaticDraftPRCreation values decide who gets a first draft PR opened
+// without anyone pressing a button.
+//
+// Updating a PR that already exists has always been automatic and is not what
+// this setting controls, which is why it is named for creation. The split
+// exists because opening the first PR is the moment work reaches GitHub, and
+// MemberControlAllowed and PublicationRefusal deliberately made that an
+// operator's decision: a workspace teammate may start a contributor task, and
+// the operator press was the only thing standing between that task and a
+// branch on the real repository.
+const (
+	// AutomaticDraftPROff keeps the operator press for every first PR.
+	AutomaticDraftPROff = "off"
+	// AutomaticDraftPROperatorTasks opens the first PR automatically when an
+	// operator started the task, and leaves a contributor task's first PR to an
+	// operator. The default: it removes the button from the common path without
+	// moving the boundary the refusal text describes.
+	AutomaticDraftPROperatorTasks = "operator_tasks"
+	// AutomaticDraftPRAllTasks opens every engineering task's first PR
+	// automatically, including one a workspace teammate started.
+	AutomaticDraftPRAllTasks = "all_tasks"
+)
+
 type GitHubConfig struct {
 	Enabled                   bool     `yaml:"enabled"`
 	APIURL                    string   `yaml:"api_url"`
@@ -474,6 +497,8 @@ type GitHubConfig struct {
 	CommitEmail               string   `yaml:"commit_email"`
 	FollowupInterval          Duration `yaml:"followup_interval"`
 	DeliveryCorrelationWindow Duration `yaml:"delivery_correlation_window"`
+	// AutomaticDraftPRCreation is one of the AutomaticDraftPR values above.
+	AutomaticDraftPRCreation string `yaml:"automatic_draft_pr_creation"`
 }
 
 type RetentionConfig struct {
@@ -715,6 +740,7 @@ func defaults() Config {
 			CommitEmail:               "responder@emisar.dev",
 			FollowupInterval:          Duration{2 * time.Minute},
 			DeliveryCorrelationWindow: Duration{14 * 24 * time.Hour},
+			AutomaticDraftPRCreation:  AutomaticDraftPROperatorTasks,
 		},
 		Retention: RetentionConfig{
 			MaintenanceInterval: Duration{time.Minute},
@@ -1370,6 +1396,12 @@ func validateGitHub(c GitHubConfig) error {
 	if c.DeliveryCorrelationWindow.Duration < time.Hour ||
 		c.DeliveryCorrelationWindow.Duration > 90*24*time.Hour {
 		return errors.New("delivery_correlation_window must be between 1h and 2160h")
+	}
+	switch c.AutomaticDraftPRCreation {
+	case AutomaticDraftPROff, AutomaticDraftPROperatorTasks, AutomaticDraftPRAllTasks:
+	default:
+		return errors.New(
+			"automatic_draft_pr_creation must be off, operator_tasks, or all_tasks")
 	}
 	return nil
 }

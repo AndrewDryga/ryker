@@ -967,7 +967,7 @@ func incidentActions(
 // confirmations cannot drift apart.
 func publishAction(incident core.Incident, publication core.Publication) Action {
 	publish := Action{
-		ID: ActionPublishPR, Label: "Create draft PR (operator)",
+		ID: ActionPublishPR, Label: "Create draft PR",
 		Value: PublicationActionValue(incident.ID, publication.Generation), Style: "primary",
 		Confirm: "Run a fresh readiness review and create a draft PR from the approved tree?",
 	}

@@ -606,7 +606,7 @@ func TestEngineeringTaskOfferAndCardDoNotMislabelWorkAsIncident(t *testing.T) {
 		core.PublicationFollowup{}, core.PublicationLifecycleEvent{},
 	)
 	if !slices.ContainsFunc(changed.Actions, func(action Action) bool {
-		return action.ID == ActionPublishPR && action.Label == "Create draft PR (operator)"
+		return action.ID == ActionPublishPR && action.Label == "Create draft PR"
 	}) {
 		t.Fatalf("changed task lacks publication action: %+v", changed.Actions)
 	}
