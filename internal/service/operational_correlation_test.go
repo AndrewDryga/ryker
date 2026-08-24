@@ -15,6 +15,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/config"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	episodepkg "github.com/AndrewDryga/responder/internal/episode"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
@@ -779,6 +780,57 @@ func TestOperationalRecoveryKeepsTheOriginalAlertThread(t *testing.T) {
 		resolvedRun.ConversationKey, resolved, state, resolvedRun.EpisodeID,
 	); got != firing.MessageTS {
 		t.Fatalf("recovery response thread = %q, want original alert %q", got, firing.MessageTS)
+	}
+}
+
+// Two Vector recoveries on 2026-08-23 reused the active alert episode but
+// supplied the newer RESOLVED card as the response thread. The delivery layer
+// accepted that route and moved the durable destination, so later rechecks
+// followed the recovery card instead of the FIRING investigation. A bound
+// episode is the authority: a later model context cannot relocate it.
+func TestABoundAlertEpisodeCannotMoveToTheResolvedCard(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	const firingThread = "1787527443.511159"
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: "CWATCH", ThreadTS: firingThread,
+		ConversationKey: "operation:grafana:vector-errors", SourceKind: "watch",
+		SourceID: "vector-firing", UserID: "BGRAFANA", Repository: "repo",
+	})
+	if err != nil || !created {
+		t.Fatalf("queue firing episode = %+v, %t, %v", run, created, err)
+	}
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.postInputMessageAtEpisodeResponse(
+		ctx, "vector-resolved-reply", run.EpisodeID, "vector-resolved",
+		"CWATCH", "1787528043.399299",
+		slackui.ConversationResponse("Vector recovered.", slackui.NewSanitizer(12000)), true,
+	); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 1 || slack.posts[0].thread != firingThread {
+		t.Fatalf("resolved answer moved away from the firing thread: %+v", slack.posts)
+	}
+	episode, err := st.GetWorkEpisode(ctx, run.EpisodeID)
+	if err != nil || episode.Destination.ThreadTS != firingThread {
+		t.Fatalf("resolved card replaced the durable destination: %+v, %v", episode.Destination, err)
+	}
+	events, err := st.ListEpisodeEvents(ctx, run.EpisodeID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.Kind == episodepkg.EventDestinationChanged {
+			t.Fatalf("automatic recovery emitted a destination change: %+v", event)
+		}
 	}
 }
 

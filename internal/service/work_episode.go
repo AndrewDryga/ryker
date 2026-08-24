@@ -9,18 +9,15 @@ import (
 
 	alertstreampkg "github.com/AndrewDryga/responder/internal/alertstream"
 	behaviorofferpkg "github.com/AndrewDryga/responder/internal/behavioroffer"
-	"github.com/AndrewDryga/responder/internal/completionpolicy"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	episodepkg "github.com/AndrewDryga/responder/internal/episode"
+	"github.com/AndrewDryga/responder/internal/episodeclaims"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/liveturn"
 	"github.com/AndrewDryga/responder/internal/resultrecovery"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/taskcontract"
-	"github.com/AndrewDryga/responder/internal/taskoffercarry"
-	"github.com/AndrewDryga/responder/internal/taskofferclaims"
-	"github.com/AndrewDryga/responder/internal/wakeuppolicy"
 )
 
 // CompletionAssessment is the model's own verdict on whether a turn finished.
@@ -351,47 +348,12 @@ func (s *Service) episodeClaimCorrectionWithHistory(
 	now time.Time,
 	chainStartedAt time.Time,
 	operations []investigation.ResultOperation,
+	optionalOffer *bool,
 ) (string, error) {
-	if correction, err := wakeuppolicy.Correction(
-		ctx, s.store, episode.ID, operations, now,
-	); correction != "" || err != nil {
-		return correction, err
-	}
-	// An offer completes the read-only offer contract, not its future change.
-	// Validate only current candidate evidence here: ancestry can inform the
-	// explanation but cannot authorize a new Slack control.
-	completionStatus, completionVerdict := taskofferclaims.CompletionIdentity(completion)
-	// Older correlated evidence cannot prove this attempt's outcome.
-	if correction := completionpolicy.CurrentCandidateCorrection(
-		episode.CompletionCriteria, episode.Effort, evidence, coverage,
-		completionStatus, completionVerdict, now,
-	); correction != "" {
-		return correction, nil
-	}
-	if action == "reply" && completion != nil && taskoffercarry.Present(operations) {
-		return taskofferclaims.Correction(
-			episode, evidence, coverage, taskoffercarry.TargetRepository(operations),
-			now, chainStartedAt,
-		), nil
-	}
-	priorEvidence, err := s.store.Intelligence.ListEpisodeEvidence(ctx, episode.ID, 200)
-	if err != nil {
-		return "", err
-	}
-	priorCoverage, err := s.store.Intelligence.ListEpisodeCoverage(ctx, episode.ID, 200)
-	if err != nil {
-		return "", err
-	}
-	return investigation.ClaimCorrection(
-		episode,
-		action,
-		append(priorEvidence, evidence...),
-		append(priorCoverage, completionpolicy.CurrentCoverage(coverage, now)...),
-		completion,
-		now,
-		chainStartedAt,
-		len(operations) > 0,
-	), nil
+	return episodeclaims.Correction(
+		ctx, s.store, s.store.Intelligence, episode, action, evidence, coverage,
+		completion, now, chainStartedAt, operations, optionalOffer,
+	)
 }
 
 func episodeProgressDue(interval time.Duration, now time.Time) time.Time {

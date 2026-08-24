@@ -2911,9 +2911,13 @@ func (s *Service) stageTriageTerminal(
 					s.now(),
 					run.StartedAt,
 					decision.AppliedOperations,
+					&taskOfferRejected,
 				)
 				if episodeErr != nil {
 					return true, episodeErr
+				}
+				if taskOfferRejected {
+					correctionKind = correctionRejected
 				}
 			}
 			if correction == "" {
@@ -2983,6 +2987,9 @@ func (s *Service) stageTriageTerminal(
 			// operator what was dropped.
 			switch correctionKind {
 			case correctionRejected:
+				if taskOfferRejected {
+					taskofferrejection.Drop(&decision)
+				}
 				s.dropRejectedOffers(ctx, input, &decision, run)
 				taskofferrejection.ForgetCarried(&state.CarriedTaskOffer, taskOfferRejected)
 			case correctionShape:
@@ -3100,6 +3107,7 @@ func (s *Service) stageIncidentTerminal(
 		}
 		correction := ""
 		correctionKind := correctionIncomplete
+		taskOfferRejected := false
 		trigger := ""
 		// The same accumulation the watch path does above: an incident
 		// correction round returns only the records it is changing, and
@@ -3192,9 +3200,13 @@ func (s *Service) stageIncidentTerminal(
 				s.now(),
 				run.StartedAt,
 				report.AppliedOperations,
+				&taskOfferRejected,
 			)
 			if episodeErr != nil {
 				return true, episodeErr
+			}
+			if taskOfferRejected {
+				correctionKind = correctionRejected
 			}
 		}
 		if correction == "" && run.Mode == core.AgentRunEngineeringTask &&
@@ -3255,6 +3267,9 @@ func (s *Service) stageIncidentTerminal(
 				// this correction replaced, not better. Drop the offer that
 				// failed, keep the answer and the offers that were fine, and
 				// tell the operator what was dropped.
+				if taskOfferRejected {
+					taskofferrejection.DropReport(&report)
+				}
 				s.dropRejectedReportOffers(ctx, offerInput, &report, run)
 			case correctionShape:
 				// An answer refused only for its shape still gets posted; see

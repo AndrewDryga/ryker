@@ -629,6 +629,32 @@ func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
 		        AND incident.workflow NOT IN ('closed', 'blocked')
 		    )
 		  )
+		  -- Observe-only investigations use spare capacity. One may run in the
+		  -- background, but a second may not consume the worker reserved for
+		  -- visible alerts and human requests.
+		  AND (
+		    NOT EXISTS (
+		      SELECT 1
+		      FROM slack_inputs AS candidate_input
+		      JOIN channel_configurations AS candidate_config
+		        ON candidate_config.channel_id = candidate_input.channel_id
+		      WHERE candidate.source_kind = 'watch'
+		        AND candidate_input.id = candidate.source_id
+		        AND candidate_config.participation = 'shadow'
+		    )
+		    OR NOT EXISTS (
+		      SELECT 1
+		      FROM agent_runs AS shadow_active
+		      JOIN slack_inputs AS shadow_input
+		        ON shadow_input.id = shadow_active.source_id
+		      JOIN channel_configurations AS shadow_config
+		        ON shadow_config.channel_id = shadow_input.channel_id
+		      WHERE shadow_active.id != candidate.id
+		        AND shadow_active.source_kind = 'watch'
+		        AND shadow_active.state IN ('preparing', 'running', 'applying', 'finalizing')
+		        AND shadow_config.participation = 'shadow'
+		    )
+		  )
 			  AND NOT EXISTS (
 		    SELECT 1 FROM agent_runs AS active
 		    WHERE active.conversation_key = candidate.conversation_key
@@ -667,6 +693,14 @@ func (s *Store) LeaseAgentRun(ctx context.Context) (core.AgentRun, error) {
 		ORDER BY
 		  CASE
 		    WHEN candidate.mode != 'triage' THEN 0
+		    WHEN EXISTS (
+		      SELECT 1
+		      FROM slack_inputs AS input
+		      JOIN channel_configurations AS config ON config.channel_id = input.channel_id
+		      WHERE candidate.source_kind = 'watch'
+		        AND input.id = candidate.source_id
+		        AND config.participation = 'shadow'
+		    ) THEN 4
 		    WHEN EXISTS (
 		      SELECT 1 FROM slack_inputs AS input
 		      WHERE input.id = candidate.source_id

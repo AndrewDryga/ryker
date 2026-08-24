@@ -60,12 +60,23 @@ func WatchCorrection(
 func Drop(decision *decisionpkg.WatchDecision) {
 	decision.TaskTitle, decision.TaskRepository = "", ""
 	decision.TaskPrompt, decision.TaskPullRequest = "", ""
+	decision.Operations = dropOperations(decision.Operations)
+	decision.AppliedOperations = dropOperations(decision.AppliedOperations)
+}
+
+// DropReport removes the same optional engineering transition from a deep-lane
+// report. Reports carry task offers only in their operation stream.
+func DropReport(report *decisionpkg.AgentReport) {
+	report.Operations = dropOperations(report.Operations)
+	report.AppliedOperations = dropOperations(report.AppliedOperations)
+}
+
+func dropOperations(operations []investigation.ResultOperation) []investigation.ResultOperation {
 	drop := func(operation investigation.ResultOperation) bool {
 		return operation.Type == "offer_task" && operation.Task != nil &&
 			operation.Task.Kind == "engineering"
 	}
-	decision.Operations = slices.DeleteFunc(decision.Operations, drop)
-	decision.AppliedOperations = slices.DeleteFunc(decision.AppliedOperations, drop)
+	return slices.DeleteFunc(operations, drop)
 }
 
 func ForgetCarried(carried **taskoffercarry.Offer, rejected bool) {

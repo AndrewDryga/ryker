@@ -1065,6 +1065,26 @@ func (r *Repository) ListEpisodeEvidence(
 	episodeID string,
 	limit int,
 ) ([]core.Evidence, error) {
+	return r.listEpisodeEvidence(ctx, episodeID, limit, true)
+}
+
+// ListCurrentEpisodeEvidence returns only rows recorded by attempts belonging
+// to this exact episode. Rechecks carry these rows as unfinished current work;
+// parent and correlated episodes remain history and never enter this view.
+func (r *Repository) ListCurrentEpisodeEvidence(
+	ctx context.Context,
+	episodeID string,
+	limit int,
+) ([]core.Evidence, error) {
+	return r.listEpisodeEvidence(ctx, episodeID, limit, false)
+}
+
+func (r *Repository) listEpisodeEvidence(
+	ctx context.Context,
+	episodeID string,
+	limit int,
+	includeAncestry bool,
+) ([]core.Evidence, error) {
 	if strings.TrimSpace(episodeID) == "" || limit < 1 || limit > 200 {
 		return nil, errors.New("episode evidence requires an episode and limit from 1 to 200")
 	}
@@ -1075,7 +1095,7 @@ func (r *Repository) ListEpisodeEvidence(
 		  SELECT episode.id, episode.parent_episode_id, child.depth + 1
 		  FROM work_episodes AS episode
 		  JOIN episode_chain AS child ON episode.id = child.parent_episode_id
-		  WHERE child.depth < 49
+		  WHERE ? AND child.depth < 49
 		), source_inputs(id) AS (
 		  SELECT source_id FROM agent_runs
 		  WHERE episode_id IN (SELECT id FROM episode_chain)
@@ -1097,8 +1117,9 @@ func (r *Repository) ListEpisodeEvidence(
 		  dimensions_json, metadata_json, supersedes_json, created_at
 		FROM evidence
 		WHERE source_input IN (SELECT id FROM source_inputs)
-		   OR incident_id IN (SELECT id FROM incident_ids)
-		ORDER BY created_at DESC, id DESC LIMIT ?`, episodeID, limit)
+		   OR (? AND incident_id IN (SELECT id FROM incident_ids))
+		ORDER BY created_at DESC, id DESC LIMIT ?`,
+		episodeID, includeAncestry, includeAncestry, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1143,6 +1164,25 @@ func (r *Repository) ListEpisodeCoverage(
 	episodeID string,
 	limit int,
 ) ([]core.Coverage, error) {
+	return r.listEpisodeCoverage(ctx, episodeID, limit, true)
+}
+
+// ListCurrentEpisodeCoverage is the coverage counterpart to
+// ListCurrentEpisodeEvidence. It deliberately excludes correlation ancestry.
+func (r *Repository) ListCurrentEpisodeCoverage(
+	ctx context.Context,
+	episodeID string,
+	limit int,
+) ([]core.Coverage, error) {
+	return r.listEpisodeCoverage(ctx, episodeID, limit, false)
+}
+
+func (r *Repository) listEpisodeCoverage(
+	ctx context.Context,
+	episodeID string,
+	limit int,
+	includeAncestry bool,
+) ([]core.Coverage, error) {
 	if strings.TrimSpace(episodeID) == "" || limit < 1 || limit > 200 {
 		return nil, errors.New("episode coverage requires an episode and limit from 1 to 200")
 	}
@@ -1153,7 +1193,7 @@ func (r *Repository) ListEpisodeCoverage(
 		  SELECT episode.id, episode.parent_episode_id, child.depth + 1
 		  FROM work_episodes AS episode
 		  JOIN episode_chain AS child ON episode.id = child.parent_episode_id
-		  WHERE child.depth < 49
+		  WHERE ? AND child.depth < 49
 		), source_inputs(id) AS (
 		  SELECT source_id FROM agent_runs
 		  WHERE episode_id IN (SELECT id FROM episode_chain)
@@ -1173,8 +1213,9 @@ func (r *Repository) ListEpisodeCoverage(
 		  detail, observed_at, claim_ids_json, created_at
 		FROM coverage
 		WHERE source_input IN (SELECT id FROM source_inputs)
-		   OR incident_id IN (SELECT id FROM incident_ids)
-		ORDER BY created_at DESC, id DESC LIMIT ?`, episodeID, limit)
+		   OR (? AND incident_id IN (SELECT id FROM incident_ids))
+		ORDER BY created_at DESC, id DESC LIMIT ?`,
+		episodeID, includeAncestry, includeAncestry, limit)
 	if err != nil {
 		return nil, err
 	}

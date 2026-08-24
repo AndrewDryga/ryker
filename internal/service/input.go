@@ -1072,13 +1072,12 @@ func (s *Service) bindEpisodeDestination(
 		episode.Destination.ThreadTS == threadTS {
 		return episode, nil
 	}
-	// Missing routing information may preserve a bound audience, never widen
-	// it. Two scheduled verifications carried an empty frozen response thread
-	// and were consequently posted to the whole channel even though the episode
-	// had already accepted a thread. An explicit relocation still names a new
-	// non-empty thread and follows the ordinary destination-change path below.
-	if episode.Destination.ChannelID == channelID &&
-		episode.Destination.ThreadTS != "" && threadTS == "" {
+	// Delivery may establish an episode's first thread, but it may not relocate
+	// one that is already bound. Explicit operator relocation goes directly
+	// through ChangeEpisodeDestination; model and lifecycle routes use this
+	// guard. The channel is equally durable once established.
+	if episode.Destination.ThreadTS != "" ||
+		(episode.Destination.ChannelID != "" && episode.Destination.ChannelID != channelID) {
 		return episode, nil
 	}
 	return s.store.ChangeEpisodeDestination(

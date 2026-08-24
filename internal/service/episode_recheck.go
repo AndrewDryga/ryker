@@ -12,6 +12,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/recheckcontext"
 	"github.com/AndrewDryga/responder/internal/store"
 )
 
@@ -130,6 +131,16 @@ func (s *Service) processEpisodeRecheck(ctx context.Context, item store.WorkItem
 		}
 	}
 	state, err := decodeWatchRunContext(originRun)
+	if err != nil {
+		return err
+	}
+	// A successful origin turn persists its evidence after the run context was
+	// frozen. Carry the exact episode's rows into the recheck so the host does
+	// not reject ids it just recorded. Correlated and parent rows remain in the
+	// continuity prompt as history; these queries deliberately exclude them.
+	state, err = recheckcontext.Carry(
+		ctx, s.store.Intelligence, originRun.EpisodeID, state, s.now(),
+	)
 	if err != nil {
 		return err
 	}

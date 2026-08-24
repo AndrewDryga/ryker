@@ -202,7 +202,7 @@ func TestAResolvedWakeupIdentityCannotLeaveAnEpisodeWaitingWithoutAClock(t *test
 	}
 	correction, err := svc.episodeClaimCorrectionWithHistory(
 		ctx, episode, "silence", nil, nil, nil, now, run.StartedAt,
-		[]investigation.ResultOperation{operation},
+		[]investigation.ResultOperation{operation}, nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -214,7 +214,7 @@ func TestAResolvedWakeupIdentityCannotLeaveAnEpisodeWaitingWithoutAClock(t *test
 	operation.ExternalWait.ID = "terraform-run-terminal-refresh"
 	if correction, err := svc.episodeClaimCorrectionWithHistory(
 		ctx, episode, "silence", nil, nil, nil, now, run.StartedAt,
-		[]investigation.ResultOperation{operation},
+		[]investigation.ResultOperation{operation}, nil,
 	); err != nil || correction != "" {
 		t.Fatalf("fresh wakeup correction = %q, %v", correction, err)
 	}
@@ -296,7 +296,7 @@ func TestTerraformWaitChainCannotRenewItsOriginalDeadline(t *testing.T) {
 
 	correction, err := svc.episodeClaimCorrectionWithHistory(
 		ctx, episode, "silence", nil, nil, nil, now, run.StartedAt,
-		[]investigation.ResultOperation{operation},
+		[]investigation.ResultOperation{operation}, nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -309,14 +309,14 @@ func TestTerraformWaitChainCannotRenewItsOriginalDeadline(t *testing.T) {
 	operation.ExternalWait.Deadline = originalDeadline.Format(time.RFC3339)
 	if correction, err := svc.episodeClaimCorrectionWithHistory(
 		ctx, episode, "silence", nil, nil, nil, now, run.StartedAt,
-		[]investigation.ResultOperation{operation},
+		[]investigation.ResultOperation{operation}, nil,
 	); err != nil || correction != "" {
 		t.Fatalf("bounded refresh correction = %q, %v", correction, err)
 	}
 	if correction, err := svc.episodeClaimCorrectionWithHistory(
 		ctx, episode, "silence", nil, nil, nil,
 		originalDeadline.Add(time.Second), run.StartedAt,
-		[]investigation.ResultOperation{operation},
+		[]investigation.ResultOperation{operation}, nil,
 	); err != nil || !strings.Contains(correction, "has elapsed") {
 		t.Fatalf("elapsed deadline correction = %q, %v", correction, err)
 	}

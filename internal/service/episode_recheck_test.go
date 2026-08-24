@@ -312,6 +312,89 @@ func TestEpisodeRecheckCreatesOneSilentSyntheticInput(t *testing.T) {
 	}
 }
 
+// Three Vector alert rechecks on 2026-08-23 each cited repository evidence
+// recorded by the previous attempt in the same episode. The frozen recheck
+// context omitted those rows, so the host rejected the exact ids it had just
+// shown the model and spent six correction turns on evidence it already held.
+// Correlation ancestry remains history; this test carries only rows whose
+// source input belongs to this exact episode.
+func TestEpisodeRecheckCarriesEvidenceRecordedByTheSameEpisode(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	origin := core.SlackInput{
+		ID: "vector-firing", EnvelopeID: "env-vector-firing",
+		EventID: "event-vector-firing", Kind: "bot_message",
+		TeamID: cfg.Slack.TeamID, ChannelID: "COPS", MessageTS: "1700.100",
+		UserID: "BGRAFANA", Text: "Vector component errors are firing.",
+		ReceivedAt: time.Now().UTC(),
+	}
+	if created, admitErr := st.AdmitSlackInput(ctx, origin); admitErr != nil || !created {
+		t.Fatalf("admit origin = %t, %v", created, admitErr)
+	}
+	stateJSON, err := json.Marshal(decisionpkg.WatchTurnState{
+		SessionID: "session-vector", Repository: "repo", RouteCaptured: true,
+		ResponseThreadTS: origin.MessageTS, ConversationFollowup: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := []byte(`{
+  "action":"reply","message":"The image change is ready but not deployed.",
+  "completion":{"status":"blocked","summary":"Deployment is pending.",
+  "material_gaps":["live rollout"],"blocker_kind":"source_unavailable",
+  "attempts":["Inspected the current image declaration."],
+  "next_action":"Recheck after deployment.",
+  "recheck":{"key":"vector-image","reason":"Deployment is pending.",
+  "after_seconds":60,"additional_attempts":1}}
+}`)
+	run, created, err := st.QueueAgentRun(ctx, core.AgentRun{
+		ID: "run_vector_origin", Mode: core.AgentRunTriage,
+		ChannelID: origin.ChannelID, ConversationKey: "operation:vector-errors",
+		SourceKind: "watch", SourceID: origin.ID, UserID: origin.UserID,
+		Context: stateJSON, Result: result, State: core.AgentRunRunning,
+	})
+	if err != nil || !created {
+		t.Fatalf("queue origin = %+v, %t, %v", run, created, err)
+	}
+	now := time.Now().UTC()
+	if _, err := st.Intelligence.RecordEvidence(ctx, []core.Evidence{{
+		ID: "e-change-running-image", ChannelID: origin.ChannelID,
+		SourceInput: origin.ID, ClaimID: "change.recent",
+		Claim:       "The declared Vector image contains the log-volume fix.",
+		Observation: "The pinned repository revision selects the fixed image.",
+		Relation:    "supports", SourceType: "repository", SourceID: "commit-vector",
+		SourceName: "tenant-infra image declaration", Freshness: "current checkout",
+		Confidence: "high", ObservedAt: now, CreatedAt: now,
+		Dimensions: map[string]string{"repository": "repo", "revision": "current"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := &Service{cfg: cfg, store: st}
+	if err := svc.processEpisodeRecheck(ctx, store.WorkItem{
+		Kind: workEpisodeRecheck, SubjectID: episodeRecheckSubject(run.ID, 1),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	recheck, err := st.GetSlackInput(ctx, episodeRecheckInputID(run.ID, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state decisionpkg.WatchTurnState
+	if err := json.Unmarshal(recheck.Frozen, &state); err != nil {
+		t.Fatal(err)
+	}
+	if !hasEvidenceID(state.CarriedEvidence, "e-change-running-image") {
+		t.Fatalf("same-episode evidence was omitted from the recheck: %+v", state.CarriedEvidence)
+	}
+}
+
 // Covers: TestAppAlertRecheckRetainsOriginAlertValidation
 // Covers: TestResolvedAlertRecheckCannotPublishBlockedReplyWithoutAlertAssessment
 

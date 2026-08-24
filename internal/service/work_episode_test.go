@@ -754,7 +754,7 @@ func TestPublishedParentArtifactCannotCompleteDraftOnlyFollowup(t *testing.T) {
 	svc := &Service{cfg: cfg, store: st}
 	strictOperations := []investigation.ResultOperation{{Type: "record_evidence"}}
 	correction, err := svc.episodeClaimCorrectionWithHistory(
-		ctx, child, "reply", draft, coverage, completion, now, now, strictOperations,
+		ctx, child, "reply", draft, coverage, completion, now, now, strictOperations, nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -772,7 +772,7 @@ func TestPublishedParentArtifactCannotCompleteDraftOnlyFollowup(t *testing.T) {
 	published[0].Dimensions["artifact_state"] = "published"
 	published[0].Dimensions["adoption_state"] = "active"
 	correction, err = svc.episodeClaimCorrectionWithHistory(
-		ctx, child, "reply", published, coverage, completion, now, now, strictOperations,
+		ctx, child, "reply", published, coverage, completion, now, now, strictOperations, nil,
 	)
 	if err != nil || correction != "" {
 		t.Fatalf("current published v5 rejected: %q, %v", correction, err)
@@ -811,14 +811,14 @@ func TestPublishedParentArtifactCannotCompleteDraftOnlyFollowup(t *testing.T) {
 		Status: "decision_ready", Verdict: "healthy", Summary: "The checked scope is healthy.",
 	}
 	correction, err = svc.episodeClaimCorrectionWithHistory(
-		ctx, healthChild, "reply", nil, healthCoverage, healthCompletion, now, now, strictOperations,
+		ctx, healthChild, "reply", nil, healthCoverage, healthCompletion, now, now, strictOperations, nil,
 	)
 	if err != nil || !strings.Contains(correction, "functional_probe") {
 		t.Fatalf("historical parent trends satisfied current healthy verdict: %q, %v", correction, err)
 	}
 	correction, err = svc.episodeClaimCorrectionWithHistory(
 		ctx, healthChild, "reply", healthyTrendEvidence(now), healthCoverage,
-		healthCompletion, now, now, strictOperations,
+		healthCompletion, now, now, strictOperations, nil,
 	)
 	if err != nil || correction != "" {
 		t.Fatalf("current fresh health evidence rejected: %q, %v", correction, err)
@@ -1095,7 +1095,7 @@ func TestAHealthyAssessmentWithATaskOfferStillNeedsCurrentTrends(t *testing.T) {
 		[]investigation.ResultOperation{{
 			ID: "offer-fix", Type: "offer_task",
 			Task: &investigation.TaskOffer{Kind: "engineering", Title: "Fix the unhealthy path"},
-		}},
+		}}, nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1140,7 +1140,7 @@ func TestABlockedTaskOfferStillNeedsCurrentClaimEvidence(t *testing.T) {
 		[]investigation.ResultOperation{{
 			ID: "offer-fix", Type: "offer_task",
 			Task: &investigation.TaskOffer{Kind: "engineering", Title: "Apply the repair"},
-		}},
+		}}, nil,
 	)
 	if err != nil {
 		t.Fatal(err)
