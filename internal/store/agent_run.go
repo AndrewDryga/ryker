@@ -13,6 +13,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	"github.com/AndrewDryga/responder/internal/fanout"
+	"github.com/AndrewDryga/responder/internal/store/agentpreparationstore"
 	"github.com/AndrewDryga/responder/internal/store/lifecyclecheck"
 	"github.com/AndrewDryga/responder/internal/store/preparationstore"
 	"github.com/AndrewDryga/responder/internal/store/slackinputstore"
@@ -1332,46 +1333,55 @@ func (s *Store) DeferAgentRun(
 	next time.Time,
 	preparingWorkspace ...bool,
 ) error {
-	episodeState, phase := core.EpisodeAcknowledged, "queued"
-	nextAction, progressDue, eventSuffix := "Resume when the dependency is ready", time.Time{}, "deferred"
-	if len(preparingWorkspace) > 0 && preparingWorkspace[0] {
-		episodeState, phase = core.EpisodeRetrying, "preparing_workspace"
-		nextAction, progressDue, eventSuffix = "Responder will retry this investigation branch automatically", next, "deferred:preparing_workspace"
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `
-		UPDATE agent_runs
-		SET state = 'pending', last_error = ?, next_attempt_at = ?, updated_at = ?
-		WHERE id = ? AND state = 'preparing'`,
-		sqlutil.BoundedError(detail), next.UTC().Format(timestampFormat), s.nowText(), id)
-	if err := sqlutil.ExpectOne(result, err, "defer agent run"); err != nil {
-		return err
-	}
-	if err := s.setEpisodeAttemptStateTx(
-		ctx, tx, id, core.AttemptPending, detail, false,
-	); err != nil {
-		return err
-	}
-	if err := s.setWorkEpisodePhaseTx(
-		ctx, tx, id, episodeState, phase, sqlutil.BoundedError(detail),
-		nextAction, progressDue,
-		// Keyed on the run alone, deliberately. Including the next attempt time
-		// made every key unique, so a run polling once a second appended a
-		// phase_changed event every second: 5,483 identical "waiting for the
-		// previous agent run" rows, 47% of the whole episode event stream, and
-		// a timeline nobody could read. Waiting is one fact however long it
-		// lasts, and the UNIQUE(episode_id, idempotency_key) constraint now
-		// collapses the repeats where they are written rather than where they
-		// are displayed.
-		"agent-run:"+id+":"+eventSuffix,
-	); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return deferAgentRun(ctx, s, id, nil, detail, next, preparingWorkspace...)
+}
+
+// DeferTriageAgentRun records the advanced session generation and returns the
+// pre-submission lease to the queue in one transaction. Keeping those writes
+// together prevents a timed-out worker from remembering that one Coop
+// generation is spent while still owning the conversation forever.
+//
+// It is a package function because Store's exported method surface is capped.
+func DeferTriageAgentRun(ctx context.Context, s *Store, id string, contextJSON []byte,
+	detail string, next time.Time, preparingWorkspace ...bool,
+) error {
+	return deferAgentRun(ctx, s, id, contextJSON, detail, next, preparingWorkspace...)
+}
+
+func deferAgentRun(
+	ctx context.Context,
+	s *Store,
+	id string,
+	contextJSON []byte,
+	detail string,
+	next time.Time,
+	preparingWorkspace ...bool,
+) error {
+	workspace := len(preparingWorkspace) > 0 && preparingWorkspace[0]
+	return agentpreparationstore.Defer(
+		ctx, s.db, s.now, id, contextJSON, detail, next, workspace,
+		func(ctx context.Context, tx *sql.Tx, id string, projection agentpreparationstore.Deferral) error {
+			if err := s.setEpisodeAttemptStateTx(ctx, tx, id, core.AttemptPending, detail, false); err != nil {
+				return err
+			}
+			return s.setWorkEpisodePhaseTx(
+				ctx, tx, id, projection.EpisodeState, projection.Phase,
+				sqlutil.BoundedError(projection.Status), projection.NextAction,
+				projection.ProgressDue, "agent-run:"+id+":"+projection.EventSuffix,
+			)
+		},
+	)
+}
+
+// RecoverStaleAgentRunPreparations returns only abandoned pre-submission
+// leases to the queue. A running turn is Coop-owned work and is deliberately
+// outside this recovery path.
+//
+// It is a package function because Store's exported method surface is capped.
+func RecoverStaleAgentRunPreparations(ctx context.Context, s *Store,
+	staleBefore time.Time,
+) (int64, error) {
+	return agentpreparationstore.Recover(ctx, s.db, s.now, staleBefore)
 }
 
 func (s *Store) RetryAgentRun(

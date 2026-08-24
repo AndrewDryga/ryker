@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AndrewDryga/responder/internal/agentcontext"
+	"github.com/AndrewDryga/responder/internal/agentpreparation"
 	"github.com/AndrewDryga/responder/internal/agentprompt"
 	"github.com/AndrewDryga/responder/internal/alertstream"
 	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
@@ -666,6 +667,11 @@ func decodeWatchRunContext(run core.AgentRun) (decisionpkg.WatchTurnState, error
 }
 
 func (s *Service) processAgentRun(ctx context.Context) error {
+	if err := agentpreparation.Recover(
+		ctx, s.store, s.now(), s.cfg.Limits.WorkerStallAfter.Duration, s.log,
+	); err != nil {
+		return err
+	}
 	run, err := s.store.LeaseAgentRun(ctx)
 	if err != nil {
 		return err
@@ -1764,60 +1770,65 @@ func (s *Service) retryAtNextSessionGeneration(
 	observedGeneration int,
 	cause error,
 ) error {
-	receiptCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	ctx = receiptCtx
-	var limitErr *turncapacity.LimitError
-	unusable := sessioncreate.TerminalFailure(cause) || errors.As(cause, &limitErr)
-	next := retrydelay.NextSessionGeneration(state.Generation, observedGeneration, unusable)
-	if next > state.Generation {
-		state.Generation = next
-		if err := s.persistTriageRunState(ctx, run.ID, *state); err != nil {
-			return s.retryAgentRun(ctx, run, err)
-		}
+	contextJSON, generationAdvanced, limitReached, err := agentpreparation.AdvanceContext(
+		state, observedGeneration, cause,
+	)
+	if err != nil {
+		return err
 	}
 	// Session creation is preparation, not a model attempt. A retryable Coop
 	// outage must not consume the ceiling and discard already-accepted work.
 	if errors.Is(cause, sessioncreate.ErrReadOnlyAuthority) ||
 		errors.Is(cause, sessioncreate.ErrHistoricalCreateKeys) {
-		if err := s.notifyRepositoryPreparationBlocked(ctx, run, cause); err != nil {
-			return err
-		}
-		s.parkWatchedStatus(ctx, run, "clear watched Slack status while workspace authority is repaired")
 		delay := 30 * time.Minute
 		if errors.Is(cause, sessioncreate.ErrHistoricalCreateKeys) {
 			delay = sessioncreate.HistoricalCreateKeysRetryDelay
 		}
-		return s.store.DeferAgentRun(ctx, run.ID, trimError(cause), s.now().Add(delay))
+		if err := agentpreparation.DeferAndNotify(
+			ctx, s.store, s.log, run.ID, contextJSON, trimError(cause),
+			s.now().Add(delay), true,
+			func(noticeCtx context.Context) error {
+				return s.notifyRepositoryPreparationBlocked(noticeCtx, run, cause)
+			},
+		); err != nil {
+			return err
+		}
+		s.parkWatchedStatus(ctx, run, "clear watched Slack status while workspace authority is repaired")
+		return nil
 	}
-	if limitErr != nil {
-		return s.store.DeferAgentRun(
-			ctx,
-			run.ID,
+	if limitReached {
+		return agentpreparation.Defer(
+			ctx, s.store, run.ID, contextJSON,
 			"opening a fresh model session after reaching the automatic request ceiling",
-			s.now().Add(time.Second),
+			s.now().Add(time.Second), false,
 		)
 	}
 	if errors.Is(cause, sessionauthority.ErrConvergence) {
 		now := s.now()
-		return s.store.DeferAgentRun(ctx, run.ID, trimError(cause),
-			now.Add(retrydelay.DependencyWait(now.Sub(run.CreatedAt))))
+		return agentpreparation.Defer(
+			ctx, s.store, run.ID, contextJSON, trimError(cause),
+			now.Add(retrydelay.DependencyWait(now.Sub(run.CreatedAt))), true,
+		)
 	}
 	if coop.Retryable(cause) {
-		var pending *coop.OperationPendingError
-		if requeued, err := s.requeueIfRateLimited(ctx, run, cause); requeued {
+		receiptCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		if requeued, err := s.requeueIfRateLimited(receiptCtx, run, cause); requeued {
+			cancel()
 			return err
 		}
-		if err := s.notifyRepositoryPreparationBlocked(ctx, run, cause); err != nil {
-			return err
-		}
-		delay := 30 * time.Second
-		if errors.As(cause, &pending) {
-			delay = time.Second
-		}
-		return s.store.DeferAgentRun(
-			ctx, run.ID, trimError(cause), s.now().Add(delay),
+		cancel()
+		return agentpreparation.DeferAndNotify(
+			ctx, s.store, s.log, run.ID, contextJSON, trimError(cause),
+			s.now().Add(agentpreparation.RetryDelay(cause)), true,
+			func(noticeCtx context.Context) error {
+				return s.notifyRepositoryPreparationBlocked(noticeCtx, run, cause)
+			},
 		)
+	}
+	if generationAdvanced {
+		if err := agentpreparation.Persist(ctx, s.store, run.ID, contextJSON); err != nil {
+			return err
+		}
 	}
 	return s.retryAgentRun(ctx, run, cause)
 }
@@ -1903,18 +1914,6 @@ func (s *Service) resolveTriageSession(
 		}
 	}
 	return triageSessionBinding{session, repositoryKey, generation, eventSequence}, nil
-}
-
-func (s *Service) persistTriageRunState(
-	ctx context.Context,
-	runID string,
-	state decisionpkg.WatchTurnState,
-) error {
-	contextJSON, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-	return s.store.SetAgentRunContext(ctx, runID, contextJSON)
 }
 
 // requeueIfRateLimited puts a run the provider refused back in the queue and

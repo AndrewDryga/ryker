@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +18,95 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
+
+// A live Tenant alert spent eleven hours behind one preparation lease after
+// Coop's repository refresh failed. The Slack blocker was attempted before the
+// run was put back in the queue, so a delivery-side failure could abandon the
+// accepted run in preparing and serialize every later message behind it.
+func TestPreparationNoticeFailureCannotOwnTheAcceptedRun(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run := seedPreparingRun(t, st)
+	raw, err := sql.Open("sqlite", filepath.Join(cfg.StateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	if _, err := raw.ExecContext(ctx, `
+		CREATE TRIGGER fail_preparation_notice
+		BEFORE INSERT ON slack_deliveries
+		WHEN NEW.id LIKE 'watch_preparation_blocked_%'
+		BEGIN
+			SELECT RAISE(FAIL, 'injected Slack outbox failure');
+		END`); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	state := decisionpkg.WatchTurnState{Generation: 1}
+	cause := &coop.APIError{
+		Status: 503, Code: "repository_unavailable",
+		Detail: "exact repository refresh timed out",
+	}
+
+	if err := svc.retryAtNextSessionGeneration(ctx, run, &state, 1, cause); err != nil {
+		t.Fatalf("delivery failure escaped after the run should have been requeued: %v", err)
+	}
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != core.AgentRunPending || stored.Failures != 0 {
+		t.Fatalf("accepted run was owned by its Slack notice: %+v", stored)
+	}
+}
+
+func TestAgentWorkerReclaimsAbandonedPreparationBeforeLeasing(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Limits.WorkerStallAfter.Duration = 2 * time.Minute
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run := seedPreparingRun(t, st)
+	raw, err := sql.Open("sqlite", filepath.Join(cfg.StateDir, "responder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().UTC().Add(-10 * time.Minute).Format(core.TimestampFormat)
+	if _, err := raw.ExecContext(
+		ctx, `UPDATE agent_runs SET updated_at = ? WHERE id = ?`, old, run.ID,
+	); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT"}
+
+	if err := svc.processAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != core.AgentRunRunning || stored.CoopTurnID == "" {
+		t.Fatalf("reclaimed run did not reach Coop: %+v", stored)
+	}
+	if len(coopClient.submitKeys) != 1 {
+		t.Fatalf("model submissions = %d, want 1", len(coopClient.submitKeys))
+	}
+}
 
 // The production recovery edge is an accepted model turn, which retires the
 // blocker in the same store transaction. Lifecycle tests below exercise the

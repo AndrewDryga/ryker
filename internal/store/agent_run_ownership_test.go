@@ -41,6 +41,91 @@ func TestRetryAgentRunIfOwnedRequeuesCurrentOwner(t *testing.T) {
 	}
 }
 
+// A timed-out repository refresh left a Tenant run in preparing for eleven
+// hours. Same-conversation serialization then correctly refused to lease every
+// newer message, but nothing reclaimed the abandoned pre-submission lease
+// until Responder restarted.
+func TestAbandonedPreparationIsRequeuedDuringNormalOperation(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, _ := queueKernelEpisode(t, st, "abandoned-preparation")
+	if _, err := st.LeaseAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().UTC().Add(-10 * time.Minute).Format(timestampFormat)
+	if _, err := st.db.ExecContext(ctx, `
+		UPDATE agent_runs SET updated_at = ? WHERE id = ?`, old, run.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	recovered, err := RecoverStaleAgentRunPreparations(
+		ctx, st, time.Now().UTC().Add(-2*time.Minute),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered != 1 {
+		t.Fatalf("recovered preparations = %d, want 1", recovered)
+	}
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != core.AgentRunPending || stored.Failures != 0 || stored.CoopTurnID != "" {
+		t.Fatalf("recovered run = %+v", stored)
+	}
+	attempt, err := st.GetEpisodeAttempt(ctx, run.AttemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempt.State != core.AttemptPending {
+		t.Fatalf("recovered attempt state = %s, want pending", attempt.State)
+	}
+}
+
+func TestStalePreparationRecoveryNeverRequeuesASubmittedTurn(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run, _ := queueKernelEpisode(t, st, "submitted-turn")
+	if _, err := st.LeaseAgentRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().UTC().Add(-10 * time.Minute).Format(timestampFormat)
+	if _, err := st.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET state = 'running', coop_turn_id = 'turn-live', updated_at = ?
+		WHERE id = ?`, old, run.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	recovered, err := RecoverStaleAgentRunPreparations(
+		ctx, st, time.Now().UTC().Add(-2*time.Minute),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered != 0 {
+		t.Fatalf("recovered submitted turns = %d, want 0", recovered)
+	}
+	stored, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != core.AgentRunRunning || stored.CoopTurnID != "turn-live" {
+		t.Fatalf("submitted turn was reclaimed: %+v", stored)
+	}
+}
+
 func TestReplacingAnAgentSessionDropsOnlyTheOldFrozenRevision(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(t.TempDir())
