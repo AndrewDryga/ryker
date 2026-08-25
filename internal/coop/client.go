@@ -55,8 +55,9 @@ type Client struct {
 }
 
 type OutputContract struct {
-	JSONSchema json.RawMessage `json:"json_schema"`
-	SHA256     string          `json:"sha256"`
+	JSONSchema                json.RawMessage `json:"json_schema"`
+	SHA256                    string          `json:"sha256"`
+	RequireSemanticValidation bool            `json:"require_semantic_validation,omitempty"`
 }
 
 // RequireOutputContract makes every later turn submission declare the same
@@ -72,8 +73,9 @@ func (c *Client) RequireOutputContract(schema []byte) {
 	}
 	digest := sha256.Sum256(normalized)
 	c.outputContract = &OutputContract{
-		JSONSchema: append(json.RawMessage(nil), normalized...),
-		SHA256:     fmt.Sprintf("%x", digest),
+		JSONSchema:                append(json.RawMessage(nil), normalized...),
+		SHA256:                    fmt.Sprintf("%x", digest),
+		RequireSemanticValidation: true,
 	}
 }
 
@@ -236,20 +238,31 @@ type CompanionRepository struct {
 }
 
 type Turn struct {
-	ID               string           `json:"id"`
-	SessionID        string           `json:"session_id"`
-	Ordinal          int64            `json:"ordinal"`
-	State            string           `json:"state"`
-	SendState        string           `json:"send_state"`
-	AssistantMessage string           `json:"assistant_message,omitempty"`
-	StopReason       string           `json:"stop_reason,omitempty"`
-	ErrorCode        string           `json:"error_code,omitempty"`
-	ErrorDetail      string           `json:"error_detail,omitempty"`
-	QueuedAt         time.Time        `json:"queued_at"`
-	StartedAt        time.Time        `json:"started_at,omitempty"`
-	FinishedAt       time.Time        `json:"finished_at,omitempty"`
-	OutputArtifacts  []OutputArtifact `json:"output_artifacts,omitempty"`
-	Usage            Usage            `json:"usage,omitzero"`
+	ID                        string           `json:"id"`
+	SessionID                 string           `json:"session_id"`
+	Ordinal                   int64            `json:"ordinal"`
+	State                     string           `json:"state"`
+	SendState                 string           `json:"send_state"`
+	AssistantMessage          string           `json:"assistant_message,omitempty"`
+	StopReason                string           `json:"stop_reason,omitempty"`
+	ErrorCode                 string           `json:"error_code,omitempty"`
+	ErrorDetail               string           `json:"error_detail,omitempty"`
+	QueuedAt                  time.Time        `json:"queued_at"`
+	StartedAt                 time.Time        `json:"started_at,omitempty"`
+	FinishedAt                time.Time        `json:"finished_at,omitempty"`
+	OutputArtifacts           []OutputArtifact `json:"output_artifacts,omitempty"`
+	Usage                     Usage            `json:"usage,omitzero"`
+	Candidate                 *TurnCandidate   `json:"candidate,omitempty"`
+	ValidationCandidateSHA256 string           `json:"validation_candidate_sha256,omitempty"`
+	ValidationAttempt         int              `json:"validation_attempt,omitempty"`
+	ValidationError           string           `json:"validation_error,omitempty"`
+	ValidationReceipt         string           `json:"validation_receipt,omitempty"`
+}
+
+type TurnCandidate struct {
+	Message string `json:"message"`
+	SHA256  string `json:"sha256"`
+	Attempt int    `json:"attempt"`
 }
 
 // Usage is what one turn cost the provider, as Coop reported it.
@@ -867,6 +880,24 @@ func (c *Client) GetTurn(ctx context.Context, sessionID, turnID string) (Turn, e
 	var response Turn
 	err := c.get(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/turns/"+url.PathEscape(turnID), nil, &response)
 	return response, err
+}
+
+func (c *Client) AcceptTurnCandidate(ctx context.Context, key, sessionID, turnID, digest string) (Turn, error) {
+	var response turnResponse
+	err := c.post(ctx,
+		"/v1/sessions/"+url.PathEscape(sessionID)+"/turns/"+url.PathEscape(turnID)+"/validation",
+		key, map[string]any{"candidate_sha256": digest, "verdict": "accept"}, &response,
+	)
+	return response.Turn, err
+}
+
+func (c *Client) RejectTurnCandidate(ctx context.Context, key, sessionID, turnID, digest string, violations []string) (Turn, error) {
+	var response turnResponse
+	err := c.post(ctx,
+		"/v1/sessions/"+url.PathEscape(sessionID)+"/turns/"+url.PathEscape(turnID)+"/validation",
+		key, map[string]any{"candidate_sha256": digest, "verdict": "reject", "violations": violations}, &response,
+	)
+	return response.Turn, err
 }
 
 func (c *Client) ListTurns(

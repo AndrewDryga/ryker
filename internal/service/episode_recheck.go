@@ -147,6 +147,11 @@ func (s *Service) processEpisodeRecheck(ctx context.Context, item store.WorkItem
 	state.RecheckOriginRunID = originRunID
 	state.RecheckKey = decision.Completion.Recheck.Key
 	state.RecheckAttempt = attempt
+	// StructuredCorrections is run-local. The episode budget sums that field
+	// across runs, so carrying the origin's cumulative count into a synthetic
+	// recheck charges every old correction a second time and can start the new
+	// result over budget before it has produced one candidate.
+	state.StructuredCorrections = 0
 	state.TurnID = ""
 	state.ExpectedRevision = 0
 	state.ContextCaptured = false

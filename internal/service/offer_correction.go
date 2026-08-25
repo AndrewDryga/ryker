@@ -10,6 +10,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/offerreason"
+	operatorofferspkg "github.com/AndrewDryga/responder/internal/operatoroffers"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/scheduletext"
 	"github.com/AndrewDryga/responder/internal/taskofferrejection"
@@ -208,7 +209,7 @@ func (s *Service) missingRequestedBehaviorOfferCorrection(
 			!behaviorofferpkg.MemoryRequest(input.Text)) {
 		return ""
 	}
-	offers, _, _ := normalizedOffers(input, repository, operatorOffers{
+	offers, _, _ := operatorofferspkg.Normalize(input, repository, operatorofferspkg.Offers{
 		Memory: decision.MemoryOffer, Preference: decision.PreferenceOffer,
 		Rule: decision.RuleOffer, Schedule: decision.ScheduleOffer,
 		Schedules: decision.ScheduleOffers,

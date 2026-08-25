@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"strings"
@@ -14,6 +16,40 @@ import (
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/store"
 )
+
+func TestLostValidationResponseDoesNotStrandTheRun(t *testing.T) {
+	// A successful Coop mutation can outlive its HTTP response. Replaying the
+	// awaiting-validation event must recognize Coop's durable decision; otherwise
+	// valid work remains stuck forever after an ordinary transport timeout.
+	message := `{"reply":"accepted"}`
+	digest := sha256.Sum256([]byte(message))
+	candidateDigest := hex.EncodeToString(digest[:])
+	client := newFakeCoop()
+	svc := &Service{coop: client}
+
+	accepted := coop.Turn{
+		State: "completed", AssistantMessage: message,
+		ValidationCandidateSHA256: candidateDigest,
+		ValidationAttempt:         1, ValidationReceipt: "validation-receipt",
+	}
+	if err := svc.validateSemanticCandidate(context.Background(), core.AgentRun{}, accepted, 1); err != nil {
+		t.Fatalf("recognize committed acceptance: %v", err)
+	}
+	if len(client.candidateAccepts) != 0 || len(client.candidateRejects) != 0 {
+		t.Fatalf("committed acceptance was submitted again: accepts=%v rejects=%v", client.candidateAccepts, client.candidateRejects)
+	}
+
+	rejected := coop.Turn{
+		State: "queued", ValidationCandidateSHA256: candidateDigest,
+		ValidationAttempt: 1, ValidationError: "current evidence contradicts the completion",
+	}
+	if err := svc.validateSemanticCandidate(context.Background(), core.AgentRun{}, rejected, 1); err != nil {
+		t.Fatalf("recognize committed rejection: %v", err)
+	}
+	if len(client.candidateAccepts) != 0 || len(client.candidateRejects) != 0 {
+		t.Fatalf("committed rejection was submitted again: accepts=%v rejects=%v", client.candidateAccepts, client.candidateRejects)
+	}
+}
 
 // Fifteen corrections on episode_run_6f5409ee1bc67c42adf6ed2c08040dda,
 // among 745 corrections in two days, started when the model cited evidence
@@ -100,8 +136,36 @@ func TestAnIncidentMayCiteEvidenceCarriedByItsCurrentRun(t *testing.T) {
 	}
 	result := freshenLinkedAdsTurn(string(contents), now)
 	staged := stagedTurn{}
-	svc := New(cfg, st, newFakeCoop(), &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	coopClient := newFakeCoop()
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
 	svc.clock = func() time.Time { return now }
+	coopClient.turn = coop.Turn{
+		ID: "turn-linked-ads", SessionID: run.SessionID, State: "awaiting_validation",
+		Candidate: &coop.TurnCandidate{Message: result, SHA256: "candidate-linked-ads", Attempt: 1},
+	}
+	coopClient.events = []coop.Event{{
+		ID: "event-candidate", SessionID: run.SessionID, Sequence: 1,
+		TurnID: run.CoopTurnID, Type: "turn.awaiting_validation", Version: 1,
+	}}
+	if err := svc.pollAgentRunOnce(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if len(coopClient.candidateRejects) != 1 ||
+		!strings.Contains(coopClient.candidateViolations[0][0], "cause_claim_ids") {
+		t.Fatalf("semantic candidate was not rejected with the host's exact correction: rejects=%v violations=%v",
+			coopClient.candidateRejects, coopClient.candidateViolations)
+	}
+	unchanged, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchangedState, err := decodeWatchRunContext(unchanged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchangedState.StructuredCorrections != 0 {
+		t.Fatalf("pre-completion rejection spent Responder's old correction budget: %+v", unchangedState)
+	}
 	handled, err := svc.stageTriageTerminal(ctx, run, coop.Turn{
 		ID: "turn-linked-ads", State: "completed", AssistantMessage: result,
 	}, 1, &staged)

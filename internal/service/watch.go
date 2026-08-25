@@ -19,6 +19,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/openquestions"
 	"github.com/AndrewDryga/responder/internal/operatorchoice"
+	operatorofferspkg "github.com/AndrewDryga/responder/internal/operatoroffers"
 	"github.com/AndrewDryga/responder/internal/promptscope"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
@@ -738,10 +739,10 @@ func (s *Service) applyWatchDecision(
 ) error {
 	episodeID := run.EpisodeID
 	if s.cfg.IsOperator(input.UserID) {
-		offers, acknowledgement, replaced := normalizedOffers(
+		offers, acknowledgement, replaced := operatorofferspkg.Normalize(
 			input,
 			state.Repository,
-			operatorOffers{
+			operatorofferspkg.Offers{
 				Memory:     decision.MemoryOffer,
 				Preference: decision.PreferenceOffer,
 				Rule:       decision.RuleOffer,

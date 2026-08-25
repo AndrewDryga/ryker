@@ -1097,6 +1097,9 @@ type fakeCoop struct {
 	completeQueuedFor        time.Duration
 	completeProviderDuration time.Duration
 	requiredOutputContract   []byte
+	candidateAccepts         []string
+	candidateRejects         []string
+	candidateViolations      [][]string
 }
 
 func newFakeCoop() *fakeCoop {
@@ -1336,6 +1339,32 @@ func (f *fakeCoop) GetTurn(context.Context, string, string) (coop.Turn, error) {
 	if f.turn.ID == "" {
 		return coop.Turn{}, errors.New("missing turn")
 	}
+	return f.turn, nil
+}
+
+func (f *fakeCoop) AcceptTurnCandidate(_ context.Context, _ string, _, _ string, digest string) (coop.Turn, error) {
+	f.candidateAccepts = append(f.candidateAccepts, digest)
+	if f.turn.Candidate == nil || f.turn.Candidate.SHA256 != digest {
+		return coop.Turn{}, errors.New("stale semantic candidate")
+	}
+	f.turn.State = "completed"
+	f.turn.AssistantMessage = f.turn.Candidate.Message
+	f.turn.ValidationCandidateSHA256 = digest
+	f.turn.ValidationReceipt = "validation_test"
+	return f.turn, nil
+}
+
+func (f *fakeCoop) RejectTurnCandidate(_ context.Context, _ string, _, _ string, digest string, violations []string) (coop.Turn, error) {
+	f.candidateRejects = append(f.candidateRejects, digest)
+	f.candidateViolations = append(f.candidateViolations, append([]string(nil), violations...))
+	if f.turn.Candidate == nil || f.turn.Candidate.SHA256 != digest {
+		return coop.Turn{}, errors.New("stale semantic candidate")
+	}
+	f.turn.State = "queued"
+	f.turn.ValidationCandidateSHA256 = digest
+	f.turn.ValidationAttempt = f.turn.Candidate.Attempt
+	f.turn.ValidationError = strings.Join(violations, "\n")
+	f.turn.Candidate = nil
 	return f.turn, nil
 }
 func (f *fakeCoop) GetOutputArtifact(_ context.Context, _, _, artifactID string) (coop.OutputArtifact, error) {

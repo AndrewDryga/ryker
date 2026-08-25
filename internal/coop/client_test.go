@@ -333,7 +333,8 @@ func TestClientSubmitsTypedTurnArtifacts(t *testing.T) {
 			body.Artifacts[0].SHA256 != fmt.Sprintf("%x", digest) ||
 			body.OutputContract == nil ||
 			string(body.OutputContract.JSONSchema) != string(compactContract) ||
-			body.OutputContract.SHA256 != fmt.Sprintf("%x", sha256.Sum256(compactContract)) {
+			body.OutputContract.SHA256 != fmt.Sprintf("%x", sha256.Sum256(compactContract)) ||
+			!body.OutputContract.RequireSemanticValidation {
 			t.Errorf("turn body = %+v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -356,6 +357,55 @@ func TestClientSubmitsTypedTurnArtifacts(t *testing.T) {
 	)
 	if err != nil || turn.ID != "turn_1" || operation.ID != "op_turn" {
 		t.Fatalf("response = %+v %+v, %v", turn, operation, err)
+	}
+}
+
+func TestClientAcceptsAndRejectsSemanticCandidatesByDigest(t *testing.T) {
+	socket := shortSocket(t)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/sessions/ses_1/turns/turn_1/validation" || r.Header.Get("Idempotency-Key") == "" {
+			t.Errorf("validation request = %s key=%q", r.URL.Path, r.Header.Get("Idempotency-Key"))
+		}
+		var body struct {
+			CandidateSHA256 string   `json:"candidate_sha256"`
+			Verdict         string   `json:"verdict"`
+			Violations      []string `json:"violations"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if body.CandidateSHA256 != "candidate-digest" {
+			t.Errorf("candidate digest = %q", body.CandidateSHA256)
+		}
+		switch body.Verdict {
+		case "accept":
+			_, _ = w.Write([]byte(`{"operation":{"id":"op_accept","method":"ValidateTurnCandidate","state":"succeeded"},"turn":{"id":"turn_1","state":"completed","assistant_message":"accepted","validation_receipt":"validation_1"}}`))
+		case "reject":
+			if len(body.Violations) != 1 || body.Violations[0] != "completion contradicts evidence" {
+				t.Errorf("violations = %v", body.Violations)
+			}
+			_, _ = w.Write([]byte(`{"operation":{"id":"op_reject","method":"ValidateTurnCandidate","state":"succeeded"},"turn":{"id":"turn_1","state":"queued","validation_attempt":1}}`))
+		default:
+			t.Errorf("verdict = %q", body.Verdict)
+		}
+	})}
+	go server.Serve(listener)
+	defer server.Shutdown(context.Background())
+
+	client := New(socket, time.Second)
+	accepted, err := client.AcceptTurnCandidate(context.Background(), "accept", "ses_1", "turn_1", "candidate-digest")
+	if err != nil || accepted.State != "completed" || accepted.ValidationReceipt == "" {
+		t.Fatalf("accepted = %+v, err=%v", accepted, err)
+	}
+	rejected, err := client.RejectTurnCandidate(context.Background(), "reject", "ses_1", "turn_1", "candidate-digest", []string{"completion contradicts evidence"})
+	if err != nil || rejected.State != "queued" || rejected.ValidationAttempt != 1 {
+		t.Fatalf("rejected = %+v, err=%v", rejected, err)
 	}
 }
 

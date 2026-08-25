@@ -31,6 +31,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/mentioncontext"
 	"github.com/AndrewDryga/responder/internal/openquestions"
 	"github.com/AndrewDryga/responder/internal/operatorchoice"
+	operatorofferspkg "github.com/AndrewDryga/responder/internal/operatoroffers"
 	"github.com/AndrewDryga/responder/internal/preparationnotice"
 	"github.com/AndrewDryga/responder/internal/promptbudget"
 	"github.com/AndrewDryga/responder/internal/provider"
@@ -45,6 +46,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/runreplay"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
+	"github.com/AndrewDryga/responder/internal/semanticvalidation"
 	"github.com/AndrewDryga/responder/internal/sessionauthority"
 	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackfile"
@@ -2226,6 +2228,14 @@ func (s *Service) pollAgentRunOnce(ctx context.Context, run core.AgentRun) error
 		// mid-turn and re-delivered the prompt itself, and every Responder
 		// prompt restates its own durable context, so the run depends on
 		// nothing the hop dropped. Coop logs it and the event is durable.
+		case "turn.awaiting_validation":
+			turn, err := s.coop.GetTurn(ctx, run.SessionID, run.CoopTurnID)
+			if err != nil {
+				return err
+			}
+			if err := s.validateSemanticCandidate(ctx, run, turn, cursor); err != nil {
+				return err
+			}
 		case "turn.completed", "turn.failed", "turn.cancelled", "turn.interrupted":
 			turn, err := s.coop.GetTurn(ctx, run.SessionID, run.CoopTurnID)
 			if err != nil {
@@ -2331,6 +2341,38 @@ func (s *Service) pollAgentRunOnce(ctx context.Context, run core.AgentRun) error
 	return nil
 }
 
+func (s *Service) validateSemanticCandidate(
+	ctx context.Context,
+	run core.AgentRun,
+	turn coop.Turn,
+	cursor int64,
+) error {
+	return semanticvalidation.Resolve(ctx, s.coop, semanticvalidation.Request{
+		RunID: run.ID, SessionID: run.SessionID, TurnID: run.CoopTurnID, Turn: turn,
+	}, func(candidateTurn coop.Turn) (string, error) {
+		staged := stagedTurn{result: []byte(candidateTurn.AssistantMessage)}
+		var err error
+		switch run.Mode {
+		case core.AgentRunTriage:
+			_, err = s.stageTriageTerminal(ctx, run, candidateTurn, cursor, &staged, true)
+		case core.AgentRunIncident, core.AgentRunEngineeringTask:
+			_, err = s.stageIncidentTerminal(ctx, run, candidateTurn, cursor, &staged, true)
+		default:
+			return "", fmt.Errorf("semantic validation is unavailable for agent run mode %q", run.Mode)
+		}
+		var violation *semanticCandidateViolation
+		if errors.As(err, &violation) {
+			return violation.detail, nil
+		}
+		return "", err
+	}, func(detail string) {
+		s.audit(ctx, core.AuditEvent{
+			IncidentID: run.IncidentID, Kind: "result.correction", ActorID: "responder",
+			ObjectID: run.ID, Outcome: string(correctionIncomplete), Detail: s.sanitizeText(detail),
+		})
+	})
+}
+
 // stagedTurn is what a completed turn contributes to the staged agent-run
 // result: the payload to persist and the operator-facing failure detail. The
 // per-mode validators below own both, so the outer function does not have to
@@ -2357,6 +2399,10 @@ func (s *stagedTurn) setResult(result []byte, err error) error {
 // what turns corrections from noise into the one signal that says whether
 // Responder is getting better.
 type correctionClass string
+
+type semanticCandidateViolation struct{ detail string }
+
+func (e *semanticCandidateViolation) Error() string { return e.detail }
 
 const (
 	// correctionUnreadable: the result could not be parsed at all.
@@ -2622,8 +2668,13 @@ func (s *Service) stageTriageTerminal(
 	turn coop.Turn,
 	cursor int64,
 	staged *stagedTurn,
+	validationOnly ...bool,
 ) (bool, error) {
+	preflight := len(validationOnly) > 0 && validationOnly[0]
 	if isSessionHandoffRun(run) {
+		if preflight {
+			return false, nil
+		}
 		return s.handoffTurnResult(ctx, run, turn, staged)
 	}
 	input, inputErr := s.store.GetSlackInput(ctx, run.SourceID)
@@ -2659,6 +2710,9 @@ func (s *Service) stageTriageTerminal(
 		invalid := trimError(decisionErr)
 		correction := "the structured Slack response is invalid: " + invalid +
 			investigation.SchemaFragmentForCorrection(string(correctionUnreadable), invalid)
+		if preflight {
+			return true, &semanticCandidateViolation{detail: correction}
+		}
 		// The complete stream is still rejected, but independently valid
 		// evidence, coverage and findings before an unrelated malformed offer
 		// remain this run's records. The correction contract explicitly tells
@@ -2703,6 +2757,9 @@ func (s *Service) stageTriageTerminal(
 		}
 	} else {
 		if state.Lane == "conversation" && decision.Action == "escalate" {
+			if preflight {
+				return false, nil
+			}
 			if err := s.store.AdvanceConversationSessionEvents(
 				ctx, run.ChannelID, run.SessionID, cursor,
 			); err != nil {
@@ -2955,6 +3012,9 @@ func (s *Service) stageTriageTerminal(
 			}
 		}
 		if correction != "" {
+			if preflight {
+				return true, &semanticCandidateViolation{detail: correction}
+			}
 			if !resultrecovery.ConsumeWatchCorrection(
 				&state, episodeCorrections,
 				min(s.cfg.Limits.MaxAgentRunAttempts, resultrecovery.SemanticAttemptLimit),
@@ -3011,6 +3071,9 @@ func (s *Service) stageTriageTerminal(
 				return true, err
 			}
 		} else {
+			if preflight {
+				return false, nil
+			}
 			superseded := false
 			// A reply is the investigation, and its evidence, findings and
 			// waits are what the next attempt on this stream reads instead of
@@ -3055,13 +3118,18 @@ func (s *Service) stageIncidentTerminal(
 	turn coop.Turn,
 	cursor int64,
 	staged *stagedTurn,
+	validationOnly ...bool,
 ) (bool, error) {
+	preflight := len(validationOnly) > 0 && validationOnly[0]
 	report, _, reportErr := decisionpkg.ParseAgentReport(turn.AssistantMessage)
 	schemaErr := reportErr
 	if reportErr != nil {
 		invalid := trimError(reportErr)
 		correction := "the structured agent report is invalid: " + invalid +
 			investigation.SchemaFragmentForCorrection(string(correctionUnreadable), invalid)
+		if preflight {
+			return true, &semanticCandidateViolation{detail: correction}
+		}
 		// The full report is unreadable, but an unrelated bad offer must not
 		// erase valid ledger records that preceded it. The next correction round
 		// is promised those records are still held, just like the watch lane.
@@ -3243,6 +3311,9 @@ func (s *Service) stageIncidentTerminal(
 			}
 		}
 		if correction != "" {
+			if preflight {
+				return true, &semanticCandidateViolation{detail: correction}
+			}
 			spent, spendErr := s.spendStructuredCorrectionWithin(
 				ctx, run, evidence, coverage, findings,
 				min(s.cfg.Limits.MaxAgentRunAttempts, resultrecovery.SemanticAttemptLimit),
@@ -3282,6 +3353,8 @@ func (s *Service) stageIncidentTerminal(
 			if reportErr = staged.setResult(resultwire.AgentReport(report)); reportErr != nil {
 				return true, reportErr
 			}
+		} else if preflight {
+			return false, nil
 		} else if err := s.recordResultOperationEvents(
 			ctx, run.ID, report.AppliedOperations,
 		); err != nil {
@@ -3457,6 +3530,9 @@ func (s *Service) stagePolledAgentRunTerminal(
 		if requeued, err := s.requeueIfRateLimited(ctx, run, errors.New(detail)); requeued {
 			return err
 		}
+	}
+	if terminalState == "completed" && turn.ValidationAttempt > 0 && turn.ValidationReceipt == "" {
+		return errors.New("Coop completed a semantic candidate without an acceptance receipt")
 	}
 	staged := stagedTurn{result: []byte(turn.AssistantMessage), detail: detail}
 	if run.Mode == core.AgentRunTriage && terminalState == "completed" {
@@ -4292,10 +4368,10 @@ func (s *Service) finalizeIncidentAgentRun(
 				ctx, run, incident.ID, incident.ChannelID, episodeOperations,
 			)
 			if conversation && s.cfg.IsOperator(conversationInput.UserID) {
-				offers, acknowledgement, replaced := normalizedOffers(
+				offers, acknowledgement, replaced := operatorofferspkg.Normalize(
 					conversationInput,
 					core.FirstNonempty(run.Repository, incident.Repository),
-					operatorOffers{
+					operatorofferspkg.Offers{
 						Memory:     report.MemoryOffer,
 						Preference: report.PreferenceOffer,
 						Rule:       report.RuleOffer,

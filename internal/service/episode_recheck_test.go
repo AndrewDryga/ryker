@@ -230,6 +230,7 @@ func TestEpisodeRecheckCreatesOneSilentSyntheticInput(t *testing.T) {
 		SessionID: "session_origin", SessionChannelID: "COPS",
 		Repository: "repo", RouteCaptured: true, ResponseThreadTS: "100.1",
 		ConversationFollowup: true, RulesCaptured: true,
+		StructuredCorrections: 2,
 		MatchedRules: []core.StandingRule{{
 			ID: "rule-alert", Trigger: "operational_alert", Action: "triage_alert",
 		}},
@@ -292,6 +293,14 @@ func TestEpisodeRecheckCreatesOneSilentSyntheticInput(t *testing.T) {
 		recheckState.RecheckAttempt != 1 || !recheckState.ConversationFollowup {
 		t.Fatalf("recheck state = %+v", recheckState)
 	}
+	// A resolved OOM alert inherited two correction rounds from its firing
+	// investigation, then the episode total counted those same rounds again.
+	// The retry began over budget and published a generic validation failure
+	// without giving the otherwise healthy model result one repair turn.
+	if recheckState.StructuredCorrections != 0 {
+		t.Fatalf("recheck inherited %d spent corrections, want a fresh run-local budget",
+			recheckState.StructuredCorrections)
+	}
 	recheckRun, err := st.GetAgentRunBySource(ctx, "watch", recheck.ID)
 	if err != nil || recheckRun.EpisodeID != run.EpisodeID {
 		t.Fatalf("recheck episode = %q, want origin %q: %v", recheckRun.EpisodeID, run.EpisodeID, err)
@@ -299,6 +308,11 @@ func TestEpisodeRecheckCreatesOneSilentSyntheticInput(t *testing.T) {
 	if len(recheckState.MatchedRules) != 1 ||
 		recheckState.MatchedRules[0].Trigger != "operational_alert" {
 		t.Fatalf("app alert recheck lost origin alert validation = %+v", recheckState.MatchedRules)
+	}
+	totalCorrections, err := st.SumEpisodeStructuredCorrections(ctx, run.EpisodeID)
+	if err != nil || totalCorrections != 2 {
+		t.Fatalf("recheck duplicated the episode correction total: got %d, %v; want 2",
+			totalCorrections, err)
 	}
 
 	if err := svc.processEpisodeRecheck(ctx, store.WorkItem{

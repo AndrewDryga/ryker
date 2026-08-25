@@ -60,8 +60,8 @@ func TestExplicitLastingGuidanceCannotFinishWithoutAConfirmableOffer(t *testing.
 	slackClient := &fakeSlack{dedupePosts: true}
 	coopClient := newFakeCoop()
 	coopClient.completeQueue = []string{
-		`{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"reason":"acknowledge the lasting guidance","operations":[{"id":"complete","type":"complete_episode","completion":{"message":"Understood. I will always use whole-platform-health-review-v5@4.","completion":{"status":"decision_ready","summary":"Accepted the lasting guidance."}}}]}`,
-		`{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"reason":"offer the requested lasting guidance for confirmation","operations":[{"id":"offer-guidance","type":"offer_memory","memory_offer":{"scope":"workspace","subject":"whole_platform_health_review","predicate":"guidance","value":"Use whole-platform-health-review-v5@4 for whole-platform health reviews.","visibility":"operator","expires_in":"90d"}},{"id":"complete","type":"complete_episode","completion":{"message":"I can remember whole-platform-health-review-v5@4 as the preferred health-review runbook. Confirm below.","completion":{"status":"decision_ready","summary":"Offered the requested guidance for confirmation."}}}]}`,
+		`{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"reason":"answer the OOM question and acknowledge the lasting guidance","operations":[{"id":"complete","type":"complete_episode","completion":{"message":"The website service OOMed: its Node.js child worker was killed and replaced on nomad-hst05.","completion":{"status":"decision_ready","summary":"Answered the OOM question."}}}]}`,
+		`{"action":"reply","attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"decision","material":true},"reason":"answer the OOM question and offer the requested lasting guidance for confirmation","operations":[{"id":"offer-guidance","type":"offer_memory","memory_offer":{"scope":"channel","subject":"oom_alert_reporting","predicate":"guidance","value":"When replying to an OOM alert in this channel, always name the exact service and process that crashed, alongside the host and recovery state.","visibility":"channel","expires_in":"never"}},{"id":"complete","type":"complete_episode","completion":{"message":"The website service OOMed: its Node.js child worker was killed and replaced on nomad-hst05.","completion":{"status":"decision_ready","summary":"Answered the OOM question and offered the reporting guidance."}}}]}`,
 	}
 	svc := New(cfg, st, coopClient, slackClient, nil, slackui.NewSanitizer(12000), nil)
 	svc.identity = slackui.Identity{
@@ -71,7 +71,7 @@ func TestExplicitLastingGuidanceCannotFinishWithoutAConfirmableOffer(t *testing.
 		ID: "slack_lasting_guidance", EnvelopeID: "env_lasting_guidance",
 		EventID: "event_lasting_guidance", Kind: "mention", TeamID: cfg.Slack.TeamID,
 		ChannelID: "COPS", MessageTS: "1702.100", UserID: cfg.Slack.Operators[0],
-		Text: "<@U999BOT> always use whole-platform-health-review-v5@4",
+		Text: "<@U999BOT> Which service OOMed? For OOM alerts always tell what exactly crashed.",
 	}
 	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
 		t.Fatalf("admit lasting guidance = %t, %v", created, err)
@@ -103,6 +103,10 @@ func TestExplicitLastingGuidanceCannotFinishWithoutAConfirmableOffer(t *testing.
 		t.Fatalf("corrected offer was not delivered: %+v", slackClient.posts)
 	}
 	message := slackClient.posts[0].message
+	if !strings.Contains(renderedSlackMessage(message),
+		"The website service OOMed: its Node.js child worker was killed and replaced on nomad-hst05.") {
+		t.Fatalf("memory offer replaced the direct answer: %+v", message)
+	}
 	if !strings.Contains(renderedSlackMessage(message), "current requests and safety policy take priority") {
 		t.Fatalf("memory confirmation scope missing: %+v", message)
 	}

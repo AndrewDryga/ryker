@@ -14,6 +14,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/offerreason"
+	operatorofferspkg "github.com/AndrewDryga/responder/internal/operatoroffers"
 	"github.com/AndrewDryga/responder/internal/sessioncreate"
 	"github.com/AndrewDryga/responder/internal/slackui"
 	"github.com/AndrewDryga/responder/internal/standingrule"
@@ -111,7 +112,7 @@ func TestTerraformLifecycleInstructionCompilesToOneTypedChannelRule(t *testing.T
 	if !decisionpkg.StandingRuleAssignment(input.Text) || !behaviorofferpkg.ExplicitRequest(input.Text) {
 		t.Fatal("the explicit Terraform lifecycle assignment was treated as one-time work")
 	}
-	offers, _, _ := normalizedOffers(input, "repo", operatorOffers{})
+	offers, _, _ := operatorofferspkg.Normalize(input, "repo", operatorofferspkg.Offers{})
 	if offers.Rule == nil {
 		t.Fatal("the host did not compile a lifecycle rule when the model omitted one")
 	}
