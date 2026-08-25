@@ -170,15 +170,6 @@ func OperationalAlertEvent(text string) bool {
 	)
 }
 
-func WatchDecisionHasEvidenceSource(evidence []core.Evidence, sourceType string) bool {
-	for _, item := range evidence {
-		if item.SourceType == sourceType {
-			return true
-		}
-	}
-	return false
-}
-
 // ClaimsCorrection recognises what the claim ledger refuses an answer for.
 //
 // These are the richest corrections the host writes. 79445e8 made the

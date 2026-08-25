@@ -172,6 +172,23 @@ func (r *Repository) ListScheduledTasksForChannel(ctx context.Context, channelID
 	return scanScheduledTasks(rows)
 }
 
+// ListScheduledTasksForTeam returns current tasks across a Slack workspace.
+// Operator diagnostics can start in a different channel from the task's
+// confirmation or delivery channel, so channel-only lookup hides the exact
+// durable record they are asking about.
+func (r *Repository) ListScheduledTasksForTeam(ctx context.Context, teamID string, limit int) ([]core.ScheduledTask, error) {
+	if teamID == "" || limit < 1 || limit > 100 {
+		return nil, errors.New("scheduled task list requires a team and limit between 1 and 100")
+	}
+	rows, err := r.db.QueryContext(ctx, scheduledTaskSelect+`
+		WHERE team_id = ? AND expires_at > ? ORDER BY updated_at DESC LIMIT ?`, teamID, r.nowText(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanScheduledTasks(rows)
+}
+
 func (r *Repository) ListDueScheduledTasks(ctx context.Context, now time.Time, limit int) ([]core.ScheduledTask, error) {
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("due scheduled task limit must be between 1 and 100")

@@ -12,6 +12,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/evidencepolicy"
 	"github.com/AndrewDryga/responder/internal/findingpolicy"
 	"github.com/AndrewDryga/responder/internal/investigation"
+	"github.com/AndrewDryga/responder/internal/schedulecontext"
 	"github.com/AndrewDryga/responder/internal/sourcecausepolicy"
 	"github.com/AndrewDryga/responder/internal/taskoffercarry"
 	"github.com/AndrewDryga/responder/internal/taskofferclaims"
@@ -97,6 +98,8 @@ type WatchTurnState struct {
 	ReplyDeliveryID               string                    `json:"reply_delivery_id,omitempty"`
 	PublicationsCaptured          bool                      `json:"publications_captured,omitempty"`
 	ActivePublications            []core.PublicationContext `json:"active_publications,omitempty"`
+	ScheduledTasksCaptured        bool                      `json:"scheduled_tasks_captured,omitempty"`
+	ScheduledTasks                []schedulecontext.Task    `json:"scheduled_tasks,omitempty"`
 	RecheckOriginRunID            string                    `json:"recheck_origin_run_id,omitempty"`
 	RecheckKey                    string                    `json:"recheck_key,omitempty"`
 	RecheckAttempt                int                       `json:"recheck_attempt,omitempty"`
@@ -681,7 +684,7 @@ func AlertAssessmentCorrection(
 				"and do not claim current degradation or recommend containment without a fresh " +
 				"observation that finds the failure still present"
 		}
-		if !recovered && !WatchDecisionHasEvidenceSource(evidence, "repository") {
+		if !recovered && !evidencepolicy.HasSource(evidence, "repository") {
 			return "the alert reply does not reconcile the live signal with declared repository " +
 				"topology; inspect the configured repository before deciding"
 		}
@@ -763,7 +766,7 @@ func WatchDecisionCorrectionAt(
 			return "suggested engineering task requires a decision-ready result or an exact tool-failure blocker"
 		}
 		sanitizedEvidence := SanitizeEvidence(decision.Evidence, "", "", "", now)
-		if !WatchDecisionHasEvidenceSource(sanitizedEvidence, "repository") {
+		if !evidencepolicy.HasSource(sanitizedEvidence, "repository") {
 			return "suggested engineering task requires repository evidence"
 		}
 		if correction := taskofferclaims.RepositoryCorrection(sanitizedEvidence, decision.TaskRepository); correction != "" {

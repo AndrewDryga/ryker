@@ -14,6 +14,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/agentprompt"
 	"github.com/AndrewDryga/responder/internal/alertstream"
 	attentionpkg "github.com/AndrewDryga/responder/internal/attention"
+	"github.com/AndrewDryga/responder/internal/behaviorrequired"
 	"github.com/AndrewDryga/responder/internal/changeledger"
 	"github.com/AndrewDryga/responder/internal/channelparticipation"
 	"github.com/AndrewDryga/responder/internal/completionpolicy"
@@ -45,6 +46,7 @@ import (
 	"github.com/AndrewDryga/responder/internal/retrydelay"
 	"github.com/AndrewDryga/responder/internal/runreplay"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
+	"github.com/AndrewDryga/responder/internal/schedulecontext"
 	scheduleofferpkg "github.com/AndrewDryga/responder/internal/scheduleoffer"
 	"github.com/AndrewDryga/responder/internal/semanticvalidation"
 	"github.com/AndrewDryga/responder/internal/sessionauthority"
@@ -367,6 +369,16 @@ func (s *Service) captureWatchTurnState(
 			state.ActivePublications = publications
 		}
 		state.PublicationsCaptured = true
+	}
+	if !state.ScheduledTasksCaptured && schedulepkg.ExplicitScheduleRequest(input.Text) {
+		tasks, err := schedulecontext.Capture(
+			ctx, s.store.Schedules, input, s.cfg.IsOperator(input.UserID), true,
+		)
+		if err != nil {
+			return fmt.Errorf("list existing scheduled tasks for watched input: %w", err)
+		}
+		state.ScheduledTasks = tasks
+		state.ScheduledTasksCaptured = true
 	}
 	if !isPrivateSlackVerificationReplay(input) &&
 		!state.RuleEvaluationCaptured && standingrule.EvaluationEligible(input) {
@@ -1357,6 +1369,7 @@ func (s *Service) prepareTriageAgentRun(ctx context.Context, run core.AgentRun) 
 	}
 	late.WriteString("\n\n" + repositorycapability.Prompt(repositorycapability.Build(s.cfg, repositoryKey, session, repositorycapability.PinnedReadOnly)))
 	late.WriteString(publicationcontext.ActivePrompt(state.ActivePublications))
+	late.WriteString(schedulecontext.Prompt(state.ScheduledTasks))
 	late.WriteString(includeWhen(input.Kind == "recheck" && strings.TrimSpace(state.FailureDetail) == "", hostRecheckPolicyText))
 	late.WriteString(watchDecisionCorrectionPrompt(state.FailureDetail))
 	// late, never early: early is what the conversation lane drops, and the
@@ -2980,8 +2993,8 @@ func (s *Service) stageTriageTerminal(
 				correction = taskcontract.ScheduledResultCorrection(episode, input, decision)
 			}
 			if correction == "" {
-				correction = s.missingRequestedBehaviorOfferCorrection(
-					input, state.Repository, decision,
+				correction = behaviorrequired.Correction(
+					s.cfg.IsOperator(input.UserID), input, state.Repository, decision,
 				)
 			}
 			if correction == "" {

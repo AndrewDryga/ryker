@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AndrewDryga/responder/internal/behaviorrequired"
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/investigation"
@@ -149,6 +150,27 @@ func TestAcceptedOfferProducesNoCorrection(t *testing.T) {
 		context.Background(), input, decisionpkg.WatchDecision{},
 	); correction != "" {
 		t.Fatalf("a turn with no offers was corrected: %q", correction)
+	}
+}
+
+// The production question was "why daily health check runbook is broken?".
+// The cadence detector saw "daily" and made the host reject an otherwise
+// complete diagnosis until the model invented a replacement schedule. That
+// posted a duplicate Schedule this button even though the operator asked about
+// the existing job. Mentioning an existing recurring task is not a request to
+// create lasting behaviour.
+func TestExistingDailyRunbookQuestionDoesNotRequireANewSchedule(t *testing.T) {
+	cfg := serviceConfig(t)
+	input := core.SlackInput{
+		ID: "slack_existing_daily", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", UserID: cfg.Slack.Operators[0],
+		Text: "why daily health check runbook is broken?",
+	}
+
+	if correction := behaviorrequired.Correction(
+		true, input, "repo", decisionpkg.WatchDecision{},
+	); correction != "" {
+		t.Fatalf("diagnostic question required a replacement schedule: %q", correction)
 	}
 }
 

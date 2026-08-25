@@ -10,7 +10,6 @@ import (
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
 	"github.com/AndrewDryga/responder/internal/offerreason"
-	operatorofferspkg "github.com/AndrewDryga/responder/internal/operatoroffers"
 	schedulepkg "github.com/AndrewDryga/responder/internal/schedule"
 	"github.com/AndrewDryga/responder/internal/scheduletext"
 	"github.com/AndrewDryga/responder/internal/taskofferrejection"
@@ -191,36 +190,6 @@ func (s *Service) offerRejectionCorrection(
 		". Fix the offer and send the reply again, or send the reply without" +
 		" the offer if it cannot be stated correctly — but do not tell the" +
 		" user something was saved when it was not."
-}
-
-// missingRequestedBehaviorOfferCorrection keeps an explicit lasting request
-// from being acknowledged as though it were durable when the result contains
-// no typed offer the operator could confirm. Any one of the typed behavior
-// offers is sufficient: the model owns whether a request is best represented
-// as memory, a preference, a standing rule, or a schedule; the host owns the
-// invariant that "always" cannot silently become a one-turn promise.
-func (s *Service) missingRequestedBehaviorOfferCorrection(
-	input core.SlackInput,
-	repository string,
-	decision decisionpkg.WatchDecision,
-) string {
-	if !s.cfg.IsOperator(input.UserID) ||
-		(!behaviorofferpkg.ExplicitRequest(input.Text) &&
-			!behaviorofferpkg.MemoryRequest(input.Text)) {
-		return ""
-	}
-	offers, _, _ := operatorofferspkg.Normalize(input, repository, operatorofferspkg.Offers{
-		Memory: decision.MemoryOffer, Preference: decision.PreferenceOffer,
-		Rule: decision.RuleOffer, Schedule: decision.ScheduleOffer,
-		Schedules: decision.ScheduleOffers,
-	})
-	if offers.Memory != nil || offers.Preference != nil || offers.Rule != nil ||
-		offers.Schedule != nil || len(offers.Schedules) > 0 {
-		return ""
-	}
-	return "the operator explicitly requested lasting behavior, but the result contains no " +
-		"typed memory, preference, standing-rule, or schedule offer they can confirm; return the " +
-		"answer with the appropriate typed offer, or explain why this request cannot be saved"
 }
 
 // dropRejectedOffers takes the offers the host will not accept off the reply,

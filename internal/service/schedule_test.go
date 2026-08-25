@@ -356,6 +356,89 @@ func TestScheduleIntentHandlesNaturalRelativeDurations(t *testing.T) {
 	}
 }
 
+// The live daily-runbook diagnosis had the schedule in Responder's database,
+// but the turn could see only Slack and Emisar. It therefore claimed the last
+// scheduler record was unavailable and offered a duplicate schedule. Existing
+// task state must travel with the accepted turn so retries diagnose the task
+// the operator asked about instead of inventing a replacement.
+func TestExistingScheduleStateReachesTheInvestigatingTurn(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	cfg.Slack.WatchChannels = []string{"CWATCH"}
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC().Truncate(time.Second)
+	task, err := st.Schedules.CreateScheduledTask(ctx, core.ScheduledTask{
+		TeamID: cfg.Slack.TeamID, ChannelID: "CSCHEDULES", ThreadTS: "1700.500",
+		DeliveryChannel: "CREPORTS", Repository: "repo",
+		Title:      "Daily whole-platform health review",
+		Prompt:     "Execute whole-platform-health-review-v5@4 with fresh evidence.",
+		Recurrence: "daily", StartAt: now.Add(time.Hour), LocalTime: "09:00",
+		Timezone: "America/Merida", CatchUp: "latest", Enabled: true,
+		ActorID: cfg.Slack.Operators[0], SourceRef: "existing-daily-health",
+		NextRunAt: now.Add(time.Hour), ExpiresAt: now.Add(90 * 24 * time.Hour),
+	}, 10, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduledFor := now.Add(-23 * time.Hour)
+	if _, claimed, claimErr := st.Schedules.ClaimScheduledTaskRun(
+		ctx, task, scheduledFor, now.Add(time.Hour), "scheduled_failure", true, true, "",
+	); claimErr != nil || !claimed {
+		t.Fatalf("claim prior occurrence = %t, %v", claimed, claimErr)
+	}
+	if err := st.Schedules.CompleteScheduledTaskRun(
+		ctx, task.ID, scheduledFor, "failed", "delivery failed",
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	coopClient := newFakeCoop()
+	coopClient.completeQueue = []string{`{
+		"action":"reply",
+		"attention":{"addressee":"responder","urgency":1,"confidence":3,"novelty":2,"ownership":3,"contribution":"new_evidence","material":true},
+		"reason":"answer from the existing task state",
+		"operations":[{"id":"complete","type":"complete_episode","completion":{
+			"message":"The existing daily task failed on its last run.",
+			"completion":{"status":"decision_ready","summary":"The existing task state was inspected."}}}]
+	}`}
+	svc := New(cfg, st, coopClient, &fakeSlack{}, nil, slackui.NewSanitizer(12000), nil)
+	svc.identity = slackui.Identity{
+		TeamID: cfg.Slack.TeamID, BotUserID: "U999BOT", BotID: "B999BOT",
+	}
+	input := core.SlackInput{
+		ID: "slack_existing_daily_state", EnvelopeID: "env_existing_daily_state",
+		EventID: "event_existing_daily_state", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "CWATCH", MessageTS: "1700.900", UserID: cfg.Slack.Operators[0],
+		Text:       "<@U999BOT> why daily health check runbook is broken?",
+		ReceivedAt: now,
+	}
+	if created, admitErr := st.AdmitSlackInput(ctx, input); admitErr != nil || !created {
+		t.Fatalf("admit = %t, %v", created, admitErr)
+	}
+	if err := svc.processSlackInput(ctx); err != nil {
+		t.Fatal(err)
+	}
+	finishQueuedAgentRun(t, ctx, svc)
+	if len(coopClient.submitPrompts) == 0 {
+		t.Fatal("accepted question never reached a model turn")
+	}
+	prompt := coopClient.submitPrompts[0]
+	for _, want := range []string{
+		"<existing-scheduled-tasks>",
+		"Daily whole-platform health review",
+		"whole-platform-health-review-v5@4",
+		`"last_outcome":"failed"`,
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("turn omitted existing schedule state %q", want)
+		}
+	}
+}
+
 func TestScheduleRetryInheritsExplicitIntentFromSameOperatorThread(t *testing.T) {
 	input := core.SlackInput{
 		UserID: "UOPERATOR", ThreadTS: "1700.100", Text: "Try again <@UEMISAR>",

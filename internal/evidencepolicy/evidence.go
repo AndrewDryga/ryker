@@ -27,6 +27,15 @@ func ValidSourceType(value string) bool {
 	}
 }
 
+func HasSource(evidence []core.Evidence, sourceType string) bool {
+	for _, item := range evidence {
+		if item.SourceType == sourceType {
+			return true
+		}
+	}
+	return false
+}
+
 func ValidConfidence(value string) bool {
 	switch value {
 	case "", "high", "medium", "low":

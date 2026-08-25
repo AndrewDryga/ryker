@@ -9,6 +9,7 @@ import (
 
 	"github.com/AndrewDryga/responder/internal/core"
 	decisionpkg "github.com/AndrewDryga/responder/internal/decision"
+	"github.com/AndrewDryga/responder/internal/evidencepolicy"
 	"github.com/AndrewDryga/responder/internal/investigation"
 	"github.com/AndrewDryga/responder/internal/taskoffercarry"
 	"github.com/AndrewDryga/responder/internal/taskofferclaims"
@@ -28,7 +29,7 @@ func Correction(decision decisionpkg.WatchDecision, now time.Time) string {
 		return "suggested engineering task requires a decision-ready result or an exact tool-failure blocker"
 	}
 	evidence := decisionpkg.SanitizeEvidence(decision.Evidence, "", "", "", now)
-	if !decisionpkg.WatchDecisionHasEvidenceSource(evidence, "repository") {
+	if !evidencepolicy.HasSource(evidence, "repository") {
 		return "suggested engineering task requires repository evidence"
 	}
 	return taskofferclaims.RepositoryCorrection(evidence, decision.TaskRepository)
