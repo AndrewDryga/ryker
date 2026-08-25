@@ -1102,6 +1102,64 @@ func TestApprovalContinuationFailurePostsVerificationOnlyNotice(t *testing.T) {
 	}
 }
 
+// A real production investigation used 17 tool calls before semantic validation exhausted its
+// inner retries, yet the terminal Slack card claimed no model turn had started. Once a Coop turn
+// exists, the delivered notice must describe failed finalization rather than failed preparation.
+func TestFailureAfterAModelTurnNeverClaimsTheTurnDidNotStart(t *testing.T) {
+	ctx := context.Background()
+	cfg := serviceConfig(t)
+	st, err := store.Open(cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	input := core.SlackInput{
+		ID: "post-turn-terminal-failure", EnvelopeID: "env-post-turn-terminal-failure",
+		EventID: "event-post-turn-terminal-failure", Kind: "mention", TeamID: cfg.Slack.TeamID,
+		ChannelID: "COPS", MessageTS: "1700.300", UserID: "U123ABC",
+		Text: "<@UBOT> why is the daily health runbook broken?",
+	}
+	if created, err := st.AdmitSlackInput(ctx, input); err != nil || !created {
+		t.Fatalf("admit input = %t, %v", created, err)
+	}
+	run, _, err := st.QueueAgentRun(ctx, core.AgentRun{
+		Mode: core.AgentRunTriage, ChannelID: input.ChannelID, ThreadTS: input.MessageTS,
+		ConversationKey: "channel:COPS", SourceKind: "watch", SourceID: input.ID,
+		UserID: input.UserID, Context: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err = st.LeaseAgentRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.CoopTurnID = "turn_that_used_tools"
+	run.CoopEventSequence = 17
+
+	slack := &fakeSlack{}
+	svc := New(cfg, st, newFakeCoop(), slack, nil, slackui.NewSanitizer(12000), nil)
+	if err := svc.finishTriageRunFailure(
+		ctx, run, input, decisionpkg.WatchTurnState{},
+		"caller rejected semantic output after 3 attempts",
+	); err != nil {
+		t.Fatal(err)
+	}
+	drainSlackDeliveries(t, ctx, svc)
+	if len(slack.posts) != 1 {
+		t.Fatalf("terminal failure posts = %+v", slack.posts)
+	}
+	content := slack.posts[0].message.Text +
+		strings.Join(slack.posts[0].message.Sections, " ") +
+		strings.Join(slack.posts[0].message.Context, " ")
+	if strings.Contains(content, "before a model turn started") ||
+		!strings.Contains(content, "investigation ran") ||
+		!strings.Contains(content, "saved work") {
+		t.Fatalf("post-turn terminal notice describes the wrong stage: %q", content)
+	}
+}
+
 func TestNewerHumanTurnSuppressesOlderCompletedReply(t *testing.T) {
 	ctx := context.Background()
 	cfg := serviceConfig(t)

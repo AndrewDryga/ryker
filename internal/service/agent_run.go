@@ -3442,6 +3442,17 @@ func (s *Service) stagePolledAgentRunTerminal(
 	detail := strings.TrimSpace(
 		core.FirstNonempty(turn.ErrorDetail, turn.ErrorCode, turn.StopReason),
 	)
+	if eventType == "turn.failed" {
+		continued, err := resultrecovery.ContinueSemanticContractRepair(
+			ctx, s.store, run, turn.ErrorCode, turn.ValidationError, cursor,
+			func(ctx context.Context, run core.AgentRun, correction string, cursor int64) error {
+				return s.requeueWithCorrection(ctx, run, correctionIncomplete, correction, cursor)
+			},
+		)
+		if err != nil || continued {
+			return err
+		}
+	}
 	if missingCoopImageFailure(turn) &&
 		s.repairCoopRuntime != nil {
 		if err := s.repairCoopRuntime(ctx); err == nil {
@@ -3556,6 +3567,7 @@ func (s *Service) stagePolledAgentRunTerminal(
 	}
 	return nil
 }
+
 func (s *Service) parkWatchRunPendingStatus(
 	ctx context.Context,
 	run core.AgentRun,
@@ -4693,7 +4705,7 @@ func (s *Service) finishTriageRunFailureIfOwned(
 ) (bool, error) {
 	var delivery *core.SlackDelivery
 	var err error
-	message := slackui.TriageFailureMessage()
+	message := slackui.TriageFailureMessage(run.CoopTurnID != "")
 	if state.ApprovalContinuation {
 		message = slackui.ApprovalVerificationFailureMessage()
 	}

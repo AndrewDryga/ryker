@@ -104,6 +104,41 @@ func TestPollRecordsActivityDeliveredAlongsideTheTerminalEvent(t *testing.T) {
 	}
 }
 
+// A daily-health request on 2026-08-25 completed seventeen tool calls and
+// produced three progressively better structured candidates. The third still
+// needed one semantic repair, so Coop exhausted its local candidate budget and
+// Responder discarded the whole investigation as terminal. The Slack reply
+// then falsely said no model turn had started. Semantic exhaustion is another
+// correction round, not loss of the accepted work.
+func TestSemanticCandidateExhaustionContinuesTheAcceptedWork(t *testing.T) {
+	ctx, st, svc, coopClient, run := activityRunFixture(t)
+	coopClient.turn = coop.Turn{
+		ID: run.CoopTurnID, SessionID: run.SessionID, State: "failed",
+		ErrorCode:         "output_contract_failed",
+		ErrorDetail:       "caller rejected semantic output after 3 attempts",
+		ValidationAttempt: 3,
+		ValidationError:   "the reply reports a failure state; record it as a typed finding",
+	}
+	coopClient.events = []coop.Event{activityEvent(
+		1, run.CoopTurnID, "turn.failed",
+		`{"error_code":"output_contract_failed","detail":"caller rejected semantic output after 3 attempts"}`,
+	)}
+
+	svc.pollAgentRuns(ctx)
+
+	continued, err := st.GetAgentRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if continued.State != core.AgentRunPending || continued.Failures != 0 ||
+		continued.TerminalState != "" || continued.CoopTurnID != "" {
+		t.Fatalf("semantic repair run = %+v", continued)
+	}
+	if !strings.Contains(continued.LastError, "record it as a typed finding") {
+		t.Fatalf("repair prompt lost the exact semantic violation: %q", continued.LastError)
+	}
+}
+
 // Coop's cursor is rewound to zero whenever it outruns the session, so the
 // same narration is delivered again by design.
 func TestPollDoesNotTellTheSameStoryTwice(t *testing.T) {

@@ -246,7 +246,7 @@ func TestFailureCardsAnswerTheSameThreeQuestions(t *testing.T) {
 		next:     "I’ll write it up again",
 	}, {
 		name:     "triage gave up",
-		message:  TriageFailureMessage(),
+		message:  TriageFailureMessage(false),
 		stripe:   StripeFailed,
 		header:   "🛑 Request needs a retry",
 		stopped:  "stopped retrying this request",
@@ -309,7 +309,7 @@ func TestFailureCardsKeepRecoveryWithoutBoilerplate(t *testing.T) {
 	for name, message := range map[string]Message{
 		"turn":         TurnFailureMessage(core.Incident{}, "failed", "provider timed out"),
 		"report":       AgentReportFailureMessage(core.Incident{}),
-		"triage":       TriageFailureMessage(),
+		"triage":       TriageFailureMessage(false),
 		"verification": ApprovalVerificationFailureMessage(),
 	} {
 		t.Run(name, func(t *testing.T) {

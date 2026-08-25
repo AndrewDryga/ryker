@@ -5,6 +5,7 @@ package resultrecovery
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -36,6 +37,73 @@ const (
 type EpisodeLedger interface {
 	ListEpisodeEvidence(context.Context, string, int) ([]core.Evidence, error)
 	ListEpisodeCoverage(context.Context, string, int) ([]core.Coverage, error)
+}
+
+type semanticCorrectionStore interface {
+	SetAgentRunContext(context.Context, string, []byte) error
+	SumEpisodeStructuredCorrections(context.Context, string) (int, error)
+}
+
+// ContinueSemanticContractRepair turns Coop's exhausted caller-validation
+// round into one bounded host correction. It edits only the correction counter
+// in the opaque context envelope, preserving every lane-specific field.
+func ContinueSemanticContractRepair(
+	ctx context.Context,
+	store semanticCorrectionStore,
+	run core.AgentRun,
+	errorCode string,
+	violation string,
+	cursor int64,
+	requeue func(context.Context, core.AgentRun, string, int64) error,
+) (bool, error) {
+	violation = strings.TrimSpace(violation)
+	if errorCode != "output_contract_failed" || violation == "" {
+		return false, nil
+	}
+	var envelope map[string]json.RawMessage
+	if len(run.Context) == 0 || json.Unmarshal(run.Context, &envelope) != nil || envelope == nil {
+		return false, nil
+	}
+	if run.Mode != core.AgentRunTriage {
+		if _, captured := envelope["captured_at"]; !captured {
+			return false, nil
+		}
+	}
+	var attempt int
+	if raw := envelope["structured_corrections"]; len(raw) > 0 && json.Unmarshal(raw, &attempt) != nil {
+		return false, nil
+	}
+	attempt++
+	episodeCorrections := 0
+	if run.EpisodeID != "" {
+		var err error
+		episodeCorrections, err = store.SumEpisodeStructuredCorrections(ctx, run.EpisodeID)
+		if err != nil {
+			return false, err
+		}
+	}
+	if CorrectionSpent(attempt, episodeCorrections, SemanticAttemptLimit) {
+		return false, nil
+	}
+	envelope["structured_corrections"] = json.RawMessage(fmt.Sprintf("%d", attempt))
+	contextJSON, err := json.Marshal(envelope)
+	if err != nil {
+		return false, err
+	}
+	if err := store.SetAgentRunContext(ctx, run.ID, contextJSON); err != nil {
+		return false, err
+	}
+	prefix := "structured agent report is invalid: "
+	if run.Mode == core.AgentRunTriage {
+		prefix = "structured Slack response is invalid: "
+	}
+	correction := prefix + decisionpkg.BoundedField(violation, core.CorrectionTextLimit) +
+		"\n\nPreserve the investigation and return a corrected complete result. " +
+		"Do not repeat checks unless the rejected field requires new evidence."
+	if err := requeue(ctx, run, correction, cursor); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // EpisodeRecords reads the continuity ledger shown as historical context. It

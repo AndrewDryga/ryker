@@ -1687,7 +1687,16 @@ func AgentReportFailureMessage(incident core.Incident) Message {
 // TriageFailureMessage is the terminal notice for an accepted human request.
 // It intentionally takes no raw error: provider and transport diagnostics are
 // useful in logs, not in the Slack thread of the person waiting for an answer.
-func TriageFailureMessage() Message {
+func TriageFailureMessage(afterTurn bool) Message {
+	if afterTurn {
+		return failureCard(
+			StripeFailed,
+			"🛑 Investigation needs another pass",
+			"The investigation ran, but Responder could not produce a valid final answer after automatic retries.",
+			"The saved work and evidence are preserved.",
+			"Reply in this thread to continue from the saved work.",
+		)
+	}
 	message := failureCard(
 		StripeFailed,
 		"🛑 Request needs a retry",

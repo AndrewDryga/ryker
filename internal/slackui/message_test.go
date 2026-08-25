@@ -1535,7 +1535,7 @@ func TestAgentReportFailureSpeaksToTheOperatorNotAboutTheParser(t *testing.T) {
 }
 
 func TestTriageFailureMessageDoesNotAcceptOrExposeRawErrors(t *testing.T) {
-	message := TriageFailureMessage()
+	message := TriageFailureMessage(false)
 	// Superseded: the fallback led with "I couldn't finish this request", and
 	// what to do next was a section. The fallback now leads with the header and
 	// what stopped — the two things a notification has room for — and the next
