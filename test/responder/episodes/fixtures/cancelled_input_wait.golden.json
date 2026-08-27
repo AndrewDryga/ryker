@@ -1,0 +1,161 @@
+{
+  "checkpoints": [
+    {
+      "command": 1,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [
+          "admit_input:006913756799fe11980db956198688985a7066e46354ead1e33049e2a1aafcd0"
+        ],
+        "destination": {
+          "conversation_ref": "C0BJQ5U61T2",
+          "thread_ref": "1786655779.553849",
+          "transport": "slack"
+        },
+        "episode_key": "slack:C0BJQ5U61T2:1786655779.553849",
+        "input_revisions": {
+          "slack:message:1786655779.553849": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-needs-context"
+        },
+        "queued_inputs": [],
+        "semantic_version": 1,
+        "state": "working"
+      },
+      "event_count": 1,
+      "status": "applied"
+    },
+    {
+      "command": 2,
+      "command_kind": "start_wait",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C0BJQ5U61T2",
+          "thread_ref": "1786655779.553849",
+          "transport": "slack"
+        },
+        "episode_key": "slack:C0BJQ5U61T2:1786655779.553849",
+        "input_revisions": {
+          "slack:message:1786655779.553849": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "input",
+          "ref": "input-1"
+        },
+        "queued_inputs": [],
+        "semantic_version": 2,
+        "state": "waiting_for_input"
+      },
+      "event_count": 2,
+      "status": "applied"
+    },
+    {
+      "command": 3,
+      "command_kind": "cancel_episode",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C0BJQ5U61T2",
+          "thread_ref": "1786655779.553849",
+          "transport": "slack"
+        },
+        "episode_key": "slack:C0BJQ5U61T2:1786655779.553849",
+        "input_revisions": {
+          "slack:message:1786655779.553849": 1
+        },
+        "linked_episode_id": null,
+        "owner": null,
+        "queued_inputs": [],
+        "semantic_version": 3,
+        "state": "cancelled"
+      },
+      "event_count": 3,
+      "status": "applied"
+    }
+  ],
+  "episode": {
+    "active_inputs": [],
+    "destination": {
+      "conversation_ref": "C0BJQ5U61T2",
+      "thread_ref": "1786655779.553849",
+      "transport": "slack"
+    },
+    "episode_key": "slack:C0BJQ5U61T2:1786655779.553849",
+    "input_revisions": {
+      "slack:message:1786655779.553849": 1
+    },
+    "linked_episode_id": null,
+    "owner": null,
+    "queued_inputs": [],
+    "semantic_version": 3,
+    "state": "cancelled"
+  },
+  "events": [
+    {
+      "dedupe_key": "admit_input:006913756799fe11980db956198688985a7066e46354ead1e33049e2a1aafcd0",
+      "fingerprint": "3abb0c5a7f9c5099069fbd930146e54041935f91ba516665291612236cb00e2c",
+      "kind": "input_admitted",
+      "occurred_at": "2026-08-13T21:16:48.927858Z",
+      "payload": {
+        "actor_ref": "slack:user:U-operator",
+        "destination": {
+          "conversation_ref": "C0BJQ5U61T2",
+          "thread_ref": "1786655779.553849",
+          "transport": "slack"
+        },
+        "episode_id": "01993e00-0000-7000-8000-000000000011",
+        "episode_key": "slack:C0BJQ5U61T2:1786655779.553849",
+        "kind": "admit_input",
+        "linked_episode_id": null,
+        "native_input_id": "slack:message:1786655779.553849",
+        "occurred_at": "2026-08-13T21:16:48.927858Z",
+        "payload": {
+          "text": "See in the channel above"
+        },
+        "revision": 1,
+        "turn_ref": "turn-needs-context"
+      },
+      "sequence": 1
+    },
+    {
+      "dedupe_key": "start_wait:8163912ba3eafde34669c58e17acc9f2c41bf0cff6118e58f4ec624abf44f993",
+      "fingerprint": "80187aa66e0b049d00052a9637da391c61bfdebe1eaeb1aacd63dcaff26ca760",
+      "kind": "input_wait_started",
+      "occurred_at": "2026-08-13T21:58:55.299726Z",
+      "payload": {
+        "deadline_at": null,
+        "episode_key": "slack:C0BJQ5U61T2:1786655779.553849",
+        "expected_turn_ref": "turn-needs-context",
+        "kind": "start_wait",
+        "occurred_at": "2026-08-13T21:58:55.299726Z",
+        "wait_kind": "input",
+        "wait_ref": "input-1"
+      },
+      "sequence": 2
+    },
+    {
+      "dedupe_key": "cancel_episode:0820a2bcb5f89d9c1f5d75d96399267f7bbea238396e97ff08a9ec5d7c950a48",
+      "fingerprint": "6564121d1cb5e345743584fb83f4b5bbbf301c5224064893d42d06b7adb66df4",
+      "kind": "episode_cancelled",
+      "occurred_at": "2026-08-18T22:16:12.487794Z",
+      "payload": {
+        "cancel_ref": "operator-cancel-episode_run_31a3e9b581a9ba92eec53580cbbbc3bd",
+        "episode_key": "slack:C0BJQ5U61T2:1786655779.553849",
+        "expected_owner": {
+          "kind": "input",
+          "ref": "input-1"
+        },
+        "kind": "cancel_episode",
+        "occurred_at": "2026-08-18T22:16:12.487794Z",
+        "reason": "Resolved by the operator: overtaken by events"
+      },
+      "sequence": 3
+    }
+  ],
+  "linked_history": []
+}

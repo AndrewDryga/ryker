@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "source": {
+    "database": "blitz responder.db",
+    "episode_ids": ["episode_run_40011ab69d445c6e605b95604d3b3f46"],
+    "observed_attempts": 101,
+    "observed_wakeups": 98,
+    "reason": "Repeated unchanged long-poll work must not grow the domain ledger or replace wait custody."
+  },
+  "commands": [
+    {
+      "type": "admit_input",
+      "actor_ref": "slack:app:grafana",
+      "destination": {"transport": "slack", "conversation_ref": "C08MMETA3U3", "thread_ref": "1787726072.993859"},
+      "episode_id": "01993e00-0000-7000-8000-000000000012",
+      "episode_key": "grafana:disk-will-fill:cycle:1787726072",
+      "linked_episode_id": null,
+      "native_input_id": "grafana:disk-will-fill:1787726072",
+      "occurred_at": "2026-08-26T06:34:32.993859Z",
+      "payload": {"state": "firing"},
+      "revision": 1,
+      "turn_ref": "turn-disk-check"
+    },
+    {
+      "type": "start_wait",
+      "deadline_at": "2026-08-26T07:34:32.993859Z",
+      "episode_key": "grafana:disk-will-fill:cycle:1787726072",
+      "expected_turn_ref": "turn-disk-check",
+      "kind": "event",
+      "occurred_at": "2026-08-26T06:35:00Z",
+      "wait_ref": "disk-pressure-followup"
+    },
+    {
+      "type": "start_wait",
+      "deadline_at": "2026-08-26T07:34:32.993859Z",
+      "episode_key": "grafana:disk-will-fill:cycle:1787726072",
+      "expected_turn_ref": "turn-disk-check",
+      "kind": "event",
+      "occurred_at": "2026-08-26T06:35:00Z",
+      "wait_ref": "disk-pressure-followup"
+    },
+    {
+      "type": "start_wait",
+      "deadline_at": "2026-08-26T07:34:32.993859Z",
+      "episode_key": "grafana:disk-will-fill:cycle:1787726072",
+      "expected_turn_ref": "turn-disk-check",
+      "kind": "event",
+      "occurred_at": "2026-08-26T06:35:00Z",
+      "wait_ref": "disk-pressure-followup"
+    }
+  ],
+  "expected": {
+    "active_input_count": 0,
+    "destination": {"conversation_ref": "C08MMETA3U3", "thread_ref": "1787726072.993859", "transport": "slack"},
+    "event_count": 2,
+    "event_kinds": ["input_admitted", "event_wait_started"],
+    "linked_episode_id": null,
+    "owner": {"deadline_at": "2026-08-26T07:34:32.993859Z", "kind": "event", "ref": "disk-pressure-followup"},
+    "queued_input_count": 0,
+    "semantic_version": 2,
+    "state": "waiting_for_event"
+  }
+}

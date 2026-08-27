@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: eval-prompts findings-coverage findings-coverage-check watchdog-check promote-corrections build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-memory eval-episode-replay eval-regressions eval-live-canary eval-trend eval-baseline-update model-release-check eval-replay customer-check focus dev-workflow-check dev-check candidate canary promote quality-watch-check eval-trend-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
+.PHONY: eval-prompts findings-coverage findings-coverage-check watchdog-check promote-corrections build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-memory eval-episode-replay eval-regressions eval-live-canary eval-trend eval-baseline-update model-release-check eval-replay customer-check focus elixir-unit elixir-test elixir-check dev-workflow-check dev-check candidate canary promote quality-watch-check eval-trend-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/AndrewDryga/responder/internal/version.Version=$(VERSION)
@@ -76,6 +76,15 @@ install:
 
 test:
 	go test ./...
+
+elixir-unit:
+	MIX_ENV=test scripts/elixir-mix.sh test --no-start --exclude database $(ELIXIR_TEST)
+
+elixir-test:
+	scripts/elixir-test.sh $(ELIXIR_TEST)
+
+elixir-check:
+	scripts/elixir-test.sh --check
 
 quality-watch-check:
 	scripts/quality-watch.sh --help >/dev/null
@@ -324,7 +333,7 @@ watchdog-check:
 # Fast deterministic feedback for a completed edit batch. Independent checks
 # run concurrently; CI and candidate promotion still use the complete gate.
 dev-check:
-	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) tidy-check lint test eval-replay build dev-workflow-check findings-coverage-check watchdog-check
+	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) tidy-check lint test elixir-check eval-replay build dev-workflow-check findings-coverage-check watchdog-check
 
 # Release mechanics have explicit names so a developer never has to remember
 # which script proves, stages, canaries, or promotes an exact commit.
@@ -452,7 +461,7 @@ vulncheck:
 # The strict gate remains complete, but independent phases no longer wait for
 # one another. The race target performs its own balanced test sharding.
 check:
-	+$(MAKE) --no-print-directory -j$(CHECK_JOBS) tidy-check lint quality-watch-check eval-trend-check dev-workflow-check actionlint staticcheck test eval-replay race build vulncheck
+	+$(MAKE) --no-print-directory -j$(CHECK_JOBS) tidy-check lint quality-watch-check eval-trend-check dev-workflow-check actionlint staticcheck test elixir-check eval-replay race build vulncheck
 
 # Signing is CI-only because keyless Sigstore needs GitHub's OIDC identity.
 snapshot:
@@ -464,4 +473,4 @@ release-check: check snapshot
 	bin/responder help >/dev/null
 
 clean:
-	rm -rf bin dist coverage.out
+	rm -rf bin dist coverage.out _build cover

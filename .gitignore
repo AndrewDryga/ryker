@@ -1,6 +1,11 @@
 /bin/
 /dist/
 /responder
+/_build/
+/deps/
+/cover/
+/crash.dump
+/.elixir/
 /.responder/
 *.db
 *.db-shm

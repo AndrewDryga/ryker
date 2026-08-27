@@ -1,0 +1,236 @@
+{
+  "checkpoints": [
+    {
+      "command": 1,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [
+          "admit_input:d56a1962603585a800c8af0ee6d7e60c35d751d2e3e93bce99fdddf6d3031681"
+        ],
+        "destination": {
+          "conversation_ref": "C0BPDP66GFJ",
+          "thread_ref": "1787783108.114389",
+          "transport": "slack"
+        },
+        "episode_key": "terraform:va1-postgres:run-okjyXsDYXyMqqBYY",
+        "input_revisions": {
+          "slack_message_2f4c3593ab4a1c4591df6ea57da4d30e": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-preparing"
+        },
+        "queued_inputs": [],
+        "semantic_version": 1,
+        "state": "working"
+      },
+      "event_count": 1,
+      "status": "applied"
+    },
+    {
+      "command": 2,
+      "command_kind": "transfer_owner",
+      "episode": {
+        "active_inputs": [
+          "admit_input:d56a1962603585a800c8af0ee6d7e60c35d751d2e3e93bce99fdddf6d3031681"
+        ],
+        "destination": {
+          "conversation_ref": "C0BPDP66GFJ",
+          "thread_ref": "1787783108.114389",
+          "transport": "slack"
+        },
+        "episode_key": "terraform:va1-postgres:run-okjyXsDYXyMqqBYY",
+        "input_revisions": {
+          "slack_message_2f4c3593ab4a1c4591df6ea57da4d30e": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-ready"
+        },
+        "queued_inputs": [],
+        "semantic_version": 1,
+        "state": "working"
+      },
+      "event_count": 2,
+      "status": "applied"
+    },
+    {
+      "command": 3,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [
+          "admit_input:d56a1962603585a800c8af0ee6d7e60c35d751d2e3e93bce99fdddf6d3031681"
+        ],
+        "destination": {
+          "conversation_ref": "C0BPDP66GFJ",
+          "thread_ref": "1787783108.114389",
+          "transport": "slack"
+        },
+        "episode_key": "terraform:va1-postgres:run-okjyXsDYXyMqqBYY",
+        "input_revisions": {
+          "slack_message_2f4c3593ab4a1c4591df6ea57da4d30e": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-ready"
+        },
+        "queued_inputs": [],
+        "semantic_version": 1,
+        "state": "working"
+      },
+      "event_count": 2,
+      "status": "duplicate"
+    },
+    {
+      "command": 4,
+      "command_kind": "accept_result",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C0BPDP66GFJ",
+          "thread_ref": "1787783108.114389",
+          "transport": "slack"
+        },
+        "episode_key": "terraform:va1-postgres:run-okjyXsDYXyMqqBYY",
+        "input_revisions": {
+          "slack_message_2f4c3593ab4a1c4591df6ea57da4d30e": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "delivery",
+          "ref": "watch_reply_slack_message_2f4c3593ab4a1c4591df6ea57da4d30e"
+        },
+        "queued_inputs": [],
+        "semantic_version": 2,
+        "state": "working"
+      },
+      "event_count": 3,
+      "status": "applied"
+    },
+    {
+      "command": 5,
+      "command_kind": "confirm_delivery",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C0BPDP66GFJ",
+          "thread_ref": "1787783108.114389",
+          "transport": "slack"
+        },
+        "episode_key": "terraform:va1-postgres:run-okjyXsDYXyMqqBYY",
+        "input_revisions": {
+          "slack_message_2f4c3593ab4a1c4591df6ea57da4d30e": 1
+        },
+        "linked_episode_id": null,
+        "owner": null,
+        "queued_inputs": [],
+        "semantic_version": 2,
+        "state": "complete"
+      },
+      "event_count": 4,
+      "status": "applied"
+    }
+  ],
+  "episode": {
+    "active_inputs": [],
+    "destination": {
+      "conversation_ref": "C0BPDP66GFJ",
+      "thread_ref": "1787783108.114389",
+      "transport": "slack"
+    },
+    "episode_key": "terraform:va1-postgres:run-okjyXsDYXyMqqBYY",
+    "input_revisions": {
+      "slack_message_2f4c3593ab4a1c4591df6ea57da4d30e": 1
+    },
+    "linked_episode_id": null,
+    "owner": null,
+    "queued_inputs": [],
+    "semantic_version": 2,
+    "state": "complete"
+  },
+  "events": [
+    {
+      "dedupe_key": "admit_input:d56a1962603585a800c8af0ee6d7e60c35d751d2e3e93bce99fdddf6d3031681",
+      "fingerprint": "fe91084677f1747a6b02b8f868ffdc29142cae2d6c1191b89550807065384c41",
+      "kind": "input_admitted",
+      "occurred_at": "2026-08-26T22:25:08.576437Z",
+      "payload": {
+        "actor_ref": "slack:app:terraform",
+        "destination": {
+          "conversation_ref": "C0BPDP66GFJ",
+          "thread_ref": "1787783108.114389",
+          "transport": "slack"
+        },
+        "episode_id": "01993e00-0000-7000-8000-000000000003",
+        "episode_key": "terraform:va1-postgres:run-okjyXsDYXyMqqBYY",
+        "kind": "admit_input",
+        "linked_episode_id": null,
+        "native_input_id": "slack_message_2f4c3593ab4a1c4591df6ea57da4d30e",
+        "occurred_at": "2026-08-26T22:25:08.576437Z",
+        "payload": {
+          "state": "planned"
+        },
+        "revision": 1,
+        "turn_ref": "turn-preparing"
+      },
+      "sequence": 1
+    },
+    {
+      "dedupe_key": "transfer_owner:7581de9cd43a225613f122953d51cc911d729110b63ce28447f6c0b3e5e1e2d0",
+      "fingerprint": "03566c7e46a7748394d15d7e01d2623c3e3b4f72be947a47aaa844dc0ce97051",
+      "kind": "owner_transferred",
+      "occurred_at": "2026-08-26T22:33:25.030010Z",
+      "payload": {
+        "episode_key": "terraform:va1-postgres:run-okjyXsDYXyMqqBYY",
+        "expected_owner": {
+          "kind": "turn",
+          "ref": "turn-preparing"
+        },
+        "kind": "transfer_owner",
+        "new_owner": {
+          "kind": "turn",
+          "ref": "turn-ready"
+        },
+        "occurred_at": "2026-08-26T22:33:25.030010Z",
+        "transfer_ref": "workspace-ready-run-okjyXsDYXyMqqBYY"
+      },
+      "sequence": 2
+    },
+    {
+      "dedupe_key": "accept_result:cec3b8f3928ad8ede1bbc14a090d52e9261820e103530ba0b8b3e1c2232d0b0a",
+      "fingerprint": "705ef237a226fe77769221b2b07c4188e757aaeec1c38731f17209e48e909cdc",
+      "kind": "result_accepted",
+      "occurred_at": "2026-08-26T22:42:06.867646Z",
+      "payload": {
+        "decision_reason": null,
+        "delivery": "reply",
+        "delivery_ref": "watch_reply_slack_message_2f4c3593ab4a1c4591df6ea57da4d30e",
+        "episode_key": "terraform:va1-postgres:run-okjyXsDYXyMqqBYY",
+        "expected_turn_ref": "turn-ready",
+        "kind": "accept_result",
+        "next_turn_ref": null,
+        "occurred_at": "2026-08-26T22:42:06.867646Z",
+        "result_ref": "complete-va1-postgres-plan"
+      },
+      "sequence": 3
+    },
+    {
+      "dedupe_key": "confirm_delivery:9ef3cf71d3282315a0439614fd47e95e89056298d660d167fdb10856d28ccbac",
+      "fingerprint": "cc4cf0f7c17c29cf2dee2d93b04d6aac10c74c0dd1f498e11a243a058aed3846",
+      "kind": "delivery_confirmed",
+      "occurred_at": "2026-08-26T22:42:07.462566Z",
+      "payload": {
+        "episode_key": "terraform:va1-postgres:run-okjyXsDYXyMqqBYY",
+        "expected_delivery_ref": "watch_reply_slack_message_2f4c3593ab4a1c4591df6ea57da4d30e",
+        "kind": "confirm_delivery",
+        "next_turn_ref": null,
+        "occurred_at": "2026-08-26T22:42:07.462566Z"
+      },
+      "sequence": 4
+    }
+  ],
+  "linked_history": []
+}

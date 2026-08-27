@@ -1,0 +1,300 @@
+{
+  "checkpoints": [
+    {
+      "command": 1,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [
+          "admit_input:b82bdc3e024c386c99836ee794c43b3acc7fb4ec646d5cd9c85f203cac215e68"
+        ],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787538003.466009",
+          "transport": "slack"
+        },
+        "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
+        "input_revisions": {
+          "slack_message_6a50aab51f85da5d2fe71b8ad3afe06b": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-vector-firing"
+        },
+        "queued_inputs": [],
+        "semantic_version": 1,
+        "state": "working"
+      },
+      "event_count": 1,
+      "status": "applied"
+    },
+    {
+      "command": 2,
+      "command_kind": "accept_result",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787538003.466009",
+          "transport": "slack"
+        },
+        "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
+        "input_revisions": {
+          "slack_message_6a50aab51f85da5d2fe71b8ad3afe06b": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "delivery",
+          "ref": "delivery-vector-firing"
+        },
+        "queued_inputs": [],
+        "semantic_version": 2,
+        "state": "working"
+      },
+      "event_count": 2,
+      "status": "applied"
+    },
+    {
+      "command": 3,
+      "command_kind": "confirm_delivery",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787538003.466009",
+          "transport": "slack"
+        },
+        "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
+        "input_revisions": {
+          "slack_message_6a50aab51f85da5d2fe71b8ad3afe06b": 1
+        },
+        "linked_episode_id": null,
+        "owner": null,
+        "queued_inputs": [],
+        "semantic_version": 2,
+        "state": "complete"
+      },
+      "event_count": 3,
+      "status": "applied"
+    },
+    {
+      "command": 4,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [
+          "admit_input:82d59c3f8901a2ee96715b0603b9a940f14c466fbeb94b8c82eb7530764af5dc"
+        ],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787538003.466009",
+          "transport": "slack"
+        },
+        "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
+        "input_revisions": {
+          "slack_message_45c728f32c67f6804436ef73543c9028": 2,
+          "slack_message_6a50aab51f85da5d2fe71b8ad3afe06b": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-vector-resolved"
+        },
+        "queued_inputs": [],
+        "semantic_version": 3,
+        "state": "working"
+      },
+      "event_count": 4,
+      "status": "applied"
+    },
+    {
+      "command": 5,
+      "command_kind": "accept_result",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787538003.466009",
+          "transport": "slack"
+        },
+        "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
+        "input_revisions": {
+          "slack_message_45c728f32c67f6804436ef73543c9028": 2,
+          "slack_message_6a50aab51f85da5d2fe71b8ad3afe06b": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "delivery",
+          "ref": "delivery-vector-resolved"
+        },
+        "queued_inputs": [],
+        "semantic_version": 4,
+        "state": "working"
+      },
+      "event_count": 5,
+      "status": "applied"
+    },
+    {
+      "command": 6,
+      "command_kind": "confirm_delivery",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787538003.466009",
+          "transport": "slack"
+        },
+        "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
+        "input_revisions": {
+          "slack_message_45c728f32c67f6804436ef73543c9028": 2,
+          "slack_message_6a50aab51f85da5d2fe71b8ad3afe06b": 1
+        },
+        "linked_episode_id": null,
+        "owner": null,
+        "queued_inputs": [],
+        "semantic_version": 4,
+        "state": "complete"
+      },
+      "event_count": 6,
+      "status": "applied"
+    }
+  ],
+  "episode": {
+    "active_inputs": [],
+    "destination": {
+      "conversation_ref": "C08MMETA3U3",
+      "thread_ref": "1787538003.466009",
+      "transport": "slack"
+    },
+    "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
+    "input_revisions": {
+      "slack_message_45c728f32c67f6804436ef73543c9028": 2,
+      "slack_message_6a50aab51f85da5d2fe71b8ad3afe06b": 1
+    },
+    "linked_episode_id": null,
+    "owner": null,
+    "queued_inputs": [],
+    "semantic_version": 4,
+    "state": "complete"
+  },
+  "events": [
+    {
+      "dedupe_key": "admit_input:b82bdc3e024c386c99836ee794c43b3acc7fb4ec646d5cd9c85f203cac215e68",
+      "fingerprint": "d314afaeddc8b8f9e6d369653f47590ae32c1dbebd2a15e5960a013741c7f3a4",
+      "kind": "input_admitted",
+      "occurred_at": "2026-08-24T02:20:04.071055Z",
+      "payload": {
+        "actor_ref": "slack:app:grafana",
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787538003.466009",
+          "transport": "slack"
+        },
+        "episode_id": "01993e00-0000-7000-8000-000000000001",
+        "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
+        "kind": "admit_input",
+        "linked_episode_id": null,
+        "native_input_id": "slack_message_6a50aab51f85da5d2fe71b8ad3afe06b",
+        "occurred_at": "2026-08-24T02:20:04.071055Z",
+        "payload": {
+          "alert": "Vector component errors",
+          "status": "firing"
+        },
+        "revision": 1,
+        "turn_ref": "turn-vector-firing"
+      },
+      "sequence": 1
+    },
+    {
+      "dedupe_key": "accept_result:2b105e8f22133c3c71f44a8d26551a7a49602950553abd06f688e1ec74c7adf9",
+      "fingerprint": "b54cea361c406cf4f868596590008e9df422878818a67f19944a5b90a5532ba1",
+      "kind": "result_accepted",
+      "occurred_at": "2026-08-24T02:24:00.000000Z",
+      "payload": {
+        "decision_reason": null,
+        "delivery": "reply",
+        "delivery_ref": "delivery-vector-firing",
+        "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
+        "expected_turn_ref": "turn-vector-firing",
+        "kind": "accept_result",
+        "next_turn_ref": null,
+        "occurred_at": "2026-08-24T02:24:00.000000Z",
+        "result_ref": "result-vector-firing"
+      },
+      "sequence": 2
+    },
+    {
+      "dedupe_key": "confirm_delivery:91d775dfbb45a23f20ef584413c801aaf3c559028dd6e7be6b5a81fc90ce1e52",
+      "fingerprint": "a0b63e5fbdd22f60c63a54adfcd9818c3ce0b2936f054eb04f728d76b55e0325",
+      "kind": "delivery_confirmed",
+      "occurred_at": "2026-08-24T02:24:01.000000Z",
+      "payload": {
+        "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
+        "expected_delivery_ref": "delivery-vector-firing",
+        "kind": "confirm_delivery",
+        "next_turn_ref": null,
+        "occurred_at": "2026-08-24T02:24:01.000000Z"
+      },
+      "sequence": 3
+    },
+    {
+      "dedupe_key": "admit_input:82d59c3f8901a2ee96715b0603b9a940f14c466fbeb94b8c82eb7530764af5dc",
+      "fingerprint": "f0d34650a2c1f1e2d8ac1b9a57eac9377875064e3f56e0eadf109b6de4e922a3",
+      "kind": "input_admitted",
+      "occurred_at": "2026-08-24T02:35:03.462709Z",
+      "payload": {
+        "actor_ref": "slack:app:grafana",
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787538003.466009",
+          "transport": "slack"
+        },
+        "episode_id": "01993e00-0000-7000-8000-000000000001",
+        "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
+        "kind": "admit_input",
+        "linked_episode_id": null,
+        "native_input_id": "slack_message_45c728f32c67f6804436ef73543c9028",
+        "occurred_at": "2026-08-24T02:35:03.462709Z",
+        "payload": {
+          "alert": "Vector component errors",
+          "status": "resolved"
+        },
+        "revision": 2,
+        "turn_ref": "turn-vector-resolved"
+      },
+      "sequence": 4
+    },
+    {
+      "dedupe_key": "accept_result:7011dce49829bf0213e08630d51f80b6882b3e3ff7d48a75002244348e7b2bb6",
+      "fingerprint": "25ada16b1b5f494030a7428c9e3585c2df0115e2abe44c32f4f1d0868ade8b41",
+      "kind": "result_accepted",
+      "occurred_at": "2026-08-24T02:36:00.000000Z",
+      "payload": {
+        "decision_reason": null,
+        "delivery": "reply",
+        "delivery_ref": "delivery-vector-resolved",
+        "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
+        "expected_turn_ref": "turn-vector-resolved",
+        "kind": "accept_result",
+        "next_turn_ref": null,
+        "occurred_at": "2026-08-24T02:36:00.000000Z",
+        "result_ref": "result-vector-resolved"
+      },
+      "sequence": 5
+    },
+    {
+      "dedupe_key": "confirm_delivery:bdb4a5e785851b843f0ca10d88c1d13dbf7c9dd45d9baab78c5a76207309572e",
+      "fingerprint": "974712bb4a13c1ba8f959c1e9e638c626b0d1848c66a6f227f93ff678666b4a6",
+      "kind": "delivery_confirmed",
+      "occurred_at": "2026-08-24T02:36:01.000000Z",
+      "payload": {
+        "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
+        "expected_delivery_ref": "delivery-vector-resolved",
+        "kind": "confirm_delivery",
+        "next_turn_ref": null,
+        "occurred_at": "2026-08-24T02:36:01.000000Z"
+      },
+      "sequence": 6
+    }
+  ],
+  "linked_history": []
+}

@@ -1,0 +1,451 @@
+{
+  "checkpoints": [
+    {
+      "command": 1,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [
+          "admit_input:e6770c7baf983425b584b1f4f633ac9bf6e031e0f1659b3fa0c55af85c612f11"
+        ],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786978800.742289",
+          "transport": "slack"
+        },
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "input_revisions": {
+          "slack:task-request": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-task-initial"
+        },
+        "queued_inputs": [],
+        "semantic_version": 1,
+        "state": "working"
+      },
+      "event_count": 1,
+      "status": "applied"
+    },
+    {
+      "command": 2,
+      "command_kind": "accept_result",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786978800.742289",
+          "transport": "slack"
+        },
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "input_revisions": {
+          "slack:task-request": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "delivery",
+          "ref": "delivery-task-initial"
+        },
+        "queued_inputs": [],
+        "semantic_version": 2,
+        "state": "working"
+      },
+      "event_count": 2,
+      "status": "applied"
+    },
+    {
+      "command": 3,
+      "command_kind": "confirm_delivery",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786978800.742289",
+          "transport": "slack"
+        },
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "input_revisions": {
+          "slack:task-request": 1
+        },
+        "linked_episode_id": null,
+        "owner": null,
+        "queued_inputs": [],
+        "semantic_version": 2,
+        "state": "complete"
+      },
+      "event_count": 3,
+      "status": "applied"
+    },
+    {
+      "command": 4,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [
+          "admit_input:23b016a247160b5502e0e731ab099fca3d8cb83df2a338b98ed4f6ef1d3e0231"
+        ],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786978800.742289",
+          "transport": "slack"
+        },
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "input_revisions": {
+          "slack:task-request": 1,
+          "slack_message_3ac1577d668a69532490aaa8dfd3e730": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-feedback-1"
+        },
+        "queued_inputs": [],
+        "semantic_version": 3,
+        "state": "working"
+      },
+      "event_count": 4,
+      "status": "applied"
+    },
+    {
+      "command": 5,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [
+          "admit_input:23b016a247160b5502e0e731ab099fca3d8cb83df2a338b98ed4f6ef1d3e0231"
+        ],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786978800.742289",
+          "transport": "slack"
+        },
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "input_revisions": {
+          "slack:task-request": 1,
+          "slack_message_3ac1577d668a69532490aaa8dfd3e730": 1,
+          "slack_message_4af928b36e219825872fefde008cafaf": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-feedback-1"
+        },
+        "queued_inputs": [
+          "admit_input:d83e0cbce85fe579d4a06d450b0dac716984e722727b3ec9c0881d71f8d2564f"
+        ],
+        "semantic_version": 4,
+        "state": "working"
+      },
+      "event_count": 5,
+      "status": "applied"
+    },
+    {
+      "command": 6,
+      "command_kind": "accept_result",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786978800.742289",
+          "transport": "slack"
+        },
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "input_revisions": {
+          "slack:task-request": 1,
+          "slack_message_3ac1577d668a69532490aaa8dfd3e730": 1,
+          "slack_message_4af928b36e219825872fefde008cafaf": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "delivery",
+          "ref": "delivery-feedback-1"
+        },
+        "queued_inputs": [
+          "admit_input:d83e0cbce85fe579d4a06d450b0dac716984e722727b3ec9c0881d71f8d2564f"
+        ],
+        "semantic_version": 5,
+        "state": "working"
+      },
+      "event_count": 6,
+      "status": "applied"
+    },
+    {
+      "command": 7,
+      "command_kind": "confirm_delivery",
+      "episode": {
+        "active_inputs": [
+          "admit_input:d83e0cbce85fe579d4a06d450b0dac716984e722727b3ec9c0881d71f8d2564f"
+        ],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786978800.742289",
+          "transport": "slack"
+        },
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "input_revisions": {
+          "slack:task-request": 1,
+          "slack_message_3ac1577d668a69532490aaa8dfd3e730": 1,
+          "slack_message_4af928b36e219825872fefde008cafaf": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-feedback-2"
+        },
+        "queued_inputs": [],
+        "semantic_version": 5,
+        "state": "working"
+      },
+      "event_count": 7,
+      "status": "applied"
+    },
+    {
+      "command": 8,
+      "command_kind": "accept_result",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786978800.742289",
+          "transport": "slack"
+        },
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "input_revisions": {
+          "slack:task-request": 1,
+          "slack_message_3ac1577d668a69532490aaa8dfd3e730": 1,
+          "slack_message_4af928b36e219825872fefde008cafaf": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "delivery",
+          "ref": "delivery-feedback-2"
+        },
+        "queued_inputs": [],
+        "semantic_version": 6,
+        "state": "working"
+      },
+      "event_count": 8,
+      "status": "applied"
+    },
+    {
+      "command": 9,
+      "command_kind": "confirm_delivery",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786978800.742289",
+          "transport": "slack"
+        },
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "input_revisions": {
+          "slack:task-request": 1,
+          "slack_message_3ac1577d668a69532490aaa8dfd3e730": 1,
+          "slack_message_4af928b36e219825872fefde008cafaf": 1
+        },
+        "linked_episode_id": null,
+        "owner": null,
+        "queued_inputs": [],
+        "semantic_version": 6,
+        "state": "complete"
+      },
+      "event_count": 9,
+      "status": "applied"
+    }
+  ],
+  "episode": {
+    "active_inputs": [],
+    "destination": {
+      "conversation_ref": "C08MMETA3U3",
+      "thread_ref": "1786978800.742289",
+      "transport": "slack"
+    },
+    "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+    "input_revisions": {
+      "slack:task-request": 1,
+      "slack_message_3ac1577d668a69532490aaa8dfd3e730": 1,
+      "slack_message_4af928b36e219825872fefde008cafaf": 1
+    },
+    "linked_episode_id": null,
+    "owner": null,
+    "queued_inputs": [],
+    "semantic_version": 6,
+    "state": "complete"
+  },
+  "events": [
+    {
+      "dedupe_key": "admit_input:e6770c7baf983425b584b1f4f633ac9bf6e031e0f1659b3fa0c55af85c612f11",
+      "fingerprint": "82e5a4a3dc801eab31556153cbc9992ebf676f0939db6fa14fd718b104b4ae0b",
+      "kind": "input_admitted",
+      "occurred_at": "2026-08-21T02:21:46.748258Z",
+      "payload": {
+        "actor_ref": "slack:user:U-andrew",
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786978800.742289",
+          "transport": "slack"
+        },
+        "episode_id": "01993e00-0000-7000-8000-000000000006",
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "kind": "admit_input",
+        "linked_episode_id": null,
+        "native_input_id": "slack:task-request",
+        "occurred_at": "2026-08-21T02:21:46.748258Z",
+        "payload": {
+          "text": "Add bounded context to Rivals Gate timeout logs"
+        },
+        "revision": 1,
+        "turn_ref": "turn-task-initial"
+      },
+      "sequence": 1
+    },
+    {
+      "dedupe_key": "accept_result:1868ff8c7ffe66c41671f934a4984e6520ee369ef3d0434b1980b894899101f8",
+      "fingerprint": "4c88ece63fd359eab082a78c89795b7b532834e648a52b58e8c9ef61b86374e3",
+      "kind": "result_accepted",
+      "occurred_at": "2026-08-21T02:22:00.000000Z",
+      "payload": {
+        "decision_reason": null,
+        "delivery": "reply",
+        "delivery_ref": "delivery-task-initial",
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "expected_turn_ref": "turn-task-initial",
+        "kind": "accept_result",
+        "next_turn_ref": null,
+        "occurred_at": "2026-08-21T02:22:00.000000Z",
+        "result_ref": "result-task-initial"
+      },
+      "sequence": 2
+    },
+    {
+      "dedupe_key": "confirm_delivery:fd56c5812005e0267bcd67337daa4b793755ac8da3a73db92af7d27b1c4ab497",
+      "fingerprint": "d7418f9852f012061a3ae97b9b7574f08817983e37babd1cd5650fc4297b424f",
+      "kind": "delivery_confirmed",
+      "occurred_at": "2026-08-21T02:22:01.000000Z",
+      "payload": {
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "expected_delivery_ref": "delivery-task-initial",
+        "kind": "confirm_delivery",
+        "next_turn_ref": null,
+        "occurred_at": "2026-08-21T02:22:01.000000Z"
+      },
+      "sequence": 3
+    },
+    {
+      "dedupe_key": "admit_input:23b016a247160b5502e0e731ab099fca3d8cb83df2a338b98ed4f6ef1d3e0231",
+      "fingerprint": "aec42fe95caad4ae86e4fb05371801ded4f2a08810cbe5da9d42fcfdd1c18cd5",
+      "kind": "input_admitted",
+      "occurred_at": "2026-08-21T20:44:43.714515Z",
+      "payload": {
+        "actor_ref": "slack:user:U-bruno",
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786978800.742289",
+          "transport": "slack"
+        },
+        "episode_id": "01993e00-0000-7000-8000-000000000006",
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "kind": "admit_input",
+        "linked_episode_id": null,
+        "native_input_id": "slack_message_3ac1577d668a69532490aaa8dfd3e730",
+        "occurred_at": "2026-08-21T20:44:43.714515Z",
+        "payload": {
+          "text": "aggregate failures by request parameters"
+        },
+        "revision": 1,
+        "turn_ref": "turn-feedback-1"
+      },
+      "sequence": 4
+    },
+    {
+      "dedupe_key": "admit_input:d83e0cbce85fe579d4a06d450b0dac716984e722727b3ec9c0881d71f8d2564f",
+      "fingerprint": "b6d879f5f05d288d69becd2533df149f5f50c604a957c3bc9e2749d50d83bd30",
+      "kind": "input_admitted",
+      "occurred_at": "2026-08-21T20:44:50.795903Z",
+      "payload": {
+        "actor_ref": "slack:user:U-andrew",
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786978800.742289",
+          "transport": "slack"
+        },
+        "episode_id": "01993e00-0000-7000-8000-000000000006",
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "kind": "admit_input",
+        "linked_episode_id": null,
+        "native_input_id": "slack_message_4af928b36e219825872fefde008cafaf",
+        "occurred_at": "2026-08-21T20:44:50.795903Z",
+        "payload": {
+          "text": "use five-minute windows"
+        },
+        "revision": 1,
+        "turn_ref": "turn-feedback-2"
+      },
+      "sequence": 5
+    },
+    {
+      "dedupe_key": "accept_result:5e604fcd0532634fa73507b6249ebdc5db791c9cb05a1d0fbaae8589ed871c79",
+      "fingerprint": "8e23e18a1c17d9351ed8edb0a81d5c32a4f2d8be0710262b147bc15ca8d41fa4",
+      "kind": "result_accepted",
+      "occurred_at": "2026-08-21T20:47:36.114569Z",
+      "payload": {
+        "decision_reason": null,
+        "delivery": "reply",
+        "delivery_ref": "delivery-feedback-1",
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "expected_turn_ref": "turn-feedback-1",
+        "kind": "accept_result",
+        "next_turn_ref": null,
+        "occurred_at": "2026-08-21T20:47:36.114569Z",
+        "result_ref": "result-feedback-1"
+      },
+      "sequence": 6
+    },
+    {
+      "dedupe_key": "confirm_delivery:f48f63df5cdd5f0420559374f304ac70e2a8eee460df28114ab49151864400e0",
+      "fingerprint": "316165775cd164c36a716089a2a2447c3f42301acf0219741882ae2d302bd698",
+      "kind": "delivery_confirmed",
+      "occurred_at": "2026-08-21T20:47:37.000000Z",
+      "payload": {
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "expected_delivery_ref": "delivery-feedback-1",
+        "kind": "confirm_delivery",
+        "next_turn_ref": "turn-feedback-2",
+        "occurred_at": "2026-08-21T20:47:37.000000Z"
+      },
+      "sequence": 7
+    },
+    {
+      "dedupe_key": "accept_result:7e44a83eec059d81a06292218c82da3a295288778700cf259a153578459aa86e",
+      "fingerprint": "5911906b430524be8d241929d6e7e9f784229eb36753a2e7075576741bb1b647",
+      "kind": "result_accepted",
+      "occurred_at": "2026-08-21T20:47:59.218742Z",
+      "payload": {
+        "decision_reason": null,
+        "delivery": "reply",
+        "delivery_ref": "delivery-feedback-2",
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "expected_turn_ref": "turn-feedback-2",
+        "kind": "accept_result",
+        "next_turn_ref": null,
+        "occurred_at": "2026-08-21T20:47:59.218742Z",
+        "result_ref": "result-feedback-2"
+      },
+      "sequence": 8
+    },
+    {
+      "dedupe_key": "confirm_delivery:6f85264b1a01117436f5680cdb71edc22e045e6f23df481966f38a4b4f498c72",
+      "fingerprint": "70f9bc04fbaa793c065516581cd79886b24543d29ef16efaef11b3d254408762",
+      "kind": "delivery_confirmed",
+      "occurred_at": "2026-08-21T20:48:00.000000Z",
+      "payload": {
+        "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "expected_delivery_ref": "delivery-feedback-2",
+        "kind": "confirm_delivery",
+        "next_turn_ref": null,
+        "occurred_at": "2026-08-21T20:48:00.000000Z"
+      },
+      "sequence": 9
+    }
+  ],
+  "linked_history": []
+}

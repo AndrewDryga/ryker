@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "source": {
+    "database": "emisar responder.db",
+    "episode_ids": ["episode_run_31a3e9b581a9ba92eec53580cbbbc3bd"],
+    "reason": "An operator cancelled a real episode while it was waiting for a Slack answer; cancellation must retire that wait permanently."
+  },
+  "commands": [
+    {
+      "type": "admit_input",
+      "actor_ref": "slack:user:U-operator",
+      "destination": {"transport": "slack", "conversation_ref": "C0BJQ5U61T2", "thread_ref": "1786655779.553849"},
+      "episode_id": "01993e00-0000-7000-8000-000000000011",
+      "episode_key": "slack:C0BJQ5U61T2:1786655779.553849",
+      "linked_episode_id": null,
+      "native_input_id": "slack:message:1786655779.553849",
+      "occurred_at": "2026-08-13T21:16:48.927858Z",
+      "payload": {"text": "See in the channel above"},
+      "revision": 1,
+      "turn_ref": "turn-needs-context"
+    },
+    {
+      "type": "start_wait",
+      "deadline_at": null,
+      "episode_key": "slack:C0BJQ5U61T2:1786655779.553849",
+      "expected_turn_ref": "turn-needs-context",
+      "kind": "input",
+      "occurred_at": "2026-08-13T21:58:55.299726Z",
+      "wait_ref": "input-1"
+    },
+    {
+      "type": "cancel_episode",
+      "cancel_ref": "operator-cancel-episode_run_31a3e9b581a9ba92eec53580cbbbc3bd",
+      "episode_key": "slack:C0BJQ5U61T2:1786655779.553849",
+      "expected_owner": {"kind": "input", "ref": "input-1"},
+      "occurred_at": "2026-08-18T22:16:12.487794Z",
+      "reason": "Resolved by the operator: overtaken by events"
+    }
+  ],
+  "expected": {
+    "active_input_count": 0,
+    "destination": {"conversation_ref": "C0BJQ5U61T2", "thread_ref": "1786655779.553849", "transport": "slack"},
+    "event_count": 3,
+    "event_kinds": ["input_admitted", "input_wait_started", "episode_cancelled"],
+    "linked_episode_id": null,
+    "owner": null,
+    "queued_input_count": 0,
+    "semantic_version": 3,
+    "state": "cancelled"
+  }
+}

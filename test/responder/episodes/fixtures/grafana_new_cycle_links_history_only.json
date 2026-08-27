@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "source": {
+    "database": "blitz responder.db",
+    "episode_ids": ["episode_run_977a787e411261d6c42bce8137cf5c77", "episode_run_7d29b1f12e6b9a7ebf02e435e2bf2263"],
+    "reason": "A later FIRING cycle needs a new destination while the recovered episode remains history only."
+  },
+  "setup": [
+    [
+      {
+        "type": "admit_input",
+        "actor_ref": "slack:app:grafana",
+        "destination": {"transport": "slack", "conversation_ref": "C08MMETA3U3", "thread_ref": "1787518383.531529"},
+        "episode_id": "01993e00-0000-7000-8000-000000000008",
+        "episode_key": "grafana:va1-vector-errors:cycle:2026-08-23T20:53:03Z",
+        "linked_episode_id": null,
+        "native_input_id": "slack_message_1460fda863f5b89680bffcbd854fb062",
+        "occurred_at": "2026-08-23T20:53:03.531529Z",
+        "payload": {"status": "firing", "alert": "Vector component errors"},
+        "revision": 1,
+        "turn_ref": "turn-old-vector-cycle"
+      },
+      {
+        "type": "accept_result",
+        "decision_reason": "historical alert cycle already completed",
+        "delivery": "none",
+        "delivery_ref": null,
+        "episode_key": "grafana:va1-vector-errors:cycle:2026-08-23T20:53:03Z",
+        "expected_turn_ref": "turn-old-vector-cycle",
+        "occurred_at": "2026-08-23T21:03:03Z",
+        "result_ref": "historical-vector-cycle-complete"
+      }
+    ]
+  ],
+  "commands": [
+    {
+      "type": "admit_input",
+      "actor_ref": "slack:app:grafana",
+      "destination": {"transport": "slack", "conversation_ref": "C08MMETA3U3", "thread_ref": "1787527443.511159"},
+      "episode_id": "01993e00-0000-7000-8000-000000000007",
+      "episode_key": "grafana:va1-vector-errors:cycle:2026-08-23T23:24:03Z",
+      "linked_episode_id": "01993e00-0000-7000-8000-000000000008",
+      "native_input_id": "slack_message_0e509d0c2009d86379d95eb74c2cb5ef",
+      "occurred_at": "2026-08-23T23:24:04.078464Z",
+      "payload": {"status": "firing", "alert": "Vector component errors"},
+      "revision": 1,
+      "turn_ref": "turn-new-vector-cycle"
+    },
+    {
+      "type": "accept_result",
+      "delivery": "reply",
+      "delivery_ref": "delivery-new-vector-cycle",
+      "episode_key": "grafana:va1-vector-errors:cycle:2026-08-23T23:24:03Z",
+      "expected_turn_ref": "turn-new-vector-cycle",
+      "next_turn_ref": null,
+      "occurred_at": "2026-08-23T23:25:00Z",
+      "result_ref": "result-new-vector-cycle"
+    },
+    {
+      "type": "confirm_delivery",
+      "episode_key": "grafana:va1-vector-errors:cycle:2026-08-23T23:24:03Z",
+      "expected_delivery_ref": "delivery-new-vector-cycle",
+      "next_turn_ref": null,
+      "occurred_at": "2026-08-23T23:25:01Z"
+    }
+  ],
+  "expected": {
+    "active_input_count": 0,
+    "destination": {"conversation_ref": "C08MMETA3U3", "thread_ref": "1787527443.511159", "transport": "slack"},
+    "event_kinds": ["input_admitted", "result_accepted", "delivery_confirmed"],
+    "event_count": 3,
+    "linked_episode_id": "01993e00-0000-7000-8000-000000000008",
+    "owner": null,
+    "queued_input_count": 0,
+    "semantic_version": 2,
+    "state": "complete"
+  }
+}

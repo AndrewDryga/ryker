@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "source": {
+    "database": "blitz responder.db",
+    "episode_ids": ["episode_run_472ea3247b91552b7726ec9f9a0ff6f3", "episode_run_cfa38a8fc5e751b5c17930634baa402d"],
+    "reason": "A related Better Stack incident may inherit history but must never inherit the older incident's Slack destination."
+  },
+  "setup": [
+    [
+      {
+        "type": "admit_input",
+        "actor_ref": "slack:app:better-stack",
+        "destination": {"transport": "slack", "conversation_ref": "C091FK0HHAQ", "thread_ref": "1787251157.958149"},
+        "episode_id": "01993e00-0000-7000-8000-000000000004",
+        "episode_key": "better-stack:incident:1004352797",
+        "linked_episode_id": null,
+        "native_input_id": "slack_message_6729d549532261e0d7d9c20d0af3586d",
+        "occurred_at": "2026-08-20T18:39:17.958149Z",
+        "payload": {"monitor": "Signing Server", "status": "firing"},
+        "revision": 1,
+        "turn_ref": "turn-signing-incident"
+      },
+      {
+        "type": "accept_result",
+        "decision_reason": "historical incident already completed",
+        "delivery": "none",
+        "delivery_ref": null,
+        "episode_key": "better-stack:incident:1004352797",
+        "expected_turn_ref": "turn-signing-incident",
+        "occurred_at": "2026-08-20T18:49:17Z",
+        "result_ref": "historical-signing-incident-complete"
+      }
+    ]
+  ],
+  "commands": [
+    {
+      "type": "admit_input",
+      "actor_ref": "slack:app:better-stack",
+      "destination": {"transport": "slack", "conversation_ref": "C091FK0HHAQ", "thread_ref": "1787251168.146869"},
+      "episode_id": "01993e00-0000-7000-8000-000000000005",
+      "episode_key": "better-stack:incident:1004352798",
+      "linked_episode_id": "01993e00-0000-7000-8000-000000000004",
+      "native_input_id": "slack_message_9126c0c8b76d13c3be11628a791fb9d7",
+      "occurred_at": "2026-08-20T18:39:28.694924Z",
+      "payload": {"monitor": "Internal Utils", "status": "firing"},
+      "revision": 1,
+      "turn_ref": "turn-utils-incident"
+    },
+    {
+      "type": "accept_result",
+      "delivery": "reply",
+      "delivery_ref": "delivery-utils-incident",
+      "episode_key": "better-stack:incident:1004352798",
+      "expected_turn_ref": "turn-utils-incident",
+      "next_turn_ref": null,
+      "occurred_at": "2026-08-20T18:42:00Z",
+      "result_ref": "result-utils-incident"
+    },
+    {
+      "type": "confirm_delivery",
+      "episode_key": "better-stack:incident:1004352798",
+      "expected_delivery_ref": "delivery-utils-incident",
+      "next_turn_ref": null,
+      "occurred_at": "2026-08-20T18:42:01Z"
+    }
+  ],
+  "expected": {
+    "active_input_count": 0,
+    "destination": {"conversation_ref": "C091FK0HHAQ", "thread_ref": "1787251168.146869", "transport": "slack"},
+    "event_kinds": ["input_admitted", "result_accepted", "delivery_confirmed"],
+    "event_count": 3,
+    "linked_episode_id": "01993e00-0000-7000-8000-000000000004",
+    "owner": null,
+    "queued_input_count": 0,
+    "semantic_version": 2,
+    "state": "complete"
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "source": {
+    "database": "blitz responder.db",
+    "episode_ids": ["episode_run_6c932aea4cb7d0f2ab4c8abdf5c6ff6b", "episode_run_9ae2005bd691215c1e7326e503871c65"],
+    "run_ids": ["run_8bb7fbbd837f989feea949c08284a588", "run_9ae2005bd691215c1e7326e503871c65"],
+    "reason": "A superseded Terraform watch and the later silent lifecycle decision shared one Slack thread; a no-delivery result must advance queued work instead of losing it."
+  },
+  "commands": [
+    {
+      "type": "admit_input",
+      "actor_ref": "slack:app:terraform",
+      "destination": {"transport": "slack", "conversation_ref": "C08MMETA3U3", "thread_ref": "1786048236.845019"},
+      "episode_id": "01993e00-0000-7000-8000-000000000014",
+      "episode_key": "slack:C08MMETA3U3:1786048236.845019:terraform-lifecycle",
+      "linked_episode_id": null,
+      "native_input_id": "slack_message_bded421709aef541403f93cb5bc5edb0",
+      "occurred_at": "2026-08-08T16:29:33.175617Z",
+      "payload": {"state": "discarded", "workspace": "va1-apps"},
+      "revision": 1,
+      "turn_ref": "turn-discarded"
+    },
+    {
+      "type": "admit_input",
+      "actor_ref": "slack:app:terraform",
+      "destination": {"transport": "slack", "conversation_ref": "C08MMETA3U3", "thread_ref": "1786048236.845019"},
+      "episode_id": "01993e00-0000-7000-8000-000000000014",
+      "episode_key": "slack:C08MMETA3U3:1786048236.845019:terraform-lifecycle",
+      "linked_episode_id": null,
+      "native_input_id": "slack_message_995fb660fc8d4019713287a9e5f92b72",
+      "occurred_at": "2026-08-08T16:31:00.512747Z",
+      "payload": {"state": "applying", "workspace": "va1-apps"},
+      "revision": 1,
+      "turn_ref": "turn-applying"
+    },
+    {
+      "type": "accept_result",
+      "decision_reason": "A newer lifecycle revision in the same Slack thread already owns the useful response.",
+      "delivery": "none",
+      "delivery_ref": null,
+      "episode_key": "slack:C08MMETA3U3:1786048236.845019:terraform-lifecycle",
+      "expected_turn_ref": "turn-discarded",
+      "next_turn_ref": "turn-applying",
+      "occurred_at": "2026-08-08T16:32:20.269108Z",
+      "result_ref": "silent-discarded-revision"
+    },
+    {
+      "type": "accept_result",
+      "decision_reason": "This lifecycle update was recorded, but it did not add a decision-useful change for the channel.",
+      "delivery": "none",
+      "delivery_ref": null,
+      "episode_key": "slack:C08MMETA3U3:1786048236.845019:terraform-lifecycle",
+      "expected_turn_ref": "turn-applying",
+      "next_turn_ref": null,
+      "occurred_at": "2026-08-08T16:34:42.332534Z",
+      "result_ref": "silent-applying-revision"
+    }
+  ],
+  "expected": {
+    "active_input_count": 0,
+    "destination": {"conversation_ref": "C08MMETA3U3", "thread_ref": "1786048236.845019", "transport": "slack"},
+    "event_count": 4,
+    "event_kinds": ["input_admitted", "input_admitted", "result_accepted", "result_accepted"],
+    "linked_episode_id": null,
+    "owner": null,
+    "queued_input_count": 0,
+    "semantic_version": 4,
+    "state": "complete"
+  }
+}

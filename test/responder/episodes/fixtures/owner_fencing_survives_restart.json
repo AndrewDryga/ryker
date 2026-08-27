@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "source": {
+    "database": "blitz responder.db",
+    "episode_ids": ["episode_run_1d2dd5837f955a97f57ed40a56e2f1e2"],
+    "reason": "A replacement worker must take custody once; a repeated handoff after restart must reconcile without another event."
+  },
+  "commands": [
+    {
+      "type": "admit_input",
+      "actor_ref": "slack:user:U-andrew",
+      "destination": {"transport": "slack", "conversation_ref": "C08MMETA3U3", "thread_ref": "1787449203.470699"},
+      "episode_id": "01993e00-0000-7000-8000-000000000011",
+      "episode_key": "engineering-task:owner-fencing:1d2dd583",
+      "linked_episode_id": null,
+      "native_input_id": "slack:task:1d2dd583",
+      "occurred_at": "2026-08-22T21:40:03.470699Z",
+      "payload": {"text": "Realtime gateway: log only issues"},
+      "revision": 1,
+      "turn_ref": "turn-worker-a"
+    },
+    {
+      "type": "transfer_owner",
+      "episode_key": "engineering-task:owner-fencing:1d2dd583",
+      "expected_owner": {"kind": "turn", "ref": "turn-worker-a"},
+      "new_owner": {"kind": "turn", "ref": "turn-worker-b"},
+      "occurred_at": "2026-08-22T21:40:04Z",
+      "transfer_ref": "worker-a-to-b"
+    },
+    {
+      "type": "transfer_owner",
+      "episode_key": "engineering-task:owner-fencing:1d2dd583",
+      "expected_owner": {"kind": "turn", "ref": "turn-worker-a"},
+      "new_owner": {"kind": "turn", "ref": "turn-worker-b"},
+      "occurred_at": "2026-08-22T21:40:04Z",
+      "transfer_ref": "worker-a-to-b"
+    },
+    {
+      "type": "transfer_owner",
+      "episode_key": "engineering-task:owner-fencing:1d2dd583",
+      "expected_owner": {"kind": "turn", "ref": "turn-worker-b"},
+      "new_owner": {"kind": "turn", "ref": "turn-worker-c"},
+      "occurred_at": "2026-08-22T21:40:05Z",
+      "transfer_ref": "worker-b-to-c"
+    }
+  ],
+  "expected": {
+    "active_input_count": 1,
+    "destination": {"conversation_ref": "C08MMETA3U3", "thread_ref": "1787449203.470699", "transport": "slack"},
+    "event_count": 3,
+    "event_kinds": ["input_admitted", "owner_transferred", "owner_transferred"],
+    "linked_episode_id": null,
+    "owner": {"kind": "turn", "ref": "turn-worker-c"},
+    "queued_input_count": 0,
+    "semantic_version": 1,
+    "state": "working"
+  }
+}

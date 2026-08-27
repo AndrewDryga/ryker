@@ -1,0 +1,179 @@
+{
+  "checkpoints": [
+    {
+      "command": 1,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [
+          "admit_input:18cd34925103f932ba176894b9f2a83d4a47fff87511c54f77312e0040a26ab3"
+        ],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787726072.993859",
+          "transport": "slack"
+        },
+        "episode_key": "grafana:disk-will-fill:cycle:1787726072",
+        "input_revisions": {
+          "grafana:disk-will-fill:1787726072": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-disk-check"
+        },
+        "queued_inputs": [],
+        "semantic_version": 1,
+        "state": "working"
+      },
+      "event_count": 1,
+      "status": "applied"
+    },
+    {
+      "command": 2,
+      "command_kind": "start_wait",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787726072.993859",
+          "transport": "slack"
+        },
+        "episode_key": "grafana:disk-will-fill:cycle:1787726072",
+        "input_revisions": {
+          "grafana:disk-will-fill:1787726072": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "deadline_at": "2026-08-26T07:34:32.993859Z",
+          "kind": "event",
+          "ref": "disk-pressure-followup"
+        },
+        "queued_inputs": [],
+        "semantic_version": 2,
+        "state": "waiting_for_event"
+      },
+      "event_count": 2,
+      "status": "applied"
+    },
+    {
+      "command": 3,
+      "command_kind": "start_wait",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787726072.993859",
+          "transport": "slack"
+        },
+        "episode_key": "grafana:disk-will-fill:cycle:1787726072",
+        "input_revisions": {
+          "grafana:disk-will-fill:1787726072": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "deadline_at": "2026-08-26T07:34:32.993859Z",
+          "kind": "event",
+          "ref": "disk-pressure-followup"
+        },
+        "queued_inputs": [],
+        "semantic_version": 2,
+        "state": "waiting_for_event"
+      },
+      "event_count": 2,
+      "status": "duplicate"
+    },
+    {
+      "command": 4,
+      "command_kind": "start_wait",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787726072.993859",
+          "transport": "slack"
+        },
+        "episode_key": "grafana:disk-will-fill:cycle:1787726072",
+        "input_revisions": {
+          "grafana:disk-will-fill:1787726072": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "deadline_at": "2026-08-26T07:34:32.993859Z",
+          "kind": "event",
+          "ref": "disk-pressure-followup"
+        },
+        "queued_inputs": [],
+        "semantic_version": 2,
+        "state": "waiting_for_event"
+      },
+      "event_count": 2,
+      "status": "duplicate"
+    }
+  ],
+  "episode": {
+    "active_inputs": [],
+    "destination": {
+      "conversation_ref": "C08MMETA3U3",
+      "thread_ref": "1787726072.993859",
+      "transport": "slack"
+    },
+    "episode_key": "grafana:disk-will-fill:cycle:1787726072",
+    "input_revisions": {
+      "grafana:disk-will-fill:1787726072": 1
+    },
+    "linked_episode_id": null,
+    "owner": {
+      "deadline_at": "2026-08-26T07:34:32.993859Z",
+      "kind": "event",
+      "ref": "disk-pressure-followup"
+    },
+    "queued_inputs": [],
+    "semantic_version": 2,
+    "state": "waiting_for_event"
+  },
+  "events": [
+    {
+      "dedupe_key": "admit_input:18cd34925103f932ba176894b9f2a83d4a47fff87511c54f77312e0040a26ab3",
+      "fingerprint": "e49015aa51ecee842343fb2f9e71622f46d3d65db7b2c6dfe2eb5d8dfce03846",
+      "kind": "input_admitted",
+      "occurred_at": "2026-08-26T06:34:32.993859Z",
+      "payload": {
+        "actor_ref": "slack:app:grafana",
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787726072.993859",
+          "transport": "slack"
+        },
+        "episode_id": "01993e00-0000-7000-8000-000000000012",
+        "episode_key": "grafana:disk-will-fill:cycle:1787726072",
+        "kind": "admit_input",
+        "linked_episode_id": null,
+        "native_input_id": "grafana:disk-will-fill:1787726072",
+        "occurred_at": "2026-08-26T06:34:32.993859Z",
+        "payload": {
+          "state": "firing"
+        },
+        "revision": 1,
+        "turn_ref": "turn-disk-check"
+      },
+      "sequence": 1
+    },
+    {
+      "dedupe_key": "start_wait:29d72ee6aa87cd83dc2df4c095c33b2dc4f9035d08aa9932a20ae3da07a1646c",
+      "fingerprint": "879f467f186f00ad647a05a580c163d25e2b5accb5828c424eb0ba80f9ce4a3f",
+      "kind": "event_wait_started",
+      "occurred_at": "2026-08-26T06:35:00.000000Z",
+      "payload": {
+        "deadline_at": "2026-08-26T07:34:32.993859Z",
+        "episode_key": "grafana:disk-will-fill:cycle:1787726072",
+        "expected_turn_ref": "turn-disk-check",
+        "kind": "start_wait",
+        "occurred_at": "2026-08-26T06:35:00.000000Z",
+        "wait_kind": "event",
+        "wait_ref": "disk-pressure-followup"
+      },
+      "sequence": 2
+    }
+  ],
+  "linked_history": []
+}

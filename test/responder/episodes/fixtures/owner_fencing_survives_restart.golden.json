@@ -1,0 +1,209 @@
+{
+  "checkpoints": [
+    {
+      "command": 1,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [
+          "admit_input:fe578fd9282649e68417674e78a44638ef92e283b23c33127ea1343c0fe3f388"
+        ],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787449203.470699",
+          "transport": "slack"
+        },
+        "episode_key": "engineering-task:owner-fencing:1d2dd583",
+        "input_revisions": {
+          "slack:task:1d2dd583": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-worker-a"
+        },
+        "queued_inputs": [],
+        "semantic_version": 1,
+        "state": "working"
+      },
+      "event_count": 1,
+      "status": "applied"
+    },
+    {
+      "command": 2,
+      "command_kind": "transfer_owner",
+      "episode": {
+        "active_inputs": [
+          "admit_input:fe578fd9282649e68417674e78a44638ef92e283b23c33127ea1343c0fe3f388"
+        ],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787449203.470699",
+          "transport": "slack"
+        },
+        "episode_key": "engineering-task:owner-fencing:1d2dd583",
+        "input_revisions": {
+          "slack:task:1d2dd583": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-worker-b"
+        },
+        "queued_inputs": [],
+        "semantic_version": 1,
+        "state": "working"
+      },
+      "event_count": 2,
+      "status": "applied"
+    },
+    {
+      "command": 3,
+      "command_kind": "transfer_owner",
+      "episode": {
+        "active_inputs": [
+          "admit_input:fe578fd9282649e68417674e78a44638ef92e283b23c33127ea1343c0fe3f388"
+        ],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787449203.470699",
+          "transport": "slack"
+        },
+        "episode_key": "engineering-task:owner-fencing:1d2dd583",
+        "input_revisions": {
+          "slack:task:1d2dd583": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-worker-b"
+        },
+        "queued_inputs": [],
+        "semantic_version": 1,
+        "state": "working"
+      },
+      "event_count": 2,
+      "status": "duplicate"
+    },
+    {
+      "command": 4,
+      "command_kind": "transfer_owner",
+      "episode": {
+        "active_inputs": [
+          "admit_input:fe578fd9282649e68417674e78a44638ef92e283b23c33127ea1343c0fe3f388"
+        ],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787449203.470699",
+          "transport": "slack"
+        },
+        "episode_key": "engineering-task:owner-fencing:1d2dd583",
+        "input_revisions": {
+          "slack:task:1d2dd583": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-worker-c"
+        },
+        "queued_inputs": [],
+        "semantic_version": 1,
+        "state": "working"
+      },
+      "event_count": 3,
+      "status": "applied"
+    }
+  ],
+  "episode": {
+    "active_inputs": [
+      "admit_input:fe578fd9282649e68417674e78a44638ef92e283b23c33127ea1343c0fe3f388"
+    ],
+    "destination": {
+      "conversation_ref": "C08MMETA3U3",
+      "thread_ref": "1787449203.470699",
+      "transport": "slack"
+    },
+    "episode_key": "engineering-task:owner-fencing:1d2dd583",
+    "input_revisions": {
+      "slack:task:1d2dd583": 1
+    },
+    "linked_episode_id": null,
+    "owner": {
+      "kind": "turn",
+      "ref": "turn-worker-c"
+    },
+    "queued_inputs": [],
+    "semantic_version": 1,
+    "state": "working"
+  },
+  "events": [
+    {
+      "dedupe_key": "admit_input:fe578fd9282649e68417674e78a44638ef92e283b23c33127ea1343c0fe3f388",
+      "fingerprint": "a3c4047c9a82945f52dab80c0beeece4047daaa3bc45766f8a41dbe20469f7ee",
+      "kind": "input_admitted",
+      "occurred_at": "2026-08-22T21:40:03.470699Z",
+      "payload": {
+        "actor_ref": "slack:user:U-andrew",
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1787449203.470699",
+          "transport": "slack"
+        },
+        "episode_id": "01993e00-0000-7000-8000-000000000011",
+        "episode_key": "engineering-task:owner-fencing:1d2dd583",
+        "kind": "admit_input",
+        "linked_episode_id": null,
+        "native_input_id": "slack:task:1d2dd583",
+        "occurred_at": "2026-08-22T21:40:03.470699Z",
+        "payload": {
+          "text": "Realtime gateway: log only issues"
+        },
+        "revision": 1,
+        "turn_ref": "turn-worker-a"
+      },
+      "sequence": 1
+    },
+    {
+      "dedupe_key": "transfer_owner:812d0056923e08b75ac135ffc82139a9691ec246599a9bcbad3db1e51a6e8a4e",
+      "fingerprint": "9295d8dc7d012d6756d31575591c3bdfa6c38223c32ea825f6524c9e5f49537b",
+      "kind": "owner_transferred",
+      "occurred_at": "2026-08-22T21:40:04.000000Z",
+      "payload": {
+        "episode_key": "engineering-task:owner-fencing:1d2dd583",
+        "expected_owner": {
+          "kind": "turn",
+          "ref": "turn-worker-a"
+        },
+        "kind": "transfer_owner",
+        "new_owner": {
+          "kind": "turn",
+          "ref": "turn-worker-b"
+        },
+        "occurred_at": "2026-08-22T21:40:04.000000Z",
+        "transfer_ref": "worker-a-to-b"
+      },
+      "sequence": 2
+    },
+    {
+      "dedupe_key": "transfer_owner:9deb9f7aca47fa59114094de6d5720705110f18af86bf61bbcfb34a53c3f4bb0",
+      "fingerprint": "11335899788ee5e52b073b8bfca341b2990ee7ae923770fe8eed99080a6e4725",
+      "kind": "owner_transferred",
+      "occurred_at": "2026-08-22T21:40:05.000000Z",
+      "payload": {
+        "episode_key": "engineering-task:owner-fencing:1d2dd583",
+        "expected_owner": {
+          "kind": "turn",
+          "ref": "turn-worker-b"
+        },
+        "kind": "transfer_owner",
+        "new_owner": {
+          "kind": "turn",
+          "ref": "turn-worker-c"
+        },
+        "occurred_at": "2026-08-22T21:40:05.000000Z",
+        "transfer_ref": "worker-b-to-c"
+      },
+      "sequence": 3
+    }
+  ],
+  "linked_history": []
+}

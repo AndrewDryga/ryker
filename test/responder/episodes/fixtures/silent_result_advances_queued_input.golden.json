@@ -1,0 +1,227 @@
+{
+  "checkpoints": [
+    {
+      "command": 1,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [
+          "admit_input:73e5788ea61419b46eac27453450bb426efaa9b8af14226b7259df148761e81d"
+        ],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786048236.845019",
+          "transport": "slack"
+        },
+        "episode_key": "slack:C08MMETA3U3:1786048236.845019:terraform-lifecycle",
+        "input_revisions": {
+          "slack_message_bded421709aef541403f93cb5bc5edb0": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-discarded"
+        },
+        "queued_inputs": [],
+        "semantic_version": 1,
+        "state": "working"
+      },
+      "event_count": 1,
+      "status": "applied"
+    },
+    {
+      "command": 2,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [
+          "admit_input:73e5788ea61419b46eac27453450bb426efaa9b8af14226b7259df148761e81d"
+        ],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786048236.845019",
+          "transport": "slack"
+        },
+        "episode_key": "slack:C08MMETA3U3:1786048236.845019:terraform-lifecycle",
+        "input_revisions": {
+          "slack_message_995fb660fc8d4019713287a9e5f92b72": 1,
+          "slack_message_bded421709aef541403f93cb5bc5edb0": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-discarded"
+        },
+        "queued_inputs": [
+          "admit_input:4fb75d5341d811576c061b363209006eee42182180145735b0235d5461265b62"
+        ],
+        "semantic_version": 2,
+        "state": "working"
+      },
+      "event_count": 2,
+      "status": "applied"
+    },
+    {
+      "command": 3,
+      "command_kind": "accept_result",
+      "episode": {
+        "active_inputs": [
+          "admit_input:4fb75d5341d811576c061b363209006eee42182180145735b0235d5461265b62"
+        ],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786048236.845019",
+          "transport": "slack"
+        },
+        "episode_key": "slack:C08MMETA3U3:1786048236.845019:terraform-lifecycle",
+        "input_revisions": {
+          "slack_message_995fb660fc8d4019713287a9e5f92b72": 1,
+          "slack_message_bded421709aef541403f93cb5bc5edb0": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-applying"
+        },
+        "queued_inputs": [],
+        "semantic_version": 3,
+        "state": "working"
+      },
+      "event_count": 3,
+      "status": "applied"
+    },
+    {
+      "command": 4,
+      "command_kind": "accept_result",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786048236.845019",
+          "transport": "slack"
+        },
+        "episode_key": "slack:C08MMETA3U3:1786048236.845019:terraform-lifecycle",
+        "input_revisions": {
+          "slack_message_995fb660fc8d4019713287a9e5f92b72": 1,
+          "slack_message_bded421709aef541403f93cb5bc5edb0": 1
+        },
+        "linked_episode_id": null,
+        "owner": null,
+        "queued_inputs": [],
+        "semantic_version": 4,
+        "state": "complete"
+      },
+      "event_count": 4,
+      "status": "applied"
+    }
+  ],
+  "episode": {
+    "active_inputs": [],
+    "destination": {
+      "conversation_ref": "C08MMETA3U3",
+      "thread_ref": "1786048236.845019",
+      "transport": "slack"
+    },
+    "episode_key": "slack:C08MMETA3U3:1786048236.845019:terraform-lifecycle",
+    "input_revisions": {
+      "slack_message_995fb660fc8d4019713287a9e5f92b72": 1,
+      "slack_message_bded421709aef541403f93cb5bc5edb0": 1
+    },
+    "linked_episode_id": null,
+    "owner": null,
+    "queued_inputs": [],
+    "semantic_version": 4,
+    "state": "complete"
+  },
+  "events": [
+    {
+      "dedupe_key": "admit_input:73e5788ea61419b46eac27453450bb426efaa9b8af14226b7259df148761e81d",
+      "fingerprint": "651b5d9959fff2789fa9bc509ce1ab8f5b73107a69a97bb98de88acd729965c8",
+      "kind": "input_admitted",
+      "occurred_at": "2026-08-08T16:29:33.175617Z",
+      "payload": {
+        "actor_ref": "slack:app:terraform",
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786048236.845019",
+          "transport": "slack"
+        },
+        "episode_id": "01993e00-0000-7000-8000-000000000014",
+        "episode_key": "slack:C08MMETA3U3:1786048236.845019:terraform-lifecycle",
+        "kind": "admit_input",
+        "linked_episode_id": null,
+        "native_input_id": "slack_message_bded421709aef541403f93cb5bc5edb0",
+        "occurred_at": "2026-08-08T16:29:33.175617Z",
+        "payload": {
+          "state": "discarded",
+          "workspace": "va1-apps"
+        },
+        "revision": 1,
+        "turn_ref": "turn-discarded"
+      },
+      "sequence": 1
+    },
+    {
+      "dedupe_key": "admit_input:4fb75d5341d811576c061b363209006eee42182180145735b0235d5461265b62",
+      "fingerprint": "7f7414c0749baf7197af967a6daedfa662d5420e933dbd4359db9373ba64ab76",
+      "kind": "input_admitted",
+      "occurred_at": "2026-08-08T16:31:00.512747Z",
+      "payload": {
+        "actor_ref": "slack:app:terraform",
+        "destination": {
+          "conversation_ref": "C08MMETA3U3",
+          "thread_ref": "1786048236.845019",
+          "transport": "slack"
+        },
+        "episode_id": "01993e00-0000-7000-8000-000000000014",
+        "episode_key": "slack:C08MMETA3U3:1786048236.845019:terraform-lifecycle",
+        "kind": "admit_input",
+        "linked_episode_id": null,
+        "native_input_id": "slack_message_995fb660fc8d4019713287a9e5f92b72",
+        "occurred_at": "2026-08-08T16:31:00.512747Z",
+        "payload": {
+          "state": "applying",
+          "workspace": "va1-apps"
+        },
+        "revision": 1,
+        "turn_ref": "turn-applying"
+      },
+      "sequence": 2
+    },
+    {
+      "dedupe_key": "accept_result:dc15b4cc50069140e2d02d0a4951511e7ddbc426ba10ba5d57e0d2bf073db987",
+      "fingerprint": "a609a6641d04aed62ce536bea30bca0e74d144bce04081e8f5bbadf47e6df1a2",
+      "kind": "result_accepted",
+      "occurred_at": "2026-08-08T16:32:20.269108Z",
+      "payload": {
+        "decision_reason": "A newer lifecycle revision in the same Slack thread already owns the useful response.",
+        "delivery": "none",
+        "delivery_ref": null,
+        "episode_key": "slack:C08MMETA3U3:1786048236.845019:terraform-lifecycle",
+        "expected_turn_ref": "turn-discarded",
+        "kind": "accept_result",
+        "next_turn_ref": "turn-applying",
+        "occurred_at": "2026-08-08T16:32:20.269108Z",
+        "result_ref": "silent-discarded-revision"
+      },
+      "sequence": 3
+    },
+    {
+      "dedupe_key": "accept_result:33fa6c2599303af55cf0215927315af47d537ce37457bc3ba47aac64f4102aa4",
+      "fingerprint": "7f69d1ebbf0066075e4995e9bb5108d87d551c47f35e030eb3d6d20a4cb95344",
+      "kind": "result_accepted",
+      "occurred_at": "2026-08-08T16:34:42.332534Z",
+      "payload": {
+        "decision_reason": "This lifecycle update was recorded, but it did not add a decision-useful change for the channel.",
+        "delivery": "none",
+        "delivery_ref": null,
+        "episode_key": "slack:C08MMETA3U3:1786048236.845019:terraform-lifecycle",
+        "expected_turn_ref": "turn-applying",
+        "kind": "accept_result",
+        "next_turn_ref": null,
+        "occurred_at": "2026-08-08T16:34:42.332534Z",
+        "result_ref": "silent-applying-revision"
+      },
+      "sequence": 4
+    }
+  ],
+  "linked_history": []
+}

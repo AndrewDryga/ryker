@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "source": {
+    "database": "blitz responder.db",
+    "episode_ids": ["episode_run_9cbd448e67a15696c4453516482c57ac"],
+    "wakeup_ids": ["verify-airflow-99183465", "airflow-99183465-post-apply-2"],
+    "reason": "Two wakeups had to retain the frozen response thread while the same investigation resumed."
+  },
+  "commands": [
+    {
+      "type": "admit_input",
+      "actor_ref": "slack:app:terraform",
+      "destination": {"transport": "slack", "conversation_ref": "C08MMETA3U3", "thread_ref": "1787860210.598849"},
+      "episode_id": "01993e00-0000-7000-8000-000000000002",
+      "episode_key": "terraform:blitz-infra:run-vMEdeDLHwpWZsBYH",
+      "linked_episode_id": null,
+      "native_input_id": "slack_message_895b5f329f6563bf95820782c7bd91b4",
+      "occurred_at": "2026-08-27T19:58:10.277320Z",
+      "payload": {"revision": "99183465", "state": "applied"},
+      "revision": 1,
+      "turn_ref": "turn-airflow-initial"
+    },
+    {
+      "type": "start_wait",
+      "deadline_at": "2026-08-27T21:28:13Z",
+      "episode_key": "terraform:blitz-infra:run-vMEdeDLHwpWZsBYH",
+      "expected_turn_ref": "turn-airflow-initial",
+      "kind": "event",
+      "occurred_at": "2026-08-27T19:58:41.761634Z",
+      "wait_ref": "verify-airflow-99183465"
+    },
+    {
+      "type": "admit_input",
+      "actor_ref": "responder:wakeup",
+      "destination": {"transport": "slack", "conversation_ref": "C08MMETA3U3", "thread_ref": "1787860210.598849"},
+      "episode_id": "01993e00-0000-7000-8000-000000000002",
+      "episode_key": "terraform:blitz-infra:run-vMEdeDLHwpWZsBYH",
+      "linked_episode_id": null,
+      "native_input_id": "wakeup:verify-airflow-99183465:2026-08-27T20:28:13Z",
+      "occurred_at": "2026-08-27T20:28:13.128432Z",
+      "payload": {"trigger": "timer", "wakeup_id": "verify-airflow-99183465"},
+      "revision": 1,
+      "turn_ref": "turn-airflow-check-1"
+    },
+    {
+      "type": "resume_wait",
+      "episode_key": "terraform:blitz-infra:run-vMEdeDLHwpWZsBYH",
+      "expected_wait": {"kind": "event", "ref": "verify-airflow-99183465"},
+      "occurred_at": "2026-08-27T20:28:13.128433Z",
+      "resolution_ref": "admit_input:d49929debd44acda45c5cdaeb9299c2628ebd89f7de291fc2fded5b58f581013",
+      "turn_ref": "turn-airflow-check-1"
+    },
+    {
+      "type": "start_wait",
+      "deadline_at": "2026-08-27T21:28:13Z",
+      "episode_key": "terraform:blitz-infra:run-vMEdeDLHwpWZsBYH",
+      "expected_turn_ref": "turn-airflow-check-1",
+      "kind": "event",
+      "occurred_at": "2026-08-27T20:31:57.600361Z",
+      "wait_ref": "airflow-99183465-post-apply-2"
+    },
+    {
+      "type": "admit_input",
+      "actor_ref": "responder:wakeup",
+      "destination": {"transport": "slack", "conversation_ref": "C08MMETA3U3", "thread_ref": "1787860210.598849"},
+      "episode_id": "01993e00-0000-7000-8000-000000000002",
+      "episode_key": "terraform:blitz-infra:run-vMEdeDLHwpWZsBYH",
+      "linked_episode_id": null,
+      "native_input_id": "wakeup:airflow-99183465-post-apply-2:2026-08-27T20:58:15Z",
+      "occurred_at": "2026-08-27T20:58:15.246605Z",
+      "payload": {"trigger": "timer", "wakeup_id": "airflow-99183465-post-apply-2"},
+      "revision": 1,
+      "turn_ref": "turn-airflow-check-2"
+    },
+    {
+      "type": "resume_wait",
+      "episode_key": "terraform:blitz-infra:run-vMEdeDLHwpWZsBYH",
+      "expected_wait": {"kind": "event", "ref": "airflow-99183465-post-apply-2"},
+      "occurred_at": "2026-08-27T20:58:15.246606Z",
+      "resolution_ref": "admit_input:30d2c65ebea08c6249e2835d13a1c4eb01189e9bc1527380ccbfae210b0b6282",
+      "turn_ref": "turn-airflow-check-2"
+    },
+    {
+      "type": "accept_result",
+      "delivery": "reply",
+      "delivery_ref": "watch_reply_episode_wakeup_airflow-99183465-post-apply-2",
+      "episode_key": "terraform:blitz-infra:run-vMEdeDLHwpWZsBYH",
+      "expected_turn_ref": "turn-airflow-check-2",
+      "next_turn_ref": null,
+      "occurred_at": "2026-08-27T21:04:15.641739Z",
+      "result_ref": "complete-airflow-verification"
+    },
+    {
+      "type": "confirm_delivery",
+      "episode_key": "terraform:blitz-infra:run-vMEdeDLHwpWZsBYH",
+      "expected_delivery_ref": "watch_reply_episode_wakeup_airflow-99183465-post-apply-2",
+      "next_turn_ref": null,
+      "occurred_at": "2026-08-27T21:04:15.903569Z"
+    }
+  ],
+  "expected": {
+    "active_input_count": 0,
+    "destination": {"conversation_ref": "C08MMETA3U3", "thread_ref": "1787860210.598849", "transport": "slack"},
+    "event_kinds": ["input_admitted", "event_wait_started", "input_admitted", "wait_resumed", "event_wait_started", "input_admitted", "wait_resumed", "result_accepted", "delivery_confirmed"],
+    "event_count": 9,
+    "linked_episode_id": null,
+    "owner": null,
+    "queued_input_count": 0,
+    "semantic_version": 8,
+    "state": "complete"
+  }
+}

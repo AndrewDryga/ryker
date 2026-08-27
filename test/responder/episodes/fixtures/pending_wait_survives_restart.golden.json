@@ -1,0 +1,152 @@
+{
+  "checkpoints": [
+    {
+      "command": 1,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [
+          "admit_input:9f0415a1d2e1ea4e11364ba2be678af3c58ec4ce085355871f0a99da1108fce8"
+        ],
+        "destination": {
+          "conversation_ref": "C0922F5C533",
+          "thread_ref": "1787861164.890169",
+          "transport": "slack"
+        },
+        "episode_key": "grafana:project-service-health:cycle:1787861164",
+        "input_revisions": {
+          "grafana:project-service-health:1787861164": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-health-event"
+        },
+        "queued_inputs": [],
+        "semantic_version": 1,
+        "state": "working"
+      },
+      "event_count": 1,
+      "status": "applied"
+    },
+    {
+      "command": 2,
+      "command_kind": "start_wait",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C0922F5C533",
+          "thread_ref": "1787861164.890169",
+          "transport": "slack"
+        },
+        "episode_key": "grafana:project-service-health:cycle:1787861164",
+        "input_revisions": {
+          "grafana:project-service-health:1787861164": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "deadline_at": "2026-08-27T21:06:04.890169Z",
+          "kind": "event",
+          "ref": "host-stream-open-episode_run_088e19c3e5c6cb4a950e6b1af294bcf3"
+        },
+        "queued_inputs": [],
+        "semantic_version": 2,
+        "state": "waiting_for_event"
+      },
+      "event_count": 2,
+      "status": "applied"
+    },
+    {
+      "command": 3,
+      "command_kind": "start_wait",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C0922F5C533",
+          "thread_ref": "1787861164.890169",
+          "transport": "slack"
+        },
+        "episode_key": "grafana:project-service-health:cycle:1787861164",
+        "input_revisions": {
+          "grafana:project-service-health:1787861164": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "deadline_at": "2026-08-27T21:06:04.890169Z",
+          "kind": "event",
+          "ref": "host-stream-open-episode_run_088e19c3e5c6cb4a950e6b1af294bcf3"
+        },
+        "queued_inputs": [],
+        "semantic_version": 2,
+        "state": "waiting_for_event"
+      },
+      "event_count": 2,
+      "status": "duplicate"
+    }
+  ],
+  "episode": {
+    "active_inputs": [],
+    "destination": {
+      "conversation_ref": "C0922F5C533",
+      "thread_ref": "1787861164.890169",
+      "transport": "slack"
+    },
+    "episode_key": "grafana:project-service-health:cycle:1787861164",
+    "input_revisions": {
+      "grafana:project-service-health:1787861164": 1
+    },
+    "linked_episode_id": null,
+    "owner": {
+      "deadline_at": "2026-08-27T21:06:04.890169Z",
+      "kind": "event",
+      "ref": "host-stream-open-episode_run_088e19c3e5c6cb4a950e6b1af294bcf3"
+    },
+    "queued_inputs": [],
+    "semantic_version": 2,
+    "state": "waiting_for_event"
+  },
+  "events": [
+    {
+      "dedupe_key": "admit_input:9f0415a1d2e1ea4e11364ba2be678af3c58ec4ce085355871f0a99da1108fce8",
+      "fingerprint": "b4f052ba13551f7e67e5f3b93a1e72d472af387e6020f977db6433015f53fbda",
+      "kind": "input_admitted",
+      "occurred_at": "2026-08-27T20:06:04.890169Z",
+      "payload": {
+        "actor_ref": "slack:app:grafana",
+        "destination": {
+          "conversation_ref": "C0922F5C533",
+          "thread_ref": "1787861164.890169",
+          "transport": "slack"
+        },
+        "episode_id": "01993e00-0000-7000-8000-000000000010",
+        "episode_key": "grafana:project-service-health:cycle:1787861164",
+        "kind": "admit_input",
+        "linked_episode_id": null,
+        "native_input_id": "grafana:project-service-health:1787861164",
+        "occurred_at": "2026-08-27T20:06:04.890169Z",
+        "payload": {
+          "state": "firing"
+        },
+        "revision": 1,
+        "turn_ref": "turn-health-event"
+      },
+      "sequence": 1
+    },
+    {
+      "dedupe_key": "start_wait:4034a678c98268cdf2333c10c95665592cbdca02990d7e65bfc07af82823f81f",
+      "fingerprint": "90518c533cf1348f773e759f3937196731db9542655f1cdc2ec0ea2dcdc7fed3",
+      "kind": "event_wait_started",
+      "occurred_at": "2026-08-27T20:06:10.000000Z",
+      "payload": {
+        "deadline_at": "2026-08-27T21:06:04.890169Z",
+        "episode_key": "grafana:project-service-health:cycle:1787861164",
+        "expected_turn_ref": "turn-health-event",
+        "kind": "start_wait",
+        "occurred_at": "2026-08-27T20:06:10.000000Z",
+        "wait_kind": "event",
+        "wait_ref": "host-stream-open-episode_run_088e19c3e5c6cb4a950e6b1af294bcf3"
+      },
+      "sequence": 2
+    }
+  ],
+  "linked_history": []
+}

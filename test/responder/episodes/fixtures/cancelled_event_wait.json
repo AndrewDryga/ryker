@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "source": {
+    "database": "emisar responder.db",
+    "episode_ids": ["episode_run_1c4c09509aea030b66e83fdbcf275f14"],
+    "wakeup_ids": ["terraform-run-KrGDfDEes1PEcYKS-terminal"],
+    "reason": "A real Terraform episode was cancelled while waiting for external lifecycle work; its timer and event custody must be retired."
+  },
+  "commands": [
+    {
+      "type": "admit_input",
+      "actor_ref": "slack:app:terraform",
+      "destination": {"transport": "slack", "conversation_ref": "C0BHTRPHXP0", "thread_ref": "1787025687.264439"},
+      "episode_id": "01993e00-0000-7000-8000-000000000012",
+      "episode_key": "terraform:Dryga/emisar:run-KrGDfDEes1PEcYKS",
+      "linked_episode_id": null,
+      "native_input_id": "terraform:run-KrGDfDEes1PEcYKS:planned",
+      "occurred_at": "2026-08-18T04:17:16.336965Z",
+      "payload": {"state": "planned"},
+      "revision": 1,
+      "turn_ref": "turn-terraform-review"
+    },
+    {
+      "type": "start_wait",
+      "deadline_at": "2026-08-18T10:17:16.336965Z",
+      "episode_key": "terraform:Dryga/emisar:run-KrGDfDEes1PEcYKS",
+      "expected_turn_ref": "turn-terraform-review",
+      "kind": "event",
+      "occurred_at": "2026-08-18T05:27:23.672485Z",
+      "wait_ref": "terraform-run-KrGDfDEes1PEcYKS-followup"
+    },
+    {
+      "type": "cancel_episode",
+      "cancel_ref": "operator-cancel-episode_run_1c4c09509aea030b66e83fdbcf275f14",
+      "episode_key": "terraform:Dryga/emisar:run-KrGDfDEes1PEcYKS",
+      "expected_owner": {"kind": "event", "ref": "terraform-run-KrGDfDEes1PEcYKS-followup"},
+      "occurred_at": "2026-08-18T09:17:35.754217Z",
+      "reason": "Resolved by the operator: overtaken by events"
+    }
+  ],
+  "expected": {
+    "active_input_count": 0,
+    "destination": {"conversation_ref": "C0BHTRPHXP0", "thread_ref": "1787025687.264439", "transport": "slack"},
+    "event_count": 3,
+    "event_kinds": ["input_admitted", "event_wait_started", "episode_cancelled"],
+    "linked_episode_id": null,
+    "owner": null,
+    "queued_input_count": 0,
+    "semantic_version": 3,
+    "state": "cancelled"
+  }
+}

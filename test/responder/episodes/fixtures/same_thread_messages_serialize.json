@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "source": {
+    "database": "blitz responder.db",
+    "run_ids": ["run_4c857973135ce1114957d42f91fbdcef", "run_6bf2f7f154f023bfb83c54492bcfbfaf"],
+    "reason": "Two messages in one Slack thread became separate runs; the later instruction must queue behind the active turn."
+  },
+  "commands": [
+    {
+      "type": "admit_input",
+      "actor_ref": "slack:user:U-andrew",
+      "destination": {"transport": "slack", "conversation_ref": "C08MMETA3U3", "thread_ref": "1787842800.850639"},
+      "episode_id": "01993e00-0000-7000-8000-000000000009",
+      "episode_key": "slack-thread:C08MMETA3U3:1787842800.850639",
+      "linked_episode_id": null,
+      "native_input_id": "slack:mention:run_4c857973135ce1114957d42f91fbdcef",
+      "occurred_at": "2026-08-27T15:00:00.850639Z",
+      "payload": {"text": "@Emisar"},
+      "revision": 1,
+      "turn_ref": "turn-thread-1"
+    },
+    {
+      "type": "admit_input",
+      "actor_ref": "slack:user:U-andrew",
+      "destination": {"transport": "slack", "conversation_ref": "C08MMETA3U3", "thread_ref": "1787842800.850639"},
+      "episode_id": "01993e00-0000-7000-8000-000000000009",
+      "episode_key": "slack-thread:C08MMETA3U3:1787842800.850639",
+      "linked_episode_id": null,
+      "native_input_id": "slack:message:run_6bf2f7f154f023bfb83c54492bcfbfaf",
+      "occurred_at": "2026-08-27T15:00:01.000000Z",
+      "payload": {"text": "fix the runbook, but do not check or report immersive apps here"},
+      "revision": 1,
+      "turn_ref": "turn-thread-2"
+    },
+    {
+      "type": "accept_result",
+      "delivery": "reply",
+      "delivery_ref": "delivery-thread-1",
+      "episode_key": "slack-thread:C08MMETA3U3:1787842800.850639",
+      "expected_turn_ref": "turn-thread-1",
+      "occurred_at": "2026-08-27T15:00:02Z",
+      "result_ref": "result-thread-1"
+    },
+    {
+      "type": "confirm_delivery",
+      "episode_key": "slack-thread:C08MMETA3U3:1787842800.850639",
+      "expected_delivery_ref": "delivery-thread-1",
+      "next_turn_ref": "turn-thread-2",
+      "occurred_at": "2026-08-27T15:00:03Z"
+    },
+    {
+      "type": "accept_result",
+      "delivery": "reply",
+      "delivery_ref": "delivery-thread-2",
+      "episode_key": "slack-thread:C08MMETA3U3:1787842800.850639",
+      "expected_turn_ref": "turn-thread-2",
+      "occurred_at": "2026-08-27T15:00:04Z",
+      "result_ref": "result-thread-2"
+    },
+    {
+      "type": "confirm_delivery",
+      "episode_key": "slack-thread:C08MMETA3U3:1787842800.850639",
+      "expected_delivery_ref": "delivery-thread-2",
+      "occurred_at": "2026-08-27T15:00:05Z"
+    }
+  ],
+  "expected": {
+    "active_input_count": 0,
+    "destination": {"conversation_ref": "C08MMETA3U3", "thread_ref": "1787842800.850639", "transport": "slack"},
+    "event_count": 6,
+    "event_kinds": ["input_admitted", "input_admitted", "result_accepted", "delivery_confirmed", "result_accepted", "delivery_confirmed"],
+    "linked_episode_id": null,
+    "owner": null,
+    "queued_input_count": 0,
+    "semantic_version": 4,
+    "state": "complete"
+  }
+}
