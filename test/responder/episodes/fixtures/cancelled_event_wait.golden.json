@@ -1,0 +1,162 @@
+{
+  "checkpoints": [
+    {
+      "command": 1,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [
+          "admit_input:43b902db6a7ea0ed22c74e33e059386d6fcf21cedc6558d256cef97e282ba9bd"
+        ],
+        "destination": {
+          "conversation_ref": "C0BHTRPHXP0",
+          "thread_ref": "1787025687.264439",
+          "transport": "slack"
+        },
+        "episode_key": "terraform:Dryga/emisar:run-KrGDfDEes1PEcYKS",
+        "input_revisions": {
+          "terraform:run-KrGDfDEes1PEcYKS:planned": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-terraform-review"
+        },
+        "queued_inputs": [],
+        "semantic_version": 1,
+        "state": "working"
+      },
+      "event_count": 1,
+      "status": "applied"
+    },
+    {
+      "command": 2,
+      "command_kind": "start_wait",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C0BHTRPHXP0",
+          "thread_ref": "1787025687.264439",
+          "transport": "slack"
+        },
+        "episode_key": "terraform:Dryga/emisar:run-KrGDfDEes1PEcYKS",
+        "input_revisions": {
+          "terraform:run-KrGDfDEes1PEcYKS:planned": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "deadline_at": "2026-08-18T10:17:16.336965Z",
+          "kind": "event",
+          "ref": "terraform-run-KrGDfDEes1PEcYKS-followup"
+        },
+        "queued_inputs": [],
+        "semantic_version": 2,
+        "state": "waiting_for_event"
+      },
+      "event_count": 2,
+      "status": "applied"
+    },
+    {
+      "command": 3,
+      "command_kind": "cancel_episode",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C0BHTRPHXP0",
+          "thread_ref": "1787025687.264439",
+          "transport": "slack"
+        },
+        "episode_key": "terraform:Dryga/emisar:run-KrGDfDEes1PEcYKS",
+        "input_revisions": {
+          "terraform:run-KrGDfDEes1PEcYKS:planned": 1
+        },
+        "linked_episode_id": null,
+        "owner": null,
+        "queued_inputs": [],
+        "semantic_version": 3,
+        "state": "cancelled"
+      },
+      "event_count": 3,
+      "status": "applied"
+    }
+  ],
+  "episode": {
+    "active_inputs": [],
+    "destination": {
+      "conversation_ref": "C0BHTRPHXP0",
+      "thread_ref": "1787025687.264439",
+      "transport": "slack"
+    },
+    "episode_key": "terraform:Dryga/emisar:run-KrGDfDEes1PEcYKS",
+    "input_revisions": {
+      "terraform:run-KrGDfDEes1PEcYKS:planned": 1
+    },
+    "linked_episode_id": null,
+    "owner": null,
+    "queued_inputs": [],
+    "semantic_version": 3,
+    "state": "cancelled"
+  },
+  "events": [
+    {
+      "dedupe_key": "admit_input:43b902db6a7ea0ed22c74e33e059386d6fcf21cedc6558d256cef97e282ba9bd",
+      "fingerprint": "3cc70f9212efe8c5650af8f52983d8745a3ecedd27413c474620ca7491120ff7",
+      "kind": "input_admitted",
+      "occurred_at": "2026-08-18T04:17:16.336965Z",
+      "payload": {
+        "actor_ref": "slack:app:terraform",
+        "destination": {
+          "conversation_ref": "C0BHTRPHXP0",
+          "thread_ref": "1787025687.264439",
+          "transport": "slack"
+        },
+        "episode_id": "01993e00-0000-7000-8000-000000000012",
+        "episode_key": "terraform:Dryga/emisar:run-KrGDfDEes1PEcYKS",
+        "kind": "admit_input",
+        "linked_episode_id": null,
+        "native_input_id": "terraform:run-KrGDfDEes1PEcYKS:planned",
+        "occurred_at": "2026-08-18T04:17:16.336965Z",
+        "payload": {
+          "state": "planned"
+        },
+        "revision": 1,
+        "turn_ref": "turn-terraform-review"
+      },
+      "sequence": 1
+    },
+    {
+      "dedupe_key": "start_wait:0775a6ced7764d061dd0d5e76c2d0f1b6e73f0166dd340abc1a978fb8abcaa77",
+      "fingerprint": "a7f44d1fdc407909079a4983cc0ccfd8750fe02712c0fccdf445503dab0a51ce",
+      "kind": "event_wait_started",
+      "occurred_at": "2026-08-18T05:27:23.672485Z",
+      "payload": {
+        "deadline_at": "2026-08-18T10:17:16.336965Z",
+        "episode_key": "terraform:Dryga/emisar:run-KrGDfDEes1PEcYKS",
+        "expected_turn_ref": "turn-terraform-review",
+        "kind": "start_wait",
+        "occurred_at": "2026-08-18T05:27:23.672485Z",
+        "wait_kind": "event",
+        "wait_ref": "terraform-run-KrGDfDEes1PEcYKS-followup"
+      },
+      "sequence": 2
+    },
+    {
+      "dedupe_key": "cancel_episode:d65cd3eabf43d51cb1b91080e64c6472edad9b115607a5760a4084c7c1f6086a",
+      "fingerprint": "ecab6a177c6ca748edc3a4dbbe23413314a93679cc4878f58e87107704c5ca84",
+      "kind": "episode_cancelled",
+      "occurred_at": "2026-08-18T09:17:35.754217Z",
+      "payload": {
+        "cancel_ref": "operator-cancel-episode_run_1c4c09509aea030b66e83fdbcf275f14",
+        "episode_key": "terraform:Dryga/emisar:run-KrGDfDEes1PEcYKS",
+        "expected_owner": {
+          "kind": "event",
+          "ref": "terraform-run-KrGDfDEes1PEcYKS-followup"
+        },
+        "kind": "cancel_episode",
+        "occurred_at": "2026-08-18T09:17:35.754217Z",
+        "reason": "Resolved by the operator: overtaken by events"
+      },
+      "sequence": 3
+    }
+  ],
+  "linked_history": []
+}

@@ -1,0 +1,306 @@
+{
+  "checkpoints": [
+    {
+      "command": 1,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [
+          "admit_input:1ae1b50a7833e26847dc0216ce90fe47d18aa54950aa1414bc446caa1864eef7"
+        ],
+        "destination": {
+          "conversation_ref": "C0BHTRPHXP0",
+          "thread_ref": "1785876729.636719",
+          "transport": "slack"
+        },
+        "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+        "input_revisions": {
+          "slack_message_c49e13f33386f8efd0f6fa94ecb1d639": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-cost-policy"
+        },
+        "queued_inputs": [],
+        "semantic_version": 1,
+        "state": "working"
+      },
+      "event_count": 1,
+      "status": "applied"
+    },
+    {
+      "command": 2,
+      "command_kind": "start_wait",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C0BHTRPHXP0",
+          "thread_ref": "1785876729.636719",
+          "transport": "slack"
+        },
+        "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+        "input_revisions": {
+          "slack_message_c49e13f33386f8efd0f6fa94ecb1d639": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "input",
+          "ref": "input-cost-semantics"
+        },
+        "queued_inputs": [],
+        "semantic_version": 2,
+        "state": "waiting_for_input"
+      },
+      "event_count": 2,
+      "status": "applied"
+    },
+    {
+      "command": 3,
+      "command_kind": "admit_input",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C0BHTRPHXP0",
+          "thread_ref": "1785876729.636719",
+          "transport": "slack"
+        },
+        "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+        "input_revisions": {
+          "slack_message_9b125656891af5d01cba471ab07b705c": 1,
+          "slack_message_c49e13f33386f8efd0f6fa94ecb1d639": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "input",
+          "ref": "input-cost-semantics"
+        },
+        "queued_inputs": [
+          "admit_input:a82035e05f984534d4eb1fee3309a8c011927017526afe32237bf476d7088906"
+        ],
+        "semantic_version": 3,
+        "state": "waiting_for_input"
+      },
+      "event_count": 3,
+      "status": "applied"
+    },
+    {
+      "command": 4,
+      "command_kind": "resume_wait",
+      "episode": {
+        "active_inputs": [
+          "admit_input:a82035e05f984534d4eb1fee3309a8c011927017526afe32237bf476d7088906"
+        ],
+        "destination": {
+          "conversation_ref": "C0BHTRPHXP0",
+          "thread_ref": "1785876729.636719",
+          "transport": "slack"
+        },
+        "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+        "input_revisions": {
+          "slack_message_9b125656891af5d01cba471ab07b705c": 1,
+          "slack_message_c49e13f33386f8efd0f6fa94ecb1d639": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "turn",
+          "ref": "turn-cost-answer"
+        },
+        "queued_inputs": [],
+        "semantic_version": 4,
+        "state": "working"
+      },
+      "event_count": 4,
+      "status": "applied"
+    },
+    {
+      "command": 5,
+      "command_kind": "accept_result",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C0BHTRPHXP0",
+          "thread_ref": "1785876729.636719",
+          "transport": "slack"
+        },
+        "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+        "input_revisions": {
+          "slack_message_9b125656891af5d01cba471ab07b705c": 1,
+          "slack_message_c49e13f33386f8efd0f6fa94ecb1d639": 1
+        },
+        "linked_episode_id": null,
+        "owner": {
+          "kind": "delivery",
+          "ref": "delivery-cost-answer"
+        },
+        "queued_inputs": [],
+        "semantic_version": 5,
+        "state": "working"
+      },
+      "event_count": 5,
+      "status": "applied"
+    },
+    {
+      "command": 6,
+      "command_kind": "confirm_delivery",
+      "episode": {
+        "active_inputs": [],
+        "destination": {
+          "conversation_ref": "C0BHTRPHXP0",
+          "thread_ref": "1785876729.636719",
+          "transport": "slack"
+        },
+        "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+        "input_revisions": {
+          "slack_message_9b125656891af5d01cba471ab07b705c": 1,
+          "slack_message_c49e13f33386f8efd0f6fa94ecb1d639": 1
+        },
+        "linked_episode_id": null,
+        "owner": null,
+        "queued_inputs": [],
+        "semantic_version": 5,
+        "state": "complete"
+      },
+      "event_count": 6,
+      "status": "applied"
+    }
+  ],
+  "episode": {
+    "active_inputs": [],
+    "destination": {
+      "conversation_ref": "C0BHTRPHXP0",
+      "thread_ref": "1785876729.636719",
+      "transport": "slack"
+    },
+    "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+    "input_revisions": {
+      "slack_message_9b125656891af5d01cba471ab07b705c": 1,
+      "slack_message_c49e13f33386f8efd0f6fa94ecb1d639": 1
+    },
+    "linked_episode_id": null,
+    "owner": null,
+    "queued_inputs": [],
+    "semantic_version": 5,
+    "state": "complete"
+  },
+  "events": [
+    {
+      "dedupe_key": "admit_input:1ae1b50a7833e26847dc0216ce90fe47d18aa54950aa1414bc446caa1864eef7",
+      "fingerprint": "f9bf271dddeb69330628b7d05d3d8a587c135b7ae40cb499b1d67c759f81c88a",
+      "kind": "input_admitted",
+      "occurred_at": "2026-08-04T21:05:38.280533Z",
+      "payload": {
+        "actor_ref": "slack:user:U-operator",
+        "destination": {
+          "conversation_ref": "C0BHTRPHXP0",
+          "thread_ref": "1785876729.636719",
+          "transport": "slack"
+        },
+        "episode_id": "01993e00-0000-7000-8000-000000000013",
+        "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+        "kind": "admit_input",
+        "linked_episode_id": null,
+        "native_input_id": "slack_message_c49e13f33386f8efd0f6fa94ecb1d639",
+        "occurred_at": "2026-08-04T21:05:38.280533Z",
+        "payload": {
+          "text": "Use capacity-aware placement while paying for two steady-state VMs."
+        },
+        "revision": 1,
+        "turn_ref": "turn-cost-policy"
+      },
+      "sequence": 1
+    },
+    {
+      "dedupe_key": "start_wait:0f618ef3200ecc8468705b002665141fd8ffb438ec2db4a775690bc40918b7d3",
+      "fingerprint": "06a1be55da6c4185920ce93d2662d5cddd593da4bb0570c24d8232f9c3f5e785",
+      "kind": "input_wait_started",
+      "occurred_at": "2026-08-04T21:07:00.218456Z",
+      "payload": {
+        "deadline_at": null,
+        "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+        "expected_turn_ref": "turn-cost-policy",
+        "kind": "start_wait",
+        "occurred_at": "2026-08-04T21:07:00.218456Z",
+        "wait_kind": "input",
+        "wait_ref": "input-cost-semantics"
+      },
+      "sequence": 2
+    },
+    {
+      "dedupe_key": "admit_input:a82035e05f984534d4eb1fee3309a8c011927017526afe32237bf476d7088906",
+      "fingerprint": "26957d5e47882dc72275ea6f3f960e1c943928865ae2380342269dfcfe5cc62d",
+      "kind": "input_admitted",
+      "occurred_at": "2026-08-04T21:07:53.103036Z",
+      "payload": {
+        "actor_ref": "slack:user:U-operator",
+        "destination": {
+          "conversation_ref": "C0BHTRPHXP0",
+          "thread_ref": "1785876729.636719",
+          "transport": "slack"
+        },
+        "episode_id": "01993e00-0000-7000-8000-000000000013",
+        "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+        "kind": "admit_input",
+        "linked_episode_id": null,
+        "native_input_id": "slack_message_9b125656891af5d01cba471ab07b705c",
+        "occurred_at": "2026-08-04T21:07:53.103036Z",
+        "payload": {
+          "text": "Temporary rollout surge is okay."
+        },
+        "revision": 1,
+        "turn_ref": "turn-cost-answer"
+      },
+      "sequence": 3
+    },
+    {
+      "dedupe_key": "resume_wait:192f819f38c65ab052fc91f26142102f830e0ce0db7abfdb0ea6f01906fe4b44",
+      "fingerprint": "05acd87ed65ca68920538795fc14ec54b539235ec134c92190cdfc990acd530a",
+      "kind": "wait_resumed",
+      "occurred_at": "2026-08-04T21:07:53.104899Z",
+      "payload": {
+        "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+        "expected_wait": {
+          "kind": "input",
+          "ref": "input-cost-semantics"
+        },
+        "kind": "resume_wait",
+        "occurred_at": "2026-08-04T21:07:53.104899Z",
+        "resolution_ref": "admit_input:a82035e05f984534d4eb1fee3309a8c011927017526afe32237bf476d7088906",
+        "turn_ref": "turn-cost-answer"
+      },
+      "sequence": 4
+    },
+    {
+      "dedupe_key": "accept_result:c0b619a249f0b23e45907f408de8b3b3bda8509f4aa52a3ae0f174ddb93b14a3",
+      "fingerprint": "5b2222d45b91a14638e9c5f42664491abbd65bb4c85ef4f35668b53175244f6f",
+      "kind": "result_accepted",
+      "occurred_at": "2026-08-04T21:11:18.211471Z",
+      "payload": {
+        "decision_reason": null,
+        "delivery": "reply",
+        "delivery_ref": "delivery-cost-answer",
+        "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+        "expected_turn_ref": "turn-cost-answer",
+        "kind": "accept_result",
+        "next_turn_ref": null,
+        "occurred_at": "2026-08-04T21:11:18.211471Z",
+        "result_ref": "complete-cost-answer"
+      },
+      "sequence": 5
+    },
+    {
+      "dedupe_key": "confirm_delivery:3403dfcfbb2881387e6ac37d240a1c045a0c34af5295d88b5e35996f30b2c260",
+      "fingerprint": "03a95ebbbca7d33201cbec6d86b2a8b75eb28f9ea77844614d1b2296b597054e",
+      "kind": "delivery_confirmed",
+      "occurred_at": "2026-08-04T21:11:18.483810Z",
+      "payload": {
+        "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+        "expected_delivery_ref": "delivery-cost-answer",
+        "kind": "confirm_delivery",
+        "next_turn_ref": null,
+        "occurred_at": "2026-08-04T21:11:18.483810Z"
+      },
+      "sequence": 6
+    }
+  ],
+  "linked_history": []
+}

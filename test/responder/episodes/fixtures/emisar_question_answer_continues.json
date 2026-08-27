@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "source": {
+    "database": "emisar responder.db",
+    "episode_ids": ["episode_run_ca58e34c4b5c10739f8afeb95236fdc4", "episode_run_01e6c2f118f9d35629777d48699c74fc"],
+    "run_ids": ["run_ca58e34c4b5c10739f8afeb95236fdc4", "run_01e6c2f118f9d35629777d48699c74fc"],
+    "reason": "A real operator answer in one Slack thread became a second root episode instead of resuming the visible question and original work."
+  },
+  "commands": [
+    {
+      "type": "admit_input",
+      "actor_ref": "slack:user:U-operator",
+      "destination": {"transport": "slack", "conversation_ref": "C0BHTRPHXP0", "thread_ref": "1785876729.636719"},
+      "episode_id": "01993e00-0000-7000-8000-000000000013",
+      "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+      "linked_episode_id": null,
+      "native_input_id": "slack_message_c49e13f33386f8efd0f6fa94ecb1d639",
+      "occurred_at": "2026-08-04T21:05:38.280533Z",
+      "payload": {"text": "Use capacity-aware placement while paying for two steady-state VMs."},
+      "revision": 1,
+      "turn_ref": "turn-cost-policy"
+    },
+    {
+      "type": "start_wait",
+      "deadline_at": null,
+      "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+      "expected_turn_ref": "turn-cost-policy",
+      "kind": "input",
+      "occurred_at": "2026-08-04T21:07:00.218456Z",
+      "wait_ref": "input-cost-semantics"
+    },
+    {
+      "type": "admit_input",
+      "actor_ref": "slack:user:U-operator",
+      "destination": {"transport": "slack", "conversation_ref": "C0BHTRPHXP0", "thread_ref": "1785876729.636719"},
+      "episode_id": "01993e00-0000-7000-8000-000000000013",
+      "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+      "linked_episode_id": null,
+      "native_input_id": "slack_message_9b125656891af5d01cba471ab07b705c",
+      "occurred_at": "2026-08-04T21:07:53.103036Z",
+      "payload": {"text": "Temporary rollout surge is okay."},
+      "revision": 1,
+      "turn_ref": "turn-cost-answer"
+    },
+    {
+      "type": "resume_wait",
+      "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+      "expected_wait": {"kind": "input", "ref": "input-cost-semantics"},
+      "occurred_at": "2026-08-04T21:07:53.104899Z",
+      "resolution_ref": "admit_input:a82035e05f984534d4eb1fee3309a8c011927017526afe32237bf476d7088906",
+      "turn_ref": "turn-cost-answer"
+    },
+    {
+      "type": "accept_result",
+      "delivery": "reply",
+      "delivery_ref": "delivery-cost-answer",
+      "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+      "expected_turn_ref": "turn-cost-answer",
+      "next_turn_ref": null,
+      "occurred_at": "2026-08-04T21:11:18.211471Z",
+      "result_ref": "complete-cost-answer"
+    },
+    {
+      "type": "confirm_delivery",
+      "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+      "expected_delivery_ref": "delivery-cost-answer",
+      "next_turn_ref": null,
+      "occurred_at": "2026-08-04T21:11:18.483810Z"
+    }
+  ],
+  "expected": {
+    "active_input_count": 0,
+    "destination": {"conversation_ref": "C0BHTRPHXP0", "thread_ref": "1785876729.636719", "transport": "slack"},
+    "event_count": 6,
+    "event_kinds": ["input_admitted", "input_wait_started", "input_admitted", "wait_resumed", "result_accepted", "delivery_confirmed"],
+    "linked_episode_id": null,
+    "owner": null,
+    "queued_input_count": 0,
+    "semantic_version": 5,
+    "state": "complete"
+  }
+}
