@@ -23,6 +23,12 @@ The kernel owns only:
 
 It performs no network calls and starts no model. Offline replay uses the same reducer as persistence.
 
+## Legacy test parity
+
+The checked-in [Go lifecycle test parity](elixir-episode-kernel-go-parity.md) assigns every test in the
+scoped legacy lifecycle files to this kernel or a named future replacement module. Its fast drift test
+prevents a relevant Go regression case from disappearing unnoticed during the staged rewrite.
+
 ## Cutover deletion map
 
 Later modules must reach parity before the replacement runtime is wired. At the final cutover, delete
