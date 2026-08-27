@@ -1,0 +1,634 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "internal/episode/projection_test.go",
+      "groups": [
+        {
+          "target": "episode_kernel",
+          "tests": [
+            "TestProjectDerivesOperatorVisibleState"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/episode/reducer_test.go",
+      "groups": [
+        {
+          "target": "episode_kernel",
+          "tests": [
+            "TestReduceProjectsOrderedTransitionsAndProtectsTerminalState",
+            "TestReduceReopensTerminalEpisodeOnlyWithExplicitEvent",
+            "TestReduceReplayIsDeterministic"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/episode/resume_test.go",
+      "groups": [
+        {
+          "target": "source_ingress",
+          "tests": [
+            "TestPreferredWaitingThreadUsesExactHumanConversation"
+          ]
+        },
+        {
+          "target": "episode_kernel",
+          "tests": [
+            "TestWaitingEpisodeOnlyAcceptsItsOperatorAnswer"
+          ]
+        },
+        {
+          "target": "coop_runtime",
+          "tests": [
+            "TestBindAttemptPreservesEpisodeAndClearsTransportIdentity"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/store/episode_kernel_test.go",
+      "groups": [
+        {
+          "target": "episode_kernel",
+          "tests": [
+            "TestEpisodeLeasingKeepsSameConversationOrdered",
+            "TestEpisodeLeasingSerializesConversationButNotChannel"
+          ]
+        },
+        {
+          "target": "source_ingress",
+          "tests": [
+            "TestEpisodeLeasingPrioritizesHumanRequestsAheadOfAmbientAlerts",
+            "TestEpisodeWakeupSurvivesLeaseAndResolvesWithFence",
+            "TestWakeupLeaseReconcilesTerminalEpisodeLeftByOlderBinary"
+          ]
+        },
+        {
+          "target": "final_protocol",
+          "tests": [
+            "TestEpisodeCannotCompleteWithRequiredGoalOpen",
+            "TestEpisodeCorrectionTotalCountsCorrectionsNotAttempts",
+            "TestEpisodeCorrectionTotalTreatsLegacyInvalidContextsAsZero"
+          ]
+        },
+        {
+          "target": "coop_runtime",
+          "tests": [
+            "TestAContextManifestRemembersTheRungItsBriefingWentOutOn",
+            "TestContextManifestLatencyTotalsEveryTurnOfTheAttempt",
+            "TestContextManifestRequiresMonotonicLineage",
+            "TestContextManifestUsageIgnoresTheSameTurnTwice",
+            "TestContextManifestUsageKeepsUnreportedTurnsUnrecorded",
+            "TestContextManifestUsageRejectsInvalidProviderCost",
+            "TestContextManifestUsageTotalsEveryTurnOfTheAttempt",
+            "TestContextLatencyIgnoresTurnsItCannotMeasure"
+          ]
+        },
+        {
+          "target": "slack_gateway",
+          "tests": [
+            "TestChangingDestinationPreservesExistingConversationIdentity",
+            "TestFinalSlackPostPartCreatesDurableEpisodeThread",
+            "TestOnlyASentReplyMakesAnOlderThreadReplyStale",
+            "TestSlackDeliveryIsBoundToEpisodeDestinationRevision",
+            "TestSlackProcessingStatusBelongsToEpisodeWithoutChangingReplyDestination",
+            "TestVisualResponseRootCreatesDurableEpisodeThread"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/store/episode_outcome_test.go",
+      "groups": [
+        {
+          "target": "memory_recall",
+          "tests": [
+            "TestABlockedEpisodeIsRecalledButNeverAsVerified",
+            "TestACancelledEpisodeIsNotRecalledAsAnOutcome",
+            "TestACompletedEpisodeLeavesARecallableOutcome",
+            "TestAPrivateChannelEpisodeNeverCrossesIntoAnotherRoom",
+            "TestAReopenedEpisodeStopsBeingRecalledAsResolved"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/store/work_episode_test.go",
+      "groups": [
+        {
+          "target": "final_protocol",
+          "tests": [
+            "TestBlockedWorkEpisodeRemainsOpenAfterTransportFinishes",
+            "TestInvalidWorkEpisodeIsRejectedBeforeAgentRunIsStored",
+            "TestWaitingWorkEpisodeRemainsOpenAfterTransportFinishes",
+            "TestWorkEpisodePersistsExecutionContractAndProgress"
+          ]
+        },
+        {
+          "target": "engineering_github",
+          "tests": [
+            "TestWorkEpisodeApprovalResolutionPreservesVerificationContinuation"
+          ]
+        },
+        {
+          "target": "source_ingress",
+          "tests": [
+            "TestTerminalEpisodeCancelsEveryPendingWakeup"
+          ]
+        },
+        {
+          "target": "automation_waits",
+          "tests": [
+            "TestAcceptedEpisodeWithoutProgressDeadlineBecomesOverdue"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/store/schema_v61_test.go",
+      "groups": [
+        {
+          "target": "legacy_archive",
+          "tests": [
+            "TestEpisodeIdentityMigrationMergesSplitHistoryAndEnforcesIdentity",
+            "TestEpisodeIdentityMigrationPreservesLatestWakeupWaitProjection",
+            "TestEpisodeIdentityMigrationRejectsMalformedQualityFindingReferences",
+            "TestEpisodeIdentityMigrationRejectsUnrecognizedOrCyclicDivergence",
+            "TestEpisodeIdentityMigrationReplaysChainedWakeupShells"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/store/work_test.go",
+      "groups": [
+        {
+          "target": "automation_waits",
+          "tests": [
+            "TestEnsureWorkDoesNotEraseSubjectRetrySchedule",
+            "TestScheduledWorkCoalescesAndRerunsAfterConcurrentEnqueue",
+            "TestScheduledWorkRetryRecoveryAndMetrics"
+          ]
+        },
+        {
+          "target": "episode_kernel",
+          "tests": [
+            "TestScheduledWorkSerializesConversationButNotLane"
+          ]
+        },
+        {
+          "target": "coop_runtime",
+          "tests": [
+            "TestExpiredWorkLeaseIsReclaimedAndRejectsStaleOwner"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/service/operational_correlation_test.go",
+      "groups": [
+        {
+          "target": "source_ingress",
+          "tests": [
+            "TestABoundAlertEpisodeCannotMoveToTheResolvedCard",
+            "TestACardThatSaysNothingNewIsAnsweredWithoutAModelTurn",
+            "TestACardWithANewCountStillGetsItsOwnTurn",
+            "TestARecoveredStreamStaysOpenForItsWindow",
+            "TestARecoveryOnAStreamThatWasNeverActiveStillCompletes",
+            "TestARefireAfterARecoveryContinuesTheSameEpisode",
+            "TestARefireAfterAnExpiredRecoveryStartsANewEpisodeWhenTheOldOneIsStillOpen",
+            "TestARefireAfterTheRecoveredHoldStartsAtTheNewCard",
+            "TestActiveAlertReplyKeepsTheStreamEpisodeOpen",
+            "TestAnActiveAlertReplyWithClosedGoalsStillKeepsTheStreamOpen",
+            "TestAnAppCardWithNoCountsIsNeverFolded",
+            "TestANewOperationalLifecycleKeepsHistoryWithoutBorrowingItsThread",
+            "TestAttemptedAlertRunSurvivesANewerNotificationOnTheSameStream",
+            "TestBetterStackRecoveryIsDeliveredInTheOriginalIncidentThread",
+            "TestDifferentAlertFamiliesInOneBurstUseOnlyNewestModelRun",
+            "TestDifferentExternalLifecycleRunsDoNotCoalesce",
+            "TestNewOperationalInputAdmittedDuringFinalizationSuppressesOldResult",
+            "TestObviousHumanDialogueIsSuppressedBeforeCoop",
+            "TestOperationalAlertResolvedEventRecognizesProviderLifecycleWording",
+            "TestOperationalBurstCoalescesBeforeCoopAndLinksEpisodes",
+            "TestOperationalCorrelationKeyPrefersStableAlertLinkOverDashboardRange",
+            "TestOperationalCorrelationKeyTracksAlertLifecycle",
+            "TestOperationalCorrelationKeyTracksTerraformRunLifecycle",
+            "TestOperationalRecoveryKeepsTheOriginalAlertThread",
+            "TestQueuedOperationalRunAdoptsTheWatchSessionPoolBeforeSubmission",
+            "TestRecoveredAlertReplyCompletesTheStreamEpisode",
+            "TestRelatedAlertFamiliesShareRecentOperationalAncestry",
+            "TestResolvedOperationalUpdateCannotDiscardCorrelatedFiringInvestigation",
+            "TestASecondActiveReplyKeepsTheStreamOpen",
+            "TestSupersededTerraformTurnCannotLeaveAStaleWakeup",
+            "TestUnrelatedOperationalStreamsNeverShareModelContext",
+            "TestUnverifiedFiringAlertKeepsItsStreamOpen",
+            "TestUnverifiedResolvedCardDoesNotOpenANewStream"
+          ]
+        },
+        {
+          "target": "slack_gateway",
+          "tests": [
+            "TestAHigherFiringCountPostsAgain",
+            "TestChangedCoveragePostsAgain",
+            "TestChangedVerdictPostsAgain",
+            "TestCoalescedAlertRunRemovesItsAcknowledgement",
+            "TestStagedAlertReplyIsDeliveredDespiteANewerCard",
+            "TestStagedAlertReplyIsSupersededOnlyByANewerSentReply",
+            "TestUnchangedFlapDoesNotPostAgain",
+            "TestUnchangedOperationalAlertRecheckDoesNotPostAgain"
+          ]
+        },
+        {
+          "target": "final_protocol",
+          "tests": [
+            "TestAnsweredStreamPromptTellsTheModelWhatWasPosted",
+            "TestRepeatAlertReplyPointsAtTheOpenOffer"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/service/episode_wakeup_test.go",
+      "groups": [
+        {
+          "target": "source_ingress",
+          "tests": [
+            "TestABoundThreadCannotBeWidenedByAnEmptyResponseRoute",
+            "TestAResumedWaitKeepsTheThreadTheAttemptWasTalkingIn",
+            "TestATerraformWakeupKeepsTheSourceOwnedReviewLink",
+            "TestEpisodeWakeupQueuesFreshAttemptOnSameEpisode"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/service/operational_episode_lifecycle_test.go",
+      "groups": [
+        {
+          "target": "source_ingress",
+          "tests": [
+            "TestExplicitOperationalReplayUsesTheSelectedCardAsItsDestination",
+            "TestOperationalUpdateAfterTerminalEpisodeStartsLinkedRunnableEpisode"
+          ]
+        },
+        {
+          "target": "slack_gateway",
+          "tests": [
+            "TestTerminalEpisodeCancellationClearsPendingSlackStatus"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/service/slack_delivery_test.go",
+      "groups": [
+        {
+          "target": "slack_gateway",
+          "tests": [
+            "TestAcceptedOperatorReplySetsAndRefreshesNativeStatus",
+            "TestAcceptedSlackPostWithLostResponseIsReconciledExactlyOnce",
+            "TestAmbientConversationMayCompleteWithoutSlackReply",
+            "TestDirtyCardBacksOffAfterTransientSlackFailure",
+            "TestDurableFailureMarkerAddsAndRemovesOneWarningReaction",
+            "TestFailedInFlightReactionCannotOverrideNewerIntent",
+            "TestFailureMarkerIntentWaitsForAnInFlightPredecessor",
+            "TestGeneratedVisualDeliveryIsVerifiedThreadedAndReconciled",
+            "TestGeneratedVisualDeliveryRejectsUnknownAndMismatchedArtifacts",
+            "TestGeneratedVisualMissingScopePostsTruthfulFailureInsteadOfSuccess",
+            "TestManualSummonGetsCapacityRejectionInOriginThread",
+            "TestNativeStatusRetriesAfterTransientSlackFailure",
+            "TestRepeatedFiringRefreshUpdatesCardAndAgentWithoutRawThreadPost",
+            "TestSlackWritesAlternateBetweenDirtyCardAndDelivery",
+            "TestSlashProactiveOffPreemptsQueuedChannelMessage",
+            "TestSocketAdmitsAttachmentOnlyTerraformRuleAndThreadFollowup",
+            "TestSocketAdmitsHumanFileShareAsChannelMessage",
+            "TestSocketAdmitsOwnChannelJoinImmediatelyWithoutFallbackDuplicate",
+            "TestTopLevelTwoVisualFailureNoticeCanRetryRetainedBundle",
+            "TestVisualOnlyBundleContinuesInFirstFilesDurableThread",
+            "TestVisualOnlyGeneratedReplyCarriesDurableResponseRoot"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/replaycontrol/control_test.go",
+      "groups": [
+        {
+          "target": "coop_runtime",
+          "tests": [
+            "TestCancelInterruptsTheExactActiveRunAndRemoteTurn",
+            "TestCancelKeepsDurableCancellationWhenRemoteInterruptFails",
+            "TestCancelPersistsItsReceiptAfterTheCallerDeadline",
+            "TestCancelRetriesRemoteInterruptForAlreadyCancelledRun"
+          ]
+        },
+        {
+          "target": "slack_gateway",
+          "tests": [
+            "TestCancelReportsInFlightSlackDeliveryAsUncertain"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/replayinterrupt/interrupt_test.go",
+      "groups": [
+        {
+          "target": "coop_runtime",
+          "tests": [
+            "TestCancelClassifiesMissingSubmitOperation",
+            "TestCancelReconcilesALostCancelResponse",
+            "TestCancelRecoversALostSubmitReceiptByOperationKey",
+            "TestCancelRefetchesRevisionAfterConflict",
+            "TestCancelSettlesADefinitivelyFailedSubmitWithoutRetrying",
+            "TestCancelShortCircuitsAnObservedTerminalTurn"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/localstate/run_cancellations_test.go",
+      "groups": [
+        {
+          "target": "coop_runtime",
+          "tests": [
+            "TestRunCancellationsClosesOnlyTheExactActiveContext"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/store/agent_run_ownership_test.go",
+      "groups": [
+        {
+          "target": "coop_runtime",
+          "tests": [
+            "TestAbandonedPreparationIsRequeuedDuringNormalOperation",
+            "TestFinalizationClaimRejectsNewEpisodeAttempt",
+            "TestOnlyAnAnswerlessAttemptYieldsFinalizationToItsReplacement",
+            "TestOlderFailureCannotRetireSharedBindingsOwnedByNewEpisode",
+            "TestReplacingAnAgentSessionDropsOnlyTheOldFrozenRevision",
+            "TestRetryAgentRunIfOwnedAcceptsVerifiedSupersession",
+            "TestRetryAgentRunIfOwnedRequeuesCurrentOwner",
+            "TestStalePreparationRecoveryNeverRequeuesASubmittedTurn",
+            "TestTriageSessionBindingRefusesSessionAlreadyDetachedByFailure"
+          ]
+        },
+        {
+          "target": "slack_gateway",
+          "tests": [
+            "TestFinishAgentRunFailureCannotNotifyForOlderAttempt",
+            "TestFinishAgentRunFailureCommitsLifecycleAndOutboxAtomically",
+            "TestPrivateReplayFailureDoesNotMarkPublicSlackMessage",
+            "TestStalePreparationFailureDoesNotMarkSourceOwnedByNewAttempt",
+            "TestTerminalPreparationFailureMarksItsSlackSource",
+            "TestTerminalProcessingFailureMarksSourceAndRetryQueuesRemoval"
+          ]
+        },
+        {
+          "target": "final_protocol",
+          "tests": [
+            "TestFinishAgentRunFailurePreservesAlreadyStagedSuccess",
+            "TestOlderRunWithoutTurnCannotOverwriteNewerTaskResult",
+            "TestRetriedRunDoesNotMistakeItsOldFailureNoticeForSuccess",
+            "TestRetriedTaskDoesNotMistakeItsOldCardForSuccess",
+            "TestRetryableProcessingFailureDoesNotMarkSource"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/store/agent_run_episode_test.go",
+      "groups": [
+        {
+          "target": "coop_runtime",
+          "tests": [
+            "TestIdempotentAgentRunQueuePreservesStoredEpisode"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/store/failed_run_retry_test.go",
+      "groups": [
+        {
+          "target": "coop_runtime",
+          "tests": [
+            "TestRequeueFailedAgentRunRefusesSupersededAttempts",
+            "TestRequeueFailedAgentRunReopensTheEpisode"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/store/agent_run_correlation_test.go",
+      "groups": [
+        {
+          "target": "source_ingress",
+          "tests": [
+            "TestFailedNewerHumanCorrectionStillSuppressesOlderThreadAnswer",
+            "TestMentionOnlyRunDoesNotSupersedeSubstantiveWork",
+            "TestNudgeLatestAgentRunWakesPendingConversation",
+            "TestRequeueAgentRunUsesUniqueTransportIdentityAfterCounterRepair"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/service/agent_turn_test.go",
+      "groups": [
+        {
+          "target": "engineering_github",
+          "tests": [
+            "TestEmisarApprovalMonitorFailsClosedOnIdentityMismatch",
+            "TestEmisarApprovalMonitorPersistsProgressWithoutQueueingContinuation",
+            "TestEmisarApprovalMonitorUpdatesCardAndQueuesOneContinuation",
+            "TestEmisarApprovalSchedulerRecoversPersistedTerminalRun",
+            "TestEngineeringTaskDeliveryRequiresChangesFromCurrentTurn",
+            "TestOperatorRequestedEmisarApprovalReachesIncidentThread"
+          ]
+        },
+        {
+          "target": "source_ingress",
+          "tests": [
+            "TestAnAttemptedRunSurvivesAClassifiedBystanderMessage",
+            "TestAttemptedRunSurvivesANewerContextualMessage"
+          ]
+        },
+        {
+          "target": "final_protocol",
+          "tests": [
+            "TestACompletionOverAnOpenRequiredGoalIsSentBackNotDeferred",
+            "TestAFinalizationRefusedOverAnOpenGoalSendsTheRunBackToTheModel",
+            "TestAgentRunContinuationPromptCarriesStructuredCorrection",
+            "TestAgentRunFinalizationExhaustionPostsFailureAndClearsStatus",
+            "TestAgentRunFinalizationFailureUsesDurableBackoff",
+            "TestAgentRunProtocolReplayIsExactAndBounded",
+            "TestASilentTurnDiesInFifteenMinutesOnceThrottleIsAudible",
+            "TestASilentTurnIsCancelledInsteadOfHoldingItsChannel",
+            "TestFailedIncidentRetryPublishesDistinctSuccessfulExecution",
+            "TestRequiredPromptTooLargeIsTerminalOnFirstPreparationAttempt"
+          ]
+        },
+        {
+          "target": "coop_runtime",
+          "tests": [
+            "TestACPInternalErrorRecoversTheAlertInAFreshSession",
+            "TestAgentRunACPProcessFailureRotatesSlackInvestigationSession",
+            "TestAgentRunInterruptedByResponderShutdownIsReplayed",
+            "TestAgentRunMissingCoopImageBuildFailureStaysQueuedWithoutSlackFailure",
+            "TestAgentRunMissingCoopImageRepairsAndRetriesWithoutSlackFailure",
+            "TestAgentRunTranscriptOverflowRotatesSlackSession",
+            "TestAnExhaustedWatchSessionStartsFreshWithoutSpendingAcceptedWork",
+            "TestAnInterruptedTurnIsReplayedInsteadOfHoldingItsRun",
+            "TestARateLimitedRunReleasesItsDeadTurn",
+            "TestARunWhoseSessionTheChannelLeftBehindStillPolls",
+            "TestAStarvedSiblingLeasesPastACyclingBlocker",
+            "TestAutomaticTurnCapacityHonorsConfiguredCeiling",
+            "TestCleanupStopsRetryingPersistentCoopFailures",
+            "TestCleanupTreatsMissingCoopSessionAsAlreadyDone",
+            "TestEngineeringTaskRevisionConflictReleasesTheFrozenRevisionAndRetries",
+            "TestExhaustedTargetLadderWaitsInsteadOfBurningAttempts",
+            "TestFirstRuntimeCleanupFailureSurvivesEarlierRevisionConflicts",
+            "TestFirstTurnTimeoutStillRetriesAfterPreparationFailures",
+            "TestFreshAlertSessionDoesNotInheritTheRetiredSessionsRevision",
+            "TestIncidentTurnCapacityExtendsAutomatically",
+            "TestInternalOperationFailureRecoversAcceptedAlertInFreshSession",
+            "TestRevisionConflictReleasesTheFrozenRevisionAndRetries",
+            "TestRuntimeCleanupTimeoutRecoversTheAlertInAFreshSession",
+            "TestShutdownDuringPreparationNeverSpendsAModelAttempt",
+            "TestTerminalEventRateLimitSurvivesSanitizedTurnDetail",
+            "TestTimedOutAgentTurnGetsOneRecoveryAttempt",
+            "TestTriageSubmitIdempotencyConflictRecoversExistingTurn",
+            "TestTurnBudgetExhaustionDoesNotAbandonAnAcceptedAlertStream"
+          ]
+        },
+        {
+          "target": "slack_gateway",
+          "tests": [
+            "TestExplicitAgentRunCancellationIsTerminal"
+          ]
+        }
+      ]
+    }
+  ],
+  "stage1_equivalents": [
+    {
+      "go_file": "internal/episode/projection_test.go",
+      "go_test": "TestProjectDerivesOperatorVisibleState",
+      "replacement_file": "test/responder/episodes/fixtures/grafana_firing_resolved_cycle.golden.json",
+      "replacement_test": null
+    },
+    {
+      "go_file": "internal/episode/reducer_test.go",
+      "go_test": "TestReduceProjectsOrderedTransitionsAndProtectsTerminalState",
+      "replacement_file": "test/responder/episodes/fixtures/cancelled_input_wait.golden.json",
+      "replacement_test": null
+    },
+    {
+      "go_file": "internal/episode/reducer_test.go",
+      "go_test": "TestReduceReopensTerminalEpisodeOnlyWithExplicitEvent",
+      "replacement_file": "test/responder/episodes/reducer_test.exs",
+      "replacement_test": "a new input reopens a completed episode in the same destination"
+    },
+    {
+      "go_file": "internal/episode/reducer_test.go",
+      "go_test": "TestReduceReplayIsDeterministic",
+      "replacement_file": "test/responder/episodes/replay_test.exs",
+      "replacement_test": "goldens detect routing, deadline, and event-payload corruption"
+    },
+    {
+      "go_file": "internal/episode/resume_test.go",
+      "go_test": "TestWaitingEpisodeOnlyAcceptsItsOperatorAnswer",
+      "replacement_file": "test/responder/episodes/reducer_test.exs",
+      "replacement_test": "an input wait resumes only after a new input is durably queued"
+    },
+    {
+      "go_file": "internal/store/episode_kernel_test.go",
+      "go_test": "TestEpisodeLeasingSerializesConversationButNotChannel",
+      "replacement_file": "test/responder/episodes/fixtures/same_thread_messages_serialize.json",
+      "replacement_test": null
+    },
+    {
+      "go_file": "internal/store/episode_kernel_test.go",
+      "go_test": "TestEpisodeLeasingSerializesConversationButNotChannel",
+      "replacement_file": "test/responder/episodes/fixtures/linked_incident_keeps_own_thread.json",
+      "replacement_test": null
+    },
+    {
+      "go_file": "internal/store/episode_kernel_test.go",
+      "go_test": "TestEpisodeLeasingKeepsSameConversationOrdered",
+      "replacement_file": "test/responder/episodes/fixtures/same_thread_messages_serialize.json",
+      "replacement_test": null
+    },
+    {
+      "go_file": "internal/store/episode_kernel_test.go",
+      "go_test": "TestSlackDeliveryIsBoundToEpisodeDestinationRevision",
+      "replacement_file": "test/responder/episodes_test.exs",
+      "replacement_test": "the destination and delivery owner survive every committed transition"
+    },
+    {
+      "go_file": "internal/store/episode_kernel_test.go",
+      "go_test": "TestEpisodeWakeupSurvivesLeaseAndResolvesWithFence",
+      "replacement_file": "test/responder/episodes/fixtures/owner_fencing_survives_restart.json",
+      "replacement_test": null
+    },
+    {
+      "go_file": "internal/store/episode_outcome_test.go",
+      "go_test": "TestAPrivateChannelEpisodeNeverCrossesIntoAnotherRoom",
+      "replacement_file": "test/responder/episodes/reducer_test.exs",
+      "replacement_test": "a bound thread cannot be widened or moved"
+    },
+    {
+      "go_file": "internal/store/work_episode_test.go",
+      "go_test": "TestTerminalEpisodeCancelsEveryPendingWakeup",
+      "replacement_file": "test/responder/episodes/reducer_test.exs",
+      "replacement_test": "cancelling a wait retires its deadline and queued trigger"
+    },
+    {
+      "go_file": "internal/store/work_test.go",
+      "go_test": "TestScheduledWorkSerializesConversationButNotLane",
+      "replacement_file": "test/responder/episodes/fixtures/same_thread_messages_serialize.json",
+      "replacement_test": null
+    },
+    {
+      "go_file": "internal/service/operational_correlation_test.go",
+      "go_test": "TestARefireAfterTheRecoveredHoldStartsAtTheNewCard",
+      "replacement_file": "test/responder/episodes/fixtures/grafana_new_cycle_links_history_only.json",
+      "replacement_test": null
+    },
+    {
+      "go_file": "internal/service/operational_correlation_test.go",
+      "go_test": "TestANewOperationalLifecycleKeepsHistoryWithoutBorrowingItsThread",
+      "replacement_file": "test/responder/episodes/fixtures/linked_incident_keeps_own_thread.json",
+      "replacement_test": null
+    },
+    {
+      "go_file": "internal/service/episode_wakeup_test.go",
+      "go_test": "TestABoundThreadCannotBeWidenedByAnEmptyResponseRoute",
+      "replacement_file": "test/responder/episodes/reducer_test.exs",
+      "replacement_test": "a bound thread cannot be widened or moved"
+    },
+    {
+      "go_file": "internal/replayinterrupt/interrupt_test.go",
+      "go_test": "TestCancelReconcilesALostCancelResponse",
+      "replacement_file": "test/responder/episodes/kernel_test.exs",
+      "replacement_test": "a lost cancellation response reconciles to one terminal event"
+    },
+    {
+      "go_file": "internal/store/agent_run_episode_test.go",
+      "go_test": "TestIdempotentAgentRunQueuePreservesStoredEpisode",
+      "replacement_file": "test/responder/episodes/kernel_test.exs",
+      "replacement_test": "an exact retry returns the original transition without advancing state"
+    },
+    {
+      "go_file": "internal/service/agent_turn_test.go",
+      "go_test": "TestAttemptedRunSurvivesANewerContextualMessage",
+      "replacement_file": "test/responder/episodes/reducer_test.exs",
+      "replacement_test": "new input queues behind active work without replacing its owner"
+    }
+  ]
+}
