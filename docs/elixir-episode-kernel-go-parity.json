@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "files": [
     {
       "path": "internal/episode/projection_test.go",
@@ -635,94 +635,99 @@
     {
       "go_file": "internal/episode/resume_test.go",
       "go_test": "TestPreferredWaitingThreadUsesExactHumanConversation",
-      "replacement_file": "test/responder/slack/admission/commit_test.exs",
+      "replacement_file": "test/responder/admission/commit_test.exs",
       "replacement_test": "an admitted trigger resumes a waiting episode in the same transaction"
     },
     {
       "go_file": "internal/service/operational_correlation_test.go",
       "go_test": "TestAttemptedAlertRunSurvivesANewerNotificationOnTheSameStream",
-      "replacement_file": "test/responder/slack/admission/commit_test.exs",
+      "replacement_file": "test/responder/admission/commit_test.exs",
       "replacement_test": "continues active work in its bound thread and queues the new input"
     },
     {
       "go_file": "internal/service/episode_wakeup_test.go",
       "go_test": "TestAResumedWaitKeepsTheThreadTheAttemptWasTalkingIn",
-      "replacement_file": "test/responder/slack/admission/commit_test.exs",
+      "replacement_file": "test/responder/admission/commit_test.exs",
       "replacement_test": "an admitted trigger resumes a waiting episode in the same transaction"
     },
     {
       "go_file": "internal/service/agent_turn_test.go",
       "go_test": "TestAttemptedRunSurvivesANewerContextualMessage",
-      "replacement_file": "test/responder/slack/admission/commit_test.exs",
+      "replacement_file": "test/responder/admission/commit_test.exs",
       "replacement_test": "continues active work in its bound thread and queues the new input"
     }
   ],
   "stage2_pending_model_evals": [
     {
-      "context_fixture": "test/responder/slack/admission/fixtures/resolved_card_continues_active_episode.json",
+      "context_fixture": "test/responder/admission/fixtures/resolved_card_continues_active_episode.json",
       "go_file": "internal/service/operational_correlation_test.go",
       "go_test": "TestABoundAlertEpisodeCannotMoveToTheResolvedCard",
       "reason": "The deterministic replay applies a recorded decision; a model eval must prove the model chooses continuation instead of ignore or a new episode."
     },
     {
-      "context_fixture": "test/responder/slack/admission/fixtures/resolved_card_continues_active_episode.json",
+      "context_fixture": "test/responder/admission/fixtures/resolved_card_continues_active_episode.json",
       "go_file": "internal/service/operational_correlation_test.go",
       "go_test": "TestARecoveredStreamStaysOpenForItsWindow",
       "reason": "The model still needs an eval for recovery and hold-window semantics."
     },
     {
-      "context_fixture": "test/responder/slack/admission/fixtures/new_cycle_links_history_only.json",
+      "context_fixture": "test/responder/admission/fixtures/new_cycle_links_history_only.json",
       "go_file": "internal/service/operational_correlation_test.go",
       "go_test": "TestARefireAfterTheRecoveredHoldStartsAtTheNewCard",
       "reason": "The model still needs an eval for choosing new work with history after expiry."
     },
     {
-      "context_fixture": "test/responder/slack/admission/fixtures/unknown_app_starts_episode.json",
+      "context_fixture": "test/responder/admission/fixtures/unknown_app_starts_episode.json",
       "go_file": "internal/service/operational_correlation_test.go",
       "go_test": "TestAnAppCardWithNoCountsIsNeverFolded",
       "reason": "The model still needs an eval proving it investigates an unfamiliar actionable app card."
     },
     {
-      "context_fixture": "test/responder/slack/admission/fixtures/new_cycle_links_history_only.json",
+      "context_fixture": "test/responder/admission/fixtures/new_cycle_links_history_only.json",
       "go_file": "internal/service/operational_correlation_test.go",
       "go_test": "TestANewOperationalLifecycleKeepsHistoryWithoutBorrowingItsThread",
       "reason": "The host protects destinations after selection; a model eval must prove the history-only selection."
     },
     {
-      "context_fixture": "test/responder/slack/admission/fixtures/different_app_lifecycles_do_not_merge.json",
+      "context_fixture": "test/responder/admission/fixtures/different_app_lifecycles_do_not_merge.json",
       "go_file": "internal/service/operational_correlation_test.go",
       "go_test": "TestDifferentExternalLifecycleRunsDoNotCoalesce",
       "reason": "The model still needs an eval for distinguishing similar but separate source lifecycles."
     },
     {
-      "context_fixture": "test/responder/slack/admission/fixtures/resolved_card_continues_active_episode.json",
+      "context_fixture": "test/responder/admission/fixtures/resolved_card_continues_active_episode.json",
       "go_file": "internal/service/operational_correlation_test.go",
       "go_test": "TestOperationalCorrelationKeyTracksAlertLifecycle",
       "reason": "Provider lifecycle recognition is a model decision in the new generic boundary."
     },
     {
-      "context_fixture": "test/responder/slack/admission/fixtures/terraform_lifecycle_continues_episode.json",
+      "context_fixture": "test/responder/admission/fixtures/terraform_lifecycle_continues_episode.json",
       "go_file": "internal/service/operational_correlation_test.go",
       "go_test": "TestOperationalCorrelationKeyTracksTerraformRunLifecycle",
       "reason": "Provider lifecycle recognition is a model decision in the new generic boundary."
     },
     {
-      "context_fixture": "test/responder/slack/admission/fixtures/resolved_card_continues_active_episode.json",
+      "context_fixture": "test/responder/admission/fixtures/resolved_card_continues_active_episode.json",
       "go_file": "internal/service/operational_correlation_test.go",
       "go_test": "TestOperationalRecoveryKeepsTheOriginalAlertThread",
       "reason": "The host preserves a selected destination; a model eval must prove it selects the active episode."
     },
     {
-      "context_fixture": "test/responder/slack/admission/fixtures/resolved_card_continues_active_episode.json",
+      "context_fixture": "test/responder/admission/fixtures/resolved_card_continues_active_episode.json",
       "go_file": "internal/service/operational_correlation_test.go",
       "go_test": "TestResolvedOperationalUpdateCannotDiscardCorrelatedFiringInvestigation",
       "reason": "The model still needs an eval proving a resolved update continues rather than discards active work."
     },
     {
-      "context_fixture": "test/responder/slack/admission/fixtures/new_cycle_links_history_only.json",
+      "context_fixture": "test/responder/admission/fixtures/new_cycle_links_history_only.json",
       "go_file": "internal/service/operational_episode_lifecycle_test.go",
       "go_test": "TestOperationalUpdateAfterTerminalEpisodeStartsLinkedRunnableEpisode",
       "reason": "The model still needs an eval for starting linked new work after terminal history."
+    },
+    {
+      "context_fixture": "test/responder/admission/fixtures/human_thread_reply_reopens_episode.json",
+      "eval_id": "human_thread_reply_continues_existing_episode",
+      "reason": "The deterministic replay applies the intended continuation; a model eval must prove an ordinary authorized reply naturally resumes the same conversation."
     }
   ]
 }

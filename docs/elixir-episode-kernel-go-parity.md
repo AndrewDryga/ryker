@@ -21,7 +21,7 @@ tests now while still making the cutover boundary explicit and mechanically chec
 | Owner | Go tests | What must preserve them |
 |---|---:|---|
 | `episode_kernel` | 8 | Durable identity, owner, queue, wait, result and cancellation transitions. |
-| `source_ingress` | 50 | Generic Slack intake, model admission, chronology, correlation, wakeups and thread binding. |
+| `source_ingress` | 50 | Generic source intake, model admission, chronology, correlation, wakeups and thread binding. |
 | `slack_gateway` | 44 | Atomic outbox custody, response-loss reconciliation, status, reactions, artifacts and routing. |
 | `coop_runtime` | 61 | Session isolation, provider recovery, leases, replay, turn capacity and cancellation. |
 | `final_protocol` | 24 | Candidate admission, correction, silence, completion and result supersession. |
@@ -56,11 +56,12 @@ or queue behavior.
 Four source-ingress tests now have direct deterministic generic-admission equivalents. They cover
 exact-thread wait resumption and newer context queueing behind active work without replacing its owner.
 
-Eleven additional source-ingress cases have harvested Slack contexts but remain explicitly pending
-model evaluations. They cover an active lifecycle retaining its first card, a new cycle using its new
-card while linking history, arbitrary app input without count/status heuristics, and distinct external
-runs remaining separate. Replaying a recorded decision proves only that the host applies that decision
-safely; it does not prove a model will choose it.
+Twelve source-ingress cases have harvested Slack contexts but remain explicitly pending model
+evaluations. They cover an active lifecycle retaining its first card, a new cycle using its new card
+while linking history, ordinary human thread continuation, arbitrary app input without count/status
+heuristics, and distinct external runs remaining separate. Replaying a recorded decision proves only
+that the host applies that decision safely; it does not prove a model will choose it. Standalone eval
+IDs may own production fixtures even when no single legacy Go test expresses the model behavior.
 
 The fixtures contain provider text because that is what Slack really delivered. Production admission
 code does not branch on those providers or phrases. Old tests whose purpose was to parse specific alert

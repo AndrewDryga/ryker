@@ -11,7 +11,12 @@ defmodule Responder.DataCase do
   end
 
   setup tags do
-    owner = Sandbox.start_owner!(Responder.Repo, shared: not tags[:async])
+    options = [shared: not tags[:async]]
+
+    options =
+      if isolation = tags[:isolation], do: [{:isolation, isolation} | options], else: options
+
+    owner = Sandbox.start_owner!(Responder.Repo, options)
     on_exit(fn -> Sandbox.stop_owner(owner) end)
   end
 end

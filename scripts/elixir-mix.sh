@@ -16,7 +16,7 @@ mix local.rebar --if-missing --force >/dev/null
 
 cd "$root"
 
-required_dependencies=(ecto_sql jason postgrex)
+required_dependencies=(bandit ecto_sql finch jason postgrex)
 if [[ ${MIX_ENV:-dev} != prod ]]; then
   required_dependencies+=(credo)
 fi

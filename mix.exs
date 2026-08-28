@@ -24,7 +24,9 @@ defmodule Responder.MixProject do
 
   defp deps do
     [
+      {:bandit, "~> 1.12"},
       {:ecto_sql, "~> 3.14"},
+      {:finch, "~> 0.23"},
       {:postgrex, ">= 0.0.0"},
       {:jason, "~> 1.4"},
       {:jsv, "~> 0.22", only: :test},

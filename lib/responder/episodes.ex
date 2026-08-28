@@ -11,6 +11,7 @@ defmodule Responder.Episodes do
 
   alias Responder.Episodes.{
     Command,
+    ConversationLock,
     Episode,
     EpisodeChangeset,
     Event,
@@ -51,6 +52,7 @@ defmodule Responder.Episodes do
           {:ok, [Transition.t()]} | {:error, term()}
   def apply_batch_in_transaction(commands) do
     with {:ok, commands} <- prepare_batch(commands),
+         :ok <- lock_input_conversations(Repo, commands),
          episode_key <- commands |> hd() |> Map.fetch!(:episode_key),
          {:ok, :locked} <- lock_source(Repo, episode_key),
          {:ok, episode} <- load_episode(Repo, episode_key) do
@@ -99,6 +101,16 @@ defmodule Responder.Episodes do
     if Enum.all?(rest, &(&1.episode_key == first.episode_key)),
       do: {:ok, commands},
       else: {:error, :mixed_episode_command_batch}
+  end
+
+  defp lock_input_conversations(repo, commands) do
+    destinations =
+      Enum.flat_map(commands, fn
+        %Command.AdmitInput{destination: destination} -> [destination]
+        _command -> []
+      end)
+
+    ConversationLock.lock_many(repo, destinations)
   end
 
   defp apply_prepared_batch(repo, episode, commands) do
