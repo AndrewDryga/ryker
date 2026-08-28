@@ -1,0 +1,61 @@
+{
+  "name": "two app cards for one run continue one episode",
+  "source": {
+    "database": "blitz responder.db",
+    "slack_input_ids": [
+      "slack_message_5ff2b2adc5ad2c02ab01806126481318",
+      "slack_message_5f7f7b3c53be56abddda608890a9ded2"
+    ],
+    "run_ids": ["run_4c175ce969a67a023aff51a8a25a81e1", "run_42d3427304501f8fa97463860fabd9ec"],
+    "reason": "One external run posted multiple top-level Slack cards that must remain one work stream."
+  },
+  "now": "2026-08-28T00:08:51.000000Z",
+  "continuation_window_seconds": 1800,
+  "history_window_seconds": 2592000,
+  "seed": {
+    "episode_id": "01993d45-d400-7000-8000-000000000102",
+    "episode_key": "fixture:run-lifecycle",
+    "state": "working",
+    "updated_at": "2026-08-28T00:07:27.000000Z",
+    "input": {
+      "actor": {"kind": "app", "ref": "B08N64XSHNU"},
+      "channel_ref": "C08MMETA3U3",
+      "content": {"text": "Run notification for <https://app.terraform.io/app/SME-Blitz/blitz-infra|SME-Blitz/blitz-infra>\n<https://app.terraform.io/app/SME-Blitz/blitz-infra/runs/run-9R1YWKbeFV8rtWRQ|Run run-9R1YWKbeFV8rtWRQ>\nCI apply — d8603878db5b644bdcff844d73e04da292fe0748\nRun Planned - Needs Confirmation"},
+      "event_kind": "message",
+      "event_ref": "Ev0BT9JH9SQJ",
+      "message_ref": "1787875646.975539",
+      "occurred_at": "2026-08-28T00:07:26.000000Z",
+      "revision": 1,
+      "thread_ref": null,
+      "workspace_ref": "T01J1LW4DF1"
+    }
+  },
+  "input": {
+    "actor": {"kind": "app", "ref": "B08N64XSHNU"},
+    "channel_ref": "C08MMETA3U3",
+    "content": {"text": "Run notification for <https://app.terraform.io/app/SME-Blitz/blitz-infra|SME-Blitz/blitz-infra>\n<https://app.terraform.io/app/SME-Blitz/blitz-infra/runs/run-9R1YWKbeFV8rtWRQ|Run run-9R1YWKbeFV8rtWRQ>\nCI apply — d8603878db5b644bdcff844d73e04da292fe0748\nRun Applied"},
+    "event_kind": "message",
+    "event_ref": "Ev0BT7MCF738",
+    "message_ref": "1787875730.402099",
+    "occurred_at": "2026-08-28T00:08:50.000000Z",
+    "revision": 1,
+    "thread_ref": null,
+    "workspace_ref": "T01J1LW4DF1"
+  },
+  "decision": {
+    "action": "continue_episode",
+    "episode_ref": "$seed",
+    "reaction": null,
+    "relation": "same_work",
+    "reason": "Both cards name the same external run."
+  },
+  "expected": {
+    "active_inputs": 1,
+    "decision_action": "continue_episode",
+    "destination_thread_ref": "1787875646.975539",
+    "episode_identity": "seed",
+    "linked_to_seed": false,
+    "queued_inputs": 1,
+    "state": "working"
+  }
+}

@@ -37,10 +37,12 @@ defmodule Responder.EpisodesTest do
   end
 
   test "invalid commands return tagged errors before identity or storage work" do
+    scalar_payload = EpisodeFixtures.admit_input(%{payload: "not-an-object"})
     invalid_payload = EpisodeFixtures.admit_input(%{payload: %{"value" => {:tuple, 1}}})
     postgres_poison = EpisodeFixtures.admit_input(%{payload: %{"value" => <<0>>}})
     invalid_utf8 = EpisodeFixtures.admit_input(%{episode_key: <<255>>})
 
+    assert Episodes.apply(scalar_payload) == {:error, {:invalid_command, :payload}}
     assert Episodes.apply(invalid_payload) == {:error, {:invalid_command, :payload}}
     assert Episodes.apply(postgres_poison) == {:error, {:invalid_command, :payload}}
     assert Episodes.apply(invalid_utf8) == {:error, {:invalid_command, :episode_key}}
@@ -177,6 +179,25 @@ defmodule Responder.EpisodesTest do
     assert {:ok, stored} = Episodes.fetch_by_key(input.episode_key)
     assert stored.owner_ref == "turn-1"
     assert stored.next_sequence == 2
+  end
+
+  test "a related command batch either commits every transition or none" do
+    input =
+      EpisodeFixtures.admit_input(%{
+        episode_id: Ecto.UUID.generate(),
+        episode_key: "atomic-batch:#{Ecto.UUID.generate()}",
+        native_input_id: "slack:event:atomic-batch"
+      })
+
+    invalid_wait =
+      EpisodeFixtures.start_wait(%{
+        episode_key: input.episode_key,
+        expected_turn_ref: "a-turn-that-never-owned-this-episode"
+      })
+
+    assert {:error, {:stale_turn, _details}} = Episodes.apply_batch([input, invalid_wait])
+    assert Episodes.fetch_by_key(input.episode_key) == :error
+    assert Episodes.list_events(input.episode_key) == []
   end
 
   test "a rejected no-op does not consume durable owner handoff custody" do

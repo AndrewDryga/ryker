@@ -32,6 +32,14 @@ defmodule Responder.Repo.Migrations.CreateEpisodeKernel do
     create(index(:episode_kernel_episodes, [:linked_episode_id]))
 
     create(
+      index(
+        :episode_kernel_episodes,
+        [:destination_transport, :destination_conversation_ref, :destination_thread_ref],
+        name: :episode_kernel_episode_destination
+      )
+    )
+
+    create(
       constraint(:episode_kernel_episodes, :episode_kernel_history_not_self,
         check: "linked_episode_id IS NULL OR linked_episode_id <> id"
       )
@@ -104,6 +112,12 @@ defmodule Responder.Repo.Migrations.CreateEpisodeKernel do
 
     create(unique_index(:episode_kernel_events, [:episode_id, :sequence]))
     create(unique_index(:episode_kernel_events, [:episode_id, :dedupe_key]))
+
+    create(
+      index(:episode_kernel_events, [:episode_id, :kind, :occurred_at, :dedupe_key],
+        name: :episode_kernel_event_input_endpoints
+      )
+    )
 
     create(
       constraint(:episode_kernel_events, :episode_kernel_event_sequence_positive,

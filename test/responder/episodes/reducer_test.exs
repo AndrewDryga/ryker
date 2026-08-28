@@ -80,6 +80,7 @@ defmodule Responder.Episodes.ReducerTest do
     end
 
     test "payloads must be bounded lossless JSON" do
+      scalar = EpisodeFixtures.admit_input(%{payload: "not-an-object"})
       invalid = EpisodeFixtures.admit_input(%{payload: %{"value" => {:tuple, 1}}})
       collision = EpisodeFixtures.admit_input(%{payload: %{"same" => 1, same: 2}})
       null_character = EpisodeFixtures.admit_input(%{payload: %{"value" => <<0>>}})
@@ -88,6 +89,7 @@ defmodule Responder.Episodes.ReducerTest do
       oversized =
         EpisodeFixtures.admit_input(%{payload: %{"text" => String.duplicate("x", 65_537)}})
 
+      assert Reducer.decide(nil, scalar) == {:error, {:invalid_command, :payload}}
       assert Reducer.decide(nil, invalid) == {:error, {:invalid_command, :payload}}
       assert Reducer.decide(nil, collision) == {:error, {:invalid_command, :payload}}
       assert Reducer.decide(nil, null_character) == {:error, {:invalid_command, :payload}}

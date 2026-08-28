@@ -1,0 +1,41 @@
+{
+  "name": "unknown app message starts a new episode",
+  "source": {
+    "database": "blitz responder.db",
+    "slack_input_ids": ["slack_message_1736cfe8ee17dd96c2c933a957dbfb2d"],
+    "run_ids": [],
+    "reason": "A deployment app message must remain admissible without a provider-specific parser."
+  },
+  "now": "2026-08-27T20:04:32.000000Z",
+  "continuation_window_seconds": 1800,
+  "history_window_seconds": 2592000,
+  "seed": null,
+  "input": {
+    "actor": {"kind": "app", "ref": "B08SC4KM171"},
+    "channel_ref": "C08MMETA3U3",
+    "content": {"text": "league is ready to be deployed\n*Repository:* <https://github.com/theblitzapp/blitz-backend-rs>\nCommit SHA: `d72cc0af049147066063da4f416763f457a51983`"},
+    "event_kind": "message",
+    "event_ref": "Ev0BT44ND5T7",
+    "message_ref": "1787861071.635649",
+    "occurred_at": "2026-08-27T20:04:31.000000Z",
+    "revision": 1,
+    "thread_ref": null,
+    "workspace_ref": "T01J1LW4DF1"
+  },
+  "decision": {
+    "action": "start_episode",
+    "episode_ref": null,
+    "reaction": null,
+    "relation": "unrelated",
+    "reason": "This new app message contains work worth handling."
+  },
+  "expected": {
+    "active_inputs": 1,
+    "decision_action": "start_episode",
+    "destination_thread_ref": "1787861071.635649",
+    "episode_identity": "new",
+    "linked_to_seed": false,
+    "queued_inputs": 0,
+    "state": "working"
+  }
+}

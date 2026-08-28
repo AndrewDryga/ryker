@@ -27,6 +27,7 @@ defmodule Responder.MixProject do
       {:ecto_sql, "~> 3.14"},
       {:postgrex, ">= 0.0.0"},
       {:jason, "~> 1.4"},
+      {:jsv, "~> 0.22", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end
