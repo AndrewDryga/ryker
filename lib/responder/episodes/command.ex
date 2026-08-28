@@ -380,7 +380,8 @@ defmodule Responder.Episodes.Command do
       {reference?(command.turn_ref), :turn_ref},
       {is_integer(command.revision) and command.revision >= 1, :revision},
       {valid_destination?(command.destination), :destination},
-      {CanonicalJSON.validate(command.payload, max_bytes: 65_536) == :ok, :payload},
+      {is_map(command.payload) and
+         CanonicalJSON.validate(command.payload, max_bytes: 65_536) == :ok, :payload},
       {utc_datetime?(command.occurred_at), :occurred_at}
     ])
   end

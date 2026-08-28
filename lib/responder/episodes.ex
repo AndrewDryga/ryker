@@ -9,8 +9,6 @@ defmodule Responder.Episodes do
 
   import Ecto.Query
 
-  alias Ecto.Multi
-
   alias Responder.Episodes.{
     Command,
     Episode,
@@ -25,11 +23,38 @@ defmodule Responder.Episodes do
 
   @spec apply(Command.t()) :: {:ok, Transition.t()} | {:error, term()}
   def apply(command) do
-    with {:ok, command} <- Command.prepare(command) do
-      command
-      |> apply_multi()
-      |> Repo.transaction()
-      |> transaction_result()
+    case apply_batch([command]) do
+      {:ok, [transition]} -> {:ok, transition}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Applies related commands under one episode lock and one database transaction.
+
+  This is used when one trusted input both enters an episode and resolves its
+  current wait. Either every transition is durable or none is.
+  """
+  @spec apply_batch([Command.t()]) :: {:ok, [Transition.t()]} | {:error, term()}
+  def apply_batch(commands) do
+    Repo.transaction(fn ->
+      case apply_batch_in_transaction(commands) do
+        {:ok, transitions} -> transitions
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+    |> transaction_result()
+  end
+
+  @doc false
+  @spec apply_batch_in_transaction([Command.t()]) ::
+          {:ok, [Transition.t()]} | {:error, term()}
+  def apply_batch_in_transaction(commands) do
+    with {:ok, commands} <- prepare_batch(commands),
+         episode_key <- commands |> hd() |> Map.fetch!(:episode_key),
+         {:ok, :locked} <- lock_source(Repo, episode_key),
+         {:ok, episode} <- load_episode(Repo, episode_key) do
+      apply_prepared_batch(Repo, episode, commands)
     end
   end
 
@@ -52,25 +77,51 @@ defmodule Responder.Episodes do
     )
   end
 
-  defp apply_multi(command) do
-    Multi.new()
-    |> Multi.run(:source_lock, fn repo, _changes -> lock_source(repo, command.episode_key) end)
-    |> Multi.run(:episode, fn repo, _changes -> load_episode(repo, command.episode_key) end)
-    |> Multi.run(:existing_event, fn repo, %{episode: episode} ->
-      load_existing_event(repo, episode, Command.dedupe_key(command))
+  defp prepare_batch([]), do: {:error, :empty_command_batch}
+
+  defp prepare_batch(commands) when is_list(commands) do
+    commands
+    |> Enum.reduce_while({:ok, []}, fn command, {:ok, prepared} ->
+      case Command.prepare(command) do
+        {:ok, command} -> {:cont, {:ok, [command | prepared]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
     end)
-    |> Multi.run(:transition, fn _repo, %{episode: episode, existing_event: event} ->
-      Kernel.apply(episode, event, command)
+    |> case do
+      {:ok, prepared} -> prepared |> Enum.reverse() |> same_episode_batch()
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp prepare_batch(_commands), do: {:error, :invalid_command_batch}
+
+  defp same_episode_batch([first | rest] = commands) do
+    if Enum.all?(rest, &(&1.episode_key == first.episode_key)),
+      do: {:ok, commands},
+      else: {:error, :mixed_episode_command_batch}
+  end
+
+  defp apply_prepared_batch(repo, episode, commands) do
+    commands
+    |> Enum.reduce_while({:ok, episode, []}, fn command, {:ok, stored, transitions} ->
+      with {:ok, event} <- load_existing_event(repo, stored, Command.dedupe_key(command)),
+           {:ok, transition} <- Kernel.apply(stored, event, command),
+           {:ok, transition} <- persist(repo, stored, transition) do
+        {:cont, {:ok, transition.episode, [transition | transitions]}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
     end)
-    |> Multi.run(:persist, fn repo, %{episode: stored, transition: transition} ->
-      persist(repo, stored, transition)
-    end)
+    |> case do
+      {:ok, _episode, transitions} -> {:ok, Enum.reverse(transitions)}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp lock_source(repo, episode_key) do
     case repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [episode_key]) do
       {:ok, _result} -> {:ok, :locked}
-      {:error, reason} -> {:error, reason}
+      {:error, reason} -> {:error, {:store_failed, :source_lock, reason}}
     end
   end
 
@@ -133,11 +184,6 @@ defmodule Responder.Episodes do
     {:error, {:persistence_failed, kind, changeset.errors}}
   end
 
-  defp transaction_result({:ok, %{persist: transition}}), do: {:ok, transition}
-  defp transaction_result({:error, :transition, reason, _changes}), do: {:error, reason}
-  defp transaction_result({:error, :persist, reason, _changes}), do: {:error, reason}
-
-  defp transaction_result({:error, operation, reason, _changes}) do
-    {:error, {:store_failed, operation, reason}}
-  end
+  defp transaction_result({:ok, value}), do: {:ok, value}
+  defp transaction_result({:error, reason}), do: {:error, reason}
 end

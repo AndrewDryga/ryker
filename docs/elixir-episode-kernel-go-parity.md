@@ -21,7 +21,7 @@ tests now while still making the cutover boundary explicit and mechanically chec
 | Owner | Go tests | What must preserve them |
 |---|---:|---|
 | `episode_kernel` | 8 | Durable identity, owner, queue, wait, result and cancellation transitions. |
-| `source_ingress` | 50 | Native source identity, alert cycles, chronology, correlation, wakeups and thread binding. |
+| `source_ingress` | 50 | Generic Slack intake, model admission, chronology, correlation, wakeups and thread binding. |
 | `slack_gateway` | 44 | Atomic outbox custody, response-loss reconciliation, status, reactions, artifacts and routing. |
 | `coop_runtime` | 61 | Session isolation, provider recovery, leases, replay, turn capacity and cancellation. |
 | `final_protocol` | 24 | Candidate admission, correction, silence, completion and result supersession. |
@@ -32,7 +32,7 @@ tests now while still making the cutover boundary explicit and mechanically chec
 
 ## Already represented in Stage 1
 
-Eighteen old tests already have a direct kernel test or harvested replay fixture. Every test assigned to
+Nineteen old tests already have a direct kernel test or harvested replay fixture. Every test assigned to
 `episode_kernel` has one; ten additional integration tests retain their future owner while also naming
 the Stage 1 invariant they build on. Important examples are:
 
@@ -50,6 +50,22 @@ the Stage 1 invariant they build on. Important examples are:
 These matches prove the lower-level invariant only. A Go Slack-delivery or source-correlation test stays
 assigned to its future integration module even when Stage 1 already protects its underlying destination
 or queue behavior.
+
+## Stage 2 host proof and pending model proof
+
+Four source-ingress tests now have direct deterministic generic-admission equivalents. They cover
+exact-thread wait resumption and newer context queueing behind active work without replacing its owner.
+
+Eleven additional source-ingress cases have harvested Slack contexts but remain explicitly pending
+model evaluations. They cover an active lifecycle retaining its first card, a new cycle using its new
+card while linking history, arbitrary app input without count/status heuristics, and distinct external
+runs remaining separate. Replaying a recorded decision proves only that the host applies that decision
+safely; it does not prove a model will choose it.
+
+The fixtures contain provider text because that is what Slack really delivered. Production admission
+code does not branch on those providers or phrases. Old tests whose purpose was to parse specific alert
+wording, links, or run syntax remain assigned to `source_ingress` until they are represented by model
+evaluation cases; they must not be reintroduced as deterministic host string matching.
 
 ## Maintenance rule
 

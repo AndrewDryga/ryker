@@ -18,9 +18,15 @@ defmodule Responder.LegacyParityManifestTest do
     manifest = decode_manifest!()
 
     assert Map.keys(manifest) |> Enum.sort() ==
-             ["files", "stage1_equivalents", "version"]
+             [
+               "files",
+               "stage1_equivalents",
+               "stage2_equivalents",
+               "stage2_pending_model_evals",
+               "version"
+             ]
 
-    assert manifest["version"] == 1
+    assert manifest["version"] == 3
 
     paths = Enum.map(manifest["files"], & &1["path"])
     assert Enum.uniq(paths) == paths
@@ -54,31 +60,22 @@ defmodule Responder.LegacyParityManifestTest do
 
     assert map_size(mapped) > 0
 
-    equivalents =
-      Enum.map(manifest["stage1_equivalents"], fn equivalent ->
-        assert Map.keys(equivalent) |> Enum.sort() ==
-                 ["go_file", "go_test", "replacement_file", "replacement_test"]
+    stage1_equivalents = validate_equivalents(manifest["stage1_equivalents"], mapped)
+    stage2_equivalents = validate_equivalents(manifest["stage2_equivalents"], mapped)
 
-        key = {equivalent["go_file"], equivalent["go_test"]}
-        assert Map.has_key?(mapped, key)
-        assert File.regular?(equivalent["replacement_file"])
-
-        replacement_test = equivalent["replacement_test"]
-
-        if replacement_test != nil do
-          assert is_binary(replacement_test) and replacement_test != ""
-          assert File.read!(equivalent["replacement_file"]) =~ replacement_test
-        end
-
-        key
-      end)
+    pending_model_evals =
+      validate_pending_model_evals(manifest["stage2_pending_model_evals"], mapped)
 
     kernel_owned =
       for {key, "episode_kernel"} <- mapped,
           into: MapSet.new(),
           do: key
 
-    assert MapSet.difference(kernel_owned, MapSet.new(equivalents)) == MapSet.new()
+    assert MapSet.difference(kernel_owned, MapSet.new(stage1_equivalents)) == MapSet.new()
+
+    assert Enum.all?(stage2_equivalents, fn key -> mapped[key] == "source_ingress" end)
+    assert Enum.uniq(stage2_equivalents) == stage2_equivalents
+    assert MapSet.disjoint?(MapSet.new(stage2_equivalents), MapSet.new(pending_model_evals))
   end
 
   test "drift reports both unclassified and stale test names" do
@@ -92,6 +89,39 @@ defmodule Responder.LegacyParityManifestTest do
     @manifest_path
     |> File.read!()
     |> Jason.decode!()
+  end
+
+  defp validate_equivalents(equivalents, mapped) do
+    Enum.map(equivalents, fn equivalent ->
+      assert Map.keys(equivalent) |> Enum.sort() ==
+               ["go_file", "go_test", "replacement_file", "replacement_test"]
+
+      key = {equivalent["go_file"], equivalent["go_test"]}
+      assert Map.has_key?(mapped, key)
+      assert File.regular?(equivalent["replacement_file"])
+
+      replacement_test = equivalent["replacement_test"]
+
+      if replacement_test != nil do
+        assert is_binary(replacement_test) and replacement_test != ""
+        assert File.read!(equivalent["replacement_file"]) =~ replacement_test
+      end
+
+      key
+    end)
+  end
+
+  defp validate_pending_model_evals(evals, mapped) do
+    Enum.map(evals, fn eval ->
+      assert Map.keys(eval) |> Enum.sort() ==
+               ["context_fixture", "go_file", "go_test", "reason"]
+
+      key = {eval["go_file"], eval["go_test"]}
+      assert mapped[key] == "source_ingress"
+      assert File.regular?(eval["context_fixture"])
+      assert is_binary(eval["reason"]) and String.trim(eval["reason"]) != ""
+      key
+    end)
   end
 
   defp go_tests(path) do

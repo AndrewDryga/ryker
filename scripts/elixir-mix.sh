@@ -20,6 +20,9 @@ required_dependencies=(ecto_sql jason postgrex)
 if [[ ${MIX_ENV:-dev} != prod ]]; then
   required_dependencies+=(credo)
 fi
+if [[ ${MIX_ENV:-dev} == test ]]; then
+  required_dependencies+=(jsv)
+fi
 
 for dependency in "${required_dependencies[@]}"; do
   if [[ ! -d "$root/deps/$dependency" ]]; then

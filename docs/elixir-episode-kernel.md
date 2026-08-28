@@ -29,6 +29,9 @@ The checked-in [Go lifecycle test parity](elixir-episode-kernel-go-parity.md) as
 scoped legacy lifecycle files to this kernel or a named future replacement module. Its fast drift test
 prevents a relevant Go regression case from disappearing unnoticed during the staged rewrite.
 
+The next completed boundary is the [generic Slack admission module](elixir-slack-admission.md), which
+uses this kernel without teaching the host about individual Slack apps or provider message formats.
+
 ## Cutover deletion map
 
 Later modules must reach parity before the replacement runtime is wired. At the final cutover, delete
