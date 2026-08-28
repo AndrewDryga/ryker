@@ -78,6 +78,75 @@ defmodule Responder.Coop.ClientTest do
     end)
   end
 
+  test "fences the exact prepared create and submit identities without replaying them" do
+    fenced = %{
+      "error_code" => "operation_fenced",
+      "id" => "op_fenced",
+      "method" => "CreateRemoteSession",
+      "state" => "failed"
+    }
+
+    with_unix_server(fenced, fn client, request ->
+      assert {:ok, ^fenced} =
+               Client.fence_create_session(
+                 client,
+                 "responder:work:create:session:g1",
+                 "work-read-only",
+                 "episode:123"
+               )
+
+      captured = request.()
+      assert captured.path == "/v1/operations/fence"
+      assert captured.headers["idempotency-key"] == "responder:work:create:session:g1"
+
+      assert Jason.decode!(captured.body) == %{
+               "method" => "CreateRemoteSession",
+               "request" => %{"policy" => "work-read-only", "task" => "episode:123"}
+             }
+    end)
+
+    schema = %{
+      "additionalProperties" => false,
+      "properties" => %{"answer" => %{"type" => "string"}},
+      "required" => ["answer"],
+      "type" => "object"
+    }
+
+    fenced_turn = %{fenced | "method" => "SubmitTurn"}
+
+    with_unix_server(fenced_turn, fn client, request ->
+      assert {:ok, ^fenced_turn} =
+               Client.fence_submit_turn(
+                 client,
+                 "remote_123",
+                 "responder:work:turn:turn:g1:sha",
+                 4,
+                 "Frozen prompt",
+                 schema
+               )
+
+      captured = request.()
+      contract = Jason.decode!(captured.body)["request"]["output_contract"]
+
+      assert Jason.decode!(captured.body) == %{
+               "method" => "SubmitTurn",
+               "request" => %{
+                 "expected_revision" => 4,
+                 "output_contract" => contract,
+                 "prompt" => "Frozen prompt",
+                 "session_id" => "remote_123"
+               }
+             }
+
+      assert contract["json_schema"] == schema
+      assert contract["require_semantic_validation"]
+
+      assert contract["sha256"] ==
+               :crypto.hash(:sha256, CanonicalJSON.encode!(schema))
+               |> Base.encode16(case: :lower)
+    end)
+  end
+
   test "keeps bounded Coop errors structured and treats missing operations as absent" do
     error = %{
       "error" => %{"code" => "operation_not_found", "detail" => "operation not found"}
@@ -174,6 +243,34 @@ defmodule Responder.Coop.ClientTest do
     end)
   end
 
+  test "cancels the exact Coop turn with a revision-fenced idempotent mutation" do
+    cancelled = %{
+      "operation" => %{"id" => "op_cancel", "state" => "succeeded"},
+      "turn" => %{
+        "id" => "turn_123",
+        "revision" => 7,
+        "session_id" => "remote_123",
+        "state" => "cancelled"
+      }
+    }
+
+    with_unix_server(cancelled, fn client, request ->
+      assert {:ok, ^cancelled} =
+               Client.cancel_turn(
+                 client,
+                 "remote_123",
+                 "turn_123",
+                 "cancel:turn:123:g1",
+                 6
+               )
+
+      captured = request.()
+      assert captured.path == "/v1/sessions/remote_123/turns/turn_123/cancel"
+      assert captured.headers["idempotency-key"] == "cancel:turn:123:g1"
+      assert Jason.decode!(captured.body) == %{"expected_revision" => 6}
+    end)
+  end
+
   test "rejects malformed local requests before opening a socket" do
     assert {:error, {:invalid_coop_client, :socket}} =
              Client.new(finch: __MODULE__, receive_timeout: 1_000, socket: "tcp://coop")
@@ -186,6 +283,9 @@ defmodule Responder.Coop.ClientTest do
 
     assert {:error, {:invalid_coop_request, :expected_revision}} =
              Client.close_session(client, "remote_123", "close:key", 0)
+
+    assert {:error, {:invalid_coop_request, :expected_revision}} =
+             Client.cancel_turn(client, "remote_123", "turn_123", "cancel:key", 0)
 
     assert {:error, {:invalid_coop_request, :candidate_sha256}} =
              Client.validate_candidate(
@@ -206,6 +306,35 @@ defmodule Responder.Coop.ClientTest do
                String.duplicate("a", 64),
                {:reject, []}
              )
+
+    assert {:error, {:invalid_coop_request, :violations}} =
+             Client.validate_candidate(
+               client,
+               "remote_123",
+               "turn_123",
+               "validation:key",
+               String.duplicate("a", 64),
+               {:reject, [String.duplicate("x", 4_096)]}
+             )
+  end
+
+  test "normalizes semantic violations exactly as Coop counts them" do
+    digest = String.duplicate("a", 64)
+    rejected = %{"turn" => %{"id" => "turn_123", "state" => "running"}}
+
+    with_unix_server(rejected, fn client, request ->
+      assert {:ok, ^rejected} =
+               Client.validate_candidate(
+                 client,
+                 "remote_123",
+                 "turn_123",
+                 "validation:boundary",
+                 digest,
+                 {:reject, ["  " <> String.duplicate("x", 4_095) <> "  "]}
+               )
+
+      assert Jason.decode!(request.().body)["violations"] == [String.duplicate("x", 4_095)]
+    end)
   end
 
   defp with_unix_server(response, function), do: with_unix_server(response, 200, function)

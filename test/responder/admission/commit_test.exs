@@ -12,6 +12,7 @@ defmodule Responder.Admission.CommitTest do
   alias Responder.Ingress.{Inbox, Input}
   alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
+  alias Responder.Work.{Cancellation, Custody, Submission}
 
   @now ~U[2026-08-27 12:00:00.000000Z]
 
@@ -142,6 +143,106 @@ defmodule Responder.Admission.CommitTest do
              :input_admitted,
              :input_admitted
            ]
+  end
+
+  test "a same-work correction rearms a remotely settled blocked turn" do
+    active = create_episode!(thread_ref: "1787830000.006001")
+    policy = %{digest: String.duplicate("a", 64), name: "work-read-only"}
+
+    assert {:ok, _session} =
+             Custody.pin_episode(active.id, policy.name, policy.digest)
+
+    assert {:ok, claim} = Custody.claim_next("worker:block-before-correction", 60)
+
+    assert {:ok, submission} =
+             Submission.new(
+               %{"request" => "The original request"},
+               "Handle the original request.",
+               %{"type" => "object"},
+               "work-final-v1"
+             )
+
+    assert {:ok, _turn} =
+             Custody.freeze_submission(
+               active.id,
+               active.owner_ref,
+               claim.lease_ref,
+               submission
+             )
+
+    assert {:ok, session} =
+             Custody.bind_session(
+               active.id,
+               active.owner_ref,
+               claim.lease_ref,
+               claim.session.generation,
+               claim.session.create_generation,
+               "coop-session:blocked-correction"
+             )
+
+    assert {:ok, turn} =
+             Custody.bind_turn(
+               active.id,
+               active.owner_ref,
+               claim.lease_ref,
+               session.generation,
+               claim.turn.submit_generation,
+               "coop-turn:blocked-correction"
+             )
+
+    assert {:ok, _requested} =
+             Custody.request_block(
+               active.id,
+               active.key,
+               active.owner_ref,
+               claim.lease_ref,
+               "The executor needs a human correction."
+             )
+
+    assert {:ok, stop_claim} = Custody.claim_next("worker:stop-before-correction", 60)
+
+    assert {:ok, receipt} =
+             Cancellation.terminal_receipt(
+               session.coop_session_id,
+               turn.coop_turn_id,
+               "cancelled",
+               Cancellation.operation_key(turn.id, 1),
+               "closed",
+               "responder:work:cancel-close:#{turn.id}:g1"
+             )
+
+    assert {:ok, blocked} =
+             Custody.settle_cancellation(
+               active.id,
+               active.key,
+               active.owner_ref,
+               stop_claim.lease_ref,
+               receipt
+             )
+
+    assert blocked.turn.status == :blocked
+
+    entry =
+      record_input!(
+        event_ref: "Ev-correct-blocked-work",
+        message_ref: "1787830000.006002",
+        thread_ref: active.destination_thread_ref
+      )
+
+    context = context!(entry)
+    candidate = candidate!(context, active.id)
+    continue = decision!(:continue_episode, candidate.ref, :same_work)
+
+    assert {:ok, result} =
+             Admission.commit(context, continue, "decision-resume-blocked", work_policy: policy)
+
+    assert result.episode.owner_ref =~ "turn:resume-blocked:#{turn.id}:v"
+    assert result.episode.queued_input_refs == []
+    assert length(result.episode.active_input_refs) == 2
+
+    assert {:ok, replacement} = Custody.claim_next("worker:corrected-work", 60)
+    assert replacement.turn.turn_ref == result.episode.owner_ref
+    assert replacement.session.generation == session.generation + 1
   end
 
   test "an admitted trigger resumes a waiting episode in the same transaction" do

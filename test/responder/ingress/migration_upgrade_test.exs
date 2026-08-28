@@ -34,7 +34,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                log: false
              ) == [
                20_260_827_000_300,
-               20_260_827_000_400
+               20_260_827_000_400,
+               20_260_828_000_100
              ]
 
       refute table_exists?(repo, prefix, "slack_inbox_entries")

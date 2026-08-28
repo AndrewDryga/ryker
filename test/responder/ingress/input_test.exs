@@ -93,6 +93,32 @@ defmodule Responder.Slack.InputTest do
     assert input.content["text"] |> byte_size() == 45_000
   end
 
+  test "the generic ingress boundary rejects malformed adapter output without raising" do
+    assert {:ok, valid} = SlackInput.new(valid_attributes())
+    attributes = Map.from_struct(valid)
+
+    assert {:ok, from_keyword} = Input.new(Map.to_list(attributes))
+    assert from_keyword == valid
+
+    assert Input.prepare(:not_an_input) == {:error, {:invalid_input, :type}}
+    assert Input.new(:not_attributes) == {:error, {:invalid_input, :fields}}
+
+    assert Input.new(actor: valid.actor, actor: valid.actor) ==
+             {:error, {:invalid_input, :fields}}
+
+    assert Input.new(%{attributes | content: "not a JSON object"}) ==
+             {:error, {:invalid_input, :content}}
+
+    assert Input.new(%{attributes | source: %{kind: :slack}}) ==
+             {:error, {:invalid_input, :source}}
+
+    assert Input.new(%{attributes | destination: %{transport: "slack"}}) ==
+             {:error, {:invalid_input, :destination}}
+
+    assert Input.new(%{attributes | occurred_at: ~D[2026-08-27]}) ==
+             {:error, {:invalid_input, :occurred_at}}
+  end
+
   defp valid_attributes(overrides \\ []) do
     defaults = [
       actor: %{kind: :app, ref: "A123"},

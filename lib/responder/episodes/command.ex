@@ -47,13 +47,14 @@ defmodule Responder.Episodes.Command do
   defmodule TransferOwner do
     @moduledoc false
     @enforce_keys [:episode_key, :expected_owner, :new_owner, :occurred_at, :transfer_ref]
-    defstruct @enforce_keys
+    defstruct @enforce_keys ++ [required_input_ref: nil]
 
     @type t :: %__MODULE__{
             episode_key: String.t(),
             expected_owner: map(),
             new_owner: map(),
             occurred_at: DateTime.t(),
+            required_input_ref: String.t() | nil,
             transfer_ref: String.t()
           }
   end
@@ -113,12 +114,13 @@ defmodule Responder.Episodes.Command do
   defmodule ConfirmDelivery do
     @moduledoc false
     @enforce_keys [:episode_key, :expected_delivery_ref, :occurred_at]
-    defstruct @enforce_keys ++ [next_turn_ref: nil]
+    defstruct @enforce_keys ++ [next_turn_ref: nil, next_wait: nil]
 
     @type t :: %__MODULE__{
             episode_key: String.t(),
             expected_delivery_ref: String.t(),
             next_turn_ref: String.t() | nil,
+            next_wait: map() | nil,
             occurred_at: DateTime.t()
           }
   end
@@ -184,7 +186,11 @@ defmodule Responder.Episodes.Command do
   end
 
   def normalize(%ConfirmDelivery{} = command) do
-    %{command | occurred_at: normalize_datetime(command.occurred_at)}
+    %{
+      command
+      | next_wait: normalize_wait(command.next_wait),
+        occurred_at: normalize_datetime(command.occurred_at)
+    }
   end
 
   def normalize(%CancelEpisode{} = command) do
@@ -234,7 +240,7 @@ defmodule Responder.Episodes.Command do
   end
 
   def document(%TransferOwner{} = command) do
-    %{
+    document = %{
       "episode_key" => command.episode_key,
       "expected_owner" => stringify_keys(command.expected_owner),
       "kind" => "transfer_owner",
@@ -242,6 +248,10 @@ defmodule Responder.Episodes.Command do
       "occurred_at" => iso8601(command.occurred_at),
       "transfer_ref" => command.transfer_ref
     }
+
+    if command.required_input_ref,
+      do: Map.put(document, "required_input_ref", command.required_input_ref),
+      else: document
   end
 
   def document(%StartWait{} = command) do
@@ -282,13 +292,17 @@ defmodule Responder.Episodes.Command do
   end
 
   def document(%ConfirmDelivery{} = command) do
-    %{
+    document = %{
       "episode_key" => command.episode_key,
       "expected_delivery_ref" => command.expected_delivery_ref,
       "kind" => "confirm_delivery",
       "next_turn_ref" => command.next_turn_ref,
       "occurred_at" => iso8601(command.occurred_at)
     }
+
+    if command.next_wait,
+      do: Map.put(document, "next_wait", wait_document(command.next_wait)),
+      else: document
   end
 
   def document(%CancelEpisode{} = command) do
@@ -391,6 +405,7 @@ defmodule Responder.Episodes.Command do
       {reference?(command.episode_key), :episode_key},
       {valid_owner?(command.expected_owner), :expected_owner},
       {valid_owner?(command.new_owner), :new_owner},
+      {optional_ref?(command.required_input_ref), :required_input_ref},
       {reference?(command.transfer_ref), :transfer_ref},
       {utc_datetime?(command.occurred_at), :occurred_at}
     ])
@@ -436,6 +451,8 @@ defmodule Responder.Episodes.Command do
       {reference?(command.episode_key), :episode_key},
       {reference?(command.expected_delivery_ref), :expected_delivery_ref},
       {optional_ref?(command.next_turn_ref), :next_turn_ref},
+      {valid_next_wait?(command.next_wait), :next_wait},
+      {is_nil(command.next_turn_ref) or is_nil(command.next_wait), :continuation},
       {utc_datetime?(command.occurred_at), :occurred_at}
     ])
   end
@@ -496,7 +513,7 @@ defmodule Responder.Episodes.Command do
   defp valid_decision_reason?(%AcceptResult{delivery: :reply, decision_reason: nil}), do: true
 
   defp valid_decision_reason?(%AcceptResult{delivery: :none, decision_reason: reason}),
-    do: bounded_text?(reason, 240)
+    do: bounded_unicode_text?(reason, 240, 960)
 
   defp valid_decision_reason?(_command), do: false
 
@@ -507,6 +524,33 @@ defmodule Responder.Episodes.Command do
 
   defp valid_accept_next_ref?(_command), do: false
 
+  defp valid_next_wait?(nil), do: true
+
+  defp valid_next_wait?(%{kind: :input, ref: ref, deadline_at: nil} = wait),
+    do: exact_keys?(wait, [:deadline_at, :kind, :ref]) and reference?(ref)
+
+  defp valid_next_wait?(%{kind: :event, ref: ref, deadline_at: %DateTime{} = deadline} = wait),
+    do:
+      exact_keys?(wait, [:deadline_at, :kind, :ref]) and reference?(ref) and
+        utc_datetime?(deadline)
+
+  defp valid_next_wait?(_wait), do: false
+
+  defp normalize_wait(nil), do: nil
+
+  defp normalize_wait(%{deadline_at: deadline_at} = wait),
+    do: %{wait | deadline_at: normalize_datetime(deadline_at)}
+
+  defp normalize_wait(wait), do: wait
+
+  defp wait_document(%{deadline_at: deadline_at, kind: kind, ref: ref}) do
+    %{
+      "deadline_at" => iso8601(deadline_at),
+      "kind" => Atom.to_string(kind),
+      "ref" => ref
+    }
+  end
+
   defp reference?(value), do: bounded_text?(value, 1_024)
   defp optional_ref?(nil), do: true
   defp optional_ref?(value), do: reference?(value)
@@ -516,6 +560,12 @@ defmodule Responder.Episodes.Command do
   defp bounded_text?(value, maximum) do
     is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
       String.trim(value) != "" and byte_size(value) <= maximum
+  end
+
+  defp bounded_unicode_text?(value, maximum_characters, maximum_bytes) do
+    is_binary(value) and String.valid?(value) and
+      String.length(value) in 1..maximum_characters and byte_size(value) <= maximum_bytes and
+      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
   end
 
   defp utc_datetime?(%DateTime{} = value) do

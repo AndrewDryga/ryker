@@ -231,7 +231,7 @@ defmodule Responder.Admission.DispatcherTest do
     state = FakeAPI.state(fake)
     assert state.submit_count == 1
     assert Enum.uniq(state.validation_keys) |> length() == 1
-    assert hd(state.validation_keys) =~ ":g1:v1:"
+    assert hd(state.validation_keys) =~ ":g1:a1:v1:"
   end
 
   test "a maximum-size escaped Coop error enters durable blocked custody" do
@@ -623,6 +623,7 @@ defmodule Responder.Admission.DispatcherTest do
         max_polls: 10,
         now: fn -> now end,
         policy: "admission-read-only",
+        policy_digest: String.duplicate("a", 64),
         poll_interval_ms: 0,
         sleep: fn _milliseconds -> :ok end
       ],

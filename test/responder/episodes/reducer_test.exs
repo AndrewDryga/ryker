@@ -349,6 +349,77 @@ defmodule Responder.Episodes.ReducerTest do
                {:error, {:owner_kind_change_requires_transition, :turn, :delivery}}
     end
 
+    test "an owner transfer hands queued inputs to the replacement turn" do
+      first = EpisodeFixtures.admit_input()
+      assert {:ok, admitted} = Reducer.decide(nil, first)
+
+      feedback =
+        EpisodeFixtures.admit_input(%{
+          native_input_id: "slack:event:owner-transfer-feedback",
+          occurred_at: ~U[2026-08-27 12:00:01.000000Z],
+          payload: %{"text" => "Please retry with this correction."}
+        })
+
+      assert {:ok, queued} = Reducer.decide(admitted.episode, feedback)
+      assert queued.episode.queued_input_refs == [Command.dedupe_key(feedback)]
+
+      assert {:ok, transferred} =
+               Reducer.decide(queued.episode, EpisodeFixtures.transfer_owner())
+
+      assert transferred.episode.active_input_refs == [
+               Command.dedupe_key(first),
+               Command.dedupe_key(feedback)
+             ]
+
+      assert transferred.episode.queued_input_refs == []
+      assert transferred.episode.queued_input_order_keys == []
+    end
+
+    test "a feedback transfer replaces an already-consumed correction with its triggering input" do
+      first = EpisodeFixtures.admit_input()
+      assert {:ok, admitted} = Reducer.decide(nil, first)
+
+      first_correction =
+        EpisodeFixtures.admit_input(%{
+          native_input_id: "slack:event:first-correction",
+          occurred_at: ~U[2026-08-27 12:00:01.000000Z],
+          payload: %{"text" => "Try the first correction."}
+        })
+
+      assert {:ok, first_queued} = Reducer.decide(admitted.episode, first_correction)
+
+      assert {:ok, first_transfer} =
+               Reducer.decide(first_queued.episode, EpisodeFixtures.transfer_owner())
+
+      second_correction =
+        EpisodeFixtures.admit_input(%{
+          native_input_id: "slack:event:second-correction",
+          occurred_at: ~U[2026-08-27 12:00:02.000000Z],
+          payload: %{"text" => "Use this newer correction instead."}
+        })
+
+      assert {:ok, second_queued} = Reducer.decide(first_transfer.episode, second_correction)
+
+      transfer =
+        EpisodeFixtures.transfer_owner(%{
+          expected_owner: %{kind: :turn, ref: "turn-1-replacement"},
+          new_owner: %{kind: :turn, ref: "turn-1-after-second-correction"},
+          occurred_at: ~U[2026-08-27 12:00:03.000000Z],
+          required_input_ref: Command.dedupe_key(second_correction),
+          transfer_ref: "owner-transfer-second-correction"
+        })
+
+      assert {:ok, resumed} = Reducer.decide(second_queued.episode, transfer)
+
+      assert resumed.episode.active_input_refs == [
+               Command.dedupe_key(first),
+               Command.dedupe_key(second_correction)
+             ]
+
+      refute Command.dedupe_key(first_correction) in resumed.episode.active_input_refs
+      assert resumed.episode.queued_input_refs == []
+    end
+
     test "an owner transfer requires a usable replacement reference" do
       assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
       transfer = EpisodeFixtures.transfer_owner(%{new_owner: %{kind: :turn, ref: ""}})
@@ -577,6 +648,51 @@ defmodule Responder.Episodes.ReducerTest do
       assert resumed.episode.active_input_refs == [Command.dedupe_key(followup)]
     end
 
+    test "queued inputs advance in exact bounded pairs without losing chronology" do
+      assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
+      assert {:ok, accepted} = Reducer.decide(admitted.episode, EpisodeFixtures.accept_result())
+
+      queued =
+        Enum.reduce(1..45, accepted.episode, fn index, episode ->
+          input =
+            EpisodeFixtures.admit_input(%{
+              native_input_id: "slack:event:batch-#{index}",
+              occurred_at: DateTime.add(~U[2026-08-27 12:00:00.000000Z], index, :second),
+              payload: %{"text" => "batch #{index}"}
+            })
+
+          assert {:ok, transition} = Reducer.decide(episode, input)
+          transition.episode
+        end)
+
+      assert {:ok, first_batch} =
+               Reducer.decide(
+                 queued,
+                 EpisodeFixtures.confirm_delivery(%{next_turn_ref: "turn-batch-1"})
+               )
+
+      assert first_batch.episode.active_input_refs == Enum.take(queued.queued_input_refs, 2)
+      assert length(first_batch.episode.queued_input_refs) == 43
+
+      result =
+        EpisodeFixtures.accept_result(%{
+          decision_reason: "continue the remaining queued input batch",
+          delivery: :none,
+          delivery_ref: nil,
+          expected_turn_ref: "turn-batch-1",
+          next_turn_ref: "turn-batch-2",
+          result_ref: "result-batch-1"
+        })
+
+      assert {:ok, second_batch} = Reducer.decide(first_batch.episode, result)
+
+      assert second_batch.episode.active_input_refs ==
+               Enum.take(first_batch.episode.queued_input_refs, 2)
+
+      assert length(second_batch.episode.queued_input_refs) == 41
+      assert length(second_batch.episode.queued_input_order_keys) == 41
+    end
+
     test "a no-delivery result completes immediately when no input is queued" do
       assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
 
@@ -638,8 +754,26 @@ defmodule Responder.Episodes.ReducerTest do
 
       assert {:ok, accepted} = Reducer.decide(admitted.episode, EpisodeFixtures.accept_result())
 
-      confirmation = EpisodeFixtures.confirm_delivery(%{next_turn_ref: "turn-unused"})
-      assert Reducer.decide(accepted.episode, confirmation) == {:error, :unexpected_next_turn}
+      confirmation = EpisodeFixtures.confirm_delivery(%{next_turn_ref: "turn-immediate"})
+      assert {:ok, immediate} = Reducer.decide(accepted.episode, confirmation)
+      assert immediate.episode.state == :working
+      assert immediate.episode.owner_ref == "turn-immediate"
+      assert immediate.episode.active_input_refs == []
+    end
+
+    test "delivery can enter a durable wait without losing the Slack receipt transition" do
+      assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
+      assert {:ok, accepted} = Reducer.decide(admitted.episode, EpisodeFixtures.accept_result())
+
+      confirmation =
+        EpisodeFixtures.confirm_delivery(%{
+          next_wait: %{deadline_at: nil, kind: :input, ref: "question-1"}
+        })
+
+      assert {:ok, waiting} = Reducer.decide(accepted.episode, confirmation)
+      assert waiting.episode.state == :waiting_for_input
+      assert waiting.episode.owner_kind == :input
+      assert waiting.episode.owner_ref == "question-1"
     end
 
     test "a silent result requires one bounded audited reason" do
@@ -760,7 +894,7 @@ defmodule Responder.Episodes.ReducerTest do
                  actual: %{kind: nil, ref: nil}}}
     end
 
-    test "cancelling delivery prevents an accepted reply from appearing after stop" do
+    test "an accepted reply must settle before cancellation can retire its episode" do
       assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
       assert {:ok, accepted} = Reducer.decide(admitted.episode, EpisodeFixtures.accept_result())
 
@@ -769,12 +903,27 @@ defmodule Responder.Episodes.ReducerTest do
           expected_owner: %{kind: :delivery, ref: "slack-delivery-1"}
         })
 
-      assert {:ok, cancelled} = Reducer.decide(accepted.episode, cancel)
-      assert cancelled.episode.state == :cancelled
+      assert Reducer.decide(accepted.episode, cancel) ==
+               {:error, :delivery_must_settle_before_cancel}
 
-      assert Reducer.decide(cancelled.episode, EpisodeFixtures.confirm_delivery()) ==
-               {:error,
-                {:stale_delivery, expected: "slack-delivery-1", actual: %{kind: nil, ref: nil}}}
+      assert {:ok, delivered} =
+               Reducer.decide(accepted.episode, EpisodeFixtures.confirm_delivery())
+
+      assert delivered.episode.state == :complete
+    end
+
+    test "an accepted reply must settle before delivery ownership can move" do
+      assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
+      assert {:ok, accepted} = Reducer.decide(admitted.episode, EpisodeFixtures.accept_result())
+
+      transfer =
+        EpisodeFixtures.transfer_owner(%{
+          expected_owner: %{kind: :delivery, ref: "slack-delivery-1"},
+          new_owner: %{kind: :delivery, ref: "slack-delivery-2"}
+        })
+
+      assert Reducer.decide(accepted.episode, transfer) ==
+               {:error, :delivery_must_settle_before_transfer}
     end
 
     test "cancellation is fenced to the exact durable owner" do

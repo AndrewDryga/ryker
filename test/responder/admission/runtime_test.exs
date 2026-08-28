@@ -7,6 +7,7 @@ defmodule Responder.Admission.RuntimeTest do
     child =
       Runtime.child_spec(
         policy: "admission-read-only",
+        policy_digest: String.duplicate("a", 64),
         poll_interval_ms: 500,
         receive_timeout_ms: 2_000,
         socket: "/tmp/coop.sock",
@@ -21,6 +22,7 @@ defmodule Responder.Admission.RuntimeTest do
     assert dispatcher[:worker_ref] == "responder:local"
     assert dispatcher[:lease_seconds] == 300
     assert dispatcher[:executor_options][:policy] == "admission-read-only"
+    assert dispatcher[:executor_options][:policy_digest] == String.duplicate("a", 64)
     assert dispatcher[:executor_options][:client].socket == "/tmp/coop.sock"
     assert dispatcher[:executor_options][:client].receive_timeout == 2_000
   end
@@ -31,6 +33,7 @@ defmodule Responder.Admission.RuntimeTest do
     assert_raise ArgumentError, ~r/receive_timeout_ms/, fn ->
       Runtime.child_spec(
         policy: "admission-read-only",
+        policy_digest: String.duplicate("a", 64),
         receive_timeout_ms: 100_001,
         socket: "/tmp/coop.sock",
         worker_ref: "responder:local"
@@ -42,6 +45,7 @@ defmodule Responder.Admission.RuntimeTest do
     assert_raise ArgumentError, fn ->
       Runtime.child_spec(
         policy: "admission-read-only",
+        policy_digest: String.duplicate("a", 64),
         socket: "tcp://coop.example",
         worker_ref: "responder:local"
       )
@@ -50,6 +54,7 @@ defmodule Responder.Admission.RuntimeTest do
     assert_raise ArgumentError, fn ->
       Runtime.child_spec(
         policy: "admission-read-only",
+        policy_digest: String.duplicate("a", 64),
         socket: "/tmp/coop.sock",
         surprise: true,
         worker_ref: "responder:local"
@@ -69,19 +74,28 @@ defmodule Responder.Admission.RuntimeTest do
       %{policy: "admission-read-only", socket: "/tmp/coop.sock"},
       %{
         policy: " ",
+        policy_digest: String.duplicate("a", 64),
         socket: "/tmp/coop.sock",
         worker_ref: "responder:local"
       },
       %{
         policy: "admission-read-only",
+        policy_digest: String.duplicate("a", 64),
         poll_interval_ms: 0,
         socket: "/tmp/coop.sock",
         worker_ref: "responder:local"
       },
       %{
         policy: "admission-read-only",
+        policy_digest: String.duplicate("a", 64),
         socket: "/tmp/coop.sock",
         worker_ref: :not_a_reference
+      },
+      %{
+        policy: "admission-read-only",
+        policy_digest: String.duplicate("A", 64),
+        socket: "/tmp/coop.sock",
+        worker_ref: "responder:local"
       }
     ]
 

@@ -25,7 +25,7 @@ defmodule Responder.Admission.WorkerTest do
            end)
 
     assert FakeCoopAPI.state(fake).submit_count == 1
-    GenServer.stop(worker)
+    assert :ok = stop_supervised(Worker)
   end
 
   test "keeps running after a transient Coop failure and leaves a durable retry" do
@@ -46,7 +46,7 @@ defmodule Responder.Admission.WorkerTest do
            end)
 
     assert Process.alive?(worker)
-    GenServer.stop(worker)
+    assert :ok = stop_supervised(Worker)
   end
 
   test "keeps running after an input enters durable blocked custody" do
@@ -71,7 +71,7 @@ defmodule Responder.Admission.WorkerTest do
     refute_receive {:DOWN, ^monitor_ref, :process, ^worker, _reason}, 100
     assert Process.alive?(worker)
     assert FakeCoopAPI.state(fake).submit_count == 1
-    GenServer.stop(worker)
+    assert :ok = stop_supervised(Worker)
   end
 
   test "rejects a polling loop that would spin continuously" do
@@ -93,6 +93,7 @@ defmodule Responder.Admission.WorkerTest do
           max_polls: 10,
           now: fn -> @now end,
           policy: "admission-read-only",
+          policy_digest: String.duplicate("a", 64),
           poll_interval_ms: 0,
           sleep: fn _milliseconds -> :ok end
         ],

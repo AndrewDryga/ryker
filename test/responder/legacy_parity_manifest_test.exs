@@ -23,10 +23,11 @@ defmodule Responder.LegacyParityManifestTest do
                "stage1_equivalents",
                "stage2_equivalents",
                "stage2_pending_model_evals",
+               "stage3_equivalents",
                "version"
              ]
 
-    assert manifest["version"] == 4
+    assert manifest["version"] == 5
 
     paths = Enum.map(manifest["files"], & &1["path"])
     assert Enum.uniq(paths) == paths
@@ -62,6 +63,7 @@ defmodule Responder.LegacyParityManifestTest do
 
     stage1_equivalents = validate_equivalents(manifest["stage1_equivalents"], mapped)
     stage2_equivalents = validate_equivalents(manifest["stage2_equivalents"], mapped)
+    stage3_equivalents = validate_equivalents(manifest["stage3_equivalents"], mapped)
 
     pending_model_evals =
       validate_pending_model_evals(manifest["stage2_pending_model_evals"], mapped)
@@ -75,6 +77,8 @@ defmodule Responder.LegacyParityManifestTest do
 
     assert Enum.all?(stage2_equivalents, fn key -> mapped[key] == "source_ingress" end)
     assert Enum.uniq(stage2_equivalents) == stage2_equivalents
+    assert Enum.all?(stage3_equivalents, fn key -> mapped[key] == "coop_runtime" end)
+    assert Enum.uniq(stage3_equivalents) == stage3_equivalents
 
     pending_legacy_keys =
       pending_model_evals

@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "files": [
     {
       "path": "internal/episode/projection_test.go",
@@ -513,6 +513,98 @@
           ]
         }
       ]
+    },
+    {
+      "path": "internal/service/turn_delta_test.go",
+      "groups": [
+        {
+          "target": "coop_runtime",
+          "tests": [
+            "TestAFollowUpIntoALiveSessionSendsADeltaNotAnotherBriefing",
+            "TestAPolicyChangeMidEpisodeRestatesTheWholeBriefing",
+            "TestRungEscalationRebriefsTheContract"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/service/episode_evidence_validation_test.go",
+      "groups": [
+        {
+          "target": "coop_runtime",
+          "tests": [
+            "TestLostValidationResponseDoesNotStrandTheRun"
+          ]
+        },
+        {
+          "target": "final_protocol",
+          "tests": [
+            "TestAnIncidentMayCiteEvidenceCarriedByItsCurrentRun"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/service/partial_correction_round_test.go",
+      "groups": [
+        {
+          "target": "final_protocol",
+          "tests": [
+            "TestACorrectionRoundMayReturnOnlyWhatItChanges",
+            "TestAnEmptyCorrectionRoundIsStillRefused",
+            "TestInvalidEngineeringReportCarriesValidEvidenceIntoCorrection",
+            "TestAPartialCorrectionRoundNeverDropsTheTaskOffer",
+            "TestAPartialRoundNeverLosesACarriedFinding",
+            "TestPartialCorrectionNeverForgetsRequiredTypedEvidence",
+            "TestReSendingAnIdReplacesThatRecord"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/service/engineering_workspace_completion_test.go",
+      "groups": [
+        {
+          "target": "engineering_github",
+          "tests": [
+            "TestEngineeringTurnCannotFinishWithItsIntendedChangesUncommitted"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "internal/service/operator_question_test.go",
+      "groups": [
+        {
+          "target": "engineering_github",
+          "tests": [
+            "TestAPressedEngineeringChoiceContinuesTheSameTaskAndPullRequest"
+          ]
+        },
+        {
+          "target": "final_protocol",
+          "tests": [
+            "TestAPressedChoiceResumesTheEpisodeTheTypedAnswerWouldHave",
+            "TestASecondPressOnAnAnsweredQuestionChangesNothing",
+            "TestAnAnswerTheCardNeverOfferedIsRefused",
+            "TestMultipleOperatorDecisionsResumeOneTurn"
+          ]
+        },
+        {
+          "target": "slack_gateway",
+          "tests": [
+            "TestAnAcceptedChoiceReconcilesItsStaleCardAfterRestart",
+            "TestAPressFromASupersededCardCannotAnswerTheNextQuestion"
+          ]
+        },
+        {
+          "target": "source_ingress",
+          "tests": [
+            "TestAWorkspaceGuestCannotAnswerAnOperatorChoice",
+            "TestAnActiveTeammateCanAnswerAQuestionAskedOnSomeoneElsesTask"
+          ]
+        }
+      ]
     }
   ],
   "stage1_equivalents": [
@@ -655,6 +747,38 @@
       "go_test": "TestAttemptedRunSurvivesANewerContextualMessage",
       "replacement_file": "test/responder/admission/commit_test.exs",
       "replacement_test": "continues active work in its bound thread and queues the new input"
+    }
+  ],
+  "stage3_equivalents": [
+    {
+      "go_file": "internal/service/turn_delta_test.go",
+      "go_test": "TestAFollowUpIntoALiveSessionSendsADeltaNotAnotherBriefing",
+      "replacement_file": "test/responder/work/submission_builder_test.exs",
+      "replacement_test": "a continuation in the same Coop session sends a delta instead of the briefing again"
+    },
+    {
+      "go_file": "internal/service/episode_evidence_validation_test.go",
+      "go_test": "TestLostValidationResponseDoesNotStrandTheRun",
+      "replacement_file": "test/responder/work/executor_test.exs",
+      "replacement_test": "a lost validation response reconciles the exact candidate without another model turn"
+    },
+    {
+      "go_file": "internal/replaycontrol/control_test.go",
+      "go_test": "TestCancelInterruptsTheExactActiveRunAndRemoteTurn",
+      "replacement_file": "test/responder/work/cancellation_test.exs",
+      "replacement_test": "a bound Coop turn is cancelled remotely before its episode can be cancelled"
+    },
+    {
+      "go_file": "internal/replayinterrupt/interrupt_test.go",
+      "go_test": "TestCancelReconcilesALostCancelResponse",
+      "replacement_file": "test/responder/work/executor_test.exs",
+      "replacement_test": "a lost Coop cancel response is proven from the remote turn before the episode stops"
+    },
+    {
+      "go_file": "internal/service/agent_turn_test.go",
+      "go_test": "TestRevisionConflictReleasesTheFrozenRevisionAndRetries",
+      "replacement_file": "test/responder/work/custody_test.exs",
+      "replacement_test": "only a confirmed pre-resource failure spends an operation generation"
     }
   ],
   "stage2_pending_model_evals": [

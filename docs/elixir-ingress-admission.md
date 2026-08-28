@@ -143,7 +143,9 @@ Coop validates the JSON Schema. It then holds the exact bytes unpublished for ho
 Responder checks the action against the frozen candidate set and source capabilities. If that check
 fails, the complete useful error goes back to the same Coop turn and the model repairs its answer.
 Responder accepts only a completed turn whose message digest matches Coop's durable semantic-validation
-receipt.
+receipt. Candidate identity includes Coop's positive attempt as well as the digest: every reject or
+accept key names that attempt, so two byte-identical repair attempts cannot replay one another's
+validation result.
 
 After a decision, Coop has already parked and cleaned the provider runtime. Responder also asks Coop to
 close the admission session. Fleet-wide session retention and discard are intentionally owned by the

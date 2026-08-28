@@ -21,6 +21,7 @@ defmodule Responder.Episodes do
   }
 
   alias Responder.Repo
+  alias Responder.Work.Turn
 
   @spec apply(Command.t()) :: {:ok, Transition.t()} | {:error, term()}
   def apply(command) do
@@ -48,15 +49,15 @@ defmodule Responder.Episodes do
   end
 
   @doc false
-  @spec apply_batch_in_transaction([Command.t()]) ::
+  @spec apply_batch_in_transaction([Command.t()], keyword()) ::
           {:ok, [Transition.t()]} | {:error, term()}
-  def apply_batch_in_transaction(commands) do
+  def apply_batch_in_transaction(commands, options \\ []) do
     with {:ok, commands} <- prepare_batch(commands),
          :ok <- lock_input_conversations(Repo, commands),
          episode_key <- commands |> hd() |> Map.fetch!(:episode_key),
          {:ok, :locked} <- lock_source(Repo, episode_key),
          {:ok, episode} <- load_episode(Repo, episode_key) do
-      apply_prepared_batch(Repo, episode, commands)
+      apply_prepared_batch(Repo, episode, commands, options)
     end
   end
 
@@ -78,6 +79,20 @@ defmodule Responder.Episodes do
       )
     )
   end
+
+  @doc false
+  @spec lock_current_in_transaction(String.t()) :: {:ok, Episode.t()} | {:error, term()}
+  def lock_current_in_transaction(episode_key) when is_binary(episode_key) do
+    with {:ok, :locked} <- lock_source(Repo, episode_key),
+         {:ok, %Episode{} = episode} <- load_episode(Repo, episode_key) do
+      {:ok, episode}
+    else
+      {:ok, nil} -> {:error, :episode_not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def lock_current_in_transaction(_episode_key), do: {:error, :invalid_episode_key}
 
   defp prepare_batch([]), do: {:error, :empty_command_batch}
 
@@ -113,10 +128,11 @@ defmodule Responder.Episodes do
     ConversationLock.lock_many(repo, destinations)
   end
 
-  defp apply_prepared_batch(repo, episode, commands) do
+  defp apply_prepared_batch(repo, episode, commands, options) do
     commands
     |> Enum.reduce_while({:ok, episode, []}, fn command, {:ok, stored, transitions} ->
-      with {:ok, event} <- load_existing_event(repo, stored, Command.dedupe_key(command)),
+      with :ok <- guard_active_work_transition(repo, stored, command, options),
+           {:ok, event} <- load_existing_event(repo, stored, Command.dedupe_key(command)),
            {:ok, transition} <- Kernel.apply(stored, event, command),
            {:ok, transition} <- persist(repo, stored, transition) do
         {:cont, {:ok, transition.episode, [transition | transitions]}}
@@ -129,6 +145,33 @@ defmodule Responder.Episodes do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp guard_active_work_transition(
+         repo,
+         %Episode{} = episode,
+         %{expected_owner: %{kind: :turn, ref: turn_ref}} = command,
+         options
+       )
+       when is_struct(command, Command.CancelEpisode) or
+              is_struct(command, Command.TransferOwner) do
+    bound_turn_id =
+      repo.one(
+        from(turn in Turn,
+          where:
+            turn.episode_id == ^episode.id and turn.turn_ref == ^turn_ref and
+              turn.status in [:pending, :cancel_pending, :blocked],
+          select: turn.id
+        )
+      )
+
+    case {bound_turn_id, Keyword.get(options, :settled_work_turn_id)} do
+      {nil, _authorization} -> :ok
+      {turn_id, turn_id} -> :ok
+      {_turn_id, _authorization} -> {:error, :work_cancellation_required}
+    end
+  end
+
+  defp guard_active_work_transition(_repo, _episode, _command, _options), do: :ok
 
   defp lock_source(repo, episode_key) do
     case repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [episode_key]) do
