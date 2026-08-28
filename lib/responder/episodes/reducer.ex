@@ -20,6 +20,12 @@ defmodule Responder.Episodes.Reducer do
 
   alias Responder.Episodes.{Episode, Event, Transition}
 
+  # One admitted command may carry the full 64 KiB kernel envelope. Two fit
+  # exactly inside Work's 160 KiB context ceiling, preserving the original
+  # instruction plus one correction. Later inputs remain ordered in the queue
+  # instead of being truncated or making the turn unbuildable.
+  @maximum_active_inputs 2
+
   @type result :: {:ok, Transition.t()} | {:error, term()}
 
   @spec decide(Episode.t() | nil, Command.t()) :: result()
@@ -103,6 +109,9 @@ defmodule Responder.Episodes.Reducer do
       actual != command.expected_owner ->
         {:error, {:stale_owner, expected: command.expected_owner, actual: actual}}
 
+      episode.owner_kind == :delivery ->
+        {:error, :delivery_must_settle_before_transfer}
+
       command.new_owner.kind != episode.owner_kind ->
         {:error,
          {:owner_kind_change_requires_transition, episode.owner_kind, command.new_owner.kind}}
@@ -113,8 +122,15 @@ defmodule Responder.Episodes.Reducer do
       episode.state != :working ->
         {:error, {:invalid_state, episode.state, :transfer_owner}}
 
+      not required_transfer_input_queued?(episode, command.required_input_ref) ->
+        {:error, :required_input_not_queued}
+
       true ->
-        episode = %{episode | owner_ref: command.new_owner.ref}
+        episode =
+          episode
+          |> Map.put(:owner_ref, command.new_owner.ref)
+          |> transfer_inputs(command.required_input_ref)
+
         append(episode, command, :owner_transferred)
     end
   end
@@ -163,17 +179,16 @@ defmodule Responder.Episodes.Reducer do
           expected: command.resolution_ref, queued: episode.queued_input_refs}}
 
       true ->
-        episode = %{
+        episode =
           episode
-          | state: :working,
+          |> Map.merge(%{
+            state: :working,
             owner_kind: :turn,
             owner_ref: command.turn_ref,
             owner_deadline_at: nil,
-            active_input_refs: episode.queued_input_refs,
-            queued_input_refs: [],
-            queued_input_order_keys: [],
             semantic_version: episode.semantic_version + 1
-        }
+          })
+          |> activate_queued_inputs([], command.resolution_ref)
 
         append(episode, command, :wait_resumed)
     end
@@ -188,46 +203,82 @@ defmodule Responder.Episodes.Reducer do
   end
 
   defp decide_existing(%Episode{} = episode, %ConfirmDelivery{} = command) do
-    cond do
-      episode.state != :working or episode.owner_kind != :delivery or
-          episode.owner_ref != command.expected_delivery_ref ->
-        {:error,
-         {:stale_delivery,
-          expected: command.expected_delivery_ref,
-          actual: %{kind: episode.owner_kind, ref: episode.owner_ref}}}
+    case valid_delivery_confirmation(episode, command) do
+      :ok ->
+        episode
+        |> advance_after_delivery(command)
+        |> append(command, :delivery_confirmed)
 
-      episode.queued_input_refs != [] and is_nil(command.next_turn_ref) ->
-        {:error, :queued_inputs_require_next_turn}
-
-      episode.queued_input_refs == [] and not is_nil(command.next_turn_ref) ->
-        {:error, :unexpected_next_turn}
-
-      true ->
-        episode = advance_after_delivery(episode, command.next_turn_ref)
-        append(episode, command, :delivery_confirmed)
+      {:error, _reason} = error ->
+        error
     end
   end
 
   defp decide_existing(%Episode{} = episode, %CancelEpisode{} = command) do
     actual = %{kind: episode.owner_kind, ref: episode.owner_ref}
 
-    if actual != command.expected_owner do
-      {:error, {:stale_owner, expected: command.expected_owner, actual: actual}}
-    else
-      episode = %{
-        episode
-        | state: :cancelled,
-          owner_kind: nil,
-          owner_ref: nil,
-          owner_deadline_at: nil,
-          active_input_refs: [],
-          queued_input_refs: [],
-          queued_input_order_keys: [],
-          semantic_version: episode.semantic_version + 1
-      }
+    cond do
+      actual != command.expected_owner ->
+        {:error, {:stale_owner, expected: command.expected_owner, actual: actual}}
 
-      append(episode, command, :episode_cancelled)
+      episode.owner_kind == :delivery ->
+        {:error, :delivery_must_settle_before_cancel}
+
+      true ->
+        episode = %{
+          episode
+          | state: :cancelled,
+            owner_kind: nil,
+            owner_ref: nil,
+            owner_deadline_at: nil,
+            active_input_refs: [],
+            queued_input_refs: [],
+            queued_input_order_keys: [],
+            semantic_version: episode.semantic_version + 1
+        }
+
+        append(episode, command, :episode_cancelled)
     end
+  end
+
+  defp valid_delivery_confirmation(episode, command) do
+    with :ok <- current_delivery(episode, command),
+         :ok <- queued_delivery_turn(episode, command),
+         :ok <- queued_delivery_wait(episode, command) do
+      valid_requested_wait(command)
+    end
+  end
+
+  defp current_delivery(
+         %Episode{state: :working, owner_kind: :delivery, owner_ref: ref},
+         %ConfirmDelivery{expected_delivery_ref: ref}
+       ),
+       do: :ok
+
+  defp current_delivery(episode, command), do: stale_delivery(episode, command)
+
+  defp queued_delivery_turn(%Episode{queued_input_refs: []}, _command), do: :ok
+
+  defp queued_delivery_turn(_episode, %ConfirmDelivery{next_turn_ref: ref}) when is_binary(ref),
+    do: :ok
+
+  defp queued_delivery_turn(_episode, _command), do: {:error, :queued_inputs_require_next_turn}
+
+  defp queued_delivery_wait(%Episode{queued_input_refs: []}, _command), do: :ok
+  defp queued_delivery_wait(_episode, %ConfirmDelivery{next_wait: nil}), do: :ok
+  defp queued_delivery_wait(_episode, _command), do: {:error, :queued_inputs_prevent_wait}
+
+  defp valid_requested_wait(%ConfirmDelivery{next_wait: nil}), do: :ok
+
+  defp valid_requested_wait(command) do
+    if valid_delivery_wait?(command), do: :ok, else: {:error, :invalid_delivery_wait}
+  end
+
+  defp stale_delivery(episode, command) do
+    {:error,
+     {:stale_delivery,
+      expected: command.expected_delivery_ref,
+      actual: %{kind: episode.owner_kind, ref: episode.owner_ref}}}
   end
 
   defp same_episode(%Episode{key: key}, %{episode_key: key}), do: :ok
@@ -331,31 +382,112 @@ defmodule Responder.Episodes.Reducer do
   end
 
   defp accept_result(%Episode{} = episode, %AcceptResult{delivery: :none} = command) do
+    episode
+    |> Map.merge(%{
+      owner_kind: :turn,
+      owner_ref: command.next_turn_ref,
+      semantic_version: episode.semantic_version + 1
+    })
+    |> activate_queued_inputs([])
+  end
+
+  defp advance_after_delivery(
+         %Episode{queued_input_refs: []} = episode,
+         %ConfirmDelivery{next_wait: %{kind: kind, ref: ref, deadline_at: deadline_at}}
+       ) do
+    state = if kind == :input, do: :waiting_for_input, else: :waiting_for_event
+
     %{
       episode
-      | owner_kind: :turn,
-        owner_ref: command.next_turn_ref,
-        active_input_refs: episode.queued_input_refs,
-        queued_input_refs: [],
-        queued_input_order_keys: [],
-        semantic_version: episode.semantic_version + 1
+      | state: state,
+        owner_kind: kind,
+        owner_ref: ref,
+        owner_deadline_at: deadline_at,
+        active_input_refs: []
     }
   end
 
-  defp advance_after_delivery(%Episode{queued_input_refs: []} = episode, _next_turn_ref) do
+  defp advance_after_delivery(
+         %Episode{queued_input_refs: []} = episode,
+         %ConfirmDelivery{next_turn_ref: next_turn_ref}
+       )
+       when is_binary(next_turn_ref) do
+    %{
+      episode
+      | state: :working,
+        owner_kind: :turn,
+        owner_ref: next_turn_ref,
+        owner_deadline_at: nil,
+        active_input_refs: []
+    }
+  end
+
+  defp advance_after_delivery(%Episode{queued_input_refs: []} = episode, _command) do
     %{episode | state: :complete, owner_kind: nil, owner_ref: nil, active_input_refs: []}
   end
 
-  defp advance_after_delivery(%Episode{} = episode, next_turn_ref) do
+  defp advance_after_delivery(%Episode{} = episode, command) do
+    episode
+    |> Map.merge(%{owner_kind: :turn, owner_ref: command.next_turn_ref})
+    |> activate_queued_inputs([])
+  end
+
+  defp activate_queued_inputs(episode, active_refs, required_ref \\ nil) do
+    slots = max(@maximum_active_inputs - length(active_refs), 0)
+    queued = Enum.zip(episode.queued_input_refs, episode.queued_input_order_keys)
+    {selected, remaining} = input_batch(queued, slots, required_ref)
+
     %{
       episode
-      | owner_kind: :turn,
-        owner_ref: next_turn_ref,
-        active_input_refs: episode.queued_input_refs,
-        queued_input_refs: [],
-        queued_input_order_keys: []
+      | active_input_refs: active_refs ++ Enum.map(selected, &elem(&1, 0)),
+        queued_input_refs: Enum.map(remaining, &elem(&1, 0)),
+        queued_input_order_keys: Enum.map(remaining, &elem(&1, 1))
     }
   end
+
+  defp transfer_inputs(episode, nil),
+    do: activate_queued_inputs(episode, episode.active_input_refs)
+
+  defp transfer_inputs(episode, required_ref) do
+    episode
+    |> activate_queued_inputs(Enum.take(episode.active_input_refs, 1), required_ref)
+  end
+
+  defp required_transfer_input_queued?(_episode, nil), do: true
+
+  defp required_transfer_input_queued?(episode, required_ref),
+    do: required_ref in episode.queued_input_refs
+
+  defp input_batch(queued, slots, nil), do: Enum.split(queued, slots)
+
+  defp input_batch(queued, slots, required_ref) when slots > 0 do
+    required = Enum.find(queued, &(elem(&1, 0) == required_ref))
+
+    selected_refs =
+      queued
+      |> Enum.reject(&(elem(&1, 0) == required_ref))
+      |> Enum.take(slots - 1)
+      |> Enum.map(&elem(&1, 0))
+      |> MapSet.new()
+      |> MapSet.put(required_ref)
+
+    selected = Enum.filter(queued, &MapSet.member?(selected_refs, elem(&1, 0)))
+    remaining = Enum.reject(queued, &MapSet.member?(selected_refs, elem(&1, 0)))
+
+    if required == nil, do: Enum.split(queued, slots), else: {selected, remaining}
+  end
+
+  defp valid_delivery_wait?(%ConfirmDelivery{
+         next_wait: %{kind: :input, deadline_at: nil}
+       }),
+       do: true
+
+  defp valid_delivery_wait?(%ConfirmDelivery{
+         next_wait: %{kind: :event, deadline_at: %DateTime{}}
+       }),
+       do: true
+
+  defp valid_delivery_wait?(_command), do: false
 
   defp append(%Episode{} = episode, command, event_kind) do
     sequence = episode.next_sequence

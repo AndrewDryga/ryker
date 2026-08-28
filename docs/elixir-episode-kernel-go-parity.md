@@ -8,9 +8,9 @@ without a replacement owner.
 
 ## Scope
 
-The first inventory covers every test in 20 cohesive lifecycle files: episode reduction, persistence,
+The inventory covers every test in 25 cohesive lifecycle files: episode reduction, persistence,
 outcomes, waits, source correlation, Slack delivery, run ownership, retries, and cancellation. It maps
-208 Go tests. It is complete for those files, not for all 2,373 Go tests in the repository.
+230 Go tests. It is complete for those files, not for all 2,373 Go tests in the repository.
 
 Mixed subsystems are brought into scope when their replacement module starts. That module must expand
 this manifest before its Go implementation can be deleted. This avoids classifying unrelated product
@@ -21,11 +21,11 @@ tests now while still making the cutover boundary explicit and mechanically chec
 | Owner | Go tests | What must preserve them |
 |---|---:|---|
 | `episode_kernel` | 8 | Durable identity, owner, queue, wait, result and cancellation transitions. |
-| `source_ingress` | 50 | Generic source intake, model admission, chronology, correlation, wakeups and thread binding. |
-| `slack_gateway` | 44 | Atomic outbox custody, response-loss reconciliation, status, reactions, artifacts and routing. |
-| `coop_runtime` | 61 | Session isolation, provider recovery, leases, replay, turn capacity and cancellation. |
-| `final_protocol` | 24 | Candidate admission, correction, silence, completion and result supersession. |
-| `engineering_github` | 7 | Approval, task continuation, publication and GitHub lifecycle. |
+| `source_ingress` | 52 | Generic source intake, model admission, chronology, correlation, wakeups and thread binding. |
+| `slack_gateway` | 46 | Atomic outbox custody, response-loss reconciliation, status, reactions, artifacts and routing. |
+| `coop_runtime` | 65 | Session isolation, provider recovery, leases, replay, turn capacity and cancellation. |
+| `final_protocol` | 36 | Candidate admission, correction, silence, completion and result supersession. |
+| `engineering_github` | 9 | Approval, task continuation, publication and GitHub lifecycle. |
 | `memory_recall` | 5 | Outcome projection, visibility, recall and reopened/cancelled behavior. |
 | `automation_waits` | 4 | Scheduled work, retry timing, overdue custody and recurring execution. |
 | `legacy_archive` | 5 | Read-only historical migration/provenance; these do not become new runtime behavior. |
@@ -67,6 +67,19 @@ The fixtures contain provider text because that is what Slack really delivered. 
 code does not branch on those providers or phrases. Old tests whose purpose was to parse specific alert
 wording, links, or run syntax remain assigned to `source_ingress` until they are represented by model
 evaluation cases; they must not be reintroduced as deterministic host string matching.
+
+## Stage 3 work-runtime proof
+
+Stage 3 expands the inventory to the old delta-turn, validation-response, partial-correction,
+engineering-completion, and operator-question suites. Five Coop-runtime cases already have direct,
+deterministic replacements: same-session delta continuation, lost validation reconciliation, remote
+cancellation before local cancellation, lost cancel-response reconciliation, and fresh operation
+identity after a confirmed pre-resource failure.
+
+The remaining newly inventoried cases keep their future owner. Typed record carry, question
+authorization, GitHub workspace completion, Slack card reconciliation, policy rebriefing, and rung
+rebriefing are not claimed by the Stage 3 runtime tests. This makes missing work visible without
+restoring the old operation union or pretending that a host replay proves model behavior.
 
 ## Maintenance rule
 

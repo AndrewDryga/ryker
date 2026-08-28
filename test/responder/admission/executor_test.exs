@@ -1,13 +1,17 @@
 defmodule Responder.Admission.ExecutorTest do
   use Responder.DataCase, async: true
 
+  import Ecto.Query
+
   @moduletag isolation: "REPEATABLE READ"
 
   alias Responder.Admission.Executor
   alias Responder.Ingress.Inbox
+  alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
   alias Responder.TestSupport.FakeCoopAPI, as: FakeAPI
   alias Responder.Webhooks.{Input, Route}
+  alias Responder.Work.Session
 
   @now ~U[2026-08-27 12:00:00.000000Z]
 
@@ -38,11 +42,33 @@ defmodule Responder.Admission.ExecutorTest do
     assert execution.result.episode.destination_thread_ref == "1787832000.000100"
     assert execution.cleanup == :closed
 
+    assert %Session{policy: "admission-read-only"} =
+             Repo.one!(
+               from(session in Session,
+                 where: session.episode_id == ^execution.result.episode.id
+               )
+             )
+
     state = FakeAPI.state(fake)
     assert state.submit_count == 1
     assert Enum.map(state.validations, & &1.verdict) == [:accept]
     assert state.closed
     assert "react" in state.schema["properties"]["action"]["enum"]
+  end
+
+  test "a completed admission closes a Coop session that exhausted its final turn" do
+    entry = record_slack_input!("Ev-executor-exhausted-session")
+    lease_ref = claim!(entry)
+
+    {:ok, fake} =
+      FakeAPI.start_link([decision("reply")], exhaust_after_validation: true)
+
+    assert {:ok, execution} =
+             Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
+
+    assert execution.result.entry.decision_action == :reply
+    assert execution.cleanup == :closed
+    assert FakeAPI.state(fake).session["state"] == "closed"
   end
 
   test "a schema-valid unknown candidate is rejected and repaired in the same Coop turn" do
@@ -89,6 +115,37 @@ defmodule Responder.Admission.ExecutorTest do
     assert Enum.map(state.validations, & &1.verdict) == [:reject, :accept]
     assert hd(state.validations).violations |> hd() =~ "episode_ref"
     refute "react" in state.schema["properties"]["action"]["enum"]
+  end
+
+  test "byte-identical rejected attempts receive distinct validation identities" do
+    entry = record_slack_input!("Ev-executor-identical-repair")
+    lease_ref = claim!(entry)
+
+    invalid =
+      decision_with_candidate(
+        "start_episode",
+        "candidate-that-was-not-offered",
+        "history_only"
+      )
+
+    {:ok, fake} =
+      FakeAPI.start_link([
+        invalid,
+        invalid,
+        decision("reply")
+      ])
+
+    assert {:ok, execution} =
+             Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
+
+    assert execution.result.entry.decision_action == :reply
+    state = FakeAPI.state(fake)
+    assert Enum.map(state.validations, & &1.verdict) == [:reject, :reject, :accept]
+    assert length(Enum.uniq(state.validation_keys)) == 3
+    assert Enum.at(state.validation_keys, 0) =~ ":a1:"
+    assert Enum.at(state.validation_keys, 1) =~ ":a2:"
+    assert Enum.at(state.validation_keys, 2) =~ ":a3:"
+    assert state.submit_count == 1
   end
 
   test "a Coop transport failure leaves the exact input pending for a clean retry" do
@@ -222,6 +279,22 @@ defmodule Responder.Admission.ExecutorTest do
     assert FakeAPI.state(fake).submit_count == 0
   end
 
+  test "a crossed Coop turn cannot decide another admission session" do
+    entry = record_slack_input!("Ev-executor-crossed-turn")
+    lease_ref = claim!(entry)
+
+    {:ok, fake} =
+      FakeAPI.start_link([decision("reply")], turn_session_id_override: "remote_other")
+
+    assert Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref)) ==
+             {:error, {:coop_protocol_error, :turn_session_identity}}
+
+    assert {:ok, pending} = Inbox.fetch(Inbox.ref(entry))
+    assert pending.status == :pending
+    assert pending.decision_ref == nil
+    assert FakeAPI.state(fake).validations == []
+  end
+
   defp claim!(entry) do
     assert {:ok, %{entry: claimed, lease_ref: lease_ref}} =
              Inbox.claim_next("executor:test", @now, 300)
@@ -257,6 +330,7 @@ defmodule Responder.Admission.ExecutorTest do
       max_polls: 10,
       now: fn -> @now end,
       policy: "admission-read-only",
+      policy_digest: String.duplicate("a", 64),
       poll_interval_ms: 0,
       renew_lease: fn -> :ok end,
       sleep: fn _milliseconds -> :ok end

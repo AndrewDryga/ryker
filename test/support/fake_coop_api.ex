@@ -14,6 +14,7 @@ defmodule Responder.TestSupport.FakeCoopAPI do
         close_keys: [],
         closed: false,
         create_keys: [],
+        exhaust_after_validation: Keyword.get(options, :exhaust_after_validation, false),
         fail_create: Keyword.get(options, :fail_create, false),
         fail_first_close: Keyword.get(options, :fail_first_close, false),
         failed_close_key: nil,
@@ -39,12 +40,22 @@ defmodule Responder.TestSupport.FakeCoopAPI do
         operation_mode: Keyword.get(options, :operation_mode, :succeeded),
         resume_operations: resume_operations,
         schema: nil,
-        session: %{"id" => "remote_test", "revision" => 1, "state" => "open"},
+        session: %{
+          "external_ref" => nil,
+          "id" => "remote_test",
+          "policy" => nil,
+          "policy_digest" => String.duplicate("a", 64),
+          "revision" => 1,
+          "state" => "open"
+        },
         submit_count: 0,
+        turn_id_override: Keyword.get(options, :turn_id_override),
+        turn_session_id_override: Keyword.get(options, :turn_session_id_override),
         turn_keys: [],
         turn: turn,
         turn_wait_polls: Keyword.get(options, :turn_wait_polls, 0),
         validation_keys: [],
+        validation_responses: %{},
         validations: []
       }
     end)
@@ -64,12 +75,19 @@ defmodule Responder.TestSupport.FakeCoopAPI do
   end
 
   @impl true
-  def create_session(agent, key, _policy, _task) do
+  def create_session(agent, key, policy, task) do
     Agent.get_and_update(agent, fn state ->
+      session =
+        Map.merge(state.session, %{
+          "external_ref" => task,
+          "policy" => policy,
+          "state" => "open"
+        })
+
       response =
         if state.fail_create,
           do: {:error, {:coop_unavailable, :simulated}},
-          else: {:ok, %{"session" => state.session}}
+          else: {:ok, %{"session" => session}}
 
       operations =
         if state.fail_create,
@@ -78,17 +96,22 @@ defmodule Responder.TestSupport.FakeCoopAPI do
             Map.put(
               state.known_operations,
               key,
-              succeeded_operation("session", state.session["id"])
+              succeeded_operation("CreateRemoteSession", "session", session["id"])
             )
 
       {response,
        %{
          state
          | create_keys: state.create_keys ++ [key],
-           known_operations: operations
+           known_operations: operations,
+           session: session
        }}
     end)
   end
+
+  @impl true
+  def fence_create_session(agent, key, _policy, _task),
+    do: fence_operation(agent, key, "CreateRemoteSession")
 
   @impl true
   def get_session(agent, _session_id), do: {:ok, Agent.get(agent, & &1.session)}
@@ -102,7 +125,7 @@ defmodule Responder.TestSupport.FakeCoopAPI do
         failed = failed_turn(session_id, state.first_turn_state)
 
         operation =
-          succeeded_operation("turn", failed["id"])
+          succeeded_operation("SubmitTurn", "turn", failed["id"])
 
         next = %{
           state
@@ -120,6 +143,10 @@ defmodule Responder.TestSupport.FakeCoopAPI do
       end
     end)
   end
+
+  @impl true
+  def fence_submit_turn(agent, _session_id, key, _revision, _prompt, _schema),
+    do: fence_operation(agent, key, "SubmitTurn")
 
   defp maybe_lose_turn_response(state, next, key, response) do
     if state.fail_first_turn_response and is_nil(state.lost_turn_response_key) do
@@ -143,12 +170,27 @@ defmodule Responder.TestSupport.FakeCoopAPI do
   end
 
   @impl true
+  def cancel_turn(agent, _session_id, _turn_id, _key, _expected_revision) do
+    Agent.get_and_update(agent, fn state ->
+      cancelled =
+        (state.turn || %{"id" => "turn_test", "session_id" => state.session["id"]})
+        |> Map.put("candidate", nil)
+        |> Map.put("state", "cancelled")
+
+      {{:ok, %{"turn" => cancelled}}, %{state | turn: cancelled}}
+    end)
+  end
+
+  @impl true
   def validate_candidate(agent, _session_id, _turn_id, key, sha256, :accept) do
     Agent.get_and_update(agent, fn state ->
       state = %{state | validation_keys: state.validation_keys ++ [key]}
       error = state.first_validation_error
 
       cond do
+        Map.has_key?(state.validation_responses, key) ->
+          {{:ok, state.validation_responses[key]}, state}
+
         state.fail_first_validation and is_nil(state.failed_validation_key) ->
           {{:error, error}, %{state | failed_validation_key: key}}
 
@@ -156,25 +198,41 @@ defmodule Responder.TestSupport.FakeCoopAPI do
           {{:error, error}, state}
 
         true ->
-          accept_candidate(state, sha256)
+          accept_candidate(state, key, sha256)
       end
     end)
   end
 
-  def validate_candidate(agent, session_id, _turn_id, _key, sha256, {:reject, violations}) do
+  def validate_candidate(agent, session_id, _turn_id, key, sha256, {:reject, violations}) do
     Agent.get_and_update(agent, fn state ->
-      [candidate | remaining] = state.candidates
-      current = awaiting_turn(session_id, candidate)
-      validation = %{sha256: sha256, verdict: :reject, violations: violations}
+      state = %{state | validation_keys: state.validation_keys ++ [key]}
 
-      next = %{
-        state
-        | candidates: remaining,
-          turn: current,
-          validations: state.validations ++ [validation]
-      }
+      case Map.fetch(state.validation_responses, key) do
+        {:ok, response} ->
+          {{:ok, response}, state}
 
-      {{:ok, %{"turn" => current}}, next}
+        :error ->
+          [candidate | remaining] = state.candidates
+          attempt = state.turn["candidate"]["attempt"] + 1
+
+          current =
+            session_id
+            |> awaiting_turn(candidate, attempt)
+            |> override_turn_identity(state)
+
+          validation = %{sha256: sha256, verdict: :reject, violations: violations}
+          response = %{"turn" => current}
+
+          next = %{
+            state
+            | candidates: remaining,
+              turn: current,
+              validation_responses: Map.put(state.validation_responses, key, response),
+              validations: state.validations ++ [validation]
+          }
+
+          {{:ok, response}, next}
+      end
     end)
   end
 
@@ -209,11 +267,11 @@ defmodule Responder.TestSupport.FakeCoopAPI do
     %{state | closed: true, session: session}
   end
 
-  defp awaiting_turn(session_id, message) do
+  defp awaiting_turn(session_id, message, attempt \\ 1) do
     sha256 = :crypto.hash(:sha256, message) |> Base.encode16(case: :lower)
 
     %{
-      "candidate" => %{"message" => message, "sha256" => sha256},
+      "candidate" => %{"attempt" => attempt, "message" => message, "sha256" => sha256},
       "id" => "turn_test",
       "session_id" => session_id,
       "state" => "awaiting_validation"
@@ -228,12 +286,14 @@ defmodule Responder.TestSupport.FakeCoopAPI do
   defp resumed_turn(candidates, false), do: {nil, candidates}
 
   defp operation_for_key(state, key, calls) do
+    state = prepare_resumed_resource(state, key)
+
     cond do
       Map.has_key?(state.known_operations, key) ->
         {{:ok, state.known_operations[key]}, state}
 
       state.fail_first_operation and is_nil(state.failed_operation_key) ->
-        operation = failed_operation()
+        operation = failed_operation(operation_method(key))
 
         {{:ok, operation},
          %{
@@ -252,9 +312,9 @@ defmodule Responder.TestSupport.FakeCoopAPI do
 
   defp successful_turn_submission(state, session_id, key, schema) do
     [candidate | remaining] = state.candidates
-    current = awaiting_turn(session_id, candidate)
+    current = session_id |> awaiting_turn(candidate) |> override_turn_identity(state)
     queued = %{current | "state" => "queued", "candidate" => nil}
-    operation = succeeded_operation("turn", current["id"])
+    operation = succeeded_operation("SubmitTurn", "turn", current["id"])
 
     next = %{
       state
@@ -269,8 +329,9 @@ defmodule Responder.TestSupport.FakeCoopAPI do
     {{:ok, %{"turn" => queued}}, next}
   end
 
-  defp accept_candidate(state, sha256) do
+  defp accept_candidate(state, key, sha256) do
     message = state.accepted_candidate_override || state.turn["candidate"]["message"]
+    attempt = state.turn["candidate"]["attempt"]
     completed_sha256 = :crypto.hash(:sha256, message) |> Base.encode16(case: :lower)
 
     completed =
@@ -278,6 +339,7 @@ defmodule Responder.TestSupport.FakeCoopAPI do
       |> Map.put("assistant_message", message)
       |> Map.put("candidate", nil)
       |> Map.put("state", "completed")
+      |> Map.put("validation_attempt", attempt)
       |> Map.put("validation_candidate_sha256", completed_sha256)
       |> Map.put("validation_receipt", "validation_test")
       |> maybe_omit_validation_digest(state.omit_validation_digest)
@@ -285,23 +347,49 @@ defmodule Responder.TestSupport.FakeCoopAPI do
 
     validation = %{sha256: sha256, verdict: :accept, violations: []}
 
+    session =
+      state.session
+      |> Map.update!("revision", &(&1 + 1))
+      |> maybe_exhaust(state.exhaust_after_validation)
+
+    response = %{"turn" => completed}
+
     next = %{
       state
-      | session: Map.update!(state.session, "revision", &(&1 + 1)),
+      | session: session,
         turn: completed,
+        validation_responses: Map.put(state.validation_responses, key, response),
         validations: state.validations ++ [validation]
     }
 
-    {{:ok, %{"turn" => completed}}, next}
+    {{:ok, response}, next}
   end
 
-  defp failed_operation do
+  defp failed_operation(method) do
     %{
       "error_code" => "repository_unavailable",
       "error_detail" => "temporary workspace preparation failure",
       "id" => "op_failed",
+      "method" => method,
       "state" => "failed"
     }
+  end
+
+  defp fence_operation(agent, key, method) do
+    Agent.get_and_update(agent, fn state ->
+      operation =
+        Map.get(state.known_operations, key) ||
+          %{
+            "error_code" => "operation_fenced",
+            "error_detail" => "operation was fenced before execution",
+            "id" => "op_fenced",
+            "method" => method,
+            "state" => "failed"
+          }
+
+      {{:ok, operation},
+       %{state | known_operations: Map.put(state.known_operations, key, operation)}}
+    end)
   end
 
   defp failed_turn(session_id, state) do
@@ -314,9 +402,10 @@ defmodule Responder.TestSupport.FakeCoopAPI do
     }
   end
 
-  defp succeeded_operation(resource_type, resource_id) do
+  defp succeeded_operation(method, resource_type, resource_id) do
     %{
       "id" => "op_#{resource_type}",
+      "method" => method,
       "resource_id" => resource_id,
       "resource_type" => resource_type,
       "state" => "succeeded"
@@ -331,12 +420,24 @@ defmodule Responder.TestSupport.FakeCoopAPI do
   defp maybe_omit_validation_receipt(turn, true), do: Map.delete(turn, "validation_receipt")
   defp maybe_omit_validation_receipt(turn, false), do: turn
 
-  defp operation(_key, :pending_once, 1) do
-    {:ok, %{"id" => "op_pending", "state" => "reserved"}}
+  defp maybe_exhaust(session, true), do: Map.put(session, "state", "exhausted")
+  defp maybe_exhaust(session, false), do: session
+
+  defp override_turn_identity(turn, state) do
+    turn
+    |> maybe_put("id", state.turn_id_override)
+    |> maybe_put("session_id", state.turn_session_id_override)
   end
 
-  defp operation(_key, :failed, _calls) do
-    {:ok, failed_operation()}
+  defp maybe_put(document, _field, nil), do: document
+  defp maybe_put(document, field, value), do: Map.put(document, field, value)
+
+  defp operation(key, :pending_once, 1) do
+    {:ok, %{"id" => "op_pending", "method" => operation_method(key), "state" => "reserved"}}
+  end
+
+  defp operation(key, :failed, _calls) do
+    {:ok, failed_operation(operation_method(key))}
   end
 
   defp operation(key, _mode, _calls) do
@@ -345,6 +446,34 @@ defmodule Responder.TestSupport.FakeCoopAPI do
         do: {"session", "remote_test"},
         else: {"turn", "turn_test"}
 
-    {:ok, succeeded_operation(resource_type, resource_id)}
+    {:ok, succeeded_operation(operation_method(key), resource_type, resource_id)}
   end
+
+  defp operation_method(key) do
+    if String.contains?(key, ":create:"), do: "CreateRemoteSession", else: "SubmitTurn"
+  end
+
+  defp prepare_resumed_resource(%{resume_operations: true} = state, key) do
+    if String.contains?(key, ":create:") do
+      external_ref =
+        String.replace_prefix(
+          key,
+          "responder:admission:create:",
+          "responder-admission:"
+        )
+
+      session =
+        Map.merge(state.session, %{
+          "external_ref" => external_ref,
+          "policy" => "admission-read-only",
+          "state" => "open"
+        })
+
+      %{state | session: session}
+    else
+      state
+    end
+  end
+
+  defp prepare_resumed_resource(state, _key), do: state
 end

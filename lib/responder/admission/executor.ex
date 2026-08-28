@@ -38,7 +38,8 @@ defmodule Responder.Admission.Executor do
          :ok <- close_session(session, entry, settings),
          {:ok, result} <-
            Admission.commit(context, decision, decision_ref(turn, candidate_sha256),
-             lease_ref: settings.lease_ref
+             lease_ref: settings.lease_ref,
+             work_policy: %{digest: settings.policy_digest, name: settings.policy}
            ) do
       {:ok,
        %{
@@ -104,7 +105,7 @@ defmodule Responder.Admission.Executor do
         create_session(entry, key, settings)
 
       {:ok, operation} ->
-        session_from_operation(operation, key, settings, settings.max_polls)
+        session_from_operation(entry, operation, key, settings, settings.max_polls)
 
       {:error, _reason} = error ->
         error
@@ -112,17 +113,17 @@ defmodule Responder.Admission.Executor do
   end
 
   defp create_session(entry, key, settings) do
-    task = "responder-admission:#{entry.id}:g#{entry.execution_generation}"
+    task = session_external_ref(entry)
 
     with :ok <- renew_lease(settings) do
       settings.api.create_session(settings.client, key, settings.policy, task)
     end
     |> case do
       {:ok, %{"session" => session}} when is_map(session) ->
-        {:ok, session}
+        validate_session(entry, session, settings)
 
       {:ok, %{"operation" => operation}} when is_map(operation) ->
-        session_from_operation(operation, key, settings, settings.max_polls)
+        session_from_operation(entry, operation, key, settings, settings.max_polls)
 
       {:ok, _response} ->
         {:error, {:coop_protocol_error, :create_session_response}}
@@ -132,9 +133,25 @@ defmodule Responder.Admission.Executor do
     end
   end
 
-  defp session_from_operation(operation, key, settings, polls_left) do
-    with {:ok, resource_id} <- operation_resource(operation, "session", key, settings, polls_left) do
-      settings.api.get_session(settings.client, resource_id)
+  defp session_from_operation(entry, operation, key, settings, polls_left) do
+    with {:ok, resource_id} <-
+           operation_resource(
+             operation,
+             "session",
+             "CreateRemoteSession",
+             key,
+             settings,
+             polls_left
+           ) do
+      with {:ok, session} <- settings.api.get_session(settings.client, resource_id) do
+        validate_session_state(
+          entry,
+          session,
+          settings,
+          resource_id,
+          ~w(open closed discarded)
+        )
+      end
     end
   end
 
@@ -145,30 +162,33 @@ defmodule Responder.Admission.Executor do
       settings.api.operation_by_key(settings.client, key)
     end
     |> case do
-      :not_found -> submit_turn(session, context, key, settings)
+      :not_found -> submit_turn(entry, session, context, key, settings)
       {:ok, operation} -> turn_from_operation(operation, session["id"], key, settings)
       {:error, _reason} = error -> error
     end
   end
 
-  defp submit_turn(session, context, key, settings) do
+  defp submit_turn(entry, session, context, key, settings) do
     prompt = context |> Prompt.build() |> CanonicalJSON.encode!()
     schema = Decision.json_schema(Input.allowed_actions(context.input))
 
     with :ok <- renew_lease(settings),
          {:ok, current_session} <- settings.api.get_session(settings.client, session["id"]),
+         {:ok, current_session} <-
+           validate_session(entry, current_session, settings, session["id"]),
+         {:ok, revision} <- session_revision(current_session),
          {:ok, response} <-
            settings.api.submit_turn(
              settings.client,
              session["id"],
              key,
-             current_session["revision"],
+             revision,
              prompt,
              schema
            ) do
       case response do
         %{"turn" => turn} when is_map(turn) ->
-          {:ok, turn}
+          validate_turn(turn, session["id"])
 
         %{"operation" => operation} when is_map(operation) ->
           turn_from_operation(operation, session["id"], key, settings)
@@ -181,49 +201,107 @@ defmodule Responder.Admission.Executor do
 
   defp turn_from_operation(operation, session_id, key, settings) do
     with {:ok, resource_id} <-
-           operation_resource(operation, "turn", key, settings, settings.max_polls) do
-      settings.api.get_turn(settings.client, session_id, resource_id)
+           operation_resource(
+             operation,
+             "turn",
+             "SubmitTurn",
+             key,
+             settings,
+             settings.max_polls
+           ),
+         {:ok, turn} <- settings.api.get_turn(settings.client, session_id, resource_id) do
+      validate_turn(turn, session_id, resource_id)
     end
   end
 
-  defp operation_resource(%{"state" => "succeeded"} = operation, type, _key, _settings, _left) do
+  defp operation_resource(
+         %{"method" => method, "state" => "succeeded"} = operation,
+         type,
+         method,
+         _key,
+         _settings,
+         _left
+       ) do
     if operation["resource_type"] == type and valid_ref?(operation["resource_id"]),
       do: {:ok, operation["resource_id"]},
       else: {:error, {:coop_protocol_error, :operation_resource}}
   end
 
-  defp operation_resource(%{"state" => "failed"} = operation, _type, _key, _settings, _left) do
+  defp operation_resource(
+         %{"method" => method, "state" => "failed"} = operation,
+         _type,
+         method,
+         _key,
+         _settings,
+         _left
+       ) do
     generation_spent(
       {:coop_operation_failed, operation["error_code"] || "failed",
        operation["error_detail"] || "Coop operation failed"}
     )
   end
 
-  defp operation_resource(%{"state" => "uncertain"} = operation, _type, _key, _settings, _left) do
+  defp operation_resource(
+         %{"method" => method, "state" => "uncertain"} = operation,
+         _type,
+         method,
+         _key,
+         _settings,
+         _left
+       ) do
     {:error,
      {:admission_execution_blocked,
       {:coop_operation_uncertain, operation["error_code"] || "uncertain",
        operation["error_detail"] || "Coop operation outcome is uncertain"}}}
   end
 
-  defp operation_resource(%{"state" => state}, type, key, settings, left)
+  defp operation_resource(
+         %{"method" => method, "state" => state},
+         type,
+         method,
+         key,
+         settings,
+         left
+       )
        when state in @operation_waiting_states and left > 0 do
     with :ok <- renew_lease(settings) do
       settings.sleep.(settings.poll_interval_ms)
 
       case settings.api.operation_by_key(settings.client, key) do
-        {:ok, operation} -> operation_resource(operation, type, key, settings, left - 1)
-        :not_found -> {:error, {:coop_protocol_error, :operation_disappeared}}
-        {:error, _reason} = error -> error
+        {:ok, operation} ->
+          operation_resource(operation, type, method, key, settings, left - 1)
+
+        :not_found ->
+          {:error, {:coop_protocol_error, :operation_disappeared}}
+
+        {:error, _reason} = error ->
+          error
       end
     end
   end
 
-  defp operation_resource(%{"state" => state}, _type, _key, _settings, 0)
+  defp operation_resource(
+         %{"method" => method, "state" => state},
+         _type,
+         method,
+         _key,
+         _settings,
+         0
+       )
        when state in @operation_waiting_states,
        do: {:error, {:coop_timeout, :operation}}
 
-  defp operation_resource(_operation, _type, _key, _settings, _left),
+  defp operation_resource(
+         %{"method" => _actual},
+         _type,
+         _expected,
+         _key,
+         _settings,
+         _left
+       ),
+       do: {:error, {:coop_protocol_error, :operation_method}}
+
+  defp operation_resource(_operation, _type, _method, _key, _settings, _left),
     do: {:error, {:coop_protocol_error, :operation_state}}
 
   defp await_decision(turn, context, entry, settings) do
@@ -245,6 +323,7 @@ defmodule Responder.Admission.Executor do
          %{
            "state" => "completed",
            "assistant_message" => message,
+           "validation_attempt" => validation_attempt,
            "validation_candidate_sha256" => candidate_sha256,
            "validation_receipt" => validation_receipt
          },
@@ -253,7 +332,8 @@ defmodule Responder.Admission.Executor do
          _settings,
          _left
        )
-       when is_binary(message) and is_binary(candidate_sha256) and
+       when is_binary(message) and is_integer(validation_attempt) and validation_attempt > 0 and
+              is_binary(candidate_sha256) and
               is_binary(validation_receipt) do
     if valid_ref?(validation_receipt) and sha256(message) == candidate_sha256 do
       case parse_and_validate(message, context) do
@@ -289,12 +369,7 @@ defmodule Responder.Admission.Executor do
   defp await_decision(%{"state" => state} = turn, context, entry, settings, left)
        when state in @waiting_turn_states and left > 0 do
     with :ok <- renew_lease(settings) do
-      settings.sleep.(settings.poll_interval_ms)
-
-      case settings.api.get_turn(settings.client, turn["session_id"], turn["id"]) do
-        {:ok, current} -> await_decision(current, context, entry, settings, left - 1)
-        {:error, _reason} = error -> error
-      end
+      poll_decision(turn, context, entry, settings, left)
     end
   end
 
@@ -305,20 +380,57 @@ defmodule Responder.Admission.Executor do
   defp await_decision(_turn, _context, _entry, _settings, _left),
     do: {:error, {:coop_protocol_error, :turn_state}}
 
+  defp poll_decision(turn, context, entry, settings, left) do
+    settings.sleep.(settings.poll_interval_ms)
+
+    with {:ok, current} <-
+           settings.api.get_turn(settings.client, turn["session_id"], turn["id"]),
+         {:ok, current} <- validate_turn(current, turn["session_id"], turn["id"]) do
+      await_decision(current, context, entry, settings, left - 1)
+    end
+  end
+
   defp candidate_decision(turn, candidate, context, entry, settings, left) do
-    with {:ok, message, candidate_sha256} <- candidate_fields(candidate) do
+    with {:ok, message, candidate_sha256, candidate_attempt} <- candidate_fields(candidate) do
       case parse_and_validate(message, context) do
         {:ok, decision} ->
-          accept_candidate(turn, decision, candidate_sha256, context, entry, settings, left)
+          accept_candidate(
+            turn,
+            decision,
+            candidate_sha256,
+            candidate_attempt,
+            context,
+            entry,
+            settings,
+            left
+          )
 
         {:error, reason} ->
-          reject_candidate(turn, candidate_sha256, reason, context, entry, settings, left)
+          reject_candidate(
+            turn,
+            candidate_sha256,
+            candidate_attempt,
+            reason,
+            context,
+            entry,
+            settings,
+            left
+          )
       end
     end
   end
 
-  defp accept_candidate(turn, decision, candidate_sha256, context, entry, settings, left) do
-    key = validation_key(entry, candidate_sha256, "accept")
+  defp accept_candidate(
+         turn,
+         decision,
+         candidate_sha256,
+         candidate_attempt,
+         context,
+         entry,
+         settings,
+         left
+       ) do
+    key = validation_key(entry, candidate_attempt, candidate_sha256, "accept")
 
     with :ok <- renew_lease(settings) do
       settings.api.validate_candidate(
@@ -332,7 +444,10 @@ defmodule Responder.Admission.Executor do
     end
     |> case do
       {:ok, %{"turn" => completed}} ->
-        with {:ok, completed_decision, completed_sha256} <-
+        with {:ok, completed} <-
+               validate_turn(completed, turn["session_id"], turn["id"]),
+             :ok <- exact_validation_attempt(completed, candidate_attempt),
+             {:ok, completed_decision, completed_sha256} <-
                await_decision(completed, context, entry, settings, left),
              :ok <-
                validated_candidate_matches(
@@ -352,8 +467,17 @@ defmodule Responder.Admission.Executor do
     end
   end
 
-  defp reject_candidate(turn, candidate_sha256, reason, context, entry, settings, left) do
-    key = validation_key(entry, candidate_sha256, "reject")
+  defp reject_candidate(
+         turn,
+         candidate_sha256,
+         candidate_attempt,
+         reason,
+         context,
+         entry,
+         settings,
+         left
+       ) do
+    key = validation_key(entry, candidate_attempt, candidate_sha256, "reject")
     violations = [violation(reason)]
 
     with :ok <- renew_lease(settings) do
@@ -367,9 +491,16 @@ defmodule Responder.Admission.Executor do
       )
     end
     |> case do
-      {:ok, %{"turn" => current}} -> await_decision(current, context, entry, settings, left)
-      {:ok, _response} -> {:error, {:coop_protocol_error, :validation_response}}
-      {:error, _reason} = error -> validation_error(error)
+      {:ok, %{"turn" => current}} ->
+        with {:ok, current} <- validate_turn(current, turn["session_id"], turn["id"]) do
+          await_decision(current, context, entry, settings, left)
+        end
+
+      {:ok, _response} ->
+        {:error, {:coop_protocol_error, :validation_response}}
+
+      {:error, _reason} = error ->
+        validation_error(error)
     end
   end
 
@@ -400,10 +531,15 @@ defmodule Responder.Admission.Executor do
     end
   end
 
-  defp candidate_fields(%{"message" => message, "sha256" => candidate_sha256})
-       when is_binary(message) and is_binary(candidate_sha256) do
+  defp candidate_fields(%{
+         "attempt" => candidate_attempt,
+         "message" => message,
+         "sha256" => candidate_sha256
+       })
+       when is_integer(candidate_attempt) and candidate_attempt > 0 and is_binary(message) and
+              is_binary(candidate_sha256) do
     if sha256(message) == candidate_sha256,
-      do: {:ok, message, candidate_sha256},
+      do: {:ok, message, candidate_sha256, candidate_attempt},
       else: {:error, {:coop_protocol_error, :candidate_digest}}
   end
 
@@ -433,7 +569,15 @@ defmodule Responder.Admission.Executor do
 
   defp close_session(session, entry, settings) do
     with :ok <- renew_lease(settings),
-         {:ok, current} <- settings.api.get_session(settings.client, session["id"]) do
+         {:ok, current} <- settings.api.get_session(settings.client, session["id"]),
+         {:ok, current} <-
+           validate_session_state(
+             entry,
+             current,
+             settings,
+             session["id"],
+             ~w(open exhausted closed discarded)
+           ) do
       close_current_session(current, entry, settings)
     end
   end
@@ -450,8 +594,17 @@ defmodule Responder.Admission.Executor do
            close_key(entry),
            revision
          ) do
-      {:ok, %{"session" => %{"state" => state}}} when state in ["closed", "discarded"] ->
-        :ok
+      {:ok, %{"session" => closed}} when is_map(closed) ->
+        case validate_session_state(
+               entry,
+               closed,
+               settings,
+               session_id,
+               ~w(closed discarded)
+             ) do
+          {:ok, _closed} -> :ok
+          {:error, _reason} = error -> error
+        end
 
       {:ok, _response} ->
         {:error, {:coop_protocol_error, :close_session_response}}
@@ -475,6 +628,7 @@ defmodule Responder.Admission.Executor do
       :max_polls,
       :now,
       :policy,
+      :policy_digest,
       :poll_interval_ms,
       :renew_lease,
       :sleep
@@ -491,6 +645,7 @@ defmodule Responder.Admission.Executor do
         max_polls: Keyword.get(options, :max_polls, 600),
         now: Keyword.get(options, :now, &DateTime.utc_now/0),
         policy: Keyword.fetch!(options, :policy),
+        policy_digest: Keyword.fetch!(options, :policy_digest),
         poll_interval_ms: Keyword.get(options, :poll_interval_ms, 250),
         renew_lease: Keyword.fetch!(options, :renew_lease),
         sleep: Keyword.get(options, :sleep, &Process.sleep/1)
@@ -510,6 +665,7 @@ defmodule Responder.Admission.Executor do
          :ok <- executor_value(is_function(settings.renew_lease, 0), :renew_lease),
          :ok <- executor_value(is_function(settings.sleep, 1), :sleep),
          :ok <- executor_value(valid_ref?(settings.policy), :policy),
+         :ok <- executor_value(valid_digest?(settings.policy_digest), :policy_digest),
          :ok <- executor_value(valid_ref?(settings.lease_ref), :lease_ref),
          :ok <- executor_value(positive?(settings.candidate_limit), :candidate_limit),
          :ok <- executor_value(positive?(settings.continuation_window), :continuation_window),
@@ -532,6 +688,9 @@ defmodule Responder.Admission.Executor do
     executor_value(is_integer(value) and value >= 0, :poll_interval_ms)
   end
 
+  defp valid_digest?(value),
+    do: is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value)
+
   defp executor_value(true, _field), do: :ok
   defp executor_value(false, field), do: {:error, {:invalid_admission_executor, field}}
 
@@ -539,13 +698,89 @@ defmodule Responder.Admission.Executor do
     "responder:admission:create:#{entry.id}:g#{entry.execution_generation}"
   end
 
+  defp session_external_ref(entry),
+    do: "responder-admission:#{entry.id}:g#{entry.execution_generation}"
+
+  defp validate_session(entry, session, settings, expected_id \\ nil)
+
+  defp validate_session(entry, session, settings, expected_id),
+    do: validate_session_state(entry, session, settings, expected_id, ["open"])
+
+  defp validate_session_state(
+         entry,
+         %{
+           "external_ref" => external_ref,
+           "id" => id,
+           "policy" => policy,
+           "policy_digest" => policy_digest,
+           "state" => state
+         } = session,
+         settings,
+         expected_id,
+         allowed_states
+       ) do
+    cond do
+      not valid_ref?(id) or (expected_id != nil and id != expected_id) ->
+        {:error, {:coop_protocol_error, :session_identity}}
+
+      state not in allowed_states ->
+        {:error, {:coop_protocol_error, :session_state}}
+
+      policy != settings.policy or policy_digest != settings.policy_digest or
+          external_ref != session_external_ref(entry) ->
+        {:error, {:coop_protocol_error, :session_authority}}
+
+      true ->
+        {:ok, session}
+    end
+  end
+
+  defp validate_session_state(_entry, _session, _settings, _expected_id, _allowed_states),
+    do: {:error, {:coop_protocol_error, :session_resource}}
+
+  defp session_revision(%{"revision" => revision})
+       when is_integer(revision) and revision > 0,
+       do: {:ok, revision}
+
+  defp session_revision(_session), do: {:error, {:coop_protocol_error, :session_revision}}
+
+  defp validate_turn(turn, expected_session_id, expected_turn_id \\ nil)
+
+  defp validate_turn(
+         %{"id" => id, "session_id" => session_id} = turn,
+         expected_session_id,
+         expected_turn_id
+       ) do
+    cond do
+      not valid_ref?(id) ->
+        {:error, {:coop_protocol_error, :turn_identity}}
+
+      session_id != expected_session_id ->
+        {:error, {:coop_protocol_error, :turn_session_identity}}
+
+      expected_turn_id != nil and id != expected_turn_id ->
+        {:error, {:coop_protocol_error, :turn_identity}}
+
+      true ->
+        {:ok, turn}
+    end
+  end
+
+  defp validate_turn(_turn, _expected_session_id, _expected_turn_id),
+    do: {:error, {:coop_protocol_error, :turn_resource}}
+
   defp turn_key(entry, _context) do
     "responder:admission:turn:#{entry.id}:g#{entry.execution_generation}:#{entry.admission_context_fingerprint}"
   end
 
-  defp validation_key(entry, candidate_sha256, verdict),
+  defp validation_key(entry, candidate_attempt, candidate_sha256, verdict),
     do:
-      "responder:admission:validate:#{entry.id}:g#{entry.execution_generation}:v#{entry.validation_generation}:#{candidate_sha256}:#{verdict}"
+      "responder:admission:validate:#{entry.id}:g#{entry.execution_generation}:a#{candidate_attempt}:v#{entry.validation_generation}:#{candidate_sha256}:#{verdict}"
+
+  defp exact_validation_attempt(%{"validation_attempt" => attempt}, attempt), do: :ok
+
+  defp exact_validation_attempt(_completed, _expected),
+    do: {:error, {:coop_protocol_error, :validation_attempt}}
 
   defp close_key(entry),
     do: "responder:admission:close:#{entry.id}:g#{entry.execution_generation}"

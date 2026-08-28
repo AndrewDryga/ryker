@@ -9,7 +9,7 @@ defmodule Responder.Admission.Runtime do
   alias Responder.Admission.Worker
   alias Responder.Coop.Client
 
-  @fields [:policy, :poll_interval_ms, :receive_timeout_ms, :socket, :worker_ref]
+  @fields [:policy, :policy_digest, :poll_interval_ms, :receive_timeout_ms, :socket, :worker_ref]
   @lease_seconds 300
   @maximum_receive_timeout_ms div(@lease_seconds * 1_000, 3)
 
@@ -21,7 +21,11 @@ defmodule Responder.Admission.Runtime do
       {Worker,
        [
          dispatcher_options: [
-           executor_options: [client: options.client, policy: options.policy],
+           executor_options: [
+             client: options.client,
+             policy: options.policy,
+             policy_digest: options.policy_digest
+           ],
            lease_seconds: @lease_seconds,
            worker_ref: options.worker_ref
          ],
@@ -37,6 +41,7 @@ defmodule Responder.Admission.Runtime do
     configuration = normalize_configuration!(configuration)
     socket = Map.fetch!(configuration, :socket)
     policy = Map.fetch!(configuration, :policy)
+    policy_digest = Map.fetch!(configuration, :policy_digest)
     worker_ref = Map.fetch!(configuration, :worker_ref)
     poll_interval_ms = Map.get(configuration, :poll_interval_ms, 250)
     receive_timeout_ms = Map.get(configuration, :receive_timeout_ms, 30_000)
@@ -45,6 +50,7 @@ defmodule Responder.Admission.Runtime do
     validate_positive!(receive_timeout_ms, :receive_timeout_ms)
     validate_receive_timeout!(receive_timeout_ms)
     validate_ref!(policy, :policy)
+    validate_digest!(policy_digest)
     validate_ref!(worker_ref, :worker_ref)
 
     case Client.new(
@@ -56,6 +62,7 @@ defmodule Responder.Admission.Runtime do
         %{
           client: client,
           policy: policy,
+          policy_digest: policy_digest,
           poll_interval_ms: poll_interval_ms,
           worker_ref: worker_ref
         }
@@ -76,7 +83,7 @@ defmodule Responder.Admission.Runtime do
 
   defp normalize_configuration!(%{} = configuration) do
     keys = Map.keys(configuration)
-    required = [:policy, :socket, :worker_ref]
+    required = [:policy, :policy_digest, :socket, :worker_ref]
 
     if keys -- @fields == [] and Enum.all?(required, &(&1 in keys)),
       do: configuration,
@@ -109,5 +116,11 @@ defmodule Responder.Admission.Runtime do
 
   defp validate_ref!(_value, field) do
     raise ArgumentError, "admission #{field} must be a bounded string"
+  end
+
+  defp validate_digest!(value) do
+    if is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value),
+      do: :ok,
+      else: raise(ArgumentError, "admission policy_digest must be a lowercase SHA-256 digest")
   end
 end

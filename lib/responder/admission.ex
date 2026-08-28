@@ -14,6 +14,7 @@ defmodule Responder.Admission do
   alias Responder.Ingress.{Inbox, Input}
   alias Responder.Ingress.Inbox.{Entry, EntryChangeset}
   alias Responder.Repo
+  alias Responder.Work.Custody
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
 
@@ -157,11 +158,11 @@ defmodule Responder.Admission do
   @spec commit(Context.t(), Decision.t(), String.t(), keyword()) ::
           {:ok, commit_result()} | {:error, term()}
   def commit(%Context{} = context, decision, decision_ref, options) do
-    with {:ok, lease_ref} <- commit_options(options),
+    with {:ok, settings} <- commit_options(options),
          {:ok, decision} <- Decision.prepare(decision),
          :ok <- validate_reference(decision_ref) do
       Repo.transaction(fn ->
-        commit_in_transaction(context, decision, decision_ref, lease_ref)
+        commit_in_transaction(context, decision, decision_ref, settings)
       end)
       |> transaction_result()
     end
@@ -170,9 +171,17 @@ defmodule Responder.Admission do
   def commit(_context, _decision, _decision_ref, _options),
     do: {:error, {:admission_rejected, :context}}
 
-  defp commit_in_transaction(context, decision, decision_ref, lease_ref) do
+  defp commit_in_transaction(context, decision, decision_ref, settings) do
     with {:ok, entry} <- load_entry(context.input_entry.id),
-         {:ok, result} <- commit_locked(entry, context, decision, decision_ref, lease_ref) do
+         {:ok, result} <-
+           commit_locked(
+             entry,
+             context,
+             decision,
+             decision_ref,
+             settings.lease_ref,
+             settings.work_policy
+           ) do
       result
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -287,7 +296,8 @@ defmodule Responder.Admission do
          _context,
          decision,
          decision_ref,
-         _lease_ref
+         _lease_ref,
+         _work_policy
        )
        when status in [:decided, :superseded] do
     submitted = Decision.fingerprint(decision)
@@ -320,7 +330,8 @@ defmodule Responder.Admission do
          _context,
          _decision,
          _decision_ref,
-         _lease_ref
+         _lease_ref,
+         _work_policy
        ),
        do: {:error, {:input_blocked, error_code, error_detail}}
 
@@ -329,13 +340,22 @@ defmodule Responder.Admission do
          context,
          decision,
          decision_ref,
-         lease_ref
+         lease_ref,
+         work_policy
        ) do
     with :ok <- same_input(entry, context),
          :ok <- lease_owned(entry, lease_ref),
          {:ok, selection} <- validate(context, decision),
          {:ok, selection, source_owner} <- current_routing_scope(context, selection) do
-      apply_and_persist(context, entry, selection, decision, decision_ref, source_owner)
+      apply_and_persist(
+        context,
+        entry,
+        selection,
+        decision,
+        decision_ref,
+        source_owner,
+        work_policy
+      )
     end
   end
 
@@ -345,7 +365,8 @@ defmodule Responder.Admission do
          selection,
          decision,
          decision_ref,
-         source_owner
+         source_owner,
+         work_policy
        ) do
     case source_owner do
       {episode, latest} when latest >= context.input.revision ->
@@ -359,13 +380,27 @@ defmodule Responder.Admission do
 
       {%Episode{} = owner, _earlier_revision} ->
         if source_owner_matches_selection?(owner, selection) do
-          apply_and_persist_current(context, entry, selection, decision, decision_ref)
+          apply_and_persist_current(
+            context,
+            entry,
+            selection,
+            decision,
+            decision_ref,
+            work_policy
+          )
         else
           {:error, {:admission_rejected, :context_stale}}
         end
 
       nil ->
-        apply_and_persist_current(context, entry, selection, decision, decision_ref)
+        apply_and_persist_current(
+          context,
+          entry,
+          selection,
+          decision,
+          decision_ref,
+          work_policy
+        )
     end
   end
 
@@ -388,10 +423,20 @@ defmodule Responder.Admission do
     match?(%Episode{id: ^id}, existing_episode(selection))
   end
 
-  defp apply_and_persist_current(context, entry, selection, decision, decision_ref) do
+  defp apply_and_persist_current(
+         context,
+         entry,
+         selection,
+         decision,
+         decision_ref,
+         work_policy
+       ) do
     case apply_episode(context, entry, selection) do
       {:ok, transitions, episode} ->
-        with {:ok, decided} <- persist_decision(entry, decision, decision_ref, episode) do
+        with :ok <- maybe_pin_episode(episode, work_policy),
+             {:ok, episode} <-
+               maybe_resume_blocked_episode(episode, admitted_input_ref(transitions)),
+             {:ok, decided} <- persist_decision(entry, decision, decision_ref, episode) do
           {:ok, %{entry: decided, episode: episode, status: :applied, transitions: transitions}}
         end
 
@@ -641,6 +686,29 @@ defmodule Responder.Admission do
         {:error, {:persistence_failed, :admission_decision, changeset.errors}}
     end
   end
+
+  defp maybe_pin_episode(nil, _work_policy), do: :ok
+  defp maybe_pin_episode(_episode, nil), do: :ok
+
+  defp maybe_pin_episode(
+         %Episode{id: episode_id},
+         %{digest: policy_digest, name: policy}
+       ) do
+    case Custody.pin_episode_in_transaction(episode_id, policy, policy_digest) do
+      {:ok, _session} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp admitted_input_ref([%{event: %{kind: :input_admitted, dedupe_key: input_ref}} | _]),
+    do: input_ref
+
+  defp admitted_input_ref(_transitions), do: nil
+
+  defp maybe_resume_blocked_episode(nil, _input_ref), do: {:ok, nil}
+
+  defp maybe_resume_blocked_episode(%Episode{} = episode, input_ref),
+    do: Custody.resume_blocked_in_transaction(episode, input_ref)
 
   defp load_decided_episode(nil), do: nil
   defp load_decided_episode(id), do: Repo.get(Episode, id)
@@ -922,12 +990,20 @@ defmodule Responder.Admission do
   end
 
   defp commit_options(options) when is_list(options) do
-    if Keyword.keyword?(options) and Keyword.keys(options) -- [:lease_ref] == [] do
+    if Keyword.keyword?(options) and Keyword.keys(options) -- [:lease_ref, :work_policy] == [] do
       lease_ref = Keyword.get(options, :lease_ref)
+      work_policy = Keyword.get(options, :work_policy)
 
-      if valid_optional_reference?(lease_ref),
-        do: {:ok, lease_ref},
-        else: {:error, {:admission_rejected, :lease_ref}}
+      cond do
+        not valid_optional_reference?(lease_ref) ->
+          {:error, {:admission_rejected, :lease_ref}}
+
+        not valid_optional_work_policy?(work_policy) ->
+          {:error, {:admission_rejected, :work_policy}}
+
+        true ->
+          {:ok, %{lease_ref: lease_ref, work_policy: work_policy}}
+      end
     else
       {:error, {:admission_rejected, :options}}
     end
@@ -941,6 +1017,15 @@ defmodule Responder.Admission do
     is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
       String.trim(value) != "" and byte_size(value) <= 1_024
   end
+
+  defp valid_optional_work_policy?(nil), do: true
+
+  defp valid_optional_work_policy?(%{digest: digest, name: name}) do
+    valid_optional_reference?(name) and is_binary(digest) and
+      Regex.match?(~r/\A[0-9a-f]{64}\z/, digest)
+  end
+
+  defp valid_optional_work_policy?(_policy), do: false
 
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}

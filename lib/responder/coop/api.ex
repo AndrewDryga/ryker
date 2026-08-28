@@ -14,6 +14,12 @@ defmodule Responder.Coop.API do
               policy :: String.t(),
               task :: String.t()
             ) :: {:ok, map()} | {:error, term()}
+  @callback fence_create_session(
+              client :: term(),
+              key :: String.t(),
+              policy :: String.t(),
+              task :: String.t()
+            ) :: {:ok, map()} | {:error, term()}
   @callback get_session(client :: term(), session_id :: String.t()) ::
               {:ok, map()} | {:error, term()}
   @callback close_session(
@@ -30,8 +36,23 @@ defmodule Responder.Coop.API do
               prompt :: String.t(),
               schema :: map()
             ) :: {:ok, map()} | {:error, term()}
+  @callback fence_submit_turn(
+              client :: term(),
+              session_id :: String.t(),
+              key :: String.t(),
+              expected_revision :: integer(),
+              prompt :: String.t(),
+              schema :: map()
+            ) :: {:ok, map()} | {:error, term()}
   @callback get_turn(client :: term(), session_id :: String.t(), turn_id :: String.t()) ::
               {:ok, map()} | {:error, term()}
+  @callback cancel_turn(
+              client :: term(),
+              session_id :: String.t(),
+              turn_id :: String.t(),
+              key :: String.t(),
+              expected_revision :: integer()
+            ) :: {:ok, map()} | {:error, term()}
   @callback validate_candidate(
               client :: term(),
               session_id :: String.t(),

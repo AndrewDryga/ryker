@@ -83,6 +83,7 @@ defmodule Responder.Fixtures.Episodes do
       episode_key: "grafana:rule-1:fingerprint-1:cycle-1",
       expected_delivery_ref: "slack-delivery-1",
       next_turn_ref: nil,
+      next_wait: nil,
       occurred_at: DateTime.add(@occurred_at, 2, :second)
     }
 

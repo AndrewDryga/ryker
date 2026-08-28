@@ -9,6 +9,7 @@ defmodule Responder.Coop.Client do
   @behaviour Responder.Coop.API
 
   alias Responder.CanonicalJSON
+  alias Responder.Work.ValidationIntent
 
   @fields [:finch, :receive_timeout, :socket]
   @max_response_bytes 3 * 1_024 * 1_024
@@ -47,12 +48,26 @@ defmodule Responder.Coop.Client do
          :ok <- reference(policy, :policy),
          :ok <- reference(task, :task) do
       request(client, :post, "/v1/sessions",
-        body: CanonicalJSON.encode!(%{"policy" => policy, "task" => task}),
+        body: CanonicalJSON.encode!(create_session_document(policy, task)),
         headers: [
           {"content-type", "application/json"},
           {"idempotency-key", key},
           {"prefer", "respond-async"}
         ]
+      )
+    end
+  end
+
+  @impl true
+  def fence_create_session(%__MODULE__{} = client, key, policy, task) do
+    with :ok <- reference(key, :idempotency_key),
+         :ok <- reference(policy, :policy),
+         :ok <- reference(task, :task) do
+      fence_operation(
+        client,
+        key,
+        "CreateRemoteSession",
+        create_session_document(policy, task)
       )
     end
   end
@@ -79,14 +94,22 @@ defmodule Responder.Coop.Client do
   def submit_turn(client, session_id, key, expected_revision, prompt, schema) do
     with {:ok, session_id} <- path_id(session_id),
          :ok <- reference(key, :idempotency_key),
-         :ok <- positive_revision(expected_revision),
-         :ok <- prompt(prompt),
-         {:ok, contract} <- output_contract(schema) do
-      mutation(client, :post, "/v1/sessions/#{session_id}/turns", key, %{
-        "expected_revision" => expected_revision,
-        "output_contract" => contract,
-        "prompt" => prompt
-      })
+         {:ok, document} <- submit_turn_document(expected_revision, prompt, schema) do
+      mutation(client, :post, "/v1/sessions/#{session_id}/turns", key, document)
+    end
+  end
+
+  @impl true
+  def fence_submit_turn(client, session_id, key, expected_revision, prompt, schema) do
+    with {:ok, session_id} <- path_id(session_id),
+         :ok <- reference(key, :idempotency_key),
+         {:ok, document} <- submit_turn_document(expected_revision, prompt, schema) do
+      fence_operation(
+        client,
+        key,
+        "SubmitTurn",
+        Map.put(document, "session_id", session_id)
+      )
     end
   end
 
@@ -95,6 +118,18 @@ defmodule Responder.Coop.Client do
     with {:ok, session_id} <- path_id(session_id),
          {:ok, turn_id} <- path_id(turn_id) do
       request(client, :get, "/v1/sessions/#{session_id}/turns/#{turn_id}")
+    end
+  end
+
+  @impl true
+  def cancel_turn(client, session_id, turn_id, key, expected_revision) do
+    with {:ok, session_id} <- path_id(session_id),
+         {:ok, turn_id} <- path_id(turn_id),
+         :ok <- reference(key, :idempotency_key),
+         :ok <- positive_revision(expected_revision) do
+      mutation(client, :post, "/v1/sessions/#{session_id}/turns/#{turn_id}/cancel", key, %{
+        "expected_revision" => expected_revision
+      })
     end
   end
 
@@ -120,6 +155,28 @@ defmodule Responder.Coop.Client do
       body: CanonicalJSON.encode!(document),
       headers: [{"content-type", "application/json"}, {"idempotency-key", key}]
     )
+  end
+
+  defp fence_operation(client, key, method, document) do
+    mutation(client, :post, "/v1/operations/fence", key, %{
+      "method" => method,
+      "request" => document
+    })
+  end
+
+  defp create_session_document(policy, task), do: %{"policy" => policy, "task" => task}
+
+  defp submit_turn_document(expected_revision, prompt, schema) do
+    with :ok <- positive_revision(expected_revision),
+         :ok <- prompt(prompt),
+         {:ok, contract} <- output_contract(schema) do
+      {:ok,
+       %{
+         "expected_revision" => expected_revision,
+         "output_contract" => contract,
+         "prompt" => prompt
+       }}
+    end
   end
 
   defp request(client, method, path, options \\ []) do
@@ -182,15 +239,18 @@ defmodule Responder.Coop.Client do
   end
 
   defp validation_document(candidate_sha256, {:reject, violations}) when is_list(violations) do
-    if length(violations) in 1..20 and Enum.all?(violations, &valid_violation?/1),
-      do:
+    case ValidationIntent.new({:reject, violations}, nil) do
+      {:ok, %{"violations" => normalized}} ->
         {:ok,
          %{
            "candidate_sha256" => candidate_sha256,
            "verdict" => "reject",
-           "violations" => violations
-         }},
-      else: {:error, {:invalid_coop_request, :violations}}
+           "violations" => normalized
+         }}
+
+      {:error, _reason} ->
+        {:error, {:invalid_coop_request, :violations}}
+    end
   end
 
   defp validation_document(_candidate_sha256, _verdict),
@@ -263,8 +323,6 @@ defmodule Responder.Coop.Client do
       do: :ok,
       else: {:error, {:invalid_coop_request, :candidate_sha256}}
   end
-
-  defp valid_violation?(value), do: bounded_text?(value, 4 * 1_024)
 
   defp bounded_text?(value, maximum) do
     is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and

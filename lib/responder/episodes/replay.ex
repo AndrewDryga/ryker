@@ -306,13 +306,14 @@ defmodule Responder.Episodes.Replay do
     assert_fields!(
       value,
       ["type", "episode_key", "expected_delivery_ref", "occurred_at"],
-      ["next_turn_ref"]
+      ["next_turn_ref", "next_wait"]
     )
 
     struct!(ConfirmDelivery, %{
       episode_key: required!(value, "episode_key"),
       expected_delivery_ref: required!(value, "expected_delivery_ref"),
       next_turn_ref: Map.get(value, "next_turn_ref"),
+      next_wait: optional_next_wait!(Map.get(value, "next_wait")),
       occurred_at: timestamp!(required!(value, "occurred_at"))
     })
   end
@@ -474,6 +475,22 @@ defmodule Responder.Episodes.Replay do
   end
 
   defp validate_expected_owner!(_value), do: raise(ArgumentError, "invalid expected owner")
+
+  defp optional_next_wait!(nil), do: nil
+
+  defp optional_next_wait!(%{"deadline_at" => nil, "kind" => "input", "ref" => ref} = wait) do
+    assert_fields!(wait, ["deadline_at", "kind", "ref"], [])
+    %{deadline_at: nil, kind: :input, ref: ref}
+  end
+
+  defp optional_next_wait!(
+         %{"deadline_at" => deadline_at, "kind" => "event", "ref" => ref} = wait
+       ) do
+    assert_fields!(wait, ["deadline_at", "kind", "ref"], [])
+    %{deadline_at: timestamp!(deadline_at), kind: :event, ref: ref}
+  end
+
+  defp optional_next_wait!(_value), do: raise(ArgumentError, "invalid next wait")
 
   defp required!(value, key) do
     case Map.fetch(value, key) do
