@@ -26,7 +26,7 @@ defmodule Responder.LegacyParityManifestTest do
                "version"
              ]
 
-    assert manifest["version"] == 3
+    assert manifest["version"] == 4
 
     paths = Enum.map(manifest["files"], & &1["path"])
     assert Enum.uniq(paths) == paths
@@ -75,7 +75,15 @@ defmodule Responder.LegacyParityManifestTest do
 
     assert Enum.all?(stage2_equivalents, fn key -> mapped[key] == "source_ingress" end)
     assert Enum.uniq(stage2_equivalents) == stage2_equivalents
-    assert MapSet.disjoint?(MapSet.new(stage2_equivalents), MapSet.new(pending_model_evals))
+
+    pending_legacy_keys =
+      pending_model_evals
+      |> Enum.filter(&match?({:legacy, _key}, &1))
+      |> Enum.map(fn {:legacy, key} -> key end)
+
+    assert MapSet.disjoint?(MapSet.new(stage2_equivalents), MapSet.new(pending_legacy_keys))
+
+    assert {:standalone, "human_thread_reply_continues_existing_episode"} in pending_model_evals
   end
 
   test "drift reports both unclassified and stale test names" do
@@ -113,14 +121,22 @@ defmodule Responder.LegacyParityManifestTest do
 
   defp validate_pending_model_evals(evals, mapped) do
     Enum.map(evals, fn eval ->
-      assert Map.keys(eval) |> Enum.sort() ==
-               ["context_fixture", "go_file", "go_test", "reason"]
-
-      key = {eval["go_file"], eval["go_test"]}
-      assert mapped[key] == "source_ingress"
       assert File.regular?(eval["context_fixture"])
       assert is_binary(eval["reason"]) and String.trim(eval["reason"]) != ""
-      key
+
+      case Map.keys(eval) |> Enum.sort() do
+        ["context_fixture", "go_file", "go_test", "reason"] ->
+          key = {eval["go_file"], eval["go_test"]}
+          assert mapped[key] == "source_ingress"
+          {:legacy, key}
+
+        ["context_fixture", "eval_id", "reason"] ->
+          assert is_binary(eval["eval_id"]) and String.trim(eval["eval_id"]) != ""
+          {:standalone, eval["eval_id"]}
+
+        fields ->
+          flunk("unsupported pending model eval fields: #{inspect(fields)}")
+      end
     end)
   end
 

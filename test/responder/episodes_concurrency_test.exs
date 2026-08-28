@@ -34,7 +34,7 @@ defmodule Responder.EpisodesConcurrencyTest do
         end)
 
       try do
-        Enum.each(contender_backends, &await_blocked_by(&1, blocker_backend))
+        assert_admit_input_lock_chain(contender_backends, blocker_backend)
         send(blocker.pid, :release)
 
         results = Enum.map(contenders, &Task.await(&1, 5_000))
@@ -87,7 +87,7 @@ defmodule Responder.EpisodesConcurrencyTest do
         end)
 
       try do
-        Enum.each(contender_backends, &await_blocked_by(&1, blocker_backend))
+        assert_admit_input_lock_chain(contender_backends, blocker_backend)
         send(blocker.pid, :release)
 
         assert Enum.all?(Enum.map(contenders, &Task.await(&1, 5_000)), fn
@@ -197,5 +197,30 @@ defmodule Responder.EpisodesConcurrencyTest do
       send(parent, {:contender_ready, self(), backend_pid()})
       Episodes.apply(command)
     end)
+  end
+
+  defp assert_admit_input_lock_chain(contender_backends, source_blocker) do
+    Enum.each(contender_backends, fn contender_backend ->
+      possible_blockers = [source_blocker | List.delete(contender_backends, contender_backend)]
+      await_blocked_by_any(contender_backend, possible_blockers)
+    end)
+  end
+
+  defp await_blocked_by_any(blocked_backend, possible_blockers, deadline \\ nil) do
+    deadline = deadline || System.monotonic_time(:millisecond) + 5_000
+
+    %{rows: [[blocking_backends]]} =
+      Repo.query!("SELECT pg_blocking_pids($1::integer)", [blocked_backend])
+
+    cond do
+      Enum.any?(blocking_backends, &(&1 in possible_blockers)) ->
+        :ok
+
+      System.monotonic_time(:millisecond) > deadline ->
+        flunk("backend #{blocked_backend} never reached the serialized input lock chain")
+
+      true ->
+        await_blocked_by_any(blocked_backend, possible_blockers, deadline)
+    end
   end
 end
