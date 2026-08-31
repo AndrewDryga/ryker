@@ -353,10 +353,9 @@ var optionalBotScopes = []string{
 	"channels:join",
 }
 
-// manifestBotScopes is the full scope list deploy/slack-app-manifest.yaml must
-// request, sorted the way the manifest reads. Keeping it derived is what stops
-// the manifest and the binary from drifting into disagreement about what this
-// app asks for.
+// manifestBotScopes is the legacy runtime's scope list that
+// deploy/slack-app-manifest.yaml must request. The shared manifest may contain
+// additional scopes used only by the Elixir runtime during the migration.
 func manifestBotScopes() []string {
 	return slices.Sorted(slices.Values(slices.Concat(requiredBotScopes, optionalBotScopes)))
 }
