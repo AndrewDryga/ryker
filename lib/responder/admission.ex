@@ -9,11 +9,13 @@ defmodule Responder.Admission do
   import Ecto.Query
 
   alias Responder.Admission.{Candidate, Context, Decision}
+  alias Responder.Delivery.ReactionCustody
   alias Responder.Episodes
   alias Responder.Episodes.{Command, ConversationLock, Episode, Event}
   alias Responder.Ingress.{Inbox, Input}
   alias Responder.Ingress.Inbox.{Entry, EntryChangeset}
   alias Responder.Repo
+  alias Responder.State.{Behaviors, Records}
   alias Responder.Work.Custody
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
@@ -79,12 +81,16 @@ defmodule Responder.Admission do
 
   defp build_context_locked(input, entry, settings) do
     with :ok <- lock_conversation(input),
-         {:ok, candidates} <- candidates(input, settings) do
+         {:ok, candidates} <- candidates(input, entry.execution_mode, settings) do
       %Context{
-        active_episode_fingerprint: active_episode_fingerprint_for_destination(input.destination),
+        active_episode_fingerprint:
+          active_episode_fingerprint_for_destination(
+            input.destination,
+            entry.execution_mode
+          ),
         built_at: settings.now,
         candidates: candidates,
-        conversation_episode_count: conversation_episode_count(input),
+        conversation_episode_count: conversation_episode_count(input, entry.execution_mode),
         input: input,
         input_entry: entry
       }
@@ -94,14 +100,26 @@ defmodule Responder.Admission do
   end
 
   @spec validate(Context.t(), Decision.t()) ::
-          {:ok, %{candidate: Candidate.t() | nil, decision: Decision.t()}} | {:error, term()}
+          {:ok,
+           %{
+             candidate: Candidate.t() | nil,
+             decision: Decision.t(),
+             execution_mode: :live | :shadow
+           }}
+          | {:error, term()}
   def validate(%Context{} = context, decision) do
     with {:ok, decision} <- Decision.prepare(decision),
          :ok <- allowed_action(context.input, decision.action),
+         :ok <- allowed_reaction(context.input, decision),
          {:ok, candidate} <- selected_candidate(context, decision.episode_ref),
          :ok <- allowed_relation(candidate, decision.relation),
          :ok <- source_owner_selection(context, candidate, decision) do
-      {:ok, %{candidate: candidate, decision: decision}}
+      {:ok,
+       %{
+         candidate: candidate,
+         decision: decision,
+         execution_mode: context.input_entry.execution_mode
+       }}
     end
   end
 
@@ -259,7 +277,6 @@ defmodule Responder.Admission do
   defp input_from_entry(entry) do
     Input.new(%{
       actor: %{kind: entry.actor_kind, ref: entry.actor_ref},
-      can_react: entry.can_react,
       content: entry.content,
       destination: %{
         conversation_ref: entry.destination_conversation_ref,
@@ -273,6 +290,7 @@ defmodule Responder.Admission do
       occurred_at_source: entry.occurred_at_source,
       revision: entry.revision,
       source: %{kind: entry.source_kind, ref: entry.source_ref},
+      source_capabilities: entry.source_capabilities,
       source_item_ref: entry.source_item_ref
     })
   end
@@ -436,7 +454,9 @@ defmodule Responder.Admission do
         with :ok <- maybe_pin_episode(episode, work_policy),
              {:ok, episode} <-
                maybe_resume_blocked_episode(episode, admitted_input_ref(transitions)),
-             {:ok, decided} <- persist_decision(entry, decision, decision_ref, episode) do
+             {:ok, decided} <- persist_decision(entry, decision, decision_ref, episode),
+             :ok <-
+               finalize_assignment_runs(entry, decision, decision_ref, episode, :decided) do
           {:ok, %{entry: decided, episode: episode, status: :applied, transitions: transitions}}
         end
 
@@ -460,20 +480,36 @@ defmodule Responder.Admission do
 
   defp persist_superseded(entry, decision, decision_ref, episode, details) do
     with {:ok, decided} <-
-           persist_superseded_decision(entry, decision, decision_ref, episode, details) do
+           persist_superseded_decision(entry, decision, decision_ref, episode, details),
+         :ok <- finalize_assignment_runs(entry, decision, decision_ref, episode, :superseded) do
       {:ok, %{entry: decided, episode: episode, status: :superseded, transitions: []}}
     end
+  end
+
+  defp finalize_assignment_runs(entry, decision, decision_ref, episode, outcome) do
+    selected_episode =
+      if decision.action in [:start_episode, :continue_episode, :reply], do: episode
+
+    Behaviors.finalize_assignment_runs_in_transaction(
+      Inbox.ref(entry),
+      decision.action,
+      decision_ref,
+      selected_episode,
+      outcome
+    )
   end
 
   defp current_source_owner(context) do
     native_input_id = context.input.native_input_id
     destination = context.input.destination
+    execution_mode = context.input_entry.execution_mode
 
     case Repo.one(
            from(episode in Episode,
              where:
                episode.destination_transport == ^destination.transport and
                  episode.destination_conversation_ref == ^destination.conversation_ref and
+                 episode.execution_mode == ^execution_mode and
                  fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id),
              order_by: [
                desc:
@@ -495,7 +531,12 @@ defmodule Responder.Admission do
   defp current_routing_scope(%Context{} = context, selection) do
     with :ok <- lock_conversation(context.input),
          :ok <- compare_routing_generation(context, selection) do
-      {:ok, refresh_selection(selection), current_source_owner(context)}
+      source_owner =
+        if context.input_entry.execution_mode == :shadow,
+          do: nil,
+          else: current_source_owner(context)
+
+      {:ok, refresh_selection(selection), source_owner}
     end
   end
 
@@ -506,10 +547,14 @@ defmodule Responder.Admission do
   end
 
   defp compare_conversation_generation(context) do
-    same_count? = conversation_episode_count(context.input) == context.conversation_episode_count
+    execution_mode = context.input_entry.execution_mode
+
+    same_count? =
+      conversation_episode_count(context.input, execution_mode) ==
+        context.conversation_episode_count
 
     same_active? =
-      active_episode_fingerprint_for_destination(context.input.destination) ==
+      active_episode_fingerprint_for_destination(context.input.destination, execution_mode) ==
         context.active_episode_fingerprint
 
     if same_count? and same_active?,
@@ -590,8 +635,9 @@ defmodule Responder.Admission do
       destination: target_destination(input, existing),
       episode_id: if(existing, do: existing.id, else: entry.id),
       episode_key: if(existing, do: existing.key, else: "ingress-input:#{entry.id}"),
+      execution_mode: entry.execution_mode,
       linked_episode_id: linked_episode(selection, existing),
-      native_input_id: input.native_input_id,
+      native_input_id: routed_native_input_id(input, entry),
       occurred_at: input.occurred_at,
       payload: Input.document(input),
       revision: input.revision,
@@ -602,7 +648,8 @@ defmodule Responder.Admission do
   defp maybe_resume_wait(context, selection, admit, current) do
     existing = existing_episode(selection)
 
-    if existing && waiting?(current) && input_after_wait?(current, context.input.occurred_at) do
+    if existing && waiting?(current) && Records.user_resumable_wait?(current.owner_ref) &&
+         input_after_wait?(current, context.input.occurred_at) do
       resume = %Command.ResumeWait{
         episode_key: current.key,
         expected_wait: %{kind: current.owner_kind, ref: current.owner_ref},
@@ -611,14 +658,23 @@ defmodule Responder.Admission do
         turn_ref: admit.turn_ref
       }
 
-      Episodes.apply_batch_in_transaction([resume])
+      with {:ok, transitions} <- Episodes.apply_batch_in_transaction([resume]),
+           :ok <- Records.resolve_wait_in_transaction(current.owner_ref) do
+        {:ok, transitions}
+      end
     else
       {:ok, []}
     end
   end
 
-  defp existing_episode(%{candidate: %Candidate{} = candidate, decision: decision}) do
-    if decision.relation == :same_work, do: candidate.episode, else: nil
+  defp existing_episode(%{
+         candidate: %Candidate{} = candidate,
+         decision: decision,
+         execution_mode: execution_mode
+       }) do
+    if decision.relation == :same_work and candidate.episode.execution_mode == execution_mode,
+      do: candidate.episode,
+      else: nil
   end
 
   defp existing_episode(_selection), do: nil
@@ -636,10 +692,17 @@ defmodule Responder.Admission do
   defp linked_episode(_selection, %Episode{} = episode), do: episode.linked_episode_id
 
   defp linked_episode(%{candidate: %Candidate{} = candidate, decision: decision}, nil) do
-    if decision.relation == :history_only, do: candidate.episode.id, else: nil
+    if decision.relation == :history_only or decision.relation == :same_work,
+      do: candidate.episode.id,
+      else: nil
   end
 
   defp linked_episode(_selection, nil), do: nil
+
+  defp routed_native_input_id(input, %{execution_mode: :shadow, id: entry_id}),
+    do: "shadow:#{input.native_input_id}:#{entry_id}"
+
+  defp routed_native_input_id(input, _entry), do: input.native_input_id
 
   defp waiting?(%Episode{state: state}) when state in [:waiting_for_input, :waiting_for_event],
     do: true
@@ -648,10 +711,20 @@ defmodule Responder.Admission do
 
   defp input_after_wait?(%Episode{} = episode, occurred_at) do
     wait_kinds = [:input_wait_started, :event_wait_started]
+    owner_ref = episode.owner_ref
 
     case Repo.one(
            from(event in Event,
-             where: event.episode_id == ^episode.id and event.kind in ^wait_kinds,
+             where:
+               event.episode_id == ^episode.id and
+                 ((event.kind in ^wait_kinds and
+                     fragment("(?::jsonb)->>'wait_ref' = ?", event.payload, ^owner_ref)) or
+                    (event.kind == :delivery_confirmed and
+                       fragment(
+                         "(?::jsonb)->'next_wait'->>'ref' = ?",
+                         event.payload,
+                         ^owner_ref
+                       ))),
              order_by: [desc: event.sequence],
              limit: 1
            )
@@ -667,12 +740,17 @@ defmodule Responder.Admission do
     |> Repo.update()
     |> case do
       {:ok, decided} ->
-        {:ok, decided}
+        with {:ok, _reaction} <- maybe_enqueue_reaction(decided) do
+          {:ok, decided}
+        end
 
       {:error, changeset} ->
         {:error, {:persistence_failed, :admission_decision, changeset.errors}}
     end
   end
+
+  defp maybe_enqueue_reaction(%Entry{execution_mode: :shadow}), do: {:ok, nil}
+  defp maybe_enqueue_reaction(%Entry{} = entry), do: ReactionCustody.enqueue_in_transaction(entry)
 
   defp persist_superseded_decision(entry, decision, decision_ref, episode, details) do
     entry
@@ -692,9 +770,16 @@ defmodule Responder.Admission do
 
   defp maybe_pin_episode(
          %Episode{id: episode_id},
-         %{digest: policy_digest, name: policy}
+         %{digest: policy_digest, name: policy} = work_policy
        ) do
-    case Custody.pin_episode_in_transaction(episode_id, policy, policy_digest) do
+    repository_ref = Map.get(work_policy, :repository_ref)
+
+    case Custody.pin_episode_in_transaction(
+           episode_id,
+           policy,
+           policy_digest,
+           repository_ref
+         ) do
       {:ok, _session} -> :ok
       {:error, _reason} = error -> error
     end
@@ -713,11 +798,12 @@ defmodule Responder.Admission do
   defp load_decided_episode(nil), do: nil
   defp load_decided_episode(id), do: Repo.get(Episode, id)
 
-  defp candidates(input, settings) do
+  defp candidates(input, execution_mode, settings) do
     with :ok <-
            required_candidates_fit(
              input.destination,
              input.native_input_id,
+             execution_mode,
              settings.candidate_limit
            ) do
       destination = input.destination
@@ -728,6 +814,7 @@ defmodule Responder.Admission do
           candidate_query(
             destination,
             input.native_input_id,
+            execution_mode,
             history_cutoff,
             settings.candidate_limit
           )
@@ -742,38 +829,65 @@ defmodule Responder.Admission do
            Map.get(endpoints_by_episode, episode.id, %{}),
            destination.thread_ref,
            settings.now,
-           settings.continuation_window
+           settings.continuation_window,
+           cross_thread_relation_scope(input)
          )
-         |> require_same_work_for_newer_revision(input)
+         |> require_same_work_for_source_owner(input)
        end)}
     end
   end
 
-  defp require_same_work_for_newer_revision(candidate, input) do
-    case Map.fetch(candidate.episode.input_revisions, input.native_input_id) do
-      {:ok, revision}
-      when revision < input.revision and candidate.episode.state != :cancelled ->
-        %{candidate | allowed_relations: [:same_work, :history_only]}
-
-      _not_a_newer_revision ->
-        candidate
+  defp cross_thread_relation_scope(
+         %Input{
+           actor: %{kind: :app},
+           destination: %{conversation_ref: "slack:" <> rest, transport: "slack"}
+         } = input
+       ) do
+    case String.split(rest, ":", parts: 2) do
+      [_workspace_ref, "D" <> _direct_message] -> :active_only
+      _shared_conversation -> {:same_actor, Input.actor_ref(input)}
     end
   end
 
-  defp required_candidates_fit(destination, native_input_id, candidate_limit) do
-    required = required_candidate_count(destination, native_input_id)
+  defp cross_thread_relation_scope(%Input{
+         destination: %{conversation_ref: "slack:" <> rest, transport: "slack"}
+       }) do
+    case String.split(rest, ":", parts: 2) do
+      [_workspace_ref, "D" <> _direct_message] -> :active_only
+      _shared_conversation -> :none
+    end
+  end
+
+  defp cross_thread_relation_scope(_input), do: :all
+
+  defp require_same_work_for_source_owner(candidate, input) do
+    if Map.has_key?(candidate.episode.input_revisions, input.native_input_id) and
+         candidate.episode.state != :cancelled do
+      %{candidate | allowed_relations: [:same_work, :history_only]}
+    else
+      candidate
+    end
+  end
+
+  defp required_candidates_fit(destination, native_input_id, execution_mode, candidate_limit) do
+    required = required_candidate_count(destination, native_input_id, execution_mode)
 
     if required <= candidate_limit,
       do: :ok,
       else: {:error, {:admission_context_overflow, required: required, limit: candidate_limit}}
   end
 
-  defp required_candidate_count(%{thread_ref: nil} = destination, native_input_id) do
+  defp required_candidate_count(
+         %{thread_ref: nil} = destination,
+         native_input_id,
+         execution_mode
+       ) do
     Repo.aggregate(
       from(episode in Episode,
         where:
           episode.destination_transport == ^destination.transport and
             episode.destination_conversation_ref == ^destination.conversation_ref and
+            episode.execution_mode == ^execution_mode and
             (episode.state in ^@active_states or
                fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id))
       ),
@@ -781,53 +895,69 @@ defmodule Responder.Admission do
     )
   end
 
-  defp required_candidate_count(destination, native_input_id) do
-    exact_thread =
+  defp required_candidate_count(destination, native_input_id, execution_mode) do
+    exact_thread = exact_thread_query(destination, execution_mode)
+
+    if Repo.exists?(exact_thread),
+      do:
+        required_exact_thread_count(exact_thread, native_input_id) +
+          owned_elsewhere_count(destination, native_input_id, execution_mode),
+      else:
+        required_candidate_count(
+          %{destination | thread_ref: nil},
+          native_input_id,
+          execution_mode
+        )
+  end
+
+  defp exact_thread_query(destination, execution_mode) do
+    from(episode in Episode,
+      where:
+        episode.destination_transport == ^destination.transport and
+          episode.destination_conversation_ref == ^destination.conversation_ref and
+          episode.execution_mode == ^execution_mode and
+          episode.destination_thread_ref == ^destination.thread_ref
+    )
+  end
+
+  defp required_exact_thread_count(exact_thread, native_input_id) do
+    Repo.aggregate(
+      from(episode in exact_thread,
+        where:
+          episode.state in ^@active_states or
+            fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id)
+      ),
+      :count
+    )
+  end
+
+  defp owned_elsewhere_count(destination, native_input_id, execution_mode) do
+    Repo.aggregate(
       from(episode in Episode,
         where:
           episode.destination_transport == ^destination.transport and
             episode.destination_conversation_ref == ^destination.conversation_ref and
-            episode.destination_thread_ref == ^destination.thread_ref
-      )
-
-    active_exact_thread =
-      Repo.aggregate(
-        from(episode in exact_thread,
-          where:
-            episode.state in ^@active_states or
-              fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id)
-        ),
-        :count
-      )
-
-    owned_elsewhere =
-      Repo.aggregate(
-        from(episode in Episode,
-          where:
-            episode.destination_transport == ^destination.transport and
-              episode.destination_conversation_ref == ^destination.conversation_ref and
-              (is_nil(episode.destination_thread_ref) or
-                 episode.destination_thread_ref != ^destination.thread_ref) and
-              fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id)
-        ),
-        :count
-      )
-
-    if Repo.exists?(exact_thread),
-      do: active_exact_thread + owned_elsewhere,
-      else: required_candidate_count(%{destination | thread_ref: nil}, native_input_id)
+            episode.execution_mode == ^execution_mode and
+            (is_nil(episode.destination_thread_ref) or
+               episode.destination_thread_ref != ^destination.thread_ref) and
+            fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id)
+      ),
+      :count
+    )
   end
 
   defp candidate_query(
          %{thread_ref: nil} = destination,
          native_input_id,
+         execution_mode,
          history_cutoff,
          candidate_limit
        ) do
     from(episode in Episode,
       where:
         episode.destination_transport == ^destination.transport and
-          episode.destination_conversation_ref == ^destination.conversation_ref,
+          episode.destination_conversation_ref == ^destination.conversation_ref and
+          episode.execution_mode == ^execution_mode,
       where:
         episode.state in ^@active_states or episode.updated_at >= ^history_cutoff or
           fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id),
@@ -841,11 +971,18 @@ defmodule Responder.Admission do
     )
   end
 
-  defp candidate_query(destination, native_input_id, history_cutoff, candidate_limit) do
+  defp candidate_query(
+         destination,
+         native_input_id,
+         execution_mode,
+         history_cutoff,
+         candidate_limit
+       ) do
     from(episode in Episode,
       where:
         episode.destination_transport == ^destination.transport and
-          episode.destination_conversation_ref == ^destination.conversation_ref,
+          episode.destination_conversation_ref == ^destination.conversation_ref and
+          episode.execution_mode == ^execution_mode,
       where:
         episode.destination_thread_ref == ^destination.thread_ref or
           episode.state in ^@active_states or episode.updated_at >= ^history_cutoff or
@@ -861,25 +998,27 @@ defmodule Responder.Admission do
     )
   end
 
-  defp conversation_episode_count(input) do
+  defp conversation_episode_count(input, execution_mode) do
     destination = input.destination
 
     Repo.aggregate(
       from(episode in Episode,
         where:
           episode.destination_transport == ^destination.transport and
-            episode.destination_conversation_ref == ^destination.conversation_ref
+            episode.destination_conversation_ref == ^destination.conversation_ref and
+            episode.execution_mode == ^execution_mode
       ),
       :count
     )
   end
 
-  defp current_active_episode_ids(destination) do
+  defp current_active_episode_ids(destination, execution_mode) do
     Repo.all(
       from(episode in Episode,
         where:
           episode.destination_transport == ^destination.transport and
             episode.destination_conversation_ref == ^destination.conversation_ref and
+            episode.execution_mode == ^execution_mode and
             episode.state in ^@active_states,
         order_by: [asc: episode.id],
         select: episode.id
@@ -887,9 +1026,9 @@ defmodule Responder.Admission do
     )
   end
 
-  defp active_episode_fingerprint_for_destination(destination) do
+  defp active_episode_fingerprint_for_destination(destination, execution_mode) do
     destination
-    |> current_active_episode_ids()
+    |> current_active_episode_ids(execution_mode)
     |> Responder.CanonicalJSON.digest()
   end
 
@@ -963,6 +1102,27 @@ defmodule Responder.Admission do
       else: {:error, {:admission_rejected, :action_not_allowed, submitted: action}}
   end
 
+  defp allowed_reaction(input, %{action: :react, reaction: %{emoji_name: emoji_name}}) do
+    case Input.reaction_names(input) do
+      :any ->
+        :ok
+
+      names when is_list(names) ->
+        if emoji_name in names do
+          :ok
+        else
+          {:error,
+           {:admission_rejected, :reaction_not_allowed, allowed: names, submitted: emoji_name}}
+        end
+
+      names ->
+        {:error,
+         {:admission_rejected, :reaction_not_allowed, allowed: names || [], submitted: emoji_name}}
+    end
+  end
+
+  defp allowed_reaction(_input, _decision), do: :ok
+
   defp allowed_relation(nil, :unrelated), do: :ok
 
   defp allowed_relation(%Candidate{} = candidate, relation) do
@@ -1020,9 +1180,10 @@ defmodule Responder.Admission do
 
   defp valid_optional_work_policy?(nil), do: true
 
-  defp valid_optional_work_policy?(%{digest: digest, name: name}) do
+  defp valid_optional_work_policy?(%{digest: digest, name: name} = policy) do
     valid_optional_reference?(name) and is_binary(digest) and
-      Regex.match?(~r/\A[0-9a-f]{64}\z/, digest)
+      Regex.match?(~r/\A[0-9a-f]{64}\z/, digest) and
+      valid_optional_reference?(Map.get(policy, :repository_ref))
   end
 
   defp valid_optional_work_policy?(_policy), do: false

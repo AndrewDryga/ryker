@@ -85,7 +85,7 @@ defmodule Responder.Admission.ContextTest do
     assert encoded =~ "This could be any earlier human or app message"
   end
 
-  test "active work remains a continuation candidate beyond the completed hold window" do
+  test "active work from the same Slack app remains a continuation candidate" do
     current = record_input!()
 
     active =
@@ -100,6 +100,113 @@ defmodule Responder.Admission.ContextTest do
     candidate = Enum.find(context.candidates, &(&1.episode.id == active.id))
 
     assert candidate.allowed_relations == [:same_work, :history_only]
+  end
+
+  test "a human Slack root cannot silently continue work in another thread" do
+    current = record_input!(actor: %{kind: :user, ref: "U123"})
+
+    other_thread =
+      create_episode!(
+        key: "human-root-other-thread",
+        thread_ref: "1787820000.000002",
+        content: %{"text" => "Existing work in another visible Slack thread"}
+      )
+
+    assert {:ok, context} = build_context(current)
+    candidate = Enum.find(context.candidates, &(&1.episode.id == other_thread.id))
+
+    assert candidate.allowed_relations == [:history_only]
+    refute candidate.same_thread
+  end
+
+  test "a Slack app can cross threads only through its exact source lifecycle" do
+    current = record_input!(revision: 2)
+
+    unrelated =
+      create_episode!(
+        key: "app-root-other-thread",
+        thread_ref: "1787820000.000010",
+        content: %{"text" => "Unrelated writable work in another Slack thread"},
+        actor: %{kind: :app, ref: "B999"}
+      )
+
+    owner =
+      create_episode!(
+        key: "app-source-owner",
+        thread_ref: "1787820000.000011",
+        content: %{"text" => "Earlier revision of this exact source lifecycle"},
+        native_input_id: current.native_input_id
+      )
+
+    assert {:ok, context} = build_context(current)
+    candidates = Map.new(context.candidates, &{&1.episode.id, &1})
+
+    assert candidates[unrelated.id].allowed_relations == [:history_only]
+    assert candidates[owner.id].allowed_relations == [:same_work, :history_only]
+  end
+
+  test "a human shared-channel thread reply can continue only its exact thread" do
+    current =
+      record_input!(
+        actor: %{kind: :user, ref: "U123"},
+        message_ref: "1787832001.000200",
+        thread_ref: @current_thread
+      )
+
+    exact =
+      create_episode!(
+        key: "human-exact-thread",
+        thread_ref: @current_thread,
+        content: %{"text" => "Work in the exact visible Slack thread"}
+      )
+
+    other =
+      create_episode!(
+        key: "human-different-thread",
+        thread_ref: "1787820000.000002",
+        content: %{"text" => "Unrelated active work in another Slack thread"}
+      )
+
+    assert {:ok, context} = build_context(current)
+    candidates = Map.new(context.candidates, &{&1.episode.id, &1})
+
+    assert candidates[exact.id].allowed_relations == [:same_work, :history_only]
+    assert candidates[exact.id].same_thread
+    assert candidates[other.id].allowed_relations == [:history_only]
+    refute candidates[other.id].same_thread
+  end
+
+  test "a direct-message root can continue only current active DM work" do
+    current =
+      record_input!(
+        actor: %{kind: :user, ref: "U123"},
+        channel_ref: "D456",
+        message_ref: "1787832002.000300"
+      )
+
+    active =
+      create_episode!(
+        key: "active-direct-message",
+        channel_ref: "D456",
+        thread_ref: "1787820000.000001",
+        content: %{"text" => "The current DM task"}
+      )
+
+    completed =
+      create_episode!(
+        key: "completed-direct-message",
+        channel_ref: "D456",
+        thread_ref: "1787810000.000001",
+        content: %{"text" => "An earlier completed DM task"},
+        complete: true
+      )
+
+    assert {:ok, context} = build_context(current)
+    candidates = Map.new(context.candidates, &{&1.episode.id, &1})
+
+    assert candidates[active.id].allowed_relations == [:same_work, :history_only]
+    assert candidates[completed.id].allowed_relations == [:history_only]
+    refute candidates[active.id].same_thread
   end
 
   test "active work is never displaced by newer completed history" do
@@ -142,6 +249,30 @@ defmodule Responder.Admission.ContextTest do
 
     assert {:error, {:admission_context_overflow, required: 9, limit: 8}} =
              build_context(current)
+  end
+
+  test "shadow episodes cannot consume live admission capacity" do
+    current = record_input!()
+
+    live =
+      create_episode!(
+        key: "live-capacity-owner",
+        thread_ref: "1787832001.000001",
+        content: %{"text" => "Live work that must remain selectable"}
+      )
+
+    for index <- 1..8 do
+      create_episode!(
+        key: "shadow-capacity-#{index}",
+        thread_ref: "1787833000.#{String.pad_leading(Integer.to_string(index), 6, "0")}",
+        content: %{"text" => "Observe-only work #{index}"},
+        execution_mode: :shadow
+      )
+    end
+
+    assert {:ok, context} = build_context(current)
+    assert Enum.map(context.candidates, & &1.episode.id) == [live.id]
+    assert Enum.all?(context.candidates, &(&1.episode.execution_mode == :live))
   end
 
   test "an exact thread remains admissible when unrelated active work fills the bound" do
@@ -455,6 +586,7 @@ defmodule Responder.Admission.ContextTest do
 
     source_input =
       input!(
+        actor: Keyword.get(options, :actor, %{kind: :app, ref: "A123"}),
         channel_ref: channel_ref,
         content: Keyword.fetch!(options, :content),
         event_ref: "Ev-#{episode_id}",
@@ -463,12 +595,13 @@ defmodule Responder.Admission.ContextTest do
       )
 
     command = %Command.AdmitInput{
-      actor_ref: "slack:app:A123",
+      actor_ref: Input.actor_ref(source_input),
       destination: source_input.destination,
       episode_id: episode_id,
       episode_key: episode_key,
+      execution_mode: Keyword.get(options, :execution_mode, :live),
       linked_episode_id: nil,
-      native_input_id: source_input.native_input_id,
+      native_input_id: Keyword.get(options, :native_input_id, source_input.native_input_id),
       occurred_at: DateTime.add(@now, -3 * 60 * 60),
       payload: Input.document(source_input),
       revision: 1,

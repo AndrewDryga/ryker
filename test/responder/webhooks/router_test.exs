@@ -29,10 +29,13 @@ defmodule Responder.Webhooks.RouterTest do
     assert response["status"] == "recorded"
     assert {:ok, entry} = Inbox.fetch(response["input_ref"])
     assert entry.status == :pending
-    assert entry.source_kind == :webhook
+    assert entry.source_kind == "webhook"
     assert entry.content["payload"] == %{"new_vendor" => %{"state" => "firing"}}
     assert entry.destination_conversation_ref == "slack:T123:C456"
     assert entry.destination_thread_ref == nil
+    assert entry.work_policy == "webhook-read-only"
+    assert entry.work_policy_digest == String.duplicate("a", 64)
+    assert entry.repository_ref == "owner/service"
 
     assert {:ok, context} =
              Admission.context(response["input_ref"],
@@ -355,7 +358,12 @@ defmodule Responder.Webhooks.RouterTest do
                },
                max_body_bytes: 40_000,
                max_clock_skew_seconds: 300,
-               name: "universal"
+               name: "universal",
+               work_profile: %{
+                 policy: "webhook-read-only",
+                 policy_digest: String.duplicate("a", 64),
+                 repository_ref: "owner/service"
+               }
              })
 
     route

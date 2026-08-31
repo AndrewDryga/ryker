@@ -24,7 +24,9 @@ defmodule Responder.Admission.Executor do
          :ok <- renew_lease(settings),
          {:ok, entry} <- Inbox.fetch(input_ref),
          {:ok, entry, context} <- execution_context(input_ref, entry, settings),
-         {:ok, session} <- ensure_session(entry, settings) do
+         :ok <- prepare_execution_session(entry, settings),
+         {:ok, session} <- ensure_session(entry, settings),
+         :ok <- bind_execution_session(entry, session, settings) do
       run_context(entry, session, context, settings)
     else
       :error -> {:error, {:admission_execution_failed, :input_not_found}}
@@ -39,7 +41,7 @@ defmodule Responder.Admission.Executor do
          {:ok, result} <-
            Admission.commit(context, decision, decision_ref(turn, candidate_sha256),
              lease_ref: settings.lease_ref,
-             work_policy: %{digest: settings.policy_digest, name: settings.policy}
+             work_policy: work_policy(entry, settings)
            ) do
       {:ok,
        %{
@@ -68,6 +70,18 @@ defmodule Responder.Admission.Executor do
       {:error, _reason} = error ->
         error
     end
+  end
+
+  defp work_policy(
+         %{work_policy: policy, work_policy_digest: digest, repository_ref: repository_ref},
+         _settings
+       )
+       when is_binary(policy) and is_binary(digest) do
+    %{digest: digest, name: policy, repository_ref: repository_ref}
+  end
+
+  defp work_policy(_entry, settings) do
+    %{digest: settings.policy_digest, name: settings.policy, repository_ref: nil}
   end
 
   defp admission_context(input_ref, settings) do
@@ -170,7 +184,12 @@ defmodule Responder.Admission.Executor do
 
   defp submit_turn(entry, session, context, key, settings) do
     prompt = context |> Prompt.build() |> CanonicalJSON.encode!()
-    schema = Decision.json_schema(Input.allowed_actions(context.input))
+
+    schema =
+      Decision.json_schema(
+        Input.allowed_actions(context.input),
+        Input.reaction_names(context.input)
+      )
 
     with :ok <- renew_lease(settings),
          {:ok, current_session} <- settings.api.get_session(settings.client, session["id"]),
@@ -557,6 +576,10 @@ defmodule Responder.Admission.Executor do
     "The selected relation is unavailable for that candidate. Allowed: #{inspect(details[:allowed])}; submitted: #{inspect(details[:submitted])}."
   end
 
+  defp violation({:admission_rejected, :reaction_not_allowed, details}) do
+    "The reaction is unavailable for this source. Allowed emoji names: #{inspect(details[:allowed])}; submitted: #{inspect(details[:submitted])}."
+  end
+
   defp violation({:invalid_decision, field}) do
     "The decision field #{field} does not satisfy the attached response schema."
   end
@@ -577,8 +600,9 @@ defmodule Responder.Admission.Executor do
              settings,
              session["id"],
              ~w(open exhausted closed discarded)
-           ) do
-      close_current_session(current, entry, settings)
+           ),
+         :ok <- close_current_session(current, entry, settings) do
+      settle_execution_session(entry, session["id"], settings)
     end
   end
 
@@ -620,6 +644,7 @@ defmodule Responder.Admission.Executor do
   defp settings(options) when is_list(options) do
     allowed = [
       :api,
+      :bind_execution_session,
       :candidate_limit,
       :client,
       :continuation_window,
@@ -630,13 +655,17 @@ defmodule Responder.Admission.Executor do
       :policy,
       :policy_digest,
       :poll_interval_ms,
+      :prepare_execution_session,
       :renew_lease,
+      :settle_execution_session,
       :sleep
     ]
 
     if Keyword.keyword?(options) and Enum.all?(Keyword.keys(options), &(&1 in allowed)) do
       validate_settings(%{
         api: Keyword.get(options, :api, Responder.Coop.Client),
+        bind_execution_session:
+          Keyword.get(options, :bind_execution_session, fn _entry, _session_id -> :ok end),
         candidate_limit: Keyword.get(options, :candidate_limit, 20),
         client: Keyword.fetch!(options, :client),
         continuation_window: Keyword.get(options, :continuation_window, 30 * 60),
@@ -647,7 +676,11 @@ defmodule Responder.Admission.Executor do
         policy: Keyword.fetch!(options, :policy),
         policy_digest: Keyword.fetch!(options, :policy_digest),
         poll_interval_ms: Keyword.get(options, :poll_interval_ms, 250),
+        prepare_execution_session:
+          Keyword.get(options, :prepare_execution_session, fn _entry, _policy -> :ok end),
         renew_lease: Keyword.fetch!(options, :renew_lease),
+        settle_execution_session:
+          Keyword.get(options, :settle_execution_session, fn _entry, _session_id -> :ok end),
         sleep: Keyword.get(options, :sleep, &Process.sleep/1)
       })
     else
@@ -661,16 +694,31 @@ defmodule Responder.Admission.Executor do
 
   defp validate_settings(settings) do
     with :ok <- executor_value(is_atom(settings.api), :api),
+         :ok <-
+           executor_value(
+             is_function(settings.bind_execution_session, 2),
+             :bind_execution_session
+           ),
          :ok <- executor_value(is_function(settings.now, 0), :now),
          :ok <- executor_value(is_function(settings.renew_lease, 0), :renew_lease),
          :ok <- executor_value(is_function(settings.sleep, 1), :sleep),
          :ok <- executor_value(valid_ref?(settings.policy), :policy),
          :ok <- executor_value(valid_digest?(settings.policy_digest), :policy_digest),
+         :ok <-
+           executor_value(
+             is_function(settings.prepare_execution_session, 2),
+             :prepare_execution_session
+           ),
          :ok <- executor_value(valid_ref?(settings.lease_ref), :lease_ref),
          :ok <- executor_value(positive?(settings.candidate_limit), :candidate_limit),
          :ok <- executor_value(positive?(settings.continuation_window), :continuation_window),
          :ok <- valid_history_window(settings),
          :ok <- executor_value(positive?(settings.max_polls), :max_polls),
+         :ok <-
+           executor_value(
+             is_function(settings.settle_execution_session, 2),
+             :settle_execution_session
+           ),
          :ok <- valid_poll_interval(settings.poll_interval_ms) do
       {:ok, settings}
     end
@@ -830,4 +878,32 @@ defmodule Responder.Admission.Executor do
 
   defp positive?(value), do: is_integer(value) and value > 0
   defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
+
+  defp prepare_execution_session(entry, settings) do
+    settings.prepare_execution_session.(entry, %{
+      digest: settings.policy_digest,
+      name: settings.policy
+    })
+    |> callback_result(:prepare_execution_session)
+  end
+
+  defp bind_execution_session(entry, %{"id" => session_id}, settings) do
+    settings.bind_execution_session.(entry, session_id)
+    |> callback_result(:bind_execution_session)
+  end
+
+  defp bind_execution_session(_entry, _session, _settings),
+    do: {:error, {:coop_protocol_error, :session_identity}}
+
+  defp settle_execution_session(entry, session_id, settings) do
+    settings.settle_execution_session.(entry, session_id)
+    |> callback_result(:settle_execution_session)
+  end
+
+  defp callback_result(:ok, _operation), do: :ok
+  defp callback_result({:ok, _value}, _operation), do: :ok
+  defp callback_result({:error, _reason} = error, _operation), do: error
+
+  defp callback_result(_other, operation),
+    do: {:error, {:admission_execution_failed, operation}}
 end

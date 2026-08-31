@@ -30,6 +30,7 @@ defmodule Responder.Admission.PromptTest do
                "ignore"
              ],
              "candidates" => [],
+             "execution_mode" => "live",
              "input" => Input.model_document(input)
            }
 
@@ -38,6 +39,9 @@ defmodule Responder.Admission.PromptTest do
     assert request["instructions"] =~ "Never ignore a request"
     assert request["instructions"] =~ "directed\n  at Responder."
     assert request["instructions"] =~ "history_only"
+    assert request["instructions"] =~ "explicit source identity"
+    assert request["instructions"] =~ "do not ignore the event that closes active work"
+    assert request["instructions"] =~ "different explicit run ID or alert start identity"
     refute request["instructions"] =~ "Grafana"
     refute request["instructions"] =~ "Terraform"
   end
@@ -86,11 +90,11 @@ defmodule Responder.Admission.PromptTest do
     assert Prompt.build(context) |> Jason.encode!() |> byte_size() <= 65_536
   end
 
-  test "does not offer Slack reactions to sources that cannot perform them" do
+  test "does not offer reactions to sources that cannot perform them" do
     input = %{
       input!()
-      | can_react: false,
-        source: %{kind: :webhook, ref: "universal"}
+      | source_capabilities: %{},
+        source: %{kind: "webhook", ref: "universal"}
     }
 
     context = %Context{
@@ -149,6 +153,92 @@ defmodule Responder.Admission.PromptTest do
     }
 
     assert Prompt.build(context) |> Jason.encode!() |> byte_size() <= 65_536
+  end
+
+  test "an impossible unbounded host context fails before reaching Coop" do
+    input = input!()
+
+    episode = %Episode{
+      destination_thread_ref: "older-thread",
+      id: Ecto.UUID.generate(),
+      state: :working,
+      updated_at: ~U[2026-08-27 12:00:00.000000Z]
+    }
+
+    endpoint = %{
+      occurred_at: ~U[2026-08-27 11:00:00.000000Z],
+      payload: %{
+        "payload" => %{
+          "actor" => %{"kind" => "app", "ref" => "A123"},
+          "content" => %{"text" => "bounded preview"},
+          "event_kind" => "message"
+        }
+      }
+    }
+
+    candidate =
+      Candidate.new(
+        episode,
+        %{first: endpoint, latest: endpoint},
+        "current-thread",
+        ~U[2026-08-27 12:00:01.000000Z],
+        1_800
+      )
+
+    context = %Context{
+      active_episode_fingerprint: Responder.CanonicalJSON.digest([]),
+      built_at: ~U[2026-08-27 12:00:01.000000Z],
+      candidates: List.duplicate(candidate, 200),
+      conversation_episode_count: 200,
+      input: input,
+      input_entry: %Entry{id: Ecto.UUID.generate()}
+    }
+
+    assert_raise ArgumentError, ~r/admission prompt exceeds its bound/, fn ->
+      Prompt.build(context)
+    end
+  end
+
+  test "candidate snapshots restore only the exact frozen host mapping" do
+    episode = %Episode{
+      destination_thread_ref: "current-thread",
+      id: Ecto.UUID.generate(),
+      state: :working,
+      updated_at: ~U[2026-08-27 12:00:00.000000Z]
+    }
+
+    candidate =
+      Candidate.new(
+        episode,
+        %{
+          first: %{
+            occurred_at: ~U[2026-08-27 11:00:00.000000Z],
+            payload: %{"payload" => "plain legacy payload"}
+          },
+          latest: :invalid_endpoint
+        },
+        "current-thread",
+        ~U[2026-08-27 12:00:01.000000Z],
+        1_800
+      )
+
+    snapshot = Candidate.snapshot(candidate)
+    assert snapshot["first_input"]["content_preview"] =~ "plain legacy payload"
+    assert snapshot["latest_input"] == nil
+    assert {:ok, restored} = Candidate.restore(snapshot, episode)
+    assert Candidate.for_model(restored) == Candidate.for_model(candidate)
+
+    for invalid <- [
+          nil,
+          %{snapshot | "allowed_relations" => "same_work"},
+          %{snapshot | "allowed_relations" => ["unknown"]},
+          %{snapshot | "allowed_relations" => ["same_work", "same_work"]},
+          %{snapshot | "first_input" => "invalid"},
+          %{snapshot | "first_input" => %{"content_preview" => "incomplete"}}
+        ] do
+      assert Candidate.restore(invalid, episode) ==
+               {:error, {:invalid_admission_context_snapshot, :candidate}}
+    end
   end
 
   defp input!(content \\ %{"text" => "A message in a format added tomorrow"}) do

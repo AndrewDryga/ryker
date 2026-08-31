@@ -13,7 +13,29 @@ defmodule Responder.Webhooks.RouteTest do
       assert route.destination.conversation_ref == "slack:T123:C456"
       assert route.max_body_bytes == 40_000
       assert route.max_clock_skew_seconds == 300
+      assert route.work_profile == nil
     end
+  end
+
+  test "accepts only a validated host-owned work profile" do
+    profile = %{
+      policy: "webhook-read-only",
+      policy_digest: String.duplicate("a", 64),
+      repository_ref: "owner/service"
+    }
+
+    assert {:ok, route} =
+             attributes({:bearer, "a-secret-token-long-enough"})
+             |> Map.put(:work_profile, profile)
+             |> Route.new()
+
+    assert route.work_profile.policy == "webhook-read-only"
+    assert route.work_profile.repository_ref == "owner/service"
+
+    assert {:error, {:invalid_work_profile, :policy_digest}} =
+             attributes({:bearer, "a-secret-token-long-enough"})
+             |> Map.put(:work_profile, %{profile | policy_digest: "untrusted"})
+             |> Route.new()
   end
 
   test "rejects weak credentials, extra fields, and malformed destinations" do

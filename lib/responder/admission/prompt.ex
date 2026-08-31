@@ -27,6 +27,20 @@ defmodule Responder.Admission.Prompt do
   Use history_only when the older episode is useful background but the current event is new work. A
   history link never reuses the older destination. Use only candidate references and relations
   present in the supplied context. Do not invent identifiers.
+
+  For automated lifecycle events, compare explicit source identity before wording or timing:
+  - The same run ID, alert start identity, deployment ID, pull request, or equivalent source object is
+    same_work. Its progress, success, recovery, resolved, or other terminal update continues the active
+    episode even when the update asks no question; do not ignore the event that closes active work.
+  - A different explicit run ID or alert start identity is new work. Never merge it into an older
+    completed lifecycle merely because the provider, project, alert name, wording, or arrival time is
+    similar. Start a new episode and use history_only when the offered episode is related background.
+  - A completed episode may be continued only for a genuine follow-up to that same lifecycle or
+    conversation. A new firing/start identity after completion begins linked new work.
+
+  execution_mode is host-owned. Shadow means observe-only: classify exactly as you would for live
+  traffic, but the host will isolate any longer investigation and suppress posts, reactions, offers,
+  incidents, and mutations while retaining read-only evaluation evidence.
   """
 
   @spec build(Context.t()) :: map()

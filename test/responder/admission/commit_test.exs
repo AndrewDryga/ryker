@@ -51,6 +51,32 @@ defmodule Responder.Admission.CommitTest do
     assert details[:submitted_decision_ref] == "decision-from-another-turn"
   end
 
+  test "shadow work is isolated from live episodes and remains observe-only" do
+    live = create_episode!(thread_ref: "1787830000.000001")
+    input = input!(event_ref: "Ev-shadow-admission", message_ref: "1787832000.000100")
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input, execution_mode: :shadow)
+
+    context = context!(entry)
+    assert context.candidates == []
+
+    assert {:ok, result} =
+             Admission.commit(
+               context,
+               decision!(:start_episode, nil, :unrelated),
+               "decision-shadow-isolated"
+             )
+
+    assert result.episode.id != live.id
+    assert result.episode.execution_mode == :shadow
+    assert result.episode.linked_episode_id == nil
+    assert result.episode.destination_conversation_ref == live.destination_conversation_ref
+
+    assert {:ok, unchanged_live} = Episodes.fetch_by_key(live.key)
+    assert unchanged_live.execution_mode == :live
+    assert unchanged_live.queued_input_refs == []
+  end
+
   test "a claimed input can only be decided by its current executor lease" do
     entry = record_input!(event_ref: "Ev-owned-admission")
 
@@ -125,9 +151,11 @@ defmodule Responder.Admission.CommitTest do
     assert result.episode.destination_thread_ref == entry.destination_thread_ref
   end
 
-  test "continues active work in its bound thread and queues the new input" do
-    active = create_episode!(thread_ref: "1787830000.000001")
-    entry = record_input!(message_ref: "1787832000.000100")
+  test "an app event can continue active work in its bound thread and queue the input" do
+    active =
+      create_episode!(thread_ref: "1787830000.000001", actor: %{kind: :app, ref: "A123"})
+
+    entry = record_input!(actor: %{kind: :app, ref: "A123"}, message_ref: "1787832000.000100")
     context = context!(entry)
     candidate = candidate!(context, active.id)
     decision = decision!(:continue_episode, candidate.ref, :same_work)
@@ -246,8 +274,14 @@ defmodule Responder.Admission.CommitTest do
   end
 
   test "an admitted trigger resumes a waiting episode in the same transaction" do
-    waiting = create_episode!(thread_ref: "1787830000.000001", wait: :event)
-    entry = record_input!()
+    waiting =
+      create_episode!(
+        thread_ref: "1787830000.000001",
+        wait: :event,
+        actor: %{kind: :app, ref: "A123"}
+      )
+
+    entry = record_input!(actor: %{kind: :app, ref: "A123"})
     context = context!(entry)
     candidate = candidate!(context, waiting.id)
     decision = decision!(:continue_episode, candidate.ref, :same_work)
@@ -262,10 +296,16 @@ defmodule Responder.Admission.CommitTest do
   end
 
   test "an input that occurred before a wait cannot satisfy that later wait" do
-    waiting = create_episode!(thread_ref: "1787830000.000001", wait: :event)
+    waiting =
+      create_episode!(
+        thread_ref: "1787830000.000001",
+        wait: :event,
+        actor: %{kind: :app, ref: "A123"}
+      )
 
     entry =
       record_input!(
+        actor: %{kind: :app, ref: "A123"},
         event_ref: "Ev-delayed-before-wait",
         occurred_at: DateTime.add(@now, -120, :second)
       )
@@ -283,8 +323,10 @@ defmodule Responder.Admission.CommitTest do
   end
 
   test "a wait started after context construction is resumed from locked current state" do
-    active = create_episode!(thread_ref: "1787830000.000001")
-    entry = record_input!(event_ref: "Ev-wait-race")
+    active =
+      create_episode!(thread_ref: "1787830000.000001", actor: %{kind: :app, ref: "A123"})
+
+    entry = record_input!(actor: %{kind: :app, ref: "A123"}, event_ref: "Ev-wait-race")
     context = context!(entry)
     candidate = candidate!(context, active.id)
     assert candidate.episode.state == :working
@@ -578,11 +620,15 @@ defmodule Responder.Admission.CommitTest do
     # A Slack edit and another lifecycle update can race while the model is
     # choosing among active episodes. The stable source item must stay with the
     # episode that admitted its first revision.
-    owner = create_episode!(thread_ref: "1787830000.005551")
-    other = create_episode!(thread_ref: "1787830000.005552")
+    owner =
+      create_episode!(thread_ref: "1787830000.005551", actor: %{kind: :app, ref: "A123"})
+
+    other =
+      create_episode!(thread_ref: "1787830000.005552", actor: %{kind: :app, ref: "A123"})
 
     entry =
       record_input!(
+        actor: %{kind: :app, ref: "A123"},
         event_ref: "Ev-source-owner-race-revision-two",
         message_ref: "1787830000.005553",
         revision: 2
@@ -704,6 +750,7 @@ defmodule Responder.Admission.CommitTest do
   test "a newer revision stays with its existing source-item owner" do
     entry =
       record_input!(
+        actor: %{kind: :app, ref: "A123"},
         event_ref: "Ev-owned-revision-two",
         message_ref: "1787830000.007777",
         revision: 2
@@ -718,7 +765,9 @@ defmodule Responder.Admission.CommitTest do
         updated_at: DateTime.add(@now, -40, :day)
       )
 
-    other = create_episode!(thread_ref: "1787830000.000002")
+    other =
+      create_episode!(thread_ref: "1787830000.000002", actor: %{kind: :app, ref: "A123"})
+
     context = context!(entry)
     owner_candidate = candidate!(context, owner.id)
     other_candidate = candidate!(context, other.id)
@@ -834,8 +883,15 @@ defmodule Responder.Admission.CommitTest do
   end
 
   test "a selected routing decision survives newer input on the same work" do
-    active = create_episode!(thread_ref: "1787830000.000001")
-    entry = record_input!(event_ref: "Ev-frozen-before-newer-input")
+    active =
+      create_episode!(thread_ref: "1787830000.000001", actor: %{kind: :app, ref: "A123"})
+
+    entry =
+      record_input!(
+        actor: %{kind: :app, ref: "A123"},
+        event_ref: "Ev-frozen-before-newer-input"
+      )
+
     context = context!(entry)
     candidate = candidate!(context, active.id)
     continue = decision!(:continue_episode, candidate.ref, :same_work)
@@ -945,7 +1001,7 @@ defmodule Responder.Admission.CommitTest do
     decision
   end
 
-  defp record_input!(overrides \\ []) do
+  defp record_input!(overrides) do
     attributes =
       Keyword.merge(
         [
@@ -975,7 +1031,7 @@ defmodule Responder.Admission.CommitTest do
 
     source_input =
       input!(
-        actor: %{kind: :app, ref: "A-old"},
+        actor: Keyword.get(options, :actor, %{kind: :app, ref: "A-old"}),
         content: %{"text" => "Earlier Slack work"},
         event_ref: "Ev-#{Ecto.UUID.generate()}",
         message_ref: Keyword.get(options, :message_ref, thread_ref),
@@ -983,7 +1039,7 @@ defmodule Responder.Admission.CommitTest do
       )
 
     admit = %Command.AdmitInput{
-      actor_ref: "slack:app:A-old",
+      actor_ref: Input.actor_ref(source_input),
       destination: source_input.destination,
       episode_id: episode_id,
       episode_key: episode_key,

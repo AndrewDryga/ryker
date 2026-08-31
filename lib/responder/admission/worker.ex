@@ -11,6 +11,7 @@ defmodule Responder.Admission.Worker do
   require Logger
 
   alias Responder.Admission.Dispatcher
+  alias Responder.Observability.Progress
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do
@@ -35,6 +36,7 @@ defmodule Responder.Admission.Worker do
   @impl GenServer
   def handle_info(:poll, state) do
     delay = process_once(state.dispatcher_options, state.poll_interval_ms)
+    _ = Progress.beat(:admission)
     Process.send_after(self(), :poll, delay)
     {:noreply, state}
   end

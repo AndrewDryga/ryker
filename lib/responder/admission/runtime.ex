@@ -6,10 +6,19 @@ defmodule Responder.Admission.Runtime do
   execution limits.
   """
 
-  alias Responder.Admission.Worker
+  alias Responder.Admission.{FleetSession, Worker}
   alias Responder.Coop.Client
 
-  @fields [:policy, :policy_digest, :poll_interval_ms, :receive_timeout_ms, :socket, :worker_ref]
+  @fields [
+    :api,
+    :client,
+    :policy,
+    :policy_digest,
+    :poll_interval_ms,
+    :receive_timeout_ms,
+    :socket,
+    :worker_ref
+  ]
   @lease_seconds 300
   @maximum_receive_timeout_ms div(@lease_seconds * 1_000, 3)
 
@@ -22,9 +31,13 @@ defmodule Responder.Admission.Runtime do
        [
          dispatcher_options: [
            executor_options: [
+             api: options.api,
+             bind_execution_session: options.bind_execution_session,
              client: options.client,
              policy: options.policy,
-             policy_digest: options.policy_digest
+             policy_digest: options.policy_digest,
+             prepare_execution_session: options.prepare_execution_session,
+             settle_execution_session: options.settle_execution_session
            ],
            lease_seconds: @lease_seconds,
            worker_ref: options.worker_ref
@@ -39,7 +52,6 @@ defmodule Responder.Admission.Runtime do
   @spec options!(keyword() | map()) :: map()
   def options!(configuration) do
     configuration = normalize_configuration!(configuration)
-    socket = Map.fetch!(configuration, :socket)
     policy = Map.fetch!(configuration, :policy)
     policy_digest = Map.fetch!(configuration, :policy_digest)
     worker_ref = Map.fetch!(configuration, :worker_ref)
@@ -53,23 +65,16 @@ defmodule Responder.Admission.Runtime do
     validate_digest!(policy_digest)
     validate_ref!(worker_ref, :worker_ref)
 
-    case Client.new(
-           finch: Responder.CoopFinch,
-           receive_timeout: receive_timeout_ms,
-           socket: socket
-         ) do
-      {:ok, client} ->
-        %{
-          client: client,
-          policy: policy,
-          policy_digest: policy_digest,
-          poll_interval_ms: poll_interval_ms,
-          worker_ref: worker_ref
-        }
+    {api, client, callbacks} = coop_adapter!(configuration, receive_timeout_ms)
 
-      {:error, reason} ->
-        raise ArgumentError, "invalid admission Coop client: #{inspect(reason)}"
-    end
+    Map.merge(callbacks, %{
+      api: api,
+      client: client,
+      policy: policy,
+      policy_digest: policy_digest,
+      poll_interval_ms: poll_interval_ms,
+      worker_ref: worker_ref
+    })
   end
 
   defp normalize_configuration!(configuration) when is_list(configuration) do
@@ -83,9 +88,13 @@ defmodule Responder.Admission.Runtime do
 
   defp normalize_configuration!(%{} = configuration) do
     keys = Map.keys(configuration)
-    required = [:policy, :policy_digest, :socket, :worker_ref]
+    required = [:policy, :policy_digest, :worker_ref]
 
-    if keys -- @fields == [] and Enum.all?(required, &(&1 in keys)),
+    adapter =
+      (:socket in keys and :api not in keys and :client not in keys) or
+        (:socket not in keys and :api in keys and :client in keys)
+
+    if keys -- @fields == [] and Enum.all?(required, &(&1 in keys)) and adapter,
       do: configuration,
       else: raise(ArgumentError, "admission configuration has missing or unknown fields")
   end
@@ -105,6 +114,43 @@ defmodule Responder.Admission.Runtime do
   defp validate_receive_timeout!(_value) do
     raise ArgumentError,
           "admission receive_timeout_ms must fit within the durable lease heartbeat window"
+  end
+
+  defp coop_adapter!(%{api: api, client: client}, _receive_timeout_ms)
+       when is_atom(api) and not is_nil(client) do
+    if Code.ensure_loaded?(api) and function_exported?(api, :get_session, 2) do
+      callbacks = %{
+        bind_execution_session: &FleetSession.bind/2,
+        prepare_execution_session: fn entry, policy -> FleetSession.ensure(entry, policy) end,
+        settle_execution_session: &FleetSession.settle/2
+      }
+
+      {api, client, callbacks}
+    else
+      raise ArgumentError, "admission api must implement the Coop session contract"
+    end
+  end
+
+  defp coop_adapter!(%{socket: socket}, receive_timeout_ms) do
+    validate_ref!(socket, :socket)
+
+    case Client.new(
+           finch: Responder.CoopFinch,
+           receive_timeout: receive_timeout_ms,
+           socket: socket
+         ) do
+      {:ok, client} ->
+        callbacks = %{
+          bind_execution_session: fn _entry, _session_id -> :ok end,
+          prepare_execution_session: fn _entry, _policy -> :ok end,
+          settle_execution_session: fn _entry, _session_id -> :ok end
+        }
+
+        {Client, client, callbacks}
+
+      {:error, reason} ->
+        raise ArgumentError, "invalid admission Coop client: #{inspect(reason)}"
+    end
   end
 
   defp validate_ref!(value, _field) when is_binary(value) do

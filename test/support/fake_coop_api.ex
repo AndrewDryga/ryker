@@ -9,10 +9,17 @@ defmodule Responder.TestSupport.FakeCoopAPI do
 
     Agent.start_link(fn ->
       %{
+        async_create: Keyword.get(options, :async_create, false),
+        async_operations_running: Keyword.get(options, :async_operations_running, false),
+        async_submit: Keyword.get(options, :async_submit, false),
         candidates: candidates,
         accepted_candidate_override: Keyword.get(options, :accepted_candidate_override),
+        close_after_validation: Keyword.get(options, :close_after_validation, false),
         close_keys: [],
         closed: false,
+        discard_keys: [],
+        discard_plan_keys: [],
+        discarded: false,
         create_keys: [],
         exhaust_after_validation: Keyword.get(options, :exhaust_after_validation, false),
         fail_create: Keyword.get(options, :fail_create, false),
@@ -45,6 +52,9 @@ defmodule Responder.TestSupport.FakeCoopAPI do
           "id" => "remote_test",
           "policy" => nil,
           "policy_digest" => String.duplicate("a", 64),
+          "project_env" => Keyword.get(options, :project_env, false),
+          "project_mcp" => Keyword.get(options, :project_mcp, false),
+          "repository_read_only" => Keyword.get(options, :repository_read_only, true),
           "revision" => 1,
           "state" => "open"
         },
@@ -85,9 +95,22 @@ defmodule Responder.TestSupport.FakeCoopAPI do
         })
 
       response =
-        if state.fail_create,
-          do: {:error, {:coop_unavailable, :simulated}},
-          else: {:ok, %{"session" => session}}
+        cond do
+          state.fail_create ->
+            {:error, {:coop_unavailable, :simulated}}
+
+          state.async_create ->
+            {:ok,
+             %{
+               "operation" =>
+                 "CreateRemoteSession"
+                 |> succeeded_operation("session", session["id"])
+                 |> maybe_running_operation(state.async_operations_running)
+             }}
+
+          true ->
+            {:ok, %{"session" => session}}
+        end
 
       operations =
         if state.fail_create,
@@ -168,6 +191,10 @@ defmodule Responder.TestSupport.FakeCoopAPI do
       end
     end)
   end
+
+  @impl true
+  def get_output_artifact(_agent, _session_id, _turn_id, _artifact_id),
+    do: {:error, {:coop_error, 404, "artifact_not_found", "artifact not found"}}
 
   @impl true
   def cancel_turn(agent, _session_id, _turn_id, _key, _expected_revision) do
@@ -258,6 +285,71 @@ defmodule Responder.TestSupport.FakeCoopAPI do
     end)
   end
 
+  @impl true
+  def plan_discard(agent, session_id, key, revision, false, false) do
+    Agent.get_and_update(agent, fn state ->
+      operation_id = "op_plan_#{key}"
+
+      response = %{
+        "operation" => %{
+          "id" => operation_id,
+          "method" => "PlanDiscard",
+          "resource_id" => session_id,
+          "resource_type" => "discard_plan",
+          "state" => "succeeded"
+        },
+        "plan" => %{
+          "operation_id" => operation_id,
+          "plan" => %{
+            "revision" => revision,
+            "session_id" => session_id,
+            "workspace" => %{
+              "accepted_dirty" => false,
+              "accepted_unmerged" => false,
+              "branch" => "coop/eval",
+              "dirty" => false,
+              "head" => String.duplicate("b", 40),
+              "running" => false,
+              "status_digest" => String.duplicate("c", 64),
+              "unmerged" => false
+            }
+          }
+        }
+      }
+
+      {{:ok, response}, %{state | discard_plan_keys: state.discard_plan_keys ++ [key]}}
+    end)
+  end
+
+  @impl true
+  def discard_session(agent, session_id, key, _plan_operation_id) do
+    Agent.get_and_update(agent, fn state ->
+      discarded =
+        state.session
+        |> Map.put("state", "discarded")
+        |> Map.update!("revision", &(&1 + 1))
+
+      response = %{
+        "operation" => %{
+          "id" => "op_discard_#{key}",
+          "method" => "Discard",
+          "resource_id" => session_id,
+          "resource_type" => "session",
+          "state" => "succeeded"
+        },
+        "session" => discarded
+      }
+
+      {{:ok, response},
+       %{
+         state
+         | discard_keys: state.discard_keys ++ [key],
+           discarded: true,
+           session: discarded
+       }}
+    end)
+  end
+
   defp close_state(state) do
     session =
       state.session
@@ -326,7 +418,12 @@ defmodule Responder.TestSupport.FakeCoopAPI do
         turn: current
     }
 
-    {{:ok, %{"turn" => queued}}, next}
+    response =
+      if state.async_submit,
+        do: %{"operation" => maybe_running_operation(operation, state.async_operations_running)},
+        else: %{"turn" => queued}
+
+    {{:ok, response}, next}
   end
 
   defp accept_candidate(state, key, sha256) do
@@ -351,6 +448,7 @@ defmodule Responder.TestSupport.FakeCoopAPI do
       state.session
       |> Map.update!("revision", &(&1 + 1))
       |> maybe_exhaust(state.exhaust_after_validation)
+      |> maybe_close_after_validation(state.close_after_validation)
 
     response = %{"turn" => completed}
 
@@ -412,6 +510,9 @@ defmodule Responder.TestSupport.FakeCoopAPI do
     }
   end
 
+  defp maybe_running_operation(operation, true), do: Map.put(operation, "state", "running")
+  defp maybe_running_operation(operation, false), do: operation
+
   defp maybe_omit_validation_digest(turn, true),
     do: Map.delete(turn, "validation_candidate_sha256")
 
@@ -419,6 +520,9 @@ defmodule Responder.TestSupport.FakeCoopAPI do
 
   defp maybe_omit_validation_receipt(turn, true), do: Map.delete(turn, "validation_receipt")
   defp maybe_omit_validation_receipt(turn, false), do: turn
+
+  defp maybe_close_after_validation(session, true), do: Map.put(session, "state", "closed")
+  defp maybe_close_after_validation(session, false), do: session
 
   defp maybe_exhaust(session, true), do: Map.put(session, "state", "exhausted")
   defp maybe_exhaust(session, false), do: session
