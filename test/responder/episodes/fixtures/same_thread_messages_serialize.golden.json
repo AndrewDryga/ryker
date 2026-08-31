@@ -190,7 +190,7 @@
   "events": [
     {
       "dedupe_key": "admit_input:f3697e1e197e3f88900c6b8c6615145f48d4aa945a5021862313214422dcbe4a",
-      "fingerprint": "5119e5a5267a9b2ae72e57cfd362c1966b65c7c61b52fe3c8aa0cf7cb5c6275a",
+      "fingerprint": "cfd8ee8684056f38eeb744fa9be27c9fe991e0343f41eac199dc3d28e5ae2abb",
       "kind": "input_admitted",
       "occurred_at": "2026-08-27T15:00:00.850639Z",
       "payload": {
@@ -202,6 +202,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000009",
         "episode_key": "slack-thread:C08MMETA3U3:1787842800.850639",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "slack:mention:run_4c857973135ce1114957d42f91fbdcef",
@@ -216,7 +217,7 @@
     },
     {
       "dedupe_key": "admit_input:950fc3b5a2729e9d2286a2f1d1096738ab5734c8fff91aa02bac116ef3b12d65",
-      "fingerprint": "9ee7d65dafe053e775b1a58a4fee880a33dcc9ff26faed7bc2f9e1d8d92e2117",
+      "fingerprint": "adf0c3dbd92481d0c7ab87909850ddbe603fc4ffea6ed0aa9cd74a6f77d72f3c",
       "kind": "input_admitted",
       "occurred_at": "2026-08-27T15:00:01.000000Z",
       "payload": {
@@ -228,6 +229,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000009",
         "episode_key": "slack-thread:C08MMETA3U3:1787842800.850639",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "slack:message:run_6bf2f7f154f023bfb83c54492bcfbfaf",

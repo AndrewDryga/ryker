@@ -279,7 +279,7 @@
   "events": [
     {
       "dedupe_key": "admit_input:b83df0737d1f6ffa7d382ec2876ebaf3af43f90fb8bd1b2733df963ff79cc8a8",
-      "fingerprint": "2a2a81d59fd04c9e3d00f49f9886b031c723a03a67e5fb38985811e541b604bb",
+      "fingerprint": "bb2f44c9c207299cb101e741507c5890241925b7c04afd600d657caa0fd88d2f",
       "kind": "input_admitted",
       "occurred_at": "2026-08-27T19:58:10.277320Z",
       "payload": {
@@ -291,6 +291,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000002",
         "episode_key": "terraform:blitz-infra:run-vMEdeDLHwpWZsBYH",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "slack_message_895b5f329f6563bf95820782c7bd91b4",
@@ -322,7 +323,7 @@
     },
     {
       "dedupe_key": "admit_input:d49929debd44acda45c5cdaeb9299c2628ebd89f7de291fc2fded5b58f581013",
-      "fingerprint": "7cb50eb22fb2f2671fd72f1d4f7671479c8abff72f8e8c8c3a507074ba127826",
+      "fingerprint": "db865c87d8ec53f9b65ae2acd1b87fe8180900dc5309b2655218ee209517fc54",
       "kind": "input_admitted",
       "occurred_at": "2026-08-27T20:28:13.128432Z",
       "payload": {
@@ -334,6 +335,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000002",
         "episode_key": "terraform:blitz-infra:run-vMEdeDLHwpWZsBYH",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "wakeup:verify-airflow-99183465:2026-08-27T20:28:13Z",
@@ -383,7 +385,7 @@
     },
     {
       "dedupe_key": "admit_input:30d2c65ebea08c6249e2835d13a1c4eb01189e9bc1527380ccbfae210b0b6282",
-      "fingerprint": "f365c5ae4e7f3fdd017941e5c7ff9bdb97dc9181ab0031d56fbe59bf19a35dac",
+      "fingerprint": "77355989ca309e2926fc700252a1a287f01bd01464ae9211201647225f194327",
       "kind": "input_admitted",
       "occurred_at": "2026-08-27T20:58:15.246605Z",
       "payload": {
@@ -395,6 +397,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000002",
         "episode_key": "terraform:blitz-infra:run-vMEdeDLHwpWZsBYH",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "wakeup:airflow-99183465-post-apply-2:2026-08-27T20:58:15Z",

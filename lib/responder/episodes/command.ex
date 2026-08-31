@@ -28,13 +28,14 @@ defmodule Responder.Episodes.Command do
       :revision,
       :turn_ref
     ]
-    defstruct @enforce_keys ++ [linked_episode_id: nil]
+    defstruct @enforce_keys ++ [execution_mode: :live, linked_episode_id: nil]
 
     @type t :: %__MODULE__{
             actor_ref: String.t(),
             destination: map(),
             episode_id: Ecto.UUID.t(),
             episode_key: String.t(),
+            execution_mode: :live | :shadow,
             linked_episode_id: Ecto.UUID.t() | nil,
             native_input_id: String.t(),
             occurred_at: DateTime.t(),
@@ -229,6 +230,7 @@ defmodule Responder.Episodes.Command do
       "destination" => stringify_keys(command.destination),
       "episode_id" => command.episode_id,
       "episode_key" => command.episode_key,
+      "execution_mode" => Atom.to_string(command.execution_mode),
       "kind" => "admit_input",
       "linked_episode_id" => command.linked_episode_id,
       "native_input_id" => command.native_input_id,
@@ -392,6 +394,7 @@ defmodule Responder.Episodes.Command do
       {reference?(command.actor_ref), :actor_ref},
       {reference?(command.native_input_id), :native_input_id},
       {reference?(command.turn_ref), :turn_ref},
+      {command.execution_mode in [:live, :shadow], :execution_mode},
       {is_integer(command.revision) and command.revision >= 1, :revision},
       {valid_destination?(command.destination), :destination},
       {is_map(command.payload) and

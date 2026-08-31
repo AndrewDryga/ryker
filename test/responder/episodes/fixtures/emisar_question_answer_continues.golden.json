@@ -185,7 +185,7 @@
   "events": [
     {
       "dedupe_key": "admit_input:1ae1b50a7833e26847dc0216ce90fe47d18aa54950aa1414bc446caa1864eef7",
-      "fingerprint": "f9bf271dddeb69330628b7d05d3d8a587c135b7ae40cb499b1d67c759f81c88a",
+      "fingerprint": "14642cf699038324d75be0bdc29c8966778ac566c018815194feb5cdd17529c5",
       "kind": "input_admitted",
       "occurred_at": "2026-08-04T21:05:38.280533Z",
       "payload": {
@@ -197,6 +197,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000013",
         "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "slack_message_c49e13f33386f8efd0f6fa94ecb1d639",
@@ -227,7 +228,7 @@
     },
     {
       "dedupe_key": "admit_input:a82035e05f984534d4eb1fee3309a8c011927017526afe32237bf476d7088906",
-      "fingerprint": "26957d5e47882dc72275ea6f3f960e1c943928865ae2380342269dfcfe5cc62d",
+      "fingerprint": "69a22907d254b0c575810c07ab757b46ec6d0437d3cec9b7521934202216730d",
       "kind": "input_admitted",
       "occurred_at": "2026-08-04T21:07:53.103036Z",
       "payload": {
@@ -239,6 +240,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000013",
         "episode_key": "slack:C0BHTRPHXP0:1785876729.636719:cost-policy",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "slack_message_9b125656891af5d01cba471ab07b705c",

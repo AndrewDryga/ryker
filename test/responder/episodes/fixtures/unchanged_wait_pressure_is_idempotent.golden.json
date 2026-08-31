@@ -134,7 +134,7 @@
   "events": [
     {
       "dedupe_key": "admit_input:18cd34925103f932ba176894b9f2a83d4a47fff87511c54f77312e0040a26ab3",
-      "fingerprint": "e49015aa51ecee842343fb2f9e71622f46d3d65db7b2c6dfe2eb5d8dfce03846",
+      "fingerprint": "081fcdfea6cf5280ad7f4c7264048e5684ee32d4d4187012d68e4fdfd8f335f6",
       "kind": "input_admitted",
       "occurred_at": "2026-08-26T06:34:32.993859Z",
       "payload": {
@@ -146,6 +146,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000012",
         "episode_key": "grafana:disk-will-fill:cycle:1787726072",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "grafana:disk-will-fill:1787726072",

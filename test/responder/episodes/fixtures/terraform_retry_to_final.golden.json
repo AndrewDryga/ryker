@@ -154,7 +154,7 @@
   "events": [
     {
       "dedupe_key": "admit_input:d56a1962603585a800c8af0ee6d7e60c35d751d2e3e93bce99fdddf6d3031681",
-      "fingerprint": "fe91084677f1747a6b02b8f868ffdc29142cae2d6c1191b89550807065384c41",
+      "fingerprint": "31c37359a79bd430a213016d7de3d14bd2fd73a396262cdf0117de7236fd8db8",
       "kind": "input_admitted",
       "occurred_at": "2026-08-26T22:25:08.576437Z",
       "payload": {
@@ -166,6 +166,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000003",
         "episode_key": "terraform:va1-postgres:run-okjyXsDYXyMqqBYY",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "slack_message_2f4c3593ab4a1c4591df6ea57da4d30e",

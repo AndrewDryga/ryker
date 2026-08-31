@@ -12,7 +12,10 @@ defmodule Responder.Episodes.Episode do
   @foreign_key_type :binary_id
 
   schema "episode_kernel_episodes" do
+    belongs_to(:cutover_item, Responder.Cutover.Item)
     field(:key, :string)
+    field(:execution_mode, Ecto.Enum, values: [:live, :shadow], default: :live)
+    field(:history_pruned_at, :utc_datetime_usec)
 
     field(:state, Ecto.Enum,
       values: [:working, :waiting_for_input, :waiting_for_event, :complete, :cancelled]
@@ -40,6 +43,7 @@ defmodule Responder.Episodes.Episode do
   @type t :: %__MODULE__{
           id: Ecto.UUID.t() | nil,
           key: String.t() | nil,
+          execution_mode: :live | :shadow,
           state:
             :working | :waiting_for_input | :waiting_for_event | :complete | :cancelled | nil,
           owner_kind: :turn | :delivery | :input | :event | nil,
@@ -54,6 +58,7 @@ defmodule Responder.Episodes.Episode do
           input_revisions: map(),
           active_input_refs: [String.t()],
           queued_input_refs: [String.t()],
-          queued_input_order_keys: [String.t()]
+          queued_input_order_keys: [String.t()],
+          history_pruned_at: DateTime.t() | nil
         }
 end

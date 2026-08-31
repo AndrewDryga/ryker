@@ -98,7 +98,7 @@
   "events": [
     {
       "dedupe_key": "admit_input:006913756799fe11980db956198688985a7066e46354ead1e33049e2a1aafcd0",
-      "fingerprint": "3abb0c5a7f9c5099069fbd930146e54041935f91ba516665291612236cb00e2c",
+      "fingerprint": "b1bf935d6e6bb38cc81794ffbf9c74650d4e266011b82dabac3e3d2cca92552d",
       "kind": "input_admitted",
       "occurred_at": "2026-08-13T21:16:48.927858Z",
       "payload": {
@@ -110,6 +110,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000011",
         "episode_key": "slack:C0BJQ5U61T2:1786655779.553849",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "slack:message:1786655779.553849",

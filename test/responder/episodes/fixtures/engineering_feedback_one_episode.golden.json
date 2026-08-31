@@ -274,7 +274,7 @@
   "events": [
     {
       "dedupe_key": "admit_input:e6770c7baf983425b584b1f4f633ac9bf6e031e0f1659b3fa0c55af85c612f11",
-      "fingerprint": "82e5a4a3dc801eab31556153cbc9992ebf676f0939db6fa14fd718b104b4ae0b",
+      "fingerprint": "5b78263129a4a51348b3ffe715a8ef487c290d4e7e914b6ab0d6a6a5c9210feb",
       "kind": "input_admitted",
       "occurred_at": "2026-08-21T02:21:46.748258Z",
       "payload": {
@@ -286,6 +286,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000006",
         "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "slack:task-request",
@@ -332,7 +333,7 @@
     },
     {
       "dedupe_key": "admit_input:23b016a247160b5502e0e731ab099fca3d8cb83df2a338b98ed4f6ef1d3e0231",
-      "fingerprint": "aec42fe95caad4ae86e4fb05371801ded4f2a08810cbe5da9d42fcfdd1c18cd5",
+      "fingerprint": "5cb8d6e5e9810a96c3406395f36a986945d88900165293466ccb2383d0da9b2f",
       "kind": "input_admitted",
       "occurred_at": "2026-08-21T20:44:43.714515Z",
       "payload": {
@@ -344,6 +345,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000006",
         "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "slack_message_3ac1577d668a69532490aaa8dfd3e730",
@@ -358,7 +360,7 @@
     },
     {
       "dedupe_key": "admit_input:d83e0cbce85fe579d4a06d450b0dac716984e722727b3ec9c0881d71f8d2564f",
-      "fingerprint": "b6d879f5f05d288d69becd2533df149f5f50c604a957c3bc9e2749d50d83bd30",
+      "fingerprint": "ab09782f32715c3e91e015055a5f88dc4102ab67f2dd3a50c931010267e9bdde",
       "kind": "input_admitted",
       "occurred_at": "2026-08-21T20:44:50.795903Z",
       "payload": {
@@ -370,6 +372,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000006",
         "episode_key": "engineering-task:inc_92785bb66dfb23cc13a3d0c773710c23",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "slack_message_4af928b36e219825872fefde008cafaf",

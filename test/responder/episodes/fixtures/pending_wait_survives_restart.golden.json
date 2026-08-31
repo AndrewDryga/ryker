@@ -107,7 +107,7 @@
   "events": [
     {
       "dedupe_key": "admit_input:9f0415a1d2e1ea4e11364ba2be678af3c58ec4ce085355871f0a99da1108fce8",
-      "fingerprint": "b4f052ba13551f7e67e5f3b93a1e72d472af387e6020f977db6433015f53fbda",
+      "fingerprint": "850620b852ea62209f67faa2aabc90f8c7adb3e57f85f8fb266088aa20abf5de",
       "kind": "input_admitted",
       "occurred_at": "2026-08-27T20:06:04.890169Z",
       "payload": {
@@ -119,6 +119,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000010",
         "episode_key": "grafana:project-service-health:cycle:1787861164",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "grafana:project-service-health:1787861164",

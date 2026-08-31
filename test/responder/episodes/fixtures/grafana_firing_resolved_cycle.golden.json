@@ -179,7 +179,7 @@
   "events": [
     {
       "dedupe_key": "admit_input:b82bdc3e024c386c99836ee794c43b3acc7fb4ec646d5cd9c85f203cac215e68",
-      "fingerprint": "d314afaeddc8b8f9e6d369653f47590ae32c1dbebd2a15e5960a013741c7f3a4",
+      "fingerprint": "6be5afffcc69ed5940d04e4c8c864e004648849f3994153baa5807b6f0201b4a",
       "kind": "input_admitted",
       "occurred_at": "2026-08-24T02:20:04.071055Z",
       "payload": {
@@ -191,6 +191,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000001",
         "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "slack_message_6a50aab51f85da5d2fe71b8ad3afe06b",
@@ -238,7 +239,7 @@
     },
     {
       "dedupe_key": "admit_input:82d59c3f8901a2ee96715b0603b9a940f14c466fbeb94b8c82eb7530764af5dc",
-      "fingerprint": "f0d34650a2c1f1e2d8ac1b9a57eac9377875064e3f56e0eadf109b6de4e922a3",
+      "fingerprint": "c92bf2dee0913274c97c1893ac29cdeeead7cafa4c3e281e7ca9a2b9fcece4fa",
       "kind": "input_admitted",
       "occurred_at": "2026-08-24T02:35:03.462709Z",
       "payload": {
@@ -250,6 +251,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000001",
         "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "slack_message_45c728f32c67f6804436ef73543c9028",

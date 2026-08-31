@@ -134,7 +134,7 @@
   "events": [
     {
       "dedupe_key": "admit_input:73e5788ea61419b46eac27453450bb426efaa9b8af14226b7259df148761e81d",
-      "fingerprint": "651b5d9959fff2789fa9bc509ce1ab8f5b73107a69a97bb98de88acd729965c8",
+      "fingerprint": "1df9977943efb97653ceb7a43f355c2f35216d5642e2e8aecae55531b3f782b8",
       "kind": "input_admitted",
       "occurred_at": "2026-08-08T16:29:33.175617Z",
       "payload": {
@@ -146,6 +146,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000014",
         "episode_key": "slack:C08MMETA3U3:1786048236.845019:terraform-lifecycle",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "slack_message_bded421709aef541403f93cb5bc5edb0",
@@ -161,7 +162,7 @@
     },
     {
       "dedupe_key": "admit_input:4fb75d5341d811576c061b363209006eee42182180145735b0235d5461265b62",
-      "fingerprint": "7f7414c0749baf7197af967a6daedfa662d5420e933dbd4359db9373ba64ab76",
+      "fingerprint": "49c2b64232686874f60b9eb6c3d62aff40f7e8315fa7a31a835b2375eeaf63e0",
       "kind": "input_admitted",
       "occurred_at": "2026-08-08T16:31:00.512747Z",
       "payload": {
@@ -173,6 +174,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000014",
         "episode_key": "slack:C08MMETA3U3:1786048236.845019:terraform-lifecycle",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "slack_message_995fb660fc8d4019713287a9e5f92b72",
