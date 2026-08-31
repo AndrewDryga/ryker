@@ -13,6 +13,7 @@ admission:
 work:
   concurrency: 2
   poll_interval_ms: 100
+delivery: {}
 control_plane:
   ip: 127.0.0.1
   port: __CONTROL_PLANE_PORT__

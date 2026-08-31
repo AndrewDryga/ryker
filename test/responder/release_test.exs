@@ -2,6 +2,7 @@ defmodule Responder.ReleaseTest do
   use Responder.DataCase, async: false
 
   alias Responder.Release
+  alias Responder.RuntimeConfiguration
 
   test "the production release is self-contained and Unix executable" do
     release = Mix.Project.config() |> Keyword.fetch!(:releases) |> Keyword.fetch!(:responder)
@@ -206,10 +207,21 @@ defmodule Responder.ReleaseTest do
   test "the candidate proves a PostgreSQL backup can boot the packaged release" do
     candidate = File.read!(Path.expand("../../scripts/check-elixir-candidate.sh", __DIR__))
 
+    configuration_document =
+      Path.expand("../../testdata/release/responder-component.yaml", __DIR__)
+      |> File.read!()
+      |> String.replace("__CONTROL_PLANE_PORT__", "44123")
+
+    configuration =
+      RuntimeConfiguration.from_string!(configuration_document)
+
     assert candidate =~ "pg_dump --format=custom"
     assert candidate =~ "pg_restore --list"
     assert candidate =~ "pg_restore --exit-on-error"
     assert candidate =~ "run_candidate restored"
+
+    assert configuration.delivery.adapters["control_plane"].message_publisher ==
+             Responder.ControlPlane.Publisher
   end
 
   test "release migration entrypoints are idempotent and rollback is exact" do
