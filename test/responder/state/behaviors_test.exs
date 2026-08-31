@@ -1,0 +1,773 @@
+defmodule Responder.State.BehaviorsTest do
+  use Responder.DataCase, async: false
+
+  @moduletag isolation: "REPEATABLE READ"
+
+  alias Responder.Admission
+  alias Responder.Admission.Decision
+  alias Responder.Episodes
+  alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.Ingress.{Inbox, Input}
+  alias Responder.State.{Behavior, Behaviors, Record, Records, StandingAssignmentRun}
+  alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission}
+
+  @now ~U[2026-08-28 12:00:00.000000Z]
+
+  test "operator-confirmed preferences and guidance resolve by exact scope and precedence" do
+    fixture = delivered_offers!("memory")
+
+    assert {:ok, workspace} =
+             Behaviors.confirm(confirmation(fixture, fixture.workspace_preference, "workspace"))
+
+    assert workspace.status == :confirmed
+    assert workspace.behavior.kind == :preference
+    assert workspace.behavior.scope_kind == :workspace
+    assert workspace.behavior.scope_ref == "slack:T123"
+
+    assert {:ok, operator} =
+             Behaviors.confirm(confirmation(fixture, fixture.operator_preference, "operator"))
+
+    assert operator.behavior.scope_kind == :operator
+    assert operator.behavior.scope_ref == "slack:user:U123"
+
+    assert {:ok, guidance} =
+             Behaviors.confirm(confirmation(fixture, fixture.guidance, "guidance"))
+
+    assert guidance.behavior.kind == :guidance
+    assert guidance.behavior.scope_kind == :conversation
+
+    context = %{
+      conversation_ref: "slack:T123:C456",
+      operator_ref: "slack:user:U123",
+      repository: nil,
+      workspace_ref: "slack:T123"
+    }
+
+    assert Behaviors.effective_preferences(context) == %{
+             "response_detail" => %{
+               "behavior_ref" => operator.behavior.ref,
+               "scope" => "operator",
+               "value" => "detailed"
+             }
+           }
+
+    assert [recalled] = Behaviors.guidance(context)
+    assert recalled["behavior_ref"] == guidance.behavior.ref
+    assert recalled["subject"] == "terraform_review_style"
+    assert recalled["text"] =~ "availability risk"
+
+    other_conversation = %{context | conversation_ref: "slack:T123:C999"}
+    assert Behaviors.guidance(other_conversation) == []
+
+    assert {:ok, duplicate} =
+             Behaviors.confirm(confirmation(fixture, fixture.guidance, "guidance-retry"))
+
+    assert duplicate.status == :duplicate
+    assert duplicate.behavior.id == guidance.behavior.id
+    assert Repo.aggregate(Behavior, :count, :id) == 3
+  end
+
+  test "a confirmed standing assignment admits only its exact source, channel, and event family" do
+    fixture = delivered_offers!("assignment")
+
+    assert {:ok, confirmed} =
+             Behaviors.confirm(confirmation(fixture, fixture.assignment, "assignment"))
+
+    assert confirmed.behavior.kind == :standing_assignment
+    assert confirmed.behavior.scope_ref == "slack:T123:C456"
+
+    assert Behaviors.standing_match?(terraform_input(:app, "slack:T123:C456"))
+    refute Behaviors.standing_match?(terraform_input(:user, "slack:T123:C456"))
+    refute Behaviors.standing_match?(terraform_input(:app, "slack:T123:C999"))
+    refute Behaviors.standing_match?(deployment_input())
+
+    assert Behaviors.set_status(confirmed.behavior.ref, :disabled, "slack:T999") ==
+             {:error, :behavior_workspace_mismatch}
+
+    assert Repo.get!(Behavior, confirmed.behavior.id).status == :active
+
+    assert {:ok, disabled} =
+             Behaviors.set_status(confirmed.behavior.ref, :disabled, "slack:T123")
+
+    assert disabled.status == :disabled
+    assert disabled.revision == confirmed.behavior.revision + 1
+
+    assert {:ok, unchanged} =
+             Behaviors.set_status(confirmed.behavior.ref, :disabled, "slack:T123")
+
+    assert unchanged.revision == disabled.revision
+    refute Behaviors.standing_match?(terraform_input(:app, "slack:T123:C456"))
+
+    assert {:ok, active} = Behaviors.set_status(confirmed.behavior.ref, :active, "slack:T123")
+    assert active.status == :active
+    assert active.revision == disabled.revision + 1
+    assert Behaviors.standing_match?(terraform_input(:app, "slack:T123:C456"))
+
+    assert {:ok, deleted} = Behaviors.set_status(confirmed.behavior.ref, :deleted, "slack:T123")
+    assert deleted.status == :deleted
+    assert deleted.revision == active.revision + 1
+
+    assert Behaviors.set_status(confirmed.behavior.ref, :active, "slack:T123") ==
+             {:error, :behavior_terminal}
+  end
+
+  test "a confirmed source-event automation matches only the exact adapter content filter" do
+    fixture = delivered_offers!("source-event-assignment")
+
+    assert {:ok, confirmed} =
+             Behaviors.confirm(
+               confirmation(fixture, fixture.source_event_assignment, "source-event-assignment")
+             )
+
+    assert confirmed.behavior.kind == :standing_assignment
+    assert confirmed.behavior.expires_at == nil
+
+    assert Behaviors.standing_match?(
+             github_review_input("slack:T123:C456", "submitted", "changes_requested")
+           )
+
+    refute Behaviors.standing_match?(
+             github_review_input("slack:T123:C456", "submitted", "approved")
+           )
+
+    refute Behaviors.standing_match?(
+             github_review_input("slack:T123:C456", "edited", "changes_requested")
+           )
+
+    refute Behaviors.standing_match?(
+             github_review_input("slack:T123:C999", "submitted", "changes_requested")
+           )
+  end
+
+  test "assignment controls are fenced to the exact workspace and conversation" do
+    fixture = delivered_offers!("assignment-control")
+
+    assert {:ok, assignment} =
+             Behaviors.confirm(confirmation(fixture, fixture.assignment, "assignment-control"))
+
+    assert {:ok, preference} =
+             Behaviors.confirm(
+               confirmation(fixture, fixture.workspace_preference, "preference-control")
+             )
+
+    assert [listed] = Behaviors.assignments_for_channel("slack:T123", "slack:T123:C456")
+    assert listed.ref == assignment.behavior.ref
+
+    assert {:ok, paused} =
+             Behaviors.manage_assignment(
+               assignment.behavior.ref,
+               :disabled,
+               "slack:T123",
+               "slack:T123:C456"
+             )
+
+    assert paused.status == :disabled
+
+    assert Behaviors.manage_assignment(
+             assignment.behavior.ref,
+             :active,
+             "slack:T999",
+             "slack:T123:C456"
+           ) == {:error, :assignment_scope_mismatch}
+
+    assert Behaviors.manage_assignment(
+             assignment.behavior.ref,
+             :active,
+             "slack:T123",
+             "slack:T123:C999"
+           ) == {:error, :assignment_scope_mismatch}
+
+    assert Behaviors.manage_assignment(
+             preference.behavior.ref,
+             :disabled,
+             "slack:T123",
+             "slack:T123:C456"
+           ) == {:error, :assignment_scope_mismatch}
+
+    assert {:ok, resumed} =
+             Behaviors.manage_assignment(
+               assignment.behavior.ref,
+               :active,
+               "slack:T123",
+               "slack:T123:C456"
+             )
+
+    assert resumed.status == :active
+  end
+
+  test "crossed and stale behavior controls fail closed" do
+    fixture = delivered_offers!("crossed")
+
+    crossed =
+      fixture
+      |> confirmation(fixture.operator_preference, "crossed")
+      |> put_in([:target, :message_ref], "1787832999.999999")
+
+    assert Behaviors.confirm(crossed) == {:error, :behavior_offer_delivery_mismatch}
+    assert Repo.aggregate(Behavior, :count, :id) == 0
+
+    Repo.update_all(Record, set: [status: :dismissed])
+
+    assert Behaviors.confirm(confirmation(fixture, fixture.guidance, "stale")) ==
+             {:error, :behavior_offer_stale}
+  end
+
+  test "a standing assignment match is recorded once and finalized with admission" do
+    fixture = delivered_offers!("assignment-run")
+
+    assert {:ok, confirmed} =
+             Behaviors.confirm(confirmation(fixture, fixture.assignment, "assignment-run"))
+
+    input = terraform_input(:app, "slack:T123:C456")
+    assert {:ok, recorded} = Inbox.record(input)
+    input_ref = Inbox.ref(recorded.entry)
+
+    assert %StandingAssignmentRun{
+             assignment_id: assignment_id,
+             outcome: :pending,
+             source_event_ref: source_event_ref,
+             source_input_ref: ^input_ref
+           } = Repo.one!(StandingAssignmentRun)
+
+    assert assignment_id == confirmed.behavior.id
+    assert source_event_ref == input.event_ref
+
+    assert {:ok, duplicate} = Inbox.record(input)
+    assert duplicate.status == :duplicate
+    assert Repo.aggregate(StandingAssignmentRun, :count, :id) == 1
+
+    assert {:ok, context} =
+             Admission.context(input_ref,
+               now: @now,
+               continuation_window: 30 * 60,
+               history_window: 30 * 24 * 60 * 60,
+               candidate_limit: 8
+             )
+
+    assert {:ok, decision} =
+             Decision.parse(%{
+               "action" => "start_episode",
+               "episode_ref" => nil,
+               "reaction" => nil,
+               "relation" => "unrelated",
+               "reason" => "This exact standing assignment event deserves its own bounded review."
+             })
+
+    assert {:ok, admitted} =
+             Admission.commit(context, decision, "admission-decision:1")
+
+    run = Repo.one!(StandingAssignmentRun)
+    assert run.outcome == :decided
+    assert run.decision_action == :start_episode
+    assert run.decision_ref == "admission-decision:1"
+    assert run.episode_id == admitted.episode.id
+
+    behavior = Repo.get!(Behavior, confirmed.behavior.id)
+    assert behavior.use_count == 1
+    assert %DateTime{} = behavior.last_used_at
+
+    assert %{
+             "standing_assignments" => [assignment]
+           } =
+             Behaviors.model_context(
+               admitted.episode,
+               "slack:app:actor-1",
+               "responder"
+             )
+
+    assert assignment["assignment_ref"] == confirmed.behavior.ref
+    assert assignment["action"] == "review_terraform_plan"
+    assert assignment["authority_ceiling"] == "read_only"
+    assert assignment["task"] =~ "exact posted Terraform plan"
+  end
+
+  test "behavior retrieval and lifecycle controls stay bounded to trusted context" do
+    fixture = delivered_offers!("bounded-retrieval")
+
+    assert {:ok, preference} =
+             Behaviors.confirm(
+               confirmation(fixture, fixture.workspace_preference, "bounded-preference")
+             )
+
+    assert {:ok, assignment} =
+             Behaviors.confirm(confirmation(fixture, fixture.assignment, "bounded-assignment"))
+
+    assert Enum.map(Behaviors.list("slack:T123"), & &1.ref) |> Enum.sort() ==
+             Enum.sort([preference.behavior.ref, assignment.behavior.ref])
+
+    assert [active_assignment] = Behaviors.list("slack:T123", status: :active, limit: 1)
+    assert active_assignment.ref in [preference.behavior.ref, assignment.behavior.ref]
+    assert Behaviors.list("", status: :active) == []
+    assert Behaviors.list("slack:T123", status: :unknown) == []
+    assert Behaviors.list("slack:T123", limit: 0) == []
+
+    assert {:ok, disabled} = Behaviors.set_status(assignment.behavior.ref, :disabled)
+    assert disabled.status == :disabled
+    assert {:ok, active} = Behaviors.set_status(assignment.behavior.ref, :active)
+    assert active.status == :active
+
+    assert Behaviors.set_status("missing-behavior", :active) == {:error, :behavior_not_found}
+    assert {:error, _reason} = Behaviors.set_status("", :active)
+    assert {:error, _reason} = Behaviors.set_status(assignment.behavior.ref, :unknown)
+
+    assert {:error, _reason} =
+             Behaviors.manage_assignment("ref", :unknown, "workspace", "channel")
+
+    assert Behaviors.assignments_for_channel("", "") == []
+    assert Behaviors.effective_preferences(:invalid) == %{}
+    assert Behaviors.effective_preferences(%{}) == %{}
+    assert Behaviors.guidance(:invalid, 20) == []
+    assert Behaviors.guidance(%{}, 0) == []
+    refute Behaviors.standing_match?(%{})
+
+    assert Behaviors.model_context(%{}, "operator", nil) == %{
+             "guidance" => [],
+             "preferences" => %{},
+             "standing_assignments" => []
+           }
+
+    assert Behaviors.observe_input(%{}, "input") ==
+             {:error, {:invalid_behavior_run, :input}}
+
+    assert Behaviors.finalize_assignment_runs_in_transaction(
+             "input",
+             :start_episode,
+             "decision",
+             nil,
+             :decided
+           ) == {:error, :behavior_run_transaction_required}
+
+    assert Behaviors.finalize_assignment_runs_in_transaction(
+             "input",
+             :unknown,
+             "decision",
+             nil,
+             :decided
+           ) == {:error, {:invalid_behavior_run, :decision}}
+  end
+
+  test "repository preferences and human or app standing triggers keep exact scope semantics" do
+    fixture = delivered_offers!("repository-and-triggers")
+
+    repository_preference =
+      fixture.workspace_preference
+      |> Ecto.Changeset.change(%{
+        payload:
+          Map.merge(fixture.workspace_preference.payload, %{
+            "expires_in" => "365d",
+            "repository" => "responder",
+            "scope" => "repository"
+          })
+      })
+      |> Repo.update!()
+
+    short_guidance =
+      fixture.guidance
+      |> Ecto.Changeset.change(%{
+        payload: Map.put(fixture.guidance.payload, "expires_in", "7d")
+      })
+      |> Repo.update!()
+
+    assert {:ok, preference} =
+             Behaviors.confirm(
+               confirmation(fixture, repository_preference, "repository-preference")
+             )
+
+    assert preference.behavior.scope_kind == :repository
+    assert preference.behavior.scope_ref == "responder"
+    assert DateTime.diff(preference.behavior.expires_at, @now, :day) == 365
+
+    assert {:ok, guidance} =
+             Behaviors.confirm(confirmation(fixture, short_guidance, "short-guidance"))
+
+    assert DateTime.diff(guidance.behavior.expires_at, @now, :day) == 7
+
+    context = %{
+      conversation_ref: "slack:T123:C456",
+      operator_ref: "slack:user:other",
+      repository: "responder",
+      workspace_ref: "slack:T123"
+    }
+
+    assert Behaviors.effective_preferences(context)["response_detail"]["scope"] == "repository"
+
+    assert {:ok, assignment} =
+             Behaviors.confirm(confirmation(fixture, fixture.assignment, "trigger-assignment"))
+
+    set_assignment_payload!(assignment.behavior, %{
+      "source_filter" => "human",
+      "trigger" => "deployment"
+    })
+
+    assert Behaviors.standing_match?(
+             input!(:user, "slack:T123:C456", %{"text" => "Release deployment started."})
+           )
+
+    refute Behaviors.standing_match?(deployment_input())
+
+    set_assignment_payload!(assignment.behavior, %{
+      "source_filter" => "any",
+      "trigger" => "operational_alert"
+    })
+
+    assert Behaviors.standing_match?(
+             input!(:bot, "slack:T123:C456", %{"text" => "Critical alert: API is unhealthy"})
+           )
+
+    set_assignment_payload!(assignment.behavior, %{
+      "source_filter" => "any",
+      "trigger" => "pull_request_review"
+    })
+
+    refute Behaviors.standing_match?(
+             input!(:system, "slack:T123:C456", %{"text" => "ordinary message"})
+           )
+  end
+
+  test "malformed behavior confirmations fail before durable state changes" do
+    assert {:error, _reason} = Behaviors.confirm(%{})
+    assert {:error, _reason} = Behaviors.confirm(actor_ref: "a", actor_ref: "b")
+
+    invalid_target = %{
+      actor_ref: "slack:user:U123",
+      confirmation_ref: "interaction:invalid",
+      occurred_at: @now,
+      record_ref: "record:missing",
+      target: %{}
+    }
+
+    assert {:error, _reason} = Behaviors.confirm(invalid_target)
+
+    assert Behaviors.confirm(%{invalid_target | target: :invalid}) ==
+             {:error, {:invalid_behavior_confirmation, :target}}
+
+    assert Behaviors.confirm(%{invalid_target | occurred_at: :invalid}) ==
+             {:error, {:invalid_behavior_confirmation, :occurred_at}}
+
+    assert Behaviors.confirm(%{
+             invalid_target
+             | record_ref: "record:missing",
+               target: %{
+                 conversation_ref: "slack:T123:C456",
+                 message_ref: "1787832001.000200",
+                 thread_ref: nil,
+                 transport: "slack"
+               }
+           }) ==
+             {:error, :behavior_offer_not_found}
+
+    assert Behaviors.set_status("behavior", :unknown, "slack:T123") ==
+             {:error, {:invalid_behavior, :status}}
+  end
+
+  defp delivered_offers!(suffix) do
+    episode_id = Ecto.UUID.generate()
+
+    assert {:ok, transition} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 destination: %{
+                   conversation_ref: "slack:T123:C456",
+                   thread_ref: "1787832000.000100",
+                   transport: "slack"
+                 },
+                 episode_id: episode_id,
+                 episode_key: "behavior-offer:#{suffix}:#{episode_id}",
+                 native_input_id: "slack-message:behavior:#{suffix}:#{episode_id}",
+                 occurred_at: @now,
+                 turn_ref: "turn:behavior:#{suffix}:#{episode_id}"
+               })
+             )
+
+    assert {:ok, _session} =
+             Custody.pin_episode(episode_id, "responder-read", String.duplicate("a", 64))
+
+    assert {:ok, claim} = Custody.claim_next("worker:behavior:#{suffix}", 60, :work)
+
+    assert {:ok, workspace_preference} =
+             Records.create(
+               Records.token(claim.turn),
+               "workspace-preference",
+               "preference_offer",
+               %{
+                 "expires_in" => "90d",
+                 "key" => "response_detail",
+                 "repository" => nil,
+                 "scope" => "workspace",
+                 "value" => "standard"
+               }
+             )
+
+    assert {:ok, operator_preference} =
+             Records.create(
+               Records.token(claim.turn),
+               "operator-preference",
+               "preference_offer",
+               %{
+                 "expires_in" => "90d",
+                 "key" => "response_detail",
+                 "repository" => nil,
+                 "scope" => "operator",
+                 "value" => "detailed"
+               }
+             )
+
+    assert {:ok, guidance} =
+             Records.create(Records.token(claim.turn), "guidance", "guidance_offer", %{
+               "expires_in" => "30d",
+               "repository" => nil,
+               "scope" => "conversation",
+               "subject" => "terraform_review_style",
+               "summary" => "Lead with availability risk and drift.",
+               "text" =>
+                 "When reviewing Terraform here, lead with availability risk and drift, not resource counts.",
+               "visibility" => "conversation"
+             })
+
+    assert {:ok, assignment} =
+             Records.create(
+               Records.token(claim.turn),
+               "assignment",
+               "standing_assignment_offer",
+               %{
+                 "action" => "review_terraform_plan",
+                 "expires_in" => "30d",
+                 "repository" => "responder",
+                 "source_filter" => "app",
+                 "task" => "Review the exact posted Terraform plan and report material risk.",
+                 "trigger" => "terraform_plan"
+               }
+             )
+
+    assert {:ok, source_event_assignment} =
+             Records.create(
+               Records.token(claim.turn),
+               "source-event-assignment",
+               "standing_assignment_offer",
+               %{
+                 "catch_up" => "skip",
+                 "context_channel" => "slack:T123:C456",
+                 "delivery_channel" => "slack:T123:C456",
+                 "expires_at" => nil,
+                 "filter" => %{
+                   "action" => "submitted",
+                   "review" => %{"state" => "changes_requested"}
+                 },
+                 "hold" => nil,
+                 "repository" => "responder",
+                 "source_kind" => "github",
+                 "task" => "Review the exact pull request review and report material risk.",
+                 "title" => "Review every submitted pull request review"
+               }
+             )
+
+    bind_and_deliver!(claim, transition.episode, suffix, [
+      workspace_preference,
+      operator_preference,
+      guidance,
+      assignment,
+      source_event_assignment
+    ])
+    |> Map.merge(%{
+      assignment: assignment,
+      guidance: guidance,
+      operator_preference: operator_preference,
+      source_event_assignment: source_event_assignment,
+      workspace_preference: workspace_preference
+    })
+  end
+
+  defp bind_and_deliver!(claim, episode, suffix, records) do
+    assert {:ok, submission} =
+             Submission.new(
+               %{"episode_id" => episode.id},
+               "Offer the requested durable behavior.",
+               %{"type" => "object"},
+               "work-final-v1"
+             )
+
+    assert {:ok, _turn} =
+             Custody.freeze_submission(
+               episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission
+             )
+
+    assert {:ok, session} =
+             Custody.bind_session(
+               episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               claim.session.generation,
+               claim.session.create_generation,
+               "coop-session:behavior:#{suffix}"
+             )
+
+    assert {:ok, turn} =
+             Custody.bind_turn(
+               episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               session.generation,
+               claim.turn.submit_generation,
+               "coop-turn:behavior:#{suffix}"
+             )
+
+    candidate = ~s({"delivery":"reply","message":"I can remember that after confirmation."})
+    sha256 = digest(candidate)
+
+    assert {:ok, _turn} =
+             Custody.stage_candidate(
+               episode.id,
+               turn.turn_ref,
+               claim.lease_ref,
+               nil,
+               nil,
+               candidate,
+               sha256,
+               1
+             )
+
+    assert {:ok, result} =
+             Result.new(:reply, %{
+               "decision_reason" => nil,
+               "delivery" => "reply",
+               "message" => "I can remember that after confirmation.",
+               "outcome" => %{
+                 "artifact_refs" => [],
+                 "record_refs" => Enum.map(records, & &1.ref),
+                 "state" => "complete"
+               }
+             })
+
+    assert {:ok, _turn} =
+             Custody.prepare_validation(
+               episode.id,
+               turn.turn_ref,
+               claim.lease_ref,
+               sha256,
+               1,
+               :accept,
+               result
+             )
+
+    assert {:ok, accepted} =
+             Custody.accept_result(
+               episode.id,
+               episode.key,
+               turn.turn_ref,
+               claim.lease_ref,
+               sha256,
+               1,
+               "validation-receipt:behavior:#{suffix}"
+             )
+
+    assert {:ok, delivery_claim} =
+             Custody.claim_next("delivery:behavior:#{suffix}", 60, :delivery)
+
+    assert {:ok, receipt} =
+             DeliveryReceipt.new(
+               accepted.turn.delivery_ref,
+               "slack",
+               "slack:T123:C456",
+               "1787832000.000100",
+               "1787832001.000200"
+             )
+
+    assert {:ok, settled} =
+             Custody.confirm_delivery(
+               episode.id,
+               episode.key,
+               turn.turn_ref,
+               delivery_claim.lease_ref,
+               receipt
+             )
+
+    %{episode: settled.episode, receipt: receipt}
+  end
+
+  defp confirmation(fixture, record, suffix) do
+    %{
+      actor_ref: "slack:user:U123",
+      confirmation_ref: "interaction:#{suffix}",
+      occurred_at: @now,
+      record_ref: record.ref,
+      target: %{
+        conversation_ref: fixture.receipt["conversation_ref"],
+        message_ref: fixture.receipt["message_ref"],
+        thread_ref: fixture.receipt["thread_ref"],
+        transport: fixture.receipt["transport"]
+      }
+    }
+  end
+
+  defp terraform_input(actor_kind, conversation_ref) do
+    input!(actor_kind, conversation_ref, %{
+      "text" => "Terraform plan: 2 to add, 1 to change, 0 to destroy"
+    })
+  end
+
+  defp github_review_input(conversation_ref, action, state) do
+    assert {:ok, input} =
+             Input.new(%{
+               actor: %{kind: :app, ref: "github-app:responder"},
+               content: %{
+                 "action" => action,
+                 "review" => %{"state" => state}
+               },
+               destination: %{
+                 conversation_ref: conversation_ref,
+                 thread_ref: "pull:42",
+                 transport: "slack"
+               },
+               event_kind: :event,
+               event_ref: "github-review:#{action}:#{state}:#{conversation_ref}",
+               native_input_id: "github-review:42:#{state}",
+               occurred_at: @now,
+               occurred_at_source: :source,
+               revision: 1,
+               source: %{kind: "github", ref: "github:responder"},
+               source_capabilities: %{},
+               source_item_ref: "pull-review:42"
+             })
+
+    input
+  end
+
+  defp deployment_input do
+    input!(:app, "slack:T123:C456", %{"text" => "Deployment completed successfully."})
+  end
+
+  defp input!(actor_kind, conversation_ref, content) do
+    {:ok, input} =
+      Input.new(%{
+        actor: %{kind: actor_kind, ref: "actor-1"},
+        content: content,
+        destination: %{
+          conversation_ref: conversation_ref,
+          thread_ref: "1787832999.000100",
+          transport: "slack"
+        },
+        event_kind: :message,
+        event_ref: "event:#{Ecto.UUID.generate()}",
+        native_input_id: "item:#{Ecto.UUID.generate()}",
+        occurred_at: @now,
+        occurred_at_source: :source,
+        revision: 1,
+        source: %{kind: "slack", ref: "T123"},
+        source_capabilities: %{},
+        source_item_ref: nil
+      })
+
+    input
+  end
+
+  defp set_assignment_payload!(behavior, overrides) do
+    behavior
+    |> Ecto.Changeset.change(%{payload: Map.merge(behavior.payload, overrides)})
+    |> Repo.update!()
+  end
+
+  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
+end
