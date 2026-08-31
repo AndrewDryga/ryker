@@ -1,11 +1,12 @@
 # Elixir episode kernel
 
-This is the first isolated module of the replacement Responder. It is deliberately not connected to
-Slack, Coop, the Go runtime, or the legacy SQLite database yet.
+This is the lifecycle core of the replacement Responder. It remains independent from Slack, GitHub,
+Coop, and the legacy SQLite database, and is now composed by the generic ingress, admission, Work,
+Delivery, and state-tool modules.
 
 ## Boundary
 
-The caller is a future trusted ingress adapter inside Responder. It must resolve Slack and source-system
+The caller is a trusted ingress adapter inside Responder. It must resolve platform and source-system
 events into stable episode keys, native input IDs, revisions, destinations, logical turn references,
 and host-owned transition references. User and app text is data inside the bounded payload; it cannot
 choose an episode ID, destination, owner, or authority.
@@ -29,14 +30,16 @@ The checked-in [Go lifecycle test parity](elixir-episode-kernel-go-parity.md) as
 scoped legacy lifecycle files to this kernel or a named future replacement module. Its fast drift test
 prevents a relevant Go regression case from disappearing unnoticed during the staged rewrite.
 
-The next completed boundary is the [generic ingress and admission module](elixir-ingress-admission.md),
-which uses this kernel without teaching the host about individual Slack apps, webhook senders, or
-provider message formats.
+The [generic ingress and admission module](elixir-ingress-admission.md) uses this kernel without
+teaching the host about individual Slack apps, GitHub payload shapes, webhook senders, or provider
+message formats.
 
 ## Cutover deletion map
 
-Later modules must reach parity before the replacement runtime is wired. At the final cutover, delete
-the superseded Go paths instead of keeping a permanent compatibility mode:
+The replacement modules now compose the kernel through generic ingress, admission, Work, delivery,
+state, publication, approval, retention, Slack, and GitHub boundaries. Wiring them into the deployed
+service still requires authorized live Slack, GitHub, and Emisar acceptance. At that final cutover,
+delete the superseded Go paths instead of keeping a permanent compatibility mode:
 
 - operation-array folding, carry, and correction retry protocols;
 - persisted phase/progress ticks and synthetic episode rechecks;
@@ -45,4 +48,7 @@ the superseded Go paths instead of keeping a permanent compatibility mode:
 - legacy wakeup context reconstruction and destination fallback routing; and
 - writable use of the old SQLite episode, attempt, progress, outcome, and wakeup projections.
 
-The old corpus remains read-only test provenance. It is not imported as active runtime state.
+The one-shot [Elixir replacement cutover](elixir-cutover.md) imports only reviewed necessary live
+state: unexpired memory, behavior, schedules, unfinished episodes, and their open waits. The wider old
+corpus remains read-only audit and fixture provenance; it is never a replacement runtime reader or a
+dual-write target.

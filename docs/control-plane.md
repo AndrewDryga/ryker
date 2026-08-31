@@ -3,6 +3,12 @@
 A local web dashboard for the operator who runs Responder, and for whoever has
 to work out why it did something.
 
+This document preserves the intended complete control-plane design. The current
+Elixir replacement exposes only projections backed by durable Elixir state.
+Usage is now one of those projections: accepted Work turns retain the effective
+Coop target, provider usage when present, and remote timing boundaries. Missing
+provider telemetry stays explicitly unmeasured rather than appearing as zero.
+
 ## Why this exists
 
 The Slack App Home is the wrong surface for most of this and cannot be fixed by
@@ -131,14 +137,17 @@ Today they are answered by running sqlite against a production database.
 
 - Grouped by cause, because a hundred failures are rarely a hundred problems
 - Retryable vs superseded, attempts, last error
-- Retry per run, with a confirm step: the run goes back to pending with a
-  fresh Coop idempotency key and its episode reopens through the kernel's
-  latest-attempt rule. Only the episode's latest attempt qualifies; a
-  superseded run says which attempt replaced it instead of offering a button
-  the store would refuse
+- Confirmed recovery for each typed custody owner: blocked admission reconciles
+  its frozen context and operation identities; blocked Work retains its stopped
+  turn and transfers to a fresh logical turn; delivery retries its exact accepted
+  intent; Slack repaint and incident-room provisioning reuse their durable
+  targets; Emisar resumes read-only monitoring of the same governed request
+- Semantic publication review is not listed as an infrastructure failure and
+  cannot be bypassed with a generic retry button
 - Link to the episode that failed
 
-**Source:** `agent_runs`, `episode_attempts`, `work_episodes`.
+**Source:** ingress, episode Work, delivery, Slack interaction/incident, Emisar,
+and retention custody tables.
 
 ### 3a. Workspaces — "what is still held, and why?"
 
@@ -149,15 +158,15 @@ conflict — and will never look again without a person acting.
 
 - Split into "waiting on you" (blocked) and "queued for automatic cleanup"
   (the janitor's own schedule), with reclaimed workspaces counted but not shown
-- Publish and discard run the identical service handlers the Slack buttons
-  call — the Coop review, the verified discard plan, the audit record, the
-  Slack outcome notice — and mirror the Slack admission gate, so closed work
-  refuses publish here too
-- Rerun sends a blocked row back through the janitor's checks, and is offered
-  only where a second pass could end differently; a dirty tree re-blocks
-  deterministically and gets an explanation instead of a dead button
-- A session with no work record says plainly that no safe discard path exists
-  for it yet, rather than inventing one
+- Rearm restores only the exact cleanup phase captured when automation
+  blocked. It keeps the frozen Coop session identity, clears the bounded retry
+  state, and records the operator action atomically
+- Explicit discard is offered only for a clean workspace retained because it
+  has unpublished, unmerged commits. It requests a fresh exact Coop plan with
+  unmerged acceptance; dirty work remains retained and has no discard button
+- Publication remains a task/publication workflow, not a workspace-cleanup
+  shortcut. The Workspaces page never invents a publish or generic rerun action
+- A row with no provably safe transition says why and has no dead control
 
 **Source:** `coop_cleanup`, joined to `incidents`, `channel_memories` and
 `conversation_sessions` for what each session belonged to.
@@ -321,10 +330,9 @@ are never added together. Wall clock reads the migration-49 columns and
 averages only over timed turns; a window with none says "nothing timed" rather
 than inventing an instant.
 
-**Source:** `context_manifests`, joined to `agent_runs` on `attempt_id`. Not on
-`episode_id`: an episode holds several runs, so that join fans out — 351
-manifests became 953 rows on a production database — and every count would be
-added once per run that shared the episode.
+**Source:** `episode_work_turns`, joined once to its exact immutable
+`episode_work_session` and owning episode. Usage is attached to an accepted
+logical turn, so no episode-level fan-out is required.
 
 Two figures are counted separately everywhere: how many attempts are in a group,
 and how many of them a provider actually measured. Zero tokens and "nobody
@@ -454,28 +462,31 @@ are facts about the attempt that made them, and carried over, a layer trimmed
 once would read as trimmed forever, including on the attempts that carried it in
 full.
 
-## What v1 wires
+## What the Elixir replacement currently wires
 
-The instruction is that the whole shape is visible even where it is not yet
-live, so the design can be judged as a whole.
+Only backed projections appear in navigation. This table describes the current
+replacement, not the older Go dashboard or the intended final design above.
 
 | Page | Wired |
 |---|---|
-| Overview | Live |
-| Episodes list and detail | Live, with free-text search, a state filter, pagination, and resolve-as-overtaken on blocked and waiting work |
-| Failures | Live, with retry per run; superseded runs say why they are history |
-| Workspaces | Live, with publish, discard and rerun through the Slack buttons' own service paths; rows with no safe path say why |
-| Decisions | Live, with corrections triage and feedback dismiss/convert |
-| Findings | Live, read-only, with both verdicts and pagination |
-| Audit | Live, with a drill-down per kind, an actor filter, a since window and pagination |
-| Memory | Live, with forget and the stale/duplicate review queue's keep and dismiss |
-| Configuration | Live, read-only |
-| Usage | Live for tokens, cache rate, the daily trend, cost and the wall-clock split — each empty state names what was not measured or configured; prompt composition stays marked unwired |
+| Overview | Live for active, waiting, blocked, delivery-pending, and bounded attention records |
+| Conversation Lab | Live, with source-neutral durable messages, accepted replies, episode custody, and same-session continuation |
+| Episodes list and detail | Live, with bounded search, state filtering, pagination, lifecycle metadata, and typed state-record summaries |
+| Failures | Live, with typed confirmed recovery for admission, Work, delivery, Slack repaint/incident, Emisar monitoring, and retention custody |
+| Workspaces | Live, with audited cleanup rearm and explicit safe discard |
+| Decisions | Live, read-only |
+| Findings | Live, read-only |
+| Audit | Live, read-only and bounded |
+| Memory | Live for memory, behaviors, and schedules, with native confirmed mutations |
+| Configuration | Live for effective runtime presence only; secrets and endpoints are omitted |
+| Usage | Live for accepted Work turns, with provider coverage, tokens, reported cost, timings, daily trend, and target/channel/repository drill-downs |
+| Test journeys | Live, configuration-aware manual qualification for the Lab, Slack, GitHub, webhooks, state tools, and recovery |
 
-Every action is a POST behind a native two-step confirm — the CSP forbids
-script, so `confirm()` was never an option that actually ran — and writes its
-store transition and its audit row in the same act, attributed to
-`control-plane@localhost`.
+Every administrative action is a POST behind a native two-step confirm and
+writes its store transition and audit row in the same act, attributed to
+`control-plane@localhost`. A Conversation Lab message is intentionally a
+single CSRF-protected POST: it is an ordinary user input, not an administrative
+state mutation or a shortcut to the model.
 
 An unwired panel says exactly why it is empty and what would make it work, and
 says it about the right thing: once a gap is filled, a panel still tagged "not
@@ -487,21 +498,64 @@ already been bitten by that twice today: a deploy that reported success while
 old code ran, and a quality watcher that logged "no defects" for a day while
 its assessor could not start.
 
+## Conversation Lab and manual product qualification
+
+`http://127.0.0.1:4321/lab` is a real local product surface for talking to the
+configured model without posting test traffic to Slack. A submitted message is
+normalized as a `control_plane` source input and then crosses the ordinary
+Inbox, Admission, Episode, Work, state-tool, and Delivery boundaries. The
+browser never calls Coop or a model provider directly. Accepted replies and
+status are projected from the same PostgreSQL rows that own runtime custody;
+there is no second chat transcript or browser-owned recovery state.
+
+The Lab uses the exact `control_plane.work_profile` from trusted host
+configuration. That profile pins its Coop policy, digest, and optional
+repository just like a Slack, GitHub, or webhook adapter does. Browser content
+cannot select a policy, mount another repository, or widen authority.
+
+One stable UUID identifies the local conversation and its exact destination
+thread. Follow-ups can therefore continue the same episode and Coop session,
+while a restart simply lets PostgreSQL leases be reclaimed. The page shows only
+local operator text, accepted visible replies, bounded host-issued record or
+artifact references, and episode lifecycle metadata. Prompts, unaccepted
+candidates, credentials, arbitrary external payloads, and state-tool bearer
+tokens never render.
+
+`http://127.0.0.1:4321/manual-tests` is the companion operator checklist. It
+marks each product owner configured or absent and provides the user-boundary
+journeys for:
+
+- local conversation, follow-up, waits, and restart recovery;
+- Slack threads, task/progress cards, buttons, reactions/custom emoji,
+  attachments, and incident rooms;
+- GitHub issue comments, PR reviews, inline review threads, edits/deletes, and
+  all eight native GitHub reactions;
+- arbitrary signed webhook JSON and stable item revisions;
+- state records, memory, schedules, governed approval, semantic repair, and
+  lost-response reconciliation;
+- workspace cleanup, database backup/restore, and exactly-once delivery.
+
+The checklist is guidance, not a fake green badge. A journey is complete only
+when both the visible platform effect and its durable Episode/Work/Delivery
+record agree.
+
 ## Technology
 
-- **Go `html/template`**, server-rendered. No build step, no bundler, no
-  node_modules. The service already serves HTTP from `internal/httpapi`.
+- **Elixir Plug/Bandit**, server-rendered. No frontend build step, bundler, or
+  node_modules. Read models are bounded Ecto projections over the same durable
+  stores that own runtime custody.
 - **Filters and time windows are links**, not controls. A filtered list is a
   URL, which makes it bookmarkable and pasteable into an incident thread, and
   costs no client-side state to keep in step with the server's.
 - **CSS in one hand-written stylesheet**, vendored. No framework.
-- **No JavaScript at all.** Nothing on this dashboard needs it, and the moment
-  something does it becomes the first thing on the page that cannot render with
-  the network off. Charts are inline SVG with the geometry computed server-side,
-  so a trend is data rather than a runtime dependency.
+- **One tiny same-origin script for live Lab refresh.** Every page renders and
+  every mutation works without JavaScript. While a local conversation owns live
+  custody, `/static/lab.js` replaces only the server-rendered transcript/status
+  fragment; it neither stores messages nor calls an external origin. Charts
+  remain inline SVG with geometry computed server-side.
 
-The test is that the whole dashboard works offline, from one Go binary, with no
-assets fetched at runtime.
+The test is that the whole dashboard works offline, from the Responder runtime,
+with no assets fetched at runtime.
 
 ## Non-goals
 

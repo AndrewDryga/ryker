@@ -20,9 +20,11 @@ webhooks, and token rotation.
    `xapp-` token as `SLACK_APP_TOKEN`.
 5. Install the app to the workspace and store its `xoxb-` token as `SLACK_BOT_TOKEN`.
 6. Put the workspace, operator, invite-user, summon-channel, and watch-channel IDs into
-   `responder.yaml`. Invite `@Emisar` to every configured summon and watch channel.
-7. Run `responder bootstrap-coop`, authenticate the configured Coop policy targets, then run
-   `responder doctor`. Start `responder serve` only after doctor passes.
+   `/etc/responder/responder-elixir.yaml`, derived from `config/responder-elixir.example.yaml`.
+   Invite `@Emisar` to every configured summon and watch channel.
+7. Enroll the reviewed remote Coop workers, install the Slack tokens in the owner-only service
+   environment, start `responder.service`, and require both `/healthz` and `/readyz` before running
+   the Slack journeys at `/manual-tests`.
 
 When updating an existing app, apply the new manifest. This changes the app and bot display names
 to `Emisar`; it does not rename the `/responder` command or any durable internal identifiers.
@@ -33,9 +35,13 @@ explicitly selected incident audiences. Lightweight acknowledgements use `reacti
 `reactions:read` plus the `reaction_added` and `reaction_removed` events let Emisar understand
 feedback on its own messages in later conversation turns. Reaction events never start work or
 authorize an action by themselves.
+Channel-resource discovery uses `bookmarks:read` to list the configured channel's bookmarks before
+reading an exact authorized Slack file or canvas. Existing installations must be reinstalled after
+adding this scope; otherwise Slack returns `missing_scope` and the bookmark capability remains
+unavailable.
 Screenshot and document analysis uses `files:read`. Generated image and chart delivery uses
 `files:write` and Slack's external upload flow. After adding either scope, reinstall the app before
-running `responder doctor`. The command, message shortcut, interactive controls, and
+rerunning the guided Slack acceptance journeys. The command, message shortcut, interactive controls, and
 subscribed events are delivered over Socket Mode and do not need a public request URL. The shipped
 manifest uses Slack's current `agent_view`; applying it to an older `assistant_view` app performs
 Slack's irreversible Messages-tab migration.
@@ -65,7 +71,8 @@ the emergency kit — `status`, `proactive`, `shadow`, and `help` — and the fu
 `/responder` or `/responder help` rather than from the picker. `assignments` is the one verb the
 guide carries that the hint does not: it reads a channel's standing grants and pauses, resumes or
 deletes one. Creating one is `offer_assignment` and its confirmation card, not a verb. Anything else the command used to do is
-now on App Home, on a pinned card's buttons, in the web control plane, or in `responder.yaml`; a
+now on App Home, on a pinned card's buttons, in the web control plane, or in
+`responder-elixir.yaml`; a
 retired verb answers with the one line naming which.
 
 Inviting `@Emisar` to a channel first offers safe mention-only and proactive defaults plus a
@@ -92,7 +99,7 @@ ba84d1bc32f415feac4f916384075d29180f02010efbd66694b2f60c31574661
 
 Do not add additional scopes, event subscriptions, commands, shortcuts, App Home tabs, or Slack
 agent surfaces speculatively. Slack reviews must be able to exercise every requested capability,
-and `responder doctor` treats the scope list in the manifest as the runtime contract.
+and the manifest tests plus guided live journeys treat its scope list as the runtime contract.
 
 The `message.channels` and `message.groups` subscriptions let Responder participate throughout a
 created incident room and triage configured operational feeds. Configured incident operators do not

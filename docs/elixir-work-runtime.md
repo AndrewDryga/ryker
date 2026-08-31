@@ -20,7 +20,7 @@ bytes needed to safely execute that episode through Coop:
 
 There is no mirrored provider transcript, progress-event stream, attempt table, alert profile, or old
 typed-operation union. Coop owns provider execution. The episode kernel owns lifecycle. Later state
-tools own durable records. Transport gateways will own external delivery.
+tools own durable records. The generic Delivery module owns external message and reaction custody.
 
 ## End-to-end flow
 
@@ -37,8 +37,9 @@ tools own durable records. Transport gateways will own external delivery.
    reconciled by operation key and current turn state.
 8. A validated accept atomically stores the result and advances the episode. A visible result becomes
    `delivery_pending`; deliberate silence settles immediately with an audited reason.
-9. Model workers cannot claim delivery work. A later transport gateway will claim that phase
-   separately.
+9. Model workers cannot claim delivery work. A separate bounded Delivery pool claims the frozen
+   intent, renews its independent lease across bounded provider I/O, selects only a trusted transport
+   adapter, and records a typed external receipt atomically.
 
 ## Reliability rules
 
@@ -57,6 +58,10 @@ tools own durable records. Transport gateways will own external delivery.
   ordered for later turns instead of being truncated. If corrected work blocks again, the next
   recovery pair keeps the original request and the newly triggering correction; the consumed
   correction remains durable history instead of hiding newer feedback.
+- Every model-visible input carries one immutable host-issued `source_ref`. Slack and GitHub inputs
+  use their opaque platform source references; a generic input uses its episode-admission reference.
+  State tools can therefore cite or propose memory from the current instruction without guessing a
+  raw platform ID or an internal database key.
 - Inputs still in `queued_input_refs` are future work, not compact history. They are absent from the
   current prompt until the kernel advances their exact envelopes into the next active pair.
 - Actual transient failures use bounded exponential backoff and enter remote-stop custody after
@@ -73,6 +78,11 @@ tools own durable records. Transport gateways will own external delivery.
   revoked, and a lookup miss or timeout is never treated as proof of absence.
 - The exact accepted result survives newer queued input. New input advances only after the accepted
   visible reply is delivered, or after deliberate no-delivery settlement.
+- Delivery retries are bounded independently from model execution. Permanent platform errors and
+  exhausted transient retries preserve the exact accepted result in operator-rearmable blocked
+  custody instead of polling a provider forever. Operators inspect or rearm that immutable intent by
+  durable reference with `mix responder.delivery list|show|rearm`; a rearm starts a separately audited
+  retry generation with a fresh bounded attempt budget.
 
 ## Universal final result
 
@@ -114,12 +124,55 @@ network service. It covers:
 - new input not erasing an accepted reply;
 - question and event-wait continuation after delivery;
 - bounded retry and permanent blocked custody;
-- separate work and delivery claim phases; and
-- a supervised optional worker pool reaching a validated delivery intent.
+- separate work and delivery claim phases;
+- a supervised optional worker pool reaching a validated delivery intent; and
+- generic Slack/GitHub delivery settling only after an exact typed receipt.
 
 The expanded parity manifest assigns 230 retained Go tests to replacement owners. Stage 3 claims only
-the cases its tests already prove. Typed state-tool carry, GitHub completion guards, model behavior
-evaluations, transport rendering, and external response-loss reconciliation remain later modules.
+the cases its tests already prove. Typed state-tool carry and privileged GitHub completion guards are
+owned by their dedicated modules. Generic transport rendering and external response-loss
+reconciliation are described in
+[platform adapters and delivery](elixir-platform-adapters.md).
+
+## Model behavior evaluation
+
+The checked-in Work corpus uses the production prompt, universal final-result schema, and semantic
+validator. Its offline suite proves that semantic rejection remains in the same Coop turn, that
+byte-identical correction attempts receive distinct attempt-bound validation keys, and that a
+host-valid but behaviorally wrong result fails instead of being silently accepted.
+
+```console
+scripts/elixir-test.sh test/responder/evals
+MIX_ENV=test mix responder.eval work-pack
+MIX_ENV=test mix responder.eval work --config /absolute/responder-elixir.yaml
+MIX_ENV=test mix responder.eval world-pack
+make eval-world-smoke CONFIG=/absolute/responder-elixir-eval.yaml
+make eval-world CONFIG=/absolute/responder-elixir-eval.yaml
+```
+
+`work-pack` compiles the sanitized narrow final-contract corpus without a model. Its live command runs each case through
+the dedicated `model_evals.socket` in an isolated Coop session under `model_evals.no_tools_policy`,
+which must be read-only and expose no
+tools. It currently covers a useful direct answer, the Slack/GitHub/platform-adapter product
+boundary, and shadow-mode no-delivery. Accepted cases are closed, checked with Coop's exact discard
+plan, and discarded only when the workspace is clean. Unsafe cleanup fails the eval and retains the
+session for inspection.
+
+The separate world lane proves behavior with tools. `eval-world-smoke` runs eight high-value cases
+once at a strict 100% floor. The release `eval-world` gate runs the full corpus three times for a
+dedicated candidate policy and a separately pinned baseline policy in the exact same deterministic
+world, enforcing aggregate, per-case, hard-invariant, `UNRUN`, and paired-regression limits. One
+versioned scenario directory is shared
+by deterministic host replay and real-model execution. Its production Responder state tools are real
+and lease-authorized against an empty disposable PostgreSQL database; its metrics, scheduler, GitHub,
+and similar external tools are a strict recorded cassette. Calls match important normalized
+arguments rather than a global order, controlled failures are replayed per rule, and unmatched calls
+return a bounded error instead of fabricated data. Visible output goes only to the inert `eval`
+transport. Hard checks run first, then a tool-free judge session scores every human-language rubric
+criterion exactly once. Missing judge evidence remains `UNRUN`, never green.
+The eval socket cannot equal the production Coop socket. Before any model turn, Responder verifies the
+exact policy digest and Coop's public `repository_read_only` bit; the dedicated daemon is deployed
+without production environment, credentials, network mutation tools, or project MCP configuration.
 
 ## Configuration
 
@@ -147,3 +200,29 @@ execution placement and takeover are a later boundary.
 
 The worker never accepts a policy, repository, provider, credential, Slack destination, or tool set
 from an incoming event. Those are admitted and pinned by their owning boundaries.
+
+## Retention and cleanup
+
+`Responder.Retention.Runtime` owns both remote workspace cleanup and local data horizons. For every
+terminal episode it closes only the exact Coop session recorded in PostgreSQL, waits the configured
+grace period, fetches an exact discard plan, and then:
+
+- discards a clean workspace with no unreviewed changes;
+- discards clean committed work only after its publication is durable;
+- retains dirty or unpublished work for an operator; and
+- blocks on crossed session identity, authority, or ambiguous cleanup instead of guessing.
+
+Blocked cleanup exposes its exact phase and bounded diagnostic in the local control plane. A
+confirmed operator may rearm that same phase without changing the frozen session identity. A clean
+workspace retained only for unpublished, unmerged commits may be explicitly discarded, but that
+action always obtains a fresh Coop plan with unmerged acceptance; dirty work remains retained. Both
+actions are idempotent and leave an audit row.
+
+Large ingress, prompt, candidate, validation, delivery, and artifact bodies are redacted on the
+operational horizon only after all of the episode's Coop sessions are proven discarded. The episode
+event stream remains coherent until `episode_history_seconds`; it is never thinned one event at a
+time. Open waits, blocked turns, pending approvals, live schedules, unpublished changes, active
+incident rooms, and unresolved state records pin that history regardless of age. Compact session and
+delivery receipts remain until `audit_data_seconds`. Pruning runs in bounded batches and short
+transactions so retention cannot monopolize a busy database. Every table has an executable retention
+class, and every age/lease comparison uses PostgreSQL time.

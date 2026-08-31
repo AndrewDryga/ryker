@@ -1,812 +1,285 @@
-# Operations
+# Elixir/PostgreSQL operations
 
-## Processes
+The production Responder is one Elixir release backed by PostgreSQL. PostgreSQL
+is the durable authority for ingress, episodes, Work, delivery, waits,
+schedules, approvals, publication, remote-worker placement, and retention.
+A process restart does not create a second deployment state: the replacement
+claims expired or released custody from the same database and resumes it.
 
-Run one Coop session controller and one Responder process per state directory. They must share a
-restricted Unix user in v1 because the Coop socket is mode `0600`.
-Responder holds a non-blocking lock in `state_dir`; a second process exits instead of competing for
-Slack and incident ownership.
+The systemd unit in `deploy/systemd/responder.service` is the canonical service
+definition. It runs migrations before every start, starts the release in the
+foreground, and lets systemd deliver `SIGTERM` directly to the BEAM process.
+Run exactly one service against a production platform identity and database.
 
-In the default external mode (`coop.supervise: false`), startup order is:
+## Required files and secrets
 
-1. load secrets;
-2. run `responder bootstrap-coop`;
-3. authenticate every policy target with `COOP_CONFIG_DIR=<bootstrap_dir> coop login <agent>@<account>`,
-   including every rung of a policy whose `target` is a fallback ladder;
-4. start `coop sessions serve`;
-5. run `responder doctor` to validate database integrity, current Coop bootstrap content, bot
-   scopes, configured operators, invite users, summon channels and watch channels, an actual
-   Socket Mode WebSocket handshake, and authenticated Emisar MCP initialization plus the required
-   tool catalog; it does not execute an infrastructure action;
-6. start `responder serve`;
-7. wait for `/readyz`.
+Install these owner-controlled files before starting the service:
 
-For a one-command foreground process, configure:
+- `/etc/responder/responder-elixir.yaml`, derived from
+  `config/responder-elixir.example.yaml`;
+- `/etc/responder/responder.env`, derived from
+  `deploy/systemd/responder.env.example` and mode `0600`;
+- `/etc/systemd/system/responder.service`;
+- `/usr/local/lib/responder/current`, the atomic symlink created by the release
+  installer; and
+- the remote Coop worker policies, certificates, repository mappings, and
+  execution endpoints named by the reviewed configuration.
 
-```yaml
-coop:
-  supervise: true
-  binary: /usr/local/bin/coop
-  state_dir: /var/lib/responder/coop
-  policies: /etc/responder/session-policies.yaml
-  restart_delay: 5s
-  socket: /var/lib/responder/coop/control.sock
+The environment file carries PostgreSQL, platform, checkpoint, and state-tool
+secrets. The YAML file carries trusted platform bindings, repositories, Work
+profiles and their immutable policy digests, delivery adapters, runtime
+listeners, retention, and control-plane configuration. Webhook payloads and
+fleet workers cannot choose any of those authorities.
+
+Before every start, validate that:
+
+- the database URL names the intended PostgreSQL database;
+- Slack workspace IDs and GitHub App installation/repository bindings are
+  exact;
+- every universal-webhook destination has a configured outbound adapter;
+- every enabled state tool has its owning runtime;
+- every Work profile has the reviewed policy and policy digest;
+- fleet worker certificates are current and revoked workers are absent; and
+- all listeners except the externally proxied webhook paths bind to loopback.
+
+## Normal deployment
+
+Commit the complete change and run the repository gate before deployment. The
+canonical command is:
+
+```bash
+scripts/deploy.sh
 ```
 
-Run `bootstrap-coop` and authenticate the policy targets once, then run only `responder serve`.
-Responder rejects a stale private Coop projection or a socket already owned by another controller,
-starts `coop sessions serve`, and waits for its readiness before authenticating Slack. An exit
-before initial readiness fails Responder startup. An unexpected exit after readiness is logged and
-restarted after `restart_delay`. Responder sends the managed process group `SIGTERM` and reaps it
-on shutdown.
+It refuses a dirty tree, builds and proves the exact immutable Elixir archive,
+boots it against a disposable PostgreSQL database, verifies a same-database
+restart and a `pg_dump`/restore boot, installs the versioned release, atomically
+moves `/usr/local/lib/responder/current`, restarts `responder.service`, and
+waits for both `/healthz` and `/readyz`.
 
-`responder doctor` also supports managed mode: it starts Coop, checks the socket and the rest of the
-preflight, and stops Coop before returning. Known Slack, webhook, and Emisar secret variables are
-removed from the child environment. Coop receives `COOP_CONFIG_DIR=<bootstrap_dir>` and loads the
-private tool projection written by `bootstrap-coop`. Optional `coop.additional_mcp_file` and
-`coop.additional_env_file` sources must be absolute, owner-private regular files. Their servers and
-MCP-only environment values are merged into each turn; Responder retains the `emisar` server name
-and rejects Slack, webhook, and Emisar credential overrides.
+This is a normal one-writer restart, not a canary or promote workflow. Do not
+start a second Slack socket, GitHub/webhook listener, scheduler, or delivery
+worker against the same platform identities. Pending custody is recovered from
+PostgreSQL after the replacement starts.
 
-Managed foreground mode requires the Responder caller to have every permission Coop needs,
-including Docker access. Keep the split units for a hardened systemd installation so the Responder
-process itself does not receive the `docker` supplementary group.
+After the script succeeds, record:
 
-Responder exits when initial database, Coop, Slack authentication, Emisar MCP authentication, or
-the required Emisar tool catalog check fails. An external supervisor should restart Responder with
-a bounded delay.
+```bash
+/usr/local/lib/responder/current/bin/responder version
+systemctl is-active responder.service
+curl --fail http://127.0.0.1:4321/healthz
+curl --fail http://127.0.0.1:4321/readyz
+curl --fail http://127.0.0.1:4321/metrics
+```
 
-## Health
+Then execute the authorized live journeys in `docs/testing.md` and the guided
+checklist at `http://127.0.0.1:4321/manual-tests`. Test results, installed
+version, running version, and live platform receipts are separate evidence.
+
+## Health and readiness
 
 | Endpoint | Meaning |
 | --- | --- |
-| `/healthz` | the process can use its durable database |
-| `/readyz` | the database responds, Slack and Coop are ready, every scheduler lane has a fresh heartbeat, and no due or running work exceeds the stall threshold |
-| `/metrics` | Prometheus-format incident, delivery, scheduler queue, lease-age, heartbeat-age, and failure counters |
+| `/healthz` | the process can use PostgreSQL |
+| `/readyz` | every configured runtime is alive, scheduler progress is fresh, and no due or active custody is stalled past its configured threshold |
+| `/metrics` | Prometheus counters and gauges for queue depth, oldest due work, active lease age, scheduler progress, failures, placements, delivery, and retention |
 
-The webhook endpoint can durably accept work before Slack reconnects, but load balancers should use
-`/readyz` when dependency-complete handling is required.
+Keep these endpoints on loopback. `deploy/nginx/responder.conf` exposes only the
+signed GitHub and universal-webhook ingress paths. A routable control-plane bind
+would expose operational counts and compete with production work for database
+connections.
 
-`/healthz`, `/readyz`, and `/metrics` are unauthenticated, and `/readyz` and `/metrics` each query
-the single writer connection that every worker shares. Keep `listen` on loopback and expose only
-`/v1/hooks/` publicly, as `deploy/nginx/responder.conf` does. Binding `listen` to a routable
-address without a proxy publishes operational counts and lets unmetered scrapes contend with real
-work for the database connection.
+Readiness is deliberately stricter than liveness. A process can remain alive
+while a scheduler lane stops advancing or one remote turn renews custody
+forever. That condition must fail `/readyz`; it must not be hidden by a healthy
+PID.
 
-`responder status` and `responder failures` inspect the current database schema without migrating
-it and do not require Slack or Coop. Stop Responder before upgrading to a binary that needs a
-database migration; startup holds the process lock, creates and verifies a private pre-migration
-snapshot, then applies migrations.
+When readiness fails:
 
-## Post-fix Slack replay
+1. inspect the failed checks and queue ages in `/metrics` and the control plane;
+2. inspect the owning episode, source/destination, attempt counts, and exact
+   custody phase before retrying a visible effect;
+3. verify PostgreSQL, configured listeners, and remote worker placement;
+4. revoke or drain a compromised worker before moving its placement;
+5. use the typed retry/reconcile control for the failed lane; and
+6. restart only after preserving the logs and exact operation keys needed for
+   reconciliation.
 
-Use a saved Slack message to verify the complete deployed path after a fix:
+Never delete or rewrite a lease, operation key, receipt, or episode row by
+hand. The recovery APIs preserve the fences that make a replacement safe.
 
-```bash
-responder replay slack \
-  --config /etc/responder/responder.yaml \
-  --url 'https://workspace.slack.com/archives/C0123/p1785652207489039' \
-  --expect reply \
-  --timeout 20m
-```
+## Control plane and Conversation Lab
 
-The owning `responder serve` process must be running. The command opens the current schema without
-migrating it, clones the original persisted Slack payload behind a fresh envelope and event ID,
-and lets the live scheduler process it. Text, attachments, actor, channel, thread, and source
-timestamp are preserved. A saved ambient human message is treated as explicitly addressed for
-the replay so normal stale-message coalescing cannot turn the verification into a false success.
+The loopback control plane provides:
 
-By default this is a private verification: it runs the normal model and tool path but suppresses
-Slack status, reactions, replies, generated-file uploads, offers, schedules, tasks, and incidents.
-Use `--publish` only when posting another real response in the source conversation is intentional.
-In published mode, the command returns successfully only after the replayed input is complete, its
-watch agent run is complete with the expected action, every persisted message payload passes the
-deterministic Slack UX checks used by live evaluations, and every deterministic reply or
-generated-file delivery is confirmed `sent`. It fails on a terminal input or agent error, a
-different action, an invalid Slack
-surface, a failed Slack delivery, or timeout. `--input slack_...` targets a durable input directly; `--channel C...` with
-`--message-ts 1785652207.489039` is useful when a permalink is unavailable. Use `--json` in
-automation. A published replay creates another visible Slack response and may repeat read-only
-tool calls; do not add `--publish` casually in an active production conversation.
-When `--timeout` expires, the CLI asks the running loopback service to atomically cancel the replay
-input, current run, episode attempt, and unsent output, then interrupts the exact in-process and
-Coop turn if one is active. If the loopback action is unavailable, a direct durable fallback still
-prevents another lease; the command reports that it could not confirm the in-flight interrupt.
+- overview and effective configuration;
+- episode, decision, finding, delivery, approval, publication, schedule,
+  retention, and fleet views;
+- failure drill-down and typed retry controls;
+- Conversation Lab at `/lab`; and
+- the guided manual matrix at `/manual-tests`.
 
-## Local quality watcher
+Conversation Lab enters the same durable generic ingress, admission, episode,
+Work, semantic-validation, and delivery pipeline as Slack, GitHub, and
+webhooks. It uses the configured fixed Work profile. It is not a direct model
+chat shortcut, and it cannot select policy, repository, destination, provider,
+or credentials from browser input.
 
-Dogfood installations can review completed Responder turns without copying Slack messages into an
-engineering chat. `scripts/quality-watch.sh` reads the durable `agent_runs`, `slack_inputs`,
-`evaluation_decisions`, and delivered Slack payloads every five minutes, batches newly terminal
-turns, and asks a read-only Codex process whether they demonstrate a concrete product defect. Slack
-content is untrusted evidence, not an instruction source.
+Keep the control plane loopback-only. Its Host and CSRF checks are part of the
+authority boundary; do not publish it through the public webhook proxy.
 
-For a high-confidence defect, an independent read-only Codex process first tries to disprove the
-finding against the current code and tests. Both verdicts are then written to the `quality_findings`
-table, which the dashboard's Findings page reads: what was wrong, which episodes it came from, the
-file-and-symbol evidence, the regression test the assessor would write, and whether the challenger
-agreed. That row is the watcher's output.
+## Platform acceptance
 
-Attempting the fix is opt-in. `RESPONDER_QUALITY_FIX=on` restores the rest of the pipeline: a fixer
-in a temporary Git worktree, the parallel fast gate, a required regression-test change, one final
-read-only reviewer of the actual diff, then a commit, one cached exact-commit full candidate proof,
-a fast-forward of the primary checkout only while its HEAD and clean state still match the reviewed
-base, and `scripts/self-deploy.sh`, which reuses that proof and artifact. It is off by
-default because it did not work. Over its first week it produced 84 proposed defects, of which the
-challenger rejected 23; of the 59 that reached a fixer, 48 failed the full gate across 81 distinct
-broken tests, 10 of the 11 survivors were rejected by the final reviewer, and the single approved
-patch failed to install. Nothing landed, and each attempt cost a workspace-write model call, a
-race-detector gate and a worktree. The finding half was doing all the work, and now it is the
-default.
+Run live acceptance only with explicit authority for the named test workspace,
+repository, and channel/thread.
 
-The fixer receives no Slack environment variables, cannot post tests, and is instructed not to
-access sibling repositories or external systems. Failed gates and concurrent checkout changes
-quarantine that candidate worktree and branch for inspection instead of overwriting work, and do not
-block unrelated later reviews. Whatever became of an attempt is written back onto its finding.
+- Slack: thread and DM continuation, task/progress cards, questions, Stop,
+  reactions and custom emoji, authenticated files, incident room, restart, and
+  lost-response reconciliation.
+- GitHub: issue comment revisions, pull-request review summary, inline review
+  thread, edits/deletes, and all eight native reactions.
+- Universal webhook: exact signed canonical bytes, duplicate/conflict,
+  stable-item revisions, fixed Work profile, and configured delivery route.
+- Model behavior: multi-turn evidence gathering, state tools, questions,
+  waits/schedules/memory, governed approval, semantic repair, and recovery.
+- Fleet: placement loss, certificate revocation, checkpoint/failover, stale
+  bearer rejection, and exact output publication through the central host.
 
-Findings, review artifacts, quarantined worktrees and the fixer's Go build cache all expire after
-`RESPONDER_QUALITY_RETENTION_DAYS` (default 30). The sweep runs on every pass rather than at
-startup, and names each thing it drops — including the reason a quarantined worktree was held —
-because deleting an operator's only record of a defect in silence is indistinguishable from losing
-it.
+Offline E2E tests prove the host mechanics. The credentialed fabricated-world
+evaluation proves model trajectory without external side effects. Live
+acceptance proves platform grants and APIs. None substitutes for another.
+
+## PostgreSQL backup and restore
+
+Use physical or managed continuous backup in production and take an explicit
+logical backup before migrations, platform-identity changes, and cutover:
 
 ```bash
-RESPONDER_QUALITY_STATE_DIR=/srv/responder/state \
-RESPONDER_QUALITY_TEST_CHANNEL=C0123TEST \
-scripts/quality-watch.sh --from-now --watch
+install -d -m 0700 /var/lib/responder/backups
+pg_dump --format=custom --file=/var/lib/responder/backups/responder-$(date -u +%Y%m%dT%H%M%SZ).dump responder
+pg_restore --list /var/lib/responder/backups/responder-*.dump >/dev/null
 ```
 
-The test-channel setting is a hard boundary recorded in every assessment; the watcher itself has no
-Slack write path. Reviews, model logs, isolated worktrees, and the cursor are owner-private under
-`state_dir/quality-watch`. Start with `--from-now` so historical failures are not reprocessed. The
-watcher's only write to `responder.db` is its own findings table; if the running Responder predates
-that table the insert is refused, logged, and the review continues.
-
-## Retries
-
-Webhook, Slack input, Slack delivery, and agent-run work retain their typed bounded retry state. A
-single durable scheduler decides when each category or incident subject is eligible to run.
-Scheduler leases have random owner tokens: an expired lease can be reclaimed while the process is
-running, and the stale owner can no longer complete or retry the replacement lease. Process restart
-also converts interrupted domain and scheduler leases back into their correct recoverable states.
-
-Only new Slack posts and file uploads with an ambiguous response are treated as uncertain because
-the API might have accepted them before the connection failed. Responder searches Slack history by
-durable message metadata or deterministic generated filename before deciding whether another
-delivery is safe. Updates and statuses are retried idempotently, and obsolete pending versions are
-superseded.
-
-Generated output is independently bounded by `limits.max_generated_visuals`,
-`limits.max_generated_visual_bytes`, and `limits.max_generated_visual_total_bytes`. Defaults are
-four images, 8 MiB per image, and 8 MiB total. Values may only reduce Coop's fixed hard ceiling.
-Generated bytes are stored in the durable Slack delivery until delivery or retention cleanup so a
-restart cannot lose an accepted result; they are never copied into prompts, evidence, or memory.
-
-Coop requests reuse the same idempotency key and frozen request body. Non-retryable Coop conflicts
-stop the action and remain visible; they are never rewritten with a guessed revision.
-
-A provider rate limit is not a failure and never spends an attempt. When a policy `target` is a
-fallback ladder, Coop rotates the session onto the next rung that is not cooling and re-delivers
-the turn itself, so Responder sees an ordinary completion on a different model; the rotation is
-logged and recorded as a `session.target_rotated` event. Responder restates its durable context in
-every prompt, so a rotation that crosses providers — which drops the model's own in-session
-history — costs the model's prior reasoning and nothing the run depends on. Only when every rung is
-cooling does the turn fail with `rate_limited`; the run then waits and is retried, using the reset
-instant Coop reports, re-checking at least every 30 minutes so a newly signed-in credential is
-picked up without waiting out the original window.
-
-Watched Slack feeds use one current Coop session generation per configured channel. Messages are
-serialized by Slack message timestamp within each channel and can proceed independently across
-channels.
-`coop.prewarm_conversation_sessions` prepares the bounded conversation lane and its authenticated
-ACP execution environment in the background for up to 20 recently active or statically configured
-channels. Recent durable conversation lanes take priority, so dynamically joined Slack channels
-remain warm across Responder restarts. The default is four. Each warmed lane uses a normal Coop session; the operator-owned Coop policy must
-also opt in with `warm_idle_timeout`. Coop reuses the same native model session and boxed ACP process
-until that idle lease expires, then removes the process and projected credentials. Session rotation,
-retention, provider-account selection, and policy enforcement are unchanged.
-`slack.watch_settle_delay` requires a quiet period after the newest queued message before
-classification; the default is 350 milliseconds. The request freezes the freshest ordered context
-again immediately before model submission, so this delay is only a short burst debounce rather
-than the source of conversation ordering. `slack.watch_context_messages` freezes the latest
-chronological channel transcript into each triage request; the default is 20 and the allowed range
-is 10 through 50. Once classification queues an agent run, the source Slack input is complete and
-cannot exhaust retries during a long model call. The agent run takes its own lease and freezes the
-freshest ordered context immediately before submission. One run executes per conversation, while
-later inputs can still be admitted and included in subsequent context. A delayed event older than
-an already completed decision is retained and audited but cannot produce an out-of-order reply.
-Slash commands and button controls have priority over ordinary conversation delivery.
-
-Socket Mode does not replay events emitted while Responder is offline. On startup, Responder reads
-the bounded recent history of channels where it is present and proactive, shadowing, or following a
-standing app-message rule. Missing external-app messages are admitted through the same canonical
-message identity as live events, so catch-up cannot duplicate work already received over Socket
-Mode. `slack.startup_history_window` controls the lookback (15 minutes by default, `0s` disables it,
-and 24 hours is the maximum). Human conversation is never replayed by startup catch-up.
-
-Slack apps can update an existing notification as work moves from planning to applied, errored,
-discarded, or another terminal state. Slack does not reliably deliver every attachment-only edit as
-an Events API message. Responder therefore re-reads only external-app messages that visibly describe
-an in-progress lifecycle. `slack.external_message_reconcile_interval` controls the polling interval;
-`slack.external_message_reconcile_window` bounds how long the exact message is followed. A changed
-message is admitted as a new ordered input and evaluated normally. This is lifecycle synchronization,
-not Terraform-specific classification.
-
-## Scheduled tasks
-
-A configured operator creates a schedule by mentioning Emisar with a task and time, for example:
-
-```text
-@Emisar in 4 hours, check whether the rollout is healthy and summarize any blockers
-@Emisar every Monday at 09:00, prepare a production health review
-@Emisar on day 1 of each month at 10:30 Europe/London, summarize SLO and incident trends
-```
-
-Responder asks the model only to normalize an explicit request into a typed offer. The host checks
-the repository, recurrence, timestamp, IANA timezone, interval, task size, expiry, operator, and
-credential-like content. An operator must click **Schedule this** before a row is created. App Home
-and the web control plane pause, resume, and delete a task afterwards. Neither offers an edit,
-because a schedule's definition has no update path anywhere in the product: changing one means
-describing the replacement and confirming it through the same typed parser.
-
-One-time schedules require an exact future instant. Interval schedules may omit a start instant and
-then begin after one interval. Daily, weekly, and monthly schedules use the operator's Slack profile
-timezone when none is stated; Responder computes each next local occurrence so DST transitions are
-handled by the Go timezone database. A monthly day that does not exist is skipped rather than moved.
-
-Each due occurrence is inserted in `scheduled_task_runs` before its synthetic Slack input and normal
-triage `agent_run` are queued. The `(task_id, scheduled_for)` key prevents duplicate dispatch after a
-restart, and an active-occurrence check prevents overlap. `catch_up: latest` runs one current catch-up
-after downtime; `skip` records an occurrence as missed when it is older than
-`limits.schedule_misfire_grace`. Current Coop and Emisar policy is re-evaluated on every run. A
-schedule cannot cache a credential, approval, or permission, and a requested mutation can still
-pause for authoritative Emisar approval.
-
-The scheduler limits are `limits.max_scheduled_tasks`, `limits.max_schedules_per_channel`, and
-`limits.schedule_misfire_grace`. Deleting a Slack channel deletes its schedules. Removing a
-repository binding prunes its schedules during maintenance. Expired tasks and terminal occurrence
-records age out with operational retention.
-
-## Long-running work progress
-
-Accepted model-backed work has a durable episode and remains an active commitment until it reaches
-a terminal state, an exact blocker, or an Emisar approval hold. Responder refreshes native Slack
-status and appends a bounded progress event while a run remains active. Configure the quiet
-interval with `limits.episode_progress_interval` (default `2m`, allowed `30s` through `1h`). This is
-an observability interval, not a deadline: deep investigations continue until their coverage and
-completion contract is satisfied or the run's normal retry policy is exhausted.
-
-Progress events report phases and material milestones, never hidden reasoning or raw tool output.
-Slack controls stay on the control lane while long-running Coop turns remain on the background
-lane, so an approval, stop, or configuration action is not blocked by investigation work.
-
-An exact blocker is an external boundary, not a remaining investigation step. The structured result
-records its kind, attempted evidence routes, material gaps, and external unblock action. Responder
-retries a deep turn that merely proposes more read-only queries, while a genuine blocked result stays
-open and renders those details explicitly in Slack.
-
-Bot channel joins create a durable `configuration_sessions` row with a 30-minute expiry. The setup
-root timestamp, initiator, current question, typed draft, revision, and status are stored before
-later answers can advance it. Thread answers must match the root; top-level answers require a
-configured full-member operator. Saving creates or replaces one `channel_configurations` row and
-increments its revision. Explicit Slack channel overrides remain higher priority; confirmed setup
-then precedes workspace and deployment defaults.
-
-The saved app-alert policy applies only to authenticated Slack app messages. Human health questions
-never auto-create incidents. Incident rooms created from that source channel invite configured
-operators and deployment invitees plus the saved users and the current Slack members of saved user
-groups. A missing or inaccessible group blocks room preparation visibly rather than silently
-dropping responders. Channel deletion removes configuration and active drafts. Maintenance prunes
-expired and terminal setup sessions with the other bounded operational state.
-
-The host does not accept a human health question as authorization to create an incident. Human
-triage can reply with findings and persist an incident offer; a configured full-member operator must
-confirm its `Open incident room` button. Explicit human incident requests and credible unresolved
-external-app alerts may create directly. Incident creation is keyed to the original Slack event, so
-button retries and repeated clicks cannot create duplicate incidents.
-
-The shared triage session also cannot edit repository files. For an explicit repository-change
-request, the agent returns a durable engineering-task offer instead of telling the teammate to
-start another client session. Any active full workspace member may confirm **Start engineering
-task**. The resulting source thread uses an isolated writable Coop fork and task-specific Slack
-copy; active full members may collaborate, edit, test, commit, and review under the repository's
-contributor policy. A configured operator must publish a draft PR, stop or close the task, or discard
-retained work. Merge, signing, deployment, and infrastructure mutation remain forbidden.
-
-### Repository sets
-
-Use a repository set when one investigation needs declared context from several independent Git
-repositories. Responder's `repository_sets` entry names the primary configured repository and the
-Coop policy:
-
-```yaml
-repositories:
-  infrastructure:
-    display_name: Infrastructure
-    coop_policy: infrastructure-observe
-    contributor_policy: infrastructure-contributor
-    conversation_policy: infrastructure-conversation
-    path: /srv/repos/infrastructure
-repository_sets:
-  platform:
-    display_name: Platform
-    primary: infrastructure
-    coop_policy: platform-observe
-    contributor_policy: platform-contributor
-    conversation_policy: platform-conversation
-```
-
-`conversation_policy` is optional. When configured, direct conversational messages use that bounded
-Coop policy and its authenticated provider account. The policy can expose the same read-only
-repository and MCP tools as the investigation policy; the model decides which evidence it needs.
-`contributor_policy` is the writable, member-safe task policy. Configure its Coop session policy
-with `project_env: false` and `project_mcp: false`; repository files remain writable, while shared
-operational credentials and MCP tools are absent. Requests that require a writable isolated fork
-use the separately confirmed engineering-task path. Omitting `conversation_policy` preserves the
-single investigation-lane behavior.
-
-The Coop session policy controls the provider, model, reasoning effort, and authenticated account:
-
-```yaml
-policies:
-  platform-observe:
-    target: codex:gpt-5.6-sol/xhigh@oncall
-  platform-conversation:
-    target: codex:gpt-5.6-terra/low@oncall
-  platform-contributor:
-    target: codex:gpt-5.6-sol/high@oncall
-    project_env: false
-    project_mcp: false
-```
-
-The target syntax is `agent:model/effort@account`. Responder does not silently override it. A
-conversation policy is the fast bounded lane for ordinary replies; current-state questions,
-standing-rule alerts, and other tool-backed work escalate to the repository or repository-set
-`coop_policy`. Edit the owner-private session policy to change either lane, then restart Responder's
-managed Coop so new or rotated sessions bind the updated target. There is intentionally no Slack
-command that lets a channel member change the provider account or model policy.
-
-### Execution profiles
-
-A repository may bind named execution profiles, each naming one of its own Coop session policies:
-
-```yaml
-repositories:
-  infrastructure:
-    coop_policy: infrastructure-observe
-    conversation_policy: infrastructure-conversation
-    contributor_policy: infrastructure-contributor
-    profiles:
-      watch:
-        policy: infrastructure-watch
-```
-
-Responder decides which profile a turn asks for before any model runs, from the effort contract the
-turn was admitted under, the authority it may use, and whether anybody addressed Responder:
-
-| Profile | Work | Policy it replaces when configured |
-| --- | --- | --- |
-| `chat` | conversation and small focused checks addressed to Responder | `conversation_policy` |
-| `investigate` | operational assessments and incident rooms | `coop_policy` |
-| `engineer` | writable engineering tasks | `contributor_policy`, or `coop_policy` for an operator's own task |
-| `watch` | the attention decision on a message nobody addressed | `coop_policy` |
-
-A profile names a policy and nothing else, so the ladder, reasoning effort and budget stay in the
-owner-private policy file where every other target lives. A profile that is left out keeps the
-policy its lane already used: a configuration with no `profiles:` block asks Coop for exactly the
-policies it asked for before profiles existed. `bootstrap-coop` generates and `responder doctor`
-checks a profile policy like any other, and a profile can never widen authority — a contributor
-task on a repository with no `contributor_policy` is refused whatever its `engineer` profile says.
-
-Each turn's requested profile is recorded on its context manifest beside the provider, model and
-reasoning effort that actually answered, so attribution survives a ladder rotation and the trace
-page can say which lane asked for the rung that ran.
-
-The corresponding owner-private Coop policy is the only place that binds companion aliases to host
-paths:
-
-```yaml
-policies:
-  platform-observe:
-    repository: /srv/repos/infrastructure
-    companions:
-      - name: backend
-        repository: /srv/repos/backend
-      - name: control-plane
-        repository: /srv/repos/control-plane
-    # target and resource limits omitted here
-```
-
-At session creation Coop pins every repository to its current commit. The primary gets the normal
-isolated writable fork. Companions get detached, clean snapshot worktrees mounted read-only at
-`/coop/repositories/<alias>`. Public session data contains only the alias, in-box path, and commit;
-host paths remain inside Coop. Review, GitHub publication, and cleanup apply to the primary tree,
-while discard also removes every owned companion snapshot. A repository set supports at most 32
-companions.
-
-Keep the Responder set's `primary` and the Coop policy's `repository` aligned. This deliberate
-two-part declaration separates publication ownership from local mount authority: Slack and model
-output can select only the configured set key and can never introduce a path or mount.
-
-Compact channel situation stores channel purpose, situation summary, current goal, active topics,
-verified topology, decisions, open loops, unresolved questions, and evidence references.
-`coop.watch_session_max_turns` defaults to 40 and
-`coop.watch_session_max_age` defaults to 24 hours. Responder rotates only an idle session, preserves
-the compact memory, and uses a generation-specific idempotency key. Rotation bounds provider
-context without discarding operational corrections.
-
-Operator-confirmed durable memory is a separate bounded facility. Responder offers it only after a
-configured operator explicitly asks to remember or save an alias, channel repository binding,
-evidence route, entity relationship, or open-ended collaboration guidance.
-The button shows the scope and expiry before writing. Entries are unique by scope, subject, and
-predicate, so a correction replaces the prior value rather than creating a duplicate. App Home and
-the web control plane list active entries with an individual forget confirmation on each, and both
-present stale or duplicate candidates one at a time. No review mutates
-memory until a full workspace operator chooses keep, merge, or forget. Forgotten values are
-removed; audit records retain only the entry ID, scope, predicate, actor, and outcome. Replacement
-history stores hashes rather than old memory values.
-
-`limits.max_memory_entries` and `limits.max_memory_entries_per_scope` bound active memory. Entries
-expire after 7, 30, 90, or 365 days and maintenance deletes expired values. A confirmed Slack
-channel deletion immediately removes entries scoped or visible only to that channel. Retrieval is
-an exact scope and visibility match; Responder does not search another private channel. Saved
-operational memory remains a potentially stale hint: live tools, current repository content, and
-deployment configuration take precedence. Guidance is advisory model context; the current request
-and host safety policy take precedence, and guidance cannot trigger work, count as evidence, or
-authorize incidents, changes, approvals, or mutations. Personal workspace guidance is visible only
-to its operator and can follow them across channels. Recent source-attributed evidence is retrieved
-from the existing same-channel evidence ledger and is not duplicated into memory.
-
-The background memory pass runs every `memory.dreaming_interval`. It compacts conversation
-summaries older than `memory.compact_after` into weekly rollups. Public conversations are grouped by
-repository; private conversations are grouped only within their Slack channel. Each rollup retains
-bounded goals, topics, open loops, topology, decisions, unresolved questions, and source references.
-The source rows are deleted only in the same transaction that saves their rollup. At
-`memory.pressure_percent` of `memory.max_conversation_summaries`, compaction accelerates toward
-`memory.target_percent` but never compacts the latest hour. Rollups are capped by
-`memory.max_rollups` and expire on the normal conversation-memory schedule.
-
-Operator-confirmed entries remain outside this automatic synthesis. Recall counts and timestamps
-drive review suggestions after `memory.review_stale_after`; exact duplicate guidance is also
-flagged. Reviews are proposals, not background edits. This follows the continuity, freshness, and
-reviewability goals described in OpenAI's
-[Memory and new controls for ChatGPT](https://openai.com/index/chatgpt-memory-dreaming/) without
-making remembered prose executable or authoritative.
-
-Operator-confirmed behavior is stored separately from factual operational memory:
-
-- Preferences use the closed catalog `health_check_depth=quick|standard|deep`,
-  `response_detail=concise|standard|detailed`, and
-  `response_location=follow_context|prefer_thread|prefer_channel`. Effective precedence is
-  operator, channel, repository, then workspace; response location excludes repository scope.
-- Standing rules use the closed trigger/action pairs
-  `terraform_plan/review_terraform_plan`, `deployment/verify_deployment`, and
-  `operational_alert/triage_alert`. Each rule is channel-scoped and restricts its source to
-  `human`, `app`, or `any`.
-
-Natural-language requests only create inert offers. The confirmation card shows the normalized
-entry, scope, expiry, and safety boundary; a configured full workspace operator must confirm it
-before the host writes state. App Home and the web control plane provide enable,
-disable, edit, and delete controls. Editing asks for a replacement natural-language request because
-the replacement must pass the same typed parser and confirmation boundary. Confirmed guidance can
-enter model context as advice, but arbitrary prose is never an executable trigger or authority. An
-explicit typed setup request from a configured operator is
-admitted in any channel where Responder is invited; ordinary mentions in that channel still follow
-the summon and proactive settings.
-
-Rules use deterministic host matching before the model runs. They can admit their one typed message
-class while broad proactive triage is off, but remain read-only, reply in the source thread, and
-cannot create an incident, edit files, deploy, approve, or mutate infrastructure. Channel input
-leases preserve Slack timestamp order; the unique `(rule_id, source_input)` execution record makes
-redelivery and retry idempotent. `limits.max_preferences`,
-`limits.max_preferences_per_scope`, `limits.max_standing_rules`, and
-`limits.max_rules_per_channel` bound active and disabled unexpired entries. Maintenance removes
-expired entries and run records. Confirmed channel deletion removes channel behavior immediately,
-and repository reconciliation removes orphaned repository preferences.
-
-`responder.yaml` remains the deployment default. `/responder proactive` writes audited overrides
-to the owner-private database. Resolution order is channel override, workspace override, then the
-static `slack.watch_channels` list. `inherit` deletes an override instead of copying a stale
-default. `/responder shadow` stores dry-run evaluation overrides with the same precedence;
-shadow mode still performs read-only classification and evidence collection, but cannot post,
-offer, or create an incident. Proactive and shadow are the only two settings Slack can write.
-A `turn_limit` row left in the same table by an older deployment is still read at the same
-precedence, but nothing in Slack creates or changes one. Back up these settings with the rest of
-`responder.db`.
-
-Proactive turns return an addressee and four `0..3` interruption dimensions: urgency, confidence,
-novelty, and ownership. The host sums those dimensions after parsing. Ambient replies below
-`slack.proactive_reply_attention_threshold` and reactions below
-`slack.proactive_reaction_attention_threshold` are converted to silence; defaults are `7` and `4`.
-Higher values make a deployment quieter. Explicit requests bypass the score, while human-addressed
-ambient messages remain suppressed.
-
-Accepted model-backed work is recorded in `commitments` at queue time and projected from
-`agent_runs`, which remains the execution authority. App Home, the web control plane, and
-conversational requests such as `what are you working on?` expose queued, working, finishing,
-blocked, and cancelled state. Maintenance does not create a second work lifecycle: commitment
-retention follows the underlying agent run.
-
-## Evidence
-
-Agent prose is not the evidence ledger. Structured observations record claim, observation, source
-type and name, target, freshness, confidence, optional HTTPS source URL, and observation time.
-Coverage records whether hardware, host, runtime, scheduler, workload, dependency, application,
-SLO, and recent-change layers are healthy, degraded, unhealthy, unknown, or not applicable.
-The **Record** row on a pinned incident or task card reads these durable records as a timeline, an
-evidence ledger, a handoff summary, or a postmortem draft. All four are host-rendered from the
-stored rows, never model-authored.
-The remediation timeline is a deterministic chronological projection over
-signals, agent runs, explicit operator and lifecycle events, proposals, Emisar approval-bound runs,
-and draft-PR publication. Those source rows remain canonical, so retries cannot create a second
-version of an approval or executed action in the incident record. Closing an incident posts a
-post-incident draft and leaves unknown impact, root cause, ownership, and follow-up explicitly
-unassigned.
-
-Model-proposed and autonomous operational actions are disabled. A configured operator can directly
-request one exact action from any Slack conversation; Responder must use Emisar's governed action
-flow and does not require an incident. A `pending_approval` result is stored and rendered with a
-link to the exact Emisar approval request. Slack never records the decision and never bypasses
-Emisar policy. Responder monitors the exact run in its durable background queue, updates the
-original Slack card as the run advances, and automatically resumes the same conversation when the
-run becomes terminal. Waiting does not occupy a Slack conversation lane or a Coop/model turn. The
-terminal continuation calls `wait_for_run` for the original run, cannot repeat `run_action`, and
-uses only read-only tools to verify the live effect before posting a concise result. Restart
-recovery rehydrates unfinished monitors from `responder.db`; transient status-check failures use
-bounded backoff without losing the run identity.
-
-`github.automatic_draft_pr_creation` decides who gets a first draft PR opened without a button
-press. Updating a PR that already exists has always been automatic and is not governed by it. `off`
-keeps the **Create draft PR** press for every first PR; `operator_tasks`, the default, opens it
-automatically when a configured operator started the task and leaves a workspace member's
-contributor task to an operator; `all_tasks` opens every task's first PR automatically, including a
-contributor's, which is the one value that removes the operator requirement described above. A task
-whose creator the host cannot read counts as a contributor's.
-
-Draft-PR follow-up uses the same durable-worker pattern. `github.followup_interval` controls GitHub
-check and merge polling; `github.delivery_correlation_window` controls how long a merged
-publication remains eligible for exact cross-channel deployment and Terraform correlation. The
-operator can use **Check delivery** in the task thread for an immediate read-only refresh. The
-`publication_followups` row is the current polling cursor, while `publication_lifecycle_events`
-is the deduplicated event ledger used by the task timeline. Neither path grants merge, deploy, or
-infrastructure authority.
-
-## Evaluation rollout
-
-Use channel or workspace shadow mode before enabling proactive replies broadly:
-
-```text
-/responder shadow on
-/responder shadow global on
-/responder shadow inherit
-```
-
-Review durable evaluation records and service audit output, redact representative model outputs,
-and add behavioral contracts to `testdata/eval/live.jsonl`. Run the real configured model:
+Periodically prove restore into a different database:
 
 ```bash
-make eval CONFIG=.responder/responder.yaml
-responder eval --config .responder/responder.yaml --json
+createdb responder_restore_check
+pg_restore --exit-on-error --no-owner --no-privileges \
+  --dbname=responder_restore_check /var/lib/responder/backups/responder-TIMESTAMP.dump
+DATABASE_URL=ecto://responder@127.0.0.1/responder_restore_check \
+  /usr/local/lib/responder/current/bin/responder eval 'Responder.Release.migrate()'
+dropdb responder_restore_check
 ```
 
-For a deterministic parser and response-envelope check, add redacted outputs to
-`testdata/eval/golden.jsonl` and run `make eval-replay`. The replay is part of offline CI but is not
-a model eval. The real eval calls the configured model through isolated Coop sessions and scores
-strict watch decisions and incident response envelopes, including confirmation-offer types,
-evidence sources, coverage states, approval holds, response bounds, and forbidden overclaims. See
-[`testing.md`](testing.md) for the customer-journey matrix and bounded live acceptance set.
+Do not point a second live service at the restored database while the original
+platform identities are enabled. Candidate checks use inert publishers and
+disposable identities for this reason.
 
-## Capacity
+## Restart and crash recovery
 
-`limits.max_active_incidents` bounds open Coop sessions. Additional admitted incidents can still
-receive durable records and Slack channels, then display a holding state until session capacity is
-available.
-
-`limits.max_open_incidents` separately bounds all incidents that are not closed, including records
-waiting for a session. New occurrences that would exceed it are rejected transactionally before
-channel creation and remain visible as failed webhook or Slack work. Closing an incident releases
-one slot. Set this above `max_active_incidents`.
-
-Member-started tasks are additionally bounded by
-`limits.max_open_engineering_tasks_per_member` and
-`limits.engineering_task_creation_cooldown`. `limits.reserved_operator_open_slots` keeps part of the
-global open-work capacity unavailable to member task creation, so contributor load cannot crowd out
-incident and operator work.
-
-Responder automatically adds Coop capacity when an authorized request reaches an exhausted session.
-`coop.extend_turns` is the internal allocation chunk; it is not an operator-facing estimate.
-`coop.turn_limit` is the lifetime safety ceiling, measured in accepted requests rather than
-tool calls or investigation steps. The shipped default is 1000. Raising it is a deployment change:
-edit `responder.yaml` and restart. Nothing in Slack writes it, and there is no web editor for it
-either. A `turn_limit` row left in `slack_settings` by an older deployment still wins at channel,
-then workspace, then deployment precedence.
-
-At the ceiling the pending request, Coop session, and fork are preserved. The blocked request is
-deferred and retried rather than failed, so a raised ceiling lets it proceed on the next retry after
-the restart without anyone re-asking. The cost of removing the Slack control is that clearing this
-during an incident now needs someone who can edit the configuration and redeploy — which is the
-intended trade, because a session that has spent a thousand accepted requests is usually looping
-rather than short of room. Coop's policy and service-wide hard limits remain authoritative.
-
-`limits.max_webhook_attempts`, `limits.max_slack_input_attempts`,
-`limits.max_delivery_attempts`, and `limits.max_agent_run_attempts` independently bound poison work.
-Normal scheduling deferrals and Coop progress polls do not consume these failure budgets. Terminal
-failures are counted by `responder_work_failed`.
-For configuration upgrades, the retired `max_outbox_attempts` value seeds any of these four budgets
-that are not explicitly set; new configurations should use only the specific names.
-
-`limits.control_workers`, `limits.background_workers`, and `limits.maintenance_workers` bound
-parallel work in each scheduler lane. Increase `background_workers` when one installation serves
-many active channels; conversation keys continue to serialize work belonging to the same Slack
-conversation. Each value must be between 1 and 32.
-
-`limits.worker_interval` controls how quickly an idle scheduler lane checks for newly due work.
-`limits.work_lease` bounds ownership of one scheduler item; expiry permits safe reclamation with a
-new lease token and must exceed `limits.worker_stall_after`. `limits.worker_stall_after` is the
-readiness and handler-timeout threshold for lane heartbeats, due queue age, and running work age,
-and must be at least `coop.request_timeout`.
-
-Memory gauges are exported as `responder_memory_entries_active` and
-`responder_memory_entries_expired`. Maintenance logs include the number of expired entries pruned.
-
-Inspect terminal failures locally:
+A normal restart is:
 
 ```bash
-responder failures --config /etc/responder/responder.yaml
-responder failures --config /etc/responder/responder.yaml --json
+systemctl restart responder.service
+curl --fail http://127.0.0.1:4321/readyz
 ```
 
-After fixing the underlying credential, configuration, or dependency problem, stop Responder and
-retry exactly one item:
+The replacement reconciles persisted operation keys before issuing a network
+mutation. Work and delivery leases are opaque, fenced, and reclaimable. Remote
+Coop placements and state-tool bearers are valid only for the exact current
+session generation, turn, lease, and worker placement. Accepted delivery
+documents and receipts survive newer input and restart.
 
-```bash
-responder retry --config /etc/responder/responder.yaml webhook hook_...
-responder retry --config /etc/responder/responder.yaml slack slack_...
-responder retry --config /etc/responder/responder.yaml delivery delivery_...
-responder retry --config /etc/responder/responder.yaml agent_run run_...
-```
+If shutdown happens during a remote mutation or visible delivery, let the
+typed reconciliation path determine whether the operation committed. Never
+retry a post or validation manually from copied bytes.
 
-The command refuses to run while Responder owns the state directory. It preserves the original
-payload, persisted context or frozen Coop revision, and idempotency key, resets the failure budget,
-and appends an audit event. A failed uncertain Slack post always returns through history
-reconciliation before another send is possible. An agent run that already reached a terminal Coop
-result is shown as non-retryable; send a new Slack message to start a new run instead. The retired
-`outbox` and `turn` kind names remain compatibility aliases. There is deliberately no bulk retry.
+## Worker drain and revocation
 
-## Backups
+Use the audited fleet lifecycle commands to drain planned maintenance and
+revoke a compromised worker. Revocation must invalidate all worker
+certificates/bootstrap tokens, expire placements, fence commands, and remove
+state-tool authority. A revoked worker cannot renew itself.
 
-The database is:
-
-```text
-<state_dir>/responder.db
-```
-
-Before every automatic schema upgrade, Responder creates a SQLite-consistent `VACUUM INTO` snapshot
-under:
-
-```text
-<state_dir>/backups/responder-v<old>-to-v<new>-<timestamp>.db
-```
-
-Startup verifies `PRAGMA quick_check`, verifies that the snapshot still has the source schema
-version, sets file mode `0600`, and aborts before migration if any step fails. Only the three newest
-files matching Responder's migration-backup name are retained; unrelated files are never removed.
-
-That last clause is a guarantee, not an omission, and it has a cost worth knowing about. Responder
-collects only what Responder wrote, so anything else left in `backups/` stays there forever and is
-yours to remove. On the blitz deployment that is 47.8 MB of hand-taken `manual-*.db` snapshots, and
-the emisar state directory holds a further set of `responder.db.backup-*` and `.bak` copies from
-older manual procedures. Check both directories occasionally; nothing else will.
-
-For an operator-initiated point-in-time backup outside an upgrade, stop Responder, copy
-`responder.db` **to a directory Responder does not own** — not `backups/`, which is where the
-snapshots above accumulated — then restart it. The Coop state and repository forks are separate and must be backed
-up according to Coop's operating policy. Never restore only one side and assume session mappings
-still match; run `doctor`, `status`, and `failures` after recovery.
+Writable work moves only from a verified bounded checkpoint. If safe takeover
+cannot be proved, the episode remains visibly blocked for operator recovery; it
+is not silently rebuilt with wider repository authority.
 
 ## Secret rotation
 
-Webhook and Slack secrets are read at process startup and must contain at least 16 bytes. Rotate
-them in the secret environment and restart Responder.
+Rotate one authority boundary at a time:
 
-The Emisar key is copied by `bootstrap-coop` into Coop's owner-private environment file. Rotate it
-by parking active turns, stopping Coop and Responder, updating the environment, rerunning
-`bootstrap-coop`, and restarting Coop followed by Responder. `bootstrap-coop` refuses to rewrite
-configuration while the Coop socket is accepting connections. The same file sets
-`EMISAR_CLIENT=responder`; the command never prints the key. Apply changes to optional additional
-MCP or environment sources with the same stop, bootstrap, and restart sequence.
+1. install the new owner-private secret;
+2. restart the service or owning worker;
+3. verify readiness and the narrow acceptance journey;
+4. revoke the old credential; and
+5. record the effective binding and time.
+
+GitHub installation tokens are short-lived and repository/purpose/permission
+scoped. Slack and GitHub publication credentials stay in the central host.
+Remote workers and models never receive them. Rotating the state-tools root
+secret invalidates newly derived bearers; current placement/turn/lease checks
+still fence every request.
+
+## Retention
+
+Keep the retention runtime enabled in product configurations. It closes and
+discards terminal remote sessions, prunes only terminal and dependency-free
+history, and removes artifacts only after relational custody proves there are
+no live references. Active episodes, schedule occurrences with active child
+work, pending delivery, approvals, publications, and cutover evidence are not
+age-only garbage.
+
+Inspect retention failures in the control plane before retrying. A failed close
+or prune remains durable work; do not bypass it with direct deletes.
 
 ## Release verification
 
-Release archives include the binary, example configuration, systemd and reverse-proxy deployment
-files, documentation, license, changelog, and security policy. Download the archive,
-`checksums.txt`, and `checksums.txt.bundle` from the same GitHub Release. Authenticate the checksum
-manifest first, then verify the archive and its GitHub build provenance:
+Download the archive, signed checksum manifest, bundle, and all executable
+helpers from the same GitHub Release:
 
 ```bash
-tag=vX.Y.Z
-arch=amd64
-artifact="responder_${tag#v}_linux_${arch}.tar.gz"
+version=X.Y.Z
+tag=v$version
+archive=responder_${version}_elixir_linux_amd64.tar.gz
+
 cosign verify-blob checksums.txt \
   --bundle checksums.txt.bundle \
-  --certificate-identity "https://github.com/AndrewDryga/responder/.github/workflows/release.yml@refs/tags/${tag}" \
+  --certificate-identity \
+  "https://github.com/AndrewDryga/responder/.github/workflows/release.yml@refs/tags/$tag" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
-awk -v file="$artifact" '$2 == file { print $1 "  " file }' checksums.txt |
-  sha256sum --check
-gh attestation verify "$artifact" \
+
+for helper in install-elixir-release.sh check-elixir-release.sh activate-elixir-release.sh; do
+  awk -v file="$helper" '$2 == file { print }' checksums.txt | sha256sum --check --strict
+  chmod 0755 "$helper"
+done
+
+gh attestation verify "$archive" \
   --repo AndrewDryga/responder \
   --signer-workflow AndrewDryga/responder/.github/workflows/release.yml \
-  --source-ref "refs/tags/${tag}"
+  --source-ref "refs/tags/$tag"
+
+sudo ./install-elixir-release.sh \
+  "$archive" "$version" checksums.txt checksums.txt.bundle "$tag" \
+  /usr/local/lib/responder
 ```
 
-On macOS, replace `sha256sum --check` with `shasum -a 256 --check`. The checksum comparison alone
-does not authenticate the manifest; do not skip cosign verification for a production install.
+The installer authenticates the manifest and provenance before extraction,
+rejects unsafe archive paths and identity collisions, writes an immutable
+version directory, and atomically updates `current`.
 
-## Retention and garbage collection
+## Rollback
 
-Closing work closes its Coop session and records a cleanup intent. After
-`retention.closed_session_grace`, Responder requests Coop's exact discard plan:
+An ordinary release rollback selects a previously installed immutable Elixir
+version only when its database contract is compatible:
 
-- clean zero-change work is reclaimed;
-- a clean published task is reclaimed because its reviewed tree is durable in the draft PR;
-- dirty work is always retained;
-- clean committed but unpublished work is retained until publication or explicit operator disposal;
-- only exact session IDs recorded by Responder are eligible. Fork name patterns are never ownership.
+```bash
+sudo scripts/activate-elixir-release.sh /usr/local/lib/responder PREVIOUS_VERSION
+sudo systemctl restart responder.service
+curl --fail http://127.0.0.1:4321/readyz
+```
 
-`retention.operational_data` bounds completed Slack inputs, webhook payloads, Slack deliveries,
-agent runs, classifier decisions, and rotated channel intelligence after its Coop cleanup
-completes. On the same horizon it empties the assembled prompt context out of runs that are over,
-which is the largest single payload Responder stores; the run row itself stays, so the episode and
-its attempt history remain readable. A run a wakeup can still resume from, that the control
-plane can still retry, or whose answer somebody reacted positively to, keeps its context — a praised
-reply is only an example of the target behaviour while the question and context that produced it are
-still beside it.
-
-`retention.closed_work` bounds closed incidents and their detailed evidence after Coop
-cleanup completes. `retention.episode_history` bounds a finished episode's own record — its event
-stream, progress, attempts, context manifests, claim assessments and goals — and defaults to thirty
-days, far longer than the operational horizon, because that record is the account of what the agent
-did and the source the replay-fixture corpus is built from. It also bounds `standing_rule_runs`,
-which is the account of what one standing rule fire produced and the only evidence a rule ever
-generates about itself; on the operational horizon that evidence was gone within a day, so a rule
-that fired forty-one times had nothing to show for any of them. `retention.audit_data` bounds the
-smaller audit and cleanup ledger. The classes are ordered: operational data expires first, then
-closed work, then episode history, then audit.
-
-Expiring a rule run never erases what it proved. `standing_rules` carries `trigger_count` beside
-`acted_count` and `quiet_count`, written in the same transaction as the run, so the Configuration
-page and App Home's standing-rule rows can say how many fires produced something and how many
-produced nothing long after the individual rows are gone. The two tallies count only fires recorded
-since the tally existed and deliberately do not add up to `trigger_count` on an older rule; the
-surfaces state the recorded total rather than dividing by the fire count.
-
-No horizon deletes an episode that a pending or approved correction, open feedback, a live wakeup, a
-non-terminal child, an unfinished run, or an open incident still depends on — including the
-closed-work sweep, which reaches episode history by cascade through the incident's agent runs. Those
-refusals are absolute and are not relaxed by shortening a horizon.
-
-Maintenance checkpoints the SQLite WAL and runs `PRAGMA optimize` after
-pruning. Coop leaves a small discarded-session tombstone for its own audit while deleting the
-workspace and private ACP state.
-
-Operational memory has its own per-entry expiry and active-entry caps. The same maintenance pass
-deletes expired values and entries bound to repository keys no longer present in configuration.
-Confirmed Slack channel deletion removes channel-scoped and channel-visible memory immediately.
-These deletions do not copy forgotten values into the audit ledger.
-
-A task must be published before it is closed because Coop reviews only open, parked sessions.
-Closing a changed unpublished task therefore warns that the work will be retained. Its closed task
-card keeps **View diff** and adds **Discard retained work**; that destructive control
-accepts clean unpublished commits only after a second exact Coop plan and still refuses dirty files.
-
-Deleting or archiving a Slack incident room does not delete or close the incident record. Responder
-stores the room as `deleted` or `archived`, retains its channel ID and name, blocks an open incident,
-preserves the Coop session and isolated fork, and makes pending room deliveries terminal instead of
-retrying a destination that cannot accept them. App Home labels the unavailable room with its
-retained `#channel-name` and a plain-language lifecycle word instead of emitting a Slack channel
-mention that would render as a broken link.
-
-Slack lifecycle events are authoritative for deletion. Periodic channel inspection can mark a room
-`unreachable` when Slack returns `channel_not_found`, but that state deliberately means unavailable
-or inaccessible, not confirmed deleted. Restore the app's access or rebind the incident room before
-continuing. Room deletion does not bypass the ownership and publication checks used by cleanup.
+Never roll a binary behind migrations or persisted contracts it cannot read.
+For the one-time replacement window, use `docs/elixir-cutover.md`; it defines
+the separate frozen-source rollback evidence and the exact point after which
+restoring old runtime state is unsafe.

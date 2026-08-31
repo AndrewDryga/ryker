@@ -734,7 +734,7 @@
       "go_file": "internal/service/operational_correlation_test.go",
       "go_test": "TestAttemptedAlertRunSurvivesANewerNotificationOnTheSameStream",
       "replacement_file": "test/responder/admission/commit_test.exs",
-      "replacement_test": "continues active work in its bound thread and queues the new input"
+      "replacement_test": "an app event can continue active work in its bound thread and queue the input"
     },
     {
       "go_file": "internal/service/episode_wakeup_test.go",
@@ -746,7 +746,7 @@
       "go_file": "internal/service/agent_turn_test.go",
       "go_test": "TestAttemptedRunSurvivesANewerContextualMessage",
       "replacement_file": "test/responder/admission/commit_test.exs",
-      "replacement_test": "continues active work in its bound thread and queues the new input"
+      "replacement_test": "an app event can continue active work in its bound thread and queue the input"
     }
   ],
   "stage3_equivalents": [
