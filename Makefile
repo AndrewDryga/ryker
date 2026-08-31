@@ -93,7 +93,7 @@ elixir-check:
 elixir-release:
 	@version=$$(scripts/elixir-release-version.sh); \
 		RESPONDER_ELIXIR_VERSION="$$version" MIX_ENV=prod \
-		scripts/elixir-mix.sh release responder --overwrite
+		scripts/elixir-mix.sh do clean, release responder --overwrite
 
 elixir-release-check: elixir-release
 	@version=$$(awk '{print $$2}' _build/prod/rel/responder/releases/start_erl.data); \
