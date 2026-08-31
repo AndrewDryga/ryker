@@ -10,6 +10,7 @@ defmodule Responder.Work.Worker do
 
   require Logger
 
+  alias Responder.Observability.Progress
   alias Responder.Work.Dispatcher
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -38,6 +39,7 @@ defmodule Responder.Work.Worker do
   @impl GenServer
   def handle_info(:poll, state) do
     delay = process_once(state.dispatcher_options, state.poll_interval_ms)
+    _ = Progress.beat(:work)
     Process.send_after(self(), :poll, delay)
     {:noreply, state}
   end

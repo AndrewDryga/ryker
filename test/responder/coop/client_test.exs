@@ -3,6 +3,7 @@ defmodule Responder.Coop.ClientTest do
 
   alias Responder.CanonicalJSON
   alias Responder.Coop.Client
+  alias Responder.Work.{Session, StateBinding, Turn}
 
   test "creates an asynchronous session through Coop's Unix socket" do
     response = %{
@@ -32,6 +33,32 @@ defmodule Responder.Coop.ClientTest do
       assert Jason.decode!(captured.body) == %{
                "policy" => "admission-read-only",
                "task" => "responder-admission:123"
+             }
+    end)
+  end
+
+  test "creates a session with one exact private Responder binding" do
+    response = %{"operation" => %{"id" => "op_create", "state" => "running"}}
+
+    binding = %{
+      "endpoint" => "https://responder.example/v1/state-tools/mcp",
+      "token" => String.duplicate("t", 48)
+    }
+
+    with_unix_server(response, fn client, request ->
+      assert {:ok, ^response} =
+               Client.create_bound_session(
+                 client,
+                 "responder:work:create:123",
+                 "work-read-only",
+                 "episode:123",
+                 binding
+               )
+
+      assert request.().body |> Jason.decode!() == %{
+               "policy" => "work-read-only",
+               "responder_binding" => binding,
+               "task" => "episode:123"
              }
     end)
   end
@@ -75,6 +102,131 @@ defmodule Responder.Coop.ClientTest do
       assert contract["sha256"] == expected_digest
       assert contract["require_semantic_validation"]
       assert captured.body == CanonicalJSON.encode!(body)
+    end)
+  end
+
+  test "submits and fences the derived private Responder binding on the logical turn" do
+    response = %{
+      "operation" => %{"id" => "op_turn", "state" => "succeeded"},
+      "turn" => %{"id" => "turn_123", "session_id" => "remote_123", "state" => "queued"}
+    }
+
+    endpoint = "https://responder.example/v1/state-tools/mcp"
+
+    assert {:ok, derived} =
+             StateBinding.derive(
+               %Session{id: Ecto.UUID.generate()},
+               %Turn{id: Ecto.UUID.generate()},
+               "local:direct-client-regression",
+               endpoint,
+               "controller-state-tools-secret"
+             )
+
+    binding = StateBinding.document(derived)
+
+    submission = %{
+      "context" => %{"turn_ref" => "turn:bound"},
+      "input_artifact_refs" => [],
+      "output_schema" => %{"type" => "object"},
+      "prompt" => "Use only this logical turn's state authority."
+    }
+
+    with_unix_server(response, fn client, request ->
+      assert {:ok, ^response} =
+               Client.submit_frozen_turn(
+                 client,
+                 "remote_123",
+                 "responder:work:turn:bound",
+                 4,
+                 submission,
+                 binding,
+                 []
+               )
+
+      body = request.() |> Map.fetch!(:body) |> Jason.decode!()
+      assert body["responder_binding"] == binding
+      refute body["prompt"] =~ binding["token"]
+    end)
+
+    fenced = %{
+      "error_code" => "operation_fenced",
+      "id" => "op_fenced",
+      "method" => "SubmitTurn",
+      "state" => "failed"
+    }
+
+    with_unix_server(fenced, fn client, request ->
+      assert {:ok, ^fenced} =
+               Client.fence_frozen_turn(
+                 client,
+                 "remote_123",
+                 "responder:work:turn:bound",
+                 4,
+                 submission,
+                 binding,
+                 []
+               )
+
+      document = request.() |> Map.fetch!(:body) |> Jason.decode!()
+      assert document["request"]["responder_binding"] == binding
+    end)
+  end
+
+  test "submits and fences the exact bounded input artifact bytes" do
+    response = %{
+      "operation" => %{"id" => "op_turn", "state" => "succeeded"},
+      "turn" => %{"id" => "turn_123", "session_id" => "remote_123", "state" => "queued"}
+    }
+
+    schema = %{"type" => "object"}
+    data = <<137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0>>
+
+    artifact = %{
+      "data" => data,
+      "media_type" => "image/png",
+      "name" => "failure.png",
+      "sha256" => :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
+    }
+
+    with_unix_server(response, fn client, request ->
+      assert {:ok, ^response} =
+               Client.submit_turn_with_artifacts(
+                 client,
+                 "remote_123",
+                 "responder:work:turn:artifact",
+                 4,
+                 "Inspect it.",
+                 schema,
+                 [artifact]
+               )
+
+      body = request.() |> Map.fetch!(:body) |> Jason.decode!()
+      assert [encoded] = body["artifacts"]
+      assert Base.decode64!(encoded["data"]) == data
+      assert Map.drop(encoded, ["data"]) == Map.drop(artifact, ["data"])
+    end)
+
+    fenced = %{
+      "error_code" => "operation_fenced",
+      "id" => "op_fenced",
+      "method" => "SubmitTurn",
+      "state" => "failed"
+    }
+
+    with_unix_server(fenced, fn client, request ->
+      assert {:ok, ^fenced} =
+               Client.fence_submit_turn_with_artifacts(
+                 client,
+                 "remote_123",
+                 "responder:work:turn:artifact",
+                 4,
+                 "Inspect it.",
+                 schema,
+                 [artifact]
+               )
+
+      document = request.() |> Map.fetch!(:body) |> Jason.decode!()
+      assert document["request"]["artifacts"] |> hd() |> Map.fetch!("data") == Base.encode64(data)
     end)
   end
 
@@ -172,6 +324,235 @@ defmodule Responder.Coop.ClientTest do
       assert {:ok, ^turn} = Client.get_turn(client, "remote_123", "turn_123")
       assert request.().path == "/v1/sessions/remote_123/turns/turn_123"
     end)
+  end
+
+  test "plans and executes one exact Coop session discard" do
+    planned = %{
+      "operation" => %{
+        "id" => "op_plan",
+        "method" => "PlanDiscard",
+        "resource_id" => "remote_123",
+        "resource_type" => "discard_plan",
+        "state" => "succeeded"
+      },
+      "plan" => %{
+        "operation_id" => "op_plan",
+        "plan" => %{
+          "revision" => 8,
+          "session_id" => "remote_123",
+          "workspace" => %{
+            "accepted_unmerged" => true,
+            "branch" => "coop/session-123",
+            "dirty" => false,
+            "head" => String.duplicate("a", 40),
+            "running" => false,
+            "status_digest" => String.duplicate("b", 64),
+            "unmerged" => true
+          }
+        }
+      }
+    }
+
+    with_unix_server(planned, fn client, request ->
+      assert {:ok, ^planned} =
+               Client.plan_discard(
+                 client,
+                 "remote_123",
+                 "responder:retention:plan:session:g1",
+                 8,
+                 false,
+                 true
+               )
+
+      captured = request.()
+      assert captured.path == "/v1/sessions/remote_123/discard-plan"
+      assert captured.headers["idempotency-key"] == "responder:retention:plan:session:g1"
+
+      assert Jason.decode!(captured.body) == %{
+               "accept_dirty" => false,
+               "accept_unmerged" => true,
+               "expected_revision" => 8
+             }
+    end)
+
+    discarded = %{
+      "operation" => %{
+        "id" => "op_discard",
+        "method" => "Discard",
+        "resource_id" => "remote_123",
+        "resource_type" => "session",
+        "state" => "succeeded"
+      },
+      "session" => %{"id" => "remote_123", "revision" => 9, "state" => "discarded"}
+    }
+
+    with_unix_server(discarded, fn client, request ->
+      assert {:ok, ^discarded} =
+               Client.discard_session(
+                 client,
+                 "remote_123",
+                 "responder:retention:discard:session:g1",
+                 "op_plan"
+               )
+
+      captured = request.()
+      assert captured.path == "/v1/sessions/remote_123/discard"
+      assert captured.headers["idempotency-key"] == "responder:retention:discard:session:g1"
+      assert Jason.decode!(captured.body) == %{"plan_operation_id" => "op_plan"}
+    end)
+
+    assert {:ok, client} =
+             Client.new(
+               finch: Responder.CoopFinch,
+               receive_timeout: 1_000,
+               socket: "/tmp/coop.sock"
+             )
+
+    assert Client.plan_discard(client, "bad/id", "key", 1, false, false) ==
+             {:error, {:invalid_coop_request, :resource_id}}
+  end
+
+  test "reads the exact bounded workspace changes for one session" do
+    changes = %{
+      "base_commit" => String.duplicate("a", 40),
+      "committed" => [%{"path" => "lib/responder.ex", "status" => "modified"}],
+      "conflicts" => [],
+      "fork_head" => String.duplicate("b", 40),
+      "fork_tree" => String.duplicate("c", 40),
+      "parent_head" => String.duplicate("d", 40),
+      "parent_divergence" => %{
+        "ahead" => 1,
+        "base_to_fork" => 1,
+        "base_to_parent" => 0,
+        "behind" => 0,
+        "diverged" => false
+      },
+      "patch" => Base.encode64("diff --git a/lib/responder.ex b/lib/responder.ex"),
+      "patch_bytes" => 52,
+      "patch_digest" => String.duplicate("e", 64),
+      "patch_has_more" => false,
+      "patch_next_offset" => 52,
+      "patch_offset" => 0,
+      "staged" => [],
+      "truncated" => false,
+      "unstaged" => [],
+      "untracked" => []
+    }
+
+    with_unix_server(changes, fn client, request ->
+      assert {:ok, ^changes} = Client.get_changes(client, "remote_123")
+      assert request.().path == "/v1/sessions/remote_123/changes"
+    end)
+  end
+
+  test "reads one explicit workspace patch page without relying on Coop defaults" do
+    changes = %{
+      "committed" => [],
+      "conflicts" => [],
+      "patch" => Base.encode64("next page"),
+      "patch_bytes" => 4_800,
+      "patch_digest" => String.duplicate("e", 64),
+      "patch_has_more" => false,
+      "patch_next_offset" => 4_800,
+      "patch_offset" => 2_400,
+      "staged" => [],
+      "unstaged" => [],
+      "untracked" => []
+    }
+
+    with_unix_server(changes, fn client, request ->
+      assert {:ok, ^changes} = Client.get_changes_page(client, "remote_123", 2_400, 2_400)
+
+      uri = URI.parse(request.().path)
+      assert uri.path == "/v1/sessions/remote_123/changes"
+      assert URI.decode_query(uri.query) == %{"patch_limit" => "2400", "patch_offset" => "2400"}
+    end)
+  end
+
+  test "runs an exact idempotent workspace review" do
+    response = %{
+      "operation" => %{
+        "id" => "op_review",
+        "method" => "RunReview",
+        "resource_id" => "remote_123",
+        "resource_type" => "review",
+        "state" => "succeeded"
+      },
+      "review" => %{
+        "candidate_tree" => String.duplicate("c", 40),
+        "operation_id" => "op_review",
+        "patch_artifact_id" => "op_review",
+        "patch_bytes" => 12,
+        "patch_digest" => String.duplicate("d", 64),
+        "publishable" => true,
+        "session_id" => "remote_123"
+      }
+    }
+
+    with_unix_server(response, fn client, request ->
+      assert {:ok, ^response} =
+               Client.run_review(client, "remote_123", "responder:review:123", 9)
+
+      captured = request.()
+      assert captured.method == "POST"
+      assert captured.path == "/v1/sessions/remote_123/review"
+      assert captured.headers["idempotency-key"] == "responder:review:123"
+      assert Jason.decode!(captured.body) == %{"expected_revision" => 9}
+    end)
+  end
+
+  test "streams and verifies the complete reviewed patch artifact" do
+    patch = "diff --git a/lib/a.ex b/lib/a.ex\n+reviewed\n"
+    digest = :crypto.hash(:sha256, patch) |> Base.encode16(case: :lower)
+
+    with_unix_binary_server(
+      patch,
+      [
+        {"content-type", "text/x-diff; charset=utf-8"},
+        {"etag", ~s("#{digest}")},
+        {"content-length", Integer.to_string(byte_size(patch))}
+      ],
+      fn client, request ->
+        assert {:ok, ^patch} =
+                 Client.get_review_patch(client, "op_review", digest, byte_size(patch))
+
+        assert request.().path == "/v1/operations/op_review/review-patch"
+      end
+    )
+  end
+
+  test "streams one exact bounded output artifact from its owning turn" do
+    data = <<137, 80, 78, 71, 13, 10, 26, 10, "verified-chart">>
+    digest = :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
+
+    with_unix_binary_server(
+      data,
+      [
+        {"content-type", "image/png"},
+        {"etag", ~s("#{digest}")},
+        {"content-length", Integer.to_string(byte_size(data))}
+      ],
+      fn client, request ->
+        assert {:ok, artifact} =
+                 Client.get_output_artifact(
+                   client,
+                   "remote_123",
+                   "turn_123",
+                   "artifact_123"
+                 )
+
+        assert artifact == %{
+                 "bytes" => byte_size(data),
+                 "data" => data,
+                 "id" => "artifact_123",
+                 "media_type" => "image/png",
+                 "sha256" => digest
+               }
+
+        assert request.().path ==
+                 "/v1/sessions/remote_123/turns/turn_123/artifacts/artifact_123"
+      end
+    )
   end
 
   test "reads an existing operation by its exact key" do
@@ -318,6 +699,163 @@ defmodule Responder.Coop.ClientTest do
              )
   end
 
+  test "rejects every oversized or malformed local submission before transport" do
+    assert {:ok, client} =
+             Client.new(finch: __MODULE__, receive_timeout: 1_000, socket: "/tmp/not-used.sock")
+
+    schema = %{"type" => "object"}
+    digest = String.duplicate("a", 64)
+
+    assert Client.get_changes_page(client, "remote_123", -1, 1) ==
+             {:error, {:invalid_coop_request, :patch_offset}}
+
+    assert Client.get_changes_page(client, "remote_123", 0, 0) ==
+             {:error, {:invalid_coop_request, :patch_limit}}
+
+    assert Client.get_review_patch(client, "artifact_123", digest, 0) ==
+             {:error, {:invalid_coop_request, :patch_bytes}}
+
+    assert Client.submit_turn(client, "remote_123", "turn:key", 1, "", schema) ==
+             {:error, {:invalid_coop_request, :prompt}}
+
+    assert Client.submit_turn(
+             client,
+             "remote_123",
+             "turn:key",
+             1,
+             String.duplicate("p", 256 * 1_024 + 1),
+             schema
+           ) == {:error, {:invalid_coop_request, :prompt}}
+
+    assert Client.submit_turn(client, "remote_123", "turn:key", 1, "prompt", []) ==
+             {:error, {:invalid_coop_request, :schema}}
+
+    assert {:error, {:invalid_coop_request, :schema, _reason}} =
+             Client.submit_turn(
+               client,
+               "remote_123",
+               "turn:key",
+               1,
+               "prompt",
+               %{"invalid_utf8" => <<255>>}
+             )
+
+    assert Client.submit_turn_with_artifacts(
+             client,
+             "remote_123",
+             "turn:key",
+             1,
+             "prompt",
+             schema,
+             :not_a_list
+           ) == {:error, {:invalid_coop_request, :artifacts}}
+
+    assert Client.submit_turn_with_artifacts(
+             client,
+             "remote_123",
+             "turn:key",
+             1,
+             "prompt",
+             schema,
+             List.duplicate(%{}, 6)
+           ) == {:error, {:invalid_coop_request, :artifacts}}
+
+    assert Client.submit_turn_with_artifacts(
+             client,
+             "remote_123",
+             "turn:key",
+             1,
+             "prompt",
+             schema,
+             [%{"data" => "bytes"}]
+           ) == {:error, {:invalid_coop_request, :artifacts}}
+
+    assert Client.submit_turn_with_artifacts(
+             client,
+             "remote_123",
+             "turn:key",
+             1,
+             "prompt",
+             schema,
+             [input_artifact("wrong-digest", "payload")]
+           ) == {:error, {:invalid_coop_request, :artifacts}}
+
+    first = String.duplicate("a", 5 * 1_024 * 1_024)
+    second = String.duplicate("b", 4 * 1_024 * 1_024)
+
+    assert Client.submit_turn_with_artifacts(
+             client,
+             "remote_123",
+             "turn:key",
+             1,
+             "prompt",
+             schema,
+             [input_artifact(sha256(first), first), input_artifact(sha256(second), second)]
+           ) == {:error, {:invalid_coop_request, :artifacts}}
+
+    assert Client.validate_candidate(
+             client,
+             "remote_123",
+             "turn_123",
+             "validation:key",
+             digest,
+             :maybe
+           ) == {:error, {:invalid_coop_request, :verdict}}
+
+    assert Client.new(%{}) == {:error, {:invalid_coop_client, :fields}}
+
+    assert Client.new(finch: __MODULE__, finch: __MODULE__) ==
+             {:error, {:invalid_coop_client, :fields}}
+
+    assert Client.new(:invalid) == {:error, {:invalid_coop_client, :fields}}
+
+    assert Client.new(finch: "not-an-atom", receive_timeout: 1_000, socket: "/tmp/coop.sock") ==
+             {:error, {:invalid_coop_client, :finch}}
+
+    assert Client.new(finch: __MODULE__, receive_timeout: 99, socket: "/tmp/coop.sock") ==
+             {:error, {:invalid_coop_client, :receive_timeout}}
+  end
+
+  test "fails closed on malformed artifact and review-patch transport metadata" do
+    body = "verified bytes"
+    digest = sha256(body)
+
+    for headers <- [
+          [
+            {"content-type", "text/plain"},
+            {"etag", ~s("#{digest}")},
+            {"content-length", Integer.to_string(byte_size(body))}
+          ],
+          [
+            {"content-type", "image/png"},
+            {"etag", ~s("#{digest}")}
+          ],
+          [
+            {"content-type", "image/png"},
+            {"etag", "not-an-etag"},
+            {"content-length", Integer.to_string(byte_size(body))}
+          ]
+        ] do
+      with_unix_binary_server(body, headers, fn client, _request ->
+        assert Client.get_output_artifact(client, "remote_123", "turn_123", "artifact_123") ==
+                 {:error, {:coop_protocol_error, :output_artifact}}
+      end)
+    end
+
+    with_unix_binary_server(
+      body,
+      [
+        {"content-type", "text/x-diff"},
+        {"etag", ~s("#{digest}")},
+        {"content-length", Integer.to_string(byte_size(body))}
+      ],
+      fn client, _request ->
+        assert Client.get_review_patch(client, "op_review", digest, byte_size(body) - 1) ==
+                 {:error, {:coop_protocol_error, :review_patch}}
+      end
+    )
+  end
+
   test "normalizes semantic violations exactly as Coop counts them" do
     digest = String.duplicate("a", 64)
     rejected = %{"turn" => %{"id" => "turn_123", "state" => "running"}}
@@ -385,6 +923,54 @@ defmodule Responder.Coop.ClientTest do
     end
   end
 
+  defp with_unix_binary_server(body, headers, function) do
+    parent = self()
+    socket_path = "/tmp/responder-coop-#{System.unique_integer([:positive])}.sock"
+    File.rm(socket_path)
+
+    {:ok, listener} =
+      :gen_tcp.listen(0, [
+        :binary,
+        active: false,
+        ifaddr: {:local, socket_path}
+      ])
+
+    server =
+      spawn_link(fn ->
+        {:ok, socket} = :gen_tcp.accept(listener)
+        captured = receive_request(socket)
+
+        response_headers =
+          headers
+          |> Enum.map_join("", fn {name, value} -> "#{name}: #{value}\r\n" end)
+
+        :ok =
+          :gen_tcp.send(
+            socket,
+            "HTTP/1.1 200 OK\r\n#{response_headers}connection: close\r\n\r\n#{body}"
+          )
+
+        :gen_tcp.close(socket)
+        send(parent, {:captured_request, self(), captured})
+      end)
+
+    finch = String.to_atom("coop_finch_#{System.unique_integer([:positive])}")
+    start_supervised!({Finch, name: finch})
+    assert {:ok, client} = Client.new(finch: finch, receive_timeout: 2_000, socket: socket_path)
+
+    request = fn ->
+      assert_receive {:captured_request, ^server, captured}, 2_000
+      captured
+    end
+
+    try do
+      function.(client, request)
+    after
+      :gen_tcp.close(listener)
+      File.rm(socket_path)
+    end
+  end
+
   defp receive_request(socket) do
     {head, initial_body} = receive_head(socket, "")
     [request_line | header_lines] = String.split(head, "\r\n")
@@ -422,4 +1008,15 @@ defmodule Responder.Coop.ClientTest do
     {:ok, chunk} = :gen_tcp.recv(socket, expected - byte_size(data), 2_000)
     recv_exact(socket, expected, data <> chunk)
   end
+
+  defp input_artifact(digest, data) do
+    %{
+      "data" => data,
+      "media_type" => "image/png",
+      "name" => "input.png",
+      "sha256" => digest
+    }
+  end
+
+  defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

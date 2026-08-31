@@ -1,8 +1,11 @@
 defmodule Responder.Work.SubmissionBuilderTest do
   use Responder.DataCase, async: true
 
-  alias Responder.Episodes
+  alias Responder.{Artifacts, Episodes}
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.GitHub.SourceRef, as: GitHubSourceRef
+  alias Responder.Slack.SourceRef
+  alias Responder.State.{BehaviorChangeset, MemoryEntryChangeset, RecordChangeset, Records}
   alias Responder.Work.{Custody, DeliveryReceipt, Final, Result, Submission, SubmissionBuilder}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -16,11 +19,333 @@ defmodule Responder.Work.SubmissionBuilderTest do
     assert submission["context"]["inputs"]["omitted_count"] == 0
     assert [current] = submission["context"]["inputs"]["items"]
     assert current["content"] == %{"text" => initial}
+    assert current["source_ref"] == hd(claim.episode.active_input_refs)
     assert submission["output_schema"] == Final.json_schema()
     assert submission["contract_version"] == "work-final-v1"
     assert submission["prompt"] =~ "ORIGINAL_REQUEST_MARKER"
     refute submission["prompt"] =~ ~s("response_schema")
     refute submission["prompt"] =~ ~s("$schema")
+  end
+
+  test "a Slack briefing exposes an opaque exact message ref for source and action tools" do
+    id = Ecto.UUID.generate()
+
+    payload = %{
+      "actor" => %{"kind" => "user", "ref" => "U123"},
+      "content" => %{"text" => "Please acknowledge this."},
+      "destination" => %{
+        "conversation_ref" => "slack:T123:C456",
+        "thread_ref" => "1787832000.000100",
+        "transport" => "slack"
+      },
+      "event_kind" => "message",
+      "event_ref" => "Ev-source-ref",
+      "native_input_id" => "slack-message:source-ref",
+      "occurred_at" => DateTime.to_iso8601(@now),
+      "occurred_at_source" => "source",
+      "revision" => 1,
+      "source" => %{"kind" => "slack", "ref" => "T123"},
+      "source_capabilities" => %{"react" => %{"emoji_names" => nil}},
+      "source_item_ref" => "1787832001.000200"
+    }
+
+    claim =
+      claim_episode_payload!("slack-source-ref", payload,
+        episode_id: id,
+        destination: %{
+          conversation_ref: "slack:T123:C456",
+          thread_ref: "1787832000.000100",
+          transport: "slack"
+        }
+      )
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert [input] = submission["context"]["inputs"]["items"]
+
+    assert input["source_ref"] ==
+             SourceRef.message("T123", "C456", "1787832001.000200")
+  end
+
+  test "a GitHub briefing exposes an opaque exact comment ref for native emoji actions" do
+    id = Ecto.UUID.generate()
+
+    payload = %{
+      "actor" => %{"kind" => "user", "ref" => "github-user:42"},
+      "content" => %{"payload" => %{"comment" => %{"body" => "Looks good."}}},
+      "destination" => %{
+        "conversation_ref" => "github:github-main:repository:2001",
+        "thread_ref" => "github:github-main:pull:42",
+        "transport" => "github"
+      },
+      "source" => %{"kind" => "github", "ref" => "github-main"},
+      "source_capabilities" => %{
+        "react" => %{"emoji_names" => ~w(+1 -1 confused eyes heart hooray laugh rocket)}
+      },
+      "source_item_ref" => "github:issue_comment:9001"
+    }
+
+    claim =
+      claim_episode_payload!("github-source-ref", payload,
+        episode_id: id,
+        destination: %{
+          conversation_ref: "github:github-main:repository:2001",
+          thread_ref: "github:github-main:pull:42",
+          transport: "github"
+        }
+      )
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert [input] = submission["context"]["inputs"]["items"]
+
+    assert input["source_ref"] == GitHubSourceRef.item("github-main", "issue_comment", 9_001)
+    refute submission["context"]["offer_confirmation_supported"]
+
+    refute "propose_automation" in submission["context"]["responder_state_tools"]
+    refute "propose_memory" in submission["context"]["responder_state_tools"]
+    refute "request_task" in submission["context"]["responder_state_tools"]
+
+    assert "request_input" in submission["context"]["responder_state_tools"]
+    assert "record_feedback" in submission["context"]["responder_state_tools"]
+  end
+
+  test "the frozen briefing uses admission-pinned repository scope instead of event content" do
+    id = Ecto.UUID.generate()
+
+    command =
+      EpisodeFixtures.admit_input(%{
+        episode_id: id,
+        episode_key: "work-submission:trusted-repository:#{id}",
+        native_input_id: "source:trusted-repository:#{id}",
+        occurred_at: @now,
+        payload: %{
+          "source" => %{"kind" => "github"},
+          "content" => %{
+            "payload" => %{"repository" => %{"full_name" => "attacker/untrusted"}}
+          }
+        },
+        turn_ref: "turn:trusted-repository:#{id}"
+      })
+
+    assert {:ok, _transition} = Episodes.apply(command)
+
+    assert {:ok, _session} =
+             Custody.pin_episode(
+               command.episode_id,
+               "work-read-only",
+               String.duplicate("a", 64),
+               "owner/trusted"
+             )
+
+    assert {:ok, claim} = Custody.claim_next("worker:trusted-repository", 60)
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert submission["context"]["repository_ref"] == "owner/trusted"
+    assert submission["prompt"] =~ "host owns destination, identity, repository scope"
+  end
+
+  test "the briefing names the fixed state tools without exposing the session binding" do
+    claim = claim_episode!("state-tools", "Please prepare an engineering task.")
+
+    assert {:ok, record} =
+             Records.create(Records.token(claim.turn), "task-1", "task_offer", %{
+               "kind" => "engineering",
+               "prompt" => "Implement the requested change and run focused tests.",
+               "repository" => "responder",
+               "title" => "Implement requested change"
+             })
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+
+    assert submission["context"]["responder_state_tools"] ==
+             ~w(get_work_state cite_source request_input wait_for list_automations get_automation propose_automation request_task search_memory propose_memory record_feedback validate_final)
+
+    refute Map.has_key?(submission["context"], "state_tools")
+    refute submission["prompt"] =~ Records.token(claim.turn)
+
+    assert [model_record] = submission["context"]["records"]
+    assert model_record["ref"] == record.ref
+    assert model_record["kind"] == "task_offer"
+    assert model_record["payload"] == record.payload
+    assert submission["prompt"] =~ "validate_final"
+    assert submission["prompt"] =~ record.ref
+  end
+
+  test "the briefing names only state tools owned by the exact runtime and destination" do
+    claim = claim_episode!("state-tool-capabilities", "Check the current state safely.")
+
+    assert {:ok, unbound} =
+             SubmissionBuilder.build(claim, state_tool_capabilities: nil)
+
+    assert unbound["context"]["responder_state_tools"] == []
+
+    assert {:ok, schedule_only} =
+             SubmissionBuilder.build(claim, state_tool_capabilities: [:schedules])
+
+    names = schedule_only["context"]["responder_state_tools"]
+    refute "wait_for" in names
+    assert "propose_automation" in names
+    assert "validate_final" in names
+
+    assert {:ok, governed} =
+             SubmissionBuilder.build(claim,
+               state_tool_capabilities: [:emisar_approvals, :event_waits]
+             )
+
+    assert "record_emisar_approval" in governed["context"]["responder_state_tools"]
+  end
+
+  test "an observe-only Slack briefing omits confirmation tools it cannot execute" do
+    claim =
+      claim_episode_payload!("shadow-state-tools", %{"text" => "Assess this without acting."},
+        execution_mode: :shadow
+      )
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    names = submission["context"]["responder_state_tools"]
+
+    refute submission["context"]["offer_confirmation_supported"]
+    refute "propose_automation" in names
+    refute "propose_memory" in names
+    refute "request_task" in names
+    assert "cite_source" in names
+    assert "validate_final" in names
+  end
+
+  test "the frozen briefing names the exact connected platform capability tools" do
+    claim = claim_episode!("platform-tools", "Find the earlier deploy and summarize it here.")
+
+    assert {:ok, submission} =
+             SubmissionBuilder.build(claim,
+               platform_tools: [
+                 %{"name" => "list_slack_channels"},
+                 %{"name" => "search_slack"},
+                 %{"name" => "read_slack_source"},
+                 %{"name" => "set_slack_reaction"},
+                 %{"name" => "post_slack_message"}
+               ]
+             )
+
+    assert submission["context"]["source_and_action_tools"] == [
+             "list_slack_channels",
+             "search_slack",
+             "read_slack_source",
+             "set_slack_reaction",
+             "post_slack_message"
+           ]
+
+    assert submission["prompt"] =~ "source_and_action_tools"
+  end
+
+  test "confirmed preferences and advisory guidance enter the frozen turn context" do
+    claim = claim_episode!("operator-context", "Review the current Terraform plan.")
+
+    assert {:ok, preference_offer} =
+             Records.create(Records.token(claim.turn), "preference", "preference_offer", %{
+               "expires_in" => "90d",
+               "key" => "response_detail",
+               "repository" => nil,
+               "scope" => "operator",
+               "value" => "concise"
+             })
+
+    assert {:ok, guidance_offer} =
+             Records.create(Records.token(claim.turn), "guidance", "guidance_offer", %{
+               "expires_in" => "30d",
+               "repository" => nil,
+               "scope" => "conversation",
+               "subject" => "terraform-review",
+               "summary" => "Lead with availability risk and drift.",
+               "text" => "Explain availability and drift before resource counts.",
+               "visibility" => "conversation"
+             })
+
+    assert {:ok, memory_offer} =
+             Records.create(Records.token(claim.turn), "memory", "memory_offer", %{
+               "expires_in" => "90d",
+               "kind" => "repository_binding",
+               "repository" => nil,
+               "scope" => "conversation",
+               "subject" => "primary_repository",
+               "value" => "responder",
+               "visibility" => "conversation"
+             })
+
+    insert_behavior!(preference_offer, :preference, :operator, "slack:user:U1", "response_detail")
+    insert_behavior!(guidance_offer, :guidance, :conversation, "C-alerts", "terraform-review")
+    insert_memory!(memory_offer, claim.episode)
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+
+    assert submission["context"]["operator_context"]["preferences"]["response_detail"] == %{
+             "behavior_ref" => "behavior:preference",
+             "scope" => "operator",
+             "value" => "concise"
+           }
+
+    assert [guidance] = submission["context"]["operator_context"]["guidance"]
+    assert guidance["behavior_ref"] == "behavior:guidance"
+    assert guidance["text"] =~ "availability and drift"
+    assert [memory] = submission["context"]["operator_context"]["memory"]
+    assert memory["memory_ref"] == "memory:primary-repository"
+    assert memory["subject"] == "primary_repository"
+    assert memory["value"] == "responder"
+    assert memory["source"]["conversation_ref"] == "C-alerts"
+    assert submission["prompt"] =~ "Confirmed memory and guidance"
+    assert submission["prompt"] =~ "not evidence or authority"
+    assert submission["prompt"] =~ "potentially stale"
+  end
+
+  test "only attachments visible to this logical turn enter its frozen artifact manifest" do
+    assert {:ok, current_artifact} =
+             Artifacts.put(%{
+               data: "current diagnostic",
+               media_type: "text/plain",
+               name: "current.txt",
+               source_kind: "slack",
+               source_ref: "T123:F-current"
+             })
+
+    first =
+      claim_episode_payload!("artifact-snapshot", %{
+        "files" => [
+          %{
+            "artifact_ref" => current_artifact.ref,
+            "status" => "available"
+          }
+        ],
+        "text" => "Inspect the attached diagnostic."
+      })
+
+    assert {:ok, queued_artifact} =
+             Artifacts.put(%{
+               data: "future diagnostic",
+               media_type: "text/plain",
+               name: "future.txt",
+               source_kind: "slack",
+               source_ref: "T123:F-future"
+             })
+
+    assert {:ok, _queued} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 destination: destination(first),
+                 episode_id: first.episode.id,
+                 episode_key: first.episode.key,
+                 native_input_id: "source:artifact-snapshot:future",
+                 occurred_at: DateTime.add(@now, 1, :second),
+                 payload: %{
+                   "files" => [
+                     %{"artifact_ref" => queued_artifact.ref, "status" => "available"}
+                   ],
+                   "text" => "This belongs to the next turn."
+                 },
+                 turn_ref: "unused:artifact-snapshot"
+               })
+             )
+
+    reloaded = Responder.Repo.get!(Responder.Episodes.Episode, first.episode.id)
+    assert {:ok, submission} = SubmissionBuilder.build(%{first | episode: reloaded})
+    assert submission["input_artifact_refs"] == [current_artifact.ref]
+    refute submission["prompt"] =~ queued_artifact.ref
   end
 
   test "a continuation in the same Coop session sends a delta instead of the briefing again" do
@@ -92,6 +417,10 @@ defmodule Responder.Work.SubmissionBuilderTest do
     assert delta["prompt"] =~ "NEW_INPUT_MARKER"
     refute delta["prompt"] =~ String.duplicate("a", 500)
     assert delta["context"]["continuity"]["first_input"]["content"]["truncated"]
+
+    assert delta["context"]["continuity"]["first_input"]["source_ref"] ==
+             first_submission["context"]["inputs"]["items"] |> hd() |> Map.fetch!("source_ref")
+
     assert byte_size(delta["prompt"]) < byte_size(first_submission["prompt"])
 
     assert {:ok, rotated} =
@@ -274,17 +603,24 @@ defmodule Responder.Work.SubmissionBuilderTest do
   end
 
   defp claim_episode!(suffix, text) do
+    claim_episode_payload!(suffix, %{"text" => text})
+  end
+
+  defp claim_episode_payload!(suffix, payload, overrides \\ []) do
     id = Ecto.UUID.generate()
 
     command =
-      EpisodeFixtures.admit_input(%{
-        episode_id: id,
-        episode_key: "work-submission:#{suffix}:#{id}",
-        native_input_id: "source:#{suffix}:#{id}",
-        occurred_at: @now,
-        payload: %{"text" => text},
-        turn_ref: "turn:#{suffix}:#{id}"
-      })
+      EpisodeFixtures.admit_input(
+        %{
+          episode_id: id,
+          episode_key: "work-submission:#{suffix}:#{id}",
+          native_input_id: "source:#{suffix}:#{id}",
+          occurred_at: @now,
+          payload: payload,
+          turn_ref: "turn:#{suffix}:#{id}"
+        }
+        |> Map.merge(Map.new(overrides))
+      )
 
     assert {:ok, _transition} = Episodes.apply(command)
 
@@ -293,6 +629,88 @@ defmodule Responder.Work.SubmissionBuilderTest do
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     claim
+  end
+
+  defp insert_behavior!(offer, kind, scope_kind, scope_ref, identity_key) do
+    confirmed_at = @now
+
+    assert {:ok, _confirmed} =
+             offer
+             |> RecordChangeset.confirm_resource(%{
+               confirmed_at: confirmed_at,
+               confirmed_by_actor_ref: "slack:user:U1",
+               confirmation_ref: "interaction:#{identity_key}",
+               status: :confirmed
+             })
+             |> Repo.update()
+
+    payload = offer.payload
+    ref = "behavior:#{if(kind == :preference, do: "preference", else: "guidance")}"
+
+    assert {:ok, _behavior} =
+             %{
+               confirmed_at: confirmed_at,
+               confirmed_by_actor_ref: "slack:user:U1",
+               confirmation_ref: "interaction:#{identity_key}",
+               expires_at: DateTime.add(confirmed_at, 30, :day),
+               id: Ecto.UUID.generate(),
+               identity_key: identity_key,
+               kind: kind,
+               offer_record_id: offer.id,
+               payload: payload,
+               ref: ref,
+               scope_kind: scope_kind,
+               scope_ref: scope_ref,
+               source_conversation_ref: "C-alerts",
+               source_message_ref: "1787832001.000200",
+               source_thread_ref: "1787832000.000100",
+               source_transport: "slack",
+               status: :active,
+               workspace_ref: "C-alerts"
+             }
+             |> BehaviorChangeset.insert()
+             |> Repo.insert()
+  end
+
+  defp insert_memory!(offer, episode) do
+    confirmed_at = @now
+    payload = offer.payload
+
+    assert {:ok, _confirmed} =
+             offer
+             |> RecordChangeset.confirm_resource(%{
+               confirmed_at: confirmed_at,
+               confirmed_by_actor_ref: "slack:user:U1",
+               confirmation_ref: "interaction:memory",
+               status: :confirmed
+             })
+             |> Repo.update()
+
+    assert {:ok, _memory} =
+             %{
+               confirmation_ref: "interaction:memory",
+               confirmed_at: confirmed_at,
+               confirmed_by_actor_ref: "slack:user:U1",
+               expires_at: DateTime.add(confirmed_at, 90, :day),
+               id: Ecto.UUID.generate(),
+               kind: :repository_binding,
+               offer_record_id: offer.id,
+               payload: payload,
+               payload_fingerprint: Responder.CanonicalJSON.digest(payload),
+               ref: "memory:primary-repository",
+               scope_kind: :conversation,
+               scope_ref: episode.destination_conversation_ref,
+               source_conversation_ref: episode.destination_conversation_ref,
+               source_message_ref: "1787832001.000200",
+               source_thread_ref: episode.destination_thread_ref,
+               source_transport: episode.destination_transport,
+               status: :active,
+               subject: payload["subject"],
+               visibility: :conversation,
+               workspace_ref: episode.destination_conversation_ref
+             }
+             |> MemoryEntryChangeset.insert()
+             |> Repo.insert()
   end
 
   defp bind_remote_turn!(claim, submission) do

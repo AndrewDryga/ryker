@@ -29,6 +29,175 @@ defmodule Responder.Work.ValidatorTest do
     assert accepted.result.delivery_document == Final.document(accepted.final)
   end
 
+  test "Slack typed entities are repaired in the same turn unless host authority permits them" do
+    message = "Could [@Bruno](slack-user:U123) review this?"
+    candidate = candidate(empty_outcome(), message)
+
+    assert {:reject, violations} = Validator.validate(candidate, context(), @now)
+    assert Enum.any?(violations, &String.contains?(&1, "non-Slack reply"))
+
+    slack_mentions = %{
+      "broadcasts" => [],
+      "channels" => ["slack:T123:C456"],
+      "user_groups" => [],
+      "users" => ["slack-user:U123"],
+      "workspace_ref" => "T123"
+    }
+
+    assert {:accept, _accepted} =
+             Validator.validate(candidate, context(slack_mentions: slack_mentions), @now)
+
+    denied = candidate(empty_outcome(), "Notify [@channel](slack-broadcast:channel).")
+
+    assert {:reject, denied_violations} =
+             Validator.validate(denied, context(slack_mentions: slack_mentions), @now)
+
+    assert Enum.any?(denied_violations, &String.contains?(&1, "not authorized"))
+  end
+
+  test "shadow accepts read-only evidence but rejects every visible or effectful result" do
+    records = %{
+      "record:evidence:1" => record("evidence"),
+      "record:offer:1" => record("task_offer")
+    }
+
+    assert {:reject, violations} =
+             Validator.validate(
+               candidate(
+                 %{
+                   "artifact_refs" => [],
+                   "record_refs" => ["record:evidence:1", "record:offer:1"],
+                   "state" => "complete"
+                 },
+                 "I would investigate this alert."
+               ),
+               context(execution_mode: "shadow", records: records),
+               @now
+             )
+
+    assert Enum.any?(violations, &String.contains?(&1, "observe-only shadow"))
+    assert Enum.any?(violations, &String.contains?(&1, "record:offer:1"))
+
+    shadow_result =
+      Jason.encode!(%{
+        "decision_reason" => "Would record the current probe as supporting evidence.",
+        "delivery" => "none",
+        "message" => nil,
+        "outcome" => %{
+          "artifact_refs" => [],
+          "record_refs" => ["record:evidence:1"],
+          "state" => "complete"
+        }
+      })
+
+    assert {:accept, accepted} =
+             Validator.validate(
+               shadow_result,
+               context(execution_mode: "shadow", records: records),
+               @now
+             )
+
+    assert accepted.result.delivery == :none
+  end
+
+  test "engineering completion requires clean committed changes from this workspace" do
+    final = candidate(empty_outcome(), "The requested implementation is complete.")
+
+    assert {:reject, dirty_violations} =
+             Validator.validate(
+               final,
+               context(workspace: workspace_changes(staged: 1, committed: 0)),
+               @now
+             )
+
+    assert Enum.any?(dirty_violations, &String.contains?(&1, "uncommitted"))
+
+    assert {:reject, unchanged_violations} =
+             Validator.validate(
+               final,
+               context(workspace: workspace_changes(committed: 0)),
+               @now
+             )
+
+    assert Enum.any?(unchanged_violations, &String.contains?(&1, "no committed task changes"))
+
+    assert {:reject, existing_pr_violations} =
+             Validator.validate(
+               final,
+               context(
+                 workspace:
+                   workspace_changes(
+                     committed: 1,
+                     fork_tree: "tree-pr",
+                     pull_request_tree: "tree-pr"
+                   )
+               ),
+               @now
+             )
+
+    assert Enum.any?(existing_pr_violations, &String.contains?(&1, "existing pull request"))
+
+    assert {:accept, _accepted} =
+             Validator.validate(
+               final,
+               context(workspace: workspace_changes(committed: 1)),
+               @now
+             )
+  end
+
+  test "generated artifacts are refused when the bound platform cannot deliver bytes" do
+    candidate =
+      candidate(
+        %{
+          "artifact_refs" => ["artifact:chart:1"],
+          "record_refs" => [],
+          "state" => "complete"
+        },
+        "The chart is attached."
+      )
+
+    assert {:reject, [violation]} =
+             Validator.validate(
+               candidate,
+               context(artifacts: ["artifact:chart:1"], artifact_delivery_supported: false),
+               @now
+             )
+
+    assert violation =~ "bound destination"
+    assert violation =~ "artifact_refs"
+  end
+
+  test "a generated filename is repaired to its exact host-issued artifact reference" do
+    candidate =
+      candidate(
+        %{
+          "artifact_refs" => ["handoff-summary.png"],
+          "record_refs" => [],
+          "state" => "complete"
+        },
+        "The handoff chart is attached."
+      )
+
+    assert {:reject, [violation]} =
+             Validator.validate(
+               candidate,
+               context(
+                 artifact_metadata: [
+                   %{
+                     "id" => "artifact_6a93368352971a8d9c7aebf6",
+                     "name" => "handoff-summary.png"
+                   }
+                 ],
+                 artifacts: ["artifact_6a93368352971a8d9c7aebf6"]
+               ),
+               @now
+             )
+
+    assert violation =~ "handoff-summary.png"
+    assert violation =~ "artifact_6a93368352971a8d9c7aebf6"
+    assert violation =~ "Replace outcome.artifact_refs"
+  end
+
   test "one rejection returns every actionable reference and visibility violation" do
     document = %{
       "decision_reason" => "No visible response is needed.",
@@ -52,6 +221,53 @@ defmodule Responder.Work.ValidatorTest do
     assert Enum.any?(violations, &String.contains?(&1, "explicit human request"))
     assert Enum.any?(violations, &String.contains?(&1, "record:missing"))
     assert Enum.any?(violations, &String.contains?(&1, "artifact:missing"))
+  end
+
+  test "finalization waits for platform actions and one delivered reaction may fully answer socially" do
+    pending_ref = "platform-action:pending"
+
+    assert {:reject, [violation]} =
+             Validator.validate(
+               candidate(
+                 %{
+                   "artifact_refs" => [],
+                   "record_refs" => [pending_ref],
+                   "state" => "complete"
+                 },
+                 "I am still acknowledging this."
+               ),
+               context(records: %{pending_ref => platform_action("reaction", "pending")}),
+               @now
+             )
+
+    assert violation =~ "platform actions are unresolved"
+    assert violation =~ pending_ref
+
+    delivered_ref = "platform-action:delivered"
+
+    reaction_only =
+      Jason.encode!(%{
+        "decision_reason" => "The delivered reaction fully acknowledges this social message.",
+        "delivery" => "none",
+        "message" => nil,
+        "outcome" => %{
+          "artifact_refs" => [],
+          "record_refs" => [delivered_ref],
+          "state" => "complete"
+        }
+      })
+
+    assert {:accept, accepted} =
+             Validator.validate(
+               reaction_only,
+               context(
+                 records: %{delivered_ref => platform_action("reaction", "delivered")},
+                 visible_reply_required: true
+               ),
+               @now
+             )
+
+    assert accepted.result.delivery == :none
   end
 
   test "a waiting result must reference exactly one matching durable wait" do
@@ -96,6 +312,36 @@ defmodule Responder.Work.ValidatorTest do
     assert {:reject, [violation]} = Validator.validate(wrong_state, context, @now)
     assert violation =~ "waiting_for_event"
     assert violation =~ "event wait"
+  end
+
+  test "an Emisar approval record is the exact event wait for a pending approval" do
+    continuation = %{
+      "deadline_at" => "2099-08-29T12:00:00.000000Z",
+      "kind" => "wait",
+      "wait_kind" => "event",
+      "wait_ref" => "record:emisar:approval:1"
+    }
+
+    candidate =
+      candidate(
+        %{
+          "artifact_refs" => [],
+          "record_refs" => ["record:emisar:approval:1"],
+          "state" => "waiting_for_event"
+        },
+        "Approval is required in Emisar. GitHub and Slack cannot approve this action."
+      )
+
+    context =
+      context(
+        records: %{
+          "record:emisar:approval:1" => record("emisar_approval", continuation)
+        }
+      )
+
+    assert {:accept, accepted} = Validator.validate(candidate, context, @now)
+    assert accepted.result.continuation == continuation
+    assert accepted.final.record_refs == ["record:emisar:approval:1"]
   end
 
   test "invalid JSON and an elapsed event wait receive self-contained correction text" do
@@ -174,7 +420,8 @@ defmodule Responder.Work.ValidatorTest do
     cases = [
       {nil, :type},
       {%{}, :fields},
-      {Map.put(context(), "visible_reply_required", "yes"), :visible_reply_required},
+      {Map.put(context(), "visible_reply_required", "yes"), :boolean},
+      {Map.put(context(), "artifact_delivery_supported", "yes"), :boolean},
       {Map.put(context(), "artifact_refs", "artifact:1"), :artifact_refs},
       {Map.put(context(), "artifact_refs", ["artifact:1", "artifact:1"]), :artifact_refs},
       {Map.put(context(), "records", []), :records},
@@ -232,11 +479,33 @@ defmodule Responder.Work.ValidatorTest do
     ]
 
     Enum.each(cases, fn {outcome, expected} ->
-      assert {:reject, [violation]} =
+      assert {:reject, violations} =
                Validator.validate(candidate(outcome, "Waiting."), context(records: records), @now)
 
-      assert violation =~ expected
+      assert Enum.any?(violations, &String.contains?(&1, expected))
     end)
+  end
+
+  test "a complete result cannot abandon an open durable wait" do
+    wait = %{
+      "deadline_at" => "2099-08-28T12:30:00.000000Z",
+      "kind" => "wait",
+      "wait_kind" => "event",
+      "wait_ref" => "wait:deployment:1"
+    }
+
+    complete = candidate(empty_outcome(), "The rollout is complete.")
+
+    assert {:reject, [violation]} =
+             Validator.validate(
+               complete,
+               context(records: %{"record:wait:1" => record("event_wait", wait)}),
+               @now
+             )
+
+    assert violation =~ "record:wait:1"
+    assert violation =~ "cannot be abandoned"
+    assert violation =~ "outcome.record_refs"
   end
 
   test "a deliberate no-delivery result is accepted with its audited reason" do
@@ -271,14 +540,50 @@ defmodule Responder.Work.ValidatorTest do
 
   defp context(overrides \\ []) do
     overrides = Map.new(overrides)
+    artifacts = Map.get(overrides, :artifacts, [])
 
     %{
-      "artifact_refs" => Map.get(overrides, :artifacts, []),
+      "artifact_delivery_supported" => Map.get(overrides, :artifact_delivery_supported, true),
+      "artifact_metadata" =>
+        Map.get(overrides, :artifact_metadata, Enum.map(artifacts, &%{"id" => &1, "name" => &1})),
+      "artifact_refs" => artifacts,
+      "execution_mode" => Map.get(overrides, :execution_mode, "live"),
+      "open_required_goals" => Map.get(overrides, :open_required_goals, []),
       "records" => Map.get(overrides, :records, %{}),
-      "visible_reply_required" => Map.get(overrides, :visible_reply_required, false)
+      "slack_mentions" => Map.get(overrides, :slack_mentions),
+      "visible_reply_required" => Map.get(overrides, :visible_reply_required, false),
+      "workspace" => Map.get(overrides, :workspace)
+    }
+  end
+
+  defp workspace_changes(overrides) do
+    overrides = Map.new(overrides)
+
+    %{
+      "base_commit" => "base",
+      "committed_count" => Map.get(overrides, :committed, 0),
+      "conflict_count" => Map.get(overrides, :conflicts, 0),
+      "fork_head" => "fork",
+      "fork_tree" => Map.get(overrides, :fork_tree, "tree-current"),
+      "goal_ids" => ["implement-feature"],
+      "pull_request_tree" => Map.get(overrides, :pull_request_tree),
+      "repository" => "responder",
+      "staged_count" => Map.get(overrides, :staged, 0),
+      "unstaged_count" => Map.get(overrides, :unstaged, 0),
+      "untracked_count" => Map.get(overrides, :untracked, 0)
     }
   end
 
   defp record(kind, continuation \\ nil),
     do: %{"continuation" => continuation, "kind" => kind}
+
+  defp platform_action(kind, status) do
+    %{
+      "action_kind" => kind,
+      "continuation" => nil,
+      "kind" => "platform_action",
+      "status" => status,
+      "tool" => "set_slack_reaction"
+    }
+  end
 end

@@ -5,9 +5,27 @@ defmodule Responder.Work.SessionChangeset do
 
   alias Responder.Work.Session
 
-  @spec insert(Ecto.UUID.t(), Ecto.UUID.t(), pos_integer(), String.t(), String.t(), String.t()) ::
+  @spec insert(
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          pos_integer(),
+          String.t(),
+          String.t(),
+          String.t() | nil,
+          String.t(),
+          map() | nil
+        ) ::
           Ecto.Changeset.t()
-  def insert(id, episode_id, generation, policy, policy_digest, external_ref) do
+  def insert(
+        id,
+        episode_id,
+        generation,
+        policy,
+        policy_digest,
+        repository_ref,
+        external_ref,
+        workspace_task \\ nil
+      ) do
     %Session{}
     |> cast(
       %{
@@ -17,7 +35,9 @@ defmodule Responder.Work.SessionChangeset do
         create_generation: 1,
         policy: policy,
         policy_digest: policy_digest,
-        external_ref: external_ref
+        repository_ref: repository_ref,
+        external_ref: external_ref,
+        workspace_task: workspace_task
       },
       [
         :id,
@@ -26,7 +46,9 @@ defmodule Responder.Work.SessionChangeset do
         :create_generation,
         :policy,
         :policy_digest,
-        :external_ref
+        :repository_ref,
+        :external_ref,
+        :workspace_task
       ]
     )
     |> validate_required([
@@ -40,10 +62,13 @@ defmodule Responder.Work.SessionChangeset do
     ])
     |> validate_length(:policy, min: 1, max: 1_024)
     |> validate_format(:policy_digest, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_length(:repository_ref, min: 1, max: 1_024)
     |> validate_length(:external_ref, min: 1, max: 1_024)
+    |> validate_workspace_task()
     |> unique_constraint([:episode_id, :generation])
     |> foreign_key_constraint(:episode_id)
     |> check_constraint(:policy, name: :episode_work_session_identity_valid)
+    |> check_constraint(:repository_ref, name: :episode_work_session_repository_valid)
   end
 
   @spec bind(Session.t(), String.t()) :: Ecto.Changeset.t()
@@ -55,11 +80,29 @@ defmodule Responder.Work.SessionChangeset do
     |> unique_constraint(:coop_session_id)
   end
 
+  @spec bind_workspace_task(Session.t(), map()) :: Ecto.Changeset.t()
+  def bind_workspace_task(%Session{} = session, workspace_task) do
+    session
+    |> cast(%{workspace_task: workspace_task}, [:workspace_task])
+    |> validate_required([:workspace_task])
+    |> validate_workspace_task()
+    |> check_constraint(:workspace_task, name: :episode_work_session_workspace_task_valid)
+  end
+
   @spec advance_create(Session.t(), pos_integer()) :: Ecto.Changeset.t()
   def advance_create(%Session{} = session, create_generation) do
     session
     |> cast(%{create_generation: create_generation}, [:create_generation])
     |> validate_required([:create_generation])
     |> check_constraint(:create_generation, name: :episode_work_session_identity_valid)
+  end
+
+  defp validate_workspace_task(changeset) do
+    validate_change(changeset, :workspace_task, fn :workspace_task, value ->
+      case Responder.CanonicalJSON.validate(value, max_bytes: 64 * 1_024) do
+        :ok -> []
+        {:error, _reason} -> [workspace_task: "is outside its canonical byte bound"]
+      end
+    end)
   end
 end

@@ -18,15 +18,23 @@ defmodule Responder.Work.Submission do
 
   @spec new(map(), String.t(), map(), String.t()) :: {:ok, t()} | {:error, term()}
   def new(context, prompt, output_schema, contract_version) do
+    new(context, prompt, output_schema, contract_version, [])
+  end
+
+  @spec new(map(), String.t(), map(), String.t(), [String.t()]) ::
+          {:ok, t()} | {:error, term()}
+  def new(context, prompt, output_schema, contract_version, input_artifact_refs) do
     submission = %{
       "contract_version" => contract_version,
       "context" => context,
+      "input_artifact_refs" => input_artifact_refs,
       "output_schema" => output_schema,
       "prompt" => prompt
     }
 
     with :ok <- text(contract_version, 128, :contract_version),
          :ok <- document(context, @context_bytes, :context),
+         :ok <- artifact_refs(input_artifact_refs),
          :ok <- text(prompt, @prompt_bytes, :prompt),
          :ok <- document(output_schema, @schema_bytes, :output_schema),
          :ok <- canonical(submission, @submission_bytes, :submission) do
@@ -39,13 +47,25 @@ defmodule Responder.Work.Submission do
         %{
           "contract_version" => contract_version,
           "context" => context,
+          "input_artifact_refs" => input_artifact_refs,
           "output_schema" => output_schema,
           "prompt" => prompt
         } = submission
       )
-      when map_size(submission) == 4 do
-    new(context, prompt, output_schema, contract_version)
+      when map_size(submission) == 5 do
+    new(context, prompt, output_schema, contract_version, input_artifact_refs)
   end
+
+  def prepare(
+        %{
+          "contract_version" => contract_version,
+          "context" => context,
+          "output_schema" => output_schema,
+          "prompt" => prompt
+        } = submission
+      )
+      when map_size(submission) == 4,
+      do: new(context, prompt, output_schema, contract_version)
 
   def prepare(_submission), do: {:error, {:invalid_work_submission, :fields}}
 
@@ -70,5 +90,18 @@ defmodule Responder.Work.Submission do
          :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
        do: :ok,
        else: {:error, {:invalid_work_submission, field}}
+  end
+
+  defp artifact_refs(refs) when is_list(refs) do
+    if length(refs) <= 5 and Enum.uniq(refs) == refs and Enum.all?(refs, &artifact_ref?/1),
+      do: :ok,
+      else: {:error, {:invalid_work_submission, :input_artifact_refs}}
+  end
+
+  defp artifact_refs(_refs), do: {:error, {:invalid_work_submission, :input_artifact_refs}}
+
+  defp artifact_ref?(value) do
+    is_binary(value) and byte_size(value) in 1..128 and
+      String.starts_with?(value, "artifact:input:")
   end
 end

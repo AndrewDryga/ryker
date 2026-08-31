@@ -126,6 +126,40 @@ defmodule Responder.Work.CancellationTest do
     assert replacement.session.id == work.session.id
   end
 
+  test "stop current run reconciles the remote turn but keeps the episode available for correction" do
+    work = bound_turn!("operator-stop")
+    stop_ref = "stop:#{work.turn.id}"
+
+    assert {:ok, requested} =
+             Custody.request_stop(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               stop_ref,
+               "The operator stopped the current run. Reply to continue the task."
+             )
+
+    assert requested.status == :pending
+    assert requested.turn.status == :cancel_pending
+    assert requested.turn.cancellation_intent["action"] == "block"
+
+    assert {:ok, claim} = Custody.claim_next("worker:operator-stop", 60)
+
+    assert {:ok, settled} =
+             Custody.settle_cancellation(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               claim.lease_ref,
+               terminal_receipt!(work, "closed")
+             )
+
+    assert settled.episode.state == :working
+    assert settled.episode.owner_ref == work.turn.turn_ref
+    assert settled.turn.status == :blocked
+    assert settled.turn.last_error_detail =~ "operator stopped"
+  end
+
   test "an exact pending transfer retry preserves the cancellation worker lease" do
     work = bound_turn!("pending-transfer-retry")
     new_turn_ref = "turn:replacement:#{work.turn.id}"
@@ -512,6 +546,43 @@ defmodule Responder.Work.CancellationTest do
     assert resumed_again.queued_input_refs == []
   end
 
+  test "an operator can retry one remotely settled blocked owner without changing its episode" do
+    work = bound_turn!("operator-retry-blocked")
+
+    assert {:ok, _requested} =
+             Custody.request_block(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               work.lease_ref,
+               "The executor needs operator recovery."
+             )
+
+    assert {:ok, stop_claim} = Custody.claim_next("worker:operator-stop", 60, :work)
+
+    assert {:ok, blocked} =
+             Custody.settle_cancellation(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               stop_claim.lease_ref,
+               terminal_receipt!(work, "closed")
+             )
+
+    assert blocked.turn.status == :blocked
+
+    assert {:ok, resumed} = Custody.retry_blocked(work.episode.key)
+    assert resumed.id == work.episode.id
+    assert resumed.owner_ref =~ "turn:resume-blocked:#{work.turn.id}:v"
+
+    assert {:ok, replacement} = Custody.claim_next("worker:operator-retry", 60, :work)
+    assert replacement.episode.id == work.episode.id
+    assert replacement.turn.turn_ref == resumed.owner_ref
+    assert replacement.session.generation == work.session.generation + 1
+
+    assert {:error, :work_not_blocked} = Custody.retry_blocked(work.episode.key)
+  end
+
   test "cancellation and close retries retain their first exact session revision" do
     work = bound_turn!("frozen-cancellation-revisions")
 
@@ -569,6 +640,97 @@ defmodule Responder.Work.CancellationTest do
              )
 
     assert retried_close.close_expected_revision == 4
+  end
+
+  test "a destination pause blocks an unclaimed turn and only its exact resume rearms work" do
+    id = Ecto.UUID.generate()
+    pause_ref = "slack-incident-room:archived:CINCIDENT"
+
+    command =
+      EpisodeFixtures.admit_input(%{
+        episode_id: id,
+        episode_key: "work-destination-pause:#{id}",
+        native_input_id: "source:destination-pause:#{id}",
+        occurred_at: @now,
+        turn_ref: "turn:destination-pause:#{id}"
+      })
+
+    assert {:ok, transition} = Episodes.apply(command)
+    assert {:ok, session} = Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+
+    assert {:ok, paused} =
+             Custody.pause_destination(
+               id,
+               transition.episode.key,
+               pause_ref
+             )
+
+    assert paused.status == :settled
+    assert paused.episode.owner_ref == command.turn_ref
+    assert paused.turn.session_id == session.id
+    assert paused.turn.status == :blocked
+    assert paused.turn.coop_turn_id == nil
+    assert paused.turn.cancellation_receipt == nil
+    assert paused.turn.cancellation_intent["reason"] == "destination_paused:#{pause_ref}"
+    assert Custody.claim_next("worker:paused-destination", 60, :work) == {:ok, nil}
+
+    assert {:ok, unrelated} =
+             Custody.resume_destination(
+               id,
+               transition.episode.key,
+               "slack-incident-room:archived:OTHER"
+             )
+
+    assert unrelated.status == :settled
+    assert unrelated.episode.owner_ref == command.turn_ref
+    assert Custody.claim_next("worker:still-paused-destination", 60, :work) == {:ok, nil}
+
+    assert {:ok, resumed} =
+             Custody.resume_destination(id, transition.episode.key, pause_ref)
+
+    assert resumed.status == :settled
+    assert resumed.episode.owner_ref != command.turn_ref
+    assert resumed.episode.owner_ref =~ "turn:resume-destination:"
+
+    assert {:ok, claim} = Custody.claim_next("worker:resumed-destination", 60, :work)
+    assert claim.turn.turn_ref == resumed.episode.owner_ref
+    assert claim.session.id == session.id
+  end
+
+  test "a destination pause revokes a bound turn and resumes after remote stop proof" do
+    work = bound_turn!("destination-pause-bound")
+    pause_ref = "slack-incident-room:archived:CBOUND"
+
+    assert {:ok, requested} =
+             Custody.pause_destination(work.episode.id, work.episode.key, pause_ref)
+
+    assert requested.status == :pending
+    assert requested.turn.status == :cancel_pending
+    assert requested.turn.lease_ref == nil
+    assert requested.turn.cancellation_intent["reason"] == "destination_paused:#{pause_ref}"
+
+    assert {:ok, cleanup} = Custody.claim_next("worker:pause-destination-cleanup", 60, :work)
+
+    assert {:ok, blocked} =
+             Custody.settle_cancellation(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               cleanup.lease_ref,
+               terminal_receipt!(work, "closed")
+             )
+
+    assert blocked.turn.status == :blocked
+    assert blocked.episode.owner_ref == work.turn.turn_ref
+
+    assert {:ok, resumed} =
+             Custody.resume_destination(work.episode.id, work.episode.key, pause_ref)
+
+    assert resumed.status == :settled
+    assert resumed.episode.owner_ref != work.turn.turn_ref
+    assert {:ok, replacement} = Custody.claim_next("worker:pause-destination-resumed", 60, :work)
+    assert replacement.turn.turn_ref == resumed.episode.owner_ref
+    assert replacement.session.generation == work.session.generation + 1
   end
 
   defp bound_turn!(suffix) do

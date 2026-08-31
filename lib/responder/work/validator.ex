@@ -8,10 +8,12 @@ defmodule Responder.Work.Validator do
   prose, infer cause, or impose alert-specific checklists.
   """
 
+  alias Responder.Slack.Mentions
   alias Responder.Work.{Final, Result}
 
-  @context_fields ~w(artifact_refs records visible_reply_required)
+  @context_fields ~w(artifact_delivery_supported artifact_metadata artifact_refs execution_mode open_required_goals records slack_mentions visible_reply_required workspace)
   @reference_regex ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
+  @shadow_record_kinds ~w(evidence coverage finding progress alert_assessment)
 
   @type accepted :: %{final: Final.t(), result: Result.t()}
   @type outcome :: {:accept, accepted()} | {:reject, [String.t()]} | {:error, term()}
@@ -67,23 +69,167 @@ defmodule Responder.Work.Validator do
 
   defp semantic_violations(final, context, now) do
     []
+    |> shadow_violations(final, context)
+    |> mention_violations(final, context)
     |> visibility_violations(final, context)
+    |> platform_action_violations(context)
     |> missing_record_violations(final, context)
     |> missing_artifact_violations(final, context)
+    |> artifact_delivery_violations(final, context)
+    |> abandoned_wait_violations(final, context)
     |> continuation_violations(final, context, now)
+    |> workspace_violations(final, context)
+    |> open_goal_violations(final, context)
     |> Enum.reverse()
   end
 
-  defp visibility_violations(violations, %{delivery: :none}, %{
-         visible_reply_required: true
-       }) do
+  defp shadow_violations(violations, final, %{execution_mode: :shadow, records: records}) do
+    unsafe_refs =
+      Enum.filter(final.record_refs, fn ref ->
+        case Map.get(records, ref) do
+          %{kind: kind} -> kind not in @shadow_record_kinds
+          _missing -> false
+        end
+      end)
+
+    violations =
+      if final.delivery == :none do
+        violations
+      else
+        [
+          "This is an observe-only shadow evaluation. Set delivery to none and summarize what would have happened in decision_reason; nothing may be posted or reacted."
+          | violations
+        ]
+      end
+
+    if unsafe_refs == [] do
+      violations
+    else
+      [
+        "Remove effectful or waiting records from this shadow result: #{Enum.join(unsafe_refs, ", ")}. Shadow may retain only evidence, coverage, findings, progress, and alert assessments."
+        | violations
+      ]
+    end
+  end
+
+  defp shadow_violations(violations, _final, _context), do: violations
+
+  defp mention_violations(violations, %{message: nil}, _context), do: violations
+
+  defp mention_violations(violations, %{message: message}, %{slack_mentions: authority}) do
+    Mentions.violations(message, authority) ++ violations
+  end
+
+  defp open_goal_violations(violations, %{state: :complete}, %{open_required_goals: goals})
+       when goals != [] do
+    summary =
+      goals
+      |> Enum.take(5)
+      |> Enum.map_join(", ", fn goal ->
+        "#{goal.id} (#{goal.requested_outcome}; #{goal.state})"
+      end)
+      |> String.byte_slice(0, 3_000)
+
     [
-      "Set delivery to reply and answer the user: an explicit human request cannot be silently discarded."
+      "Do not complete while required goals remain open: #{summary}. Continue the work, wait with a durable record, or call update_goal with completed, excluded, or cancelled for each goal before completing."
       | violations
     ]
   end
 
+  defp open_goal_violations(violations, _final, _context), do: violations
+
+  defp workspace_violations(violations, %{state: :complete}, %{workspace: workspace})
+       when is_map(workspace) do
+    violations
+    |> dirty_workspace_violations(workspace)
+    |> missing_engineering_change_violations(workspace)
+  end
+
+  defp workspace_violations(violations, _final, _context), do: violations
+
+  defp dirty_workspace_violations(violations, workspace) do
+    dirty =
+      ~w(staged_count unstaged_count untracked_count conflict_count)
+      |> Enum.map(&workspace[&1])
+      |> Enum.sum()
+
+    if dirty > 0 do
+      [
+        "Do not complete while the engineering workspace has #{dirty} uncommitted or conflicted path(s). Commit the intended task changes and return the corrected final in this same turn."
+        | violations
+      ]
+    else
+      violations
+    end
+  end
+
+  defp missing_engineering_change_violations(violations, %{
+         "fork_tree" => fork_tree,
+         "pull_request_tree" => pull_request_tree
+       })
+       when is_binary(pull_request_tree) do
+    if fork_tree == pull_request_tree do
+      [
+        "Do not complete: this workspace has no committed task changes beyond the admitted existing pull request. Continue the implementation in this same turn."
+        | violations
+      ]
+    else
+      violations
+    end
+  end
+
+  defp missing_engineering_change_violations(violations, %{"committed_count" => 0}) do
+    [
+      "Do not complete: this workspace has no committed task changes. Continue the implementation and commit the intended changes in this same turn."
+      | violations
+    ]
+  end
+
+  defp missing_engineering_change_violations(violations, _workspace), do: violations
+
+  defp visibility_violations(
+         violations,
+         %{delivery: :none} = final,
+         %{visible_reply_required: true} = context
+       ) do
+    if delivered_reaction_referenced?(final, context) do
+      violations
+    else
+      [
+        "Set delivery to reply and answer the user, or reference one delivered reaction that fully answers the social message: an explicit human request cannot be silently discarded."
+        | violations
+      ]
+    end
+  end
+
   defp visibility_violations(violations, _final, _context), do: violations
+
+  defp platform_action_violations(violations, %{records: records}) do
+    unresolved =
+      records
+      |> Enum.filter(fn {_ref, record} ->
+        record.kind == "platform_action" and record.status != :delivered
+      end)
+      |> Enum.map(fn {ref, record} -> "#{ref} (#{record.status})" end)
+
+    if unresolved == [] do
+      violations
+    else
+      [
+        "Do not complete while platform actions are unresolved: #{Enum.join(unresolved, ", ")}. Wait for delivery or use host recovery for a blocked action."
+        | violations
+      ]
+    end
+  end
+
+  defp delivered_reaction_referenced?(final, context) do
+    Enum.any?(final.record_refs, fn ref ->
+      case context.records[ref] do
+        %{action_kind: :reaction, kind: "platform_action", status: :delivered} -> true
+        _other -> false
+      end
+    end)
+  end
 
   defp missing_record_violations(violations, final, context) do
     Enum.reduce(final.record_refs, violations, fn ref, accumulated ->
@@ -103,12 +249,64 @@ defmodule Responder.Work.Validator do
       if MapSet.member?(context.artifact_refs, ref) do
         accumulated
       else
-        [
-          "Remove outcome.artifact_refs entry #{inspect(ref)} or create that artifact first; no deliverable artifact with that host-issued reference exists in this episode."
-          | accumulated
-        ]
+        [missing_artifact_violation(ref, context.artifact_metadata) | accumulated]
       end
     end)
+  end
+
+  defp missing_artifact_violation(ref, metadata) do
+    case Enum.filter(metadata, &(&1.name == ref)) do
+      [%{id: id}] ->
+        "Replace outcome.artifact_refs entry #{inspect(ref)} with the host-issued reference #{inspect(id)}; the generated file exists under that exact reference."
+
+      _missing_or_ambiguous ->
+        "Remove outcome.artifact_refs entry #{inspect(ref)} or create that artifact first; no deliverable artifact with that host-issued reference exists in this episode."
+    end
+  end
+
+  defp artifact_delivery_violations(
+         violations,
+         %{artifact_refs: [_first | _rest]},
+         %{artifact_delivery_supported: false}
+       ) do
+    [
+      "Remove outcome.artifact_refs from this response: the bound destination cannot deliver generated artifact bytes. Describe the result in the message instead."
+      | violations
+    ]
+  end
+
+  defp artifact_delivery_violations(violations, _final, _context), do: violations
+
+  defp abandoned_wait_violations(violations, final, context) do
+    referenced = MapSet.new(final.record_refs)
+
+    abandoned =
+      context.records
+      |> Enum.flat_map(fn
+        {ref, %{continuation: continuation}} when is_map(continuation) ->
+          if continuation_kind(continuation) && not MapSet.member?(referenced, ref),
+            do: [ref],
+            else: []
+
+        {_ref, _record} ->
+          []
+      end)
+      |> Enum.sort()
+
+    case abandoned do
+      [] ->
+        violations
+
+      refs ->
+        shown = refs |> Enum.take(5) |> Enum.map_join(", ", &inspect/1)
+        remaining = length(refs) - min(length(refs), 5)
+        suffix = if remaining > 0, do: ", and #{remaining} more", else: ""
+
+        [
+          "Open durable waits cannot be abandoned: #{shown}#{suffix}. Reference exactly one matching wait in outcome.record_refs and use its waiting state, or resolve that wait before completing."
+          | violations
+        ]
+    end
   end
 
   defp continuation_violations(violations, final, context, now) do
@@ -138,7 +336,7 @@ defmodule Responder.Work.Validator do
 
       {:waiting_for_event, []} ->
         [
-          "outcome.state waiting_for_event requires exactly one referenced durable event wait created with wait_for; no event wait was referenced."
+          "outcome.state waiting_for_event requires exactly one referenced durable event wait created with wait_for or record_emisar_approval; no event wait was referenced."
           | violations
         ]
 
@@ -216,22 +414,39 @@ defmodule Responder.Work.Validator do
 
   defp prepare_context(%{} = context) do
     with :ok <- exact_context_fields(context),
+         true <- is_boolean(context["artifact_delivery_supported"]),
          true <- is_boolean(context["visible_reply_required"]),
+         {:ok, execution_mode} <- execution_mode(context["execution_mode"]),
          {:ok, artifacts} <- prepare_artifacts(context["artifact_refs"]),
-         {:ok, records} <- prepare_records(context["records"]) do
+         {:ok, artifact_metadata} <-
+           prepare_artifact_metadata(context["artifact_metadata"], artifacts),
+         {:ok, goals} <- prepare_open_goals(context["open_required_goals"]),
+         {:ok, records} <- prepare_records(context["records"]),
+         {:ok, _mentions} <- Mentions.prepare_authority(context["slack_mentions"]),
+         {:ok, workspace} <- prepare_workspace(context["workspace"]) do
       {:ok,
        %{
+         artifact_delivery_supported: context["artifact_delivery_supported"],
+         artifact_metadata: artifact_metadata,
          artifact_refs: artifacts,
+         execution_mode: execution_mode,
+         open_required_goals: goals,
          records: records,
-         visible_reply_required: context["visible_reply_required"]
+         slack_mentions: context["slack_mentions"],
+         visible_reply_required: context["visible_reply_required"],
+         workspace: workspace
        }}
     else
-      false -> {:error, {:invalid_work_validation_context, :visible_reply_required}}
+      false -> {:error, {:invalid_work_validation_context, :boolean}}
       {:error, _reason} = error -> error
     end
   end
 
   defp prepare_context(_context), do: {:error, {:invalid_work_validation_context, :type}}
+
+  defp execution_mode("live"), do: {:ok, :live}
+  defp execution_mode("shadow"), do: {:ok, :shadow}
+  defp execution_mode(_mode), do: {:error, {:invalid_work_validation_context, :execution_mode}}
 
   defp exact_context_fields(context) do
     if Map.keys(context) |> Enum.sort() == @context_fields,
@@ -247,6 +462,77 @@ defmodule Responder.Work.Validator do
 
   defp prepare_artifacts(_refs),
     do: {:error, {:invalid_work_validation_context, :artifact_refs}}
+
+  defp prepare_artifact_metadata(values, artifact_refs)
+       when is_list(values) and length(values) <= 5 do
+    prepared =
+      Enum.map(values, fn
+        %{"id" => id, "name" => name} = value when map_size(value) == 2 ->
+          if reference?(id) and bounded_artifact_name?(name), do: %{id: id, name: name}
+
+        _invalid ->
+          nil
+      end)
+
+    ids = Enum.map(prepared, &if(&1, do: &1.id))
+
+    if Enum.all?(prepared) and Enum.uniq(ids) == ids and MapSet.new(ids) == artifact_refs,
+      do: {:ok, prepared},
+      else: {:error, {:invalid_work_validation_context, :artifact_metadata}}
+  end
+
+  defp prepare_artifact_metadata(_values, _artifact_refs),
+    do: {:error, {:invalid_work_validation_context, :artifact_metadata}}
+
+  defp bounded_artifact_name?(value) when is_binary(value) do
+    String.valid?(value) and byte_size(value) in 1..255 and value not in [".", ".."] and
+      not String.contains?(value, ["/", "\\"]) and
+      not Enum.any?(String.to_charlist(value), &(&1 < 32 or &1 == 127))
+  end
+
+  defp bounded_artifact_name?(_value), do: false
+
+  defp prepare_open_goals(goals) when is_list(goals) and length(goals) <= 64 do
+    Enum.reduce_while(goals, {:ok, []}, fn goal, {:ok, prepared} ->
+      case prepare_open_goal(goal) do
+        {:ok, goal} -> {:cont, {:ok, [goal | prepared]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, prepared} ->
+        prepared = Enum.reverse(prepared)
+
+        if Enum.uniq_by(prepared, & &1.id) == prepared,
+          do: {:ok, prepared},
+          else: {:error, {:invalid_work_validation_context, :open_required_goals}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp prepare_open_goals(_goals),
+    do: {:error, {:invalid_work_validation_context, :open_required_goals}}
+
+  defp prepare_open_goal(
+         %{
+           "id" => id,
+           "requested_outcome" => requested_outcome,
+           "state" => state
+         } = goal
+       )
+       when map_size(goal) == 3 do
+    if reference?(id) and bounded_text?(requested_outcome, 500) and
+         state in ~w(ready working waiting blocked) do
+      {:ok, %{id: id, requested_outcome: requested_outcome, state: state}}
+    else
+      {:error, {:invalid_work_validation_context, :open_required_goals}}
+    end
+  end
+
+  defp prepare_open_goal(_goal),
+    do: {:error, {:invalid_work_validation_context, :open_required_goals}}
 
   defp prepare_records(records) when is_map(records) do
     Enum.reduce_while(records, {:ok, %{}}, fn {ref, record}, {:ok, prepared} ->
@@ -271,8 +557,45 @@ defmodule Responder.Work.Validator do
     end
   end
 
+  defp prepare_record(
+         ref,
+         %{
+           "action_kind" => action_kind,
+           "continuation" => nil,
+           "kind" => "platform_action",
+           "status" => status,
+           "tool" => tool
+         } = record
+       )
+       when map_size(record) == 5 do
+    with true <- reference?(ref),
+         {:ok, action_kind} <- platform_action_kind(action_kind),
+         {:ok, status} <- platform_action_status(status),
+         true <- tool in ~w(set_slack_reaction post_slack_message set_github_reaction) do
+      {:ok,
+       %{
+         action_kind: action_kind,
+         continuation: nil,
+         kind: "platform_action",
+         status: status,
+         tool: tool
+       }}
+    else
+      _invalid -> {:error, {:invalid_work_validation_context, :record}}
+    end
+  end
+
   defp prepare_record(_ref, _record),
     do: {:error, {:invalid_work_validation_context, :record}}
+
+  defp platform_action_kind("message"), do: {:ok, :message}
+  defp platform_action_kind("reaction"), do: {:ok, :reaction}
+  defp platform_action_kind(_kind), do: {:error, :kind}
+
+  defp platform_action_status("pending"), do: {:ok, :pending}
+  defp platform_action_status("blocked"), do: {:ok, :blocked}
+  defp platform_action_status("delivered"), do: {:ok, :delivered}
+  defp platform_action_status(_status), do: {:error, :status}
 
   defp prepare_record_continuation(nil), do: {:ok, nil}
 
@@ -285,6 +608,42 @@ defmodule Responder.Work.Validator do
 
   defp prepare_record_continuation(_continuation),
     do: {:error, {:invalid_work_validation_context, :continuation}}
+
+  defp prepare_workspace(nil), do: {:ok, nil}
+
+  defp prepare_workspace(%{} = workspace) do
+    fields =
+      ~w(base_commit committed_count conflict_count fork_head fork_tree goal_ids pull_request_tree repository staged_count unstaged_count untracked_count)
+
+    with true <- Map.keys(workspace) |> Enum.sort() == fields,
+         true <-
+           Enum.all?(~w(base_commit fork_head fork_tree), &bounded_text?(workspace[&1], 256)),
+         true <-
+           is_nil(workspace["pull_request_tree"]) or
+             bounded_text?(workspace["pull_request_tree"], 256),
+         true <- bounded_text?(workspace["repository"], 256),
+         true <- valid_goal_ids?(workspace["goal_ids"]),
+         true <- valid_workspace_counts?(workspace) do
+      {:ok, workspace}
+    else
+      false -> {:error, {:invalid_work_validation_context, :workspace}}
+    end
+  end
+
+  defp prepare_workspace(_workspace),
+    do: {:error, {:invalid_work_validation_context, :workspace}}
+
+  defp valid_goal_ids?(ids) when is_list(ids) and ids != [] and length(ids) <= 64,
+    do: Enum.uniq(ids) == ids and Enum.all?(ids, &reference?/1)
+
+  defp valid_goal_ids?(_ids), do: false
+
+  defp valid_workspace_counts?(workspace) do
+    Enum.all?(
+      ~w(committed_count conflict_count staged_count unstaged_count untracked_count),
+      &(is_integer(workspace[&1]) and workspace[&1] >= 0)
+    )
+  end
 
   defp continuation_kind(%{"kind" => "wait", "wait_kind" => "input"}), do: :input
   defp continuation_kind(%{"kind" => "wait", "wait_kind" => "event"}), do: :event
@@ -341,8 +700,13 @@ defmodule Responder.Work.Validator do
 
   defp final_violation(:waiting_state_requires_record),
     do:
-      "A waiting outcome must reference the durable request_input or wait_for record that will resume it."
+      "A waiting outcome must reference the durable request_input, wait_for, or record_emisar_approval record that will resume it."
 
   defp reference?(value),
     do: is_binary(value) and String.valid?(value) and Regex.match?(@reference_regex, value)
+
+  defp bounded_text?(value, maximum) do
+    is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
+      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
+  end
 end

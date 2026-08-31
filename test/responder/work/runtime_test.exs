@@ -10,6 +10,9 @@ defmodule Responder.Work.RuntimeTest do
         poll_interval_ms: 500,
         receive_timeout_ms: 2_000,
         socket: "/tmp/coop.sock",
+        state_tool_capabilities: [:schedules],
+        state_tools_endpoint: "https://responder.example/v1/state-tools/mcp",
+        state_tools_secret: "controller-state-tools-secret",
         worker_ref: "responder-work:vm-1"
       )
 
@@ -36,9 +39,33 @@ defmodule Responder.Work.RuntimeTest do
       assert dispatcher[:worker_ref] == "responder-work:vm-1:slot-#{index}"
       assert dispatcher[:lease_seconds] == 300
       refute Keyword.has_key?(dispatcher[:executor_options], :policy)
+      assert dispatcher[:executor_options][:api] == Responder.Coop.Client
       assert dispatcher[:executor_options][:client].socket == "/tmp/coop.sock"
       assert dispatcher[:executor_options][:client].receive_timeout == 2_000
+
+      assert dispatcher[:executor_options][:state_tools_endpoint] ==
+               "https://responder.example/v1/state-tools/mcp"
+
+      assert dispatcher[:executor_options][:state_tools_secret] == "controller-state-tools-secret"
+      assert dispatcher[:executor_options][:state_tool_capabilities] == [:schedules]
     end)
+  end
+
+  test "accepts the durable fleet API without retaining a direct Coop socket" do
+    client = %Responder.CoopFleet.Client{bridge: Responder.CoopFleet.Bridge, bridge_options: []}
+
+    settings =
+      Runtime.options!(
+        api: Responder.CoopFleet.Client,
+        client: client,
+        receive_timeout_ms: 2_000,
+        worker_ref: "responder-work:fleet"
+      )
+
+    assert settings.api == Responder.CoopFleet.Client
+    assert settings.client == client
+    assert settings.state_tool_capabilities == nil
+    refute Map.has_key?(settings, :socket)
   end
 
   test "refuses a blocking Coop call that can outlive lease renewal" do
@@ -59,6 +86,18 @@ defmodule Responder.Work.RuntimeTest do
       %{socket: "tcp://coop.example", worker_ref: "responder-work:vm-1"},
       %{concurrency: 0, socket: "/tmp/coop.sock", worker_ref: "responder-work:vm-1"},
       %{poll_interval_ms: 0, socket: "/tmp/coop.sock", worker_ref: "responder-work:vm-1"},
+      %{
+        socket: "/tmp/coop.sock",
+        state_tool_capabilities: [:invented],
+        state_tools_endpoint: "https://responder.example/v1/state-tools/mcp",
+        state_tools_secret: "controller-state-tools-secret",
+        worker_ref: "responder-work:vm-1"
+      },
+      %{
+        socket: "/tmp/coop.sock",
+        state_tools_endpoint: "https://responder.example/v1/state-tools/mcp",
+        worker_ref: "responder-work:vm-1"
+      },
       %{socket: "/tmp/coop.sock", surprise: true, worker_ref: "responder-work:vm-1"}
     ]
 

@@ -21,6 +21,7 @@ defmodule Responder.Work.ValidationIntentTest do
     assert intent["verdict"] == "reject"
     assert intent["violations"] == violations
     assert ValidationIntent.result(intent) == {:ok, nil}
+    assert ValidationIntent.prepare(intent) == {:ok, intent}
 
     assert ValidationIntent.new(
              {:reject, [String.duplicate("a", 3_000), String.duplicate("b", 3_000)]},
@@ -47,6 +48,11 @@ defmodule Responder.Work.ValidationIntentTest do
              {:error, {:invalid_work_validation_intent, :result}}
 
     assert ValidationIntent.new({:reject, ["Use a visible reply."]}, result) ==
+             {:error, {:invalid_work_validation_intent, :result}}
+
+    invalid_result = %Result{continuation: %{"kind" => "complete"}, delivery: :reply}
+
+    assert ValidationIntent.new(:accept, invalid_result) ==
              {:error, {:invalid_work_validation_intent, :result}}
   end
 

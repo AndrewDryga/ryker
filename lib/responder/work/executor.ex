@@ -8,14 +8,28 @@ defmodule Responder.Work.Executor do
   rather than spending another model turn.
   """
 
+  alias Responder.Artifacts
+  alias Responder.Artifacts.Outputs
+  alias Responder.Delivery.{PlatformActionCustody, Presentation}
+  alias Responder.Slack.Mentions
+  alias Responder.State.Records
+
   alias Responder.Work.{
     Cancellation,
     Custody,
+    FinalPreflight,
+    Measurement,
+    StateBinding,
     SubmissionBuilder,
+    ValidationIntent,
     Validator
   }
 
   @operation_waiting_states ~w(reserved running)
+  @companion_name_regex ~r/\A[a-z0-9][a-z0-9_-]{0,63}\z/
+  @default_state_tool_capabilities [:event_waits, :publication, :schedules]
+  @git_commit_regex ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
+  @state_tool_capabilities [:emisar_approvals, :event_waits, :publication, :schedules]
   @turn_waiting_states ~w(queued starting running)
   @terminal_turn_states ~w(cancelled completed failed interrupted budget_exhausted)
 
@@ -43,14 +57,85 @@ defmodule Responder.Work.Executor do
 
   defp execute_turn(claim, settings) do
     with {:ok, claim} <- ensure_session(claim, settings),
-         {:ok, claim} <- ensure_submission(claim),
+         :ok <- require_repository_read_only(claim, settings),
+         :ok <- require_project_isolation(claim, settings),
+         {:ok, claim} <- ensure_state_binding(claim, settings),
+         {:ok, claim} <- ensure_submission(claim, settings),
          {:ok, claim, remote_turn} <- ensure_turn(claim, settings) do
       await_turn(claim, remote_turn, settings, settings.max_polls)
     end
   end
 
-  defp ensure_submission(%{turn: %{submission: nil}} = claim) do
-    with {:ok, submission} <- SubmissionBuilder.build(claim),
+  defp require_project_isolation(_claim, %{require_project_isolation: false}), do: :ok
+
+  defp require_project_isolation(claim, %{require_project_isolation: true} = settings) do
+    with {:ok, remote_session} <-
+           api_call(settings, fn ->
+             settings.api.get_session(settings.client, claim.session.coop_session_id)
+           end),
+         :ok <-
+           exact_remote_session_state(
+             claim.session,
+             remote_session,
+             ~w(open exhausted closed discarded)
+           ) do
+      if remote_session["project_env"] == false and remote_session["project_mcp"] == false,
+        do: :ok,
+        else: {:error, {:coop_protocol_error, :session_project_authority}}
+    end
+  end
+
+  defp require_repository_read_only(_claim, %{require_repository_read_only: false}), do: :ok
+
+  defp require_repository_read_only(claim, %{require_repository_read_only: true} = settings) do
+    with {:ok, remote_session} <-
+           api_call(settings, fn ->
+             settings.api.get_session(settings.client, claim.session.coop_session_id)
+           end),
+         :ok <-
+           exact_remote_session_state(
+             claim.session,
+             remote_session,
+             ~w(open exhausted closed discarded)
+           ) do
+      if remote_session["repository_read_only"] == true,
+        do: :ok,
+        else: {:error, {:coop_protocol_error, :session_repository_write_authority}}
+    end
+  end
+
+  defp ensure_state_binding(claim, %{state_tools_endpoint: nil, state_tools_secret: nil}),
+    do: {:ok, claim}
+
+  defp ensure_state_binding(claim, settings) do
+    with {:ok, scope} <- StateBinding.current_scope(claim.session),
+         {:ok, binding} <-
+           StateBinding.derive(
+             claim.session,
+             claim.turn,
+             scope,
+             settings.state_tools_endpoint,
+             settings.state_tools_secret
+           ),
+         {:ok, turn} <-
+           Custody.bind_state_tools(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             binding.endpoint,
+             binding.token_sha256
+           ) do
+      {:ok, claim |> Map.put(:turn, turn) |> Map.put(:state_binding, binding)}
+    end
+  end
+
+  defp ensure_submission(%{turn: %{submission: nil}} = claim, settings) do
+    with {:ok, workspace} <- session_workspace(claim, settings),
+         submission_options <-
+           [state_tool_capabilities: settings.state_tool_capabilities, workspace: workspace]
+           |> maybe_submission_option(:platform_tools, settings.platform_tools),
+         {:ok, submission} <-
+           SubmissionBuilder.build(claim, submission_options),
          {:ok, turn} <-
            Custody.freeze_submission(
              claim.episode.id,
@@ -62,32 +147,173 @@ defmodule Responder.Work.Executor do
     end
   end
 
-  defp ensure_submission(%{turn: %{submission: submission}} = claim) when is_map(submission),
-    do: {:ok, claim}
+  defp ensure_submission(%{turn: %{submission: submission}} = claim, _settings)
+       when is_map(submission),
+       do: {:ok, claim}
 
-  defp ensure_submission(_claim), do: {:error, :work_submission_missing}
+  defp ensure_submission(_claim, _settings), do: {:error, :work_submission_missing}
 
-  defp ensure_session(%{session: %{coop_session_id: id}} = claim, settings)
-       when is_binary(id) do
+  defp maybe_submission_option(options, _key, nil), do: options
+  defp maybe_submission_option(options, key, value), do: Keyword.put(options, key, value)
+
+  defp session_workspace(claim, settings) do
     with {:ok, remote_session} <-
-           api_call(settings, fn -> settings.api.get_session(settings.client, id) end),
+           api_call(settings, fn ->
+             settings.api.get_session(settings.client, claim.session.coop_session_id)
+           end),
          :ok <-
            exact_remote_session_state(
              claim.session,
              remote_session,
              ~w(open exhausted closed discarded)
-           ) do
-      use_or_rotate_session(claim, remote_session, settings)
+           ),
+         {:ok, primary} <- primary_workspace(claim.session, remote_session),
+         {:ok, companions} <- companion_workspaces(Map.get(remote_session, "companions", [])),
+         :ok <- required_workspaces(companions, settings.workspace_requirements) do
+      {:ok, %{"companions" => companions, "primary" => primary}}
+    end
+  end
+
+  defp primary_workspace(session, %{
+         "base_commit" => base_commit,
+         "repository_read_only" => read_only
+       })
+       when is_boolean(read_only) do
+    name = session.repository_ref || "primary"
+
+    if reference?(name) and git_commit?(base_commit) do
+      {:ok,
+       %{
+         "base_commit" => base_commit,
+         "name" => name,
+         "path" => ".",
+         "read_only" => read_only
+       }}
+    else
+      {:error, {:coop_protocol_error, :session_workspace}}
+    end
+  end
+
+  defp primary_workspace(_session, _remote_session),
+    do: {:error, {:coop_protocol_error, :session_workspace}}
+
+  defp companion_workspaces(companions) when is_list(companions) and length(companions) <= 32 do
+    result =
+      Enum.reduce_while(companions, {:ok, []}, fn companion, {:ok, prepared} ->
+        case companion_workspace(companion) do
+          {:ok, value} -> {:cont, {:ok, [value | prepared]}}
+          {:error, _reason} = error -> {:halt, error}
+        end
+      end)
+
+    case result do
+      {:ok, prepared} ->
+        sorted = Enum.sort_by(prepared, & &1["name"])
+        names = Enum.map(sorted, & &1["name"])
+
+        if names == Enum.uniq(names),
+          do: {:ok, sorted},
+          else: {:error, {:coop_protocol_error, :session_workspace}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp companion_workspaces(_companions),
+    do: {:error, {:coop_protocol_error, :session_workspace}}
+
+  defp companion_workspace(
+         %{
+           "base_commit" => base_commit,
+           "name" => name,
+           "path" => path
+         } = companion
+       )
+       when map_size(companion) == 3 do
+    if is_binary(name) and Regex.match?(@companion_name_regex, name) and
+         path == "/coop/repositories/#{name}" and git_commit?(base_commit) do
+      {:ok,
+       %{
+         "base_commit" => base_commit,
+         "name" => name,
+         "path" => path,
+         "read_only" => true
+       }}
+    else
+      {:error, {:coop_protocol_error, :session_workspace}}
+    end
+  end
+
+  defp companion_workspace(_companion),
+    do: {:error, {:coop_protocol_error, :session_workspace}}
+
+  defp required_workspaces(_companions, []), do: :ok
+
+  defp required_workspaces(companions, requirements) do
+    available = Map.new(companions, &{&1["name"], &1["base_commit"]})
+
+    if Enum.all?(requirements, fn %{"base_commit" => base_commit, "name" => name} ->
+         Map.get(available, name) == base_commit
+       end),
+       do: :ok,
+       else: {:error, {:coop_protocol_error, :session_workspace}}
+  end
+
+  defp ensure_session(%{session: %{coop_session_id: id}} = claim, settings)
+       when is_binary(id) do
+    case api_call(settings, fn -> settings.api.get_session(settings.client, id) end) do
+      {:ok, remote_session} ->
+        with :ok <-
+               exact_remote_session_state(
+                 claim.session,
+                 remote_session,
+                 ~w(open exhausted closed discarded)
+               ) do
+          use_or_rotate_session(claim, remote_session, settings)
+        end
+
+      {:error, {:coop_session_replacement_required, _session_id, _generation}} ->
+        replace_lost_session(claim, settings)
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
   defp ensure_session(claim, settings) do
     key = create_key(claim.session)
 
-    case operation_by_key(settings, key) do
-      :not_found -> create_session(claim, key, settings)
-      {:ok, operation} -> bind_session_from_operation(claim, operation, key, settings)
-      {:error, _reason} = error -> error
+    result =
+      case operation_by_key(settings, key) do
+        :not_found -> create_session(claim, key, settings)
+        {:ok, operation} -> bind_session_from_operation(claim, operation, key, settings)
+        {:error, _reason} = error -> error
+      end
+
+    case result do
+      {:error, {:coop_session_replacement_required, _session_id, _generation}} ->
+        replace_lost_session(claim, settings)
+
+      other ->
+        other
+    end
+  end
+
+  defp replace_lost_session(claim, settings) do
+    with {:ok, rotated} <-
+           Custody.replace_session_after_placement_loss(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             claim.session.generation
+           ),
+         {:ok, rebound} <-
+           ensure_state_binding(
+             %{claim | session: rotated.session, turn: rotated.turn},
+             settings
+           ) do
+      ensure_session(rebound, settings)
     end
   end
 
@@ -105,8 +331,13 @@ defmodule Responder.Work.Executor do
              claim.turn.turn_ref,
              claim.lease_ref,
              claim.session.generation
+           ),
+         {:ok, rebound} <-
+           ensure_state_binding(
+             %{claim | session: rotated.session, turn: rotated.turn},
+             settings
            ) do
-      ensure_session(%{claim | session: rotated.session, turn: rotated.turn}, settings)
+      ensure_session(rebound, settings)
     end
   end
 
@@ -117,12 +348,7 @@ defmodule Responder.Work.Executor do
     task = claim.session.external_ref
 
     case mutation_call(settings, :create_session, key, fn ->
-           settings.api.create_session(
-             settings.client,
-             key,
-             claim.session.policy,
-             task
-           )
+           create_remote_session(settings, claim, key, task)
          end) do
       {:ok, %{"session" => remote_session}} when is_map(remote_session) ->
         case bind_session(claim, remote_session) do
@@ -224,7 +450,8 @@ defmodule Responder.Work.Executor do
   end
 
   defp submit_turn(claim, key, settings) do
-    with {:ok, remote_session} <-
+    with {:ok, artifacts} <- input_artifacts(claim),
+         {:ok, remote_session} <-
            api_call(settings, fn ->
              settings.api.get_session(settings.client, claim.session.coop_session_id)
            end),
@@ -232,14 +459,7 @@ defmodule Responder.Work.Executor do
          {:ok, revision} <- revision(remote_session),
          response <-
            mutation_call(settings, :submit_turn, key, revision, fn ->
-             settings.api.submit_turn(
-               settings.client,
-               claim.session.coop_session_id,
-               key,
-               revision,
-               claim.turn.submission["prompt"],
-               claim.turn.submission["output_schema"]
-             )
+             submit_frozen_turn(settings, claim, key, revision, artifacts)
            end) do
       handle_submit_response(response, claim, key, settings)
     end
@@ -311,7 +531,13 @@ defmodule Responder.Work.Executor do
 
   defp bind_turn(claim, %{"id" => remote_turn_id} = remote_turn)
        when is_binary(remote_turn_id) do
-    with :ok <- exact_remote_turn(remote_turn, claim.session.coop_session_id, nil),
+    with :ok <-
+           exact_remote_turn(
+             remote_turn,
+             claim.session.coop_session_id,
+             nil,
+             StateBinding.binding_digest(claim.turn)
+           ),
          {:ok, turn} <-
            Custody.bind_turn(
              claim.episode.id,
@@ -342,16 +568,18 @@ defmodule Responder.Work.Executor do
 
   defp await_turn(
          claim,
-         %{"state" => "awaiting_validation", "candidate" => candidate},
+         %{"state" => "awaiting_validation", "candidate" => candidate} = remote_turn,
          settings,
          left
        )
        when is_map(candidate) do
-    handle_candidate(claim, candidate, settings, left)
+    with {:ok, artifacts} <- output_artifact_metadata(remote_turn) do
+      handle_candidate(claim, candidate, artifacts, settings, left)
+    end
   end
 
-  defp await_turn(claim, %{"state" => "completed"} = remote_turn, _settings, _left) do
-    accept_completed(claim, remote_turn)
+  defp await_turn(claim, %{"state" => "completed"} = remote_turn, settings, _left) do
+    accept_completed(claim, remote_turn, settings)
   end
 
   defp await_turn(claim, %{"state" => state}, settings, left)
@@ -374,7 +602,7 @@ defmodule Responder.Work.Executor do
   defp await_turn(_claim, _turn, _settings, _left),
     do: {:error, {:coop_protocol_error, :turn_state}}
 
-  defp handle_candidate(claim, candidate, settings, left) do
+  defp handle_candidate(claim, candidate, artifacts, settings, left) do
     with {:ok, message, sha256, attempt} <- candidate_fields(candidate),
          {:ok, turn} <-
            Custody.stage_candidate(
@@ -388,7 +616,8 @@ defmodule Responder.Work.Executor do
              attempt
            ),
          claim = %{claim | turn: turn},
-         {:ok, claim} <- ensure_validation_intent(claim, message, sha256, attempt, settings),
+         {:ok, claim} <-
+           ensure_validation_intent(claim, message, sha256, attempt, artifacts, settings),
          {:ok, remote_turn} <- validate_candidate(claim, settings) do
       await_turn(claim, remote_turn, settings, left)
     end
@@ -399,16 +628,25 @@ defmodule Responder.Work.Executor do
          _message,
          _sha,
          _attempt,
+         _artifacts,
          _settings
        )
        when is_map(intent),
        do: {:ok, claim}
 
-  defp ensure_validation_intent(claim, message, sha256, attempt, settings) do
-    with {:ok, validation_context} <- validation_context(claim, settings) do
+  defp ensure_validation_intent(claim, message, sha256, attempt, artifacts, settings) do
+    with {:ok, validation_context} <- validation_context(claim, artifacts, settings) do
       case Validator.validate(message, validation_context, settings.now.()) do
-        {:accept, %{result: result}} ->
-          prepare_validation(claim, sha256, attempt, :accept, result)
+        {:accept, %{final: final, result: result}} ->
+          prepare_accepted_validation(
+            claim,
+            message,
+            sha256,
+            attempt,
+            artifacts,
+            final,
+            result
+          )
 
         {:reject, violations} ->
           prepare_validation(claim, sha256, attempt, {:reject, violations}, nil)
@@ -416,6 +654,74 @@ defmodule Responder.Work.Executor do
         {:error, _reason} = error ->
           error
       end
+    end
+  end
+
+  defp prepare_accepted_validation(claim, message, sha256, attempt, artifacts, final, result) do
+    case Presentation.validate(claim.episode, claim.turn.id, final) do
+      :ok ->
+        ensure_final_preflight(claim, message, sha256, attempt, artifacts, result)
+
+      {:error, {:invalid_delivery_presentation, reason}} ->
+        prepare_validation(
+          claim,
+          sha256,
+          attempt,
+          {:reject, [presentation_violation(reason)]},
+          nil
+        )
+    end
+  end
+
+  defp ensure_final_preflight(
+         %{turn: %{state_tools_endpoint: endpoint}} = claim,
+         message,
+         sha256,
+         attempt,
+         artifacts,
+         result
+       )
+       when is_binary(endpoint) do
+    with {:ok, candidate} <- decode_candidate(message),
+         candidate_sha256 = FinalPreflight.candidate_sha256(candidate),
+         {:ok, _turn} <-
+           Custody.verify_final_preflight(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             candidate_sha256,
+             Outputs.refs(artifacts)
+           ) do
+      prepare_validation(claim, sha256, attempt, :accept, result)
+    else
+      {:error, :work_final_preflight_required} ->
+        prepare_validation(
+          claim,
+          sha256,
+          attempt,
+          {:reject,
+           [
+             "Call validate_final with this exact candidate after completing all state-tool writes, then return the accepted candidate unchanged."
+           ]},
+          nil
+        )
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp ensure_final_preflight(claim, _message, sha256, attempt, _artifacts, result),
+    do: prepare_validation(claim, sha256, attempt, :accept, result)
+
+  defp presentation_violation(reason) do
+    "The final response cannot be rendered safely for this destination: #{inspect(reason, limit: 8, printable_limit: 256)}"
+  end
+
+  defp decode_candidate(message) do
+    case Jason.decode(message) do
+      {:ok, %{} = candidate} -> {:ok, candidate}
+      _invalid -> {:error, {:coop_protocol_error, :candidate}}
     end
   end
 
@@ -448,20 +754,14 @@ defmodule Responder.Work.Executor do
 
   defp mutate_validation(claim, key, verdict, settings) do
     case mutation_call(settings, :validate_candidate, key, fn ->
-           settings.api.validate_candidate(
-             settings.client,
-             claim.session.coop_session_id,
-             claim.turn.coop_turn_id,
-             key,
-             claim.turn.candidate_sha256,
-             verdict
-           )
+           validate_frozen_candidate(settings, claim, key, verdict)
          end) do
       {:ok, %{"turn" => remote_turn}} when is_map(remote_turn) ->
         case exact_remote_turn(
                remote_turn,
                claim.session.coop_session_id,
-               claim.turn.coop_turn_id
+               claim.turn.coop_turn_id,
+               StateBinding.binding_digest(claim.turn)
              ) do
           :ok -> {:ok, remote_turn}
           {:error, reason} -> reconcile_validation_response(claim, key, reason, settings)
@@ -613,9 +913,14 @@ defmodule Responder.Work.Executor do
   defp uncertain_validation_candidate(_candidate, _turn, _claim, reason),
     do: {:error, {:work_execution_blocked, reason}}
 
-  defp accept_completed(claim, remote_turn) do
+  defp accept_completed(claim, remote_turn, settings) do
     with {:ok, message, sha256, attempt, receipt} <- completed_fields(remote_turn),
          :ok <- completed_matches(claim.turn, message, sha256, attempt),
+         {:ok, remote_session} <- accepted_remote_session(claim, settings),
+         {:ok, artifacts} <- output_artifact_metadata(remote_turn),
+         {:ok, _stored} <- retain_selected_artifacts(claim, artifacts, settings),
+         {:ok, checkpoint} <- checkpoint_accepted_workspace(claim, remote_session, settings),
+         :ok <- ensure_checkpoint_publication_offer(claim, checkpoint),
          {:ok, accepted} <-
            Custody.accept_result(
              claim.episode.id,
@@ -624,7 +929,8 @@ defmodule Responder.Work.Executor do
              claim.lease_ref,
              sha256,
              claim.turn.candidate_attempt,
-             receipt
+             receipt,
+             Measurement.prepare(remote_turn, remote_session)
            ) do
       {:ok,
        %{
@@ -634,6 +940,97 @@ defmodule Responder.Work.Executor do
          status: :accepted,
          turn: accepted.turn
        }}
+    end
+  end
+
+  defp checkpoint_accepted_workspace(
+         %{session: %{workspace_task: task, repository_ref: repository_ref}} = claim,
+         remote_session,
+         settings
+       )
+       when is_map(task) and is_binary(repository_ref) do
+    checkpoint_accepted_workspace(
+      claim,
+      remote_session,
+      settings,
+      function_exported?(settings.api, :checkpoint_workspace, 4)
+    )
+  end
+
+  defp checkpoint_accepted_workspace(_claim, _remote_session, _settings), do: {:ok, nil}
+
+  defp checkpoint_accepted_workspace(claim, remote_session, settings, true) do
+    with {:ok, expected_revision} <- revision(remote_session),
+         {:ok, %{"transfer_id" => transfer_id}}
+         when is_binary(transfer_id) and transfer_id != "" <-
+           api_call(settings, fn ->
+             settings.api.checkpoint_workspace(
+               settings.client,
+               claim.session.coop_session_id,
+               checkpoint_key(claim.turn),
+               expected_revision
+             )
+           end) do
+      {:ok, %{"transfer_id" => transfer_id}}
+    else
+      {:ok, _invalid} -> {:error, {:coop_protocol_error, :workspace_checkpoint}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp checkpoint_accepted_workspace(_claim, _remote_session, _settings, false),
+    do: {:error, {:invalid_work_executor, :workspace_checkpoint_api}}
+
+  defp ensure_checkpoint_publication_offer(_claim, nil), do: :ok
+
+  defp ensure_checkpoint_publication_offer(
+         %{session: %{workspace_task: task}, turn: turn},
+         %{"transfer_id" => transfer_id}
+       )
+       when is_map(task) and is_binary(transfer_id) do
+    with {:ok, result} <- ValidationIntent.result(turn.validation_intent),
+         {:ok, body} <- publication_offer_body(result),
+         {:ok, _record} <-
+           Records.create(
+             Records.token(turn),
+             "host:publication:ready",
+             "publication_offer",
+             %{
+               "body" => body,
+               "title" => task["title"]
+             }
+           ) do
+      :ok
+    end
+  end
+
+  defp ensure_checkpoint_publication_offer(_claim, _checkpoint),
+    do: {:error, {:coop_protocol_error, :workspace_checkpoint}}
+
+  defp publication_offer_body(%{delivery_document: %{"message" => message}})
+       when is_binary(message) do
+    body = message |> String.trim() |> String.byte_slice(0, 8_000)
+
+    if body == "",
+      do: {:error, {:coop_protocol_error, :publication_offer}},
+      else: {:ok, body}
+  end
+
+  defp publication_offer_body(_result),
+    do: {:error, {:coop_protocol_error, :publication_offer}}
+
+  defp accepted_remote_session(claim, settings) do
+    with {:ok, remote_session} <-
+           api_call(settings, fn ->
+             settings.api.get_session(settings.client, claim.session.coop_session_id)
+           end),
+         :ok <-
+           exact_remote_session_state(
+             claim.session,
+             remote_session,
+             ~w(open exhausted closed discarded)
+           ) do
+      {:ok, remote_session}
     end
   end
 
@@ -656,7 +1053,8 @@ defmodule Responder.Work.Executor do
   defp execute_cancellation(claim, settings) do
     key = Cancellation.operation_key(claim.turn.id, claim.turn.cancel_generation)
 
-    with {:ok, claim} <- reconcile_cancellation_session(claim, settings),
+    with {:ok, claim} <- ensure_state_binding(claim, settings),
+         {:ok, claim} <- reconcile_cancellation_session(claim, settings),
          {:ok, claim, remote_turn} <- reconcile_cancellation_turn(claim, settings) do
       continue_cancellation(remote_turn, claim, key, settings)
     end
@@ -691,12 +1089,7 @@ defmodule Responder.Work.Executor do
   defp fence_cancellation_session_create(claim, key, settings) do
     response =
       mutation_call(settings, :create_session, key, fn ->
-        settings.api.fence_create_session(
-          settings.client,
-          key,
-          claim.session.policy,
-          claim.session.external_ref
-        )
+        fence_remote_session(settings, claim, key)
       end)
 
     case response do
@@ -795,16 +1188,11 @@ defmodule Responder.Work.Executor do
     revision = claim.turn.remote_operation_revision
 
     response =
-      mutation_call(settings, :submit_turn, key, revision, fn ->
-        settings.api.fence_submit_turn(
-          settings.client,
-          claim.session.coop_session_id,
-          key,
-          revision,
-          claim.turn.submission["prompt"],
-          claim.turn.submission["output_schema"]
-        )
-      end)
+      with {:ok, artifacts} <- input_artifacts(claim) do
+        mutation_call(settings, :submit_turn, key, revision, fn ->
+          fence_frozen_turn(settings, claim, key, revision, artifacts)
+        end)
+      end
 
     case response do
       {:ok, operation} when is_map(operation) ->
@@ -843,6 +1231,12 @@ defmodule Responder.Work.Executor do
 
   defp frozen_remote_operation?(turn, kind, key),
     do: turn.remote_operation_kind == kind and turn.remote_operation_key == key
+
+  defp input_artifacts(claim) do
+    claim.turn.submission
+    |> Map.get("input_artifact_refs", [])
+    |> Artifacts.coop_inputs()
+  end
 
   defp cancel_remote_turn(claim, key, remote_turn, settings) do
     case operation_by_key(settings, key) do
@@ -985,7 +1379,8 @@ defmodule Responder.Work.Executor do
            exact_remote_turn(
              remote_turn,
              claim.session.coop_session_id,
-             claim.turn.coop_turn_id
+             claim.turn.coop_turn_id,
+             StateBinding.binding_digest(claim.turn)
            ),
          {:ok, remote_session} <- fetch_cancellation_session(claim, settings) do
       finish_cancellation_session(
@@ -1316,6 +1711,69 @@ defmodule Responder.Work.Executor do
     api_call(settings, fn -> settings.api.operation_by_key(settings.client, key) end)
   end
 
+  defp create_remote_session(settings, claim, key, task) do
+    settings.api.create_session(settings.client, key, claim.session.policy, task)
+  end
+
+  defp fence_remote_session(settings, claim, key) do
+    settings.api.fence_create_session(
+      settings.client,
+      key,
+      claim.session.policy,
+      claim.session.external_ref
+    )
+  end
+
+  defp submit_frozen_turn(settings, claim, key, revision, artifacts) do
+    settings.api.submit_frozen_turn(
+      settings.client,
+      claim.session.coop_session_id,
+      key,
+      revision,
+      claim.turn.submission,
+      state_binding_document(claim),
+      artifacts
+    )
+  end
+
+  defp fence_frozen_turn(settings, claim, key, revision, artifacts) do
+    settings.api.fence_frozen_turn(
+      settings.client,
+      claim.session.coop_session_id,
+      key,
+      revision,
+      claim.turn.submission,
+      state_binding_document(claim),
+      artifacts
+    )
+  end
+
+  defp state_binding_document(%{state_binding: binding}), do: StateBinding.document(binding)
+  defp state_binding_document(_claim), do: nil
+
+  defp validate_frozen_candidate(settings, claim, key, verdict) do
+    if function_exported?(settings.api, :validate_frozen_candidate, 7) do
+      settings.api.validate_frozen_candidate(
+        settings.client,
+        claim.session.coop_session_id,
+        claim.turn.coop_turn_id,
+        key,
+        claim.turn.candidate_attempt,
+        claim.turn.candidate_sha256,
+        verdict
+      )
+    else
+      settings.api.validate_candidate(
+        settings.client,
+        claim.session.coop_session_id,
+        claim.turn.coop_turn_id,
+        key,
+        claim.turn.candidate_sha256,
+        verdict
+      )
+    end
+  end
+
   defp fetch_bound_turn(claim, settings),
     do: fetch_turn(claim, claim.turn.coop_turn_id, settings)
 
@@ -1324,7 +1782,13 @@ defmodule Responder.Work.Executor do
            api_call(settings, fn ->
              settings.api.get_turn(settings.client, claim.session.coop_session_id, turn_id)
            end),
-         :ok <- exact_remote_turn(remote_turn, claim.session.coop_session_id, turn_id) do
+         :ok <-
+           exact_remote_turn(
+             remote_turn,
+             claim.session.coop_session_id,
+             turn_id,
+             StateBinding.binding_digest(claim.turn)
+           ) do
       {:ok, remote_turn}
     end
   end
@@ -1426,12 +1890,30 @@ defmodule Responder.Work.Executor do
   defp ambiguous_mutation(phase, reason),
     do: {:error, {:coop_mutation_response_unresolved, phase, reason}}
 
-  defp validation_context(claim, settings) do
+  defp validation_context(claim, artifacts, settings) do
     case settings.validation_context.(claim) do
-      %{} = context -> {:ok, context}
-      {:ok, %{} = context} -> {:ok, context}
+      %{} = context -> complete_validation_context(context, claim, artifacts, settings)
+      {:ok, %{} = context} -> complete_validation_context(context, claim, artifacts, settings)
       {:error, _reason} = error -> error
       _invalid -> {:error, {:invalid_work_executor, :validation_context}}
+    end
+  end
+
+  defp complete_validation_context(context, claim, artifacts, settings) do
+    with {:ok, workspace} <- workspace_validation_context(claim, settings) do
+      {:ok,
+       context
+       |> Map.put("artifact_metadata", Enum.map(artifacts, &Map.take(&1, ~w(id name))))
+       |> Map.put("artifact_refs", Outputs.refs(artifacts))
+       |> Map.put("execution_mode", Atom.to_string(claim.episode.execution_mode))
+       |> Map.put_new(
+         "artifact_delivery_supported",
+         claim.episode.execution_mode == :live and
+           claim.episode.destination_transport == "slack"
+       )
+       |> Map.put_new("open_required_goals", Records.open_required_goals(claim.episode.id))
+       |> Map.put("slack_mentions", Mentions.authority(claim.episode))
+       |> Map.put("workspace", workspace)}
     end
   end
 
@@ -1439,11 +1921,195 @@ defmodule Responder.Work.Executor do
     context = claim.turn.submission["context"]
 
     %{
+      "artifact_delivery_supported" =>
+        claim.episode.execution_mode == :live and
+          claim.episode.destination_transport == "slack",
+      "artifact_metadata" => [],
       "artifact_refs" => [],
-      "records" => %{},
-      "visible_reply_required" => visible_reply_required?(context)
+      "execution_mode" => Atom.to_string(claim.episode.execution_mode),
+      "open_required_goals" => Records.open_required_goals(claim.episode.id),
+      "records" => validation_records(claim.episode.id, claim.turn.id),
+      "slack_mentions" => Mentions.authority(claim.episode),
+      "visible_reply_required" =>
+        claim.episode.execution_mode == :live and visible_reply_required?(context),
+      "workspace" => nil
     }
   end
+
+  defp validation_records(episode_id, turn_id) do
+    Map.merge(
+      Records.validation_records(episode_id),
+      PlatformActionCustody.validation_records(episode_id, turn_id)
+    )
+  end
+
+  defp workspace_validation_context(claim, settings) do
+    case workspace_requirements(claim) do
+      [] ->
+        {:ok, nil}
+
+      goals ->
+        with true <- function_exported?(settings.api, :get_changes, 2),
+             {:ok, changes} <-
+               api_call(settings, fn ->
+                 settings.api.get_changes(settings.client, claim.session.coop_session_id)
+               end),
+             {:ok, prepared} <- prepare_workspace_changes(changes, goals) do
+          {:ok, prepared}
+        else
+          false -> {:error, {:invalid_work_executor, :workspace_changes_api}}
+          {:error, _reason} = error -> error
+        end
+    end
+  end
+
+  defp workspace_requirements(%{
+         session: %{
+           repository_ref: repository,
+           workspace_task: %{"offer_ref" => offer_ref}
+         }
+       })
+       when is_binary(repository) and is_binary(offer_ref) do
+    [%{"id" => offer_ref, "writable_repository" => repository}]
+  end
+
+  defp workspace_requirements(claim), do: Records.repository_write_goals(claim.episode.id)
+
+  defp prepare_workspace_changes(changes, goals) when is_map(changes) do
+    with {:ok, base_commit} <- workspace_identity(changes["base_commit"]),
+         {:ok, fork_head} <- workspace_identity(changes["fork_head"]),
+         {:ok, fork_tree} <- workspace_identity(changes["fork_tree"]),
+         {:ok, pull_request_tree} <- optional_workspace_identity(changes["pull_request_tree"]),
+         {:ok, committed_count} <- workspace_change_count(changes["committed"]),
+         {:ok, staged_count} <- workspace_change_count(changes["staged"]),
+         {:ok, unstaged_count} <- workspace_change_count(changes["unstaged"]),
+         {:ok, untracked_count} <- workspace_change_count(changes["untracked"]),
+         {:ok, conflict_count} <- workspace_change_count(changes["conflicts"]),
+         {:ok, repository} <- repository_write_goal_repository(goals) do
+      {:ok,
+       %{
+         "base_commit" => base_commit,
+         "committed_count" => committed_count,
+         "conflict_count" => conflict_count,
+         "fork_head" => fork_head,
+         "fork_tree" => fork_tree,
+         "goal_ids" => Enum.map(goals, & &1["id"]),
+         "pull_request_tree" => pull_request_tree,
+         "repository" => repository,
+         "staged_count" => staged_count,
+         "unstaged_count" => unstaged_count,
+         "untracked_count" => untracked_count
+       }}
+    end
+  end
+
+  defp prepare_workspace_changes(_changes, _goals),
+    do: {:error, {:coop_protocol_error, :workspace_changes}}
+
+  defp workspace_identity(value) when is_binary(value) and byte_size(value) in 1..256 do
+    if :binary.match(value, <<0>>) == :nomatch,
+      do: {:ok, value},
+      else: {:error, {:coop_protocol_error, :workspace_changes}}
+  end
+
+  defp workspace_identity(_value), do: {:error, {:coop_protocol_error, :workspace_changes}}
+
+  defp optional_workspace_identity(nil), do: {:ok, nil}
+  defp optional_workspace_identity(value), do: workspace_identity(value)
+
+  defp workspace_change_count(changes) when is_list(changes) and length(changes) <= 100_000,
+    do: {:ok, length(changes)}
+
+  defp workspace_change_count(_changes),
+    do: {:error, {:coop_protocol_error, :workspace_changes}}
+
+  defp repository_write_goal_repository([first | rest]) do
+    repository = first["writable_repository"]
+
+    if is_binary(repository) and byte_size(repository) in 1..256 and
+         Enum.all?(rest, &(&1["writable_repository"] == repository)) do
+      {:ok, repository}
+    else
+      {:error, {:invalid_work_state, :repository_write_goals}}
+    end
+  end
+
+  defp output_artifact_metadata(remote_turn) do
+    remote_turn
+    |> Map.get("output_artifacts", [])
+    |> Outputs.prepare_metadata()
+  end
+
+  defp retain_selected_artifacts(claim, metadata, settings) do
+    with {:ok, refs} <- accepted_artifact_refs(claim.turn.validation_intent),
+         {:ok, selected} <- select_artifact_metadata(metadata, refs),
+         {:ok, fetched} <- fetch_output_artifacts(claim, selected, settings) do
+      Outputs.put_many(claim.turn.id, fetched)
+    end
+  end
+
+  defp accepted_artifact_refs(intent) do
+    case ValidationIntent.result(intent) do
+      {:ok, %{delivery: :none}} ->
+        {:ok, []}
+
+      {:ok, %{delivery_document: %{"outcome" => %{"artifact_refs" => refs}}}}
+      when is_list(refs) ->
+        {:ok, refs}
+
+      {:ok, %{delivery_document: %{"message" => _message}}} ->
+        {:ok, []}
+
+      _invalid ->
+        {:error, {:coop_protocol_error, :accepted_artifact_refs}}
+    end
+  end
+
+  defp select_artifact_metadata(metadata, refs) do
+    by_ref = Map.new(metadata, &{&1["id"], &1})
+
+    if Enum.all?(refs, &Map.has_key?(by_ref, &1)),
+      do: {:ok, Enum.map(refs, &Map.fetch!(by_ref, &1))},
+      else: {:error, {:coop_protocol_error, :accepted_artifact_metadata}}
+  end
+
+  defp fetch_output_artifacts(claim, metadata, settings) do
+    Enum.reduce_while(metadata, {:ok, []}, fn expected, {:ok, fetched} ->
+      result =
+        api_call(settings, fn ->
+          settings.api.get_output_artifact(
+            settings.client,
+            claim.session.coop_session_id,
+            claim.turn.coop_turn_id,
+            expected["id"]
+          )
+        end)
+
+      case verify_output_artifact(expected, result) do
+        {:ok, artifact} -> {:cont, {:ok, [artifact | fetched]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, fetched} -> {:ok, Enum.reverse(fetched)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp verify_output_artifact(expected, {:ok, %{"data" => data} = fetched})
+       when is_binary(data) do
+    actual = Map.take(fetched, ~w(bytes id media_type sha256))
+    expected_identity = Map.take(expected, ~w(bytes id media_type sha256))
+
+    if actual == expected_identity,
+      do: {:ok, Map.put(expected, "data", data)},
+      else: {:error, {:coop_protocol_error, :output_artifact_identity}}
+  end
+
+  defp verify_output_artifact(_expected, {:error, _reason} = error), do: error
+
+  defp verify_output_artifact(_expected, _result),
+    do: {:error, {:coop_protocol_error, :output_artifact}}
 
   defp visible_reply_required?(%{"mode" => "full", "inputs" => %{"items" => items}}),
     do: Enum.any?(items, &human_input?/1)
@@ -1515,6 +2181,9 @@ defmodule Responder.Work.Executor do
     "responder:work:validate:#{turn.id}:a#{turn.candidate_attempt}:g#{turn.validation_generation}:#{turn.candidate_sha256}:#{verdict_name}"
   end
 
+  defp checkpoint_key(turn),
+    do: "responder:work:checkpoint:#{turn.id}:a#{turn.candidate_attempt}:#{turn.candidate_sha256}"
+
   defp cancellation_close_key(turn),
     do: "responder:work:cancel-close:#{turn.id}:g#{turn.cancel_generation}"
 
@@ -1540,10 +2209,12 @@ defmodule Responder.Work.Executor do
            "policy" => policy,
            "policy_digest" => policy_digest,
            "state" => state
-         },
+         } = remote_session,
          allowed_states
        ) do
     identity_matches = expected.coop_session_id in [nil, id] and reference?(id)
+
+    binding_matches = is_nil(Map.get(remote_session, "responder_binding_digest"))
 
     cond do
       not identity_matches ->
@@ -1553,7 +2224,7 @@ defmodule Responder.Work.Executor do
         {:error, {:coop_protocol_error, :session_state}}
 
       policy != expected.policy or policy_digest != expected.policy_digest or
-          external_ref != expected.external_ref ->
+        external_ref != expected.external_ref or not binding_matches ->
         {:error, {:coop_protocol_error, :session_authority}}
 
       true ->
@@ -1565,9 +2236,10 @@ defmodule Responder.Work.Executor do
     do: {:error, {:coop_protocol_error, :session_resource}}
 
   defp exact_remote_turn(
-         %{"id" => id, "session_id" => session_id},
+         %{"id" => id, "session_id" => session_id} = remote_turn,
          expected_session_id,
-         expected_turn_id
+         expected_turn_id,
+         expected_binding_digest
        )
        when is_binary(id) and is_binary(session_id) do
     cond do
@@ -1580,13 +2252,21 @@ defmodule Responder.Work.Executor do
       not reference?(id) ->
         {:error, {:coop_protocol_error, :turn_identity}}
 
+      Map.get(remote_turn, "responder_binding_digest") != expected_binding_digest ->
+        {:error, {:coop_protocol_error, :turn_authority}}
+
       true ->
         :ok
     end
   end
 
-  defp exact_remote_turn(_remote_turn, _expected_session_id, _expected_turn_id),
-    do: {:error, {:coop_protocol_error, :turn_resource}}
+  defp exact_remote_turn(
+         _remote_turn,
+         _expected_session_id,
+         _expected_turn_id,
+         _expected_binding_digest
+       ),
+       do: {:error, {:coop_protocol_error, :turn_resource}}
 
   defp api_call(settings, function) do
     with :ok <- maybe_renew(settings) do
@@ -1655,11 +2335,20 @@ defmodule Responder.Work.Executor do
       :monotonic_ms,
       :now,
       :poll_interval_ms,
+      :platform_tools,
+      :require_project_isolation,
+      :require_repository_read_only,
       :sleep,
-      :validation_context
+      :state_tool_capabilities,
+      :state_tools_endpoint,
+      :state_tools_secret,
+      :validation_context,
+      :workspace_requirements
     ]
 
     if Keyword.keyword?(options) and Enum.all?(Keyword.keys(options), &(&1 in allowed)) do
+      state_tools_endpoint = Keyword.get(options, :state_tools_endpoint)
+
       validate_settings(%{
         api: Keyword.get(options, :api, Responder.Coop.Client),
         client: Keyword.fetch!(options, :client),
@@ -1672,9 +2361,21 @@ defmodule Responder.Work.Executor do
           end),
         now: Keyword.get(options, :now, &DateTime.utc_now/0),
         poll_interval_ms: Keyword.get(options, :poll_interval_ms, 250),
+        platform_tools: Keyword.get(options, :platform_tools),
+        require_project_isolation: Keyword.get(options, :require_project_isolation, false),
+        require_repository_read_only: Keyword.get(options, :require_repository_read_only, false),
         sleep: Keyword.get(options, :sleep, &Process.sleep/1),
+        state_tool_capabilities:
+          Keyword.get(
+            options,
+            :state_tool_capabilities,
+            if(state_tools_endpoint, do: @default_state_tool_capabilities, else: nil)
+          ),
+        state_tools_endpoint: state_tools_endpoint,
+        state_tools_secret: Keyword.get(options, :state_tools_secret),
         validation_context:
-          Keyword.get(options, :validation_context, &default_validation_context/1)
+          Keyword.get(options, :validation_context, &default_validation_context/1),
+        workspace_requirements: Keyword.get(options, :workspace_requirements, [])
       })
     else
       {:error, {:invalid_work_executor, :options}}
@@ -1698,8 +2399,14 @@ defmodule Responder.Work.Executor do
       {is_function(settings.now, 0), :now},
       {is_integer(settings.poll_interval_ms) and settings.poll_interval_ms >= 0 and
          settings.poll_interval_ms < safe_window, :poll_interval_ms},
+      {valid_platform_tools?(settings.platform_tools), :platform_tools},
+      {is_boolean(settings.require_project_isolation), :require_project_isolation},
+      {is_boolean(settings.require_repository_read_only), :require_repository_read_only},
       {is_function(settings.sleep, 1), :sleep},
-      {is_function(settings.validation_context, 1), :validation_context}
+      {valid_state_tools_settings?(settings), :state_tools_binding},
+      {valid_state_tool_capabilities?(settings), :state_tool_capabilities},
+      {is_function(settings.validation_context, 1), :validation_context},
+      {valid_workspace_requirements?(settings.workspace_requirements), :workspace_requirements}
     ]
 
     case Enum.find(validations, fn {valid?, _field} -> not valid? end) do
@@ -1711,6 +2418,77 @@ defmodule Responder.Work.Executor do
         {:error, {:invalid_work_executor, field}}
     end
   end
+
+  defp valid_state_tools_settings?(%{state_tools_endpoint: nil, state_tools_secret: nil}),
+    do: true
+
+  defp valid_state_tools_settings?(%{
+         state_tools_endpoint: endpoint,
+         state_tools_secret: secret
+       }) do
+    match?(
+      {:ok, _binding},
+      StateBinding.derive(
+        %Responder.Work.Session{id: Ecto.UUID.generate()},
+        %Responder.Work.Turn{id: Ecto.UUID.generate()},
+        "local:configuration-validation",
+        endpoint,
+        secret
+      )
+    )
+  end
+
+  defp valid_state_tool_capabilities?(%{
+         state_tool_capabilities: nil,
+         state_tools_endpoint: nil
+       }),
+       do: true
+
+  defp valid_state_tool_capabilities?(%{
+         state_tool_capabilities: capabilities,
+         state_tools_endpoint: endpoint
+       })
+       when is_binary(endpoint) and is_list(capabilities) do
+    capabilities == Enum.uniq(capabilities) and
+      Enum.all?(capabilities, &(&1 in @state_tool_capabilities))
+  end
+
+  defp valid_state_tool_capabilities?(_settings), do: false
+
+  defp valid_platform_tools?(nil), do: true
+
+  defp valid_platform_tools?(tools) when is_list(tools) do
+    names =
+      Enum.map(tools, fn
+        %{"name" => name} when is_binary(name) -> name
+        name when is_binary(name) -> name
+        _invalid -> nil
+      end)
+
+    Enum.all?(names, &is_binary/1) and names == Enum.uniq(names)
+  end
+
+  defp valid_platform_tools?(_tools), do: false
+
+  defp valid_workspace_requirements?(requirements)
+       when is_list(requirements) and length(requirements) <= 32 do
+    names =
+      Enum.map(requirements, fn
+        %{"base_commit" => base_commit, "name" => name} = requirement
+        when map_size(requirement) == 2 ->
+          if is_binary(name) and Regex.match?(@companion_name_regex, name) and
+               git_commit?(base_commit),
+             do: name,
+             else: nil
+
+        _invalid ->
+          nil
+      end)
+
+    Enum.all?(names, &is_binary/1) and names == Enum.uniq(names)
+  end
+
+  defp valid_workspace_requirements?(_requirements), do: false
 
   defp valid_claim(%{
          episode: %{id: episode_id},
@@ -1727,6 +2505,9 @@ defmodule Responder.Work.Executor do
     is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
       :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
   end
+
+  defp git_commit?(value),
+    do: is_binary(value) and Regex.match?(@git_commit_regex, value)
 
   defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end
