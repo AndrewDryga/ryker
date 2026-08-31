@@ -32,6 +32,15 @@ archives:
 
 checksum:
   name_template: checksums.txt
+  extra_files:
+    - glob: ./dist-input/responder-elixir.tar.gz
+      name_template: "responder_{{ .Version }}_elixir_linux_amd64.tar.gz"
+    - glob: ./scripts/install-elixir-release.sh
+      name_template: install-elixir-release.sh
+    - glob: ./scripts/check-elixir-release.sh
+      name_template: check-elixir-release.sh
+    - glob: ./scripts/activate-elixir-release.sh
+      name_template: activate-elixir-release.sh
 
 # Sign the checksum file rather than each archive. Verifying the bundle and then
 # the archive checksum gives one keyless trust root for every release artifact.
@@ -50,6 +59,15 @@ release:
   github:
     owner: AndrewDryga
     name: responder
+  extra_files:
+    - glob: ./dist-input/responder-elixir.tar.gz
+      name_template: "responder_{{ .Version }}_elixir_linux_amd64.tar.gz"
+    - glob: ./scripts/install-elixir-release.sh
+      name_template: install-elixir-release.sh
+    - glob: ./scripts/check-elixir-release.sh
+      name_template: check-elixir-release.sh
+    - glob: ./scripts/activate-elixir-release.sh
+      name_template: activate-elixir-release.sh
   prerelease: auto
   footer: |
     **Full Changelog**: https://github.com/AndrewDryga/responder/compare/{{ .PreviousTag }}...{{ .Tag }}

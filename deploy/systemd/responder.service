@@ -1,8 +1,7 @@
 [Unit]
-Description=Slack incident Responder
-After=coop-responder.service network-online.target
+Description=Emisar Responder teammate
+After=network-online.target
 Wants=network-online.target
-Requires=coop-responder.service
 
 [Service]
 Type=simple
@@ -12,10 +11,17 @@ UMask=0077
 StateDirectory=responder
 StateDirectoryMode=0700
 EnvironmentFile=/etc/responder/responder.env
-ExecStartPre=/usr/local/bin/responder doctor --config /etc/responder/responder.yaml
-ExecStart=/usr/local/bin/responder serve --config /etc/responder/responder.yaml
+Environment=RESPONDER_ELIXIR_CONFIG=/etc/responder/responder-elixir.yaml
+Environment=RELEASE_DISTRIBUTION=none
+Environment=RELEASE_TMP=/var/lib/responder/tmp
+WorkingDirectory=/var/lib/responder
+ExecStartPre=/usr/local/lib/responder/current/bin/responder eval Responder.Release.migrate()
+ExecStart=/usr/local/lib/responder/current/bin/responder start
+KillSignal=SIGTERM
 Restart=on-failure
 RestartSec=5s
+TimeoutStartSec=180s
+TimeoutStopSec=60s
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true

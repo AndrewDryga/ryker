@@ -1,14 +1,18 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: eval-prompts findings-coverage findings-coverage-check watchdog-check promote-corrections build install test product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-evidence eval-productivity eval-memory eval-episode-replay eval-regressions eval-live-canary eval-trend eval-baseline-update model-release-check eval-replay customer-check focus elixir-unit elixir-test elixir-check dev-workflow-check dev-check candidate canary promote quality-watch-check eval-trend-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
+.PHONY: eval-prompts findings-coverage findings-coverage-check watchdog-check promote-corrections build install test product-e2e elixir-product-e2e live-acceptance eval eval-health eval-quality eval-judge-calibration eval-proactive eval-scenarios eval-world-pack eval-world-smoke eval-world eval-host-replay eval-evidence eval-productivity eval-memory eval-episode-replay eval-regressions eval-live-canary eval-trend eval-baseline-update model-release-check eval-replay customer-check focus elixir-unit elixir-test elixir-check elixir-release elixir-release-check elixir-install elixir-activate elixir-candidate-check dev-workflow-check dev-check candidate canary promote quality-watch-check eval-trend-check race lint tidy-check actionlint staticcheck vulncheck check snapshot release-check clean
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/AndrewDryga/responder/internal/version.Version=$(VERSION)
 INSTALL_DIR ?= $(HOME)/.local/bin
+ELIXIR_INSTALL_PREFIX ?= $(HOME)/.local/libexec/responder
+RESPONDER_ELIXIR_RELEASE ?= $(ELIXIR_INSTALL_PREFIX)/current/bin/responder
+ELIXIR_VERSION ?=
 CONFIG ?= .responder/responder.yaml
 LIVE_CHANNEL ?=
 EVAL_REPEAT ?= 3
 TASK_EVAL_POLICY ?=
+WORLD_EVAL_DATABASE ?=
 FOCUS_PACKAGE ?=
 FOCUS_TEST ?=
 DEV_CHECK_JOBS ?= 4
@@ -86,6 +90,35 @@ elixir-test:
 elixir-check:
 	scripts/elixir-test.sh --check
 
+elixir-release:
+	@version=$$(scripts/elixir-release-version.sh); \
+		RESPONDER_ELIXIR_VERSION="$$version" MIX_ENV=prod \
+		scripts/elixir-mix.sh release responder --overwrite
+
+elixir-release-check: elixir-release
+	@version=$$(awk '{print $$2}' _build/prod/rel/responder/releases/start_erl.data); \
+		archive="_build/prod/responder-$$version.tar.gz"; \
+		digest=$$(if command -v sha256sum >/dev/null 2>&1; then sha256sum "$$archive" | awk '{print $$1}'; else shasum -a 256 "$$archive" | awk '{print $$1}'; fi); \
+		scripts/check-elixir-release.sh "$$archive" "$$version" "$$digest"
+
+elixir-install: elixir-release-check
+	@version=$$(awk '{print $$2}' _build/prod/rel/responder/releases/start_erl.data); \
+		archive="_build/prod/responder-$$version.tar.gz"; \
+		digest=$$(if command -v sha256sum >/dev/null 2>&1; then sha256sum "$$archive" | awk '{print $$1}'; else shasum -a 256 "$$archive" | awk '{print $$1}'; fi); \
+		scripts/install-elixir-release.sh "$$archive" "$$version" "$$digest" "$(ELIXIR_INSTALL_PREFIX)" --local-build
+
+elixir-activate:
+	@test -n "$(ELIXIR_VERSION)" || { echo "ELIXIR_VERSION is required" >&2; exit 2; }
+	scripts/activate-elixir-release.sh "$(ELIXIR_INSTALL_PREFIX)" "$(ELIXIR_VERSION)"
+
+elixir-candidate-check: elixir-release-check
+	@version=$$(awk '{print $$2}' _build/prod/rel/responder/releases/start_erl.data); \
+		archive="_build/prod/responder-$$version.tar.gz"; \
+		digest=$$(if command -v sha256sum >/dev/null 2>&1; then sha256sum "$$archive" | awk '{print $$1}'; else shasum -a 256 "$$archive" | awk '{print $$1}'; fi); \
+		scripts/check-elixir-candidate.sh \
+		"$$archive" "$$version" "$$digest" \
+		"testdata/release/responder-component.yaml"
+
 quality-watch-check:
 	scripts/quality-watch.sh --help >/dev/null
 	jq -e '.type == "object" and .additionalProperties == false' scripts/quality-watch-assessment.schema.json >/dev/null
@@ -95,13 +128,32 @@ quality-watch-check:
 eval-trend-check:
 	scripts/test-eval-trend.sh
 
-product-e2e:
-	go test ./internal/service -run '^(TestCustomerJourney|TestProductJourney)' -count=1 -v
+elixir-product-e2e:
+	scripts/elixir-test.sh \
+		test/responder/acceptance/live_test.exs \
+		test/responder/control_plane/conversation_lab_end_to_end_test.exs \
+		test/responder/control_plane/router_test.exs \
+		test/responder/slack/end_to_end_test.exs \
+		test/responder/slack/question_end_to_end_test.exs \
+		test/responder/slack/artifact_end_to_end_test.exs \
+		test/responder/slack/task_end_to_end_test.exs \
+		test/responder/slack/incident_rooms_test.exs \
+		test/responder/github/end_to_end_test.exs \
+		test/responder/webhooks/end_to_end_test.exs \
+		test/responder/emisar/end_to_end_test.exs \
+		test/responder/state/schedules_test.exs \
+		test/responder/state/automations_test.exs \
+		test/responder/state/memories_test.exs \
+		test/responder/state/behaviors_test.exs \
+		test/responder/coop_fleet/failover_end_to_end_test.exs \
+		test/responder/evals/world_runner_test.exs
+
+product-e2e: elixir-product-e2e
 
 live-acceptance:
 	@test -n "$(LIVE_CHANNEL)" || { echo "LIVE_CHANNEL must be the joined Slack test channel ID"; exit 2; }
-	RESPONDER_LIVE_CONFIG="$(abspath $(CONFIG))" RESPONDER_LIVE_CHANNEL="$(LIVE_CHANNEL)" \
-		go test ./internal/service -run '^TestLiveSlackAcceptance$$' -count=1 -v
+	RESPONDER_ELIXIR_RELEASE="$(RESPONDER_ELIXIR_RELEASE)" \
+		scripts/elixir-live-acceptance.sh "$(abspath $(CONFIG))" "$(LIVE_CHANNEL)"
 
 eval: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" --input testdata/eval/live.jsonl \
@@ -156,6 +208,25 @@ eval-scenarios: | $(EVAL_HISTORY)
 		--min-proactive-precision 0.90 --min-proactive-recall 0.90 \
 		--max-false-interruption-rate 0.10 --min-mean-quality 4 \
 		$(call baseline,scenarios) $(call history,scenarios)
+
+eval-world-pack:
+	MIX_ENV=test mix responder.eval world-pack
+
+# This lane creates and drops its own uniquely named PostgreSQL database. The
+# runner also refuses any pre-existing application row before granting a model
+# a state capability.
+eval-world-smoke: | $(EVAL_HISTORY)
+	scripts/elixir-world-eval.sh "$(abspath $(CONFIG))" \
+		"$(EVAL_HISTORY)/world-smoke-$$(date -u +%Y%m%dT%H%M%SZ).json" \
+		--tag smoke --repeat 1 \
+		--min-overall-pass-rate 1 --min-case-pass-rate 1
+
+eval-world: | $(EVAL_HISTORY)
+	scripts/elixir-world-eval.sh "$(abspath $(CONFIG))" \
+		"$(EVAL_HISTORY)/world-$$(date -u +%Y%m%dT%H%M%SZ).json" \
+		--repeat 3 --paired-baseline \
+		--min-overall-pass-rate 0.9 --min-case-pass-rate 0.6666666666666666 \
+		--max-paired-regression 0.1
 
 eval-evidence: | $(EVAL_HISTORY)
 	go run ./cmd/responder eval --config "$(CONFIG)" \
@@ -293,9 +364,17 @@ eval-baseline-update:
 	go run ./cmd/responder eval-baseline --history "$(EVAL_HISTORY)" \
 		--corpus "$(CORPUS)" --write "$(EVAL_BASELINES)/$(CORPUS).json"
 
-model-release-check: eval-judge-calibration eval-quality eval-proactive eval-scenarios eval-evidence eval-memory eval-episode-replay eval-regressions eval-live-canary
+model-release-check: eval-judge-calibration eval-quality eval-proactive eval-scenarios eval-world eval-evidence eval-memory eval-episode-replay eval-regressions eval-live-canary
 
-eval-replay:
+eval-host-replay:
+	scripts/elixir-test.sh \
+		test/responder/episodes/replay_test.exs \
+		test/responder/evals/world_case_test.exs \
+		test/responder/evals/world_concurrency_test.exs \
+		test/responder/evals/world_coverage_test.exs \
+		test/responder/evals/world_runner_test.exs
+
+eval-replay: eval-host-replay
 	go run ./cmd/responder eval --replay --input testdata/eval/golden.jsonl
 
 customer-check: test product-e2e eval-replay
@@ -335,8 +414,9 @@ watchdog-check:
 dev-check:
 	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) tidy-check lint test elixir-check eval-replay build dev-workflow-check findings-coverage-check watchdog-check
 
-# Release mechanics have explicit names so a developer never has to remember
-# which script proves, stages, canaries, or promotes an exact commit.
+# These three targets are the frozen legacy Go/launch-agent rollback path. The
+# Elixir service uses elixir-release-check plus elixir-candidate-check and one
+# normal PostgreSQL-backed writer replacement; it has no canary/promote state.
 candidate:
 	scripts/candidate-check.sh
 
@@ -467,7 +547,7 @@ check:
 snapshot:
 	goreleaser release --snapshot --clean --skip=sign
 
-release-check: check snapshot
+release-check: check snapshot elixir-candidate-check
 	scripts/check-release.sh dist
 	test "$$(bin/responder version)" = "$(VERSION)"
 	bin/responder help >/dev/null

@@ -42,12 +42,25 @@ Linux:aarch64 | Linux:arm64) native=arm64 ;;
 esac
 
 for arch in amd64 arm64; do
-	set -- "$dist"/responder_*_linux_"$arch".tar.gz
-	if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+	archive=
+	archive_count=0
+
+	for candidate in "$dist"/responder_*_linux_"$arch".tar.gz; do
+		[ -f "$candidate" ] || continue
+
+		case "${candidate##*/}" in
+		*_elixir_linux_*) continue ;;
+		esac
+
+		archive=$candidate
+		archive_count=$((archive_count + 1))
+	done
+
+	if [ "$archive_count" -ne 1 ]; then
 		echo "expected exactly one Linux $arch archive in $dist" >&2
 		exit 1
 	fi
-	archive=$1
+
 	archive_name=${archive##*/}
 	expected=${archive_name#responder_}
 	expected=${expected%_linux_"$arch".tar.gz}
@@ -95,5 +108,34 @@ for arch in amd64 arm64; do
 		"$extract/responder" help >/dev/null
 	fi
 done
+
+set -- "$dist"/responder_*_elixir_linux_amd64.tar.gz
+if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+	echo "expected exactly one Linux amd64 Elixir archive in $dist" >&2
+	exit 1
+fi
+
+elixir_archive=$1
+elixir_name=${elixir_archive##*/}
+elixir_sha256=$(awk -v file="$elixir_name" '$2 == file { print $1 }' "$checksums")
+
+if ! printf '%s\n' "$elixir_sha256" | grep -Eq '^[0-9a-f]{64}$'; then
+	echo "checksums.txt does not name exactly one trusted Elixir archive" >&2
+	exit 1
+fi
+
+elixir_version=$(
+	tar -tzf "$elixir_archive" |
+		awk -F/ '$1 == "releases" && NF == 3 && $3 == "runtime.exs" { print $2 }'
+)
+
+if ! printf '%s\n' "$elixir_version" |
+	grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'; then
+	echo "$elixir_archive does not contain exactly one safe release version" >&2
+	exit 1
+fi
+
+scripts/check-elixir-release.sh \
+	"$elixir_archive" "$elixir_version" "$elixir_sha256"
 
 echo "release archives verified"

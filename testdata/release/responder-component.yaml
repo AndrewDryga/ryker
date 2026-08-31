@@ -1,0 +1,22 @@
+version: 1
+mode: component
+host_ref: responder-release-candidate
+coop:
+  socket: /tmp/responder-release-candidate-coop.sock
+  receive_timeout_ms: 1000
+repositories: {}
+admission:
+  policy:
+    name: release-candidate-admission
+    digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  poll_interval_ms: 100
+work:
+  concurrency: 2
+  poll_interval_ms: 100
+control_plane:
+  ip: 127.0.0.1
+  port: __CONTROL_PLANE_PORT__
+  work_profile:
+    policy: release-candidate-conversation
+    policy_digest: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    repository_ref:
