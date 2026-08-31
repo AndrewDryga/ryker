@@ -3,7 +3,8 @@
 Use the narrowest validation that proves the current edit while iterating:
 
 1. Run the owning package or named test after each code change, for example
-   `go test ./internal/service -run '^TestName$' -count=1`.
+   `scripts/elixir-test.sh test/responder/work/executor_test.exs:120`. Use a focused
+   Go test only when the edited boundary is still owned by legacy Go code.
 2. Run `make dev-check` before committing. It is the fast deterministic repository gate.
 3. Run `make check` once before shipping changes that affect concurrency, persistence,
    security, release behavior, or broad shared contracts. CI and release workflows always
@@ -76,13 +77,15 @@ list of verdicts.
 Work is not done when the gate is green. It is done when the code is running.
 
 Commit the change, then run `scripts/deploy.sh`. It refuses a dirty tree, builds
-`responder-<sha>` into `~/.local/libexec/responder/`, repoints every `ai.emisar.responder.*`
-launch agent that pins a binary, restarts them, and prints the processes that came back so the
-claim is checked rather than assumed.
+and qualifies the exact Elixir release against PostgreSQL, installs it under the configured
+immutable release prefix, atomically updates `current`, restarts the systemd unit, and waits for
+both `/healthz` and `/readyz`. PostgreSQL custody resumes pending admission, Work, delivery,
+schedule, and remote-worker state after the normal one-writer restart; there is no canary/promote
+deployment state.
 
-Every deployment sets `coop.supervise: true` against `~/.local/bin/coop`, so Coop restarts with
-Responder. When a change spans both repositories, run `make install` in the Coop checkout first,
-then deploy here.
+Production Coop workers are enrolled and upgraded independently through the outbound fleet
+protocol. Do not make the Responder deployment restart or install Coop. A deliberately configured
+single local Coop worker remains a development/test topology, not a second production path.
 
 Say plainly what is running. "The gate is green" and "the fix is live" are different claims, and
 reporting the first as if it were the second sends an operator to debug a Slack failure against
