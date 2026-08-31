@@ -99,7 +99,7 @@
   "events": [
     {
       "dedupe_key": "admit_input:43b902db6a7ea0ed22c74e33e059386d6fcf21cedc6558d256cef97e282ba9bd",
-      "fingerprint": "3cc70f9212efe8c5650af8f52983d8745a3ecedd27413c474620ca7491120ff7",
+      "fingerprint": "4c261b4a331d149738fb7d1c9ef2ce9de8896bcdd15a09e13c686dacb4f5d62d",
       "kind": "input_admitted",
       "occurred_at": "2026-08-18T04:17:16.336965Z",
       "payload": {
@@ -111,6 +111,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000012",
         "episode_key": "terraform:Dryga/emisar:run-KrGDfDEes1PEcYKS",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "terraform:run-KrGDfDEes1PEcYKS:planned",

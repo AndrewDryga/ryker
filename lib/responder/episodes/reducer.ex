@@ -41,6 +41,7 @@ defmodule Responder.Episodes.Reducer do
     episode = %Episode{
       id: command.episode_id,
       key: command.episode_key,
+      execution_mode: command.execution_mode,
       state: :working,
       owner_kind: :turn,
       owner_ref: command.turn_ref,
@@ -70,6 +71,7 @@ defmodule Responder.Episodes.Reducer do
   defp decide_existing(%Episode{} = episode, %AdmitInput{} = command) do
     with :ok <- same_episode_id(episode, command.episode_id),
          :ok <- same_linked_episode(episode, command.linked_episode_id),
+         :ok <- same_execution_mode(episode, command.execution_mode),
          :ok <- same_destination(episode, command.destination),
          :ok <- accepts_input(episode),
          :ok <- newer_input_revision(episode, command) do
@@ -285,6 +287,11 @@ defmodule Responder.Episodes.Reducer do
 
   defp same_episode(%Episode{} = episode, command),
     do: {:error, {:episode_key_conflict, episode.key, command.episode_key}}
+
+  defp same_execution_mode(%Episode{execution_mode: mode}, mode), do: :ok
+
+  defp same_execution_mode(%Episode{execution_mode: stored}, submitted),
+    do: {:error, {:execution_mode_conflict, stored: stored, submitted: submitted}}
 
   defp same_episode_id(%Episode{id: id}, id), do: :ok
 

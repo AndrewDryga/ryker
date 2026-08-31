@@ -138,7 +138,7 @@
   "events": [
     {
       "dedupe_key": "admit_input:fe578fd9282649e68417674e78a44638ef92e283b23c33127ea1343c0fe3f388",
-      "fingerprint": "a3c4047c9a82945f52dab80c0beeece4047daaa3bc45766f8a41dbe20469f7ee",
+      "fingerprint": "7a3ad160c5037e204a15928dabed006f4e1d0a93f8880241fe5c53326686c950",
       "kind": "input_admitted",
       "occurred_at": "2026-08-22T21:40:03.470699Z",
       "payload": {
@@ -150,6 +150,7 @@
         },
         "episode_id": "01993e00-0000-7000-8000-000000000011",
         "episode_key": "engineering-task:owner-fencing:1d2dd583",
+        "execution_mode": "live",
         "kind": "admit_input",
         "linked_episode_id": null,
         "native_input_id": "slack:task:1d2dd583",

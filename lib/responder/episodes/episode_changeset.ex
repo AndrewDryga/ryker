@@ -20,6 +20,7 @@ defmodule Responder.Episodes.EpisodeChangeset do
   @required_fields [
     :id,
     :key,
+    :execution_mode,
     :state,
     :destination_transport,
     :destination_conversation_ref,
@@ -47,6 +48,16 @@ defmodule Responder.Episodes.EpisodeChangeset do
     |> validate()
   end
 
+  @doc false
+  @spec bind_cutover(Episode.t(), Ecto.UUID.t()) :: Ecto.Changeset.t()
+  def bind_cutover(%Episode{} = episode, cutover_item_id) do
+    episode
+    |> cast(%{cutover_item_id: cutover_item_id}, [:cutover_item_id])
+    |> validate_required([:cutover_item_id])
+    |> unique_constraint(:cutover_item_id)
+    |> foreign_key_constraint(:cutover_item_id)
+  end
+
   defp validate(changeset) do
     changeset
     |> validate_required(@required_fields)
@@ -54,6 +65,7 @@ defmodule Responder.Episodes.EpisodeChangeset do
     |> unique_constraint(:key)
     |> foreign_key_constraint(:linked_episode_id)
     |> check_constraint(:key, name: :episode_kernel_episode_key_not_empty)
+    |> check_constraint(:execution_mode, name: :episode_kernel_execution_mode_valid)
     |> check_constraint(:destination_transport, name: :episode_kernel_destination_not_empty)
     |> check_constraint(:linked_episode_id, name: :episode_kernel_history_not_self)
     |> check_constraint(:semantic_version, name: :episode_kernel_versions_nonnegative)

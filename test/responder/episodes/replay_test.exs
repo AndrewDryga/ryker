@@ -180,4 +180,60 @@ defmodule Responder.Episodes.ReplayTest do
                 history.episode.destination_thread_ref}
     end
   end
+
+  test "fixture container setup and command shapes fail closed" do
+    base = Replay.read!(Path.join(__DIR__, "fixtures/grafana_firing_resolved_cycle.json"))
+
+    assert_raise ArgumentError, ~r/fixture must be an object/, fn -> Replay.run!([]) end
+    assert_raise ArgumentError, ~r/fixture must be an object/, fn -> Replay.commands!([]) end
+
+    assert_raise ArgumentError, ~r/commands must be an array/, fn ->
+      base |> Map.put("commands", %{}) |> Replay.commands!()
+    end
+
+    assert_raise ArgumentError, ~r/setup must be an array/, fn ->
+      base |> Map.put("setup", %{}) |> Replay.setup_commands!()
+    end
+
+    assert_raise ArgumentError, ~r/setup entries must be command arrays/, fn ->
+      base |> Map.put("setup", [%{}]) |> Replay.setup_commands!()
+    end
+
+    assert_raise ArgumentError, ~r/command is missing type/, fn ->
+      base |> Map.put("commands", [%{}]) |> Replay.commands!()
+    end
+
+    assert_raise ArgumentError, ~r/unknown fixture schema/, fn ->
+      base |> Map.put("schema_version", 2) |> Replay.commands!()
+    end
+  end
+
+  test "fixture provenance fields are validated independently" do
+    base = Replay.read!(Path.join(__DIR__, "fixtures/grafana_firing_resolved_cycle.json"))
+
+    cases = [
+      {fn source -> Map.put(source, "database", "unknown.db") end,
+       ~r/source database is unsupported/},
+      {fn source -> Map.put(source, "reason", " ") end, ~r/source reason must be nonempty/},
+      {fn source -> Map.put(source, "episode_ids", []) end,
+       ~r/episode_ids must be a nonempty reference array/},
+      {fn source -> Map.put(source, "incident_id", "") end, ~r/incident_id must be a reference/},
+      {fn source -> Map.put(source, "observed_attempts", -1) end,
+       ~r/observed_attempts must be a nonnegative integer/}
+    ]
+
+    Enum.each(cases, fn {mutate, message} ->
+      assert_raise ArgumentError, message, fn ->
+        base |> Map.update!("source", mutate) |> Replay.commands!()
+      end
+    end)
+
+    assert_raise ArgumentError, ~r/source must be bounded JSON/, fn ->
+      base |> Map.put("source", []) |> Replay.commands!()
+    end
+
+    assert_raise ArgumentError, ~r/expected must be an object/, fn ->
+      base |> Map.put("expected", []) |> Replay.commands!()
+    end
+  end
 end
