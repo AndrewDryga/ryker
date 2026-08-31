@@ -1,0 +1,16 @@
+defmodule Responder.Slack.AppManifestTest do
+  use ExUnit.Case, async: true
+
+  @manifest_path "deploy/slack-app-manifest.yaml"
+
+  test "the shipped Slack app can list configured channel bookmarks" do
+    # Both production apps returned missing_scope when the bookmark capability was
+    # exercised, leaving a model-visible tool that could never succeed.
+    assert "bookmarks:read" in bot_scopes!()
+  end
+
+  defp bot_scopes! do
+    {:ok, manifest} = @manifest_path |> File.read!() |> YamlElixir.read_from_string()
+    get_in(manifest, ["oauth_config", "scopes", "bot"])
+  end
+end
