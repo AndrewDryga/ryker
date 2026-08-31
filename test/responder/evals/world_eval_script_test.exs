@@ -1,0 +1,82 @@
+defmodule Responder.Evals.WorldEvalScriptTest do
+  use ExUnit.Case, async: true
+
+  @script Path.expand("../../../scripts/elixir-world-eval.sh", __DIR__)
+
+  test "the isolated runner forwards qualification flags and drops a successful database" do
+    fixture = fixture!()
+
+    assert {output, 0} =
+             System.cmd(
+               "bash",
+               [
+                 @script,
+                 "/absolute/eval.yaml",
+                 "/absolute/results.json",
+                 "--tag",
+                 "smoke",
+                 "--repeat",
+                 "1"
+               ],
+               env: fixture.env,
+               stderr_to_stdout: true
+             )
+
+    assert output == ""
+    calls = File.read!(fixture.log)
+    assert calls =~ "world_eval=1"
+    assert calls =~ "responder.eval world --config /absolute/eval.yaml"
+    assert calls =~ "--results /absolute/results.json --tag smoke --repeat 1"
+    assert calls =~ "ecto.drop"
+  end
+
+  test "a failed world run retains its exact database for custody inspection" do
+    fixture = fixture!("7")
+
+    assert {output, 7} =
+             System.cmd(
+               "bash",
+               [@script, "/absolute/eval.yaml", "/absolute/results.json"],
+               env: fixture.env,
+               stderr_to_stdout: true
+             )
+
+    assert output =~ "preserving failed world database responder_world_eval_"
+    refute File.read!(fixture.log) =~ "ecto.drop"
+  end
+
+  defp fixture!(eval_status \\ "0") do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "responder-world-eval-script-#{System.unique_integer([:positive])}"
+      )
+
+    bin = Path.join(root, "bin")
+    log = Path.join(root, "mix.log")
+    File.mkdir_p!(bin)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    mix = Path.join(bin, "mix")
+
+    File.write!(mix, """
+    #!/bin/sh
+    printf 'world_eval=%s %s\\n' "${RESPONDER_WORLD_EVAL:-}" "$*" >> "$FAKE_MIX_LOG"
+    case "$*" in
+      *"responder.eval world"*) exit "$FAKE_EVAL_STATUS" ;;
+      *) exit 0 ;;
+    esac
+    """)
+
+    File.chmod!(mix, 0o700)
+
+    %{
+      env: [
+        {"FAKE_EVAL_STATUS", eval_status},
+        {"FAKE_MIX_LOG", log},
+        {"PATH", bin <> ":" <> System.fetch_env!("PATH")}
+      ],
+      log: log
+    }
+  end
+end
