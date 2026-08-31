@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "id": "worker-loss-reconciles-frozen-turn",
+  "provenance": {
+    "kind": "synthetic",
+    "episode_refs": ["synthetic:worker-loss-after-submit"],
+    "captured_at": "2026-08-30T16:40:00Z"
+  },
+  "clock": {"start": "2026-08-30T16:40:00Z"},
+  "actors": [
+    {"actor_ref": "slack:user:U-operator", "authority": "operator", "kind": "human"}
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1788108000.000100",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-08-30T16:40:00Z",
+      "payload": {
+        "text": "Please reply with exactly: Your request was received."
+      }
+    }
+  ],
+  "world": {"repositories": [], "tool_rules": [], "scheduled_events": []},
+  "host_replay": {
+    "model_events": [
+      {
+        "calls": [],
+        "candidates": [
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "Your request was received.",
+              "outcome": {"artifact_refs": [], "record_refs": [], "state": "complete"}
+            },
+            "kind": "final"
+          }
+        ],
+        "faults": ["crash_after_submit"],
+        "input_index": 1,
+        "preflight_candidate_index": 1
+      }
+    ]
+  },
+  "expect": {
+    "hard": [
+      {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "kind": "delivery_target",
+        "thread_ref": "1788108000.000100",
+        "transport": "slack"
+      }
+    ],
+    "trajectory": [],
+    "quality_rubric": [
+      {"criterion": "Delivers the exact requested sentence once after worker replacement.", "weight": 3},
+      {"criterion": "Does not expose retry or worker implementation details.", "weight": 2}
+    ]
+  },
+  "tags": [
+    "model-world",
+    "model-requalification",
+    "host-replay",
+    "worker-loss",
+    "process-restart",
+    "slack"
+  ]
+}

@@ -1,0 +1,232 @@
+{
+  "version": 1,
+  "id": "grafana-firing-resolved-stays-in-cycle",
+  "provenance": {
+    "kind": "production",
+    "episode_refs": [
+      "grafana:rule-2:fingerprint-2:cycle-1"
+    ],
+    "captured_at": "2026-08-27T17:00:00Z"
+  },
+  "clock": {
+    "start": "2026-08-27T17:00:00Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:app:grafana",
+      "authority": "source_event",
+      "kind": "automation"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:app:grafana",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CALERTS",
+        "thread_ref": "1787850000.000100",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-08-27T17:00:00Z",
+      "payload": {
+        "cycle": 1,
+        "fingerprint": "fingerprint-2",
+        "rule_uid": "rule-2",
+        "source_kind": "grafana",
+        "state": "firing",
+        "text": "Load balancer 5xx ratio is firing at 0.273."
+      }
+    },
+    {
+      "actor_ref": "slack:app:grafana",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CALERTS",
+        "thread_ref": "1787850000.000100",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-08-27T17:12:00Z",
+      "payload": {
+        "cycle": 1,
+        "fingerprint": "fingerprint-2",
+        "rule_uid": "rule-2",
+        "source_kind": "grafana",
+        "state": "resolved",
+        "text": "Load balancer 5xx ratio returned to normal at 0.000."
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "tool_rules": [
+      {
+        "id": "grafana-cycle-observations",
+        "match": {
+          "environment": {
+            "$one_of": ["production", "prod"]
+          },
+          "query": {
+            "$contains_all": ["load", "balancer", "5xx"]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "ratio": 0.273,
+              "source_ref": "source:grafana:rule-2:cycle-1:firing",
+              "state": "firing"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "ratio": 0.0,
+              "source_ref": "source:grafana:rule-2:cycle-1:resolved",
+              "state": "resolved"
+            }
+          }
+        ],
+        "tool": "monitoring.query"
+      }
+    ],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": [
+      {
+        "calls": [
+          {
+            "arguments": {
+              "environment": "production",
+              "query": "load balancer 5xx ratio for alert rule-2"
+            },
+            "kind": "fabricated",
+            "tool": "monitoring.query"
+          },
+          {
+            "arguments": {
+              "observation": "The pinned Grafana cycle is firing with a 5xx ratio of 0.273.",
+              "relation": "supports",
+              "source_ref": "source:grafana:rule-2:cycle-1:firing",
+              "subject": "alert.current_state",
+              "supersedes": []
+            },
+            "kind": "state",
+            "tool": "cite_source"
+          }
+        ],
+        "candidates": [
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "The load-balancer 5xx alert is firing at 0.273 in this alert cycle.",
+              "outcome": {
+                "artifact_refs": [],
+                "record_refs": [
+                  "$call:1:record_ref"
+                ],
+                "state": "complete"
+              }
+            },
+            "kind": "final"
+          }
+        ],
+        "input_index": 1,
+        "preflight_candidate_index": 1
+      },
+      {
+        "calls": [
+          {
+            "arguments": {
+              "environment": "production",
+              "query": "load balancer 5xx ratio for alert rule-2"
+            },
+            "kind": "fabricated",
+            "tool": "monitoring.query"
+          },
+          {
+            "arguments": {
+              "observation": "The same Grafana cycle resolved with a 5xx ratio of 0.000.",
+              "relation": "supports",
+              "source_ref": "source:grafana:rule-2:cycle-1:resolved",
+              "subject": "alert.current_state",
+              "supersedes": []
+            },
+            "kind": "state",
+            "tool": "cite_source"
+          }
+        ],
+        "candidates": [
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "The same alert cycle resolved and the observed 5xx ratio returned to 0.000.",
+              "outcome": {
+                "artifact_refs": [],
+                "record_refs": [
+                  "$call:1:record_ref"
+                ],
+                "state": "complete"
+              }
+            },
+            "kind": "final"
+          }
+        ],
+        "input_index": 2,
+        "preflight_candidate_index": 1
+      }
+    ]
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "state_tool_recorded",
+        "tool": "cite_source"
+      },
+      {
+        "kind": "same_session_continuation"
+      },
+      {
+        "conversation_ref": "slack:TEVAL:CALERTS",
+        "kind": "delivery_target",
+        "thread_ref": "1787850000.000100",
+        "transport": "slack"
+      }
+    ],
+    "trajectory": [
+      {
+        "arguments": {
+          "query": {
+            "$contains_all": ["load", "balancer", "5xx"]
+          }
+        },
+        "kind": "required_tool_result",
+        "result": {
+          "state": "firing"
+        },
+        "tool": "monitoring.query"
+      }
+    ],
+    "quality_rubric": [
+      {
+        "criterion": "Treats firing and resolved revisions as one native alert cycle.",
+        "weight": 3
+      },
+      {
+        "criterion": "Does not continue to claim current degradation after the resolution evidence.",
+        "weight": 3
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "model-requalification",
+    "host-replay",
+    "grafana",
+    "source-lifecycle",
+    "same-session"
+  ]
+}

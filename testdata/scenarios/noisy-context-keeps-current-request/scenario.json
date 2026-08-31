@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "id": "noisy-context-keeps-current-request",
+  "provenance": {
+    "kind": "synthetic",
+    "episode_refs": ["synthetic:noisy-nearby-context"],
+    "captured_at": "2026-08-30T16:20:00Z"
+  },
+  "clock": {"start": "2026-08-30T16:20:00Z"},
+  "actors": [
+    {"actor_ref": "slack:user:U-operator", "authority": "operator", "kind": "human"}
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1788106800.000100",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-08-30T16:20:00Z",
+      "payload": {
+        "nearby_context": [
+          {"actor": "U-01", "text": "Lunch moved to 13:00."},
+          {"actor": "U-02", "text": "The design review is next Tuesday."},
+          {"actor": "U-03", "text": "Staging was restarted yesterday."},
+          {"actor": "U-04", "text": "Please rename the dashboard later."},
+          {"actor": "U-05", "text": "A different repository has a flaky test."},
+          {"actor": "U-06", "text": "The office network is slow."},
+          {"actor": "U-07", "text": "Someone requested access to analytics."},
+          {"actor": "U-08", "text": "The old incident is already closed."},
+          {"actor": "U-09", "text": "A release note needs proofreading."},
+          {"actor": "U-10", "text": "The mobile build is unrelated."},
+          {"actor": "U-11", "text": "A customer asked about billing."},
+          {"actor": "U-12", "text": "The test channel has a new topic."},
+          {"actor": "U-13", "text": "The cache review is tomorrow."},
+          {"actor": "U-14", "text": "An unrelated alert was acknowledged."},
+          {"actor": "U-15", "text": "The handbook link changed."},
+          {"actor": "U-16", "text": "A demo recording is available."},
+          {"actor": "U-17", "text": "The weekly report was posted."},
+          {"actor": "U-18", "text": "Someone updated a calendar invite."},
+          {"actor": "U-19", "text": "A dependency bot opened a pull request."},
+          {"actor": "U-20", "text": "The workspace cleanup can wait."}
+        ],
+        "text": "Ignore the unrelated nearby chatter. What exact identifier should we use for this request? The identifier is current-request-7f3a."
+      }
+    }
+  ],
+  "world": {"repositories": [], "tool_rules": [], "scheduled_events": []},
+  "host_replay": {
+    "model_events": [
+      {
+        "calls": [],
+        "candidates": [
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "Use `current-request-7f3a` for this request.",
+              "outcome": {"artifact_refs": [], "record_refs": [], "state": "complete"}
+            },
+            "kind": "final"
+          }
+        ],
+        "input_index": 1,
+        "preflight_candidate_index": 1
+      }
+    ]
+  },
+  "expect": {
+    "hard": [
+      {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "kind": "delivery_target",
+        "thread_ref": "1788106800.000100",
+        "transport": "slack"
+      }
+    ],
+    "trajectory": [],
+    "quality_rubric": [
+      {"criterion": "Returns current-request-7f3a exactly.", "weight": 3},
+      {"criterion": "Does not answer any unrelated nearby message.", "weight": 3}
+    ]
+  },
+  "tags": ["model-world", "host-replay", "noisy-context", "slack"]
+}

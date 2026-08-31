@@ -1,0 +1,1161 @@
+{
+  "servers": [
+    {
+      "name": "responder-state",
+      "tools": [
+        {
+          "description": "Read bounded durable state for this exact episode.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "history": {
+                "enum": [
+                  "current",
+                  "include_linked"
+                ],
+                "type": "string"
+              },
+              "limit": {
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "since": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "types": {
+                "items": {
+                  "enum": [
+                    "source_revision",
+                    "citation",
+                    "input",
+                    "wait",
+                    "proposal",
+                    "action",
+                    "artifact",
+                    "outcome"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "history",
+              "limit",
+              "types"
+            ],
+            "type": "object"
+          },
+          "name": "get_work_state"
+        },
+        {
+          "description": "Preserve one source-backed observation for this episode.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "observation": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "relation": {
+                "enum": [
+                  "supports",
+                  "contradicts",
+                  "context"
+                ],
+                "type": "string"
+              },
+              "source_ref": {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "subject": {
+                "maxLength": 120,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "supersedes": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "observation",
+              "relation",
+              "source_ref",
+              "subject",
+              "supersedes"
+            ],
+            "type": "object"
+          },
+          "name": "cite_source"
+        },
+        {
+          "description": "Create one durable question card for a material human decision.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "context": {
+                "anyOf": [
+                  {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "questions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "choices": {
+                      "items": {
+                        "maxLength": 240,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 5,
+                      "minItems": 0,
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "text": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "choices",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 3,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "questions"
+            ],
+            "type": "object"
+          },
+          "name": "request_input"
+        },
+        {
+          "description": "Create one durable event wait with a deadline and fallback.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "deadline": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "on_timeout": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "trigger": {
+                "additionalProperties": false,
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "delay": {
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "type": {
+                        "const": "after",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "delay",
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "at": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "type": {
+                        "const": "at",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "at",
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "match": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "source_kind": {
+                        "anyOf": [
+                          {
+                            "maxLength": 120,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z0-9_.:-]+$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "type": {
+                        "const": "source_event",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "match",
+                      "type"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              "verification": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "deadline",
+              "on_timeout",
+              "trigger",
+              "verification"
+            ],
+            "type": "object"
+          },
+          "name": "wait_for"
+        },
+        {
+          "description": "Find visible durable automations before reading or changing one.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "channel_ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cursor": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "enabled": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "limit": {
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "query": {
+                "anyOf": [
+                  {
+                    "maxLength": 500,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "relationship": {
+                "enum": [
+                  "context",
+                  "delivery",
+                  "either"
+                ],
+                "type": "string"
+              },
+              "trigger_type": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "time",
+                      "source_event"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "limit",
+              "relationship"
+            ],
+            "type": "object"
+          },
+          "name": "list_automations"
+        },
+        {
+          "description": "Read one exact visible automation and recent run state.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "automation_id": {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "run_limit": {
+                "maximum": 20,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "automation_id",
+              "run_limit"
+            ],
+            "type": "object"
+          },
+          "name": "get_automation"
+        },
+        {
+          "description": "Offer one atomic set of automation changes for confirmation.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "proposals": {
+                "items": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "action": {
+                          "const": "create",
+                          "type": "string"
+                        },
+                        "automation_id": {
+                          "anyOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "pattern": "^[A-Za-z0-9_.:-]+$",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "catch_up": {
+                          "enum": [
+                            "latest",
+                            "skip"
+                          ],
+                          "type": "string"
+                        },
+                        "context_channel": {
+                          "anyOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "pattern": "^[A-Za-z0-9_.:-]+$",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "delivery_channel": {
+                          "anyOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "pattern": "^[A-Za-z0-9_.:-]+$",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "expires_at": {
+                          "anyOf": [
+                            {
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "hold": {
+                          "anyOf": [
+                            {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "patch": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "prompt": {
+                          "maxLength": 12000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "repository": {
+                          "anyOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "pattern": "^[A-Za-z0-9_.:-]+$",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "revision": {
+                          "anyOf": [
+                            {
+                              "maximum": 2147483647,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "title": {
+                          "maxLength": 120,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "trigger": {
+                          "additionalProperties": true,
+                          "properties": {
+                            "at": {
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "day": {
+                              "maximum": 31,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "every_seconds": {
+                              "maximum": 31536000,
+                              "minimum": 300,
+                              "type": "integer"
+                            },
+                            "filter": {
+                              "additionalProperties": true,
+                              "type": "object"
+                            },
+                            "recurrence": {
+                              "enum": [
+                                "once",
+                                "interval",
+                                "daily",
+                                "weekly",
+                                "monthly"
+                              ],
+                              "type": "string"
+                            },
+                            "source_kind": {
+                              "maxLength": 120,
+                              "minLength": 1,
+                              "pattern": "^[A-Za-z0-9_.:-]+$",
+                              "type": "string"
+                            },
+                            "starts_at": {
+                              "anyOf": [
+                                {
+                                  "format": "date-time",
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "time": {
+                              "maxLength": 32,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "timezone": {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "time",
+                                "source_event"
+                              ],
+                              "type": "string"
+                            },
+                            "weekday": {
+                              "enum": [
+                                "monday",
+                                "tuesday",
+                                "wednesday",
+                                "thursday",
+                                "friday",
+                                "saturday",
+                                "sunday"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "catch_up",
+                        "patch",
+                        "prompt",
+                        "title",
+                        "trigger"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "action": {
+                          "enum": [
+                            "update",
+                            "pause",
+                            "resume",
+                            "delete"
+                          ],
+                          "type": "string"
+                        },
+                        "automation_id": {
+                          "maxLength": 256,
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9_.:-]+$",
+                          "type": "string"
+                        },
+                        "patch": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "revision": {
+                          "maximum": 2147483647,
+                          "minimum": 1,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "automation_id",
+                        "patch",
+                        "revision"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "maxItems": 4,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "proposals"
+            ],
+            "type": "object"
+          },
+          "name": "propose_automation"
+        },
+        {
+          "description": "Create one inert engineering-task proposal, or refine the exact open task_offer ref, under trusted authority.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "authority_limits": {
+                "items": {
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "instruction_ref": {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "prompt": {
+                "maxLength": 12000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "repository": {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "source_refs": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "success_checks": {
+                "items": {
+                  "maxLength": 1000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "title": {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "authority_limits",
+              "instruction_ref",
+              "prompt",
+              "repository",
+              "source_refs",
+              "success_checks",
+              "title"
+            ],
+            "type": "object"
+          },
+          "name": "request_task"
+        },
+        {
+          "description": "Search permission-filtered historical memory; results never prove current state.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "kinds": {
+                "items": {
+                  "enum": [
+                    "guidance",
+                    "fact",
+                    "continuity"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 3,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "limit": {
+                "maximum": 20,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "query": {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "scope": {
+                "enum": [
+                  "current_channel",
+                  "repository",
+                  "workspace",
+                  "mine"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "cursor",
+              "kinds",
+              "limit",
+              "query",
+              "scope"
+            ],
+            "type": "object"
+          },
+          "name": "search_memory"
+        },
+        {
+          "description": "Offer one durable fact or guidance item for human confirmation.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "expires_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "kind": {
+                "enum": [
+                  "guidance",
+                  "fact"
+                ],
+                "type": "string"
+              },
+              "scope": {
+                "enum": [
+                  "current_channel",
+                  "repository",
+                  "workspace",
+                  "mine"
+                ],
+                "type": "string"
+              },
+              "source_refs": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "subject": {
+                "maxLength": 120,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "supersedes": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "value": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "expires_at",
+              "kind",
+              "scope",
+              "source_refs",
+              "subject",
+              "supersedes",
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "propose_memory"
+        },
+        {
+          "description": "Record one actionable product-feedback item without replacing the reply.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "category": {
+                "enum": [
+                  "correctness",
+                  "usefulness",
+                  "ux",
+                  "latency",
+                  "routing",
+                  "other"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "anyOf": [
+                  {
+                    "maxLength": 4000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "needs_response": {
+                "type": "boolean"
+              },
+              "response_question": {
+                "anyOf": [
+                  {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sentiment": {
+                "enum": [
+                  "negative",
+                  "suggestion",
+                  "positive"
+                ],
+                "type": "string"
+              },
+              "summary": {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "target_message_ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "category",
+              "details",
+              "needs_response",
+              "response_question",
+              "sentiment",
+              "summary",
+              "target_message_ref"
+            ],
+            "type": "object"
+          },
+          "name": "record_feedback"
+        },
+        {
+          "description": "Preflight the exact final candidate against current host-owned state.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "candidate": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "oneOf": [
+                  {
+                    "properties": {
+                      "decision_reason": {
+                        "type": "null"
+                      },
+                      "delivery": {
+                        "const": "reply"
+                      },
+                      "message": {
+                        "maxLength": 20000,
+                        "minLength": 1,
+                        "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "decision_reason": {
+                        "maxLength": 240,
+                        "minLength": 1,
+                        "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
+                        "type": "string"
+                      },
+                      "delivery": {
+                        "const": "none"
+                      },
+                      "message": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "decision_reason": {
+                    "anyOf": [
+                      {
+                        "maxLength": 240,
+                        "minLength": 1,
+                        "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "delivery": {
+                    "enum": [
+                      "reply",
+                      "none"
+                    ]
+                  },
+                  "message": {
+                    "anyOf": [
+                      {
+                        "maxLength": 20000,
+                        "minLength": 1,
+                        "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "outcome": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "artifact_refs": {
+                        "items": {
+                          "maxLength": 256,
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,256}$",
+                          "type": "string"
+                        },
+                        "maxItems": 5,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "record_refs": {
+                        "items": {
+                          "maxLength": 256,
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,256}$",
+                          "type": "string"
+                        },
+                        "maxItems": 64,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "state": {
+                        "enum": [
+                          "complete",
+                          "waiting_for_input",
+                          "waiting_for_event"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "artifact_refs",
+                      "record_refs",
+                      "state"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "decision_reason",
+                  "delivery",
+                  "message",
+                  "outcome"
+                ],
+                "title": "Responder episode result",
+                "type": "object"
+              }
+            },
+            "required": [
+              "candidate"
+            ],
+            "type": "object"
+          },
+          "name": "validate_final"
+        }
+      ]
+    },
+    {
+      "name": "fabricated-world",
+      "tools": [
+        {
+          "description": "Read a fabricated, time-pinned monitoring result.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "environment": {
+                "type": "string"
+              },
+              "query": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "environment",
+              "query"
+            ],
+            "type": "object"
+          },
+          "name": "monitoring.query"
+        },
+        {
+          "description": "Read fabricated current deployment state.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "environment": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "environment"
+            ],
+            "type": "object"
+          },
+          "name": "nomad.deployments"
+        },
+        {
+          "description": "Read fabricated service allocation and health state.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "environment": {
+                "type": "string"
+              },
+              "service": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "environment",
+              "service"
+            ],
+            "type": "object"
+          },
+          "name": "nomad.service_health"
+        }
+      ]
+    }
+  ],
+  "version": 1
+}

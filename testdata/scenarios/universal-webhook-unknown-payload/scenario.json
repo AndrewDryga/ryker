@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "id": "universal-webhook-unknown-payload",
+  "provenance": {
+    "kind": "synthetic",
+    "episode_refs": [
+      "synthetic:universal-webhook"
+    ],
+    "captured_at": "2026-08-30T12:05:00Z"
+  },
+  "clock": {
+    "start": "2026-08-30T12:05:00Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "webhook:vendor-unknown",
+      "authority": "source_event",
+      "kind": "automation"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "webhook:vendor-unknown",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": null,
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-08-30T12:05:00Z",
+      "payload": {
+        "content": {
+          "payload": {
+            "vendor_we_have_never_seen": {
+              "severity": 17,
+              "state": "odd"
+            }
+          }
+        },
+        "event_type": "new.vendor.event",
+        "source_kind": "webhook"
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "tool_rules": [],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": [
+      {
+        "calls": [],
+        "candidates": [
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "The authenticated event reports an unfamiliar vendor state of odd with severity 17. Its operational meaning is not mapped yet, so it needs source-specific interpretation before any impact claim.",
+              "outcome": {
+                "artifact_refs": [],
+                "record_refs": [],
+                "state": "complete"
+              }
+            },
+            "kind": "final"
+          }
+        ],
+        "input_index": 1,
+        "preflight_candidate_index": 1
+      }
+    ]
+  },
+  "expect": {
+    "hard": [
+      {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "kind": "delivery_target",
+        "thread_ref": null,
+        "transport": "slack"
+      }
+    ],
+    "trajectory": [],
+    "quality_rubric": [
+      {
+        "criterion": "Uses the arbitrary authenticated payload without requiring a vendor-specific adapter.",
+        "weight": 3
+      },
+      {
+        "criterion": "Reports the exact observed fields without inventing their operational meaning.",
+        "weight": 3
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "model-requalification",
+    "host-replay",
+    "universal-webhook",
+    "unknown-source",
+    "evidence-boundary"
+  ]
+}
