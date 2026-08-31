@@ -1,0 +1,257 @@
+defmodule Responder.Slack.InteractionTest do
+  use ExUnit.Case, async: true
+
+  alias Responder.Slack.Interaction
+
+  @now ~U[2026-08-28 12:00:00.000000Z]
+
+  test "normalizes one host-owned task button from its exact Slack message" do
+    assert {:ok, interaction} = Interaction.from_socket(envelope(), "T123", @now)
+
+    assert interaction.action_id == "responder_start_engineering_task"
+    assert interaction.action_value == "record:task_offer:abc123"
+    assert interaction.actor_ref == "U123"
+    assert interaction.channel_ref == "C456"
+    assert interaction.event_ref == "interaction:env-1"
+    assert interaction.message_ref == "1787832001.000200"
+    assert interaction.thread_ref == "1787832000.000100"
+    assert interaction.workspace_ref == "T123"
+  end
+
+  test "foreign, ephemeral, unknown, and malformed actions are ignored" do
+    assert Interaction.from_socket(envelope(), "T999", @now) == :ignore
+
+    ephemeral = put_in(envelope(), ["payload", "container", "is_ephemeral"], true)
+    assert Interaction.from_socket(ephemeral, "T123", @now) == :ignore
+
+    unknown =
+      put_in(
+        envelope(),
+        ["payload", "actions", Access.at(0), "action_id"],
+        "model_invented_action"
+      )
+
+    assert Interaction.from_socket(unknown, "T123", @now) == :ignore
+
+    malformed = put_in(envelope(), ["payload", "actions"], [])
+    assert Interaction.from_socket(malformed, "T123", @now) == :ignore
+  end
+
+  test "normalizes only a host-encoded durable question choice" do
+    envelope =
+      envelope()
+      |> put_in(
+        ["payload", "actions", Access.at(0), "action_id"],
+        "responder_answer_input"
+      )
+      |> put_in(
+        ["payload", "actions", Access.at(0), "value"],
+        "record:input_request:def456|1"
+      )
+
+    assert {:ok, interaction} = Interaction.from_socket(envelope, "T123", @now)
+    assert interaction.action_id == "responder_answer_input"
+    assert interaction.action_value == "record:input_request:def456|1"
+
+    invalid = put_in(envelope, ["payload", "actions", Access.at(0), "value"], "arbitrary|1")
+    assert Interaction.from_socket(invalid, "T123", @now) == :ignore
+  end
+
+  test "normalizes only the host-owned publication controls" do
+    review =
+      envelope()
+      |> put_in(
+        ["payload", "actions", Access.at(0), "action_id"],
+        "responder_review_publication"
+      )
+      |> put_in(
+        ["payload", "actions", Access.at(0), "value"],
+        "record:publication_offer:abc123"
+      )
+
+    assert {:ok, interaction} = Interaction.from_socket(review, "T123", @now)
+    assert interaction.action_value == "record:publication_offer:abc123"
+
+    publish =
+      review
+      |> put_in(
+        ["payload", "actions", Access.at(0), "action_id"],
+        "responder_publish_draft"
+      )
+      |> put_in(
+        ["payload", "actions", Access.at(0), "value"],
+        "publication:abc123"
+      )
+
+    assert {:ok, interaction} = Interaction.from_socket(publish, "T123", @now)
+    assert interaction.action_value == "publication:abc123"
+
+    check =
+      put_in(
+        publish,
+        ["payload", "actions", Access.at(0), "action_id"],
+        "responder_check_publication"
+      )
+
+    assert {:ok, interaction} = Interaction.from_socket(check, "T123", @now)
+    assert interaction.action_value == "publication:abc123"
+  end
+
+  test "normalizes only host-owned work buttons and record overflow selections" do
+    stop =
+      envelope()
+      |> put_in(
+        ["payload", "actions", Access.at(0), "action_id"],
+        "responder_stop_work"
+      )
+      |> put_in(
+        ["payload", "actions", Access.at(0), "value"],
+        "task-card:abc123"
+      )
+
+    assert {:ok, interaction} = Interaction.from_socket(stop, "T123", @now)
+    assert interaction.action_id == "responder_stop_work"
+    assert interaction.action_value == "task-card:abc123"
+
+    record =
+      stop
+      |> put_in(
+        ["payload", "actions"],
+        [
+          %{
+            "action_id" => "responder_work_record",
+            "selected_option" => %{
+              "value" => "incident-room:82208f8f-2ef4-4f1b-a011-626aabdc9342|postmortem"
+            },
+            "type" => "overflow"
+          }
+        ]
+      )
+
+    assert {:ok, interaction} = Interaction.from_socket(record, "T123", @now)
+    assert interaction.action_id == "responder_work_record"
+
+    assert interaction.action_value ==
+             "incident-room:82208f8f-2ef4-4f1b-a011-626aabdc9342|postmortem"
+
+    forged =
+      put_in(
+        record,
+        ["payload", "actions", Access.at(0), "selected_option", "value"],
+        "task-card:abc123|delete_everything"
+      )
+
+    assert Interaction.from_socket(forged, "T123", @now) == :ignore
+  end
+
+  test "normalizes only a snapshot-bound diff page control" do
+    digest = String.duplicate("a", 64)
+
+    page =
+      envelope()
+      |> put_in(
+        ["payload", "actions", Access.at(0), "action_id"],
+        "responder_diff_page"
+      )
+      |> put_in(
+        ["payload", "actions", Access.at(0), "value"],
+        "task-card:abc123|#{digest}|2400"
+      )
+
+    assert {:ok, interaction} = Interaction.from_socket(page, "T123", @now)
+    assert interaction.action_id == "responder_diff_page"
+    assert interaction.action_value == "task-card:abc123|#{digest}|2400"
+
+    forged =
+      put_in(
+        page,
+        ["payload", "actions", Access.at(0), "value"],
+        "task-card:abc123|not-a-digest|2400"
+      )
+
+    assert Interaction.from_socket(forged, "T123", @now) == :ignore
+  end
+
+  test "normalizes only an exact task and publication pair" do
+    publish =
+      envelope()
+      |> put_in(
+        ["payload", "actions", Access.at(0), "action_id"],
+        "responder_task_publish"
+      )
+      |> put_in(
+        ["payload", "actions", Access.at(0), "value"],
+        "task-card:abc123|publication:def456"
+      )
+
+    assert {:ok, interaction} = Interaction.from_socket(publish, "T123", @now)
+    assert interaction.action_value == "task-card:abc123|publication:def456"
+
+    readiness =
+      publish
+      |> put_in(
+        ["payload", "actions", Access.at(0), "action_id"],
+        "responder_task_readiness"
+      )
+      |> put_in(
+        ["payload", "actions", Access.at(0), "value"],
+        "task-card:abc123|record:publication_offer:def456"
+      )
+
+    assert {:ok, _interaction} = Interaction.from_socket(readiness, "T123", @now)
+
+    crossed =
+      put_in(
+        readiness,
+        ["payload", "actions", Access.at(0), "value"],
+        "incident-room:abc123|publication:def456"
+      )
+
+    assert Interaction.from_socket(crossed, "T123", @now) == :ignore
+  end
+
+  test "setup controls carry only the durable setup id" do
+    session_ref = Ecto.UUID.generate()
+
+    setup =
+      envelope()
+      |> put_in(
+        ["payload", "actions", Access.at(0), "action_id"],
+        "responder_setup_repository_12"
+      )
+      |> put_in(["payload", "actions", Access.at(0), "value"], session_ref)
+
+    assert {:ok, interaction} = Interaction.from_socket(setup, "T123", @now)
+    assert interaction.action_value == session_ref
+    assert Interaction.setup_action?(interaction.action_id)
+
+    crossed = put_in(setup, ["payload", "actions", Access.at(0), "value"], "backend")
+    assert Interaction.from_socket(crossed, "T123", @now) == :ignore
+  end
+
+  defp envelope do
+    %{
+      "envelope_id" => "env-1",
+      "payload" => %{
+        "actions" => [
+          %{
+            "action_id" => "responder_start_engineering_task",
+            "type" => "button",
+            "value" => "record:task_offer:abc123"
+          }
+        ],
+        "container" => %{
+          "channel_id" => "C456",
+          "is_ephemeral" => false,
+          "message_ts" => "1787832001.000200",
+          "thread_ts" => "1787832000.000100",
+          "type" => "message"
+        },
+        "team" => %{"id" => "T123"},
+        "type" => "block_actions",
+        "user" => %{"id" => "U123"}
+      },
+      "type" => "interactive"
+    }
+  end
+end

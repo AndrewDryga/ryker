@@ -1,0 +1,357 @@
+defmodule Responder.Slack.WorkRecord do
+  @moduledoc """
+  Bounded, host-rendered views over one task or incident's canonical record.
+
+  These views summarize durable episode events, typed state records, and
+  publication custody. They never ask a model to reconstruct history or fill
+  missing impact, cause, ownership, or corrective-action facts.
+  """
+
+  import Ecto.Query
+
+  alias Responder.Episodes.Event
+  alias Responder.Publication.Publication
+  alias Responder.Repo
+  alias Responder.Slack.WorkTarget
+  alias Responder.State.Record
+
+  @maximum_events 60
+  @maximum_records 80
+  @maximum_publications 10
+  @maximum_message_characters 18_000
+
+  @type kind :: :timeline | :evidence | :handoff | :postmortem
+
+  @spec build(String.t(), map(), kind()) :: {:ok, map()} | {:error, term()}
+  def build(work_ref, target, kind)
+      when kind in [:timeline, :evidence, :handoff, :postmortem] do
+    with {:ok, resolved} <- WorkTarget.resolve(work_ref, target),
+         :ok <- kind_available(resolved.kind, kind) do
+      snapshot = snapshot(resolved)
+      {:ok, %{"message" => render(kind, snapshot) |> compact_message()}}
+    end
+  end
+
+  def build(_work_ref, _target, _kind), do: {:error, :work_record_not_available}
+
+  defp snapshot(resolved) do
+    episode_id = resolved.episode.id
+
+    events =
+      Repo.all(
+        from(event in Event,
+          where: event.episode_id == ^episode_id,
+          order_by: [desc: event.sequence],
+          limit: @maximum_events
+        )
+      )
+      |> Enum.reverse()
+
+    records =
+      Repo.all(
+        from(record in Record,
+          where: record.episode_id == ^episode_id,
+          order_by: [desc: record.sequence],
+          limit: @maximum_records
+        )
+      )
+      |> Enum.reverse()
+
+    publications =
+      Repo.all(
+        from(publication in Publication,
+          where: publication.episode_id == ^episode_id,
+          order_by: [desc: publication.inserted_at],
+          limit: @maximum_publications
+        )
+      )
+      |> Enum.reverse()
+
+    %{
+      episode: resolved.episode,
+      events: events,
+      kind: resolved.kind,
+      publications: publications,
+      records: records,
+      work_ref: resolved.work_ref
+    }
+  end
+
+  defp render(:timeline, snapshot) do
+    episode_entries = Enum.map(snapshot.events, &event_entry/1)
+    record_entries = Enum.map(snapshot.records, &record_entry/1)
+    publication_entries = Enum.map(snapshot.publications, &publication_entry/1)
+
+    entries =
+      (episode_entries ++ record_entries ++ publication_entries)
+      |> Enum.sort_by(& &1.sort)
+      |> Enum.map(& &1.text)
+
+    [
+      "Timeline for #{snapshot.work_ref}",
+      "Current state: #{snapshot.episode.state}",
+      if(entries == [],
+        do: "No durable timeline entries are recorded.",
+        else: Enum.join(entries, "\n")
+      )
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp render(:evidence, snapshot) do
+    evidence = Enum.filter(snapshot.records, &(&1.kind == "evidence"))
+    coverage = Enum.filter(snapshot.records, &(&1.kind == "coverage"))
+    findings = Enum.filter(snapshot.records, &(&1.kind == "finding"))
+
+    evidence_lines =
+      Enum.map(evidence, fn record ->
+        payload = record.payload
+
+        "- #{payload["source_name"]} · #{payload["confidence"] || "confidence not recorded"}: " <>
+          compact(payload["observation"], 900)
+      end)
+
+    coverage_lines =
+      Enum.map(coverage, fn record ->
+        payload = record.payload
+        "- #{payload["layer"]}: #{payload["status"]} — #{compact(payload["detail"], 600)}"
+      end)
+
+    [
+      "Evidence for #{snapshot.work_ref}",
+      section("Source ledger", evidence_lines, "No evidence has been recorded."),
+      section("Coverage", coverage_lines, "No bounded coverage assessment has been recorded."),
+      section("Material unknowns", material_unknowns(snapshot, findings, coverage), nil)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp render(:handoff, snapshot) do
+    progress = latest(snapshot.records, "progress")
+
+    waits =
+      Enum.filter(
+        snapshot.records,
+        &(&1.kind in ["input_request", "event_wait"] and &1.status == :open)
+      )
+
+    goals = current_goals(snapshot.records)
+    publication = List.last(snapshot.publications)
+
+    [
+      "Handoff summary for #{snapshot.work_ref}",
+      "State: #{snapshot.episode.state} · owner: #{owner(snapshot.episode)}",
+      progress_line(progress),
+      section("Open waits", Enum.map(waits, &wait_line/1), "None recorded."),
+      section("Goals", goals, "No durable goals are recorded."),
+      publication_line(publication),
+      section("Material unknowns", material_unknowns(snapshot, [], []), nil)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp render(:postmortem, snapshot) do
+    assessment = latest(snapshot.records, "alert_assessment")
+
+    explained =
+      snapshot.records
+      |> Enum.filter(&(&1.kind == "finding" and &1.payload["status"] == "explained"))
+      |> List.last()
+
+    impact =
+      if assessment,
+        do: compact(assessment.payload["impact"], 1_200),
+        else: "Unknown — no alert impact assessment is recorded."
+
+    cause =
+      cond do
+        assessment && is_binary(assessment.payload["cause"]) ->
+          compact(assessment.payload["cause"], 1_200)
+
+        explained ->
+          compact(explained.payload["what"], 1_200)
+
+        true ->
+          "Unknown — no evidence-backed root cause is recorded."
+      end
+
+    actions = corrective_actions(snapshot.records)
+
+    [
+      "Postmortem draft for #{snapshot.work_ref}",
+      "Status: draft generated from the durable record; human review is required.",
+      "Impact: #{impact}",
+      "Cause: #{cause}",
+      section(
+        "Chronology",
+        snapshot.events |> Enum.take(-20) |> Enum.map(&event_entry(&1).text),
+        nil
+      ),
+      section(
+        "Corrective actions",
+        actions,
+        "Unknown — no durable corrective-action goals are recorded."
+      ),
+      section("Material unknowns", material_unknowns(snapshot, [], []), nil)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp event_entry(event) do
+    label =
+      case event.kind do
+        :input_admitted -> "Input admitted"
+        :owner_transferred -> "Work owner transferred"
+        :input_wait_started -> "Operator input requested"
+        :event_wait_started -> "Verification wait started"
+        :wait_resumed -> "Wait resumed"
+        :result_accepted -> "Result accepted"
+        :delivery_confirmed -> "Delivery confirmed"
+        :episode_cancelled -> "Episode closed"
+      end
+
+    %{
+      sort: {DateTime.to_unix(event.occurred_at, :microsecond), 0, event.sequence},
+      text: "- #{timestamp(event.occurred_at)} · #{label}"
+    }
+  end
+
+  defp record_entry(record) do
+    detail = record_detail(record.kind, record.payload)
+
+    label = record.kind |> String.replace("_", " ") |> String.capitalize()
+    suffix = if detail, do: " · #{detail}", else: ""
+
+    %{
+      sort: {DateTime.to_unix(record.inserted_at, :microsecond), 1, record.sequence},
+      text: "- #{timestamp(record.inserted_at)} · #{label} recorded#{suffix}"
+    }
+  end
+
+  defp record_detail("evidence", payload),
+    do: "#{payload["source_name"]}: #{compact(payload["observation"], 300)}"
+
+  defp record_detail("progress", payload), do: compact(payload["summary"], 300)
+  defp record_detail("finding", payload), do: compact(payload["what"], 300)
+  defp record_detail("goal", payload), do: compact(payload["requested_outcome"], 300)
+  defp record_detail("goal_state", payload), do: "#{payload["goal_id"]} → #{payload["state"]}"
+
+  defp record_detail("alert_assessment", payload),
+    do: "#{payload["verdict"]}: #{compact(payload["impact"], 300)}"
+
+  defp record_detail("input_request", payload), do: compact(payload["question"], 300)
+  defp record_detail("event_wait", payload), do: compact(payload["verification"], 300)
+  defp record_detail(_kind, _payload), do: nil
+
+  defp publication_entry(publication) do
+    detail =
+      if publication.pull_request_url,
+        do: " · #{publication.pull_request_url}",
+        else: ""
+
+    %{
+      sort: {DateTime.to_unix(publication.updated_at, :microsecond), 2, 0},
+      text: "- #{timestamp(publication.updated_at)} · Publication #{publication.status}#{detail}"
+    }
+  end
+
+  defp material_unknowns(snapshot, findings, coverage) do
+    findings =
+      if findings == [],
+        do: Enum.filter(snapshot.records, &(&1.kind == "finding")),
+        else: findings
+
+    coverage =
+      if coverage == [],
+        do: Enum.filter(snapshot.records, &(&1.kind == "coverage")),
+        else: coverage
+
+    unknowns =
+      []
+      |> maybe_unknown(
+        not Enum.any?(findings, &(&1.payload["status"] == "explained")),
+        "Root cause is not established by the recorded evidence."
+      )
+      |> maybe_unknown(
+        Enum.any?(findings, &(&1.payload["status"] == "unexplained")),
+        "One or more findings remain unexplained."
+      )
+      |> maybe_unknown(
+        Enum.any?(coverage, &(&1.payload["status"] == "unknown")),
+        "One or more assessed system layers remain unknown."
+      )
+
+    if unknowns == [], do: ["No material unknown is explicitly recorded."], else: unknowns
+  end
+
+  defp current_goals(records) do
+    states =
+      records
+      |> Enum.filter(&(&1.kind == "goal_state"))
+      |> Map.new(&{&1.payload["goal_id"], &1.payload})
+
+    records
+    |> Enum.filter(&(&1.kind == "goal"))
+    |> Enum.map(fn goal ->
+      state = get_in(states, [goal.payload["id"], "state"]) || "ready"
+      "- #{goal.payload["id"]} · #{state}: #{compact(goal.payload["requested_outcome"], 500)}"
+    end)
+  end
+
+  defp corrective_actions(records) do
+    records
+    |> Enum.filter(&(&1.kind == "goal"))
+    |> Enum.map(fn goal ->
+      "- #{goal.payload["id"]}: #{compact(goal.payload["requested_outcome"], 700)}"
+    end)
+  end
+
+  defp latest(records, kind), do: records |> Enum.filter(&(&1.kind == kind)) |> List.last()
+
+  defp progress_line(nil), do: "Latest progress: none recorded."
+
+  defp progress_line(record),
+    do: "Latest progress: #{record.payload["phase"]} — #{compact(record.payload["summary"], 900)}"
+
+  defp wait_line(%Record{kind: "input_request", payload: payload}),
+    do: "- Input: #{compact(payload["question"], 700)}"
+
+  defp wait_line(%Record{kind: "event_wait", payload: payload}),
+    do: "- Event: #{compact(payload["verification"], 700)} by #{payload["deadline_at"]}"
+
+  defp publication_line(nil), do: "Publication: none recorded."
+
+  defp publication_line(publication),
+    do:
+      "Publication: #{publication.status}#{if publication.pull_request_url, do: " · #{publication.pull_request_url}", else: ""}"
+
+  defp owner(%{owner_kind: nil}), do: "none"
+  defp owner(episode), do: "#{episode.owner_kind}:#{episode.owner_ref}"
+
+  defp section(_title, [], nil), do: nil
+  defp section(title, [], fallback), do: "#{title}:\n#{fallback}"
+  defp section(title, lines, _fallback), do: "#{title}:\n#{Enum.join(lines, "\n")}"
+
+  defp maybe_unknown(lines, true, line), do: lines ++ ["- #{line}"]
+  defp maybe_unknown(lines, false, _line), do: lines
+
+  defp kind_available(:task, :postmortem), do: {:error, :work_record_not_available}
+  defp kind_available(_work_kind, _record_kind), do: :ok
+
+  defp timestamp(%DateTime{} = value), do: DateTime.to_iso8601(value)
+
+  defp compact(value, maximum) when is_binary(value) do
+    graphemes = String.graphemes(value)
+
+    if length(graphemes) <= maximum,
+      do: value,
+      else: graphemes |> Enum.take(maximum - 1) |> Enum.join() |> Kernel.<>("…")
+  end
+
+  defp compact(_value, _maximum), do: "not recorded"
+
+  defp compact_message(message), do: compact(message, @maximum_message_characters)
+end
