@@ -31,6 +31,9 @@ defmodule Responder.Work.DeliveryReceiptTest do
 
     assert DeliveryReceipt.new("delivery:turn-1", "slack", "C-alerts", nil, "") ==
              {:error, {:invalid_work_delivery_receipt, :message_ref}}
+
+    assert DeliveryReceipt.prepare(:not_a_receipt) ==
+             {:error, {:invalid_work_delivery_receipt, :document}}
   end
 
   test "a generic destination accepted by ingress can be represented exactly in its receipt" do

@@ -3,10 +3,24 @@ defmodule Responder.Work.ExecutorTest do
 
   import Ecto.Query
 
+  alias Responder.Artifacts
+  alias Responder.Artifacts.Outputs
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.Repo
+  alias Responder.State.{Record, Records}
   alias Responder.TestSupport.FakeWorkCoopAPI, as: FakeAPI
-  alias Responder.Work.{Cancellation, Custody, Executor, Final, Result, SubmissionBuilder}
+
+  alias Responder.Work.{
+    Cancellation,
+    Custody,
+    Executor,
+    Final,
+    FinalPreflight,
+    Result,
+    StateBinding,
+    SubmissionBuilder
+  }
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -35,6 +49,15 @@ defmodule Responder.Work.ExecutorTest do
     def get_session(client, session_id),
       do: dispatch(client, :get_session, fn -> FakeAPI.get_session(client.fake, session_id) end)
 
+    def get_changes(client, session_id),
+      do: dispatch(client, :get_changes, fn -> FakeAPI.get_changes(client.fake, session_id) end)
+
+    def get_changes_page(client, session_id, patch_offset, patch_limit),
+      do:
+        dispatch(client, :get_changes_page, fn ->
+          FakeAPI.get_changes_page(client.fake, session_id, patch_offset, patch_limit)
+        end)
+
     def close_session(client, session_id, key, revision),
       do:
         dispatch(client, :close_session, fn ->
@@ -53,9 +76,95 @@ defmodule Responder.Work.ExecutorTest do
           FakeAPI.fence_submit_turn(client.fake, session_id, key, revision, prompt, schema)
         end)
 
+    def submit_turn_with_artifacts(client, session_id, key, revision, prompt, schema, artifacts),
+      do:
+        dispatch(client, :submit_turn, fn ->
+          FakeAPI.submit_turn_with_artifacts(
+            client.fake,
+            session_id,
+            key,
+            revision,
+            prompt,
+            schema,
+            artifacts
+          )
+        end)
+
+    def fence_submit_turn_with_artifacts(
+          client,
+          session_id,
+          key,
+          revision,
+          prompt,
+          schema,
+          artifacts
+        ),
+        do:
+          dispatch(client, :fence_submit_turn, fn ->
+            FakeAPI.fence_submit_turn_with_artifacts(
+              client.fake,
+              session_id,
+              key,
+              revision,
+              prompt,
+              schema,
+              artifacts
+            )
+          end)
+
+    def submit_frozen_turn(
+          client,
+          session_id,
+          key,
+          revision,
+          submission,
+          binding,
+          artifacts
+        ),
+        do:
+          dispatch(client, :submit_turn, fn ->
+            FakeAPI.submit_frozen_turn(
+              client.fake,
+              session_id,
+              key,
+              revision,
+              submission,
+              binding,
+              artifacts
+            )
+          end)
+
+    def fence_frozen_turn(
+          client,
+          session_id,
+          key,
+          revision,
+          submission,
+          binding,
+          artifacts
+        ),
+        do:
+          dispatch(client, :fence_submit_turn, fn ->
+            FakeAPI.fence_frozen_turn(
+              client.fake,
+              session_id,
+              key,
+              revision,
+              submission,
+              binding,
+              artifacts
+            )
+          end)
+
     def get_turn(client, session_id, turn_id),
       do:
         dispatch(client, :get_turn, fn -> FakeAPI.get_turn(client.fake, session_id, turn_id) end)
+
+    def get_output_artifact(client, session_id, turn_id, artifact_id),
+      do:
+        dispatch(client, :get_output_artifact, fn ->
+          FakeAPI.get_output_artifact(client.fake, session_id, turn_id, artifact_id)
+        end)
 
     def validate_candidate(client, session_id, turn_id, key, sha256, verdict),
       do:
@@ -102,6 +211,452 @@ defmodule Responder.Work.ExecutorTest do
     refute state.submissions |> hd() |> Map.fetch!(:prompt) =~ ~s("$schema")
   end
 
+  test "accepted writable work is checkpointed before local delivery custody is released" do
+    claim = claim_episode!("writable-checkpoint")
+
+    workspace_task = %{
+      "authority_limits" => ["must not deploy"],
+      "offer_ref" => "record:task_offer:writable-checkpoint",
+      "prompt" => "Change the parser without losing the workspace.",
+      "source_refs" => [],
+      "success_checks" => ["focused tests pass"],
+      "title" => "Checkpoint writable work"
+    }
+
+    session =
+      claim.session
+      |> Ecto.Changeset.change(repository_ref: "responder", workspace_task: workspace_task)
+      |> Repo.update!()
+
+    claim = %{claim | session: session}
+
+    {:ok, fake} =
+      FakeAPI.start_link([reply("Writable milestone complete.")],
+        changes: [
+          workspace_changes(
+            committed: [%{"path" => "lib/parser.ex", "status" => "modified"}],
+            fork_head: "task-commit",
+            fork_tree: "task-tree"
+          )
+        ]
+      )
+
+    assert {:ok, %{status: :accepted, turn: %{status: :delivery_pending}}} =
+             Executor.run(claim, options(fake))
+
+    assert [key] = FakeAPI.state(fake).checkpoint_keys
+    assert key =~ "responder:work:checkpoint:#{claim.turn.id}:a1:"
+
+    offer =
+      Repo.get_by!(Record,
+        episode_id: claim.episode.id,
+        kind: "publication_offer",
+        operation_id: "host:publication:ready"
+      )
+
+    assert offer.turn_id == claim.turn.id
+    assert offer.status == :open
+
+    assert offer.payload == %{
+             "body" => "Writable milestone complete.",
+             "title" => "Checkpoint writable work"
+           }
+
+    settled = Repo.get!(Responder.Work.Turn, claim.turn.id)
+    assert get_in(settled.delivery_document, ["outcome", "record_refs"]) == []
+  end
+
+  test "writable work cannot settle when its worker cannot produce a checkpoint" do
+    claim = claim_episode!("writable-checkpoint-required")
+
+    workspace_task = %{
+      "authority_limits" => ["must not deploy"],
+      "offer_ref" => "record:task_offer:writable-checkpoint-required",
+      "prompt" => "Change the parser without losing the workspace.",
+      "source_refs" => [],
+      "success_checks" => ["focused tests pass"],
+      "title" => "Checkpoint writable work"
+    }
+
+    session =
+      claim.session
+      |> Ecto.Changeset.change(repository_ref: "responder", workspace_task: workspace_task)
+      |> Repo.update!()
+
+    claim = %{claim | session: session}
+
+    {:ok, fake} =
+      FakeAPI.start_link([reply("Writable milestone complete.")],
+        changes: [
+          workspace_changes(
+            committed: [%{"path" => "lib/parser.ex", "status" => "modified"}],
+            fork_head: "task-commit",
+            fork_tree: "task-tree"
+          )
+        ]
+      )
+
+    executor_options =
+      fake
+      |> options()
+      |> Keyword.merge(api: ProtocolAPI, client: %{fake: fake, overrides: %{}})
+
+    assert Executor.run(claim, executor_options) ==
+             {:error, {:invalid_work_executor, :workspace_checkpoint_api}}
+
+    refute Repo.get_by(Record,
+             episode_id: claim.episode.id,
+             kind: "publication_offer",
+             operation_id: "host:publication:ready"
+           )
+
+    assert Repo.get!(Responder.Work.Turn, claim.turn.id).status == :pending
+  end
+
+  test "a completed turn retains exact measured usage timing and effective target" do
+    claim = claim_episode!("usage")
+
+    {:ok, fake} =
+      FakeAPI.start_link([reply("Measured investigation complete.")],
+        session_target: "claude:opus/high@work",
+        turn_queued_at: "2026-08-28T11:59:50Z",
+        turn_started_at: "2026-08-28T11:59:55Z",
+        turn_finished_at: "2026-08-28T12:00:00Z",
+        turn_usage: %{
+          "cached_input_tokens" => 800,
+          "cost_recorded" => true,
+          "cost_usd" => 0.0125,
+          "input_tokens" => 1_200,
+          "output_tokens" => 300,
+          "reasoning_tokens" => 25
+        }
+      )
+
+    assert {:ok, %{status: :accepted, turn: turn}} = Executor.run(claim, options(fake))
+    assert turn.execution_target == "claude:opus/high@work"
+    assert turn.usage_input_tokens == 1_200
+    assert turn.usage_cached_input_tokens == 800
+    assert turn.usage_output_tokens == 300
+    assert turn.usage_reasoning_tokens == 25
+    assert Decimal.equal?(turn.usage_cost_usd, Decimal.new("0.0125"))
+    assert turn.usage_cost_recorded
+    assert turn.usage_queued_ms == 5_000
+    assert turn.usage_provider_ms == 5_000
+    assert turn.usage_host_ms >= 0
+    assert turn.remote_queued_at == ~U[2026-08-28 11:59:50.000000Z]
+    assert turn.remote_started_at == ~U[2026-08-28 11:59:55.000000Z]
+    assert turn.remote_finished_at == ~U[2026-08-28 12:00:00.000000Z]
+  end
+
+  test "a provider that reports no usage remains explicitly unmeasured" do
+    claim = claim_episode!("usage-unmeasured")
+    {:ok, fake} = FakeAPI.start_link([reply("Unmeasured investigation complete.")])
+
+    assert {:ok, %{status: :accepted, turn: turn}} = Executor.run(claim, options(fake))
+    assert is_nil(turn.usage_input_tokens)
+    assert is_nil(turn.usage_cost_recorded)
+    assert is_nil(turn.usage_queued_ms)
+  end
+
+  test "one Work session freezes and sends its dedicated state-tools binding" do
+    claim = claim_episode!("state-tools-binding")
+    candidate = reply("Bound work complete.")
+
+    assert {:ok, _turn} =
+             Custody.record_final_preflight(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               FinalPreflight.candidate_sha256(Jason.decode!(candidate)),
+               FinalPreflight.ledger_sha256(
+                 claim.episode.id,
+                 claim.episode.semantic_version,
+                 []
+               ),
+               claim.episode.semantic_version
+             )
+
+    {:ok, fake} = FakeAPI.start_link([candidate])
+
+    run_options =
+      options(fake)
+      |> Keyword.put(:state_tool_capabilities, [:schedules])
+      |> Keyword.put(:state_tools_endpoint, "https://responder.example/v1/state-tools/mcp")
+      |> Keyword.put(:state_tools_secret, "controller-state-tools-secret")
+
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, run_options)
+
+    state = FakeAPI.state(fake)
+    assert [binding] = state.bindings
+    assert binding["endpoint"] == "https://responder.example/v1/state-tools/mcp"
+    assert Regex.match?(~r/\A[0-9a-f]{64}[A-Za-z0-9_-]{43}\z/, binding["token"])
+    assert StateBinding.scope_matches?(binding["token"], StateBinding.local_scope(claim.session))
+
+    persisted = Repo.get!(Responder.Work.Turn, claim.turn.id)
+    assert persisted.state_tools_endpoint == binding["endpoint"]
+
+    assert persisted.state_tools_token_sha256 ==
+             StateBinding.sha256(binding["token"])
+
+    [submitted] = state.submissions
+    assert submitted.responder_binding == binding
+    tool_names = submitted.prompt |> Jason.decode!() |> get_in(["work", "responder_state_tools"])
+    refute "wait_for" in tool_names
+    assert "propose_automation" in tool_names
+  end
+
+  test "a product-bound final is repaired in the same Coop turn until exact preflight exists" do
+    claim = claim_episode!("state-tools-preflight-repair")
+    candidate = reply("This final was checked through the owning state tool.")
+
+    record_preflight = fn ->
+      assert {:ok, _turn} =
+               Custody.record_final_preflight(
+                 claim.episode.id,
+                 claim.turn.turn_ref,
+                 claim.lease_ref,
+                 FinalPreflight.candidate_sha256(Jason.decode!(candidate)),
+                 FinalPreflight.ledger_sha256(
+                   claim.episode.id,
+                   claim.episode.semantic_version,
+                   []
+                 ),
+                 claim.episode.semantic_version
+               )
+    end
+
+    {:ok, fake} =
+      FakeAPI.start_link([candidate, candidate], on_validation_reject: record_preflight)
+
+    run_options =
+      options(fake)
+      |> Keyword.put(:state_tools_endpoint, "https://responder.example/v1/state-tools/mcp")
+      |> Keyword.put(:state_tools_secret, "controller-state-tools-secret")
+
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, run_options)
+
+    state = FakeAPI.state(fake)
+    assert state.submit_count == 1
+    assert Enum.map(state.validations, & &1.verdict) == [:reject, :accept]
+
+    assert state.validations |> hd() |> Map.fetch!(:violations) |> hd() =~
+             "Call validate_final"
+  end
+
+  test "the exact authenticated input artifact reaches Coop from durable custody" do
+    data = "Slack attachment bytes"
+
+    assert {:ok, artifact} =
+             Artifacts.put(%{
+               data: data,
+               media_type: "text/plain",
+               name: "diagnostic.txt",
+               source_kind: "slack",
+               source_ref: "T123:F-executor"
+             })
+
+    claim =
+      claim_episode!("artifact-submit", %{
+        "files" => [
+          %{
+            "artifact_ref" => artifact.ref,
+            "media_type" => artifact.media_type,
+            "name" => artifact.name,
+            "sha256" => artifact.sha256,
+            "status" => "available"
+          }
+        ],
+        "text" => "Inspect this diagnostic."
+      })
+
+    {:ok, fake} = fake_for(claim, [reply("The diagnostic is healthy.")])
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, options(fake))
+
+    assert [%{artifacts: [submitted]}] = FakeAPI.state(fake).submissions
+    assert submitted["data"] == data
+    assert submitted["sha256"] == artifact.sha256
+
+    persisted = Responder.Repo.get!(Responder.Work.Turn, claim.turn.id)
+    assert persisted.submission["input_artifact_refs"] == [artifact.ref]
+  end
+
+  test "a referenced Coop output artifact is verified and retained before delivery custody" do
+    data = <<137, 80, 78, 71, 13, 10, 26, 10, "generated-chart">>
+    sha256 = digest(data)
+    artifact_ref = "artifact_#{binary_part(sha256, 0, 24)}"
+
+    metadata = %{
+      "bytes" => byte_size(data),
+      "id" => artifact_ref,
+      "media_type" => "image/png",
+      "name" => "service-load.png",
+      "sha256" => sha256
+    }
+
+    remote = Map.put(metadata, "data", data)
+    claim = claim_episode!("output-artifact")
+
+    candidate =
+      Jason.encode!(%{
+        "decision_reason" => nil,
+        "delivery" => "reply",
+        "message" => "The requested chart is attached.",
+        "outcome" => %{
+          "artifact_refs" => [artifact_ref],
+          "record_refs" => [],
+          "state" => "complete"
+        }
+      })
+
+    {:ok, fake} =
+      FakeAPI.start_link([candidate],
+        output_artifact_metadata: [metadata],
+        output_artifacts: %{artifact_ref => remote}
+      )
+
+    assert {:ok, %{status: :accepted, turn: turn}} = Executor.run(claim, options(fake))
+    assert turn.status == :delivery_pending
+
+    assert {:ok, [stored]} =
+             Outputs.fetch_many(turn.id, [artifact_ref])
+
+    assert stored.data == data
+    assert stored.name == "service-load.png"
+    assert stored.sha256 == sha256
+  end
+
+  test "a generated filename is repaired to Coop's durable artifact reference in the same turn" do
+    # A real image turn produced valid bytes, but the model only knew the saved
+    # filename. Three generic semantic rejections then exhausted the turn even
+    # though Coop had already issued the durable artifact identity.
+    data = <<137, 80, 78, 71, 13, 10, 26, 10, "handoff-chart">>
+    sha256 = digest(data)
+    artifact_ref = "artifact_#{binary_part(sha256, 0, 24)}"
+
+    metadata = %{
+      "bytes" => byte_size(data),
+      "id" => artifact_ref,
+      "media_type" => "image/png",
+      "name" => "handoff-summary.png",
+      "sha256" => sha256
+    }
+
+    filename_candidate =
+      reply("The requested chart is attached.")
+      |> Jason.decode!()
+      |> put_in(["outcome", "artifact_refs"], ["handoff-summary.png"])
+      |> Jason.encode!()
+
+    reference_candidate =
+      reply("The requested chart is attached.")
+      |> Jason.decode!()
+      |> put_in(["outcome", "artifact_refs"], [artifact_ref])
+      |> Jason.encode!()
+
+    claim = claim_episode!("output-artifact-filename-repair")
+
+    assert {:ok, _turn} =
+             Custody.record_final_preflight(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               FinalPreflight.candidate_sha256(Jason.decode!(filename_candidate)),
+               FinalPreflight.ledger_sha256(
+                 claim.episode.id,
+                 claim.episode.semantic_version,
+                 ["handoff-summary.png"]
+               ),
+               claim.episode.semantic_version
+             )
+
+    {:ok, fake} =
+      fake_for(claim, [filename_candidate, reference_candidate],
+        output_artifact_metadata: [metadata],
+        output_artifacts: %{artifact_ref => Map.put(metadata, "data", data)}
+      )
+
+    run_options =
+      options(fake)
+      |> Keyword.put(:state_tools_endpoint, "https://responder.example/v1/state-tools/mcp")
+      |> Keyword.put(:state_tools_secret, "controller-state-tools-secret")
+
+    assert {:ok, %{status: :accepted, turn: turn}} = Executor.run(claim, run_options)
+    assert Enum.map(FakeAPI.state(fake).validations, & &1.verdict) == [:reject, :accept]
+
+    assert FakeAPI.state(fake).validations |> hd() |> Map.fetch!(:violations) |> hd() =~
+             artifact_ref
+
+    assert {:ok, [_stored]} = Outputs.fetch_many(turn.id, [artifact_ref])
+  end
+
+  test "output artifact custody rejects missing, malformed, and crossed remote bytes" do
+    data = <<137, 80, 78, 71, 13, 10, 26, 10, "generated-chart">>
+    sha256 = digest(data)
+    artifact_ref = "artifact_#{binary_part(sha256, 0, 24)}"
+
+    metadata = %{
+      "bytes" => byte_size(data),
+      "id" => artifact_ref,
+      "media_type" => "image/png",
+      "name" => "service-load.png",
+      "sha256" => sha256
+    }
+
+    candidate =
+      Jason.encode!(%{
+        "decision_reason" => nil,
+        "delivery" => "reply",
+        "message" => "The requested chart is attached.",
+        "outcome" => %{
+          "artifact_refs" => [artifact_ref],
+          "record_refs" => [],
+          "state" => "complete"
+        }
+      })
+
+    cases = [
+      {:crossed_identity, Map.put(Map.put(metadata, "data", data), "id", "artifact_other"),
+       {:coop_protocol_error, :output_artifact_identity}},
+      {:malformed_payload, Map.put(metadata, "data", 42),
+       {:coop_protocol_error, :output_artifact}},
+      {:missing_payload, nil, {:coop_error, 404, "artifact_not_found", "artifact not found"}}
+    ]
+
+    Enum.each(cases, fn {suffix, remote, expected_error} ->
+      claim = claim_episode!("output-artifact-#{suffix}")
+      artifacts = if is_nil(remote), do: %{}, else: %{artifact_ref => remote}
+
+      {:ok, fake} =
+        fake_for(claim, [candidate],
+          output_artifact_metadata: [metadata],
+          output_artifacts: artifacts
+        )
+
+      assert Executor.run(claim, options(fake)) == {:error, expected_error}
+
+      assert Outputs.fetch_many(claim.turn.id, [artifact_ref]) ==
+               {:error, :work_output_artifact_not_found}
+    end)
+
+    missing_metadata = claim_episode!("output-artifact-missing-metadata")
+
+    {:ok, fake} =
+      fake_for(missing_metadata, [candidate],
+        output_artifact_metadata: [metadata],
+        output_artifacts: %{artifact_ref => Map.put(metadata, "data", data)}
+      )
+
+    strip_metadata = fn fallback ->
+      {:ok, response} = fallback.()
+      {:ok, update_in(response, ["turn"], &Map.put(&1, "output_artifacts", []))}
+    end
+
+    assert Executor.run(
+             missing_metadata,
+             protocol_options(fake, %{validate_candidate: strip_metadata})
+           ) == {:error, {:coop_protocol_error, :accepted_artifact_metadata}}
+  end
+
   test "a semantic rejection repairs in the same Coop turn and keeps one accepted result" do
     # Production had 98 correction events across 41 recent episodes; the host
     # must return useful violations without starting another model session.
@@ -126,6 +681,292 @@ defmodule Responder.Work.ExecutorTest do
 
     assert state.validations |> hd() |> Map.fetch!(:violations) |> hd() =~
              "explicit human request"
+  end
+
+  test "an unrenderable Slack result repairs in the same Coop turn before delivery custody" do
+    claim = claim_episode!("slack-presentation-repair")
+
+    refs =
+      Enum.map(1..51, fn index ->
+        assert {:ok, record} =
+                 Records.create(
+                   Records.token(claim.turn),
+                   "presentation-progress-#{index}",
+                   "progress",
+                   %{
+                     "next_due_at" => nil,
+                     "phase" => "checking-#{index}",
+                     "summary" => "Completed bounded check #{index}."
+                   }
+                 )
+
+        record.ref
+      end)
+
+    {:ok, fake} =
+      FakeAPI.start_link([
+        reply_with_records("This result is too large for Slack.", refs),
+        reply("The bounded result is ready.")
+      ])
+
+    assert {:ok, %{status: :accepted, turn: turn}} = Executor.run(claim, options(fake))
+    assert turn.delivery_document["message"] == "The bounded result is ready."
+
+    state = FakeAPI.state(fake)
+    assert Enum.map(state.validations, & &1.verdict) == [:reject, :accept]
+
+    violation = state.validations |> hd() |> Map.fetch!(:violations) |> hd()
+    assert violation =~ "cannot be rendered safely"
+    assert violation =~ "invalid_slack_render"
+
+    assert state.submit_count == 1
+  end
+
+  test "shadow execution repairs a visible answer and settles without delivery" do
+    claim = claim_episode!("shadow-observe-only", nil, :shadow)
+
+    {:ok, fake} =
+      FakeAPI.start_link([
+        reply("I would post this investigation result."),
+        silent("Would retain the read-only assessment without posting.")
+      ])
+
+    assert {:ok, execution} = Executor.run(claim, options(fake))
+    assert execution.status == :accepted
+    assert execution.episode.execution_mode == :shadow
+    assert execution.episode.state == :complete
+    assert execution.turn.status == :settled
+    assert execution.turn.delivery_ref == nil
+
+    state = FakeAPI.state(fake)
+    assert state.create_count == 1
+    assert state.submit_count == 1
+    assert Enum.map(state.validations, & &1.verdict) == [:reject, :accept]
+
+    assert state.validations |> hd() |> Map.fetch!(:violations) |> hd() =~
+             "observe-only shadow"
+
+    [submission] = state.submissions
+    assert submission.prompt =~ ~s("execution_mode":"shadow")
+  end
+
+  test "an open required goal is corrected in the same turn instead of failing finalization" do
+    # run_dab83e5b spent 43 finalization attempts because a required goal was
+    # still open. The validator must give the model an actionable correction
+    # before Coop accepts the result, while retaining the same logical turn.
+    claim = claim_episode!("open-required-goal")
+    token = Records.token(claim.turn)
+
+    assert {:ok, _goal} =
+             Records.create(token, "goal-check-workers", "goal", %{
+               "authority" => "read_only",
+               "completion_contract" => "A current worker observation is recorded.",
+               "id" => "check-workers",
+               "kind" => "check",
+               "requested_outcome" => "Check worker health",
+               "required" => true
+             })
+
+    assert {:ok, question} =
+             Records.create(token, "question-worker-signal", "input_request", %{
+               "choices" => ["Provide metric source", "Stop"],
+               "question" => "Which worker-health source should I inspect?"
+             })
+
+    waiting =
+      Jason.encode!(%{
+        "decision_reason" => nil,
+        "delivery" => "reply",
+        "message" => "Which worker-health source should I inspect?",
+        "outcome" => %{
+          "artifact_refs" => [],
+          "record_refs" => [question.ref],
+          "state" => "waiting_for_input"
+        }
+      })
+
+    {:ok, fake} = FakeAPI.start_link([reply("Everything is complete."), waiting])
+
+    assert {:ok, %{status: :accepted, turn: turn}} = Executor.run(claim, options(fake))
+    assert turn.delivery_document["outcome"]["state"] == "waiting_for_input"
+
+    state = FakeAPI.state(fake)
+    assert state.create_count == 1
+    assert state.submit_count == 1
+    assert Enum.map(state.validations, & &1.verdict) == [:reject, :accept]
+
+    violations = state.validations |> hd() |> Map.fetch!(:violations)
+    assert Enum.any?(violations, &String.contains?(&1, "check-workers"))
+    assert Enum.any?(violations, &String.contains?(&1, "update_goal"))
+  end
+
+  test "an omitted durable wait is repaired in the same Coop turn" do
+    # A real model-world run created a wait and then returned complete without
+    # its ref. Accepting that candidate completed the episode but left the wait
+    # open forever, so retention could never discard the Coop workspace.
+    claim = claim_episode!("omitted-durable-wait")
+
+    assert {:ok, wait} =
+             Records.create(Records.token(claim.turn), "verify-rollout", "event_wait", %{
+               "deadline_at" => "2099-08-28T12:30:00.000000Z",
+               "event_matcher" => %{"revision" => "99183465", "state" => "verification_due"},
+               "kind" => "deployment_health",
+               "verification" => "Verify Airflow revision 99183465."
+             })
+
+    waiting =
+      Jason.encode!(%{
+        "decision_reason" => nil,
+        "delivery" => "reply",
+        "message" => "I will verify revision 99183465 after the observation window.",
+        "outcome" => %{
+          "artifact_refs" => [],
+          "record_refs" => [wait.ref],
+          "state" => "waiting_for_event"
+        }
+      })
+
+    {:ok, fake} = FakeAPI.start_link([reply("The rollout is complete."), waiting])
+
+    assert {:ok, %{status: :accepted, turn: turn}} = Executor.run(claim, options(fake))
+    assert turn.delivery_document["outcome"]["state"] == "waiting_for_event"
+    assert turn.delivery_document["outcome"]["record_refs"] == [wait.ref]
+
+    state = FakeAPI.state(fake)
+    assert state.submit_count == 1
+    assert Enum.map(state.validations, & &1.verdict) == [:reject, :accept]
+
+    assert state.validations |> hd() |> Map.fetch!(:violations) |> hd() =~
+             "Open durable waits cannot be abandoned"
+  end
+
+  test "uncommitted engineering work is corrected and committed in the same Coop turn" do
+    # A completion claim must not escape while intended repository changes are
+    # still staged, unstaged, untracked, or conflicted. The correction belongs
+    # to the same logical Coop turn so the workspace and accepted work survive.
+    claim = claim_episode!("engineering-completion")
+    token = Records.token(claim.turn)
+
+    assert {:ok, _goal} =
+             Records.create(token, "goal-engineering", "goal", %{
+               "authority" => "repository_write",
+               "completion_contract" => "The requested implementation is committed.",
+               "id" => "implement-feature",
+               "kind" => "engineering",
+               "requested_outcome" => "Implement the requested feature",
+               "required" => true,
+               "writable_repository" => "responder"
+             })
+
+    assert {:ok, _goal_state} =
+             Records.create(token, "goal-engineering-complete", "goal_state", %{
+               "detail" => "Implementation completed in the workspace.",
+               "goal_id" => "implement-feature",
+               "state" => "completed"
+             })
+
+    dirty = workspace_changes(staged: [%{"path" => "lib/feature.ex", "status" => "modified"}])
+
+    committed =
+      workspace_changes(
+        committed: [%{"path" => "lib/feature.ex", "status" => "modified"}],
+        fork_head: "commit-feature",
+        fork_tree: "tree-feature"
+      )
+
+    {:ok, fake} =
+      FakeAPI.start_link(
+        [reply("The implementation is complete."), reply("The implementation is committed.")],
+        changes: [dirty, committed]
+      )
+
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, options(fake))
+
+    state = FakeAPI.state(fake)
+    assert state.submit_count == 1
+    assert state.changes_count == 2
+    assert Enum.map(state.validations, & &1.verdict) == [:reject, :accept]
+    assert state.validations |> hd() |> Map.fetch!(:violations) |> hd() =~ "uncommitted"
+  end
+
+  test "malformed workspace evidence cannot authorize an engineering completion" do
+    invalid_changes = [
+      :invalid,
+      workspace_changes(base_commit: nil),
+      workspace_changes(fork_head: <<0>>),
+      workspace_changes(fork_tree: String.duplicate("x", 257)),
+      workspace_changes(pull_request_tree: 42),
+      workspace_changes(committed: :invalid),
+      workspace_changes(staged: :invalid),
+      workspace_changes(unstaged: :invalid),
+      workspace_changes(untracked: :invalid),
+      workspace_changes(conflicts: :invalid)
+    ]
+
+    for {changes, index} <- Enum.with_index(invalid_changes, 1) do
+      claim = claim_episode!("malformed-workspace-#{index}")
+      token = Records.token(claim.turn)
+
+      assert {:ok, _goal} =
+               Records.create(token, "goal-malformed-workspace-#{index}", "goal", %{
+                 "authority" => "repository_write",
+                 "completion_contract" => "The requested implementation is committed.",
+                 "id" => "implement-feature-#{index}",
+                 "kind" => "engineering",
+                 "requested_outcome" => "Implement the requested feature",
+                 "required" => true,
+                 "writable_repository" => "responder"
+               })
+
+      {:ok, fake} =
+        FakeAPI.start_link([reply("The implementation is complete.")], changes: [changes])
+
+      FakeAPI.update(fake, fn state ->
+        %{state | session: %{state.session | "id" => "remote_work_malformed_#{index}"}}
+      end)
+
+      assert Executor.run(claim, options(fake)) ==
+               {:error, {:coop_protocol_error, :workspace_changes}}
+
+      state = FakeAPI.state(fake)
+      assert state.submit_count == 1
+      assert state.validations == []
+    end
+  end
+
+  test "one logical completion cannot combine different writable repositories" do
+    claim = claim_episode!("repository-goal-conflict")
+    token = Records.token(claim.turn)
+
+    Enum.each([{"api", "responder"}, {"worker", "coop"}], fn {goal_id, repository} ->
+      assert {:ok, _goal} =
+               Records.create(token, "goal-#{goal_id}", "goal", %{
+                 "authority" => "repository_write",
+                 "completion_contract" => "The requested implementation is committed.",
+                 "id" => goal_id,
+                 "kind" => "engineering",
+                 "requested_outcome" => "Implement #{goal_id}",
+                 "required" => true,
+                 "writable_repository" => repository
+               })
+
+      assert {:ok, _state} =
+               Records.create(token, "goal-state-#{goal_id}", "goal_state", %{
+                 "detail" => "Implementation completed in the workspace.",
+                 "goal_id" => goal_id,
+                 "state" => "completed"
+               })
+    end)
+
+    {:ok, fake} =
+      FakeAPI.start_link([reply("Both repository changes are complete.")],
+        changes: [workspace_changes(committed: [%{"path" => "lib/change.ex"}])]
+      )
+
+    assert Executor.run(claim, options(fake)) ==
+             {:error, {:invalid_work_state, :repository_write_goals}}
+
+    assert FakeAPI.state(fake).validations == []
   end
 
   test "a lost validation response reconciles the exact candidate without another model turn" do
@@ -644,6 +1485,92 @@ defmodule Responder.Work.ExecutorTest do
     assert persisted_turn.submission["context"]["mode"] == "full"
   end
 
+  test "a lost fleet placement rotates the immutable Work session before reconstruction" do
+    claim = claim_with_bound_empty_session!("fleet-placement-rotation")
+    candidate = reply("The reconstructed session completed the work.")
+
+    assert {:ok, _turn} =
+             Custody.record_final_preflight(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               FinalPreflight.candidate_sha256(Jason.decode!(candidate)),
+               FinalPreflight.ledger_sha256(
+                 claim.episode.id,
+                 claim.episode.semantic_version,
+                 []
+               ),
+               claim.episode.semantic_version
+             )
+
+    {:ok, fake} = fake_for(claim, [candidate])
+
+    FakeAPI.update(fake, fn state ->
+      %{state | session: Map.put(state.session, "state", "discarded")}
+    end)
+
+    replacement_error =
+      {:error, {:coop_session_replacement_required, claim.session.id, claim.session.generation}}
+
+    {:ok, replacement_seen} = Agent.start_link(fn -> false end)
+
+    get_session = fn fallback ->
+      first? = Agent.get_and_update(replacement_seen, &{not &1, true})
+      if first?, do: replacement_error, else: fallback.()
+    end
+
+    client = %{
+      fake: fake,
+      overrides: %{get_session: get_session}
+    }
+
+    run_options =
+      fake
+      |> options()
+      |> Keyword.merge(api: ProtocolAPI, client: client)
+      |> Keyword.put(:state_tools_endpoint, "https://responder.example/v1/state-tools/mcp")
+      |> Keyword.put(:state_tools_secret, "controller-state-tools-secret")
+
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, run_options)
+
+    sessions =
+      Repo.all(
+        from(session in Responder.Work.Session,
+          where: session.episode_id == ^claim.episode.id,
+          order_by: [asc: session.generation]
+        )
+      )
+
+    assert Enum.map(sessions, & &1.generation) == [1, 2]
+    replacement = List.last(sessions)
+    assert replacement.coop_session_id != claim.session.coop_session_id
+
+    persisted_turn = Repo.get!(Responder.Work.Turn, claim.turn.id)
+
+    assert {:ok, expected_binding} =
+             StateBinding.derive(
+               replacement,
+               persisted_turn,
+               StateBinding.local_scope(replacement),
+               "https://responder.example/v1/state-tools/mcp",
+               "controller-state-tools-secret"
+             )
+
+    assert [submitted_binding] = FakeAPI.state(fake).bindings
+    assert submitted_binding["token"] == expected_binding.token
+
+    assert {:ok, stale_binding} =
+             StateBinding.derive(
+               claim.session,
+               persisted_turn,
+               StateBinding.local_scope(claim.session),
+               "https://responder.example/v1/state-tools/mcp",
+               "controller-state-tools-secret"
+             )
+
+    refute stale_binding.token == expected_binding.token
+  end
+
   test "a bound turn remains pollable after its immutable session becomes exhausted" do
     claim = bound_turn!("bound-turn-exhausted-session")
     {:ok, fake} = fake_for(claim, [])
@@ -733,6 +1660,137 @@ defmodule Responder.Work.ExecutorTest do
              wrong_turn,
              protocol_options(wrong_turn_fake, %{get_turn: change_turn_id})
            ) == {:error, {:coop_protocol_error, :turn_identity}}
+
+    wrong_binding = bound_turn!("wrong-turn-binding")
+
+    assert {:ok, binding} =
+             StateBinding.derive(
+               wrong_binding.session,
+               wrong_binding.turn,
+               StateBinding.local_scope(wrong_binding.session),
+               "https://responder.example/v1/state-tools/mcp",
+               "controller-state-tools-secret"
+             )
+
+    assert {:ok, bound_binding_turn} =
+             Custody.bind_state_tools(
+               wrong_binding.episode.id,
+               wrong_binding.turn.turn_ref,
+               wrong_binding.lease_ref,
+               binding.endpoint,
+               binding.token_sha256
+             )
+
+    wrong_binding = %{wrong_binding | turn: bound_binding_turn}
+    {:ok, wrong_binding_fake} = fake_for(wrong_binding, [])
+
+    FakeAPI.seed_turn(
+      wrong_binding_fake,
+      wrong_binding.session.coop_session_id,
+      wrong_binding.turn.coop_turn_id,
+      "running"
+    )
+
+    change_binding_digest = fn fallback ->
+      {:ok, turn} = fallback.()
+      {:ok, Map.put(turn, "responder_binding_digest", String.duplicate("f", 64))}
+    end
+
+    binding_options =
+      wrong_binding_fake
+      |> protocol_options(%{get_turn: change_binding_digest})
+      |> Keyword.put(:state_tools_endpoint, binding.endpoint)
+      |> Keyword.put(:state_tools_secret, "controller-state-tools-secret")
+
+    assert Executor.run(wrong_binding, binding_options) ==
+             {:error, {:coop_protocol_error, :turn_authority}}
+  end
+
+  test "an evaluation turn cannot start in a repository-writable Coop session" do
+    claim = claim_with_bound_empty_session!("eval-session-must-be-read-only")
+    {:ok, fake} = fake_for(claim, [reply("must not run")])
+
+    FakeAPI.update(fake, fn state ->
+      %{state | session: Map.put(state.session, "repository_read_only", false)}
+    end)
+
+    assert Executor.run(
+             claim,
+             Keyword.put(options(fake), :require_repository_read_only, true)
+           ) == {:error, {:coop_protocol_error, :session_repository_write_authority}}
+
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
+  test "an evaluation turn cannot inherit Coop project environment or MCP authority" do
+    for field <- ["project_env", "project_mcp"] do
+      claim = claim_with_bound_empty_session!("eval-session-isolated-#{field}")
+      {:ok, fake} = fake_for(claim, [reply("must not run")])
+
+      FakeAPI.update(fake, fn state ->
+        %{state | session: Map.put(state.session, field, true)}
+      end)
+
+      assert Executor.run(
+               claim,
+               Keyword.put(options(fake), :require_project_isolation, true)
+             ) == {:error, {:coop_protocol_error, :session_project_authority}}
+
+      assert FakeAPI.state(fake).submit_count == 0
+    end
+  end
+
+  test "an evaluation freezes the exact trusted Coop workspace map before model submission" do
+    claim = claim_with_bound_empty_session!("eval-workspace-map")
+    {:ok, fake} = fake_for(claim, [reply("The repository is available.")])
+
+    companion = %{
+      "base_commit" => "41af103a96d71c93887fe2b4dc9eed2d75f8fcb7",
+      "name" => "blitz-rivals-scraper",
+      "path" => "/coop/repositories/blitz-rivals-scraper"
+    }
+
+    FakeAPI.update(fake, fn state ->
+      session =
+        state.session
+        |> Map.put("base_commit", "5d1fa43d2efe46e8409dde0e93e79af93fb6622f")
+        |> Map.put("companions", [companion])
+
+      %{state | session: session}
+    end)
+
+    run_options =
+      options(fake)
+      |> Keyword.put(:require_project_isolation, true)
+      |> Keyword.put(:require_repository_read_only, true)
+      |> Keyword.put(:workspace_requirements, [
+        Map.take(companion, ["base_commit", "name"])
+      ])
+
+    assert {:ok, %{status: :accepted, turn: accepted}} = Executor.run(claim, run_options)
+
+    assert get_in(accepted.submission, ["context", "workspace"]) == %{
+             "companions" => [Map.put(companion, "read_only", true)],
+             "primary" => %{
+               "base_commit" => "5d1fa43d2efe46e8409dde0e93e79af93fb6622f",
+               "name" => "primary",
+               "path" => ".",
+               "read_only" => true
+             }
+           }
+
+    missing = claim_with_bound_empty_session!("eval-workspace-map-missing")
+    {:ok, missing_fake} = fake_for(missing, [reply("Must not run.")])
+
+    assert Executor.run(
+             missing,
+             options(missing_fake)
+             |> Keyword.put(:workspace_requirements, [
+               Map.take(companion, ["base_commit", "name"])
+             ])
+           ) == {:error, {:coop_protocol_error, :session_workspace}}
+
+    assert FakeAPI.state(missing_fake).submit_count == 0
   end
 
   test "a submit revision conflict spends only the submit generation" do
@@ -1396,7 +2454,10 @@ defmodule Responder.Work.ExecutorTest do
              )
   end
 
-  defp claim_episode!(suffix) do
+  defp claim_episode!(suffix), do: claim_episode!(suffix, nil, :live)
+  defp claim_episode!(suffix, payload), do: claim_episode!(suffix, payload, :live)
+
+  defp claim_episode!(suffix, payload, execution_mode) do
     id = Ecto.UUID.generate()
 
     command =
@@ -1404,9 +2465,10 @@ defmodule Responder.Work.ExecutorTest do
         actor_ref: "slack:user:U-stage3",
         episode_id: id,
         episode_key: "work-executor:#{suffix}:#{id}",
+        execution_mode: execution_mode,
         native_input_id: "slack-message:#{suffix}:#{id}",
         occurred_at: @now,
-        payload: %{"text" => "Please handle #{suffix}."},
+        payload: payload || %{"text" => "Please handle #{suffix}."},
         turn_ref: "turn:#{suffix}:#{id}"
       })
 
@@ -1619,6 +2681,53 @@ defmodule Responder.Work.ExecutorTest do
       }
     })
   end
+
+  defp reply_with_records(message, record_refs) do
+    Jason.encode!(%{
+      "decision_reason" => nil,
+      "delivery" => "reply",
+      "message" => message,
+      "outcome" => %{
+        "artifact_refs" => [],
+        "record_refs" => record_refs,
+        "state" => "complete"
+      }
+    })
+  end
+
+  defp workspace_changes(overrides) do
+    overrides = Map.new(overrides)
+
+    %{
+      "base_commit" => Map.get(overrides, :base_commit, "base-commit"),
+      "committed" => Map.get(overrides, :committed, []),
+      "conflicts" => Map.get(overrides, :conflicts, []),
+      "fork_head" => Map.get(overrides, :fork_head, "base-commit"),
+      "fork_tree" => Map.get(overrides, :fork_tree, "base-tree"),
+      "parent_head" => "parent-head",
+      "parent_divergence" => %{
+        "ahead" => 0,
+        "base_to_fork" => 0,
+        "base_to_parent" => 0,
+        "behind" => 0,
+        "diverged" => false
+      },
+      "patch_bytes" => 0,
+      "patch_has_more" => false,
+      "patch_next_offset" => 0,
+      "patch_offset" => 0,
+      "staged" => Map.get(overrides, :staged, []),
+      "truncated" => false,
+      "unstaged" => Map.get(overrides, :unstaged, []),
+      "untracked" => Map.get(overrides, :untracked, [])
+    }
+    |> maybe_put_pull_request_tree(overrides)
+  end
+
+  defp maybe_put_pull_request_tree(changes, %{pull_request_tree: tree}),
+    do: Map.put(changes, "pull_request_tree", tree)
+
+  defp maybe_put_pull_request_tree(changes, _overrides), do: changes
 
   defp silent(reason) do
     Jason.encode!(%{

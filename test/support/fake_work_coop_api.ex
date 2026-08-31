@@ -3,11 +3,18 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
 
   @behaviour Responder.Coop.API
 
+  alias Responder.Work.StateBinding
+
   def start_link(candidates, options \\ []) do
     Agent.start_link(fn ->
       %{
         candidates: candidates,
+        bindings: [],
         cancel_keys: [],
+        changes: Keyword.get(options, :changes, []),
+        changes_count: 0,
+        changes_page_requests: [],
+        checkpoint_keys: [],
         create_count: 0,
         create_keys: [],
         fence_create_keys: [],
@@ -20,17 +27,34 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
         lost_cancel_response: false,
         lost_submit_response: false,
         lost_validation_response: false,
+        output_artifact_metadata: Keyword.get(options, :output_artifact_metadata, []),
+        output_artifacts: Keyword.get(options, :output_artifacts, %{}),
+        on_validation_reject: Keyword.get(options, :on_validation_reject),
+        pause_after_submit: Keyword.get(options, :pause_after_submit),
+        paused_after_submit: false,
+        turn_finished_at: Keyword.get(options, :turn_finished_at),
+        turn_queued_at: Keyword.get(options, :turn_queued_at),
+        turn_started_at: Keyword.get(options, :turn_started_at),
+        turn_usage: Keyword.get(options, :turn_usage),
         operation_calls: %{},
         session: %{
+          "base_commit" => "5d1fa43d2efe46e8409dde0e93e79af93fb6622f",
+          "companions" => Keyword.get(options, :companions, []),
           "external_ref" => nil,
           "id" => "remote_work",
           "policy" => nil,
           "policy_digest" => String.duplicate("a", 64),
+          "project_env" => Keyword.get(options, :project_env, false),
+          "project_mcp" => Keyword.get(options, :project_mcp, false),
+          "repository_read_only" => true,
           "revision" => 1,
-          "state" => "open"
+          "state" => "open",
+          "target" => Keyword.get(options, :session_target, "codex:gpt-5.6-sol/high@work")
         },
         submissions: [],
         submit_count: 0,
+        submit_error_count: 0,
+        submit_errors: Keyword.get(options, :submit_errors, []),
         turn: nil,
         turn_keys: [],
         validation_keys: [],
@@ -120,6 +144,50 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
   def get_session(agent, _session_id), do: {:ok, Agent.get(agent, & &1.session)}
 
   @impl true
+  def checkpoint_workspace(agent, _session_id, key, _expected_revision) do
+    Agent.get_and_update(agent, fn state ->
+      receipt = %{
+        "checkpoint_ref" => "checkpoint:#{String.duplicate("c", 32)}",
+        "state" => "stored",
+        "transfer_id" => Ecto.UUID.generate()
+      }
+
+      {{:ok, receipt}, %{state | checkpoint_keys: state.checkpoint_keys ++ [key]}}
+    end)
+  end
+
+  @impl true
+  def get_changes(agent, _session_id) do
+    Agent.get_and_update(agent, fn state ->
+      case state.changes do
+        [changes, next | remaining] ->
+          {{:ok, changes},
+           %{state | changes: [next | remaining], changes_count: state.changes_count + 1}}
+
+        [changes] ->
+          {{:ok, changes}, %{state | changes_count: state.changes_count + 1}}
+
+        [] ->
+          {{:error, {:coop_error, 404, "workspace_not_found", "no workspace changes fixture"}},
+           %{state | changes_count: state.changes_count + 1}}
+      end
+    end)
+  end
+
+  @impl true
+  def get_changes_page(agent, session_id, patch_offset, patch_limit) do
+    Agent.update(agent, fn state ->
+      update_in(
+        state,
+        [:changes_page_requests],
+        &(&1 ++ [{session_id, patch_offset, patch_limit}])
+      )
+    end)
+
+    get_changes(agent, session_id)
+  end
+
+  @impl true
   def close_session(agent, _session_id, key, _expected_revision) do
     Agent.get_and_update(agent, fn state ->
       session =
@@ -141,36 +209,168 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
 
   @impl true
   def submit_turn(agent, session_id, key, expected_revision, prompt, schema) do
-    Agent.get_and_update(agent, fn state ->
-      [candidate | remaining] = state.candidates
-      turn = awaiting_turn(session_id, "work_turn_#{session_id}", candidate, 1)
-      operation = succeeded_operation("SubmitTurn", "turn", turn["id"])
+    submit_turn_with_artifacts(agent, session_id, key, expected_revision, prompt, schema, [])
+  end
 
-      submission = %{
-        expected_revision: expected_revision,
-        key: key,
-        prompt: prompt,
-        schema: schema
-      }
+  @impl true
+  def submit_turn_with_artifacts(
+        agent,
+        session_id,
+        key,
+        expected_revision,
+        prompt,
+        schema,
+        artifacts
+      ) do
+    submit_with_binding(
+      agent,
+      session_id,
+      key,
+      expected_revision,
+      prompt,
+      schema,
+      nil,
+      artifacts
+    )
+  end
 
-      next = %{
-        state
-        | candidates: remaining,
-          known_operations: Map.put(state.known_operations, key, operation),
-          session: Map.update!(state.session, "revision", &(&1 + 1)),
-          submissions: state.submissions ++ [submission],
-          submit_count: state.submit_count + 1,
-          turn: turn,
-          turn_keys: state.turn_keys ++ [key]
-      }
+  @impl true
+  def submit_frozen_turn(
+        agent,
+        session_id,
+        key,
+        expected_revision,
+        submission,
+        binding,
+        artifacts
+      ) do
+    submit_with_binding(
+      agent,
+      session_id,
+      key,
+      expected_revision,
+      submission["prompt"],
+      submission["output_schema"],
+      binding,
+      artifacts
+    )
+  end
 
-      if state.lose_first_submit_response and not state.lost_submit_response do
-        {{:error, {:coop_unavailable, :simulated_submit_response_loss}},
-         %{next | lost_submit_response: true}}
-      else
-        {{:ok, %{"operation" => operation, "turn" => turn}}, next}
+  defp submit_with_binding(
+         agent,
+         session_id,
+         key,
+         expected_revision,
+         prompt,
+         schema,
+         binding,
+         artifacts
+       ) do
+    result =
+      Agent.get_and_update(agent, fn state ->
+        submit_result(
+          state,
+          session_id,
+          key,
+          expected_revision,
+          prompt,
+          schema,
+          binding,
+          artifacts
+        )
+      end)
+
+    pause_after_submit(agent, result)
+  end
+
+  defp pause_after_submit(agent, {:ok, _response} = result) do
+    notify =
+      Agent.get_and_update(agent, fn state ->
+        if is_pid(state.pause_after_submit) and not state.paused_after_submit do
+          {state.pause_after_submit, %{state | paused_after_submit: true}}
+        else
+          {nil, state}
+        end
+      end)
+
+    if is_pid(notify) do
+      send(notify, {:fake_work_submit_committed, self()})
+
+      receive do
+        {:release_fake_work_submit, caller} when caller == self() -> result
       end
-    end)
+    else
+      result
+    end
+  end
+
+  defp pause_after_submit(_agent, result), do: result
+
+  defp submit_result(
+         %{submit_errors: [error | remaining]} = state,
+         _session_id,
+         _key,
+         _expected_revision,
+         _prompt,
+         _schema,
+         _binding,
+         _artifacts
+       ) do
+    {error,
+     %{
+       state
+       | submit_error_count: state.submit_error_count + 1,
+         submit_errors: remaining
+     }}
+  end
+
+  defp submit_result(
+         state,
+         session_id,
+         key,
+         expected_revision,
+         prompt,
+         schema,
+         binding,
+         artifacts
+       ) do
+    [candidate | remaining] = state.candidates
+
+    turn =
+      session_id
+      |> awaiting_turn("work_turn_#{session_id}_#{state.submit_count + 1}", candidate, 1)
+      |> Map.put("output_artifacts", state.output_artifact_metadata)
+      |> maybe_put_binding_digest(binding)
+
+    operation = succeeded_operation("SubmitTurn", "turn", turn["id"])
+
+    submission = %{
+      expected_revision: expected_revision,
+      artifacts: artifacts,
+      responder_binding: binding,
+      key: key,
+      prompt: prompt,
+      schema: schema
+    }
+
+    next = %{
+      state
+      | candidates: remaining,
+        bindings: if(binding, do: state.bindings ++ [binding], else: state.bindings),
+        known_operations: Map.put(state.known_operations, key, operation),
+        session: Map.update!(state.session, "revision", &(&1 + 1)),
+        submissions: state.submissions ++ [submission],
+        submit_count: state.submit_count + 1,
+        turn: turn,
+        turn_keys: state.turn_keys ++ [key]
+    }
+
+    if state.lose_first_submit_response and not state.lost_submit_response do
+      {{:error, {:coop_unavailable, :simulated_submit_response_loss}},
+       %{next | lost_submit_response: true}}
+    else
+      {{:ok, %{"operation" => operation, "turn" => turn}}, next}
+    end
   end
 
   @impl true
@@ -179,7 +379,47 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
   end
 
   @impl true
+  def fence_submit_turn_with_artifacts(
+        agent,
+        _session_id,
+        key,
+        _expected_revision,
+        _prompt,
+        _schema,
+        _artifacts
+      ) do
+    fence_operation(agent, key, "SubmitTurn", :fence_submit_keys)
+  end
+
+  @impl true
+  def fence_frozen_turn(
+        agent,
+        _session_id,
+        key,
+        _expected_revision,
+        _submission,
+        binding,
+        _artifacts
+      ) do
+    Agent.update(agent, fn state ->
+      %{state | bindings: if(binding, do: state.bindings ++ [binding], else: state.bindings)}
+    end)
+
+    fence_operation(agent, key, "SubmitTurn", :fence_submit_keys)
+  end
+
+  @impl true
   def get_turn(agent, _session_id, _turn_id), do: {:ok, Agent.get(agent, & &1.turn)}
+
+  @impl true
+  def get_output_artifact(agent, _session_id, _turn_id, artifact_id) do
+    Agent.get(agent, fn state ->
+      case Map.fetch(state.output_artifacts, artifact_id) do
+        {:ok, artifact} -> {:ok, artifact}
+        :error -> {:error, {:coop_error, 404, "artifact_not_found", "artifact not found"}}
+      end
+    end)
+  end
 
   @impl true
   def validate_candidate(agent, _session_id, _turn_id, key, sha256, :accept) do
@@ -195,6 +435,10 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
         |> Map.put("validation_attempt", candidate["attempt"])
         |> Map.put("validation_candidate_sha256", sha256)
         |> Map.put("validation_receipt", "validation:#{state.turn["id"]}:#{candidate["attempt"]}")
+        |> maybe_put("queued_at", state.turn_queued_at)
+        |> maybe_put("started_at", state.turn_started_at)
+        |> maybe_put("finished_at", state.turn_finished_at)
+        |> maybe_put("usage", state.turn_usage)
 
       operation =
         succeeded_operation("ValidateTurnCandidate", "turn_validation", completed["id"])
@@ -220,28 +464,43 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
   end
 
   def validate_candidate(agent, session_id, turn_id, key, sha256, {:reject, violations}) do
-    Agent.get_and_update(agent, fn state ->
-      [candidate | remaining] = state.candidates
-      attempt = state.turn["candidate"]["attempt"] + 1
-      current = awaiting_turn(session_id, turn_id, candidate, attempt)
+    {response, on_validation_reject} =
+      Agent.get_and_update(agent, fn state ->
+        [candidate | remaining] = state.candidates
+        attempt = state.turn["candidate"]["attempt"] + 1
 
-      operation =
-        succeeded_operation("ValidateTurnCandidate", "turn_validation", current["id"])
+        current =
+          session_id
+          |> awaiting_turn(turn_id, candidate, attempt)
+          |> Map.put("output_artifacts", Map.get(state.turn, "output_artifacts", []))
+          |> maybe_put("responder_binding_digest", state.turn["responder_binding_digest"])
 
-      validation = %{sha256: sha256, verdict: :reject, violations: violations}
+        operation =
+          succeeded_operation("ValidateTurnCandidate", "turn_validation", current["id"])
 
-      next = %{
-        state
-        | candidates: remaining,
-          known_operations: Map.put(state.known_operations, key, operation),
-          session: Map.update!(state.session, "revision", &(&1 + 1)),
-          turn: current,
-          validation_keys: state.validation_keys ++ [key],
-          validations: state.validations ++ [validation]
-      }
+        validation = %{sha256: sha256, verdict: :reject, violations: violations}
 
-      {{:ok, %{"operation" => operation, "turn" => current}}, next}
-    end)
+        next = %{
+          state
+          | candidates: remaining,
+            known_operations: Map.put(state.known_operations, key, operation),
+            session: Map.update!(state.session, "revision", &(&1 + 1)),
+            turn: current,
+            validation_keys: state.validation_keys ++ [key],
+            validations: state.validations ++ [validation]
+        }
+
+        {{{:ok, %{"operation" => operation, "turn" => current}}, state.on_validation_reject},
+         next}
+      end)
+
+    cond do
+      is_function(on_validation_reject, 1) -> on_validation_reject.(violations)
+      is_function(on_validation_reject, 0) -> on_validation_reject.()
+      true -> :ok
+    end
+
+    response
   end
 
   @impl true
@@ -284,6 +543,18 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
     }
   end
 
+  defp maybe_put_binding_digest(turn, nil), do: turn
+
+  defp maybe_put_binding_digest(turn, binding) do
+    token_sha256 = StateBinding.sha256(binding["token"])
+
+    Map.put(
+      turn,
+      "responder_binding_digest",
+      StateBinding.sha256(binding["endpoint"] <> <<0>> <> token_sha256)
+    )
+  end
+
   defp succeeded_operation(method, resource_type, resource_id) do
     %{
       "id" => "op_#{resource_type}_#{resource_id}",
@@ -316,4 +587,7 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
   end
 
   defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

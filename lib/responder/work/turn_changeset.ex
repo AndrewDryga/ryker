@@ -88,10 +88,62 @@ defmodule Responder.Work.TurnChangeset do
     |> work_constraints()
   end
 
+  @spec bind_state_tools(Turn.t(), String.t(), String.t()) :: Ecto.Changeset.t()
+  def bind_state_tools(%Turn{} = turn, endpoint, token_sha256) do
+    turn
+    |> cast(
+      %{state_tools_endpoint: endpoint, state_tools_token_sha256: token_sha256},
+      [:state_tools_endpoint, :state_tools_token_sha256]
+    )
+    |> validate_required([:state_tools_endpoint, :state_tools_token_sha256])
+    |> validate_length(:state_tools_endpoint, min: 1, max: 2_048, count: :bytes)
+    |> validate_format(:state_tools_token_sha256, ~r/\A[0-9a-f]{64}\z/)
+    |> work_constraints()
+  end
+
+  @spec record_final_preflight(Turn.t(), String.t(), String.t(), non_neg_integer()) ::
+          Ecto.Changeset.t()
+  def record_final_preflight(
+        %Turn{} = turn,
+        candidate_sha256,
+        ledger_sha256,
+        semantic_version
+      ) do
+    turn
+    |> cast(
+      %{
+        final_preflight_candidate_sha256: candidate_sha256,
+        final_preflight_ledger_sha256: ledger_sha256,
+        final_preflight_semantic_version: semantic_version
+      },
+      [
+        :final_preflight_candidate_sha256,
+        :final_preflight_ledger_sha256,
+        :final_preflight_semantic_version
+      ]
+    )
+    |> validate_required([
+      :final_preflight_candidate_sha256,
+      :final_preflight_ledger_sha256,
+      :final_preflight_semantic_version
+    ])
+    |> validate_format(:final_preflight_candidate_sha256, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:final_preflight_ledger_sha256, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_number(:final_preflight_semantic_version, greater_than_or_equal_to: 0)
+    |> work_constraints()
+  end
+
   @spec rebind_session(Turn.t(), Ecto.UUID.t()) :: Ecto.Changeset.t()
   def rebind_session(%Turn{} = turn, session_id) do
     turn
-    |> cast(%{session_id: session_id}, [:session_id])
+    |> cast(
+      %{
+        session_id: session_id,
+        state_tools_endpoint: nil,
+        state_tools_token_sha256: nil
+      },
+      [:session_id, :state_tools_endpoint, :state_tools_token_sha256]
+    )
     |> validate_required([:session_id])
     |> foreign_key_constraint(:session_id, name: :episode_work_turn_session_episode_fkey)
     |> work_constraints()
@@ -207,6 +259,39 @@ defmodule Responder.Work.TurnChangeset do
     |> validate_required([:last_error_code, :last_error_detail, :status])
     |> validate_length(:last_error_code, min: 1, max: 128)
     |> validate_length(:last_error_detail, min: 1, max: 4_096)
+    |> work_constraints()
+  end
+
+  @spec retry_delivery(Turn.t()) :: Ecto.Changeset.t()
+  def retry_delivery(%Turn{} = turn) do
+    turn
+    |> cast(
+      %{
+        delivery_attempt_count: 0,
+        delivery_retry_generation: turn.delivery_retry_generation + 1,
+        last_error_code: nil,
+        last_error_detail: nil,
+        lease_expires_at: nil,
+        lease_owner: nil,
+        lease_ref: nil,
+        next_attempt_at: nil,
+        status: :delivery_pending
+      },
+      [
+        :delivery_attempt_count,
+        :delivery_retry_generation,
+        :last_error_code,
+        :last_error_detail,
+        :lease_expires_at,
+        :lease_owner,
+        :lease_ref,
+        :next_attempt_at,
+        :status
+      ]
+    )
+    |> validate_required([:delivery_attempt_count, :delivery_retry_generation, :status])
+    |> validate_number(:delivery_attempt_count, equal_to: 0)
+    |> validate_number(:delivery_retry_generation, greater_than: 0)
     |> work_constraints()
   end
 
@@ -488,14 +573,30 @@ defmodule Responder.Work.TurnChangeset do
       :delivery_document,
       :delivery_fingerprint,
       :delivery_ref,
+      :execution_target,
       :last_error_code,
       :last_error_detail,
       :lease_expires_at,
       :lease_owner,
       :lease_ref,
+      :measurement_error_code,
       :next_attempt_at,
+      :remote_finished_at,
+      :remote_queued_at,
+      :remote_started_at,
       :result_ref,
       :status,
+      :timing_recorded,
+      :usage_cached_input_tokens,
+      :usage_cost_recorded,
+      :usage_cost_usd,
+      :usage_host_ms,
+      :usage_input_tokens,
+      :usage_output_tokens,
+      :usage_provider_ms,
+      :usage_queued_ms,
+      :usage_reasoning_tokens,
+      :usage_recorded,
       :validation_receipt
     ])
     |> validate_required([
@@ -509,6 +610,16 @@ defmodule Responder.Work.TurnChangeset do
     |> validate_length(:validation_receipt, min: 1, max: 4_096)
     |> validate_length(:delivery_ref, min: 1, max: 1_024)
     |> validate_length(:delivery_fingerprint, is: 64)
+    |> validate_length(:execution_target, min: 1, max: 512, count: :bytes)
+    |> validate_length(:measurement_error_code, min: 1, max: 256, count: :bytes)
+    |> validate_number(:usage_input_tokens, greater_than_or_equal_to: 0)
+    |> validate_number(:usage_cached_input_tokens, greater_than_or_equal_to: 0)
+    |> validate_number(:usage_output_tokens, greater_than_or_equal_to: 0)
+    |> validate_number(:usage_reasoning_tokens, greater_than_or_equal_to: 0)
+    |> validate_number(:usage_cost_usd, greater_than_or_equal_to: 0)
+    |> validate_number(:usage_queued_ms, greater_than_or_equal_to: 0)
+    |> validate_number(:usage_provider_ms, greater_than_or_equal_to: 0)
+    |> validate_number(:usage_host_ms, greater_than_or_equal_to: 0)
     |> unique_constraint(:result_ref)
     |> unique_constraint(:delivery_ref)
     |> work_constraints()
@@ -558,6 +669,9 @@ defmodule Responder.Work.TurnChangeset do
     |> check_constraint(:turn_ref, name: :episode_work_turn_identity_valid)
     |> check_constraint(:submit_generation, name: :episode_work_turn_generations_valid)
     |> check_constraint(:submission, name: :episode_work_turn_submission_valid)
+    |> check_constraint(:state_tools_endpoint,
+      name: :episode_work_turn_state_tools_binding_valid
+    )
     |> check_constraint(:remote_operation_kind,
       name: :episode_work_turn_remote_operation_valid
     )

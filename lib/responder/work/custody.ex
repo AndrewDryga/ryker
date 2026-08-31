@@ -9,6 +9,7 @@ defmodule Responder.Work.Custody do
 
   import Ecto.Query
 
+  alias Responder.Artifacts.References, as: ArtifactReferences
   alias Responder.CanonicalJSON
   alias Responder.Episodes
   alias Responder.Episodes.{Command, Episode}
@@ -17,6 +18,8 @@ defmodule Responder.Work.Custody do
   alias Responder.Work.{
     Cancellation,
     DeliveryReceipt,
+    FinalPreflight,
+    Measurement,
     Result,
     Session,
     SessionChangeset,
@@ -45,8 +48,14 @@ defmodule Responder.Work.Custody do
   @spec pin_episode(Ecto.UUID.t(), String.t(), String.t()) ::
           {:ok, Session.t()} | {:error, term()}
   def pin_episode(episode_id, policy, policy_digest) do
+    pin_episode(episode_id, policy, policy_digest, nil)
+  end
+
+  @spec pin_episode(Ecto.UUID.t(), String.t(), String.t(), String.t() | nil) ::
+          {:ok, Session.t()} | {:error, term()}
+  def pin_episode(episode_id, policy, policy_digest, repository_ref) do
     Repo.transaction(fn ->
-      case pin_episode_in_transaction(episode_id, policy, policy_digest) do
+      case pin_episode_in_transaction(episode_id, policy, policy_digest, repository_ref) do
         {:ok, session} -> session
         {:error, reason} -> Repo.rollback(reason)
       end
@@ -58,11 +67,55 @@ defmodule Responder.Work.Custody do
   @spec pin_episode_in_transaction(Ecto.UUID.t(), String.t(), String.t()) ::
           {:ok, Session.t()} | {:error, term()}
   def pin_episode_in_transaction(episode_id, policy, policy_digest) do
+    pin_episode_in_transaction(episode_id, policy, policy_digest, nil)
+  end
+
+  @spec pin_episode_in_transaction(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t() | nil
+        ) :: {:ok, Turn.t()} | {:error, term()}
+  def pin_episode_in_transaction(episode_id, policy, policy_digest, repository_ref) do
     with :ok <- transaction_open(),
          {:ok, episode_id} <- uuid(episode_id, :episode_id),
          :ok <- reference(policy, :policy),
-         :ok <- sha256(policy_digest, :policy_digest) do
-      {:ok, pin_episode_locked(episode_id, policy, policy_digest)}
+         :ok <- sha256(policy_digest, :policy_digest),
+         :ok <- optional_reference(repository_ref, :repository_ref) do
+      {:ok, pin_episode_locked(episode_id, policy, policy_digest, repository_ref)}
+    end
+  end
+
+  @doc false
+  @spec pin_task_episode_in_transaction(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t(),
+          map()
+        ) :: {:ok, Session.t()} | {:error, term()}
+  def pin_task_episode_in_transaction(
+        episode_id,
+        policy,
+        policy_digest,
+        repository_ref,
+        workspace_task
+      ) do
+    with {:ok, session} <-
+           pin_episode_in_transaction(episode_id, policy, policy_digest, repository_ref) do
+      case session.workspace_task do
+        nil ->
+          session
+          |> SessionChangeset.bind_workspace_task(workspace_task)
+          |> Repo.update()
+          |> persistence_result(:work_session_workspace_task)
+
+        ^workspace_task ->
+          {:ok, session}
+
+        _different ->
+          {:error, :work_session_workspace_task_conflict}
+      end
     end
   end
 
@@ -94,6 +147,126 @@ defmodule Responder.Work.Custody do
 
       Repo.transaction(fn ->
         freeze_locked(episode_id, turn_ref, lease_ref, submission, fingerprint)
+      end)
+      |> transaction_result()
+    end
+  end
+
+  @doc false
+  @spec record_final_preflight(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t(),
+          String.t(),
+          non_neg_integer()
+        ) :: {:ok, Turn.t()} | {:error, term()}
+  def record_final_preflight(
+        episode_id,
+        turn_ref,
+        lease_ref,
+        candidate_sha256,
+        ledger_sha256,
+        semantic_version
+      ) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(turn_ref, :turn_ref),
+         :ok <- reference(lease_ref, :lease_ref),
+         :ok <- sha256(candidate_sha256, :final_preflight_candidate_sha256),
+         :ok <- sha256(ledger_sha256, :final_preflight_ledger_sha256),
+         :ok <- non_negative_integer(semantic_version, :final_preflight_semantic_version) do
+      Repo.transaction(fn ->
+        {_, turn} = leased!(episode_id, turn_ref, lease_ref)
+
+        turn
+        |> TurnChangeset.record_final_preflight(
+          candidate_sha256,
+          ledger_sha256,
+          semantic_version
+        )
+        |> Repo.update()
+        |> unwrap_or_rollback(:work_final_preflight)
+      end)
+      |> transaction_result()
+    end
+  end
+
+  @doc false
+  @spec verify_final_preflight(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t(),
+          [String.t()]
+        ) :: {:ok, Turn.t()} | {:error, term()}
+  def verify_final_preflight(
+        episode_id,
+        turn_ref,
+        lease_ref,
+        candidate_sha256,
+        artifact_refs
+      ) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(turn_ref, :turn_ref),
+         :ok <- reference(lease_ref, :lease_ref),
+         :ok <- sha256(candidate_sha256, :final_preflight_candidate_sha256),
+         :ok <- artifact_refs(artifact_refs) do
+      Repo.transaction(fn ->
+        verify_final_preflight_locked(
+          episode_id,
+          turn_ref,
+          lease_ref,
+          candidate_sha256,
+          artifact_refs
+        )
+      end)
+      |> transaction_result()
+    end
+  end
+
+  defp verify_final_preflight_locked(
+         episode_id,
+         turn_ref,
+         lease_ref,
+         candidate_sha256,
+         artifact_refs
+       ) do
+    {_, turn} = leased!(episode_id, turn_ref, lease_ref)
+    episode = Repo.get!(Episode, episode_id)
+
+    ledger_sha256 =
+      FinalPreflight.ledger_sha256(
+        episode.id,
+        episode.semantic_version,
+        artifact_refs,
+        turn.id
+      )
+
+    if turn.final_preflight_candidate_sha256 == candidate_sha256 and
+         turn.final_preflight_ledger_sha256 == ledger_sha256 and
+         turn.final_preflight_semantic_version == episode.semantic_version do
+      turn
+    else
+      Repo.rollback(:work_final_preflight_required)
+    end
+  end
+
+  @doc false
+  @spec bind_state_tools(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t(),
+          String.t()
+        ) :: {:ok, Session.t()} | {:error, term()}
+  def bind_state_tools(episode_id, turn_ref, lease_ref, endpoint, token_sha256) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(turn_ref, :turn_ref),
+         :ok <- reference(lease_ref, :lease_ref),
+         :ok <- bounded_text(endpoint, 2_048, :state_tools_endpoint),
+         :ok <- sha256(token_sha256, :state_tools_token_sha256) do
+      Repo.transaction(fn ->
+        bind_state_tools_locked(episode_id, turn_ref, lease_ref, endpoint, token_sha256)
       end)
       |> transaction_result()
     end
@@ -172,6 +345,36 @@ defmodule Responder.Work.Custody do
          :ok <- positive_integer(expected_generation, :session_generation) do
       Repo.transaction(fn ->
         rotate_session_locked(episode_id, turn_ref, lease_ref, expected_generation)
+      end)
+      |> transaction_result()
+    end
+  end
+
+  @doc false
+  @spec replace_session_after_placement_loss(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          pos_integer()
+        ) :: {:ok, %{session: Session.t(), turn: Turn.t()}} | {:error, term()}
+  def replace_session_after_placement_loss(
+        episode_id,
+        turn_ref,
+        lease_ref,
+        expected_generation
+      ) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(turn_ref, :turn_ref),
+         :ok <- reference(lease_ref, :lease_ref),
+         :ok <- positive_integer(expected_generation, :session_generation) do
+      Repo.transaction(fn ->
+        rotate_session_locked(
+          episode_id,
+          turn_ref,
+          lease_ref,
+          expected_generation,
+          :placement_lost
+        )
       end)
       |> transaction_result()
     end
@@ -386,7 +589,8 @@ defmodule Responder.Work.Custody do
           String.t(),
           String.t(),
           pos_integer(),
-          String.t()
+          String.t(),
+          map()
         ) :: {:ok, %{episode: Episode.t(), turn: Turn.t()}} | {:error, term()}
   def accept_result(
         episode_id,
@@ -395,7 +599,8 @@ defmodule Responder.Work.Custody do
         lease_ref,
         candidate_sha256,
         candidate_attempt,
-        validation_receipt
+        validation_receipt,
+        measurement \\ %{}
       ) do
     with {:ok, episode_id} <- uuid(episode_id, :episode_id),
          :ok <- reference(episode_key, :episode_key),
@@ -403,7 +608,8 @@ defmodule Responder.Work.Custody do
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- sha256(candidate_sha256, :candidate_sha256),
          :ok <- positive_integer(candidate_attempt, :candidate_attempt),
-         :ok <- reference(validation_receipt, :validation_receipt) do
+         :ok <- reference(validation_receipt, :validation_receipt),
+         :ok <- measurement(measurement) do
       Repo.transaction(fn ->
         accept_result_locked(
           episode_id,
@@ -412,7 +618,8 @@ defmodule Responder.Work.Custody do
           lease_ref,
           candidate_sha256,
           candidate_attempt,
-          validation_receipt
+          validation_receipt,
+          measurement
         )
       end)
       |> transaction_result()
@@ -483,6 +690,26 @@ defmodule Responder.Work.Custody do
     end
   end
 
+  @doc """
+  Stops one exact active run while retaining the episode, session lineage, and
+  repository workspace for a later human correction.
+
+  This is an operator-authorized form of blocked custody. It still reconciles
+  the exact remote Coop turn before becoming non-claimable; it is not the
+  internal lease-authorized error path exposed by `request_block/5`.
+  """
+  @spec request_stop(Ecto.UUID.t(), String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def request_stop(episode_id, episode_key, turn_ref, stop_ref, reason) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(episode_key, :episode_key),
+         :ok <- reference(turn_ref, :turn_ref),
+         :ok <- reference(stop_ref, :stop_ref),
+         {:ok, intent} <- Cancellation.new_block("#{reason} Control: #{stop_ref}.") do
+      request_cancellation(episode_id, episode_key, turn_ref, intent)
+    end
+  end
+
   @doc false
   @spec request_block(Ecto.UUID.t(), String.t(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
@@ -496,6 +723,68 @@ defmodule Responder.Work.Custody do
     end
   end
 
+  @doc """
+  Pauses one episode because its host-owned delivery destination is inactive.
+
+  This is not an operator cancellation. A bound remote turn is stopped through
+  the normal cancellation reconciler, while an unsubmitted turn or an idle
+  delivery is blocked locally. The opaque pause reference is required again to
+  resume, so restoring one destination cannot rearm unrelated failed work.
+  """
+  @spec pause_destination(Ecto.UUID.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def pause_destination(episode_id, episode_key, pause_ref) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(episode_key, :episode_key),
+         :ok <- reference(pause_ref, :pause_ref),
+         {:ok, intent} <- Cancellation.new_block(destination_pause_reason(pause_ref)) do
+      fingerprint = Cancellation.fingerprint(intent)
+
+      Repo.transaction(fn ->
+        pause_destination_locked(episode_id, episode_key, intent, fingerprint)
+      end)
+      |> transaction_result()
+    end
+  end
+
+  @doc """
+  Resumes only the exact destination pause recorded by `pause_destination/3`.
+
+  Ordinary execution failures and operator cancellations are deliberately left
+  untouched. A stopped remote turn transfers to a fresh logical turn; a local
+  unsent delivery is rearmed with the exact accepted result and destination.
+  """
+  @spec resume_destination(Ecto.UUID.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def resume_destination(episode_id, episode_key, pause_ref) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(episode_key, :episode_key),
+         :ok <- reference(pause_ref, :pause_ref) do
+      reason = destination_pause_reason(pause_ref)
+
+      Repo.transaction(fn -> resume_destination_locked(episode_id, episode_key, reason) end)
+      |> transaction_result()
+    end
+  end
+
+  defp pause_destination_locked(episode_id, episode_key, intent, fingerprint) do
+    with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),
+         :ok <- exact_episode(episode, episode_id) do
+      pause_destination_owner(episode, intent, fingerprint)
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp resume_destination_locked(episode_id, episode_key, reason) do
+    with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),
+         :ok <- exact_episode(episode, episode_id) do
+      resume_destination_owner(episode, reason)
+    else
+      {:error, error} -> Repo.rollback(error)
+    end
+  end
+
   @doc false
   @spec resume_blocked_in_transaction(Episode.t(), String.t() | nil) ::
           {:ok, Episode.t()} | {:error, term()}
@@ -505,6 +794,21 @@ defmodule Responder.Work.Custody do
          {:ok, current} <- Episodes.lock_current_in_transaction(episode.key),
          :ok <- exact_episode(current, episode.id) do
       resume_blocked_owner(current, required_input_ref)
+    end
+  end
+
+  @doc """
+  Retries one exact remotely settled blocked owner after operator inspection.
+
+  The old Coop turn remains immutable. Recovery transfers the episode to a new
+  logical turn and session generation through the same proven-stop path used by
+  a human correction.
+  """
+  @spec retry_blocked(String.t()) :: {:ok, Episode.t()} | {:error, term()}
+  def retry_blocked(episode_key) do
+    with :ok <- reference(episode_key, :episode_key) do
+      Repo.transaction(fn -> retry_blocked_locked(episode_key) end)
+      |> transaction_result()
     end
   end
 
@@ -843,6 +1147,46 @@ defmodule Responder.Work.Custody do
   end
 
   @doc """
+  Moves one permanently failing delivery out of automatic retries.
+
+  The accepted result and delivery owner remain durable so an operator can
+  correct platform configuration and rearm the exact same intent.
+  """
+  @spec block_delivery(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t(),
+          String.t()
+        ) :: {:ok, Turn.t()} | {:error, term()}
+  def block_delivery(episode_id, turn_ref, lease_ref, error_code, error_detail) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(turn_ref, :turn_ref),
+         :ok <- reference(lease_ref, :lease_ref),
+         :ok <- bounded_text(error_code, 128, :error_code),
+         :ok <- bounded_text(error_detail, 4_096, :error_detail) do
+      Repo.transaction(fn ->
+        block_delivery_locked(episode_id, turn_ref, lease_ref, error_code, error_detail)
+      end)
+      |> transaction_result()
+    end
+  end
+
+  @doc """
+  Rearms one operator-inspected blocked delivery without changing its result or destination.
+  """
+  @spec retry_delivery(Ecto.UUID.t(), String.t(), String.t()) ::
+          {:ok, Turn.t()} | {:error, term()}
+  def retry_delivery(episode_id, turn_ref, delivery_ref) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(turn_ref, :turn_ref),
+         :ok <- reference(delivery_ref, :delivery_ref) do
+      Repo.transaction(fn -> retry_delivery_locked(episode_id, turn_ref, delivery_ref) end)
+      |> transaction_result()
+    end
+  end
+
+  @doc """
   Releases healthy remote work at the end of one bounded polling window.
 
   A polling window is not a failed execution attempt. The claim increment is
@@ -862,7 +1206,7 @@ defmodule Responder.Work.Custody do
     end
   end
 
-  defp pin_episode_locked(episode_id, policy, policy_digest) do
+  defp pin_episode_locked(episode_id, policy, policy_digest, repository_ref) do
     case Repo.one(
            from(episode in Episode,
              where: episode.id == ^episode_id,
@@ -883,13 +1227,23 @@ defmodule Responder.Work.Custody do
               1,
               policy,
               policy_digest,
+              repository_ref,
               session_external_ref(episode.id, 1)
             )
             |> Repo.insert()
             |> unwrap_or_rollback(:work_session)
 
-          %Session{} = session ->
+          %Session{cleanup_status: :active} = session ->
             session
+
+          %Session{} = session ->
+            insert_session_or_rollback(
+              episode.id,
+              session.generation + 1,
+              session.policy,
+              session.policy_digest,
+              session.repository_ref
+            )
         end
     end
   end
@@ -972,8 +1326,21 @@ defmodule Responder.Work.Custody do
 
   defp current_session(episode) do
     case latest_session(episode.id) do
-      nil -> {:error, :work_policy_not_pinned}
-      %Session{} = session -> {:ok, session}
+      nil ->
+        {:error, :work_policy_not_pinned}
+
+      %Session{cleanup_status: :active} = session ->
+        {:ok, session}
+
+      %Session{} = session ->
+        insert_session(
+          episode.id,
+          session.generation + 1,
+          session.policy,
+          session.policy_digest,
+          session.repository_ref,
+          session.workspace_task
+        )
     end
   end
 
@@ -1052,7 +1419,9 @@ defmodule Responder.Work.Custody do
               episode.id,
               session.generation + 1,
               session.policy,
-              session.policy_digest
+              session.policy_digest,
+              session.repository_ref,
+              session.workspace_task
             )
 
           {:error, _reason} = error ->
@@ -1086,7 +1455,14 @@ defmodule Responder.Work.Custody do
     end)
   end
 
-  defp insert_session(episode_id, generation, policy, policy_digest) do
+  defp insert_session(
+         episode_id,
+         generation,
+         policy,
+         policy_digest,
+         repository_ref,
+         workspace_task \\ nil
+       ) do
     session_id = Ecto.UUID.generate()
 
     session_id
@@ -1095,10 +1471,19 @@ defmodule Responder.Work.Custody do
       generation,
       policy,
       policy_digest,
-      session_external_ref(episode_id, generation)
+      repository_ref,
+      session_external_ref(episode_id, generation),
+      workspace_task
     )
     |> Repo.insert()
     |> persistence_result(:work_session)
+  end
+
+  defp insert_session_or_rollback(episode_id, generation, policy, policy_digest, repository_ref) do
+    case insert_session(episode_id, generation, policy, policy_digest, repository_ref) do
+      {:ok, session} -> session
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   defp claim_turn(%Turn{status: status} = turn, worker_ref, now, lease_seconds)
@@ -1134,19 +1519,48 @@ defmodule Responder.Work.Custody do
   defp freeze_locked(episode_id, turn_ref, lease_ref, submission, fingerprint) do
     case turn_for_lease(episode_id, turn_ref, lease_ref) do
       {:ok, _session, %Turn{submission: nil} = turn} ->
-        turn
-        |> TurnChangeset.freeze(submission, fingerprint)
-        |> Repo.update()
-        |> unwrap_or_rollback(:work_submission)
+        frozen =
+          turn
+          |> TurnChangeset.freeze(submission, fingerprint)
+          |> Repo.update()
+          |> unwrap_or_rollback(:work_submission)
+
+        attach_submission_artifacts(frozen, submission)
 
       {:ok, _session, %Turn{submission_fingerprint: ^fingerprint} = turn} ->
-        turn
+        attach_submission_artifacts(turn, submission)
 
       {:ok, _session, %Turn{submission_fingerprint: stored}} ->
         Repo.rollback({:work_submission_conflict, stored})
 
       {:error, reason} ->
         Repo.rollback(reason)
+    end
+  end
+
+  defp attach_submission_artifacts(turn, submission) do
+    case ArtifactReferences.attach_turn(turn.id, submission["input_artifact_refs"]) do
+      :ok -> turn
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp bind_state_tools_locked(episode_id, turn_ref, lease_ref, endpoint, token_sha256) do
+    {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
+
+    cond do
+      turn.state_tools_endpoint == endpoint and
+          turn.state_tools_token_sha256 == token_sha256 ->
+        turn
+
+      is_nil(turn.state_tools_endpoint) and is_nil(turn.state_tools_token_sha256) ->
+        turn
+        |> TurnChangeset.bind_state_tools(endpoint, token_sha256)
+        |> Repo.update()
+        |> unwrap_or_rollback(:work_state_tools_binding)
+
+      true ->
+        Repo.rollback(:work_state_tools_binding_conflict)
     end
   end
 
@@ -1202,14 +1616,30 @@ defmodule Responder.Work.Custody do
     end
   end
 
-  defp rotate_session_locked(episode_id, turn_ref, lease_ref, expected_generation) do
+  defp rotate_session_locked(episode_id, turn_ref, lease_ref, expected_generation),
+    do:
+      rotate_session_locked(
+        episode_id,
+        turn_ref,
+        lease_ref,
+        expected_generation,
+        :remote_terminal
+      )
+
+  defp rotate_session_locked(
+         episode_id,
+         turn_ref,
+         lease_ref,
+         expected_generation,
+         reason
+       ) do
     {session, turn} = leased!(episode_id, turn_ref, lease_ref)
 
     cond do
       session.generation != expected_generation ->
         Repo.rollback({:work_session_generation_conflict, session.generation})
 
-      session.coop_session_id == nil ->
+      session.coop_session_id == nil and reason != :placement_lost ->
         Repo.rollback(:work_session_not_bound)
 
       turn.coop_turn_id != nil ->
@@ -1227,7 +1657,9 @@ defmodule Responder.Work.Custody do
                  session.episode_id,
                  session.generation + 1,
                  session.policy,
-                 session.policy_digest
+                 session.policy_digest,
+                 session.repository_ref,
+                 session.workspace_task
                ),
              {:ok, turn} <-
                turn
@@ -1469,7 +1901,8 @@ defmodule Responder.Work.Custody do
          lease_ref,
          candidate_sha256,
          candidate_attempt,
-         validation_receipt
+         validation_receipt,
+         measurement
        ) do
     with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),
          :ok <- exact_episode(episode, episode_id),
@@ -1483,7 +1916,8 @@ defmodule Responder.Work.Custody do
              candidate_sha256,
              candidate_attempt,
              validation_receipt,
-             result
+             result,
+             measurement
            ),
          {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
          {:ok, turn} <-
@@ -1592,6 +2026,252 @@ defmodule Responder.Work.Custody do
 
   defp resume_blocked_owner(%Episode{} = episode, _required_input_ref), do: {:ok, episode}
 
+  defp retry_blocked_locked(episode_key) do
+    case Episodes.lock_current_in_transaction(episode_key) do
+      {:ok, episode} -> retry_blocked_episode(episode)
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp retry_blocked_episode(%Episode{state: :working, owner_kind: :turn} = episode) do
+    case turn_identity(episode.id, episode.owner_ref) do
+      %Turn{status: :blocked, cancellation_intent: %{"action" => "block"}} = identity ->
+        case resume_blocked_identity(episode, identity, nil) do
+          {:ok, resumed} -> resumed
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
+      _not_blocked ->
+        Repo.rollback(:work_not_blocked)
+    end
+  end
+
+  defp retry_blocked_episode(%Episode{}), do: Repo.rollback(:work_not_blocked)
+
+  defp pause_destination_owner(
+         %Episode{state: :working, owner_kind: :turn} = episode,
+         intent,
+         fingerprint
+       ) do
+    case turn_identity(episode.id, episode.owner_ref) do
+      nil ->
+        block_unsubmitted_destination_turn(episode, intent, fingerprint)
+
+      %Turn{} = identity ->
+        request_cancellation_for_identity(
+          episode,
+          identity,
+          episode.owner_ref,
+          intent,
+          fingerprint,
+          nil
+        )
+    end
+  end
+
+  defp pause_destination_owner(
+         %Episode{state: :working, owner_kind: :delivery} = episode,
+         intent,
+         _fingerprint
+       ) do
+    pause_destination_delivery(episode, intent)
+  end
+
+  defp pause_destination_owner(%Episode{} = episode, _intent, _fingerprint),
+    do: %{episode: episode, status: :settled, turn: nil}
+
+  defp block_unsubmitted_destination_turn(episode, intent, fingerprint) do
+    with {:ok, session} <- current_session(episode),
+         {:ok, turn} <- insert_turn(episode, session),
+         {:ok, turn} <-
+           turn
+           |> TurnChangeset.prepare_cancellation(intent, fingerprint, nil)
+           |> Repo.update()
+           |> persistence_result(:work_destination_pause),
+         {:ok, turn} <-
+           turn
+           |> TurnChangeset.block(%{
+             last_error_code: "destination_paused",
+             last_error_detail: intent["reason"],
+             lease_expires_at: nil,
+             lease_owner: nil,
+             lease_ref: nil,
+             next_attempt_at: nil,
+             status: :blocked
+           })
+           |> Repo.update()
+           |> persistence_result(:work_destination_pause) do
+      %{episode: episode, status: :settled, turn: turn}
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp pause_destination_delivery(episode, intent) do
+    now = database_now!()
+
+    case lock_delivery_turn(episode.id, episode.owner_ref) do
+      {:ok, %Turn{status: :delivery_pending} = turn} ->
+        pause_pending_delivery(episode, turn, intent, now)
+
+      {:ok, %Turn{status: :blocked} = turn} ->
+        pause_blocked_delivery(episode, turn, intent)
+
+      {:ok, %Turn{}} ->
+        Repo.rollback(:work_delivery_not_pending)
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
+
+  defp pause_pending_delivery(episode, turn, intent, now) do
+    if current_lease?(turn, turn.lease_ref, now),
+      do: %{episode: episode, status: :pending, turn: turn},
+      else: block_destination_delivery(episode, turn, intent)
+  end
+
+  defp pause_blocked_delivery(episode, turn, intent) do
+    cond do
+      turn.last_error_code == "destination_paused" and
+          turn.last_error_detail == intent["reason"] ->
+        %{episode: episode, status: :settled, turn: turn}
+
+      turn.last_error_code == "slack_incident_room_inactive" ->
+        block_destination_delivery(episode, turn, intent)
+
+      true ->
+        %{episode: episode, status: :settled, turn: turn}
+    end
+  end
+
+  defp block_destination_delivery(episode, turn, intent) do
+    result =
+      turn
+      |> TurnChangeset.block(%{
+        last_error_code: "destination_paused",
+        last_error_detail: intent["reason"],
+        lease_expires_at: nil,
+        lease_owner: nil,
+        lease_ref: nil,
+        next_attempt_at: nil,
+        status: :blocked
+      })
+      |> Repo.update()
+      |> persistence_result(:work_destination_pause)
+
+    case result do
+      {:ok, turn} -> %{episode: episode, status: :settled, turn: turn}
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp resume_destination_owner(
+         %Episode{state: :working, owner_kind: :turn} = episode,
+         reason
+       ) do
+    case turn_identity(episode.id, episode.owner_ref) do
+      %Turn{cancellation_intent: %{"action" => "block", "reason" => ^reason}} = turn ->
+        resume_destination_turn(episode, turn)
+
+      _not_this_pause ->
+        %{episode: episode, status: :settled, turn: nil}
+    end
+  end
+
+  defp resume_destination_owner(
+         %Episode{state: :working, owner_kind: :delivery} = episode,
+         reason
+       ) do
+    case lock_delivery_turn(episode.id, episode.owner_ref) do
+      {:ok,
+       %Turn{
+         last_error_code: "destination_paused",
+         last_error_detail: ^reason,
+         status: :blocked
+       } = turn} ->
+        case turn |> TurnChangeset.retry_delivery() |> Repo.update() do
+          {:ok, turn} ->
+            %{episode: episode, status: :settled, turn: turn}
+
+          {:error, changeset} ->
+            Repo.rollback({:work_destination_resume_persistence_failed, changeset.errors})
+        end
+
+      {:ok, %Turn{} = turn} ->
+        %{episode: episode, status: :settled, turn: turn}
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
+
+  defp resume_destination_owner(%Episode{} = episode, _reason),
+    do: %{episode: episode, status: :settled, turn: nil}
+
+  defp resume_destination_turn(
+         episode,
+         %Turn{
+           cancellation_receipt: nil,
+           coop_turn_id: nil,
+           status: :blocked,
+           submission: nil
+         } = turn
+       ) do
+    transfer_local_destination_block(episode, turn)
+  end
+
+  defp resume_destination_turn(episode, %Turn{status: status} = turn)
+       when status in [:cancel_pending, :blocked] do
+    new_turn_ref = "turn:resume-destination:#{turn.id}:v#{episode.semantic_version}"
+    transfer_ref = "transfer:resume-destination:#{turn.id}:v#{episode.semantic_version}"
+
+    case Cancellation.new_transfer(new_turn_ref, transfer_ref) do
+      {:ok, intent} ->
+        request_cancellation_for_identity(
+          episode,
+          turn,
+          episode.owner_ref,
+          intent,
+          Cancellation.fingerprint(intent),
+          nil
+        )
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
+
+  defp resume_destination_turn(episode, turn),
+    do: %{episode: episode, status: :settled, turn: turn}
+
+  defp transfer_local_destination_block(episode, turn) do
+    new_turn_ref = "turn:resume-destination:#{turn.id}:v#{episode.semantic_version}"
+    transfer_ref = "transfer:resume-destination:#{turn.id}:v#{episode.semantic_version}"
+
+    with {:ok, intent} <- Cancellation.new_transfer(new_turn_ref, transfer_ref),
+         {:ok, [transition]} <-
+           Episodes.apply_batch_in_transaction(
+             [Cancellation.command(intent, episode, database_now!())],
+             settled_work_turn_id: turn.id
+           ),
+         {:ok, turn} <-
+           turn
+           |> TurnChangeset.replace_cancellation_disposition(
+             turn.cancellation_intent,
+             turn.cancellation_intent_fingerprint,
+             "destination_resumed",
+             "The destination became active before remote work was submitted.",
+             :superseded
+           )
+           |> Repo.update()
+           |> persistence_result(:work_destination_resume) do
+      %{episode: transition.episode, status: :settled, turn: turn}
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
   defp resume_blocked_identity(episode, identity, required_input_ref) do
     new_turn_ref = "turn:resume-blocked:#{identity.id}:v#{episode.semantic_version}"
     transfer_ref = "transfer:resume-blocked:#{identity.id}:v#{episode.semantic_version}"
@@ -1651,13 +2331,27 @@ defmodule Responder.Work.Custody do
   defp retry_cancellation_request(episode, turn, lease_ref) do
     case exact_internal_lease(turn, lease_ref) do
       :ok ->
-        status = if turn.cancellation_receipt == nil, do: :pending, else: :settled
+        status =
+          if turn.cancellation_receipt != nil or locally_settled_cancellation?(turn),
+            do: :settled,
+            else: :pending
+
         %{episode: episode, status: status, turn: turn}
 
       {:error, reason} ->
         Repo.rollback(reason)
     end
   end
+
+  defp locally_settled_cancellation?(%Turn{
+         status: :blocked,
+         coop_turn_id: nil,
+         submission: nil,
+         remote_operation_kind: nil
+       }),
+       do: true
+
+  defp locally_settled_cancellation?(%Turn{}), do: false
 
   defp prepare_new_cancellation(episode, session, turn, intent, fingerprint, lease_ref) do
     with :ok <- valid_cancellation_target(episode, turn, intent),
@@ -1791,6 +2485,18 @@ defmodule Responder.Work.Custody do
     do:
       episode.state == :working and episode.owner_kind == :turn and
         episode.owner_ref == turn.turn_ref
+
+  defp lock_delivery_turn(episode_id, delivery_ref) do
+    case Repo.one(
+           from(turn in Turn,
+             where: turn.episode_id == ^episode_id and turn.delivery_ref == ^delivery_ref,
+             lock: "FOR UPDATE"
+           )
+         ) do
+      nil -> {:error, :work_delivery_turn_not_found}
+      %Turn{} = turn -> {:ok, turn}
+    end
+  end
 
   defp conflicting_cancellation?(turn, fingerprint),
     do: turn.cancellation_intent != nil and turn.cancellation_intent_fingerprint != fingerprint
@@ -2019,7 +2725,9 @@ defmodule Responder.Work.Custody do
            session.episode_id,
            session.generation + 1,
            session.policy,
-           session.policy_digest
+           session.policy_digest,
+           session.repository_ref,
+           session.workspace_task
          ) do
       {:ok, _session} -> :ok
       {:error, _reason} = error -> error
@@ -2090,6 +2798,68 @@ defmodule Responder.Work.Custody do
     |> Repo.update()
     |> unwrap_or_rollback(:work_defer)
   end
+
+  defp block_delivery_locked(episode_id, turn_ref, lease_ref, error_code, error_detail) do
+    {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
+
+    if turn.status == :delivery_pending do
+      turn
+      |> TurnChangeset.block(%{
+        last_error_code: error_code,
+        last_error_detail: error_detail,
+        lease_expires_at: nil,
+        lease_owner: nil,
+        lease_ref: nil,
+        next_attempt_at: nil,
+        status: :blocked
+      })
+      |> Repo.update()
+      |> unwrap_or_rollback(:work_delivery_block)
+    else
+      Repo.rollback(:work_delivery_not_pending)
+    end
+  end
+
+  defp retry_delivery_locked(episode_id, turn_ref, delivery_ref) do
+    case turn_identity(episode_id, turn_ref) do
+      %Turn{delivery_ref: ^delivery_ref} ->
+        retry_delivery_owner_locked(episode_id, turn_ref, delivery_ref)
+
+      %Turn{} ->
+        Repo.rollback(:work_delivery_ref_mismatch)
+
+      nil ->
+        Repo.rollback(:work_turn_not_found)
+    end
+  end
+
+  defp retry_delivery_owner_locked(episode_id, turn_ref, delivery_ref) do
+    with {:ok, _episode} <- lock_episode_owner(episode_id, :delivery, delivery_ref),
+         {:ok, turn} <- lock_turn(episode_id, turn_ref) do
+      retry_delivery_turn_locked(turn, delivery_ref)
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp retry_delivery_turn_locked(
+         %Turn{status: :blocked, delivery_ref: delivery_ref} = turn,
+         delivery_ref
+       ) do
+    turn
+    |> TurnChangeset.retry_delivery()
+    |> Repo.update()
+    |> unwrap_or_rollback(:work_delivery_retry)
+  end
+
+  defp retry_delivery_turn_locked(
+         %Turn{status: :delivery_pending, delivery_ref: delivery_ref} = turn,
+         delivery_ref
+       ),
+       do: turn
+
+  defp retry_delivery_turn_locked(%Turn{}, _delivery_ref),
+    do: Repo.rollback(:work_delivery_not_retryable)
 
   defp yield_progress_locked(episode_id, turn_ref, lease_ref, retry_seconds) do
     {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
@@ -2245,7 +3015,8 @@ defmodule Responder.Work.Custody do
          candidate_sha256,
          candidate_attempt,
          validation_receipt,
-         result
+         result,
+         measurement
        ) do
     now = database_now!()
     result_ref = "result:#{turn.id}"
@@ -2255,16 +3026,19 @@ defmodule Responder.Work.Custody do
       if result.delivery_document,
         do: CanonicalJSON.digest(result.delivery_document)
 
-    attributes = %{
-      accepted_at: now,
-      continuation: result.continuation,
-      delivery_document: result.delivery_document,
-      delivery_fingerprint: delivery_fingerprint,
-      delivery_ref: delivery_ref,
-      result_ref: result_ref,
-      status: acceptance_status(result.delivery),
-      validation_receipt: validation_receipt
-    }
+    attributes =
+      measurement
+      |> Measurement.acceptance_attributes(now)
+      |> Map.merge(%{
+        accepted_at: now,
+        continuation: result.continuation,
+        delivery_document: result.delivery_document,
+        delivery_fingerprint: delivery_fingerprint,
+        delivery_ref: delivery_ref,
+        result_ref: result_ref,
+        status: acceptance_status(result.delivery),
+        validation_receipt: validation_receipt
+      })
 
     if result_already_accepted?(
          turn,
@@ -2543,6 +3317,21 @@ defmodule Responder.Work.Custody do
   defp optional_reference(nil, _field), do: :ok
   defp optional_reference(value, field), do: reference(value, field)
 
+  defp artifact_refs(refs) when is_list(refs) and length(refs) <= 5 do
+    if Enum.uniq(refs) == refs and Enum.all?(refs, &valid_reference?/1),
+      do: :ok,
+      else: {:error, {:invalid_work_custody, :artifact_refs}}
+  end
+
+  defp artifact_refs(_refs), do: {:error, {:invalid_work_custody, :artifact_refs}}
+
+  defp valid_reference?(value) when is_binary(value),
+    do:
+      byte_size(value) in 1..256 and String.valid?(value) and
+        :binary.match(value, <<0>>) == :nomatch
+
+  defp valid_reference?(_value), do: false
+
   defp bounded_text(value, maximum, field) do
     if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
          :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
@@ -2640,6 +3429,8 @@ defmodule Responder.Work.Custody do
   defp cancellation_close_key(turn),
     do: "responder:work:cancel-close:#{turn.id}:g#{turn.cancel_generation}"
 
+  defp destination_pause_reason(pause_ref), do: "destination_paused:#{pause_ref}"
+
   defp exact_sha256(value, digest) do
     if digest == digest(value),
       do: :ok,
@@ -2665,6 +3456,14 @@ defmodule Responder.Work.Custody do
 
   defp positive_integer(value, _field) when is_integer(value) and value > 0, do: :ok
   defp positive_integer(_value, field), do: {:error, {:invalid_work_custody, field}}
+
+  defp non_negative_integer(value, _field) when is_integer(value) and value >= 0, do: :ok
+
+  defp non_negative_integer(_value, field),
+    do: {:error, {:invalid_work_custody, field}}
+
+  defp measurement(value) when is_map(value), do: :ok
+  defp measurement(_value), do: {:error, {:invalid_work_custody, :measurement}}
 
   defp transaction_open do
     if Repo.in_transaction?(),

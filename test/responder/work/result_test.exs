@@ -103,6 +103,32 @@ defmodule Responder.Work.ResultTest do
 
     assert Result.validate_at(invalid_runtime, ~U[2026-08-28 12:00:00Z]) ==
              {:error, {:invalid_work_result, :continuation}}
+
+    invalid_deadline = %{
+      "deadline_at" => 123,
+      "kind" => "wait",
+      "wait_kind" => "event",
+      "wait_ref" => "wait:event"
+    }
+
+    assert Result.new(:reply, %{"message" => "Waiting."}, nil, invalid_deadline) ==
+             {:error, {:invalid_work_result, :continuation}}
+  end
+
+  test "an already frozen malformed event deadline cannot pass final validation" do
+    malformed = %Result{
+      continuation: %{
+        "deadline_at" => :invalid,
+        "kind" => "wait",
+        "wait_kind" => "event",
+        "wait_ref" => "wait:event"
+      },
+      delivery: :reply,
+      delivery_document: %{"message" => "Waiting."}
+    }
+
+    assert Result.validate_at(malformed, ~U[2026-08-28 12:00:00Z]) ==
+             {:error, :work_continuation_deadline_elapsed}
   end
 
   test "event wait accepts a UTC DateTime and normalizes its precision" do

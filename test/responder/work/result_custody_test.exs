@@ -250,6 +250,35 @@ defmodule Responder.Work.ResultCustodyTest do
     assert delivered_retry.turn.id == delivered.turn.id
   end
 
+  test "a destination pause preserves and rearms an accepted unsent delivery" do
+    work = bound_turn!("paused-delivery")
+    stage_candidate!(work)
+    result = result!(:reply, %{"message" => "Preserve this accepted answer."})
+    assert {:ok, accepted} = accept!(work, result)
+    pause_ref = "slack-incident-room:archived:CINCIDENT"
+
+    assert {:ok, paused} =
+             Custody.pause_destination(work.episode.id, work.episode.key, pause_ref)
+
+    assert paused.status == :settled
+    assert paused.turn.status == :blocked
+    assert paused.turn.delivery_document == accepted.turn.delivery_document
+    assert paused.turn.delivery_ref == accepted.turn.delivery_ref
+    assert paused.turn.validation_receipt == accepted.turn.validation_receipt
+    assert Custody.claim_next("worker:paused-delivery", 60, :delivery) == {:ok, nil}
+
+    assert {:ok, resumed} =
+             Custody.resume_destination(work.episode.id, work.episode.key, pause_ref)
+
+    assert resumed.status == :settled
+    assert resumed.turn.status == :delivery_pending
+    assert resumed.turn.delivery_document == accepted.turn.delivery_document
+    assert resumed.turn.delivery_ref == accepted.turn.delivery_ref
+
+    assert {:ok, delivery} = Custody.claim_next("worker:resumed-delivery", 60, :delivery)
+    assert delivery.turn.id == work.turn.id
+  end
+
   test "new input cannot erase an accepted reply and continues in the same episode session" do
     work = bound_turn!("queued-after-result")
     stage_candidate!(work)

@@ -25,6 +25,14 @@ defmodule Responder.Work.Dispatcher do
     end
   end
 
+  @doc false
+  @spec run_claim(map(), keyword()) :: result()
+  def run_claim(claim, options) when is_map(claim) and is_list(options) do
+    with {:ok, settings} <- settings(options), do: execute_claim(claim, settings)
+  end
+
+  def run_claim(_claim, _options), do: {:error, {:invalid_work_dispatcher, :claim}}
+
   defp execute_claim(nil, _settings), do: {:ok, :idle}
 
   defp execute_claim(claim, settings) do
