@@ -1,0 +1,879 @@
+defmodule Responder.CoopFleet.ClientTest do
+  use Responder.DataCase, async: true
+
+  alias Responder.{Artifacts, CanonicalJSON}
+  alias Responder.CoopFleet.{Client, ControlPlane, WorkspaceCheckpointTransfer}
+  alias Responder.Episodes
+  alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
+  alias Responder.Repo
+  alias Responder.Work.{Custody, SessionChangeset, StateBinding}
+
+  @policy "work-read-only"
+  @policy_digest String.duplicate("b", 64)
+
+  defmodule FakeBridge do
+    def execute(session, kind, payload, key, options) do
+      send(Process.get(:coop_fleet_client_test_pid), {
+        :fleet_command,
+        session,
+        kind,
+        payload,
+        key,
+        options
+      })
+
+      case kind do
+        "create_session" ->
+          {:ok, %{"id" => "remote-resource", "revision" => 1, "state" => "open"}}
+
+        "ensure_workspace" ->
+          {:ok, %{"id" => "remote-resource", "revision" => 2, "state" => "open"}}
+
+        "checkpoint_workspace" ->
+          {:ok,
+           %{
+             "checkpoint_ref" => "checkpoint:#{String.duplicate("c", 32)}",
+             "state" => "stored",
+             "transfer_id" => "018f04f4-5555-7000-8000-000000000001"
+           }}
+
+        _other ->
+          {:ok, %{"id" => "remote-resource", "state" => "succeeded"}}
+      end
+    end
+
+    def await_command(_command_id, _options),
+      do: {:error, :unexpected_command_wait}
+  end
+
+  setup do
+    Process.put(:coop_fleet_client_test_pid, self())
+    on_exit(fn -> Process.delete(:coop_fleet_client_test_pid) end)
+
+    session = session!()
+
+    assert {:ok, client} =
+             Client.new(
+               bridge: FakeBridge,
+               capability_names: ["responder-state"],
+               lease_seconds: 30,
+               max_waits: 2,
+               poll_interval_ms: 1,
+               wait: fn -> :ok end,
+               workspace_ref: "workspace-main"
+             )
+
+    %{client: client, session: session}
+  end
+
+  test "new requires one bounded workspace and rejects unknown or duplicate options" do
+    assert {:error, {:invalid_coop_fleet_client, :options}} = Client.new([])
+
+    assert {:error, {:invalid_coop_fleet_client, :options}} =
+             Client.new(workspace_ref: "workspace-main", workspace_ref: "other")
+
+    assert {:error, {:invalid_coop_fleet_client, :options}} =
+             Client.new(workspace_ref: "workspace-main", secret: "must-not-cross")
+
+    assert {:error, {:invalid_coop_fleet_client, :options}} =
+             Client.new(workspace_ref: String.duplicate("w", 1_025))
+  end
+
+  test "create session carries the admission-pinned authority and no worker-selected policy", %{
+    client: client,
+    session: session
+  } do
+    key = "responder:work:create:#{session.id}:g1"
+
+    assert {:ok, %{"id" => "remote-resource"}} =
+             Client.create_session(client, key, @policy, session.external_ref)
+
+    assert_receive {:fleet_command, ^session, "create_session", payload, ^key, options}
+
+    assert payload == %{
+             "external_ref" => session.external_ref,
+             "policy" => @policy,
+             "policy_digest" => @policy_digest
+           }
+
+    assert Keyword.fetch!(options, :workspace_ref) == "workspace-main"
+    assert Keyword.fetch!(options, :capability_names) == ["responder-state"]
+
+    assert {:error, {:coop_fleet_authority_mismatch, :policy}} =
+             Client.create_session(client, key, "write-everywhere", session.external_ref)
+
+    refute_receive {:fleet_command, _, _, _, _, _}
+  end
+
+  test "bound create carries the exact private state-tools binding", %{
+    client: client,
+    session: session
+  } do
+    key = "responder:work:create:#{session.id}:g1"
+
+    binding = %{
+      "endpoint" => "https://responder.example/v1/state-tools/mcp",
+      "token" => String.duplicate("a", 64) <> String.duplicate("t", 43)
+    }
+
+    assert {:ok, %{"id" => "remote-resource"}} =
+             Client.create_bound_session(client, key, @policy, session.external_ref, binding)
+
+    assert_receive {:fleet_command, ^session, "create_session", payload, ^key, _options}
+
+    assert payload["responder_binding"] == %{
+             "endpoint" => binding["endpoint"],
+             "token_sha256" => StateBinding.sha256(binding["token"])
+           }
+
+    refute inspect(payload) =~ binding["token"]
+
+    assert Map.drop(payload, ["responder_binding"]) == %{
+             "external_ref" => session.external_ref,
+             "policy" => @policy,
+             "policy_digest" => @policy_digest
+           }
+  end
+
+  test "a confirmed engineering session ensures its exact task before create returns", %{
+    client: client,
+    session: session
+  } do
+    workspace_task = %{
+      "authority_limits" => ["must not deploy"],
+      "instruction_ref" => "input:trusted:1",
+      "offer_ref" => "record:task_offer:0123456789abcdef",
+      "prompt" => "Change the parser and preserve idempotency.",
+      "source_refs" => ["artifact:incident:1"],
+      "success_checks" => ["focused tests pass", "retry remains idempotent"],
+      "title" => "Fix parser retries"
+    }
+
+    session =
+      session
+      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Repo.update!()
+
+    key = "responder:work:create:#{session.id}:g1"
+
+    assert {:ok, %{"id" => "remote-resource", "revision" => 2}} =
+             Client.create_session(client, key, @policy, session.external_ref)
+
+    assert_receive {:fleet_command, ^session, "create_session", _, ^key, _}
+
+    assert_receive {:fleet_command, ^session, "ensure_workspace", payload, ensure_key, _}
+
+    assert payload == %{
+             "coop_session_id" => "remote-resource",
+             "expected_revision" => 1,
+             "task" => workspace_task
+           }
+
+    assert ensure_key =~ "responder:workspace:"
+  end
+
+  test "an accepted engineering milestone requests one exact durable checkpoint", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "coop-session-checkpoint")
+
+    assert {:ok, %{"transfer_id" => "018f04f4-5555-7000-8000-000000000001"}} =
+             Client.checkpoint_workspace(client, session.coop_session_id, "checkpoint-key-1", 4)
+
+    assert_receive {:fleet_command, ^session, "checkpoint_workspace", payload, "checkpoint-key-1",
+                    _options}
+
+    assert payload == %{
+             "coop_session_id" => session.coop_session_id,
+             "expected_revision" => 4,
+             "repository_ref" => "responder",
+             "session_ref" => session.id
+           }
+  end
+
+  test "a replacement engineering generation restores only the latest verified checkpoint", %{
+    client: client,
+    session: session
+  } do
+    workspace_task = %{
+      "authority_limits" => ["must not deploy"],
+      "offer_ref" => "record:task_offer:replacement-checkpoint",
+      "prompt" => "Continue the exact writable workspace.",
+      "source_refs" => [],
+      "success_checks" => ["focused tests pass"],
+      "title" => "Restore checkpoint"
+    }
+
+    source =
+      session
+      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Ecto.Changeset.change(coop_session_id: "coop-session-source")
+      |> Repo.update!()
+
+    command = command!(source, "checkpoint-source")
+
+    command =
+      command
+      |> Ecto.Changeset.change(
+        kind: "checkpoint_workspace",
+        payload: %{
+          "coop_session_id" => source.coop_session_id,
+          "expected_revision" => 4,
+          "repository_ref" => "responder",
+          "session_ref" => source.id
+        }
+      )
+      |> Repo.update!()
+
+    command =
+      complete_command!(command, :succeeded, %{
+        "checkpoint_ref" => "checkpoint:pending",
+        "state" => "stored",
+        "transfer_id" => Ecto.UUID.generate()
+      })
+
+    {checkpoint, bundle} =
+      WorkspaceCheckpointFixture.build(%{
+        session_ref: source.id,
+        placement_generation: command.placement_generation
+      })
+
+    transfer_id = Ecto.UUID.generate()
+
+    %WorkspaceCheckpointTransfer{
+      id: transfer_id,
+      command_id: command.id,
+      worker_id: command.worker_id,
+      checkpoint_ref: checkpoint["checkpoint_ref"],
+      session_ref: source.id,
+      placement_generation: command.placement_generation,
+      repository_ref: "responder",
+      descriptor: checkpoint,
+      bundle_sha256: checkpoint["bundle"]["sha256"],
+      bundle_byte_size: byte_size(bundle),
+      encryption_key_sha256: String.duplicate("a", 64),
+      encryption_nonce: :binary.copy(<<1>>, 12),
+      encryption_tag: :binary.copy(<<2>>, 16),
+      ciphertext: :binary.copy(<<3>>, byte_size(bundle))
+    }
+    |> Repo.insert!()
+
+    replacement =
+      SessionChangeset.insert(
+        Ecto.UUID.generate(),
+        source.episode_id,
+        2,
+        source.policy,
+        source.policy_digest,
+        source.repository_ref,
+        source.external_ref
+      )
+      |> Repo.insert!()
+      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Repo.update!()
+
+    key = "responder:work:create:#{replacement.id}:g1"
+
+    assert {:ok, %{"id" => "remote-resource", "revision" => 2}} =
+             Client.create_session(client, key, @policy, source.external_ref)
+
+    assert_receive {:fleet_command, ^replacement, "create_session", _, ^key, _}
+
+    assert_receive {:fleet_command, ^replacement, "ensure_workspace", payload, _ensure_key, _}
+
+    assert payload["checkpoint"] == %{
+             "byte_size" => byte_size(bundle),
+             "checkpoint_ref" => checkpoint["checkpoint_ref"],
+             "sha256" => checkpoint["bundle"]["sha256"],
+             "source_placement_generation" => command.placement_generation,
+             "source_session_ref" => source.id,
+             "transfer_id" => transfer_id
+           }
+  end
+
+  test "frozen submit preserves exact persisted prompt schema context and digest", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "coop-session-1")
+
+    submission = %{
+      "contract_version" => "work-final-v1",
+      "context" => %{"turn_ref" => "turn-7", "input_refs" => ["input-1"]},
+      "input_artifact_refs" => [],
+      "output_schema" => %{"type" => "object"},
+      "prompt" => "exact frozen prompt"
+    }
+
+    key = "responder:work:submit:turn-7:g1"
+
+    binding = %{
+      "endpoint" => "https://responder.example/v1/state-tools/mcp",
+      "token" => String.duplicate("a", 64) <> String.duplicate("t", 43)
+    }
+
+    assert {:ok, _resource} =
+             Client.submit_frozen_turn(
+               client,
+               session.coop_session_id,
+               key,
+               4,
+               submission,
+               binding,
+               []
+             )
+
+    assert_receive {:fleet_command, ^session, "submit_turn", payload, ^key, _options}
+
+    assert payload == %{
+             "coop_session_id" => "coop-session-1",
+             "expected_revision" => 4,
+             "responder_binding" => %{
+               "endpoint" => binding["endpoint"],
+               "token_sha256" => StateBinding.sha256(binding["token"])
+             },
+             "submission" => submission,
+             "submission_sha256" => CanonicalJSON.digest(submission),
+             "turn_ref" => "turn-7"
+           }
+  end
+
+  test "semantic validation carries the exact candidate attempt and frozen verdict", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "coop-session-2")
+    sha256 = String.duplicate("c", 64)
+    key = "responder:work:validate:turn-8:a3:#{sha256}:reject:g1"
+
+    assert {:ok, _resource} =
+             Client.validate_frozen_candidate(
+               client,
+               session.coop_session_id,
+               "coop-turn-8",
+               key,
+               3,
+               sha256,
+               {:reject, ["missing required evidence"]}
+             )
+
+    assert_receive {:fleet_command, ^session, "validate_candidate", payload, ^key, _options}
+
+    assert payload == %{
+             "candidate_attempt" => 3,
+             "candidate_sha256" => sha256,
+             "coop_session_id" => "coop-session-2",
+             "coop_turn_id" => "coop-turn-8",
+             "verdict" => "reject",
+             "violations" => ["missing required evidence"]
+           }
+  end
+
+  test "workspace review and retention remain typed commands on the same placed session", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "coop-session-lifecycle")
+
+    assert {:ok, _} = Client.get_changes(client, session.coop_session_id)
+    assert_receive {:fleet_command, ^session, "get_changes", changes, _read_key, _options}
+    assert changes == %{"coop_session_id" => session.coop_session_id}
+
+    assert {:ok, _} = Client.get_changes_page(client, session.coop_session_id, 2_400, 2_400)
+    assert_receive {:fleet_command, ^session, "get_changes_page", page, _read_key, _options}
+
+    assert page == %{
+             "coop_session_id" => session.coop_session_id,
+             "patch_limit" => 2_400,
+             "patch_offset" => 2_400
+           }
+
+    assert {:ok, _} = Client.run_review(client, session.coop_session_id, "review-key", 7)
+    assert_receive {:fleet_command, ^session, "run_review", review, "review-key", _options}
+    assert review == %{"coop_session_id" => session.coop_session_id, "expected_revision" => 7}
+
+    assert {:ok, _} =
+             Client.plan_discard(
+               client,
+               session.coop_session_id,
+               "plan-key",
+               8,
+               false,
+               true
+             )
+
+    assert_receive {:fleet_command, ^session, "plan_discard", plan, "plan-key", _options}
+
+    assert plan == %{
+             "accept_dirty" => false,
+             "accept_unmerged" => true,
+             "coop_session_id" => session.coop_session_id,
+             "expected_revision" => 8
+           }
+
+    assert {:ok, _} =
+             Client.discard_session(
+               client,
+               session.coop_session_id,
+               "discard-key",
+               "operation-plan-1"
+             )
+
+    assert_receive {:fleet_command, ^session, "discard_session", discard, "discard-key", _options}
+
+    assert discard == %{
+             "coop_session_id" => session.coop_session_id,
+             "plan_operation_id" => "operation-plan-1"
+           }
+  end
+
+  test "frozen turn transports exact artifact references without persisting their bytes", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "coop-session-artifact")
+    data = "exact authenticated pull request attachment"
+
+    assert {:ok, artifact} =
+             Artifacts.put(%{
+               data: data,
+               media_type: "text/plain",
+               name: "review.txt",
+               source_kind: "github",
+               source_ref: "github:review:#{Ecto.UUID.generate()}"
+             })
+
+    assert {:ok, artifacts} = Artifacts.coop_inputs([artifact.ref])
+
+    submission = %{
+      "contract_version" => "work-final-v1",
+      "context" => %{"turn_ref" => "turn-artifact"},
+      "input_artifact_refs" => [artifact.ref],
+      "output_schema" => %{"type" => "object"},
+      "prompt" => "Inspect the exact attachment."
+    }
+
+    assert {:ok, _resource} =
+             Client.submit_frozen_turn(
+               client,
+               session.coop_session_id,
+               "submit-artifact",
+               3,
+               submission,
+               nil,
+               artifacts
+             )
+
+    assert_receive {:fleet_command, ^session, "submit_turn", payload, "submit-artifact", _options}
+
+    assert payload["submission"] == submission
+    assert payload["submission_sha256"] == CanonicalJSON.digest(submission)
+    refute inspect(payload) =~ data
+
+    assert {:ok, _resource} =
+             Client.fence_frozen_turn(
+               client,
+               session.coop_session_id,
+               "fence-artifact",
+               3,
+               submission,
+               nil,
+               artifacts
+             )
+
+    assert_receive {:fleet_command, ^session, "fence_operation", fence, "fence-artifact",
+                    _options}
+
+    assert fence["input_artifact_refs"] == [artifact.ref]
+    refute inspect(fence) =~ data
+
+    [input] = artifacts
+    crossed = [Map.put(input, "sha256", String.duplicate("0", 64))]
+
+    assert Client.submit_frozen_turn(
+             client,
+             session.coop_session_id,
+             "crossed-artifact",
+             3,
+             submission,
+             nil,
+             crossed
+           ) == {:error, :coop_fleet_input_artifact_mismatch}
+
+    refute_receive {:fleet_command, _, _, _, "crossed-artifact", _}
+  end
+
+  test "the fleet adapter carries every session and turn mutation through the pinned worker", %{
+    client: client,
+    session: session
+  } do
+    binding = %{
+      "endpoint" => "https://responder.example/v1/state-tools/mcp",
+      "token" => String.duplicate("a", 64) <> String.duplicate("t", 43)
+    }
+
+    assert {:ok, _} =
+             Client.fence_create_session(client, "fence-create", @policy, session.external_ref)
+
+    assert_receive {:fleet_command, ^session, "fence_operation", create_fence, "fence-create",
+                    _options}
+
+    assert create_fence == %{
+             "method" => "CreateRemoteSession",
+             "request" => %{"policy" => @policy, "task" => session.external_ref}
+           }
+
+    assert {:ok, _} =
+             Client.fence_bound_session(
+               client,
+               "fence-bound-create",
+               @policy,
+               session.external_ref,
+               binding
+             )
+
+    assert_receive {:fleet_command, ^session, "fence_operation", bound_create_fence,
+                    "fence-bound-create", _options}
+
+    assert bound_create_fence["request"]["responder_binding"] == %{
+             "endpoint" => binding["endpoint"],
+             "token_sha256" => StateBinding.sha256(binding["token"])
+           }
+
+    session = bind_session!(session, "coop-session-all-commands")
+    schema = %{"type" => "object"}
+
+    assert {:ok, _} = Client.get_session(client, session.coop_session_id)
+    assert_receive {:fleet_command, ^session, "get_session", get_session, _key, _options}
+    assert get_session == %{"coop_session_id" => session.coop_session_id}
+
+    assert {:ok, _} =
+             Client.submit_turn(
+               client,
+               session.coop_session_id,
+               "submit",
+               3,
+               "frozen prompt",
+               schema
+             )
+
+    assert_receive {:fleet_command, ^session, "submit_turn", submit, "submit", _options}
+    assert submit["expected_revision"] == 3
+    assert submit["submission"]["prompt"] == "frozen prompt"
+    assert submit["submission"]["output_schema"] == schema
+
+    assert {:ok, _} =
+             Client.fence_submit_turn(
+               client,
+               session.coop_session_id,
+               "fence-submit",
+               3,
+               "frozen prompt",
+               schema
+             )
+
+    assert_receive {:fleet_command, ^session, "fence_operation", submit_fence, "fence-submit",
+                    _options}
+
+    assert submit_fence["method"] == "SubmitTurn"
+    assert submit_fence["request"]["session_id"] == session.coop_session_id
+    assert submit_fence["request"]["output_contract"]["json_schema"] == schema
+
+    assert {:ok, _} = Client.get_turn(client, session.coop_session_id, "coop-turn-1")
+    assert_receive {:fleet_command, ^session, "get_turn", get_turn, _key, _options}
+    assert get_turn["coop_turn_id"] == "coop-turn-1"
+
+    assert {:ok, _} =
+             Client.validate_candidate(
+               client,
+               session.coop_session_id,
+               "coop-turn-1",
+               "accept",
+               String.duplicate("a", 64),
+               :accept
+             )
+
+    assert_receive {:fleet_command, ^session, "validate_candidate", accept, "accept", _options}
+    assert accept["candidate_attempt"] == 1
+    assert accept["verdict"] == "accept"
+    assert accept["violations"] == []
+
+    assert {:error, {:invalid_coop_request, :verdict}} =
+             Client.validate_candidate(
+               client,
+               session.coop_session_id,
+               "coop-turn-1",
+               "invalid",
+               String.duplicate("b", 64),
+               :maybe
+             )
+
+    assert {:ok, _} =
+             Client.cancel_turn(client, session.coop_session_id, "coop-turn-1", "cancel", 4)
+
+    assert_receive {:fleet_command, ^session, "cancel_turn", cancel, "cancel", _options}
+    assert cancel["coop_turn_id"] == "coop-turn-1"
+    assert cancel["expected_revision"] == 4
+
+    assert {:ok, _} = Client.close_session(client, session.coop_session_id, "close", 5)
+    assert_receive {:fleet_command, ^session, "close_session", close, "close", _options}
+    assert close["expected_revision"] == 5
+
+    refute_receive {:fleet_command, _, _, _, "invalid", _}
+  end
+
+  test "unknown remote session identities fail closed before a fleet command is created", %{
+    client: client
+  } do
+    assert {:error, {:coop_session_not_found, "missing-session"}} =
+             Client.get_session(client, "missing-session")
+
+    assert {:error, {:coop_session_not_found, "missing-session"}} =
+             Client.get_turn(client, "missing-session", "missing-turn")
+
+    assert {:error, {:coop_session_not_found, "missing-task"}} =
+             Client.create_session(client, "missing-create", @policy, "missing-task")
+
+    assert :not_found = Client.operation_by_key(client, "missing-operation")
+    refute_receive {:fleet_command, _, _, _, _, _}
+  end
+
+  test "binary transfer and authority mismatches fail closed at the fleet adapter", %{
+    client: client,
+    session: session
+  } do
+    binding = %{
+      "endpoint" => "https://responder.example/v1/state-tools/mcp",
+      "token" => String.duplicate("a", 64) <> String.duplicate("t", 43)
+    }
+
+    assert {:error, {:coop_fleet_authority_mismatch, :policy}} =
+             Client.create_bound_session(
+               client,
+               "wrong-create",
+               "wrong-policy",
+               session.external_ref,
+               binding
+             )
+
+    assert {:error, {:coop_fleet_authority_mismatch, :policy}} =
+             Client.fence_create_session(
+               client,
+               "wrong-fence",
+               "wrong-policy",
+               session.external_ref
+             )
+
+    assert {:error, {:coop_fleet_authority_mismatch, :policy}} =
+             Client.fence_bound_session(
+               client,
+               "wrong-bound-fence",
+               "wrong-policy",
+               session.external_ref,
+               binding
+             )
+
+    session = bind_session!(session, "coop-session-transfers")
+
+    assert {:error, :coop_fleet_review_patch_session_required} =
+             Client.get_review_patch(client, "artifact", String.duplicate("a", 64), 10)
+
+    assert {:error, {:coop_protocol_error, :review_patch_transfer}} =
+             Client.get_session_review_patch(
+               client,
+               session.coop_session_id,
+               "artifact",
+               String.duplicate("a", 64),
+               10
+             )
+
+    assert_receive {:fleet_command, ^session, "get_review_patch", _payload, _key, _options}
+
+    assert {:error, {:coop_protocol_error, :output_artifact_transfer}} =
+             Client.get_output_artifact(
+               client,
+               session.coop_session_id,
+               "coop-turn",
+               "artifact"
+             )
+
+    assert_receive {:fleet_command, ^session, "get_output_artifact", _payload, _key, _options}
+
+    artifacts = [%{"id" => "artifact"}]
+
+    assert {:error, :coop_fleet_input_artifact_mismatch} =
+             Client.submit_turn_with_artifacts(
+               client,
+               session.coop_session_id,
+               "submit-artifact",
+               1,
+               "prompt",
+               %{"type" => "object"},
+               artifacts
+             )
+
+    assert {:error, :coop_fleet_input_artifact_mismatch} =
+             Client.fence_submit_turn_with_artifacts(
+               client,
+               session.coop_session_id,
+               "fence-artifact",
+               1,
+               "prompt",
+               %{"type" => "object"},
+               artifacts
+             )
+
+    refute_receive {:fleet_command, _, _, _, "wrong-create", _}
+    refute_receive {:fleet_command, _, _, _, "wrong-fence", _}
+    refute_receive {:fleet_command, _, _, _, "wrong-bound-fence", _}
+  end
+
+  test "operation reconciliation uses only the durable command result and owning session", %{
+    client: client,
+    session: session
+  } do
+    queued = command!(session, "queued")
+
+    assert {:error, :unexpected_command_wait} =
+             Client.operation_by_key(client, queued.idempotency_key)
+
+    wrapped = command!(session, "wrapped")
+
+    wrapped =
+      complete_command!(wrapped, :succeeded, %{
+        "operation" => %{"id" => "operation-wrapped", "state" => "succeeded"}
+      })
+
+    assert {:ok, %{"id" => "operation-wrapped"}} =
+             Client.operation_by_key(client, wrapped.idempotency_key)
+
+    direct = command!(session, "direct")
+    direct = complete_command!(direct, :succeeded, %{"id" => "operation-direct"})
+
+    assert {:ok, %{"id" => "operation-direct"}} =
+             Client.operation_by_key(client, direct.idempotency_key)
+
+    reconcile = command!(session, "reconcile")
+    reconcile = complete_command!(reconcile, :failed, nil)
+
+    assert {:ok, %{"id" => "remote-resource"}} =
+             Client.operation_by_key(client, reconcile.idempotency_key)
+
+    assert_receive {:fleet_command, ^session, "reconcile_operation", payload, _key, _options}
+    assert payload == %{"operation_key" => reconcile.idempotency_key}
+  end
+
+  defp session! do
+    episode_id = Ecto.UUID.generate()
+
+    assert {:ok, _transition} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: episode_id,
+                 episode_key: "fleet:client:#{episode_id}",
+                 native_input_id: "source:fleet-client:#{episode_id}",
+                 occurred_at: database_now!(),
+                 turn_ref: "turn:fleet-client:#{episode_id}"
+               })
+             )
+
+    assert {:ok, session} =
+             Custody.pin_episode(episode_id, @policy, @policy_digest, "responder")
+
+    session
+  end
+
+  defp bind_session!(session, coop_session_id) do
+    session
+    |> Ecto.Changeset.change(coop_session_id: coop_session_id)
+    |> Responder.Repo.update!()
+  end
+
+  defp command!(session, suffix) do
+    worker_id = "client-worker-#{suffix}-#{Ecto.UUID.generate()}"
+    certificate_sha256 = :crypto.hash(:sha256, worker_id) |> Base.encode16(case: :lower)
+
+    assert {:ok, _worker} =
+             ControlPlane.authorize_worker(worker_id, "workspace-main", certificate_sha256)
+
+    assert {:ok, _response} = ControlPlane.handle_poll(worker_id, poll(worker_id, suffix))
+
+    assert {:ok, placement} =
+             ControlPlane.place_session(
+               session.id,
+               %{
+                 capability_names: ["responder-state"],
+                 repository_ref: session.repository_ref,
+                 workspace_ref: "workspace-main"
+               },
+               60
+             )
+
+    assert {:ok, command} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "get_session",
+               %{"coop_session_id" => "remote:#{suffix}"},
+               "client:operation:#{suffix}:#{Ecto.UUID.generate()}"
+             )
+
+    command
+  end
+
+  defp complete_command!(command, status, result) do
+    error =
+      if status == :succeeded,
+        do: nil,
+        else: %{"code" => "worker_failed", "detail" => "failed", "status" => 503}
+
+    command
+    |> Ecto.Changeset.change(
+      completed_at: database_now!(),
+      error: error,
+      operation_key: command.idempotency_key,
+      result: result,
+      result_fingerprint: String.duplicate("d", 64),
+      status: status
+    )
+    |> Repo.update!()
+  end
+
+  defp poll(worker_id, suffix) do
+    %{
+      "acknowledged_command_ids" => [],
+      "command_results" => [],
+      "event_batches" => [],
+      "poll_ref" => "poll:#{worker_id}:#{suffix}",
+      "version" => 1,
+      "worker" => %{
+        "build_version" => "coop-test",
+        "capabilities" => [%{"name" => "responder-state", "version" => "1"}],
+        "capacity" => %{
+          "cooldown_until" => nil,
+          "session_slots_free" => 2,
+          "session_slots_total" => 2,
+          "state" => "eligible",
+          "turn_slots_free" => 2,
+          "turn_slots_total" => 2,
+          "workspace_slots_free" => 2,
+          "workspace_slots_total" => 2
+        },
+        "clock_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+        "id" => worker_id,
+        "policy_digests" => %{@policy => @policy_digest},
+        "protocol_version" => "1",
+        "repositories" => [%{"ref" => "responder", "revision" => "commit:test"}],
+        "sandbox_digest" => String.duplicate("a", 64),
+        "state" => "eligible",
+        "workspace_ref" => "workspace-main"
+      }
+    }
+  end
+
+  defp database_now! do
+    %{rows: [[now]]} = Responder.Repo.query!("SELECT clock_timestamp()")
+    now
+  end
+end
