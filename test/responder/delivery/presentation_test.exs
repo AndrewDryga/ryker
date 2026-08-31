@@ -1,0 +1,154 @@
+defmodule Responder.Delivery.PresentationTest do
+  use Responder.DataCase, async: true
+
+  alias Responder.Delivery.Presentation
+  alias Responder.Episodes
+  alias Responder.Episodes.Episode
+  alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.State.Records
+  alias Responder.Work.Custody
+  alias Responder.Work.Final
+
+  @policy_digest String.duplicate("a", 64)
+
+  test "a visible result is renderable only at its exact supported destination" do
+    final = final!(:reply)
+
+    assert :ok = Presentation.validate(episode("slack"), Ecto.UUID.generate(), final)
+    assert :ok = Presentation.validate(episode("github"), Ecto.UUID.generate(), final)
+    assert :ok = Presentation.validate(episode("control_plane"), Ecto.UUID.generate(), final)
+    assert :ok = Presentation.validate(episode("eval"), Ecto.UUID.generate(), final)
+
+    assert Presentation.validate(episode("webhook"), Ecto.UUID.generate(), final) ==
+             {:error, {:invalid_delivery_presentation, {:unsupported_transport, "webhook"}}}
+  end
+
+  test "a silent result has no platform presentation to validate" do
+    assert :ok =
+             Presentation.validate(episode("webhook"), Ecto.UUID.generate(), final!(:none))
+  end
+
+  test "presentation refuses missing durable records and malformed calls" do
+    final = final!(:reply, ["record:missing"])
+
+    assert Presentation.validate(episode("slack"), Ecto.UUID.generate(), final) ==
+             {:error, :state_record_not_found}
+
+    assert Presentation.validate(%{}, Ecto.UUID.generate(), final) ==
+             {:error, {:invalid_delivery_presentation, :document}}
+  end
+
+  test "Slack refuses a final whose durable records exceed its block limit" do
+    claim = claim!("slack-block-limit", "slack")
+
+    refs =
+      Enum.map(1..51, fn index ->
+        assert {:ok, record} =
+                 Records.create(
+                   Records.token(claim.turn),
+                   "progress-#{index}",
+                   "progress",
+                   %{
+                     "next_due_at" => nil,
+                     "phase" => "checking-#{index}",
+                     "summary" => "Completed bounded check #{index}."
+                   }
+                 )
+
+        record.ref
+      end)
+
+    assert Presentation.validate(claim.episode, claim.turn.id, final!(:reply, refs)) ==
+             {:error, {:invalid_delivery_presentation, {:invalid_slack_render, :records}}}
+  end
+
+  defp episode("slack") do
+    %Episode{
+      active_input_refs: [],
+      destination_conversation_ref: "slack:T123:C456",
+      destination_thread_ref: "1787832000.000100",
+      destination_transport: "slack",
+      execution_mode: :live,
+      id: Ecto.UUID.generate()
+    }
+  end
+
+  defp episode("github") do
+    %Episode{
+      active_input_refs: [],
+      destination_conversation_ref: "github:main:repository:123",
+      destination_thread_ref: "issue:42",
+      destination_transport: "github",
+      execution_mode: :live,
+      id: Ecto.UUID.generate()
+    }
+  end
+
+  defp episode(transport) do
+    %Episode{
+      active_input_refs: [],
+      destination_conversation_ref: "#{transport}:destination",
+      destination_thread_ref: nil,
+      destination_transport: transport,
+      execution_mode: :live,
+      id: Ecto.UUID.generate()
+    }
+  end
+
+  defp final!(:reply) do
+    final!(:reply, [])
+  end
+
+  defp final!(:none) do
+    {:ok, final} =
+      Final.parse(%{
+        "decision_reason" => "This duplicate source event needs no visible response.",
+        "delivery" => "none",
+        "message" => nil,
+        "outcome" => %{
+          "artifact_refs" => [],
+          "record_refs" => [],
+          "state" => "complete"
+        }
+      })
+
+    final
+  end
+
+  defp final!(:reply, record_refs) do
+    {:ok, final} =
+      Final.parse(%{
+        "decision_reason" => nil,
+        "delivery" => "reply",
+        "message" => "The requested review is complete.",
+        "outcome" => %{
+          "artifact_refs" => [],
+          "record_refs" => record_refs,
+          "state" => "complete"
+        }
+      })
+
+    final
+  end
+
+  defp claim!(suffix, transport) do
+    command =
+      EpisodeFixtures.admit_input(%{
+        destination: %{
+          conversation_ref: "#{transport}:conversation:#{suffix}",
+          thread_ref: "#{transport}:thread:#{suffix}",
+          transport: transport
+        },
+        episode_id: Ecto.UUID.generate(),
+        episode_key: "presentation:#{suffix}",
+        native_input_id: "source:#{suffix}",
+        payload: %{"text" => "Please help."},
+        turn_ref: "turn:#{suffix}"
+      })
+
+    assert {:ok, transition} = Episodes.apply(command)
+    assert {:ok, _session} = Custody.pin_episode(transition.episode.id, "test", @policy_digest)
+    assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
+    claim
+  end
+end
