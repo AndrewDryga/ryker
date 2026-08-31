@@ -3,13 +3,19 @@
 [![CI](https://github.com/AndrewDryga/responder/actions/workflows/ci.yml/badge.svg)](https://github.com/AndrewDryga/responder/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/AndrewDryga/responder?sort=semver)](https://github.com/AndrewDryga/responder/releases/latest)
 
-Responder is a Slack-native engineering and operations teammate backed by isolated
-[Coop](https://github.com/AndrewDryga/coop) sessions and governed Emisar access. It can answer,
+Responder is a persistent engineering and operations teammate backed by isolated
+[Coop](https://github.com/AndrewDryga/coop) sessions and governed Emisar access. Its replacement core
+is platform-neutral: Slack, GitHub comments and pull-request reviews, and authenticated universal
+webhooks are adapters over the same ingress, episode, Work, and Delivery contracts. It can answer,
 investigate, change code, and prepare reviewed work without turning every request into an incident.
 
 It runs on one trusted host and:
 
 - accepts bounded Grafana or mapped JSON webhooks;
+- accepts arbitrary authenticated JSON through configured universal webhook routes without granting
+  the payload authority over policy or destination;
+- handles GitHub issue comments, pull-request reviews, inline review comments, and GitHub's native
+  reaction set through a repository-scoped App adapter;
 - triages human and monitoring-app messages in configured Slack alert feeds, answering human
   questions in place and opening incidents only from credible app alerts, explicit requests, or
   operator-confirmed offers;
@@ -43,8 +49,95 @@ policy, approval, execution, and audit.
 See [How Responder works](docs/how-responder-works.md) for end-to-end diagrams covering Slack
 message routing, Coop turns, memory, evidence, standing rules, incidents, approvals, retries, and
 garbage collection.
+The replacement adapter and delivery boundary is documented in
+[Elixir platform adapters and delivery](docs/elixir-platform-adapters.md).
 
 ## Quick start
+
+The production service is the Elixir/PostgreSQL release. It uses one durable writer deployment;
+process or host replacement recovers leases, frozen model submissions, delivery intents, waits,
+schedules, and remote-worker placement from PostgreSQL. It does not require a canary/promote state
+machine.
+
+Requirements:
+
+- PostgreSQL and the released Linux amd64 Elixir archive;
+- at least one enrolled Coop fleet worker with the reviewed policy digests;
+- the platform credentials for the adapters enabled in
+  [`config/responder-elixir.example.yaml`](config/responder-elixir.example.yaml); and
+- TLS termination for `/v1/github` and `/v1/hooks/<route>`.
+
+Download the Elixir archive, `checksums.txt`, `checksums.txt.bundle`,
+`install-elixir-release.sh`, `check-elixir-release.sh`, and
+`activate-elixir-release.sh` from one GitHub Release. Authenticate the checksum manifest and every
+executable helper before executing the installer; the installer repeats that verification, verifies
+GitHub build provenance, verifies the archive digest before listing or extraction, and installs an
+immutable version directory:
+
+```bash
+tag=vX.Y.Z
+version=${tag#v}
+artifact="responder_${version}_elixir_linux_amd64.tar.gz"
+
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.bundle \
+  --certificate-identity \
+  "https://github.com/AndrewDryga/responder/.github/workflows/release.yml@refs/tags/${tag}" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+for helper in install-elixir-release.sh check-elixir-release.sh activate-elixir-release.sh; do
+  awk -v file="$helper" '$2 == file { print }' checksums.txt | sha256sum --check
+  chmod 0755 "$helper"
+done
+sudo ./install-elixir-release.sh \
+  "$artifact" "$version" checksums.txt checksums.txt.bundle "$tag" \
+  /usr/local/lib/responder
+```
+
+Create the runtime account and copy the authenticated operator assets embedded in that same
+release:
+
+```bash
+getent passwd responder >/dev/null || \
+  sudo useradd --system --home-dir /var/lib/responder --shell /usr/sbin/nologin responder
+sudo install -d -o root -g responder -m 0750 /etc/responder
+sudo install -d -o responder -g responder -m 0700 /var/lib/responder
+assets=/usr/local/lib/responder/current/share/responder
+sudo install -o root -g responder -m 0640 \
+  "$assets/config/responder-elixir.example.yaml" /etc/responder/responder-elixir.yaml
+sudo install -o root -g responder -m 0600 \
+  "$assets/deploy/systemd/responder.env.example" /etc/responder/responder.env
+sudo install -o root -g root -m 0644 \
+  "$assets/deploy/systemd/responder.service" /etc/systemd/system/responder.service
+sudo install -o root -g root -m 0644 \
+  "$assets/deploy/nginx/responder.conf" /etc/nginx/conf.d/responder.conf
+```
+
+Replace every placeholder in the strict YAML and owner-only environment file, install the worker
+gateway CA/certificate files, verify the Slack and GitHub App installations, then start normally:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now responder.service
+curl -f http://127.0.0.1:4321/healthz
+curl -f http://127.0.0.1:4321/readyz
+```
+
+Then open `http://127.0.0.1:4321/lab` to talk to the configured model through
+the real durable product pipeline without posting to Slack. Use
+`http://127.0.0.1:4321/manual-tests` for the guided Slack cards/reactions,
+GitHub comments/PR reviews/emoji, universal-webhook, model-behavior, and
+restart/restore qualification journeys.
+
+The unit runs PostgreSQL migrations before opening listeners. See
+[`docs/elixir-cutover.md`](docs/elixir-cutover.md) for the one-time Go/SQLite transition,
+[`docs/elixir-platform-adapters.md`](docs/elixir-platform-adapters.md) for Slack/GitHub/webhook
+bindings, and [`docs/operations.md`](docs/operations.md) for backup, restart, rollback, and live
+acceptance.
+
+## Legacy Go runtime archive
+
+The material below documents the frozen Go runtime retained for bounded rollback and historical
+fixtures. It is not the production quick start for the replacement service.
 
 Requirements:
 
@@ -572,14 +665,18 @@ Use the parallel fast deterministic gate for a completed edit batch:
 make dev-check
 ```
 
-After committing, prove and build the exact commit once. The proof and binary are content-bound
-and reused by later deployment commands for up to 24 hours:
+After committing, build and inspect the immutable Elixir release, restart it against one disposable
+PostgreSQL database, and boot it from a verified backup restore:
 
 ```bash
-make candidate
-make canary
-make promote
+make elixir-release-check
+make elixir-candidate-check
 ```
+
+Production activation is one ordinary writer replacement: install the authenticated version,
+stop the previous service, start `responder.service`, and require readiness plus the bounded live
+acceptance matrix. PostgreSQL leases and immutable release directories provide restart and rollback;
+there is no separate canary/promote state.
 
 `make check` remains the uncached full CI and release gate. CI runs it independently on a clean
 runner; a local candidate cache can never satisfy CI.
@@ -602,7 +699,8 @@ the pass rate and mean judge score over time so a release can say whether answer
 rather than only that the gate passed. See [`docs/testing.md`](docs/testing.md) for the coverage
 matrix and bounded live acceptance set.
 
-`make snapshot` builds the exact unsigned release archive layout locally; `make release-check`
-runs the full gate, builds both Linux archives, checks every checksum and required deployment file,
-and smoke-tests the host binary. On Linux it also executes the packaged native binary. See
+`make snapshot` builds the compatibility Go archives. `make release-check` runs the full gate,
+builds and boots the canonical Elixir release, adds it to the same signed checksum set as the two
+compatibility archives, checks every required operator asset, and smoke-tests executable artifacts.
+See
 [`docs/releasing.md`](docs/releasing.md) for the tag and publication contract.

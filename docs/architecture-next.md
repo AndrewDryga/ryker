@@ -88,7 +88,9 @@ Responder should behave like a persistent operational teammate:
 The product is not primarily a chatbot, incident-room generator, workflow engine, or thin wrapper
 around a model. It is a durable operational work system with:
 
-- Slack as its main human interface;
+- Slack and GitHub as rich human interfaces over one platform-neutral interaction contract;
+- authenticated universal webhooks as the escape hatch for integrations that do not need native
+  platform identity or actions;
 - Coop as its model execution and isolated engineering-work boundary;
 - Emisar and other tools as governed evidence and operational-action boundaries;
 - repositories and infrastructure definitions as authoritative implementation context;
@@ -145,7 +147,7 @@ The model never directly:
 
 ### 2.4 A modular monolith is the deployment unit
 
-One Go binary and one transactional database remain the default. Modules have narrow ports and
+One application runtime and one transactional database remain the default. Modules have narrow ports and
 independent tests, but network boundaries are introduced only when measured scale, isolation, or
 ownership requires them.
 
@@ -281,7 +283,7 @@ event type per SQL table or Slack block.
 
 ### 4.4 Transactional storage constraints
 
-The first storage implementation remains SQLite and uses explicit tables for inbox entries, episode
+The production storage implementation is PostgreSQL and uses explicit tables for inbox entries, episode
 events, episode snapshots, goals, context manifests and references, evidence, effects, delivery
 receipts, wakeups, schedules, standing assignments, leases, preferences, hints, and guidance notes.
 
@@ -988,7 +990,7 @@ internal/adapters/
   github/
   terraform/
   repository/
-  sqlite/
+  postgres/
 ```
 
 Dependency direction:
@@ -998,7 +1000,7 @@ adapters -> ports -> orchestration -> episode/policy/evidence/knowledge -> core
 ```
 
 Domain packages never import Slack SDKs, Coop clients, SQL drivers, GitHub clients, or Block Kit
-types. The SQLite adapter is split by repository interface instead of remaining one broad store god
+types. The PostgreSQL adapter is split by repository interface instead of remaining one broad store god
 object.
 
 Package extraction happens after lifecycle ownership is corrected. Moving the current competing

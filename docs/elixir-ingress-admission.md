@@ -1,13 +1,16 @@
 # Elixir ingress and admission
 
-This is the second isolated module of the replacement Responder. It accepts a bounded event from a
+This is the admission boundary of the replacement Responder. It accepts a bounded event from a
 trusted adapter, stores it before reasoning, asks Coop for one generic model decision, validates that
 decision, and commits it with the episode transition in PostgreSQL.
 
-Slack is one adapter. The universal webhook is another. Neither path contains rules for Grafana,
-Terraform, Better Stack, or any other sender. The model interprets the supplied content.
+Slack, GitHub, and the universal webhook are adapters over the same input contract. None contains
+rules for Grafana, Terraform, Better Stack, or any other sender. The model interprets the supplied
+content.
 
-This module is not connected to the live Slack socket and is not enabled in any running Responder.
+The module now composes with the optional Slack Socket Mode, GitHub App, and universal-webhook
+runtimes, but none of those replacement runtimes is enabled in the currently running Responder until
+the cutover gate and explicit deployment step are complete.
 
 ## Trusted envelope
 
@@ -23,6 +26,9 @@ Content cannot select a channel, thread, episode, model, Coop policy, or authori
 episode command is validated before the input can enter the inbox.
 
 The Slack adapter binds a top-level message to its own thread and preserves an existing reply thread.
+The GitHub adapter binds signed issue comments, pull-request reviews, and inline review comments to
+one configured repository and their exact discussion thread. It offers GitHub's native reaction set
+only for live comment types that GitHub can react to.
 The generic webhook binds every event to the destination in trusted route configuration.
 
 ## Universal webhook
@@ -73,7 +79,8 @@ config :responder, :webhooks,
 Internet exposure belongs behind the normal authenticated ingress proxy; the listener itself needs no
 public interface.
 
-Bearer routes send one `Authorization: Bearer <secret>` header. HMAC routes send a Unix timestamp and
+Bearer routes send one `Authorization: Bearer <secret>` header. HMAC routes send
+`X-Responder-Timestamp: <Unix seconds>` and
 `X-Responder-Signature: v1=<hex HMAC-SHA256>`. The signed bytes are these newline-separated values in
 order:
 
@@ -90,6 +97,110 @@ raw request body
 
 Signing the identity and metadata prevents a captured body from being replayed as a new event. HMAC
 timestamps must fall within the route's configured clock-skew window.
+
+For example, signing the exact body bytes in Elixir is:
+
+```elixir
+timestamp = Integer.to_string(System.system_time(:second))
+path = "/v1/hooks/universal"
+event_id = "provider-event-123"
+item_id = "provider-item-42"
+event_type = "changed"
+occurred_at = "2026-08-28T12:00:00Z"
+revision = "2"
+
+signed =
+  Enum.join(
+    [timestamp, path, event_id, item_id, event_type, occurred_at, revision, raw_body],
+    "\n"
+  )
+
+signature =
+  :crypto.mac(:hmac, :sha256, secret, signed)
+  |> Base.encode16(case: :lower)
+
+headers = [
+  {"x-responder-timestamp", timestamp},
+  {"x-responder-signature", "v1=" <> signature},
+  {"x-responder-event-id", event_id},
+  {"x-responder-item-id", item_id},
+  {"x-responder-event-type", event_type},
+  {"x-responder-occurred-at", occurred_at},
+  {"x-responder-revision", revision}
+]
+```
+
+## GitHub webhook
+
+The optional GitHub App listener exposes one shared webhook URL. After validating the App-level raw
+body signature, the host selects one repository binding from the signed installation and repository
+IDs:
+
+```text
+POST /v1/github
+Content-Type: application/json
+X-GitHub-Delivery: <required unique occurrence ID>
+X-GitHub-Event: issue_comment | pull_request_review | pull_request_review_comment
+X-Hub-Signature-256: sha256=<HMAC-SHA256 of the raw request body>
+```
+
+The host binding fixes the GitHub App installation, repository numeric ID, repository full name,
+webhook secret, Responder bot identity, authorized sender IDs, and body limit. Signed payload fields
+can select only an item inside that repository; they cannot redirect the resulting episode or later
+delivery to another repository. Self-authored events and unlisted actors are authenticated and
+acknowledged as ignored before they can spend model or Work authority.
+
+Supported comment actions normalize into the same `message`, `edit`, and `delete` event kinds used by
+other sources. Issue comments on pull requests stay in the PR conversation. Inline review comments
+retain their root review-comment thread. GitHub issue and review comments expose exactly GitHub's
+supported reaction names: `+1`, `-1`, `laugh`, `confused`, `heart`, `hooray`, `rocket`, and `eyes`.
+Deleted comments and top-level review submissions do not advertise a reaction operation.
+
+```yaml
+repositories:
+  responder:
+    path: /srv/responder
+    github_repository: octo/example
+    github_binding: github-main
+    base_branch: main
+    conversation_policy:
+      name: responder-conversation-v1
+      digest: <64 lowercase hexadecimal characters>
+    contributor_policy:
+      name: responder-contributor-v1
+      digest: <64 lowercase hexadecimal characters>
+    schedule_policy:
+      name: responder-scheduled-write-v1
+      digest: <64 lowercase hexadecimal characters>
+
+github:
+  api_url: https://api.github.com
+  app_id: 12345
+  private_key_env: GITHUB_APP_PRIVATE_KEY
+  webhook_secret_env: GITHUB_WEBHOOK_SECRET
+  ip: 127.0.0.1
+  port: 4319
+  bindings:
+    github-main:
+      repository: responder
+      installation_id: 41
+      repository_id: 99
+      responder_actor_id: 7
+      authorized_actor_ids: [7, 8]
+```
+
+The named environment value may be the complete PEM or its single-line standard-base64 encoding.
+Use the encoded form in the shipped systemd `EnvironmentFile`.
+
+The supervised runtime contains both `server` and `tokens` components: `server` owns the shared
+webhook listener and trusted bindings, while `tokens` signs short-lived App JWTs and mints the exact
+repository-scoped installation token used by delivery and publication. See
+[`config/responder-elixir.example.yaml`](../config/responder-elixir.example.yaml) for the complete
+strict runtime document.
+
+As with the universal listener, public exposure belongs behind the normal ingress proxy. A `202`
+means the normalized event is durably queued. `ping` is authenticated and acknowledged without
+creating work. An ignored self/unlisted-actor event returns `200` and creates no inbox row.
 
 ## Durable queue
 
@@ -148,8 +259,10 @@ accept key names that attempt, so two byte-identical repair attempts cannot repl
 validation result.
 
 After a decision, Coop has already parked and cleaned the provider runtime. Responder also asks Coop to
-close the admission session. Fleet-wide session retention and discard are intentionally owned by the
-later session-lifecycle module; this isolated module is not activated before that boundary exists.
+close the isolated admission session. Episode Work sessions are separately owned by the retention
+runtime: it closes the exact recorded Coop session, observes a grace period, reviews Coop's exact
+discard plan, refuses dirty or unpublished work, and discards only a clean or already-published
+workspace. No cleanup path infers ownership from a repository or branch name.
 
 ## Atomic admission
 
@@ -172,6 +285,7 @@ superseded after the first classification instead of spending more model turns.
 Fast deterministic tests cover:
 
 - arbitrary and scalar webhook payloads;
+- signed GitHub issue comments, PR reviews, inline review threads, and native comment reactions;
 - trusted routing despite hostile payload fields;
 - bearer and metadata-bound HMAC authentication, including stable item identity, freshness, replay,
   and size limits;
@@ -190,6 +304,8 @@ Fast deterministic tests cover:
 - the harvested Slack lifecycle corpus described in the [corpus review](elixir-slack-admission-corpus.md).
 
 These tests use recorded decisions or a deterministic fake Coop API; they never call an LLM. Model
-choice quality remains a separate recorded-context evaluation suite. Delivery, full investigation,
-memory, automations, GitHub work, remote fleet placement, and final Slack rendering remain later
-modules.
+choice quality remains a separate recorded-context evaluation suite. The downstream Work, state,
+scheduling, approval, publication, retention, and platform-delivery modules now consume this
+admission boundary. Privileged GitHub review decisions and cross-host Coop session placement remain
+outside this module's contract. Generic Slack/GitHub reply and reaction delivery is described in
+[platform adapters and delivery](elixir-platform-adapters.md).

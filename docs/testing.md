@@ -3,6 +3,73 @@
 Responder uses four test layers plus a statistical model-release gate. They intentionally prove
 different things; no single green command is presented as proof of the whole product.
 
+## Elixir replacement gates
+
+The replacement runtime has its own PostgreSQL-backed deterministic gate. Run the owning test while
+iterating and the complete Elixir gate before treating the replacement slice as ready:
+
+```bash
+scripts/elixir-test.sh test/responder/evals
+make elixir-check
+```
+
+The model corpora can also be compiled without credentials or executed through the configured local
+Coop daemon:
+
+```bash
+MIX_ENV=test mix responder.eval admission-pack
+MIX_ENV=test mix responder.eval work-pack
+MIX_ENV=test mix responder.eval world-pack
+MIX_ENV=test mix responder.eval admission --config /absolute/responder-elixir.yaml
+MIX_ENV=test mix responder.eval work --config /absolute/responder-elixir.yaml
+make eval-world-smoke CONFIG=/absolute/responder-elixir-eval.yaml
+make eval-world CONFIG=/absolute/responder-elixir-eval.yaml
+```
+
+Admission evals score routing and relation selection. Work evals use the production prompt, final
+schema, and host validator, including same-turn semantic correction and candidate-attempt identity.
+The YAML must declare a dedicated `model_evals.socket`, `model_evals.no_tools_policy`, and
+`model_evals.world_policy`; the full paired gate also requires
+`model_evals.world_baseline_policy`. Every name and digest must be distinct from
+the admission policy, every repository policy, and the other eval policies. The admission and narrow Work commands use the isolated
+read-only/no-tools eval policy. They close and discard only a
+Coop-proven clean workspace; a dirty or ambiguous workspace is retained and fails the run. These
+commands do not publish Slack or GitHub messages and do not mutate Emisar.
+
+`world-pack` compiles the single versioned scenario bundles and their exact tool catalogs without a
+model. `eval-world-smoke` runs eight representative scenarios once at a 100% floor.
+`eval-world` runs the complete corpus three times for both the candidate and baseline policies against
+the exact same deterministic worlds. It requires at least 90% aggregate success, at least two of three
+passes per case, no more than 10% paired baseline regressions, and zero hard-invariant or `UNRUN`
+observations. Both are interactive product lanes: they use the real episode kernel, Work executor,
+lease-scoped Responder state tools, semantic repair, and an inert evaluation delivery adapter. Only
+external source systems are served by the checked-in deterministic cassette. A second isolated Coop
+session judges the human-language rubric after all hard and trajectory checks pass; an unrun rubric
+is never counted as a pass. The eval socket cannot equal the production Coop socket. Responder fetches
+every created eval session before submission and requires Coop's public `repository_read_only` bit;
+the dedicated daemon must have no production environment, credentials, network mutation tools, or
+project MCP configuration. A distinct policy name alone is not an authority boundary. The database
+name is mandatory and the runner refuses any database with
+pre-existing episodes. The world policy must expose only disposable eval repositories and the
+fabricated tool world through a TLS gateway reachable by the
+disposable Coop sandbox; never point this command at a production database or platform adapter.
+Each invocation creates its own database. A successful run drops it; a failed run preserves and names
+it for custody inspection. Detailed reports are atomically written mode `0600` and include every
+repeat, lane, runtime identity, threshold, and paired verdict.
+
+`make eval-host-replay` runs the deterministic side of those same scenario bundles. The bundle owns
+the recorded tool calls, invalid candidates, semantic repairs, and final candidates, so the replay
+cannot turn green by hard-coding a friendlier model path in a separate test callback. It uses fake
+Coop and inert delivery only; no credentialed model or external platform is contacted.
+
+The legacy Go gates below remain relevant until cutover, but they are not required merely to prove an
+Elixir-only edit during iteration.
+
+Passing these deterministic and model gates is necessary but does not activate the replacement. The
+separate [Elixir replacement cutover runbook](elixir-cutover.md) requires isolated platform acceptance,
+a sealed one-shot live-state import, queue verification, and a bounded rollback decision before the
+new runtime owns production input.
+
 ## Tests run against a real database
 
 `internal/service` and `internal/httpapi` take `*store.Store` directly rather than an interface,
@@ -376,11 +443,12 @@ build checks concurrently. It deliberately leaves the
 whole-tree race detector, Staticcheck, actionlint, vulnerability scan, and quality-watch
 suite to the full gate. Running bare `make` is equivalent to `make dev-check`.
 
-After committing a releasable batch, run `make candidate`. It runs the full gate once, builds the
-exact commit's binary, and writes a proof containing the commit, binary checksum, Go version, and
-platform. `make canary` rotates the first configured Responder deployment to that exact artifact;
-`make promote` rotates the rest only after confirming the canary is still running it. Neither
-command can reuse a proof for a different commit or binary.
+After committing a releasable batch, run `make elixir-release-check` and
+`make elixir-candidate-check`. They build the exact commit's immutable OTP release, verify its
+operator assets and digest before extraction, then migrate and boot it against disposable
+PostgreSQL, restart it against the same database, and boot once more from a verified backup restore.
+Deployment itself is one ordinary writer replacement; restart and rollback use
+PostgreSQL custody plus immutable old/new releases, not a canary/promote state machine.
 
 ## Release gate
 
@@ -389,11 +457,11 @@ make check
 make release-check
 ```
 
-`make check` runs independent checks concurrently and shards the large `internal/service` race
-suite across `RACE_SHARDS` workers. It still covers formatting and static analysis, unit and
-integration tests, the contract replay, the whole-tree race detector, a production build, and
-vulnerability analysis. `make release-check` also builds
-and inspects release archives. A real-model eval is credentialed, costly, and nondeterministic, so
+`make check` runs independent checks concurrently and covers both replacement and retained legacy
+contracts, including formatting, static analysis, unit/integration tests, replay, race checks,
+production builds, and vulnerability analysis. `make release-check` also builds and boots the
+Elixir candidate and inspects every signed-release input. A real-model eval is credentialed, costly,
+and nondeterministic, so
 it is an explicit pre-release/model-change gate rather than part of ordinary offline CI.
 
 The customer journeys are distributed across package tests at the boundary that owns the outcome:
@@ -428,9 +496,9 @@ release gate rather than only during manual Slack testing.
 ## Live acceptance
 
 Offline tests cannot prove that a real Slack workspace, current Coop build, AI provider account,
-Emisar policy, installed MCP catalogs, and Slack renderer agree. The opt-in acceptance test posts
-to an existing joined channel named exactly `#test` while using an isolated temporary Responder
-database:
+Emisar policy, installed MCP catalogs, and Slack renderer agree. The opt-in replacement acceptance
+runs from the immutable installed Elixir release against its active PostgreSQL queues. It posts only
+to an existing joined, non-Connect channel named `#test` or ending in `-test`:
 
 ```bash
 set -a
@@ -441,29 +509,73 @@ make live-acceptance \
   LIVE_CHANNEL=C0123TEST
 ```
 
-The test injects synthetic configured-operator inputs into that isolated database because a bot
-token cannot impersonate a human. Outputs still cross the real Slack API, configured model, Coop
-socket, repository checkout, and read-only MCP tools. It verifies a normal reply, same-thread
-follow-up context, an inert preference offer plus explicit confirmation, and an engineering-task
-offer without starting writable work. It fails on malformed or oversized Slack blocks, leaked
-protocol JSON, incorrect routing, duplicate durable work, or an unexpected incident. Any clean
-read-only Coop session it owns is discarded at the end; dirty or running work is retained for
-inspection.
+The test injects uniquely identified synthetic configured-operator inputs because a bot token cannot
+impersonate a human. It does not start a second Slack socket or a second product runtime: the active
+deployment must claim Admission, remote Work, and Delivery from the same database. Outputs cross the
+real Slack API, configured model, remote Coop worker, repository checkout, and state-tool boundary.
+The proof requires two distinct settled turns in one episode, one Coop session, and the exact root
+thread, with nonempty rendered replies and typed external receipts. The JSON report says explicitly
+that the inputs were synthetic and records the immutable release version and durable identities.
 
-Before the live run, use `responder doctor` to verify the installed app scopes and current
-workspace configuration. The broader release acceptance matrix remains:
+This narrow automatic lane does not confirm offers or exercise mutating authority. The broader
+manual acceptance matrix below remains mandatory before production cutover. The same matrix is
+rendered, with configuration availability, at `http://127.0.0.1:4321/manual-tests`.
 
-1. Ask a health question and verify immediate native progress followed by a threaded answer with
-   both repository and live evidence.
-2. Send an ordinary follow-up without an `@mention` and verify it stays in the same conversation.
-3. Ask for a repository change, confirm the engineering-task offer, inspect the change, and create
-   a draft PR only after review.
-4. Ask to remember a deep health preference and a Terraform plan rule; verify nothing is active
-   before confirmation and matching behavior works afterward.
-5. Use a test Emisar action that requires approval; verify Slack links to the exact Emisar approval
-   and never claims the action ran before authoritative completion.
-6. Restart Responder during a pending turn and verify one eventual result with no duplicate room,
-   message, or agent submission.
+Before the live run, use `responder doctor` to verify the installed App scopes and current
+workspace configuration. Then qualify these large features in disposable destinations:
+
+1. **Conversation Lab.** Open `http://127.0.0.1:4321/lab`, start a conversation, and ask for a
+   concise answer. Send a follow-up that depends on it and confirm the Lab shows one episode and one
+   Coop session with two logical turns. Ask a material question, answer it, and verify the same task
+   resumes. Restart Responder while the next answer is pending; expect one eventual reply and no
+   duplicate Work or Delivery row.
+2. **Slack conversation.** Mention Responder in an approved `*-test` channel. Expect native progress
+   followed by one reply in the exact root thread. Send an ordinary authorized follow-up without an
+   `@mention`; expect the same episode/thread and a compact continuation rather than another full
+   briefing. Repeat in a DM and verify it continues the current nonterminal DM episode without ever
+   crossing into a shared-channel thread.
+3. **Slack task and progress cards.** Request a harmless repository task. Confirm the host-owned task
+   offer, then exercise status, progress repaint, run-now/resume where offered, and Stop. Double-click
+   or replay every button payload; expect one audited transition and the same repainted card. Stop
+   during a running Coop turn and verify remote cancellation is terminal before the episode cancels.
+4. **Slack reactions and files.** Add a standard Unicode or configured custom emoji reaction to a
+   live source message and verify one normalized reaction input. Ask Responder to react and verify
+   exact source-message targeting plus idempotent `already_reacted` handling. Upload a bounded text
+   file and image; verify authenticated byte fetch, type/size checks, turn-scoped artifact custody,
+   and same-thread delivery. Create one disposable incident room and verify audience, topic,
+   bookmarks, pinned card, lifecycle repaint, and cleanup without a duplicate room.
+5. **GitHub issue conversation.** Comment on a disposable issue as an authorized actor. Expect one
+   reply on that issue using the configured installation/repository binding. Edit and then delete
+   the source comment; verify stable item revisions remain owned by the original episode and a stale
+   revision cannot create or move work.
+6. **GitHub PR review.** Request a review on a disposable pull request and verify a review summary is
+   posted through the PR review endpoint. Reply inside an inline review thread and verify Responder
+   uses the exact root review comment rather than an issue comment or another thread. Test comments
+   and review comments separately because GitHub exposes different APIs for each.
+7. **GitHub emoji reactions.** On both an issue comment and a PR review comment, exercise `+1`, `-1`,
+   `laugh`, `confused`, `heart`, `hooray`, `rocket`, and `eyes`. Expect the native reaction endpoint,
+   the exact authenticated target, and one durable receipt per requested operation. A repeated
+   delivery must reconcile the same reaction instead of creating another action.
+8. **Universal webhook.** Send a signed arbitrary JSON object with unique occurrence ID, stable item
+   ID, and configured destination. Expect Responder to report exact observed fields while labeling
+   unknown vendor meaning. Exact replay must be a duplicate; a changed body under the occurrence ID
+   must conflict; revision 2 under the stable item must remain in the original episode. Content must
+   never choose its own destination, policy, repository, reaction, or posting authority.
+9. **Stateful model behavior.** Ask for evidence, a progress update, a required goal, memory, a
+   schedule, an operator question, and a governed Emisar action in separate safe conversations.
+   Confirm offers before activation. Verify waits release leases, exact triggers resume once, open
+   goals prevent premature completion, and an Emisar link never claims success before authoritative
+   completion. Force one invalid final and one lost validation response; expect same-turn repair and
+   one accepted result.
+10. **Recovery and cleanup.** Restart at frozen-submit, accepted-result, and post-sent/pre-receipt
+    points; expect exact operation reconciliation and no duplicate visible effect. Restore a fresh
+    `pg_dump` into a disposable database and boot the same immutable release against it. Complete
+    clean, dirty, and unmerged repository tasks and verify close/discard/retain behavior plus the
+    typed rearm controls in Failures and Workspaces.
+
+For every journey, keep the corresponding Conversation Lab, Episodes, Failures, Workspaces, and
+Usage pages open. A visible message is not sufficient proof: its exact destination, episode owner,
+accepted candidate receipt, delivery receipt, and terminal/retry state must also be correct.
 
 Use test channels and non-production read-only actions. Destructive or approval-granting acceptance
 tests belong in a dedicated environment, never in the default release gate.

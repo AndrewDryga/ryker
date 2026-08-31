@@ -1,26 +1,30 @@
 # Releasing Responder
 
-Responder releases are public, tag-driven GitHub Releases. GoReleaser is the single artifact
-definition: it builds Linux amd64 and arm64 binaries, creates archives and `checksums.txt`, signs
-the checksum manifest through GitHub OIDC and cosign, and publishes the finalized changelog
-section. GitHub also records provenance for every archive.
+Responder releases are public, tag-driven GitHub Releases. The canonical service artifact is the
+self-contained Linux amd64 Elixir release. The workflow builds and structurally checks it first;
+GoReleaser then adds it and the three installation helpers to the same `checksums.txt` as the bounded
+legacy Go archives, signs that manifest through GitHub OIDC and cosign, and publishes the finalized
+changelog section. GitHub records build provenance for every archive.
 
 Pushing a version tag is the release-publication boundary. All release preparation before that
 push is reversible without rewriting a published release.
 
-Local release checks require the Go version from `go.mod`, ShellCheck, and GoReleaser v2.16.0.
-
-For dogfood deployment, commit first, then use the same exact artifact through the rollout:
+Local release checks require the Erlang and Elixir versions from `.tool-versions`, the Go version
+from `go.mod`, ShellCheck, and GoReleaser v2.16.0. Commit first, then prove the exact Elixir artifact
+without touching a production listener:
 
 ```bash
-make candidate  # full proof and exact-commit binary, once
-make canary     # first configured launch agent
-make promote    # remaining launch agents
+make elixir-release-check
+make elixir-candidate-check
 ```
 
-Candidate proofs include the commit, binary checksum, Go version, and platform. They expire after
-24 hours by default and cannot be reused when any of those values changes. CI still runs the full
-gate independently on a clean runner.
+The release identity is the semantic tag for a public release and otherwise the exact Git commit.
+The candidate check installs that archive immutably, migrates a disposable PostgreSQL database,
+boots and restarts the release against it, takes and restores a custom-format backup into a fresh
+database, boots from the restored state, requires health/readiness/metrics throughout, and stops it
+cleanly. Production deployment is
+one normal writer replacement; durable recovery is in PostgreSQL, not in canary/promote metadata.
+CI still runs the full gate independently on a clean runner.
 
 ## Repository setup
 
@@ -45,9 +49,9 @@ host.
 ## Prepare
 
 1. Work from a clean `main` that is not behind `origin/main`.
-2. Run `make release-check`. It executes the complete gate, builds the exact unsigned release
-   snapshot, verifies both checksums and archive contents, and smoke-tests the host binary. On
-   Linux it also executes the packaged native binary.
+2. Run `make release-check`. It executes the complete gate, builds the exact unsigned Elixir and
+   compatibility snapshots, verifies their checksums and archive contents, boots the Elixir
+   candidate against disposable PostgreSQL, and smoke-tests native executables where supported.
 3. Refuse a no-op release. Compare the latest version tag to `main`; if only documentation or the
    changelog changed, attribute those notes to the existing release instead of cutting a
    byte-identical binary.
@@ -83,8 +87,10 @@ git push origin vX.Y.Z
 
 Watch `.github/workflows/release.yml` to completion, then confirm the GitHub Release contains:
 
+- `responder_X.Y.Z_elixir_linux_amd64.tar.gz`;
 - `responder_X.Y.Z_linux_amd64.tar.gz`;
 - `responder_X.Y.Z_linux_arm64.tar.gz`;
+- `install-elixir-release.sh`, `check-elixir-release.sh`, and `activate-elixir-release.sh`;
 - `checksums.txt`;
 - `checksums.txt.bundle`.
 
@@ -92,9 +98,10 @@ The workflow creates a draft first, smoke-tests its local artifacts, records pro
 then makes the release public. A failure after GoReleaser therefore leaves a non-public draft for
 inspection rather than a partially verified public release.
 
-Use the verification procedure in [`operations.md`](operations.md#release-verification) against
-downloaded assets. It verifies GitHub-hosted provenance for both archives; attestations are not
-release assets. Also extract one archive and run `responder version`.
+Use the verification and installation procedure in
+[`operations.md`](operations.md#release-verification) against downloaded assets. It verifies the
+OIDC-signed manifest and GitHub-hosted provenance before any archive is listed, extracted, or
+executed. Attestations are not release assets.
 
 ## Failure policy
 
