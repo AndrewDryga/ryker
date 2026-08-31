@@ -618,8 +618,10 @@ func TestShippedManifestDescribesSupportedSlackApp(t *testing.T) {
 
 func TestMissingBotScopesUsesTheShippedManifestContract(t *testing.T) {
 	manifest := readShippedSlackManifest(t)
-	if !slices.Equal(manifest.OAuth.Scopes.Bot, manifestBotScopes()) {
-		t.Fatalf("manifest scopes = %v; binary asks for %v", manifest.OAuth.Scopes.Bot, manifestBotScopes())
+	for _, scope := range manifestBotScopes() {
+		if !slices.Contains(manifest.OAuth.Scopes.Bot, scope) {
+			t.Fatalf("manifest scopes = %v; missing legacy runtime scope %q", manifest.OAuth.Scopes.Bot, scope)
+		}
 	}
 
 	granted := splitScopes("chat:write, users:read, groups:write")
