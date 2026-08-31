@@ -48,7 +48,7 @@ defmodule Responder.ReleaseTest do
     assert makefile =~ "scripts/check-elixir-candidate.sh"
     assert makefile =~ "scripts/elixir-release-version.sh"
     assert makefile =~ "RESPONDER_ELIXIR_VERSION="
-    assert makefile =~ "scripts/elixir-mix.sh do clean, release responder --overwrite"
+    assert makefile =~ "scripts/elixir-mix.sh do clean + release responder --overwrite"
 
     version_script = File.read!(Path.expand("../../scripts/elixir-release-version.sh", __DIR__))
     assert version_script =~ "describe --exact-match --tags"
