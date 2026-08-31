@@ -3,9 +3,11 @@ defmodule Responder.Ingress.InboxTest do
 
   import Ecto.Query
 
+  alias Responder.ControlPlane.Projection
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Slack.Input, as: SlackInput
+  alias Responder.Slack.SourceRef
 
   @occurred_at ~U[2026-08-27 12:00:00Z]
 
@@ -24,6 +26,8 @@ defmodule Responder.Ingress.InboxTest do
     assert entry.episode_id == nil
     assert entry.occurred_at == ~U[2026-08-27 12:00:00.000000Z]
     assert entry.source_item_ref == "1787832000.000100"
+    assert entry.source_kind == "slack"
+    assert entry.source_capabilities == %{"react" => %{"emoji_names" => nil}}
 
     assert {:ok, loaded} = Inbox.fetch(Inbox.ref(entry))
     assert loaded.id == entry.id
@@ -38,6 +42,53 @@ defmodule Responder.Ingress.InboxTest do
     assert {:ok, %{status: :duplicate, entry: retried}} = Inbox.record(input)
 
     assert retried.id == first.id
+    assert Repo.aggregate(Entry, :count) == 1
+  end
+
+  test "freezes execution mode on first receipt instead of re-reading channel settings" do
+    input = input!(event_ref: "Ev-shadow")
+
+    assert {:ok, %{status: :recorded, entry: first}} =
+             Inbox.record(input, execution_mode: :shadow)
+
+    assert first.execution_mode == :shadow
+
+    assert {:ok, %{status: :duplicate, entry: retried}} =
+             Inbox.record(input, execution_mode: :live)
+
+    assert retried.id == first.id
+    assert retried.execution_mode == :shadow
+    assert Repo.aggregate(Entry, :count) == 1
+  end
+
+  test "freezes trusted work placement on first receipt instead of accepting retry drift" do
+    input = input!(event_ref: "Ev-work-placement")
+
+    original = %{
+      policy: "incident-read-v1",
+      policy_digest: String.duplicate("a", 64),
+      repository_ref: "infrastructure"
+    }
+
+    changed = %{
+      policy: "incident-read-v2",
+      policy_digest: String.duplicate("b", 64),
+      repository_ref: "backend"
+    }
+
+    assert {:ok, %{status: :recorded, entry: first}} =
+             Inbox.record(input, work_profile: original)
+
+    assert first.work_policy == original.policy
+    assert first.work_policy_digest == original.policy_digest
+    assert first.repository_ref == original.repository_ref
+
+    assert {:ok, %{status: :duplicate, entry: retried}} =
+             Inbox.record(input, work_profile: changed)
+
+    assert retried.work_policy == original.policy
+    assert retried.work_policy_digest == original.policy_digest
+    assert retried.repository_ref == original.repository_ref
     assert Repo.aggregate(Entry, :count) == 1
   end
 
@@ -232,12 +283,69 @@ defmodule Responder.Ingress.InboxTest do
              Inbox.claim_next("executor:test", DateTime.add(@occurred_at, 1, :hour), 60)
   end
 
+  test "an operator can rearm one exact blocked admission without changing its frozen decision context" do
+    assert {:ok, %{entry: entry}} = Inbox.record(input!(event_ref: "Ev-operator-rearm"))
+
+    assert {:ok, %{lease_ref: lease_ref}} =
+             Inbox.claim_next("executor:operator-rearm", @occurred_at, 60)
+
+    context = %{"candidate_episode_ids" => [], "input" => %{"event_ref" => entry.event_ref}}
+
+    assert {:ok, frozen} = Inbox.bind_context(Inbox.ref(entry), lease_ref, context)
+
+    assert {:ok, _blocked} =
+             Inbox.block(
+               Inbox.ref(entry),
+               lease_ref,
+               "operation_uncertain",
+               "Coop could not prove the exact mutation outcome"
+             )
+
+    assert {:ok, %{action: :rearm, ref: blocked_ref, status: :blocked}} =
+             Projection.admission(Inbox.ref(entry))
+
+    assert blocked_ref == Inbox.ref(entry)
+
+    assert {:ok, rearmed} = Inbox.rearm(Inbox.ref(entry))
+    assert rearmed.status == :pending
+    assert rearmed.attempt_count == 0
+    assert rearmed.admission_context == frozen.admission_context
+    assert rearmed.admission_context_fingerprint == frozen.admission_context_fingerprint
+    assert rearmed.execution_generation == frozen.execution_generation
+    assert rearmed.validation_generation == frozen.validation_generation
+    assert rearmed.last_error_code == nil
+    assert rearmed.lease_ref == nil
+
+    assert {:error, {:ingress_rearm_failed, :input_not_blocked}} =
+             Inbox.rearm(Inbox.ref(entry))
+  end
+
   test "the database requires an exact source item before a reaction can be admitted" do
     assert {:ok, %{entry: entry}} = Inbox.record(input!(event_ref: "Ev-reaction-target"))
 
-    assert_raise Postgrex.Error, ~r/ingress_inbox_reaction_target_valid/, fn ->
+    assert_raise Postgrex.Error, ~r/ingress_inbox_source_capabilities_valid/, fn ->
       Repo.query!(
         "UPDATE ingress_inbox_entries SET source_item_ref = NULL WHERE id = $1",
+        [Ecto.UUID.dump!(entry.id)]
+      )
+    end
+  end
+
+  test "the database cannot move a Slack post grant onto a non-user source" do
+    destination_ref = SourceRef.channel("T123", "C789")
+
+    assert {:ok, %{entry: entry}} =
+             Inbox.record(
+               input!(
+                 actor: %{kind: :user, ref: "U123"},
+                 event_ref: "Ev-post-grant",
+                 post_destination_refs: [destination_ref]
+               )
+             )
+
+    assert_raise Postgrex.Error, ~r/ingress_inbox_source_capabilities_valid/, fn ->
+      Repo.query!(
+        "UPDATE ingress_inbox_entries SET actor_kind = 'app' WHERE id = $1",
         [Ecto.UUID.dump!(entry.id)]
       )
     end

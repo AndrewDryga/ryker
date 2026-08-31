@@ -16,7 +16,6 @@ defmodule Responder.Ingress.Input do
   @model_content_limit 12_288
   @fields [
     :actor,
-    :can_react,
     :content,
     :destination,
     :event_kind,
@@ -26,18 +25,25 @@ defmodule Responder.Ingress.Input do
     :occurred_at_source,
     :revision,
     :source,
+    :source_capabilities,
     :source_item_ref
   ]
   @event_kinds [:message, :edit, :delete, :event]
   @occurred_at_sources [:source, :ingress]
   @actor_kinds [:user, :app, :bot, :system]
-  @source_kinds [:slack, :webhook]
+  @source_kind_regex ~r/\A[a-z][a-z0-9_-]{0,63}\z/
+  @emoji_name_regex ~r/\A[a-z0-9_+\-]+\z/
+  @slack_post_destination_regex ~r/\Aslack-source:v1:[A-Z0-9]+:[A-Z0-9]+:(?:channel|thread:[0-9]{10,}\.[0-9]{1,6})\z/
+  @maximum_post_destinations 8
 
   @enforce_keys @fields
   defstruct @fields
 
   @type actor :: %{kind: :user | :app | :bot | :system, ref: String.t()}
-  @type source :: %{kind: :slack | :webhook, ref: String.t()}
+  @type source :: %{kind: String.t(), ref: String.t()}
+  @type source_capabilities :: %{
+          optional(String.t()) => %{String.t() => [String.t()] | nil}
+        }
   @type destination :: %{
           transport: String.t(),
           conversation_ref: String.t(),
@@ -45,7 +51,6 @@ defmodule Responder.Ingress.Input do
         }
   @type t :: %__MODULE__{
           actor: actor(),
-          can_react: boolean(),
           content: map(),
           destination: destination(),
           event_kind: :message | :edit | :delete | :event,
@@ -55,6 +60,7 @@ defmodule Responder.Ingress.Input do
           occurred_at_source: :source | :ingress,
           revision: pos_integer(),
           source: source(),
+          source_capabilities: source_capabilities(),
           source_item_ref: String.t() | nil
         }
 
@@ -80,7 +86,7 @@ defmodule Responder.Ingress.Input do
   @spec dedupe_key(t()) :: String.t()
   def dedupe_key(%__MODULE__{} = input) do
     digest =
-      CanonicalJSON.digest([Atom.to_string(input.source.kind), input.source.ref, input.event_ref])
+      CanonicalJSON.digest([input.source.kind, input.source.ref, input.event_ref])
 
     "ingress-event:#{digest}"
   end
@@ -96,7 +102,6 @@ defmodule Responder.Ingress.Input do
   def document(%__MODULE__{} = input) do
     %{
       "actor" => %{"kind" => Atom.to_string(input.actor.kind), "ref" => input.actor.ref},
-      "can_react" => input.can_react,
       "content" => input.content,
       "event_kind" => Atom.to_string(input.event_kind),
       "event_ref" => input.event_ref,
@@ -104,7 +109,8 @@ defmodule Responder.Ingress.Input do
       "occurred_at" => DateTime.to_iso8601(input.occurred_at),
       "occurred_at_source" => Atom.to_string(input.occurred_at_source),
       "revision" => input.revision,
-      "source" => %{"kind" => Atom.to_string(input.source.kind), "ref" => input.source.ref},
+      "source" => %{"kind" => input.source.kind, "ref" => input.source.ref},
+      "source_capabilities" => input.source_capabilities,
       "source_item_ref" => input.source_item_ref,
       "destination" => %{
         "conversation_ref" => input.destination.conversation_ref,
@@ -121,17 +127,30 @@ defmodule Responder.Ingress.Input do
       "content" => model_content(input.content),
       "event_kind" => Atom.to_string(input.event_kind),
       "occurred_at" => DateTime.to_iso8601(input.occurred_at),
-      "source" => %{"kind" => Atom.to_string(input.source.kind), "ref" => input.source.ref}
+      "source" => %{"kind" => input.source.kind, "ref" => input.source.ref},
+      "source_capabilities" => input.source_capabilities
     }
   end
 
   @spec allowed_actions(t()) :: [:start_episode | :continue_episode | :reply | :react | :ignore]
-  def allowed_actions(%__MODULE__{can_react: true, source_item_ref: source_item_ref})
-      when is_binary(source_item_ref),
-      do: [:start_episode, :continue_episode, :reply, :react, :ignore]
+  def allowed_actions(%__MODULE__{source_capabilities: %{"react" => _capability}}),
+    do: [:start_episode, :continue_episode, :reply, :react, :ignore]
 
-  def allowed_actions(%__MODULE__{can_react: false}),
+  def allowed_actions(%__MODULE__{}),
     do: [:start_episode, :continue_episode, :reply, :ignore]
+
+  @spec reaction_names(t()) :: :any | [String.t()] | nil
+  def reaction_names(%__MODULE__{
+        source_capabilities: %{"react" => %{"emoji_names" => nil}}
+      }),
+      do: :any
+
+  def reaction_names(%__MODULE__{
+        source_capabilities: %{"react" => %{"emoji_names" => names}}
+      }),
+      do: names
+
+  def reaction_names(%__MODULE__{}), do: nil
 
   @spec actor_ref(t()) :: String.t()
   def actor_ref(%__MODULE__{} = input) do
@@ -178,7 +197,6 @@ defmodule Responder.Ingress.Input do
   defp validate(%__MODULE__{} = input) do
     validations = [
       {valid_actor?(input.actor), :actor},
-      {is_boolean(input.can_react), :can_react},
       {valid_destination?(input.destination), :destination},
       {input.event_kind in @event_kinds, :event_kind},
       {reference?(input.event_ref), :event_ref},
@@ -187,8 +205,14 @@ defmodule Responder.Ingress.Input do
       {is_integer(input.revision) and input.revision > 0 and
          input.revision <= @maximum_revision, :revision},
       {valid_source?(input.source), :source},
+      {valid_source_capabilities?(input.source_capabilities), :source_capabilities},
       {optional_reference?(input.source_item_ref), :source_item_ref},
-      {not input.can_react or not is_nil(input.source_item_ref), :source_item_ref},
+      {not Map.has_key?(input.source_capabilities, "react") or
+         not is_nil(input.source_item_ref), :source_item_ref},
+      {not Map.has_key?(input.source_capabilities, "post_slack_message") or
+         (input.source.kind == "slack" and input.actor.kind == :user and
+            not is_nil(input.source_item_ref)), :source_capabilities},
+      {post_capability_matches_source?(input), :source_capabilities},
       {utc_datetime?(input.occurred_at), :occurred_at}
     ]
 
@@ -232,9 +256,16 @@ defmodule Responder.Ingress.Input do
   # stable event id, revision, actor, content, and destination still conflict if
   # a sender reuses an event id for different work.
   defp fingerprint_document(
-         %__MODULE__{source: %{kind: :webhook}, occurred_at_source: :ingress} = input
+         %__MODULE__{source: %{kind: "webhook"}, occurred_at_source: :ingress} = input
        ) do
     input |> document() |> Map.delete("occurred_at")
+  end
+
+  # GitHub authenticates the raw request body, not the delivery header. Keep
+  # the first observed header for audit without letting a rewritten header
+  # turn one captured signed body into a second event.
+  defp fingerprint_document(%__MODULE__{source: %{kind: "github"}} = input) do
+    update_in(document(input), ["content"], &Map.delete(&1, "delivery_ref"))
   end
 
   defp fingerprint_document(input), do: document(input)
@@ -251,10 +282,83 @@ defmodule Responder.Ingress.Input do
 
   defp valid_actor?(_actor), do: false
 
-  defp valid_source?(%{kind: kind, ref: ref} = source) when kind in @source_kinds,
-    do: map_size(source) == 2 and reference?(ref)
+  defp valid_source?(%{kind: kind, ref: ref} = source) do
+    map_size(source) == 2 and is_binary(kind) and Regex.match?(@source_kind_regex, kind) and
+      reference?(ref)
+  end
 
   defp valid_source?(_source), do: false
+
+  defp valid_source_capabilities?(%{} = capabilities) do
+    Enum.sort(Map.keys(capabilities)) in [
+      [],
+      ["post_slack_message"],
+      ["react"],
+      ["post_slack_message", "react"]
+    ] and
+      case capabilities do
+        %{} = empty when map_size(empty) == 0 ->
+          true
+
+        %{"react" => capability} ->
+          valid_reaction_capability?(capability)
+
+        %{"post_slack_message" => capability} ->
+          valid_post_capability?(capability)
+
+        %{"post_slack_message" => post, "react" => react} ->
+          valid_post_capability?(post) and valid_reaction_capability?(react)
+
+        _other ->
+          false
+      end
+  end
+
+  defp valid_source_capabilities?(_capabilities), do: false
+
+  defp valid_reaction_capability?(%{"emoji_names" => nil} = capability),
+    do: map_size(capability) == 1
+
+  defp valid_reaction_capability?(%{"emoji_names" => names} = capability)
+       when is_list(names) and names != [] and length(names) <= 64 do
+    map_size(capability) == 1 and names == Enum.sort(Enum.uniq(names)) and
+      Enum.all?(names, &emoji_name?/1)
+  end
+
+  defp valid_reaction_capability?(_capability), do: false
+
+  defp valid_post_capability?(%{"destination_refs" => refs} = capability)
+       when is_list(refs) and refs != [] and length(refs) <= @maximum_post_destinations do
+    map_size(capability) == 1 and refs == Enum.sort(Enum.uniq(refs)) and
+      Enum.all?(refs, &reference?/1)
+  end
+
+  defp valid_post_capability?(_capability), do: false
+
+  defp post_capability_matches_source?(%__MODULE__{
+         source: %{kind: "slack", ref: workspace_ref},
+         source_capabilities: %{
+           "post_slack_message" => %{"destination_refs" => destination_refs}
+         }
+       }) do
+    workspace_prefix = "slack-source:v1:#{workspace_ref}:"
+
+    Enum.all?(destination_refs, fn destination_ref ->
+      String.starts_with?(destination_ref, workspace_prefix) and
+        Regex.match?(@slack_post_destination_regex, destination_ref)
+    end)
+  end
+
+  defp post_capability_matches_source?(%__MODULE__{
+         source_capabilities: %{"post_slack_message" => _capability}
+       }),
+       do: false
+
+  defp post_capability_matches_source?(%__MODULE__{}), do: true
+
+  defp emoji_name?(value) do
+    is_binary(value) and byte_size(value) <= 80 and Regex.match?(@emoji_name_regex, value)
+  end
 
   defp valid_destination?(
          %{transport: transport, conversation_ref: conversation, thread_ref: thread} = destination

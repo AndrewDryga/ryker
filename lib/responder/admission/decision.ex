@@ -75,10 +75,14 @@ defmodule Responder.Admission.Decision do
   end
 
   @spec json_schema() :: map()
-  def json_schema, do: json_schema(@actions)
+  def json_schema, do: json_schema(@actions, :any)
 
   @spec json_schema([atom()]) :: map()
-  def json_schema(allowed_actions) when is_list(allowed_actions) do
+  def json_schema(allowed_actions) when is_list(allowed_actions),
+    do: json_schema(allowed_actions, :any)
+
+  @spec json_schema([atom()], :any | [String.t()] | nil) :: map()
+  def json_schema(allowed_actions, reaction_names) when is_list(allowed_actions) do
     actions = Enum.filter(@actions, &(&1 in allowed_actions))
 
     %{
@@ -94,33 +98,21 @@ defmodule Responder.Admission.Decision do
         },
         "reaction" => %{
           "anyOf" => [
-            %{
-              "additionalProperties" => false,
-              "properties" => %{
-                "emoji_name" => %{
-                  "maxLength" => 80,
-                  "minLength" => 1,
-                  "pattern" => "^[a-z0-9_+\\-]+$",
-                  "type" => "string"
-                }
-              },
-              "required" => ["emoji_name"],
-              "type" => "object"
-            },
+            reaction_schema(reaction_names),
             %{"type" => "null"}
           ]
         },
         "relation" => %{"enum" => Enum.map(@relations, &Atom.to_string/1)},
         "reason" => bounded_string_schema(512)
       },
-      "oneOf" => decision_shapes(actions),
+      "oneOf" => decision_shapes(actions, reaction_names),
       "required" => @fields,
       "title" => "Responder admission decision",
       "type" => "object"
     }
   end
 
-  defp decision_shapes(actions) do
+  defp decision_shapes(actions, reaction_names) do
     [
       shape("start_episode", nil, nil, "unrelated"),
       shape("start_episode", :reference, nil, "history_only"),
@@ -128,7 +120,7 @@ defmodule Responder.Admission.Decision do
       shape("reply", nil, nil, "unrelated"),
       shape("reply", :reference, nil, "same_work"),
       shape("reply", :reference, nil, "history_only"),
-      shape("react", nil, :reaction, "unrelated"),
+      shape("react", nil, {:reaction, reaction_names}, "unrelated"),
       shape("ignore", nil, nil, "unrelated")
     ]
     |> Enum.filter(fn %{"properties" => %{"action" => %{"const" => action}}} ->
@@ -154,19 +146,27 @@ defmodule Responder.Admission.Decision do
 
   defp reaction_shape(nil), do: %{"type" => "null"}
 
-  defp reaction_shape(:reaction) do
+  defp reaction_shape({:reaction, reaction_names}), do: reaction_schema(reaction_names)
+
+  defp reaction_schema(reaction_names) do
     %{
       "additionalProperties" => false,
       "properties" => %{
-        "emoji_name" => %{
-          "maxLength" => 80,
-          "minLength" => 1,
-          "pattern" => "^[a-z0-9_+\\-]+$",
-          "type" => "string"
-        }
+        "emoji_name" => emoji_name_schema(reaction_names)
       },
       "required" => ["emoji_name"],
       "type" => "object"
+    }
+  end
+
+  defp emoji_name_schema(names) when is_list(names), do: %{"enum" => names, "type" => "string"}
+
+  defp emoji_name_schema(_names) do
+    %{
+      "maxLength" => 80,
+      "minLength" => 1,
+      "pattern" => "^[a-z0-9_+\\-]+$",
+      "type" => "string"
     }
   end
 

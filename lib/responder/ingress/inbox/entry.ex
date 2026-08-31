@@ -17,7 +17,7 @@ defmodule Responder.Ingress.Inbox.Entry do
   schema "ingress_inbox_entries" do
     field(:dedupe_key, :string)
     field(:event_fingerprint, :string)
-    field(:source_kind, Ecto.Enum, values: [:slack, :webhook])
+    field(:source_kind, :string)
     field(:source_ref, :string)
     field(:event_ref, :string)
     field(:event_kind, Ecto.Enum, values: [:message, :edit, :delete, :event])
@@ -25,7 +25,7 @@ defmodule Responder.Ingress.Inbox.Entry do
     field(:source_item_ref, :string)
     field(:actor_kind, Ecto.Enum, values: [:user, :app, :bot, :system])
     field(:actor_ref, :string)
-    field(:can_react, :boolean)
+    field(:source_capabilities, CanonicalJSONType)
     field(:destination_transport, :string)
     field(:destination_conversation_ref, :string)
     field(:destination_thread_ref, :string)
@@ -35,6 +35,10 @@ defmodule Responder.Ingress.Inbox.Entry do
     field(:content, CanonicalJSONType)
     field(:admission_context, CanonicalJSONType)
     field(:admission_context_fingerprint, :string)
+    field(:execution_mode, Ecto.Enum, values: [:live, :shadow], default: :live)
+    field(:work_policy, :string)
+    field(:work_policy_digest, :string)
+    field(:repository_ref, :string)
 
     field(:status, Ecto.Enum,
       values: [:pending, :blocked, :decided, :superseded],
@@ -58,6 +62,7 @@ defmodule Responder.Ingress.Inbox.Entry do
     field(:next_attempt_at, :utc_datetime_usec)
     field(:last_error_code, :string)
     field(:last_error_detail, :string)
+    field(:operational_pruned_at, :utc_datetime_usec)
     belongs_to(:episode, Episode)
 
     timestamps(type: :utc_datetime_usec)

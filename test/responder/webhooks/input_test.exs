@@ -25,8 +25,8 @@ defmodule Responder.Webhooks.InputTest do
              )
 
     assert input.destination == route.destination
-    assert input.can_react == false
-    assert input.source == %{kind: :webhook, ref: "universal"}
+    assert input.source_capabilities == %{}
+    assert input.source == %{kind: "webhook", ref: "universal"}
     assert input.actor == %{kind: :system, ref: "universal"}
     assert input.content == %{"event_type" => "vendor.changed", "payload" => payload}
     assert input.event_kind == :event

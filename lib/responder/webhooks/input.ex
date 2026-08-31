@@ -10,6 +10,8 @@ defmodule Responder.Webhooks.Input do
   alias Responder.Ingress.Input
   alias Responder.Webhooks.Route
 
+  @behaviour Responder.Ingress.Adapter
+
   @maximum_revision 9_223_372_036_854_775_807
   @metadata_fields [
     :event_id,
@@ -26,7 +28,6 @@ defmodule Responder.Webhooks.Input do
          :ok <- validate_metadata(metadata) do
       Input.new(%{
         actor: %{kind: :system, ref: route.name},
-        can_react: false,
         content: %{"event_type" => metadata.event_type, "payload" => payload},
         destination: route.destination,
         event_kind: :event,
@@ -35,13 +36,24 @@ defmodule Responder.Webhooks.Input do
         occurred_at: metadata.occurred_at,
         occurred_at_source: metadata.occurred_at_source,
         revision: metadata.revision,
-        source: %{kind: :webhook, ref: route.name},
+        source: %{kind: "webhook", ref: route.name},
+        source_capabilities: %{},
         source_item_ref: nil
       })
     end
   end
 
   def new(_route, _payload, _metadata), do: {:error, {:invalid_webhook_input, :route}}
+
+  @impl Responder.Ingress.Adapter
+  def source_kind, do: "webhook"
+
+  @impl Responder.Ingress.Adapter
+  def normalize(%{metadata: metadata, payload: payload} = event, %Route{} = route)
+      when map_size(event) == 2,
+      do: new(route, payload, metadata)
+
+  def normalize(_event, _binding), do: {:error, {:invalid_webhook_input, :adapter_event}}
 
   defp normalize_metadata(metadata) when is_list(metadata) do
     if Keyword.keyword?(metadata) and

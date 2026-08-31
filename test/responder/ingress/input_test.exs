@@ -3,6 +3,7 @@ defmodule Responder.Slack.InputTest do
 
   alias Responder.Ingress.Input
   alias Responder.Slack.Input, as: SlackInput
+  alias Responder.Slack.SourceRef
 
   @occurred_at ~U[2026-08-27 12:00:00Z]
 
@@ -38,8 +39,87 @@ defmodule Responder.Slack.InputTest do
   test "a deleted Slack message cannot be offered a reaction" do
     assert {:ok, input} = SlackInput.new(valid_attributes(event_kind: :delete))
 
-    assert input.can_react == false
+    assert input.source_capabilities == %{}
     refute :react in Input.allowed_actions(input)
+  end
+
+  test "source adapters use bounded string identities and typed reaction capabilities" do
+    assert {:ok, slack} = SlackInput.new(valid_attributes())
+
+    assert slack.source == %{kind: "slack", ref: "T123"}
+
+    assert slack.source_capabilities == %{
+             "react" => %{"emoji_names" => nil}
+           }
+
+    assert Input.reaction_names(slack) == :any
+
+    attributes =
+      slack
+      |> Map.from_struct()
+      |> Map.merge(%{
+        source: %{kind: "github", ref: "installation:42"},
+        source_capabilities: %{
+          "react" => %{
+            "emoji_names" => ~w(+1 -1 confused eyes heart hooray laugh rocket)
+          }
+        }
+      })
+
+    assert {:ok, github} = Input.new(attributes)
+    assert github.source.kind == "github"
+    assert Input.reaction_names(github) == ~w(+1 -1 confused eyes heart hooray laugh rocket)
+    assert :react in Input.allowed_actions(github)
+
+    assert Input.new(%{attributes | source: %{kind: :github, ref: "installation:42"}}) ==
+             {:error, {:invalid_input, :source}}
+
+    assert Input.new(%{
+             attributes
+             | source_capabilities: %{
+                 "react" => %{"emoji_names" => ["eyes", "not a github reaction"]}
+               }
+           }) == {:error, {:invalid_input, :source_capabilities}}
+  end
+
+  test "Slack post grants are canonical, source-bound, and user-only" do
+    destination_ref = SourceRef.channel("T123", "C789")
+
+    assert {:ok, granted} =
+             SlackInput.new(
+               valid_attributes(
+                 actor: %{kind: :user, ref: "U123"},
+                 post_destination_refs: [destination_ref]
+               )
+             )
+
+    assert granted.source_capabilities["post_slack_message"] == %{
+             "destination_refs" => [destination_ref]
+           }
+
+    for invalid_ref <- [
+          "post to C789",
+          SourceRef.channel("T999", "C789"),
+          SourceRef.message("T123", "C789", "1787832000.000100")
+        ] do
+      assert SlackInput.new(
+               valid_attributes(
+                 actor: %{kind: :user, ref: "U123"},
+                 post_destination_refs: [invalid_ref]
+               )
+             ) ==
+               {:error, {:invalid_input, :source_capabilities}}
+    end
+
+    assert {:ok, app_input} =
+             SlackInput.new(
+               valid_attributes(
+                 actor: %{kind: :app, ref: "A123"},
+                 post_destination_refs: [destination_ref]
+               )
+             )
+
+    refute Map.has_key?(app_input.source_capabilities, "post_slack_message")
   end
 
   test "the Slack event identity is stable but changed content has a different fingerprint" do
@@ -109,7 +189,7 @@ defmodule Responder.Slack.InputTest do
     assert Input.new(%{attributes | content: "not a JSON object"}) ==
              {:error, {:invalid_input, :content}}
 
-    assert Input.new(%{attributes | source: %{kind: :slack}}) ==
+    assert Input.new(%{attributes | source: %{kind: "slack"}}) ==
              {:error, {:invalid_input, :source}}
 
     assert Input.new(%{attributes | destination: %{transport: "slack"}}) ==

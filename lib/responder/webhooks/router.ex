@@ -10,8 +10,8 @@ defmodule Responder.Webhooks.Router do
 
   import Plug.Conn
 
-  alias Responder.Ingress.Inbox
-  alias Responder.Webhooks.{Auth, Input, Route}
+  alias Responder.Ingress.{Adapters, HTTP, Inbox}
+  alias Responder.Webhooks.{Auth, Route}
 
   @impl Plug
   def init(options) do
@@ -31,95 +31,63 @@ defmodule Responder.Webhooks.Router do
   def call(%Plug.Conn{method: "POST", path_info: ["v1", "hooks", route_name]} = conn, options) do
     case Map.fetch(options.routes, route_name) do
       {:ok, route} -> admit(conn, route, options.now.())
-      :error -> respond(conn, 404, %{"error" => "not_found"})
+      :error -> HTTP.respond(conn, 404, %{"error" => "not_found"})
     end
   end
 
-  def call(conn, _options), do: respond(conn, 404, %{"error" => "not_found"})
+  def call(conn, _options), do: HTTP.respond(conn, 404, %{"error" => "not_found"})
 
   defp admit(conn, route, now) do
-    with :ok <- json_content_type(conn),
-         {:ok, body, conn} <- read_bounded_body(conn, route.max_body_bytes),
+    with :ok <- HTTP.json_content_type(conn),
+         {:ok, body, conn} <- HTTP.read_bounded_body(conn, route.max_body_bytes),
          :ok <- Auth.authorize(conn, route, body, now),
          {:ok, metadata} <- metadata(conn, now),
-         {:ok, payload} <- decode(body),
-         {:ok, input} <- Input.new(route, payload, metadata),
-         {:ok, receipt} <- Inbox.record(input) do
-      respond(conn, 202, %{
+         {:ok, payload} <- HTTP.decode_json(body),
+         {:ok, input} <-
+           Adapters.normalize("webhook", %{metadata: metadata, payload: payload}, route),
+         {:ok, receipt} <- Inbox.record(input, work_profile: route.work_profile) do
+      HTTP.respond(conn, 202, %{
         "input_ref" => Inbox.ref(receipt.entry),
         "status" => Atom.to_string(receipt.status)
       })
     else
       {:error, :unsupported_media_type} ->
-        respond(conn, 415, %{"error" => "unsupported_media_type"})
+        HTTP.respond(conn, 415, %{"error" => "unsupported_media_type"})
 
       {:error, :too_large} ->
-        respond(conn, 413, %{"error" => "payload_too_large"})
+        HTTP.respond(conn, 413, %{"error" => "payload_too_large"})
 
       {:error, :unauthorized} ->
-        respond(conn, 401, %{"error" => "unauthorized"})
+        HTTP.respond(conn, 401, %{"error" => "unauthorized"})
 
       {:error, :event_id} ->
-        respond(conn, 400, %{"error" => "missing_event_id"})
+        HTTP.respond(conn, 400, %{"error" => "missing_event_id"})
 
       {:error, :metadata} ->
-        respond(conn, 400, %{"error" => "invalid_metadata"})
+        HTTP.respond(conn, 400, %{"error" => "invalid_metadata"})
 
       {:error, :json} ->
-        respond(conn, 400, %{"error" => "invalid_json"})
+        HTTP.respond(conn, 400, %{"error" => "invalid_json"})
 
       {:error, {:invalid_webhook_input, _field}} ->
-        respond(conn, 400, %{"error" => "invalid_event"})
+        HTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
       {:error, {:invalid_input, _field}} ->
-        respond(conn, 400, %{"error" => "invalid_event"})
+        HTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
       {:error, {:invalid_input, _field, _reason}} ->
-        respond(conn, 400, %{"error" => "invalid_event"})
+        HTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
       {:error, {:input_conflict, _details}} ->
-        respond(conn, 409, %{"error" => "event_conflict"})
+        HTTP.respond(conn, 409, %{"error" => "event_conflict"})
 
       {:error, _reason} ->
-        respond(conn, 503, %{"error" => "temporarily_unavailable"})
-    end
-  end
-
-  defp json_content_type(conn) do
-    case get_req_header(conn, "content-type") do
-      [value] -> if json_media_type?(value), do: :ok, else: {:error, :unsupported_media_type}
-      _other -> {:error, :unsupported_media_type}
-    end
-  end
-
-  defp json_media_type?(value) do
-    media_type =
-      value |> String.split(";", parts: 2) |> hd() |> String.trim() |> String.downcase()
-
-    media_type == "application/json" or String.ends_with?(media_type, "+json")
-  end
-
-  defp read_bounded_body(conn, maximum), do: read_bounded_body(conn, maximum, [])
-
-  defp read_bounded_body(conn, remaining, chunks) when remaining >= 0 do
-    case Plug.Conn.read_body(conn, length: remaining + 1, read_length: remaining + 1) do
-      {:ok, chunk, conn} ->
-        if byte_size(chunk) <= remaining,
-          do: {:ok, chunks |> Enum.reverse([chunk]) |> IO.iodata_to_binary(), conn},
-          else: {:error, :too_large}
-
-      {:more, chunk, conn} ->
-        if byte_size(chunk) <= remaining,
-          do: read_bounded_body(conn, remaining - byte_size(chunk), [chunk | chunks]),
-          else: {:error, :too_large}
-
-      {:error, _reason} ->
-        {:error, :body}
+        HTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
     end
   end
 
   defp metadata(conn, now) do
-    with {:ok, event_id} <- required_header(conn, "x-responder-event-id", :event_id),
+    with {:ok, event_id} <- HTTP.required_header(conn, "x-responder-event-id", :event_id),
          {:ok, item_id} <- item_id(conn, event_id),
          {:ok, event_type} <- optional_header(conn, "x-responder-event-type"),
          {:ok, occurred_at, occurred_at_source} <- occurred_at(conn, now),
@@ -136,13 +104,6 @@ defmodule Responder.Webhooks.Router do
     else
       {:error, :event_id} -> {:error, :event_id}
       _error -> {:error, :metadata}
-    end
-  end
-
-  defp required_header(conn, name, error) do
-    case get_req_header(conn, name) do
-      [value] when value != "" -> {:ok, value}
-      _other -> {:error, error}
     end
   end
 
@@ -190,22 +151,6 @@ defmodule Responder.Webhooks.Router do
       {integer, ""} when integer > 0 -> {:ok, integer}
       _other -> {:error, :revision}
     end
-  end
-
-  defp decode(body) do
-    case Jason.decode(body) do
-      {:ok, payload} -> {:ok, payload}
-      {:error, _reason} -> {:error, :json}
-    end
-  end
-
-  defp respond(conn, status, document) do
-    body = Jason.encode!(document)
-
-    conn
-    |> put_resp_content_type("application/json")
-    |> send_resp(status, body)
-    |> halt()
   end
 
   defp valid_route_entry?({name, %Route{name: name}}) when is_binary(name), do: true

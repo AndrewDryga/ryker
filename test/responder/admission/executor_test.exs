@@ -71,6 +71,82 @@ defmodule Responder.Admission.ExecutorTest do
     assert FakeAPI.state(fake).session["state"] == "closed"
   end
 
+  test "fleet execution identity is prepared, bound, and settled around the remote turn" do
+    entry = record_slack_input!("Ev-executor-fleet-custody")
+    entry_id = entry.id
+    lease_ref = claim!(entry)
+    {:ok, fake} = FakeAPI.start_link([decision("reply")])
+    caller = self()
+
+    options =
+      executor_options(fake, lease_ref) ++
+        [
+          prepare_execution_session: fn prepared_entry, policy ->
+            send(caller, {:fleet_prepared, prepared_entry.id, policy})
+            :ok
+          end,
+          bind_execution_session: fn bound_entry, session_id ->
+            send(caller, {:fleet_bound, bound_entry.id, session_id})
+            :ok
+          end,
+          settle_execution_session: fn settled_entry, session_id ->
+            send(caller, {:fleet_settled, settled_entry.id, session_id})
+            :ok
+          end
+        ]
+
+    assert {:ok, execution} = Executor.run(Inbox.ref(entry), options)
+    assert execution.result.entry.decision_action == :reply
+
+    assert_receive {:fleet_prepared, ^entry_id, %{name: "admission-read-only", digest: digest}}
+
+    assert digest == String.duplicate("a", 64)
+    assert_receive {:fleet_bound, ^entry_id, "remote_test"}
+    assert_receive {:fleet_settled, ^entry_id, "remote_test"}
+  end
+
+  test "admission pins adapter-owned work placement instead of its classifier policy" do
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: "C456",
+               content: %{"text" => "Please investigate this repository failure"},
+               event_kind: :message,
+               event_ref: "Ev-executor-work-placement",
+               message_ref: "1787832002.000100",
+               occurred_at: @now,
+               revision: 1,
+               thread_ref: nil,
+               workspace_ref: "T123"
+             })
+
+    work_profile = %{
+      policy: "incident-read-only",
+      policy_digest: String.duplicate("b", 64),
+      repository_ref: "owner/infrastructure"
+    }
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input, work_profile: work_profile)
+    lease_ref = claim!(entry)
+    {:ok, fake} = FakeAPI.start_link([decision("start_episode")])
+
+    assert {:ok, execution} =
+             Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
+
+    assert %Session{
+             policy: "incident-read-only",
+             policy_digest: digest,
+             repository_ref: "owner/infrastructure"
+           } =
+             Repo.one!(
+               from(session in Session,
+                 where: session.episode_id == ^execution.result.episode.id
+               )
+             )
+
+    assert digest == String.duplicate("b", 64)
+  end
+
   test "a schema-valid unknown candidate is rejected and repaired in the same Coop turn" do
     assert {:ok, route} =
              Route.new(%{
@@ -275,6 +351,59 @@ defmodule Responder.Admission.ExecutorTest do
 
     assert {:error, {:admission_execution_failed, :input_not_found}} =
              Executor.run(missing_ref, executor_options(fake, "ingress-lease:unused"))
+
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
+  test "malformed executor configuration and lease renewal fail before Coop" do
+    {:ok, fake} = FakeAPI.start_link([decision("reply")])
+    input_ref = "ingress-input:#{Ecto.UUID.generate()}"
+    digest = String.duplicate("a", 64)
+
+    assert Executor.run(input_ref, %{}) ==
+             {:error, {:invalid_admission_executor, :options}}
+
+    assert Executor.run(input_ref, []) ==
+             {:error, {:invalid_admission_executor, :options}}
+
+    base = [
+      api: FakeAPI,
+      client: fake,
+      lease_ref: "ingress-lease:configuration",
+      now: fn -> @now end,
+      policy: "admission-read-only",
+      policy_digest: digest,
+      renew_lease: fn -> :ok end,
+      sleep: fn _milliseconds -> :ok end
+    ]
+
+    invalid = [
+      {:api, "not-an-api"},
+      {:now, :not_a_clock},
+      {:renew_lease, :not_a_callback},
+      {:sleep, :not_a_callback},
+      {:policy, ""},
+      {:policy_digest, "bad"},
+      {:lease_ref, ""},
+      {:candidate_limit, 0},
+      {:continuation_window, 0},
+      {:history_window, 1},
+      {:max_polls, 0},
+      {:poll_interval_ms, -1}
+    ]
+
+    Enum.each(invalid, fn {field, value} ->
+      assert {:error, {:invalid_admission_executor, ^field}} =
+               Executor.run(input_ref, Keyword.put(base, field, value))
+    end)
+
+    assert Executor.run(input_ref, Keyword.put(base, :unknown, true)) ==
+             {:error, {:invalid_admission_executor, :options}}
+
+    assert Executor.run(
+             input_ref,
+             Keyword.put(base, :renew_lease, fn -> :unexpected end)
+           ) == {:error, {:admission_execution_failed, :lease_renewal}}
 
     assert FakeAPI.state(fake).submit_count == 0
   end

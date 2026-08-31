@@ -6,11 +6,13 @@ defmodule Responder.Webhooks.Route do
   None of those fields are read from a webhook payload.
   """
 
+  alias Responder.Ingress.WorkProfile
+
   @default_max_body_bytes 40_000
   @maximum_body_bytes 40_000
   @default_max_clock_skew_seconds 300
   @required_fields [:auth, :destination, :name]
-  @optional_fields [:max_body_bytes, :max_clock_skew_seconds]
+  @optional_fields [:max_body_bytes, :max_clock_skew_seconds, :work_profile]
 
   @enforce_keys @required_fields ++ @optional_fields
   defstruct @required_fields ++ @optional_fields
@@ -26,12 +28,16 @@ defmodule Responder.Webhooks.Route do
           destination: destination(),
           max_body_bytes: pos_integer(),
           max_clock_skew_seconds: pos_integer(),
-          name: String.t()
+          name: String.t(),
+          work_profile: WorkProfile.t() | nil
         }
 
   @spec new(keyword() | map()) :: {:ok, t()} | {:error, term()}
   def new(attributes) do
     with {:ok, attributes} <- normalize_attributes(attributes),
+         {:ok, work_profile} <-
+           WorkProfile.prepare(Map.get(attributes, :work_profile)),
+         attributes <- Map.put(attributes, :work_profile, work_profile),
          route <- struct!(__MODULE__, attributes),
          :ok <- validate(route) do
       {:ok, route}
@@ -55,7 +61,8 @@ defmodule Responder.Webhooks.Route do
       {:ok,
        attributes
        |> Map.put_new(:max_body_bytes, @default_max_body_bytes)
-       |> Map.put_new(:max_clock_skew_seconds, @default_max_clock_skew_seconds)}
+       |> Map.put_new(:max_clock_skew_seconds, @default_max_clock_skew_seconds)
+       |> Map.put_new(:work_profile, nil)}
     else
       {:error, {:invalid_webhook_route, :fields}}
     end

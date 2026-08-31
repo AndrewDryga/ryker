@@ -3,6 +3,10 @@ defmodule Responder.Admission.RuntimeTest do
 
   alias Responder.Admission.{Runtime, Worker}
 
+  defmodule FleetAPI do
+    def get_session(_client, _session_id), do: {:error, :not_used}
+  end
+
   test "builds one worker from trusted Coop configuration" do
     child =
       Runtime.child_spec(
@@ -25,6 +29,29 @@ defmodule Responder.Admission.RuntimeTest do
     assert dispatcher[:executor_options][:policy_digest] == String.duplicate("a", 64)
     assert dispatcher[:executor_options][:client].socket == "/tmp/coop.sock"
     assert dispatcher[:executor_options][:client].receive_timeout == 2_000
+  end
+
+  test "builds product admission on the durable fleet adapter instead of a local socket" do
+    client = %{transport: :fleet}
+
+    child =
+      Runtime.child_spec(
+        api: FleetAPI,
+        client: client,
+        policy: "admission-read-only",
+        policy_digest: String.duplicate("a", 64),
+        poll_interval_ms: 500,
+        receive_timeout_ms: 2_000,
+        worker_ref: "responder:fleet"
+      )
+
+    assert {Worker, :start_link, [options]} = child.start
+    executor = options[:dispatcher_options][:executor_options]
+    assert executor[:api] == FleetAPI
+    assert executor[:client] == client
+    assert is_function(executor[:prepare_execution_session], 2)
+    assert is_function(executor[:bind_execution_session], 2)
+    assert is_function(executor[:settle_execution_session], 2)
   end
 
   test "refuses a Coop timeout that can outlive the admission lease heartbeat" do

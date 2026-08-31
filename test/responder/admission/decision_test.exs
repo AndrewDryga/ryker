@@ -176,6 +176,38 @@ defmodule Responder.Admission.DecisionTest do
     assert length(schema["oneOf"]) == 6
   end
 
+  test "limits reactions to the names issued by the source adapter" do
+    schema = Decision.json_schema([:start_episode, :react, :ignore], ~w(+1 eyes heart))
+
+    assert schema["properties"]["reaction"]["anyOf"] |> hd() == %{
+             "additionalProperties" => false,
+             "properties" => %{
+               "emoji_name" => %{"enum" => ~w(+1 eyes heart), "type" => "string"}
+             },
+             "required" => ["emoji_name"],
+             "type" => "object"
+           }
+
+    built = JSV.build!(schema)
+
+    assert {:ok, _document} =
+             JSV.validate(
+               decision_document(action: "react", reaction: %{"emoji_name" => "heart"}),
+               built,
+               cast: false
+             )
+
+    assert {:error, _validation_error} =
+             JSV.validate(
+               decision_document(
+                 action: "react",
+                 reaction: %{"emoji_name" => "white_check_mark"}
+               ),
+               built,
+               cast: false
+             )
+  end
+
   defp decision_document(overrides) do
     defaults = %{
       "action" => "reply",

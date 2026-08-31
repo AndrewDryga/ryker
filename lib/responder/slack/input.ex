@@ -9,6 +9,8 @@ defmodule Responder.Slack.Input do
   alias Responder.CanonicalJSON
   alias Responder.Ingress.Input
 
+  @behaviour Responder.Ingress.Adapter
+
   @fields [
     :actor,
     :channel_ref,
@@ -21,13 +23,15 @@ defmodule Responder.Slack.Input do
     :thread_ref,
     :workspace_ref
   ]
+  @optional_fields [:post_destination_refs]
+  @required_keys Enum.sort(@fields)
+  @all_keys Enum.sort(@fields ++ @optional_fields)
 
   @spec new(keyword() | map()) :: {:ok, Input.t()} | {:error, term()}
   def new(attributes) do
     with {:ok, attributes} <- exact_attributes(attributes) do
       Input.new(%{
         actor: attributes.actor,
-        can_react: attributes.event_kind != :delete,
         content: attributes.content,
         destination: destination(attributes),
         event_kind: attributes.event_kind,
@@ -36,11 +40,20 @@ defmodule Responder.Slack.Input do
         occurred_at: attributes.occurred_at,
         occurred_at_source: :source,
         revision: attributes.revision,
-        source: %{kind: :slack, ref: attributes.workspace_ref},
+        source: %{kind: "slack", ref: attributes.workspace_ref},
+        source_capabilities: source_capabilities(attributes),
         source_item_ref: attributes.message_ref
       })
     end
   end
+
+  @impl Responder.Ingress.Adapter
+  def source_kind, do: "slack"
+
+  @impl Responder.Ingress.Adapter
+  def normalize(attributes, nil), do: new(attributes)
+
+  def normalize(_event, _binding), do: {:error, {:invalid_slack_input, :binding}}
 
   defp exact_attributes(attributes) when is_list(attributes) do
     if Keyword.keyword?(attributes) and
@@ -52,9 +65,16 @@ defmodule Responder.Slack.Input do
   end
 
   defp exact_attributes(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@fields),
-      do: {:ok, attributes},
-      else: {:error, {:invalid_input, :fields}}
+    case Map.keys(attributes) |> Enum.sort() do
+      @required_keys ->
+        {:ok, Map.put(attributes, :post_destination_refs, [])}
+
+      @all_keys ->
+        {:ok, attributes}
+
+      _invalid ->
+        {:error, {:invalid_input, :fields}}
+    end
   end
 
   defp exact_attributes(_attributes), do: {:error, {:invalid_input, :fields}}
@@ -66,6 +86,19 @@ defmodule Responder.Slack.Input do
       transport: "slack"
     }
   end
+
+  defp source_capabilities(%{event_kind: event_kind}) when event_kind in [:delete, :event],
+    do: %{}
+
+  defp source_capabilities(%{actor: %{kind: :user}, post_destination_refs: refs})
+       when is_list(refs) and refs != [] do
+    %{
+      "post_slack_message" => %{"destination_refs" => refs},
+      "react" => %{"emoji_names" => nil}
+    }
+  end
+
+  defp source_capabilities(_attributes), do: %{"react" => %{"emoji_names" => nil}}
 
   defp message_key(attributes) do
     digest =

@@ -35,12 +35,13 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
     )
   end
 
-  @spec insert(Input.t(), Ecto.UUID.t()) :: Ecto.Changeset.t()
-  def insert(%Input{} = input, id) do
+  @spec insert(Input.t(), Ecto.UUID.t(), :live | :shadow, Responder.Ingress.WorkProfile.t() | nil) ::
+          Ecto.Changeset.t()
+  def insert(%Input{} = input, id, execution_mode, work_profile)
+      when execution_mode in [:live, :shadow] do
     fields = %{
       actor_kind: input.actor.kind,
       actor_ref: input.actor.ref,
-      can_react: input.can_react,
       content: input.content,
       dedupe_key: Input.dedupe_key(input),
       destination_conversation_ref: input.destination.conversation_ref,
@@ -49,21 +50,37 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
       event_fingerprint: Input.fingerprint(input),
       event_kind: input.event_kind,
       event_ref: input.event_ref,
+      execution_mode: execution_mode,
       id: id,
       native_input_id: input.native_input_id,
       occurred_at: input.occurred_at,
       occurred_at_source: input.occurred_at_source,
       revision: input.revision,
       source_kind: input.source.kind,
+      source_capabilities: input.source_capabilities,
       source_ref: input.source.ref,
       source_item_ref: input.source_item_ref,
-      status: :pending
+      status: :pending,
+      work_policy: work_profile && work_profile.policy,
+      work_policy_digest: work_profile && work_profile.policy_digest,
+      repository_ref: work_profile && work_profile.repository_ref
     }
 
     %Entry{}
     |> cast(fields, Map.keys(fields))
-    |> validate_required(Map.keys(fields) -- [:destination_thread_ref, :source_item_ref])
+    |> validate_required(
+      Map.keys(fields) --
+        [
+          :destination_thread_ref,
+          :repository_ref,
+          :source_item_ref,
+          :work_policy,
+          :work_policy_digest
+        ]
+    )
     |> unique_constraint(:dedupe_key)
+    |> check_constraint(:execution_mode, name: :ingress_inbox_execution_mode_valid)
+    |> check_constraint(:work_policy, name: :ingress_inbox_work_profile_valid)
     |> check_constraint(:status, name: :ingress_inbox_decision_matches_status)
   end
 
@@ -178,6 +195,36 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
     |> validate_required([:last_error_code, :last_error_detail, :status])
     |> validate_length(:last_error_code, max: 128)
     |> validate_length(:last_error_detail, max: 4_096)
+    |> check_constraint(:status, name: :ingress_inbox_decision_matches_status)
+    |> check_constraint(:status, name: :ingress_inbox_execution_custody_valid)
+  end
+
+  @spec rearm(Entry.t()) :: Ecto.Changeset.t()
+  def rearm(%Entry{} = entry) do
+    entry
+    |> cast(
+      %{
+        attempt_count: 0,
+        last_error_code: nil,
+        last_error_detail: nil,
+        lease_expires_at: nil,
+        lease_owner: nil,
+        lease_ref: nil,
+        next_attempt_at: nil,
+        status: :pending
+      },
+      [
+        :attempt_count,
+        :last_error_code,
+        :last_error_detail,
+        :lease_expires_at,
+        :lease_owner,
+        :lease_ref,
+        :next_attempt_at,
+        :status
+      ]
+    )
+    |> validate_required([:attempt_count, :execution_generation, :status, :validation_generation])
     |> check_constraint(:status, name: :ingress_inbox_decision_matches_status)
     |> check_constraint(:status, name: :ingress_inbox_execution_custody_valid)
   end

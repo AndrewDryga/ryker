@@ -43,10 +43,43 @@ defmodule Responder.Admission.Candidate do
           non_neg_integer()
         ) :: t()
   def new(%Episode{} = episode, endpoints, current_thread, now, continuation_window) do
+    new(episode, endpoints, current_thread, now, continuation_window, true)
+  end
+
+  @doc false
+  @spec new(
+          Episode.t(),
+          %{optional(:first) => input_endpoint(), optional(:latest) => input_endpoint()},
+          String.t(),
+          DateTime.t(),
+          non_neg_integer(),
+          :all | :none | :active_only | {:same_actor, String.t()} | boolean()
+        ) :: t()
+  def new(
+        %Episode{} = episode,
+        endpoints,
+        current_thread,
+        now,
+        continuation_window,
+        cross_thread_relation_scope
+      )
+      when cross_thread_relation_scope in [:all, :none, :active_only, true, false] or
+             (is_tuple(cross_thread_relation_scope) and
+                tuple_size(cross_thread_relation_scope) == 2 and
+                elem(cross_thread_relation_scope, 0) == :same_actor and
+                is_binary(elem(cross_thread_relation_scope, 1))) do
     same_thread = not is_nil(current_thread) and episode.destination_thread_ref == current_thread
+    cross_thread_scope = normalize_cross_thread_scope(cross_thread_relation_scope, endpoints)
 
     %__MODULE__{
-      allowed_relations: allowed_relations(episode, same_thread, now, continuation_window),
+      allowed_relations:
+        allowed_relations(
+          episode,
+          same_thread,
+          now,
+          continuation_window,
+          cross_thread_scope
+        ),
       episode: episode,
       first_input_preview: endpoints |> Map.get(:first) |> preview(),
       latest_input_preview: endpoints |> Map.get(:latest) |> preview(),
@@ -133,17 +166,35 @@ defmodule Responder.Admission.Candidate do
 
   defp valid_preview?(_preview), do: false
 
-  defp allowed_relations(%Episode{state: :cancelled}, _same_thread, _now, _window),
-    do: [:history_only]
+  defp allowed_relations(
+         %Episode{state: :cancelled},
+         _same_thread,
+         _now,
+         _window,
+         _cross_thread_scope
+       ),
+       do: [:history_only]
 
-  defp allowed_relations(_episode, true, _now, _window),
+  defp allowed_relations(_episode, true, _now, _window, _cross_thread_scope),
     do: [:same_work, :history_only]
 
-  defp allowed_relations(%Episode{state: state}, false, _now, _window)
-       when state in [:working, :waiting_for_input, :waiting_for_event],
+  defp allowed_relations(_episode, false, _now, _window, :none), do: [:history_only]
+
+  defp allowed_relations(%Episode{state: state}, false, _now, _window, scope)
+       when scope in [:all, :active_only] and
+              state in [:working, :waiting_for_input, :waiting_for_event],
        do: [:same_work, :history_only]
 
-  defp allowed_relations(%Episode{state: :complete, updated_at: updated_at}, false, now, window) do
+  defp allowed_relations(%Episode{state: :complete}, false, _now, _window, :active_only),
+    do: [:history_only]
+
+  defp allowed_relations(
+         %Episode{state: :complete, updated_at: updated_at},
+         false,
+         now,
+         window,
+         :all
+       ) do
     if DateTime.diff(now, updated_at, :second) <= window,
       do: [:same_work, :history_only],
       else: [:history_only]
@@ -153,6 +204,17 @@ defmodule Responder.Admission.Candidate do
     do: "active"
 
   defp model_state(state), do: Atom.to_string(state)
+
+  defp normalize_cross_thread_scope(true, _endpoints), do: :all
+  defp normalize_cross_thread_scope(false, _endpoints), do: :none
+
+  defp normalize_cross_thread_scope({:same_actor, actor_ref}, endpoints) do
+    if get_in(endpoints, [:first, :payload, "actor_ref"]) == actor_ref,
+      do: :all,
+      else: :none
+  end
+
+  defp normalize_cross_thread_scope(scope, _endpoints), do: scope
 
   defp opaque_ref(episode_id) do
     digest = CanonicalJSON.digest(["ingress-admission-candidate", episode_id])
