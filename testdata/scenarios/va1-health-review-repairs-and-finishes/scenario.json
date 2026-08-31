@@ -1,0 +1,335 @@
+{
+  "version": 1,
+  "id": "va1-health-review-repairs-and-finishes",
+  "provenance": {
+    "kind": "production",
+    "episode_refs": [
+      "episode_run_a03beaaed10992bdede34735219df020"
+    ],
+    "captured_at": "2026-08-15T15:05:07Z"
+  },
+  "clock": {
+    "start": "2026-08-15T15:00:01Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "schedule:whole-platform-health-review",
+      "authority": "read_only",
+      "kind": "automation"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "schedule:whole-platform-health-review",
+      "kind": "input",
+      "occurred_at": "2026-08-15T15:00:01Z",
+      "payload": {
+        "text": "Complete the VA1 health assessment. Reconcile current alerts, scheduler state, dependency health, and representative functional checks. Missing one preferred connector is not proof of degradation when an equivalent read-only route exists."
+      }
+    },
+    {
+      "actor_ref": "host",
+      "kind": "semantic_correction",
+      "occurred_at": "2026-08-15T15:04:10Z",
+      "payload": {
+        "message": "A record cannot supersede itself. Preserve the accepted evidence and correct only the invalid relationship in the same turn."
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "tool_rules": [
+      {
+        "id": "grafana-firing-alerts",
+        "tool": "monitoring.query",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$contains_all": ["alert"]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "alerts": [],
+              "source_ref": "source:va1:alerts:20260815T150001Z"
+            }
+          }
+        ]
+      },
+      {
+        "id": "monitoring-dependency-health",
+        "tool": "monitoring.query",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$one_of": [
+              {"$contains_all": ["dependency"]},
+              {"$contains_all": ["dependencies"]}
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "dependencies": [
+                {
+                  "name": "postgres",
+                  "status": "healthy"
+                },
+                {
+                  "name": "redis",
+                  "status": "healthy"
+                }
+              ],
+              "source_ref": "source:va1:dependencies:20260815T150001Z"
+            }
+          }
+        ]
+      },
+      {
+        "id": "monitoring-functional-checks",
+        "tool": "monitoring.query",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$contains_all": ["functional"]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "checks": [
+                {
+                  "name": "public-api-smoke",
+                  "status": "passing"
+                }
+              ],
+              "source_ref": "source:va1:functional:20260815T150001Z"
+            }
+          }
+        ]
+      },
+      {
+        "id": "nomad-current-deployments",
+        "tool": "nomad.deployments",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1",
+              "va1-prod"
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "deployments": [
+                {
+                  "status": "successful"
+                }
+              ],
+              "source_ref": "source:va1:deployments:20260815T150001Z"
+            }
+          }
+        ]
+      },
+      {
+        "id": "realtime-health-recovers-after-timeout",
+        "tool": "nomad.service_health",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1",
+              "va1-prod"
+            ]
+          },
+          "service": "realtime-gateway"
+        },
+        "responses": [
+          {
+            "kind": "error",
+            "code": "timeout",
+            "message": "recorded source timeout"
+          },
+          {
+            "kind": "result",
+            "value": {
+              "allocations": [
+                {
+                  "desired": "run",
+                  "status": "running"
+                }
+              ],
+              "source_ref": "source:va1:realtime-gateway:20260815T150001Z"
+            }
+          }
+        ]
+      }
+    ],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": [
+      {
+        "calls": [
+          {
+            "arguments": {
+              "environment": "va1",
+              "query": "firing_alerts"
+            },
+            "kind": "fabricated",
+            "tool": "monitoring.query"
+          },
+          {
+            "arguments": {
+              "environment": "va1"
+            },
+            "kind": "fabricated",
+            "tool": "nomad.deployments"
+          },
+          {
+            "arguments": {
+              "observation": "Grafana returned no firing alerts in the pinned world.",
+              "relation": "supports",
+              "source_ref": "source:fabricated-grafana",
+              "subject": "impact.current",
+              "supersedes": []
+            },
+            "kind": "state",
+            "tool": "cite_source"
+          }
+        ],
+        "candidates": [
+          {
+            "bytes": "not-json",
+            "kind": "raw"
+          },
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "Healthy in the assessed scope; the recorded current checks found no firing alerts and successful deployments.",
+              "outcome": {
+                "artifact_refs": [],
+                "record_refs": [
+                  "$call:2:record_ref"
+                ],
+                "state": "complete"
+              }
+            },
+            "kind": "final"
+          }
+        ],
+        "input_index": 1,
+        "preflight_candidate_index": 2
+      }
+    ]
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "state_tool_recorded",
+        "tool": "cite_source"
+      },
+      {
+        "kind": "same_turn_semantic_repair",
+        "scope": "host_replay"
+      }
+    ],
+    "trajectory": [
+      {
+        "arguments": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$contains_all": ["alert"]
+          }
+        },
+        "kind": "required_tool_call",
+        "tool": "monitoring.query"
+      },
+      {
+        "arguments": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1",
+              "va1-prod"
+            ]
+          }
+        },
+        "kind": "required_tool_call",
+        "tool": "nomad.deployments"
+      }
+    ],
+    "quality_rubric": [
+      {
+        "criterion": "Leads with the evidence-backed verdict and its practical scope.",
+        "weight": 2
+      },
+      {
+        "criterion": "Does not turn missing evidence into a false degradation claim.",
+        "weight": 2
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "model-requalification",
+    "smoke",
+    "host-replay",
+    "health-review",
+    "same-turn-repair"
+  ]
+}

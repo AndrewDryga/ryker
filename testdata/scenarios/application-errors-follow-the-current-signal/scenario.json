@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "id": "application-errors-follow-the-current-signal",
+  "provenance": {
+    "kind": "synthetic",
+    "episode_refs": [
+      "synthetic:application-errors-current-window"
+    ],
+    "captured_at": "2026-08-30T14:30:00Z"
+  },
+  "clock": {
+    "start": "2026-08-30T14:30:00Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "authority": "read_only",
+      "kind": "human"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "kind": "input",
+      "occurred_at": "2026-08-30T14:30:00Z",
+      "payload": {
+        "text": "Are checkout errors elevated right now, and what is the narrowest supported conclusion?"
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "tool_rules": [
+      {
+        "id": "checkout-errors-current-window",
+        "match": {
+          "environment": "production",
+          "query": {
+            "$contains_all": ["checkout", "error"]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "baseline_error_rate": 0.0012,
+              "current_error_rate": 0.0011,
+              "requests": 18240,
+              "source_ref": "source:checkout-errors:20260830T143000Z",
+              "window": "15m"
+            }
+          }
+        ],
+        "tool": "monitoring.query"
+      }
+    ],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": [
+      {
+        "calls": [
+          {
+            "arguments": {
+              "environment": "production",
+              "query": "checkout_errors_15m"
+            },
+            "kind": "fabricated",
+            "tool": "monitoring.query"
+          },
+          {
+            "arguments": {
+              "observation": "Checkout error rate was 0.0011 over 15 minutes versus a 0.0012 baseline across 18240 requests.",
+              "relation": "supports",
+              "source_ref": "source:checkout-errors:20260830T143000Z",
+              "subject": "checkout.error_rate",
+              "supersedes": []
+            },
+            "kind": "state",
+            "tool": "cite_source"
+          }
+        ],
+        "candidates": [
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "Checkout errors are not elevated in the observed 15-minute window: 0.11% across 18,240 requests versus a 0.12% baseline. That supports only the current error-rate conclusion, not a claim that every checkout dependency is healthy.",
+              "outcome": {
+                "artifact_refs": [],
+                "record_refs": [
+                  "$call:1:record_ref"
+                ],
+                "state": "complete"
+              }
+            },
+            "kind": "final"
+          }
+        ],
+        "input_index": 1,
+        "preflight_candidate_index": 1
+      }
+    ]
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "state_tool_recorded",
+        "tool": "cite_source"
+      }
+    ],
+    "trajectory": [
+      {
+        "arguments": {
+          "environment": "production",
+          "query": {
+            "$contains_all": ["checkout", "error"]
+          }
+        },
+        "kind": "required_tool_call",
+        "tool": "monitoring.query"
+      }
+    ],
+    "quality_rubric": [
+      {
+        "criterion": "Compares the current error signal to its recorded baseline.",
+        "weight": 3
+      },
+      {
+        "criterion": "Keeps the conclusion within the observed application-error scope.",
+        "weight": 3
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "model-requalification",
+    "host-replay",
+    "application-errors",
+    "fresh-evidence"
+  ]
+}

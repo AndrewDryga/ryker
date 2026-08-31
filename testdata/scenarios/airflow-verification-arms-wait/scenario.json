@@ -1,0 +1,405 @@
+{
+  "version": 1,
+  "id": "airflow-verification-arms-wait",
+  "provenance": {
+    "kind": "production",
+    "episode_refs": [
+      "episode_run_9cbd448e67a15696c4453516482c57ac"
+    ],
+    "captured_at": "2026-08-27T20:58:15Z"
+  },
+  "clock": {
+    "start": "2026-08-27T19:58:10Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:app:terraform",
+      "authority": "source_event",
+      "kind": "automation"
+    },
+    {
+      "actor_ref": "responder:wakeup",
+      "authority": "source_event",
+      "kind": "automation"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:app:terraform",
+      "kind": "input",
+      "occurred_at": "2026-08-27T19:58:10Z",
+      "payload": {
+        "revision": "99183465",
+        "state": "applied",
+        "text": "Airflow revision 99183465 was applied. Verify it after the bounded observation window and report the result in this same conversation."
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "tool_rules": [
+      {
+        "id": "airflow-deployment-rechecks",
+        "match": {
+          "environment": {
+            "$one_of": ["production", "prod", "va1", "airflow-prod"]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "deployment": {
+                "revision": "bd561fcf63f9e1db8fc65232db0e4c899b11237e",
+                "service": "airflow",
+                "state": "running"
+              },
+              "observed_at": "2026-08-27T20:31:57Z",
+              "observation_window": "incomplete",
+              "source_ref": "run:run_524bb513e01025e2722d95b2de2130d8"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "deployment": {
+                "instance": "airflow-0b68",
+                "revision": "bd561fcf63f9e1db8fc65232db0e4c899b11237e",
+                "service": "airflow",
+                "state": "running"
+              },
+              "observed_at": "2026-08-27T21:01:35Z",
+              "source_ref": "emisar:op_5SAK36XR8ZPQ713CWP58NMKY6Q"
+            }
+          }
+        ],
+        "tool": "nomad.deployments"
+      },
+      {
+        "id": "airflow-service-health-rechecks",
+        "match": {
+          "environment": {
+            "$one_of": ["production", "prod", "va1", "airflow-prod"]
+          },
+          "service": "airflow"
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-08-27T20:31:57Z",
+              "observation_window": "incomplete",
+              "service": "airflow",
+              "source_ref": "run:run_524bb513e01025e2722d95b2de2130d8",
+              "status": "healthy"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "endpoint": "airflow-0b68:8080",
+              "observed_at": "2026-08-27T21:00:50Z",
+              "service": "airflow",
+              "source_ref": "emisar:op_06XB2KMTNTW6X1RBJAS8FBD20E",
+              "status": "healthy"
+            }
+          }
+        ],
+        "tool": "nomad.service_health"
+      },
+      {
+        "id": "airflow-monitoring-rechecks",
+        "match": {
+          "query": {
+            "$contains_all": ["airflow", "99183465"]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-08-27T20:31:57Z",
+              "observation_window": "incomplete",
+              "source_ref": "run:run_524bb513e01025e2722d95b2de2130d8",
+              "status": "insufficient_history"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "available_series": [],
+              "gap": "No authorized Airflow application-log, scheduler, or task metric population is available in VictoriaLogs or VictoriaMetrics.",
+              "observed_at": "2026-08-27T21:04:15Z",
+              "source_ref": "run:run_5579729ffd553777415561c95237b76d:telemetry-gap",
+              "status": "source_unavailable"
+            }
+          }
+        ],
+        "tool": "monitoring.query"
+      }
+    ],
+    "scheduled_events": [
+      {
+        "actor_ref": "responder:wakeup",
+        "kind": "source_event",
+        "occurred_at": "2026-08-27T20:28:13Z",
+        "payload": {
+          "revision": "99183465",
+          "state": "verification_due",
+          "trigger": "source_event",
+          "wakeup_id": "verify-airflow-99183465"
+        }
+      },
+      {
+        "actor_ref": "responder:wakeup",
+        "kind": "source_event",
+        "occurred_at": "2026-08-27T20:58:15Z",
+        "payload": {
+          "revision": "99183465",
+          "state": "verification_due",
+          "trigger": "source_event",
+          "wakeup_id": "airflow-99183465-post-apply-2"
+        }
+      }
+    ]
+  },
+  "host_replay": {
+    "model_events": [
+      {
+        "calls": [
+          {
+            "arguments": {
+              "deadline": "2099-08-27T20:28:13.000000Z",
+              "on_timeout": "Report that revision 99183465 could not be verified in time.",
+              "trigger": {
+                "match": {
+                  "revision": "99183465",
+                  "state": "verification_due"
+                },
+                "source_kind": "terraform",
+                "type": "source_event"
+              },
+              "verification": "Verify Airflow revision 99183465 after the observation window."
+            },
+            "kind": "state",
+            "tool": "wait_for"
+          }
+        ],
+        "candidates": [
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "I will verify revision 99183465 after the observation window.",
+              "outcome": {
+                "artifact_refs": [],
+                "record_refs": [
+                  "$call:0:record_ref"
+                ],
+                "state": "waiting_for_event"
+              }
+            },
+            "kind": "final"
+          }
+        ],
+        "input_index": 1,
+        "preflight_candidate_index": 1
+      },
+      {
+        "calls": [
+          {
+            "arguments": {"environment": "production"},
+            "kind": "fabricated",
+            "tool": "nomad.deployments"
+          },
+          {
+            "arguments": {"environment": "production", "service": "airflow"},
+            "kind": "fabricated",
+            "tool": "nomad.service_health"
+          },
+          {
+            "arguments": {
+              "environment": "production",
+              "query": "airflow revision 99183465"
+            },
+            "kind": "fabricated",
+            "tool": "monitoring.query"
+          },
+          {
+            "arguments": {
+              "deadline": "2099-08-27T21:28:13.000000Z",
+              "on_timeout": "Report the exact remaining Airflow verification gap.",
+              "trigger": {
+                "match": {
+                  "revision": "99183465",
+                  "state": "verification_due"
+                },
+                "source_kind": "terraform",
+                "type": "source_event"
+              },
+              "verification": "Recheck Airflow revision 99183465 after a second bounded observation interval."
+            },
+            "kind": "state",
+            "tool": "wait_for"
+          }
+        ],
+        "candidates": [
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "Airflow is running on the new image, but the error-observation window is not yet conclusive. I will recheck revision 99183465 once more within the same deadline.",
+              "outcome": {
+                "artifact_refs": [],
+                "record_refs": [
+                  "$call:3:record_ref"
+                ],
+                "state": "waiting_for_event"
+              }
+            },
+            "kind": "final"
+          }
+        ],
+        "input_index": 2,
+        "preflight_candidate_index": 1
+      },
+      {
+        "calls": [
+          {
+            "arguments": {"environment": "production"},
+            "kind": "fabricated",
+            "tool": "nomad.deployments"
+          },
+          {
+            "arguments": {"environment": "production", "service": "airflow"},
+            "kind": "fabricated",
+            "tool": "nomad.service_health"
+          },
+          {
+            "arguments": {
+              "environment": "production",
+              "query": "airflow revision 99183465"
+            },
+            "kind": "fabricated",
+            "tool": "monitoring.query"
+          },
+          {
+            "arguments": {
+              "observation": "The production Airflow instance airflow-0b68 is running revision bd561fcf63f9e1db8fc65232db0e4c899b11237e.",
+              "relation": "supports",
+              "source_ref": "emisar:op_5SAK36XR8ZPQ713CWP58NMKY6Q",
+              "subject": "airflow.deployment",
+              "supersedes": []
+            },
+            "kind": "state",
+            "tool": "cite_source"
+          },
+          {
+            "arguments": {
+              "observation": "The only production Airflow backend endpoint airflow-0b68:8080 is healthy.",
+              "relation": "supports",
+              "source_ref": "emisar:op_06XB2KMTNTW6X1RBJAS8FBD20E",
+              "subject": "airflow.backend_health",
+              "supersedes": []
+            },
+            "kind": "state",
+            "tool": "cite_source"
+          },
+          {
+            "arguments": {
+              "observation": "No authorized Airflow scheduler, task, or application-log population is available for the post-rollout window.",
+              "relation": "context",
+              "source_ref": "run:run_5579729ffd553777415561c95237b76d:telemetry-gap",
+              "subject": "airflow.telemetry_gap",
+              "supersedes": []
+            },
+            "kind": "state",
+            "tool": "cite_source"
+          }
+        ],
+        "candidates": [
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "Airflow is running revision bd561fcf on airflow-0b68 and its only backend endpoint is healthy. I could not verify scheduler or task-execution errors because no authorized Airflow application-log or task-metric source is available for the post-rollout window.",
+              "outcome": {
+                "artifact_refs": [],
+                "record_refs": [
+                  "$call:3:record_ref",
+                  "$call:4:record_ref",
+                  "$call:5:record_ref"
+                ],
+                "state": "complete"
+              }
+            },
+            "kind": "final"
+          }
+        ],
+        "input_index": 3,
+        "preflight_candidate_index": 1
+      }
+    ]
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "state_tool_recorded",
+        "tool": "wait_for"
+      },
+      {
+        "kind": "same_session_continuation"
+      }
+    ],
+    "trajectory": [
+      {
+        "arguments": {
+          "environment": {
+            "$one_of": ["production", "prod", "va1", "airflow-prod"]
+          }
+        },
+        "kind": "required_tool_call",
+        "tool": "nomad.deployments"
+      },
+      {
+        "arguments": {
+          "service": "airflow"
+        },
+        "kind": "required_tool_call",
+        "tool": "nomad.service_health"
+      },
+      {
+        "arguments": {
+          "query": {
+            "$contains_all": ["airflow", "99183465"]
+          }
+        },
+        "kind": "required_tool_call",
+        "tool": "monitoring.query"
+      }
+    ],
+    "quality_rubric": [
+      {
+        "criterion": "Uses bounded waits only while evidence remains inconclusive, then stops waiting when the recorded source boundary is known.",
+        "weight": 3
+      },
+      {
+        "criterion": "Keeps the exact revision and verification objective visible.",
+        "weight": 2
+      },
+      {
+        "criterion": "Separates verified deployment and backend health from the unavailable scheduler and task-execution evidence without claiming broad success.",
+        "weight": 3
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "model-requalification",
+    "smoke",
+    "host-replay",
+    "wait-for",
+    "automation",
+    "same-session"
+  ]
+}

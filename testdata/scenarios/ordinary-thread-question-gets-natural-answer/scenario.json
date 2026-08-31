@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "id": "ordinary-thread-question-gets-natural-answer",
+  "provenance": {
+    "kind": "synthetic",
+    "episode_refs": [
+      "synthetic:ordinary-thread-conversation"
+    ],
+    "captured_at": "2026-08-30T14:00:00Z"
+  },
+  "clock": {
+    "start": "2026-08-30T14:00:00Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:user:U-colleague",
+      "authority": "operator",
+      "kind": "human"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-colleague",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1788098400.000100",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-08-30T14:00:00Z",
+      "payload": {
+        "text": "In plain language, why do we keep the accepted reply durable before posting it?"
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "tool_rules": [],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": [
+      {
+        "calls": [],
+        "candidates": [
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "Because the durable reply is the source of truth if posting is interrupted. Responder can reconcile the same intent after a crash without asking the model again or sending a different answer.",
+              "outcome": {
+                "artifact_refs": [],
+                "record_refs": [],
+                "state": "complete"
+              }
+            },
+            "kind": "final"
+          }
+        ],
+        "input_index": 1,
+        "preflight_candidate_index": 1
+      }
+    ]
+  },
+  "expect": {
+    "hard": [
+      {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "kind": "delivery_target",
+        "thread_ref": "1788098400.000100",
+        "transport": "slack"
+      }
+    ],
+    "trajectory": [],
+    "quality_rubric": [
+      {
+        "criterion": "Answers the question directly in natural colleague language.",
+        "weight": 3
+      },
+      {
+        "criterion": "Does not invent evidence or create durable state for an explanatory conversation.",
+        "weight": 2
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "smoke",
+    "host-replay",
+    "ordinary-conversation",
+    "slack",
+    "destination-authority"
+  ]
+}

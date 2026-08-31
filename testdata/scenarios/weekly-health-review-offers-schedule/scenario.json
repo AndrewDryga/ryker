@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "id": "weekly-health-review-offers-schedule",
+  "provenance": {
+    "kind": "synthetic",
+    "episode_refs": [
+      "eval:proactive:weekly-schedule"
+    ],
+    "captured_at": "2026-08-15T00:00:00Z"
+  },
+  "clock": {
+    "start": "2026-08-15T00:00:00Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "authority": "schedule_offer",
+      "kind": "human"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "kind": "input",
+      "occurred_at": "2026-08-15T00:00:00Z",
+      "payload": {
+        "text": "Every Monday at 09:00 UTC, prepare an evidence-backed production health review in this channel."
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "tool_rules": [],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": []
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "state_tool_recorded",
+        "tool": "propose_automation"
+      }
+    ],
+    "trajectory": [],
+    "quality_rubric": [
+      {
+        "criterion": "Creates one inert weekly schedule proposal for Monday at 09:00 UTC instead of claiming it is already active.",
+        "weight": 3
+      },
+      {
+        "criterion": "Preserves the requirement for fresh evidence and delivery in the current conversation.",
+        "weight": 2
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "model-requalification",
+    "schedule",
+    "automation",
+    "confirmation"
+  ]
+}

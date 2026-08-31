@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "jobs": {
+    "application_errors": [
+      "application-errors-follow-the-current-signal"
+    ],
+    "artifacts": [
+      "artifact-delivery-survives-work-handoff"
+    ],
+    "automation_waits": [
+      "airflow-verification-arms-wait",
+      "weekly-health-review-offers-schedule"
+    ],
+    "creative_requests": [
+      "creative-request-needs-no-fake-evidence"
+    ],
+    "engineering_work": [
+      "rivals-engineering-task-offer"
+    ],
+    "grafana": [
+      "grafana-firing-resolved-stays-in-cycle"
+    ],
+    "github_review": [
+      "github-pr-review-remains-in-thread"
+    ],
+    "memory_feedback": [
+      "confirmed-guidance-becomes-memory"
+    ],
+    "multi_user_threads": [
+      "rivals-engineering-task-offer"
+    ],
+    "ordinary_conversation": [
+      "ordinary-thread-question-gets-natural-answer"
+    ],
+    "research": [
+      "va1-health-review-repairs-and-finishes"
+    ],
+    "terraform": [
+      "terraform-run-update-stays-in-one-session"
+    ],
+    "uptime": [
+      "current-uptime-check-uses-fresh-source"
+    ]
+  },
+  "failure_axes": {
+    "concurrent_human_feedback": [
+      "concurrent-human-feedback-serializes"
+    ],
+    "denied_authority": [
+      "github-pr-review-remains-in-thread"
+    ],
+    "missing_stale_contradictory_evidence": [
+      "va1-health-review-repairs-and-finishes"
+    ],
+    "noisy_context": [
+      "noisy-context-keeps-current-request"
+    ],
+    "process_restart": [
+      "worker-loss-reconciles-frozen-turn"
+    ],
+    "rate_limit": [
+      "current-uptime-check-uses-fresh-source"
+    ],
+    "reconnect": [
+      "terraform-run-update-stays-in-one-session"
+    ],
+    "source_lifecycle_changes": [
+      "airflow-verification-arms-wait",
+      "grafana-firing-resolved-stays-in-cycle",
+      "terraform-run-update-stays-in-one-session"
+    ],
+    "uncertain_delivery": [
+      "artifact-delivery-survives-work-handoff"
+    ],
+    "worker_loss": [
+      "worker-loss-reconciles-frozen-turn"
+    ]
+  }
+}

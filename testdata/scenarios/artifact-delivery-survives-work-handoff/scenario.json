@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "id": "artifact-delivery-survives-work-handoff",
+  "provenance": {
+    "kind": "synthetic",
+    "episode_refs": ["synthetic:generated-artifact-delivery"],
+    "captured_at": "2026-08-30T16:00:00Z"
+  },
+  "clock": {"start": "2026-08-30T16:00:00Z"},
+  "actors": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "authority": "operator",
+      "kind": "human"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1788105600.000100",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-08-30T16:00:00Z",
+      "payload": {
+        "text": "Create a small chart image that summarizes the handoff and attach it here."
+      }
+    }
+  ],
+  "world": {"repositories": [], "tool_rules": [], "scheduled_events": []},
+  "host_replay": {
+    "model_events": [
+      {
+        "calls": [],
+        "candidates": [
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "The generated handoff chart is attached.",
+              "outcome": {
+                "artifact_refs": ["artifact_9a576f4bf152aa618b4d8233"],
+                "record_refs": [],
+                "state": "complete"
+              }
+            },
+            "kind": "final"
+          }
+        ],
+        "faults": ["lose_delivery_response"],
+        "input_index": 1,
+        "output_artifacts": [
+          {
+            "bytes": 28,
+            "data_base64": "iVBORw0KGgp3b3JsZC1hcnRpZmFjdC1jaGFydA==",
+            "id": "artifact_9a576f4bf152aa618b4d8233",
+            "media_type": "image/png",
+            "name": "handoff-chart.png",
+            "sha256": "9a576f4bf152aa618b4d823351908202080af5c99566589f72bd24aad6ca6746"
+          }
+        ],
+        "preflight_candidate_index": 1
+      }
+    ]
+  },
+  "expect": {
+    "hard": [
+      {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "kind": "delivery_target",
+        "thread_ref": "1788105600.000100",
+        "transport": "slack"
+      },
+      {
+        "bytes": 28,
+        "kind": "artifact_delivered",
+        "media_type": "image/png",
+        "name": "handoff-chart.png",
+        "ref": "artifact_9a576f4bf152aa618b4d8233",
+        "scope": "host_replay",
+        "sha256": "9a576f4bf152aa618b4d823351908202080af5c99566589f72bd24aad6ca6746"
+      },
+      {
+        "kind": "generated_image_delivered",
+        "scope": "model_world"
+      }
+    ],
+    "trajectory": [],
+    "quality_rubric": [
+      {
+        "criterion": "Creates and attaches the requested image instead of claiming an attachment that does not exist.",
+        "weight": 3
+      },
+      {"criterion": "Keeps the visible reply concise and useful.", "weight": 1}
+    ]
+  },
+  "tags": ["model-world", "smoke", "host-replay", "artifacts", "slack", "delivery"]
+}

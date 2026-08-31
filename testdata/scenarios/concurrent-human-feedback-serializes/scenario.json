@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "id": "concurrent-human-feedback-serializes",
+  "provenance": {
+    "kind": "production",
+    "episode_refs": [
+      "episode_run_517b4f6e4d37af2a92a26b7ee84c050c",
+      "episode_run_9c0fea4917ba299efce3b7630cc57efd",
+      "episode_run_6e5c9884f68e75b41af308de4877a9ad"
+    ],
+    "captured_at": "2026-08-21T20:48:00Z"
+  },
+  "clock": {
+    "start": "2026-08-21T02:21:46.748258Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:user:U-andrew",
+      "authority": "repository_write_offer",
+      "kind": "human"
+    },
+    {
+      "actor_ref": "slack:user:U-bruno",
+      "authority": "repository_feedback",
+      "kind": "human"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-andrew",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:C08MMETA3U3",
+        "thread_ref": "1786978800.742289",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-08-21T02:21:46.748258Z",
+      "payload": {
+        "text": "Add bounded context to Rivals Gate timeout logs"
+      }
+    },
+    {
+      "actor_ref": "slack:user:U-bruno",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:C08MMETA3U3",
+        "thread_ref": "1786978800.742289",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-08-21T20:44:43.714515Z",
+      "payload": {
+        "text": "aggregate failures by request parameters"
+      }
+    },
+    {
+      "actor_ref": "slack:user:U-andrew",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:C08MMETA3U3",
+        "thread_ref": "1786978800.742289",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-08-21T20:44:50.795903Z",
+      "payload": {
+        "text": "use five-minute windows"
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "tool_rules": [],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": [
+      {
+        "calls": [],
+        "candidates": [
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "I am handling the Rivals Gate timeout-log change in this task thread.",
+              "outcome": {
+                "artifact_refs": [],
+                "record_refs": [],
+                "state": "complete"
+              }
+            },
+            "kind": "final"
+          }
+        ],
+        "input_index": 1,
+        "preflight_candidate_index": 1
+      },
+      {
+        "calls": [],
+        "candidates": [
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "I kept both requested constraints together: aggregate failures by request parameters using five-minute windows.",
+              "outcome": {
+                "artifact_refs": [],
+                "record_refs": [],
+                "state": "complete"
+              }
+            },
+            "kind": "final"
+          }
+        ],
+        "input_index": 2,
+        "preflight_candidate_index": 1
+      }
+    ]
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "same_session_continuation"
+      },
+      {
+        "conversation_ref": "slack:TEVAL:C08MMETA3U3",
+        "kind": "delivery_target",
+        "thread_ref": "1786978800.742289",
+        "transport": "slack"
+      }
+    ],
+    "trajectory": [],
+    "quality_rubric": [
+      {
+        "criterion": "Keeps both human constraints in the same Rivals engineering task.",
+        "weight": 3
+      },
+      {
+        "criterion": "Uses both aggregation by request parameters and five-minute windows without dropping either instruction.",
+        "weight": 3
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "smoke",
+    "host-replay",
+    "engineering",
+    "concurrent-feedback",
+    "multi-user",
+    "same-session",
+    "slack"
+  ]
+}

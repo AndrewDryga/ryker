@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "id": "rivals-engineering-task-offer",
+  "provenance": {
+    "kind": "production",
+    "episode_refs": [
+      "episode_run_517b4f6e4d37af2a92a26b7ee84c050c",
+      "episode_run_9c0fea4917ba299efce3b7630cc57efd",
+      "episode_run_6e5c9884f68e75b41af308de4877a9ad"
+    ],
+    "captured_at": "2026-08-21T20:48:00Z"
+  },
+  "clock": {
+    "start": "2026-08-21T02:21:46Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:user:U-andrew",
+      "authority": "repository_write_offer",
+      "kind": "human"
+    },
+    {
+      "actor_ref": "slack:user:U-bruno",
+      "authority": "repository_feedback",
+      "kind": "human"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-andrew",
+      "kind": "input",
+      "occurred_at": "2026-08-21T02:21:46Z",
+      "payload": {
+        "text": "Add bounded context to Rivals Gate timeout logs"
+      }
+    },
+    {
+      "actor_ref": "slack:user:U-bruno",
+      "kind": "input",
+      "occurred_at": "2026-08-21T20:44:43Z",
+      "payload": {
+        "text": "aggregate failures by request parameters"
+      }
+    },
+    {
+      "actor_ref": "slack:user:U-andrew",
+      "kind": "input",
+      "occurred_at": "2026-08-21T20:44:50Z",
+      "payload": {
+        "text": "use five-minute windows"
+      }
+    }
+  ],
+  "world": {
+    "repositories": [
+      {
+        "base_commit": "41af103a96d71c93887fe2b4dc9eed2d75f8fcb7",
+        "path": "repository",
+        "ref": "blitz-rivals-scraper",
+        "sha256": "74ddd95fa88f25833da3ce517ffb3ed5f53fc8635b6ba02329156310ae45530b"
+      }
+    ],
+    "tool_rules": [],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": []
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "state_tool_recorded",
+        "tool": "request_task"
+      },
+      {
+        "kind": "same_session_continuation"
+      }
+    ],
+    "trajectory": [],
+    "quality_rubric": [
+      {
+        "criterion": "Creates one bounded engineering task instead of claiming unperformed repository work.",
+        "weight": 3
+      },
+      {
+        "criterion": "Carries both follow-up constraints into the same task conversation without restarting or losing the earlier task.",
+        "weight": 3
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "smoke",
+    "engineering",
+    "request-task",
+    "conversation-continuity",
+    "multi-turn"
+  ]
+}

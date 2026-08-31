@@ -1,0 +1,181 @@
+{
+  "version": 1,
+  "id": "current-uptime-check-uses-fresh-source",
+  "provenance": {
+    "kind": "synthetic",
+    "episode_refs": [
+      "synthetic:nomad-hvn03-uptime"
+    ],
+    "captured_at": "2026-08-30T14:20:00Z"
+  },
+  "clock": {
+    "start": "2026-08-30T14:20:00Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "authority": "read_only",
+      "kind": "human"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "kind": "input",
+      "occurred_at": "2026-08-30T14:20:00Z",
+      "payload": {
+        "text": "Confirm the current uptime of nomad-hvn03 and record what you observed."
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "tool_rules": [
+      {
+        "id": "nomad-hvn03-current-health",
+        "match": {
+          "environment": {
+            "$one_of": ["va1", "production", "prod"]
+          },
+          "service": "nomad-hvn03"
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-08-30T14:20:03Z",
+              "source_ref": "source:nomad-hvn03:health:20260830T142003Z",
+              "status": "running",
+              "uptime_seconds": 734400
+            }
+          }
+        ],
+        "tool": "nomad.service_health"
+      },
+      {
+        "id": "nomad-hvn03-current-uptime-query",
+        "match": {
+          "query": {
+            "$one_of": [
+              {"$contains_all": ["uptime", "nomad-hvn03"]},
+              {"$contains_all": ["node_boot_time", "nomad-hvn03"]}
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-08-30T14:20:03Z",
+              "source_ref": "source:nomad-hvn03:health:20260830T142003Z",
+              "status": "running",
+              "uptime_seconds": 734400
+            }
+          }
+        ],
+        "tool": "monitoring.query"
+      }
+    ],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": [
+      {
+        "calls": [
+          {
+            "arguments": {
+              "environment": "va1",
+              "service": "nomad-hvn03"
+            },
+            "kind": "fabricated",
+            "tool": "nomad.service_health"
+          },
+          {
+            "arguments": {
+              "observation": "nomad-hvn03 was running with 734400 seconds of uptime at 2026-08-30T14:20:03Z.",
+              "relation": "supports",
+              "source_ref": "source:nomad-hvn03:health:20260830T142003Z",
+              "subject": "host.uptime",
+              "supersedes": []
+            },
+            "kind": "state",
+            "tool": "cite_source"
+          }
+        ],
+        "faults": ["rate_limit_submit_once"],
+        "candidates": [
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "nomad-hvn03 is running and reported 8 days 12 hours of uptime at 14:20:03Z.",
+              "outcome": {
+                "artifact_refs": [],
+                "record_refs": [
+                  "$call:1:record_ref"
+                ],
+                "state": "complete"
+              }
+            },
+            "kind": "final"
+          }
+        ],
+        "input_index": 1,
+        "preflight_candidate_index": 1
+      }
+    ]
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "state_tool_recorded",
+        "tool": "cite_source"
+      }
+    ],
+    "trajectory": [
+      {
+        "calls": [
+          {
+            "arguments": {
+              "environment": {
+                "$one_of": ["va1", "production", "prod"]
+              },
+              "service": "nomad-hvn03"
+            },
+            "tool": "nomad.service_health"
+          },
+          {
+            "arguments": {
+              "query": {
+                "$one_of": [
+                  {"$contains_all": ["uptime", "nomad-hvn03"]},
+                  {"$contains_all": ["node_boot_time", "nomad-hvn03"]}
+                ]
+              }
+            },
+            "tool": "monitoring.query"
+          }
+        ],
+        "kind": "required_any_tool_call"
+      }
+    ],
+    "quality_rubric": [
+      {
+        "criterion": "Uses a current source observation rather than remembered uptime.",
+        "weight": 3
+      },
+      {
+        "criterion": "States the observation time and avoids implying broader host health.",
+        "weight": 2
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "model-requalification",
+    "smoke",
+    "host-replay",
+    "uptime",
+    "fresh-evidence"
+  ]
+}
