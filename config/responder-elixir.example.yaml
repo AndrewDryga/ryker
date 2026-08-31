@@ -1,0 +1,198 @@
+# This file configures the Elixir product runtime. It is intentionally
+# separate from responder.example.yaml, which remains the strict Go service
+# configuration until cutover.
+version: 1
+mode: product
+host_ref: responder-a
+
+coop:
+  receive_timeout_ms: 30000
+
+repositories:
+  responder:
+    path: /srv/responder
+    github_repository: emisar/responder
+    github_binding: responder-app
+    base_branch: main
+    conversation_policy:
+      name: responder-conversation-v1
+      digest: "9999999999999999999999999999999999999999999999999999999999999999"
+    contributor_policy:
+      name: responder-contributor-v1
+      digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    schedule_policy:
+      name: responder-scheduled-write-v1
+      digest: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+admission:
+  policy:
+    name: responder-admission-v1
+    digest: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  poll_interval_ms: 250
+
+# Live eval commands refuse to inherit production authority. The no-tools
+# policy drives admission/final-contract cases. Candidate and baseline world
+# policies expose only disposable eval repositories plus the fabricated tool
+# world and must remain distinct from every production authority.
+model_evals:
+  socket: /var/lib/responder/eval-coop/control.sock
+  no_tools_policy:
+    name: responder-eval-no-tools-v1
+    digest: "1111111111111111111111111111111111111111111111111111111111111111"
+  world_policy:
+    name: responder-eval-world-v1
+    digest: "2222222222222222222222222222222222222222222222222222222222222222"
+  world_baseline_policy:
+    name: responder-eval-world-baseline-v1
+    digest: "3333333333333333333333333333333333333333333333333333333333333333"
+
+work:
+  execution: fleet
+  workspace_ref: responder-main
+  capability_names:
+    - responder-state
+  concurrency: 4
+  poll_interval_ms: 250
+
+# Ownership cleanup is fail-closed. Only exact Coop sessions recorded for a
+# terminal episode are considered; dirty and unpublished work is retained.
+# Local bodies, coherent episode history, and compact audit receipts then age
+# on ordered horizons. Live waits, approvals, schedules, and blocked work pin
+# their full history regardless of age.
+retention:
+  poll_interval_ms: 60000
+  lease_seconds: 300
+  max_attempts: 8
+  retry_base_seconds: 5
+  retry_max_seconds: 300
+  closed_session_grace_seconds: 900
+  operational_data_seconds: 86400
+  conversation_memory_seconds: 7776000
+  closed_work_seconds: 604800
+  episode_history_seconds: 2592000
+  audit_data_seconds: 2592000
+
+# One local operator only. Public and tailnet bind addresses are rejected.
+control_plane:
+  ip: 127.0.0.1
+  port: 4321
+  # Conversation Lab traffic uses this exact host-owned Work authority. The
+  # browser can never choose or widen it.
+  work_profile:
+    policy: responder-conversation-v1
+    policy_digest: "9999999999999999999999999999999999999999999999999999999999999999"
+    repository_ref: responder
+
+# Coop workers connect outbound to this mutual-TLS endpoint. The CA signs
+# short-lived worker certificates; no bearer-token or worker-ID header is
+# accepted by the poll route.
+coop_worker_gateway:
+  ip: 0.0.0.0
+  port: 4322
+  public_url: https://responder.example.com:4322
+  cacertfile: /etc/responder/worker-ca.pem
+  ca_keyfile: /etc/responder/worker-ca-key.pem
+  certificate_ttl_seconds: 86400
+  certfile: /etc/responder/worker-gateway.pem
+  checkpoint_key_env: RESPONDER_CHECKPOINT_KEY
+  checkpoint_secret_scan_env: []
+  keyfile: /etc/responder/worker-gateway-key.pem
+
+delivery:
+  action_concurrency: 2
+  message_concurrency: 4
+  reaction_concurrency: 2
+  max_attempts: 8
+  poll_interval_ms: 250
+
+publication:
+  branch_prefix: responder
+  state_dir: /var/lib/responder/publications
+  commit_name: Emisar Responder
+  commit_email: responder@example.com
+  secret_scan_env: []
+  concurrency: 2
+  followup_interval_seconds: 120
+
+# Governed actions are approved only in Emisar. Responder can read the exact
+# pending run and resume its episode; it cannot approve or repeat the action.
+emisar:
+  rpc_url: https://emisar.dev/api/mcp/rpc
+  token_env: EMISAR_API_TOKEN
+  concurrency: 2
+  poll_interval_ms: 1000
+  poll_seconds: 3
+
+state_tools:
+  ip: 127.0.0.1
+  port: 4318
+  token_env: RESPONDER_STATE_TOOLS_TOKEN
+
+event_waits:
+  poll_interval_ms: 1000
+
+schedules:
+  read_only_policy:
+    name: responder-read-only-v1
+    digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+  governed_operation_policy:
+    name: responder-governed-v1
+    digest: eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+  poll_interval_ms: 1000
+
+slack:
+  api_url: https://slack.com/api
+  app_token_env: SLACK_APP_TOKEN
+  bot_token_env: SLACK_BOT_TOKEN
+  default_repository: responder
+  identity:
+    workspace_ref: T0123456789
+    bot_ref: A0123456789
+    bot_user_ref: U0123456789
+  incident_policy:
+    name: responder-incident-v1
+    digest: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+  operators:
+    - U1111111111
+  incident_invite_users:
+    - U1111111111
+  watch_channels:
+    - C1111111111
+  channel_prefix: ems
+  incident_private: true
+  maximum_open_incidents: 25
+
+github:
+  api_url: https://api.github.com
+  app_id: 12345
+  private_key_env: GITHUB_APP_PRIVATE_KEY
+  webhook_secret_env: GITHUB_WEBHOOK_SECRET
+  ip: 127.0.0.1
+  port: 4319
+  bindings:
+    responder-app:
+      repository: responder
+      installation_id: 1001
+      repository_id: 2001
+      responder_actor_id: 3001
+      authorized_actor_ids:
+        - 4001
+
+webhooks:
+  ip: 127.0.0.1
+  port: 4320
+  routes:
+    universal:
+      auth:
+        kind: hmac_sha256
+        secret_env: RESPONDER_WEBHOOK_SECRET
+      destination:
+        transport: slack
+        conversation_ref: slack:T0123456789:C1111111111
+        thread_ref:
+      work_profile:
+        policy: responder-read-only-v1
+        policy_digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+        repository_ref: responder
+      max_body_bytes: 40000
+      max_clock_skew_seconds: 300
