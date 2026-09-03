@@ -9,7 +9,9 @@ defmodule Responder.Slack.Runtime do
 
   alias Responder.Artifacts
   alias Responder.Delivery.{BinaryClient, JSONClient}
+  alias Responder.Episodes.Reactions
   alias Responder.Ingress.Inbox
+  alias Responder.Ingress.WorkProfile
   alias Responder.Publication.{Custody, Followups}
 
   alias Responder.Slack.{
@@ -263,6 +265,7 @@ defmodule Responder.Slack.Runtime do
       incident_lifecycle: &IncidentRooms.observe_lifecycle/1,
       inbox: Inbox,
       interaction_audit: &InteractionAudits.record/2,
+      reaction_feedback: &Reactions.record/1,
       interaction_handler: InteractionHandler,
       interaction_options: %{
         answer_input_request: &InputRequests.answer/1,
@@ -296,7 +299,7 @@ defmodule Responder.Slack.Runtime do
       setup_allowed: setup_allowed(),
       setup_handler: ChannelSetup,
       setup_options: setup_options,
-      work_profile: work_profile(default_repository, incident_policy),
+      work_profile: work_profile(default_repository, repositories),
       watch_channels: watch_channels
     }
 
@@ -443,7 +446,7 @@ defmodule Responder.Slack.Runtime do
     end
   end
 
-  defp work_profile(default_repository, incident_policy) do
+  defp work_profile(default_repository, repositories) do
     fn workspace_ref, conversation_ref ->
       channel_ref = conversation_ref |> String.split(":", parts: 3) |> List.last()
 
@@ -458,13 +461,7 @@ defmodule Responder.Slack.Runtime do
 
         :not_found ->
           repository_ref = configured_repository(workspace_ref, channel_ref, default_repository)
-
-          {:ok,
-           %{
-             policy: incident_policy.name,
-             policy_digest: incident_policy.digest,
-             repository_ref: repository_ref
-           }}
+          {:ok, repositories |> Map.fetch!(repository_ref) |> Map.fetch!(:work_profile)}
       end
     end
   end
@@ -569,8 +566,23 @@ defmodule Responder.Slack.Runtime do
 
   defp repositories!(repositories) when is_map(repositories) do
     Map.new(repositories, fn
-      {name, %{contributor_policy: policy}} when is_binary(name) and name != "" ->
-        {name, %{contributor_policy: policy!(policy, :contributor_policy)}}
+      {name, %{contributor_policy: policy} = attributes} when is_binary(name) and name != "" ->
+        contributor_policy = policy!(policy, :contributor_policy)
+
+        work_profile =
+          Map.get(attributes, :work_profile, %{
+            policy: contributor_policy.name,
+            policy_digest: contributor_policy.digest,
+            repository_ref: name
+          })
+
+        case WorkProfile.prepare(work_profile) do
+          {:ok, profile} ->
+            {name, %{contributor_policy: contributor_policy, work_profile: profile}}
+
+          {:error, _reason} ->
+            raise ArgumentError, "Slack repositories must contain a valid Work profile"
+        end
 
       _invalid ->
         raise ArgumentError, "Slack repositories must map names to contributor policies"

@@ -9,6 +9,8 @@ defmodule Responder.RuntimeConfiguration do
   once into the owning trusted adapter at startup.
   """
 
+  alias Responder.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
+  alias Responder.ControlPlane.ConversationLab
   alias Responder.ControlPlane.Server, as: ControlPlaneServer
   alias Responder.Delivery.{JSONClient, Request}
   alias Responder.Emisar.ApprovalRuntime
@@ -140,7 +142,7 @@ defmodule Responder.RuntimeConfiguration do
 
     github = optional(root, "github", &github!(&1, repositories, env_provider))
     slack = optional(root, "slack", &slack!(&1, repositories, work, env_provider))
-    control_plane = optional(root, "control_plane", &control_plane!/1)
+    control_plane = optional(root, "control_plane", &control_plane!(&1, repositories, work))
     adapters = adapters!(slack, github, control_plane)
     delivery = delivery!(root["delivery"], adapters, host_ref)
     webhooks = webhooks!(root["webhooks"], env_provider, adapters)
@@ -169,7 +171,7 @@ defmodule Responder.RuntimeConfiguration do
       )
 
     state_tools =
-      state_tools!(root["state_tools"], emisar, slack, github, env_provider, %{
+      state_tools!(root["state_tools"], emisar, slack, github, control_plane, env_provider, %{
         emisar_approvals: not is_nil(emisar),
         event_waits: not is_nil(event_waits),
         publication: not is_nil(publication),
@@ -288,17 +290,34 @@ defmodule Responder.RuntimeConfiguration do
         object!(
           attributes,
           ~w(path github_repository github_binding base_branch conversation_policy contributor_policy schedule_policy),
-          [],
+          ~w(standard_policy deep_policy),
           "repositories.#{name}"
+        )
+
+      conversation_policy =
+        policy!(repository["conversation_policy"], "repositories.#{name}.conversation_policy")
+
+      standard_policy =
+        optional_policy!(
+          repository["standard_policy"],
+          conversation_policy,
+          "repositories.#{name}.standard_policy"
+        )
+
+      deep_policy =
+        optional_policy!(
+          repository["deep_policy"],
+          standard_policy,
+          "repositories.#{name}.deep_policy"
         )
 
       {name,
        %{
          base_branch: git_ref!(repository["base_branch"], "repositories.#{name}.base_branch"),
-         conversation_policy:
-           policy!(repository["conversation_policy"], "repositories.#{name}.conversation_policy"),
+         conversation_policy: conversation_policy,
          contributor_policy:
            policy!(repository["contributor_policy"], "repositories.#{name}.contributor_policy"),
+         deep_policy: deep_policy,
          github_binding:
            reference!(repository["github_binding"], "repositories.#{name}.github_binding"),
          github_repository:
@@ -308,7 +327,8 @@ defmodule Responder.RuntimeConfiguration do
            ),
          path: absolute_path!(repository["path"], "repositories.#{name}.path"),
          schedule_policy:
-           policy!(repository["schedule_policy"], "repositories.#{name}.schedule_policy")
+           policy!(repository["schedule_policy"], "repositories.#{name}.schedule_policy"),
+         standard_policy: standard_policy
        }}
     end)
   end
@@ -366,6 +386,8 @@ defmodule Responder.RuntimeConfiguration do
             [
               repository.conversation_policy,
               repository.contributor_policy,
+              repository.standard_policy,
+              repository.deep_policy,
               repository.schedule_policy
             ]
           end)
@@ -411,7 +433,7 @@ defmodule Responder.RuntimeConfiguration do
       object!(
         value,
         [],
-        ~w(execution workspace_ref capability_names concurrency poll_interval_ms),
+        ~w(execution workspace_ref capability_names concurrency poll_interval_ms source_and_action_tools),
         "work"
       )
 
@@ -449,6 +471,10 @@ defmodule Responder.RuntimeConfiguration do
       receive_timeout_ms: coop.receive_timeout_ms,
       worker_ref: "#{host_ref}:work"
     }
+    |> put_optional(
+      :platform_tools,
+      source_and_action_tools!(object["source_and_action_tools"])
+    )
   end
 
   defp retention!(nil, _work, _host_ref), do: nil
@@ -514,7 +540,7 @@ defmodule Responder.RuntimeConfiguration do
     retention
   end
 
-  defp control_plane!(value) do
+  defp control_plane!(value, repositories, work) do
     object = object!(value, ~w(port work_profile), ~w(ip), "control_plane")
     ip = ip!(Map.get(object, "ip", "127.0.0.1"), "control_plane.ip")
 
@@ -522,8 +548,14 @@ defmodule Responder.RuntimeConfiguration do
       do: raise(ArgumentError, "control_plane.ip must be loopback")
 
     %{
+      coop_api: work.api,
+      coop_client: work.client,
       ip: ip,
       port: positive_port!(object["port"], "control_plane.port"),
+      task_policies:
+        Map.new(repositories, fn {repository_ref, repository} ->
+          {repository_ref, repository.contributor_policy}
+        end),
       work_profile: work_profile!(object["work_profile"], "control_plane.work_profile")
     }
   end
@@ -582,11 +614,15 @@ defmodule Responder.RuntimeConfiguration do
     end
   end
 
-  defp bind_state_tools!(work, nil, _state_tools), do: {work, nil}
-  defp bind_state_tools!(work, gateway, nil), do: {work, gateway}
+  defp bind_state_tools!(work, nil, state_tools),
+    do: {bind_platform_tools!(work, state_tools), nil}
+
+  defp bind_state_tools!(work, gateway, nil),
+    do: {bind_platform_tools!(work, nil), gateway}
 
   defp bind_state_tools!(work, gateway, state_tools) do
     endpoint = gateway.public_url <> "/v1/state-tools/mcp"
+    work = bind_platform_tools!(work, state_tools)
 
     {
       work
@@ -601,6 +637,36 @@ defmodule Responder.RuntimeConfiguration do
         token_secret: state_tools.token
       })
     }
+  end
+
+  defp bind_platform_tools!(work, state_tools) do
+    configured = Map.get(work, :platform_tools, [])
+
+    hosted =
+      case state_tools do
+        %{additional_tools: tools} when is_list(tools) -> tools
+        _other -> []
+      end
+
+    tools = configured ++ hosted
+
+    names =
+      Enum.map(tools, fn
+        %{"name" => name} -> name
+        name -> name
+      end)
+
+    cond do
+      names != Enum.uniq(names) ->
+        raise ArgumentError,
+              "work.source_and_action_tools must not overlap configured host capability tools"
+
+      tools == [] ->
+        Map.delete(work, :platform_tools)
+
+      true ->
+        Map.put(work, :platform_tools, tools)
+    end
   end
 
   defp github!(value, repositories, env_provider) do
@@ -713,11 +779,7 @@ defmodule Responder.RuntimeConfiguration do
               "github.bindings.#{name}.responder_actor_id"
             ),
           secret: webhook_secret,
-          work_profile: %{
-            policy: repository.conversation_policy.name,
-            policy_digest: repository.conversation_policy.digest,
-            repository_ref: repository_alias
-          }
+          work_profile: repository_work_profile(repository_alias, repository)
         }
 
         {:ok, trusted_binding} = Binding.new(attributes)
@@ -853,7 +915,11 @@ defmodule Responder.RuntimeConfiguration do
         reconnect_ms: integer!(object, "reconnect_ms", 1_000, 1, 60_000, "slack"),
         repositories:
           Map.new(repositories, fn {name, repository} ->
-            {name, %{contributor_policy: repository.contributor_policy}}
+            {name,
+             %{
+               contributor_policy: repository.contributor_policy,
+               work_profile: repository_work_profile(name, repository)
+             }}
           end),
         task_card_interval_ms:
           integer!(object, "task_card_interval_ms", 1_000, 1, 86_400_000, "slack"),
@@ -1076,13 +1142,14 @@ defmodule Responder.RuntimeConfiguration do
     |> Enum.max(fn -> 0 end)
   end
 
-  defp state_tools!(nil, nil, _slack, _github, _env_provider, _capabilities), do: nil
+  defp state_tools!(nil, nil, _slack, _github, _control_plane, _env_provider, _capabilities),
+    do: nil
 
-  defp state_tools!(nil, _emisar, _slack, _github, _env_provider, _capabilities) do
+  defp state_tools!(nil, _emisar, _slack, _github, _control_plane, _env_provider, _capabilities) do
     raise ArgumentError, "emisar requires state_tools for the approval handoff"
   end
 
-  defp state_tools!(value, emisar, slack, github, env_provider, capabilities) do
+  defp state_tools!(value, emisar, slack, github, control_plane, env_provider, capabilities) do
     object = object!(value, ~w(port token_env), ~w(ip), "state_tools")
 
     %{
@@ -1096,18 +1163,19 @@ defmodule Responder.RuntimeConfiguration do
       token: required_secret!(object["token_env"], env_provider, "state_tools.token_env")
     }
     |> put_optional(:emisar_rpc_url, emisar && emisar.rpc_url)
-    |> add_platform_capability_tools(slack, github)
+    |> add_platform_capability_tools(slack, github, control_plane)
   end
 
-  defp add_platform_capability_tools(configuration, slack, github) do
-    packages =
-      [
-        slack && {SlackCapabilityTools, slack.capability_tools},
-        github && {GitHubCapabilityTools, github.capability_tools}
-      ]
-      |> Enum.reject(&is_nil/1)
+  defp add_platform_capability_tools(configuration, slack, github, control_plane) do
+    slack_tools =
+      cond do
+        slack -> SlackCapabilityTools.list(slack.capability_tools)
+        control_plane -> ControlPlaneCapabilityTools.list()
+        true -> []
+      end
 
-    tools = Enum.flat_map(packages, fn {module, options} -> module.list(options) end)
+    github_tools = if github, do: GitHubCapabilityTools.list(github.capability_tools), else: []
+    tools = slack_tools ++ github_tools
     names = Enum.map(tools, & &1["name"])
 
     if names != Enum.uniq(names),
@@ -1119,20 +1187,54 @@ defmodule Responder.RuntimeConfiguration do
       configuration
       |> Map.put(:additional_tools, tools)
       |> Map.put(:additional_call, fn name, arguments, binding ->
-        call_platform_tool(packages, name, arguments, binding)
+        call_platform_tool(slack, github, control_plane, name, arguments, binding)
       end)
     end
   end
 
-  defp call_platform_tool(packages, name, arguments, binding) do
-    case Enum.find(packages, &platform_tool_package?(&1, name)) do
-      {module, options} -> module.call(name, arguments, binding, options)
-      nil -> {:error, "unknown_tool"}
+  defp call_platform_tool(slack, github, control_plane, name, arguments, binding) do
+    transport = binding_transport(binding)
+
+    case transport do
+      "slack" when not is_nil(slack) ->
+        call_platform_package(
+          SlackCapabilityTools,
+          slack.capability_tools,
+          name,
+          arguments,
+          binding
+        )
+
+      "github" when not is_nil(github) ->
+        call_platform_package(
+          GitHubCapabilityTools,
+          github.capability_tools,
+          name,
+          arguments,
+          binding
+        )
+
+      "control_plane" when not is_nil(control_plane) ->
+        if Enum.any?(ControlPlaneCapabilityTools.list(), &(&1["name"] == name)),
+          do: ControlPlaneCapabilityTools.call(name, arguments, binding),
+          else: {:error, "unknown_tool"}
+
+      _unsupported ->
+        {:error, "unknown_tool"}
     end
   end
 
-  defp platform_tool_package?({module, options}, name),
-    do: Enum.any?(module.list(options), &(&1["name"] == name))
+  defp binding_transport(%{episode: %{destination_transport: transport}})
+       when is_binary(transport),
+       do: transport
+
+  defp binding_transport(_binding), do: nil
+
+  defp call_platform_package(module, options, name, arguments, binding) do
+    if Enum.any?(module.list(options), &(&1["name"] == name)),
+      do: module.call(name, arguments, binding, options),
+      else: {:error, "unknown_tool"}
+  end
 
   defp event_waits!(nil), do: nil
 
@@ -1263,6 +1365,20 @@ defmodule Responder.RuntimeConfiguration do
     end
   end
 
+  defp validate_webhook_target(
+         %Request{
+           transport: "control_plane",
+           conversation_ref: "control-plane:lab:" <> conversation_id = conversation_ref,
+           thread_ref: conversation_ref
+         },
+         _binding
+       ) do
+    case ConversationLab.conversation_ref(conversation_id) do
+      {:ok, ^conversation_ref} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
   defp validate_webhook_target(%Request{transport: transport}, _binding),
     do: {:error, {:delivery_adapter_not_supported, transport}}
 
@@ -1288,9 +1404,10 @@ defmodule Responder.RuntimeConfiguration do
   end
 
   defp work_profile!(value, path) do
-    object = object!(value, ~w(policy policy_digest repository_ref), [], path)
+    object = object!(value, ~w(policy policy_digest repository_ref), ~w(class_policies), path)
 
     case WorkProfile.new(%{
+           class_policies: class_policies!(object["class_policies"], "#{path}.class_policies"),
            policy: object["policy"],
            policy_digest: object["policy_digest"],
            repository_ref: object["repository_ref"]
@@ -1299,6 +1416,44 @@ defmodule Responder.RuntimeConfiguration do
       {:error, reason} -> raise ArgumentError, "invalid #{path}: #{inspect(reason)}"
     end
   end
+
+  defp class_policies!(nil, _path), do: nil
+
+  defp class_policies!(value, path) do
+    policies = object!(value, ~w(conversational standard deep), [], path)
+
+    Map.new(~w(conversational standard deep), fn work_class ->
+      policy =
+        object!(
+          policies[work_class],
+          ~w(policy policy_digest),
+          [],
+          "#{path}.#{work_class}"
+        )
+
+      {String.to_existing_atom(work_class),
+       %{policy: policy["policy"], policy_digest: policy["policy_digest"]}}
+    end)
+  end
+
+  defp repository_work_profile(repository_ref, repository) do
+    %{
+      class_policies: %{
+        conversational: policy_profile(repository.conversation_policy),
+        deep: policy_profile(repository.deep_policy),
+        standard: policy_profile(repository.standard_policy)
+      },
+      policy: repository.conversation_policy.name,
+      policy_digest: repository.conversation_policy.digest,
+      repository_ref: repository_ref
+    }
+  end
+
+  defp policy_profile(policy),
+    do: %{policy: policy.name, policy_digest: policy.digest}
+
+  defp optional_policy!(nil, fallback, _path), do: fallback
+  defp optional_policy!(value, _fallback, path), do: policy!(value, path)
 
   defp validate_runtimes!(configuration) do
     Responder.Admission.Runtime.options!(configuration.admission)
@@ -1543,6 +1698,16 @@ defmodule Responder.RuntimeConfiguration do
   end
 
   defp references!(_values, path), do: raise(ArgumentError, "#{path} must be a list")
+
+  defp source_and_action_tools!(nil), do: nil
+
+  defp source_and_action_tools!(values) do
+    tools = references!(values, "work.source_and_action_tools")
+
+    if length(tools) <= 256,
+      do: tools,
+      else: raise(ArgumentError, "work.source_and_action_tools must contain at most 256 names")
+  end
 
   defp positive_ids!(values, path) when is_list(values) and values != [] do
     prepared = Enum.map(values, &positive_integer!(&1, path))

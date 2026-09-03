@@ -470,7 +470,7 @@ replacement, not the older Go dashboard or the intended final design above.
 | Page | Wired |
 |---|---|
 | Overview | Live for active, waiting, blocked, delivery-pending, and bounded attention records |
-| Conversation Lab | Live, with source-neutral durable messages, accepted replies, episode custody, and same-session continuation |
+| Conversation Lab | Live, with durable messages/files, generated-image delivery, the exact Slack chat tool schemas through a local-only adapter, reactions, confirmed extra posts, native cards/actions, episode custody, and same-session continuation |
 | Episodes list and detail | Live, with bounded search, state filtering, pagination, lifecycle metadata, and typed state-record summaries |
 | Failures | Live, with typed confirmed recovery for admission, Work, delivery, Slack repaint/incident, Emisar monitoring, and retention custody |
 | Workspaces | Live, with audited cleanup rearm and explicit safe discard |
@@ -516,10 +516,36 @@ cannot select a policy, mount another repository, or widen authority.
 One stable UUID identifies the local conversation and its exact destination
 thread. Follow-ups can therefore continue the same episode and Coop session,
 while a restart simply lets PostgreSQL leases be reclaimed. The page shows only
-local operator text, accepted visible replies, bounded host-issued record or
-artifact references, and episode lifecycle metadata. Prompts, unaccepted
-candidates, credentials, arbitrary external payloads, and state-tool bearer
+local operator text and validated attachments, bounded integration-event markers, accepted visible replies and generated images, deliberate
+reactions, native host-issued state/task/publication cards and controls, task diff/timeline/evidence/handoff
+views over the exact confirmed child episode, bounded record or artifact
+references, and episode lifecycle metadata. Every control re-reads the exact delivered record and
+destination before it mutates state. Integration markers show only the trusted adapter, route, event
+type, revision, and custody status; arbitrary payload bodies remain model input and never render.
+Prompts, unaccepted candidates, credentials, and state-tool bearer
 tokens never render.
+
+This is product-semantic parity, not borrowed platform authority. The Lab can exercise the same model,
+episode, task, memory, schedule, wait, publication, Emisar, artifact, reaction, source-read, explicit
+additional-post, incident, and recovery behavior as a Slack conversation. It publishes the exact five Slack chat
+tool names and schemas through a virtual workspace containing only the current Lab conversation. Local
+model-requested reactions and host-confirmed extra posts traverse the same durable action outbox and
+render in the Lab timeline. Operator feedback reactions are ordered episode events: add/remove updates
+the current count without waking work, and a later message carries both current state and bounded event
+history into its frozen model context. Message edits and deletes retain one stable source identity with
+monotonic revisions. Search and source reads span the exact conversation across completed episode boundaries, and
+uploaded Lab files appear as bounded virtual file resources with the same `files` search and `document`
+read contract. An incident offer opens a linked policy-pinned local incident episode in the same timeline,
+so the investigation, tools, waits, progress, and controls are real while Slack channel creation is not.
+Confirmed task cards retain Slack's trusted readiness, draft-publication, delivery-check, diff, stop,
+close, timeline, evidence, and handoff actions. Local incidents add the same evidence-backed postmortem
+view without pretending that a Slack room was provisioned.
+The local adapter also keeps an executable allowlist of those five implementations. If the shared Slack
+catalog gains or loses a tool without the matching Lab behavior, the catalog fails closed instead of
+advertising a tool the Lab cannot execute.
+The adapter reports that it is emulated and has no external effects. Real Slack audience filtering,
+workspace content, channel provisioning, membership, topic, pin, and archive effects remain on the
+disposable Slack qualification journey because the Lab never receives Slack credentials.
 
 `http://127.0.0.1:4321/manual-tests` is the companion operator checklist. It
 marks each product owner configured or absent and provides the user-boundary

@@ -13,7 +13,7 @@ defmodule Responder.ControlPlane.Server do
 
   @loopback_v4 {127, 0, 0, 1}
   @loopback_v6 {0, 0, 0, 0, 0, 0, 0, 1}
-  @fields [:csrf_secret, :ip, :port, :work_profile]
+  @fields [:coop_api, :coop_client, :csrf_secret, :ip, :port, :task_policies, :work_profile]
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
@@ -24,7 +24,11 @@ defmodule Responder.ControlPlane.Server do
       plug:
         {Router,
          %{
-           actions: Actions.callbacks(options.work_profile),
+           actions:
+             Actions.callbacks(options.work_profile, options.task_policies, %{
+               coop_api: options.coop_api,
+               coop_client: options.coop_client
+             }),
            csrf_secret: options.csrf_secret,
            observability: Observability.callbacks(),
            projection: Projection.callbacks()
@@ -46,6 +50,9 @@ defmodule Responder.ControlPlane.Server do
       Map.get_lazy(configuration, :csrf_secret, fn -> :crypto.strong_rand_bytes(32) end)
 
     work_profile = Map.get(configuration, :work_profile)
+    task_policies = Map.get(configuration, :task_policies, %{})
+    coop_api = Map.get(configuration, :coop_api)
+    coop_client = Map.get(configuration, :coop_client)
 
     unless is_integer(port) and port in 1..65_535,
       do: raise(ArgumentError, "control-plane port must be between 1 and 65535")
@@ -62,7 +69,18 @@ defmodule Responder.ControlPlane.Server do
         _invalid -> raise ArgumentError, "control-plane work profile is invalid"
       end
 
-    %{csrf_secret: csrf_secret, ip: ip, port: port, work_profile: work_profile}
+    task_policies = task_policies!(task_policies)
+    validate_coop!(coop_api, coop_client)
+
+    %{
+      coop_api: coop_api,
+      coop_client: coop_client,
+      csrf_secret: csrf_secret,
+      ip: ip,
+      port: port,
+      task_policies: task_policies,
+      work_profile: work_profile
+    }
   end
 
   defp normalize!(configuration) when is_list(configuration) do
@@ -88,4 +106,34 @@ defmodule Responder.ControlPlane.Server do
 
   defp normalize!(_configuration),
     do: raise(ArgumentError, "control-plane configuration must be a map or keyword list")
+
+  defp task_policies!(policies) when is_map(policies) do
+    Map.new(policies, fn
+      {repository_ref, %{name: name, digest: digest}} ->
+        case WorkProfile.new(%{
+               policy: name,
+               policy_digest: digest,
+               repository_ref: repository_ref
+             }) do
+          {:ok, _profile} -> {repository_ref, %{name: name, digest: digest}}
+          _invalid -> raise ArgumentError, "control-plane task policies are invalid"
+        end
+
+      _invalid ->
+        raise ArgumentError, "control-plane task policies are invalid"
+    end)
+  end
+
+  defp task_policies!(_policies),
+    do: raise(ArgumentError, "control-plane task policies are invalid")
+
+  defp validate_coop!(nil, nil), do: :ok
+
+  defp validate_coop!(api, client) when is_atom(api) and not is_nil(client) do
+    unless Code.ensure_loaded?(api) and function_exported?(api, :get_changes_page, 4),
+      do: raise(ArgumentError, "control-plane Coop client is invalid")
+  end
+
+  defp validate_coop!(_api, _client),
+    do: raise(ArgumentError, "control-plane Coop API and client must be configured together")
 end

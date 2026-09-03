@@ -6,6 +6,9 @@ defmodule Responder.ControlPlane.ActionsTest do
   test "local retention callbacks fail closed while preserving audited action identity" do
     callbacks = Actions.callbacks()
 
+    assert callbacks.send_lab_message.(Ecto.UUID.generate(), "hello", []) ==
+             {:error, :conversation_lab_not_configured}
+
     assert callbacks.rearm_retention.("missing-session") ==
              {:error, :retention_session_not_found}
 

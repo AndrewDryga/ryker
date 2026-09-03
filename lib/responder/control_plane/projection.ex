@@ -9,11 +9,16 @@ defmodule Responder.ControlPlane.Projection do
 
   import Ecto.Query
 
+  alias Responder.Artifacts.OutputArtifact
+  alias Responder.ControlPlane.Card
   alias Responder.Delivery.Operator, as: DeliveryOperator
+  alias Responder.Delivery.PlatformAction
+  alias Responder.Delivery.Reaction
   alias Responder.Emisar.Operator, as: EmisarOperator
-  alias Responder.Episodes.{Episode, Event}
+  alias Responder.Episodes.{Episode, Event, Reactions}
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
+  alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.Retention.OperatorAction
   alias Responder.Slack.{IncidentRoom, InteractionAudit}
@@ -25,6 +30,7 @@ defmodule Responder.ControlPlane.Projection do
   @active_states [:working, :waiting_for_input, :waiting_for_event]
   @lab_prefix "control-plane:lab:"
   @lab_message_limit 200
+  @lab_record_limit 64
 
   @spec callbacks() :: map()
   def callbacks do
@@ -39,6 +45,7 @@ defmodule Responder.ControlPlane.Projection do
       episodes: &episodes/1,
       failures: &failures/1,
       findings: &findings/1,
+      lab_artifact: &lab_artifact/3,
       lab_conversation: &lab_conversation/1,
       lab_index: &lab_index/0,
       memory: &memory/0,
@@ -59,15 +66,14 @@ defmodule Responder.ControlPlane.Projection do
     Repo.all(
       from(entry in Entry,
         where:
-          entry.source_kind == "control_plane" and entry.source_ref == "local" and
-            entry.destination_transport == "control_plane" and
+          entry.destination_transport == "control_plane" and
             like(entry.destination_conversation_ref, ^"#{@lab_prefix}%") and
             entry.destination_thread_ref == entry.destination_conversation_ref,
         group_by: entry.destination_conversation_ref,
         order_by: [desc: max(entry.inserted_at), desc: entry.destination_conversation_ref],
         limit: 100,
         select: %{
-          message_count: count(entry.id),
+          message_count: count(entry.native_input_id, :distinct),
           ref: entry.destination_conversation_ref,
           updated_at: max(entry.inserted_at)
         }
@@ -84,9 +90,10 @@ defmodule Responder.ControlPlane.Projection do
   @doc """
   Projects one local conversation from its durable ingress and accepted Work rows.
 
-  Only exact local operator text and accepted visible replies cross this read
-  boundary. Prompts, candidates, arbitrary external payloads, credentials, and
-  unreleased model output remain private.
+  Only exact local operator text, bounded integration-source markers, and
+  accepted visible replies cross this read boundary. Prompts, candidates,
+  arbitrary external payloads, credentials, and unreleased model output remain
+  private.
   """
   def lab_conversation(conversation_id) do
     case normalized_uuid(conversation_id) do
@@ -95,25 +102,88 @@ defmodule Responder.ControlPlane.Projection do
     end
   end
 
+  @doc false
+  def lab_artifact(conversation_id, turn_id, artifact_ref)
+      when is_binary(turn_id) and is_binary(artifact_ref) do
+    with {:ok, conversation_id} <- normalized_uuid(conversation_id),
+         {:ok, turn_id} <- normalized_uuid(turn_id),
+         true <- Regex.match?(~r/\A[A-Za-z0-9_.:-]{1,256}\z/, artifact_ref),
+         {artifact, delivery_document} when not is_nil(artifact) <-
+           Repo.one(
+             from(artifact in OutputArtifact,
+               join: turn in Turn,
+               on: turn.id == artifact.turn_id,
+               join: episode in Episode,
+               on: episode.id == turn.episode_id,
+               where:
+                 artifact.turn_id == ^turn_id and artifact.ref == ^artifact_ref and
+                   episode.destination_transport == "control_plane" and
+                   episode.destination_conversation_ref == ^(@lab_prefix <> conversation_id) and
+                   episode.destination_thread_ref == ^(@lab_prefix <> conversation_id) and
+                   not is_nil(turn.accepted_at) and not is_nil(turn.delivery_document),
+               select: {artifact, turn.delivery_document}
+             )
+           ),
+         true <- artifact_ref in lab_reply_outcome(delivery_document)["artifact_refs"] do
+      {:ok,
+       %{
+         byte_size: artifact.byte_size,
+         data: artifact.data,
+         media_type: artifact.media_type,
+         name: artifact.name,
+         ref: artifact.ref,
+         sha256: artifact.sha256
+       }}
+    else
+      _missing_or_invalid -> :not_found
+    end
+  end
+
+  def lab_artifact(_conversation_id, _turn_id, _artifact_ref), do: :not_found
+
   defp project_lab_conversation(conversation_id) do
     ref = @lab_prefix <> conversation_id
     inputs = lab_inputs(ref)
+    input_queue = lab_input_queue(ref)
     episodes = lab_episodes(ref)
 
     if inputs == [] and episodes == [] do
       :not_found
     else
       replies = lab_replies(ref)
+      cards = lab_cards(replies)
+      artifacts = lab_output_artifacts(replies, conversation_id)
+      publications = lab_publications(ref)
+      actions = lab_platform_actions(ref)
+      reactions = lab_delivery_reactions(ref)
+      feedback_reactions = Reactions.current_for_episodes(Enum.map(episodes, & &1.id))
+
+      blocked =
+        input_queue.blocked > 0 or input_queue.reaction_blocked > 0 or
+          Enum.any?(episodes, &(&1.work_status == :blocked)) or
+          Enum.any?(actions, &(&1.status == :blocked))
 
       {:ok,
        %{
-         blocked: Enum.any?(inputs, &(&1.status == :blocked)),
+         blocked: blocked,
          conversation_id: conversation_id,
          conversation_ref: ref,
          episodes: episodes,
-         live: lab_live?(inputs, episodes, replies),
-         messages: lab_messages(inputs, replies),
-         pending: Enum.count(inputs, &(&1.status == :pending))
+         live: lab_live?(input_queue, episodes, replies, publications, actions),
+         messages:
+           (lab_messages(
+              inputs,
+              replies,
+              cards,
+              artifacts,
+              actions,
+              reactions,
+              feedback_reactions
+            ) ++
+              lab_publication_messages(publications))
+           |> sort_lab_messages()
+           |> Enum.take(-@lab_message_limit),
+         pending: input_queue.pending
        }}
     end
   end
@@ -616,23 +686,105 @@ defmodule Responder.ControlPlane.Projection do
   def usage(_params), do: usage(%{})
 
   defp lab_inputs(ref) do
-    Repo.all(
+    latest =
       from(entry in Entry,
         where:
-          entry.source_kind == "control_plane" and entry.source_ref == "local" and
-            entry.actor_kind == :user and entry.destination_transport == "control_plane" and
-            entry.destination_conversation_ref == ^ref and
-            entry.destination_thread_ref == ^ref,
-        order_by: [asc: entry.inserted_at, asc: entry.id],
+          entry.destination_transport == "control_plane" and
+            entry.destination_conversation_ref == ^ref and entry.destination_thread_ref == ^ref,
+        distinct: entry.native_input_id,
+        order_by: [
+          asc: entry.native_input_id,
+          desc: entry.revision,
+          desc: entry.inserted_at,
+          desc: entry.id
+        ],
+        select: %{
+          content: entry.content,
+          event_kind: entry.event_kind,
+          id: entry.id,
+          inserted_at: entry.inserted_at,
+          ref: entry.event_ref,
+          revision: entry.revision,
+          source_kind: entry.source_kind,
+          source_ref: entry.source_ref,
+          source_item_ref: entry.source_item_ref,
+          status: entry.status
+        }
+      )
+
+    Repo.all(
+      from(entry in subquery(latest),
+        order_by: [desc: entry.inserted_at, desc: entry.id],
         limit: @lab_message_limit,
         select: %{
           content: entry.content,
+          event_kind: entry.event_kind,
           occurred_at: entry.inserted_at,
-          ref: entry.event_ref,
+          ref: entry.ref,
+          revision: entry.revision,
+          source_kind: entry.source_kind,
+          source_ref: entry.source_ref,
+          source_item_ref: entry.source_item_ref,
           status: entry.status
         }
       )
     )
+  end
+
+  defp lab_input_queue(ref) do
+    entries =
+      Repo.one(
+        from(entry in Entry,
+          where:
+            entry.destination_transport == "control_plane" and
+              entry.destination_conversation_ref == ^ref and
+              entry.destination_thread_ref == ^ref,
+          select: %{
+            blocked: filter(count(entry.id), entry.status == :blocked),
+            pending: filter(count(entry.id), entry.status == :pending)
+          }
+        )
+      )
+
+    reactions =
+      Repo.one(
+        from(reaction in Reaction,
+          where:
+            reaction.transport == "control_plane" and reaction.conversation_ref == ^ref and
+              reaction.thread_ref == ^ref,
+          select: %{
+            blocked: filter(count(reaction.id), reaction.status == :blocked),
+            pending: filter(count(reaction.id), reaction.status == :pending)
+          }
+        )
+      )
+
+    %{
+      blocked: entries.blocked,
+      pending: entries.pending,
+      reaction_blocked: reactions.blocked,
+      reaction_pending: reactions.pending
+    }
+  end
+
+  defp lab_delivery_reactions(ref) do
+    Repo.all(
+      from(reaction in Reaction,
+        where:
+          reaction.transport == "control_plane" and reaction.conversation_ref == ^ref and
+            reaction.thread_ref == ^ref,
+        order_by: [asc: reaction.inserted_at, asc: reaction.id],
+        limit: @lab_message_limit,
+        select: %{
+          delivery_ref: reaction.delivery_ref,
+          emoji_name: fragment("(?::jsonb ->> 'emoji_name')", reaction.document),
+          source_item_ref: reaction.source_item_ref,
+          status: reaction.status
+        }
+      )
+    )
+    |> Enum.filter(&(is_binary(&1.emoji_name) and is_binary(&1.source_item_ref)))
+    |> Enum.group_by(& &1.source_item_ref, &Map.delete(&1, :source_item_ref))
   end
 
   defp lab_episodes(ref) do
@@ -653,6 +805,7 @@ defmodule Responder.ControlPlane.Projection do
     )
     |> Enum.map(fn {episode, turn_status, coop_turn_id} ->
       %{
+        id: episode.id,
         next_action: next_action(episode, turn_status, coop_turn_id),
         ref: episode.key,
         state: episode.state,
@@ -672,60 +825,423 @@ defmodule Responder.ControlPlane.Projection do
             episode.destination_conversation_ref == ^ref and
             episode.destination_thread_ref == ^ref and
             not is_nil(turn.delivery_document) and not is_nil(turn.accepted_at),
-        order_by: [asc: turn.accepted_at, asc: turn.id],
+        order_by: [desc: turn.accepted_at, desc: turn.id],
         limit: @lab_message_limit,
         select: %{
           document: turn.delivery_document,
+          episode_id: turn.episode_id,
+          external_receipt: turn.external_receipt,
           occurred_at: turn.accepted_at,
           ref: turn.delivery_ref,
-          status: turn.status
+          status: turn.status,
+          turn_id: turn.id
         }
       )
     )
   end
 
-  defp lab_messages(inputs, replies) do
+  defp lab_publications(ref) do
+    Repo.all(
+      from(publication in Publication,
+        join: record in Record,
+        on: record.id == publication.record_id and record.episode_id == publication.episode_id,
+        where:
+          publication.destination_transport == "control_plane" and
+            publication.destination_conversation_ref == ^ref and
+            publication.destination_thread_ref == ^ref,
+        order_by: [desc: publication.inserted_at, desc: publication.id],
+        limit: @lab_message_limit,
+        select: {publication, record.ref}
+      )
+    )
+  end
+
+  defp lab_platform_actions(ref) do
+    Repo.all(
+      from(action in PlatformAction,
+        join: episode in Episode,
+        on: episode.id == action.episode_id,
+        where:
+          action.transport == "control_plane" and action.conversation_ref == ^ref and
+            episode.destination_transport == "control_plane" and
+            episode.destination_conversation_ref == ^ref,
+        order_by: [desc: action.inserted_at, desc: action.id],
+        limit: @lab_message_limit,
+        select: %{
+          action_ref: action.action_ref,
+          delivered_at: action.delivered_at,
+          document: action.document,
+          inserted_at: action.inserted_at,
+          kind: action.kind,
+          source_item_ref: action.source_item_ref,
+          status: action.status,
+          tool: action.tool
+        }
+      )
+    )
+  end
+
+  defp lab_cards(replies) do
+    pairs = lab_card_pairs(replies)
+
+    refs = Enum.map(pairs, &elem(&1, 1))
+    allowed = MapSet.new(pairs)
+
+    refs
+    |> lab_card_records()
+    |> Enum.reduce(%{}, &put_lab_card(&1, &2, allowed))
+  end
+
+  defp lab_card_pairs(replies) do
+    replies
+    |> Enum.reverse()
+    |> Enum.flat_map(fn reply ->
+      reply.document
+      |> lab_reply_outcome()
+      |> Map.get("record_refs", [])
+      |> bounded_refs()
+      |> Enum.map(&{reply.turn_id, &1})
+    end)
+    |> Enum.uniq()
+    |> Enum.take(@lab_record_limit)
+  end
+
+  defp lab_card_records([]), do: []
+
+  defp lab_card_records(refs) do
+    Repo.all(
+      from(record in Record,
+        where: record.ref in ^refs,
+        limit: @lab_record_limit
+      )
+    )
+  end
+
+  defp put_lab_card(record, cards, allowed) do
+    key = {record.turn_id, record.ref}
+
+    if MapSet.member?(allowed, key),
+      do: put_projected_lab_card(record, key, cards),
+      else: cards
+  end
+
+  defp put_projected_lab_card(record, key, cards) do
+    case Card.project(record) do
+      {:ok, card} -> Map.put(cards, key, card)
+      :ignore -> cards
+    end
+  end
+
+  defp lab_output_artifacts(replies, conversation_id) do
+    pairs =
+      replies
+      |> Enum.flat_map(fn reply ->
+        reply.document
+        |> lab_reply_outcome()
+        |> Map.get("artifact_refs", [])
+        |> bounded_refs()
+        |> Enum.map(&{reply.turn_id, &1})
+      end)
+      |> Enum.uniq()
+      |> Enum.take(@lab_message_limit * 5)
+
+    turn_ids = pairs |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+    allowed = MapSet.new(pairs)
+
+    project_lab_output_artifacts(turn_ids, allowed, conversation_id)
+  end
+
+  defp project_lab_output_artifacts([], _allowed, _conversation_id), do: %{}
+
+  defp project_lab_output_artifacts(turn_ids, allowed, conversation_id) do
+    Repo.all(
+      from(artifact in OutputArtifact,
+        where: artifact.turn_id in ^turn_ids,
+        limit: ^(@lab_message_limit * 5)
+      )
+    )
+    |> Enum.reduce(%{}, &put_lab_output_artifact(&1, &2, allowed, conversation_id))
+  end
+
+  defp put_lab_output_artifact(artifact, projected, allowed, conversation_id) do
+    key = {artifact.turn_id, artifact.ref}
+
+    if MapSet.member?(allowed, key),
+      do: Map.put(projected, key, lab_output_artifact(artifact, conversation_id)),
+      else: projected
+  end
+
+  defp lab_output_artifact(artifact, conversation_id) do
+    %{
+      bytes: artifact.byte_size,
+      media_type: artifact.media_type,
+      name: artifact.name,
+      path:
+        "/lab/#{conversation_id}/turns/#{artifact.turn_id}/artifacts/#{URI.encode(artifact.ref, &URI.char_unreserved?/1)}",
+      ref: artifact.ref,
+      status: "available"
+    }
+  end
+
+  defp lab_messages(
+         inputs,
+         replies,
+         cards,
+         artifacts,
+         actions,
+         delivery_reactions,
+         feedback_reactions
+       ) do
+    action_reactions = lab_action_reactions(actions)
+
     input_messages =
       Enum.flat_map(inputs, fn input ->
-        case input.content do
-          %{"text" => text} when is_binary(text) ->
+        case input do
+          %{
+            content: %{"text" => text},
+            source_kind: "control_plane",
+            source_ref: "local"
+          }
+          when is_binary(text) ->
+            deleted = input.event_kind == :delete
+
             [
               %{
                 actor: :operator,
-                artifact_refs: [],
+                artifact_refs: if(deleted, do: [], else: lab_input_artifact_refs(input.content)),
+                attachments: if(deleted, do: [], else: lab_input_attachments(input.content)),
+                cards: [],
+                editable: not deleted,
+                event_kind: input.event_kind,
+                item_id: lab_item_id(input.source_item_ref),
                 occurred_at: input.occurred_at,
+                reactions:
+                  Map.get(delivery_reactions, input.source_item_ref, []) ++
+                    Map.get(action_reactions, input.source_item_ref, []),
                 record_refs: [],
                 ref: input.ref,
+                revision: input.revision,
                 state: nil,
                 status: input.status,
-                text: text
+                text: if(deleted, do: "Message deleted", else: text)
               }
             ]
 
-          _not_local_text ->
+          %{source_kind: source_kind, source_ref: source_ref}
+          when is_binary(source_kind) and is_binary(source_ref) ->
+            [lab_integration_message(input)]
+
+          _invalid_source ->
             []
         end
       end)
 
-    reply_messages = Enum.flat_map(replies, &lab_reply_message/1)
+    reply_messages =
+      Enum.flat_map(replies, &lab_reply_message(&1, cards, artifacts, feedback_reactions))
 
-    (input_messages ++ reply_messages)
-    |> Enum.sort_by(fn message ->
+    action_messages = Enum.flat_map(actions, &lab_action_message/1)
+
+    sort_lab_messages(input_messages ++ reply_messages ++ action_messages)
+  end
+
+  defp lab_integration_message(input) do
+    event_type =
+      case input.content do
+        %{"event_type" => value} when is_binary(value) -> lab_marker_component(value, "event")
+        _other -> input.event_kind |> Atom.to_string() |> lab_marker_component("event")
+      end
+
+    %{
+      actor: :integration,
+      artifact_refs: [],
+      attachments: [],
+      cards: [],
+      editable: false,
+      event_kind: input.event_kind,
+      item_id: nil,
+      occurred_at: input.occurred_at,
+      reactions: [],
+      record_refs: [],
+      ref: input.ref,
+      revision: input.revision,
+      state: nil,
+      status: input.status,
+      text:
+        "#{lab_source_label(input.source_kind)} #{lab_marker_component(input.source_ref, "integration")} · #{event_type} · revision #{input.revision}"
+    }
+  end
+
+  defp lab_source_label("webhook"), do: "Webhook"
+
+  defp lab_source_label(source_kind) do
+    source_kind
+    |> lab_marker_component("Integration")
+    |> String.replace("_", " ")
+    |> String.capitalize()
+  end
+
+  defp lab_marker_component(value, fallback) when is_binary(value) do
+    case value |> String.replace(~r/\s+/u, " ") |> String.trim() |> String.slice(0, 160) do
+      "" -> fallback
+      component -> component
+    end
+  end
+
+  defp lab_marker_component(_value, fallback), do: fallback
+
+  defp lab_action_reactions(actions) do
+    actions
+    |> Enum.filter(fn action ->
+      action.kind == :reaction and is_binary(action.source_item_ref) and
+        is_map(action.document) and is_binary(action.document["emoji_name"])
+    end)
+    |> Enum.group_by(
+      & &1.source_item_ref,
+      fn action ->
+        %{
+          delivery_ref: action.action_ref,
+          emoji_name: action.document["emoji_name"],
+          status: action.status
+        }
+      end
+    )
+  end
+
+  defp lab_action_message(%{
+         action_ref: action_ref,
+         delivered_at: %DateTime{} = delivered_at,
+         document: %{"message" => message},
+         kind: :message,
+         status: :delivered,
+         tool: :post_slack_message
+       })
+       when is_binary(action_ref) and is_binary(message) do
+    [
+      %{
+        actor: :responder,
+        artifact_refs: [],
+        attachments: [],
+        cards: [],
+        occurred_at: delivered_at,
+        reactions: [],
+        record_refs: [],
+        ref: action_ref,
+        state: nil,
+        status: :delivered,
+        text: message
+      }
+    ]
+  end
+
+  defp lab_action_message(_action), do: []
+
+  defp lab_publication_messages(publications) do
+    Enum.flat_map(publications, &lab_publication_message/1)
+  end
+
+  defp lab_publication_message(
+         {%Publication{status: status, review_delivery_receipt: receipt} = publication,
+          record_ref}
+       )
+       when status in [:reviewed, :blocked] and is_map(receipt) do
+    project_lab_publication_message(
+      publication,
+      record_ref,
+      receipt,
+      publication_review_message(status)
+    )
+  end
+
+  defp lab_publication_message(
+         {%Publication{status: :published, published_delivery_receipt: receipt} = publication,
+          record_ref}
+       )
+       when is_map(receipt) do
+    project_lab_publication_message(
+      publication,
+      record_ref,
+      receipt,
+      "Published the exact reviewed candidate as a draft pull request."
+    )
+  end
+
+  defp lab_publication_message(_not_delivered), do: []
+
+  defp project_lab_publication_message(publication, record_ref, receipt, message) do
+    case Card.project_publication(publication, record_ref) do
+      {:ok, card} -> [publication_message(publication, receipt, card, message)]
+      :ignore -> []
+    end
+  end
+
+  defp publication_review_message(:reviewed) do
+    "The committed change passed trusted review. Publish this exact candidate only after reviewing the host-owned details."
+  end
+
+  defp publication_review_message(:blocked) do
+    "The committed change is not publishable. Review the trusted findings below."
+  end
+
+  defp publication_message(publication, receipt, card, message) do
+    occurred_at =
+      if publication.status == :published,
+        do: publication.published_at || publication.updated_at || publication.inserted_at,
+        else: publication.reviewed_at || publication.updated_at || publication.inserted_at
+
+    %{
+      actor: :responder,
+      artifact_refs: [],
+      attachments: [],
+      cards: [card],
+      occurred_at: occurred_at,
+      record_refs: [],
+      ref: receipt["delivery_ref"],
+      state: nil,
+      status: publication.status,
+      text: message
+    }
+  end
+
+  defp sort_lab_messages(messages) do
+    Enum.sort_by(messages, fn message ->
       actor_order = if message.actor == :operator, do: 0, else: 1
       {DateTime.to_unix(message.occurred_at, :microsecond), actor_order, message.ref || ""}
     end)
   end
 
-  defp lab_reply_message(%{document: %{"message" => text} = document} = reply)
+  defp lab_reply_message(
+         %{document: %{"message" => text} = document} = reply,
+         cards,
+         artifacts,
+         feedback_reactions
+       )
        when is_binary(text) do
     outcome = lab_reply_outcome(document)
+    record_refs = bounded_refs(outcome["record_refs"])
+    artifact_refs = bounded_refs(outcome["artifact_refs"])
 
     [
       %{
         actor: :responder,
-        artifact_refs: bounded_refs(outcome["artifact_refs"]),
+        artifact_refs: artifact_refs,
+        attachments:
+          Enum.flat_map(artifact_refs, fn ref ->
+            case Map.get(artifacts, {reply.turn_id, ref}) do
+              %{} = artifact -> [artifact]
+              _missing -> []
+            end
+          end),
+        cards:
+          Enum.flat_map(record_refs, fn ref ->
+            case Map.get(cards, {reply.turn_id, ref}) do
+              %{} = card -> [card]
+              _missing -> []
+            end
+          end),
+        feedback_reactions: Map.get(feedback_reactions, reply.ref, []),
+        message_ref: lab_reply_message_ref(reply),
         occurred_at: reply.occurred_at,
-        record_refs: bounded_refs(outcome["record_refs"]),
+        record_refs: record_refs,
         ref: reply.ref,
         state: outcome["state"],
         status: reply.status,
@@ -734,7 +1250,71 @@ defmodule Responder.ControlPlane.Projection do
     ]
   end
 
-  defp lab_reply_message(_not_visible_reply), do: []
+  defp lab_reply_message(_not_visible_reply, _cards, _artifacts, _feedback_reactions), do: []
+
+  defp lab_reply_message_ref(%{
+         status: :settled,
+         external_receipt: %{
+           "conversation_ref" => conversation_ref,
+           "message_ref" => message_ref,
+           "transport" => "control_plane"
+         }
+       })
+       when is_binary(conversation_ref) and is_binary(message_ref),
+       do: message_ref
+
+  defp lab_reply_message_ref(_reply), do: nil
+
+  defp lab_item_id("control-plane-item:" <> item_id) do
+    case Ecto.UUID.cast(item_id) do
+      {:ok, normalized} -> normalized
+      :error -> nil
+    end
+  end
+
+  defp lab_item_id(_source_item_ref), do: nil
+
+  defp lab_input_artifact_refs(content) do
+    content
+    |> lab_input_attachments()
+    |> Enum.flat_map(fn
+      %{ref: ref, status: "available"} when is_binary(ref) -> [ref]
+      _unavailable -> []
+    end)
+  end
+
+  defp lab_input_attachments(%{"files" => files}) when is_list(files) do
+    files
+    |> Enum.take(2)
+    |> Enum.flat_map(fn
+      %{
+        "artifact_ref" => ref,
+        "bytes" => bytes,
+        "media_type" => media_type,
+        "name" => name,
+        "status" => "available"
+      }
+      when is_binary(ref) and is_integer(bytes) and bytes > 0 and is_binary(media_type) and
+             is_binary(name) ->
+        [
+          %{
+            bytes: bytes,
+            media_type: media_type,
+            name: name,
+            ref: ref,
+            status: "available"
+          }
+        ]
+
+      %{"reason" => reason, "status" => "unavailable"} when is_binary(reason) ->
+        [%{bytes: nil, media_type: nil, name: "Attachment", ref: nil, status: reason}]
+
+      _invalid ->
+        []
+    end)
+  end
+
+  defp lab_input_attachments(_content), do: []
 
   defp lab_reply_outcome(%{"outcome" => %{} = outcome}), do: outcome
   defp lab_reply_outcome(_document), do: %{}
@@ -747,10 +1327,23 @@ defmodule Responder.ControlPlane.Projection do
 
   defp bounded_refs(_values), do: []
 
-  defp lab_live?(inputs, episodes, replies) do
-    Enum.any?(inputs, &(&1.status == :pending)) or
-      Enum.any?(episodes, &(&1.state == :working or &1.next_action == "deliver_result")) or
-      Enum.any?(replies, &(&1.status == :delivery_pending))
+  defp lab_live?(input_queue, episodes, replies, publications, actions) do
+    input_queue.pending > 0 or input_queue.reaction_pending > 0 or
+      Enum.any?(
+        episodes,
+        &(&1.next_action in [
+            "start_work",
+            "continue_work",
+            "reconcile_stop",
+            "deliver_result",
+            "external_event"
+          ])
+      ) or
+      Enum.any?(replies, &(&1.status == :delivery_pending)) or
+      Enum.any?(actions, &(&1.status == :pending)) or
+      Enum.any?(publications, fn {publication, _record_ref} ->
+        publication.status in [:review_pending, :review_ready, :publish_pending, :published_ready]
+      end)
   end
 
   defp normalized_uuid(value) when is_binary(value), do: Ecto.UUID.cast(value)

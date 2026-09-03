@@ -7,6 +7,8 @@ defmodule Responder.ProductContractsTest do
   alias Responder.Slack.{ChannelSettingChangeset, ChannelSettingOverride, Supervisor}
 
   @digest String.duplicate("a", 64)
+  @standard_digest String.duplicate("b", 64)
+  @deep_digest String.duplicate("c", 64)
 
   test "trusted work placement has one exact bounded representation" do
     attributes = [
@@ -45,6 +47,68 @@ defmodule Responder.ProductContractsTest do
              policy_digest: @digest,
              repository_ref: "\0crossed"
            }) == {:error, {:invalid_work_profile, :repository_ref}}
+  end
+
+  test "trusted work placement selects an abstract class without exposing model authority" do
+    attributes = %{
+      policy: "work-conversational",
+      policy_digest: @digest,
+      repository_ref: "acme/responder",
+      class_policies: %{
+        conversational: %{policy: "work-conversational", policy_digest: @digest},
+        standard: %{policy: "work-standard", policy_digest: @standard_digest},
+        deep: %{policy: "work-deep", policy_digest: @deep_digest}
+      }
+    }
+
+    assert {:ok, profile} = WorkProfile.new(attributes)
+
+    assert {:ok,
+            %{
+              name: "work-conversational",
+              digest: @digest,
+              repository_ref: "acme/responder"
+            }} = WorkProfile.policy_for(profile, :conversational)
+
+    assert {:ok,
+            %{name: "work-standard", digest: @standard_digest, repository_ref: "acme/responder"}} =
+             WorkProfile.policy_for(profile, :standard)
+
+    assert {:ok, %{name: "work-deep", digest: @deep_digest, repository_ref: "acme/responder"}} =
+             WorkProfile.policy_for(profile, :deep)
+
+    document = WorkProfile.document(profile)
+    assert {:ok, ^profile} = WorkProfile.restore(document)
+
+    assert WorkProfile.restore(%{}) == {:error, {:invalid_work_profile, :fields}}
+
+    assert {:error, {:invalid_work_profile, :class_policies}} =
+             WorkProfile.new(%{
+               attributes
+               | class_policies: Map.delete(attributes.class_policies, :deep)
+             })
+
+    for malformed <- [
+          [],
+          %{attributes.class_policies | deep: nil},
+          %{attributes.class_policies | deep: %{policy: "", policy_digest: @deep_digest}}
+        ] do
+      assert {:error, {:invalid_work_profile, :class_policies}} =
+               WorkProfile.new(%{attributes | class_policies: malformed})
+    end
+
+    assert {:error, {:invalid_work_profile, :class_policies}} =
+             document
+             |> put_in(["class_policies", "deep"], nil)
+             |> WorkProfile.restore()
+
+    assert {:error, {:invalid_work_profile, :class_policies}} =
+             document
+             |> Map.put("class_policies", [])
+             |> WorkProfile.restore()
+
+    assert {:error, {:invalid_work_profile, :work_class}} =
+             WorkProfile.policy_for(profile, :provider_named_by_model)
   end
 
   test "publication receipts bind the exact reviewed GitHub identity" do

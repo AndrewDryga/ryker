@@ -1,6 +1,7 @@
 defmodule Responder.RuntimeConfigurationTest do
   use ExUnit.Case, async: false
 
+  alias Responder.Ingress.WorkProfile
   alias Responder.RuntimeConfiguration
 
   @example Path.expand("../../config/responder-elixir.example.yaml", __DIR__)
@@ -64,9 +65,34 @@ defmodule Responder.RuntimeConfigurationTest do
     assert configuration.retention.audit_data_seconds == 2_592_000
 
     assert configuration.control_plane == %{
+             coop_api: Responder.CoopFleet.Client,
+             coop_client: configuration.work.client,
              ip: {127, 0, 0, 1},
              port: 4321,
-             work_profile: %Responder.Ingress.WorkProfile{
+             task_policies: %{
+               "responder" => %{
+                 digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                 name: "responder-contributor-v1"
+               }
+             },
+             work_profile: %WorkProfile{
+               class_policies: %{
+                 conversational: %{
+                   policy: "responder-conversation-v1",
+                   policy_digest:
+                     "9999999999999999999999999999999999999999999999999999999999999999"
+                 },
+                 deep: %{
+                   policy: "responder-deep-v1",
+                   policy_digest:
+                     "7777777777777777777777777777777777777777777777777777777777777777"
+                 },
+                 standard: %{
+                   policy: "responder-standard-v1",
+                   policy_digest:
+                     "8888888888888888888888888888888888888888888888888888888888888888"
+                 }
+               },
                policy: "responder-conversation-v1",
                policy_digest: "9999999999999999999999999999999999999999999999999999999999999999",
                repository_ref: "responder"
@@ -164,6 +190,18 @@ defmodule Responder.RuntimeConfigurationTest do
     assert binding.repository_full_name == "emisar/responder"
     assert binding.work_profile.repository_ref == "responder"
 
+    assert {:ok, %{name: "responder-conversation-v1"}} =
+             WorkProfile.policy_for(
+               binding.work_profile,
+               :conversational
+             )
+
+    assert {:ok, %{name: "responder-standard-v1"}} =
+             WorkProfile.policy_for(binding.work_profile, :standard)
+
+    assert {:ok, %{name: "responder-deep-v1"}} =
+             WorkProfile.policy_for(binding.work_profile, :deep)
+
     assert configuration.cutover_profiles[{"read_only", "responder"}] == %{
              policy: "responder-conversation-v1",
              policy_digest: "9999999999999999999999999999999999999999999999999999999999999999",
@@ -172,6 +210,31 @@ defmodule Responder.RuntimeConfigurationTest do
 
     assert configuration.cutover_profiles[{"repository_write", "responder"}].policy ==
              "responder-contributor-v1"
+  end
+
+  test "platform tools dispatch from the durable Ecto episode binding" do
+    private_key = private_key_pem()
+
+    env_provider = fn
+      "GITHUB_APP_PRIVATE_KEY" -> {:ok, Base.encode64(private_key)}
+      "RESPONDER_CHECKPOINT_KEY" -> {:ok, Base.encode64(:binary.copy("k", 32))}
+      name -> {:ok, String.duplicate("#{name}-secret", 3)}
+    end
+
+    configuration = RuntimeConfiguration.load!(@example, env_provider: env_provider)
+    additional_call = configuration.state_tools.additional_call
+
+    # A live Lab turn exposed this boundary: direct module tests used maps, but
+    # the runtime supplies an Ecto struct that deliberately has no Access API.
+    assert additional_call.(
+             "list_slack_channels",
+             %{},
+             %{
+               episode: %Responder.Episodes.Episode{
+                 destination_transport: "control_plane"
+               }
+             }
+           ) == {:error, "unauthorized"}
   end
 
   test "publication retains the exact GitHub App authority for every configured repository" do
@@ -585,6 +648,36 @@ defmodule Responder.RuntimeConfigurationTest do
     refute Map.has_key?(configuration, :webhooks)
   end
 
+  test "work names the exact configured MCP tools" do
+    document =
+      minimal_document("""
+      work:
+        source_and_action_tools:
+          - list_runners
+          - find_actions
+      state_tools:
+        port: 4322
+        token_env: STATE_TOKEN
+      event_waits: {}
+      """)
+      |> String.replace("work: {}\n", "")
+
+    runtime =
+      RuntimeConfiguration.from_string!(document,
+        env_provider: fn "STATE_TOKEN" -> {:ok, "state-tools-secret"} end
+      )
+
+    assert runtime.work.platform_tools == ["list_runners", "find_actions"]
+
+    duplicate = String.replace(document, "- find_actions", "- list_runners")
+
+    assert_raise ArgumentError, ~r/source_and_action_tools must not contain duplicates/, fn ->
+      RuntimeConfiguration.from_string!(duplicate,
+        env_provider: fn "STATE_TOKEN" -> {:ok, "state-tools-secret"} end
+      )
+    end
+  end
+
   test "a webhook route must target an exact configured delivery binding" do
     unbound =
       minimal_document("""
@@ -637,6 +730,60 @@ defmodule Responder.RuntimeConfigurationTest do
         "transport: github\n        conversation_ref: github:responder-app:repository:9999\n        thread_ref: github:responder-app:issue:1"
       )
       |> RuntimeConfiguration.from_string!(env_provider: env)
+    end
+
+    conversation_id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+    conversation_ref = "control-plane:lab:#{conversation_id}"
+
+    local =
+      minimal_document("""
+      control_plane:
+        ip: 127.0.0.1
+        port: 4321
+        work_profile:
+          policy: local-conversation
+          policy_digest: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          repository_ref:
+      delivery: {}
+      webhooks:
+        ip: 127.0.0.1
+        port: 4323
+        routes:
+          universal:
+            auth:
+              kind: hmac_sha256
+              secret_env: UNIVERSAL_WEBHOOK_SECRET
+            destination:
+              transport: control_plane
+              conversation_ref: #{conversation_ref}
+              thread_ref: #{conversation_ref}
+            work_profile:
+              policy: local-conversation
+              policy_digest: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+              repository_ref:
+      """)
+
+    local_configuration =
+      RuntimeConfiguration.from_string!(local,
+        env_provider: fn "UNIVERSAL_WEBHOOK_SECRET" ->
+          {:ok, String.duplicate("l", 32)}
+        end
+      )
+
+    assert local_configuration.webhooks.routes["universal"].destination == %{
+             conversation_ref: conversation_ref,
+             thread_ref: conversation_ref,
+             transport: "control_plane"
+           }
+
+    assert_raise ArgumentError, ~r/invalid.*destination/, fn ->
+      local
+      |> String.replace("thread_ref: #{conversation_ref}", "thread_ref: control-plane:lab:other")
+      |> RuntimeConfiguration.from_string!(
+        env_provider: fn "UNIVERSAL_WEBHOOK_SECRET" ->
+          {:ok, String.duplicate("l", 32)}
+        end
+      )
     end
   end
 
