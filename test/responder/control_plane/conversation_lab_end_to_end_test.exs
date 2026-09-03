@@ -7,17 +7,35 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
 
   alias Responder.Admission.Dispatcher, as: AdmissionDispatcher
   alias Responder.CanonicalJSON
-  alias Responder.ControlPlane.{ConversationLab, Projection, Publisher}
-  alias Responder.Delivery.Adapters
+  alias Responder.ControlPlane.{Actions, CapabilityTools, ConversationLab, Projection, Publisher}
+
+  alias Responder.Delivery.{
+    Adapters,
+    PlatformAction,
+    Reaction,
+    ReactionCustody
+  }
+
   alias Responder.Episodes.Episode
   alias Responder.Ingress.WorkProfile
   alias Responder.Repo
+  alias Responder.State.Records
   alias Responder.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
-  alias Responder.Work.{Session, Turn}
+
+  alias Responder.Work.{
+    Custody,
+    Result,
+    Session,
+    SubmissionBuilder,
+    Turn
+  }
 
   @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
   @first_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83e7"
   @second_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83e8"
+  @reaction_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83e9"
+  @artifact_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83ea"
+  @capability_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83eb"
   @now ~U[2026-08-30 18:00:00.000000Z]
   @digest String.duplicate("a", 64)
 
@@ -26,7 +44,14 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
              send_message(
                @first_event_id,
                @now,
-               "Explain what the durable runtime knows about this request."
+               "Explain what the durable runtime knows about this request.",
+               attachments: [
+                 %{
+                   data: "source=conversation-lab\nstatus=durable\n",
+                   media_type: "text/plain",
+                   name: "runtime.txt"
+                 }
+               ]
              )
 
     {:ok, admission} = FakeCoopAPI.start_link([decision(:start_episode, nil)])
@@ -57,6 +82,11 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
     assert first_execution.turn.status == :delivery_pending
     first_session_id = first_execution.turn.session_id
 
+    assert [%{artifacts: [submitted_artifact]}] = FakeWorkCoopAPI.state(work).submissions
+    assert submitted_artifact["data"] == "source=conversation-lab\nstatus=durable\n"
+    assert submitted_artifact["media_type"] == "text/plain"
+    assert submitted_artifact["name"] == "runtime.txt"
+
     assert %Session{
              policy: "conversation-read",
              policy_digest: @digest,
@@ -72,6 +102,16 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
     assert first_receipt["delivery_ref"] == first_delivery_ref
     assert first_receipt["transport"] == "control_plane"
     assert first_receipt["conversation_ref"] == conversation_ref()
+
+    assert {:ok, %{status: :applied}} =
+             ConversationLab.react_to_message(
+               @conversation_id,
+               first_receipt["message_ref"],
+               :add,
+               "eyes",
+               id_generator: fn -> Ecto.UUID.generate() end,
+               now: fn -> DateTime.add(@now, 30, :second) end
+             )
 
     assert {:ok, %{status: :recorded}} =
              send_message(
@@ -128,6 +168,16 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
     assert first_turn.submission["context"]["mode"] == "full"
     assert second_turn.submission["context"]["mode"] == "continuation"
 
+    assert second_turn.submission["context"]["conversation_feedback"]["current"] == [
+             %{
+               "actor_refs" => ["control-plane:user:local-operator"],
+               "count" => 1,
+               "emoji_name" => "eyes",
+               "target_delivery_ref" => first_delivery_ref,
+               "target_message_ref" => first_receipt["message_ref"]
+             }
+           ]
+
     assert second_turn.submission["context"]["parent_submission_ref"] ==
              first_turn.submission_fingerprint
 
@@ -143,8 +193,274 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
     assert FakeCoopAPI.state(follow_up_admission).submit_count == 1
   end
 
-  defp send_message(event_id, now, message) do
+  test "a local nonverbal acknowledgment uses generic reaction custody and renders on its input" do
+    assert {:ok, %{status: :recorded}} =
+             send_message(
+               @reaction_event_id,
+               @now,
+               "Acknowledge this without starting work when a reaction is sufficient."
+             )
+
+    {:ok, admission} = FakeCoopAPI.start_link([decision(:react, nil)])
+
+    assert {:ok, {:decided, admitted}} =
+             AdmissionDispatcher.run_once(admission_options(admission, @now))
+
+    assert admitted.result.entry.decision_action == :react
+
+    assert %Reaction{status: :pending, document: %{"emoji_name" => "eyes"}} =
+             Repo.get_by!(Reaction, input_id: admitted.result.entry.id)
+
+    assert {:ok, {:delivered, :reaction, delivery_ref}} =
+             Responder.Delivery.Dispatcher.run_once(delivery_options("reaction", :reaction))
+
+    assert {:ok, %Reaction{status: :delivered}} =
+             ReactionCustody.fetch_by_input(admitted.result.entry.id)
+
+    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert [message] = Enum.filter(conversation.messages, &(&1.actor == :operator))
+
+    assert message.reactions == [
+             %{delivery_ref: delivery_ref, emoji_name: "eyes", status: :delivered}
+           ]
+
+    refute conversation.live
+  end
+
+  test "a generated artifact is delivered and retrievable only through its exact Lab turn" do
+    assert {:ok, %{status: :recorded}} =
+             send_message(
+               @artifact_event_id,
+               @now,
+               "Return the generated service chart in this conversation."
+             )
+
+    {:ok, admission} = FakeCoopAPI.start_link([decision(:start_episode, nil)])
+
+    assert {:ok, {:decided, _admitted}} =
+             AdmissionDispatcher.run_once(admission_options(admission, @now))
+
+    data = <<137, 80, 78, 71, 13, 10, 26, 10, "lab-chart">>
+    sha256 = :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
+    artifact_ref = "artifact_#{binary_part(sha256, 0, 24)}"
+
+    metadata = %{
+      "bytes" => byte_size(data),
+      "id" => artifact_ref,
+      "media_type" => "image/png",
+      "name" => "service-health.png",
+      "sha256" => sha256
+    }
+
+    candidate =
+      work_reply("The generated service chart is attached.")
+      |> Jason.decode!()
+      |> put_in(["outcome", "artifact_refs"], [artifact_ref])
+      |> Jason.encode!()
+
+    {:ok, work} =
+      FakeWorkCoopAPI.start_link([candidate],
+        output_artifact_metadata: [metadata],
+        output_artifacts: %{artifact_ref => Map.put(metadata, "data", data)}
+      )
+
+    assert {:ok, {:executed, %{status: :accepted, turn: turn}}} =
+             Responder.Work.Dispatcher.run_once(work_options(work, "artifact"))
+
+    assert {:ok, {:delivered, :message, _delivery_ref}} =
+             Responder.Delivery.Dispatcher.run_once(delivery_options("artifact"))
+
+    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+
+    assert [%{attachments: [attachment]}] =
+             Enum.filter(conversation.messages, &(&1.actor == :responder))
+
+    assert attachment.name == "service-health.png"
+    assert attachment.media_type == "image/png"
+    assert attachment.bytes == byte_size(data)
+
+    assert {:ok, artifact} =
+             Projection.lab_artifact(@conversation_id, turn.id, artifact_ref)
+
+    assert artifact.data == data
+    assert artifact.sha256 == sha256
+
+    assert Projection.lab_artifact(Ecto.UUID.generate(), turn.id, artifact_ref) == :not_found
+
+    assert Projection.lab_artifact(@conversation_id, Ecto.UUID.generate(), artifact_ref) ==
+             :not_found
+
+    assert Projection.lab_artifact(@conversation_id, turn.id, "artifact_missing") == :not_found
+  end
+
+  test "Slack-compatible model actions stay local, render, and require the same host confirmation" do
+    assert {:ok, %{status: :recorded}} =
+             send_message(
+               @capability_event_id,
+               @now,
+               "React to this, then offer a second local message for my confirmation."
+             )
+
+    {:ok, admission} = FakeCoopAPI.start_link([decision(:start_episode, nil)])
+
+    assert {:ok, {:decided, admitted}} =
+             AdmissionDispatcher.run_once(admission_options(admission, @now))
+
+    assert {:ok, claim} = Custody.claim_next("conversation-lab-capabilities", 60, :work)
+    assert claim.episode.id == admitted.result.episode.id
+
+    binding = %{
+      episode: claim.episode,
+      session: claim.session,
+      state_token: Records.token(claim.turn),
+      turn: claim.turn
+    }
+
+    [input_ref] = claim.episode.active_input_refs
+
+    assert {:ok, %{"action_ref" => reaction_ref, "status" => "pending"}} =
+             CapabilityTools.call(
+               "set_slack_reaction",
+               %{"action" => "add", "emoji" => "eyes", "message_ref" => input_ref},
+               binding
+             )
+
+    assert {:ok,
+            %{
+              "kind" => "slack_post_offer",
+              "record_ref" => post_ref,
+              "status" => "open"
+            }} =
+             CapabilityTools.call(
+               "post_slack_message",
+               %{
+                 "destination_ref" => conversation_ref(),
+                 "instruction_ref" => input_ref,
+                 "message" => "This is the confirmed local follow-up."
+               },
+               binding
+             )
+
+    assert {:ok, {:delivered, :action, ^reaction_ref}} =
+             Responder.Delivery.Dispatcher.run_once(
+               delivery_options("capability-reaction", :action)
+             )
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+
+    assert {:ok, _turn} =
+             Custody.freeze_submission(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission
+             )
+
+    assert {:ok, session} =
+             Custody.bind_session(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               claim.session.generation,
+               claim.session.create_generation,
+               "coop-session:conversation-lab-capabilities"
+             )
+
+    assert {:ok, _turn} =
+             Custody.bind_turn(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               session.generation,
+               claim.turn.submit_generation,
+               "coop-turn:conversation-lab-capabilities"
+             )
+
+    document = %{
+      "decision_reason" => nil,
+      "delivery" => "reply",
+      "message" => "I prepared one additional local message for confirmation.",
+      "outcome" => %{
+        "artifact_refs" => [],
+        "record_refs" => [post_ref],
+        "state" => "complete"
+      }
+    }
+
+    candidate = Jason.encode!(document)
+    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+
+    assert {:ok, _turn} =
+             Custody.stage_candidate(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               nil,
+               nil,
+               candidate,
+               sha256,
+               1
+             )
+
+    assert {:ok, result} = Result.new(:reply, document)
+
+    assert {:ok, _turn} =
+             Custody.prepare_validation(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               sha256,
+               1,
+               :accept,
+               result
+             )
+
+    assert {:ok, accepted} =
+             Custody.accept_result(
+               claim.episode.id,
+               claim.episode.key,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               sha256,
+               1,
+               "validation-receipt:conversation-lab-capabilities"
+             )
+
+    assert {:ok, {:delivered, :message, _delivery_ref}} =
+             Responder.Delivery.Dispatcher.run_once(delivery_options("capability-reply"))
+
+    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    [operator, responder] = conversation.messages
+
+    assert operator.reactions == [
+             %{delivery_ref: reaction_ref, emoji_name: "eyes", status: :delivered}
+           ]
+
+    assert [%{action: :confirm_post, kind: "slack_post_offer", ref: ^post_ref}] =
+             responder.cards
+
+    actions = Actions.callbacks(profile(), %{})
+
+    assert {:ok, %{action: %PlatformAction{action_ref: post_action_ref}, status: :confirmed}} =
+             actions.act_on_lab_record.(@conversation_id, post_ref, :confirm_post, nil)
+
+    assert {:ok, {:delivered, :action, ^post_action_ref}} =
+             Responder.Delivery.Dispatcher.run_once(delivery_options("capability-post", :action))
+
+    assert {:ok, updated} = Projection.lab_conversation(@conversation_id)
+
+    assert Enum.map(updated.messages, &{&1.actor, &1.text}) == [
+             {:operator, "React to this, then offer a second local message for my confirmation."},
+             {:responder, "I prepared one additional local message for confirmation."},
+             {:responder, "This is the confirmed local follow-up."}
+           ]
+
+    assert %Turn{status: :settled} = Repo.get!(Turn, accepted.turn.id)
+  end
+
+  defp send_message(event_id, now, message, options \\ []) do
     ConversationLab.send_message(@conversation_id, message, profile(),
+      attachments: Keyword.get(options, :attachments, []),
       id_generator: fn -> event_id end,
       now: fn -> now end
     )
@@ -200,7 +516,7 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
     ]
   end
 
-  defp delivery_options(suffix) do
+  defp delivery_options(suffix, kind \\ :message) do
     {:ok, adapters} =
       Adapters.new(%{
         "control_plane" => %{
@@ -212,7 +528,7 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
 
     [
       adapters: adapters,
-      kind: :message,
+      kind: kind,
       lease_seconds: 60,
       retry_base_seconds: 1,
       retry_max_seconds: 60,
@@ -226,7 +542,8 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
       "episode_ref" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
-      "reason" => "The first local message starts one durable conversation episode."
+      "reason" => "The first local message starts one durable conversation episode.",
+      "work_class" => "standard"
     })
   end
 
@@ -236,7 +553,19 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
       "episode_ref" => candidate_ref,
       "reaction" => nil,
       "relation" => "same_work",
-      "reason" => "The local follow-up explicitly depends on the prior answer in this thread."
+      "reason" => "The local follow-up explicitly depends on the prior answer in this thread.",
+      "work_class" => "standard"
+    })
+  end
+
+  defp decision(:react, nil) do
+    Jason.encode!(%{
+      "action" => "react",
+      "episode_ref" => nil,
+      "reaction" => %{"emoji_name" => "eyes"},
+      "relation" => "unrelated",
+      "reason" => "A nonverbal acknowledgement is sufficient for this local message.",
+      "work_class" => nil
     })
   end
 

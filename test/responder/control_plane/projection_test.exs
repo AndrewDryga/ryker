@@ -244,7 +244,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Projection.decisions(%{}) == []
     assert Projection.findings(%{}) == []
     assert length(Projection.audit(%{})) >= 9
-    assert map_size(Projection.callbacks()) == 20
+    assert map_size(Projection.callbacks()) == 21
   end
 
   test "episode paging and filters fail closed to bounded defaults" do

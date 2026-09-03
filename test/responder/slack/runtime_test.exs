@@ -71,6 +71,7 @@ defmodule Responder.Slack.RuntimeTest do
     assert is_function(options.handler_settings.home_interaction_options.set_schedule_status, 3)
     assert options.handler_settings.interaction_options.operators == MapSet.new(["U123"])
     assert is_function(options.handler_settings.interaction_audit, 2)
+    assert is_function(options.handler_settings.reaction_feedback, 1)
     assert is_function(options.handler_settings.continuation, 1)
     assert is_function(options.handler_settings.standing_matcher, 1)
     assert is_function(options.handler_settings.work_profile, 2)

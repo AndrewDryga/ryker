@@ -4,6 +4,14 @@ defmodule Responder.ReleaseTest do
   alias Responder.Release
   alias Responder.RuntimeConfiguration
 
+  test "production defaults to operational logging instead of debug SQL output" do
+    configuration =
+      Path.expand("../../config/prod.exs", __DIR__)
+      |> Config.Reader.read!()
+
+    assert get_in(configuration, [:logger, :level]) == :info
+  end
+
   test "the production release is self-contained and Unix executable" do
     release = Mix.Project.config() |> Keyword.fetch!(:releases) |> Keyword.fetch!(:responder)
 

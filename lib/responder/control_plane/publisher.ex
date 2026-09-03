@@ -21,7 +21,15 @@ defmodule Responder.ControlPlane.Publisher do
   def publish_message(request, _binding), do: receipt(request)
 
   @impl true
-  def publish_reaction(request, _binding), do: receipt(request)
+  def publish_reaction(request, _binding) do
+    DeliveryReceipt.new(
+      request.ref,
+      request.transport,
+      request.conversation_ref,
+      request.thread_ref,
+      request.source_item_ref
+    )
+  end
 
   defp receipt(request) do
     DeliveryReceipt.new(
