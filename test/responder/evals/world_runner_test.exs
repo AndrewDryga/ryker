@@ -233,6 +233,50 @@ defmodule Responder.Evals.WorldRunnerTest do
     end
   end
 
+  test "an explicit operator incident request may create one confirmable incident offer" do
+    {:ok, scenario} = WorldCase.fetch("explicit-operator-incident-offer")
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
+
+    before_execute = fn claim, _scenario ->
+      {record_ref, state, message} = record_incident_task_tool!(claim)
+      candidate = final_candidate(state, message, [record_ref])
+
+      assert {:ok, %{"accepted" => true}} =
+               Tools.call(
+                 "validate_final",
+                 %{"candidate" => Jason.decode!(candidate)},
+                 binding_options(claim)
+               )
+
+      FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [candidate]})
+      :ok
+    end
+
+    assert {:ok, report} =
+             WorldRunner.run(scenario,
+               api: FakeWorkCoopAPI,
+               before_execute: before_execute,
+               client: fake,
+               id_generator: fn -> "world-explicit-operator-incident" end,
+               policy: "world-eval-read-only",
+               policy_digest: @policy_digest,
+               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+               state_tools_secret: "world-eval-state-tools-secret",
+               worker_ref: "world-eval-worker:explicit-operator-incident"
+             )
+
+    assert report.failures == []
+
+    assert [
+             %{
+               "kind" => "task_offer",
+               "payload" => %{"kind" => "incident", "repository" => nil},
+               "status" => "open"
+             }
+           ] = report.records
+  end
+
   test "later repository feedback replaces the pending task offer instead of creating another task" do
     {:ok, scenario} = WorldCase.fetch("rivals-engineering-task-offer")
     {:ok, fake} = FakeWorkCoopAPI.start_link([], companions: scenario_companions(scenario))
@@ -1240,6 +1284,26 @@ defmodule Responder.Evals.WorldRunnerTest do
              )
 
     {record_ref, "complete", "Prepared the deployment-verification guidance for confirmation."}
+  end
+
+  defp record_incident_task_tool!(claim) do
+    assert {:ok, %{"record_ref" => record_ref}} =
+             Tools.call(
+               "request_task",
+               %{
+                 "authority_limits" => ["read-only investigation; do not change production"],
+                 "instruction_ref" => "input:operator:incident:1",
+                 "kind" => "incident",
+                 "prompt" => "Investigate the recurring production portal HTTP 503 reports.",
+                 "repository" => nil,
+                 "source_refs" => [],
+                 "success_checks" => ["current production evidence is reviewed"],
+                 "title" => "Recurring production portal 503 reports"
+               },
+               binding_options(claim)
+             )
+
+    {record_ref, "complete", "Prepared one incident investigation for confirmation."}
   end
 
   defp eval_only_source_tool do
