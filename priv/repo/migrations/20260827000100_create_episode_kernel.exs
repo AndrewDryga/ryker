@@ -137,7 +137,7 @@ defmodule Responder.Repo.Migrations.CreateEpisodeKernel do
         kind IN (
           'input_admitted', 'owner_transferred', 'input_wait_started',
           'event_wait_started', 'wait_resumed', 'result_accepted',
-          'delivery_confirmed', 'episode_cancelled'
+          'delivery_confirmed', 'episode_cancelled', 'reaction_recorded'
         )
         """
       )

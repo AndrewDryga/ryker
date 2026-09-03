@@ -23,6 +23,9 @@
     "github_review": [
       "github-pr-review-remains-in-thread"
     ],
+    "incident_response": [
+      "explicit-operator-incident-offer"
+    ],
     "memory_feedback": [
       "confirmed-guidance-becomes-memory"
     ],

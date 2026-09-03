@@ -12,7 +12,7 @@ defmodule Responder.StateTools.Router do
   import Plug.Conn
 
   alias Responder.CanonicalJSON
-  alias Responder.StateTools.Tools
+  alias Responder.StateTools.{Tools, ToolVisibility}
 
   @maximum_body_bytes 1_048_576
   @protocol_version "2025-11-25"
@@ -109,7 +109,7 @@ defmodule Responder.StateTools.Router do
        ),
        do:
          rpc_result(conn, id, %{
-           "tools" => Tools.list(options) ++ options.additional_tools
+           "tools" => Tools.list(options) ++ visible_additional_tools(options)
          })
 
   defp respond_rpc(
@@ -167,7 +167,7 @@ defmodule Responder.StateTools.Router do
       Enum.any?(Tools.list(options), &(&1["name"] == name)) ->
         Tools.call(name, arguments, options)
 
-      Enum.any?(options.additional_tools, &(&1["name"] == name)) ->
+      Enum.any?(visible_additional_tools(options), &(&1["name"] == name)) ->
         case call_additional(options.additional_call, name, arguments, options.binding) do
           {:ok, %{} = result} -> {:ok, result}
           {:error, error} when is_binary(error) or is_map(error) -> {:error, error}
@@ -184,6 +184,18 @@ defmodule Responder.StateTools.Router do
 
   defp call_additional(callback, name, arguments, _binding) when is_function(callback, 2),
     do: callback.(name, arguments)
+
+  defp visible_additional_tools(options) do
+    transport =
+      case options.binding do
+        %{episode: %{destination_transport: value}} when is_binary(value) -> value
+        _unbound_or_synthetic -> nil
+      end
+
+    Enum.filter(options.additional_tools, fn tool ->
+      ToolVisibility.visible?(tool["name"], transport)
+    end)
+  end
 
   defp authorize(conn, token) do
     case get_req_header(conn, "authorization") do

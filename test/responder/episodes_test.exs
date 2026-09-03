@@ -22,6 +22,25 @@ defmodule Responder.EpisodesTest do
     assert [%{sequence: 1, kind: :input_admitted}] = Episodes.list_events(command.episode_key)
   end
 
+  test "reaction feedback is durably idempotent without creating another turn" do
+    input = EpisodeFixtures.admit_input()
+    assert {:ok, admitted} = Episodes.apply(input)
+
+    reaction = EpisodeFixtures.record_reaction()
+    assert {:ok, recorded} = Episodes.apply(reaction)
+    assert recorded.status == :applied
+    assert recorded.episode.owner_ref == admitted.episode.owner_ref
+
+    assert {:ok, duplicate} = Episodes.apply(reaction)
+    assert duplicate.status == :duplicate
+    assert duplicate.event.id == recorded.event.id
+
+    assert Enum.map(Episodes.list_events(input.episode_key), & &1.kind) == [
+             :input_admitted,
+             :reaction_recorded
+           ]
+  end
+
   test "ordinary whole-second timestamps persist without crashing" do
     # DateTimes parsed without a fractional part are valid input. Ecto's
     # utc_datetime_usec type requires precision six, so the kernel normalizes

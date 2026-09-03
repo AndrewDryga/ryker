@@ -9,7 +9,7 @@ defmodule Responder.Slack.WorkRecord do
 
   import Ecto.Query
 
-  alias Responder.Episodes.Event
+  alias Responder.Episodes.{Episode, Event}
   alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.Slack.WorkTarget
@@ -33,6 +33,28 @@ defmodule Responder.Slack.WorkRecord do
   end
 
   def build(_work_ref, _target, _kind), do: {:error, :work_record_not_available}
+
+  @doc false
+  @spec build_episode(Record.t(), Episode.t(), kind()) :: {:ok, map()} | {:error, term()}
+  def build_episode(
+        %Record{kind: "task_offer", payload: %{"kind" => offered_kind}, ref: work_ref},
+        %Episode{} = episode,
+        kind
+      )
+      when offered_kind in ["engineering", "incident"] and
+             kind in [:timeline, :evidence, :handoff, :postmortem] and is_binary(work_ref) do
+    work_kind = if offered_kind == "incident", do: :incident, else: :task
+
+    with true <- Regex.match?(~r/\Arecord:task_offer:[A-Za-z0-9_.:-]{1,220}\z/, work_ref),
+         :ok <- kind_available(work_kind, kind) do
+      snapshot = snapshot(%{episode: episode, kind: work_kind, work_ref: work_ref})
+      {:ok, %{"message" => render(kind, snapshot) |> compact_message()}}
+    else
+      _unavailable -> {:error, :work_record_not_available}
+    end
+  end
+
+  def build_episode(_record, _episode, _kind), do: {:error, :work_record_not_available}
 
   defp snapshot(resolved) do
     episode_id = resolved.episode.id

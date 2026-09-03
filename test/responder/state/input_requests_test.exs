@@ -52,16 +52,42 @@ defmodule Responder.State.InputRequestsTest do
     assert Repo.aggregate(Response, :count, :id) == 0
   end
 
-  defp delivered_question! do
+  test "a Conversation Lab choice resumes the same wait through generic ingress" do
+    fixture = delivered_question!(:control_plane)
+
+    assert {:ok, answer} =
+             InputRequests.answer(
+               fixture
+               |> answer(0, "lab-answer-1")
+               |> Map.put(:actor_ref, "local-operator")
+             )
+
+    assert answer.status == :recorded
+    assert answer.response.choice == "Roll out to one percent"
+
+    assert {:ok, entry} = Inbox.fetch(answer.input_ref)
+    assert entry.source_kind == "control_plane"
+    assert entry.source_ref == "local"
+    assert entry.actor_kind == :user
+    assert entry.actor_ref == "local-operator"
+    assert entry.event_kind == :event
+    assert entry.occurred_at_source == :ingress
+    assert entry.source_capabilities == %{}
+    assert entry.content["choice"] == "Roll out to one percent"
+    assert entry.content["choice_index"] == 0
+    assert entry.content["input_request_ref"] == fixture.record.ref
+    assert entry.destination_transport == "control_plane"
+    assert entry.destination_conversation_ref == fixture.receipt["conversation_ref"]
+    assert entry.destination_thread_ref == fixture.receipt["thread_ref"]
+  end
+
+  defp delivered_question!(transport \\ :slack) do
     episode_id = Ecto.UUID.generate()
+    destination = destination(transport)
 
     command =
       EpisodeFixtures.admit_input(%{
-        destination: %{
-          conversation_ref: "slack:T123:C456",
-          thread_ref: "1787832000.000100",
-          transport: "slack"
-        },
+        destination: destination,
         episode_id: episode_id,
         episode_key: "input-request-source:#{episode_id}",
         native_input_id: "slack-message:question:#{episode_id}",
@@ -173,9 +199,9 @@ defmodule Responder.State.InputRequestsTest do
     assert {:ok, receipt} =
              DeliveryReceipt.new(
                accepted.turn.delivery_ref,
-               "slack",
-               "slack:T123:C456",
-               "1787832000.000100",
+               destination.transport,
+               destination.conversation_ref,
+               destination.thread_ref,
                "1787832001.000200"
              )
 
@@ -189,6 +215,24 @@ defmodule Responder.State.InputRequestsTest do
              )
 
     %{episode: settled.episode, receipt: receipt, record: record}
+  end
+
+  defp destination(:slack) do
+    %{
+      conversation_ref: "slack:T123:C456",
+      thread_ref: "1787832000.000100",
+      transport: "slack"
+    }
+  end
+
+  defp destination(:control_plane) do
+    conversation_ref = "control-plane:lab:018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+
+    %{
+      conversation_ref: conversation_ref,
+      thread_ref: conversation_ref,
+      transport: "control_plane"
+    }
   end
 
   defp answer(fixture, choice_index, response_suffix) do

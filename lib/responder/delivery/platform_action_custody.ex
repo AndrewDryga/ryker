@@ -106,8 +106,8 @@ defmodule Responder.Delivery.PlatformActionCustody do
             action.kind == :reaction and action.status == :delivered and
             action.conversation_ref == ^conversation_ref and
             action.source_item_ref == ^source_item_ref and
-            fragment("? ->> 'action' = 'add'", action.document) and
-            fragment("? ->> 'emoji_name' = ?", action.document, ^emoji_name)
+            fragment("(?::jsonb) ->> 'action' = 'add'", action.document) and
+            fragment("(?::jsonb) ->> 'emoji_name' = ?", action.document, ^emoji_name)
       )
     )
   end

@@ -6,7 +6,7 @@ defmodule Responder.Slack.WorkDiff do
   @maximum_patch_characters 2_200
   @maximum_path_characters 180
   @page_bytes 2_400
-  @work_ref ~r/\A(?:task-card|incident-room):[A-Za-z0-9_.:-]{1,220}\z/
+  @work_ref ~r/\A(?:(?:task-card|incident-room):[A-Za-z0-9_.:-]{1,220}|record:task_offer:[A-Za-z0-9_.:-]{1,220})\z/
 
   @spec page_bytes() :: pos_integer()
   def page_bytes, do: @page_bytes

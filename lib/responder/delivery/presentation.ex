@@ -7,6 +7,7 @@ defmodule Responder.Delivery.Presentation do
   an external side effect.
   """
 
+  alias Responder.ControlPlane.Card, as: ControlPlaneCard
   alias Responder.Episodes.Episode
   alias Responder.GitHub.Renderer, as: GitHubRenderer
   alias Responder.Slack.{Mentions, Renderer}
@@ -18,9 +19,9 @@ defmodule Responder.Delivery.Presentation do
 
   def validate(%Episode{} = episode, turn_id, %Final{delivery: :reply} = final)
       when is_binary(turn_id) do
-    case Records.fetch_for_episode(episode.id, final.record_refs) do
-      {:ok, records} -> render(episode, document(final, records))
-      {:error, _reason} = error -> error
+    with {:ok, records} <- Records.fetch_for_episode(episode.id, final.record_refs),
+         :ok <- validate_native_records(episode, records) do
+      render(episode, document(final, records))
     end
   end
 
@@ -56,9 +57,9 @@ defmodule Responder.Delivery.Presentation do
     end
   end
 
-  # The loopback Conversation Lab renders escaped accepted prose and bounded
-  # host-issued record references directly from the durable Work turn. It has
-  # no platform-specific block or markdown limits beyond the Final contract.
+  # The loopback Conversation Lab renders escaped accepted prose and typed
+  # native cards directly from the durable Work turn. Cards are projected here
+  # too so an invalid presentation repairs in the same Coop turn.
   defp render(%Episode{destination_transport: "control_plane"}, _document), do: :ok
 
   # The fabricated model world has a deterministic inert publisher rather
@@ -68,4 +69,22 @@ defmodule Responder.Delivery.Presentation do
 
   defp render(%Episode{destination_transport: transport}, _document),
     do: {:error, {:invalid_delivery_presentation, {:unsupported_transport, transport}}}
+
+  defp validate_native_records(
+         %Episode{destination_transport: "control_plane"},
+         records
+       ) do
+    Enum.reduce_while(records, :ok, fn record, :ok ->
+      case ControlPlaneCard.project(record) do
+        {:ok, _card} ->
+          {:cont, :ok}
+
+        :ignore ->
+          {:halt,
+           {:error, {:invalid_delivery_presentation, {:invalid_control_plane_card, record.ref}}}}
+      end
+    end)
+  end
+
+  defp validate_native_records(%Episode{}, _records), do: :ok
 end

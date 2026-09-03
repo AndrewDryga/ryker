@@ -173,7 +173,7 @@ defmodule Responder.State.RecordPayloadTest do
                  "expires_in" => "30d",
                  "repository" => nil,
                  "scope" => "conversation",
-                 "subject" => "terraform_review_style",
+                 "subject" => "Terraform review style",
                  "summary" => "Lead with availability risk and drift.",
                  "text" =>
                    "When reviewing Terraform here, lead with availability risk and drift, not resource counts.",
@@ -182,7 +182,7 @@ defmodule Responder.State.RecordPayloadTest do
                "record:guidance:1"
              )
 
-    assert guidance.payload["subject"] == "terraform_review_style"
+    assert guidance.payload["subject"] == "Terraform review style"
 
     assert {:ok, assignment} =
              RecordPayload.prepare(

@@ -12,7 +12,13 @@ defmodule Responder.State.ScheduleRuntimeTest do
 
     def claim_due(worker_ref, lease_seconds) do
       Agent.get_and_update(__MODULE__, fn state ->
-        [result | rest] = state.claims
+        {result, rest} =
+          case state.claims do
+            [scripted | remaining] -> {scripted, remaining}
+            [] -> {{:ok, nil}, []}
+          end
+
+        if observer = Map.get(state, :observer), do: send(observer, {:schedule_claim, result})
 
         {result,
          %{state | calls: [{:claim, worker_ref, lease_seconds} | state.calls], claims: rest}}
@@ -101,23 +107,25 @@ defmodule Responder.State.ScheduleRuntimeTest do
          claims: [{:ok, nil}, {:error, :database_unavailable}],
          defer: {:ok, %{}},
          dispatch: {:ok, %{}},
+         observer: self(),
          schedule: %{authority: :read_only}
        }}
     )
 
     {:ok, worker} =
       start_supervised(
-        {ScheduleWorker, dispatcher_options: dispatcher_options(), poll_interval_ms: 10}
+        {ScheduleWorker, dispatcher_options: dispatcher_options(), poll_interval_ms: 300_000}
       )
 
-    Process.sleep(5)
+    assert_receive {:schedule_claim, {:ok, nil}}
     assert Process.alive?(worker)
     assert [{:claim, "schedule-worker:test", 30} | _] = Custody.calls()
 
     log =
       capture_log(fn ->
         send(worker, :poll)
-        Process.sleep(5)
+        assert_receive {:schedule_claim, {:error, :database_unavailable}}
+        assert %{poll_interval_ms: 300_000} = :sys.get_state(worker)
       end)
 
     assert log =~ "schedule dispatcher failed"

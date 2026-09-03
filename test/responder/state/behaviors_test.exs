@@ -250,7 +250,9 @@ defmodule Responder.State.BehaviorsTest do
                "episode_ref" => nil,
                "reaction" => nil,
                "relation" => "unrelated",
-               "reason" => "This exact standing assignment event deserves its own bounded review."
+               "reason" =>
+                 "This exact standing assignment event deserves its own bounded review.",
+               "work_class" => "standard"
              })
 
     assert {:ok, admitted} =

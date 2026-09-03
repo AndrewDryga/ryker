@@ -10,12 +10,13 @@ defmodule Responder.Work.SubmissionBuilder do
   import Ecto.Query
 
   alias Responder.CanonicalJSON
-  alias Responder.Episodes.{Episode, Event}
+  alias Responder.Episodes.{Episode, Event, Reactions}
   alias Responder.GitHub.SourceRef, as: GitHubSourceRef
   alias Responder.Repo
   alias Responder.Slack.SourceRef, as: SlackSourceRef
   alias Responder.State.{Behaviors, Memories, Outcomes, Records}
   alias Responder.StateTools.FixedTools
+  alias Responder.StateTools.ToolVisibility
   alias Responder.Work.{Final, Prompt, Session, Submission, Turn}
 
   @maximum_inputs 40
@@ -43,8 +44,14 @@ defmodule Responder.Work.SubmissionBuilder do
          previous <- previous_turn(episode.id, turn.id),
          records <- Records.model_records(episode.id),
          {:ok, context} <- submission_context(episode, session, turn, snapshot, records, previous),
+         context <-
+           Map.put(
+             context,
+             "conversation_feedback",
+             Reactions.model_context(episode.id, episode.next_sequence)
+           ),
          {:ok, state_tools} <- state_tool_names(episode, options),
-         {:ok, platform_tools} <- platform_tool_names(options),
+         {:ok, platform_tools} <- platform_tool_names(episode, options),
          {:ok, workspace} <- workspace(options),
          context <- Map.put(context, "responder_state_tools", state_tools),
          context <- Map.put(context, "source_and_action_tools", platform_tools),
@@ -81,7 +88,7 @@ defmodule Responder.Work.SubmissionBuilder do
   defp maybe_put_workspace(context, nil), do: context
   defp maybe_put_workspace(context, workspace), do: Map.put(context, "workspace", workspace)
 
-  defp platform_tool_names(options) do
+  defp platform_tool_names(episode, options) do
     configured =
       case Keyword.fetch(options, :platform_tools) do
         {:ok, tools} ->
@@ -101,7 +108,7 @@ defmodule Responder.Work.SubmissionBuilder do
       end
 
     if is_list(configured) do
-      names =
+      configured_names =
         configured
         |> Enum.map(fn
           %{"name" => name} when is_binary(name) -> name
@@ -109,9 +116,15 @@ defmodule Responder.Work.SubmissionBuilder do
           _invalid -> nil
         end)
 
-      if Enum.all?(names, &is_binary/1) and names == Enum.uniq(names),
-        do: {:ok, names},
-        else: {:error, {:invalid_work_submission_builder, :platform_tools}}
+      if Enum.all?(configured_names, &is_binary/1) and
+           configured_names == Enum.uniq(configured_names),
+         do:
+           {:ok,
+            Enum.filter(
+              configured_names,
+              &ToolVisibility.visible?(&1, episode.destination_transport)
+            )},
+         else: {:error, {:invalid_work_submission_builder, :platform_tools}}
     else
       {:error, {:invalid_work_submission_builder, :platform_tools}}
     end
@@ -302,9 +315,10 @@ defmodule Responder.Work.SubmissionBuilder do
   defp resume_cause(_episode, _previous), do: "host_continuation"
 
   defp offer_confirmation_supported?(%Episode{
-         destination_transport: "slack",
+         destination_transport: transport,
          execution_mode: :live
-       }),
+       })
+       when transport in ["slack", "control_plane"],
        do: true
 
   defp offer_confirmation_supported?(_episode), do: false

@@ -7,6 +7,7 @@ defmodule Responder.Work.RuntimeTest do
     child =
       Runtime.child_spec(
         concurrency: 3,
+        platform_tools: ["list_runners", "find_actions"],
         poll_interval_ms: 500,
         receive_timeout_ms: 2_000,
         socket: "/tmp/coop.sock",
@@ -48,6 +49,7 @@ defmodule Responder.Work.RuntimeTest do
 
       assert dispatcher[:executor_options][:state_tools_secret] == "controller-state-tools-secret"
       assert dispatcher[:executor_options][:state_tool_capabilities] == [:schedules]
+      assert dispatcher[:executor_options][:platform_tools] == ["list_runners", "find_actions"]
     end)
   end
 
@@ -86,6 +88,11 @@ defmodule Responder.Work.RuntimeTest do
       %{socket: "tcp://coop.example", worker_ref: "responder-work:vm-1"},
       %{concurrency: 0, socket: "/tmp/coop.sock", worker_ref: "responder-work:vm-1"},
       %{poll_interval_ms: 0, socket: "/tmp/coop.sock", worker_ref: "responder-work:vm-1"},
+      %{
+        platform_tools: ["list_runners", "list_runners"],
+        socket: "/tmp/coop.sock",
+        worker_ref: "responder-work:vm-1"
+      },
       %{
         socket: "/tmp/coop.sock",
         state_tool_capabilities: [:invented],

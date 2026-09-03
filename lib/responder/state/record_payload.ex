@@ -9,6 +9,15 @@ defmodule Responder.State.RecordPayload do
 
   @maximum_payload_bytes 32 * 1_024
   @maximum_automation_change_bytes 64 * 1_024
+  @kinds ~w(
+    task_offer publication_offer schedule_offer automation_change_offer memory_offer
+    preference_offer guidance_offer standing_assignment_offer slack_post_offer input_request
+    event_wait emisar_approval evidence coverage finding progress goal goal_state alert_assessment
+  )
+
+  @doc false
+  @spec kinds() :: [String.t()]
+  def kinds, do: @kinds
 
   @spec prepare(String.t(), term(), String.t()) ::
           {:ok, %{payload: map(), continuation: map() | nil}} | {:error, term()}
@@ -147,7 +156,7 @@ defmodule Responder.State.RecordPayload do
          :ok <- enum(payload["scope"], ~w(conversation repository workspace), :scope),
          :ok <- enum(payload["expires_in"], ~w(7d 30d 90d 365d), :expires_in),
          :ok <- enum(payload["visibility"], ~w(conversation workspace), :visibility),
-         :ok <- reference(payload["subject"], :subject),
+         :ok <- text(payload["subject"], 120, :subject),
          :ok <- text(payload["value"], 4_000, :value),
          :ok <- scoped_repository(payload["scope"], payload["repository"]),
          :ok <- memory_visibility(payload["scope"], payload["visibility"]),
@@ -180,7 +189,7 @@ defmodule Responder.State.RecordPayload do
          :ok <- enum(payload["scope"], ~w(operator conversation repository workspace), :scope),
          :ok <- enum(payload["expires_in"], ~w(7d 30d 90d 365d), :expires_in),
          :ok <- enum(payload["visibility"], ~w(private conversation workspace), :visibility),
-         :ok <- reference(payload["subject"], :subject),
+         :ok <- text(payload["subject"], 120, :subject),
          :ok <- text(payload["summary"], 500, :summary),
          :ok <- text(payload["text"], 4_000, :text),
          :ok <- scoped_repository(payload["scope"], payload["repository"]),
@@ -233,7 +242,7 @@ defmodule Responder.State.RecordPayload do
   defp standing_assignment_offer(_payload),
     do: {:error, {:invalid_state_record, :payload}}
 
-  defp slack_post_offer(%{} = payload) do
+  defp slack_post_offer(%{"transport" => "slack"} = payload) do
     with :ok <-
            exact_fields(
              payload,
@@ -265,6 +274,26 @@ defmodule Responder.State.RecordPayload do
     end
   end
 
+  defp slack_post_offer(%{"transport" => "control_plane"} = payload) do
+    with :ok <-
+           exact_fields(
+             payload,
+             ~w(conversation_ref destination_ref instruction_ref message requested_by_actor_ref thread_ref transport)
+           ),
+         :ok <- control_plane_conversation(payload["conversation_ref"]),
+         true <- payload["destination_ref"] == payload["conversation_ref"],
+         true <- payload["thread_ref"] == payload["conversation_ref"],
+         :ok <- reference(payload["instruction_ref"], :instruction_ref),
+         true <- payload["requested_by_actor_ref"] == "control-plane:local",
+         :ok <- text(payload["message"], 20_000, :message),
+         :ok <- canonical(payload) do
+      {:ok, %{continuation: nil, payload: payload, subject_ref: nil}}
+    else
+      {:error, _reason} = error -> error
+      false -> {:error, {:invalid_state_record, :destination_ref}}
+    end
+  end
+
   defp slack_post_offer(_payload), do: {:error, {:invalid_state_record, :payload}}
 
   defp slack_conversation(value) when is_binary(value) do
@@ -279,6 +308,16 @@ defmodule Responder.State.RecordPayload do
   end
 
   defp slack_conversation(_value),
+    do: {:error, {:invalid_state_record, :conversation_ref}}
+
+  defp control_plane_conversation("control-plane:lab:" <> conversation_id) do
+    case Ecto.UUID.cast(conversation_id) do
+      {:ok, _normalized} -> :ok
+      :error -> {:error, {:invalid_state_record, :conversation_ref}}
+    end
+  end
+
+  defp control_plane_conversation(_value),
     do: {:error, {:invalid_state_record, :conversation_ref}}
 
   defp input_request(%{} = payload, ref) do

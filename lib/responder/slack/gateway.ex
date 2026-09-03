@@ -20,7 +20,8 @@ defmodule Responder.Slack.Gateway do
     HomeEvent,
     HomeInteraction,
     Interaction,
-    MembershipTransition
+    MembershipTransition,
+    ReactionEvent
   }
 
   @configuration_fields [
@@ -167,10 +168,19 @@ defmodule Responder.Slack.Gateway do
   end
 
   defp handle_event_envelope(envelope, settings) do
-    case Event.from_socket(envelope, settings.identity) do
-      {:ok, normalized} -> handle_event(normalized, settings)
-      :ignore -> {:ack, {:ignored, :unsupported_event}}
-      {:error, _reason} -> {:ack, {:ignored, :invalid_event}}
+    case ReactionEvent.from_socket(envelope, settings.identity) do
+      {:ok, reaction} ->
+        handle_reaction(reaction, settings)
+
+      :ignore ->
+        case Event.from_socket(envelope, settings.identity) do
+          {:ok, normalized} -> handle_event(normalized, settings)
+          :ignore -> {:ack, {:ignored, :unsupported_event}}
+          {:error, _reason} -> {:ack, {:ignored, :invalid_event}}
+        end
+
+      {:error, _reason} ->
+        {:ack, {:ignored, :invalid_reaction_event}}
     end
   end
 
@@ -212,6 +222,29 @@ defmodule Responder.Slack.Gateway do
     else
       {:ok, false} -> {:ack, {:ignored, :actor_not_authorized}}
       {:error, reason} -> {:retry, reason}
+    end
+  end
+
+  defp handle_reaction(reaction, settings) do
+    with {:ok, true} <- actor_allowed(%{kind: :user, ref: reaction.actor_ref}, settings),
+         callback when is_function(callback, 1) <- Map.get(settings, :reaction_feedback) do
+      case callback.(reaction) do
+        {:ok, %{status: status}} when status in [:applied, :duplicate] ->
+          {:ack, {:reaction, status}}
+
+        {:error, :conversation_reaction_target_not_found} ->
+          {:ack, {:ignored, :reaction_target_not_found}}
+
+        {:error, reason} ->
+          {:retry, reason}
+
+        _invalid ->
+          {:retry, :slack_reaction_feedback_invalid}
+      end
+    else
+      {:ok, false} -> {:ack, {:ignored, :actor_not_authorized}}
+      {:error, reason} -> {:retry, reason}
+      _missing -> {:retry, :slack_reaction_feedback_unavailable}
     end
   end
 

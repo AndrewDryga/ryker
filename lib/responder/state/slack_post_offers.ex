@@ -1,6 +1,6 @@
 defmodule Responder.State.SlackPostOffers do
   @moduledoc """
-  Confirms one delivered, inert Slack post offer into one durable platform action.
+  Confirms one delivered, inert post offer into one durable platform action.
 
   The model can prepare exact bytes and a destination, but it cannot authorize
   the post. Only the original human requester may click the host-rendered
@@ -91,7 +91,7 @@ defmodule Responder.State.SlackPostOffers do
       source_item_ref: nil,
       thread_ref: record.payload["thread_ref"],
       tool: :post_slack_message,
-      transport: "slack"
+      transport: record.payload["transport"]
     }
   end
 

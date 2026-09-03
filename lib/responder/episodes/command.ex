@@ -140,6 +140,34 @@ defmodule Responder.Episodes.Command do
           }
   end
 
+  defmodule RecordReaction do
+    @moduledoc false
+    @enforce_keys [
+      :action,
+      :actor_ref,
+      :emoji_name,
+      :episode_key,
+      :event_ref,
+      :occurred_at,
+      :source,
+      :target_delivery_ref,
+      :target_message_ref
+    ]
+    defstruct @enforce_keys
+
+    @type t :: %__MODULE__{
+            action: :add | :remove,
+            actor_ref: String.t(),
+            emoji_name: String.t(),
+            episode_key: String.t(),
+            event_ref: String.t(),
+            occurred_at: DateTime.t(),
+            source: %{kind: String.t(), ref: String.t()},
+            target_delivery_ref: String.t(),
+            target_message_ref: String.t()
+          }
+  end
+
   @type t ::
           AdmitInput.t()
           | TransferOwner.t()
@@ -148,6 +176,7 @@ defmodule Responder.Episodes.Command do
           | AcceptResult.t()
           | ConfirmDelivery.t()
           | CancelEpisode.t()
+          | RecordReaction.t()
 
   @doc """
   Normalizes valid timestamps to the precision required by durable storage.
@@ -195,6 +224,10 @@ defmodule Responder.Episodes.Command do
   end
 
   def normalize(%CancelEpisode{} = command) do
+    %{command | occurred_at: normalize_datetime(command.occurred_at)}
+  end
+
+  def normalize(%RecordReaction{} = command) do
     %{command | occurred_at: normalize_datetime(command.occurred_at)}
   end
 
@@ -318,6 +351,21 @@ defmodule Responder.Episodes.Command do
     }
   end
 
+  def document(%RecordReaction{} = command) do
+    %{
+      "action" => Atom.to_string(command.action),
+      "actor_ref" => command.actor_ref,
+      "emoji_name" => command.emoji_name,
+      "episode_key" => command.episode_key,
+      "event_ref" => command.event_ref,
+      "kind" => "record_reaction",
+      "occurred_at" => iso8601(command.occurred_at),
+      "source" => stringify_keys(command.source),
+      "target_delivery_ref" => command.target_delivery_ref,
+      "target_message_ref" => command.target_message_ref
+    }
+  end
+
   @spec fingerprint(t()) :: String.t()
   def fingerprint(command), do: command |> document() |> CanonicalJSON.digest()
 
@@ -329,6 +377,7 @@ defmodule Responder.Episodes.Command do
   def kind(%AcceptResult{}), do: "accept_result"
   def kind(%ConfirmDelivery{}), do: "confirm_delivery"
   def kind(%CancelEpisode{}), do: "cancel_episode"
+  def kind(%RecordReaction{}), do: "record_reaction"
 
   defp identity(%AdmitInput{} = command) do
     [command.episode_key, command.native_input_id, command.revision]
@@ -356,6 +405,10 @@ defmodule Responder.Episodes.Command do
 
   defp identity(%CancelEpisode{} = command) do
     [command.episode_key, command.cancel_ref]
+  end
+
+  defp identity(%RecordReaction{} = command) do
+    [command.episode_key, command.source.kind, command.source.ref, command.event_ref]
   end
 
   defp iso8601(nil), do: nil
@@ -470,6 +523,20 @@ defmodule Responder.Episodes.Command do
     ])
   end
 
+  defp validate(%RecordReaction{} = command) do
+    validate_fields([
+      {reference?(command.episode_key), :episode_key},
+      {command.action in [:add, :remove], :action},
+      {reference?(command.actor_ref), :actor_ref},
+      {emoji_name?(command.emoji_name), :emoji_name},
+      {reference?(command.event_ref), :event_ref},
+      {valid_reaction_source?(command.source), :source},
+      {reference?(command.target_delivery_ref), :target_delivery_ref},
+      {reference?(command.target_message_ref), :target_message_ref},
+      {utc_datetime?(command.occurred_at), :occurred_at}
+    ])
+  end
+
   defp validate(_command), do: {:error, {:invalid_command, :type}}
 
   defp validate_fields(fields) do
@@ -497,6 +564,17 @@ defmodule Responder.Episodes.Command do
        do: exact_keys?(owner, [:kind, :ref]) and reference?(ref)
 
   defp valid_owner?(_owner), do: false
+
+  defp valid_reaction_source?(%{kind: kind, ref: ref} = source) do
+    exact_keys?(source, [:kind, :ref]) and reference?(kind) and reference?(ref)
+  end
+
+  defp valid_reaction_source?(_source), do: false
+
+  defp emoji_name?(value) do
+    is_binary(value) and byte_size(value) <= 100 and
+      Regex.match?(~r/\A[a-z0-9_+\-]+\z/, value)
+  end
 
   defp valid_wait_owner?(%{kind: kind, ref: ref} = owner) when kind in [:input, :event],
     do: exact_keys?(owner, [:kind, :ref]) and reference?(ref)

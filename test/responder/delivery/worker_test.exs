@@ -144,7 +144,8 @@ defmodule Responder.Delivery.WorkerTest do
                "episode_ref" => nil,
                "reaction" => %{"emoji_name" => "eyes"},
                "relation" => "unrelated",
-               "reason" => "Acknowledge without starting work."
+               "reason" => "Acknowledge without starting work.",
+               "work_class" => nil
              })
 
     assert {:ok, _result} = Admission.commit(context, decision, "decision:worker-reaction")

@@ -244,7 +244,18 @@ ALTER TABLE public.ingress_inbox_entries
       AND (
         NOT (source_capabilities::jsonb ? 'post_slack_message')
         OR (
-          source_kind = 'slack'
+          (
+            source_kind = 'slack'
+            OR (
+              source_kind = 'control_plane'
+              AND source_ref = 'local'
+              AND destination_transport = 'control_plane'
+              AND destination_conversation_ref LIKE 'control-plane:lab:%'
+              AND destination_thread_ref = destination_conversation_ref
+              AND source_capabilities::jsonb -> 'post_slack_message' -> 'destination_refs'
+                = jsonb_build_array(destination_conversation_ref)
+            )
+          )
           AND actor_kind = 'user'
           AND source_item_ref IS NOT NULL
           AND char_length(source_item_ref) > 0
