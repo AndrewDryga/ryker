@@ -82,14 +82,13 @@ defmodule Responder.Cutover.ManifestTest do
   defp source_file!(suffix) do
     path = destination("source-#{suffix}")
     File.write!(path, "frozen legacy snapshot")
-    on_exit(fn -> File.rm(path) end)
     path
   end
 
   defp destination(suffix) do
-    Path.join(
-      System.tmp_dir!(),
-      "responder-cutover-#{suffix}-#{System.unique_integer([:positive])}.json"
-    )
+    nonce = :crypto.strong_rand_bytes(12) |> Base.url_encode64(padding: false)
+    path = Path.join(System.tmp_dir!(), "responder-cutover-#{suffix}-#{nonce}.json")
+    on_exit(fn -> File.rm(path) end)
+    path
   end
 end
