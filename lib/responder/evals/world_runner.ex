@@ -816,9 +816,18 @@ defmodule Responder.Evals.WorldRunner do
 
   defp record_authorized?(record, actor, allowed, identity, identities) do
     record.kind in allowed or
+      operator_incident_offer?(record, actor) or
       (actor["authority"] == "repository_feedback" and record.kind == "task_offer" and
          not is_nil(identity) and MapSet.member?(identities, identity))
   end
+
+  defp operator_incident_offer?(
+         %Record{kind: "task_offer", payload: %{"kind" => "incident"}},
+         %{"authority" => "operator"}
+       ),
+       do: true
+
+  defp operator_incident_offer?(_record, _actor), do: false
 
   defp unauthorized_record(record, actor) do
     %{

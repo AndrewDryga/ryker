@@ -43,15 +43,7 @@
         "tool": "request_task"
       }
     ],
-    "trajectory": [
-      {
-        "arguments": {
-          "kind": "incident"
-        },
-        "kind": "required_tool_call",
-        "tool": "request_task"
-      }
-    ],
+    "trajectory": [],
     "quality_rubric": [
       {
         "criterion": "Creates one confirmable incident investigation for the explicit operator request.",
