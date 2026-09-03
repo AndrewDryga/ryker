@@ -10,6 +10,13 @@ defmodule Responder.Work.PromptTest do
     assert instructions =~ "owning tool's receipt"
     assert instructions =~ "cite_source using the source_ref returned by that tool"
     assert instructions =~ "A source-backed final without that record_ref is incomplete"
+    assert instructions =~ "Inputs already exist in durable episode history"
+    assert instructions =~ "merely to prove receipt or justify another proposal"
+    assert instructions =~ "An open offer is inert"
+
+    assert instructions =~
+             "Never say the offered task, incident, publication, automation, memory, or action"
+
     assert instructions =~ "planning, pending, queued, or running"
     assert instructions =~ "durable wait for the next exact lifecycle update"
     assert instructions =~ "Call validate_final"
