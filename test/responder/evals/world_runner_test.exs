@@ -1112,6 +1112,66 @@ defmodule Responder.Evals.WorldRunnerTest do
     assert [%{target: %{transport: "github"}}] = report.deliveries
   end
 
+  test "repository write offer may preserve its instruction as evidence" do
+    # Two candidate observations in the full paired world gate completed valid task offers but
+    # failed the hard-authority check after citing the human instruction that authorized them.
+    {:ok, scenario} = WorldCase.fetch("concurrent-human-feedback-serializes")
+
+    scenario = %{
+      scenario
+      | events: Enum.take(scenario.events, 1),
+        expect: %{"hard" => [], "quality_rubric" => [], "trajectory" => []}
+    }
+
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+    on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
+
+    before_execute = fn claim, _scenario ->
+      assert {:ok, %{"record_ref" => evidence_ref}} =
+               Tools.call(
+                 "cite_source",
+                 %{
+                   "observation" =>
+                     "The authorized request is to add bounded context to Rivals Gate timeout logs.",
+                   "relation" => "supports",
+                   "source_ref" => "admit_input:repository-write-offer",
+                   "subject" => "Requested engineering change",
+                   "supersedes" => []
+                 },
+                 binding_options(claim)
+               )
+
+      {task_ref, state, message} = record_state_tool!("request_task", claim)
+      candidate = final_candidate(state, message, [evidence_ref, task_ref])
+
+      assert {:ok, %{"accepted" => true}} =
+               Tools.call(
+                 "validate_final",
+                 %{"candidate" => Jason.decode!(candidate)},
+                 binding_options(claim)
+               )
+
+      FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [candidate]})
+      :ok
+    end
+
+    assert {:ok, report} =
+             WorldRunner.run(scenario,
+               api: FakeWorkCoopAPI,
+               before_execute: before_execute,
+               client: fake,
+               id_generator: fn -> "world-repository-write-offer-evidence" end,
+               policy: "world-eval-read-only",
+               policy_digest: @policy_digest,
+               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+               state_tools_secret: "world-eval-state-tools-secret",
+               worker_ref: "world-eval-worker:repository-write-offer-evidence"
+             )
+
+    assert report.failures == []
+    assert report.records |> Enum.map(& &1["kind"]) |> Enum.sort() == ["evidence", "task_offer"]
+  end
+
   test "actor authority rejects a durable state action outside the fabricated world" do
     {:ok, scenario} = WorldCase.fetch("va1-health-review-repairs-and-finishes")
 

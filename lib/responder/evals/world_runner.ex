@@ -56,7 +56,7 @@ defmodule Responder.Evals.WorldRunner do
     "read_only" => ~w(evidence coverage finding progress alert_assessment),
     "repository_feedback" =>
       ~w(evidence coverage finding progress alert_assessment input_request),
-    "repository_write_offer" => ~w(task_offer input_request),
+    "repository_write_offer" => ~w(evidence task_offer input_request),
     "schedule_offer" => ~w(schedule_offer standing_assignment_offer automation_change_offer),
     "source_event" => ~w(evidence coverage finding progress alert_assessment event_wait)
   }
