@@ -18,6 +18,7 @@ defmodule Responder.ControlPlane.Projection do
   alias Responder.Episodes.{Episode, Event, Reactions}
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
+  alias Responder.Observability
   alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.Retention.OperatorAction
@@ -212,8 +213,16 @@ defmodule Responder.ControlPlane.Projection do
         delivery_pending: count(delivery_query),
         waiting: count(waiting_query)
       },
+      fleet: fleet_overview(),
       needs_attention: needs_attention()
     }
+  end
+
+  defp fleet_overview do
+    case Observability.fleet() do
+      {:ok, fleet} -> fleet
+      {:error, _reason} -> %{required: true, unavailable: true}
+    end
   end
 
   def episodes(params) when is_map(params) do

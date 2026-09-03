@@ -9,6 +9,7 @@ defmodule Responder.Observability do
 
   import Ecto.Query
 
+  alias Responder.CoopFleet.{Command, Placement, Worker, WorkspaceCheckpointTransfer}
   alias Responder.Delivery.Reaction
   alias Responder.Emisar.Approval
   alias Responder.Episodes.Episode
@@ -21,6 +22,8 @@ defmodule Responder.Observability do
   alias Responder.Work.{Session, Turn}
 
   @default_stall_after_seconds 15 * 60
+  @fleet_heartbeat_stale_seconds 60
+  @current_placement_states [:assigning, :active, :draining, :revoking]
   @readiness_options [:check_progress, :check_runtimes, :stall_after_seconds]
 
   @spec callbacks() :: map()
@@ -59,6 +62,8 @@ defmodule Responder.Observability do
         end
 
       readiness = %{
+        fleet: snapshot.fleet,
+        fleet_issues: fleet_issues(snapshot.fleet, settings.stall_after_seconds),
         missing_runtimes: Enum.sort(missing),
         queues: snapshot.queues,
         stale_progress_lanes: stale_progress,
@@ -66,8 +71,8 @@ defmodule Responder.Observability do
         stalled_queues: snapshot.stalled_queues
       }
 
-      if missing == [] and stale_progress == [] and snapshot.stalled_active_leases == [] and
-           snapshot.stalled_queues == [],
+      if missing == [] and readiness.fleet_issues == [] and stale_progress == [] and
+           snapshot.stalled_active_leases == [] and snapshot.stalled_queues == [],
          do: {:ok, readiness},
          else: {:error, readiness}
     end
@@ -78,6 +83,17 @@ defmodule Responder.Observability do
     with {:ok, snapshot} <- snapshot(@default_stall_after_seconds) do
       {:ok, render_metrics(snapshot)}
     end
+  end
+
+  @spec fleet() :: {:ok, map()} | {:error, term()}
+  def fleet do
+    with {:ok, now} <- database_now() do
+      {:ok, fleet_snapshot(now)}
+    end
+  rescue
+    error -> {:error, {:observability_query_failed, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {:observability_query_failed, kind, inspect(reason)}}
   end
 
   @spec snapshot(pos_integer()) :: {:ok, map()} | {:error, term()}
@@ -100,6 +116,7 @@ defmodule Responder.Observability do
            task_cards: %{total: Repo.aggregate(TaskCard, :count, :id)},
            work: status_counts(Turn)
          },
+         fleet: fleet_snapshot(now),
          generated_at: now,
          progress: progress,
          queues: queues,
@@ -312,17 +329,210 @@ defmodule Responder.Observability do
   defp age_seconds(now, datetime), do: max(DateTime.diff(now, datetime, :second), 0)
 
   defp status_counts(schema) do
+    enum_counts(schema, :status)
+  end
+
+  defp enum_counts(schema, field) do
     schema
     |> then(fn schema ->
       from(row in schema,
-        group_by: row.status,
-        order_by: row.status,
-        select: {row.status, count(row.id)}
+        group_by: field(row, ^field),
+        order_by: field(row, ^field),
+        select: {field(row, ^field), count(row.id)}
       )
     end)
     |> Repo.all()
     |> Map.new()
   end
+
+  defp fleet_snapshot(now) do
+    settings = fleet_settings()
+    workers = Repo.all(Worker)
+    cutoff = DateTime.add(now, -@fleet_heartbeat_stale_seconds, :second)
+
+    fresh_workers = Enum.filter(workers, &fresh_worker?(&1, cutoff))
+
+    eligible_workers =
+      Enum.filter(
+        fresh_workers,
+        &eligible_worker?(&1, settings.workspace_ref, settings.capabilities)
+      )
+
+    profiles = fleet_policy_profiles()
+
+    available_profiles =
+      Enum.count(profiles, fn profile ->
+        Enum.any?(eligible_workers, &worker_supports_profile?(&1, profile))
+      end)
+
+    current_placements =
+      from(placement in Placement, where: placement.state in ^@current_placement_states)
+
+    expired_placements =
+      from(placement in current_placements, where: placement.lease_expires_at <= ^now)
+
+    oldest_queued_command =
+      Repo.one(
+        from(command in Command,
+          where: command.status == :queued,
+          select: min(command.inserted_at)
+        )
+      )
+
+    latest_checkpoint =
+      Repo.one(
+        from(checkpoint in WorkspaceCheckpointTransfer, select: max(checkpoint.inserted_at))
+      )
+
+    %{
+      available_policy_profiles: available_profiles,
+      capacity: fleet_capacity(eligible_workers),
+      checkpoints: %{
+        latest_age_seconds: age_seconds(now, latest_checkpoint),
+        total: Repo.aggregate(WorkspaceCheckpointTransfer, :count, :id)
+      },
+      commands: status_counts(Command),
+      current_placements: Repo.aggregate(current_placements, :count, :id),
+      eligible_workers: length(eligible_workers),
+      event_cursor_lag: fleet_event_cursor_lag(),
+      expired_current_placements: Repo.aggregate(expired_placements, :count, :id),
+      fresh_workers: length(fresh_workers),
+      oldest_queued_command_age_seconds: age_seconds(now, oldest_queued_command),
+      placements: enum_counts(Placement, :state),
+      provider_states: Enum.frequencies_by(fresh_workers, &provider_state/1),
+      required: settings.required,
+      required_capabilities: length(settings.capabilities),
+      required_policy_profiles: length(profiles),
+      stale_workers: Enum.count(workers, &(not fresh_worker?(&1, cutoff))),
+      workers: enum_counts(Worker, :state)
+    }
+  end
+
+  defp fleet_settings do
+    case Application.get_env(:responder, :work) do
+      %{
+        api: Responder.CoopFleet.Client,
+        client: %Responder.CoopFleet.Client{bridge_options: options}
+      }
+      when is_list(options) ->
+        %{
+          capabilities: Keyword.get(options, :capability_names, ["responder-state"]),
+          required: true,
+          workspace_ref: Keyword.get(options, :workspace_ref)
+        }
+
+      _direct_or_disabled ->
+        %{capabilities: [], required: false, workspace_ref: nil}
+    end
+  end
+
+  defp fleet_policy_profiles do
+    case Application.get_env(:responder, :cutover_profiles, %{}) do
+      profiles when is_map(profiles) ->
+        profiles
+        |> Map.values()
+        |> Enum.filter(fn profile ->
+          is_map(profile) and is_binary(profile.policy) and is_binary(profile.policy_digest)
+        end)
+        |> Enum.uniq_by(&{&1.policy, &1.policy_digest, Map.get(&1, :repository_ref)})
+
+      _invalid ->
+        []
+    end
+  end
+
+  defp fresh_worker?(%Worker{last_seen_at: %DateTime{} = last_seen_at}, cutoff) do
+    DateTime.compare(last_seen_at, cutoff) != :lt
+  end
+
+  defp fresh_worker?(_worker, _cutoff), do: false
+
+  defp eligible_worker?(worker, workspace_ref, capabilities) do
+    worker.workspace_ref == workspace_ref and worker.state == :eligible and
+      is_nil(worker.drain_requested_at) and is_nil(worker.revoked_at) and
+      provider_state(worker) == "eligible" and worker_capabilities?(worker, capabilities) and
+      Enum.all?(~w(session turn workspace), &(capacity_slot(worker, &1, :free) > 0))
+  end
+
+  defp worker_capabilities?(worker, required) do
+    available = MapSet.new(worker.capabilities, & &1["name"])
+    Enum.all?(required, &MapSet.member?(available, &1))
+  end
+
+  defp worker_supports_profile?(worker, profile) do
+    worker.policy_digests[profile.policy] == profile.policy_digest and
+      repository_available?(worker.repositories, Map.get(profile, :repository_ref))
+  end
+
+  defp repository_available?(_repositories, nil), do: true
+
+  defp repository_available?(repositories, repository_ref) do
+    Enum.any?(repositories, &(&1["ref"] == repository_ref))
+  end
+
+  defp provider_state(worker) do
+    case worker.capacity["state"] do
+      state when state in ~w(eligible busy cooldown needs_auth) -> state
+      _unknown -> "unknown"
+    end
+  end
+
+  defp fleet_capacity(workers) do
+    Map.new(~w(session turn workspace), fn kind ->
+      {String.to_atom(kind),
+       %{
+         free: Enum.sum(Enum.map(workers, &capacity_slot(&1, kind, :free))),
+         total: Enum.sum(Enum.map(workers, &capacity_slot(&1, kind, :total)))
+       }}
+    end)
+  end
+
+  defp capacity_slot(worker, kind, bound) do
+    case worker.capacity["#{kind}_slots_#{bound}"] do
+      value when is_integer(value) and value >= 0 -> value
+      _invalid -> 0
+    end
+  end
+
+  defp fleet_event_cursor_lag do
+    query = """
+    SELECT COALESCE(SUM(GREATEST(COALESCE(events.maximum_sequence, 0) - placement.last_acked_event_sequence, 0)), 0)::bigint
+    FROM coop_session_placements AS placement
+    LEFT JOIN LATERAL (
+      SELECT MAX(event.sequence) AS maximum_sequence
+      FROM coop_worker_events AS event
+      WHERE event.placement_id = placement.id
+    ) AS events ON TRUE
+    WHERE placement.state IN ('assigning', 'active', 'draining', 'revoking')
+    """
+
+    case Repo.query!(query, [], log: false) do
+      %{rows: [[lag]]} when is_integer(lag) -> lag
+    end
+  end
+
+  defp fleet_issues(%{required: false}, _stall_after_seconds), do: []
+
+  defp fleet_issues(fleet, stall_after_seconds) do
+    []
+    |> maybe_issue(
+      fleet.available_policy_profiles < fleet.required_policy_profiles,
+      :missing_policy_capacity
+    )
+    |> maybe_issue(fleet.eligible_workers == 0, :no_eligible_workers)
+    |> maybe_issue(fleet.capacity.session.free == 0, :no_session_capacity)
+    |> maybe_issue(fleet.capacity.turn.free == 0, :no_turn_capacity)
+    |> maybe_issue(fleet.capacity.workspace.free == 0, :no_workspace_capacity)
+    |> maybe_issue(fleet.expired_current_placements > 0, :expired_current_placements)
+    |> maybe_issue(fleet.event_cursor_lag > 0, :event_cursor_lag)
+    |> maybe_issue(
+      fleet.oldest_queued_command_age_seconds > stall_after_seconds,
+      :stalled_queued_commands
+    )
+  end
+
+  defp maybe_issue(issues, true, issue), do: issues ++ [issue]
+  defp maybe_issue(issues, false, _issue), do: issues
 
   defp database_now do
     case Repo.query("SELECT clock_timestamp()", [], log: false) do
@@ -517,12 +727,78 @@ defmodule Responder.Observability do
         ]
       end)
 
+    fleet_lines = fleet_metric_lines(snapshot.fleet)
+
     ([
        "# Responder aggregate lifecycle metrics. No message or prompt labels are exported.",
        metric("responder_observability_snapshot", 1)
-     ] ++ count_lines ++ queue_lines ++ progress_lines)
+     ] ++ count_lines ++ queue_lines ++ progress_lines ++ fleet_lines)
     |> Enum.join("\n")
     |> Kernel.<>("\n")
+  end
+
+  defp fleet_metric_lines(fleet) do
+    worker_lines =
+      Enum.map(fleet.workers, fn {state, count} ->
+        metric("responder_coop_fleet_workers", count, ~s(state="#{Atom.to_string(state)}"))
+      end)
+
+    provider_lines =
+      Enum.map(fleet.provider_states, fn {state, count} ->
+        metric("responder_coop_fleet_provider_workers", count, ~s(state="#{state}"))
+      end)
+
+    placement_lines =
+      Enum.map(fleet.placements, fn {state, count} ->
+        metric(
+          "responder_coop_fleet_placements",
+          count,
+          ~s(state="#{Atom.to_string(state)}")
+        )
+      end)
+
+    command_lines =
+      Enum.map(fleet.commands, fn {status, count} ->
+        metric(
+          "responder_coop_fleet_commands",
+          count,
+          ~s(status="#{Atom.to_string(status)}")
+        )
+      end)
+
+    capacity_lines =
+      Enum.flat_map(fleet.capacity, fn {kind, capacity} ->
+        label = ~s(kind="#{Atom.to_string(kind)}")
+
+        [
+          metric("responder_coop_fleet_slots_free", capacity.free, label),
+          metric("responder_coop_fleet_slots_total", capacity.total, label)
+        ]
+      end)
+
+    [
+      metric("responder_coop_fleet_required", if(fleet.required, do: 1, else: 0)),
+      metric("responder_coop_fleet_fresh_workers", fleet.fresh_workers),
+      metric("responder_coop_fleet_stale_workers", fleet.stale_workers),
+      metric("responder_coop_fleet_eligible_workers", fleet.eligible_workers),
+      metric("responder_coop_fleet_required_policy_profiles", fleet.required_policy_profiles),
+      metric("responder_coop_fleet_available_policy_profiles", fleet.available_policy_profiles),
+      metric("responder_coop_fleet_current_placements", fleet.current_placements),
+      metric(
+        "responder_coop_fleet_expired_current_placements",
+        fleet.expired_current_placements
+      ),
+      metric("responder_coop_fleet_event_cursor_lag", fleet.event_cursor_lag),
+      metric(
+        "responder_coop_fleet_oldest_queued_command_age_seconds",
+        fleet.oldest_queued_command_age_seconds
+      ),
+      metric("responder_coop_fleet_checkpoints", fleet.checkpoints.total),
+      metric(
+        "responder_coop_fleet_latest_checkpoint_age_seconds",
+        fleet.checkpoints.latest_age_seconds
+      )
+    ] ++ worker_lines ++ provider_lines ++ placement_lines ++ command_lines ++ capacity_lines
   end
 
   defp metric(name, value), do: "#{name} #{value}"

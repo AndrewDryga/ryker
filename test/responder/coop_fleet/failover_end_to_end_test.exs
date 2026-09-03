@@ -128,7 +128,7 @@ defmodule Responder.CoopFleet.FailoverEndToEndTest do
     Sandbox.allow(Repo, self(), task.pid)
     send(task.pid, :start)
 
-    assert_receive {:bridge_waiting, first_waiter}
+    assert_receive {:bridge_waiting, first_waiter}, 1_000
 
     assert {:ok, %{"commands" => [create_wire]}} =
              ControlPlane.handle_poll_certificate(
@@ -157,7 +157,7 @@ defmodule Responder.CoopFleet.FailoverEndToEndTest do
     assert create_result["acknowledged_result_command_ids"] == [create_wire["command_id"]]
     send(first_waiter, :bridge_continue)
 
-    assert_receive {:bridge_waiting, second_waiter}
+    assert_receive {:bridge_waiting, second_waiter}, 1_000
 
     assert {:ok, %{"commands" => [restore_wire]}} =
              ControlPlane.handle_poll_certificate(

@@ -66,16 +66,20 @@ defmodule Responder.Ingress.InboxTest do
     input = input!(event_ref: "Ev-work-placement")
 
     original = %{
+      authority_digest: String.duplicate("8", 64),
       class_policies: %{
         conversational: %{
+          authority_digest: String.duplicate("8", 64),
           policy: "incident-conversation-v1",
           policy_digest: String.duplicate("b", 64)
         },
         standard: %{
+          authority_digest: String.duplicate("8", 64),
           policy: "incident-standard-v1",
           policy_digest: String.duplicate("c", 64)
         },
         deep: %{
+          authority_digest: String.duplicate("8", 64),
           policy: "incident-deep-v1",
           policy_digest: String.duplicate("d", 64)
         }
@@ -86,16 +90,20 @@ defmodule Responder.Ingress.InboxTest do
     }
 
     changed = %{
+      authority_digest: String.duplicate("9", 64),
       class_policies: %{
         conversational: %{
+          authority_digest: String.duplicate("9", 64),
           policy: "changed-conversation-v2",
           policy_digest: String.duplicate("f", 64)
         },
         standard: %{
+          authority_digest: String.duplicate("9", 64),
           policy: "changed-standard-v2",
           policy_digest: String.duplicate("0", 64)
         },
         deep: %{
+          authority_digest: String.duplicate("9", 64),
           policy: "changed-deep-v2",
           policy_digest: String.duplicate("1", 64)
         }
@@ -126,13 +134,23 @@ defmodule Responder.Ingress.InboxTest do
 
   test "the database rejects a malformed frozen work class profile" do
     profile = %{
+      authority_digest: String.duplicate("e", 64),
       class_policies: %{
         conversational: %{
+          authority_digest: String.duplicate("e", 64),
           policy: "conversation-v1",
           policy_digest: String.duplicate("b", 64)
         },
-        standard: %{policy: "standard-v1", policy_digest: String.duplicate("c", 64)},
-        deep: %{policy: "deep-v1", policy_digest: String.duplicate("d", 64)}
+        standard: %{
+          authority_digest: String.duplicate("e", 64),
+          policy: "standard-v1",
+          policy_digest: String.duplicate("c", 64)
+        },
+        deep: %{
+          authority_digest: String.duplicate("e", 64),
+          policy: "deep-v1",
+          policy_digest: String.duplicate("d", 64)
+        }
       },
       policy: "base-v1",
       policy_digest: String.duplicate("a", 64),
@@ -151,6 +169,108 @@ defmodule Responder.Ingress.InboxTest do
             work_profile::jsonb,
             '{class_policies,deep,policy_digest}',
             '\"wrong\"'::jsonb
+          )::text
+          WHERE id = $1
+          """,
+          [Ecto.UUID.dump!(entry.id)]
+        )
+      end
+
+    assert error.postgres.constraint == "ingress_inbox_work_class_profile_valid"
+  end
+
+  test "the database rejects mismatched model-class execution authority" do
+    authority_digest = String.duplicate("e", 64)
+
+    profile = %{
+      authority_digest: authority_digest,
+      class_policies: %{
+        conversational: %{
+          authority_digest: authority_digest,
+          policy: "conversation-v1",
+          policy_digest: String.duplicate("b", 64)
+        },
+        standard: %{
+          authority_digest: authority_digest,
+          policy: "standard-v1",
+          policy_digest: String.duplicate("c", 64)
+        },
+        deep: %{
+          authority_digest: authority_digest,
+          policy: "deep-v1",
+          policy_digest: String.duplicate("d", 64)
+        }
+      },
+      policy: "base-v1",
+      policy_digest: String.duplicate("a", 64),
+      repository_ref: "infrastructure"
+    }
+
+    assert {:ok, %{entry: entry}} =
+             Inbox.record(input!(event_ref: "Ev-work-authority-constraint"),
+               work_profile: profile
+             )
+
+    authority_error =
+      assert_raise Postgrex.Error, fn ->
+        Repo.query!(
+          """
+          UPDATE ingress_inbox_entries
+          SET work_profile = jsonb_set(
+            work_profile::jsonb,
+            '{class_policies,deep,authority_digest}',
+            to_jsonb($2::text)
+          )::text
+          WHERE id = $1
+          """,
+          [Ecto.UUID.dump!(entry.id), String.duplicate("f", 64)]
+        )
+      end
+
+    assert authority_error.postgres.constraint == "ingress_inbox_work_class_profile_valid"
+  end
+
+  test "the database rejects a present null model-class authority" do
+    authority_digest = String.duplicate("e", 64)
+
+    profile = %{
+      authority_digest: authority_digest,
+      class_policies: %{
+        conversational: %{
+          authority_digest: authority_digest,
+          policy: "conversation-v1",
+          policy_digest: String.duplicate("b", 64)
+        },
+        standard: %{
+          authority_digest: authority_digest,
+          policy: "standard-v1",
+          policy_digest: String.duplicate("c", 64)
+        },
+        deep: %{
+          authority_digest: authority_digest,
+          policy: "deep-v1",
+          policy_digest: String.duplicate("d", 64)
+        }
+      },
+      policy: "base-v1",
+      policy_digest: String.duplicate("a", 64),
+      repository_ref: "infrastructure"
+    }
+
+    assert {:ok, %{entry: entry}} =
+             Inbox.record(input!(event_ref: "Ev-work-null-authority-constraint"),
+               work_profile: profile
+             )
+
+    error =
+      assert_raise Postgrex.Error, fn ->
+        Repo.query!(
+          """
+          UPDATE ingress_inbox_entries
+          SET work_profile = jsonb_set(
+            work_profile::jsonb,
+            '{class_policies,deep,authority_digest}',
+            'null'::jsonb
           )::text
           WHERE id = $1
           """,

@@ -772,12 +772,14 @@ defmodule Responder.Admission do
          %Episode{id: episode_id},
          %{digest: policy_digest, name: policy} = work_policy
        ) do
+    authority_digest = Map.get(work_policy, :authority_digest)
     repository_ref = Map.get(work_policy, :repository_ref)
 
     case Custody.pin_episode_in_transaction(
            episode_id,
            policy,
            policy_digest,
+           authority_digest,
            repository_ref
          ) do
       {:ok, _session} -> :ok

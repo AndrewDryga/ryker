@@ -83,11 +83,13 @@ fi
 
 run_privileged systemctl is-active --quiet "$unit"
 
-running_version=$("$prefix/current/bin/responder" version)
-if [[ $running_version != "responder $version" ]]; then
-  echo "deploy: installed pointer reports '$running_version', expected responder $version" >&2
+installed_version=$("$prefix/current/bin/responder" version)
+if [[ $installed_version != "responder $version" ]]; then
+  echo "deploy: installed pointer reports '$installed_version', expected responder $version" >&2
   exit 1
 fi
+
+scripts/check-running-elixir-release.sh "$health_url" "$version"
 
 echo "deploy: $unit is active and ready on responder $version"
 echo "deploy: PostgreSQL custody will resume pending work after the normal restart"

@@ -125,6 +125,17 @@ defmodule Responder.Evals.OperatorTaskTest do
     assert makefile =~ "world_coverage_test.exs"
   end
 
+  test "the parallel repository gate gives host replay a disposable database" do
+    # `make check` runs host replay beside the full Elixir suite. Sharing
+    # responder_test made four world cases reject their supposedly disposable
+    # database before exercising any host behaviour.
+    makefile = File.read!(Path.expand("../../../Makefile", __DIR__))
+
+    assert makefile =~
+             ~r/^eval-host-replay:\n\tRESPONDER_TEST_ISOLATED=1 scripts\/elixir-test\.sh/m,
+           "eval-host-replay must not share the full Elixir suite's database"
+  end
+
   test "live evals refuse to inherit the production admission policy" do
     root =
       Path.join(

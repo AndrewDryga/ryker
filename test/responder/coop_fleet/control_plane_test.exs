@@ -13,6 +13,7 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
   alias Responder.StateTools.Binding
   alias Responder.Work.{Custody, StateBinding}
 
+  @authority_digest String.duplicate("d", 64)
   @policy_digest String.duplicate("b", 64)
   @sandbox_digest String.duplicate("a", 64)
 
@@ -38,6 +39,7 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     assert worker.workspace_ref == "workspace-main"
     assert worker.state == :eligible
     assert worker.policy_digests == %{"work-read-only" => @policy_digest}
+    assert worker.policy_authority_digests == %{"work-read-only" => @authority_digest}
     assert worker.repositories == [%{"ref" => "responder", "revision" => "commit:abc123"}]
     assert worker.capabilities == [%{"name" => "responder-state", "version" => "1"}]
     assert worker.capacity["turn_slots_free"] == 2
@@ -157,6 +159,7 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
 
     assert placement.requirements == %{
              "capability_names" => ["responder-state"],
+             "authority_digest" => @authority_digest,
              "policy" => "work-read-only",
              "policy_digest" => @policy_digest,
              "repository_ref" => "responder",
@@ -175,8 +178,8 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     changed =
       poll("worker-a", "workspace-main", "poll:worker-a:authority-drift")
       |> put_in(
-        ["worker", "policy_digests", "work-read-only"],
-        String.duplicate("d", 64)
+        ["worker", "policy_authority_digests", "work-read-only"],
+        String.duplicate("e", 64)
       )
 
     assert {:ok, %{"commands" => []}} = ControlPlane.handle_poll("worker-a", changed)
@@ -184,6 +187,29 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
 
     assert Repo.get_by!(Command, idempotency_key: "responder:work:create:authority-drift:g1").status ==
              :queued
+  end
+
+  test "a matching policy digest cannot place work on wider execution authority" do
+    authorize_and_poll!("worker-wide",
+      authority_digest: String.duplicate("e", 64),
+      capacity: capacity(4, 4)
+    )
+
+    authorize_and_poll!("worker-exact", capacity: capacity(1, 4))
+    session = session!("authority-equivalence")
+
+    assert {:ok, placement} =
+             ControlPlane.place_session(
+               session.id,
+               %{
+                 capability_names: ["responder-state"],
+                 repository_ref: "responder",
+                 workspace_ref: "workspace-main"
+               },
+               60
+             )
+
+    assert placement.worker_id == "worker-exact"
   end
 
   test "an expired placement is terminalized and requires a new immutable Work session" do
@@ -692,6 +718,7 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
                command.episode_id,
                "work-read-only",
                @policy_digest,
+               @authority_digest,
                "responder"
              )
 
@@ -716,6 +743,9 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
         "capacity" => Keyword.get(options, :capacity, capacity(2, 4)),
         "clock_at" => DateTime.to_iso8601(database_now!()),
         "id" => worker_id,
+        "policy_authority_digests" => %{
+          "work-read-only" => Keyword.get(options, :authority_digest, @authority_digest)
+        },
         "policy_digests" => %{"work-read-only" => @policy_digest},
         "protocol_version" => "1",
         "repositories" => repositories,

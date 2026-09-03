@@ -26,6 +26,39 @@ defmodule Responder.Work.SessionChangeset do
         external_ref,
         workspace_task \\ nil
       ) do
+    insert_with_authority(
+      id,
+      episode_id,
+      generation,
+      policy,
+      policy_digest,
+      repository_ref,
+      external_ref,
+      %{authority_digest: nil, workspace_task: workspace_task}
+    )
+  end
+
+  @spec insert_with_authority(
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          pos_integer(),
+          String.t(),
+          String.t(),
+          String.t() | nil,
+          String.t(),
+          %{authority_digest: String.t() | nil, workspace_task: map() | nil}
+        ) ::
+          Ecto.Changeset.t()
+  def insert_with_authority(
+        id,
+        episode_id,
+        generation,
+        policy,
+        policy_digest,
+        repository_ref,
+        external_ref,
+        %{authority_digest: authority_digest, workspace_task: workspace_task}
+      ) do
     %Session{}
     |> cast(
       %{
@@ -35,6 +68,7 @@ defmodule Responder.Work.SessionChangeset do
         create_generation: 1,
         policy: policy,
         policy_digest: policy_digest,
+        authority_digest: authority_digest,
         repository_ref: repository_ref,
         external_ref: external_ref,
         workspace_task: workspace_task
@@ -46,6 +80,7 @@ defmodule Responder.Work.SessionChangeset do
         :create_generation,
         :policy,
         :policy_digest,
+        :authority_digest,
         :repository_ref,
         :external_ref,
         :workspace_task
@@ -62,6 +97,7 @@ defmodule Responder.Work.SessionChangeset do
     ])
     |> validate_length(:policy, min: 1, max: 1_024)
     |> validate_format(:policy_digest, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:authority_digest, ~r/\A[0-9a-f]{64}\z/)
     |> validate_length(:repository_ref, min: 1, max: 1_024)
     |> validate_length(:external_ref, min: 1, max: 1_024)
     |> validate_workspace_task()

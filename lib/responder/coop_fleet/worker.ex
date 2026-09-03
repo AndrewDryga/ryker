@@ -13,6 +13,7 @@ defmodule Responder.CoopFleet.Worker do
     field(:clock_at, :utc_datetime_usec)
     field(:sandbox_digest, :string)
     field(:policy_digests, Responder.CanonicalJSON.Type, default: %{})
+    field(:policy_authority_digests, Responder.CanonicalJSON.Type, default: %{})
     field(:repositories, Responder.CanonicalJSON.Type, default: [])
     field(:capabilities, Responder.CanonicalJSON.Type, default: [])
     field(:capacity, Responder.CanonicalJSON.Type, default: %{})

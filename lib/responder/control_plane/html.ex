@@ -37,14 +37,14 @@ defmodule Responder.ControlPlane.HTML do
     ])
   end
 
-  def overview(%{counts: counts, needs_attention: attention}) do
+  def overview(%{counts: counts, needs_attention: attention} = snapshot) do
     cards =
-      [
-        {"Active", Map.get(counts, :active, 0)},
-        {"Waiting", Map.get(counts, :waiting, 0)},
-        {"Blocked", Map.get(counts, :blocked, 0)},
-        {"Delivery pending", Map.get(counts, :delivery_pending, 0)}
-      ]
+      ([
+         {"Active", Map.get(counts, :active, 0)},
+         {"Waiting", Map.get(counts, :waiting, 0)},
+         {"Blocked", Map.get(counts, :blocked, 0)},
+         {"Delivery pending", Map.get(counts, :delivery_pending, 0)}
+       ] ++ fleet_cards(Map.get(snapshot, :fleet)))
       |> Enum.map(fn {label, value} ->
         [
           "<article class=\"metric\"><strong>",
@@ -63,6 +63,20 @@ defmodule Responder.ControlPlane.HTML do
       "</section>"
     ]
   end
+
+  defp fleet_cards(%{required: true, unavailable: true}) do
+    [{"Fleet health", "unavailable"}]
+  end
+
+  defp fleet_cards(%{required: true} = fleet) do
+    [
+      {"Eligible Coop workers", Map.get(fleet, :eligible_workers, 0)},
+      {"Free turn slots", get_in(fleet, [:capacity, :turn, :free]) || 0},
+      {"Current placements", Map.get(fleet, :current_placements, 0)}
+    ]
+  end
+
+  defp fleet_cards(_direct_or_missing), do: []
 
   def lab_index(items) do
     rows =

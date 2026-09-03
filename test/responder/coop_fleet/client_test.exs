@@ -9,6 +9,7 @@ defmodule Responder.CoopFleet.ClientTest do
   alias Responder.Repo
   alias Responder.Work.{Custody, SessionChangeset, StateBinding}
 
+  @authority_digest String.duplicate("d", 64)
   @policy "work-read-only"
   @policy_digest String.duplicate("b", 64)
 
@@ -92,6 +93,7 @@ defmodule Responder.CoopFleet.ClientTest do
     assert_receive {:fleet_command, ^session, "create_session", payload, ^key, options}
 
     assert payload == %{
+             "authority_digest" => @authority_digest,
              "external_ref" => session.external_ref,
              "policy" => @policy,
              "policy_digest" => @policy_digest
@@ -130,6 +132,7 @@ defmodule Responder.CoopFleet.ClientTest do
     refute inspect(payload) =~ binding["token"]
 
     assert Map.drop(payload, ["responder_binding"]) == %{
+             "authority_digest" => @authority_digest,
              "external_ref" => session.external_ref,
              "policy" => @policy,
              "policy_digest" => @policy_digest
@@ -261,14 +264,15 @@ defmodule Responder.CoopFleet.ClientTest do
     |> Repo.insert!()
 
     replacement =
-      SessionChangeset.insert(
+      SessionChangeset.insert_with_authority(
         Ecto.UUID.generate(),
         source.episode_id,
         2,
         source.policy,
         source.policy_digest,
         source.repository_ref,
-        source.external_ref
+        source.external_ref,
+        %{authority_digest: source.authority_digest, workspace_task: nil}
       )
       |> Repo.insert!()
       |> SessionChangeset.bind_workspace_task(workspace_task)
@@ -780,7 +784,13 @@ defmodule Responder.CoopFleet.ClientTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(episode_id, @policy, @policy_digest, "responder")
+             Custody.pin_episode(
+               episode_id,
+               @policy,
+               @policy_digest,
+               @authority_digest,
+               "responder"
+             )
 
     session
   end
@@ -862,6 +872,7 @@ defmodule Responder.CoopFleet.ClientTest do
         },
         "clock_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
         "id" => worker_id,
+        "policy_authority_digests" => %{@policy => @authority_digest},
         "policy_digests" => %{@policy => @policy_digest},
         "protocol_version" => "1",
         "repositories" => [%{"ref" => "responder", "revision" => "commit:test"}],

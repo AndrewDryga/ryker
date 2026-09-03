@@ -209,17 +209,23 @@ defmodule Responder.RuntimeConfiguration do
       Enum.flat_map(repositories, fn {name, repository} ->
         [
           {{"read_only", name},
-           %{
-             policy: repository.conversation_policy.name,
-             policy_digest: repository.conversation_policy.digest,
-             repository_ref: name
-           }},
+           maybe_put_policy_authority(
+             %{
+               policy: repository.conversation_policy.name,
+               policy_digest: repository.conversation_policy.digest,
+               repository_ref: name
+             },
+             Map.get(repository.conversation_policy, :authority_digest)
+           )},
           {{"repository_write", name},
-           %{
-             policy: repository.contributor_policy.name,
-             policy_digest: repository.contributor_policy.digest,
-             repository_ref: name
-           }}
+           maybe_put_policy_authority(
+             %{
+               policy: repository.contributor_policy.name,
+               policy_digest: repository.contributor_policy.digest,
+               repository_ref: name
+             },
+             Map.get(repository.contributor_policy, :authority_digest)
+           )}
         ]
       end)
 
@@ -310,6 +316,11 @@ defmodule Responder.RuntimeConfiguration do
           standard_policy,
           "repositories.#{name}.deep_policy"
         )
+
+      validate_class_policy_authority!(
+        [conversation_policy, standard_policy, deep_policy],
+        "repositories.#{name}"
+      )
 
       {name,
        %{
@@ -1404,10 +1415,17 @@ defmodule Responder.RuntimeConfiguration do
   end
 
   defp work_profile!(value, path) do
-    object = object!(value, ~w(policy policy_digest repository_ref), ~w(class_policies), path)
+    object =
+      object!(
+        value,
+        ~w(policy policy_digest repository_ref),
+        ~w(authority_digest class_policies),
+        path
+      )
 
     case WorkProfile.new(%{
            class_policies: class_policies!(object["class_policies"], "#{path}.class_policies"),
+           authority_digest: object["authority_digest"],
            policy: object["policy"],
            policy_digest: object["policy_digest"],
            repository_ref: object["repository_ref"]
@@ -1427,12 +1445,16 @@ defmodule Responder.RuntimeConfiguration do
         object!(
           policies[work_class],
           ~w(policy policy_digest),
-          [],
+          ~w(authority_digest),
           "#{path}.#{work_class}"
         )
 
       {String.to_existing_atom(work_class),
-       %{policy: policy["policy"], policy_digest: policy["policy_digest"]}}
+       %{
+         authority_digest: policy["authority_digest"],
+         policy: policy["policy"],
+         policy_digest: policy["policy_digest"]
+       }}
     end)
   end
 
@@ -1443,14 +1465,31 @@ defmodule Responder.RuntimeConfiguration do
         deep: policy_profile(repository.deep_policy),
         standard: policy_profile(repository.standard_policy)
       },
+      authority_digest: Map.get(repository.conversation_policy, :authority_digest),
       policy: repository.conversation_policy.name,
       policy_digest: repository.conversation_policy.digest,
       repository_ref: repository_ref
     }
   end
 
-  defp policy_profile(policy),
-    do: %{policy: policy.name, policy_digest: policy.digest}
+  defp policy_profile(policy) do
+    %{policy: policy.name, policy_digest: policy.digest}
+    |> maybe_put_policy_authority(Map.get(policy, :authority_digest))
+  end
+
+  defp validate_class_policy_authority!(policies, path) do
+    identities = Enum.map(policies, &{&1.name, &1.digest}) |> Enum.uniq()
+    authorities = Enum.map(policies, &Map.get(&1, :authority_digest)) |> Enum.uniq()
+
+    unless length(identities) == 1 or
+             match?([authority] when is_binary(authority), authorities) do
+      raise ArgumentError,
+            "#{path} conversational, standard, and deep policies must share one authority_digest"
+    end
+  end
+
+  defp maybe_put_policy_authority(policy, nil), do: policy
+  defp maybe_put_policy_authority(policy, digest), do: Map.put(policy, :authority_digest, digest)
 
   defp optional_policy!(nil, fallback, _path), do: fallback
   defp optional_policy!(value, _fallback, path), do: policy!(value, path)
@@ -1662,14 +1701,22 @@ defmodule Responder.RuntimeConfiguration do
   defp put_optional(map, key, value), do: Map.put(map, key, value)
 
   defp policy!(value, path) do
-    object = object!(value, ~w(name digest), [], path)
+    object = object!(value, ~w(name digest), ~w(authority_digest), path)
     name = reference!(object["name"], "#{path}.name")
     digest = object["digest"]
 
     unless is_binary(digest) and Regex.match?(~r/\A[0-9a-f]{64}\z/, digest),
       do: raise(ArgumentError, "#{path}.digest must be a lowercase SHA-256 digest")
 
+    authority_digest = object["authority_digest"]
+
+    unless is_nil(authority_digest) or
+             (is_binary(authority_digest) and
+                Regex.match?(~r/\A[0-9a-f]{64}\z/, authority_digest)),
+           do: raise(ArgumentError, "#{path}.authority_digest must be a lowercase SHA-256 digest")
+
     %{digest: digest, name: name}
+    |> maybe_put_policy_authority(authority_digest)
   end
 
   defp fetch_repository!(repositories, name, path) do

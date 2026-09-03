@@ -2214,28 +2214,40 @@ defmodule Responder.Work.Executor do
          } = remote_session,
          allowed_states
        ) do
-    identity_matches = expected.coop_session_id in [nil, id] and reference?(id)
+    remote_authority = {policy, policy_digest, external_ref}
+    expected_authority = {expected.policy, expected.policy_digest, expected.external_ref}
 
-    binding_matches = is_nil(Map.get(remote_session, "responder_binding_digest"))
-
-    cond do
-      not identity_matches ->
-        {:error, {:coop_protocol_error, :session_identity}}
-
-      state not in allowed_states ->
-        {:error, {:coop_protocol_error, :session_state}}
-
-      policy != expected.policy or policy_digest != expected.policy_digest or
-        external_ref != expected.external_ref or not binding_matches ->
-        {:error, {:coop_protocol_error, :session_authority}}
-
-      true ->
-        :ok
+    with :ok <- exact_remote_session_identity(expected, id),
+         :ok <- exact_remote_session_allowed_state(state, allowed_states),
+         true <- remote_authority == expected_authority,
+         true <- session_authority_digest_matches?(expected, remote_session),
+         true <- is_nil(Map.get(remote_session, "responder_binding_digest")) do
+      :ok
+    else
+      false -> {:error, {:coop_protocol_error, :session_authority}}
+      {:error, _reason} = error -> error
     end
   end
 
   defp exact_remote_session_state(_expected, _remote_session, _allowed_states),
     do: {:error, {:coop_protocol_error, :session_resource}}
+
+  defp exact_remote_session_identity(expected, id) do
+    if expected.coop_session_id in [nil, id] and reference?(id),
+      do: :ok,
+      else: {:error, {:coop_protocol_error, :session_identity}}
+  end
+
+  defp exact_remote_session_allowed_state(state, allowed_states) do
+    if state in allowed_states,
+      do: :ok,
+      else: {:error, {:coop_protocol_error, :session_state}}
+  end
+
+  defp session_authority_digest_matches?(%{authority_digest: nil}, _remote_session), do: true
+
+  defp session_authority_digest_matches?(expected, remote_session),
+    do: remote_session["authority_digest"] == expected.authority_digest
 
   defp exact_remote_turn(
          %{"id" => id, "session_id" => session_id} = remote_turn,

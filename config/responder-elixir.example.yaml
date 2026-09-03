@@ -11,7 +11,8 @@ coop:
 # Model routing is encoded in trusted Coop policies, never in an input. The
 # recommended policy targets are conversational = gpt-5.6-terra/medium,
 # standard = gpt-5.6-sol/medium, and deep = gpt-5.6-sol/xhigh. Keep authority
-# orthogonal: all three policies below should have the same read-only scope.
+# orthogonal: all three policies below must use the same authority_digest from
+# `coop sessions policies --json`; never hand-calculate these placeholder values.
 repositories:
   responder:
     path: /srv/responder
@@ -21,12 +22,15 @@ repositories:
     conversation_policy:
       name: responder-conversation-v1
       digest: "9999999999999999999999999999999999999999999999999999999999999999"
+      authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
     standard_policy:
       name: responder-standard-v1
       digest: "8888888888888888888888888888888888888888888888888888888888888888"
+      authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
     deep_policy:
       name: responder-deep-v1
       digest: "7777777777777777777777777777777777777777777777777777777777777777"
+      authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
     contributor_policy:
       name: responder-contributor-v1
       digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -96,17 +100,21 @@ control_plane:
   # browser can never choose or widen it. Linked local incidents use the same
   # profile while real Slack channel provisioning remains Slack-owned.
   work_profile:
+    authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
     policy: responder-conversation-v1
     policy_digest: "9999999999999999999999999999999999999999999999999999999999999999"
     repository_ref: responder
     class_policies:
       conversational:
+        authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
         policy: responder-conversation-v1
         policy_digest: "9999999999999999999999999999999999999999999999999999999999999999"
       standard:
+        authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
         policy: responder-standard-v1
         policy_digest: "8888888888888888888888888888888888888888888888888888888888888888"
       deep:
+        authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
         policy: responder-deep-v1
         policy_digest: "7777777777777777777777777777777777777777777777777777777777777777"
 
@@ -218,17 +226,21 @@ webhooks:
         conversation_ref: slack:T0123456789:C1111111111
         thread_ref:
       work_profile:
+        authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
         policy: responder-read-only-v1
         policy_digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
         repository_ref: responder
         class_policies:
           conversational:
+            authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
             policy: responder-conversation-v1
             policy_digest: "9999999999999999999999999999999999999999999999999999999999999999"
           standard:
+            authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
             policy: responder-standard-v1
             policy_digest: "8888888888888888888888888888888888888888888888888888888888888888"
           deep:
+            authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
             policy: responder-deep-v1
             policy_digest: "7777777777777777777777777777777777777777777777777777777777777777"
       max_body_bytes: 40000

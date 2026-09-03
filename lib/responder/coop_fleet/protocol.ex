@@ -130,8 +130,10 @@ defmodule Responder.CoopFleet.Protocol do
   end
 
   defp worker(%{} = document) do
+    document = Map.put_new(document, "policy_authority_digests", %{})
+
     fields =
-      ~w(id workspace_ref protocol_version build_version clock_at sandbox_digest policy_digests repositories capabilities capacity state)
+      ~w(id workspace_ref protocol_version build_version clock_at sandbox_digest policy_digests policy_authority_digests repositories capabilities capacity state)
 
     with :ok <- exact_fields(document, fields, :worker),
          :ok <- reference(document["id"], 256, :worker_id),
@@ -141,6 +143,9 @@ defmodule Responder.CoopFleet.Protocol do
          {:ok, clock_at} <- timestamp(document["clock_at"], :clock_at),
          :ok <- digest(document["sandbox_digest"], :sandbox_digest),
          {:ok, policies} <- policy_digests(document["policy_digests"]),
+         {:ok, policy_authorities} <-
+           policy_authority_digests(document["policy_authority_digests"]),
+         :ok <- policy_authority_contract(policies, policy_authorities),
          {:ok, repositories} <-
            unique_list(document["repositories"], :repositories, &repository/1, & &1["ref"]),
          {:ok, capabilities} <-
@@ -151,6 +156,7 @@ defmodule Responder.CoopFleet.Protocol do
        document
        |> Map.put("clock_at", clock_at)
        |> Map.put("policy_digests", policies)
+       |> Map.put("policy_authority_digests", policy_authorities)
        |> Map.put("repositories", repositories)
        |> Map.put("capabilities", capabilities)
        |> Map.put("capacity", capacity)}
@@ -194,6 +200,21 @@ defmodule Responder.CoopFleet.Protocol do
   end
 
   defp policy_digests(_policies), do: {:error, {:invalid_coop_worker_poll, :policy_digests}}
+
+  defp policy_authority_digests(policies) do
+    case policy_digests(policies) do
+      {:ok, prepared} -> {:ok, prepared}
+      {:error, _reason} -> {:error, {:invalid_coop_worker_poll, :policy_authority_digests}}
+    end
+  end
+
+  defp policy_authority_contract(_policies, authorities) when map_size(authorities) == 0, do: :ok
+
+  defp policy_authority_contract(policies, authorities) do
+    if Map.keys(policies) |> Enum.sort() == Map.keys(authorities) |> Enum.sort(),
+      do: :ok,
+      else: {:error, {:invalid_coop_worker_poll, :policy_authority_digests}}
+  end
 
   defp repository(%{} = document) do
     with :ok <- exact_fields(document, ~w(ref revision), :repository),

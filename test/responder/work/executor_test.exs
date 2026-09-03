@@ -1621,6 +1621,25 @@ defmodule Responder.Work.ExecutorTest do
              protocol_options(wrong_authority_fake, %{get_session: change_policy_digest})
            ) == {:error, {:coop_protocol_error, :session_authority}}
 
+    expected_authority = String.duplicate("d", 64)
+
+    wrong_execution_authority =
+      claim_with_bound_empty_session!("wrong-session-execution-authority", expected_authority)
+
+    {:ok, wrong_execution_authority_fake} = fake_for(wrong_execution_authority, [reply("unused")])
+
+    change_authority_digest = fn fallback ->
+      {:ok, session} = fallback.()
+      {:ok, Map.put(session, "authority_digest", String.duplicate("e", 64))}
+    end
+
+    assert Executor.run(
+             wrong_execution_authority,
+             protocol_options(wrong_execution_authority_fake, %{
+               get_session: change_authority_digest
+             })
+           ) == {:error, {:coop_protocol_error, :session_authority}}
+
     wrong_turn_session = bound_turn!("wrong-turn-session")
     {:ok, wrong_turn_session_fake} = fake_for(wrong_turn_session, [])
 
@@ -2457,7 +2476,10 @@ defmodule Responder.Work.ExecutorTest do
   defp claim_episode!(suffix), do: claim_episode!(suffix, nil, :live)
   defp claim_episode!(suffix, payload), do: claim_episode!(suffix, payload, :live)
 
-  defp claim_episode!(suffix, payload, execution_mode) do
+  defp claim_episode!(suffix, payload, execution_mode),
+    do: claim_episode!(suffix, payload, execution_mode, nil)
+
+  defp claim_episode!(suffix, payload, execution_mode, authority_digest) do
     id = Ecto.UUID.generate()
 
     command =
@@ -2475,7 +2497,13 @@ defmodule Responder.Work.ExecutorTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+             Custody.pin_episode(
+               id,
+               "work-read-only",
+               String.duplicate("a", 64),
+               authority_digest,
+               nil
+             )
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60, :work)
     claim
@@ -2556,8 +2584,8 @@ defmodule Responder.Work.ExecutorTest do
     %{claim | session: session, turn: turn}
   end
 
-  defp claim_with_bound_empty_session!(suffix) do
-    claim = claim_episode!(suffix)
+  defp claim_with_bound_empty_session!(suffix, authority_digest \\ nil) do
+    claim = claim_episode!(suffix, nil, :live, authority_digest)
 
     assert {:ok, session} =
              Custody.bind_session(
@@ -2629,7 +2657,8 @@ defmodule Responder.Work.ExecutorTest do
             "external_ref" => claim.session.external_ref,
             "id" => claim.session.coop_session_id || "remote:#{claim.episode.id}",
             "policy" => claim.session.policy,
-            "policy_digest" => claim.session.policy_digest
+            "policy_digest" => claim.session.policy_digest,
+            "authority_digest" => claim.session.authority_digest
           })
 
         %{state | session: session}

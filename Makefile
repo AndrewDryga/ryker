@@ -367,7 +367,7 @@ eval-baseline-update:
 model-release-check: eval-judge-calibration eval-quality eval-proactive eval-scenarios eval-world eval-evidence eval-memory eval-episode-replay eval-regressions eval-live-canary
 
 eval-host-replay:
-	scripts/elixir-test.sh \
+	RESPONDER_TEST_ISOLATED=1 scripts/elixir-test.sh \
 		test/responder/episodes/replay_test.exs \
 		test/responder/evals/world_case_test.exs \
 		test/responder/evals/world_concurrency_test.exs \

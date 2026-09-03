@@ -76,18 +76,26 @@ defmodule Responder.RuntimeConfigurationTest do
                }
              },
              work_profile: %WorkProfile{
+               authority_digest:
+                 "6666666666666666666666666666666666666666666666666666666666666666",
                class_policies: %{
                  conversational: %{
+                   authority_digest:
+                     "6666666666666666666666666666666666666666666666666666666666666666",
                    policy: "responder-conversation-v1",
                    policy_digest:
                      "9999999999999999999999999999999999999999999999999999999999999999"
                  },
                  deep: %{
+                   authority_digest:
+                     "6666666666666666666666666666666666666666666666666666666666666666",
                    policy: "responder-deep-v1",
                    policy_digest:
                      "7777777777777777777777777777777777777777777777777777777777777777"
                  },
                  standard: %{
+                   authority_digest:
+                     "6666666666666666666666666666666666666666666666666666666666666666",
                    policy: "responder-standard-v1",
                    policy_digest:
                      "8888888888888888888888888888888888888888888888888888888888888888"
@@ -203,6 +211,7 @@ defmodule Responder.RuntimeConfigurationTest do
              WorkProfile.policy_for(binding.work_profile, :deep)
 
     assert configuration.cutover_profiles[{"read_only", "responder"}] == %{
+             authority_digest: "6666666666666666666666666666666666666666666666666666666666666666",
              policy: "responder-conversation-v1",
              policy_digest: "9999999999999999999999999999999999999999999999999999999999999999",
              repository_ref: "responder"
@@ -419,6 +428,37 @@ defmodule Responder.RuntimeConfigurationTest do
     assert configuration.work.concurrency == 4
     assert configuration.cutover_profiles[{"read_only", nil}].policy == "admission-read"
     refute Map.has_key?(configuration.work, :state_tool_capabilities)
+  end
+
+  test "model class policies require one model-independent authority digest" do
+    document =
+      minimal_document("""
+      control_plane:
+        ip: 127.0.0.1
+        port: 4321
+        work_profile:
+          authority_digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          policy: conversation
+          policy_digest: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          repository_ref:
+          class_policies:
+            conversational:
+              authority_digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+              policy: conversation
+              policy_digest: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            standard:
+              authority_digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+              policy: standard
+              policy_digest: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            deep:
+              authority_digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+              policy: deep
+              policy_digest: eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+      """)
+
+    assert_raise ArgumentError, ~r/authority_equivalence/, fn ->
+      RuntimeConfiguration.from_string!(document)
+    end
   end
 
   test "model evals require dedicated authority distinct from every production policy" do

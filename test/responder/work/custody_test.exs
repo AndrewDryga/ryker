@@ -9,6 +9,7 @@ defmodule Responder.Work.CustodyTest do
   alias Responder.Work.{Cancellation, Custody, Submission, Turn, TurnChangeset}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
+  @authority_digest String.duplicate("f", 64)
 
   test "one worker owns one durable logical turn and episode session" do
     command = create_episode!("one-owner")
@@ -53,20 +54,24 @@ defmodule Responder.Work.CustodyTest do
                command.episode_id,
                "work-read-only",
                String.duplicate("a", 64),
+               @authority_digest,
                "infrastructure"
              )
 
     assert pinned.repository_ref == "infrastructure"
+    assert pinned.authority_digest == @authority_digest
 
     assert {:ok, original} =
              Custody.pin_episode(
                command.episode_id,
                "work-read-only-v2",
                String.duplicate("b", 64),
+               String.duplicate("e", 64),
                "backend"
              )
 
     assert original.policy == "work-read-only"
+    assert original.authority_digest == @authority_digest
     assert original.repository_ref == "infrastructure"
 
     assert {:ok, claim} = Custody.claim_next("worker:new-default", 60)

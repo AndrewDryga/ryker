@@ -17,6 +17,8 @@ defmodule Responder.ControlPlane.ProjectionTest do
     overview = Projection.overview()
     assert overview.counts.active == 2
     assert overview.counts.waiting == 2
+    assert is_map(overview.fleet)
+    assert Map.has_key?(overview.fleet, :eligible_workers)
     assert length(overview.needs_attention) <= 20
 
     page = Projection.episodes(%{"page" => "1", "q" => "100%_", "state" => "waiting_for_input"})
