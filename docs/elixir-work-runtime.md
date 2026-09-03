@@ -44,7 +44,9 @@ tools own durable records. The generic Delivery module owns external message and
 ## Reliability rules
 
 - Process clocks do not decide leases or retry time; PostgreSQL does.
-- A worker cannot choose episode policy. Existing episodes retain their pinned policy across deploys.
+- A worker cannot choose episode policy. Admission chooses only the abstract conversational,
+  standard, or deep class and maps it through a host-owned profile. Existing episodes retain their
+  pinned policy across deploys and later classifications.
 - A frozen submission never changes under one operation key, even after a process crash or deploy.
 - Only a confirmed failure that produced no remote resource may spend a create or submit generation.
 - Only `session_cleanup_error`, while the exact candidate still awaits validation, may spend a
@@ -181,7 +183,15 @@ without production environment, credentials, network mutation tools, or project 
 - `socket`: local Coop Unix socket;
 - `worker_ref`: stable identity prefix for this local worker pool;
 - `concurrency`: optional local slot count, from 1 through 32 (default 4); and
+- `source_and_action_tools`: optional exact names from the MCP catalog exposed by the pinned Coop
+  policy; these names make the frozen model context truthful but confer no authority; and
 - optional bounded polling and receive timeouts.
+
+The Work runtime does not contain a model router. The adapter freezes a three-class Work profile at
+ingress, admission selects one abstract class, and Coop resolves the selected policy to its immutable
+target. The recommended targets are Terra/medium for conversational work, Sol/medium for standard
+work, and Sol/xhigh for deep work. Keep those three policies authority-equivalent. Writable task
+execution remains a separate confirmed contributor policy rather than a `deep` side effect.
 
 For example:
 
@@ -190,9 +200,30 @@ config :responder, :work,
   socket: "/var/lib/responder/coop/control.sock",
   worker_ref: "responder-work:host-a",
   concurrency: 4,
+  platform_tools: ["list_runners", "find_actions"],
   poll_interval_ms: 250,
   receive_timeout_ms: 30_000
 ```
+
+The YAML field is named `work.source_and_action_tools`; the internal runtime option is
+`platform_tools`. The configured names must exactly match tools actually supplied to that Coop
+policy by its owner-private MCP configuration. Responder never reads MCP credentials, and an
+incoming Slack, GitHub, webhook, or Conversation Lab message cannot add a tool or change this list.
+All of those sources share the same trusted Work runtime. Conversation Lab also installs a loopback
+implementation of the exact Slack chat capability schemas: `list_slack_channels`, `search_slack`,
+`read_slack_source`, `set_slack_reaction`, and `post_slack_message`. In a Lab turn those tools expose
+one virtual workspace scoped to the current Lab conversation. Reads return only its durable messages;
+reactions and confirmed additional posts use the ordinary platform-action outbox but settle back into
+the local timeline. Human feedback reactions on delivered replies are passive ordered episode events:
+they do not wake work, but both the bounded add/remove history and current counts are frozen into the
+next logical turn. Lab message edits and deletes use the same stable-item revision contract as provider
+adapters. Every result identifies the adapter as emulated with external effects disabled.
+This lets the model make the same chat/tool/card choices without generating Slack test traffic or
+receiving a Slack credential. Configured repository and Emisar tools remain real and retain the exact
+Work policy authority. Incident offers start a real linked Work episode in the Lab under that pinned
+authority; the virtual incident stays in the Lab timeline instead of fabricating a Slack channel.
+Slack workspace audience rules, real workspace data, and Slack API provisioning still require the
+authenticated Slack adapter and its disposable live qualification.
 
 All slots must reach the same Coop daemon. The persisted Coop session ID is not yet paired with a
 routable execution endpoint, so this stage does not claim cross-machine lease takeover. Durable

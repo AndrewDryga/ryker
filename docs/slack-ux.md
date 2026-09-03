@@ -320,7 +320,7 @@ available in that workspace. A reaction acknowledges or signals; it never claims
 approval, remediation, or future work.
 
 Emisar also observes reaction additions and removals on messages it posted. These events enter the
-same durable per-channel order as messages, invalidate cached Slack history, and appear in the next
+same durable episode order as messages and appear in the next
 conversation turn alongside the current bounded reaction counts and reacting member IDs. A reaction
 does not start an agent turn or produce a reply by itself. Removed reactions are retained only as
 historical context and are not treated as current agreement. No emoji reaction can authorize an

@@ -26,6 +26,7 @@ defmodule Responder.Admission.DecisionTest do
       assert {:ok, decision} =
                fields
                |> Map.put_new("reaction", nil)
+               |> Map.put("work_class", work_class(expected_action))
                |> Map.put("reason", "A short factual reason.")
                |> Decision.parse()
 
@@ -40,7 +41,8 @@ defmodule Responder.Admission.DecisionTest do
                "episode_ref" => "candidate-older-cycle",
                "reaction" => nil,
                "relation" => "history_only",
-               "reason" => "This is a new lifecycle related to the older work."
+               "reason" => "This is a new lifecycle related to the older work.",
+               "work_class" => "standard"
              })
 
     assert decision.relation == :history_only
@@ -55,6 +57,7 @@ defmodule Responder.Admission.DecisionTest do
                "reaction" => nil,
                "relation" => "unrelated",
                "reason" => "Duplicate event.",
+               "work_class" => nil,
                "thread_ts" => "the model cannot route"
              })
 
@@ -64,7 +67,8 @@ defmodule Responder.Admission.DecisionTest do
                "episode_ref" => nil,
                "reaction" => nil,
                "relation" => "same_work",
-               "reason" => "Continue it."
+               "reason" => "Continue it.",
+               "work_class" => "standard"
              })
 
     assert {:error, {:invalid_decision, :relation}} =
@@ -73,7 +77,8 @@ defmodule Responder.Admission.DecisionTest do
                "episode_ref" => "candidate-1",
                "reaction" => nil,
                "relation" => "same_work",
-               "reason" => "Ignore it."
+               "reason" => "Ignore it.",
+               "work_class" => nil
              })
   end
 
@@ -81,13 +86,22 @@ defmodule Responder.Admission.DecisionTest do
     schema = Decision.json_schema()
 
     assert schema["additionalProperties"] == false
-    assert schema["required"] == ["action", "episode_ref", "reaction", "relation", "reason"]
+
+    assert schema["required"] ==
+             ["action", "episode_ref", "reaction", "relation", "reason", "work_class"]
 
     assert schema["properties"]["action"]["enum"] ==
              ~w(start_episode continue_episode reply react ignore)
 
     assert schema["properties"]["relation"]["enum"] ==
              ~w(same_work history_only unrelated)
+
+    assert schema["properties"]["work_class"] == %{
+             "anyOf" => [
+               %{"enum" => ~w(conversational standard deep), "type" => "string"},
+               %{"type" => "null"}
+             ]
+           }
 
     assert length(schema["oneOf"]) == 8
   end
@@ -113,7 +127,8 @@ defmodule Responder.Admission.DecisionTest do
                "episode_ref" => nil,
                "reaction" => %{"emoji_name" => "white_check_mark"},
                "relation" => "unrelated",
-               "reason" => "Acknowledge the update without adding another message."
+               "reason" => "Acknowledge the update without adding another message.",
+               "work_class" => nil
              })
 
     assert decision.reaction == %{emoji_name: "white_check_mark"}
@@ -124,7 +139,8 @@ defmodule Responder.Admission.DecisionTest do
                "episode_ref" => nil,
                "reaction" => nil,
                "relation" => "unrelated",
-               "reason" => "This cannot be delivered without an emoji name."
+               "reason" => "This cannot be delivered without an emoji name.",
+               "work_class" => nil
              })
   end
 
@@ -135,7 +151,8 @@ defmodule Responder.Admission.DecisionTest do
                "episode_ref" => nil,
                "reaction" => %{"emoji_name" => "eyes"},
                "relation" => "unrelated",
-               "reason" => "Acknowledge this update."
+               "reason" => "Acknowledge this update.",
+               "work_class" => nil
              })
 
     paraphrased = %{first | reason: "The update only needs an acknowledgement."}
@@ -159,7 +176,10 @@ defmodule Responder.Admission.DecisionTest do
          action: "react",
          episode_ref: "candidate-1",
          reaction: %{"emoji_name" => "eyes"}
-       ), :relation}
+       ), :relation},
+      {decision_document(action: "reply", work_class: "standard"), :work_class},
+      {decision_document(action: "start_episode", work_class: "conversational"), :work_class},
+      {decision_document(action: "ignore", work_class: "deep"), :work_class}
     ]
 
     for {document, field} <- cases do
@@ -192,7 +212,11 @@ defmodule Responder.Admission.DecisionTest do
 
     assert {:ok, _document} =
              JSV.validate(
-               decision_document(action: "react", reaction: %{"emoji_name" => "heart"}),
+               decision_document(
+                 action: "react",
+                 reaction: %{"emoji_name" => "heart"},
+                 work_class: nil
+               ),
                built,
                cast: false
              )
@@ -201,7 +225,8 @@ defmodule Responder.Admission.DecisionTest do
              JSV.validate(
                decision_document(
                  action: "react",
-                 reaction: %{"emoji_name" => "white_check_mark"}
+                 reaction: %{"emoji_name" => "white_check_mark"},
+                 work_class: nil
                ),
                built,
                cast: false
@@ -214,11 +239,16 @@ defmodule Responder.Admission.DecisionTest do
       "episode_ref" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
-      "reason" => "Answer directly."
+      "reason" => "Answer directly.",
+      "work_class" => "conversational"
     }
 
     Enum.reduce(overrides, defaults, fn {key, value}, document ->
       Map.put(document, Atom.to_string(key), value)
     end)
   end
+
+  defp work_class(action) when action in [:react, :ignore], do: nil
+  defp work_class(:reply), do: "conversational"
+  defp work_class(_action), do: "standard"
 end

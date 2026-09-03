@@ -107,7 +107,8 @@ defmodule Responder.Evals.CoopRunnerTest do
         "episode_ref" => nil,
         "reaction" => nil,
         "relation" => "unrelated",
-        "reason" => "Treat it as new work."
+        "reason" => "Treat it as new work.",
+        "work_class" => "standard"
       })
 
     {:ok, fake} = FakeCoopAPI.start_link([candidate])

@@ -8,10 +8,11 @@ defmodule Responder.Webhooks.EndToEndTest do
   import Plug.Test
 
   alias Responder.Admission.Dispatcher, as: AdmissionDispatcher
+  alias Responder.ControlPlane.{ConversationLab, Projection, Publisher}
   alias Responder.Delivery.Adapters
   alias Responder.Episodes
   alias Responder.Repo
-  alias Responder.Slack.Publisher
+  alias Responder.Slack.Publisher, as: SlackPublisher
   alias Responder.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
   alias Responder.Webhooks.{Route, Router}
   alias Responder.Work.{Dispatcher, Final, Session, Turn}
@@ -129,8 +130,8 @@ defmodule Responder.Webhooks.EndToEndTest do
              Adapters.new(%{
                "slack" => %{
                  binding: %{workspaces: %{"T123" => %{api: SlackAPI, client: slack}}},
-                 message_publisher: Publisher,
-                 reaction_publisher: Publisher
+                 message_publisher: SlackPublisher,
+                 reaction_publisher: SlackPublisher
                }
              })
 
@@ -184,6 +185,82 @@ defmodule Responder.Webhooks.EndToEndTest do
     assert FakeWorkCoopAPI.state(work_fake).submit_count == 1
   end
 
+  test "an arbitrary signed webhook can exercise the full product through Conversation Lab without Slack traffic" do
+    conversation_id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+    assert {:ok, conversation_ref} = ConversationLab.conversation_ref(conversation_id)
+
+    body =
+      Jason.encode!(%{
+        "kind" => "manual-lab-acceptance",
+        "message" => "Universal adapter reaches Conversation Lab",
+        "nested" => %{
+          "arbitrary" => true,
+          "count" => 3,
+          "must_not_render" => "private-webhook-payload-marker"
+        }
+      })
+
+    response = post_to_lab(body, "lab-webhook-occurrence", conversation_ref)
+    assert response.status == 202
+
+    {:ok, admission_fake} = FakeCoopAPI.start_link([decision("start_episode")])
+
+    assert {:ok, {:decided, admission}} =
+             AdmissionDispatcher.run_once(admission_dispatcher_options(admission_fake))
+
+    assert admission.result.entry.source_kind == "webhook"
+    assert admission.result.episode.destination_transport == "control_plane"
+    assert admission.result.episode.destination_conversation_ref == conversation_ref
+    assert admission.result.episode.destination_thread_ref == conversation_ref
+
+    {:ok, work_fake} =
+      FakeWorkCoopAPI.start_link([
+        work_reply("The arbitrary webhook reached the local product pipeline.")
+      ])
+
+    assert {:ok, {:executed, execution}} =
+             Dispatcher.run_once(work_dispatcher_options(work_fake))
+
+    assert execution.status == :accepted
+
+    assert {:ok, adapters} =
+             Adapters.new(%{
+               "control_plane" => %{
+                 binding: nil,
+                 message_publisher: Publisher,
+                 reaction_publisher: Publisher
+               }
+             })
+
+    assert {:ok, {:delivered, :message, _delivery_ref}} =
+             Responder.Delivery.Dispatcher.run_once(
+               adapters: adapters,
+               kind: :message,
+               lease_seconds: 60,
+               retry_base_seconds: 1,
+               retry_max_seconds: 60,
+               worker_ref: "webhook-lab-delivery-e2e"
+             )
+
+    assert {:ok, conversation} = Projection.lab_conversation(conversation_id)
+
+    assert Enum.any?(conversation.messages, fn message ->
+             message.actor == :integration and
+               message.text == "Webhook universal · manual.unknown · revision 1" and
+               message.status == :decided
+           end)
+
+    assert Enum.any?(conversation.messages, fn message ->
+             message.actor == :responder and
+               message.text == "The arbitrary webhook reached the local product pipeline."
+           end)
+
+    refute inspect(conversation) =~ "private-webhook-payload-marker"
+
+    assert Enum.any?(Projection.lab_index(), &(&1.id == conversation_id))
+    refute_receive {:slack_posted, _, _, _, _}
+  end
+
   defp post(body, event_id) do
     conn(:post, "/v1/hooks/universal", body)
     |> put_req_header("authorization", "Bearer #{@secret}")
@@ -191,6 +268,35 @@ defmodule Responder.Webhooks.EndToEndTest do
     |> put_req_header("x-responder-event-id", event_id)
     |> put_req_header("x-responder-event-type", "new.vendor.event")
     |> Router.call(router_options())
+  end
+
+  defp post_to_lab(body, event_id, conversation_ref) do
+    conn(:post, "/v1/hooks/universal", body)
+    |> put_req_header("authorization", "Bearer #{@secret}")
+    |> put_req_header("content-type", "application/json")
+    |> put_req_header("x-responder-event-id", event_id)
+    |> put_req_header("x-responder-event-type", "manual.unknown")
+    |> Router.call(local_router_options(conversation_ref))
+  end
+
+  defp local_router_options(conversation_ref) do
+    assert {:ok, route} =
+             Route.new(%{
+               auth: {:bearer, @secret},
+               destination: %{
+                 conversation_ref: conversation_ref,
+                 thread_ref: conversation_ref,
+                 transport: "control_plane"
+               },
+               name: "universal",
+               work_profile: %{
+                 policy: "webhook-conversation-read",
+                 policy_digest: String.duplicate("a", 64),
+                 repository_ref: "responder"
+               }
+             })
+
+    Router.init(now: fn -> @now end, routes: %{"universal" => route})
   end
 
   defp router_options do
@@ -258,7 +364,8 @@ defmodule Responder.Webhooks.EndToEndTest do
       "episode_ref" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
-      "reason" => "This unknown event needs a new episode so Responder can inspect it."
+      "reason" => "This unknown event needs a new episode so Responder can inspect it.",
+      "work_class" => "standard"
     })
   end
 

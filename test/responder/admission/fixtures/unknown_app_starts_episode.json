@@ -26,6 +26,7 @@
     "action": "start_episode",
     "episode_ref": null,
     "reaction": null,
+    "work_class": "standard",
     "relation": "unrelated",
     "reason": "This new app message contains work worth handling."
   },

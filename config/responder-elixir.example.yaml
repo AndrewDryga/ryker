@@ -8,6 +8,10 @@ host_ref: responder-a
 coop:
   receive_timeout_ms: 30000
 
+# Model routing is encoded in trusted Coop policies, never in an input. The
+# recommended policy targets are conversational = gpt-5.6-terra/medium,
+# standard = gpt-5.6-sol/medium, and deep = gpt-5.6-sol/xhigh. Keep authority
+# orthogonal: all three policies below should have the same read-only scope.
 repositories:
   responder:
     path: /srv/responder
@@ -17,6 +21,12 @@ repositories:
     conversation_policy:
       name: responder-conversation-v1
       digest: "9999999999999999999999999999999999999999999999999999999999999999"
+    standard_policy:
+      name: responder-standard-v1
+      digest: "8888888888888888888888888888888888888888888888888888888888888888"
+    deep_policy:
+      name: responder-deep-v1
+      digest: "7777777777777777777777777777777777777777777777777777777777777777"
     contributor_policy:
       name: responder-contributor-v1
       digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -51,6 +61,12 @@ work:
   workspace_ref: responder-main
   capability_names:
     - responder-state
+  # When the pinned Coop policy exposes an owner-configured MCP catalog, list
+  # its exact tool names here. This is descriptive model context only; Coop's
+  # policy and private MCP configuration remain the authority boundary.
+  # source_and_action_tools:
+  #   - list_runners
+  #   - find_actions
   concurrency: 4
   poll_interval_ms: 250
 
@@ -77,11 +93,22 @@ control_plane:
   ip: 127.0.0.1
   port: 4321
   # Conversation Lab traffic uses this exact host-owned Work authority. The
-  # browser can never choose or widen it.
+  # browser can never choose or widen it. Linked local incidents use the same
+  # profile while real Slack channel provisioning remains Slack-owned.
   work_profile:
     policy: responder-conversation-v1
     policy_digest: "9999999999999999999999999999999999999999999999999999999999999999"
     repository_ref: responder
+    class_policies:
+      conversational:
+        policy: responder-conversation-v1
+        policy_digest: "9999999999999999999999999999999999999999999999999999999999999999"
+      standard:
+        policy: responder-standard-v1
+        policy_digest: "8888888888888888888888888888888888888888888888888888888888888888"
+      deep:
+        policy: responder-deep-v1
+        policy_digest: "7777777777777777777777777777777777777777777777777777777777777777"
 
 # Coop workers connect outbound to this mutual-TLS endpoint. The CA signs
 # short-lived worker certificates; no bearer-token or worker-ID header is
@@ -194,5 +221,15 @@ webhooks:
         policy: responder-read-only-v1
         policy_digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
         repository_ref: responder
+        class_policies:
+          conversational:
+            policy: responder-conversation-v1
+            policy_digest: "9999999999999999999999999999999999999999999999999999999999999999"
+          standard:
+            policy: responder-standard-v1
+            policy_digest: "8888888888888888888888888888888888888888888888888888888888888888"
+          deep:
+            policy: responder-deep-v1
+            policy_digest: "7777777777777777777777777777777777777777777777777777777777777777"
       max_body_bytes: 40000
       max_clock_skew_seconds: 300

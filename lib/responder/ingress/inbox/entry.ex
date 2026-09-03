@@ -36,6 +36,7 @@ defmodule Responder.Ingress.Inbox.Entry do
     field(:admission_context, CanonicalJSONType)
     field(:admission_context_fingerprint, :string)
     field(:execution_mode, Ecto.Enum, values: [:live, :shadow], default: :live)
+    field(:work_profile, CanonicalJSONType)
     field(:work_policy, :string)
     field(:work_policy_digest, :string)
     field(:repository_ref, :string)

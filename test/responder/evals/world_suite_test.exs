@@ -17,6 +17,7 @@ defmodule Responder.Evals.WorldSuiteTest do
         "artifact-delivery-survives-work-handoff",
         "concurrent-human-feedback-serializes",
         "current-uptime-check-uses-fresh-source",
+        "explicit-operator-incident-offer",
         "github-pr-review-remains-in-thread",
         "ordinary-thread-question-gets-natural-answer",
         "rivals-engineering-task-offer",
@@ -33,7 +34,7 @@ defmodule Responder.Evals.WorldSuiteTest do
                paired_baseline: true
              )
 
-    assert length(plan) == 48
+    assert length(plan) == 54
 
     assert Enum.map(plan, &{&1.scenario.id, &1.repeat_index, &1.lane}) ==
              for(
@@ -221,6 +222,25 @@ defmodule Responder.Evals.WorldSuiteTest do
     assert summary.paired.baseline_passed == 0
     assert summary.paired.regression_rate == 0.0
     assert summary.paired.pass_rate_delta == 1.0
+  end
+
+  test "baseline hard failures remain comparison evidence and do not veto the candidate" do
+    reports = [
+      report("case-a", 1, :failed, [%{"kind" => "state_tool_recorded"}], :baseline),
+      report("case-a", 1, :passed)
+    ]
+
+    assert {:ok, summary} =
+             WorldSuite.summarize(reports,
+               paired_baseline: true,
+               min_overall_pass_rate: 1.0,
+               min_case_pass_rate: 1.0
+             )
+
+    assert summary.passed?
+    assert summary.baseline.hard_failure_count == 1
+    assert summary.candidate.hard_failure_count == 0
+    assert summary.failures == []
   end
 
   defp report(scenario_id, repeat_index, status, failures \\ [], lane \\ :candidate) do

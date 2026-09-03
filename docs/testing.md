@@ -26,7 +26,7 @@ make eval-world-smoke CONFIG=/absolute/responder-elixir-eval.yaml
 make eval-world CONFIG=/absolute/responder-elixir-eval.yaml
 ```
 
-Admission evals score routing and relation selection. Work evals use the production prompt, final
+Admission evals score lifecycle routing, relation selection, and the abstract Work class. Work evals use the production prompt, final
 schema, and host validator, including same-turn semantic correction and candidate-attempt identity.
 The YAML must declare a dedicated `model_evals.socket`, `model_evals.no_tools_policy`, and
 `model_evals.world_policy`; the full paired gate also requires
@@ -41,7 +41,8 @@ model. `eval-world-smoke` runs eight representative scenarios once at a 100% flo
 `eval-world` runs the complete corpus three times for both the candidate and baseline policies against
 the exact same deterministic worlds. It requires at least 90% aggregate success, at least two of three
 passes per case, no more than 10% paired baseline regressions, and zero hard-invariant or `UNRUN`
-observations. Both are interactive product lanes: they use the real episode kernel, Work executor,
+candidate observations. Baseline failures remain visible comparison evidence but cannot veto a
+candidate that fixes them. Both are interactive product lanes: they use the real episode kernel, Work executor,
 lease-scoped Responder state tools, semantic repair, and an inert evaluation delivery adapter. Only
 external source systems are served by the checked-in deterministic cassette. A second isolated Coop
 session judges the human-language rubric after all hard and trajectory checks pass; an unrun rubric
@@ -527,8 +528,21 @@ workspace configuration. Then qualify these large features in disposable destina
 1. **Conversation Lab.** Open `http://127.0.0.1:4321/lab`, start a conversation, and ask for a
    concise answer. Send a follow-up that depends on it and confirm the Lab shows one episode and one
    Coop session with two logical turns. Ask a material question, answer it, and verify the same task
-   resumes. Restart Responder while the next answer is pending; expect one eventual reply and no
-   duplicate Work or Delivery row.
+   resumes. Upload a bounded text file and image, ask for a generated image, and verify exact input
+   artifact custody plus a turn-scoped local preview. Edit a sent message, then delete another, and
+   verify each remains one stable logical item with increasing revisions. Add and remove feedback
+   emoji on a Responder reply; it must update the visible current count without starting work, then
+   appear as bounded context after the next message. Exercise one model-requested reaction and the native
+   task, memory, schedule, automation, and publication controls. Ask it to list, search, and read the
+   current virtual workspace across completed episode boundaries, including one uploaded file through
+   `files` search and a `document` read. Then explicitly request an additional message: verify the model uses the
+   Slack-compatible tools, the post remains inert until the local confirmation is clicked, and no Slack
+   request occurs. Ask it to prepare an incident, confirm the local incident card, and verify a linked
+   policy-pinned Work episode starts in this timeline without a Slack API request and inspect its
+   evidence-backed postmortem. On a confirmed task, inspect its exact Coop diff plus host-rendered timeline,
+   evidence ledger, and handoff, then exercise readiness review, explicit draft publication, and delivery
+   check from the task card. Restart Responder while the next answer
+   is pending; expect one eventual reply and no duplicate Work or Delivery row.
 2. **Slack conversation.** Mention Responder in an approved `*-test` channel. Expect native progress
    followed by one reply in the exact root thread. Send an ordinary authorized follow-up without an
    `@mention`; expect the same episode/thread and a compact continuation rather than another full
@@ -538,8 +552,9 @@ workspace configuration. Then qualify these large features in disposable destina
    offer, then exercise status, progress repaint, run-now/resume where offered, and Stop. Double-click
    or replay every button payload; expect one audited transition and the same repainted card. Stop
    during a running Coop turn and verify remote cancellation is terminal before the episode cancels.
-4. **Slack reactions and files.** Add a standard Unicode or configured custom emoji reaction to a
-   live source message and verify one normalized reaction input. Ask Responder to react and verify
+4. **Slack reactions and files.** Add and remove a standard or configured custom emoji reaction on a
+   live Responder reply and verify one normalized passive-feedback event, current member/count state,
+   and no model turn until another message arrives. Ask Responder to react to a source message and verify
    exact source-message targeting plus idempotent `already_reacted` handling. Upload a bounded text
    file and image; verify authenticated byte fetch, type/size checks, turn-scoped artifact custody,
    and same-thread delivery. Create one disposable incident room and verify audience, topic,
@@ -560,7 +575,10 @@ workspace configuration. Then qualify these large features in disposable destina
    ID, and configured destination. Expect Responder to report exact observed fields while labeling
    unknown vendor meaning. Exact replay must be a duplicate; a changed body under the occurrence ID
    must conflict; revision 2 under the stable item must remain in the original episode. Content must
-   never choose its own destination, policy, repository, reaction, or posting authority.
+   never choose its own destination, policy, repository, reaction, or posting authority. For local
+   qualification, bind the route to the exact Conversation Lab ref so the accepted reply is visible
+   without generating Slack traffic; the configured production route may instead target Slack or
+   GitHub through its registered adapter.
 9. **Stateful model behavior.** Ask for evidence, a progress update, a required goal, memory, a
    schedule, an operator question, and a governed Emisar action in separate safe conversations.
    Confirm offers before activation. Verify waits release leases, exact triggers resume once, open

@@ -24,6 +24,14 @@ defmodule Responder.Admission.Prompt do
   - ignore: no Responder action would help. Give a short factual reason. Never ignore a request directed
     at Responder.
 
+  Choose work_class independently from the lifecycle action:
+  - conversational: only with reply, for ordinary questions, chat, or a small focused lookup.
+  - standard: the default for investigation and normal tool-backed work.
+  - deep: only when materially harder reasoning, ambiguity, or consequence justifies the extra cost.
+  - null: only with react or ignore.
+  The class chooses compute from a host-owned profile. It never changes repository, tools, credentials,
+  or write authority. Do not choose deep merely because the message is long, urgent, or asks for edits.
+
   Use history_only when the older episode is useful background but the current event is new work. A
   history link never reuses the older destination. Use only candidate references and relations
   present in the supplied context. Do not invent identifiers.

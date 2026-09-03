@@ -411,6 +411,13 @@ Humor cannot affect authority. Proactivity cannot imply permission. Urgency cann
 requirements. Preferences may change presentation or investigation depth but never authorize an
 external effect.
 
+The first host routing vocabulary is deliberately smaller than the effort-contract vocabulary:
+`conversational`, `standard`, and `deep`. Admission may choose only one of those abstract classes;
+the trusted adapter profile maps it to a Coop policy. The recommended targets are Terra/medium,
+Sol/medium, and Sol/xhigh respectively. Repository, tool, credential, and write authority are
+independent dimensions. Existing episodes remain pinned to the policy selected when their current
+session lineage began.
+
 ### 7.1 Effort contracts
 
 Use a small contract vocabulary:

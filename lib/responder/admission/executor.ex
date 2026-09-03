@@ -11,7 +11,7 @@ defmodule Responder.Admission.Executor do
   alias Responder.Admission
   alias Responder.Admission.{Context, Decision, Prompt}
   alias Responder.CanonicalJSON
-  alias Responder.Ingress.{Inbox, Input}
+  alias Responder.Ingress.{Inbox, Input, WorkProfile}
 
   @retryable_terminal_turn_states ~w(failed)
   @stopped_turn_states ~w(cancelled interrupted budget_exhausted)
@@ -37,11 +37,12 @@ defmodule Responder.Admission.Executor do
   defp run_context(entry, session, context, settings) do
     with {:ok, turn} <- ensure_turn(entry, session, context, settings),
          {:ok, decision, candidate_sha256} <- await_decision(turn, context, entry, settings),
+         {:ok, work_policy} <- work_policy(entry, decision, settings),
          :ok <- close_session(session, entry, settings),
          {:ok, result} <-
            Admission.commit(context, decision, decision_ref(turn, candidate_sha256),
              lease_ref: settings.lease_ref,
-             work_policy: work_policy(entry, settings)
+             work_policy: work_policy
            ) do
       {:ok,
        %{
@@ -72,16 +73,31 @@ defmodule Responder.Admission.Executor do
     end
   end
 
+  defp work_policy(_entry, %Decision{work_class: nil}, _settings), do: {:ok, nil}
+
+  defp work_policy(
+         %{work_profile: profile},
+         %Decision{work_class: work_class},
+         _settings
+       )
+       when is_map(profile) do
+    case WorkProfile.restore(profile) do
+      {:ok, restored} -> WorkProfile.policy_for(restored, work_class)
+      {:error, _reason} = error -> error
+    end
+  end
+
   defp work_policy(
          %{work_policy: policy, work_policy_digest: digest, repository_ref: repository_ref},
+         %Decision{},
          _settings
        )
        when is_binary(policy) and is_binary(digest) do
-    %{digest: digest, name: policy, repository_ref: repository_ref}
+    {:ok, %{digest: digest, name: policy, repository_ref: repository_ref}}
   end
 
-  defp work_policy(_entry, settings) do
-    %{digest: settings.policy_digest, name: settings.policy, repository_ref: nil}
+  defp work_policy(_entry, %Decision{}, settings) do
+    {:ok, %{digest: settings.policy_digest, name: settings.policy, repository_ref: nil}}
   end
 
   defp admission_context(input_ref, settings) do

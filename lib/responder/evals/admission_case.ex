@@ -229,7 +229,7 @@ defmodule Responder.Evals.AdmissionCase do
     do: {:error, {:invalid_admission_eval, :decision}}
 
   defp comparable(%{} = document) do
-    Map.take(document, ~w(action episode_ref reaction relation))
+    Map.take(document, ~w(action episode_ref reaction relation work_class))
   end
 
   defp comparable(_document), do: nil

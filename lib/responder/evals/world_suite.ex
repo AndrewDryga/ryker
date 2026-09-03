@@ -55,7 +55,7 @@ defmodule Responder.Evals.WorldSuite do
       baseline = statistics(lanes.baseline)
 
       failures =
-        invariant_failures(reports) ++
+        invariant_failures(lanes.candidate) ++
           threshold_failures(candidate, settings) ++ paired_failures(paired, settings)
 
       {:ok,

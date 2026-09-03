@@ -12,7 +12,7 @@ defmodule Responder.Admission.CommitTest do
   alias Responder.Ingress.{Inbox, Input}
   alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
-  alias Responder.Work.{Cancellation, Custody, Submission}
+  alias Responder.Work.{Cancellation, Custody, Session, Submission}
 
   @now ~U[2026-08-27 12:00:00.000000Z]
 
@@ -171,6 +171,50 @@ defmodule Responder.Admission.CommitTest do
              :input_admitted,
              :input_admitted
            ]
+  end
+
+  test "an existing episode keeps its pinned policy when a later classification selects another class" do
+    active = create_episode!(thread_ref: "1787830000.007001")
+    original_digest = String.duplicate("a", 64)
+
+    assert {:ok, original_session} =
+             Custody.pin_episode(
+               active.id,
+               "conversation-terra-medium",
+               original_digest,
+               "service"
+             )
+
+    entry =
+      record_input!(
+        event_ref: "Ev-existing-work-class",
+        message_ref: "1787830000.007002",
+        thread_ref: active.destination_thread_ref
+      )
+
+    context = context!(entry)
+    candidate = candidate!(context, active.id)
+    decision = decision!(:continue_episode, candidate.ref, :same_work, "deep")
+
+    assert {:ok, result} =
+             Admission.commit(context, decision, "decision-existing-work-class",
+               work_policy: %{
+                 digest: String.duplicate("d", 64),
+                 name: "deep-sol-xhigh",
+                 repository_ref: "service"
+               }
+             )
+
+    assert result.episode.id == active.id
+
+    assert %Session{
+             id: session_id,
+             policy: "conversation-terra-medium",
+             policy_digest: ^original_digest,
+             repository_ref: "service"
+           } = Repo.one!(from(session in Session, where: session.episode_id == ^active.id))
+
+    assert session_id == original_session.id
   end
 
   test "a same-work correction rearms a remotely settled blocked turn" do
@@ -986,8 +1030,11 @@ defmodule Responder.Admission.CommitTest do
       flunk("episode #{episode_id} was not offered as a candidate")
   end
 
-  defp decision!(action, episode_ref, relation) do
+  defp decision!(action, episode_ref, relation, selected_work_class \\ :default) do
     reaction = if action == :react, do: %{"emoji_name" => "eyes"}, else: nil
+
+    selected_work_class =
+      if selected_work_class == :default, do: work_class(action), else: selected_work_class
 
     assert {:ok, decision} =
              Decision.parse(%{
@@ -995,11 +1042,16 @@ defmodule Responder.Admission.CommitTest do
                "episode_ref" => episode_ref,
                "reaction" => reaction,
                "relation" => Atom.to_string(relation),
-               "reason" => "Recorded model admission decision for this test."
+               "reason" => "Recorded model admission decision for this test.",
+               "work_class" => selected_work_class
              })
 
     decision
   end
+
+  defp work_class(action) when action in [:react, :ignore], do: nil
+  defp work_class(:reply), do: "conversational"
+  defp work_class(_action), do: "standard"
 
   defp record_input!(overrides) do
     attributes =

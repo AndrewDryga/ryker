@@ -46,6 +46,7 @@
     "action": "continue_episode",
     "episode_ref": "$seed",
     "reaction": null,
+    "work_class": "standard",
     "relation": "same_work",
     "reason": "Both cards name the same external run."
   },

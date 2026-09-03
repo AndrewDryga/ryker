@@ -42,6 +42,13 @@ defmodule Responder.Admission.PromptTest do
     assert request["instructions"] =~ "explicit source identity"
     assert request["instructions"] =~ "do not ignore the event that closes active work"
     assert request["instructions"] =~ "different explicit run ID or alert start identity"
+    assert request["instructions"] =~ "conversational: only with reply"
+    assert request["instructions"] =~ "standard: the default for investigation"
+    assert request["instructions"] =~ "deep: only when materially harder reasoning"
+
+    assert request["instructions"] =~ "never changes repository, tools, credentials,"
+    assert request["instructions"] =~ "or write authority"
+
     refute request["instructions"] =~ "Grafana"
     refute request["instructions"] =~ "Terraform"
   end

@@ -210,7 +210,7 @@ defmodule Responder.Ingress.Input do
       {not Map.has_key?(input.source_capabilities, "react") or
          not is_nil(input.source_item_ref), :source_item_ref},
       {not Map.has_key?(input.source_capabilities, "post_slack_message") or
-         (input.source.kind == "slack" and input.actor.kind == :user and
+         (input.source.kind in ["slack", "control_plane"] and input.actor.kind == :user and
             not is_nil(input.source_item_ref)), :source_capabilities},
       {post_capability_matches_source?(input), :source_capabilities},
       {utc_datetime?(input.occurred_at), :occurred_at}
@@ -348,6 +348,19 @@ defmodule Responder.Ingress.Input do
         Regex.match?(@slack_post_destination_regex, destination_ref)
     end)
   end
+
+  defp post_capability_matches_source?(%__MODULE__{
+         destination: %{
+           conversation_ref: conversation_ref,
+           thread_ref: conversation_ref,
+           transport: "control_plane"
+         },
+         source: %{kind: "control_plane", ref: "local"},
+         source_capabilities: %{
+           "post_slack_message" => %{"destination_refs" => [conversation_ref]}
+         }
+       }),
+       do: String.starts_with?(conversation_ref, "control-plane:lab:")
 
   defp post_capability_matches_source?(%__MODULE__{
          source_capabilities: %{"post_slack_message" => _capability}

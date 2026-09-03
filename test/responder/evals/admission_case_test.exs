@@ -7,10 +7,12 @@ defmodule Responder.Evals.AdmissionCaseTest do
 
   test "every pending model judgment compiles into an executable opaque eval case" do
     assert {:ok, cases} = AdmissionCase.all()
-    assert length(cases) == 12
+    assert length(cases) == 14
     assert Enum.uniq_by(cases, & &1.eval_id) == cases
 
     assert Enum.any?(cases, &(&1.eval_id == "human_thread_reply_continues_existing_episode"))
+    assert Enum.any?(cases, &(&1.eval_id == "direct_question_selects_conversational_work"))
+    assert Enum.any?(cases, &(&1.eval_id == "broad_health_assessment_selects_deep_work"))
 
     for eval <- cases do
       document = AdmissionCase.document(eval)
@@ -37,6 +39,7 @@ defmodule Responder.Evals.AdmissionCaseTest do
     assert {:ok, decision} = AdmissionCase.assess(eval, submitted)
     assert decision.action == :continue_episode
     assert decision.relation == :same_work
+    assert decision.work_class == :standard
 
     wrong = %{
       submitted
@@ -51,6 +54,24 @@ defmodule Responder.Evals.AdmissionCaseTest do
 
     assert expected == eval.expectation
     assert submitted_comparison["action"] == "start_episode"
+  end
+
+  test "assessment scores the abstract work class independently of lifecycle prose" do
+    assert {:ok, cases} = AdmissionCase.all()
+
+    eval =
+      Enum.find(cases, &(&1.eval_id == "human_thread_reply_continues_existing_episode"))
+
+    wrong_class =
+      eval.expectation
+      |> Map.put("reason", "Use an unnecessarily deep route for the same lifecycle.")
+      |> Map.put("work_class", "deep")
+
+    assert {:error, {:admission_eval_mismatch, expected: expected, submitted: submitted}} =
+             AdmissionCase.assess(eval, wrong_class)
+
+    assert expected["work_class"] == "standard"
+    assert submitted["work_class"] == "deep"
   end
 
   test "malformed manifests and candidates fail before a model score can be reported" do
@@ -80,7 +101,8 @@ defmodule Responder.Evals.AdmissionCaseTest do
          "episode_ref" => "$seed",
          "reaction" => nil,
          "relation" => "history_only",
-         "reason" => "Cancelled work is history, not a resumable owner."
+         "reason" => "Cancelled work is history, not a resumable owner.",
+         "work_class" => "standard"
        }}
     ]
 
