@@ -27,7 +27,8 @@ defmodule Responder.AdmissionConcurrencyTest do
                  "episode_ref" => nil,
                  "reaction" => nil,
                  "relation" => "unrelated",
-                 "reason" => "This message asks Responder to do new work."
+                 "reason" => "This message asks Responder to do new work.",
+                 "work_class" => "standard"
                })
 
       parent = self()
@@ -158,7 +159,8 @@ defmodule Responder.AdmissionConcurrencyTest do
                      "episode_ref" => nil,
                      "reaction" => nil,
                      "relation" => "unrelated",
-                     "reason" => "The frozen snapshot offered no existing work."
+                     "reason" => "The frozen snapshot offered no existing work.",
+                     "work_class" => "standard"
                    })
 
           assert {:error, {:admission_rejected, :context_stale}} =
@@ -267,7 +269,8 @@ defmodule Responder.AdmissionConcurrencyTest do
                  "episode_ref" => candidate.ref,
                  "reaction" => nil,
                  "relation" => "history_only",
-                 "reason" => "This appears to be new work with relevant history."
+                 "reason" => "This appears to be new work with relevant history.",
+                 "work_class" => "standard"
                })
 
       parent = self()

@@ -16,6 +16,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @cutover_ledger_version 20_260_830_000_200
   @runtime_progress_version 20_260_830_000_300
   @artifact_references_version 20_260_830_000_400
+  @lab_post_capability_version 20_260_830_000_500
+  @reaction_events_version 20_260_830_000_600
+  @work_classes_version 20_260_903_000_100
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
   test "an installation that already ran the Slack inbox migration upgrades to generic ingress" do
@@ -45,7 +48,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @product_schema_version,
                @cutover_ledger_version,
                @runtime_progress_version,
-               @artifact_references_version
+               @artifact_references_version,
+               @lab_post_capability_version,
+               @reaction_events_version,
+               @work_classes_version
              ]
 
       refute table_exists?(repo, prefix, "slack_inbox_entries")
@@ -71,6 +77,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert column_exists?(repo, prefix, "ingress_inbox_entries", "execution_mode")
       assert column_exists?(repo, prefix, "episode_kernel_episodes", "execution_mode")
       assert column_exists?(repo, prefix, "ingress_inbox_entries", "work_policy")
+      assert column_exists?(repo, prefix, "ingress_inbox_entries", "work_profile")
       assert column_exists?(repo, prefix, "episode_work_sessions", "repository_ref")
       assert column_exists?(repo, prefix, "episode_work_sessions", "cleanup_status")
       assert column_exists?(repo, prefix, "episode_work_sessions", "cleanup_blocked_from")
@@ -119,7 +126,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @product_schema_version,
                @cutover_ledger_version,
                @runtime_progress_version,
-               @artifact_references_version
+               @artifact_references_version,
+               @lab_post_capability_version,
+               @reaction_events_version,
+               @work_classes_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -132,6 +142,26 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  "SELECT execution_kind, episode_id FROM #{prefix}.episode_work_sessions WHERE id = $1::text::uuid",
                  [admission_session_id]
                )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@work_classes_version]
+
+      refute column_exists?(repo, prefix, "ingress_inbox_entries", "work_profile")
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@reaction_events_version]
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@lab_post_capability_version]
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
                step: 1,
@@ -173,7 +203,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @product_schema_version,
                @cutover_ledger_version,
                @runtime_progress_version,
-               @artifact_references_version
+               @artifact_references_version,
+               @lab_post_capability_version,
+               @reaction_events_version,
+               @work_classes_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -200,7 +233,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @product_schema_version,
                @cutover_ledger_version,
                @runtime_progress_version,
-               @artifact_references_version
+               @artifact_references_version,
+               @lab_post_capability_version,
+               @reaction_events_version,
+               @work_classes_version
              ]
 
       assert Release.migrate(options) == []
@@ -216,6 +252,18 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
         Release.rollback(@cutover_ledger_version, options)
       end
+
+      assert Release.rollback(@work_classes_version, options) == [
+               @work_classes_version
+             ]
+
+      assert Release.rollback(@reaction_events_version, options) == [
+               @reaction_events_version
+             ]
+
+      assert Release.rollback(@lab_post_capability_version, options) == [
+               @lab_post_capability_version
+             ]
 
       assert Release.rollback(@artifact_references_version, options) == [
                @artifact_references_version

@@ -6,13 +6,14 @@ version: 1
 # all of them, not just the one sessions start on. When every rung is cooling the turn waits and
 # is retried rather than failing the work.
 policies:
-  # One writable primary plus operator-pinned read-only companion snapshots.
+  # Standard work uses Sol/medium. These policies are read-only; model depth never grants writes.
   platform-observe:
     repository: /srv/repos/infrastructure
+    repository_read_only: true
     companions:
       - name: backend
         repository: /srv/repos/backend
-    target: [codex:gpt-5.6/medium@oncall, claude@oncall]
+    target: codex:gpt-5.6-sol/medium@oncall
     max_turns: 100
     max_queued_turns: 20
     max_queued_bytes: 1048576
@@ -21,7 +22,8 @@ policies:
 
   infrastructure-observe:
     repository: /srv/repos/infrastructure
-    target: [codex:gpt-5.6/medium@oncall, claude@oncall]
+    repository_read_only: true
+    target: codex:gpt-5.6-sol/medium@oncall
     max_turns: 100
     max_queued_turns: 20
     max_queued_bytes: 1048576
@@ -30,18 +32,20 @@ policies:
 
   backend-observe:
     repository: /srv/repos/backend
-    target: [codex:gpt-5.6/medium@oncall, claude@oncall]
+    repository_read_only: true
+    target: codex:gpt-5.6-sol/medium@oncall
     max_turns: 100
     max_queued_turns: 20
     max_queued_bytes: 1048576
     turn_timeout: 1h
     max_patch_bytes: 1048576
 
-  # Conversation policies use the same Coop provider accounts and read-only tool surface. The
-  # bounded idle lease keeps one authenticated ACP process ready without leaving it running forever.
+  # Conversational work uses Terra/medium. The bounded idle lease keeps one authenticated ACP
+  # process ready without leaving it running forever.
   infrastructure-conversation:
     repository: /srv/repos/infrastructure
-    target: codex:gpt-5.6/medium@oncall
+    repository_read_only: true
+    target: codex:gpt-5.6-terra/medium@oncall
     max_turns: 100
     max_queued_turns: 20
     max_queued_bytes: 1048576
@@ -51,7 +55,8 @@ policies:
 
   backend-conversation:
     repository: /srv/repos/backend
-    target: codex:gpt-5.6/medium@oncall
+    repository_read_only: true
+    target: codex:gpt-5.6-terra/medium@oncall
     max_turns: 100
     max_queued_turns: 20
     max_queued_bytes: 1048576
@@ -61,13 +66,48 @@ policies:
 
   platform-conversation:
     repository: /srv/repos/infrastructure
+    repository_read_only: true
     companions:
       - name: backend
         repository: /srv/repos/backend
-    target: codex:gpt-5.6/medium@oncall
+    target: codex:gpt-5.6-terra/medium@oncall
     max_turns: 100
     max_queued_turns: 20
     max_queued_bytes: 1048576
     turn_timeout: 1h
     warm_idle_timeout: 15m
+    max_patch_bytes: 1048576
+
+  # Deep work uses Sol/xhigh while keeping the same read-only repository and MCP authority.
+  infrastructure-deep:
+    repository: /srv/repos/infrastructure
+    repository_read_only: true
+    target: codex:gpt-5.6-sol/xhigh@oncall
+    max_turns: 100
+    max_queued_turns: 20
+    max_queued_bytes: 1048576
+    turn_timeout: 1h
+    max_patch_bytes: 1048576
+
+  backend-deep:
+    repository: /srv/repos/backend
+    repository_read_only: true
+    target: codex:gpt-5.6-sol/xhigh@oncall
+    max_turns: 100
+    max_queued_turns: 20
+    max_queued_bytes: 1048576
+    turn_timeout: 1h
+    max_patch_bytes: 1048576
+
+  platform-deep:
+    repository: /srv/repos/infrastructure
+    repository_read_only: true
+    companions:
+      - name: backend
+        repository: /srv/repos/backend
+    target: codex:gpt-5.6-sol/xhigh@oncall
+    max_turns: 100
+    max_queued_turns: 20
+    max_queued_bytes: 1048576
+    turn_timeout: 1h
     max_patch_bytes: 1048576

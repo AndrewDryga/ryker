@@ -39,6 +39,8 @@ Before every start, validate that:
 - every universal-webhook destination has a configured outbound adapter;
 - every enabled state tool has its owning runtime;
 - every Work profile has the reviewed policy and policy digest;
+- every class policy resolves to the intended target (`conversational` to Terra/medium, `standard`
+  to Sol/medium, and `deep` to Sol/xhigh) without widening repository or tool authority;
 - fleet worker certificates are current and revoked workers are absent; and
 - all listeners except the externally proxied webhook paths bind to loopback.
 
@@ -123,7 +125,10 @@ Conversation Lab enters the same durable generic ingress, admission, episode,
 Work, semantic-validation, and delivery pipeline as Slack, GitHub, and
 webhooks. It uses the configured fixed Work profile. It is not a direct model
 chat shortcut, and it cannot select policy, repository, destination, provider,
-or credentials from browser input.
+or credentials from browser input. Shared conversational behavior is identical
+to Slack. Slack-owned API effects are emulated locally and labelled as such;
+for example, an incident offer starts linked Work in the Lab rather than
+claiming that a Slack channel was provisioned.
 
 Keep the control plane loopback-only. Its Host and CSRF checks are part of the
 authority boundary; do not publish it through the public webhook proxy.
@@ -148,6 +153,28 @@ repository, and channel/thread.
 Offline E2E tests prove the host mechanics. The credentialed fabricated-world
 evaluation proves model trajectory without external side effects. Live
 acceptance proves platform grants and APIs. None substitutes for another.
+
+## Model routing
+
+Responder has two distinct model decisions. The short-lived admission session decides lifecycle
+(`reply`, start, continue, react, or ignore), candidate relation, and an abstract Work class. It is a
+classifier, so the recommended admission policy is Terra/medium. The durable Work session then uses
+the class selected from the host-owned profile:
+
+- conversational: Terra/medium;
+- standard: Sol/medium;
+- deep: Sol/xhigh.
+
+The policy digest is generated from the exact Coop policy file with:
+
+```bash
+coop sessions policies --policies /etc/coop/session-policies.yaml --json
+```
+
+Copy the resulting name/digest pairs into the Responder YAML. Use new versioned policy names when
+changing targets; do not mutate the meaning of a policy still pinned by an active or recoverable
+episode. Contributor, schedule, incident, and evaluation policies remain separate authority lanes,
+even when they happen to use one of the same model targets.
 
 ## PostgreSQL backup and restore
 

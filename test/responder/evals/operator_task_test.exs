@@ -20,10 +20,12 @@ defmodule Responder.Evals.OperatorTaskTest do
     Eval.run(["admission-pack"])
 
     documents = collect_info([])
-    assert length(documents) == 12
+    assert length(documents) == 14
 
     decoded = Enum.map(documents, &Jason.decode!/1)
     assert Enum.any?(decoded, &(&1["eval_id"] == "human_thread_reply_continues_existing_episode"))
+    assert Enum.any?(decoded, &(&1["eval_id"] == "direct_question_selects_conversational_work"))
+    assert Enum.any?(decoded, &(&1["eval_id"] == "broad_health_assessment_selects_deep_work"))
     assert Enum.all?(decoded, &(&1["schema"]["title"] == "Responder admission decision"))
   end
 
@@ -52,6 +54,7 @@ defmodule Responder.Evals.OperatorTaskTest do
                "confirmed-guidance-becomes-memory",
                "creative-request-needs-no-fake-evidence",
                "current-uptime-check-uses-fresh-source",
+               "explicit-operator-incident-offer",
                "github-pr-review-remains-in-thread",
                "grafana-firing-resolved-stays-in-cycle",
                "material-rollout-choice-asks-once",
@@ -195,7 +198,7 @@ defmodule Responder.Evals.OperatorTaskTest do
     work: {}
     """)
 
-    assert_raise Mix.Error, ~r/12 admission model eval\(s\) failed/, fn ->
+    assert_raise Mix.Error, ~r/14 admission model eval\(s\) failed/, fn ->
       Eval.run(["admission", "--config", config_path])
     end
 
@@ -210,7 +213,7 @@ defmodule Responder.Evals.OperatorTaskTest do
     world_report = results_path |> File.read!() |> Jason.decode!()
     assert world_report["version"] == 2
     refute world_report["summary"]["passed?"]
-    assert length(world_report["results"]) == 54
+    assert length(world_report["results"]) == 57
     assert Enum.all?(world_report["results"], &(&1["status"] == "unrun"))
 
     assert_raise Mix.Error, ~r/model-world qualification failed/, fn ->

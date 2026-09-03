@@ -132,7 +132,8 @@ defmodule Responder.Admission.WorkerTest do
       "episode_ref" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
-      "reason" => "The incoming request can receive an immediate answer."
+      "reason" => "The incoming request can receive an immediate answer.",
+      "work_class" => if(action == "reply", do: "conversational", else: "standard")
     })
   end
 

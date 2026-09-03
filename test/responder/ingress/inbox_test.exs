@@ -6,6 +6,7 @@ defmodule Responder.Ingress.InboxTest do
   alias Responder.ControlPlane.Projection
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
+  alias Responder.Ingress.WorkProfile
   alias Responder.Slack.Input, as: SlackInput
   alias Responder.Slack.SourceRef
 
@@ -65,14 +66,42 @@ defmodule Responder.Ingress.InboxTest do
     input = input!(event_ref: "Ev-work-placement")
 
     original = %{
+      class_policies: %{
+        conversational: %{
+          policy: "incident-conversation-v1",
+          policy_digest: String.duplicate("b", 64)
+        },
+        standard: %{
+          policy: "incident-standard-v1",
+          policy_digest: String.duplicate("c", 64)
+        },
+        deep: %{
+          policy: "incident-deep-v1",
+          policy_digest: String.duplicate("d", 64)
+        }
+      },
       policy: "incident-read-v1",
       policy_digest: String.duplicate("a", 64),
       repository_ref: "infrastructure"
     }
 
     changed = %{
+      class_policies: %{
+        conversational: %{
+          policy: "changed-conversation-v2",
+          policy_digest: String.duplicate("f", 64)
+        },
+        standard: %{
+          policy: "changed-standard-v2",
+          policy_digest: String.duplicate("0", 64)
+        },
+        deep: %{
+          policy: "changed-deep-v2",
+          policy_digest: String.duplicate("1", 64)
+        }
+      },
       policy: "incident-read-v2",
-      policy_digest: String.duplicate("b", 64),
+      policy_digest: String.duplicate("e", 64),
       repository_ref: "backend"
     }
 
@@ -82,6 +111,8 @@ defmodule Responder.Ingress.InboxTest do
     assert first.work_policy == original.policy
     assert first.work_policy_digest == original.policy_digest
     assert first.repository_ref == original.repository_ref
+    assert {:ok, frozen_profile} = WorkProfile.prepare(original)
+    assert first.work_profile == WorkProfile.document(frozen_profile)
 
     assert {:ok, %{status: :duplicate, entry: retried}} =
              Inbox.record(input, work_profile: changed)
@@ -89,7 +120,45 @@ defmodule Responder.Ingress.InboxTest do
     assert retried.work_policy == original.policy
     assert retried.work_policy_digest == original.policy_digest
     assert retried.repository_ref == original.repository_ref
+    assert retried.work_profile == WorkProfile.document(frozen_profile)
     assert Repo.aggregate(Entry, :count) == 1
+  end
+
+  test "the database rejects a malformed frozen work class profile" do
+    profile = %{
+      class_policies: %{
+        conversational: %{
+          policy: "conversation-v1",
+          policy_digest: String.duplicate("b", 64)
+        },
+        standard: %{policy: "standard-v1", policy_digest: String.duplicate("c", 64)},
+        deep: %{policy: "deep-v1", policy_digest: String.duplicate("d", 64)}
+      },
+      policy: "base-v1",
+      policy_digest: String.duplicate("a", 64),
+      repository_ref: "infrastructure"
+    }
+
+    assert {:ok, %{entry: entry}} =
+             Inbox.record(input!(event_ref: "Ev-work-profile-constraint"), work_profile: profile)
+
+    error =
+      assert_raise Postgrex.Error, fn ->
+        Repo.query!(
+          """
+          UPDATE ingress_inbox_entries
+          SET work_profile = jsonb_set(
+            work_profile::jsonb,
+            '{class_policies,deep,policy_digest}',
+            '\"wrong\"'::jsonb
+          )::text
+          WHERE id = $1
+          """,
+          [Ecto.UUID.dump!(entry.id)]
+        )
+      end
+
+    assert error.postgres.constraint == "ingress_inbox_work_class_profile_valid"
   end
 
   test "rejects a reused Slack event identity with changed content" do

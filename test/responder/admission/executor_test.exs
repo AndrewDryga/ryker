@@ -121,20 +121,52 @@ defmodule Responder.Admission.ExecutorTest do
              })
 
     work_profile = %{
-      policy: "incident-read-only",
+      policy: "incident-conversational",
       policy_digest: String.duplicate("b", 64),
-      repository_ref: "owner/infrastructure"
+      repository_ref: "owner/infrastructure",
+      class_policies: %{
+        conversational: %{
+          policy: "incident-conversational",
+          policy_digest: String.duplicate("b", 64)
+        },
+        standard: %{
+          policy: "incident-standard",
+          policy_digest: String.duplicate("c", 64)
+        },
+        deep: %{policy: "incident-deep", policy_digest: String.duplicate("d", 64)}
+      }
     }
 
     assert {:ok, %{entry: entry}} = Inbox.record(input, work_profile: work_profile)
     lease_ref = claim!(entry)
-    {:ok, fake} = FakeAPI.start_link([decision("start_episode")])
+
+    assert entry.work_profile == %{
+             "class_policies" => %{
+               "conversational" => %{
+                 "policy" => "incident-conversational",
+                 "policy_digest" => String.duplicate("b", 64)
+               },
+               "deep" => %{
+                 "policy" => "incident-deep",
+                 "policy_digest" => String.duplicate("d", 64)
+               },
+               "standard" => %{
+                 "policy" => "incident-standard",
+                 "policy_digest" => String.duplicate("c", 64)
+               }
+             },
+             "policy" => "incident-conversational",
+             "policy_digest" => String.duplicate("b", 64),
+             "repository_ref" => "owner/infrastructure"
+           }
+
+    {:ok, fake} = FakeAPI.start_link([decision("start_episode", nil, "deep")])
 
     assert {:ok, execution} =
              Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
 
     assert %Session{
-             policy: "incident-read-only",
+             policy: "incident-deep",
              policy_digest: digest,
              repository_ref: "owner/infrastructure"
            } =
@@ -144,7 +176,67 @@ defmodule Responder.Admission.ExecutorTest do
                )
              )
 
-    assert digest == String.duplicate("b", 64)
+    assert digest == String.duplicate("d", 64)
+  end
+
+  test "each abstract work class selects only its host-owned policy" do
+    work_profile = %{
+      class_policies: %{
+        conversational: %{
+          policy: "conversation-terra-medium",
+          policy_digest: String.duplicate("b", 64)
+        },
+        standard: %{
+          policy: "standard-sol-medium",
+          policy_digest: String.duplicate("c", 64)
+        },
+        deep: %{policy: "deep-sol-xhigh", policy_digest: String.duplicate("d", 64)}
+      },
+      policy: "conversation-terra-medium",
+      policy_digest: String.duplicate("b", 64),
+      repository_ref: "owner/service"
+    }
+
+    cases = [
+      {"reply", "conversational", "conversation-terra-medium", String.duplicate("b", 64)},
+      {"start_episode", "standard", "standard-sol-medium", String.duplicate("c", 64)},
+      {"start_episode", "deep", "deep-sol-xhigh", String.duplicate("d", 64)}
+    ]
+
+    for {{action, work_class, expected_policy, expected_digest}, index} <-
+          Enum.with_index(cases, 1) do
+      assert {:ok, input} =
+               SlackInput.new(%{
+                 actor: %{kind: :user, ref: "U123"},
+                 channel_ref: "C456",
+                 content: %{"text" => "Route this request by bounded work class."},
+                 event_kind: :message,
+                 event_ref: "Ev-work-class-#{index}",
+                 message_ref: "1787832010.00010#{index}",
+                 occurred_at: DateTime.add(@now, index, :microsecond),
+                 revision: 1,
+                 thread_ref: nil,
+                 workspace_ref: "T123"
+               })
+
+      assert {:ok, %{entry: entry}} = Inbox.record(input, work_profile: work_profile)
+      lease_ref = claim!(entry)
+      {:ok, fake} = FakeAPI.start_link([decision(action, nil, work_class)])
+
+      assert {:ok, execution} =
+               Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
+
+      assert %Session{
+               policy: ^expected_policy,
+               policy_digest: ^expected_digest,
+               repository_ref: "owner/service"
+             } =
+               Repo.one!(
+                 from(session in Session,
+                   where: session.episode_id == ^execution.result.episode.id
+                 )
+               )
+    end
   end
 
   test "a schema-valid unknown candidate is rejected and repaired in the same Coop turn" do
@@ -466,13 +558,14 @@ defmodule Responder.Admission.ExecutorTest do
     ]
   end
 
-  defp decision(action, reaction \\ nil) do
+  defp decision(action, reaction \\ nil, work_class \\ :default) do
     %{
       "action" => action,
       "episode_ref" => nil,
       "reaction" => reaction,
       "relation" => "unrelated",
-      "reason" => "This is the best action for the supplied event and candidates."
+      "reason" => "This is the best action for the supplied event and candidates.",
+      "work_class" => admission_work_class(action, work_class)
     }
     |> Jason.encode!()
   end
@@ -483,8 +576,14 @@ defmodule Responder.Admission.ExecutorTest do
       "episode_ref" => episode_ref,
       "reaction" => nil,
       "relation" => relation,
-      "reason" => "This candidate appears related to the incoming event."
+      "reason" => "This candidate appears related to the incoming event.",
+      "work_class" => admission_work_class(action, :default)
     }
     |> Jason.encode!()
   end
+
+  defp admission_work_class(action, :default) when action in ["react", "ignore"], do: nil
+  defp admission_work_class("reply", :default), do: "conversational"
+  defp admission_work_class(_action, :default), do: "standard"
+  defp admission_work_class(_action, work_class), do: work_class
 end

@@ -52,6 +52,7 @@
     "action": "start_episode",
     "episode_ref": "$seed",
     "reaction": null,
+    "work_class": "standard",
     "relation": "history_only",
     "reason": "The cards come from the same app, but they identify different external runs."
   },

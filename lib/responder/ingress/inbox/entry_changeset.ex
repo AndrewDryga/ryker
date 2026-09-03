@@ -6,6 +6,7 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
   alias Responder.Admission.Decision
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Ingress.Input
+  alias Responder.Ingress.WorkProfile
 
   @execution_fields [
     :admission_context,
@@ -61,6 +62,7 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
       source_ref: input.source.ref,
       source_item_ref: input.source_item_ref,
       status: :pending,
+      work_profile: work_profile && WorkProfile.document(work_profile),
       work_policy: work_profile && work_profile.policy,
       work_policy_digest: work_profile && work_profile.policy_digest,
       repository_ref: work_profile && work_profile.repository_ref
@@ -74,12 +76,14 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
           :destination_thread_ref,
           :repository_ref,
           :source_item_ref,
+          :work_profile,
           :work_policy,
           :work_policy_digest
         ]
     )
     |> unique_constraint(:dedupe_key)
     |> check_constraint(:execution_mode, name: :ingress_inbox_execution_mode_valid)
+    |> check_constraint(:work_profile, name: :ingress_inbox_work_class_profile_valid)
     |> check_constraint(:work_policy, name: :ingress_inbox_work_profile_valid)
     |> check_constraint(:status, name: :ingress_inbox_decision_matches_status)
   end

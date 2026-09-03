@@ -852,6 +852,16 @@
       "context_fixture": "test/responder/admission/fixtures/human_thread_reply_reopens_episode.json",
       "eval_id": "human_thread_reply_continues_existing_episode",
       "reason": "The deterministic replay applies the intended continuation; a model eval must prove an ordinary authorized reply naturally resumes the same conversation."
+    },
+    {
+      "context_fixture": "testdata/eval/admission/direct_question_uses_conversational_work.json",
+      "eval_id": "direct_question_selects_conversational_work",
+      "reason": "A short ordinary question should use the conversational tier rather than spending a full investigation turn."
+    },
+    {
+      "context_fixture": "testdata/eval/admission/broad_health_assessment_uses_deep_work.json",
+      "eval_id": "broad_health_assessment_selects_deep_work",
+      "reason": "A consequential multi-source assessment should explicitly select deep reasoning rather than under-routing it."
     }
   ]
 }

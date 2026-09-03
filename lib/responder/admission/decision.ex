@@ -8,10 +8,11 @@ defmodule Responder.Admission.Decision do
 
   @actions [:start_episode, :continue_episode, :reply, :react, :ignore]
   @relations [:same_work, :history_only, :unrelated]
-  @fields ~w(action episode_ref reaction relation reason)
+  @work_classes [:conversational, :standard, :deep]
+  @fields ~w(action episode_ref reaction relation reason work_class)
   @nonblank_pattern "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
 
-  @enforce_keys [:action, :episode_ref, :reaction, :relation, :reason]
+  @enforce_keys [:action, :episode_ref, :reaction, :relation, :reason, :work_class]
   defstruct @enforce_keys
 
   @type t :: %__MODULE__{
@@ -19,7 +20,8 @@ defmodule Responder.Admission.Decision do
           episode_ref: String.t() | nil,
           reaction: %{emoji_name: String.t()} | nil,
           relation: :same_work | :history_only | :unrelated,
-          reason: String.t()
+          reason: String.t(),
+          work_class: :conversational | :standard | :deep | nil
         }
 
   @spec parse(map()) :: {:ok, t()} | {:error, term()}
@@ -27,17 +29,20 @@ defmodule Responder.Admission.Decision do
     with :ok <- exact_fields(value),
          {:ok, action} <- parse_enum(value["action"], @actions, :action),
          {:ok, relation} <- parse_enum(value["relation"], @relations, :relation),
+         {:ok, work_class} <- parse_work_class(value["work_class"]),
          :ok <- validate_reference(value["episode_ref"]),
          {:ok, reaction} <- parse_reaction(value["reaction"]),
          :ok <- validate_reason(value["reason"]),
-         :ok <- validate_shape(action, value["episode_ref"], reaction, relation) do
+         :ok <- validate_shape(action, value["episode_ref"], reaction, relation),
+         :ok <- validate_work_class(action, work_class) do
       {:ok,
        %__MODULE__{
          action: action,
          episode_ref: value["episode_ref"],
          reaction: reaction,
          relation: relation,
-         reason: value["reason"]
+         reason: value["reason"],
+         work_class: work_class
        }}
     end
   end
@@ -55,7 +60,8 @@ defmodule Responder.Admission.Decision do
       "episode_ref" => decision.episode_ref,
       "reaction" => reaction_document(decision.reaction),
       "relation" => Atom.to_string(decision.relation),
-      "reason" => decision.reason
+      "reason" => decision.reason,
+      "work_class" => work_class_document(decision.work_class)
     }
   end
 
@@ -103,7 +109,13 @@ defmodule Responder.Admission.Decision do
           ]
         },
         "relation" => %{"enum" => Enum.map(@relations, &Atom.to_string/1)},
-        "reason" => bounded_string_schema(512)
+        "reason" => bounded_string_schema(512),
+        "work_class" => %{
+          "anyOf" => [
+            %{"enum" => Enum.map(@work_classes, &Atom.to_string/1), "type" => "string"},
+            %{"type" => "null"}
+          ]
+        }
       },
       "oneOf" => decision_shapes(actions, reaction_names),
       "required" => @fields,
@@ -114,27 +126,28 @@ defmodule Responder.Admission.Decision do
 
   defp decision_shapes(actions, reaction_names) do
     [
-      shape("start_episode", nil, nil, "unrelated"),
-      shape("start_episode", :reference, nil, "history_only"),
-      shape("continue_episode", :reference, nil, "same_work"),
-      shape("reply", nil, nil, "unrelated"),
-      shape("reply", :reference, nil, "same_work"),
-      shape("reply", :reference, nil, "history_only"),
-      shape("react", nil, {:reaction, reaction_names}, "unrelated"),
-      shape("ignore", nil, nil, "unrelated")
+      shape("start_episode", nil, nil, "unrelated", :investigation),
+      shape("start_episode", :reference, nil, "history_only", :investigation),
+      shape("continue_episode", :reference, nil, "same_work", :investigation),
+      shape("reply", nil, nil, "unrelated", :conversation),
+      shape("reply", :reference, nil, "same_work", :conversation),
+      shape("reply", :reference, nil, "history_only", :conversation),
+      shape("react", nil, {:reaction, reaction_names}, "unrelated", nil),
+      shape("ignore", nil, nil, "unrelated", nil)
     ]
     |> Enum.filter(fn %{"properties" => %{"action" => %{"const" => action}}} ->
       String.to_existing_atom(action) in actions
     end)
   end
 
-  defp shape(action, episode_ref, reaction, relation) do
+  defp shape(action, episode_ref, reaction, relation, work_class) do
     %{
       "properties" => %{
         "action" => %{"const" => action},
         "episode_ref" => reference_shape(episode_ref),
         "reaction" => reaction_shape(reaction),
-        "relation" => %{"const" => relation}
+        "relation" => %{"const" => relation},
+        "work_class" => work_class_shape(work_class)
       }
     }
   end
@@ -147,6 +160,10 @@ defmodule Responder.Admission.Decision do
   defp reaction_shape(nil), do: %{"type" => "null"}
 
   defp reaction_shape({:reaction, reaction_names}), do: reaction_schema(reaction_names)
+
+  defp work_class_shape(:conversation), do: %{"const" => "conversational"}
+  defp work_class_shape(:investigation), do: %{"enum" => ~w(standard deep)}
+  defp work_class_shape(nil), do: %{"type" => "null"}
 
   defp reaction_schema(reaction_names) do
     %{
@@ -185,6 +202,9 @@ defmodule Responder.Admission.Decision do
 
   defp parse_enum(_value, _allowed, field), do: {:error, {:invalid_decision, field}}
 
+  defp parse_work_class(nil), do: {:ok, nil}
+  defp parse_work_class(value), do: parse_enum(value, @work_classes, :work_class)
+
   defp validate_reference(nil), do: :ok
 
   defp validate_reference(value) do
@@ -211,6 +231,18 @@ defmodule Responder.Admission.Decision do
 
   defp reaction_document(nil), do: nil
   defp reaction_document(%{emoji_name: emoji_name}), do: %{"emoji_name" => emoji_name}
+
+  defp work_class_document(nil), do: nil
+  defp work_class_document(work_class), do: Atom.to_string(work_class)
+
+  defp validate_work_class(:reply, :conversational), do: :ok
+
+  defp validate_work_class(action, work_class)
+       when action in [:start_episode, :continue_episode] and work_class in [:standard, :deep],
+       do: :ok
+
+  defp validate_work_class(action, nil) when action in [:react, :ignore], do: :ok
+  defp validate_work_class(_action, _work_class), do: invalid(:work_class)
 
   defp validate_shape(:continue_episode, ref, nil, :same_work) when is_binary(ref), do: :ok
   defp validate_shape(:continue_episode, _ref, nil, :same_work), do: invalid(:episode_ref)

@@ -340,7 +340,8 @@ defmodule Responder.Admission.DispatcherTest do
         "episode_ref" => candidate.ref,
         "reaction" => nil,
         "relation" => "history_only",
-        "reason" => "This looks like a new request related to earlier work."
+        "reason" => "This looks like a new request related to earlier work.",
+        "work_class" => "standard"
       })
 
     {:ok, fake} = FakeAPI.start_link([stale_start])
@@ -473,7 +474,8 @@ defmodule Responder.Admission.DispatcherTest do
         "episode_ref" => candidate.ref,
         "reaction" => nil,
         "relation" => "history_only",
-        "reason" => "This is new work with useful history."
+        "reason" => "This is new work with useful history.",
+        "work_class" => "standard"
       })
 
     continue_reopened =
@@ -482,7 +484,8 @@ defmodule Responder.Admission.DispatcherTest do
         "episode_ref" => candidate.ref,
         "reaction" => nil,
         "relation" => "same_work",
-        "reason" => "This belongs to the reopened work."
+        "reason" => "This belongs to the reopened work.",
+        "work_class" => "standard"
       })
 
     {:ok, fake} =
@@ -662,7 +665,8 @@ defmodule Responder.Admission.DispatcherTest do
       "episode_ref" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
-      "reason" => "The incoming request can receive an immediate answer."
+      "reason" => "The incoming request can receive an immediate answer.",
+      "work_class" => if(action == "reply", do: "conversational", else: "standard")
     })
   end
 
@@ -707,7 +711,8 @@ defmodule Responder.Admission.DispatcherTest do
         "episode_ref" => nil,
         "reaction" => nil,
         "relation" => "unrelated",
-        "reason" => "The incoming request can receive an immediate answer."
+        "reason" => "The incoming request can receive an immediate answer.",
+        "work_class" => "conversational"
       })
     end
   end

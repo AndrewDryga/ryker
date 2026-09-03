@@ -14,7 +14,8 @@ defmodule Responder.Evals.WorldCoverage do
   @root_fields ~w(failure_axes jobs version)
   @required_jobs ~w(
     application_errors artifacts automation_waits creative_requests engineering_work grafana
-    github_review memory_feedback multi_user_threads ordinary_conversation research terraform uptime
+    github_review incident_response memory_feedback multi_user_threads ordinary_conversation research
+    terraform uptime
   )
   @required_failure_axes ~w(
     concurrent_human_feedback denied_authority missing_stale_contradictory_evidence noisy_context

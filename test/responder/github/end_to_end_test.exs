@@ -518,7 +518,8 @@ defmodule Responder.GitHub.EndToEndTest do
       "episode_ref" => nil,
       "reaction" => %{"emoji_name" => emoji_name},
       "relation" => "unrelated",
-      "reason" => "A native reaction is enough acknowledgement for this comment."
+      "reason" => "A native reaction is enough acknowledgement for this comment.",
+      "work_class" => nil
     })
   end
 
@@ -528,7 +529,8 @@ defmodule Responder.GitHub.EndToEndTest do
       "episode_ref" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
-      "reason" => "This comment requests work and needs a new episode."
+      "reason" => "This comment requests work and needs a new episode.",
+      "work_class" => if(action == "reply", do: "conversational", else: "standard")
     })
   end
 

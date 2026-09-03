@@ -53,6 +53,12 @@ Routes are explicit configuration. Each route owns its secret, payload limit, cl
 destination. The payload cannot override them. The listener defaults to loopback and starts only when
 `:responder, :webhooks` is configured.
 
+A configured Conversation Lab can be the trusted destination for a loopback/manual route by using
+`transport: control_plane` and the same exact `control-plane:lab:<uuid>` value for both
+`conversation_ref` and `thread_ref`. This exercises webhook ingestion, admission, Work, and local
+delivery without posting test traffic to Slack. Arbitrary payload fields still cannot select the Lab,
+policy, repository, or any other authority; those remain route configuration.
+
 An isolated runtime can enable both halves with ordinary application configuration:
 
 ```elixir
@@ -166,6 +172,12 @@ repositories:
     conversation_policy:
       name: responder-conversation-v1
       digest: <64 lowercase hexadecimal characters>
+    standard_policy:
+      name: responder-standard-v1
+      digest: <64 lowercase hexadecimal characters>
+    deep_policy:
+      name: responder-deep-v1
+      digest: <64 lowercase hexadecimal characters>
     contributor_policy:
       name: responder-contributor-v1
       digest: <64 lowercase hexadecimal characters>
@@ -239,6 +251,23 @@ The model chooses one of:
 - `reply`: answer directly without a longer investigation;
 - `react`: acknowledge with one emoji when the source supports reactions; or
 - `ignore`: take no visible action and preserve a short factual reason.
+
+It also chooses one abstract `work_class` for work-producing actions. `reply` requires
+`conversational`; `start_episode` and `continue_episode` require `standard` or `deep`; `react` and
+`ignore` require `null`. The host maps that bounded class through the adapter-owned Work profile:
+
+| Work class | Recommended Coop target | Intended use |
+| --- | --- | --- |
+| `conversational` | `codex:gpt-5.6-terra/medium` | ordinary questions, chat, and small lookups |
+| `standard` | `codex:gpt-5.6-sol/medium` | normal investigations and tool-backed work |
+| `deep` | `codex:gpt-5.6-sol/xhigh` | difficult, high-ambiguity, or high-consequence reasoning |
+
+The model never returns a provider, model, effort, policy name, repository, credential, or write
+authority. Those remain trusted configuration. The three class policies for one route should keep
+the same repository and tool authority; a deeper model is not permission to write. Confirmed
+engineering work moves through its separately authorized contributor policy. Existing episodes keep
+their already-pinned policy and native Coop session even if a later input is classified differently
+or configuration changes.
 
 It cannot return a destination or raw episode ID. A history-only link always keeps the current event's
 destination; it never turns an old thread into the new reply target.

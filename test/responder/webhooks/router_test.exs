@@ -51,7 +51,8 @@ defmodule Responder.Webhooks.RouterTest do
                "episode_ref" => nil,
                "reaction" => nil,
                "relation" => "unrelated",
-               "reason" => "This unfamiliar event needs investigation."
+               "reason" => "This unfamiliar event needs investigation.",
+               "work_class" => "standard"
              })
 
     assert {:ok, result} = Admission.commit(context, decision, "webhook-decision:evt-123")
@@ -376,7 +377,8 @@ defmodule Responder.Webhooks.RouterTest do
                "episode_ref" => episode_ref,
                "reaction" => nil,
                "relation" => Atom.to_string(relation),
-               "reason" => "This webhook occurrence belongs to the supplied lifecycle."
+               "reason" => "This webhook occurrence belongs to the supplied lifecycle.",
+               "work_class" => if(action == :reply, do: "conversational", else: "standard")
              })
 
     decision

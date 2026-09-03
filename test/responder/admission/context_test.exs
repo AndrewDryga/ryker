@@ -342,7 +342,8 @@ defmodule Responder.Admission.ContextTest do
                "episode_ref" => candidate.ref,
                "reaction" => nil,
                "relation" => "history_only",
-               "reason" => "The older work is useful history, but this is a new episode."
+               "reason" => "The older work is useful history, but this is a new episode.",
+               "work_class" => "standard"
              })
 
     assert {:ok, %{candidate: ^candidate}} = Admission.validate(context, history_decision)
@@ -353,7 +354,8 @@ defmodule Responder.Admission.ContextTest do
                "episode_ref" => candidate.ref,
                "reaction" => nil,
                "relation" => "same_work",
-               "reason" => "Continue the old work."
+               "reason" => "Continue the old work.",
+               "work_class" => "standard"
              })
 
     assert {:error,
@@ -367,7 +369,8 @@ defmodule Responder.Admission.ContextTest do
                "episode_ref" => "candidate-not-offered",
                "reaction" => nil,
                "relation" => "same_work",
-               "reason" => "Try an arbitrary reference."
+               "reason" => "Try an arbitrary reference.",
+               "work_class" => "standard"
              })
 
     assert {:error, {:admission_rejected, :unknown_candidate}} =
@@ -386,7 +389,8 @@ defmodule Responder.Admission.ContextTest do
           "episode_ref" => nil,
           "reaction" => nil,
           "relation" => "unrelated",
-          "reason" => "Exact duplicate."
+          "reason" => "Exact duplicate.",
+          "work_class" => nil
         },
         decision_fingerprint: String.duplicate("a", 64),
         decision_ref: "decision-1",

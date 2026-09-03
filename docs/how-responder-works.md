@@ -129,8 +129,8 @@ Refreshing the App Home is a Slack round trip, so it is admitted as an ordinary 
 by the control lane; doing it inline would hold the single consumer and delay admission of every
 event behind it.
 
-Reactions are admitted too. Adding or removing an emoji on one of Responder's own messages is
-retained as ordered conversation context and refreshes the current reaction state without starting
+Reactions cross their own passive-feedback boundary too. Adding or removing an emoji on one of
+Responder's exact delivered messages is retained as ordered episode context and refreshes the current reaction state without starting
 a separate agent turn. A reaction is social feedback: it never authorises an approval, a repository
 change, an incident, or an infrastructure action.
 
@@ -138,7 +138,12 @@ change, an incident, or an infrastructure action.
 flowchart TD
   Event["Slack event"] --> Valid{"Expected workspace<br/>and supported event?"}
   Valid -- No --> AckIgnore["ACK and ignore"]
-  Valid -- Yes --> Own{"Responder's own message?"}
+  Valid -- Yes --> Reaction{"Reaction event?"}
+  Reaction -- Yes --> Feedback{"Exact delivered Responder reply<br/>and authorized human actor?"}
+  Feedback -- No --> AckIgnore
+  Feedback -- Yes --> PersistFeedback["Persist passive episode feedback<br/>by Slack event ID"]
+  PersistFeedback --> Ack
+  Reaction -- No --> Own{"Responder's own message?"}
   Own -- Yes --> AckIgnore
   Own -- No --> Kind{"Event kind"}
 

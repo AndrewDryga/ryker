@@ -1,0 +1,41 @@
+{
+  "name": "a broad evidence-heavy health assessment uses deep work",
+  "source": {
+    "path": "testdata/eval/evidence.jsonl",
+    "case": "broad production health is independently supported",
+    "reason": "The exact checked-in evaluation requires repository and live evidence across every material layer."
+  },
+  "now": "2026-08-30T15:00:01.000000Z",
+  "continuation_window_seconds": 1800,
+  "history_window_seconds": 2592000,
+  "seed": null,
+  "input": {
+    "actor": {"kind": "user", "ref": "U-operator"},
+    "channel_ref": "COPS",
+    "content": {"text": "Give me a decision-useful production health assessment. Reconcile infra/ topology with fresh live evidence and identify every material unverified layer."},
+    "event_kind": "message",
+    "event_ref": "Ev-deep-routing",
+    "message_ref": "1788102000.000100",
+    "occurred_at": "2026-08-30T15:00:00.000000Z",
+    "revision": 1,
+    "thread_ref": null,
+    "workspace_ref": "TEVAL"
+  },
+  "decision": {
+    "action": "start_episode",
+    "episode_ref": null,
+    "reaction": null,
+    "work_class": "deep",
+    "relation": "unrelated",
+    "reason": "This broad, consequential assessment requires multi-source evidence and careful coverage reasoning."
+  },
+  "expected": {
+    "active_inputs": 1,
+    "decision_action": "start_episode",
+    "destination_thread_ref": "1788102000.000100",
+    "episode_identity": "new",
+    "linked_to_seed": false,
+    "queued_inputs": 0,
+    "state": "working"
+  }
+}
