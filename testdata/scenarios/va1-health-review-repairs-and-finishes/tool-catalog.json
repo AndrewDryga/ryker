@@ -89,7 +89,6 @@
               "subject": {
                 "maxLength": 120,
                 "minLength": 1,
-                "pattern": "^[A-Za-z0-9_.:-]+$",
                 "type": "string"
               },
               "supersedes": {
@@ -659,7 +658,7 @@
           "name": "propose_automation"
         },
         {
-          "description": "Create one inert engineering-task proposal, or refine the exact open task_offer ref, under trusted authority.",
+          "description": "Create one inert engineering or incident-task proposal, or refine the exact open task_offer ref, under trusted authority. Kind defaults to engineering for compatible clients.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
@@ -680,16 +679,30 @@
                 "pattern": "^[A-Za-z0-9_.:-]+$",
                 "type": "string"
               },
+              "kind": {
+                "enum": [
+                  "engineering",
+                  "incident"
+                ],
+                "type": "string"
+              },
               "prompt": {
                 "maxLength": 12000,
                 "minLength": 1,
                 "type": "string"
               },
               "repository": {
-                "maxLength": 256,
-                "minLength": 1,
-                "pattern": "^[A-Za-z0-9_.:-]+$",
-                "type": "string"
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "source_refs": {
                 "items": {
@@ -843,7 +856,6 @@
               "subject": {
                 "maxLength": 120,
                 "minLength": 1,
-                "pattern": "^[A-Za-z0-9_.:-]+$",
                 "type": "string"
               },
               "supersedes": {

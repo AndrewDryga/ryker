@@ -700,9 +700,17 @@ defmodule Responder.Coop.Client do
       {:ok, document} when status in 200..299 and is_map(document) ->
         {:ok, document}
 
-      {:ok, %{"error" => %{"code" => code, "detail" => detail}}}
-      when is_binary(code) and is_binary(detail) ->
-        {:error, {:coop_error, status, code, detail}}
+      {:ok, %{"error" => %{"code" => code} = error}} when is_binary(code) ->
+        case Map.fetch(error, "detail") do
+          {:ok, detail} when is_binary(detail) ->
+            {:error, {:coop_error, status, code, detail}}
+
+          :error ->
+            {:error, {:coop_error, status, code, ""}}
+
+          {:ok, _invalid_detail} ->
+            {:error, {:coop_protocol_error, {:unexpected_status, status}}}
+        end
 
       {:ok, _document} ->
         {:error, {:coop_protocol_error, {:unexpected_status, status}}}

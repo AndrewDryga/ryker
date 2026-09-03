@@ -419,7 +419,7 @@ defmodule Responder.Publication.Custody do
          do: record_was_delivered(turn, record.ref)
   end
 
-  defp task_card_offer_delivered(record, episode, target) do
+  defp task_card_offer_delivered(record, episode, %{transport: "slack"} = target) do
     card =
       Repo.one(
         from(card in TaskCard,
@@ -448,6 +448,50 @@ defmodule Responder.Publication.Custody do
       nil ->
         {:error, :publication_offer_not_delivered}
     end
+  end
+
+  defp task_card_offer_delivered(
+         _publication_offer,
+         episode,
+         %{transport: "control_plane"} = target
+       ) do
+    row =
+      Repo.one(
+        from(task_offer in Record,
+          join: source_turn in Turn,
+          on:
+            source_turn.id == task_offer.turn_id and
+              source_turn.episode_id == task_offer.episode_id,
+          join: source_episode in Episode,
+          on: source_episode.id == task_offer.episode_id,
+          where:
+            task_offer.kind == "task_offer" and task_offer.status == :confirmed and
+              task_offer.confirmed_episode_id == ^episode.id,
+          select: {task_offer, source_episode, source_turn},
+          lock: "FOR SHARE"
+        )
+      )
+
+    case row do
+      {%Record{} = task_offer, %Episode{} = source_episode, %Turn{status: :settled} = source_turn} ->
+        with :ok <- same_destination(episode, source_episode),
+             :ok <- delivered_target(source_episode, source_turn, target),
+             do: record_was_delivered(source_turn, task_offer.ref)
+
+      _missing_or_unsettled ->
+        {:error, :publication_offer_not_delivered}
+    end
+  end
+
+  defp task_card_offer_delivered(_record, _episode, _target),
+    do: {:error, :publication_offer_not_delivered}
+
+  defp same_destination(left, right) do
+    if left.destination_transport == right.destination_transport and
+         left.destination_conversation_ref == right.destination_conversation_ref and
+         left.destination_thread_ref == right.destination_thread_ref,
+       do: :ok,
+       else: {:error, :publication_offer_delivery_mismatch}
   end
 
   defp record_was_delivered(%Turn{delivery_document: document}, record_ref) do

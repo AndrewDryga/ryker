@@ -17,6 +17,7 @@ defmodule Responder.Work.Runtime do
     :api,
     :client,
     :concurrency,
+    :platform_tools,
     :poll_interval_ms,
     :receive_timeout_ms,
     :socket,
@@ -60,6 +61,7 @@ defmodule Responder.Work.Runtime do
               client: options.client,
               api: options.api,
               max_block_ms: options.receive_timeout_ms,
+              platform_tools: options.platform_tools,
               poll_interval_ms: options.poll_interval_ms,
               state_tool_capabilities: options.state_tool_capabilities,
               state_tools_endpoint: options.state_tools_endpoint,
@@ -83,6 +85,7 @@ defmodule Responder.Work.Runtime do
     configuration = normalize_configuration!(configuration)
     worker_ref = Map.fetch!(configuration, :worker_ref)
     concurrency = Map.get(configuration, :concurrency, @default_concurrency)
+    platform_tools = Map.get(configuration, :platform_tools)
     poll_interval_ms = Map.get(configuration, :poll_interval_ms, 250)
     receive_timeout_ms = Map.get(configuration, :receive_timeout_ms, 30_000)
     state_tools_endpoint = Map.get(configuration, :state_tools_endpoint)
@@ -96,6 +99,7 @@ defmodule Responder.Work.Runtime do
       )
 
     validate_concurrency!(concurrency)
+    validate_platform_tools!(platform_tools)
     validate_positive!(poll_interval_ms, :poll_interval_ms)
     validate_positive!(receive_timeout_ms, :receive_timeout_ms)
     validate_receive_timeout!(receive_timeout_ms)
@@ -108,6 +112,7 @@ defmodule Responder.Work.Runtime do
       api: api,
       client: client,
       concurrency: concurrency,
+      platform_tools: platform_tools,
       poll_interval_ms: poll_interval_ms,
       receive_timeout_ms: receive_timeout_ms,
       state_tool_capabilities: state_tool_capabilities,
@@ -154,6 +159,32 @@ defmodule Responder.Work.Runtime do
   defp validate_concurrency!(_value) do
     raise ArgumentError, "work concurrency must be between 1 and #{@maximum_concurrency}"
   end
+
+  defp validate_platform_tools!(nil), do: :ok
+
+  defp validate_platform_tools!(tools) when is_list(tools) and length(tools) <= 256 do
+    names =
+      Enum.map(tools, fn
+        %{"name" => name} when is_binary(name) -> name
+        name when is_binary(name) -> name
+        _invalid -> nil
+      end)
+
+    if Enum.all?(names, &valid_platform_tool_name?/1) and names == Enum.uniq(names),
+      do: :ok,
+      else: raise(ArgumentError, "work platform_tools must name unique bounded tools")
+  end
+
+  defp validate_platform_tools!(_tools) do
+    raise ArgumentError, "work platform_tools must name at most 256 unique bounded tools"
+  end
+
+  defp valid_platform_tool_name?(name) when is_binary(name) do
+    String.valid?(name) and byte_size(name) in 1..256 and
+      Regex.match?(~r/\A[A-Za-z0-9][A-Za-z0-9_.:-]*\z/, name)
+  end
+
+  defp valid_platform_tool_name?(_name), do: false
 
   defp validate_receive_timeout!(value) when value < @maximum_receive_timeout_ms, do: :ok
 

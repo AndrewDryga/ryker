@@ -108,6 +108,148 @@ defmodule Responder.Work.SubmissionBuilderTest do
     assert "record_feedback" in submission["context"]["responder_state_tools"]
   end
 
+  test "a Conversation Lab briefing exposes confirmable state offers through Work" do
+    conversation_ref = "control-plane:lab:9a51fa43-977f-4b27-93f6-0c2ad3652ddc"
+
+    claim =
+      claim_episode_payload!("lab-confirmation-surface", %{"text" => "Plan this work."},
+        destination: %{
+          conversation_ref: conversation_ref,
+          thread_ref: conversation_ref,
+          transport: "control_plane"
+        }
+      )
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    names = submission["context"]["responder_state_tools"]
+
+    assert submission["context"]["offer_confirmation_supported"]
+    assert "propose_automation" in names
+    assert "propose_memory" in names
+    assert "request_task" in names
+  end
+
+  test "passive emoji feedback is ordered context for the next model turn" do
+    id = Ecto.UUID.generate()
+
+    command =
+      EpisodeFixtures.admit_input(%{
+        episode_id: id,
+        episode_key: "work-submission:reaction-feedback:#{id}",
+        native_input_id: "source:reaction-feedback:#{id}",
+        occurred_at: @now,
+        payload: %{"text" => "Summarize the result."},
+        turn_ref: "turn:reaction-feedback:#{id}"
+      })
+
+    assert {:ok, _transition} = Episodes.apply(command)
+
+    assert {:ok, reaction} =
+             Episodes.apply(
+               EpisodeFixtures.record_reaction(%{
+                 actor_ref: "control-plane:operator",
+                 emoji_name: "eyes",
+                 episode_key: command.episode_key,
+                 event_ref: "control-plane-reaction:feedback-1",
+                 occurred_at: DateTime.add(@now, 1, :second),
+                 source: %{kind: "control_plane", ref: "conversation-lab"},
+                 target_delivery_ref: "delivery:previous-reply",
+                 target_message_ref: "control-plane-message:previous-reply"
+               })
+             )
+
+    assert reaction.episode.owner_ref == command.turn_ref
+
+    assert {:ok, _second_reaction} =
+             Episodes.apply(
+               EpisodeFixtures.record_reaction(%{
+                 actor_ref: "control-plane:teammate",
+                 emoji_name: "eyes",
+                 episode_key: command.episode_key,
+                 event_ref: "control-plane-reaction:feedback-2",
+                 occurred_at: DateTime.add(@now, 2, :second),
+                 source: %{kind: "control_plane", ref: "conversation-lab"},
+                 target_delivery_ref: "delivery:previous-reply",
+                 target_message_ref: "control-plane-message:previous-reply"
+               })
+             )
+
+    assert {:ok, _removed_reaction} =
+             Episodes.apply(
+               EpisodeFixtures.record_reaction(%{
+                 action: :remove,
+                 actor_ref: "control-plane:operator",
+                 emoji_name: "eyes",
+                 episode_key: command.episode_key,
+                 event_ref: "control-plane-reaction:feedback-3",
+                 occurred_at: DateTime.add(@now, 3, :second),
+                 source: %{kind: "control_plane", ref: "conversation-lab"},
+                 target_delivery_ref: "delivery:previous-reply",
+                 target_message_ref: "control-plane-message:previous-reply"
+               })
+             )
+
+    assert {:ok, _session} =
+             Custody.pin_episode(command.episode_id, "work-read-only", String.duplicate("a", 64))
+
+    assert {:ok, claim} = Custody.claim_next("worker:reaction-feedback", 60)
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+
+    added = %{
+      "action" => "add",
+      "actor_ref" => "control-plane:operator",
+      "emoji_name" => "eyes",
+      "occurred_at" => DateTime.to_iso8601(DateTime.add(@now, 1, :second)),
+      "target_delivery_ref" => "delivery:previous-reply",
+      "target_message_ref" => "control-plane-message:previous-reply"
+    }
+
+    teammate = %{
+      added
+      | "actor_ref" => "control-plane:teammate",
+        "occurred_at" => DateTime.to_iso8601(DateTime.add(@now, 2, :second))
+    }
+
+    removed = %{
+      added
+      | "action" => "remove",
+        "occurred_at" => DateTime.to_iso8601(DateTime.add(@now, 3, :second))
+    }
+
+    assert submission["context"]["conversation_feedback"] == %{
+             "current" => [
+               %{
+                 "actor_refs" => ["control-plane:teammate"],
+                 "count" => 1,
+                 "emoji_name" => "eyes",
+                 "target_delivery_ref" => "delivery:previous-reply",
+                 "target_message_ref" => "control-plane-message:previous-reply"
+               }
+             ],
+             "events" => [added, teammate, removed]
+           }
+  end
+
+  test "a frozen claim cannot see reaction feedback recorded for a later snapshot" do
+    claim = claim_episode!("reaction-snapshot", "FIRST_TURN_ONLY")
+
+    assert {:ok, _reaction} =
+             Episodes.apply(
+               EpisodeFixtures.record_reaction(%{
+                 episode_key: claim.episode.key,
+                 event_ref: "slack-reaction:after-claim",
+                 occurred_at: DateTime.add(@now, 1, :second)
+               })
+             )
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+
+    assert submission["context"]["conversation_feedback"] == %{
+             "current" => [],
+             "events" => []
+           }
+  end
+
   test "the frozen briefing uses admission-pinned repository scope instead of event content" do
     id = Ecto.UUID.generate()
 
@@ -233,6 +375,37 @@ defmodule Responder.Work.SubmissionBuilderTest do
            ]
 
     assert submission["prompt"] =~ "source_and_action_tools"
+  end
+
+  test "the frozen Lab briefing exposes generic and Slack-compatible local tools but not GitHub authority" do
+    conversation_ref = "control-plane:lab:#{Ecto.UUID.generate()}"
+
+    claim =
+      claim_episode_payload!(
+        "control-plane-tools",
+        %{"text" => "Inspect Emisar and exercise the local Slack-compatible chat surface."},
+        destination: %{
+          conversation_ref: conversation_ref,
+          thread_ref: conversation_ref,
+          transport: "control_plane"
+        }
+      )
+
+    assert {:ok, submission} =
+             SubmissionBuilder.build(claim,
+               platform_tools: [
+                 "list_runners",
+                 %{"name" => "list_slack_channels"},
+                 %{"name" => "set_github_reaction"},
+                 "find_actions"
+               ]
+             )
+
+    assert submission["context"]["source_and_action_tools"] == [
+             "list_runners",
+             "list_slack_channels",
+             "find_actions"
+           ]
   end
 
   test "confirmed preferences and advisory guidance enter the frozen turn context" do

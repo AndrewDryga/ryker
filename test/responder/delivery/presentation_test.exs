@@ -1,11 +1,14 @@
 defmodule Responder.Delivery.PresentationTest do
   use Responder.DataCase, async: true
 
+  import Ecto.Query
+
   alias Responder.Delivery.Presentation
   alias Responder.Episodes
   alias Responder.Episodes.Episode
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
-  alias Responder.State.Records
+  alias Responder.Repo
+  alias Responder.State.{Record, Records}
   alias Responder.Work.Custody
   alias Responder.Work.Final
 
@@ -60,6 +63,33 @@ defmodule Responder.Delivery.PresentationTest do
 
     assert Presentation.validate(claim.episode, claim.turn.id, final!(:reply, refs)) ==
              {:error, {:invalid_delivery_presentation, {:invalid_slack_render, :records}}}
+  end
+
+  test "Conversation Lab refuses a cited record its native card cannot safely project" do
+    claim = claim!("control-plane-card", "control_plane")
+
+    assert {:ok, record} =
+             Records.create(Records.token(claim.turn), "lab-card", "memory_offer", %{
+               "expires_in" => "90d",
+               "kind" => "alias",
+               "repository" => nil,
+               "scope" => "conversation",
+               "subject" => "service",
+               "value" => "The API is the primary service.",
+               "visibility" => "conversation"
+             })
+
+    Repo.update_all(
+      from(record_row in Record, where: record_row.id == ^record.id),
+      set: [payload: %{"unexpected" => "unsafe"}]
+    )
+
+    assert Presentation.validate(
+             claim.episode,
+             claim.turn.id,
+             final!(:reply, [record.ref])
+           ) ==
+             {:error, {:invalid_delivery_presentation, {:invalid_control_plane_card, record.ref}}}
   end
 
   defp episode("slack") do

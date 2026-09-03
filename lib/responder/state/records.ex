@@ -21,7 +21,7 @@ defmodule Responder.State.Records do
   @maximum_model_records 64
   @terminal_goal_states ~w(completed excluded cancelled)
   @shadow_record_kinds ~w(evidence coverage finding progress alert_assessment)
-  @confirmation_offer_kinds ~w(task_offer publication_offer schedule_offer automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer slack_post_offer)
+  @confirmation_offer_kinds ~w(task_offer publication_offer schedule_offer automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
 
   @spec token(Turn.t()) :: String.t()
   def token(%Turn{id: id}) when is_binary(id), do: "state:" <> id
@@ -238,7 +238,10 @@ defmodule Responder.State.Records do
       execution_mode != :live and kind not in @shadow_record_kinds ->
         {:error, :state_record_shadow_forbidden}
 
-      kind in @confirmation_offer_kinds and transport != "slack" ->
+      kind in @confirmation_offer_kinds and transport not in ["slack", "control_plane"] ->
+        {:error, :state_record_confirmation_unsupported}
+
+      kind == "slack_post_offer" and transport not in ["slack", "control_plane"] ->
         {:error, :state_record_confirmation_unsupported}
 
       true ->
@@ -538,11 +541,11 @@ defmodule Responder.State.Records do
       else: {:error, {:invalid_state_record, :operation_id}}
   end
 
-  defp known_kind(kind)
-       when kind in ~w(task_offer publication_offer schedule_offer automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer slack_post_offer input_request event_wait emisar_approval evidence coverage finding progress goal goal_state alert_assessment),
-       do: :ok
-
-  defp known_kind(_kind), do: {:error, {:invalid_state_record, :kind}}
+  defp known_kind(kind) do
+    if kind in RecordPayload.kinds(),
+      do: :ok,
+      else: {:error, {:invalid_state_record, :kind}}
+  end
 
   defp persistence_result({:ok, record}), do: {:ok, record}
 

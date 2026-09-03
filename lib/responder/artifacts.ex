@@ -25,7 +25,10 @@ defmodule Responder.Artifacts do
   @spec put(map()) :: {:ok, Artifact.t()} | {:error, term()}
   def put(%{} = attributes) do
     with {:ok, prepared} <- prepare(attributes) do
-      case prepared |> ArtifactChangeset.insert() |> Repo.insert() do
+      changeset = ArtifactChangeset.insert(prepared)
+      options = if Repo.in_transaction?(), do: [mode: :savepoint], else: []
+
+      case Repo.insert(changeset, options) do
         {:ok, artifact} ->
           {:ok, artifact}
 

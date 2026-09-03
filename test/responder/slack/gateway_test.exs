@@ -468,7 +468,7 @@ defmodule Responder.Slack.GatewayTest do
     }
 
     assert Gateway.handle_envelope(unsupported, settings()) ==
-             {:ack, {:ignored, :unsupported_event}}
+             {:ack, {:ignored, :invalid_reaction_event}}
 
     invalid =
       put_in(message_envelope("Ev-invalid", "app_mention"), ["payload", "event", "user"], nil)
@@ -488,6 +488,53 @@ defmodule Responder.Slack.GatewayTest do
 
     assert Gateway.handle_envelope(unsupported_interaction, settings()) ==
              {:ack, {:ignored, :unsupported_interaction}}
+  end
+
+  test "authorized reactions on Responder replies become passive episode feedback" do
+    settings =
+      Map.put(settings(), :reaction_feedback, fn reaction ->
+        send(self(), {:reaction_feedback, reaction})
+        {:ok, %{status: :applied}}
+      end)
+
+    assert Gateway.handle_envelope(reaction_envelope(), settings) ==
+             {:ack, {:reaction, :applied}}
+
+    assert_receive {:reaction_feedback,
+                    %{
+                      action: :add,
+                      actor_ref: "U123",
+                      emoji_name: "eyes",
+                      event_ref: "Ev-reaction",
+                      target: %{
+                        conversation_ref: "slack:T123:C456",
+                        message_ref: "1787832000.000100",
+                        transport: "slack"
+                      }
+                    }}
+  end
+
+  test "reaction custody is retried only for transient failures" do
+    unavailable =
+      Map.put(settings(), :reaction_feedback, fn _reaction ->
+        {:error, :database_unavailable}
+      end)
+
+    assert Gateway.handle_envelope(reaction_envelope(), unavailable) ==
+             {:retry, :database_unavailable}
+
+    missing =
+      Map.put(settings(), :reaction_feedback, fn _reaction ->
+        {:error, :conversation_reaction_target_not_found}
+      end)
+
+    assert Gateway.handle_envelope(reaction_envelope(), missing) ==
+             {:ack, {:ignored, :reaction_target_not_found}}
+
+    denied = put_in(reaction_envelope(), ["payload", "event", "user"], "U-DENIED")
+
+    assert Gateway.handle_envelope(denied, unavailable) ==
+             {:ack, {:ignored, :actor_not_authorized}}
   end
 
   test "event conflicts are terminal but unavailable durable custody remains retryable" do
@@ -572,6 +619,30 @@ defmodule Responder.Slack.GatewayTest do
         "event" => event,
         "event_id" => event_ref,
         "event_time" => 1_787_832_001,
+        "team_id" => "T123",
+        "type" => "event_callback"
+      },
+      "type" => "events_api"
+    }
+  end
+
+  defp reaction_envelope do
+    %{
+      "envelope_id" => "env-reaction",
+      "payload" => %{
+        "event" => %{
+          "event_ts" => "1787832001.000200",
+          "item" => %{
+            "channel" => "C456",
+            "ts" => "1787832000.000100",
+            "type" => "message"
+          },
+          "item_user" => "U-BOT",
+          "reaction" => "eyes",
+          "type" => "reaction_added",
+          "user" => "U123"
+        },
+        "event_id" => "Ev-reaction",
         "team_id" => "T123",
         "type" => "event_callback"
       },

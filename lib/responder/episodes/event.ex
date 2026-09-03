@@ -20,7 +20,8 @@ defmodule Responder.Episodes.Event do
         :wait_resumed,
         :result_accepted,
         :delivery_confirmed,
-        :episode_cancelled
+        :episode_cancelled,
+        :reaction_recorded
       ]
     )
 

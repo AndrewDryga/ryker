@@ -13,6 +13,7 @@ defmodule Responder.Episodes.Reducer do
     AdmitInput,
     CancelEpisode,
     ConfirmDelivery,
+    RecordReaction,
     ResumeWait,
     StartWait,
     TransferOwner
@@ -241,6 +242,12 @@ defmodule Responder.Episodes.Reducer do
 
         append(episode, command, :episode_cancelled)
     end
+  end
+
+  defp decide_existing(%Episode{} = episode, %RecordReaction{} = command) do
+    episode
+    |> Map.update!(:semantic_version, &(&1 + 1))
+    |> append(command, :reaction_recorded)
   end
 
   defp valid_delivery_confirmation(episode, command) do

@@ -101,4 +101,20 @@ defmodule Responder.Fixtures.Episodes do
 
     struct!(Command.CancelEpisode, Map.merge(defaults, overrides))
   end
+
+  def record_reaction(overrides \\ %{}) do
+    defaults = %{
+      action: :add,
+      actor_ref: "slack:user:U2",
+      emoji_name: "eyes",
+      episode_key: "grafana:rule-1:fingerprint-1:cycle-1",
+      event_ref: "slack-reaction:Ev-reaction-1",
+      occurred_at: DateTime.add(@occurred_at, 2, :second),
+      source: %{kind: "slack", ref: "T123"},
+      target_delivery_ref: "slack-delivery-1",
+      target_message_ref: "1787832002.000300"
+    }
+
+    struct!(Command.RecordReaction, Map.merge(defaults, overrides))
+  end
 end

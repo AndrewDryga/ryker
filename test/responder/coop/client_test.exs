@@ -310,6 +310,24 @@ defmodule Responder.Coop.ClientTest do
     end)
   end
 
+  test "treats a code-only operation-not-found response as absent" do
+    # Coop's public error detail is optional. Older installed daemons omit it,
+    # and rejecting that valid response prevents every new admission from
+    # reaching session creation.
+    with_unix_server(%{"error" => %{"code" => "operation_not_found"}}, 404, fn client, _request ->
+      assert :not_found = Client.operation_by_key(client, "responder:code-only-missing")
+    end)
+  end
+
+  test "rejects a non-string Coop error detail" do
+    error = %{"error" => %{"code" => "operation_not_found", "detail" => %{"unsafe" => true}}}
+
+    with_unix_server(error, 404, fn client, _request ->
+      assert {:error, {:coop_protocol_error, {:unexpected_status, 404}}} =
+               Client.operation_by_key(client, "responder:invalid-error-detail")
+    end)
+  end
+
   test "reads sessions and turns from exact resource paths" do
     session = %{"id" => "remote_123", "revision" => 7, "state" => "open"}
 

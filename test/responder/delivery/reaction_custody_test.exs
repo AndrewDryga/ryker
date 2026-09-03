@@ -248,7 +248,8 @@ defmodule Responder.Delivery.ReactionCustodyTest do
                "episode_ref" => nil,
                "reaction" => %{"emoji_name" => emoji_name},
                "relation" => "unrelated",
-               "reason" => "Acknowledge the source item without starting work."
+               "reason" => "Acknowledge the source item without starting work.",
+               "work_class" => nil
              })
 
     decision
@@ -261,7 +262,8 @@ defmodule Responder.Delivery.ReactionCustodyTest do
                "episode_ref" => nil,
                "reaction" => nil,
                "relation" => "unrelated",
-               "reason" => "No response is needed."
+               "reason" => "No response is needed.",
+               "work_class" => nil
              })
 
     decision

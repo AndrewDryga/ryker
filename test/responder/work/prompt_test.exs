@@ -9,6 +9,9 @@ defmodule Responder.Work.PromptTest do
 
     assert instructions =~ "owning tool's receipt"
     assert instructions =~ "cite_source using the source_ref returned by that tool"
+    assert instructions =~ "A source-backed final without that record_ref is incomplete"
+    assert instructions =~ "planning, pending, queued, or running"
+    assert instructions =~ "durable wait for the next exact lifecycle update"
     assert instructions =~ "Call validate_final"
     assert instructions =~ "exact JSON"
     assert instructions =~ "repair it in"

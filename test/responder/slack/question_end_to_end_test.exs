@@ -113,16 +113,16 @@ defmodule Responder.Slack.QuestionEndToEndTest do
     assert {:ack, {:ignored, :not_engaged}} =
              Gateway.handle_envelope(unrelated_thread_envelope(), gateway_settings())
 
+    events = Episodes.list_events(episode.key)
+    wait_event = Enum.find(events, &(&1.kind == :delivery_confirmed))
+    assert get_in(wait_event.payload, ["next_wait", "ref"]) == request.ref
+
     assert {:ack, {:recorded, answer_ref}} =
-             Gateway.handle_envelope(answer_envelope(), gateway_settings())
+             Gateway.handle_envelope(answer_envelope(wait_event.occurred_at), gateway_settings())
 
     {:ok, answer_entry} = Inbox.fetch(answer_ref)
     assert answer_entry.destination_thread_ref == "1788264001.000200"
     assert answer_entry.content["text"] == "Use one percent, then verify before expanding."
-
-    events = Episodes.list_events(episode.key)
-    wait_event = Enum.find(events, &(&1.kind == :delivery_confirmed))
-    assert get_in(wait_event.payload, ["next_wait", "ref"]) == request.ref
 
     assert DateTime.compare(answer_entry.occurred_at, wait_event.occurred_at) == :gt
 
@@ -226,11 +226,11 @@ defmodule Responder.Slack.QuestionEndToEndTest do
     )
   end
 
-  defp answer_envelope do
+  defp answer_envelope(wait_occurred_at) do
     envelope(
       "answer",
       "Ev-slack-question-answer",
-      "1788264003.000400",
+      wait_occurred_at |> DateTime.add(1, :second) |> slack_timestamp(),
       "1788264001.000200",
       "Use one percent, then verify before expanding."
     )
@@ -247,6 +247,8 @@ defmodule Responder.Slack.QuestionEndToEndTest do
   end
 
   defp envelope(suffix, event_id, message_ref, thread_ref, text) do
+    [event_seconds | _fraction] = String.split(message_ref, ".", parts: 2)
+
     event = %{
       "channel" => "C456",
       "event_ts" => message_ref,
@@ -263,7 +265,7 @@ defmodule Responder.Slack.QuestionEndToEndTest do
       "payload" => %{
         "event" => event,
         "event_id" => event_id,
-        "event_time" => 1_788_264_003,
+        "event_time" => String.to_integer(event_seconds),
         "team_id" => "T123",
         "type" => "event_callback"
       },
@@ -310,7 +312,8 @@ defmodule Responder.Slack.QuestionEndToEndTest do
       "episode_ref" => nil,
       "reaction" => nil,
       "relation" => "unrelated",
-      "reason" => "The direct mention asks Responder to choose a rollout plan."
+      "reason" => "The direct mention asks Responder to choose a rollout plan.",
+      "work_class" => "standard"
     })
   end
 
@@ -320,7 +323,8 @@ defmodule Responder.Slack.QuestionEndToEndTest do
       "episode_ref" => candidate_ref,
       "reaction" => nil,
       "relation" => "same_work",
-      "reason" => "This authorized answer belongs to the exact delivered question thread."
+      "reason" => "This authorized answer belongs to the exact delivered question thread.",
+      "work_class" => "standard"
     })
   end
 
@@ -353,6 +357,13 @@ defmodule Responder.Slack.QuestionEndToEndTest do
   defp candidate_ref(episode_id) do
     "candidate:" <>
       Responder.CanonicalJSON.digest(["ingress-admission-candidate", episode_id])
+  end
+
+  defp slack_timestamp(datetime) do
+    microseconds = DateTime.to_unix(datetime, :microsecond)
+    seconds = div(microseconds, 1_000_000)
+    fraction = microseconds |> rem(1_000_000) |> Integer.to_string() |> String.pad_leading(6, "0")
+    Integer.to_string(seconds) <> "." <> fraction
   end
 
   defp input_id("ingress-input:" <> id), do: id

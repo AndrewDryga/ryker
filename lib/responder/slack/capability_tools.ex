@@ -29,6 +29,12 @@ defmodule Responder.Slack.CapabilityTools do
   def list(options) do
     _validated = options!(options)
 
+    definitions()
+  end
+
+  @doc false
+  @spec definitions() :: [map()]
+  def definitions do
     [
       %{
         "description" =>

@@ -21,45 +21,67 @@ defmodule Responder.Slack.TaskCardProjection do
   def build(%TaskCard{} = card) do
     with %Record{} = record <- Repo.get(Record, card.record_id),
          %Episode{} = episode <- Repo.get(Episode, card.episode_id) do
-      turn = current_turn(episode)
-      session = latest_session(episode.id)
-      publication = latest_publication(episode.id)
-      records = Records.model_records(episode.id)
-      publication_offer = latest_publication_offer(episode.id)
-
-      projection = %{
-        "action_needed" => action_needed(episode, turn, records, publication),
-        "confirmed_at" => DateTime.to_iso8601(record.confirmed_at),
-        "confirmed_by" => record.confirmed_by_actor_ref,
-        "controls" => controls(episode, turn, session, publication),
-        "episode_state" => Atom.to_string(episode.state),
-        "publication" => publication(publication, publication_offer),
-        "repository" => record.payload["repository"],
-        "session_generation" => session && session.generation,
-        "status" => status(episode, turn, publication, publication_offer),
-        "summary" => summary(record, records),
-        "task_ref" => card.ref,
-        "title" => record.payload["title"],
-        "ui_revision" => @ui_revision,
-        "updated_at" => DateTime.to_iso8601(episode.updated_at),
-        "work_state" => turn && Atom.to_string(turn.status)
-      }
-
-      document = %{"task_card" => projection}
-
-      {:ok,
-       %{
-         document: document,
-         fingerprint: CanonicalJSON.digest(document),
-         publication_offer_ref: publication_offer && publication_offer["ref"],
-         ui_revision: @ui_revision
-       }}
+      project(record, episode, card.ref)
     else
       nil -> {:error, :task_card_source_not_found}
     end
   end
 
+  @doc false
+  @spec build(Record.t()) ::
+          {:ok, %{document: map(), fingerprint: String.t(), ui_revision: pos_integer()}}
+          | {:error, term()}
+  def build(
+        %Record{
+          kind: "task_offer",
+          status: :confirmed,
+          confirmed_episode_id: episode_id
+        } = record
+      )
+      when is_binary(episode_id) do
+    case Repo.get(Episode, episode_id) do
+      %Episode{} = episode -> project(record, episode, record.ref)
+      nil -> {:error, :task_card_source_not_found}
+    end
+  end
+
   def build(_card), do: {:error, :invalid_task_card}
+
+  defp project(record, episode, task_ref) do
+    turn = current_turn(episode)
+    session = latest_session(episode.id)
+    publication = latest_publication(episode.id)
+    records = Records.model_records(episode.id)
+    publication_offer = latest_publication_offer(episode.id)
+
+    projection = %{
+      "action_needed" => action_needed(episode, turn, records, publication),
+      "confirmed_at" => DateTime.to_iso8601(record.confirmed_at),
+      "confirmed_by" => record.confirmed_by_actor_ref,
+      "controls" => controls(record, episode, turn, session, publication),
+      "episode_state" => Atom.to_string(episode.state),
+      "publication" => publication(publication, publication_offer),
+      "repository" => record.payload["repository"],
+      "session_generation" => session && session.generation,
+      "status" => status(episode, turn, publication, publication_offer),
+      "summary" => summary(record, records),
+      "task_ref" => task_ref,
+      "title" => record.payload["title"],
+      "ui_revision" => @ui_revision,
+      "updated_at" => DateTime.to_iso8601(episode.updated_at),
+      "work_state" => turn && Atom.to_string(turn.status)
+    }
+
+    document = %{"task_card" => projection}
+
+    {:ok,
+     %{
+       document: document,
+       fingerprint: CanonicalJSON.digest(document),
+       publication_offer_ref: publication_offer && publication_offer["ref"],
+       ui_revision: @ui_revision
+     }}
+  end
 
   defp current_turn(%Episode{owner_kind: :turn, owner_ref: turn_ref} = episode),
     do: Repo.get_by(Turn, episode_id: episode.id, turn_ref: turn_ref)
@@ -224,13 +246,17 @@ defmodule Responder.Slack.TaskCardProjection do
   defp host_publication_offer?(%{operation_id: "host:publication:ready"}), do: true
   defp host_publication_offer?(_record), do: false
 
-  defp controls(episode, turn, session, publication) do
+  defp controls(record, episode, turn, session, publication) do
     []
     |> maybe_control(stop_allowed?(episode, turn), "stop")
     |> maybe_control(bound_session?(session), "view_diff")
     |> maybe_control(close_allowed?(episode, turn, publication), "close")
     |> Kernel.++(~w(timeline evidence handoff))
+    |> maybe_control(incident?(record), "postmortem")
   end
+
+  defp incident?(%Record{payload: %{"kind" => "incident"}}), do: true
+  defp incident?(_record), do: false
 
   defp stop_allowed?(%Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref}, %Turn{
          status: :pending,

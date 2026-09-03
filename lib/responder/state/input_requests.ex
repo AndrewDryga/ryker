@@ -1,19 +1,21 @@
 defmodule Responder.State.InputRequests do
   @moduledoc """
-  Records one authenticated Slack choice as generic durable input.
+  Records one authenticated platform choice as generic durable input.
 
   The button carries only an opaque record reference and choice index. This
   boundary re-reads the delivered question, exact choice, current wait owner,
-  actor, and Slack destination before creating the ingress input.
+  actor, and destination before creating the ingress input. Platform-specific
+  envelopes stop here; the resulting inbox entry follows ordinary admission.
   """
 
   import Ecto.Query
 
+  alias Responder.CanonicalJSON
   alias Responder.Episodes.Episode
-  alias Responder.Ingress.Inbox
+  alias Responder.Ingress.{Inbox, Input}
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
-  alias Responder.Slack.Input
+  alias Responder.Slack.Input, as: SlackInput
 
   alias Responder.State.{
     Record,
@@ -139,9 +141,9 @@ defmodule Responder.State.InputRequests do
 
   defp choice(_record, _index), do: {:error, :input_request_choice_invalid}
 
-  defp input(record, choice, attributes) do
+  defp input(record, choice, %{target: %{transport: "slack"}} = attributes) do
     with {:ok, workspace_ref, channel_ref} <- slack_destination(attributes.target) do
-      Input.new(%{
+      SlackInput.new(%{
         actor: %{kind: :user, ref: attributes.actor_ref},
         channel_ref: channel_ref,
         content: %{
@@ -160,6 +162,46 @@ defmodule Responder.State.InputRequests do
       })
     end
   end
+
+  defp input(
+         record,
+         choice,
+         %{target: %{transport: "control_plane"} = target} = attributes
+       ) do
+    if String.starts_with?(target.conversation_ref, "control-plane:lab:") and
+         target.thread_ref == target.conversation_ref do
+      Input.new(%{
+        actor: %{kind: :user, ref: attributes.actor_ref},
+        content: %{
+          "choice" => choice,
+          "choice_index" => attributes.choice_index,
+          "input_request_ref" => record.ref,
+          "interaction_kind" => "button"
+        },
+        destination: %{
+          transport: "control_plane",
+          conversation_ref: target.conversation_ref,
+          thread_ref: target.thread_ref
+        },
+        event_kind: :event,
+        event_ref: attributes.response_ref,
+        native_input_id:
+          "control-plane-response:" <>
+            CanonicalJSON.digest([record.ref, attributes.response_ref]),
+        occurred_at: attributes.occurred_at,
+        occurred_at_source: :ingress,
+        revision: 1,
+        source: %{kind: "control_plane", ref: "local"},
+        source_capabilities: %{},
+        source_item_ref: attributes.response_ref
+      })
+    else
+      {:error, :input_request_delivery_mismatch}
+    end
+  end
+
+  defp input(_record, _choice, _attributes),
+    do: {:error, :input_request_delivery_mismatch}
 
   defp persist_response(record, entry, choice, attributes) do
     %{

@@ -180,11 +180,15 @@ defmodule Responder.StateTools.FixedTools do
   end
 
   defp dispatch("request_task", arguments, binding) do
-    with {:ok, instruction_ref} <- task_instruction_ref(arguments, binding) do
+    kind = Map.get(arguments, "kind", "engineering")
+    arguments = Map.put(arguments, "kind", kind)
+
+    with :ok <- task_repository(kind, arguments["repository"]),
+         {:ok, instruction_ref} <- task_instruction_ref(arguments, binding) do
       payload = %{
         "authority_limits" => arguments["authority_limits"],
         "instruction_ref" => instruction_ref,
-        "kind" => "engineering",
+        "kind" => kind,
         "prompt" => task_prompt(arguments, instruction_ref),
         "repository" => arguments["repository"],
         "source_refs" => arguments["source_refs"],
@@ -328,6 +332,7 @@ defmodule Responder.StateTools.FixedTools do
   defp task_instruction_ref(
          %{
            "instruction_ref" => "record:task_offer:" <> _suffix = record_ref,
+           "kind" => requested_kind,
            "repository" => requested_repository
          },
          binding
@@ -339,12 +344,14 @@ defmodule Responder.StateTools.FixedTools do
            kind: "task_offer",
            payload: %{
              "instruction_ref" => instruction_ref,
+             "kind" => kind,
              "repository" => repository
            },
            status: :open
          }
        ]}
-      when repository == requested_repository and is_binary(instruction_ref) and
+      when kind == requested_kind and repository == requested_repository and
+             is_binary(instruction_ref) and
              byte_size(instruction_ref) > 0 ->
         {:ok, instruction_ref}
 
@@ -355,6 +362,10 @@ defmodule Responder.StateTools.FixedTools do
 
   defp task_instruction_ref(%{"instruction_ref" => instruction_ref}, _binding),
     do: {:ok, instruction_ref}
+
+  defp task_repository("engineering", value) when is_binary(value), do: :ok
+  defp task_repository("incident", value) when is_nil(value) or is_binary(value), do: :ok
+  defp task_repository(_kind, _repository), do: {:error, {:invalid_state_record, :repository}}
 
   defp prepare_automation_record({proposal, index}, records, binding) do
     case automation_record(binding, proposal, index) do
@@ -536,7 +547,11 @@ defmodule Responder.StateTools.FixedTools do
   defp host_slot("wait_for", _arguments), do: "pending-wait"
 
   defp host_slot("request_task", arguments),
-    do: [arguments["repository"], arguments["instruction_ref"]]
+    do: [
+      Map.get(arguments, "kind", "engineering"),
+      arguments["repository"],
+      arguments["instruction_ref"]
+    ]
 
   defp host_slot("cite_source", arguments),
     do: [arguments["source_ref"], arguments["subject"], arguments["relation"]]
@@ -829,7 +844,7 @@ defmodule Responder.StateTools.FixedTools do
         "observation" => text(4_000),
         "relation" => enum(~w(supports contradicts context)),
         "source_ref" => reference(256),
-        "subject" => reference(120),
+        "subject" => text(120),
         "supersedes" => array(reference(256), 0, 10)
       },
       ~w(observation relation source_ref subject supersedes)
@@ -948,16 +963,18 @@ defmodule Responder.StateTools.FixedTools do
   defp request_task_tool do
     tool(
       "request_task",
-      "Create one inert engineering-task proposal, or refine the exact open task_offer ref, under trusted authority.",
+      "Create one inert engineering or incident-task proposal, or refine the exact open task_offer ref, under trusted authority. Kind defaults to engineering for compatible clients.",
       %{
         "authority_limits" => array(text(500), 1, 20),
         "instruction_ref" => reference(256),
+        "kind" => enum(~w(engineering incident)),
         "prompt" => text(12_000),
-        "repository" => reference(256),
+        "repository" => nullable(reference(256)),
         "source_refs" => array(reference(256), 0, 20),
         "success_checks" => array(text(1_000), 1, 20),
         "title" => text(120)
-      }
+      },
+      ~w(authority_limits instruction_ref prompt repository source_refs success_checks title)
     )
   end
 
@@ -981,7 +998,7 @@ defmodule Responder.StateTools.FixedTools do
       "kind" => enum(~w(guidance fact)),
       "scope" => enum(~w(current_channel repository workspace mine)),
       "source_refs" => array(reference(256), 1, 20),
-      "subject" => reference(120),
+      "subject" => text(120),
       "supersedes" => array(reference(256), 0, 20),
       "value" => text(4_000)
     })
@@ -1102,7 +1119,7 @@ defmodule Responder.StateTools.FixedTools do
            episode: %{destination_transport: transport, execution_mode: execution_mode}
          }
        }),
-       do: transport == "slack" and execution_mode == :live
+       do: transport in ["slack", "control_plane"] and execution_mode == :live
 
   defp confirmation_surface?(%{
          "binding" => %{
@@ -1112,7 +1129,7 @@ defmodule Responder.StateTools.FixedTools do
            }
          }
        }),
-       do: transport == "slack" and execution_mode == "live"
+       do: transport in ["slack", "control_plane"] and execution_mode == "live"
 
   defp confirmation_surface?(_options), do: true
 

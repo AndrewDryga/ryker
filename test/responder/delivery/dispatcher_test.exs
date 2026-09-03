@@ -809,7 +809,8 @@ defmodule Responder.Delivery.DispatcherTest do
                "episode_ref" => nil,
                "reaction" => %{"emoji_name" => emoji_name},
                "relation" => "unrelated",
-               "reason" => "Acknowledge without starting an episode."
+               "reason" => "Acknowledge without starting an episode.",
+               "work_class" => nil
              })
 
     assert {:ok, _result} = Admission.commit(context, decision, "decision:#{suffix}")

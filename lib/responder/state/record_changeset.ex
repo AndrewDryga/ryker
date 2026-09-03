@@ -3,7 +3,7 @@ defmodule Responder.State.RecordChangeset do
 
   import Ecto.Changeset
 
-  alias Responder.State.Record
+  alias Responder.State.{Record, RecordPayload}
 
   @fields [
     :continuation,
@@ -69,10 +69,7 @@ defmodule Responder.State.RecordChangeset do
     changeset
     |> validate_length(:ref, min: 1, max: 256)
     |> validate_length(:operation_id, min: 1, max: 80)
-    |> validate_inclusion(
-      :kind,
-      ~w(task_offer publication_offer schedule_offer automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer slack_post_offer input_request event_wait emisar_approval evidence coverage finding progress goal goal_state alert_assessment)
-    )
+    |> validate_inclusion(:kind, RecordPayload.kinds())
     |> validate_length(:subject_ref, min: 1, max: 120)
     |> validate_format(:payload_fingerprint, ~r/\A[0-9a-f]{64}\z/)
     |> unique_constraint(:ref)

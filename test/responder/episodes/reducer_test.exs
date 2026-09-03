@@ -444,6 +444,45 @@ defmodule Responder.Episodes.ReducerTest do
     end
   end
 
+  describe "passive conversation feedback" do
+    test "a reaction is ordered context but never starts or transfers model work" do
+      assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
+      reaction = EpisodeFixtures.record_reaction()
+
+      assert {:ok, recorded} = Reducer.decide(admitted.episode, reaction)
+      assert recorded.event.kind == :reaction_recorded
+      assert recorded.event.sequence == 2
+      assert recorded.event.payload["action"] == "add"
+      assert recorded.event.payload["emoji_name"] == "eyes"
+      assert recorded.event.payload["target_delivery_ref"] == "slack-delivery-1"
+      assert recorded.episode.owner_kind == admitted.episode.owner_kind
+      assert recorded.episode.owner_ref == admitted.episode.owner_ref
+      assert recorded.episode.state == admitted.episode.state
+      assert recorded.episode.active_input_refs == admitted.episode.active_input_refs
+      assert recorded.episode.queued_input_refs == []
+      assert recorded.episode.semantic_version == admitted.episode.semantic_version + 1
+    end
+
+    test "reaction shape cannot inject authority or malformed emoji names" do
+      assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
+
+      cases = [
+        {:action, %{action: :approve}},
+        {:actor_ref, %{actor_ref: ""}},
+        {:emoji_name, %{emoji_name: "eyes:ship-it"}},
+        {:event_ref, %{event_ref: ""}},
+        {:source, %{source: %{kind: "slack", ref: "T1", extra: "authority"}}},
+        {:target_delivery_ref, %{target_delivery_ref: ""}},
+        {:target_message_ref, %{target_message_ref: ""}}
+      ]
+
+      Enum.each(cases, fn {field, overrides} ->
+        assert Reducer.decide(admitted.episode, EpisodeFixtures.record_reaction(overrides)) ==
+                 {:error, {:invalid_command, field}}
+      end)
+    end
+  end
+
   describe "waits" do
     test "whole-second wait deadlines are normalized for durable persistence" do
       assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())

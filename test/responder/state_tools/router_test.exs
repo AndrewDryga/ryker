@@ -7,7 +7,7 @@ defmodule Responder.StateTools.RouterTest do
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Repo
   alias Responder.State.{BehaviorChangeset, Record, Records, Schedule, ScheduleChangeset}
-  alias Responder.StateTools.{FixedTools, Router, Tools}
+  alias Responder.StateTools.{FixedTools, Router, Tools, ToolVisibility}
   alias Responder.Work.{Custody, FinalPreflight}
 
   @options Router.init(token: "trusted-state-tools-token")
@@ -91,6 +91,61 @@ defmodule Responder.StateTools.RouterTest do
     assert payload["instruction_ref"] == "input:trusted:1"
     assert payload["source_refs"] == []
     assert payload["success_checks"] == ["focused tests pass"]
+  end
+
+  test "source citations accept a short human-readable subject" do
+    claim = claim!("human-readable-citation-subject")
+
+    assert {:ok, %{"kind" => "citation", "record_ref" => record_ref}} =
+             Tools.call(
+               "cite_source",
+               %{
+                 "observation" => "The current Conversation Lab contains two matching messages.",
+                 "relation" => "supports",
+                 "source_ref" => "admit_input:current-message",
+                 "subject" => "Exact phrase search results for Emisar MCP",
+                 "supersedes" => []
+               },
+               bound_options(claim)
+             )
+
+    assert String.starts_with?(record_ref, "record:evidence:")
+
+    assert [%{"kind" => "evidence", "payload" => payload}] =
+             Records.model_records(claim.episode.id)
+
+    assert payload["target"] == "Exact phrase search results for Emisar MCP"
+  end
+
+  test "request_task can offer a locally emulated incident to Slack or Conversation Lab" do
+    claim = claim!("incident-task-offer")
+    options = bound_options(claim)
+
+    assert {:ok, %{"kind" => "task_offer", "record_ref" => record_ref}} =
+             Tools.call(
+               "request_task",
+               %{
+                 "authority_limits" => ["observe and contain; do not deploy"],
+                 "instruction_ref" => "input:incident:1",
+                 "kind" => "incident",
+                 "prompt" => "Investigate the current service alert and report verified status.",
+                 "repository" => nil,
+                 "source_refs" => ["input:incident:1"],
+                 "success_checks" => ["current impact and evidence are reported"],
+                 "title" => "Investigate service health"
+               },
+               options
+             )
+
+    assert String.starts_with?(record_ref, "record:task_offer:")
+
+    assert [%{"kind" => "task_offer", "payload" => payload}] =
+             Records.model_records(claim.episode.id)
+
+    assert payload["kind"] == "incident"
+    assert payload["repository"] == nil
+    assert payload["prompt"] =~ "observe and contain; do not deploy"
+    assert payload["instruction_ref"] == "input:incident:1"
   end
 
   test "the fixed protocol reads work and creates each durable proposal kind" do
@@ -235,7 +290,7 @@ defmodule Responder.StateTools.RouterTest do
                  "kind" => "guidance",
                  "scope" => "repository",
                  "source_refs" => ["source:runbook"],
-                 "subject" => "deployment_check",
+                 "subject" => "Deployment completion reporting",
                  "supersedes" => [],
                  "value" => "Verify the allocation before reporting completion."
                },
@@ -874,6 +929,34 @@ defmodule Responder.StateTools.RouterTest do
            ) == {:error, "unknown_tool"}
   end
 
+  test "Conversation Lab sessions expose the same confirmable state offers as Slack" do
+    slack_claim = claim!("slack-capability-surface")
+
+    lab_claim =
+      claim!("lab-capability-surface", %{
+        actor_ref: "control_plane:user:local-operator",
+        destination: %{
+          conversation_ref: "control-plane:lab:9a51fa43-977f-4b27-93f6-0c2ad3652ddc",
+          thread_ref: "control-plane:lab:9a51fa43-977f-4b27-93f6-0c2ad3652ddc",
+          transport: "control_plane"
+        },
+        native_input_id: "control-plane-message:capability-surface"
+      })
+
+    slack_tools = Tools.list(bound_options(slack_claim))
+    lab_tools = Tools.list(bound_options(lab_claim))
+
+    assert lab_tools == slack_tools
+
+    names = Enum.map(lab_tools, & &1["name"])
+
+    assert "propose_automation" in names
+    assert "propose_memory" in names
+    assert "request_task" in names
+    assert "request_input" in names
+    assert "wait_for" in names
+  end
+
   test "omits unowned wait tools and rejects their direct calls" do
     list = rpc("tools/list", %{}, @no_owner_options)
 
@@ -971,6 +1054,67 @@ defmodule Responder.StateTools.RouterTest do
              "structuredContent",
              "binding_received"
            ]) == true
+  end
+
+  test "a Lab turn sees generic and Slack-compatible local tools but not GitHub authority" do
+    refute ToolVisibility.visible?(nil, "control_plane")
+
+    conversation_ref = "control-plane:lab:#{Ecto.UUID.generate()}"
+
+    claim =
+      claim!("lab-tool-visibility", %{
+        destination: %{
+          conversation_ref: conversation_ref,
+          thread_ref: conversation_ref,
+          transport: "control_plane"
+        }
+      })
+
+    schema = %{
+      "description" => "Test tool.",
+      "inputSchema" => %{
+        "additionalProperties" => false,
+        "properties" => %{},
+        "type" => "object"
+      }
+    }
+
+    options =
+      Router.init(
+        token: "trusted-state-tools-token",
+        binding: %{
+          episode: claim.episode,
+          session: claim.session,
+          state_token: Records.token(claim.turn),
+          turn: claim.turn
+        },
+        additional_tools: [
+          Map.put(schema, "name", "list_runners"),
+          Map.put(schema, "name", "list_slack_channels"),
+          Map.put(schema, "name", "set_github_reaction")
+        ],
+        additional_call: fn name, %{}, _binding -> {:ok, %{"called" => name}} end
+      )
+
+    names =
+      rpc("tools/list", %{}, options).resp_body
+      |> Jason.decode!()
+      |> get_in(["result", "tools"])
+      |> Enum.map(& &1["name"])
+
+    assert "list_runners" in names
+    assert "list_slack_channels" in names
+    refute "set_github_reaction" in names
+
+    visible =
+      rpc(
+        "tools/call",
+        %{"arguments" => %{}, "name" => "list_slack_channels"},
+        options
+      )
+
+    assert get_in(Jason.decode!(visible.resp_body), ["result", "structuredContent", "called"]) ==
+             "list_slack_channels"
   end
 
   test "tool validation errors stay inside the MCP result channel" do
