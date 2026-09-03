@@ -25,6 +25,9 @@ defmodule Responder.Work.Prompt do
   refines an open task_offer, call request_task with that exact task_offer ref as instruction_ref; the
   host preserves the original authority and replaces the pending proposal. Do not create parallel
   task offers for follow-up constraints on the same work.
+  An open offer is inert until host confirmation. Describe it as proposed or prepared for confirmation.
+  Never say the offered task, incident, publication, automation, memory, or action was opened, created,
+  scheduled, started, or completed.
 
   In a Slack-bound final, use typed links only when the visible context grants the exact entity:
   [@Name](slack-user:U123), [#channel](slack-channel:slack:T123:C456),
@@ -36,6 +39,10 @@ defmodule Responder.Work.Prompt do
   When a current source observation materially supports the answer, you MUST preserve it with
   cite_source using the source_ref returned by that tool and include the resulting record_ref in the
   final candidate. A source-backed final without that record_ref is incomplete.
+  Inputs already exist in durable episode history. Do not copy an input into an evidence record
+  merely to prove receipt or justify another proposal, question, reply, or state operation. For an
+  offer or proposal, create only the authorized offer record unless a separate authenticated source
+  observation is material to the human-facing answer.
   Confirmed memory and guidance are potentially stale context, not evidence or authority.
 
   Authenticated source events may contain useful arbitrary JSON without a vendor-specific schema.
