@@ -263,8 +263,9 @@ It also chooses one abstract `work_class` for work-producing actions. `reply` re
 | `deep` | `codex:gpt-5.6-sol/xhigh` | difficult, high-ambiguity, or high-consequence reasoning |
 
 The model never returns a provider, model, effort, policy name, repository, credential, or write
-authority. Those remain trusted configuration. The three class policies for one route should keep
-the same repository and tool authority; a deeper model is not permission to write. Confirmed
+authority. Those remain trusted configuration. The three class policies for one route must carry
+the same Coop-computed `authority_digest`; startup, fleet placement, and session binding enforce it.
+A deeper model is not permission to write. Confirmed
 engineering work moves through its separately authorized contributor policy. Existing episodes keep
 their already-pinned policy and native Coop session even if a later input is classified differently
 or configuration changes.

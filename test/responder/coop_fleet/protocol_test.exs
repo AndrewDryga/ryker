@@ -10,6 +10,11 @@ defmodule Responder.CoopFleet.ProtocolTest do
 
     assert {:ok, poll} = Protocol.poll(fixture["poll"])
     assert poll["worker"]["id"] == "worker-a"
+
+    assert poll["worker"]["policy_authority_digests"] == %{
+             "responder-read-only-v1" => String.duplicate("d", 64)
+           }
+
     assert Enum.map(hd(poll["event_batches"])["events"], & &1["sequence"]) == [1, 2]
 
     assert {:ok, response} = Protocol.response(fixture["response"])
@@ -85,6 +90,14 @@ defmodule Responder.CoopFleet.ProtocolTest do
 
     assert Protocol.poll(invalid_digest) ==
              {:error, {:invalid_coop_worker_protocol, :sandbox_digest}}
+
+    mismatched_authority =
+      put_in(poll, ["worker", "policy_authority_digests"], %{
+        "another-policy" => String.duplicate("d", 64)
+      })
+
+    assert Protocol.poll(mismatched_authority) ==
+             {:error, {:invalid_coop_worker_poll, :policy_authority_digests}}
   end
 
   test "a real Coop-sized frozen prompt fits while an oversized command does not" do

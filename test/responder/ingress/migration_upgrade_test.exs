@@ -19,6 +19,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @lab_post_capability_version 20_260_830_000_500
   @reaction_events_version 20_260_830_000_600
   @work_classes_version 20_260_903_000_100
+  @authority_digests_version 20_260_903_000_200
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
   test "an installation that already ran the Slack inbox migration upgrades to generic ingress" do
@@ -51,7 +52,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @artifact_references_version,
                @lab_post_capability_version,
                @reaction_events_version,
-               @work_classes_version
+               @work_classes_version,
+               @authority_digests_version
              ]
 
       refute table_exists?(repo, prefix, "slack_inbox_entries")
@@ -81,6 +83,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert column_exists?(repo, prefix, "episode_work_sessions", "repository_ref")
       assert column_exists?(repo, prefix, "episode_work_sessions", "cleanup_status")
       assert column_exists?(repo, prefix, "episode_work_sessions", "cleanup_blocked_from")
+      assert column_exists?(repo, prefix, "episode_work_sessions", "authority_digest")
+      assert column_exists?(repo, prefix, "coop_workers", "policy_authority_digests")
       assert column_exists?(repo, prefix, "ingress_inbox_entries", "operational_pruned_at")
       assert column_exists?(repo, prefix, "episode_work_turns", "operational_pruned_at")
       assert column_exists?(repo, prefix, "episode_kernel_episodes", "history_pruned_at")
@@ -129,10 +133,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @artifact_references_version,
                @lab_post_capability_version,
                @reaction_events_version,
-               @work_classes_version
+               @work_classes_version,
+               @authority_digests_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
+      assert_authority_fields!(repo, prefix, ids)
 
       admission_session_id = insert_admission_session!(repo, prefix)
 
@@ -142,6 +148,16 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  "SELECT execution_kind, episode_id FROM #{prefix}.episode_work_sessions WHERE id = $1::text::uuid",
                  [admission_session_id]
                )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@authority_digests_version]
+
+      refute column_exists?(repo, prefix, "episode_work_sessions", "authority_digest")
+      refute column_exists?(repo, prefix, "coop_workers", "policy_authority_digests")
+      assert column_exists?(repo, prefix, "ingress_inbox_entries", "work_profile")
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
                step: 1,
@@ -206,10 +222,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @artifact_references_version,
                @lab_post_capability_version,
                @reaction_events_version,
-               @work_classes_version
+               @work_classes_version,
+               @authority_digests_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
+      assert_authority_fields!(repo, prefix, ids)
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
@@ -236,7 +254,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @artifact_references_version,
                @lab_post_capability_version,
                @reaction_events_version,
-               @work_classes_version
+               @work_classes_version,
+               @authority_digests_version
              ]
 
       assert Release.migrate(options) == []
@@ -252,6 +271,17 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
         Release.rollback(@cutover_ledger_version, options)
       end
+
+      assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
+        Release.rollback(@work_classes_version, options)
+      end
+
+      assert Release.rollback(@authority_digests_version, options) == [
+               @authority_digests_version
+             ]
+
+      refute column_exists?(repo, prefix, "episode_work_sessions", "authority_digest")
+      refute column_exists?(repo, prefix, "coop_workers", "policy_authority_digests")
 
       assert Release.rollback(@work_classes_version, options) == [
                @work_classes_version
@@ -440,6 +470,17 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                "SELECT source_capabilities, execution_mode, work_policy FROM #{prefix}.ingress_inbox_entries WHERE id = $1::text::uuid",
                [ids.ingress_id]
              )
+  end
+
+  defp assert_authority_fields!(repo, prefix, ids) do
+    assert %{rows: [[nil]]} =
+             SQL.query!(
+               repo,
+               "SELECT authority_digest FROM #{prefix}.episode_work_sessions WHERE id = $1::text::uuid",
+               [ids.session_id]
+             )
+
+    assert column_exists?(repo, prefix, "coop_workers", "policy_authority_digests")
   end
 
   defp insert_admission_session!(repo, prefix) do

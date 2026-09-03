@@ -104,8 +104,9 @@ defmodule Responder.ReleaseTest do
     assert deploy =~ "scripts/install-elixir-release.sh"
     assert deploy =~ "systemctl restart"
     assert deploy =~ "/readyz"
-    assert deploy =~ ~S|running_version=$("$prefix/current/bin/responder" version)|
-    refute deploy =~ ~S|running_version=$($prefix/current/bin/responder version)|
+    assert deploy =~ ~S|installed_version=$("$prefix/current/bin/responder" version)|
+    assert deploy =~ ~S|scripts/check-running-elixir-release.sh "$health_url" "$version"|
+    refute deploy =~ ~S|installed_version=$($prefix/current/bin/responder version)|
     refute deploy =~ "go build"
     refute deploy =~ "launchctl"
     refute deploy =~ "responder-$sha"
@@ -115,6 +116,22 @@ defmodule Responder.ReleaseTest do
     refute operations =~ "responder bootstrap-coop"
     refute operations =~ "responder serve"
     refute operations =~ "State is one owner-private SQLite database"
+  end
+
+  test "the running release proof reads identity from the serving process" do
+    checker = Path.expand("../../scripts/check-running-elixir-release.sh", __DIR__)
+    version = "0.1.0-g" <> String.duplicate("c", 40)
+
+    assert {output, 0} = run_running_release_check(checker, version, version)
+    assert output == "running responder release: #{version}\n"
+
+    assert {output, status} = run_running_release_check(checker, version, "0.1.0-stale")
+    assert status != 0
+    assert output =~ "running release reports '0.1.0-stale'"
+
+    assert {output, status} = run_running_release_check(checker, version, nil)
+    assert status != 0
+    assert output =~ "did not report exactly one release identity"
   end
 
   test "the installer rejects different archive bytes under one release identity" do
@@ -325,6 +342,49 @@ defmodule Responder.ReleaseTest do
     archive = Path.join(root, "#{name}.tar.gz")
     {_output, 0} = System.cmd("tar", ["-czf", archive, "-C", source, "."])
     archive
+  end
+
+  defp run_running_release_check(checker, expected_version, served_version) do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [
+        :binary,
+        active: false,
+        ip: {127, 0, 0, 1},
+        packet: :raw,
+        reuseaddr: true
+      ])
+
+    {:ok, {_address, port}} = :inet.sockname(listener)
+
+    server =
+      Task.async(fn ->
+        {:ok, socket} = :gen_tcp.accept(listener)
+        {:ok, _request} = :gen_tcp.recv(socket, 0, 5_000)
+
+        version_header =
+          if served_version,
+            do: "x-responder-version: #{served_version}\r\n",
+            else: ""
+
+        response =
+          "HTTP/1.1 200 OK\r\n" <>
+            version_header <>
+            "content-length: 6\r\nconnection: close\r\n\r\nready\n"
+
+        :ok = :gen_tcp.send(socket, response)
+        :gen_tcp.close(socket)
+      end)
+
+    result =
+      System.cmd(
+        checker,
+        ["http://127.0.0.1:#{port}", expected_version],
+        stderr_to_stdout: true
+      )
+
+    Task.await(server, 5_000)
+    :gen_tcp.close(listener)
+    result
   end
 
   defp file_sha256(path) do

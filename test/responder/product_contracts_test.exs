@@ -9,6 +9,7 @@ defmodule Responder.ProductContractsTest do
   @digest String.duplicate("a", 64)
   @standard_digest String.duplicate("b", 64)
   @deep_digest String.duplicate("c", 64)
+  @authority_digest String.duplicate("d", 64)
 
   test "trusted work placement has one exact bounded representation" do
     attributes = [
@@ -51,13 +52,26 @@ defmodule Responder.ProductContractsTest do
 
   test "trusted work placement selects an abstract class without exposing model authority" do
     attributes = %{
+      authority_digest: @authority_digest,
       policy: "work-conversational",
       policy_digest: @digest,
       repository_ref: "acme/responder",
       class_policies: %{
-        conversational: %{policy: "work-conversational", policy_digest: @digest},
-        standard: %{policy: "work-standard", policy_digest: @standard_digest},
-        deep: %{policy: "work-deep", policy_digest: @deep_digest}
+        conversational: %{
+          authority_digest: @authority_digest,
+          policy: "work-conversational",
+          policy_digest: @digest
+        },
+        standard: %{
+          authority_digest: @authority_digest,
+          policy: "work-standard",
+          policy_digest: @standard_digest
+        },
+        deep: %{
+          authority_digest: @authority_digest,
+          policy: "work-deep",
+          policy_digest: @deep_digest
+        }
       }
     }
 
@@ -109,6 +123,44 @@ defmodule Responder.ProductContractsTest do
 
     assert {:error, {:invalid_work_profile, :work_class}} =
              WorkProfile.policy_for(profile, :provider_named_by_model)
+  end
+
+  test "model classes cannot widen the trusted execution authority" do
+    attributes = %{
+      authority_digest: @authority_digest,
+      policy: "work-conversational",
+      policy_digest: @digest,
+      repository_ref: "acme/responder",
+      class_policies: %{
+        conversational: %{
+          authority_digest: @authority_digest,
+          policy: "work-conversational",
+          policy_digest: @digest
+        },
+        standard: %{
+          authority_digest: @authority_digest,
+          policy: "work-standard",
+          policy_digest: @standard_digest
+        },
+        deep: %{
+          authority_digest: @authority_digest,
+          policy: "work-deep",
+          policy_digest: @deep_digest
+        }
+      }
+    }
+
+    assert {:ok, profile} = WorkProfile.new(attributes)
+
+    for work_class <- [:conversational, :standard, :deep] do
+      assert {:ok, %{authority_digest: @authority_digest}} =
+               WorkProfile.policy_for(profile, work_class)
+    end
+
+    assert {:error, {:invalid_work_profile, :authority_equivalence}} =
+             attributes
+             |> put_in([:class_policies, :deep, :authority_digest], String.duplicate("e", 64))
+             |> WorkProfile.new()
   end
 
   test "publication receipts bind the exact reviewed GitHub identity" do

@@ -206,6 +206,7 @@ defmodule Responder.CoopFleet.ControlPlane do
         capacity: hello["capacity"],
         clock_at: clock_at,
         last_seen_at: now,
+        policy_authority_digests: hello["policy_authority_digests"],
         policy_digests: hello["policy_digests"],
         protocol_version: hello["protocol_version"],
         repositories: hello["repositories"],
@@ -218,6 +219,7 @@ defmodule Responder.CoopFleet.ControlPlane do
         :capacity,
         :clock_at,
         :last_seen_at,
+        :policy_authority_digests,
         :policy_digests,
         :protocol_version,
         :repositories,
@@ -879,6 +881,7 @@ defmodule Responder.CoopFleet.ControlPlane do
 
   defp worker_eligible?(worker, session, requirements, now) do
     worker.policy_digests[session.policy] == session.policy_digest and
+      worker_authority_matches?(worker, session.policy, session.authority_digest) and
       repository_available?(worker.repositories, requirements.repository_ref) and
       capabilities_available?(worker.capabilities, requirements.capability_names) and
       worker.capacity["state"] == "eligible" and
@@ -899,6 +902,7 @@ defmodule Responder.CoopFleet.ControlPlane do
   defp placement_requirements(session, worker, requirements) do
     %{
       "capability_names" => requirements.capability_names,
+      "authority_digest" => session.authority_digest,
       "policy" => session.policy,
       "policy_digest" => session.policy_digest,
       "repository_ref" => requirements.repository_ref,
@@ -911,11 +915,21 @@ defmodule Responder.CoopFleet.ControlPlane do
     worker.workspace_ref == requirements["workspace_ref"] and
       worker.sandbox_digest == requirements["sandbox_digest"] and
       worker.policy_digests[requirements["policy"]] == requirements["policy_digest"] and
+      worker_authority_matches?(
+        worker,
+        requirements["policy"],
+        requirements["authority_digest"]
+      ) and
       repository_available?(worker.repositories, requirements["repository_ref"]) and
       capabilities_available?(worker.capabilities, requirements["capability_names"])
   end
 
   defp capacity_slot(worker, name), do: Map.get(worker.capacity, name, 0)
+
+  defp worker_authority_matches?(_worker, _policy, nil), do: true
+
+  defp worker_authority_matches?(worker, policy, authority_digest),
+    do: worker.policy_authority_digests[policy] == authority_digest
 
   defp next_placement_generation(session_id) do
     Repo.one(

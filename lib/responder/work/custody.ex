@@ -48,14 +48,31 @@ defmodule Responder.Work.Custody do
   @spec pin_episode(Ecto.UUID.t(), String.t(), String.t()) ::
           {:ok, Session.t()} | {:error, term()}
   def pin_episode(episode_id, policy, policy_digest) do
-    pin_episode(episode_id, policy, policy_digest, nil)
+    pin_episode(episode_id, policy, policy_digest, nil, nil)
   end
 
   @spec pin_episode(Ecto.UUID.t(), String.t(), String.t(), String.t() | nil) ::
           {:ok, Session.t()} | {:error, term()}
   def pin_episode(episode_id, policy, policy_digest, repository_ref) do
+    pin_episode(episode_id, policy, policy_digest, nil, repository_ref)
+  end
+
+  @spec pin_episode(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t() | nil,
+          String.t() | nil
+        ) :: {:ok, Session.t()} | {:error, term()}
+  def pin_episode(episode_id, policy, policy_digest, authority_digest, repository_ref) do
     Repo.transaction(fn ->
-      case pin_episode_in_transaction(episode_id, policy, policy_digest, repository_ref) do
+      case pin_episode_in_transaction(
+             episode_id,
+             policy,
+             policy_digest,
+             authority_digest,
+             repository_ref
+           ) do
         {:ok, session} -> session
         {:error, reason} -> Repo.rollback(reason)
       end
@@ -67,7 +84,7 @@ defmodule Responder.Work.Custody do
   @spec pin_episode_in_transaction(Ecto.UUID.t(), String.t(), String.t()) ::
           {:ok, Session.t()} | {:error, term()}
   def pin_episode_in_transaction(episode_id, policy, policy_digest) do
-    pin_episode_in_transaction(episode_id, policy, policy_digest, nil)
+    pin_episode_in_transaction(episode_id, policy, policy_digest, nil, nil)
   end
 
   @spec pin_episode_in_transaction(
@@ -77,12 +94,37 @@ defmodule Responder.Work.Custody do
           String.t() | nil
         ) :: {:ok, Turn.t()} | {:error, term()}
   def pin_episode_in_transaction(episode_id, policy, policy_digest, repository_ref) do
+    pin_episode_in_transaction(episode_id, policy, policy_digest, nil, repository_ref)
+  end
+
+  @spec pin_episode_in_transaction(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          String.t() | nil,
+          String.t() | nil
+        ) :: {:ok, Session.t()} | {:error, term()}
+  def pin_episode_in_transaction(
+        episode_id,
+        policy,
+        policy_digest,
+        authority_digest,
+        repository_ref
+      ) do
     with :ok <- transaction_open(),
          {:ok, episode_id} <- uuid(episode_id, :episode_id),
          :ok <- reference(policy, :policy),
          :ok <- sha256(policy_digest, :policy_digest),
+         :ok <- optional_sha256(authority_digest, :authority_digest),
          :ok <- optional_reference(repository_ref, :repository_ref) do
-      {:ok, pin_episode_locked(episode_id, policy, policy_digest, repository_ref)}
+      {:ok,
+       pin_episode_locked(
+         episode_id,
+         policy,
+         policy_digest,
+         authority_digest,
+         repository_ref
+       )}
     end
   end
 
@@ -1206,7 +1248,13 @@ defmodule Responder.Work.Custody do
     end
   end
 
-  defp pin_episode_locked(episode_id, policy, policy_digest, repository_ref) do
+  defp pin_episode_locked(
+         episode_id,
+         policy,
+         policy_digest,
+         authority_digest,
+         repository_ref
+       ) do
     case Repo.one(
            from(episode in Episode,
              where: episode.id == ^episode_id,
@@ -1222,13 +1270,14 @@ defmodule Responder.Work.Custody do
             session_id = Ecto.UUID.generate()
 
             session_id
-            |> SessionChangeset.insert(
+            |> SessionChangeset.insert_with_authority(
               episode.id,
               1,
               policy,
               policy_digest,
               repository_ref,
-              session_external_ref(episode.id, 1)
+              session_external_ref(episode.id, 1),
+              %{authority_digest: authority_digest, workspace_task: nil}
             )
             |> Repo.insert()
             |> unwrap_or_rollback(:work_session)
@@ -1242,6 +1291,7 @@ defmodule Responder.Work.Custody do
               session.generation + 1,
               session.policy,
               session.policy_digest,
+              session.authority_digest,
               session.repository_ref
             )
         end
@@ -1338,6 +1388,7 @@ defmodule Responder.Work.Custody do
           session.generation + 1,
           session.policy,
           session.policy_digest,
+          session.authority_digest,
           session.repository_ref,
           session.workspace_task
         )
@@ -1420,6 +1471,7 @@ defmodule Responder.Work.Custody do
               session.generation + 1,
               session.policy,
               session.policy_digest,
+              session.authority_digest,
               session.repository_ref,
               session.workspace_task
             )
@@ -1460,27 +1512,42 @@ defmodule Responder.Work.Custody do
          generation,
          policy,
          policy_digest,
+         authority_digest,
          repository_ref,
          workspace_task \\ nil
        ) do
     session_id = Ecto.UUID.generate()
 
     session_id
-    |> SessionChangeset.insert(
+    |> SessionChangeset.insert_with_authority(
       episode_id,
       generation,
       policy,
       policy_digest,
       repository_ref,
       session_external_ref(episode_id, generation),
-      workspace_task
+      %{authority_digest: authority_digest, workspace_task: workspace_task}
     )
     |> Repo.insert()
     |> persistence_result(:work_session)
   end
 
-  defp insert_session_or_rollback(episode_id, generation, policy, policy_digest, repository_ref) do
-    case insert_session(episode_id, generation, policy, policy_digest, repository_ref) do
+  defp insert_session_or_rollback(
+         episode_id,
+         generation,
+         policy,
+         policy_digest,
+         authority_digest,
+         repository_ref
+       ) do
+    case insert_session(
+           episode_id,
+           generation,
+           policy,
+           policy_digest,
+           authority_digest,
+           repository_ref
+         ) do
       {:ok, session} -> session
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -1658,6 +1725,7 @@ defmodule Responder.Work.Custody do
                  session.generation + 1,
                  session.policy,
                  session.policy_digest,
+                 session.authority_digest,
                  session.repository_ref,
                  session.workspace_task
                ),
@@ -2726,6 +2794,7 @@ defmodule Responder.Work.Custody do
            session.generation + 1,
            session.policy,
            session.policy_digest,
+           session.authority_digest,
            session.repository_ref,
            session.workspace_task
          ) do
@@ -3316,6 +3385,9 @@ defmodule Responder.Work.Custody do
 
   defp optional_reference(nil, _field), do: :ok
   defp optional_reference(value, field), do: reference(value, field)
+
+  defp optional_sha256(nil, _field), do: :ok
+  defp optional_sha256(value, field), do: sha256(value, field)
 
   defp artifact_refs(refs) when is_list(refs) and length(refs) <= 5 do
     if Enum.uniq(refs) == refs and Enum.all?(refs, &valid_reference?/1),

@@ -47,6 +47,8 @@ tools own durable records. The generic Delivery module owns external message and
 - A worker cannot choose episode policy. Admission chooses only the abstract conversational,
   standard, or deep class and maps it through a host-owned profile. Existing episodes retain their
   pinned policy across deploys and later classifications.
+- Every class policy carries Coop's model-independent authority digest. The three classes must share
+  it, each eligible fleet worker must advertise it, and the created Coop session must return it.
 - A frozen submission never changes under one operation key, even after a process crash or deploy.
 - Only a confirmed failure that produced no remote resource may spend a create or submit generation.
 - Only `session_cleanup_error`, while the exact candidate still awaits validation, may spend a
@@ -192,6 +194,11 @@ ingress, admission selects one abstract class, and Coop resolves the selected po
 target. The recommended targets are Terra/medium for conversational work, Sol/medium for standard
 work, and Sol/xhigh for deep work. Keep those three policies authority-equivalent. Writable task
 execution remains a separate confirmed contributor policy rather than a `deep` side effect.
+
+Obtain both `policy_digests` and `policy_authority_digests` from
+`coop sessions policies --policies /etc/coop/session-policies.yaml --json`. Copy the matching full
+digest and shared authority digest into every Work profile and worker advertisement; never derive or
+hand-write either digest in Responder.
 
 For example:
 

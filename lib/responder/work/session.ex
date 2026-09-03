@@ -11,6 +11,7 @@ defmodule Responder.Work.Session do
     field(:execution_kind, Ecto.Enum, values: [:work, :admission], default: :work)
     field(:policy, :string)
     field(:policy_digest, :string)
+    field(:authority_digest, :string)
     field(:repository_ref, :string)
     field(:external_ref, :string)
     field(:generation, :integer, default: 1)
@@ -69,6 +70,7 @@ defmodule Responder.Work.Session do
           execution_kind: :work | :admission,
           policy: String.t() | nil,
           policy_digest: String.t() | nil,
+          authority_digest: String.t() | nil,
           repository_ref: String.t() | nil,
           external_ref: String.t() | nil,
           generation: pos_integer(),

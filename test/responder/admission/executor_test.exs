@@ -121,19 +121,26 @@ defmodule Responder.Admission.ExecutorTest do
              })
 
     work_profile = %{
+      authority_digest: String.duplicate("e", 64),
       policy: "incident-conversational",
       policy_digest: String.duplicate("b", 64),
       repository_ref: "owner/infrastructure",
       class_policies: %{
         conversational: %{
+          authority_digest: String.duplicate("e", 64),
           policy: "incident-conversational",
           policy_digest: String.duplicate("b", 64)
         },
         standard: %{
+          authority_digest: String.duplicate("e", 64),
           policy: "incident-standard",
           policy_digest: String.duplicate("c", 64)
         },
-        deep: %{policy: "incident-deep", policy_digest: String.duplicate("d", 64)}
+        deep: %{
+          authority_digest: String.duplicate("e", 64),
+          policy: "incident-deep",
+          policy_digest: String.duplicate("d", 64)
+        }
       }
     }
 
@@ -143,18 +150,22 @@ defmodule Responder.Admission.ExecutorTest do
     assert entry.work_profile == %{
              "class_policies" => %{
                "conversational" => %{
+                 "authority_digest" => String.duplicate("e", 64),
                  "policy" => "incident-conversational",
                  "policy_digest" => String.duplicate("b", 64)
                },
                "deep" => %{
+                 "authority_digest" => String.duplicate("e", 64),
                  "policy" => "incident-deep",
                  "policy_digest" => String.duplicate("d", 64)
                },
                "standard" => %{
+                 "authority_digest" => String.duplicate("e", 64),
                  "policy" => "incident-standard",
                  "policy_digest" => String.duplicate("c", 64)
                }
              },
+             "authority_digest" => String.duplicate("e", 64),
              "policy" => "incident-conversational",
              "policy_digest" => String.duplicate("b", 64),
              "repository_ref" => "owner/infrastructure"
@@ -166,6 +177,7 @@ defmodule Responder.Admission.ExecutorTest do
              Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
 
     assert %Session{
+             authority_digest: authority_digest,
              policy: "incident-deep",
              policy_digest: digest,
              repository_ref: "owner/infrastructure"
@@ -177,20 +189,28 @@ defmodule Responder.Admission.ExecutorTest do
              )
 
     assert digest == String.duplicate("d", 64)
+    assert authority_digest == String.duplicate("e", 64)
   end
 
   test "each abstract work class selects only its host-owned policy" do
     work_profile = %{
+      authority_digest: String.duplicate("e", 64),
       class_policies: %{
         conversational: %{
+          authority_digest: String.duplicate("e", 64),
           policy: "conversation-terra-medium",
           policy_digest: String.duplicate("b", 64)
         },
         standard: %{
+          authority_digest: String.duplicate("e", 64),
           policy: "standard-sol-medium",
           policy_digest: String.duplicate("c", 64)
         },
-        deep: %{policy: "deep-sol-xhigh", policy_digest: String.duplicate("d", 64)}
+        deep: %{
+          authority_digest: String.duplicate("e", 64),
+          policy: "deep-sol-xhigh",
+          policy_digest: String.duplicate("d", 64)
+        }
       },
       policy: "conversation-terra-medium",
       policy_digest: String.duplicate("b", 64),
@@ -227,6 +247,7 @@ defmodule Responder.Admission.ExecutorTest do
                Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
 
       assert %Session{
+               authority_digest: authority_digest,
                policy: ^expected_policy,
                policy_digest: ^expected_digest,
                repository_ref: "owner/service"
@@ -236,6 +257,8 @@ defmodule Responder.Admission.ExecutorTest do
                    where: session.episode_id == ^execution.result.episode.id
                  )
                )
+
+      assert authority_digest == String.duplicate("e", 64)
     end
   end
 

@@ -3,6 +3,7 @@ defmodule Responder.ObservabilityTest do
 
   import Ecto.Query
 
+  alias Responder.CoopFleet.{Client, ControlPlane, Worker}
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.Inbox
@@ -174,6 +175,108 @@ defmodule Responder.ObservabilityTest do
     assert metrics =~ ~s(responder_runtime_progress_cycles{lane="work"} 2)
   end
 
+  test "fleet execution requires fresh compatible worker capacity" do
+    authority_digest = String.duplicate("d", 64)
+    policy_digest = String.duplicate("b", 64)
+    workspace_ref = "workspace-observability"
+    previous_work = Application.get_env(:responder, :work, :missing)
+    previous_profiles = Application.get_env(:responder, :cutover_profiles, :missing)
+
+    assert {:ok, client} =
+             Client.new(
+               capability_names: ["responder-state"],
+               workspace_ref: workspace_ref
+             )
+
+    Application.put_env(:responder, :work, %{api: Client, client: client})
+
+    Application.put_env(:responder, :cutover_profiles, %{
+      {"read_only", nil} => %{
+        authority_digest: authority_digest,
+        policy: "work-read-only",
+        policy_digest: policy_digest,
+        repository_ref: nil
+      }
+    })
+
+    on_exit(fn ->
+      restore_env(:work, previous_work)
+      restore_env(:cutover_profiles, previous_profiles)
+    end)
+
+    assert {:error, unavailable} =
+             Observability.ready(
+               check_progress: false,
+               check_runtimes: false,
+               stall_after_seconds: 86_400
+             )
+
+    assert unavailable.fleet_issues ==
+             [
+               :missing_policy_capacity,
+               :no_eligible_workers,
+               :no_session_capacity,
+               :no_turn_capacity,
+               :no_workspace_capacity
+             ]
+
+    assert {:ok, _worker} =
+             ControlPlane.authorize_worker(
+               "worker-observability",
+               workspace_ref,
+               String.duplicate("c", 64)
+             )
+
+    assert {:ok, _poll} =
+             ControlPlane.handle_poll(
+               "worker-observability",
+               fleet_poll(
+                 "worker-observability",
+                 workspace_ref,
+                 policy_digest,
+                 authority_digest
+               )
+             )
+
+    assert {:ok, readiness} =
+             Observability.ready(
+               check_progress: false,
+               check_runtimes: false,
+               stall_after_seconds: 86_400
+             )
+
+    assert readiness.fleet_issues == []
+    assert readiness.fleet.required
+    assert readiness.fleet.eligible_workers == 1
+    assert readiness.fleet.available_policy_profiles == 1
+    assert readiness.fleet.required_policy_profiles == 1
+    assert readiness.fleet.capacity.turn.free == 2
+    assert readiness.fleet.capacity.turn.total == 4
+
+    assert {:ok, metrics} = Observability.metrics()
+    assert metrics =~ ~s(responder_coop_fleet_eligible_workers 1)
+    assert metrics =~ ~s(responder_coop_fleet_slots_free{kind="turn"} 2)
+    assert metrics =~ ~s(responder_coop_fleet_workers{state="eligible"} 1)
+    refute metrics =~ "worker-observability"
+    refute metrics =~ workspace_ref
+
+    old = DateTime.add(DateTime.utc_now(), -120, :second)
+
+    Repo.update_all(from(worker in Worker, where: worker.id == "worker-observability"),
+      set: [last_seen_at: old]
+    )
+
+    assert {:error, stale} =
+             Observability.ready(
+               check_progress: false,
+               check_runtimes: false,
+               stall_after_seconds: 86_400
+             )
+
+    assert :no_eligible_workers in stale.fleet_issues
+    assert stale.fleet.stale_workers == 1
+  end
+
   test "readiness uses database time and identifies a due queue that has stopped moving" do
     assert {:ok, input} = slack_input("stalled input")
     assert {:ok, %{entry: entry}} = Inbox.record(input)
@@ -322,4 +425,40 @@ defmodule Responder.ObservabilityTest do
       workspace_ref: "T-observability"
     })
   end
+
+  defp fleet_poll(worker_id, workspace_ref, policy_digest, authority_digest) do
+    %{
+      "acknowledged_command_ids" => [],
+      "command_results" => [],
+      "event_batches" => [],
+      "poll_ref" => "poll:#{worker_id}:observability",
+      "version" => 1,
+      "worker" => %{
+        "build_version" => "coop-observability",
+        "capabilities" => [%{"name" => "responder-state", "version" => "1"}],
+        "capacity" => %{
+          "cooldown_until" => nil,
+          "session_slots_free" => 2,
+          "session_slots_total" => 4,
+          "state" => "eligible",
+          "turn_slots_free" => 2,
+          "turn_slots_total" => 4,
+          "workspace_slots_free" => 2,
+          "workspace_slots_total" => 4
+        },
+        "clock_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+        "id" => worker_id,
+        "policy_authority_digests" => %{"work-read-only" => authority_digest},
+        "policy_digests" => %{"work-read-only" => policy_digest},
+        "protocol_version" => "1",
+        "repositories" => [],
+        "sandbox_digest" => String.duplicate("a", 64),
+        "state" => "eligible",
+        "workspace_ref" => workspace_ref
+      }
+    }
+  end
+
+  defp restore_env(key, :missing), do: Application.delete_env(:responder, key)
+  defp restore_env(key, value), do: Application.put_env(:responder, key, value)
 end

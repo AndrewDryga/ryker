@@ -70,6 +70,7 @@ defmodule Responder.CoopFleet.Client do
              session,
              "create_session",
              %{
+               "authority_digest" => session.authority_digest,
                "external_ref" => task,
                "policy" => policy,
                "policy_digest" => session.policy_digest
@@ -94,6 +95,7 @@ defmodule Responder.CoopFleet.Client do
              session,
              "create_session",
              %{
+               "authority_digest" => session.authority_digest,
                "external_ref" => task,
                "policy" => policy,
                "policy_digest" => session.policy_digest,

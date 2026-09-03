@@ -39,6 +39,7 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
         operation_calls: %{},
         session: %{
           "base_commit" => "5d1fa43d2efe46e8409dde0e93e79af93fb6622f",
+          "authority_digest" => Keyword.get(options, :authority_digest),
           "companions" => Keyword.get(options, :companions, []),
           "external_ref" => nil,
           "id" => "remote_work",

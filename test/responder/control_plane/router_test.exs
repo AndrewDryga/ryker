@@ -989,6 +989,23 @@ defmodule Responder.ControlPlane.RouterTest do
     assert HTML.overview(%{counts: %{}, needs_attention: []}) |> IO.iodata_to_binary() =~
              "Nothing needs attention"
 
+    fleet_overview =
+      HTML.overview(%{
+        counts: %{},
+        fleet: %{
+          capacity: %{turn: %{free: 3}},
+          current_placements: 2,
+          eligible_workers: 1,
+          required: true
+        },
+        needs_attention: []
+      })
+      |> IO.iodata_to_binary()
+
+    assert fleet_overview =~ "Eligible Coop workers"
+    assert fleet_overview =~ "Free turn slots"
+    assert fleet_overview =~ "Current placements"
+
     assert HTML.generic("Unknown", [nil]) |> IO.iodata_to_binary() =~ "Unknown"
   end
 

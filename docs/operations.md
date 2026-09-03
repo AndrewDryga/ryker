@@ -38,9 +38,10 @@ Before every start, validate that:
   exact;
 - every universal-webhook destination has a configured outbound adapter;
 - every enabled state tool has its owning runtime;
-- every Work profile has the reviewed policy and policy digest;
+- every Work profile has the reviewed policy, full policy digest, and Coop-computed authority
+  digest;
 - every class policy resolves to the intended target (`conversational` to Terra/medium, `standard`
-  to Sol/medium, and `deep` to Sol/xhigh) without widening repository or tool authority;
+  to Sol/medium, and `deep` to Sol/xhigh), and all three have the same authority digest;
 - fleet worker certificates are current and revoked workers are absent; and
 - all listeners except the externally proxied webhook paths bind to loopback.
 
@@ -57,7 +58,9 @@ It refuses a dirty tree, builds and proves the exact immutable Elixir archive,
 boots it against a disposable PostgreSQL database, verifies a same-database
 restart and a `pg_dump`/restore boot, installs the versioned release, atomically
 moves `/usr/local/lib/responder/current`, restarts `responder.service`, and
-waits for both `/healthz` and `/readyz`.
+waits for both `/healthz` and `/readyz`. It then requires the ready process's
+`x-responder-version` header to match the exact installed release; inspecting
+the `current` symlink alone is not proof that systemd is serving that build.
 
 This is a normal one-writer restart, not a canary or promote workflow. Do not
 start a second Slack socket, GitHub/webhook listener, scheduler, or delivery
@@ -71,6 +74,7 @@ After the script succeeds, record:
 systemctl is-active responder.service
 curl --fail http://127.0.0.1:4321/healthz
 curl --fail http://127.0.0.1:4321/readyz
+scripts/check-running-elixir-release.sh http://127.0.0.1:4321 EXPECTED_VERSION
 curl --fail http://127.0.0.1:4321/metrics
 ```
 
@@ -165,16 +169,19 @@ the class selected from the host-owned profile:
 - standard: Sol/medium;
 - deep: Sol/xhigh.
 
-The policy digest is generated from the exact Coop policy file with:
+The full policy and model-independent authority digests are generated from the exact Coop policy
+file with:
 
 ```bash
 coop sessions policies --policies /etc/coop/session-policies.yaml --json
 ```
 
-Copy the resulting name/digest pairs into the Responder YAML. Use new versioned policy names when
-changing targets; do not mutate the meaning of a policy still pinned by an active or recoverable
-episode. Contributor, schedule, incident, and evaluation policies remain separate authority lanes,
-even when they happen to use one of the same model targets.
+Copy both returned maps into the Responder YAML and the worker connector configuration. The three
+class policies must have one identical `authority_digest`; Responder rejects configuration, fleet
+placement, or a returned Coop session that widens it. Use new versioned policy names when changing
+targets; do not mutate the meaning of a policy still pinned by an active or recoverable episode.
+Contributor, schedule, incident, and evaluation policies remain separate authority lanes, even when
+they happen to use one of the same model targets.
 
 ## PostgreSQL backup and restore
 
