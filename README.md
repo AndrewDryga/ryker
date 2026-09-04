@@ -5,9 +5,9 @@
 
 Responder is a persistent engineering and operations teammate backed by isolated
 [Coop](https://github.com/AndrewDryga/coop) sessions and governed Emisar access. Its replacement core
-is platform-neutral: Slack, GitHub comments and pull-request reviews, and authenticated universal
-webhooks are adapters over the same ingress, episode, Work, and Delivery contracts. It can answer,
-investigate, change code, and prepare reviewed work without turning every request into an incident.
+is platform-neutral: Slack, GitHub comments and pull-request reviews, and authenticated webhooks are
+adapters over the same ingress, episode, Work, and Delivery contracts. It can answer, investigate,
+change code, and prepare reviewed work without turning every request into an incident.
 
 The checked [Go-to-Elixir capability contract](docs/elixir-go-capability-contract.md) is the source of
 truth for what is implemented, what remains partial, and which task owns each remaining P0/P1 gap.
@@ -17,6 +17,8 @@ It runs on one trusted host and:
 
 - accepts arbitrary authenticated JSON through configured universal webhook routes without granting
   the payload authority over policy or destination;
+- translates Grafana alert lifecycles and configured bounded mapped-JSON alerts into the same
+  source-neutral ingress without provider rules in admission;
 - handles GitHub issue comments, pull-request reviews, inline review comments, and GitHub's native
   reaction set through a repository-scoped App adapter;
 - triages human and monitoring-app messages in configured Slack alert feeds, answering human
@@ -345,9 +347,8 @@ Grafana route:
 curl -f \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer example-secret' \
-  -H 'X-Responder-Event-ID: grafana-delivery-123' \
   --data-binary @grafana-alert.json \
-  http://127.0.0.1:8080/v1/hooks/grafana
+  http://127.0.0.1:4320/v1/hooks/grafana
 ```
 
 Grafana's alert fingerprint is the stable signal identity. Its `groupKey` is the preferred incident

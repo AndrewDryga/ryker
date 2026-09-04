@@ -20,13 +20,28 @@ defmodule Responder.Ingress.Inbox do
 
   @type receipt :: %{entry: Entry.t(), status: :recorded | :duplicate}
   @type claim :: %{entry: Entry.t(), lease_ref: String.t()}
+  @maximum_record_batch 500
+  @maximum_revision 9_223_372_036_854_775_807
 
   @spec record(Input.t(), keyword()) :: {:ok, receipt()} | {:error, term()}
   def record(input, options \\ []) do
+    case record_many([input], options) do
+      {:ok, [receipt]} -> {:ok, receipt}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
+  Atomically records a bounded provider batch.
+
+  Every input is validated before the transaction. A conflict or persistence
+  failure on any member rolls back the entire batch, including projections.
+  """
+  @spec record_many([Input.t()], keyword()) :: {:ok, [receipt()]} | {:error, term()}
+  def record_many(inputs, options \\ []) do
     with {:ok, settings} <- record_options(options),
-         {:ok, input} <- Input.prepare(input) do
-      input
-      |> record_transaction(settings)
+         {:ok, inputs} <- prepare_inputs(inputs) do
+      Repo.transaction(fn -> record_batch_locked(inputs, settings) end)
       |> transaction_result()
     end
   end
@@ -393,19 +408,28 @@ defmodule Responder.Ingress.Inbox do
     end
   end
 
-  defp record_transaction(input, settings) do
-    Repo.transaction(fn ->
-      dedupe_key = Input.dedupe_key(input)
+  defp record_locked(input, settings) do
+    dedupe_key = Input.dedupe_key(input)
 
-      with :ok <- lock(dedupe_key),
-           {:ok, receipt} <- reconcile_record(input, load(dedupe_key), settings),
-           :ok <- attach_artifacts(input, receipt),
-           :ok <- Projections.observe(input, ref(receipt.entry)) do
-        receipt
-      else
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
+    with {:ok, receipt} <- reconcile_record(input, load(dedupe_key), settings),
+         :ok <- attach_artifacts(input, receipt),
+         :ok <- Projections.observe(input, ref(receipt.entry)) do
+      {:ok, receipt}
+    end
+  end
+
+  defp record_batch_locked(inputs, settings) do
+    case lock_batch(inputs, settings) do
+      :ok -> Enum.map(inputs, &record_one_locked!(&1, settings))
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp record_one_locked!(input, settings) do
+    case record_locked(input, settings) do
+      {:ok, receipt} -> receipt
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   defp attach_artifacts(_input, %{status: :duplicate, entry: %Entry{operational_pruned_at: at}})
@@ -423,23 +447,29 @@ defmodule Responder.Ingress.Inbox do
          nil,
          %{revision_ties: :receipt_order} = settings
        ) do
-    revision_lock =
-      "ingress-revision:" <>
-        CanonicalJSON.digest([input.source.kind, input.source.ref, input.native_input_id])
-
-    with :ok <- lock(revision_lock),
-         {:ok, input} <- allocate_source_revision(input) do
+    with {:ok, input} <- allocate_bounded_source_revision(input) do
       reconcile(input, nil, settings)
     end
   end
 
-  defp reconcile_record(input, %Entry{} = entry, %{revision_ties: :receipt_order}),
-    do: reconcile(%{input | revision: entry.revision}, entry, entry.execution_mode)
+  defp reconcile_record(
+         input,
+         nil,
+         %{revision_ties: :receipt_order_unbounded} = settings
+       ) do
+    with {:ok, input} <- allocate_unbounded_source_revision(input) do
+      reconcile(input, nil, settings)
+    end
+  end
+
+  defp reconcile_record(input, %Entry{} = entry, %{revision_ties: revision_ties})
+       when revision_ties in [:receipt_order, :receipt_order_unbounded],
+       do: reconcile(%{input | revision: entry.revision}, entry, entry.execution_mode)
 
   defp reconcile_record(input, %Entry{} = entry, %{revision_ties: :exact}),
     do: reconcile(input, entry, entry.execution_mode)
 
-  defp allocate_source_revision(input) do
+  defp allocate_bounded_source_revision(input) do
     base = input.revision
     maximum = base + 999
 
@@ -462,11 +492,54 @@ defmodule Responder.Ingress.Inbox do
     end
   end
 
+  defp allocate_unbounded_source_revision(input) do
+    latest =
+      Repo.one(
+        from(entry in Entry,
+          where:
+            entry.source_kind == ^input.source.kind and
+              entry.source_ref == ^input.source.ref and
+              entry.native_input_id == ^input.native_input_id,
+          select: max(entry.revision)
+        )
+      )
+
+    cond do
+      is_nil(latest) -> {:ok, input}
+      latest < @maximum_revision -> {:ok, %{input | revision: latest + 1}}
+      true -> {:error, {:source_revision_overflow, input.native_input_id, input.revision}}
+    end
+  end
+
   defp lock(dedupe_key) do
     case Repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [dedupe_key]) do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, {:store_failed, :source_lock, reason}}
     end
+  end
+
+  defp lock_batch(inputs, settings) do
+    inputs
+    |> Enum.flat_map(fn input ->
+      keys = [Input.dedupe_key(input)]
+
+      if settings.revision_ties in [:receipt_order, :receipt_order_unbounded],
+        do: [revision_lock(input) | keys],
+        else: keys
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.reduce_while(:ok, fn key, :ok ->
+      case lock(key) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp revision_lock(input) do
+    "ingress-revision:" <>
+      CanonicalJSON.digest([input.source.kind, input.source.ref, input.native_input_id])
   end
 
   defp load(dedupe_key) do
@@ -499,6 +572,23 @@ defmodule Responder.Ingress.Inbox do
 
   defp transaction_result({:ok, receipt}), do: {:ok, receipt}
   defp transaction_result({:error, reason}), do: {:error, reason}
+
+  defp prepare_inputs(inputs)
+       when is_list(inputs) and inputs != [] and length(inputs) <= @maximum_record_batch do
+    inputs
+    |> Enum.reduce_while({:ok, []}, fn input, {:ok, prepared} ->
+      case Input.prepare(input) do
+        {:ok, input} -> {:cont, {:ok, [input | prepared]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, prepared} -> {:ok, Enum.reverse(prepared)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp prepare_inputs(_inputs), do: {:error, {:invalid_ingress_execution, :inputs}}
 
   defp input_id(@ref_prefix <> id) do
     case Ecto.UUID.cast(id) do
@@ -541,7 +631,7 @@ defmodule Responder.Ingress.Inbox do
       execution_mode = Keyword.get(options, :execution_mode, :live)
       work_profile = Keyword.get(options, :work_profile)
 
-      with true <- revision_ties in [:exact, :receipt_order],
+      with true <- revision_ties in [:exact, :receipt_order, :receipt_order_unbounded],
            true <- execution_mode in [:live, :shadow],
            {:ok, work_profile} <- WorkProfile.prepare(work_profile) do
         {:ok,

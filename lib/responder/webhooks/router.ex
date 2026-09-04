@@ -11,7 +11,7 @@ defmodule Responder.Webhooks.Router do
   import Plug.Conn
 
   alias Responder.Ingress.{Adapters, HTTP, Inbox}
-  alias Responder.Webhooks.{Auth, Route}
+  alias Responder.Webhooks.{Auth, Route, Transforms}
 
   @impl Plug
   def init(options) do
@@ -43,12 +43,19 @@ defmodule Responder.Webhooks.Router do
          :ok <- Auth.authorize(conn, route, body, now),
          {:ok, metadata} <- metadata(conn, now),
          {:ok, payload} <- HTTP.decode_json(body),
-         {:ok, input} <-
-           Adapters.normalize("webhook", %{metadata: metadata, payload: payload}, route),
-         {:ok, receipt} <- Inbox.record(input, work_profile: route.work_profile) do
+         {:ok, transformed} <- normalize(route, payload, metadata),
+         {:ok, receipts} <-
+           Inbox.record_many(transformed.inputs,
+             revision_ties: transformed.revision_ties,
+             work_profile: route.work_profile
+           ) do
+      receipt = hd(receipts)
+
       HTTP.respond(conn, 202, %{
         "input_ref" => Inbox.ref(receipt.entry),
-        "status" => Atom.to_string(receipt.status)
+        "input_refs" => Enum.map(receipts, &Inbox.ref(&1.entry)),
+        "count" => length(receipts),
+        "status" => batch_status(receipts)
       })
     else
       {:error, :unsupported_media_type} ->
@@ -72,6 +79,9 @@ defmodule Responder.Webhooks.Router do
       {:error, {:invalid_webhook_input, _field}} ->
         HTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
+      {:error, {:invalid_webhook_transform, _field}} ->
+        HTTP.respond(conn, 400, %{"error" => "invalid_event"})
+
       {:error, {:invalid_input, _field}} ->
         HTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
@@ -86,8 +96,26 @@ defmodule Responder.Webhooks.Router do
     end
   end
 
+  defp normalize(%Route{adapter: %{kind: :universal}} = route, payload, metadata) do
+    with event_id when is_binary(event_id) and event_id != "" <- metadata[:event_id],
+         {:ok, input} <-
+           Adapters.normalize("webhook", %{metadata: metadata, payload: payload}, route) do
+      {:ok, %{inputs: [input], revision_ties: :exact}}
+    else
+      nil -> {:error, :event_id}
+      "" -> {:error, :event_id}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp normalize(route, payload, metadata), do: Transforms.normalize(route, payload, metadata)
+
+  defp batch_status(receipts) do
+    if Enum.all?(receipts, &(&1.status == :duplicate)), do: "duplicate", else: "recorded"
+  end
+
   defp metadata(conn, now) do
-    with {:ok, event_id} <- HTTP.required_header(conn, "x-responder-event-id", :event_id),
+    with {:ok, event_id} <- optional_header(conn, "x-responder-event-id"),
          {:ok, item_id} <- item_id(conn, event_id),
          {:ok, event_type} <- optional_header(conn, "x-responder-event-type"),
          {:ok, occurred_at, occurred_at_source} <- occurred_at(conn, now),
@@ -102,7 +130,6 @@ defmodule Responder.Webhooks.Router do
          revision: revision
        ]}
     else
-      {:error, :event_id} -> {:error, :event_id}
       _error -> {:error, :metadata}
     end
   end

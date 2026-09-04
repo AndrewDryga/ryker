@@ -598,7 +598,7 @@ flowchart LR
 
   subgraph Once["Exactly-once or idempotent boundaries"]
     SlackOnce["Slack envelope/event ID"]
-    WebhookOnce["Route + delivery ID<br/>and body digest"]
+    WebhookOnce["Route + derived event ID<br/>and normalized content digest"]
     DecisionOnce["source_input + mode"]
     RuleOnce["rule_id + source_input"]
     CoopOnce["Stable operation keys<br/>plus session generation"]

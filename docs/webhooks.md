@@ -1,205 +1,195 @@
 # Webhooks
 
+Responder exposes one authenticated, source-neutral webhook edge with tagged transforms for
+provider payloads. Every accepted event becomes the same durable `Ingress.Input` used by Slack and
+GitHub. Route configuration—not request content—owns the destination, Work profile, credentials,
+payload limit, and transform.
+
 ## Public edge
 
-Responder only listens on loopback. Terminate TLS and enforce any network allowlist in a reverse
-proxy. Publish `/v1/hooks/<route>` and keep `/healthz`, `/readyz`, and `/metrics` private.
+The listener defaults to loopback. Terminate TLS and enforce any network allowlist and per-sender
+request rate limit in a reverse proxy. Publish only `/v1/hooks/<route>`; keep `/healthz`, `/readyz`,
+and `/metrics` private. Rate limits must account for Grafana's bounded fan-out of up to 500 alerts
+per authenticated request.
 
 Every request must:
 
 - use `POST`;
-- use `Content-Type: application/json`;
-- stay under `limits.max_webhook_bytes`;
-- authenticate with the route's configured mode;
-- contain one JSON value.
+- use `Content-Type: application/json` or `application/*+json`;
+- fit the route's `max_body_bytes` limit, which cannot exceed 40,000 bytes;
+- authenticate with the route's configured mode; and
+- contain exactly one JSON value.
 
-`X-Responder-Event-ID` is an optional stable delivery ID. Without it, the SHA-256 body digest is
-the delivery ID. Reusing an explicit ID with different content returns `409 Conflict`. Webhook
-secrets must contain at least 16 bytes.
+A `202 Accepted` response means the complete transformed input batch is durably queued. It does not
+mean admission, model work, or delivery has finished.
 
-## Bearer authentication
-
-Configuration:
-
-```yaml
-auth: bearer
-secret_env: GRAFANA_WEBHOOK_TOKEN
+```json
+{
+  "count": 2,
+  "input_ref": "ingress-input:...",
+  "input_refs": ["ingress-input:...", "ingress-input:..."],
+  "status": "recorded"
+}
 ```
 
-Request:
+An exact retry returns the original receipt with `status: duplicate`. Reusing a source occurrence
+identity with different trusted content returns `409 Conflict`. A multi-alert Grafana request is
+atomic: either every alert is recorded or none is.
+
+## Route configuration
+
+Every route uses an explicit tagged adapter. Omitting `adapter` is equivalent to `universal` for
+backward-compatible configuration.
+
+```yaml
+webhooks:
+  ip: 127.0.0.1
+  port: 4320
+  routes:
+    grafana:
+      adapter:
+        kind: grafana
+        group_by_labels: [cluster, service]
+      auth:
+        kind: bearer
+        secret_env: GRAFANA_WEBHOOK_TOKEN
+      destination:
+        transport: slack
+        conversation_ref: slack:T0123456789:C0123456789
+        thread_ref:
+      work_profile:
+        policy: responder-read-only-v1
+        policy_digest: <64-lowercase-hex-digest>
+        repository_ref: responder
+      max_body_bytes: 40000
+      max_clock_skew_seconds: 300
+```
+
+Route names, mapping paths, and grouping labels are bounded. Mapped paths contain at most 16 object
+segments and never index arrays. There is no jq, CEL, template, shell, dynamic module, or script
+execution.
+
+## Authentication
+
+Bearer routes accept exactly one header:
 
 ```text
 Authorization: Bearer <secret>
 ```
 
-Exactly one Authorization header is accepted.
-
-## HMAC-SHA256 authentication
-
-Configuration:
-
-```yaml
-auth: hmac-sha256
-secret_env: GENERIC_WEBHOOK_SECRET
-```
-
-Compute:
-
-```text
-hex(HMAC-SHA256(secret, timestamp + "." + event_id + "." + raw_request_body))
-```
-
-Send:
+HMAC-SHA256 routes accept exactly one timestamp and signature:
 
 ```text
 X-Responder-Timestamp: <Unix seconds>
-X-Responder-Signature: sha256=<lowercase hex digest>
-X-Responder-Event-ID: <stable delivery ID, or omit>
+X-Responder-Signature: v1=<hex HMAC-SHA256>
 ```
 
-The timestamp must be within five minutes of the service clock. Exactly one timestamp and signature
-header are accepted. When the event ID header is omitted, sign an empty `event_id`, including both
-period separators. Binding the event ID prevents an authenticated payload from being replayed under
-a different deduplication identity.
-
-## Grafana
-
-`kind: grafana` accepts Grafana alert webhook JSON. Each entry in `alerts` becomes a normalized
-signal. At most 500 alerts are accepted per delivery.
-
-Signal fields are selected as follows:
-
-| Normalized field | Grafana source |
-| --- | --- |
-| identity | `alerts[].fingerprint`, otherwise a stable labels/start digest |
-| incident source | top-level `groupKey` |
-| title | `summary`, `title`, `alertname`, then top-level title |
-| severity | `severity`, `priority`, then `level` label |
-| summary | `description`, `message`, then top-level message |
-| link | panel, dashboard, generator, then external URL |
-
-Only `http` and `https` links are retained.
-
-Point the Grafana contact point at:
+The signed bytes are these newline-separated values, including empty lines:
 
 ```text
-https://responder.example.com/v1/hooks/grafana
+timestamp
+request path
+event ID
+item ID
+event type
+occurred-at value
+revision value
+raw request body
 ```
 
-Add `Authorization: Bearer ...` as a contact-point HTTP header. A stable delivery header is useful
-but not required.
+The metadata values are the exact `X-Responder-Event-ID`, `X-Responder-Item-ID`,
+`X-Responder-Event-Type`, `X-Responder-Occurred-At`, and `X-Responder-Revision` request headers.
+The timestamp must be within the route's configured clock-skew window. Universal routes require an
+event ID. Grafana and mapped-JSON routes derive identity from the authenticated body, so those five
+headers may be absent and are signed as empty strings. Changing either body or headers invalidates
+the signature.
 
-## Generic JSON
+Webhook secrets must contain at least 16 bytes for bearer authentication and 32 bytes for HMAC.
 
-Generic mapping supports object dot paths only. It deliberately does not execute jq, CEL,
-templates, shell, or user scripts.
+## Universal JSON
 
-Example payload:
+`adapter.kind: universal` accepts any JSON value, including arrays and scalars, without interpreting
+provider fields. The sender must supply a stable `X-Responder-Event-ID` for each occurrence.
 
-```json
-{
-  "event": {"id": "evt-123"},
-  "incident": {
-    "id": "checkout-prod",
-    "status": "firing",
-    "title": "Checkout error rate",
-    "severity": "critical",
-    "summary": "5xx exceeded 10%",
-    "url": "https://monitoring.example/incidents/checkout-prod",
-    "started_at": "2026-07-27T01:00:00Z",
-    "labels": {"environment": "prod", "service": "checkout"},
-    "annotations": {"runbook": "checkout-errors"}
-  }
-}
+```text
+X-Responder-Event-ID: <required unique occurrence ID>
+X-Responder-Item-ID: <optional stable item shared by revisions; defaults to event ID>
+X-Responder-Event-Type: <optional bounded hint>
+X-Responder-Occurred-At: <optional UTC ISO-8601 timestamp>
+X-Responder-Revision: <optional positive integer; defaults to 1>
 ```
 
-Required mappings are `event_id`, `status`, and `title`. Supported firing states include `firing`,
-`alerting`, `active`, `open`, and `triggered`. Supported resolved states include `resolved`, `ok`,
-`closed`, `normal`, and `recovered`.
+Universal input has reply capability only. Payload fields cannot grant reactions or choose a
+platform target.
 
-If `incident_id` is absent, configured `group_by_labels` values form the incident correlation key.
-If none exists, the signal itself is isolated into its own incident.
+## Grafana alerts
 
-## Change events
+`adapter.kind: grafana` accepts Grafana alert webhook JSON without Responder metadata headers. Each
+entry in `alerts` becomes one normalized input; a delivery must contain between 1 and 500 alerts.
 
-`kind: change` records what changed instead of opening an incident. A change route never creates a
-signal, never opens an incident, and never starts work. Its rows reach an incident or operational
-assessment prompt as `recent_changes` — correlation material scoped to the services that incident
-implicates, inside the untrusted-context framing.
+| Normalized field | Grafana source |
+|---|---|
+| stable alert cycle | route, `fingerprint` (or labels digest), and `startsAt` |
+| occurrence | route, fingerprint, `startsAt`, normalized status, `endsAt`, and annotations |
+| incident grouping | top-level `groupKey`, configured grouping labels, then alert identity |
+| title | annotation `summary`, annotation `title`, `alertname`, then top-level `title` |
+| severity | label `severity`, `priority`, then `level` |
+| summary | annotation `description`, annotation `message`, then top-level `message` |
+| source link | panel, dashboard, generator, then external URL |
 
-A change may be cited as the cause of an alert only through a proper `record_evidence` operation:
-the host's cause gate still requires evidence IDs bound to recorded claims, so a `change_id` on its
-own is never a cause.
+Firing aliases are `firing`, `alerting`, `active`, `open`, and `triggered`. Resolved aliases are
+`resolved`, `ok`, `closed`, `normal`, and `recovered`. Only HTTP and HTTPS source links are retained.
+Firing and resolved occurrences for the same fingerprint and `startsAt` retain one stable item;
+PostgreSQL assigns lifecycle revisions in receipt order.
 
-Mapping supports the same object dot paths as generic JSON, and nothing else.
+Example contact-point request:
 
-Example payload:
-
-```json
-{
-  "event": {"type": "release"},
-  "deployment": {
-    "finished_at": "2026-08-14T11:50:00Z",
-    "description": "checkout v41",
-    "actor": {"login": "dana"},
-    "sha": "9f21c0a",
-    "url": "https://deploys.example/releases/41",
-    "services": ["checkout", "cart"],
-    "repositories": ["example/backend"]
-  }
-}
+```bash
+curl -f \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer example-secret-at-least-16-bytes' \
+  --data-binary @grafana-alert.json \
+  http://127.0.0.1:4320/v1/hooks/grafana
 ```
 
-Matching route:
+## Mapped JSON alerts
+
+`adapter.kind: mapped_json` turns one JSON object into one normalized alert using configured object
+paths. The payload is never copied wholesale into model context; only selected, bounded fields are
+retained.
 
 ```yaml
-webhooks:
-  deploys:
-    kind: change
-    auth: hmac-sha256
-    secret_env: DEPLOY_WEBHOOK_SECRET
-    repository: backend
-    change:
-      kind: event.type
-      occurred_at: deployment.finished_at
-      summary: deployment.description
-      actor: deployment.actor.login
-      revision: deployment.sha
-      source_url: deployment.url
-      services: deployment.services
-      repositories: deployment.repositories
+adapter:
+  kind: mapped_json
+  group_by_labels: [environment, service]
+  mapping:
+    event_id: event.id
+    item_id: incident.alert_id
+    incident_id: incident.id
+    status: incident.state
+    title: incident.title
+    severity: incident.severity
+    summary: incident.summary
+    source_url: incident.url
+    labels: incident.labels
+    annotations: incident.annotations
+    starts_at: incident.started_at
+    ends_at: incident.ended_at
+    revision: event.revision
 ```
 
-Every mapping is optional. An unmapped `kind` records a `deploy`; an unmapped `occurred_at` records
-when Responder received the delivery. `services` and `repositories` each accept one scalar or an
-array of scalars, and the route's own `repository` is always added to the scope, so a route that
-maps neither still records a recallable change.
+`event_id`, `status`, and `title` are required mappings. All other mappings are optional. Scalar
+fields accept strings, numbers, or booleans; label and annotation values must also be scalar.
+Timestamps must be ISO-8601 values. Source links must use HTTP or HTTPS.
 
-| Change kind | Accepted values |
-| --- | --- |
-| `deploy` | `deploy`, `deployment`, `deployed`, `release`, `released`, `rollout` |
-| `merge` | `merge`, `merged`, `pull_request`, `pr` |
-| `infra_apply` | `infra_apply`, `apply`, `applied`, `terraform`, `terraform_apply` |
-| `flag` | `flag`, `feature_flag`, `toggle`, `flag_change` |
-| `config` | `config`, `configuration`, `setting`, `config_change` |
+`item_id` is the stable item when present, followed by `incident_id`, then `event_id`. An explicit
+positive `revision` uses exact source revision semantics. Without it, distinct occurrences for the
+same item receive revisions in durable receipt order. Incident correlation prefers `incident_id`,
+then any configured grouping labels, then the stable item itself.
 
-A mapped value outside this vocabulary is rejected with `400`. It is not silently recorded as a
-deploy: a mapping typo should stop where an operator can see it rather than reach an incident
-prompt as a change that never happened.
+The actor is always the host-owned system actor configured by the route. No mapping can select or
+impersonate a user, bot, destination, repository, or Work authority.
 
-A feature-flag service needs no code beyond this route. Point `kind` at whatever the provider calls
-its event and `services` at the flag's owning service:
-
-```yaml
-    change:
-      kind: kind
-      occurred_at: date
-      summary: titleVerbose
-      actor: member.email
-      services: environment.name
-```
-
-Authentication, the replay window, and deduplication are identical to every other route. The
-ledger's identity is the same `X-Responder-Event-ID` the signature binds, so a redelivery records
-one change and a replay under a different event ID fails the signature. Change events are retained
-on the episode-history horizon, outliving the webhook body that delivered them.
+Request fields such as `destination`, `policy`, `repository`, `secret`, or `adapter` have no effect
+unless a route explicitly maps one as ordinary bounded content. They can never alter trusted route
+authority.

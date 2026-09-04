@@ -1,6 +1,6 @@
 defmodule Responder.Webhooks.Route do
   @moduledoc """
-  Trusted configuration for one universal webhook route.
+  Trusted configuration for one authenticated webhook route.
 
   The route owns authentication, delivery destination, and resource bounds.
   None of those fields are read from a webhook payload.
@@ -12,18 +12,40 @@ defmodule Responder.Webhooks.Route do
   @maximum_body_bytes 40_000
   @default_max_clock_skew_seconds 300
   @required_fields [:auth, :destination, :name]
-  @optional_fields [:max_body_bytes, :max_clock_skew_seconds, :work_profile]
+  @optional_fields [:adapter, :max_body_bytes, :max_clock_skew_seconds, :work_profile]
+  @mapping_required [:event_id, :status, :title]
+  @mapping_optional [
+    :annotations,
+    :ends_at,
+    :incident_id,
+    :item_id,
+    :labels,
+    :revision,
+    :severity,
+    :source_url,
+    :starts_at,
+    :summary
+  ]
 
   @enforce_keys @required_fields ++ @optional_fields
   defstruct @required_fields ++ @optional_fields
 
   @type auth :: {:bearer, binary()} | {:hmac_sha256, binary()}
+  @type adapter ::
+          %{kind: :universal}
+          | %{kind: :grafana, group_by_labels: [String.t()]}
+          | %{
+              kind: :mapped_json,
+              group_by_labels: [String.t()],
+              mapping: %{atom() => String.t() | nil}
+            }
   @type destination :: %{
           transport: String.t(),
           conversation_ref: String.t(),
           thread_ref: String.t() | nil
         }
   @type t :: %__MODULE__{
+          adapter: adapter(),
           auth: auth(),
           destination: destination(),
           max_body_bytes: pos_integer(),
@@ -35,9 +57,11 @@ defmodule Responder.Webhooks.Route do
   @spec new(keyword() | map()) :: {:ok, t()} | {:error, term()}
   def new(attributes) do
     with {:ok, attributes} <- normalize_attributes(attributes),
+         {:ok, adapter} <- prepare_adapter(Map.get(attributes, :adapter)),
          {:ok, work_profile} <-
            WorkProfile.prepare(Map.get(attributes, :work_profile)),
-         attributes <- Map.put(attributes, :work_profile, work_profile),
+         attributes <-
+           attributes |> Map.put(:adapter, adapter) |> Map.put(:work_profile, work_profile),
          route <- struct!(__MODULE__, attributes),
          :ok <- validate(route) do
       {:ok, route}
@@ -60,6 +84,7 @@ defmodule Responder.Webhooks.Route do
     if Enum.sort(keys -- allowed) == [] and Enum.all?(@required_fields, &(&1 in keys)) do
       {:ok,
        attributes
+       |> Map.put_new(:adapter, %{kind: :universal})
        |> Map.put_new(:max_body_bytes, @default_max_body_bytes)
        |> Map.put_new(:max_clock_skew_seconds, @default_max_clock_skew_seconds)
        |> Map.put_new(:work_profile, nil)}
@@ -69,6 +94,72 @@ defmodule Responder.Webhooks.Route do
   end
 
   defp normalize_attributes(_attributes), do: {:error, {:invalid_webhook_route, :fields}}
+
+  defp prepare_adapter(nil), do: {:ok, %{kind: :universal}}
+
+  defp prepare_adapter(%{kind: :universal} = adapter) when map_size(adapter) == 1,
+    do: {:ok, adapter}
+
+  defp prepare_adapter(%{kind: :grafana} = adapter) do
+    with true <- Map.keys(adapter) -- [:kind, :group_by_labels] == [],
+         {:ok, labels} <- prepare_group_labels(Map.get(adapter, :group_by_labels, [])) do
+      {:ok, %{kind: :grafana, group_by_labels: labels}}
+    else
+      _invalid -> {:error, {:invalid_webhook_route, :adapter}}
+    end
+  end
+
+  defp prepare_adapter(%{kind: :mapped_json, mapping: mapping} = adapter) do
+    with true <- Map.keys(adapter) -- [:kind, :group_by_labels, :mapping] == [],
+         {:ok, labels} <- prepare_group_labels(Map.get(adapter, :group_by_labels, [])),
+         {:ok, mapping} <- prepare_mapping(mapping) do
+      {:ok, %{kind: :mapped_json, group_by_labels: labels, mapping: mapping}}
+    else
+      _invalid -> {:error, {:invalid_webhook_route, :adapter}}
+    end
+  end
+
+  defp prepare_adapter(_adapter), do: {:error, {:invalid_webhook_route, :adapter}}
+
+  defp prepare_group_labels(labels) when is_list(labels) and length(labels) <= 16 do
+    if labels != [] and Enum.uniq(labels) == labels and Enum.all?(labels, &path_segment?/1),
+      do: {:ok, labels},
+      else: if(labels == [], do: {:ok, []}, else: {:error, :group_by_labels})
+  end
+
+  defp prepare_group_labels(_labels), do: {:error, :group_by_labels}
+
+  defp prepare_mapping(mapping) when is_map(mapping) do
+    keys = Map.keys(mapping)
+    allowed = @mapping_required ++ @mapping_optional
+
+    if keys -- allowed == [] and Enum.all?(@mapping_required, &(&1 in keys)) do
+      prepared = Map.new(allowed, &{&1, Map.get(mapping, &1)})
+
+      if Enum.all?(@mapping_required, &path?(prepared[&1])) and
+           Enum.all?(@mapping_optional, &(is_nil(prepared[&1]) or path?(prepared[&1]))) do
+        {:ok, prepared}
+      else
+        {:error, :mapping}
+      end
+    else
+      {:error, :mapping}
+    end
+  end
+
+  defp prepare_mapping(_mapping), do: {:error, :mapping}
+
+  defp path?(value) when is_binary(value) and byte_size(value) <= 256 do
+    parts = String.split(value, ".")
+    parts != [] and length(parts) <= 16 and Enum.all?(parts, &path_segment?/1)
+  end
+
+  defp path?(_value), do: false
+
+  defp path_segment?(value) when is_binary(value) and byte_size(value) <= 64,
+    do: Regex.match?(~r/\A[A-Za-z_][A-Za-z0-9_-]*\z/, value)
+
+  defp path_segment?(_value), do: false
 
   defp validate(%__MODULE__{} = route) do
     validations = [

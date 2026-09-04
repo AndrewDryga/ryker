@@ -3,6 +3,7 @@ defmodule Responder.RuntimeConfigurationTest do
 
   alias Responder.Ingress.WorkProfile
   alias Responder.RuntimeConfiguration
+  alias Responder.Webhooks.Server
 
   @example Path.expand("../../config/responder-elixir.example.yaml", __DIR__)
 
@@ -26,6 +27,7 @@ defmodule Responder.RuntimeConfigurationTest do
              ~w(admission control_plane coop_worker_gateway cutover_profiles delivery emisar event_waits github model_evals publication retention runtime_mode schedules slack state_tools webhooks work)a
 
     assert configuration.runtime_mode == :product
+    assert configuration.webhooks.routes["universal"].adapter == %{kind: :universal}
 
     assert_received {:environment_read, "GITHUB_WEBHOOK_SECRET"}
     assert_received {:environment_read, "GITHUB_APP_PRIVATE_KEY"}
@@ -823,6 +825,111 @@ defmodule Responder.RuntimeConfigurationTest do
         env_provider: fn "UNIVERSAL_WEBHOOK_SECRET" ->
           {:ok, String.duplicate("l", 32)}
         end
+      )
+    end
+  end
+
+  test "Grafana and mapped JSON webhook adapters use strict tagged configuration" do
+    conversation_id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+    conversation_ref = "control-plane:lab:#{conversation_id}"
+
+    document =
+      minimal_document("""
+      control_plane:
+        ip: 127.0.0.1
+        port: 4321
+        work_profile:
+          policy: local-conversation
+          policy_digest: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          repository_ref:
+      delivery: {}
+      webhooks:
+        ip: 127.0.0.1
+        port: 4323
+        routes:
+          grafana:
+            adapter:
+              kind: grafana
+              group_by_labels: [cluster, service]
+            auth:
+              kind: bearer
+              secret_env: WEBHOOK_SECRET
+            destination:
+              transport: control_plane
+              conversation_ref: #{conversation_ref}
+              thread_ref: #{conversation_ref}
+            work_profile:
+              policy: local-conversation
+              policy_digest: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+              repository_ref:
+          monitoring:
+            adapter:
+              kind: mapped_json
+              group_by_labels: [service]
+              mapping:
+                event_id: event.id
+                incident_id: incident.id
+                labels: labels
+                status: incident.state
+                title: incident.title
+            auth:
+              kind: bearer
+              secret_env: WEBHOOK_SECRET
+            destination:
+              transport: control_plane
+              conversation_ref: #{conversation_ref}
+              thread_ref: #{conversation_ref}
+            work_profile:
+              policy: local-conversation
+              policy_digest: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+              repository_ref:
+      """)
+
+    configuration =
+      RuntimeConfiguration.from_string!(document,
+        env_provider: fn "WEBHOOK_SECRET" -> {:ok, String.duplicate("s", 32)} end
+      )
+
+    routes = Server.options!(configuration.webhooks).routes
+
+    assert routes["grafana"].adapter == %{
+             kind: :grafana,
+             group_by_labels: ["cluster", "service"]
+           }
+
+    assert routes["monitoring"].adapter == %{
+             kind: :mapped_json,
+             group_by_labels: ["service"],
+             mapping: %{
+               annotations: nil,
+               ends_at: nil,
+               event_id: "event.id",
+               incident_id: "incident.id",
+               item_id: nil,
+               labels: "labels",
+               revision: nil,
+               severity: nil,
+               source_url: nil,
+               starts_at: nil,
+               status: "incident.state",
+               summary: nil,
+               title: "incident.title"
+             }
+           }
+
+    assert_raise ArgumentError, ~r/kind must be universal, grafana, or mapped_json/, fn ->
+      document
+      |> String.replace("kind: grafana", "kind: templated", global: false)
+      |> RuntimeConfiguration.from_string!(
+        env_provider: fn "WEBHOOK_SECRET" -> {:ok, String.duplicate("s", 32)} end
+      )
+    end
+
+    assert_raise ArgumentError, ~r/invalid webhook route/, fn ->
+      document
+      |> String.replace("event.id", "events.0.id", global: false)
+      |> RuntimeConfiguration.from_string!(
+        env_provider: fn "WEBHOOK_SECRET" -> {:ok, String.duplicate("s", 32)} end
       )
     end
   end

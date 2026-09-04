@@ -345,26 +345,26 @@
     {
       "id": "grafana-lifecycle-webhook-adapter",
       "priority": "P0",
-      "status": "partial",
+      "status": "implemented",
       "required_behavior": "Grafana firing and resolved notifications derive stable fingerprint, group correlation, lifecycle revision, and bounded normalized content before entering generic ingress.",
       "design_capabilities": ["mentions-dms-and-proactive-messages", "incidents"],
       "origin_refs": ["internal/webhook/normalize.go"],
-      "implementation_refs": ["lib/responder/webhooks/input.ex", "lib/responder/ingress/input.ex"],
-      "proof_refs": ["test/responder/webhooks/end_to_end_test.exs", "test/responder/episodes/replay_test.exs"],
-      "gap": "Generic JSON ingress and lifecycle replay exist, but no trusted Grafana adapter derives provider identity and firing or resolved revisions.",
-      "next_task": "2026-09-04-restore-grafana-and-mapped-json-webhook-adapters"
+      "implementation_refs": ["lib/responder/webhooks/transforms.ex", "lib/responder/webhooks/router.ex", "lib/responder/ingress/inbox.ex"],
+      "proof_refs": ["test/responder/webhooks/transforms_test.exs", "test/responder/webhooks/adapter_end_to_end_test.exs"],
+      "gap": null,
+      "next_task": null
     },
     {
       "id": "mapped-json-webhook-adapters",
       "priority": "P0",
-      "status": "partial",
-      "required_behavior": "A configured route can map bounded JSON paths into stable item, event, actor, occurrence, revision, and compact content fields without payload-selected authority or embedded scripting.",
+      "status": "implemented",
+      "required_behavior": "A configured route can map bounded JSON paths into stable item, event, occurrence, revision, and compact content fields while retaining a host-owned actor and forbidding payload-selected authority or embedded scripting.",
       "design_capabilities": ["mentions-dms-and-proactive-messages"],
       "origin_refs": ["internal/webhook/normalize.go"],
-      "implementation_refs": ["lib/responder/webhooks/route.ex", "lib/responder/webhooks/input.ex"],
-      "proof_refs": ["test/responder/webhooks/route_test.exs", "test/responder/webhooks/input_test.exs"],
-      "gap": "Routes accept arbitrary authenticated JSON but do not yet implement the old bounded field-mapping contract.",
-      "next_task": "2026-09-04-restore-grafana-and-mapped-json-webhook-adapters"
+      "implementation_refs": ["lib/responder/webhooks/route.ex", "lib/responder/webhooks/transforms.ex", "lib/responder/webhooks/router.ex"],
+      "proof_refs": ["test/responder/webhooks/transforms_test.exs", "test/responder/webhooks/adapter_end_to_end_test.exs", "test/responder/runtime_configuration_test.exs"],
+      "gap": null,
+      "next_task": null
     },
     {
       "id": "github-bounded-context-and-search",
