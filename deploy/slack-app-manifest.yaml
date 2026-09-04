@@ -82,6 +82,8 @@ oauth_config:
       - groups:read
       - groups:write
       - im:history
+      - im:read
+      - mpim:read
       - pins:write
       - reactions:read
       - reactions:write

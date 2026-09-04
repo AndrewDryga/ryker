@@ -13,6 +13,7 @@ defmodule Responder.State.Behaviors do
   alias Responder.CanonicalJSON
   alias Responder.Episodes.Episode
   alias Responder.Ingress.Input
+  alias Responder.Operator.Actions
   alias Responder.Repo
   alias Responder.Slack.ChannelFence
 
@@ -88,6 +89,58 @@ defmodule Responder.State.Behaviors do
   def set_home_status(_ref, _status, _actor_ref, _workspace_ref),
     do: {:error, {:invalid_behavior, :status}}
 
+  @doc "Changes one App Home behavior through revision-fenced operator action custody."
+  @spec set_home_status(
+          String.t(),
+          :active | :disabled | :deleted,
+          pos_integer(),
+          String.t(),
+          String.t(),
+          String.t()
+        ) :: {:ok, map()} | {:error, term()}
+  def set_home_status(ref, status, expected_revision, actor_ref, workspace_ref, action_ref)
+      when status in [:active, :disabled, :deleted] and is_integer(expected_revision) and
+             expected_revision > 0 do
+    with :ok <- reference(ref, :behavior_ref),
+         :ok <- reference(actor_ref, :actor_ref),
+         :ok <- reference(workspace_ref, :workspace_ref),
+         :ok <- reference(action_ref, :action_ref) do
+      Actions.run(
+        %{
+          action: :update,
+          action_ref: action_ref,
+          actor_ref: actor_ref,
+          kind: "behavior",
+          request: %{
+            "expected_revision" => expected_revision,
+            "status" => Atom.to_string(status),
+            "workspace_ref" => workspace_ref
+          },
+          resource_ref: ref
+        },
+        fn ->
+          set_home_status_audited_locked(
+            ref,
+            status,
+            expected_revision,
+            actor_ref,
+            workspace_ref
+          )
+        end
+      )
+    end
+  end
+
+  def set_home_status(
+        _ref,
+        _status,
+        _expected_revision,
+        _actor_ref,
+        _workspace_ref,
+        _action_ref
+      ),
+      do: {:error, {:invalid_behavior, :status}}
+
   defp set_home_status_locked(ref, status, actor_ref, workspace_ref) do
     case Repo.one(from(behavior in Behavior, where: behavior.ref == ^ref, lock: "FOR UPDATE")) do
       nil ->
@@ -98,6 +151,44 @@ defmodule Responder.State.Behaviors do
 
       %Behavior{} = behavior ->
         set_visible_home_status(behavior, ref, status, actor_ref, workspace_ref)
+    end
+  end
+
+  defp set_home_status_audited_locked(
+         ref,
+         status,
+         expected_revision,
+         actor_ref,
+         workspace_ref
+       ) do
+    case Repo.one(from(behavior in Behavior, where: behavior.ref == ^ref, lock: "FOR UPDATE")) do
+      nil ->
+        {:error, :behavior_not_found}
+
+      %Behavior{workspace_ref: actual} when actual != workspace_ref ->
+        {:error, :behavior_workspace_mismatch}
+
+      %Behavior{revision: actual} when actual != expected_revision ->
+        {:error, :behavior_revision_stale}
+
+      %Behavior{} = behavior ->
+        if home_behavior_visible?(behavior, actor_ref) do
+          updated = set_status_locked(ref, status, workspace_ref)
+
+          {:ok,
+           %{
+             previous: %{
+               "revision" => behavior.revision,
+               "status" => Atom.to_string(behavior.status)
+             },
+             outcome: %{
+               "revision" => updated.revision,
+               "status" => Atom.to_string(updated.status)
+             }
+           }}
+        else
+          {:error, :behavior_unauthorized}
+        end
     end
   end
 

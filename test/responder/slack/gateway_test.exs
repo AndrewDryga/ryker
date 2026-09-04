@@ -171,7 +171,71 @@ defmodule Responder.Slack.GatewayTest do
 
     assert_received {:handled_home_interaction, interaction}
     assert interaction.action == :pause_schedule
-    assert interaction.resource_ref == "schedule:abc"
+    assert interaction.resource_ref == "schedule-control:schedule:abc:4"
+  end
+
+  test "pre-upgrade App Home lifecycle controls are settled as stale" do
+    configured =
+      settings()
+      |> Map.put(:home_interaction_handler, HomeInteractionHandler)
+      |> Map.put(:home_interaction_options, %{
+        observer: self(),
+        result: {:ok, %{outcome: :invalid}}
+      })
+
+    for {action_id, value, action} <- [
+          {"responder_home_disable_behavior", "behavior:pre-upgrade", :disable_behavior},
+          {"responder_home_pause_schedule", "schedule:pre-upgrade", :pause_schedule}
+        ] do
+      envelope =
+        home_interaction_envelope()
+        |> put_in(["payload", "actions", Access.at(0), "action_id"], action_id)
+        |> put_in(["payload", "actions", Access.at(0), "value"], value)
+
+      assert Gateway.handle_envelope(envelope, configured) ==
+               {:ack, {:app_home_control, :invalid}}
+
+      assert_received {:handled_home_interaction, interaction}
+      assert interaction.action == action
+      assert interaction.resource_ref == value
+    end
+  end
+
+  test "an App Home modal submission uses the same authorized control boundary" do
+    configured =
+      settings()
+      |> Map.put(:home_interaction_handler, HomeInteractionHandler)
+      |> Map.put(:home_interaction_options, %{
+        observer: self(),
+        result: {:ok, %{outcome: :edit}}
+      })
+
+    assert Gateway.handle_envelope(home_submission_envelope(), configured) ==
+             {:ack, {:app_home_control, :edit}}
+
+    assert_received {:handled_home_interaction, submission}
+    assert submission.action == :edit_memory_review
+    assert submission.resource_ref == "memory-review:abc"
+    assert submission.replacement["value"] == "Use verified production evidence."
+  end
+
+  test "an invalid App Home modal value is acknowledged with a field error" do
+    envelope =
+      home_submission_envelope()
+      |> Map.put("accepts_response_payload", true)
+      |> put_in(
+        ["payload", "view", "state", "values", "memory_value", "value", "value"],
+        "   "
+      )
+
+    assert Gateway.handle_envelope(envelope, settings()) ==
+             {:ack, {:app_home_control, :invalid},
+              %{
+                "errors" => %{
+                  "memory_value" => "Enter non-empty guidance of at most 4000 characters."
+                },
+                "response_action" => "errors"
+              }}
   end
 
   test "bot membership opens durable setup before Slack acknowledgement" do
@@ -760,7 +824,7 @@ defmodule Responder.Slack.GatewayTest do
           %{
             "action_id" => "responder_home_pause_schedule",
             "type" => "button",
-            "value" => "schedule:abc"
+            "value" => "schedule-control:schedule:abc:4"
           }
         ],
         "container" => %{"type" => "view", "view_id" => "V123"},
@@ -768,6 +832,36 @@ defmodule Responder.Slack.GatewayTest do
         "type" => "block_actions",
         "user" => %{"id" => "U123"},
         "view" => %{"id" => "V123", "type" => "home"}
+      },
+      "type" => "interactive"
+    }
+  end
+
+  defp home_submission_envelope do
+    %{
+      "envelope_id" => "env-home-edit",
+      "payload" => %{
+        "team" => %{"id" => "T123"},
+        "type" => "view_submission",
+        "user" => %{"id" => "U123"},
+        "view" => %{
+          "callback_id" => "responder_home_edit_memory_review",
+          "private_metadata" => Jason.encode!(%{"review_ref" => "memory-review:abc"}),
+          "state" => %{
+            "values" => %{
+              "memory_subject" => %{
+                "subject" => %{"type" => "plain_text_input", "value" => "production-proof"}
+              },
+              "memory_value" => %{
+                "value" => %{
+                  "type" => "plain_text_input",
+                  "value" => "Use verified production evidence."
+                }
+              }
+            }
+          },
+          "type" => "modal"
+        }
       },
       "type" => "interactive"
     }

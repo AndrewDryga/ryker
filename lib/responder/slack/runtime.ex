@@ -17,7 +17,9 @@ defmodule Responder.Slack.Runtime do
   alias Responder.Slack.{
     ActionTokens,
     AppHome,
+    AppHomeActions,
     AppHomeControls,
+    AppHomeEditor,
     AppHomeProjection,
     AttachmentIngestor,
     ChannelConfigurations,
@@ -51,6 +53,7 @@ defmodule Responder.Slack.Runtime do
     InputRequests,
     Memories,
     Records,
+    ScheduleRuntime,
     Schedules,
     SlackPostOffers,
     TaskOffers
@@ -76,6 +79,7 @@ defmodule Responder.Slack.Runtime do
     :receive_timeout_ms,
     :reconnect_ms,
     :repositories,
+    :schedule_policies,
     :task_card_interval_ms,
     :task_card_reconcile_ms,
     :thread_status_interval_ms,
@@ -173,6 +177,7 @@ defmodule Responder.Slack.Runtime do
     default_repository = default_repository!(default_repository, repositories)
     file_client = file_client!(bot_client)
     work_presentation_options = work_presentation_options!(configuration, bot_client)
+    schedule_policy_resolver = schedule_policy_resolver(configuration)
 
     work_record_options = %{slack_api: Client, slack_client: bot_client}
 
@@ -181,33 +186,71 @@ defmodule Responder.Slack.Runtime do
       client: bot_client,
       directory: Client,
       operators: operators,
-      projection: &AppHomeProjection.snapshot/2
+      projection: &AppHomeProjection.snapshot/3,
+      shared_conversations: &Client.shared_conversations/3
     }
 
     home_interaction_options = %{
+      authorize_resource: &AppHomeActions.authorize_resource(&1, Client, bot_client),
       client: bot_client,
       directory: Client,
+      discard_workspace: &AppHomeActions.discard_workspace/5,
       forget_memory: fn ref, actor_ref, workspace_ref ->
         Memories.forget_home(ref, "slack:user:#{actor_ref}", "slack:#{workspace_ref}")
       end,
-      operators: operators,
-      refresh_home: &AppHome.handle(&1, home_options),
-      resolve_memory_review: fn ref, action, actor_ref, workspace_ref ->
-        Memories.resolve_home_review(ref, action, "slack:user:#{actor_ref}", workspace_ref)
+      open_memory_review_editor: fn ref, trigger_ref, actor_ref, workspace_ref ->
+        AppHomeEditor.open_memory_review(
+          Client,
+          bot_client,
+          ref,
+          trigger_ref,
+          "slack:user:#{actor_ref}",
+          workspace_ref
+        )
       end,
-      set_behavior_status: fn ref, status, actor_ref, workspace_ref ->
+      operators: operators,
+      recover_publication: &AppHomeActions.recover_publication/6,
+      refresh_home: &AppHome.handle(&1, home_options),
+      resolve_memory_review: fn ref, action, actor_ref, workspace_ref, replacement ->
+        Memories.resolve_home_review(
+          ref,
+          action,
+          "slack:user:#{actor_ref}",
+          workspace_ref,
+          replacement
+        )
+      end,
+      run_schedule: fn ref, actor_ref, workspace_ref, action_ref ->
+        Schedules.run_now(
+          ref,
+          "slack:user:#{actor_ref}",
+          action_ref,
+          %{conversation_prefix: "slack:#{workspace_ref}:", transport: "slack"},
+          schedule_policy_resolver
+        )
+      end,
+      set_behavior_status: fn ref, status, revision, actor_ref, workspace_ref, action_ref ->
         Behaviors.set_home_status(
           ref,
           status,
+          revision,
           "slack:user:#{actor_ref}",
-          "slack:#{workspace_ref}"
+          "slack:#{workspace_ref}",
+          action_ref
         )
       end,
-      set_schedule_status: fn ref, status, workspace_ref ->
-        Schedules.set_status(ref, status, %{
-          conversation_prefix: "slack:#{workspace_ref}:",
-          transport: "slack"
-        })
+      set_schedule_status: fn ref, status, revision, actor_ref, workspace_ref, action_ref ->
+        Schedules.set_home_status(
+          ref,
+          status,
+          revision,
+          "slack:user:#{actor_ref}",
+          action_ref,
+          %{
+            conversation_prefix: "slack:#{workspace_ref}:",
+            transport: "slack"
+          }
+        )
       end
     }
 
@@ -452,6 +495,19 @@ defmodule Responder.Slack.Runtime do
     do: fn _attributes -> {:error, :work_changes_not_configured} end
 
   defp work_diff_page_callback(options), do: &WorkControls.show_diff_page(&1, options)
+
+  defp schedule_policy_resolver(configuration) do
+    case Map.get(configuration, :schedule_policies) do
+      %{} = policies ->
+        policies
+        |> ScheduleRuntime.options!()
+        |> Map.fetch!(:dispatcher_options)
+        |> Keyword.fetch!(:policy_resolver)
+
+      nil ->
+        fn _schedule -> {:error, :schedule_policy_unavailable} end
+    end
+  end
 
   defp work_presentation_options!(configuration, bot_client) do
     case {Map.get(configuration, :coop_api), Map.get(configuration, :coop_client)} do

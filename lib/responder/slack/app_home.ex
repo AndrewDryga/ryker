@@ -17,6 +17,7 @@ defmodule Responder.Slack.AppHome do
   @maximum_memory_reviews 2
   @maximum_schedules 5
   @maximum_text 240
+  @action_instance_separator "__i"
 
   @spec handle(HomeEvent.t(), map()) :: {:ok, map()} | {:error, term()}
   def handle(%HomeEvent{} = event, %{} = options) do
@@ -50,16 +51,33 @@ defmodule Responder.Slack.AppHome do
     operators = Map.get(options, :operators)
 
     if match?(%MapSet{}, operators) and MapSet.member?(operators, event.actor_ref) do
-      with projection when is_function(projection, 2) <- Map.get(options, :projection),
-           %{} = snapshot <- projection.(event.workspace_ref, event.actor_ref) do
+      with {:ok, shared_conversations} <- shared_conversations(event, options),
+           projection when is_function(projection, 3) <- Map.get(options, :projection),
+           %{} = snapshot <-
+             projection.(event.workspace_ref, event.actor_ref, shared_conversations) do
         {:ok, :operator, operator_view(snapshot)}
       else
+        {:error, _reason} = error -> error
         _invalid -> {:error, {:invalid_app_home, :projection}}
       end
     else
       if match?(%MapSet{}, operators),
         do: {:ok, :restricted, restricted_view()},
         else: {:error, {:invalid_app_home, :operators}}
+    end
+  end
+
+  defp shared_conversations(event, options) do
+    case Map.get(options, :shared_conversations) do
+      callback when is_function(callback, 3) ->
+        case callback.(Map.get(options, :client), event.actor_ref, event.workspace_ref) do
+          {:ok, %MapSet{} = conversations} -> {:ok, conversations}
+          {:error, _reason} = error -> error
+          _invalid -> {:error, {:invalid_app_home, :shared_conversations}}
+        end
+
+      _missing ->
+        {:error, {:invalid_app_home, :shared_conversations}}
     end
   end
 
@@ -90,7 +108,7 @@ defmodule Responder.Slack.AppHome do
       [header("Responder"), context("What needs you")]
       |> append_rows(
         needs_attention,
-        &attention_block/1,
+        &attention_blocks/1,
         "Nothing needs your attention right now."
       )
       |> append_section("In flight", work, &work_block/1)
@@ -104,6 +122,7 @@ defmodule Responder.Slack.AppHome do
       |> Kernel.++([
         context("Refreshed when you open Home. Durable state remains authoritative.")
       ])
+      |> unique_action_ids()
 
     %{"blocks" => blocks, "type" => "home"}
   end
@@ -122,7 +141,7 @@ defmodule Responder.Slack.AppHome do
   defp append_rows(blocks, [], _renderer, empty), do: blocks ++ [section(empty)]
 
   defp append_rows(blocks, rows, renderer, _empty),
-    do: blocks ++ Enum.map(rows, renderer)
+    do: blocks ++ Enum.flat_map(rows, &(renderer.(&1) |> List.wrap()))
 
   defp append_section(blocks, _title, [], _renderer), do: blocks
 
@@ -154,6 +173,7 @@ defmodule Responder.Slack.AppHome do
       {:open_incidents, "Open incidents"},
       {:incident_history, "Incident history"},
       {:published_work, "Published work"},
+      {:retained_workspaces, "Retained workspaces"},
       {:active_memory, "Active memories"},
       {:active_behaviors, "Active behaviors"},
       {:active_schedules, "Active schedules"}
@@ -170,22 +190,25 @@ defmodule Responder.Slack.AppHome do
 
   defp append_counts(blocks, _counts), do: append_counts(blocks, %{})
 
-  defp attention_block(row) do
+  defp attention_blocks(row) do
     kind = row |> Map.get(:kind, :attention) |> label()
-    section("#{kind}: #{bounded(Map.get(row, :title, Map.get(row, :ref, "Needs attention")))}")
+    summary = "#{kind}: #{bounded(Map.get(row, :title, Map.get(row, :ref, "Needs attention")))}"
+
+    [section(summary, open_button(row))]
+    |> append_attention_controls(row)
   end
 
   defp work_block(row) do
     title = bounded(Map.get(row, :title, Map.get(row, :ref, "Work")))
     state = row |> Map.get(:state, :working) |> label()
     next_action = row |> Map.get(:next_action, "continue_work") |> label()
-    section("#{title} — #{state}; next: #{next_action}")
+    section("#{title} — #{state}; next: #{next_action}", open_button(row))
   end
 
   defp incident_block(row) do
     title = bounded(Map.get(row, :title, Map.get(row, :ref, "Incident")))
     status = row |> Map.get(:status, :open) |> label()
-    section("#{title} — #{status}")
+    section("#{title} — #{status}", open_button(row))
   end
 
   defp memory_blocks(row) do
@@ -193,7 +216,7 @@ defmodule Responder.Slack.AppHome do
     kind = row |> Map.get(:kind, :memory) |> label()
 
     [
-      section("#{subject} — #{kind}"),
+      section("#{subject} — #{kind}", open_button(row)),
       actions([
         button(
           "responder_home_forget_memory",
@@ -214,6 +237,10 @@ defmodule Responder.Slack.AppHome do
 
     review_actions = [
       button("responder_home_keep_memory_review", keep_label, review_ref),
+      if(editable_memory_review?(row),
+        do: button("responder_home_edit_memory_review", "Edit…", review_ref),
+        else: nil
+      ),
       if(Map.get(row, "kind") == "duplicate",
         do:
           button(
@@ -249,7 +276,7 @@ defmodule Responder.Slack.AppHome do
       entries
       |> Enum.with_index(1)
       |> Enum.map(fn {entry, index} ->
-        section(memory_review_entry(entry, index, entry_count))
+        section(memory_review_entry(entry, index, entry_count), open_button(entry))
       end)
 
     [summary | entry_blocks] ++ [actions(Enum.reject(review_actions, &is_nil/1))]
@@ -265,6 +292,22 @@ defmodule Responder.Slack.AppHome do
     "#{index}/#{count} #{subject} — scope: #{scope} (#{scope_ref}); visibility: #{visibility}; value: #{value}"
   end
 
+  defp editable_memory_review?(%{
+         "kind" => "stale",
+         "entries" => [%{"subject" => subject, "value" => value}]
+       }) do
+    bounded_input?(subject, 120) and bounded_input?(value, 4_000)
+  end
+
+  defp editable_memory_review?(_review), do: false
+
+  defp bounded_input?(value, maximum) when is_binary(value) do
+    length = value |> String.trim() |> String.length()
+    length in 1..maximum
+  end
+
+  defp bounded_input?(_value, _maximum), do: false
+
   defp bounded_count(value, _fallback) when is_integer(value) and value >= 0, do: value
   defp bounded_count(_value, fallback), do: fallback
 
@@ -275,18 +318,21 @@ defmodule Responder.Slack.AppHome do
 
     status_button =
       case status do
-        :disabled -> button("responder_home_enable_behavior", "Enable", Map.get(row, :ref))
-        _active -> button("responder_home_disable_behavior", "Disable", Map.get(row, :ref))
+        :disabled ->
+          button("responder_home_enable_behavior", "Enable", versioned_control(:behavior, row))
+
+        _active ->
+          button("responder_home_disable_behavior", "Disable", versioned_control(:behavior, row))
       end
 
     [
-      section("#{subject} — #{kind}; #{label(status)}"),
+      section("#{subject} — #{kind}; #{label(status)}", open_button(row)),
       actions([
         status_button,
         button(
           "responder_home_delete_behavior",
           "Delete",
-          Map.get(row, :ref),
+          versioned_control(:behavior, row),
           destructive_confirm("Delete this behavior?", "This cannot be re-enabled.")
         )
       ])
@@ -305,22 +351,109 @@ defmodule Responder.Slack.AppHome do
 
     status_button =
       case status do
-        :paused -> button("responder_home_resume_schedule", "Resume", Map.get(row, :ref))
-        _active -> button("responder_home_pause_schedule", "Pause", Map.get(row, :ref))
+        :paused ->
+          button("responder_home_resume_schedule", "Resume", versioned_control(:schedule, row))
+
+        :active ->
+          button("responder_home_pause_schedule", "Pause", versioned_control(:schedule, row))
+
+        _terminal ->
+          nil
       end
 
     [
       section("#{title} — #{label(status)}; #{next}"),
-      actions([
-        status_button,
-        button(
-          "responder_home_delete_schedule",
-          "Delete",
-          Map.get(row, :ref),
-          destructive_confirm("Delete this schedule?", "Future occurrences will stop.")
-        )
-      ])
+      actions(
+        [
+          button("responder_home_run_schedule", "Run now", Map.get(row, :ref)),
+          status_button,
+          open_button(row, "Replace in chat"),
+          if(status in [:active, :paused],
+            do:
+              button(
+                "responder_home_delete_schedule",
+                "Delete",
+                versioned_control(:schedule, row),
+                destructive_confirm("Delete this schedule?", "Future occurrences will stop.")
+              ),
+            else: nil
+          )
+        ]
+        |> Enum.reject(&is_nil/1)
+      )
     ]
+  end
+
+  defp append_attention_controls(blocks, %{controls: controls} = row) when is_list(controls) do
+    buttons =
+      controls
+      |> Enum.map(&attention_control(&1, row))
+      |> Enum.reject(&is_nil/1)
+
+    if buttons == [], do: blocks, else: blocks ++ [actions(buttons)]
+  end
+
+  defp append_attention_controls(blocks, _row), do: blocks
+
+  defp attention_control("retry", row),
+    do: publication_button(row, "responder_home_retry_publication", "Retry publication")
+
+  defp attention_control("update", row),
+    do: publication_button(row, "responder_home_update_publication", "Review latest state")
+
+  defp attention_control("discard", row) do
+    publication_button(
+      row,
+      "responder_home_discard_publication",
+      "Discard candidate",
+      destructive_confirm(
+        "Discard this publication candidate?",
+        "The reviewed publication custody will become terminal."
+      )
+    )
+  end
+
+  defp attention_control("discard_workspace", row) do
+    with ref when is_binary(ref) <- Map.get(row, :ref),
+         fingerprint when is_binary(fingerprint) <- Map.get(row, :discard_plan_fingerprint) do
+      button(
+        "responder_home_discard_workspace",
+        "Discard retained work",
+        "responder-work-control:#{ref}:#{fingerprint}",
+        destructive_confirm(
+          "Discard this retained workspace?",
+          "Responder will obtain a fresh exact plan. Dirty work remains protected."
+        )
+      )
+    else
+      _invalid -> nil
+    end
+  end
+
+  defp attention_control(_control, _row), do: nil
+
+  defp publication_button(row, action_id, text, confirm \\ nil) do
+    with ref when is_binary(ref) <- Map.get(row, :ref),
+         generation when is_integer(generation) and generation > 0 <-
+           Map.get(row, :recovery_generation),
+         "publication:" <> id <- ref do
+      button(action_id, text, "publication-recovery:#{id}:#{generation}", confirm)
+    else
+      _invalid -> nil
+    end
+  end
+
+  defp open_button(row, text \\ "Open") do
+    url = Map.get(row, :url, Map.get(row, "url"))
+    ref = Map.get(row, :ref, Map.get(row, "memory_ref"))
+
+    case {url, ref} do
+      {"https://slack.com/app_redirect?" <> _rest = url, ref} when is_binary(ref) ->
+        button("responder_home_open", text, ref, nil, url)
+
+      _missing ->
+        nil
+    end
   end
 
   defp bounded_list(snapshot, key, maximum) do
@@ -359,20 +492,27 @@ defmodule Responder.Slack.AppHome do
   defp bounded_part(_value, _maximum), do: "unknown"
 
   defp header(text), do: %{"text" => plain(text), "type" => "header"}
-  defp section(text), do: %{"text" => plain(text), "type" => "section"}
+  defp section(text), do: section(text, nil)
+
+  defp section(text, accessory) do
+    block = %{"text" => plain(text), "type" => "section"}
+    if is_map(accessory), do: Map.put(block, "accessory", accessory), else: block
+  end
+
   defp context(text), do: %{"elements" => [plain(text)], "type" => "context"}
   defp actions(elements), do: %{"elements" => elements, "type" => "actions"}
   defp divider, do: %{"type" => "divider"}
 
-  defp button(action_id, text, value, confirm \\ nil) do
+  defp button(action_id, text, value, confirm \\ nil, url \\ nil) do
     button = %{
       "action_id" => action_id,
       "text" => plain(text),
       "type" => "button",
-      "value" => bounded(value)
+      "value" => bounded_part(value, 256)
     }
 
-    if confirm, do: Map.put(button, "confirm", confirm), else: button
+    button = if confirm, do: Map.put(button, "confirm", confirm), else: button
+    if url, do: Map.put(button, "url", url), else: button
   end
 
   defp destructive_confirm(title, text, confirm \\ "Delete", deny \\ "Keep") do
@@ -383,6 +523,55 @@ defmodule Responder.Slack.AppHome do
       "text" => plain(text),
       "title" => plain(title)
     }
+  end
+
+  defp unique_action_ids(blocks) do
+    {blocks, _occurrences} = Enum.map_reduce(blocks, %{}, &unique_block_action_ids/2)
+    blocks
+  end
+
+  defp unique_block_action_ids(block, occurrences) do
+    {block, occurrences} = unique_accessory_action_id(block, occurrences)
+    unique_element_action_ids(block, occurrences)
+  end
+
+  defp unique_accessory_action_id(%{"accessory" => accessory} = block, occurrences) do
+    {accessory, occurrences} = unique_action_id(accessory, occurrences)
+    {Map.put(block, "accessory", accessory), occurrences}
+  end
+
+  defp unique_accessory_action_id(block, occurrences), do: {block, occurrences}
+
+  defp unique_element_action_ids(%{"elements" => elements} = block, occurrences)
+       when is_list(elements) do
+    {elements, occurrences} = Enum.map_reduce(elements, occurrences, &unique_action_id/2)
+    {Map.put(block, "elements", elements), occurrences}
+  end
+
+  defp unique_element_action_ids(block, occurrences), do: {block, occurrences}
+
+  defp unique_action_id(%{"action_id" => action_id} = element, occurrences)
+       when is_binary(action_id) do
+    instance = Map.get(occurrences, action_id, 0) + 1
+    occurrences = Map.put(occurrences, action_id, instance)
+
+    if instance == 1,
+      do: {element, occurrences},
+      else:
+        {Map.put(element, "action_id", "#{action_id}#{@action_instance_separator}#{instance}"),
+         occurrences}
+  end
+
+  defp unique_action_id(element, occurrences), do: {element, occurrences}
+
+  defp versioned_control(kind, row) do
+    case {Map.get(row, :ref), Map.get(row, :revision)} do
+      {ref, revision} when is_binary(ref) and is_integer(revision) and revision > 0 ->
+        "#{kind}-control:#{ref}:#{revision}"
+
+      _invalid ->
+        nil
+    end
   end
 
   defp plain(text), do: %{"emoji" => true, "text" => bounded(text), "type" => "plain_text"}

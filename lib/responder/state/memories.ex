@@ -327,6 +327,25 @@ defmodule Responder.State.Memories do
     end
   end
 
+  @doc "Fetches one pending review only when every entry is safe for this App Home actor."
+  @spec fetch_home_review(String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, :memory_review_not_found}
+  def fetch_home_review(review_ref, workspace_ref, actor_ref) do
+    with :ok <- reference(review_ref, :review_ref),
+         :ok <- reference(workspace_ref, :workspace_ref),
+         :ok <- reference(actor_ref, :actor_ref),
+         %MemoryReviewItem{} = review <-
+           Repo.one(
+             from(review in home_review_query(workspace_ref, actor_ref, :pending),
+               where: review.ref == ^review_ref
+             )
+           ) do
+      {:ok, review_document(review)}
+    else
+      _unavailable -> {:error, :memory_review_not_found}
+    end
+  end
+
   @spec resolve_review(String.t(), atom(), String.t(), String.t(), map() | nil) ::
           {:ok, map()} | {:error, term()}
   def resolve_review(review_ref, action, actor_ref, workspace_ref, replacement \\ nil) do
@@ -344,14 +363,14 @@ defmodule Responder.State.Memories do
   end
 
   @doc "Resolves a review only when every affected entry is safe in the actor's App Home."
-  @spec resolve_home_review(String.t(), atom(), String.t(), String.t()) ::
+  @spec resolve_home_review(String.t(), atom(), String.t(), String.t(), map() | nil) ::
           {:ok, map()} | {:error, term()}
-  def resolve_home_review(review_ref, action, actor_ref, workspace_ref) do
+  def resolve_home_review(review_ref, action, actor_ref, workspace_ref, replacement \\ nil) do
     with :ok <- reference(review_ref, :review_ref),
          :ok <- review_action(action),
          :ok <- reference(actor_ref, :actor_ref),
          :ok <- reference(workspace_ref, :workspace_ref),
-         {:ok, nil} <- review_replacement(action, nil) do
+         {:ok, replacement} <- review_replacement(action, replacement) do
       Repo.transaction(fn ->
         lock_review_maintenance!()
 
@@ -360,7 +379,7 @@ defmodule Responder.State.Memories do
           action,
           actor_ref,
           workspace_ref,
-          nil,
+          replacement,
           {:home_actor, actor_ref}
         )
       end)
@@ -1067,6 +1086,9 @@ defmodule Responder.State.Memories do
       "recall_count" => entry.recall_count,
       "scope" => Atom.to_string(entry.scope_kind),
       "scope_ref" => entry.scope_ref,
+      "source_conversation_ref" => entry.source_conversation_ref,
+      "source_thread_ref" => entry.source_thread_ref,
+      "source_transport" => entry.source_transport,
       "source_type" => "memory",
       "visibility" => Atom.to_string(entry.visibility)
     })
@@ -1081,6 +1103,9 @@ defmodule Responder.State.Memories do
       "recall_count" => behavior.use_count,
       "scope" => Atom.to_string(behavior.scope_kind),
       "scope_ref" => behavior.scope_ref,
+      "source_conversation_ref" => behavior.source_conversation_ref,
+      "source_thread_ref" => behavior.source_thread_ref,
+      "source_transport" => behavior.source_transport,
       "source_type" => "guidance",
       "status" => Atom.to_string(behavior.status),
       "subject" => behavior.identity_key,
@@ -1135,7 +1160,7 @@ defmodule Responder.State.Memories do
   defp review_status(action) when action in [:merge, :edit, :forget], do: :applied
 
   defp text?(value, maximum) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
+    is_binary(value) and String.valid?(value) and String.length(value) in 1..maximum and
       :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
   end
 

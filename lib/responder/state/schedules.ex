@@ -12,6 +12,7 @@ defmodule Responder.State.Schedules do
   alias Responder.Episodes
   alias Responder.Episodes.{Command, Episode}
   alias Responder.Ingress.Input
+  alias Responder.Operator.Actions
   alias Responder.Repo
 
   alias Responder.State.{
@@ -120,6 +121,84 @@ defmodule Responder.State.Schedules do
 
   def set_status(_schedule_ref, _status, _scope),
     do: {:error, {:invalid_schedule, :status}}
+
+  @doc "Changes one App Home schedule through revision-fenced operator action custody."
+  @spec set_home_status(
+          String.t(),
+          :paused | :active | :deleted,
+          pos_integer(),
+          String.t(),
+          String.t(),
+          map()
+        ) :: {:ok, map()} | {:error, term()}
+  def set_home_status(
+        schedule_ref,
+        status,
+        expected_revision,
+        actor_ref,
+        action_ref,
+        scope
+      )
+      when status in [:paused, :active, :deleted] and is_integer(expected_revision) and
+             expected_revision > 0 do
+    with :ok <- reference(schedule_ref, :schedule_ref),
+         :ok <- reference(actor_ref, :actor_ref),
+         :ok <- reference(action_ref, :action_ref),
+         {:ok, scope} <- status_scope(scope) do
+      Actions.run(
+        %{
+          action: :update,
+          action_ref: action_ref,
+          actor_ref: actor_ref,
+          kind: "schedule",
+          request: %{
+            "expected_revision" => expected_revision,
+            "scope" => scope_document(scope),
+            "status" => Atom.to_string(status)
+          },
+          resource_ref: schedule_ref
+        },
+        fn -> set_home_status_locked(schedule_ref, status, expected_revision, scope) end
+      )
+    end
+  end
+
+  def set_home_status(
+        _schedule_ref,
+        _status,
+        _expected_revision,
+        _actor_ref,
+        _action_ref,
+        _scope
+      ),
+      do: {:error, {:invalid_schedule, :status}}
+
+  @doc "Starts one immediate occurrence without moving the saved recurrence cadence."
+  @spec run_now(String.t(), String.t(), String.t(), map(), (Schedule.t() ->
+                                                              {:ok, map()} | {:error, term()})) ::
+          {:ok, map()} | {:error, term()}
+  def run_now(schedule_ref, actor_ref, action_ref, scope, policy_resolver)
+      when is_function(policy_resolver, 1) do
+    with :ok <- reference(schedule_ref, :schedule_ref),
+         :ok <- reference(actor_ref, :actor_ref),
+         :ok <- reference(action_ref, :action_ref),
+         {:ok, scope} <- status_scope(scope) do
+      Actions.run(
+        %{
+          action: :replay,
+          action_ref: action_ref,
+          actor_ref: actor_ref,
+          kind: "schedule",
+          request: %{"operation" => "run_now", "scope" => scope_document(scope)},
+          resource_ref: schedule_ref
+        },
+        fn -> run_now_locked(schedule_ref, scope, policy_resolver) end
+      )
+    end
+  end
+
+  def run_now(_schedule_ref, _actor_ref, _action_ref, _scope, _policy_resolver),
+    do: {:error, {:invalid_schedule, :run_now}}
 
   @spec list_for_destination(String.t(), String.t()) :: [Schedule.t()]
   def list_for_destination(transport, conversation_ref) do
@@ -626,6 +705,130 @@ defmodule Responder.State.Schedules do
         update_schedule_status(schedule, status)
     end
   end
+
+  defp run_now_locked(schedule_ref, scope, policy_resolver) do
+    case lock_schedule(schedule_ref) do
+      nil ->
+        {:error, :schedule_not_found}
+
+      %Schedule{} = schedule ->
+        run_now_schedule(schedule, database_now!(), scope, policy_resolver)
+    end
+  end
+
+  defp set_home_status_locked(schedule_ref, status, expected_revision, scope) do
+    case lock_schedule(schedule_ref) do
+      nil ->
+        {:error, :schedule_not_found}
+
+      %Schedule{} = schedule ->
+        now = database_now!()
+
+        cond do
+          not schedule_in_scope?(schedule, scope) ->
+            {:error, :schedule_scope_mismatch}
+
+          schedule.status in [:expired, :deleted] ->
+            {:error, :schedule_terminal}
+
+          schedule.revision != expected_revision ->
+            {:error, :schedule_revision_stale}
+
+          expired?(schedule, now) ->
+            expired_schedule_result(schedule)
+
+          true ->
+            updated = update_schedule_status(schedule, status)
+
+            {:ok,
+             %{
+               previous: %{
+                 "revision" => schedule.revision,
+                 "status" => Atom.to_string(schedule.status)
+               },
+               outcome: %{
+                 "revision" => updated.revision,
+                 "status" => Atom.to_string(updated.status)
+               }
+             }}
+        end
+    end
+  end
+
+  defp run_now_schedule(schedule, now, scope, policy_resolver) do
+    cond do
+      not schedule_in_scope?(schedule, scope) ->
+        {:error, :schedule_scope_mismatch}
+
+      schedule.status in [:expired, :deleted] ->
+        {:error, :schedule_terminal}
+
+      expired?(schedule, now) ->
+        expired_schedule_result(schedule)
+
+      schedule.status not in [:active, :paused, :completed] ->
+        {:error, :schedule_terminal}
+
+      active_occurrence?(schedule.id) ->
+        {:error, :schedule_occurrence_active}
+
+      true ->
+        create_manual_occurrence(schedule, now, policy_resolver)
+    end
+  end
+
+  defp create_manual_occurrence(schedule, now, policy_resolver) do
+    with {:ok, policy} <- policy_resolver.(schedule),
+         :ok <- policy(policy),
+         {:ok, result} <- create_occurrence(schedule, now, policy) do
+      {:ok,
+       %{
+         previous: %{
+           "next_occurrence_at" => datetime(schedule.next_occurrence_at),
+           "revision" => schedule.revision,
+           "status" => Atom.to_string(schedule.status)
+         },
+         outcome: %{
+           "episode_id" => result.episode.id,
+           "run_ref" => result.occurrence.ref,
+           "scheduled_for" => DateTime.to_iso8601(result.occurrence.scheduled_for),
+           "status" => "dispatched"
+         }
+       }}
+    end
+  end
+
+  defp expired_schedule_result(schedule) do
+    expired = update_schedule!(schedule, terminal_attributes(:expired))
+
+    {:ok,
+     %{
+       previous: %{
+         "next_occurrence_at" => datetime(schedule.next_occurrence_at),
+         "revision" => schedule.revision,
+         "status" => Atom.to_string(schedule.status)
+       },
+       outcome: %{
+         "revision" => expired.revision,
+         "status" => "expired"
+       }
+     }}
+  end
+
+  defp schedule_in_scope?(schedule, scope) do
+    schedule.destination_transport == scope.transport and
+      String.starts_with?(schedule.destination_conversation_ref, scope.conversation_prefix)
+  end
+
+  defp scope_document(scope) do
+    %{
+      "conversation_prefix" => scope.conversation_prefix,
+      "transport" => scope.transport
+    }
+  end
+
+  defp datetime(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp datetime(nil), do: nil
 
   defp update_schedule_status(%Schedule{status: status} = schedule, status), do: schedule
 

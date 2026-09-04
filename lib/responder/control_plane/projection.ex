@@ -245,7 +245,7 @@ defmodule Responder.ControlPlane.Projection do
           oldest_active_ms:
             type(
               fragment(
-                "COALESCE(EXTRACT(EPOCH FROM (clock_timestamp() - MIN(?) FILTER (WHERE ? = 'pending'))) * 1000, 0)::bigint",
+                "GREATEST(0, COALESCE(EXTRACT(EPOCH FROM (clock_timestamp() - MIN(?) FILTER (WHERE ? = 'pending'))) * 1000, 0))::bigint",
                 entry.inserted_at,
                 entry.status
               ),

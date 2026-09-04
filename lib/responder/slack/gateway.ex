@@ -19,6 +19,7 @@ defmodule Responder.Slack.Gateway do
     Event,
     HomeEvent,
     HomeInteraction,
+    HomeSubmission,
     Interaction,
     MembershipTransition,
     ReactionEvent,
@@ -138,7 +139,17 @@ defmodule Responder.Slack.Gateway do
         handle_home_interaction(interaction, settings)
 
       :ignore ->
-        handle_message_interaction(envelope, now, settings)
+        case HomeSubmission.from_socket(envelope, settings.identity.workspace_ref, now) do
+          {:ok, submission} ->
+            handle_home_interaction(submission, settings)
+
+          {:error, errors} ->
+            {:ack, {:app_home_control, :invalid},
+             %{"errors" => errors, "response_action" => "errors"}}
+
+          :ignore ->
+            handle_message_interaction(envelope, now, settings)
+        end
     end
   end
 

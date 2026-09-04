@@ -65,16 +65,16 @@ claim of whole-product parity.
 | P1 | `github-confirmation-backed-actions` | [`GitHub.Confirmations`](../lib/responder/github/confirmations.ex) | [`github/confirmations_test.exs`](../test/responder/github/confirmations_test.exs) |
 | P1 | `conversation-summaries-and-rollups` | [`State.Continuity`](../lib/responder/state/continuity.ex) | [`state/continuity_test.exs`](../test/responder/state/continuity_test.exs) |
 | P1 | `privacy-aware-cross-channel-recall` | [`State.Continuity`](../lib/responder/state/continuity.ex) | [`state/continuity_test.exs`](../test/responder/state/continuity_test.exs) |
+| P1 | `memory-review-controls` | [`Slack.AppHomeEditor`](../lib/responder/slack/app_home_editor.ex) and [`State.Memories`](../lib/responder/state/memories.ex) | [`slack/app_home_editor_test.exs`](../test/responder/slack/app_home_editor_test.exs) and [`state/memories_test.exs`](../test/responder/state/memories_test.exs) |
+| P1 | `app-home-navigation-and-recovery-controls` | [`Slack.AppHomeProjection`](../lib/responder/slack/app_home_projection.ex) and [`Slack.AppHomeControls`](../lib/responder/slack/app_home_controls.ex) | [`slack/app_home_projection_test.exs`](../test/responder/slack/app_home_projection_test.exs) and [`slack/app_home_actions_test.exs`](../test/responder/slack/app_home_actions_test.exs) |
 
 ## Partial behavior and exact owner
 
 | Priority | Capability | What is still missing | Owning task |
 |---|---|---|---|
-| P1 | `memory-review-controls` | Slack App Home still needs the edit modal; keep, merge, and forget are present there and local controls support all four actions. | `2026-09-04-complete-slack-app-home-and-task-recovery-contro` |
-| P1 | `app-home-navigation-and-recovery-controls` | Exact titles/deep links plus memory, schedule, publication, and workspace recovery actions. | `2026-09-04-complete-slack-app-home-and-task-recovery-contro` |
 | P1 | `goal-planning-and-dependencies` | Model-callable goal tools, prerequisite validation, parallel execution, and coordinated finalization. | `2026-09-04-finish-goals-and-multi-repository-orchestration` |
 | P1 | `multi-repository-orchestration` | Repository sets, companion snapshots, child goals, and multi-workspace coordination. | `2026-09-04-finish-goals-and-multi-repository-orchestration` |
-| P1 | `schedules-run-now-replace-and-history` | Run-now, replace, complete surface coverage, and useful execution history. | `2026-09-04-finish-schedules-subscriptions-and-execution-his` |
+| P1 | `schedules-run-now-replace-and-history` | Confirmed replacement, control-plane run-now, and useful execution and failure history; Slack App Home run-now and lifecycle controls are implemented. | `2026-09-04-finish-schedules-subscriptions-and-execution-his` |
 | P1 | `subscriptions-and-poll-fallback` | General source subscription state, cursors, and lost-event polling. | `2026-09-04-finish-schedules-subscriptions-and-execution-his` |
 | P1 | `operator-incident-schedule-repository-views` | Complete search, incident, schedule, channel, repository, topology, grant, and calibration views. | `2026-09-04-complete-the-local-operator-product-for-incident` |
 

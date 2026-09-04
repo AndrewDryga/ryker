@@ -1,10 +1,14 @@
 defmodule Responder.ControlPlane.ProjectionTest do
   use Responder.DataCase, async: false
 
+  import Ecto.Query
+
   alias Responder.ControlPlane.Projection
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.Inbox
+  alias Responder.Ingress.Inbox.Entry
+  alias Responder.Repo
   alias Responder.Retention.Custody, as: RetentionCustody
   alias Responder.Slack.Input, as: SlackInput
   alias Responder.State.Records
@@ -28,6 +32,11 @@ defmodule Responder.ControlPlane.ProjectionTest do
              })
 
     assert {:ok, %{entry: entry}} = Inbox.record(input)
+
+    Repo.update_all(
+      from(saved in Entry, where: saved.id == ^entry.id),
+      set: [inserted_at: DateTime.add(DateTime.utc_now(), 1, :second)]
+    )
 
     assert %{progress: %{admission: queued}} = Projection.overview()
     assert queued.queued == 1

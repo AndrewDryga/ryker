@@ -3,6 +3,8 @@ defmodule Responder.Slack.AppHomeTest do
 
   alias Responder.Slack.{AppHome, HomeEvent}
 
+  @plan_fingerprint String.duplicate("a", 64)
+
   defmodule Directory do
     def user_allowed(%{allowed: allowed}, user_ref, _workspace_ref),
       do: {:ok, MapSet.member?(allowed, user_ref)}
@@ -13,6 +15,14 @@ defmodule Responder.Slack.AppHomeTest do
       Agent.update(agent, &[{user_ref, view} | &1])
       :ok
     end
+  end
+
+  defmodule InvalidDirectory do
+    def user_allowed(_client, _user_ref, _workspace_ref), do: :invalid
+  end
+
+  defmodule FailingAPI do
+    def publish_home(_client, _user_ref, _view), do: {:error, :slack_unavailable}
   end
 
   test "publishes a bounded what-needs-me view for an operator" do
@@ -27,21 +37,35 @@ defmodule Responder.Slack.AppHomeTest do
         blocked_work: 1,
         incident_history: 7,
         open_incidents: 1,
-        published_work: 5
+        published_work: 5,
+        retained_workspaces: 1
       },
       behaviors: [
-        %{kind: :guidance, ref: "behavior:one", status: :active, subject: "Release checks"}
+        %{
+          kind: :guidance,
+          ref: "behavior:one",
+          revision: 3,
+          status: :active,
+          subject: "Release checks",
+          url: "https://slack.com/app_redirect?team=T123&channel=COPS"
+        }
       ],
       incidents: [
         %{
           channel_ref: "CINCIDENT",
           ref: "incident-room:one",
           status: :ready,
-          title: "Checkout API latency"
+          title: "Checkout API latency",
+          url: "https://slack.com/app_redirect?team=T123&channel=CINCIDENT"
         }
       ],
       memories: [
-        %{kind: :repository_binding, ref: "memory:one", subject: "checkout-api"}
+        %{
+          kind: :repository_binding,
+          ref: "memory:one",
+          subject: "checkout-api",
+          url: "https://slack.com/app_redirect?team=T123&channel=COPS"
+        }
       ],
       memory_review_count: 3,
       memory_reviews: [
@@ -51,6 +75,7 @@ defmodule Responder.Slack.AppHomeTest do
               "scope" => "workspace",
               "scope_ref" => "slack:T123",
               "subject" => "checkout-api",
+              "url" => "https://slack.com/app_redirect?team=T123&channel=COPS",
               "value" => "payments",
               "visibility" => "workspace"
             },
@@ -66,29 +91,79 @@ defmodule Responder.Slack.AppHomeTest do
           "reason" => "Same value",
           "review_ref" => "memory-review:one",
           "status" => "pending"
+        },
+        %{
+          "entries" => [
+            %{
+              "scope" => "workspace",
+              "scope_ref" => "slack:T123",
+              "subject" => "deploy-style",
+              "value" => "show the proof first",
+              "visibility" => "workspace"
+            }
+          ],
+          "kind" => "stale",
+          "reason" => "Review this value",
+          "review_ref" => "memory-review:two",
+          "status" => "pending"
         }
       ],
       needs_attention: [
         %{
+          controls: [],
           kind: :operator_input,
           ref: "episode:one",
-          title: "Choose the sampling strategy"
+          title: "Choose the sampling strategy",
+          url:
+            "https://slack.com/app_redirect?team=T123&channel=COPS&message_ts=1787832000.000100"
+        },
+        %{
+          controls: ["retry"],
+          kind: :publish_pending,
+          recovery_generation: 3,
+          ref: "publication:one",
+          title: "Repair checkout deploy",
+          url:
+            "https://slack.com/app_redirect?team=T123&channel=COPS&message_ts=1787832000.000100"
+        },
+        %{
+          controls: ["discard_workspace"],
+          discard_plan_fingerprint: @plan_fingerprint,
+          kind: :retained_workspace,
+          ref: "responder-work:episode-one:session:1",
+          title: "Preserved checkout patch",
+          url:
+            "https://slack.com/app_redirect?team=T123&channel=COPS&message_ts=1787832000.000100"
         }
       ],
       schedules: [
-        %{next_occurrence_at: ~U[2026-08-29 12:00:00Z], ref: "schedule:one", title: "Daily audit"}
+        %{
+          next_occurrence_at: ~U[2026-08-29 12:00:00Z],
+          ref: "schedule:one",
+          revision: 4,
+          status: :active,
+          title: "Daily audit",
+          url:
+            "https://slack.com/app_redirect?team=T123&channel=COPS&message_ts=1787832000.000100"
+        }
       ],
       work: [
         %{
           next_action: "continue_work",
           ref: "task-card:one",
           state: :working,
-          title: "Repair checkout deploy"
+          title: "Repair checkout deploy",
+          url:
+            "https://slack.com/app_redirect?team=T123&channel=COPS&message_ts=1787832000.000100"
         }
       ]
     }
 
-    options = options(calls, fn "T123", "U123" -> snapshot end)
+    options =
+      options(calls, fn "T123", "U123", %MapSet{} = shared_conversations ->
+        assert shared_conversations == MapSet.new(["COPS"])
+        snapshot
+      end)
 
     assert {:ok, %{access: :operator, outcome: :published}} =
              AppHome.handle(event("U123"), options)
@@ -107,14 +182,26 @@ defmodule Responder.Slack.AppHomeTest do
     assert text =~ "responder_home_keep_memory_review"
     assert text =~ "responder_home_merge_memory_review"
     assert text =~ "responder_home_forget_memory_review"
+    assert text =~ "responder_home_edit_memory_review"
     assert text =~ "Forget all (2)"
     assert text =~ "Merge 2 entries?"
     assert text =~ "checkout-api-2"
     assert text =~ "scope: workspace (slack:T123)"
     assert text =~ "visibility: workspace"
-    assert text =~ "2 more memory reviews are available"
+    assert text =~ "1 more memory review is available"
     assert text =~ "responder_home_disable_behavior"
     assert text =~ "responder_home_pause_schedule"
+    assert text =~ "responder_home_run_schedule"
+    assert text =~ "Replace in chat"
+    assert text =~ "responder_home_retry_publication"
+    assert text =~ "publication-recovery:one:3"
+    assert text =~ "responder_home_discard_workspace"
+
+    assert text =~
+             "responder-work-control:responder-work:episode-one:session:1:#{@plan_fingerprint}"
+
+    assert text =~ "responder_home_open"
+    assert text =~ "https://slack.com/app_redirect?team=T123&channel=COPS"
   end
 
   test "a maximal operator view remains complete and below Slack's block limit" do
@@ -141,7 +228,24 @@ defmodule Responder.Slack.AppHomeTest do
       end)
 
     row = fn index ->
-      %{kind: :guidance, next_action: :continue_work, ref: "row:#{index}", status: :active}
+      %{
+        kind: :guidance,
+        next_action: :continue_work,
+        ref: "row:#{index}",
+        revision: index,
+        status: :active
+      }
+    end
+
+    attention_row = fn index ->
+      %{
+        controls: ["update", "discard"],
+        kind: :publish_pending,
+        recovery_generation: 1,
+        ref: "publication:#{index}",
+        title: "Publication #{index}",
+        url: "https://slack.com/app_redirect?team=T123&channel=COPS"
+      }
     end
 
     snapshot = %{
@@ -151,27 +255,67 @@ defmodule Responder.Slack.AppHomeTest do
       memories: Enum.map(1..5, row),
       memory_review_count: 5,
       memory_reviews: reviews,
-      needs_attention: Enum.map(1..8, row),
+      needs_attention: Enum.map(1..8, attention_row),
       schedules: Enum.map(1..5, row),
       work: Enum.map(1..8, row)
     }
 
     assert {:ok, %{access: :operator, outcome: :published}} =
-             AppHome.handle(event("U123"), options(calls, fn _, _ -> snapshot end))
+             AppHome.handle(event("U123"), options(calls, fn _, _, _ -> snapshot end))
 
     assert [{"U123", %{"blocks" => blocks}}] = Agent.get(calls, & &1)
     assert length(blocks) < 100
+    assert length(blocks) == 98
+    action_ids = action_ids(blocks)
+    assert length(action_ids) == length(Enum.uniq(action_ids))
     rendered = Jason.encode!(blocks)
     assert rendered =~ "3 more memory reviews are available"
     assert rendered =~ "visibility: workspace; value: VALUE-"
     assert rendered =~ "Durable state remains authoritative"
   end
 
+  test "a sparse operator view stays useful and renders terminal lifecycle choices safely" do
+    {:ok, calls} = Agent.start_link(fn -> [] end)
+
+    snapshot = %{
+      behaviors: [
+        %{
+          kind: :guidance,
+          ref: "behavior:disabled",
+          revision: 2,
+          status: :disabled,
+          subject: "Quiet hours"
+        }
+      ],
+      counts: :unavailable,
+      incidents: [],
+      memories: [],
+      memory_review_count: :unavailable,
+      memory_reviews: [],
+      needs_attention: [],
+      schedules: [
+        %{ref: "schedule:paused", revision: 5, status: :paused, title: "Paused audit"},
+        %{ref: "schedule:completed", revision: 2, status: :completed, title: "One-time audit"}
+      ],
+      work: []
+    }
+
+    assert {:ok, %{access: :operator, outcome: :published}} =
+             AppHome.handle(event("U123"), options(calls, fn _, _, _ -> snapshot end))
+
+    assert [{"U123", %{"blocks" => blocks}}] = Agent.get(calls, & &1)
+    rendered = Jason.encode!(blocks)
+    assert rendered =~ "Nothing needs your attention right now."
+    assert rendered =~ "responder_home_enable_behavior"
+    assert rendered =~ "responder_home_resume_schedule"
+    assert rendered =~ "One-time audit"
+  end
+
   test "full nonoperators receive no operational details" do
     {:ok, calls} = Agent.start_link(fn -> [] end)
 
     options =
-      options(calls, fn _workspace_ref, _actor_ref ->
+      options(calls, fn _workspace_ref, _actor_ref, _shared_conversations ->
         flunk("the operational projection must not be queried for a nonoperator")
       end)
 
@@ -190,7 +334,7 @@ defmodule Responder.Slack.AppHomeTest do
 
     options =
       put_in(
-        options(calls, fn _, _ -> flunk("must not query") end),
+        options(calls, fn _, _, _ -> flunk("must not query") end),
         [:client, :allowed],
         MapSet.new()
       )
@@ -199,6 +343,33 @@ defmodule Responder.Slack.AppHomeTest do
              {:ok, %{access: :denied, outcome: :ignored}}
 
     assert Agent.get(calls, & &1) == []
+  end
+
+  test "malformed dependencies fail closed and publisher errors remain retryable" do
+    {:ok, calls} = Agent.start_link(fn -> [] end)
+    valid = options(calls, fn _, _, _ -> %{counts: %{}} end)
+
+    assert AppHome.handle(:invalid, %{}) == {:error, {:invalid_app_home, :request}}
+
+    assert AppHome.handle(event("U123"), Map.delete(valid, :directory)) ==
+             {:error, {:invalid_app_home, :directory}}
+
+    assert AppHome.handle(event("U123"), %{valid | directory: InvalidDirectory}) ==
+             {:error, {:invalid_app_home, :directory}}
+
+    assert AppHome.handle(event("U123"), %{valid | projection: fn _, _, _ -> :invalid end}) ==
+             {:error, {:invalid_app_home, :projection}}
+
+    assert AppHome.handle(
+             event("U123"),
+             %{valid | shared_conversations: fn _client, _actor, _workspace -> :invalid end}
+           ) == {:error, {:invalid_app_home, :shared_conversations}}
+
+    assert AppHome.handle(event("U123"), %{valid | operators: :invalid}) ==
+             {:error, {:invalid_app_home, :operators}}
+
+    assert AppHome.handle(event("U123"), %{valid | api: FailingAPI}) ==
+             {:error, :slack_unavailable}
   end
 
   defp event(actor_ref) do
@@ -211,7 +382,20 @@ defmodule Responder.Slack.AppHomeTest do
       client: %{allowed: MapSet.new(["U123", "U456"]), calls: calls},
       directory: Directory,
       operators: MapSet.new(["U123"]),
-      projection: projection
+      projection: projection,
+      shared_conversations: fn _client, _actor_ref, _workspace_ref ->
+        {:ok, MapSet.new(["COPS"])}
+      end
     }
+  end
+
+  defp action_ids(blocks) do
+    Enum.flat_map(blocks, fn block ->
+      [Map.get(block, "accessory") | List.wrap(Map.get(block, "elements"))]
+      |> Enum.flat_map(fn
+        %{"action_id" => action_id} -> [action_id]
+        _not_an_action -> []
+      end)
+    end)
   end
 end

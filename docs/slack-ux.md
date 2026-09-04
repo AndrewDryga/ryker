@@ -77,7 +77,12 @@ state remains on the card rather than using a misleading persistent typing indic
 
 App Home shows durable open-incident, active-session, failed-work, incident-history, saved-memory,
 and active-commitment counts plus the current incident rooms, work Emisar owes the team, compact
-channel situations, and bounded memory controls. The Agent Messages tab offers the suggested
+channel situations, and bounded memory controls. Its destination-backed rows show the original
+request and jump to the exact Slack channel or thread; memory and behavior rows link to their source
+while the exact user still shares it. Operators can edit stale memory, run or manage schedules,
+recover publication conflicts, and explicitly discard a clean retained unmerged workspace there;
+dirty work remains protected. Schedule replacement returns to the source conversation so the new
+request goes through normal confirmation. The Agent Messages tab offers the suggested
 prompts declared in the app manifest — production health, alert explanation, and open work. A
 direct message always starts
 read-only triage and does not require proactive mode or an `@mention`.

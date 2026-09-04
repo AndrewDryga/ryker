@@ -1,11 +1,13 @@
 defmodule Responder.Retention.CustodyTest do
-  use Responder.DataCase, async: true
+  use Responder.DataCase, async: false
 
   import Ecto.Query
 
+  alias Ecto.Adapters.SQL.Sandbox
+  alias Responder.CanonicalJSON
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
-  alias Responder.Retention.{Custody, Operator, Plan}
+  alias Responder.Retention.{Custody, Operator, OperatorAction, Plan}
   alias Responder.Work.Session
 
   @now ~U[2026-08-29 10:00:00.000000Z]
@@ -221,12 +223,19 @@ defmodule Responder.Retention.CustodyTest do
     assert blocked.cleanup_blocked_from == :plan_pending
     assert blocked.discard_plan_expected_revision == frozen.discard_plan_expected_revision
 
-    assert {:ok, %{outcome: :rearmed, session: rearmed}} =
+    assert {:ok, %{action: rearm_action, outcome: :rearmed, session: rearmed}} =
              Operator.rearm(
                session.external_ref,
                "operator:local",
                "retention-action:rearm:one"
              )
+
+    assert rearm_action.request_fingerprint ==
+             CanonicalJSON.digest(%{
+               "action" => "rearm",
+               "actor_ref" => "operator:local",
+               "session_ref" => session.external_ref
+             })
 
     assert rearmed.cleanup_status == :plan_pending
     assert rearmed.cleanup_blocked_from == nil
@@ -255,12 +264,19 @@ defmodule Responder.Retention.CustodyTest do
     unmerged = retained_session!("operator-unmerged", false, true)
     dirty = retained_session!("operator-dirty", true, false)
 
-    assert {:ok, %{outcome: :discard_requested, session: replanning}} =
+    assert {:ok, %{action: discard_action, outcome: :discard_requested, session: replanning}} =
              Operator.discard_unmerged(
                unmerged.external_ref,
                "operator:local",
                "retention-action:discard:unmerged"
              )
+
+    assert discard_action.request_fingerprint ==
+             CanonicalJSON.digest(%{
+               "action" => "discard_unmerged",
+               "actor_ref" => "operator:local",
+               "session_ref" => unmerged.external_ref
+             })
 
     assert replanning.cleanup_status == :plan_pending
     assert replanning.discard_plan_accept_unmerged
@@ -285,6 +301,69 @@ defmodule Responder.Retention.CustodyTest do
 
     assert Repo.get!(Session, dirty.id).cleanup_status == :retained
     assert Repo.get!(Session, dirty.id).retained_reason == "dirty"
+  end
+
+  test "concurrent retries of one operator action serialize before reading its ledger" do
+    Sandbox.unboxed_run(Repo, fn ->
+      session = retained_session!("operator-concurrent", false, true)
+      parent = self()
+      action_ref = "retention-action:discard:concurrent"
+
+      blocker =
+        Responder.ConcurrencyCase.unboxed_task(fn ->
+          Repo.transaction(fn ->
+            Repo.one!(from(row in Session, where: row.id == ^session.id, lock: "FOR UPDATE"))
+            send(parent, {:session_locked, Responder.ConcurrencyCase.backend_pid()})
+
+            receive do
+              :release -> :ok
+            end
+          end)
+        end)
+
+      task_key = {__MODULE__, :operator_action_tasks}
+      Process.put(task_key, [blocker])
+
+      try do
+        assert_receive {:session_locked, blocker_backend}, 5_000
+
+        first = operator_action_task(parent, session.external_ref, action_ref, :first)
+        Process.put(task_key, [first | Process.get(task_key)])
+        assert_receive {:operator_started, :first, first_backend}, 5_000
+        Responder.ConcurrencyCase.await_blocked_by(first_backend, blocker_backend)
+
+        second = operator_action_task(parent, session.external_ref, action_ref, :second)
+        Process.put(task_key, [second | Process.get(task_key)])
+        assert_receive {:operator_started, :second, second_backend}, 5_000
+        Responder.ConcurrencyCase.await_blocked_by(second_backend, first_backend)
+
+        send(blocker.pid, :release)
+        assert {:ok, _transaction} = Task.await(blocker, 5_000)
+
+        results = [Task.await(first, 5_000), Task.await(second, 5_000)]
+
+        assert Enum.sort(Enum.map(results, fn {:ok, result} -> result.outcome end)) ==
+                 [:discard_requested, :duplicate]
+
+        assert Repo.aggregate(
+                 from(action in OperatorAction, where: action.action_ref == ^action_ref),
+                 :count
+               ) == 1
+      after
+        send(blocker.pid, :release)
+        task_key |> Process.delete() |> Responder.ConcurrencyCase.stop_tasks()
+        Repo.delete_all(from(action in OperatorAction, where: action.session_id == ^session.id))
+        Repo.delete_all(from(row in Session, where: row.id == ^session.id))
+
+        Repo.delete_all(
+          from(event in Responder.Episodes.Event, where: event.episode_id == ^session.episode_id)
+        )
+
+        Repo.delete_all(
+          from(episode in Responder.Episodes.Episode, where: episode.id == ^session.episode_id)
+        )
+      end
+    end)
   end
 
   test "durable evidence does not keep a terminal Coop workspace alive while unpublished review work does" do
@@ -395,6 +474,13 @@ defmodule Responder.Retention.CustodyTest do
     assert {:ok, plan} = Plan.prepare(response, session.coop_session_id, 8, false)
     assert {:ok, retained} = Custody.store_plan(session.id, plan_claim.lease_ref, plan)
     retained
+  end
+
+  defp operator_action_task(parent, session_ref, action_ref, label) do
+    Responder.ConcurrencyCase.unboxed_task(fn ->
+      send(parent, {:operator_started, label, Responder.ConcurrencyCase.backend_pid()})
+      Operator.discard_unmerged(session_ref, "operator:local", action_ref)
+    end)
   end
 
   defp completed_session!(suffix) do

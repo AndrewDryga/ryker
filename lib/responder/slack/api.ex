@@ -24,6 +24,8 @@ defmodule Responder.Slack.API do
               {:ok, map()} | {:error, term()}
   @callback joined_conversations(term()) ::
               {:ok, [%{channel_ref: String.t(), private: boolean()}]} | {:error, term()}
+  @callback shared_conversations(term(), String.t(), String.t()) ::
+              {:ok, MapSet.t(String.t())} | {:error, term()}
   @callback ensure_conversation(
               term(),
               String.t(),
@@ -38,6 +40,7 @@ defmodule Responder.Slack.API do
   @callback conversation_state(term(), String.t()) ::
               {:ok, :active | :archived} | :not_found | {:error, term()}
   @callback publish_home(term(), String.t(), map()) :: :ok | {:error, term()}
+  @callback open_view(term(), String.t(), map()) :: :ok | {:error, term()}
   @callback set_thread_status(term(), String.t(), String.t(), String.t()) ::
               :ok | {:error, term()}
 
@@ -49,11 +52,13 @@ defmodule Responder.Slack.API do
                       file_info: 2,
                       read_messages: 4,
                       joined_conversations: 1,
+                      shared_conversations: 3,
                       ensure_conversation: 6,
                       invite_users: 3,
                       set_topic: 3,
                       pin_message: 3,
                       conversation_state: 2,
+                      open_view: 3,
                       publish_home: 3,
                       set_thread_status: 4,
                       update_message: 5
