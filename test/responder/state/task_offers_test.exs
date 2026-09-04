@@ -353,6 +353,22 @@ defmodule Responder.State.TaskOffersTest do
 
     publication =
       update_publication!(publication, %{
+        last_error_code: "coop_unavailable",
+        last_error_detail: "The review worker is temporarily unavailable.",
+        next_attempt_at: DateTime.add(@now, 300, :second)
+      })
+
+    assert_task_publication(review.card, "action_required", :review_pending, ["retry"])
+
+    publication =
+      update_publication!(publication, %{
+        last_error_code: nil,
+        last_error_detail: nil,
+        next_attempt_at: nil
+      })
+
+    publication =
+      update_publication!(publication, %{
         review_document: %{"gate" => "passed", "publishable" => true},
         review_fingerprint: digest("review:ready"),
         review_expected_revision: 3,
@@ -369,7 +385,11 @@ defmodule Responder.State.TaskOffersTest do
         status: :reviewed
       })
 
-    assert_task_publication(review.card, "ready_to_publish", :reviewed, ["publish"])
+    assert_task_publication(review.card, "ready_to_publish", :reviewed, [
+      "publish",
+      "update",
+      "discard"
+    ])
 
     publication =
       update_publication!(publication, %{
@@ -383,9 +403,33 @@ defmodule Responder.State.TaskOffersTest do
 
     publication =
       update_publication!(publication, %{
+        last_error_code: "publication_branch_already_exists",
+        last_error_detail: "The branch changed before the first exact publication completed."
+      })
+
+    assert_task_publication(review.card, "action_required", :publish_pending, ["discard"])
+
+    publication =
+      update_publication!(publication, %{
         branch_ref: "refs/heads/responder/task-card",
         commit_sha: String.duplicate("a", 40),
+        expected_remote_head_sha: String.duplicate("b", 40),
         github_repository: "emisar/responder",
+        pull_request_number: 91,
+        pull_request_url: "https://github.com/emisar/responder/pull/91"
+      })
+
+    assert_task_publication(review.card, "action_required", :publish_pending, [
+      "open",
+      "update",
+      "discard"
+    ])
+
+    publication =
+      update_publication!(publication, %{
+        expected_remote_head_sha: nil,
+        last_error_code: nil,
+        last_error_detail: nil,
         publication_receipt: %{"pull_request" => 91},
         publication_receipt_fingerprint: digest("publication:receipt"),
         published_at: DateTime.add(@now, 2, :second),
@@ -396,7 +440,7 @@ defmodule Responder.State.TaskOffersTest do
 
     assert_task_publication(review.card, "reviewing", :published_ready, ["open"])
 
-    _publication =
+    publication =
       update_publication!(publication, %{
         published_delivery_receipt: %{"message_ref" => "published-message"},
         published_delivery_receipt_fingerprint: digest("published:receipt"),
@@ -404,6 +448,23 @@ defmodule Responder.State.TaskOffersTest do
       })
 
     assert_task_publication(review.card, "published", :published, ["open", "check"])
+
+    _publication =
+      update_publication!(publication, %{
+        expected_remote_head_sha: String.duplicate("b", 40)
+      })
+
+    assert {:ok, stale_projection} = TaskCardProjection.build(review.card)
+    stale_task = stale_projection.document["task_card"]
+    assert stale_task["status"] == "action_required"
+    assert stale_task["action_needed"] =~ "head changed"
+
+    assert stale_task["publication"]["controls"] == [
+             "open",
+             "check",
+             "update",
+             "discard"
+           ]
 
     assert {:ok, _complete} =
              Episodes.apply(
@@ -437,6 +498,7 @@ defmodule Responder.State.TaskOffersTest do
     task = projection.document["task_card"]
     assert task["status"] == "action_required"
     assert task["action_needed"] =~ "branch protection"
+    assert task["publication"]["controls"] == ["update", "discard"]
   end
 
   test "task cards expose event verification and stop-in-progress without losing their thread" do
@@ -704,6 +766,7 @@ defmodule Responder.State.TaskOffersTest do
     assert task["status"] == status
     assert task["publication"]["status"] == Atom.to_string(publication_status)
     assert task["publication"]["controls"] == controls
+    assert task["publication"]["recovery_generation"] == 1
   end
 
   defp confirmation(fixture) do

@@ -116,6 +116,18 @@ defmodule Responder.ControlPlane.PublicationLabTest do
     assert child_claim.episode.id == confirmation.episode.id
     child_claim = bind_claim!(child_claim, "task-readiness")
 
+    assert {:ok, older_publication_offer} =
+             Records.create(
+               Records.token(child_claim.turn),
+               "publication-race-candidate",
+               "publication_offer",
+               %{
+                 "body" =>
+                   "Keep this second exact candidate available for the control-race test.",
+                 "title" => "Older independent publication candidate"
+               }
+             )
+
     assert {:ok, publication_offer} =
              Records.create(
                Records.token(child_claim.turn),
@@ -144,13 +156,14 @@ defmodule Responder.ControlPlane.PublicationLabTest do
       |> Enum.find(&(&1.ref == task_offer.ref))
 
     assert :request_task_readiness in task_card.actions
+    assert task_card.review_offer_ref == publication_offer.ref
 
     assert {:ok, readiness} =
              actions.act_on_lab_record.(
                @conversation_id,
                task_offer.ref,
                :request_task_readiness,
-               nil
+               %{review_offer_ref: task_card.review_offer_ref}
              )
 
     assert readiness.status == :requested
@@ -203,13 +216,94 @@ defmodule Responder.ControlPlane.PublicationLabTest do
       |> Enum.find(&(&1.ref == task_offer.ref))
 
     assert :approve_task_publication in reviewed_task.actions
+    assert :update_task_publication in reviewed_task.actions
+    assert :discard_task_publication in reviewed_task.actions
+    assert reviewed_task.recovery_generation == 1
+    assert reviewed_task.publication_ref == readiness.publication.ref
+
+    newer_publication =
+      %{
+        body: older_publication_offer.payload["body"],
+        destination_conversation_ref: conversation_ref(),
+        destination_thread_ref: conversation_ref(),
+        destination_transport: "control_plane",
+        episode_id: confirmation.episode.id,
+        id: Ecto.UUID.generate(),
+        offer_message_ref: "control-plane-message:task-readiness",
+        record_id: older_publication_offer.id,
+        ref: "publication:lab-control-race:#{older_publication_offer.id}",
+        repository: "responder",
+        review_request_ref: "control-plane-action:newer-publication",
+        review_requested_at: DateTime.add(@now, 3, :second),
+        review_requested_by_actor_ref: "control-plane:operator",
+        session_id: readiness.publication.session_id,
+        status: :review_pending,
+        title: older_publication_offer.payload["title"]
+      }
+      |> Changeset.insert()
+      |> Repo.insert!()
+
+    assert newer_publication.ref != readiness.publication.ref
+    assert newer_publication.recovery_generation == reviewed_task.recovery_generation
+
+    assert {:ok, recovery} =
+             actions.act_on_lab_record.(
+               @conversation_id,
+               task_offer.ref,
+               :update_task_publication,
+               %{
+                 generation: reviewed_task.recovery_generation,
+                 publication_ref: reviewed_task.publication_ref
+               }
+             )
+
+    assert recovery.status == :recorded
+    assert recovery.outcome["status"] == "review_pending"
+    assert Repo.get!(Publication, newer_publication.id).status == :review_pending
+    Repo.delete!(newer_publication)
+
+    assert {:ok, refreshed_review_claim} =
+             PublicationCustody.claim_next("lab-task-refreshed-review", 60)
+
+    assert {:ok, refreshed_frozen} =
+             PublicationCustody.freeze_review_revision(
+               readiness.publication.ref,
+               refreshed_review_claim.lease_ref,
+               7
+             )
+
+    assert refreshed_frozen.review_generation == 2
+
+    assert {:ok, %{status: :review_ready}} =
+             PublicationCustody.store_review(
+               readiness.publication.ref,
+               refreshed_review_claim.lease_ref,
+               refreshed_frozen.review_generation,
+               review,
+               patch
+             )
+
+    assert {:ok, refreshed_delivery_claim} =
+             PublicationCustody.claim_next("lab-task-refreshed-review-delivery", 60)
+
+    assert {:ok, refreshed_request} =
+             PublicationCustody.delivery_request(refreshed_delivery_claim.publication)
+
+    assert {:ok, refreshed_receipt} = Publisher.publish_message(refreshed_request, nil)
+
+    assert {:ok, %Publication{status: :reviewed}} =
+             PublicationCustody.confirm_delivery(
+               readiness.publication.ref,
+               refreshed_delivery_claim.lease_ref,
+               refreshed_receipt
+             )
 
     assert {:ok, approval} =
              actions.act_on_lab_record.(
                @conversation_id,
                task_offer.ref,
                :approve_task_publication,
-               nil
+               %{publication_ref: readiness.publication.ref}
              )
 
     assert approval.status == :approved
@@ -263,7 +357,7 @@ defmodule Responder.ControlPlane.PublicationLabTest do
                @conversation_id,
                task_offer.ref,
                :check_task_publication,
-               nil
+               %{publication_ref: readiness.publication.ref}
              )
 
     assert check.status == :requested

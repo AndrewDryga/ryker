@@ -7,7 +7,7 @@ defmodule Responder.Publication.FollowupsTest do
   alias Responder.Episodes.{Event, EventChangeset}
   alias Responder.Fixtures.Publication, as: PublicationFixture
   alias Responder.Ingress.Input
-  alias Responder.Publication.{Followup, Followups, LifecycleEvent}
+  alias Responder.Publication.{Custody, Followup, Followups, LifecycleEvent, Publication}
   alias Responder.Work.DeliveryReceipt
 
   @now ~U[2026-08-28 12:10:00.000000Z]
@@ -51,12 +51,12 @@ defmodule Responder.Publication.FollowupsTest do
     assert merged_followup.pr_state == "merged"
     assert merged_followup.merge_sha == merge_sha
 
-    unrelated = lifecycle_input("unrelated", "deployment", "succeeded")
+    unrelated = typed_lifecycle_input(["unrelated"], "deployment", "succeeded")
     assert Followups.observe_input(unrelated) == {:ok, 0}
 
     correlated =
-      lifecycle_input(
-        "Deploying #{publication.branch_ref} from #{publication.commit_sha}",
+      typed_lifecycle_input(
+        [publication.branch_ref, publication.commit_sha],
         "deployment",
         "succeeded"
       )
@@ -292,7 +292,7 @@ defmodule Responder.Publication.FollowupsTest do
            ) == {:ok, :ignored}
   end
 
-  test "nested deployment and Terraform signals correlate exact publications without trusting prose" do
+  test "only exact typed deployment signals can correlate publications" do
     %{publication: publication} = PublicationFixture.published!("nested-signals")
     merge_sha = String.duplicate("d", 40)
 
@@ -312,45 +312,51 @@ defmodule Responder.Publication.FollowupsTest do
              )
            ) == {:ok, 0}
 
-    terraform = %{
-      "payload" => %{
-        "attempt" => 1,
-        "references" => [publication.pull_request_url],
-        "terraform" => %{"status" => "applied"}
-      }
-    }
+    terraform =
+      typed_lifecycle_content([publication.pull_request_url], "terraform", "succeeded")
 
     assert Followups.observe_input(lifecycle_input_with(:app, terraform, "terraform")) ==
+             {:ok, 0}
+
+    assert Followups.observe_input(authorized_lifecycle_input(terraform, "terraform")) ==
              {:ok, 1}
 
-    deployment_failure = %{
-      "events" => [
-        %{"deployment" => publication.branch_ref},
-        %{"conclusion" => "timed_out"}
-      ]
-    }
+    deployment_failure =
+      typed_lifecycle_content([publication.branch_ref], "deployment", "failed")
 
     assert Followups.observe_input(
              lifecycle_input_with(:bot, deployment_failure, "deployment-failed")
+           ) == {:ok, 0}
+
+    assert Followups.observe_input(
+             authorized_lifecycle_input(deployment_failure, "deployment-failed")
            ) == {:ok, 1}
 
-    deployment_pending = %{
-      "deployment" => %{
-        "head" => publication.commit_sha,
-        "status" => "running"
-      }
-    }
+    deployment_pending =
+      typed_lifecycle_content([publication.commit_sha], "deployment", "pending")
 
     assert Followups.observe_input(
              lifecycle_input_with(:system, deployment_pending, "deployment-pending")
+           ) == {:ok, 0}
+
+    assert Followups.observe_input(
+             authorized_lifecycle_input(deployment_pending, "deployment-pending")
            ) == {:ok, 1}
 
-    unknown = %{
-      "deployment" => publication.commit_sha,
-      "status" => %{"unexpected" => true}
+    unknown =
+      typed_lifecycle_content([publication.commit_sha], "deployment", "unexpected")
+
+    assert Followups.observe_input(authorized_lifecycle_input(unknown, "unknown")) == {:ok, 0}
+
+    heuristic = %{
+      "events" => [
+        %{"deployment" => publication.branch_ref},
+        %{"conclusion" => "succeeded"}
+      ]
     }
 
-    assert Followups.observe_input(lifecycle_input_with(:app, unknown, "unknown")) == {:ok, 0}
+    assert Followups.observe_input(authorized_lifecycle_input(heuristic, "heuristic")) ==
+             {:ok, 0}
 
     events =
       Repo.all(
@@ -369,6 +375,85 @@ defmodule Responder.Publication.FollowupsTest do
     assert Enum.find(events, &(&1.kind == "terraform")).summary =~ "Terraform succeeded"
     assert Enum.find(events, &(&1.state == "failed")).wakeup_state == :pending
     assert Enum.find(events, &(&1.state == "pending")).wakeup_state == :none
+  end
+
+  test "lifecycle source scope and repository identity prevent cross-repository branch matches" do
+    %{publication: responder} = PublicationFixture.published!("scoped-responder")
+
+    %{publication: other} =
+      PublicationFixture.published!("scoped-other",
+        repository: "other",
+        github_repository: "acme/other",
+        pull_request_number: 92
+      )
+
+    branch_ref = "refs/heads/release/shared"
+    merge_sha = String.duplicate("f", 40)
+    ids = [responder.id, other.id]
+
+    Repo.update_all(
+      from(publication in Publication, where: publication.id in ^ids),
+      set: [branch_ref: branch_ref]
+    )
+
+    Repo.update_all(
+      from(followup in Followup, where: followup.publication_id in ^ids),
+      set: [merge_sha: merge_sha, pr_state: "merged"]
+    )
+
+    signal = typed_lifecycle_input(["release/shared"], "deployment", "succeeded")
+    assert Followups.observe_input(signal) == {:ok, 1}
+
+    assert Repo.get_by(LifecycleEvent,
+             publication_id: responder.id,
+             kind: "deployment",
+             state: "succeeded"
+           )
+
+    refute Repo.get_by(LifecycleEvent, publication_id: other.id, kind: "deployment")
+
+    unauthorized =
+      put_in(
+        signal.source_capabilities,
+        ["publication_lifecycle", "repositories"],
+        ["other"]
+      )
+      |> then(&%{signal | source_capabilities: &1})
+
+    assert Followups.observe_input(unauthorized) == {:ok, 0}
+  end
+
+  test "typed lifecycle correlation is not capped at one hundred active publications" do
+    publications =
+      for index <- 1..101 do
+        PublicationFixture.published!("lifecycle-cap-#{index}",
+          pull_request_number: 1_000 + index
+        ).publication
+      end
+
+    ids = Enum.map(publications, & &1.id)
+    branch_ref = "refs/heads/release/all-active"
+
+    Repo.update_all(
+      from(publication in Publication, where: publication.id in ^ids),
+      set: [branch_ref: branch_ref]
+    )
+
+    Repo.update_all(
+      from(followup in Followup, where: followup.publication_id in ^ids),
+      set: [merge_sha: String.duplicate("a", 40), pr_state: "merged"]
+    )
+
+    assert Followups.observe_input(
+             typed_lifecycle_input(["release/all-active"], "deployment", "pending")
+           ) == {:ok, 101}
+
+    assert Repo.aggregate(
+             from(event in LifecycleEvent,
+               where: event.publication_id in ^ids and event.kind == "deployment"
+             ),
+             :count
+           ) == 101
   end
 
   test "manual status checks and lifecycle delivery retain exact lease and receipt custody" do
@@ -504,6 +589,9 @@ defmodule Responder.Publication.FollowupsTest do
 
     assert stale_followup.pr_state == "stale"
 
+    assert Repo.get!(Publication, stale_publication.id).expected_remote_head_sha ==
+             stale_status["head_sha"]
+
     %{publication: expired_publication} = PublicationFixture.published!("deadline")
 
     Repo.update_all(
@@ -526,6 +614,81 @@ defmodule Responder.Publication.FollowupsTest do
              )
 
     assert expired_followup.pr_state == "expired"
+  end
+
+  test "a stale published draft can be review-refreshed by exact generation" do
+    %{publication: update_publication} = PublicationFixture.published!("stale-update")
+    observed_update_head = String.duplicate("d", 40)
+    mark_stale!(update_publication, observed_update_head)
+
+    assert {:ok, %{publication: refreshed}} =
+             Custody.recover(update_publication.ref, :update, 1)
+
+    assert refreshed.status == :review_pending
+    assert refreshed.recovery_generation == 2
+    assert refreshed.review_generation == update_publication.review_generation + 1
+    assert refreshed.expected_remote_head_sha == observed_update_head
+    assert refreshed.branch_ref == update_publication.branch_ref
+    assert refreshed.pull_request_number == update_publication.pull_request_number
+    assert refreshed.publication_receipt == nil
+    assert refreshed.published_delivery_receipt == nil
+    assert refreshed.approval_ref == nil
+    assert Repo.get_by!(Followup, publication_id: refreshed.id).pr_state == "open"
+
+    Repo.update_all(
+      from(followup in Followup, where: followup.publication_id == ^refreshed.id),
+      set: [next_poll_at: @now]
+    )
+
+    assert {:ok, nil} = Followups.claim_poll("publication-followup:re-review", 60)
+
+    Repo.update_all(
+      from(followup in Followup, where: followup.publication_id == ^refreshed.id),
+      set: [pr_state: "open"]
+    )
+
+    Repo.update_all(
+      from(publication in Publication, where: publication.id == ^refreshed.id),
+      set: [
+        approval_ref: "interaction:republish",
+        approved_at: @now,
+        approved_by_actor_ref: "slack:user:U-operator",
+        last_error_code: "publication_branch_changed",
+        last_error_detail: "The draft head changed again before the leased push.",
+        review_delivery_receipt: update_publication.review_delivery_receipt,
+        review_delivery_receipt_fingerprint:
+          update_publication.review_delivery_receipt_fingerprint,
+        review_document: update_publication.review_document,
+        review_fingerprint: update_publication.review_fingerprint,
+        review_patch: update_publication.review_patch,
+        reviewed_at: update_publication.reviewed_at,
+        status: :publish_pending
+      ]
+    )
+
+    assert {:ok, %{publication: conflict_refreshed}} =
+             Custody.recover(update_publication.ref, :update, 2)
+
+    assert conflict_refreshed.status == :review_pending
+    assert conflict_refreshed.recovery_generation == 3
+    assert conflict_refreshed.approval_ref == nil
+  end
+
+  test "a stale published draft can be discarded by exact generation" do
+    %{publication: discard_publication} = PublicationFixture.published!("stale-discard")
+    observed_discard_head = String.duplicate("e", 40)
+    mark_stale!(discard_publication, observed_discard_head)
+
+    assert {:ok, %{publication: discarded}} =
+             Custody.recover(discard_publication.ref, :discard, 1)
+
+    assert discarded.status == :discarded
+    assert discarded.recovery_generation == 2
+    assert discarded.expected_remote_head_sha == observed_discard_head
+    assert discarded.publication_receipt == discard_publication.publication_receipt
+
+    assert discarded.published_delivery_receipt ==
+             discard_publication.published_delivery_receipt
   end
 
   test "follow-up public boundaries fail closed without queue mutation" do
@@ -642,6 +805,23 @@ defmodule Responder.Publication.FollowupsTest do
     }
   end
 
+  defp mark_stale!(publication, head_sha) do
+    Repo.update_all(
+      from(saved in Followup, where: saved.publication_id == ^publication.id),
+      set: [next_poll_at: @now]
+    )
+
+    assert {:ok, claim} = Followups.claim_poll("publication-followup:#{publication.id}", 60)
+
+    status =
+      publication
+      |> lifecycle_status("pending", false)
+      |> Map.put("head_sha", head_sha)
+
+    assert {:ok, %Followup{pr_state: "stale"}} =
+             Followups.store_poll(publication.ref, claim.lease_ref, status, 60)
+  end
+
   defp lifecycle_input(text, event_type, status) do
     lifecycle_input_with(
       :app,
@@ -651,6 +831,59 @@ defmodule Responder.Publication.FollowupsTest do
       },
       "#{event_type}:#{status}:#{:erlang.phash2(text)}"
     )
+  end
+
+  defp typed_lifecycle_input(references, kind, state) do
+    authorized_lifecycle_input(
+      typed_lifecycle_content(references, kind, state),
+      "#{kind}:#{state}:#{:erlang.phash2(references)}"
+    )
+  end
+
+  defp typed_lifecycle_content(references, kind, state) do
+    %{
+      "event_type" => "responder.publication_lifecycle.v1",
+      "payload" => %{
+        "environment" => "production",
+        "kind" => kind,
+        "references" => references,
+        "repository" => "responder",
+        "run_ref" => "deployment-run:#{Ecto.UUID.generate()}",
+        "state" => state,
+        "target" => "responder"
+      }
+    }
+  end
+
+  defp authorized_lifecycle_input(content, suffix) do
+    {:ok, input} =
+      Input.new(%{
+        actor: %{kind: :system, ref: "webhook-route:deployments"},
+        content: content,
+        destination: %{
+          conversation_ref: "slack:T123:C-deployments",
+          thread_ref: "deployment-thread",
+          transport: "slack"
+        },
+        event_kind: :event,
+        event_ref: "lifecycle:#{suffix}:#{Ecto.UUID.generate()}",
+        native_input_id: "lifecycle-item:#{suffix}:#{Ecto.UUID.generate()}",
+        occurred_at: @now,
+        occurred_at_source: :source,
+        revision: 1,
+        source: %{kind: "webhook", ref: "deployments"},
+        source_capabilities: %{
+          "publication_lifecycle" => %{
+            "environments" => ["production"],
+            "kinds" => ["deployment", "terraform"],
+            "repositories" => ["responder"],
+            "targets" => ["responder"]
+          }
+        },
+        source_item_ref: nil
+      })
+
+    input
   end
 
   defp lifecycle_input_with(actor_kind, content, suffix) do

@@ -76,7 +76,7 @@ defmodule Responder.Publication.Git do
          {:ok, _output} <- commit(request, settings, work),
          {:ok, commit_sha} <- full_identity(settings, work, ["rev-parse", "HEAD"]),
          {:ok, remote_sha} <- remote_ref(settings, work, token, branch),
-         :ok <- expected_remote(remote_sha, request.review["pull_request"], commit_sha),
+         :ok <- expected_remote(remote_sha, request, commit_sha, branch),
          :ok <- push_if_needed(settings, work, token, branch, remote_sha, commit_sha) do
       {:ok, %{branch_ref: "refs/heads/#{branch}", commit_sha: commit_sha}}
     else
@@ -130,16 +130,64 @@ defmodule Responder.Publication.Git do
     end
   end
 
-  defp expected_remote(commit_sha, _pull_request, commit_sha), do: :ok
-  defp expected_remote(nil, nil, _commit_sha), do: :ok
+  defp expected_remote(commit_sha, _request, commit_sha, _branch), do: :ok
 
-  defp expected_remote(remote_sha, %{"head_commit" => remote_sha}, _commit_sha), do: :ok
+  defp expected_remote(
+         remote_sha,
+         %Request{existing_pull_request: %{"head_commit" => remote_sha}},
+         _commit_sha,
+         _branch
+       ),
+       do: :ok
 
-  defp expected_remote(_remote_sha, nil, _commit_sha),
-    do: {:error, :publication_branch_already_exists}
+  defp expected_remote(
+         nil,
+         %Request{existing_pull_request: nil, review: %{"pull_request" => nil}},
+         _commit_sha,
+         _branch
+       ),
+       do: :ok
 
-  defp expected_remote(_remote_sha, %{}, _commit_sha),
-    do: {:error, :publication_branch_changed}
+  defp expected_remote(
+         remote_sha,
+         %Request{
+           existing_pull_request: nil,
+           review: %{"pull_request" => %{"head_commit" => remote_sha}}
+         },
+         _commit_sha,
+         _branch
+       ),
+       do: :ok
+
+  defp expected_remote(
+         remote_sha,
+         %Request{existing_pull_request: nil, review: %{"pull_request" => nil}},
+         commit_sha,
+         branch
+       ),
+       do:
+         git_conflict(
+           :publication_branch_already_exists,
+           remote_sha,
+           commit_sha,
+           branch
+         )
+
+  defp expected_remote(remote_sha, %Request{}, commit_sha, branch),
+    do: git_conflict(:publication_branch_changed, remote_sha, commit_sha, branch)
+
+  defp git_conflict(code, observed_head, candidate_commit, branch)
+       when is_binary(observed_head) do
+    {:error,
+     {:publication_git_conflict, code,
+      %{
+        "branch_ref" => "refs/heads/#{branch}",
+        "candidate_commit_sha" => candidate_commit,
+        "observed_head_sha" => observed_head
+      }}}
+  end
+
+  defp git_conflict(code, _observed_head, _candidate_commit, _branch), do: {:error, code}
 
   defp push_if_needed(_settings, _work, _token, _branch, commit_sha, commit_sha), do: :ok
 
@@ -183,8 +231,11 @@ defmodule Responder.Publication.Git do
       else: {:error, :publication_candidate_tree_mismatch}
   end
 
-  defp branch(%Request{review: %{"pull_request" => %{"ref" => ref}}}, _prefix),
-    do: safe_branch(ref)
+  defp branch(%Request{existing_pull_request: %{"ref" => ref}}, prefix),
+    do: owned_branch(ref, prefix)
+
+  defp branch(%Request{review: %{"pull_request" => %{"ref" => ref}}}, prefix),
+    do: owned_branch(ref, prefix)
 
   defp branch(request, prefix) do
     slug =
@@ -223,6 +274,17 @@ defmodule Responder.Publication.Git do
         ])
 
     if invalid, do: {:error, :publication_branch_invalid}, else: {:ok, branch}
+  end
+
+  defp owned_branch(ref, prefix) do
+    with {:ok, branch} <- safe_branch(ref),
+         {:ok, prefix} <- safe_branch(prefix),
+         true <- String.starts_with?(branch, prefix <> "/") do
+      {:ok, branch}
+    else
+      false -> {:error, :publication_branch_not_owned}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp run(settings, work, arguments, options \\ []),

@@ -364,7 +364,7 @@ defmodule Responder.Slack.TaskEndToEndTest do
     assert {:ok, reviewed_projection} = TaskCardProjection.build(card)
     reviewed_card = reviewed_projection.document["task_card"]
     assert reviewed_card["status"] == "ready_to_publish"
-    assert reviewed_card["publication"]["controls"] == ["publish"]
+    assert reviewed_card["publication"]["controls"] == ["publish", "update", "discard"]
 
     assert Gateway.handle_envelope(
              publication_interaction(

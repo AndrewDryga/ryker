@@ -82,6 +82,43 @@ defmodule Responder.Slack.InputTest do
            }) == {:error, {:invalid_input, :source_capabilities}}
   end
 
+  test "publication lifecycle authority is valid only for system webhook inputs" do
+    assert {:ok, slack} = SlackInput.new(valid_attributes())
+
+    scope = %{
+      "environments" => ["production"],
+      "kinds" => ["deployment", "terraform"],
+      "repositories" => ["responder"],
+      "targets" => ["responder-api"]
+    }
+
+    attributes =
+      slack
+      |> Map.from_struct()
+      |> Map.merge(%{
+        actor: %{kind: :system, ref: "webhook-route:deployments"},
+        source: %{kind: "webhook", ref: "deployments"},
+        source_capabilities: %{"publication_lifecycle" => scope},
+        source_item_ref: nil
+      })
+
+    assert {:ok, input} = Input.new(attributes)
+    assert input.source_capabilities["publication_lifecycle"] == scope
+
+    assert Input.new(%{attributes | actor: %{kind: :app, ref: "webhook-app"}}) ==
+             {:error, {:invalid_input, :source_capabilities}}
+
+    assert Input.new(%{attributes | source: %{kind: "slack", ref: "T123"}}) ==
+             {:error, {:invalid_input, :source_capabilities}}
+
+    assert Input.new(%{
+             attributes
+             | source_capabilities: %{
+                 "publication_lifecycle" => %{scope | "kinds" => ["release"]}
+               }
+           }) == {:error, {:invalid_input, :source_capabilities}}
+  end
+
   test "Slack post grants are canonical, source-bound, and user-only" do
     destination_ref = SourceRef.channel("T123", "C789")
 

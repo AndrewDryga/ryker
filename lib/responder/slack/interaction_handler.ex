@@ -35,6 +35,9 @@ defmodule Responder.Slack.InteractionHandler do
     :publication_offer_not_delivered,
     :publication_offer_not_found,
     :publication_review_delivery_mismatch,
+    :publication_recovery_generation_stale,
+    :publication_recovery_lease_active,
+    :publication_recovery_not_allowed,
     :task_publication_mismatch,
     :task_publication_not_ready,
     :schedule_offer_already_confirmed,
@@ -247,6 +250,33 @@ defmodule Responder.Slack.InteractionHandler do
     attributes = task_publication_attributes(interaction, work_ref, publication_ref)
 
     options.check_task_publication.(attributes)
+  end
+
+  defp dispatch_action(
+         %Interaction{action_id: action_id} = interaction,
+         work_ref,
+         %{
+           expected_generation: expected_generation,
+           publication_item_ref: "publication:" <> _rest = publication_ref
+         },
+         options
+       )
+       when action_id in ~w(responder_task_retry_publication responder_task_update_publication responder_task_discard_publication) do
+    attributes =
+      interaction
+      |> task_publication_attributes(work_ref, publication_ref)
+      |> Map.put(:expected_generation, expected_generation)
+
+    action =
+      case action_id do
+        "responder_task_retry_publication" -> :retry
+        "responder_task_update_publication" -> :update
+        "responder_task_discard_publication" -> :discard
+      end
+
+    with :ok <- configured_operator(interaction, options) do
+      options.recover_task_publication.(attributes, action)
+    end
   end
 
   defp dispatch_action(
@@ -587,6 +617,31 @@ defmodule Responder.Slack.InteractionHandler do
     case String.split(action_value, "|", parts: 2) do
       ["task-card:" <> _rest = work_ref, publication_item_ref] ->
         {:ok, work_ref, %{publication_item_ref: publication_item_ref}}
+
+      _invalid ->
+        {:error, :slack_action_mismatch}
+    end
+  end
+
+  defp selection(%Interaction{action_id: action_id, action_value: action_value})
+       when action_id in ~w(responder_task_retry_publication responder_task_update_publication responder_task_discard_publication) do
+    case String.split(action_value, "|", parts: 3) do
+      [
+        "task-card:" <> _rest = work_ref,
+        "publication:" <> _publication = publication_ref,
+        generation
+      ] ->
+        case Integer.parse(generation) do
+          {expected_generation, ""} when expected_generation > 0 ->
+            {:ok, work_ref,
+             %{
+               expected_generation: expected_generation,
+               publication_item_ref: publication_ref
+             }}
+
+          _invalid ->
+            {:error, :slack_action_mismatch}
+        end
 
       _invalid ->
         {:error, :slack_action_mismatch}

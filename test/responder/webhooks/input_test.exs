@@ -55,6 +55,37 @@ defmodule Responder.Webhooks.InputTest do
     end
   end
 
+  test "projects configured publication lifecycle authority into the trusted input envelope" do
+    route =
+      route!(%{
+        environments: ["production"],
+        kinds: ["deployment", "terraform"],
+        repositories: ["responder"],
+        targets: ["responder-api"]
+      })
+
+    assert {:ok, input} =
+             Input.new(route, %{"repository" => "responder"},
+               event_id: "deploy-123",
+               event_type: "responder.publication_lifecycle.v1",
+               occurred_at: @occurred_at,
+               occurred_at_source: :source,
+               revision: 1
+             )
+
+    assert input.actor == %{kind: :system, ref: "universal"}
+    assert input.source == %{kind: "webhook", ref: "universal"}
+
+    assert input.source_capabilities == %{
+             "publication_lifecycle" => %{
+               "environments" => ["production"],
+               "kinds" => ["deployment", "terraform"],
+               "repositories" => ["responder"],
+               "targets" => ["responder-api"]
+             }
+           }
+  end
+
   test "rejects malformed metadata without raising" do
     assert {:error, {:invalid_webhook_input, :event_id}} =
              Input.new(route!(), %{},
@@ -84,7 +115,7 @@ defmodule Responder.Webhooks.InputTest do
              )
   end
 
-  defp route! do
+  defp route!(publication_lifecycle \\ nil) do
     assert {:ok, route} =
              Route.new(%{
                auth: {:bearer, "a-secret-token-long-enough"},
@@ -93,7 +124,8 @@ defmodule Responder.Webhooks.InputTest do
                  thread_ref: nil,
                  transport: "slack"
                },
-               name: "universal"
+               name: "universal",
+               publication_lifecycle: publication_lifecycle
              })
 
     route

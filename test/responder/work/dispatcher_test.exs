@@ -131,6 +131,7 @@ defmodule Responder.Work.DispatcherTest do
     reasons = [
       {:work_generation_spent, :turn_submit, {:coop_error, 409, "revision_conflict", "stale"}},
       {:work_cancellation_unresolved, :remote_still_running},
+      {:coop_upgrade_required, :repository_freshness_v2},
       {:coop_timeout, :turn},
       {:coop_transport_error, :closed},
       {:coop_error, 429, "rate_limited", "try later"},

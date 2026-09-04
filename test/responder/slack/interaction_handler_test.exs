@@ -491,6 +491,25 @@ defmodule Responder.Slack.InteractionHandlerTest do
 
     assert InteractionHandler.handle(check, member_options) ==
              {:ok, %{outcome: :requested, publication_ref: "publication:def456"}}
+
+    recovery = %{
+      publish
+      | action_id: "responder_task_update_publication",
+        action_value: "task-card:abc123|publication:def456|4",
+        event_ref: "interaction:task-update"
+    }
+
+    assert InteractionHandler.handle(recovery, member_options) == {:ok, %{outcome: :denied}}
+
+    assert InteractionHandler.handle(recovery, operator_options) ==
+             {:ok, %{outcome: :review_pending, publication_ref: "publication:def456"}}
+
+    assert_receive {:task_publication_recovered,
+                    %{
+                      expected_generation: 4,
+                      publication_ref: "publication:def456",
+                      work_ref: "task-card:abc123"
+                    }, :update}
   end
 
   defp interaction(action_id, kind) do
@@ -594,6 +613,10 @@ defmodule Responder.Slack.InteractionHandlerTest do
       check_task_publication: fn attributes ->
         send(observer, {:task_publication_checked, attributes})
         {:ok, %{outcome: :requested, publication_ref: attributes.publication_ref}}
+      end,
+      recover_task_publication: fn attributes, action ->
+        send(observer, {:task_publication_recovered, attributes, action})
+        {:ok, %{outcome: :review_pending, publication_ref: attributes.publication_ref}}
       end,
       approve_publication: fn attributes ->
         send(observer, {:publication_approved, attributes})

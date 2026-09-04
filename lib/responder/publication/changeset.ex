@@ -17,6 +17,7 @@ defmodule Responder.Publication.Changeset do
     :destination_thread_ref,
     :destination_transport,
     :episode_id,
+    :expected_remote_head_sha,
     :id,
     :last_error_code,
     :last_error_detail,
@@ -34,6 +35,7 @@ defmodule Responder.Publication.Changeset do
     :published_delivery_receipt,
     :published_delivery_receipt_fingerprint,
     :record_id,
+    :recovery_generation,
     :ref,
     :repository,
     :review_document,
@@ -97,6 +99,7 @@ defmodule Responder.Publication.Changeset do
     |> validate_length(:title, min: 1, max: 120)
     |> validate_length(:body, min: 1, max: 8_000, count: :bytes)
     |> validate_number(:review_generation, greater_than: 0)
+    |> validate_number(:recovery_generation, greater_than: 0)
     |> validate_number(:attempt_count, greater_than_or_equal_to: 0)
     |> check_constraint(:status, name: :episode_publication_identity_valid)
     |> check_constraint(:status, name: :episode_publication_review_valid)

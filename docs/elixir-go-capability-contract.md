@@ -21,9 +21,9 @@ claim of whole-product parity.
 
 | Priority | Implemented | Partial | Total |
 |---|---:|---:|---:|
-| P0 | 26 | 2 | 28 |
+| P0 | 28 | 0 | 28 |
 | P1 | 4 | 11 | 15 |
-| **All** | **30** | **13** | **43** |
+| **All** | **32** | **11** | **43** |
 
 ## Implemented behavior
 
@@ -57,6 +57,8 @@ claim of whole-product parity.
 | P0 | `retention-cleanup-and-restart-recovery` | [`Retention.Custody`](../lib/responder/retention/custody.ex) | [`retention/custody_test.exs`](../test/responder/retention/custody_test.exs) |
 | P0 | `release-backup-restore-proof` | [`Release`](../lib/responder/release.ex) | [`release_test.exs`](../test/responder/release_test.exs) |
 | P0 | `operator-preflight-status-failure-replay` | [`Operator.Actions`](../lib/responder/operator/actions.ex) | [`operator/workflows_test.exs`](../test/responder/operator/workflows_test.exs) |
+| P0 | `repository-freshness-receipts` | [`Work.Executor`](../lib/responder/work/executor.ex) and Coop session custody | [`work/executor_test.exs`](../test/responder/work/executor_test.exs) |
+| P0 | `publication-conflict-recovery-and-deployment-verification` | [`Publication.Custody`](../lib/responder/publication/custody.ex) | [`publication/followups_test.exs`](../test/responder/publication/followups_test.exs) |
 | P1 | `model-choice-byoc-and-execution-metadata` | [`Ingress.WorkProfile`](../lib/responder/ingress/work_profile.ex) | [`product_contracts_test.exs`](../test/responder/product_contracts_test.exs) |
 | P1 | `standing-assignments` | [`State.Automations`](../lib/responder/state/automations.ex) | [`automations_test.exs`](../test/responder/state/automations_test.exs) |
 
@@ -74,8 +76,6 @@ claim of whole-product parity.
 | P1 | `multi-repository-orchestration` | Repository sets, companion snapshots, child goals, and multi-workspace coordination. | `2026-09-04-finish-goals-and-multi-repository-orchestration` |
 | P1 | `schedules-run-now-replace-and-history` | Run-now, replace, complete surface coverage, and useful execution history. | `2026-09-04-finish-schedules-subscriptions-and-execution-his` |
 | P1 | `subscriptions-and-poll-fallback` | General source subscription state, cursors, and lost-event polling. | `2026-09-04-finish-schedules-subscriptions-and-execution-his` |
-| P0 | `repository-freshness-receipts` | One explicit Coop-owned fetch and freshness receipt per attempt. | `2026-09-04-clarify-repository-freshness-and-complete-public` |
-| P0 | `publication-conflict-recovery-and-deployment-verification` | Exact stale/conflict recovery actions and typed deployment verification. | `2026-09-04-clarify-repository-freshness-and-complete-public` |
 | P1 | `operator-incident-schedule-repository-views` | Complete search, incident, schedule, channel, repository, topology, grant, and calibration views. | `2026-09-04-complete-the-local-operator-product-for-incident` |
 
 ## Maintenance rule

@@ -446,16 +446,18 @@ host rejects them for nonoperators before any repository or session mutation:
   keeps **View diff** and any existing **Open PR** link, and hides review, publish, update, and
   close controls until the attempt finishes. Rendering this progress does not wait for another
   Coop change inspection;
-- automatic publication retry: the card shows the bounded last error and that retry ownership
-  belongs to Responder, preserves **View diff** and any existing **Open PR** link, and offers no
-  conflicting manual action;
-- recoverable terminal publication failure: **Retry draft PR**, **View diff**, any existing
-  **Open PR** link, and **Close task** remain available even when a fresh Coop change inspection
-  is temporarily unavailable. Retry confirms that changes still exist before reviewing or
-  publishing. A confirmed no-change failure omits the impossible retry and diff controls;
-- stale draft PR: **View diff**, **Update draft PR**, **Open PR**, and **Close task** render from
-  durable publication state without waiting for a fresh Coop inspection. Update rechecks the
-  current task tree before review or publication;
+- transient publication failure: the card shows the bounded last error, preserves **View diff** and
+  any existing **Open PR** link, and offers **Retry publication** for that exact recovery
+  generation;
+- push or pull-request identity conflict: automatic retry stops. When Responder proves an exact
+  App-owned PR and observed head, the card preserves **Open PR** and offers **Review latest state**
+  plus **Discard candidate**. Without that remote identity, only the local **Discard candidate**
+  action is available;
+- stale draft PR: **View diff**, **Review latest state**, **Open PR**, **Check delivery**, and
+  **Discard candidate** render from durable publication state without waiting for a fresh Coop
+  inspection. Review latest state invalidates the prior approval and review, records the exact
+  observed GitHub head, reruns Coop review, and can update the same PR only with a
+  `--force-with-lease` compare-and-swap against that observed head;
 - published draft PR: **Open PR** and **Check delivery** remain available independently of a
   transient Coop inspection failure;
 - safety-ceiling blocked: **Close incident**, an action-needed explanation naming `coop.turn_limit`

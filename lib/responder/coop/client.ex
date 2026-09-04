@@ -47,6 +47,9 @@ defmodule Responder.Coop.Client do
   end
 
   @impl true
+  def capabilities(%__MODULE__{} = client), do: request(client, :get, "/v1/capabilities")
+
+  @impl true
   def create_session(%__MODULE__{} = client, key, policy, task) do
     with :ok <- reference(key, :idempotency_key),
          :ok <- reference(policy, :policy),

@@ -15,7 +15,7 @@ defmodule Responder.Publication.GitHubPublisher do
   def publish(%Request{} = request, binding) when is_map(binding) do
     with {:ok, settings, repository} <- settings(binding, request.repository),
          :ok <- verify_existing_before_publish(request, settings, repository),
-         {:ok, git} <- settings.git.publish_candidate(request, repository, settings.git_binding),
+         {:ok, git} <- publish_candidate(request, settings, repository),
          {:ok, branch} <- branch(git.branch_ref),
          {:ok, pull} <- ensure_pull_request(request, settings, repository, branch, git.commit_sha),
          :ok <- exact_pull_request(request, repository, branch, git.commit_sha, pull) do
@@ -53,6 +53,15 @@ defmodule Responder.Publication.GitHubPublisher do
     do: {:error, :publication_repository_not_configured}
 
   defp verify_existing_before_publish(
+         %Request{existing_pull_request: pull_request},
+         settings,
+         repository
+       )
+       when is_map(pull_request) do
+    verify_existing_pull_request(pull_request, settings, repository)
+  end
+
+  defp verify_existing_before_publish(
          %Request{review: %{"pull_request" => nil}},
          _settings,
          _repo
@@ -60,11 +69,15 @@ defmodule Responder.Publication.GitHubPublisher do
        do: :ok
 
   defp verify_existing_before_publish(
-         %Request{review: %{"pull_request" => pull_request}} = request,
+         %Request{review: %{"pull_request" => pull_request}},
          settings,
          repository
        )
        when is_map(pull_request) do
+    verify_existing_pull_request(pull_request, settings, repository)
+  end
+
+  defp verify_existing_pull_request(pull_request, settings, repository) do
     with {:ok, current} <-
            settings.api.get_pull_request(
              settings.client,
@@ -75,16 +88,76 @@ defmodule Responder.Publication.GitHubPublisher do
          :ok <-
            exact_existing_pull(
              current,
-             pull_request["number"],
+             pull_request,
              branch,
-             pull_request["head_commit"],
-             repository.base_branch
+             repository
            ) do
       :ok
     else
       {:error, reason} -> {:error, reason}
-      _invalid -> {:error, {:invalid_publication_publisher, request.publication_ref}}
+      _invalid -> {:error, :publication_existing_pull_request_changed}
     end
+  end
+
+  defp publish_candidate(request, settings, repository) do
+    case settings.git.publish_candidate(request, repository, settings.git_binding) do
+      {:error, {:publication_git_conflict, code, conflict}}
+      when code in [:publication_branch_already_exists, :publication_branch_changed] ->
+        reconcile_conflict(request, settings, repository, code, conflict)
+
+      other ->
+        other
+    end
+  end
+
+  defp reconcile_conflict(request, settings, repository, code, conflict) do
+    with {:ok, branch} <- branch(conflict["branch_ref"]),
+         {:ok, pull} <- conflict_pull_request(request, settings, repository, branch),
+         :ok <- exact_conflict_pull(pull, branch, conflict["observed_head_sha"], repository) do
+      {:error,
+       {:publication_conflict, code,
+        %{
+          "branch_ref" => conflict["branch_ref"],
+          "candidate_commit_sha" => conflict["candidate_commit_sha"],
+          "github_repository" => repository.github_repository,
+          "observed_head_sha" => conflict["observed_head_sha"],
+          "pull_request_number" => pull["number"],
+          "pull_request_url" => pull["url"],
+          "repository" => request.repository
+        }}}
+    else
+      _unrecoverable -> {:error, code}
+    end
+  end
+
+  defp conflict_pull_request(%Request{} = request, settings, repository, branch) do
+    case request.existing_pull_request || request.review["pull_request"] do
+      %{"number" => number} ->
+        settings.api.get_pull_request(settings.client, repository.github_repository, number)
+
+      nil ->
+        settings.api.find_open_pull_request(
+          settings.client,
+          repository.github_repository,
+          repository.owner,
+          branch
+        )
+    end
+  end
+
+  defp ensure_pull_request(
+         %Request{existing_pull_request: pull_request},
+         settings,
+         repository,
+         _branch,
+         _commit_sha
+       )
+       when is_map(pull_request) do
+    settings.api.get_pull_request(
+      settings.client,
+      repository.github_repository,
+      pull_request["number"]
+    )
   end
 
   defp ensure_pull_request(
@@ -128,7 +201,7 @@ defmodule Responder.Publication.GitHubPublisher do
   end
 
   defp exact_pull_request(request, repository, branch, commit_sha, pull) do
-    pull_request = request.review["pull_request"]
+    pull_request = request.existing_pull_request || request.review["pull_request"]
 
     checks = [
       pull["state"] == "open",
@@ -136,6 +209,10 @@ defmodule Responder.Publication.GitHubPublisher do
       pull["head_ref"] == branch,
       pull["head_sha"] == commit_sha,
       pull["base_ref"] == repository.base_branch,
+      pull["author_id"] == repository.responder_actor_id,
+      pull["author_type"] == "Bot",
+      pull["url"] ==
+        "https://github.com/#{repository.github_repository}/pull/#{pull["number"]}",
       is_nil(pull_request) or pull["number"] == pull_request["number"],
       is_map(pull_request) or pull["draft"] == true
     ]
@@ -145,10 +222,31 @@ defmodule Responder.Publication.GitHubPublisher do
       else: {:error, :publication_pull_request_mismatch}
   end
 
-  defp exact_existing_pull(pull, number, branch, sha, base_branch) do
-    if pull["number"] == number and pull["state"] == "open" and not pull["merged"] and
-         pull["head_ref"] == branch and pull["head_sha"] == sha and
-         pull["base_ref"] == base_branch,
+  defp exact_existing_pull(pull, expected, branch, repository) do
+    checks = [
+      pull["number"] == expected["number"],
+      pull["state"] == "open",
+      not pull["merged"],
+      pull["head_ref"] == branch,
+      pull["base_ref"] == repository.base_branch,
+      pull["author_id"] == repository.responder_actor_id,
+      pull["author_type"] == "Bot",
+      is_nil(expected["url"]) or pull["url"] == expected["url"],
+      pull["url"] ==
+        "https://github.com/#{repository.github_repository}/pull/#{pull["number"]}"
+    ]
+
+    if Enum.all?(checks),
+      do: :ok,
+      else: {:error, :publication_existing_pull_request_changed}
+  end
+
+  defp exact_conflict_pull(pull, branch, observed_head, repository) do
+    if pull["state"] == "open" and not pull["merged"] and pull["head_ref"] == branch and
+         pull["head_sha"] == observed_head and pull["base_ref"] == repository.base_branch and
+         pull["author_id"] == repository.responder_actor_id and pull["author_type"] == "Bot" and
+         pull["url"] ==
+           "https://github.com/#{repository.github_repository}/pull/#{pull["number"]}",
        do: :ok,
        else: {:error, :publication_existing_pull_request_changed}
   end
@@ -229,13 +327,15 @@ defmodule Responder.Publication.GitHubPublisher do
             client: client,
             git_binding: git_binding,
             base_branch: base_branch,
-            github_repository: github_repository
+            github_repository: github_repository,
+            responder_actor_id: responder_actor_id
           } = repository} <- Map.fetch(repositories, repository_alias),
          [owner, _name] <- String.split(github_repository || "", "/", parts: 2),
          true <- module_callback?(api, :find_open_pull_request, 4),
          true <- module_callback?(api, :create_draft_pull_request, 6),
          true <- module_callback?(api, :get_pull_request, 3),
          true <- module_callback?(git, :publish_candidate, 3),
+         true <- is_integer(responder_actor_id) and responder_actor_id > 0,
          {:ok, _branch} <- branch(base_branch) do
       {:ok, %{api: api, client: client, git: git, git_binding: git_binding},
        Map.merge(repository, %{owner: owner})}

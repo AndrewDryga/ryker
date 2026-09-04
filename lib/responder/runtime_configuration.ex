@@ -145,7 +145,7 @@ defmodule Responder.RuntimeConfiguration do
     control_plane = optional(root, "control_plane", &control_plane!(&1, repositories, work))
     adapters = adapters!(slack, github, control_plane)
     delivery = delivery!(root["delivery"], adapters, host_ref)
-    webhooks = webhooks!(root["webhooks"], env_provider, adapters)
+    webhooks = webhooks!(root["webhooks"], env_provider, adapters, repositories)
 
     publication =
       publication!(
@@ -1065,7 +1065,8 @@ defmodule Responder.RuntimeConfiguration do
                binding.repository_write_token_provider
              ),
            github_repository: repository.github_repository,
-           path: repository.path
+           path: repository.path,
+           responder_actor_id: binding.trusted_binding.responder_actor_id
          }}
       end)
 
@@ -1286,9 +1287,9 @@ defmodule Responder.RuntimeConfiguration do
     }
   end
 
-  defp webhooks!(nil, _env_provider, _adapters), do: nil
+  defp webhooks!(nil, _env_provider, _adapters, _repositories), do: nil
 
-  defp webhooks!(value, env_provider, adapters) do
+  defp webhooks!(value, env_provider, adapters, repositories) do
     object = object!(value, ~w(port routes), ~w(ip), "webhooks")
     routes = map_nonempty!(object["routes"], "webhooks.routes")
 
@@ -1303,7 +1304,7 @@ defmodule Responder.RuntimeConfiguration do
             object!(
               attributes,
               ~w(auth destination work_profile),
-              ~w(adapter max_body_bytes max_clock_skew_seconds),
+              ~w(adapter max_body_bytes max_clock_skew_seconds publication_lifecycle),
               "webhooks.routes.#{name}"
             )
 
@@ -1323,6 +1324,12 @@ defmodule Responder.RuntimeConfiguration do
                 3_600,
                 "webhooks.routes.#{name}"
               ),
+            publication_lifecycle:
+              webhook_publication_lifecycle!(
+                route["publication_lifecycle"],
+                repositories,
+                "webhooks.routes.#{name}.publication_lifecycle"
+              ),
             work_profile:
               work_profile!(route["work_profile"], "webhooks.routes.#{name}.work_profile")
           }
@@ -1331,6 +1338,35 @@ defmodule Responder.RuntimeConfiguration do
           {name, prepared}
         end)
     }
+  end
+
+  defp webhook_publication_lifecycle!(nil, _repositories, _path), do: nil
+
+  defp webhook_publication_lifecycle!(value, repositories, path) do
+    scope = object!(value, ~w(environments kinds repositories targets), [], path)
+
+    prepared = %{
+      environments: scoped_references!(scope["environments"], "#{path}.environments"),
+      kinds: scoped_references!(scope["kinds"], "#{path}.kinds"),
+      repositories: scoped_references!(scope["repositories"], "#{path}.repositories"),
+      targets: scoped_references!(scope["targets"], "#{path}.targets")
+    }
+
+    unless Enum.all?(prepared.kinds, &(&1 in ~w(deployment terraform))),
+      do: raise(ArgumentError, "#{path}.kinds must contain only deployment or terraform")
+
+    unless Enum.all?(prepared.repositories, &Map.has_key?(repositories, &1)),
+      do: raise(ArgumentError, "#{path}.repositories references an unknown repository")
+
+    prepared
+  end
+
+  defp scoped_references!(values, path) do
+    case references!(values, path) do
+      [] -> raise ArgumentError, "#{path} must not be empty"
+      prepared when length(prepared) <= 64 -> Enum.sort(prepared)
+      _too_many -> raise ArgumentError, "#{path} must contain at most 64 values"
+    end
   end
 
   defp webhook_adapter!(nil, _path), do: %{kind: :universal}
@@ -1674,6 +1710,7 @@ defmodule Responder.RuntimeConfiguration do
 
     case Responder.CoopFleet.Client.new(
            capability_names: capabilities,
+           capability_versions: %{"repository-freshness" => "2"},
            max_waits: max_waits,
            poll_interval_ms: poll_interval_ms,
            workspace_ref: workspace_ref

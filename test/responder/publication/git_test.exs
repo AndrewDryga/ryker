@@ -8,10 +8,20 @@ defmodule Responder.Publication.GitTest do
       send(Process.get(:publication_git_observer), {:git_command, arguments, options})
 
       case arguments do
-        ["write-tree"] -> {:ok, Process.get(:candidate_tree) <> "\n"}
-        ["rev-parse", "HEAD"] -> {:ok, String.duplicate("9", 40) <> "\n"}
-        ["ls-remote" | _rest] -> {:ok, ""}
-        _other -> {:ok, ""}
+        ["write-tree"] ->
+          {:ok, Process.get(:candidate_tree) <> "\n"}
+
+        ["rev-parse", "HEAD"] ->
+          {:ok, String.duplicate("9", 40) <> "\n"}
+
+        ["ls-remote" | _rest] ->
+          case Process.get(:remote_sha) do
+            nil -> {:ok, ""}
+            sha -> {:ok, "#{sha}\t#{List.last(arguments)}\n"}
+          end
+
+        _other ->
+          {:ok, ""}
       end
     end
   end
@@ -96,6 +106,137 @@ defmodule Responder.Publication.GitTest do
     end
   end
 
+  test "updates an existing draft only with the exact observed remote-head lease" do
+    Process.put(:publication_git_observer, self())
+    observed_head = String.duplicate("8", 40)
+    Process.put(:remote_sha, observed_head)
+
+    request =
+      request!("diff --git a/a b/a\n+change\n", %{
+        branch_ref: "refs/heads/responder/existing-draft",
+        commit_sha: String.duplicate("7", 40),
+        expected_remote_head_sha: observed_head,
+        github_repository: "acme/responder",
+        pull_request_number: 42,
+        pull_request_url: "https://github.com/acme/responder/pull/42"
+      })
+
+    Process.put(:candidate_tree, request.review["candidate_tree"])
+    root = temp_directory!("existing")
+    repository = Path.join(root, "repository")
+    File.mkdir!(repository)
+
+    try do
+      assert {:ok, %{branch_ref: "refs/heads/responder/existing-draft"}} =
+               Git.publish_candidate(
+                 request,
+                 %{
+                   base_branch: "main",
+                   github_repository: "acme/responder",
+                   path: repository
+                 },
+                 %{
+                   branch_prefix: "responder",
+                   command: Command,
+                   commit_email: "responder@emisar.dev",
+                   commit_name: "Emisar Responder",
+                   secrets: [],
+                   state_dir: root,
+                   token_provider: fn -> {:ok, "token"} end
+                 }
+               )
+
+      commands = collect_commands([])
+
+      assert {push, _options} =
+               Enum.find(commands, fn {args, _options} -> hd(args) == "push" end)
+
+      assert "--force-with-lease=refs/heads/responder/existing-draft:#{observed_head}" in push
+    after
+      Process.delete(:remote_sha)
+      File.rm_rf(root)
+    end
+  end
+
+  test "a first-publish branch race retains the observed head and intended commit" do
+    Process.put(:publication_git_observer, self())
+    observed = String.duplicate("8", 40)
+    candidate = String.duplicate("9", 40)
+    Process.put(:remote_sha, observed)
+    request = request!()
+    Process.put(:candidate_tree, request.review["candidate_tree"])
+    root = temp_directory!("branch-race")
+    repository = Path.join(root, "repository")
+    File.mkdir!(repository)
+
+    try do
+      assert {:error, {:publication_git_conflict, :publication_branch_already_exists, conflict}} =
+               Git.publish_candidate(
+                 request,
+                 %{
+                   base_branch: "main",
+                   github_repository: "acme/responder",
+                   path: repository
+                 },
+                 %{
+                   branch_prefix: "responder",
+                   command: Command,
+                   commit_email: "responder@emisar.dev",
+                   commit_name: "Emisar Responder",
+                   secrets: [],
+                   state_dir: root,
+                   token_provider: fn -> {:ok, "token"} end
+                 }
+               )
+
+      assert conflict["observed_head_sha"] == observed
+      assert conflict["candidate_commit_sha"] == candidate
+      assert String.starts_with?(conflict["branch_ref"], "refs/heads/responder/")
+      refute Enum.any?(collect_commands([]), fn {args, _options} -> hd(args) == "push" end)
+    after
+      Process.delete(:remote_sha)
+      File.rm_rf(root)
+    end
+  end
+
+  test "an existing human-owned branch is rejected before Git runs" do
+    Process.put(:publication_git_observer, self())
+
+    request =
+      request!("diff --git a/a b/a\n+change\n", %{
+        branch_ref: "refs/heads/human/existing-draft",
+        commit_sha: String.duplicate("7", 40),
+        expected_remote_head_sha: String.duplicate("8", 40),
+        github_repository: "acme/responder",
+        pull_request_number: 42,
+        pull_request_url: "https://github.com/acme/responder/pull/42"
+      })
+
+    root = temp_directory!("human-branch")
+    repository = Path.join(root, "repository")
+    File.mkdir!(repository)
+
+    try do
+      assert Git.publish_candidate(
+               request,
+               %{base_branch: "main", github_repository: "acme/responder", path: repository},
+               %{
+                 branch_prefix: "responder",
+                 command: Command,
+                 commit_email: "responder@emisar.dev",
+                 commit_name: "Emisar Responder",
+                 secrets: [],
+                 state_dir: root,
+                 token_provider: fn -> {:ok, "token"} end
+               }
+             ) == {:error, :publication_branch_not_owned}
+
+      refute_receive {:git_command, _arguments, _options}
+    after
+      File.rm_rf(root)
+    end
+  end
+
   defp collect_commands(result) do
     receive do
       {:git_command, arguments, options} -> collect_commands([{arguments, options} | result])
@@ -104,21 +245,25 @@ defmodule Responder.Publication.GitTest do
     end
   end
 
-  defp request!(patch \\ "diff --git a/a b/a\n+change\n") do
+  defp request!(patch \\ "diff --git a/a b/a\n+change\n", attributes \\ %{}) do
     review = review(patch)
 
-    publication = %Publication{
-      approval_ref: "interaction:publish",
-      approved_at: ~U[2026-08-28 12:00:00.000000Z],
-      approved_by_actor_ref: "slack:user:U123",
-      body: "Implement the reviewed change.",
-      ref: "publication:1234567890abcdef",
-      repository: "responder",
-      review_document: review,
-      review_patch: patch,
-      status: :publish_pending,
-      title: "Fix publication retries"
-    }
+    publication =
+      struct!(
+        %Publication{
+          approval_ref: "interaction:publish",
+          approved_at: ~U[2026-08-28 12:00:00.000000Z],
+          approved_by_actor_ref: "slack:user:U123",
+          body: "Implement the reviewed change.",
+          ref: "publication:1234567890abcdef",
+          repository: "responder",
+          review_document: review,
+          review_patch: patch,
+          status: :publish_pending,
+          title: "Fix publication retries"
+        },
+        attributes
+      )
 
     assert {:ok, request} = Request.new(publication)
     request

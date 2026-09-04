@@ -6,6 +6,7 @@ defmodule Responder.Publication.CustodyTest do
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Publication.Custody, as: PublicationCustody
+  alias Responder.Publication.Operator, as: PublicationOperator
   alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.State.Records
@@ -356,6 +357,206 @@ defmodule Responder.Publication.CustodyTest do
     assert ready.status == :review_ready
   end
 
+  test "operator retry is fenced to the exact deferred publication generation" do
+    %{claim: claim, offer: offer, offer_receipt: receipt} = delivered_offer!("recover-retry")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(claim, offer, receipt))
+
+    assert {:ok, active} = PublicationCustody.claim_next("publication:recover-active", 60)
+
+    assert PublicationCustody.recover(publication.ref, :retry, 1) ==
+             {:error, :publication_recovery_lease_active}
+
+    assert {:ok, deferred} =
+             PublicationCustody.defer(
+               publication.ref,
+               active.lease_ref,
+               300,
+               "coop_unavailable",
+               "Coop did not answer."
+             )
+
+    assert {:ok, %{previous: previous, publication: recovered}} =
+             PublicationCustody.recover(publication.ref, :retry, 1)
+
+    assert previous == %{
+             "last_error_code" => "coop_unavailable",
+             "recovery_generation" => 1,
+             "status" => "review_pending"
+           }
+
+    assert recovered.status == :review_pending
+    assert recovered.recovery_generation == 2
+    assert recovered.last_error_code == nil
+    assert recovered.last_error_detail == nil
+    assert %DateTime{} = recovered.next_attempt_at
+    assert DateTime.compare(recovered.next_attempt_at, deferred.next_attempt_at) == :lt
+
+    assert PublicationCustody.recover(publication.ref, :retry, 1) ==
+             {:error, :publication_recovery_generation_stale}
+  end
+
+  test "operator update safely replaces only an unapproved review outcome" do
+    reviewed = reviewed_publication!("recover-update", true)
+
+    assert {:ok, %{publication: updated}} =
+             PublicationCustody.recover(reviewed.ref, :update, 1)
+
+    assert updated.status == :review_pending
+    assert updated.review_generation == reviewed.review_generation + 1
+    assert updated.recovery_generation == 2
+    assert updated.review_expected_revision == nil
+    assert updated.review_document == nil
+    assert updated.review_patch == nil
+    assert updated.review_delivery_receipt == nil
+  end
+
+  test "a first-publish race persists exact PR identity before recovery" do
+    reviewed = reviewed_publication!("recover-first-publish-race", true)
+
+    assert {:ok, %{publication: approved, status: :approved}} =
+             PublicationCustody.approve(%{
+               actor_ref: "slack:user:U-operator",
+               approval_ref: "interaction:first-publish-race",
+               occurred_at: @now,
+               publication_ref: reviewed.ref,
+               target: %{
+                 conversation_ref: reviewed.destination_conversation_ref,
+                 message_ref: reviewed.review_delivery_receipt["message_ref"],
+                 thread_ref: reviewed.destination_thread_ref,
+                 transport: reviewed.destination_transport
+               }
+             })
+
+    assert approved.status == :publish_pending
+    assert {:ok, claim} = PublicationCustody.claim_next("publication:first-race", 60)
+    observed = String.duplicate("8", 40)
+    candidate = String.duplicate("9", 40)
+
+    receipt = %{
+      "branch_ref" => "refs/heads/responder/first-race",
+      "candidate_commit_sha" => candidate,
+      "github_repository" => "acme/responder",
+      "observed_head_sha" => observed,
+      "pull_request_number" => 42,
+      "pull_request_url" => "https://github.com/acme/responder/pull/42",
+      "repository" => "responder"
+    }
+
+    assert {:ok, conflicted} =
+             PublicationCustody.store_conflict(
+               approved.ref,
+               claim.lease_ref,
+               :publication_branch_already_exists,
+               receipt
+             )
+
+    assert conflicted.expected_remote_head_sha == observed
+    assert conflicted.commit_sha == candidate
+    assert conflicted.pull_request_number == 42
+    assert conflicted.last_error_code == "publication_branch_already_exists"
+
+    Repo.update_all(
+      from(saved in Publication, where: saved.id == ^approved.id),
+      set: [lease_expires_at: @now, next_attempt_at: @now]
+    )
+
+    assert {:ok, nil} = PublicationCustody.claim_next("publication:must-not-retry", 60)
+
+    assert PublicationCustody.recover(approved.ref, :retry, 1) ==
+             {:error, :publication_recovery_not_allowed}
+
+    assert {:ok, %{publication: updated}} =
+             PublicationCustody.recover(approved.ref, :update, 1)
+
+    assert updated.status == :review_pending
+    assert updated.expected_remote_head_sha == observed
+    assert updated.pull_request_number == 42
+    assert updated.review_document == nil
+    assert updated.approval_ref == nil
+  end
+
+  test "an unreconciled first-publish conflict remains discardable without update identity" do
+    reviewed = reviewed_publication!("discard-unreconciled-first-publish", true)
+
+    assert {:ok, %{publication: approved, status: :approved}} =
+             PublicationCustody.approve(%{
+               actor_ref: "slack:user:U-operator",
+               approval_ref: "interaction:discard-unreconciled",
+               occurred_at: @now,
+               publication_ref: reviewed.ref,
+               target: %{
+                 conversation_ref: reviewed.destination_conversation_ref,
+                 message_ref: reviewed.review_delivery_receipt["message_ref"],
+                 thread_ref: reviewed.destination_thread_ref,
+                 transport: reviewed.destination_transport
+               }
+             })
+
+    assert {:ok, claim} = PublicationCustody.claim_next("publication:discard-unreconciled", 60)
+
+    assert {:ok, conflicted} =
+             PublicationCustody.defer(
+               approved.ref,
+               claim.lease_ref,
+               60,
+               "publication_pull_request_mismatch",
+               "No exact App-owned pull request could be reconciled."
+             )
+
+    assert is_nil(conflicted.expected_remote_head_sha)
+
+    assert {:ok, %{publication: discarded}} =
+             PublicationCustody.recover(conflicted.ref, :discard, 1)
+
+    assert discarded.status == :discarded
+    assert discarded.recovery_generation == 2
+    assert is_nil(discarded.expected_remote_head_sha)
+  end
+
+  test "operator discard preserves an unapproved review outcome as evidence" do
+    blocked = reviewed_publication!("recover-discard", false)
+
+    assert {:ok, %{publication: discarded}} =
+             PublicationCustody.recover(blocked.ref, :discard, 1)
+
+    assert discarded.status == :discarded
+    assert discarded.recovery_generation == 2
+    assert discarded.review_document == blocked.review_document
+    assert discarded.review_delivery_receipt == blocked.review_delivery_receipt
+
+    assert PublicationCustody.recover(discarded.ref, :retry, 2) ==
+             {:error, :publication_recovery_not_allowed}
+  end
+
+  test "operator recovery audit is atomic, idempotent, and request-fingerprinted" do
+    publication = reviewed_publication!("recover-audit", false)
+    publication_ref = publication.ref
+
+    options = [
+      actor_ref: "control-plane:operator",
+      action_ref: "operator-action:publication-discard"
+    ]
+
+    assert {:ok,
+            %{
+              actor_ref: "control-plane:operator",
+              outcome: %{
+                "publication_ref" => ^publication_ref,
+                "recovery_generation" => 2,
+                "status" => "discarded"
+              },
+              status: :recorded
+            }} = PublicationOperator.recover(publication.ref, :discard, 1, options)
+
+    assert {:ok, %{status: :duplicate}} =
+             PublicationOperator.recover(publication.ref, :discard, 1, options)
+
+    assert PublicationOperator.recover(publication.ref, :update, 1, options) ==
+             {:error, :operator_action_conflict}
+  end
+
   test "publication custody public boundaries fail closed before queue mutation" do
     assert PublicationCustody.request_review(%{}) ==
              {:error, {:invalid_publication_review, :fields}}
@@ -425,6 +626,82 @@ defmodule Responder.Publication.CustodyTest do
 
     assert PublicationCustody.delivery_request(%{}) ==
              {:error, :publication_delivery_not_pending}
+
+    assert PublicationCustody.recover("publication", :unknown, 1) ==
+             {:error, {:invalid_publication, :recovery_action}}
+
+    assert PublicationCustody.recover("publication", :retry, 0) ==
+             {:error, {:invalid_publication, :recovery_generation}}
+
+    assert PublicationOperator.recover("publication", :retry, 1, []) ==
+             {:error, {:invalid_publication_recovery, :options}}
+
+    assert PublicationOperator.recover(:publication, :retry, 1,
+             actor_ref: "operator",
+             action_ref: "operator-action:retry"
+           ) == {:error, {:invalid_publication_recovery, :publication_ref}}
+  end
+
+  defp reviewed_publication!(suffix, publishable?) do
+    %{claim: claim, offer: offer, offer_receipt: receipt} = delivered_offer!(suffix)
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(claim, offer, receipt))
+
+    assert {:ok, review_claim} = PublicationCustody.claim_next("publication:#{suffix}", 60)
+
+    assert {:ok, frozen} =
+             PublicationCustody.freeze_review_revision(
+               publication.ref,
+               review_claim.lease_ref,
+               7
+             )
+
+    patch = if publishable?, do: "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n", else: nil
+
+    review =
+      claim
+      |> review_document()
+      |> Map.merge(%{
+        "gate" => if(publishable?, do: "passed", else: "failed"),
+        "not_publishable_reasons" => if(publishable?, do: [], else: ["gate_failed"]),
+        "patch_artifact_id" => if(publishable?, do: "review-patch:#{suffix}", else: nil),
+        "patch_bytes" => if(publishable?, do: byte_size(patch), else: 0),
+        "patch_digest" => if(publishable?, do: digest(patch), else: nil),
+        "publishable" => publishable?
+      })
+
+    assert {:ok, _ready} =
+             PublicationCustody.store_review(
+               publication.ref,
+               review_claim.lease_ref,
+               frozen.review_generation,
+               review,
+               patch
+             )
+
+    assert {:ok, delivery_claim} =
+             PublicationCustody.claim_next("publication:#{suffix}:delivery", 60)
+
+    assert {:ok, request} = PublicationCustody.delivery_request(delivery_claim.publication)
+
+    assert {:ok, delivery_receipt} =
+             DeliveryReceipt.new(
+               request.ref,
+               request.transport,
+               request.conversation_ref,
+               request.thread_ref,
+               "message:#{suffix}:review"
+             )
+
+    assert {:ok, publication} =
+             PublicationCustody.confirm_delivery(
+               publication.ref,
+               delivery_claim.lease_ref,
+               delivery_receipt
+             )
+
+    publication
   end
 
   defp delivered_offer!(suffix) do

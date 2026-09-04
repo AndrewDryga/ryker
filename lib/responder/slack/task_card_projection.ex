@@ -14,6 +14,7 @@ defmodule Responder.Slack.TaskCardProjection do
   alias Responder.Work.{Session, Turn}
 
   @ui_revision 3
+  @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch)
 
   @spec build(TaskCard.t()) ::
           {:ok, %{document: map(), fingerprint: String.t(), ui_revision: pos_integer()}}
@@ -119,7 +120,20 @@ defmodule Responder.Slack.TaskCardProjection do
     )
   end
 
+  defp status(
+         _episode,
+         _turn,
+         %Publication{status: :published, expected_remote_head_sha: head_sha},
+         _offer
+       )
+       when is_binary(head_sha),
+       do: "action_required"
+
   defp status(_episode, _turn, %Publication{status: :published}, _offer), do: "published"
+
+  defp status(_episode, _turn, %Publication{last_error_code: code}, _offer)
+       when is_binary(code),
+       do: "action_required"
 
   defp status(_episode, _turn, %Publication{status: status}, _offer)
        when status in [:review_pending, :review_ready, :publish_pending, :published_ready],
@@ -130,6 +144,9 @@ defmodule Responder.Slack.TaskCardProjection do
 
   defp status(_episode, _turn, %Publication{status: :blocked}, _offer),
     do: "action_required"
+
+  defp status(_episode, _turn, %Publication{status: :discarded}, _offer),
+    do: "completed"
 
   defp status(%Episode{state: :cancelled}, _turn, _publication, _offer), do: "cancelled"
   defp status(_episode, _turn, nil, %{"status" => "open"}), do: "ready_for_review"
@@ -153,6 +170,25 @@ defmodule Responder.Slack.TaskCardProjection do
         publication.last_error_detail || "Draft pull-request work needs operator attention.",
         500
       )
+
+  defp action_needed(
+         _episode,
+         _turn,
+         _records,
+         %Publication{status: :published, expected_remote_head_sha: head_sha}
+       )
+       when is_binary(head_sha),
+       do:
+         "The draft pull-request head changed outside this reviewed publication. Review the latest state or discard publication custody."
+
+  defp action_needed(
+         _episode,
+         _turn,
+         _records,
+         %Publication{last_error_code: code} = publication
+       )
+       when is_binary(code),
+       do: compact(publication.last_error_detail || code, 500)
 
   defp action_needed(%Episode{state: :waiting_for_input}, _turn, records, _publication),
     do: wait_summary(records, "input_request", "An operator response is required.")
@@ -195,6 +231,7 @@ defmodule Responder.Slack.TaskCardProjection do
       "publication_ref" => nil,
       "pull_request_number" => nil,
       "pull_request_url" => nil,
+      "recovery_generation" => nil,
       "review_offer_ref" => ref,
       "status" => "offered"
     }
@@ -206,12 +243,41 @@ defmodule Responder.Slack.TaskCardProjection do
       "publication_ref" => publication.ref,
       "pull_request_number" => publication.pull_request_number,
       "pull_request_url" => publication.pull_request_url,
+      "recovery_generation" => publication.recovery_generation,
       "review_offer_ref" => nil,
       "status" => Atom.to_string(publication.status)
     }
   end
 
-  defp publication_controls(%Publication{status: :reviewed}), do: ["publish"]
+  defp publication_controls(%Publication{
+         status: status,
+         last_error_code: code,
+         expected_remote_head_sha: head_sha,
+         pull_request_number: number,
+         pull_request_url: url
+       })
+       when status == :publish_pending and code in @publication_conflicts and is_binary(head_sha) and
+              is_integer(number) and is_binary(url),
+       do: ["open", "update", "discard"]
+
+  defp publication_controls(%Publication{status: :publish_pending, last_error_code: code})
+       when code in @publication_conflicts,
+       do: ["discard"]
+
+  defp publication_controls(%Publication{status: status, last_error_code: code})
+       when status in [:review_pending, :review_ready, :publish_pending, :published_ready] and
+              is_binary(code),
+       do: ["retry"]
+
+  defp publication_controls(%Publication{status: :reviewed}),
+    do: ["publish", "update", "discard"]
+
+  defp publication_controls(%Publication{status: :blocked}), do: ["update", "discard"]
+
+  defp publication_controls(%Publication{status: :published, expected_remote_head_sha: head_sha})
+       when is_binary(head_sha),
+       do: ["open", "check", "update", "discard"]
+
   defp publication_controls(%Publication{status: :published}), do: ["open", "check"]
   defp publication_controls(%Publication{status: :published_ready}), do: ["open"]
   defp publication_controls(_publication), do: []

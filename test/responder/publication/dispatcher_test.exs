@@ -98,7 +98,16 @@ defmodule Responder.Publication.DispatcherTest do
           "repository" => request.repository
         }
 
-        {{:ok, receipt}, %{state | publication_requests: state.publication_requests ++ [request]}}
+        result =
+          case Map.get(state, :publication_conflict) do
+            nil ->
+              {:ok, receipt}
+
+            conflict ->
+              {:error, {:publication_conflict, :publication_branch_already_exists, conflict}}
+          end
+
+        {result, %{state | publication_requests: state.publication_requests ++ [request]}}
       end)
     end
   end
@@ -230,6 +239,102 @@ defmodule Responder.Publication.DispatcherTest do
     assert stored.review_document == nil
     assert stored.lease_ref == nil
     assert stored.next_attempt_at != nil
+  end
+
+  test "a first-publication branch race preserves exact recovery identity before deferral" do
+    %{claim: work_claim, offer: offer, offer_receipt: offer_receipt} =
+      delivered_offer!("first-publication-race")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
+
+    patch = "diff --git a/lib/fix.ex b/lib/fix.ex\n+fixed\n"
+    review = review_document(work_claim, patch)
+    candidate_sha = String.duplicate("9", 40)
+    observed_sha = String.duplicate("8", 40)
+    branch_ref = "refs/heads/responder/#{publication.id}"
+
+    conflict = %{
+      "branch_ref" => branch_ref,
+      "candidate_commit_sha" => candidate_sha,
+      "github_repository" => "acme/responder",
+      "observed_head_sha" => observed_sha,
+      "pull_request_number" => 91,
+      "pull_request_url" => "https://github.com/acme/responder/pull/91",
+      "repository" => "responder"
+    }
+
+    {:ok, coop} =
+      Agent.start_link(fn ->
+        %{
+          patch: patch,
+          patch_calls: [],
+          review: review,
+          review_calls: [],
+          session: %{
+            "external_ref" => work_claim.session.external_ref,
+            "id" => work_claim.session.coop_session_id,
+            "policy" => work_claim.session.policy,
+            "policy_digest" => work_claim.session.policy_digest,
+            "revision" => 7,
+            "state" => "exhausted"
+          }
+        }
+      end)
+
+    {:ok, effects} =
+      Agent.start_link(fn ->
+        %{
+          delivery_requests: [],
+          publication_conflict: conflict,
+          publication_id: publication.id,
+          publication_requests: []
+        }
+      end)
+
+    options = dispatcher_options(coop, effects)
+    assert {:ok, {:executed, %{phase: :reviewed}}} = Dispatcher.run_once(options)
+    assert {:ok, {:executed, %{phase: :delivered}}} = Dispatcher.run_once(options)
+    reviewed = Repo.get!(Publication, publication.id)
+
+    assert {:ok, %{status: :approved}} =
+             PublicationCustody.approve(%{
+               actor_ref: "slack:user:U-operator",
+               approval_ref: "interaction:publish:first-publication-race",
+               occurred_at: DateTime.add(@now, 2, :second),
+               publication_ref: publication.ref,
+               target: %{
+                 conversation_ref: work_claim.episode.destination_conversation_ref,
+                 message_ref: reviewed.review_delivery_receipt["message_ref"],
+                 thread_ref: work_claim.episode.destination_thread_ref,
+                 transport: "slack"
+               }
+             })
+
+    assert {:ok,
+            {:deferred, {:publication_conflict, :publication_branch_already_exists, ^conflict}}} =
+             Dispatcher.run_once(options)
+
+    stored = Repo.get!(Publication, publication.id)
+    assert stored.status == :publish_pending
+    assert stored.last_error_code == "publication_branch_already_exists"
+    assert stored.branch_ref == branch_ref
+    assert stored.commit_sha == candidate_sha
+    assert stored.expected_remote_head_sha == observed_sha
+    assert stored.github_repository == "acme/responder"
+    assert stored.pull_request_number == 91
+    assert stored.pull_request_url == conflict["pull_request_url"]
+    assert stored.publication_receipt == nil
+    assert stored.lease_ref == nil
+    assert [_request] = Agent.get(effects, & &1.publication_requests)
+
+    Repo.update_all(
+      from(saved in Publication, where: saved.id == ^publication.id),
+      set: [next_attempt_at: @now]
+    )
+
+    assert {:ok, :idle} = Dispatcher.run_once(options)
+    assert [_request] = Agent.get(effects, & &1.publication_requests)
   end
 
   test "a confirmed revision conflict spends only the review operation generation" do

@@ -38,6 +38,39 @@ defmodule Responder.Webhooks.RouteTest do
              |> Route.new()
   end
 
+  test "publication lifecycle authority is an exact bounded route scope" do
+    scope = %{
+      environments: ["staging", "production"],
+      kinds: ["terraform", "deployment"],
+      repositories: ["responder"],
+      targets: ["responder-api"]
+    }
+
+    assert {:ok, route} =
+             attributes({:bearer, "a-secret-token-long-enough"})
+             |> Map.put(:publication_lifecycle, scope)
+             |> Route.new()
+
+    assert route.publication_lifecycle == %{
+             environments: ["production", "staging"],
+             kinds: ["deployment", "terraform"],
+             repositories: ["responder"],
+             targets: ["responder-api"]
+           }
+
+    for invalid <- [
+          %{scope | kinds: ["release"]},
+          %{scope | repositories: []},
+          %{scope | environments: ["production", "production"]},
+          Map.put(scope, :extra, ["untrusted"])
+        ] do
+      assert {:error, {:invalid_webhook_route, :publication_lifecycle}} =
+               attributes({:bearer, "a-secret-token-long-enough"})
+               |> Map.put(:publication_lifecycle, invalid)
+               |> Route.new()
+    end
+  end
+
   test "rejects weak credentials, extra fields, and malformed destinations" do
     assert {:error, {:invalid_webhook_route, :auth}} =
              Route.new(attributes({:bearer, "short"}))

@@ -12,7 +12,7 @@ defmodule Responder.Slack.WorkControls do
   alias Responder.Episodes
   alias Responder.Episodes.Command
   alias Responder.Publication.Custody, as: PublicationCustody
-  alias Responder.Publication.{Followups, Publication}
+  alias Responder.Publication.{Followups, Operator, Publication}
   alias Responder.Repo
   alias Responder.Slack.{Client, WorkDiff, WorkRecord, WorkTarget}
   alias Responder.State.Record
@@ -21,6 +21,7 @@ defmodule Responder.Slack.WorkControls do
   @control_fields [:actor_ref, :occurred_at, :request_ref, :target, :work_ref]
   @page_fields @control_fields ++ [:patch_offset, :snapshot_digest]
   @publication_fields @control_fields ++ [:publication_ref]
+  @publication_recovery_fields @publication_fields ++ [:expected_generation]
   @readiness_fields @control_fields ++ [:record_ref]
   @record_fields @control_fields ++ [:record_kind]
 
@@ -217,6 +218,36 @@ defmodule Responder.Slack.WorkControls do
     end
   end
 
+  @spec recover_publication(map(), :retry | :update | :discard) ::
+          {:ok, map()} | {:error, term()}
+  def recover_publication(attributes, action) when action in [:retry, :update, :discard] do
+    with {:ok, attributes} <- attributes(attributes, @publication_recovery_fields),
+         {:ok, %{kind: :task} = resolved} <-
+           WorkTarget.resolve(attributes.work_ref, attributes.target),
+         {:ok, publication} <-
+           publication(resolved.episode.id, attributes.publication_ref),
+         {:ok, receipt} <-
+           Operator.recover(
+             publication.ref,
+             action,
+             attributes.expected_generation,
+             actor_ref: attributes.actor_ref,
+             action_ref: attributes.request_ref
+           ) do
+      {:ok,
+       %{
+         outcome: String.to_existing_atom(receipt.outcome["status"]),
+         publication_ref: publication.ref,
+         work_ref: resolved.work_ref
+       }}
+    else
+      {:ok, _non_task} -> {:error, :task_publication_mismatch}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def recover_publication(_attributes, _action), do: {:error, :invalid_work_control}
+
   defp close_resolved(%{episode: %{state: state}} = resolved, _attributes)
        when state in [:complete, :cancelled] do
     {:ok, %{outcome: :closed, work_ref: resolved.work_ref}}
@@ -327,6 +358,13 @@ defmodule Responder.Slack.WorkControls do
     case Repo.get_by(Publication, episode_id: episode_id, ref: publication_ref) do
       %Publication{status: ^expected_status} = publication -> {:ok, publication}
       %Publication{} -> {:error, :task_publication_not_ready}
+      nil -> {:error, :task_publication_mismatch}
+    end
+  end
+
+  defp publication(episode_id, publication_ref) do
+    case Repo.get_by(Publication, episode_id: episode_id, ref: publication_ref) do
+      %Publication{} = publication -> {:ok, publication}
       nil -> {:error, :task_publication_mismatch}
     end
   end
@@ -468,6 +506,7 @@ defmodule Responder.Slack.WorkControls do
         is_map(Map.get(attributes, :target)),
         valid_patch_offset?(attributes, fields),
         valid_snapshot_digest?(attributes, fields),
+        valid_expected_generation?(attributes, fields),
         valid_publication_ref?(attributes, fields),
         valid_record_ref?(attributes, fields),
         valid_record_kind?(attributes, fields)
@@ -491,6 +530,12 @@ defmodule Responder.Slack.WorkControls do
 
   defp valid_snapshot_digest?(attributes, fields) do
     :snapshot_digest not in fields or digest?(Map.get(attributes, :snapshot_digest))
+  end
+
+  defp valid_expected_generation?(attributes, fields) do
+    :expected_generation not in fields or
+      (is_integer(Map.get(attributes, :expected_generation)) and
+         Map.get(attributes, :expected_generation) > 0)
   end
 
   defp valid_publication_ref?(attributes, fields) do

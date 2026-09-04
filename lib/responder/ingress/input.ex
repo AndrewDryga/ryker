@@ -212,6 +212,8 @@ defmodule Responder.Ingress.Input do
       {not Map.has_key?(input.source_capabilities, "post_slack_message") or
          (input.source.kind in ["slack", "control_plane"] and input.actor.kind == :user and
             not is_nil(input.source_item_ref)), :source_capabilities},
+      {not Map.has_key?(input.source_capabilities, "publication_lifecycle") or
+         (input.source.kind == "webhook" and input.actor.kind == :system), :source_capabilities},
       {post_capability_matches_source?(input), :source_capabilities},
       {utc_datetime?(input.occurred_at), :occurred_at}
     ]
@@ -288,28 +290,15 @@ defmodule Responder.Ingress.Input do
   defp valid_source?(_source), do: false
 
   defp valid_source_capabilities?(%{} = capabilities) do
-    Enum.sort(Map.keys(capabilities)) in [
-      [],
-      ["post_slack_message"],
-      ["react"],
-      ["post_slack_message", "react"]
-    ] and
-      case capabilities do
-        %{} = empty when map_size(empty) == 0 ->
-          true
+    allowed = ["post_slack_message", "publication_lifecycle", "react"]
 
-        %{"react" => capability} ->
-          valid_reaction_capability?(capability)
-
-        %{"post_slack_message" => capability} ->
-          valid_post_capability?(capability)
-
-        %{"post_slack_message" => post, "react" => react} ->
-          valid_post_capability?(post) and valid_reaction_capability?(react)
-
-        _other ->
-          false
-      end
+    Map.keys(capabilities) -- allowed == [] and
+      (not Map.has_key?(capabilities, "react") or
+         valid_reaction_capability?(capabilities["react"])) and
+      (not Map.has_key?(capabilities, "post_slack_message") or
+         valid_post_capability?(capabilities["post_slack_message"])) and
+      (not Map.has_key?(capabilities, "publication_lifecycle") or
+         valid_publication_lifecycle_capability?(capabilities["publication_lifecycle"]))
   end
 
   defp valid_source_capabilities?(_capabilities), do: false
@@ -332,6 +321,27 @@ defmodule Responder.Ingress.Input do
   end
 
   defp valid_post_capability?(_capability), do: false
+
+  defp valid_publication_lifecycle_capability?(
+         %{
+           "environments" => environments,
+           "kinds" => kinds,
+           "repositories" => repositories,
+           "targets" => targets
+         } = capability
+       ) do
+    map_size(capability) == 4 and scope_references?(environments) and scope_references?(kinds) and
+      Enum.all?(kinds, &(&1 in ~w(deployment terraform))) and
+      scope_references?(repositories) and scope_references?(targets)
+  end
+
+  defp valid_publication_lifecycle_capability?(_capability), do: false
+
+  defp scope_references?(values) when is_list(values) and values != [] and length(values) <= 64 do
+    values == Enum.sort(Enum.uniq(values)) and Enum.all?(values, &reference?/1)
+  end
+
+  defp scope_references?(_values), do: false
 
   defp post_capability_matches_source?(%__MODULE__{
          source: %{kind: "slack", ref: workspace_ref},

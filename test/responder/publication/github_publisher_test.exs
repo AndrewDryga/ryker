@@ -7,7 +7,13 @@ defmodule Responder.Publication.GitHubPublisherTest do
     def publish_candidate(request, repository, agent) do
       Agent.get_and_update(agent, fn state ->
         call = {request, repository}
-        {{:ok, state.git_result}, %{state | git_calls: state.git_calls ++ [call]}}
+
+        result =
+          if match?({:error, _reason}, state.git_result),
+            do: state.git_result,
+            else: {:ok, state.git_result}
+
+        {result, %{state | git_calls: state.git_calls ++ [call]}}
       end)
     end
   end
@@ -77,7 +83,7 @@ defmodule Responder.Publication.GitHubPublisherTest do
   test "an existing pull request is compare-and-swap checked before and after push" do
     old = String.duplicate("8", 40)
     commit = String.duplicate("9", 40)
-    branch = "existing-pr"
+    branch = "responder/existing-pr"
     request = request!(%{"head_commit" => old, "number" => 42, "ref" => branch})
 
     {:ok, state} =
@@ -97,6 +103,45 @@ defmodule Responder.Publication.GitHubPublisherTest do
 
     stored = Agent.get(state, & &1)
     assert stored.api_calls == [{:get, "acme/responder", 42}, {:get, "acme/responder", 42}]
+  end
+
+  test "a refreshed review updates the exact stale draft without searching or creating" do
+    observed = String.duplicate("8", 40)
+    commit = String.duplicate("9", 40)
+    branch = "responder/existing-draft"
+
+    request =
+      request!(nil, %{
+        branch_ref: "refs/heads/#{branch}",
+        commit_sha: String.duplicate("7", 40),
+        expected_remote_head_sha: observed,
+        github_repository: "acme/responder",
+        pull_request_number: 42,
+        pull_request_url: "https://github.com/acme/responder/pull/42"
+      })
+
+    {:ok, state} =
+      Agent.start_link(fn ->
+        %{
+          api_calls: [],
+          create_result: :unused,
+          find_result: :unused,
+          get_results: [
+            {:ok, pull(branch, observed, false)},
+            {:ok, pull(branch, commit, false)}
+          ],
+          git_calls: [],
+          git_result: %{branch_ref: "refs/heads/#{branch}", commit_sha: commit}
+        }
+      end)
+
+    assert {:ok, receipt} = GitHubPublisher.publish(request, publisher_binding(state))
+    assert receipt["pull_request_number"] == 42
+
+    stored = Agent.get(state, & &1)
+    assert stored.api_calls == [{:get, "acme/responder", 42}, {:get, "acme/responder", 42}]
+    assert [{published_request, _repository}] = stored.git_calls
+    assert published_request.existing_pull_request["head_commit"] == observed
   end
 
   test "a crossed GitHub head never becomes a publication receipt" do
@@ -121,13 +166,62 @@ defmodule Responder.Publication.GitHubPublisherTest do
              {:error, :publication_pull_request_mismatch}
   end
 
+  test "a first-publish branch race returns only an App-owned exact recovery receipt" do
+    request = request!()
+    observed = String.duplicate("8", 40)
+    candidate = String.duplicate("9", 40)
+    branch = "responder/fix-publication-123"
+
+    conflict = %{
+      "branch_ref" => "refs/heads/#{branch}",
+      "candidate_commit_sha" => candidate,
+      "observed_head_sha" => observed
+    }
+
+    {:ok, state} =
+      Agent.start_link(fn ->
+        %{
+          api_calls: [],
+          create_result: :unused,
+          find_result: {:ok, pull(branch, observed)},
+          get_results: [],
+          git_calls: [],
+          git_result:
+            {:error, {:publication_git_conflict, :publication_branch_already_exists, conflict}}
+        }
+      end)
+
+    assert {:error, {:publication_conflict, :publication_branch_already_exists, receipt}} =
+             GitHubPublisher.publish(request, publisher_binding(state))
+
+    assert receipt == %{
+             "branch_ref" => "refs/heads/#{branch}",
+             "candidate_commit_sha" => candidate,
+             "github_repository" => "acme/responder",
+             "observed_head_sha" => observed,
+             "pull_request_number" => 42,
+             "pull_request_url" => "https://github.com/acme/responder/pull/42",
+             "repository" => "responder"
+           }
+
+    Agent.update(state, fn current ->
+      %{current | find_result: {:ok, put_in(pull(branch, observed), ["author_id"], 77)}}
+    end)
+
+    assert GitHubPublisher.publish(request, publisher_binding(state)) ==
+             {:error, :publication_branch_already_exists}
+  end
+
   test "routes publication and status reads through the exact repository binding" do
     request = %{request!() | repository: "repository-b"}
     commit = String.duplicate("9", 40)
     branch = "responder/fix-publication-123"
 
-    {:ok, repository_a} = Agent.start_link(fn -> publisher_state(branch, commit) end)
-    {:ok, repository_b} = Agent.start_link(fn -> publisher_state(branch, commit) end)
+    {:ok, repository_a} =
+      Agent.start_link(fn -> publisher_state(branch, commit, "acme/repository-a") end)
+
+    {:ok, repository_b} =
+      Agent.start_link(fn -> publisher_state(branch, commit, "acme/repository-b") end)
 
     binding = %{
       git: Git,
@@ -167,14 +261,16 @@ defmodule Responder.Publication.GitHubPublisherTest do
       client: agent,
       git_binding: agent,
       github_repository: github_repository,
-      path: "/trusted/responder"
+      path: "/trusted/responder",
+      responder_actor_id: 99
     }
   end
 
-  defp publisher_state(branch, commit) do
+  defp publisher_state(branch, commit, repository) do
     %{
       api_calls: [],
-      create_result: {:ok, pull(branch, commit)},
+      create_result:
+        {:ok, %{pull(branch, commit) | "url" => "https://github.com/#{repository}/pull/42"}},
       find_result: :not_found,
       get_results: [],
       git_calls: [],
@@ -183,22 +279,26 @@ defmodule Responder.Publication.GitHubPublisherTest do
     }
   end
 
-  defp request!(pull_request \\ nil) do
+  defp request!(pull_request \\ nil, attributes \\ %{}) do
     patch = "diff --git a/a b/a\n+change\n"
     review = review(patch, pull_request)
 
-    publication = %Publication{
-      approval_ref: "interaction:publish",
-      approved_at: ~U[2026-08-28 12:00:00.000000Z],
-      approved_by_actor_ref: "slack:user:U123",
-      body: "Implement the reviewed change for @operators.",
-      ref: "publication:1234567890abcdef",
-      repository: "responder",
-      review_document: review,
-      review_patch: patch,
-      status: :publish_pending,
-      title: "Fix publication retries"
-    }
+    publication =
+      struct!(
+        %Publication{
+          approval_ref: "interaction:publish",
+          approved_at: ~U[2026-08-28 12:00:00.000000Z],
+          approved_by_actor_ref: "slack:user:U123",
+          body: "Implement the reviewed change for @operators.",
+          ref: "publication:1234567890abcdef",
+          repository: "responder",
+          review_document: review,
+          review_patch: patch,
+          status: :publish_pending,
+          title: "Fix publication retries"
+        },
+        attributes
+      )
 
     assert {:ok, request} = Request.new(publication)
     request
@@ -232,6 +332,8 @@ defmodule Responder.Publication.GitHubPublisherTest do
 
   defp pull(branch, sha, draft \\ true) do
     %{
+      "author_id" => 99,
+      "author_type" => "Bot",
       "base_ref" => "main",
       "draft" => draft,
       "head_ref" => branch,

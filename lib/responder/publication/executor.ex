@@ -71,11 +71,16 @@ defmodule Responder.Publication.Executor do
 
   defp publish(claim, settings) do
     with {:ok, request} <- Request.new(claim.publication),
-         {:ok, receipt} <-
+         result <-
            leased_call(claim, settings, fn ->
              settings.publisher.publish(request, settings.publisher_binding)
-           end),
-         {:ok, stored} <-
+           end) do
+      store_publish_result(result, claim, settings)
+    end
+  end
+
+  defp store_publish_result({:ok, receipt}, claim, settings) do
+    with {:ok, stored} <-
            settings.custody.store_publication(
              claim.publication.ref,
              claim.lease_ref,
@@ -84,6 +89,24 @@ defmodule Responder.Publication.Executor do
       {:ok, %{phase: :published, publication: stored, receipt: receipt}}
     end
   end
+
+  defp store_publish_result(
+         {:error, {:publication_conflict, code, receipt} = reason},
+         claim,
+         settings
+       ) do
+    with {:ok, _stored} <-
+           settings.custody.store_conflict(
+             claim.publication.ref,
+             claim.lease_ref,
+             code,
+             receipt
+           ) do
+      {:error, reason}
+    end
+  end
+
+  defp store_publish_result({:error, _reason} = error, _claim, _settings), do: error
 
   defp exact_review_session(
          %{

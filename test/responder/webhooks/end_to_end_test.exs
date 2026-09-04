@@ -11,6 +11,8 @@ defmodule Responder.Webhooks.EndToEndTest do
   alias Responder.ControlPlane.{ConversationLab, Projection, Publisher}
   alias Responder.Delivery.Adapters
   alias Responder.Episodes
+  alias Responder.Fixtures.Publication, as: PublicationFixture
+  alias Responder.Publication.{Followup, LifecycleEvent}
   alias Responder.Repo
   alias Responder.Slack.Publisher, as: SlackPublisher
   alias Responder.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
@@ -261,6 +263,43 @@ defmodule Responder.Webhooks.EndToEndTest do
     refute_receive {:slack_posted, _, _, _, _}
   end
 
+  test "a scoped lifecycle webhook records only an exactly authorized merged publication signal" do
+    %{publication: publication} = PublicationFixture.published!("webhook-lifecycle-e2e")
+
+    Repo.update_all(
+      from(followup in Followup, where: followup.publication_id == ^publication.id),
+      set: [merge_sha: String.duplicate("b", 40), pr_state: "merged"]
+    )
+
+    payload = %{
+      "environment" => "production",
+      "kind" => "deployment",
+      "references" => [publication.pull_request_url],
+      "repository" => "responder",
+      "run_ref" => "deploy:webhook-e2e",
+      "state" => "succeeded",
+      "target" => "responder"
+    }
+
+    assert post_lifecycle(payload, "deployment-exact").status == 202
+
+    assert %LifecycleEvent{state: "succeeded", wakeup_state: :pending} =
+             Repo.get_by!(LifecycleEvent,
+               publication_id: publication.id,
+               kind: "deployment"
+             )
+
+    refute Repo.get_by(LifecycleEvent, publication_id: publication.id, kind: "terraform")
+
+    assert post_lifecycle(
+             %{payload | "environment" => "staging", "kind" => "terraform"},
+             "deployment-crossed"
+           ).status ==
+             202
+
+    refute Repo.get_by(LifecycleEvent, publication_id: publication.id, kind: "terraform")
+  end
+
   defp post(body, event_id) do
     conn(:post, "/v1/hooks/universal", body)
     |> put_req_header("authorization", "Bearer #{@secret}")
@@ -277,6 +316,32 @@ defmodule Responder.Webhooks.EndToEndTest do
     |> put_req_header("x-responder-event-id", event_id)
     |> put_req_header("x-responder-event-type", "manual.unknown")
     |> Router.call(local_router_options(conversation_ref))
+  end
+
+  defp post_lifecycle(payload, event_id) do
+    assert {:ok, route} =
+             Route.new(%{
+               auth: {:bearer, @secret},
+               destination: %{
+                 conversation_ref: "slack:T123:C456",
+                 thread_ref: nil,
+                 transport: "slack"
+               },
+               name: "deployments",
+               publication_lifecycle: %{
+                 environments: ["production"],
+                 kinds: ["deployment", "terraform"],
+                 repositories: ["responder"],
+                 targets: ["responder"]
+               }
+             })
+
+    conn(:post, "/v1/hooks/deployments", Jason.encode!(payload))
+    |> put_req_header("authorization", "Bearer #{@secret}")
+    |> put_req_header("content-type", "application/json")
+    |> put_req_header("x-responder-event-id", event_id)
+    |> put_req_header("x-responder-event-type", "responder.publication_lifecycle.v1")
+    |> Router.call(Router.init(now: fn -> @now end, routes: %{"deployments" => route}))
   end
 
   defp local_router_options(conversation_ref) do

@@ -48,6 +48,8 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
           "project_env" => Keyword.get(options, :project_env, false),
           "project_mcp" => Keyword.get(options, :project_mcp, false),
           "repository_read_only" => true,
+          "repository_freshness" => freshness_receipts(options),
+          "repository_freshness_status" => "recorded",
           "revision" => 1,
           "state" => "open",
           "target" => Keyword.get(options, :session_target, "codex:gpt-5.6-sol/high@work")
@@ -64,7 +66,41 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
     end)
   end
 
+  defp freshness_receipts(options) do
+    primary = %{
+      "fetched_at" => "2026-09-04T08:00:00Z",
+      "name" => "primary",
+      "remote_identity" => "local",
+      "requested_revision" => "HEAD",
+      "resolved_revision" => "5d1fa43d2efe46e8409dde0e93e79af93fb6622f",
+      "stale_base_status" => "not_applicable",
+      "version" => 2,
+      "workspace_base_revision" => "5d1fa43d2efe46e8409dde0e93e79af93fb6622f"
+    }
+
+    companions =
+      options
+      |> Keyword.get(:companions, [])
+      |> Enum.map(fn companion ->
+        %{
+          "fetched_at" => "2026-09-04T08:00:00Z",
+          "name" => companion["name"],
+          "remote_identity" => "local",
+          "requested_revision" => "HEAD",
+          "resolved_revision" => companion["base_commit"],
+          "stale_base_status" => "not_applicable",
+          "version" => 2
+        }
+      end)
+
+    [primary | companions]
+  end
+
   def state(agent), do: Agent.get(agent, & &1)
+
+  @impl true
+  def capabilities(_agent),
+    do: {:ok, %{"repository_freshness_receipt_versions" => [2]}}
 
   def update(agent, function) when is_function(function, 1),
     do: Agent.update(agent, function)

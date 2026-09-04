@@ -66,6 +66,7 @@ defmodule Responder.Publication.Dispatcher do
   defp bound_detail(detail),
     do: String.byte_slice(detail, 0, @maximum_error_detail_bytes - 3) <> "..."
 
+  defp error_atom({:publication_conflict, atom, _receipt}) when is_atom(atom), do: atom
   defp error_atom({atom, _rest}) when is_atom(atom), do: atom
   defp error_atom({atom, _second, _rest}) when is_atom(atom), do: atom
   defp error_atom({atom, _second, _third, _rest}) when is_atom(atom), do: atom

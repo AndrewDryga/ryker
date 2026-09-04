@@ -16,6 +16,7 @@ defmodule Responder.Publication.Followups do
   alias Responder.Ingress.Input
 
   alias Responder.Publication.{
+    DeploymentSignal,
     Followup,
     FollowupChangeset,
     LifecycleEvent,
@@ -24,13 +25,12 @@ defmodule Responder.Publication.Followups do
     Publication
   }
 
+  alias Responder.Publication.Changeset, as: PublicationChangeset
   alias Responder.Repo
   alias Responder.Work.{Custody, DeliveryReceipt}
 
   @default_deadline_seconds 30 * 24 * 60 * 60
   @far_future ~U[9999-01-01 00:00:00.000000Z]
-  @source_kinds ~w(deployment terraform)
-  @source_states ~w(pending succeeded failed)
 
   @doc false
   def ensure_published_in_transaction(%Publication{status: :published} = publication, now) do
@@ -44,6 +44,9 @@ defmodule Responder.Publication.Followups do
     }
 
     case Repo.one(from(followup in Followup, where: followup.publication_id == ^publication.id)) do
+      %Followup{pr_state: "stale"} = followup ->
+        reset_followup!(followup, publication, now)
+
       %Followup{} = followup ->
         followup
 
@@ -60,6 +63,46 @@ defmodule Responder.Publication.Followups do
 
   def ensure_published_in_transaction(_publication, _now),
     do: Repo.rollback(:publication_not_delivered)
+
+  @doc false
+  def rearm_stale_in_transaction(%Publication{} = publication, now) do
+    case Repo.one(
+           from(followup in Followup,
+             where: followup.publication_id == ^publication.id,
+             lock: "FOR UPDATE"
+           )
+         ) do
+      %Followup{pr_state: "stale"} = followup ->
+        _followup = reset_followup!(followup, publication, now)
+        :ok
+
+      %Followup{} ->
+        {:error, :publication_recovery_not_stale}
+
+      nil ->
+        {:error, :publication_followup_not_found}
+    end
+  end
+
+  @doc false
+  def rearm_conflict_in_transaction(%Publication{} = publication, now) do
+    case Repo.one(
+           from(followup in Followup,
+             where: followup.publication_id == ^publication.id,
+             lock: "FOR UPDATE"
+           )
+         ) do
+      %Followup{} = followup ->
+        _followup = reset_followup!(followup, publication, now)
+        :ok
+
+      nil when is_nil(publication.publication_receipt) ->
+        :ok
+
+      nil ->
+        {:error, :publication_followup_not_found}
+    end
+  end
 
   def claim_poll(worker_ref, lease_seconds) do
     with :ok <- reference(worker_ref, :worker_ref),
@@ -131,15 +174,23 @@ defmodule Responder.Publication.Followups do
     do: {:error, {:invalid_publication_review_feedback, :input}}
 
   @spec observe_input(Input.t()) :: {:ok, non_neg_integer()} | {:error, term()}
-  def observe_input(%Input{} = input) do
-    if input.actor.kind in [:app, :bot, :system] do
-      Repo.transaction(fn -> observe_input_locked(input) end)
+  def observe_input(
+        %Input{
+          actor: %{kind: :system},
+          source: %{kind: "webhook"},
+          source_capabilities: %{"publication_lifecycle" => authority}
+        } = input
+      ) do
+    with {:ok, signal} <- DeploymentSignal.prepare(input.content),
+         :ok <- DeploymentSignal.authorize(signal, authority) do
+      Repo.transaction(fn -> observe_input_locked(input, signal) end)
       |> transaction_result()
     else
-      {:ok, 0}
+      _untrusted_or_untyped -> {:ok, 0}
     end
   end
 
+  def observe_input(%Input{}), do: {:ok, 0}
   def observe_input(_input), do: {:error, {:invalid_publication_lifecycle_input, :input}}
 
   def store_poll(publication_ref, lease_ref, status, interval_seconds) do
@@ -391,7 +442,8 @@ defmodule Responder.Publication.Followups do
           publication.id == followup.publication_id and
             publication.episode_id == followup.episode_id,
         where:
-          followup.next_poll_at <= ^now and
+          publication.status == :published and
+            followup.next_poll_at <= ^now and
             (is_nil(followup.lease_expires_at) or followup.lease_expires_at <= ^now),
         order_by: [asc: followup.next_poll_at, asc: followup.id],
         limit: 1,
@@ -482,6 +534,8 @@ defmodule Responder.Publication.Followups do
           )
 
         status["head_sha"] != publication.commit_sha and not status["merged"] ->
+          _publication = mark_stale_publication!(publication, status["head_sha"], now)
+
           transition_poll(
             followup,
             publication,
@@ -607,27 +661,45 @@ defmodule Responder.Publication.Followups do
     updated
   end
 
-  defp observe_input_locked(input) do
+  defp observe_input_locked(input, signal) do
     now = database_now!()
-    strings = strings(input.content)
+    references = signal["payload"]["references"]
+    repository = signal["payload"]["repository"]
+    branch_references = Enum.map(references, &("refs/heads/" <> &1))
 
-    active =
-      Repo.all(
-        from(followup in Followup,
-          join: publication in Publication,
-          on: publication.id == followup.publication_id,
-          where:
-            followup.pr_state == "merged" and followup.deadline_at > ^now and
-              not is_nil(followup.merge_sha),
-          order_by: [desc: publication.published_at],
-          limit: 100,
-          select: {followup, publication}
-        )
-      )
+    active = matching_lifecycle_followups(repository, references, branch_references, now)
 
     Enum.reduce(active, 0, fn publication_pair, count ->
-      observe_publication_input(publication_pair, input, strings, count)
+      observe_publication_input(publication_pair, input, signal, references, count)
     end)
+  end
+
+  defp matching_lifecycle_followups(repository, references, branch_references, now) do
+    reference_match = lifecycle_reference_match(references, branch_references)
+
+    Repo.all(
+      from(followup in Followup,
+        join: publication in Publication,
+        on: publication.id == followup.publication_id,
+        where:
+          publication.status == :published and publication.repository == ^repository and
+            followup.pr_state == "merged" and followup.deadline_at > ^now and
+            not is_nil(followup.merge_sha),
+        where: ^reference_match,
+        order_by: [asc: publication.id],
+        select: {followup, publication}
+      )
+    )
+  end
+
+  defp lifecycle_reference_match(references, branch_references) do
+    dynamic(
+      [followup, publication],
+      publication.pull_request_url in ^references or
+        publication.branch_ref in ^references or
+        publication.branch_ref in ^branch_references or
+        publication.commit_sha in ^references or followup.merge_sha in ^references
+    )
   end
 
   defp observe_github_feedback_locked(input, repository, pull_request_number) do
@@ -698,21 +770,28 @@ defmodule Responder.Publication.Followups do
     }
   end
 
-  defp observe_publication_input({followup, publication}, input, strings, count) do
-    with true <- exact_reference?(strings, publication, followup),
-         {:ok, kind, state} <- source_transition(input.content) do
-      event = lifecycle_event(publication, source_event(input, publication, kind, state))
+  defp observe_publication_input(
+         {followup, publication},
+         input,
+         signal,
+         references,
+         count
+       ) do
+    if exact_reference?(references, publication, followup) do
+      event = lifecycle_event(publication, source_event(input, publication, signal))
 
       case insert_lifecycle_event(event) do
         {:ok, _event} -> count + 1
         {:duplicate, _event} -> count
       end
     else
-      _no_match -> count
+      count
     end
   end
 
-  defp source_event(input, publication, kind, state) do
+  defp source_event(input, publication, signal) do
+    %{"kind" => kind, "state" => state} = signal["payload"]
+
     key =
       lifecycle_key([
         publication.id,
@@ -727,7 +806,7 @@ defmodule Responder.Publication.Followups do
     %{
       key: key,
       kind: kind,
-      observation: input.content,
+      observation: signal,
       occurred_at: input.occurred_at,
       source: %{
         conversation_ref: input.destination.conversation_ref,
@@ -906,7 +985,7 @@ defmodule Responder.Publication.Followups do
         join: publication in Publication,
         on: publication.id == followup.publication_id,
         where:
-          publication.github_repository == ^repository and
+          publication.status == :published and publication.github_repository == ^repository and
             publication.pull_request_number == ^number and followup.pr_state == "open",
         lock: "FOR UPDATE"
       )
@@ -1041,7 +1120,7 @@ defmodule Responder.Publication.Followups do
     end
   end
 
-  defp exact_reference?(strings, publication, followup) do
+  defp exact_reference?(supplied, publication, followup) do
     references =
       [
         publication.pull_request_url,
@@ -1052,96 +1131,8 @@ defmodule Responder.Publication.Followups do
       ]
       |> Enum.filter(&(is_binary(&1) and &1 != ""))
 
-    Enum.any?(strings, fn string ->
-      Enum.any?(references, &contains_reference?(string, &1))
-    end)
+    Enum.any?(supplied, &(&1 in references))
   end
-
-  defp contains_reference?(text, reference) do
-    escaped = Regex.escape(reference)
-    Regex.match?(Regex.compile!("(?:^|[^A-Za-z0-9_.:/-])#{escaped}(?:$|[^A-Za-z0-9_.:/-])"), text)
-  end
-
-  defp source_transition(content) do
-    pairs = key_values(content)
-
-    kind =
-      Enum.find_value(pairs, fn {key, value} ->
-        text = "#{key} #{value}" |> String.downcase()
-
-        cond do
-          String.contains?(text, "terraform") ->
-            "terraform"
-
-          Enum.any?(~w(deploy deployment release rollout), &String.contains?(text, &1)) ->
-            "deployment"
-
-          true ->
-            nil
-        end
-      end)
-
-    state =
-      Enum.find_value(pairs, fn {key, value} ->
-        field = key |> String.downcase() |> String.split(".") |> List.last()
-
-        if field in ~w(state status conclusion result outcome phase) do
-          normalize_source_state(value)
-        end
-      end)
-
-    if kind in @source_kinds and state in @source_states,
-      do: {:ok, kind, state},
-      else: {:error, :not_lifecycle}
-  end
-
-  defp normalize_source_state(value) when is_binary(value) do
-    case value |> String.downcase() |> String.trim() do
-      value
-      when value in ~w(success succeeded successful completed complete passed applied ready) ->
-        "succeeded"
-
-      value when value in ~w(failure failed error errored cancelled canceled timed_out) ->
-        "failed"
-
-      value when value in ~w(pending running in_progress queued waiting started planned) ->
-        "pending"
-
-      _unknown ->
-        nil
-    end
-  end
-
-  defp normalize_source_state(_value), do: nil
-
-  defp key_values(value), do: key_values(value, "")
-
-  defp key_values(%{} = value, prefix) do
-    Enum.flat_map(value, fn {key, child} ->
-      key = if prefix == "", do: to_string(key), else: "#{prefix}.#{key}"
-      [{key, scalar_text(child)} | key_values(child, key)]
-    end)
-  end
-
-  defp key_values(value, prefix) when is_list(value) do
-    value
-    |> Enum.with_index()
-    |> Enum.flat_map(fn {child, index} -> key_values(child, "#{prefix}[#{index}]") end)
-  end
-
-  defp key_values(_value, _prefix), do: []
-
-  defp scalar_text(value) when is_binary(value), do: value
-  defp scalar_text(value) when is_number(value) or is_boolean(value), do: to_string(value)
-  defp scalar_text(_value), do: ""
-
-  defp strings(value) when is_binary(value), do: [value]
-
-  defp strings(%{} = value),
-    do: Enum.flat_map(value, fn {key, child} -> [to_string(key) | strings(child)] end)
-
-  defp strings(value) when is_list(value), do: Enum.flat_map(value, &strings/1)
-  defp strings(_value), do: []
 
   defp source_summary(publication, kind, state) do
     label = if kind == "terraform", do: "Terraform", else: "Deployment"
@@ -1312,6 +1303,45 @@ defmodule Responder.Publication.Followups do
     followup
     |> FollowupChangeset.update(Map.put(attributes, :updated_at, now))
     |> Repo.update!()
+  end
+
+  defp mark_stale_publication!(publication, observed_head_sha, now) do
+    publication
+    |> PublicationChangeset.update(%{
+      expected_remote_head_sha: observed_head_sha,
+      updated_at: now
+    })
+    |> Repo.update!()
+  end
+
+  defp reset_followup!(followup, publication, now) do
+    update_followup!(
+      followup,
+      %{
+        checks_failed: 0,
+        checks_passed: 0,
+        checks_state: "unknown",
+        checks_total: 0,
+        checks_url: nil,
+        deadline_at: DateTime.add(now, @default_deadline_seconds, :second),
+        failure_count: 0,
+        last_error: nil,
+        last_event_key: "baseline:#{String.slice(publication.commit_sha || "pending", 0, 64)}",
+        lease_expires_at: nil,
+        lease_owner: nil,
+        lease_ref: nil,
+        manual_check_ref: nil,
+        merge_sha: nil,
+        merged_at: nil,
+        next_poll_at: now,
+        pr_state: "open",
+        verification_event_ref: nil,
+        verification_sequence: nil,
+        verification_turn_ref: nil,
+        verified_at: nil
+      },
+      now
+    )
   end
 
   defp update_event!(event, attributes, now) do

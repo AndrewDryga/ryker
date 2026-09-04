@@ -1115,6 +1115,22 @@ defmodule Responder.ControlPlane.HTML do
           ],
           else: ""
         ),
+        if(is_binary(Map.get(control, :publication_ref)),
+          do: [
+            "<input type=\"hidden\" name=\"publication_ref\" value=\"",
+            escape(control.publication_ref),
+            "\">"
+          ],
+          else: ""
+        ),
+        if(is_binary(Map.get(control, :review_offer_ref)),
+          do: [
+            "<input type=\"hidden\" name=\"review_offer_ref\" value=\"",
+            escape(control.review_offer_ref),
+            "\">"
+          ],
+          else: ""
+        ),
         "<button type=\"submit\">",
         escape(control.label),
         "</button></form>"

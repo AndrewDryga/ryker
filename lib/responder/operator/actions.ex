@@ -131,7 +131,7 @@ defmodule Responder.Operator.Actions do
 
   defp attributes(attributes) do
     with true <- Map.keys(attributes) |> Enum.sort() == Enum.sort(@fields),
-         true <- attributes.action in [:retry, :replay],
+         true <- attributes.action in [:retry, :replay, :update, :discard],
          :ok <- reference(attributes.action_ref, :action_ref),
          :ok <- reference(attributes.actor_ref, :actor_ref),
          :ok <- reference(attributes.kind, :kind, 64),

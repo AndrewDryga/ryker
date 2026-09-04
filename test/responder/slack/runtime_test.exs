@@ -87,6 +87,7 @@ defmodule Responder.Slack.RuntimeTest do
     assert is_function(options.handler_settings.interaction_options.request_task_readiness, 1)
     assert is_function(options.handler_settings.interaction_options.approve_task_publication, 1)
     assert is_function(options.handler_settings.interaction_options.check_task_publication, 1)
+    assert is_function(options.handler_settings.interaction_options.recover_task_publication, 2)
     assert options.handler_settings.setup_options.catalog.default_repository == "responder"
 
     assert %{

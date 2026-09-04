@@ -249,3 +249,38 @@ webhooks:
             policy_digest: "7777777777777777777777777777777777777777777777777777777777777777"
       max_body_bytes: 40000
       max_clock_skew_seconds: 300
+    deployments:
+      adapter:
+        kind: universal
+      auth:
+        kind: hmac_sha256
+        secret_env: RESPONDER_DEPLOYMENT_WEBHOOK_SECRET
+      destination:
+        transport: slack
+        conversation_ref: slack:T0123456789:C1111111111
+        thread_ref:
+      publication_lifecycle:
+        environments: [production]
+        kinds: [deployment, terraform]
+        repositories: [responder]
+        targets: [responder]
+      work_profile:
+        authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
+        policy: responder-read-only-v1
+        policy_digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+        repository_ref: responder
+        class_policies:
+          conversational:
+            authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
+            policy: responder-conversation-v1
+            policy_digest: "9999999999999999999999999999999999999999999999999999999999999999"
+          standard:
+            authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
+            policy: responder-standard-v1
+            policy_digest: "8888888888888888888888888888888888888888888888888888888888888888"
+          deep:
+            authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
+            policy: responder-deep-v1
+            policy_digest: "7777777777777777777777777777777777777777777777777777777777777777"
+      max_body_bytes: 40000
+      max_clock_skew_seconds: 300

@@ -11,7 +11,7 @@ defmodule Responder.Operator.Action do
     field(:action_ref, :string)
     field(:request_fingerprint, :string)
     field(:actor_ref, :string)
-    field(:action, Ecto.Enum, values: [:retry, :replay])
+    field(:action, Ecto.Enum, values: [:retry, :replay, :update, :discard])
     field(:kind, :string)
     field(:resource_ref, :string)
     field(:previous, CanonicalJSONType)

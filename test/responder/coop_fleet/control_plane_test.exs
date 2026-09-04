@@ -89,6 +89,46 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     assert Repo.aggregate(from(p in Placement, where: p.session_id == ^session.id), :count) == 1
   end
 
+  test "versioned placement excludes an otherwise eligible legacy worker" do
+    authorize_and_poll!("worker-legacy", capacity: capacity(4, 4))
+
+    authorize_and_poll!("worker-freshness-v2",
+      capabilities: [
+        %{"name" => "responder-state", "version" => "1"},
+        %{"name" => "repository-freshness", "version" => "2"}
+      ],
+      capacity: capacity(2, 4)
+    )
+
+    session = session!("versioned-placement")
+
+    assert {:ok, placement} =
+             ControlPlane.place_session(
+               session.id,
+               %{
+                 capability_names: ["responder-state"],
+                 capability_versions: %{"repository-freshness" => "2"},
+                 repository_ref: "responder",
+                 workspace_ref: "workspace-main"
+               },
+               60
+             )
+
+    assert placement.worker_id == "worker-freshness-v2"
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(
+               "worker-freshness-v2",
+               poll(
+                 "worker-freshness-v2",
+                 "workspace-main",
+                 "poll:worker-freshness-v2:daemon-regressed"
+               )
+             )
+
+    assert Repo.get!(Placement, placement.id).state == :revoking
+  end
+
   test "admission classification places on the fleet without inventing an episode" do
     authorize_and_poll!("worker-admission")
 
@@ -159,6 +199,7 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
 
     assert placement.requirements == %{
              "capability_names" => ["responder-state"],
+             "capability_versions" => %{},
              "authority_digest" => @authority_digest,
              "policy" => "work-read-only",
              "policy_digest" => @policy_digest,
@@ -739,7 +780,10 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
       "version" => 1,
       "worker" => %{
         "build_version" => "coop-abc123",
-        "capabilities" => [%{"name" => "responder-state", "version" => "1"}],
+        "capabilities" =>
+          Keyword.get(options, :capabilities, [
+            %{"name" => "responder-state", "version" => "1"}
+          ]),
         "capacity" => Keyword.get(options, :capacity, capacity(2, 4)),
         "clock_at" => DateTime.to_iso8601(database_now!()),
         "id" => worker_id,
