@@ -28,6 +28,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @repository_contexts_version 20_260_904_000_600
   @event_subscriptions_version 20_260_904_000_700
   @work_activity_version 20_260_904_000_800
+  @card_lab_feedback_version 20_260_904_000_900
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
   test "an installation that already ran the Slack inbox migration upgrades to generic ingress" do
@@ -69,7 +70,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @conversation_continuity_version,
                @repository_contexts_version,
                @event_subscriptions_version,
-               @work_activity_version
+               @work_activity_version,
+               @card_lab_feedback_version
              ]
 
       refute table_exists?(repo, prefix, "slack_inbox_entries")
@@ -119,6 +121,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert table_exists?(repo, prefix, "conversation_rollups")
       assert table_exists?(repo, prefix, "memory_review_items")
       assert table_exists?(repo, prefix, "episode_work_activity")
+      assert table_exists?(repo, prefix, "card_lab_feedback")
       assert column_exists?(repo, prefix, "episode_work_sessions", "activity_cursor")
 
       assert constraint_definition(
@@ -180,7 +183,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @conversation_continuity_version,
                @repository_contexts_version,
                @event_subscriptions_version,
-               @work_activity_version
+               @work_activity_version,
+               @card_lab_feedback_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -194,6 +198,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  "SELECT execution_kind, episode_id FROM #{prefix}.episode_work_sessions WHERE id = $1::text::uuid",
                  [admission_session_id]
                )
+
+      rollback_card_lab_feedback!(repo, prefix)
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
                step: 1,
@@ -347,7 +353,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @conversation_continuity_version,
                @repository_contexts_version,
                @event_subscriptions_version,
-               @work_activity_version
+               @work_activity_version,
+               @card_lab_feedback_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -387,7 +394,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @conversation_continuity_version,
                @repository_contexts_version,
                @event_subscriptions_version,
-               @work_activity_version
+               @work_activity_version,
+               @card_lab_feedback_version
              ]
 
       assert Release.migrate(options) == []
@@ -431,6 +439,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
         Release.rollback(@conversation_continuity_version, options)
       end
+
+      assert Release.rollback(@card_lab_feedback_version, options) == [
+               @card_lab_feedback_version
+             ]
+
+      refute table_exists?(repo, prefix, "card_lab_feedback")
 
       assert Release.rollback(@work_activity_version, options) == [
                @work_activity_version
@@ -540,6 +554,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         log: false
       )
 
+      rollback_card_lab_feedback!(repo, prefix)
+
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
                step: 1,
                prefix: prefix,
@@ -626,6 +642,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         log: false
       )
 
+      rollback_card_lab_feedback!(repo, prefix)
+
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
                step: 1,
                prefix: prefix,
@@ -695,6 +713,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         log: false
       )
 
+      rollback_card_lab_feedback!(repo, prefix)
+
       context =
         Jason.encode!(%{
           "context_ref" => "platform",
@@ -755,6 +775,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         prefix: prefix,
         log: false
       )
+
+      rollback_card_lab_feedback!(repo, prefix)
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
                step: 1,
@@ -833,6 +855,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         log: false
       )
 
+      rollback_card_lab_feedback!(repo, prefix)
+
       event_id = Ecto.UUID.generate()
 
       SQL.query!(
@@ -868,6 +892,56 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
+  end
+
+  test "card lab feedback migration refuses to discard operator review on rollback" do
+    repo = start_migration_repo!()
+    prefix = "card_lab_feedback_rollback_#{System.unique_integer([:positive])}"
+
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        all: true,
+        prefix: prefix,
+        log: false
+      )
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.card_lab_feedback (
+          id, actor_ref, card_id, state_id, verdict, note, inserted_at
+        ) VALUES (
+          $1::text::uuid, 'control-plane:operator', 'task-card', 'working',
+          'needs_work', 'The hierarchy needs another pass.', clock_timestamp()
+        )
+        """,
+        [Ecto.UUID.generate()]
+      )
+
+      assert_raise Postgrex.Error, ~r/card lab feedback has data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down,
+          step: 1,
+          prefix: prefix,
+          log: false
+        )
+      end
+
+      assert table_exists?(repo, prefix, "card_lab_feedback")
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  defp rollback_card_lab_feedback!(repo, prefix) do
+    assert Ecto.Migrator.run(repo, @migrations_path, :down,
+             step: 1,
+             prefix: prefix,
+             log: false
+           ) == [@card_lab_feedback_version]
+
+    refute table_exists?(repo, prefix, "card_lab_feedback")
   end
 
   defp start_migration_repo! do

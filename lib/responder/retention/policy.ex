@@ -19,6 +19,11 @@ defmodule Responder.Retention.Policy do
 
   @policies [
     %{
+      table: "card_lab_feedback",
+      class: :audit,
+      why: "append-only operator review of one exact production-rendered card state"
+    },
+    %{
       table: "conversation_rollups",
       class: :conversation_memory,
       why: "bounded derived continuity retained after source-summary compaction"

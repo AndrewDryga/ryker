@@ -4,7 +4,7 @@ defmodule Responder.ControlPlane.Actions do
   import Ecto.Query
 
   alias Responder.CanonicalJSON
-  alias Responder.ControlPlane.ConversationLab
+  alias Responder.ControlPlane.{CardLabFeedback, ConversationLab}
   alias Responder.Episodes
   alias Responder.Episodes.{Command, Episode}
   alias Responder.Ingress.WorkProfile
@@ -54,6 +54,7 @@ defmodule Responder.ControlPlane.Actions do
       rearm_slack_incident: &retry_failure("slack_incident", &1),
       rearm_slack_interaction: &retry_failure("slack_interaction", &1),
       react_to_lab_message: &ConversationLab.react_to_message/4,
+      record_card_feedback: &CardLabFeedback.record/4,
       retry_work: &retry_failure("work", &1),
       review_episode: &EpisodeReviews.review(&1, @actor_ref),
       run_schedule: run_schedule(schedule_policy_resolver),

@@ -1023,7 +1023,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Projection.decisions(%{}) == []
     assert Projection.findings(%{}) == []
     assert length(Projection.audit(%{})) >= 9
-    assert map_size(Projection.callbacks()) == 31
+    assert map_size(Projection.callbacks()) == 32
   end
 
   test "operator workbench projections stay bounded and explicit with no durable rows" do

@@ -4,6 +4,7 @@ defmodule Responder.ControlPlane.HTML do
   @nav [
     {"Overview", "/"},
     {"Conversation Lab", "/lab"},
+    {"Slack Card Lab", "/card-lab"},
     {"Episodes", "/episodes"},
     {"Incidents", "/incidents"},
     {"Schedules", "/schedules"},
@@ -124,6 +125,283 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
+  def card_lab(snapshot, feedback, transition_tokens, feedback_token) do
+    selected_path = card_lab_path(snapshot.card.id, snapshot.state.id)
+    specimen_count = Enum.sum(Enum.map(snapshot.catalog, & &1.state_count))
+
+    catalog =
+      Enum.map(snapshot.catalog, fn card ->
+        [
+          "<li",
+          if(card.id == snapshot.card.id, do: " class=\"selected\"", else: ""),
+          "><a href=\"/card-lab/",
+          segment(card.id),
+          "/",
+          segment(card.first_state_id),
+          "\"><span>",
+          escape(card.title),
+          "</span><small>",
+          integer(card.state_count),
+          " states · ",
+          escape(card.surface),
+          "</small></a></li>"
+        ]
+      end)
+
+    state_tabs =
+      Enum.map(snapshot.card.states, fn state ->
+        [
+          "<a href=\"/card-lab/",
+          segment(snapshot.card.id),
+          "/",
+          segment(state.id),
+          "\"",
+          if(state.id == snapshot.state.id, do: " aria-current=\"page\"", else: ""),
+          ">",
+          escape(state.label),
+          "</a>"
+        ]
+      end)
+
+    transitions =
+      case snapshot.state.transitions do
+        [] -> "<p class=\"card-lab-empty\">This specimen has no outgoing state transition.</p>"
+        rows -> Enum.map(rows, &card_lab_transition(snapshot, &1, transition_tokens))
+      end
+
+    feedback_rows =
+      case feedback do
+        [] -> "<p class=\"card-lab-empty\">No feedback on this exact state yet.</p>"
+        rows -> Enum.map(rows, &card_lab_feedback_row/1)
+      end
+
+    [
+      "<section class=\"card-lab-hero\"><div><p class=\"eyebrow\">Local specimen workbench</p>",
+      "<h2>Every production Slack surface, without posting to Slack</h2>",
+      "<p>Inspect exact production-renderer output, walk only declared state transitions, review confirmation dialogs and raw Block Kit, then leave feedback on the precise state. Lab actions never invoke Slack or mutate real work.</p></div>",
+      "<div class=\"card-lab-totals\"><strong>",
+      integer(specimen_count),
+      "</strong><span>specimens</span><strong>",
+      integer(length(snapshot.catalog)),
+      "</strong><span>families</span></div></section>",
+      "<section class=\"card-lab-shell\"><aside class=\"card-lab-catalog\"><div class=\"card-lab-panel-head\"><span>Catalog</span><small>Production surfaces</small></div><ul>",
+      catalog,
+      "</ul></aside><div class=\"card-lab-stage\"><div class=\"card-lab-stage-head\"><div><p class=\"eyebrow\">",
+      escape(snapshot.card.surface),
+      " · Production renderer</p><h2>",
+      escape(snapshot.card.title),
+      "</h2><p>",
+      escape(snapshot.card.description),
+      "</p></div><span class=\"card-lab-state-count\">",
+      integer(length(snapshot.card.states)),
+      " states</span></div><nav class=\"card-lab-state-tabs\" aria-label=\"Card states\">",
+      state_tabs,
+      "</nav><div class=\"card-lab-current\"><div><span>Current specimen</span><h3>",
+      escape(snapshot.state.label),
+      "</h3><p>",
+      escape(snapshot.state.description),
+      "</p></div><code>",
+      escape(snapshot.card.id),
+      "/",
+      escape(snapshot.state.id),
+      "</code></div>",
+      card_lab_preview(snapshot.rendered, snapshot.card.surface),
+      "<details class=\"card-lab-json\"><summary>Raw Block Kit JSON</summary><pre><code>",
+      escape(Jason.encode!(snapshot.rendered, pretty: true)),
+      "</code></pre></details></div><aside class=\"card-lab-inspector\"><section><p class=\"eyebrow\">State reducer</p><h2>Transition without Slack</h2><p>These controls select the next deterministic fixture. They do not run the production action behind a previewed Slack button.</p><div class=\"card-lab-transitions\">",
+      transitions,
+      "</div></section><section id=\"feedback\"><p class=\"eyebrow\">Review notes</p><h2>Feedback on this state</h2><form class=\"card-lab-feedback-form\" method=\"post\" action=\"",
+      selected_path,
+      "/feedback\"><input type=\"hidden\" name=\"_token\" value=\"",
+      escape(feedback_token),
+      "\"><fieldset><legend>Verdict</legend>",
+      card_lab_verdict("needs_work", "Needs work", true),
+      card_lab_verdict("good", "Good", false),
+      card_lab_verdict("approved", "Approved", false),
+      "</fieldset><label>What should change?<textarea name=\"note\" maxlength=\"4000\" rows=\"5\" required placeholder=\"Be specific about hierarchy, copy, controls, missing context, or state behavior.\"></textarea></label><button type=\"submit\">Save feedback</button></form><div class=\"card-lab-feedback-list\">",
+      feedback_rows,
+      "</div></section></aside></section>"
+    ]
+  end
+
+  defp card_lab_transition(snapshot, transition, tokens) do
+    [
+      "<form method=\"post\" action=\"/card-lab/",
+      segment(snapshot.card.id),
+      "/",
+      segment(snapshot.state.id),
+      "/transitions/",
+      segment(transition.id),
+      "\"><input type=\"hidden\" name=\"_token\" value=\"",
+      escape(Map.fetch!(tokens, transition.id)),
+      "\"><button type=\"submit\"><span>",
+      escape(transition.label),
+      "</span><small>→ ",
+      escape(transition.to),
+      "</small></button></form>"
+    ]
+  end
+
+  defp card_lab_verdict(value, label, checked) do
+    [
+      "<label><input type=\"radio\" name=\"verdict\" value=\"",
+      value,
+      "\"",
+      if(checked, do: " checked", else: ""),
+      ">",
+      escape(label),
+      "</label>"
+    ]
+  end
+
+  defp card_lab_feedback_row(row) do
+    [
+      "<article data-verdict=\"",
+      escape(row.verdict),
+      "\"><header><strong>",
+      escape(String.replace(row.verdict, "_", " ")),
+      "</strong><time>",
+      timestamp(row.inserted_at),
+      "</time></header><p>",
+      escape(row.note),
+      "</p><small>",
+      escape(row.actor_ref),
+      "</small></article>"
+    ]
+  end
+
+  defp card_lab_preview(%{"type" => "thread_status", "status" => status}, _surface) do
+    [
+      "<div class=\"slack-canvas thread-status-canvas\"><div class=\"slack-thread-head\"><span class=\"slack-avatar\">R</span><div><strong>Responder</strong><small>APP · thread</small></div></div><div class=\"slack-thread-status",
+      if(status == "", do: " clear", else: ""),
+      "\"><span class=\"status-pulse\"></span>",
+      if(status == "", do: "Status cleared", else: escape(status)),
+      "</div></div>"
+    ]
+  end
+
+  defp card_lab_preview(rendered, surface) do
+    [
+      "<div class=\"slack-canvas surface-",
+      escape(surface),
+      "\"><div class=\"slack-chrome\"><div class=\"slack-dots\"><i></i><i></i><i></i></div><span># responder-card-lab</span><small>Local preview</small></div><article class=\"slack-message-preview\"><span class=\"slack-avatar\">R</span><div class=\"slack-message-content\"><header><strong>Responder</strong><span>APP</span><time>12:04</time></header>",
+      Enum.map(Map.get(rendered, "blocks", []), &slack_block/1),
+      "</div></article>",
+      if(rendered["text"],
+        do: [
+          "<div class=\"slack-fallback\"><strong>Fallback text</strong><span>",
+          escape(rendered["text"]),
+          "</span></div>"
+        ],
+        else: ""
+      ),
+      "</div>"
+    ]
+  end
+
+  defp slack_block(%{"type" => "markdown", "text" => text}),
+    do: ["<div class=\"slack-block slack-markdown\">", escape(text), "</div>"]
+
+  defp slack_block(%{"type" => "section"} = block) do
+    [
+      "<div class=\"slack-block slack-section\"><div>",
+      slack_text(block["text"]),
+      slack_fields(block["fields"]),
+      "</div>",
+      if(block["accessory"],
+        do: ["<aside>", slack_element(block["accessory"]), "</aside>"],
+        else: ""
+      ),
+      "</div>"
+    ]
+  end
+
+  defp slack_block(%{"type" => "actions", "elements" => elements}) do
+    ["<div class=\"slack-block slack-actions\">", Enum.map(elements, &slack_element/1), "</div>"]
+  end
+
+  defp slack_block(%{"type" => "header", "text" => text}),
+    do: ["<div class=\"slack-block slack-header\">", slack_text(text), "</div>"]
+
+  defp slack_block(%{"type" => "context", "elements" => elements}),
+    do: ["<div class=\"slack-block slack-context\">", Enum.map(elements, &slack_text/1), "</div>"]
+
+  defp slack_block(%{"type" => "divider"}), do: "<hr class=\"slack-divider\">"
+
+  defp slack_block(%{"type" => "input", "label" => label, "element" => element}),
+    do: [
+      "<label class=\"slack-block slack-input\"><span>",
+      slack_text(label),
+      "</span>",
+      slack_element(element),
+      "</label>"
+    ]
+
+  defp slack_block(block),
+    do: [
+      "<div class=\"slack-block slack-unknown\"><code>",
+      escape(inspect(block)),
+      "</code></div>"
+    ]
+
+  defp slack_fields(nil), do: ""
+
+  defp slack_fields(fields),
+    do: ["<div class=\"slack-fields\">", Enum.map(fields, &slack_text/1), "</div>"]
+
+  defp slack_text(%{"text" => text}), do: ["<span class=\"slack-text\">", escape(text), "</span>"]
+
+  defp slack_text(text) when is_binary(text),
+    do: ["<span class=\"slack-text\">", escape(text), "</span>"]
+
+  defp slack_text(_text), do: ""
+
+  defp slack_element(%{"type" => "button"} = element) do
+    label = get_in(element, ["text", "text"]) || "Button"
+    confirmation = element["confirm"]
+
+    [
+      "<button class=\"slack-button",
+      if(element["style"], do: [" ", escape(element["style"])], else: ""),
+      "\" type=\"button\" disabled>",
+      escape(label),
+      if(element["url"], do: " ↗", else: ""),
+      "</button>",
+      if(confirmation,
+        do: [
+          "<details class=\"slack-confirm\"><summary>Confirmation</summary><strong>",
+          slack_text(confirmation["title"]),
+          "</strong>",
+          slack_text(confirmation["text"]),
+          "<small>",
+          slack_text(confirmation["confirm"]),
+          " · ",
+          slack_text(confirmation["deny"]),
+          "</small></details>"
+        ],
+        else: ""
+      )
+    ]
+  end
+
+  defp slack_element(%{"type" => "overflow", "options" => options}) do
+    [
+      "<span class=\"slack-overflow\">More · ",
+      Enum.map_join(options, " · ", &get_in(&1, ["text", "text"])),
+      "</span>"
+    ]
+  end
+
+  defp slack_element(%{"type" => "plain_text_input"} = element) do
+    ["<textarea disabled rows=\"3\">", escape(element["initial_value"] || ""), "</textarea>"]
+  end
+
+  defp slack_element(element),
+    do: ["<code class=\"slack-element\">", escape(inspect(element)), "</code>"]
+
+  defp card_lab_path(card_id, state_id),
+    do: ["/card-lab/", segment(card_id), "/", segment(state_id)]
+
   def lab_conversation(snapshot, csrf_token) do
     messages =
       case snapshot.messages do
@@ -237,11 +515,13 @@ defmodule Responder.ControlPlane.HTML do
         "Slack threads, cards, and emoji",
         enabled["slack"],
         [
+          "Open Slack Card Lab first; walk every family and state, inspect confirmation copy and raw Block Kit, then leave state-scoped feedback without posting to Slack.",
           "Mention Responder in an approved test channel; confirm the reply stays in the exact thread.",
           "Request a task: confirm the host-owned offer card, then verify status, progress repaint, Stop, and idempotent button retries.",
           "React with configured Unicode and custom emoji; confirm one normalized reaction input and no bot-loop echo.",
           "Upload a bounded attachment and create an incident room; verify authenticated fetch, audience, topic, bookmarks, and cleanup."
-        ]
+        ],
+        "/card-lab"
       ),
       journey(
         "03",
@@ -1662,7 +1942,12 @@ defmodule Responder.ControlPlane.HTML do
     .episode-stop{background:linear-gradient(120deg,#2a1717,#151114);border:1px solid #713c3b;border-radius:16px;display:grid;gap:1.1rem;grid-template-columns:46px minmax(0,1fr);margin:1rem 0;padding:1.15rem}.stop-signal{align-items:center;background:var(--danger);border-radius:50%;color:#1b0909;display:flex;font-size:1.35rem;font-weight:950;height:42px;justify-content:center;width:42px}.episode-stop h2{font-size:1.25rem;margin:.1rem 0}.episode-stop p{color:#dbbfbd;margin:.35rem 0}.stop-attempted{border-top:1px solid #563130;margin-top:.8rem;padding-top:.7rem}.stop-attempted>span,.stop-action>span{color:#bf9693;display:block;font-size:.67rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase}.stop-attempted ul{display:flex;flex-wrap:wrap;gap:.4rem;list-style:none;margin:.45rem 0 0;padding:0}.stop-attempted li{background:#321d1e;border:1px solid #603333;border-radius:999px;color:#f0cdca;font-size:.76rem;padding:.18rem .55rem}.stop-action{align-items:center;display:grid;gap:.15rem;grid-template-columns:minmax(0,1fr) auto;margin-top:.85rem}.stop-action span,.stop-action strong{grid-column:1}.stop-action .button{grid-column:2;grid-row:1/3}
     .trace-shell{background:#0b0f13;border:1px solid var(--line);border-radius:18px;margin-top:1.1rem;overflow:hidden}.trace-heading{align-items:flex-start;background:linear-gradient(110deg,#151c23,#0d1115);border-bottom:1px solid var(--line);display:flex;gap:2rem;justify-content:space-between;padding:1.4rem}.trace-heading h2{font-size:1.45rem;margin:.1rem 0}.trace-heading p:last-child{color:var(--muted);margin:.3rem 0;max-width:68ch}.trace-stats{display:flex;gap:.45rem}.trace-stats>span{background:#0a0e12;border:1px solid var(--line);border-radius:8px;color:var(--muted);display:grid;font-size:.62rem;letter-spacing:.08em;min-width:66px;padding:.45rem;text-align:center;text-transform:uppercase}.trace-stats strong{color:var(--text);font-size:1rem}.trace-chapter{padding:0 1.4rem}.trace-chapter+.trace-chapter{border-top:1px solid var(--line)}.chapter-heading{align-items:center;display:grid;gap:1rem;grid-template-columns:42px minmax(0,1fr) auto;padding:1.3rem 0 .8rem}.chapter-number{color:var(--cyan);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem;font-weight:900;letter-spacing:.12em}.chapter-heading h3{font-size:1.15rem;margin:0}.chapter-heading p{color:var(--muted);font-size:.82rem;margin:.15rem 0}.chapter-span{color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.7rem}
     .trace-rail{padding:0 0 1.25rem 20px;position:relative}.trace-rail:before{background:#33414c;bottom:1.7rem;content:"";left:26px;position:absolute;top:.55rem;width:1px}.trace-step{display:grid;gap:1rem;grid-template-columns:14px minmax(0,1fr);position:relative}.trace-step+.trace-step{margin-top:.7rem}.trace-marker{background:#6f7c87;border:3px solid #0b0f13;border-radius:50%;height:13px;margin-top:1.1rem;position:relative;width:13px;z-index:1}.trace-step.tone-good .trace-marker{background:var(--accent)}.trace-step.tone-warn .trace-marker{background:var(--warning)}.trace-step.tone-bad .trace-marker{background:var(--danger)}.trace-card{background:#11171d;border:1px solid #293640;border-radius:11px;padding:.85rem 1rem}.trace-step.tone-good .trace-card{border-left-color:#6c8e2e}.trace-step.tone-warn .trace-card{border-left-color:#8d6c25}.trace-step.tone-bad .trace-card{border-left-color:#994743}.trace-card-head{align-items:center;display:flex;gap:1rem;justify-content:space-between}.trace-labels,.trace-time{align-items:center;display:flex;flex-wrap:wrap;gap:.4rem}.trace-stage,.trace-state{border:1px solid #3b4853;border-radius:999px;color:#aab6c0;font-size:.62rem;font-weight:900;letter-spacing:.08em;padding:.15rem .45rem;text-transform:uppercase}.trace-state{border-color:#365364;color:var(--cyan)}.trace-time{color:#788590;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.66rem}.trace-card h4{font-size:1rem;margin:.55rem 0 .15rem}.trace-card h4 a{color:var(--text)}.trace-card>p{color:#bdc6ce;margin:.2rem 0}.trace-byline{color:#7f8c97;font-size:.68rem;font-weight:800;letter-spacing:.08em;margin-top:.5rem;text-transform:uppercase}.trace-details{border-top:1px solid #293640;margin-top:.7rem;padding-top:.55rem}.trace-details summary{color:#9facb7;cursor:pointer;font-size:.7rem;font-weight:800;letter-spacing:.05em}.trace-details dl{font-size:.74rem;grid-template-columns:minmax(100px,max-content) minmax(0,1fr);margin:.65rem 0 .15rem}.trace-details dd{color:#d2dae1;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.trace-empty{color:var(--muted);padding:1.4rem}.tone-good .trace-state{border-color:#536d29;color:var(--accent)}.tone-warn .trace-state{border-color:#715a2a;color:var(--warning)}.tone-bad .trace-state{border-color:#743a39;color:var(--danger)}
-    @media(max-width:760px){header,main{padding-left:1rem;padding-right:1rem}.lab-hero,.lab-heading,.episode-hero,.episode-actions,.trace-heading{align-items:stretch;flex-direction:column}.episode-action-buttons{justify-content:flex-start}.lab-stream{grid-template-columns:1fr}.custody-strip{border-left:0;border-top:1px solid var(--line)}.message{max-width:96%}.composer-actions{align-items:stretch;flex-direction:column}.journey-grid{grid-template-columns:1fr}.search-form{grid-template-columns:1fr}.episode-state{min-width:0}.trace-stats{align-self:stretch}.trace-stats>span{flex:1}.chapter-heading{align-items:start;grid-template-columns:32px minmax(0,1fr)}.chapter-span{grid-column:2}.trace-chapter{padding:0 .85rem}.trace-rail{padding-left:10px}.trace-rail:before{left:16px}.trace-card-head{align-items:flex-start;flex-direction:column}.stop-action{grid-template-columns:1fr}.stop-action .button{grid-column:1;grid-row:auto;margin-top:.6rem;text-align:center}}
+    .card-lab-hero{align-items:end;background:linear-gradient(125deg,#16252b 0,#101419 58%,#1d2411 100%);border:1px solid #3b4a43;border-radius:20px;display:flex;gap:2rem;justify-content:space-between;overflow:hidden;padding:clamp(1.3rem,4vw,2.4rem);position:relative}.card-lab-hero:after{background:linear-gradient(90deg,var(--cyan),var(--accent));bottom:0;content:"";height:2px;left:0;position:absolute;width:100%}.card-lab-hero h2{font-size:clamp(1.5rem,3vw,2.35rem);margin:.1rem 0}.card-lab-hero p:last-child{color:#b9c5cb;max-width:74ch}.card-lab-totals{display:grid;grid-template-columns:auto auto;line-height:1;min-width:150px}.card-lab-totals strong{color:var(--accent);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:1.7rem;padding:.25rem .6rem;text-align:right}.card-lab-totals span{color:var(--muted);font-size:.68rem;font-weight:900;letter-spacing:.09em;padding:.65rem 0;text-transform:uppercase}
+    .card-lab-shell{background:#0b0f13;border:1px solid var(--line);border-radius:18px;display:grid;grid-template-columns:190px minmax(0,1fr) 270px;margin-top:1rem;min-height:760px;overflow:hidden}.card-lab-catalog{background:#090c10;border-right:1px solid var(--line)}.card-lab-panel-head{border-bottom:1px solid var(--line);display:grid;padding:1rem}.card-lab-panel-head span{font-size:.74rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase}.card-lab-panel-head small{color:var(--muted)}.card-lab-catalog ul{list-style:none;margin:0;padding:0}.card-lab-catalog li{border-bottom:1px solid #1f272e}.card-lab-catalog li.selected{background:#172026;box-shadow:inset 3px 0 var(--accent)}.card-lab-catalog a{display:grid;padding:.75rem .85rem;text-decoration:none}.card-lab-catalog a span{color:#e9edf0;font-size:.82rem;font-weight:750}.card-lab-catalog a small{color:#74818b;font-size:.64rem;letter-spacing:.03em;margin-top:.15rem;text-transform:uppercase}.card-lab-stage{min-width:0;padding:1rem}.card-lab-stage-head{align-items:start;display:flex;gap:1rem;justify-content:space-between}.card-lab-stage-head h2{font-size:1.35rem;margin:.05rem 0}.card-lab-stage-head p:last-child{color:var(--muted);font-size:.8rem;margin:.25rem 0;max-width:58ch}.card-lab-state-count{border:1px solid #3b4a54;border-radius:999px;color:var(--cyan);font-size:.65rem;font-weight:900;padding:.25rem .55rem;white-space:nowrap}.card-lab-state-tabs{display:flex;flex-wrap:nowrap;gap:.35rem;margin:.9rem -1rem 0;overflow:auto;padding:.7rem 1rem}.card-lab-state-tabs a{background:#13191e;border:1px solid #2d3942;border-radius:999px;color:#aab5bd;font-size:.69rem;padding:.28rem .55rem;text-decoration:none;white-space:nowrap}.card-lab-state-tabs a[aria-current=page]{background:#28351c;border-color:#5c7532;color:var(--accent)}.card-lab-current{align-items:start;border-left:2px solid var(--cyan);display:flex;gap:1rem;justify-content:space-between;margin:.4rem 0 1rem;padding:.2rem 0 .2rem .75rem}.card-lab-current span{color:var(--muted);font-size:.62rem;font-weight:900;letter-spacing:.09em;text-transform:uppercase}.card-lab-current h3{font-size:1.02rem;margin:.05rem 0}.card-lab-current p{color:#aab4bc;font-size:.76rem;margin:.15rem 0}.card-lab-current code{color:#71808b;font-size:.65rem;max-width:48%;overflow-wrap:anywhere;text-align:right}
+    .slack-canvas{background:#f8f8f8;border:1px solid #d5d5d5;border-radius:12px;color:#1d1c1d;min-height:260px;overflow:hidden}.slack-chrome{align-items:center;background:#3f0e40;color:#fff;display:flex;font-size:.75rem;gap:.8rem;padding:.65rem .8rem}.slack-chrome small{margin-left:auto;opacity:.65}.slack-dots{display:flex;gap:.3rem}.slack-dots i{background:#eb5a46;border-radius:50%;display:block;height:8px;width:8px}.slack-dots i:nth-child(2){background:#f5bf4f}.slack-dots i:nth-child(3){background:#57c353}.slack-message-preview{display:grid;gap:.65rem;grid-template-columns:36px minmax(0,1fr);padding:1rem}.slack-avatar{align-items:center;background:linear-gradient(145deg,#1264a3,#2eb67d);border-radius:8px;color:#fff;display:flex;font-size:1rem;font-weight:900;height:36px;justify-content:center;width:36px}.slack-message-content>header,.slack-feedback-list header{align-items:center;background:none;border:0;display:flex;gap:.4rem;padding:0;position:static}.slack-message-content>header span{background:#e8e8e8;border-radius:3px;color:#5b5b5b;font-size:.58rem;font-weight:800;padding:.05rem .25rem}.slack-message-content>header time{color:#777;font-size:.68rem}.slack-block{margin:.45rem 0}.slack-text,.slack-markdown{display:block;font-size:.86rem;overflow-wrap:anywhere;white-space:pre-wrap}.slack-section{align-items:start;display:flex;gap:.75rem;justify-content:space-between}.slack-section aside{flex:0 0 auto}.slack-header{font-size:1.15rem;font-weight:900}.slack-context{color:#616061;display:flex;flex-wrap:wrap;font-size:.72rem;gap:.4rem}.slack-divider{border:0;border-top:1px solid #ddd;margin:.7rem 0}.slack-actions{display:flex;flex-wrap:wrap;gap:.45rem}.slack-button{background:#fff;border:1px solid #b7b7b7;border-radius:4px;color:#1d1c1d;font-size:.73rem;padding:.35rem .6rem}.slack-button.primary{background:#007a5a;border-color:#007a5a;color:#fff}.slack-button.danger{color:#e01e5a}.slack-button:disabled{cursor:default;opacity:1}.slack-confirm{background:#f1f1f1;border:1px solid #ddd;border-radius:5px;font-size:.68rem;padding:.25rem .4rem}.slack-confirm summary{cursor:pointer;font-weight:800}.slack-confirm .slack-text{font-size:.68rem;margin:.2rem 0}.slack-overflow{border:1px solid #b7b7b7;border-radius:4px;font-size:.7rem;padding:.37rem .55rem}.slack-fields{display:grid;gap:.3rem;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:.4rem}.slack-input{display:grid;gap:.3rem;font-weight:700}.slack-input textarea{border:1px solid #aaa;border-radius:4px;color:#333;padding:.45rem;resize:none;width:100%}.slack-fallback{background:#eee;border-top:1px solid #d6d6d6;display:grid;font-size:.65rem;padding:.5rem .8rem}.slack-fallback span{color:#666;overflow-wrap:anywhere}.thread-status-canvas{padding:1rem}.slack-thread-head{align-items:center;display:flex;gap:.6rem}.slack-thread-head div{display:grid}.slack-thread-head small{color:#777;font-size:.65rem}.slack-thread-status{align-items:center;background:#fff;border:1px solid #ddd;border-radius:6px;display:flex;font-size:.75rem;gap:.45rem;margin:1rem 0 0 2.8rem;padding:.55rem .7rem}.slack-thread-status.clear{color:#777}.status-pulse{background:#2eb67d;border-radius:50%;height:8px;width:8px}.clear .status-pulse{background:#aaa}
+    .card-lab-json{background:#090d11;border:1px solid var(--line);border-radius:10px;margin-top:.8rem}.card-lab-json summary{color:#9eabb5;cursor:pointer;font-size:.72rem;font-weight:800;letter-spacing:.06em;padding:.65rem .8rem;text-transform:uppercase}.card-lab-json pre{border-top:1px solid var(--line);color:#c8d8e3;font-size:.68rem;margin:0;max-height:520px;overflow:auto;padding:.8rem;white-space:pre-wrap}.card-lab-inspector{background:#0e1317;border-left:1px solid var(--line);padding:1rem}.card-lab-inspector>section+section{border-top:1px solid var(--line);margin-top:1.25rem;padding-top:1.25rem}.card-lab-inspector h2{font-size:1rem;margin:.1rem 0}.card-lab-inspector>section>p:not(.eyebrow){color:#98a4ad;font-size:.75rem}.card-lab-transitions{display:grid;gap:.45rem;margin-top:.7rem}.card-lab-transitions form{margin:0}.card-lab-transitions button{align-items:center;background:#172128;border:1px solid #354550;color:#dce6eb;display:flex;justify-content:space-between;text-align:left;width:100%}.card-lab-transitions button small{color:var(--cyan);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.61rem}.card-lab-empty{color:#788690;font-size:.72rem}.card-lab-feedback-form{display:grid;gap:.7rem}.card-lab-feedback-form fieldset{border:0;display:flex;flex-wrap:wrap;gap:.35rem;margin:0;padding:0}.card-lab-feedback-form legend,.card-lab-feedback-form>label{color:#aeb8c0;font-size:.7rem;font-weight:800;margin-bottom:.35rem;text-transform:uppercase}.card-lab-feedback-form fieldset label{background:#171e23;border:1px solid #303c45;border-radius:999px;font-size:.68rem;padding:.22rem .4rem}.card-lab-feedback-form textarea{background:#080c0f;border:1px solid #3a4652;border-radius:8px;color:var(--text);font:inherit;margin-top:.35rem;padding:.6rem;resize:vertical;width:100%}.card-lab-feedback-list{display:grid;gap:.5rem;margin-top:1rem}.card-lab-feedback-list article{background:#11181d;border:1px solid #2d3942;border-left:2px solid var(--cyan);border-radius:7px;padding:.6rem}.card-lab-feedback-list article[data-verdict=needs_work]{border-left-color:var(--warning)}.card-lab-feedback-list article[data-verdict=approved]{border-left-color:var(--accent)}.card-lab-feedback-list article header{align-items:center;background:none;border:0;display:flex;justify-content:space-between;padding:0;position:static}.card-lab-feedback-list article strong{font-size:.66rem;text-transform:uppercase}.card-lab-feedback-list article time,.card-lab-feedback-list article small{color:#74818b;font-size:.59rem}.card-lab-feedback-list article p{font-size:.75rem;margin:.35rem 0;white-space:pre-wrap}
+    @media(max-width:980px){.card-lab-shell{grid-template-columns:160px minmax(0,1fr)}.card-lab-inspector{border-left:0;border-top:1px solid var(--line);grid-column:1/-1;display:grid;gap:1.5rem;grid-template-columns:1fr 1fr}.card-lab-inspector>section+section{border-left:1px solid var(--line);border-top:0;margin:0;padding:0 0 0 1.5rem}}
+    @media(max-width:760px){header,main{padding-left:1rem;padding-right:1rem}.lab-hero,.lab-heading,.episode-hero,.episode-actions,.trace-heading,.card-lab-hero{align-items:stretch;flex-direction:column}.episode-action-buttons{justify-content:flex-start}.lab-stream{grid-template-columns:1fr}.custody-strip{border-left:0;border-top:1px solid var(--line)}.message{max-width:96%}.composer-actions{align-items:stretch;flex-direction:column}.journey-grid{grid-template-columns:1fr}.search-form{grid-template-columns:1fr}.episode-state{min-width:0}.trace-stats{align-self:stretch}.trace-stats>span{flex:1}.chapter-heading{align-items:start;grid-template-columns:32px minmax(0,1fr)}.chapter-span{grid-column:2}.trace-chapter{padding:0 .85rem}.trace-rail{padding-left:10px}.trace-rail:before{left:16px}.trace-card-head{align-items:flex-start;flex-direction:column}.stop-action{grid-template-columns:1fr}.stop-action .button{grid-column:1;grid-row:auto;margin-top:.6rem;text-align:center}.card-lab-shell{display:block}.card-lab-catalog{border-bottom:1px solid var(--line);border-right:0;max-height:230px;overflow:auto}.card-lab-inspector{display:block}.card-lab-inspector>section+section{border-left:0;border-top:1px solid var(--line);margin-top:1.25rem;padding:1.25rem 0 0}.card-lab-current{display:grid}.card-lab-current code{max-width:none;text-align:left}.slack-fields{grid-template-columns:1fr}}
     """
   end
 

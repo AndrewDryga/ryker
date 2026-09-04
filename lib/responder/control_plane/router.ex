@@ -4,7 +4,7 @@ defmodule Responder.ControlPlane.Router do
   import Plug.Conn
 
   alias Plug.Conn.Query
-  alias Responder.ControlPlane.{CSRF, HTML}
+  alias Responder.ControlPlane.{CardLab, CSRF, HTML}
 
   @behaviour Plug
   @maximum_form_bytes 4_096
@@ -20,6 +20,8 @@ defmodule Responder.ControlPlane.Router do
   @lab_message_action "conversation_lab:message"
   @lab_reaction_action "conversation_lab:reaction"
   @lab_record_action "conversation_lab:record"
+  @card_lab_transition_action "card_lab:transition"
+  @card_lab_feedback_action "card_lab:feedback"
 
   @impl Plug
   def init(options) do
@@ -81,6 +83,77 @@ defmodule Responder.ControlPlane.Router do
 
       {:error, _reason} ->
         text(conn, 503, "metrics unavailable\n")
+    end
+  end
+
+  defp route(%Plug.Conn{method: "GET", path_info: ["card-lab"]} = conn, options) do
+    render_card_lab(conn, options, CardLab.default())
+  end
+
+  defp route(
+         %Plug.Conn{method: "GET", path_info: ["card-lab", card_id, state_id]} = conn,
+         options
+       ) do
+    with {:ok, card_id} <- path_ref(card_id),
+         {:ok, state_id} <- path_ref(state_id),
+         {:ok, snapshot} <- CardLab.fetch(card_id, state_id) do
+      render_card_lab(conn, options, snapshot)
+    else
+      _not_found -> html(conn, 404, "Not found", HTML.generic("Card Lab specimen", []))
+    end
+  end
+
+  defp route(
+         %Plug.Conn{
+           method: "POST",
+           path_info: ["card-lab", card_id, state_id, "transitions", transition_id]
+         } = conn,
+         options
+       ) do
+    with {:ok, card_id} <- path_ref(card_id),
+         {:ok, state_id} <- path_ref(state_id),
+         {:ok, transition_id} <- path_ref(transition_id),
+         {:ok, token, conn} <- form_token(conn),
+         resource <- card_lab_transition_resource(card_id, state_id, transition_id),
+         true <- CSRF.valid?(options.csrf_secret, @card_lab_transition_action, resource, token),
+         {:ok, snapshot} <- CardLab.transition(card_id, state_id, transition_id) do
+      conn
+      |> put_resp_header(
+        "location",
+        card_lab_path(snapshot.card.id, snapshot.state.id)
+      )
+      |> send_resp(303, "")
+      |> halt()
+    else
+      false -> text(conn, 403, "Invalid confirmation token")
+      {:error, :form} -> text(conn, 400, "Invalid form")
+      {:error, :card_lab_transition_not_found} -> text(conn, 404, "Transition not found")
+      _not_found -> text(conn, 404, "Card Lab specimen not found")
+    end
+  end
+
+  defp route(
+         %Plug.Conn{method: "POST", path_info: ["card-lab", card_id, state_id, "feedback"]} =
+           conn,
+         options
+       ) do
+    with {:ok, card_id} <- path_ref(card_id),
+         {:ok, state_id} <- path_ref(state_id),
+         {:ok, token, verdict, note, conn} <- card_lab_feedback_form(conn),
+         resource <- card_lab_feedback_resource(card_id, state_id),
+         true <- CSRF.valid?(options.csrf_secret, @card_lab_feedback_action, resource, token),
+         {:ok, _feedback} <-
+           options.actions.record_card_feedback.(card_id, state_id, verdict, note) do
+      conn
+      |> put_resp_header("location", card_lab_path(card_id, state_id) <> "#feedback")
+      |> send_resp(303, "")
+      |> halt()
+    else
+      false -> text(conn, 403, "Invalid confirmation token")
+      {:error, :form} -> text(conn, 400, "Invalid form")
+      {:error, :card_lab_specimen_not_found} -> text(conn, 404, "Card Lab specimen not found")
+      {:error, %Ecto.Changeset{}} -> text(conn, 422, "Invalid feedback")
+      {:error, _reason} -> text(conn, 409, "Feedback could not be recorded")
     end
   end
 
@@ -1272,6 +1345,21 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
+  defp card_lab_feedback_form(conn) do
+    with [content_type] <- get_req_header(conn, "content-type"),
+         true <-
+           String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
+         {:ok, body, conn} <- read_memory_form(conn),
+         %{"_token" => token, "note" => note, "verdict" => verdict} = form <-
+           Query.decode(body),
+         true <- Enum.sort(Map.keys(form)) == ["_token", "note", "verdict"],
+         true <- is_binary(token) and is_binary(note) and is_binary(verdict) do
+      {:ok, token, verdict, note, conn}
+    else
+      _invalid -> {:error, :form}
+    end
+  end
+
   defp lab_form(conn) do
     case get_req_header(conn, "content-type") do
       [content_type] -> lab_form(conn, String.downcase(content_type))
@@ -1510,6 +1598,41 @@ defmodule Responder.ControlPlane.Router do
   defp lab_reaction_action("add"), do: {:ok, :add}
   defp lab_reaction_action("remove"), do: {:ok, :remove}
   defp lab_reaction_action(_action), do: {:error, :form}
+
+  defp render_card_lab(conn, options, snapshot) do
+    feedback = options.projection.card_lab_feedback.(snapshot.card.id, snapshot.state.id)
+
+    transition_tokens =
+      Map.new(snapshot.state.transitions, fn transition ->
+        resource =
+          card_lab_transition_resource(snapshot.card.id, snapshot.state.id, transition.id)
+
+        {transition.id, CSRF.token(options.csrf_secret, @card_lab_transition_action, resource)}
+      end)
+
+    feedback_token =
+      CSRF.token(
+        options.csrf_secret,
+        @card_lab_feedback_action,
+        card_lab_feedback_resource(snapshot.card.id, snapshot.state.id)
+      )
+
+    html(
+      conn,
+      200,
+      "Slack Card Lab",
+      HTML.card_lab(snapshot, feedback, transition_tokens, feedback_token)
+    )
+  end
+
+  defp card_lab_path(card_id, state_id),
+    do:
+      "/card-lab/#{URI.encode(card_id, &URI.char_unreserved?/1)}/#{URI.encode(state_id, &URI.char_unreserved?/1)}"
+
+  defp card_lab_transition_resource(card_id, state_id, transition_id),
+    do: Enum.join([card_id, state_id, transition_id], ":")
+
+  defp card_lab_feedback_resource(card_id, state_id), do: "#{card_id}:#{state_id}"
 
   defp action_path(kind, resource_ref, action),
     do: "/actions/#{kind}/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}/#{action}"

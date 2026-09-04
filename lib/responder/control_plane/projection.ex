@@ -10,8 +10,7 @@ defmodule Responder.ControlPlane.Projection do
   import Ecto.Query
 
   alias Responder.Artifacts.OutputArtifact
-  alias Responder.ControlPlane.Card
-  alias Responder.ControlPlane.EpisodeTrace
+  alias Responder.ControlPlane.{Card, CardLabFeedback, EpisodeTrace}
   alias Responder.Delivery.Operator, as: DeliveryOperator
   alias Responder.Delivery.PlatformAction
   alias Responder.Delivery.Reaction
@@ -41,6 +40,7 @@ defmodule Responder.ControlPlane.Projection do
       admission: &admission/1,
       audit: &audit/1,
       calibration: &calibration/1,
+      card_lab_feedback: &CardLabFeedback.list/2,
       channel: &channel/2,
       channels: &channels/1,
       configuration: &configuration/0,

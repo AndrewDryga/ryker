@@ -15,6 +15,21 @@ defmodule Responder.Slack.ThreadStatusProjection do
   @recent_terminal_seconds 24 * 60 * 60
   @maximum_rows 1_000
 
+  @doc false
+  @spec phases() :: [atom()]
+  def phases,
+    do: [
+      :blocked,
+      :admitting,
+      :admission_retry,
+      :queued,
+      :delivery,
+      :working,
+      :waiting_for_input,
+      :waiting_for_event,
+      :clear
+    ]
+
   @spec snapshot(String.t()) :: {:ok, [map()]} | {:error, term()}
   def snapshot(workspace_ref) when is_binary(workspace_ref) and workspace_ref != "" do
     cutoff = DateTime.add(DateTime.utc_now(), -@recent_terminal_seconds, :second)
