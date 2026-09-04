@@ -771,9 +771,11 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp redact_activity_value(value) when is_binary(value), do: scrub_url(value)
   defp redact_activity_value(value), do: value
 
-  defp sensitive_key?(key),
+  defp sensitive_key?(key) when is_atom(key) or is_binary(key),
     do:
       Regex.match?(~r/(?:authorization|cookie|credential|password|secret|token)/i, to_string(key))
+
+  defp sensitive_key?(_key), do: false
 
   defp scrub_url(value) do
     case URI.parse(value) do
@@ -1813,7 +1815,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   defp secret_values(%{} = value, inherited?) do
     Enum.flat_map(value, fn {key, nested} ->
-      secret? = inherited? or sensitive_key?(key) or to_string(key) == "secrets"
+      secret? = inherited? or sensitive_key?(key) or key in [:secrets, "secrets"]
       secret_values(nested, secret?)
     end)
   end
