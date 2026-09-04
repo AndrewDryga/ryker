@@ -37,6 +37,8 @@ defmodule Responder.Slack.API do
   @callback conversation_state(term(), String.t()) ::
               {:ok, :active | :archived} | :not_found | {:error, term()}
   @callback publish_home(term(), String.t(), map()) :: :ok | {:error, term()}
+  @callback set_thread_status(term(), String.t(), String.t(), String.t()) ::
+              :ok | {:error, term()}
 
   @optional_callbacks list_conversations: 2,
                       search_context: 3,
@@ -52,5 +54,6 @@ defmodule Responder.Slack.API do
                       pin_message: 3,
                       conversation_state: 2,
                       publish_home: 3,
+                      set_thread_status: 4,
                       update_message: 5
 end

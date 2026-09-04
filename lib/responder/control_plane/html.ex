@@ -44,7 +44,7 @@ defmodule Responder.ControlPlane.HTML do
          {"Waiting", Map.get(counts, :waiting, 0)},
          {"Blocked", Map.get(counts, :blocked, 0)},
          {"Delivery pending", Map.get(counts, :delivery_pending, 0)}
-       ] ++ fleet_cards(Map.get(snapshot, :fleet)))
+       ] ++ progress_cards(Map.get(snapshot, :progress)) ++ fleet_cards(Map.get(snapshot, :fleet)))
       |> Enum.map(fn {label, value} ->
         [
           "<article class=\"metric\"><strong>",
@@ -77,6 +77,19 @@ defmodule Responder.ControlPlane.HTML do
   end
 
   defp fleet_cards(_direct_or_missing), do: []
+
+  defp progress_cards(%{admission: admission, slack_status: slack_status}) do
+    [
+      {"Admission queued", Map.get(admission, :queued, 0)},
+      {"Admission deciding", Map.get(admission, :admitting, 0)},
+      {"Admission retrying", Map.get(admission, :retrying, 0)},
+      {"Oldest active admission", duration(Map.get(admission, :oldest_active_ms, 0))},
+      {"Slack status writes pending", Map.get(slack_status, :pending, 0)},
+      {"Oldest Slack status write", duration(Map.get(slack_status, :oldest_pending_ms, 0))}
+    ]
+  end
+
+  defp progress_cards(_missing), do: []
 
   def lab_index(items) do
     rows =

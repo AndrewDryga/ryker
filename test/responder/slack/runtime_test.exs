@@ -125,7 +125,8 @@ defmodule Responder.Slack.RuntimeTest do
                     action_tokens: %{name: ActionTokens},
                     gateway: _gateway,
                     incident_worker: incident_worker,
-                    reconciler: _reconciler
+                    reconciler: _reconciler,
+                    thread_status_worker: thread_status_worker
                   }
                 ]}
            } =
@@ -152,6 +153,8 @@ defmodule Responder.Slack.RuntimeTest do
 
     assert incident_worker.worker_ref == "slack-incident-room:T123"
     assert incident_worker.lease_seconds == 300
+    assert thread_status_worker.workspace_ref == "T123"
+    assert thread_status_worker.api == Client
   end
 
   test "work presentation follows the configured Work execution boundary" do

@@ -252,7 +252,8 @@ defmodule Responder.ProductContractsTest do
                incident_worker: %{name: :incident_worker},
                interaction_feedback_worker: %{name: :interaction_feedback_worker},
                reconciler: %{name: :reconciler},
-               task_card_worker: %{name: :task_card_worker}
+               task_card_worker: %{name: :task_card_worker},
+               thread_status_worker: %{name: :thread_status_worker}
              })
 
     assert flags.strategy == :one_for_one
@@ -263,7 +264,8 @@ defmodule Responder.ProductContractsTest do
              Responder.Slack.MembershipReconciler,
              Responder.Slack.IncidentRoomWorker,
              Responder.Slack.InteractionFeedbackWorker,
-             Responder.Slack.TaskCardWorker
+             Responder.Slack.TaskCardWorker,
+             Responder.Slack.ThreadStatusWorker
            ]
   end
 

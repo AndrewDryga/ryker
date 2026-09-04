@@ -20,6 +20,7 @@ defmodule Responder.Observability.Progress do
     schedule
     slack_incidents
     slack_interactions
+    slack_status
     slack_task_cards
     work
   )a

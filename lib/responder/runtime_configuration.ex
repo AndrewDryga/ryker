@@ -348,12 +348,14 @@ defmodule Responder.RuntimeConfiguration do
     do: raise(ArgumentError, "repositories must be a map")
 
   defp admission!(value, coop, host_ref, mode, work) do
-    object = object!(value, ~w(policy), ~w(poll_interval_ms), "admission")
+    object = object!(value, ~w(policy), ~w(decision_timeout_ms poll_interval_ms), "admission")
     policy = policy!(object["policy"], "admission.policy")
 
     configuration = %{
       policy: policy.name,
       policy_digest: policy.digest,
+      decision_timeout_ms:
+        integer!(object, "decision_timeout_ms", 30_000, 1_000, 300_000, "admission"),
       poll_interval_ms: integer!(object, "poll_interval_ms", 250, 1, 60_000, "admission"),
       receive_timeout_ms: coop.receive_timeout_ms,
       worker_ref: "#{host_ref}:admission"
@@ -866,7 +868,7 @@ defmodule Responder.RuntimeConfiguration do
       object!(
         value,
         ~w(api_url app_token_env bot_token_env default_repository identity incident_policy operators watch_channels),
-        ~w(channel_prefix handshake_timeout_ms incident_invite_users incident_private incident_room_interval_ms incident_room_reconcile_ms maximum_open_incidents membership_reconcile_ms receive_timeout_ms reconnect_ms task_card_interval_ms task_card_reconcile_ms),
+        ~w(channel_prefix handshake_timeout_ms incident_invite_users incident_private incident_room_interval_ms incident_room_reconcile_ms maximum_open_incidents membership_reconcile_ms receive_timeout_ms reconnect_ms task_card_interval_ms task_card_reconcile_ms thread_status_interval_ms),
         "slack"
       )
 
@@ -936,6 +938,8 @@ defmodule Responder.RuntimeConfiguration do
           integer!(object, "task_card_interval_ms", 1_000, 1, 86_400_000, "slack"),
         task_card_reconcile_ms:
           integer!(object, "task_card_reconcile_ms", 2_000, 1_000, 86_400_000, "slack"),
+        thread_status_interval_ms:
+          integer!(object, "thread_status_interval_ms", 1_000, 50, 60_000, "slack"),
         watch_channels: references!(object["watch_channels"], "slack.watch_channels")
       }
 

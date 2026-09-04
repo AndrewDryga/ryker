@@ -21,6 +21,7 @@ defmodule Responder.Admission.Executor do
   @spec run(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(input_ref, options) do
     with {:ok, settings} <- settings(options),
+         {:ok, settings} <- start_deadline(settings),
          :ok <- renew_lease(settings),
          {:ok, entry} <- Inbox.fetch(input_ref),
          {:ok, entry, context} <- execution_context(input_ref, entry, settings),
@@ -299,9 +300,8 @@ defmodule Responder.Admission.Executor do
          left
        )
        when state in @operation_waiting_states and left > 0 do
-    with :ok <- renew_lease(settings) do
-      settings.sleep.(settings.poll_interval_ms)
-
+    with :ok <- renew_lease(settings),
+         :ok <- poll_wait(settings, :operation) do
       case settings.api.operation_by_key(settings.client, key) do
         {:ok, operation} ->
           operation_resource(operation, type, method, key, settings, left - 1)
@@ -416,9 +416,8 @@ defmodule Responder.Admission.Executor do
     do: {:error, {:coop_protocol_error, :turn_state}}
 
   defp poll_decision(turn, context, entry, settings, left) do
-    settings.sleep.(settings.poll_interval_ms)
-
-    with {:ok, current} <-
+    with :ok <- poll_wait(settings, :turn),
+         {:ok, current} <-
            settings.api.get_turn(settings.client, turn["session_id"], turn["id"]),
          {:ok, current} <- validate_turn(current, turn["session_id"], turn["id"]) do
       await_decision(current, context, entry, settings, left - 1)
@@ -666,7 +665,9 @@ defmodule Responder.Admission.Executor do
       :continuation_window,
       :history_window,
       :lease_ref,
+      :maximum_elapsed_ms,
       :max_polls,
+      :monotonic_ms,
       :now,
       :policy,
       :policy_digest,
@@ -687,7 +688,10 @@ defmodule Responder.Admission.Executor do
         continuation_window: Keyword.get(options, :continuation_window, 30 * 60),
         history_window: Keyword.get(options, :history_window, 30 * 24 * 60 * 60),
         lease_ref: Keyword.fetch!(options, :lease_ref),
+        maximum_elapsed_ms: Keyword.get(options, :maximum_elapsed_ms, 30_000),
         max_polls: Keyword.get(options, :max_polls, 600),
+        monotonic_ms:
+          Keyword.get(options, :monotonic_ms, fn -> System.monotonic_time(:millisecond) end),
         now: Keyword.get(options, :now, &DateTime.utc_now/0),
         policy: Keyword.fetch!(options, :policy),
         policy_digest: Keyword.fetch!(options, :policy_digest),
@@ -729,7 +733,9 @@ defmodule Responder.Admission.Executor do
          :ok <- executor_value(positive?(settings.candidate_limit), :candidate_limit),
          :ok <- executor_value(positive?(settings.continuation_window), :continuation_window),
          :ok <- valid_history_window(settings),
+         :ok <- executor_value(positive?(settings.maximum_elapsed_ms), :maximum_elapsed_ms),
          :ok <- executor_value(positive?(settings.max_polls), :max_polls),
+         :ok <- executor_value(is_function(settings.monotonic_ms, 0), :monotonic_ms),
          :ok <-
            executor_value(
              is_function(settings.settle_execution_session, 2),
@@ -750,6 +756,30 @@ defmodule Responder.Admission.Executor do
 
   defp valid_poll_interval(value) do
     executor_value(is_integer(value) and value >= 0, :poll_interval_ms)
+  end
+
+  defp start_deadline(settings) do
+    case settings.monotonic_ms.() do
+      now when is_integer(now) ->
+        {:ok, Map.put(settings, :deadline_ms, now + settings.maximum_elapsed_ms)}
+
+      _invalid ->
+        {:error, {:invalid_admission_executor, :monotonic_ms}}
+    end
+  end
+
+  defp poll_wait(settings, phase) do
+    remaining = settings.deadline_ms - settings.monotonic_ms.()
+
+    if remaining <= 0 do
+      {:error, {:coop_timeout, phase}}
+    else
+      settings.sleep.(min(settings.poll_interval_ms, remaining))
+
+      if settings.monotonic_ms.() >= settings.deadline_ms,
+        do: {:error, {:coop_timeout, phase}},
+        else: :ok
+    end
   end
 
   defp valid_digest?(value),

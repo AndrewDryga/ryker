@@ -128,6 +128,22 @@ defmodule Responder.Slack.Client do
   end
 
   @impl true
+  def set_thread_status(client, channel, thread_ref, status) do
+    with :ok <- slack_id(channel),
+         :ok <- message_timestamp(thread_ref),
+         :ok <- thread_status(status),
+         {:ok, response} <-
+           request(client, :post, "/assistant.threads.setStatus", %{
+             "channel_id" => channel,
+             "status" => status,
+             "thread_ts" => thread_ref
+           }),
+         {:ok, _body} <- slack_response(response) do
+      :ok
+    end
+  end
+
+  @impl true
   def publish_home(client, user_ref, view) do
     with :ok <- slack_id(user_ref),
          :ok <- home_view(view),
@@ -1207,6 +1223,13 @@ defmodule Responder.Slack.Client do
          byte_size(value) <= maximum,
        do: :ok,
        else: {:error, {:invalid_slack_api_request, :text}}
+  end
+
+  defp thread_status(value) do
+    if is_binary(value) and String.valid?(value) and byte_size(value) <= 100 and
+         :binary.match(value, <<0>>) == :nomatch,
+       do: :ok,
+       else: {:error, {:invalid_slack_api_request, :thread_status}}
   end
 
   defp conversation_name(value) do

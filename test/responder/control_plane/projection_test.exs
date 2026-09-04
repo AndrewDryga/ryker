@@ -4,11 +4,44 @@ defmodule Responder.ControlPlane.ProjectionTest do
   alias Responder.ControlPlane.Projection
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.Ingress.Inbox
   alias Responder.Retention.Custody, as: RetentionCustody
+  alias Responder.Slack.Input, as: SlackInput
   alias Responder.State.Records
   alias Responder.Work.{Cancellation, Custody, Measurement, Result, SubmissionBuilder}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
+
+  test "overview exposes admission phase counts and elapsed queue time" do
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: "C456",
+               content: %{"text" => "Show admission timing"},
+               event_kind: :message,
+               event_ref: "Ev-control-admission-timing",
+               message_ref: "1787832099.000100",
+               occurred_at: DateTime.utc_now(),
+               revision: 1,
+               thread_ref: nil,
+               workspace_ref: "T123"
+             })
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+
+    assert %{progress: %{admission: queued}} = Projection.overview()
+    assert queued.queued == 1
+    assert queued.admitting == 0
+    assert is_integer(queued.oldest_active_ms) and queued.oldest_active_ms >= 0
+
+    claim_now = DateTime.add(DateTime.utc_now(), 1, :second)
+    assert {:ok, %{entry: claimed}} = Inbox.claim_next("control:timing", claim_now, 30)
+    assert claimed.id == entry.id
+
+    assert %{progress: %{admission: admitting}} = Projection.overview()
+    assert admitting.queued == 0
+    assert admitting.admitting == 1
+  end
 
   test "projects bounded lifecycle metadata without exposing durable input payloads" do
     target = waiting_episode!("control:100%_literal", "raw-secret-value")

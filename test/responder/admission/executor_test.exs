@@ -470,6 +470,29 @@ defmodule Responder.Admission.ExecutorTest do
     assert FakeAPI.state(fake).submit_count == 0
   end
 
+  test "admission polling stops at the configured elapsed budget and remains recoverable" do
+    entry = record_slack_input!("Ev-executor-elapsed-budget")
+    lease_ref = claim!(entry)
+    {:ok, fake} = FakeAPI.start_link([decision("reply")], turn_wait_polls: 100)
+    {:ok, monotonic} = Agent.start_link(fn -> 0 end)
+
+    options =
+      executor_options(fake, lease_ref)
+      |> Keyword.merge(
+        maximum_elapsed_ms: 500,
+        poll_interval_ms: 250,
+        monotonic_ms: fn -> Agent.get(monotonic, & &1) end,
+        sleep: fn milliseconds -> Agent.update(monotonic, &(&1 + milliseconds)) end
+      )
+
+    assert Executor.run(Inbox.ref(entry), options) == {:error, {:coop_timeout, :turn}}
+    assert Agent.get(monotonic, & &1) == 500
+
+    assert {:ok, pending} = Inbox.fetch(Inbox.ref(entry))
+    assert pending.status == :pending
+    assert pending.lease_ref == lease_ref
+  end
+
   test "malformed executor configuration and lease renewal fail before Coop" do
     {:ok, fake} = FakeAPI.start_link([decision("reply")])
     input_ref = "ingress-input:#{Ecto.UUID.generate()}"
@@ -503,7 +526,9 @@ defmodule Responder.Admission.ExecutorTest do
       {:candidate_limit, 0},
       {:continuation_window, 0},
       {:history_window, 1},
+      {:maximum_elapsed_ms, 0},
       {:max_polls, 0},
+      {:monotonic_ms, :not_a_clock},
       {:poll_interval_ms, -1}
     ]
 
@@ -514,6 +539,9 @@ defmodule Responder.Admission.ExecutorTest do
 
     assert Executor.run(input_ref, Keyword.put(base, :unknown, true)) ==
              {:error, {:invalid_admission_executor, :options}}
+
+    assert Executor.run(input_ref, Keyword.put(base, :monotonic_ms, fn -> :invalid end)) ==
+             {:error, {:invalid_admission_executor, :monotonic_ms}}
 
     assert Executor.run(
              input_ref,

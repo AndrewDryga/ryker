@@ -245,6 +245,11 @@ defmodule Responder.Retention.Policy do
       why: "presentation projection for a task episode"
     },
     %{
+      table: "slack_thread_statuses",
+      class: :operational,
+      why: "current generation-fenced Slack status intent, retry, and delivery receipt"
+    },
+    %{
       table: "standing_assignment_runs",
       class: :episode_history,
       why: "the account and dedupe receipt of one assignment firing"
