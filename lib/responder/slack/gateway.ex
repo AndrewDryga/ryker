@@ -21,7 +21,8 @@ defmodule Responder.Slack.Gateway do
     HomeInteraction,
     Interaction,
     MembershipTransition,
-    ReactionEvent
+    ReactionEvent,
+    Shortcut
   }
 
   @configuration_fields [
@@ -137,10 +138,7 @@ defmodule Responder.Slack.Gateway do
         handle_home_interaction(interaction, settings)
 
       :ignore ->
-        case Interaction.from_socket(envelope, settings.identity.workspace_ref, now) do
-          {:ok, interaction} -> handle_interaction(interaction, settings)
-          :ignore -> {:ack, {:ignored, :unsupported_interaction}}
-        end
+        handle_message_interaction(envelope, now, settings)
     end
   end
 
@@ -249,8 +247,40 @@ defmodule Responder.Slack.Gateway do
   end
 
   defp handle_ingress_event(normalized, settings) do
-    with {:ok, execution_mode} <- engagement_mode(normalized, settings),
-         {:ok, enriched} <- ingest_attachments(normalized, settings),
+    case engagement_mode(normalized, settings) do
+      {:ok, execution_mode} -> record_ingress(normalized, execution_mode, settings)
+      {:engaged, false} -> {:ack, {:ignored, :not_engaged}}
+      {:error, reason} -> {:retry, reason}
+    end
+  end
+
+  defp handle_message_interaction(envelope, now, settings) do
+    case Interaction.from_socket(envelope, settings.identity.workspace_ref, now) do
+      {:ok, interaction} -> handle_interaction(interaction, settings)
+      :ignore -> handle_shortcut_envelope(envelope, now, settings)
+    end
+  end
+
+  defp handle_shortcut_envelope(envelope, now, settings) do
+    case Shortcut.from_socket(envelope, settings.identity.workspace_ref, now) do
+      {:ok, normalized} -> handle_shortcut(normalized, settings)
+      :ignore -> {:ack, {:ignored, :unsupported_interaction}}
+      {:error, _reason} -> {:ack, {:ignored, :invalid_shortcut}}
+    end
+  end
+
+  defp handle_shortcut(normalized, settings) do
+    with {:ok, true} <- actor_allowed(normalized.input.actor, settings),
+         {:ok, true} <- conversation_actor_allowed(normalized.input, settings) do
+      record_ingress(normalized, :live, settings)
+    else
+      {:ok, false} -> {:ack, {:ignored, :actor_not_authorized}}
+      {:error, reason} -> {:retry, reason}
+    end
+  end
+
+  defp record_ingress(normalized, execution_mode, settings) do
+    with {:ok, enriched} <- ingest_attachments(normalized, settings),
          {:ok, work_profile} <- work_profile(enriched.input, settings),
          {:ok, receipt} <-
            settings.inbox.record(enriched.input,
@@ -260,7 +290,6 @@ defmodule Responder.Slack.Gateway do
          :ok <- remember_action_token(enriched, settings) do
       {:ack, {receipt.status, Inbox.ref(receipt.entry)}}
     else
-      {:engaged, false} -> {:ack, {:ignored, :not_engaged}}
       {:error, {:input_conflict, _details}} -> {:ack, {:ignored, :event_conflict}}
       {:error, reason} -> {:retry, reason}
     end

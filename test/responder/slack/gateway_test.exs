@@ -93,6 +93,43 @@ defmodule Responder.Slack.GatewayTest do
              Gateway.handle_envelope(envelope, settings)
   end
 
+  test "the advertised investigate shortcut is durable before Slack is acknowledged" do
+    envelope = shortcut_envelope()
+
+    assert {:ack, {:recorded, input_ref}} =
+             Gateway.handle_envelope(envelope, settings())
+
+    assert {:ok, entry} = Inbox.fetch(input_ref)
+    assert entry.source_kind == "slack"
+    assert entry.event_ref == "shortcut:env-shortcut"
+    assert entry.actor_ref == "U123"
+    assert entry.event_kind == :event
+    assert entry.source_item_ref == "1787832001.000200"
+    assert entry.destination_thread_ref == "1787832000.000100"
+    assert entry.content["slack_event_kind"] == "shortcut"
+    assert entry.content["text"] == "investigate this failure"
+    assert entry.content["files"] == []
+    assert entry.status == :pending
+
+    assert {:ack, {:duplicate, ^input_ref}} =
+             Gateway.handle_envelope(envelope, settings())
+
+    unavailable = Map.put(settings(), :inbox, UnavailableInbox)
+
+    assert Gateway.handle_envelope(shortcut_envelope("env-shortcut-retry"), unavailable) ==
+             {:retry, :database_unavailable}
+
+    unsupported =
+      put_in(
+        envelope,
+        ["payload", "callback_id"],
+        "foreign_message_shortcut"
+      )
+
+    assert Gateway.handle_envelope(unsupported, settings()) ==
+             {:ack, {:ignored, :unsupported_interaction}}
+  end
+
   test "an authorized App Home open is published before acknowledgement" do
     configured =
       settings()
@@ -670,6 +707,27 @@ defmodule Responder.Slack.GatewayTest do
         },
         "team" => %{"id" => "T123"},
         "type" => "block_actions",
+        "user" => %{"id" => "U123"}
+      },
+      "type" => "interactive"
+    }
+  end
+
+  defp shortcut_envelope(envelope_ref \\ "env-shortcut") do
+    %{
+      "envelope_id" => envelope_ref,
+      "payload" => %{
+        "callback_id" => "responder_investigate_message",
+        "channel" => %{"id" => "C456"},
+        "message" => %{
+          "files" => [],
+          "text" => "investigate this failure",
+          "thread_ts" => "1787832000.000100",
+          "ts" => "1787832001.000200",
+          "user" => "U999"
+        },
+        "team" => %{"id" => "T123"},
+        "type" => "message_action",
         "user" => %{"id" => "U123"}
       },
       "type" => "interactive"
