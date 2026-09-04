@@ -630,6 +630,7 @@ defmodule Responder.ControlPlane.RouterTest do
     assert guide.resp_body =~ "across completed episode boundaries"
     assert guide.resp_body =~ "generated image"
     assert guide.resp_body =~ "GitHub comments, reviews, and reactions"
+    assert guide.resp_body =~ "Local operator workbench"
     assert guide.resp_body =~ "Universal signed webhook"
     assert guide.resp_body =~ "X-Responder-Signature"
     assert guide.resp_body =~ "X-Responder-Item-ID"
@@ -910,6 +911,14 @@ defmodule Responder.ControlPlane.RouterTest do
     for {path, marker} <- [
           {"/memory", "Operational memory"},
           {"/configuration", "Effective host configuration"},
+          {"/incidents", "Incident rooms and local incidents"},
+          {"/incidents/incident%3Aone", "Room lifecycle"},
+          {"/schedules", "Recurring and one-shot work"},
+          {"/schedules/schedule%3Aone", "Execution history"},
+          {"/channels", "Slack conversation roster"},
+          {"/channels/T123/C456", "Conversation continuity"},
+          {"/repositories", "Repository topology and freshness"},
+          {"/calibration?window=30d", "Live model-lane calibration"},
           {"/workspaces", "Workspaces"},
           {"/decisions", "Decisions"},
           {"/findings", "Findings"},
@@ -1303,6 +1312,111 @@ defmodule Responder.ControlPlane.RouterTest do
         end,
         audit: fn _params -> [] end,
         configuration: fn -> [%{key: "runtime", value: "configured"}] end,
+        operator_configuration: fn ->
+          %{
+            grants: [
+              %{kind: "MCP tool", name: "search_slack", source: "/etc/responder.yaml"}
+            ],
+            rows: [
+              %{key: "runtime.mode", source: "/etc/responder.yaml", value: "product"}
+            ],
+            source: "/etc/responder.yaml"
+          }
+        end,
+        calibration: fn _params ->
+          %{
+            rows: [
+              %{
+                attempts: 2,
+                average_host_ms: 250,
+                average_provider_ms: 5_000,
+                average_queued_ms: 100,
+                class: "standard",
+                cost_usd: Decimal.new("0.02"),
+                costed: 2,
+                effort: "medium",
+                measured: 2,
+                model: "gpt-5.6-sol",
+                provider: "codex",
+                repair_rounds: 1,
+                target: "codex:gpt-5.6-sol/medium@work",
+                timed: 2,
+                tokens: 4_200
+              }
+            ],
+            window: "30d"
+          }
+        end,
+        channels: fn _params ->
+          [
+            %{
+              channel_ref: "C456",
+              episodes: 2,
+              incident_room: false,
+              last_at: ~U[2026-08-28 12:00:00Z],
+              membership: :joined,
+              participation: :mentions,
+              private: false,
+              repository_ref: "responder",
+              workspace_ref: "T123"
+            }
+          ]
+        end,
+        channel: fn
+          "T123", "C456" ->
+            {:ok,
+             %{
+               channel: %{
+                 alert_policy: :offer,
+                 channel_ref: "C456",
+                 channel_state: nil,
+                 configuration_revision: 2,
+                 configuration_saved_at: ~U[2026-08-28 12:00:00Z],
+                 incident_room: false,
+                 membership: :joined,
+                 participation: :mentions,
+                 private: true,
+                 repository_ref: "responder",
+                 workspace_ref: "T123"
+               },
+               episodes: [
+                 %{
+                   ref: "episode:one",
+                   state: :working,
+                   thread_ref: "1787832000.001000",
+                   updated_at: ~U[2026-08-28 12:00:00Z]
+                 }
+               ],
+               overrides: [
+                 %{
+                   revision: 2,
+                   scope: :channel,
+                   setting: :proactive,
+                   updated_at: ~U[2026-08-28 12:00:00Z],
+                   value: true
+                 }
+               ],
+               schedules: [
+                 %{
+                   next_occurrence_at: ~U[2026-08-29 09:00:00Z],
+                   ref: "schedule:one",
+                   status: :active,
+                   title: "Daily health"
+                 }
+               ],
+               summaries: [
+                 %{
+                   ref: "summary:one",
+                   repository_ref: "responder",
+                   thread_ref: "1787832000.001000",
+                   updated_at: ~U[2026-08-28 12:00:00Z]
+                 }
+               ]
+             }}
+
+          _workspace, _channel ->
+            :not_found
+        end,
         decisions: fn _params -> [] end,
         delivery: fn
           "delivery:one" ->
@@ -1431,6 +1545,67 @@ defmodule Responder.ControlPlane.RouterTest do
            ]}
         end,
         findings: fn _params -> [] end,
+        incidents: fn _params ->
+          [
+            %{
+              channel_ref: "CINCIDENT",
+              channel_state: :active,
+              episode_ref: "episode:incident",
+              private: true,
+              publication_ref: nil,
+              publication_status: nil,
+              ref: "incident:one",
+              repository_ref: "responder",
+              status: :ready,
+              title: "Investigate latency",
+              updated_at: ~U[2026-08-28 12:00:00Z],
+              workspace_ref: "T123"
+            }
+          ]
+        end,
+        incident: fn
+          "incident:one" ->
+            {:ok,
+             %{
+               lifecycle: [
+                 %{
+                   channel_ref: "CINCIDENT",
+                   kind: :joined,
+                   occurred_at: ~U[2026-08-28 12:00:00Z]
+                 }
+               ],
+               publication: %{
+                 branch_ref: "responder/operator-incident",
+                 commit_sha: String.duplicate("a", 40),
+                 last_error: "stored diagnostic sha256:abc123",
+                 pr_number: 42,
+                 pr_url: "https://github.example/emisar/responder/pull/42",
+                 ref: "publication:incident",
+                 repository: "responder",
+                 status: :blocked,
+                 updated_at: ~U[2026-08-28 12:00:00Z]
+               },
+               records: [],
+               room: %{
+                 channel_ref: "CINCIDENT",
+                 channel_state: :active,
+                 episode_ref: "episode:incident",
+                 private: true,
+                 ref: "incident:one",
+                 repository_ref: "responder",
+                 requested_at: ~U[2026-08-28 11:55:00Z],
+                 source_channel_ref: "C456",
+                 source_episode_ref: "episode:one",
+                 status: :ready,
+                 title: "Investigate latency",
+                 updated_at: ~U[2026-08-28 12:00:00Z],
+                 workspace_ref: "T123"
+               }
+             }}
+
+          _ref ->
+            :not_found
+        end,
         lab_artifact: fn
           "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
           "018f3ef7-1f62-7ee0-a83c-0c12f21d83e9",
@@ -1806,6 +1981,95 @@ defmodule Responder.ControlPlane.RouterTest do
             counts: %{active: 3, blocked: 1, delivery_pending: 1, waiting: 1},
             needs_attention: [%{kind: :blocked_work, ref: "episode:one", title: "Blocked work"}]
           }
+        end,
+        repositories: fn _params ->
+          [
+            %{
+              channels: 1,
+              configured: %{contributor_policy: "responder-write"},
+              freshness: %{
+                fetched_at: "2026-08-28T11:59:00Z",
+                recorded_at: ~U[2026-08-28 12:00:00Z],
+                remote_identity: "origin",
+                requested_revision: "refs/heads/main",
+                resolved_revision: String.duplicate("a", 40),
+                stale_base_revision: nil,
+                stale_base_status: "current",
+                version: 2,
+                workspace_base_revision: String.duplicate("a", 40)
+              },
+              publications: 0,
+              ref: "responder",
+              schedules: 1,
+              sessions: 2,
+              workers: [
+                %{
+                  last_seen_at: ~U[2026-08-28 12:00:00Z],
+                  revision: "commit:abc123",
+                  state: :eligible,
+                  worker_ref: "coop-worker-one"
+                }
+              ]
+            }
+          ]
+        end,
+        schedules: fn _params ->
+          [
+            %{
+              authority: :read_only,
+              catch_up: :latest,
+              destination_conversation_ref: "slack:T123:C456",
+              destination_transport: "slack",
+              failures: 0,
+              next_occurrence_at: ~U[2026-08-29 09:00:00Z],
+              ref: "schedule:one",
+              repository: "responder",
+              status: :active,
+              timezone: "UTC",
+              title: "Daily health",
+              updated_at: ~U[2026-08-28 12:00:00Z]
+            }
+          ]
+        end,
+        schedule: fn
+          "schedule:one" ->
+            {:ok,
+             %{
+               occurrences: [
+                 %{
+                   episode_ref: "episode:one",
+                   missed_reason: nil,
+                   ref: "occurrence:one",
+                   scheduled_for: ~U[2026-08-28 09:00:00Z],
+                   status: :dispatched
+                 }
+               ],
+               schedule: %{
+                 authority: :read_only,
+                 catch_up: :latest,
+                 confirmed_at: ~U[2026-08-27 12:00:00Z],
+                 destination_conversation_ref: "slack:T123:C456",
+                 destination_thread_ref: "1787832000.001000",
+                 destination_transport: "slack",
+                 expires_at: nil,
+                 failure_count: 0,
+                 last_error: nil,
+                 next_occurrence_at: ~U[2026-08-29 09:00:00Z],
+                 recurrence: "daily at 09:00:00",
+                 ref: "schedule:one",
+                 repository: "responder",
+                 revision: 1,
+                 source_episode_ref: "episode:one",
+                 status: :active,
+                 task: "Check current health.",
+                 timezone: "UTC",
+                 title: "Daily health",
+                 updated_at: ~U[2026-08-28 12:00:00Z]
+               }
+             }}
+
+          _ref ->
+            :not_found
         end,
         usage: fn _params ->
           %{

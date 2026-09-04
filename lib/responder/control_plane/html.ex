@@ -5,12 +5,17 @@ defmodule Responder.ControlPlane.HTML do
     {"Overview", "/"},
     {"Conversation Lab", "/lab"},
     {"Episodes", "/episodes"},
+    {"Incidents", "/incidents"},
+    {"Schedules", "/schedules"},
+    {"Channels", "/channels"},
+    {"Repositories", "/repositories"},
     {"Failures", "/failures"},
     {"Workspaces", "/workspaces"},
     {"Decisions", "/decisions"},
     {"Findings", "/findings"},
     {"Audit", "/audit"},
     {"Memory", "/memory"},
+    {"Model calibration", "/calibration"},
     {"Usage", "/usage"},
     {"Configuration", "/configuration"},
     {"Test journeys", "/manual-tests"}
@@ -283,6 +288,18 @@ defmodule Responder.ControlPlane.HTML do
           "Restore a database dump into a disposable database and boot the same release against it."
         ]
       ),
+      journey(
+        "07",
+        "Local operator workbench",
+        enabled["control_plane"],
+        [
+          "Open Incidents and verify a room links to its source and investigation episodes, lifecycle observations, evidence records, and sanitized publication state.",
+          "Open Schedules and verify recurrence, authority, destination, next occurrence, and dispatched or missed history agree with PostgreSQL-backed product behavior.",
+          "Open Channels and Repositories; verify configuration, membership, continuity, serving worker revisions, and the latest frozen Coop freshness receipt without fetching Git live.",
+          "Open Configuration and Model calibration; verify only allowlisted values and grant names render, and that actual admitted lanes show effective target, repairs, tokens, cost, and timing."
+        ],
+        "/incidents"
+      ),
       "</div>"
     ]
   end
@@ -430,6 +447,361 @@ defmodule Responder.ControlPlane.HTML do
       "</section><section><h2>Records</h2>",
       table(["Kind", "Status", "Summary"], record_rows),
       "</section>"
+    ]
+  end
+
+  def incidents(items) do
+    rows =
+      Enum.map(items, fn item ->
+        [
+          "<tr><td><a href=\"/incidents/",
+          segment(item.ref),
+          "\">",
+          escape(item.title),
+          "</a><br><code>",
+          escape(item.ref),
+          "</code></td><td>",
+          escape(item.status),
+          "</td><td>",
+          escape(item.repository_ref),
+          "</td><td>",
+          escape(channel_label(item.workspace_ref, item.channel_ref)),
+          "</td><td>",
+          escape(item.publication_status || "none"),
+          "</td><td>",
+          timestamp(item.updated_at),
+          "</td></tr>"
+        ]
+      end)
+
+    [
+      workbench_intro(
+        "Incident rooms and local incidents",
+        "Follow the durable room, linked work, lifecycle, evidence records, and publication without relying on Slack history."
+      ),
+      search_form("/incidents", "Search title, room, repository, workspace, or channel"),
+      table(["Incident", "Status", "Repository", "Channel", "Publication", "Updated"], rows)
+    ]
+  end
+
+  def incident(%{room: room, lifecycle: lifecycle, records: records, publication: publication}) do
+    lifecycle_rows =
+      Enum.map(lifecycle, fn event ->
+        [
+          "<tr><td>",
+          timestamp(event.occurred_at),
+          "</td><td>",
+          escape(event.kind),
+          "</td><td>",
+          escape(event.channel_ref),
+          "</td></tr>"
+        ]
+      end)
+
+    record_rows =
+      Enum.map(records, fn record ->
+        [
+          "<tr><td><code>",
+          escape(record.ref),
+          "</code></td><td>",
+          escape(record.kind),
+          "</td><td>",
+          escape(record.status),
+          "</td><td>",
+          escape(record.subject || "—"),
+          "</td></tr>"
+        ]
+      end)
+
+    [
+      definition_list([
+        {"Reference", room.ref},
+        {"Status", room.status},
+        {"Repository", room.repository_ref},
+        {"Workspace", room.workspace_ref},
+        {"Source channel", room.source_channel_ref},
+        {"Incident channel", room.channel_ref || "not provisioned"},
+        {"Channel state", room.channel_state},
+        {"Visibility", if(room.private, do: "private", else: "public")},
+        {"Source episode", {:safe, episode_link(room.source_episode_ref)}},
+        {"Investigation episode", {:safe, episode_link(room.episode_ref)}},
+        {"Requested", room.requested_at},
+        {"Updated", room.updated_at}
+      ]),
+      "<section><h2>Room lifecycle</h2>",
+      table(["At", "Observation", "Channel"], lifecycle_rows),
+      "</section><section><h2>Evidence-backed records</h2>",
+      table(["Record", "Kind", "Status", "Subject"], record_rows),
+      "</section><section><h2>Publication</h2>",
+      publication_detail(publication),
+      "</section>"
+    ]
+  end
+
+  def schedules(items) do
+    rows =
+      Enum.map(items, fn item ->
+        [
+          "<tr><td><a href=\"/schedules/",
+          segment(item.ref),
+          "\">",
+          escape(item.title),
+          "</a><br><code>",
+          escape(item.ref),
+          "</code></td><td>",
+          escape(item.status),
+          "</td><td>",
+          timestamp(item.next_occurrence_at),
+          "</td><td>",
+          escape(item.timezone),
+          "</td><td>",
+          escape(item.repository || "none"),
+          "</td><td>",
+          integer(item.failures),
+          "</td></tr>"
+        ]
+      end)
+
+    [
+      workbench_intro(
+        "Recurring and one-shot work",
+        "Inspect the exact durable schedule and every dispatched or missed occurrence. Lifecycle controls remain host-confirmed."
+      ),
+      search_form("/schedules", "Search title, schedule, repository, or destination"),
+      table(["Schedule", "Status", "Next", "Timezone", "Repository", "Failures"], rows)
+    ]
+  end
+
+  def schedule(%{schedule: schedule, occurrences: occurrences}) do
+    rows =
+      Enum.map(occurrences, fn occurrence ->
+        [
+          "<tr><td>",
+          timestamp(occurrence.scheduled_for),
+          "</td><td>",
+          escape(occurrence.status),
+          "</td><td>",
+          episode_link(occurrence.episode_ref),
+          "</td><td>",
+          escape(occurrence.missed_reason || "—"),
+          "</td></tr>"
+        ]
+      end)
+
+    [
+      definition_list([
+        {"Reference", schedule.ref},
+        {"Status", schedule.status},
+        {"Revision", schedule.revision},
+        {"Recurrence", schedule.recurrence},
+        {"Timezone", schedule.timezone},
+        {"Catch-up", schedule.catch_up},
+        {"Authority", schedule.authority},
+        {"Repository", schedule.repository || "none"},
+        {"Destination", destination(schedule)},
+        {"Next occurrence", schedule.next_occurrence_at},
+        {"Expires", schedule.expires_at},
+        {"Failures", schedule.failure_count},
+        {"Last failure", schedule.last_error || "none"},
+        {"Source episode", {:safe, episode_link(schedule.source_episode_ref)}}
+      ]),
+      "<section><h2>What it asks for</h2><pre class=\"record-body\">",
+      escape(schedule.task),
+      "</pre></section><section><h2>Execution history</h2>",
+      table(["Due", "Outcome", "Episode", "Reason"], rows),
+      "</section>"
+    ]
+  end
+
+  def channels(items) do
+    rows =
+      Enum.map(items, fn item ->
+        [
+          "<tr><td><a href=\"/channels/",
+          segment(item.workspace_ref),
+          "/",
+          segment(item.channel_ref),
+          "\"><code>",
+          escape(item.channel_ref),
+          "</code></a><br><span class=\"muted\">",
+          escape(item.workspace_ref),
+          "</span></td><td>",
+          escape(channel_kind(item)),
+          "</td><td>",
+          escape(item.membership || "not recorded"),
+          "</td><td>",
+          escape(item.participation || "not configured"),
+          "</td><td>",
+          escape(item.repository_ref || "none"),
+          "</td><td>",
+          integer(item.episodes),
+          "</td><td>",
+          timestamp(item.last_at),
+          "</td></tr>"
+        ]
+      end)
+
+    [
+      workbench_intro(
+        "Slack conversation roster",
+        "A channel remains visible when it has configuration, membership, incident custody, or recorded work."
+      ),
+      search_form("/channels", "Search workspace, channel, repository, or participation"),
+      table(
+        [
+          "Channel",
+          "Kind",
+          "Membership",
+          "Participation",
+          "Repository",
+          "Episodes",
+          "Last activity"
+        ],
+        rows
+      )
+    ]
+  end
+
+  def channel(%{
+        channel: channel,
+        episodes: episodes,
+        overrides: overrides,
+        schedules: schedules,
+        summaries: summaries
+      }) do
+    override_rows = Enum.map(overrides, &channel_override_row/1)
+    schedule_rows = Enum.map(schedules, &channel_schedule_row/1)
+    episode_rows = Enum.map(episodes, &channel_episode_row/1)
+    summary_rows = Enum.map(summaries, &channel_summary_row/1)
+
+    [
+      definition_list([
+        {"Workspace", channel.workspace_ref},
+        {"Channel", channel.channel_ref},
+        {"Kind", if(channel.incident_room, do: "incident room", else: "conversation")},
+        {"Channel state", fallback(channel.channel_state, "not recorded")},
+        {"Membership", fallback(channel.membership, "not recorded")},
+        {"Visibility", channel_visibility(channel.private)},
+        {"Participation", fallback(channel.participation, "not configured")},
+        {"Repository", fallback(channel.repository_ref, "none")},
+        {"Alert policy", fallback(channel.alert_policy, "not configured")},
+        {"Configuration revision", fallback(channel.configuration_revision, "none")},
+        {"Configuration saved", channel.configuration_saved_at}
+      ]),
+      "<section><h2>Effective overrides</h2>",
+      table(["Setting", "Value", "Scope", "Revision", "Updated"], override_rows),
+      "</section><section><h2>Schedules here</h2>",
+      table(["Schedule", "Status", "Next"], schedule_rows),
+      "</section><section><h2>Conversation continuity</h2>",
+      table(["Summary", "Thread", "Repository", "Updated"], summary_rows),
+      "</section><section><h2>Recent work</h2>",
+      table(["Episode", "State", "Thread", "Updated"], episode_rows),
+      "</section>"
+    ]
+  end
+
+  def repositories(items) do
+    rows =
+      Enum.map(items, fn item ->
+        [
+          "<article class=\"repository-card\"><h2><code>",
+          escape(item.ref),
+          "</code></h2>",
+          definition_list([
+            {"Configured policies", policy_summary(item.configured)},
+            {"Channels", item.channels},
+            {"Schedules", item.schedules},
+            {"Work sessions", item.sessions},
+            {"Publications", item.publications}
+          ]),
+          "<h3>Latest frozen freshness receipt</h3>",
+          freshness_detail(item.freshness),
+          "<h3>Serving workers</h3>",
+          worker_list(item.workers),
+          "</article>"
+        ]
+      end)
+
+    [
+      workbench_intro(
+        "Repository topology and freshness",
+        "Receipts are the exact Coop-owned evidence frozen before model work. This page does not re-fetch or guess current Git state."
+      ),
+      search_form("/repositories", "Search repository"),
+      if(rows == [],
+        do: "<p class=\"empty\">No configured or observed repositories.</p>",
+        else: rows
+      )
+    ]
+  end
+
+  def calibration(%{rows: rows, window: window}) do
+    body =
+      Enum.map(rows, fn row ->
+        [
+          "<tr><td>",
+          escape(row.class),
+          "</td><td>",
+          escape(row.provider),
+          "</td><td>",
+          escape(row.model),
+          "</td><td>",
+          escape(row.effort),
+          "</td><td>",
+          integer(row.attempts),
+          "</td><td>",
+          coverage(row.measured, row.attempts),
+          "</td><td>",
+          integer(row.repair_rounds),
+          "</td><td>",
+          integer(row.tokens),
+          "</td><td>",
+          money(row.cost_usd, row.costed),
+          "</td><td>",
+          duration(row.average_provider_ms),
+          "</td><td>",
+          duration(row.average_queued_ms),
+          "</td><td>",
+          duration(row.average_host_ms),
+          "</td></tr>"
+        ]
+      end)
+
+    [
+      workbench_intro(
+        "Live model-lane calibration",
+        "Actual selected class, effective provider/model/effort, semantic repair rounds, timing, tokens, and reported cost. Recorded eval judge scores remain a separate offline corpus result."
+      ),
+      "<nav class=\"windows\" aria-label=\"Calibration window\">",
+      Enum.map(~w(24h 7d 30d all), fn item ->
+        [
+          "<a href=\"/calibration?window=",
+          item,
+          "\"",
+          if(item == window, do: " aria-current=\"page\"", else: ""),
+          ">",
+          item,
+          "</a>"
+        ]
+      end),
+      "</nav>",
+      table(
+        [
+          "Class",
+          "Provider",
+          "Model",
+          "Effort",
+          "Attempts",
+          "Measured",
+          "Repair rounds",
+          "Tokens",
+          "Reported USD",
+          "Provider avg",
+          "Queue avg",
+          "Host avg"
+        ],
+        body
+      )
     ]
   end
 
@@ -772,6 +1144,48 @@ defmodule Responder.ControlPlane.HTML do
     ["<section><h2>", escape(title), "</h2>", body, "</section>"]
   end
 
+  def configuration(%{rows: rows, grants: grants, source: source}) do
+    configuration_rows =
+      Enum.map(rows, fn row ->
+        [
+          "<tr><td><code>",
+          escape(row.key),
+          "</code></td><td>",
+          escape(row.value),
+          "</td><td><code>",
+          escape(row.source),
+          "</code></td></tr>"
+        ]
+      end)
+
+    grant_rows =
+      Enum.map(grants, fn grant ->
+        [
+          "<tr><td>",
+          escape(grant.kind),
+          "</td><td><code>",
+          escape(grant.name),
+          "</code></td><td><code>",
+          escape(grant.source),
+          "</code></td></tr>"
+        ]
+      end)
+
+    [
+      workbench_intro(
+        "Effective host configuration",
+        "Only an explicit safe allowlist is rendered. Credentials, URLs, callback values, and raw policy documents remain private."
+      ),
+      "<p class=\"muted\">Loaded from <code>",
+      escape(source),
+      "</code>.</p><section><h2>Effective values and provenance</h2>",
+      table(["Setting", "Effective value", "Source"], configuration_rows),
+      "</section><section><h2>MCP and tool grants</h2>",
+      table(["Grant kind", "Capability or tool", "Source"], grant_rows),
+      "</section><p class=\"muted\">Repository-specific policy topology and serving-worker revisions are shown under <a href=\"/repositories\">Repositories</a>.</p>"
+    ]
+  end
+
   def configuration(rows), do: generic("Effective host configuration", rows)
 
   def usage(%{totals: totals} = snapshot) do
@@ -929,7 +1343,8 @@ defmodule Responder.ControlPlane.HTML do
     code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em}.eyebrow{color:var(--accent);font-size:.72rem;font-weight:900;letter-spacing:.16em;margin:0 0 .4rem;text-transform:uppercase}.lab-hero,.journey-intro{align-items:center;background:linear-gradient(125deg,#18222b,#101419 70%);border:1px solid #34414d;border-radius:18px;display:flex;gap:2rem;justify-content:space-between;padding:clamp(1.3rem,4vw,2.5rem)}.lab-hero h2,.journey-intro h2{font-size:clamp(1.5rem,3vw,2.35rem);margin:.15rem 0}.lab-hero p,.journey-intro p{color:#b8c2cc;max-width:68ch}.lab-shell{background:#0d1116;border:1px solid var(--line);border-radius:18px;overflow:hidden}.lab-heading{align-items:flex-start;background:linear-gradient(120deg,#182029,#10151b);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;padding:1.4rem}.lab-heading h2{margin:.1rem 0}.lab-heading p{margin:.2rem 0}.lab-safety-note{background:#142017;border-bottom:1px solid #334d36;color:#c7d6c5;margin:0;padding:.75rem 1.4rem}.lab-safety-note strong{color:var(--accent)}.status-cluster{align-items:flex-end;display:flex;flex-direction:column;gap:.55rem}.status{border:1px solid var(--line);border-radius:999px;font-size:.72rem;font-weight:900;letter-spacing:.08em;padding:.3rem .65rem;text-transform:uppercase}.status.live{border-color:#587425;color:var(--accent)}.status.waiting{border-color:#6f5b2d;color:var(--warning)}.status.blocked{border-color:#7f3a39;color:var(--danger)}.quiet-link{color:var(--muted);font-size:.82rem}.lab-stream{display:grid;grid-template-columns:minmax(0,1fr) 260px;min-height:280px}.messages{display:flex;flex-direction:column;gap:1rem;padding:1.4rem}.message{border:1px solid var(--line);border-radius:14px;max-width:86%;padding:.9rem 1rem}.message.operator{align-self:flex-end;background:#243420;border-color:#3f5d35}.message.integration{align-self:flex-start;background:#171b20;border-color:#5c6570;border-style:dashed;color:#d5dbe1}.message.responder{align-self:flex-start;background:var(--panel-raised);border-color:#344553}.message-head{align-items:center;color:var(--muted);display:flex;font-size:.72rem;gap:.65rem;justify-content:space-between;margin-bottom:.45rem;text-transform:uppercase}.message-body{overflow-wrap:anywhere;white-space:pre-wrap}.message-refs{display:flex;flex-wrap:wrap;gap:.35rem;margin:.65rem 0 0}.message-refs code{background:#0c1014;border-radius:5px;color:var(--cyan);padding:.15rem .35rem}.custody-strip{background:#0a0e12;border-left:1px solid var(--line);padding:1.25rem}.custody-strip strong{color:var(--cyan);font-size:.76rem;letter-spacing:.1em;text-transform:uppercase}.custody-strip ul{list-style:none;margin:1rem 0;padding:0}.custody-strip li{border-top:1px solid var(--line);padding:.7rem 0}.custody-strip li span{color:var(--muted);display:block;font-size:.78rem}.composer{border-top:1px solid var(--line);padding:1.25rem}.composer label{display:block;font-size:.8rem;font-weight:800;margin-bottom:.45rem;text-transform:uppercase}.composer textarea,.composer input[type=file]{background:#090d11;border:1px solid #3a4652;border-radius:10px;color:var(--text);font:inherit;padding:.85rem;width:100%}.composer textarea{resize:vertical}.composer textarea:focus,.composer input[type=file]:focus{border-color:var(--accent);outline:2px solid #c6ff4730}.composer .attachment-label{margin-top:.8rem}.composer-actions{align-items:center;color:var(--muted);display:flex;font-size:.78rem;gap:1rem;justify-content:space-between;margin-top:.8rem}.journey-grid{display:grid;gap:1rem;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:1rem}.journey{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:1.2rem}.journey h2{font-size:1.2rem;margin:.2rem 0 .8rem}.journey-number{color:var(--cyan);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.journey ol{color:#c6ccd2;padding-left:1.2rem}.journey .availability{color:var(--muted);font-size:.75rem;font-weight:800;text-transform:uppercase}.journey .availability.enabled{color:var(--accent)}
     .message-reactions{display:flex;gap:.35rem;margin-top:.55rem}.reaction-chip{background:#1c2831;border:1px solid #3b5364;border-radius:999px;color:#d8f6ff;font-family:var(--mono);font-size:.75rem;padding:.2rem .5rem}.message-attachments{display:grid;gap:.55rem;margin-top:.7rem}.attachment-chip{background:#101920;border:1px solid #3b5364;border-radius:8px;color:#d8f6ff;display:flex;flex-wrap:wrap;font-size:.78rem;gap:.45rem;padding:.45rem .6rem}.attachment-chip span{color:var(--muted)}.attachment-download{color:inherit;display:grid;gap:.45rem;text-decoration:none}.attachment-download img{background:#080a0d;border:1px solid var(--line);border-radius:8px;display:block;max-height:280px;max-width:100%;object-fit:contain}.lab-message-controls{align-items:flex-start;border-top:1px solid #3f5d35;display:flex;gap:.55rem;justify-content:flex-end;margin-top:.8rem;padding-top:.65rem}.lab-message-controls details{flex:1}.lab-message-controls summary{cursor:pointer;font-size:.75rem;font-weight:800}.lab-message-controls label{display:grid;font-size:.72rem;gap:.35rem;margin-top:.55rem}.lab-message-controls textarea{background:#090d11;border:1px solid #3a4652;border-radius:8px;color:var(--text);font:inherit;padding:.6rem;resize:vertical;width:100%}.danger-button{border:1px solid #7f3a39;color:#ffb3ad}.message-cards{display:grid;gap:.7rem;margin-top:.85rem}.lab-card{background:#0e1419;border:1px solid #344553;border-left:3px solid var(--cyan);border-radius:10px;padding:.85rem}.lab-card-head{color:var(--cyan);display:flex;font-size:.68rem;font-weight:900;gap:1rem;justify-content:space-between;letter-spacing:.1em;text-transform:uppercase}.lab-card h3{font-size:1rem;margin:.45rem 0}.lab-card p{color:#cbd3da;margin:.35rem 0;white-space:pre-wrap}.lab-card dl{font-size:.78rem;grid-template-columns:max-content minmax(0,1fr);margin:.65rem 0}.choice-list{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.65rem}.choice-chip{background:#1c2831;border:1px solid #3b5364;border-radius:999px;color:#d8f6ff;font-size:.78rem;padding:.25rem .55rem}
     .lab-reaction-controls{border-top:1px solid #344553;margin-top:.8rem;padding-top:.65rem}.reaction-label{color:var(--muted);display:block;font-size:.7rem;font-weight:800;letter-spacing:.07em;margin-bottom:.45rem;text-transform:uppercase}.quick-reactions,.feedback-reactions{align-items:center;display:flex;flex-wrap:wrap;gap:.35rem}.feedback-reactions{margin-bottom:.45rem}.reaction-form{display:inline}.reaction-form button{background:#1c2831;border:1px solid #3b5364;color:#d8f6ff;font-size:.75rem;padding:.3rem .5rem}.feedback-reaction{align-items:center;background:#142017;border:1px solid #3f5d35;border-radius:999px;display:inline-flex;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.75rem;gap:.25rem;padding-left:.5rem}.feedback-reaction button{border:0;border-left:1px solid #3f5d35;border-radius:0 999px 999px 0;padding:.2rem .4rem}.lab-reaction-controls details{margin-top:.45rem}.lab-reaction-controls summary{cursor:pointer;font-size:.72rem}.lab-reaction-controls label{display:flex;font-size:.72rem;gap:.4rem;margin-top:.4rem}.lab-reaction-controls input[name=emoji]{background:#090d11;border:1px solid #3a4652;border-radius:7px;color:var(--text);font:inherit;padding:.35rem}.danger-button{background:#261312}.lab-card-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.75rem}.lab-card-actions form{margin:0}.lab-card-actions button,.lab-card-actions .button{font-size:.82rem;padding:.5rem .7rem}.work-view{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:1.2rem}.work-view pre{background:#090d11;border:1px solid var(--line);border-radius:10px;color:#dbe7ef;overflow:auto;padding:1rem;white-space:pre-wrap}.work-view-actions{align-items:center;display:flex;flex-wrap:wrap;gap:.7rem;margin-top:1rem}
-    @media(max-width:760px){header,main{padding-left:1rem;padding-right:1rem}.lab-hero,.lab-heading{align-items:stretch;flex-direction:column}.lab-stream{grid-template-columns:1fr}.custody-strip{border-left:0;border-top:1px solid var(--line)}.message{max-width:96%}.composer-actions{align-items:stretch;flex-direction:column}.journey-grid{grid-template-columns:1fr}}
+    .workbench-intro{background:linear-gradient(125deg,#18222b,#101419 70%);border:1px solid #34414d;border-radius:16px;padding:1.4rem}.workbench-intro h2{margin:.15rem 0}.workbench-intro p:last-child{color:#b8c2cc;max-width:78ch}.search-form{align-items:end;display:grid;gap:.7rem;grid-template-columns:auto minmax(220px,1fr) auto;margin:1.2rem 0}.search-form label{color:var(--muted);font-size:.78rem;font-weight:800;text-transform:uppercase}.search-form input{background:#090d11;border:1px solid #3a4652;border-radius:8px;color:var(--text);font:inherit;padding:.65rem}.repository-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin:1rem 0;padding:1.2rem}.repository-card h2{margin:0}.repository-card h3{color:var(--cyan);font-size:.82rem;letter-spacing:.07em;margin-top:1.5rem;text-transform:uppercase}.record-body{background:#090d11;border:1px solid var(--line);border-radius:10px;color:#dbe7ef;overflow:auto;padding:1rem;white-space:pre-wrap}
+    @media(max-width:760px){header,main{padding-left:1rem;padding-right:1rem}.lab-hero,.lab-heading{align-items:stretch;flex-direction:column}.lab-stream{grid-template-columns:1fr}.custody-strip{border-left:0;border-top:1px solid var(--line)}.message{max-width:96%}.composer-actions{align-items:stretch;flex-direction:column}.journey-grid{grid-template-columns:1fr}.search-form{grid-template-columns:1fr}}
     """
   end
 
@@ -1306,6 +1721,189 @@ defmodule Responder.ControlPlane.HTML do
       escape(label),
       "</span></article>"
     ]
+  end
+
+  defp workbench_intro(title, description) do
+    [
+      "<section class=\"workbench-intro\"><p class=\"eyebrow\">Durable operator view</p><h2>",
+      escape(title),
+      "</h2><p>",
+      escape(description),
+      "</p></section>"
+    ]
+  end
+
+  defp search_form(path, placeholder) do
+    [
+      "<form class=\"search-form\" method=\"get\" action=\"",
+      escape(path),
+      "\"><label for=\"operator-search\">Search</label><input id=\"operator-search\" name=\"q\" maxlength=\"200\" placeholder=\"",
+      escape(placeholder),
+      "\"><button type=\"submit\">Search</button></form>"
+    ]
+  end
+
+  defp channel_label(workspace_ref, nil), do: "#{workspace_ref}:not provisioned"
+  defp channel_label(workspace_ref, channel_ref), do: "#{workspace_ref}:#{channel_ref}"
+
+  defp channel_kind(%{incident_room: true}), do: "incident room"
+  defp channel_kind(%{channel_ref: "D" <> _rest}), do: "direct message"
+  defp channel_kind(_item), do: "shared channel"
+
+  defp channel_visibility(true), do: "private"
+  defp channel_visibility(_public_or_unknown), do: "public or unrecorded"
+
+  defp channel_override_row(item) do
+    [
+      "<tr><td>",
+      escape(item.setting),
+      "</td><td>",
+      escape(item.value),
+      "</td><td>",
+      escape(item.scope),
+      "</td><td>",
+      integer(item.revision),
+      "</td><td>",
+      timestamp(item.updated_at),
+      "</td></tr>"
+    ]
+  end
+
+  defp channel_schedule_row(item) do
+    [
+      "<tr><td><a href=\"/schedules/",
+      segment(item.ref),
+      "\">",
+      escape(item.title),
+      "</a></td><td>",
+      escape(item.status),
+      "</td><td>",
+      timestamp(item.next_occurrence_at),
+      "</td></tr>"
+    ]
+  end
+
+  defp channel_episode_row(item) do
+    [
+      "<tr><td>",
+      episode_link(item.ref),
+      "</td><td>",
+      escape(item.state),
+      "</td><td>",
+      escape(fallback(item.thread_ref, "channel root")),
+      "</td><td>",
+      timestamp(item.updated_at),
+      "</td></tr>"
+    ]
+  end
+
+  defp channel_summary_row(item) do
+    [
+      "<tr><td><code>",
+      escape(item.ref),
+      "</code></td><td>",
+      escape(fallback(item.thread_ref, "channel root")),
+      "</td><td>",
+      escape(fallback(item.repository_ref, "none")),
+      "</td><td>",
+      timestamp(item.updated_at),
+      "</td></tr>"
+    ]
+  end
+
+  defp fallback(nil, replacement), do: replacement
+  defp fallback(value, _replacement), do: value
+
+  defp episode_link(nil), do: "—"
+
+  defp episode_link(ref) do
+    IO.iodata_to_binary([
+      "<a href=\"/episodes/",
+      segment(ref),
+      "\"><code>",
+      escape(ref),
+      "</code></a>"
+    ])
+  end
+
+  defp publication_detail(nil),
+    do: "<p class=\"empty\">Nothing was published from this incident.</p>"
+
+  defp publication_detail(publication) do
+    definition_list([
+      {"Reference", publication.ref},
+      {"Status", publication.status},
+      {"Repository", publication.repository},
+      {"Branch", publication.branch_ref || "not created"},
+      {"Commit", publication.commit_sha || "not created"},
+      {"Pull request", publication.pr_number || "not opened"},
+      {"Pull request URL", publication.pr_url || "not opened"},
+      {"Last failure", publication.last_error || "none"},
+      {"Updated", publication.updated_at}
+    ])
+  end
+
+  defp destination(schedule) do
+    base = "#{schedule.destination_transport}:#{schedule.destination_conversation_ref}"
+
+    if schedule.destination_thread_ref,
+      do: "#{base} / #{schedule.destination_thread_ref}",
+      else: base
+  end
+
+  defp policy_summary(nil), do: "observed only"
+
+  defp policy_summary(configured) do
+    [
+      configured[:contributor_policy] && "contributor #{configured.contributor_policy}",
+      configured[:schedule_policy] && "schedule #{configured.schedule_policy}"
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+    |> case do
+      "" -> "configured"
+      value -> value
+    end
+  end
+
+  defp freshness_detail(nil) do
+    "<p class=\"empty\">No frozen freshness-v2 receipt is retained for this repository.</p>"
+  end
+
+  defp freshness_detail(freshness) do
+    definition_list([
+      {"Owner", "Coop"},
+      {"Version", freshness.version},
+      {"Requested revision", freshness.requested_revision},
+      {"Resolved revision", freshness.resolved_revision},
+      {"Workspace base", freshness.workspace_base_revision || "not applicable"},
+      {"Remote identity", freshness.remote_identity},
+      {"Fetched", freshness.fetched_at},
+      {"Stale-base status", freshness.stale_base_status},
+      {"Stale-base revision", freshness.stale_base_revision || "none"},
+      {"Frozen into Work", freshness.recorded_at}
+    ])
+  end
+
+  defp worker_list([]), do: "<p class=\"empty\">No live worker advertises this repository.</p>"
+
+  defp worker_list(workers) do
+    rows =
+      Enum.map(workers, fn worker ->
+        [
+          "<tr><td><code>",
+          escape(worker.worker_ref),
+          "</code></td><td>",
+          escape(worker.state),
+          "</td><td><code>",
+          escape(worker.revision || "unrecorded"),
+          "</code></td><td>",
+          timestamp(worker.last_seen_at),
+          "</td></tr>"
+        ]
+      end)
+
+    table(["Worker", "State", "Advertised revision", "Last seen"], rows)
   end
 
   defp trend_svg([]), do: "<p class=\"empty\">No accepted turns in this window.</p>"

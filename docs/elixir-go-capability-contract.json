@@ -513,14 +513,14 @@
     {
       "id": "operator-incident-schedule-repository-views",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "required_behavior": "Authenticated-local pages provide searchable incident, schedule, channel, repository, topology, freshness, effective configuration, MCP grant, timing, and cost detail from durable state.",
       "design_capabilities": ["app-home-and-web-control-plane", "incident-timeline-and-postmortem", "runbook-control-plane-work"],
       "origin_refs": ["internal/webui/incidents.go", "internal/webui/repository_map_test.go"],
-      "implementation_refs": ["lib/responder/control_plane/projection.ex", "lib/responder/control_plane/html.ex"],
+      "implementation_refs": ["lib/responder/control_plane/operator_projection.ex", "lib/responder/control_plane/projection.ex", "lib/responder/control_plane/router.ex", "lib/responder/control_plane/html.ex"],
       "proof_refs": ["test/responder/control_plane/projection_test.exs", "test/responder/control_plane/router_test.exs"],
-      "gap": "Core overview, episode, failure, audit, memory, usage, and Lab pages exist, but the complete incident, schedule, channel, repository, search, topology, grant, and calibration views do not.",
-      "next_task": "2026-09-04-complete-the-local-operator-product-for-incident"
+      "gap": null,
+      "next_task": null
     }
   ]
 }
