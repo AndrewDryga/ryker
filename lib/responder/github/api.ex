@@ -57,9 +57,13 @@ defmodule Responder.GitHub.API do
               {:ok, map()} | {:error, term()}
   @callback get_publication_status(term(), String.t(), pos_integer()) ::
               {:ok, map()} | {:error, term()}
+  @callback read_context(term(), map()) :: {:ok, map()} | {:error, term()}
+  @callback search(term(), map()) :: {:ok, map()} | {:error, term()}
 
   @optional_callbacks find_open_pull_request: 4,
                       create_draft_pull_request: 6,
                       get_pull_request: 3,
-                      get_publication_status: 3
+                      get_publication_status: 3,
+                      read_context: 2,
+                      search: 2
 end

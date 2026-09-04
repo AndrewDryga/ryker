@@ -3,18 +3,26 @@ defmodule Responder.GitHub.Server do
   Optional Bandit listener for authenticated GitHub App webhooks.
   """
 
-  alias Responder.GitHub.{Binding, Router}
+  alias Responder.GitHub.{Binding, Confirmations, Router}
 
   @default_ip {127, 0, 0, 1}
-  @fields [:bindings, :ip, :port, :secret]
+  @fields [:bindings, :confirmations, :ip, :port, :secret]
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
     options = options!(configuration)
 
+    router_options =
+      [bindings: options.bindings, secret: options.secret]
+      |> then(fn router_options ->
+        if options.confirmations,
+          do: Keyword.put(router_options, :confirmations, options.confirmations),
+          else: router_options
+      end)
+
     Bandit.child_spec(
       ip: options.ip,
-      plug: {Router, bindings: options.bindings, secret: options.secret},
+      plug: {Router, router_options},
       port: options.port,
       startup_log: false
     )
@@ -24,6 +32,7 @@ defmodule Responder.GitHub.Server do
   @doc false
   @spec options!(keyword() | map()) :: %{
           bindings: %{String.t() => Binding.t()},
+          confirmations: Confirmations.options() | nil,
           ip: :inet.ip_address(),
           port: pos_integer(),
           secret: binary()
@@ -33,13 +42,20 @@ defmodule Responder.GitHub.Server do
     port = Map.fetch!(configuration, :port)
     ip = Map.get(configuration, :ip, @default_ip)
     bindings = configuration |> Map.fetch!(:bindings) |> normalize_bindings!()
+
+    confirmations =
+      case Map.get(configuration, :confirmations) do
+        nil -> nil
+        configured -> Confirmations.options!(configured)
+      end
+
     secret = Map.fetch!(configuration, :secret)
 
     unless valid_port?(port), do: raise(ArgumentError, "GitHub port must be between 1 and 65535")
     unless valid_ip?(ip), do: raise(ArgumentError, "GitHub IP must be an IPv4 or IPv6 tuple")
     unless valid_secret?(secret), do: raise(ArgumentError, "GitHub webhook secret is invalid")
 
-    %{bindings: bindings, ip: ip, port: port, secret: secret}
+    %{bindings: bindings, confirmations: confirmations, ip: ip, port: port, secret: secret}
   end
 
   defp normalize_configuration!(configuration) when is_list(configuration) do

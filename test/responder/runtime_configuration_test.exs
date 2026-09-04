@@ -157,6 +157,8 @@ defmodule Responder.RuntimeConfigurationTest do
              "read_slack_source",
              "set_slack_reaction",
              "post_slack_message",
+             "read_github_conversation",
+             "search_github",
              "set_github_reaction"
            ]
 
@@ -212,6 +214,11 @@ defmodule Responder.RuntimeConfigurationTest do
     assert %{server: %{bindings: %{"responder-app" => binding}}} = configuration.github
     assert binding.repository_full_name == "emisar/responder"
     assert binding.work_profile.repository_ref == "responder"
+
+    assert configuration.github.server.confirmations.repositories["responder"] == %{
+             digest: String.duplicate("a", 64),
+             name: "responder-contributor-v1"
+           }
 
     assert {:ok, %{name: "responder-conversation-v1"}} =
              WorkProfile.policy_for(

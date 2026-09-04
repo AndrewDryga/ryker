@@ -19,6 +19,7 @@ defmodule Responder.RuntimeConfiguration do
     AppJWT,
     Binding,
     Client,
+    Confirmations,
     InstallationTokens,
     Publisher,
     Runtime,
@@ -808,8 +809,17 @@ defmodule Responder.RuntimeConfiguration do
          }}
       end)
 
+    confirmations =
+      Confirmations.options!(%{
+        repositories:
+          Map.new(prepared, fn {_name, item} ->
+            {item.repository_alias, %{contributor_policy: item.repository.contributor_policy}}
+          end)
+      })
+
     server = %{
       bindings: Map.new(prepared, fn {name, item} -> {name, item.trusted_binding} end),
+      confirmations: confirmations,
       ip: ip!(Map.get(object, "ip", "127.0.0.1"), "github.ip"),
       port: positive_port!(object["port"], "github.port"),
       secret: webhook_secret
@@ -843,7 +853,7 @@ defmodule Responder.RuntimeConfiguration do
 
     %{
       bindings: prepared,
-      capability_tools: GitHubCapabilityTools.options!(%{bindings: server.bindings}),
+      capability_tools: GitHubCapabilityTools.options!(delivery_binding),
       delivery_binding: delivery_binding,
       receive_timeout_ms: receive_timeout,
       runtime: %{server: server, tokens: tokens}

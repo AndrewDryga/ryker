@@ -889,7 +889,7 @@ defmodule Responder.StateTools.RouterTest do
            ]) == ["source_event"]
   end
 
-  test "GitHub sessions omit tools whose offers have no native confirmation surface" do
+  test "GitHub sessions expose offers backed by authenticated textual confirmations" do
     claim =
       claim!("github-capability-surface", %{
         actor_ref: "github-user:7",
@@ -903,9 +903,9 @@ defmodule Responder.StateTools.RouterTest do
 
     names = Tools.list(bound_options(claim)) |> Enum.map(& &1["name"])
 
-    refute "propose_automation" in names
-    refute "propose_memory" in names
-    refute "request_task" in names
+    assert "propose_automation" in names
+    assert "propose_memory" in names
+    assert "request_task" in names
 
     assert "request_input" in names
     assert "wait_for" in names
@@ -914,19 +914,20 @@ defmodule Responder.StateTools.RouterTest do
     assert "record_feedback" in names
     assert "validate_final" in names
 
-    assert Tools.call(
-             "request_task",
-             %{
-               "authority_limits" => ["do not publish or merge"],
-               "instruction_ref" => "input:github-review:1",
-               "prompt" => "Apply the requested review changes.",
-               "repository" => "octo/example",
-               "source_refs" => [],
-               "success_checks" => ["focused tests pass"],
-               "title" => "Apply pull request review"
-             },
-             bound_options(claim)
-           ) == {:error, "unknown_tool"}
+    assert {:ok, %{"kind" => "task_offer", "record_ref" => "record:task_offer:" <> _}} =
+             Tools.call(
+               "request_task",
+               %{
+                 "authority_limits" => ["do not publish or merge"],
+                 "instruction_ref" => "input:github-review:1",
+                 "prompt" => "Apply the requested review changes.",
+                 "repository" => "responder",
+                 "source_refs" => [],
+                 "success_checks" => ["focused tests pass"],
+                 "title" => "Apply pull request review"
+               },
+               bound_options(claim)
+             )
   end
 
   test "Conversation Lab sessions expose the same confirmable state offers as Slack" do

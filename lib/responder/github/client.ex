@@ -16,8 +16,14 @@ defmodule Responder.GitHub.Client do
   ]
   @default_rate_limit_delay_seconds 60
   @maximum_pages 100
+  @maximum_context_pages 10
   @page_size 100
+  @maximum_context_page_size 20
+  @maximum_context_text_bytes 12_000
   @repository ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
+  @context_fields ~w(limit number page repository review_root_id section subject_kind)a
+  @search_fields ~w(kind limit page query repository state)a
+  @context_sections ~w(subject issue_comments reviews review_comments review_thread files)
 
   @enforce_keys @fields
   defstruct @fields
@@ -188,6 +194,33 @@ defmodule Responder.GitHub.Client do
   end
 
   @impl true
+  def read_context(client, request) do
+    with {:ok, request} <- context_request(request),
+         {:ok, response} <- request_context(client, request),
+         {:ok, items, provider_count} <- context_items(response, request) do
+      {:ok, context_result(request, items, provider_count)}
+    end
+  end
+
+  @impl true
+  def search(client, request) do
+    with {:ok, request} <- search_request(request),
+         query <- search_query(request),
+         encoded <-
+           URI.encode_query(%{"page" => request.page, "per_page" => request.limit, "q" => query}),
+         {:ok, response} <- request(client, :get, "/search/issues?#{encoded}", nil),
+         {:ok, items, total} <- search_items(response, request) do
+      {:ok,
+       %{
+         "items" => items,
+         "next_cursor" => next_cursor(items, request.page, request.limit),
+         "repository" => request.repository,
+         "total_count" => total
+       }}
+    end
+  end
+
+  @impl true
   def find_open_pull_request(client, repository, owner, branch) do
     with :ok <- repository(repository),
          :ok <- ref_component(owner),
@@ -264,6 +297,471 @@ defmodule Responder.GitHub.Client do
          "checks_url" => "https://github.com/#{repository}/pull/#{number}/checks"
        })}
     end
+  end
+
+  defp context_request(%{} = request) do
+    with true <- Enum.sort(Map.keys(request)) == Enum.sort(@context_fields),
+         :ok <- target(request.repository, request.number),
+         true <- request.subject_kind in ["issue", "pull"],
+         true <- request.section in @context_sections,
+         true <- context_section?(request.subject_kind, request.section),
+         true <- is_integer(request.page) and request.page in 1..@maximum_context_pages,
+         true <- is_integer(request.limit) and request.limit in 1..@maximum_context_page_size,
+         true <- valid_review_root?(request.subject_kind, request.review_root_id) do
+      {:ok, request}
+    else
+      _invalid -> {:error, {:invalid_github_api_request, :context}}
+    end
+  end
+
+  defp context_request(_request), do: {:error, {:invalid_github_api_request, :context}}
+
+  defp context_section?("issue", section), do: section in ~w(subject issue_comments)
+  defp context_section?("pull", section), do: section in @context_sections
+
+  defp valid_review_root?("issue", nil), do: true
+  defp valid_review_root?("pull", nil), do: true
+  defp valid_review_root?("pull", value), do: is_integer(value) and value > 0
+
+  defp request_context(client, %{section: "subject", subject_kind: kind} = request) do
+    noun = if kind == "pull", do: "pulls", else: "issues"
+    request(client, :get, "/repos/#{request.repository}/#{noun}/#{request.number}", nil)
+  end
+
+  defp request_context(client, request) do
+    path = context_path(request)
+    query = URI.encode_query(%{"page" => request.page, "per_page" => request.limit})
+    request(client, :get, path <> "?" <> query, nil)
+  end
+
+  defp context_path(%{section: "issue_comments"} = request),
+    do: "/repos/#{request.repository}/issues/#{request.number}/comments"
+
+  defp context_path(%{section: "reviews"} = request),
+    do: "/repos/#{request.repository}/pulls/#{request.number}/reviews"
+
+  defp context_path(%{section: section} = request)
+       when section in ["review_comments", "review_thread"],
+       do: "/repos/#{request.repository}/pulls/#{request.number}/comments"
+
+  defp context_path(%{section: "files"} = request),
+    do: "/repos/#{request.repository}/pulls/#{request.number}/files"
+
+  defp context_items(%{body: body, status: 200}, %{section: "subject"} = request) do
+    with {:ok, item} <- subject_item(body, request) do
+      {:ok, [item], 1}
+    end
+  end
+
+  defp context_items(%{body: body, status: 200}, request) when is_list(body) do
+    provider_count = length(body)
+
+    body
+    |> Enum.reduce_while({:ok, []}, fn item, {:ok, items} ->
+      case context_item(item, request.section) do
+        {:ok, prepared} -> {:cont, {:ok, [prepared | items]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, items} ->
+        {:ok, Enum.reverse(items) |> filter_context_items(request), provider_count}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp context_items(%{status: 200}, _request),
+    do: {:error, {:github_protocol_error, :context}}
+
+  defp context_items(response, _request), do: api_error(response)
+
+  defp subject_item(item, %{number: number, subject_kind: "pull"}) do
+    with %{
+           "additions" => additions,
+           "base" => %{"ref" => base_ref, "sha" => base_sha},
+           "changed_files" => changed_files,
+           "deletions" => deletions,
+           "draft" => draft,
+           "head" => %{"ref" => head_ref, "sha" => head_sha},
+           "html_url" => url,
+           "id" => id,
+           "merged" => merged,
+           "number" => ^number,
+           "state" => state,
+           "title" => title,
+           "updated_at" => updated_at,
+           "user" => user
+         } <- item,
+         true <-
+           positive_id?(id) and state in ["open", "closed"] and is_boolean(draft) and
+             is_boolean(merged),
+         true <- Enum.all?([additions, changed_files, deletions], &(is_integer(&1) and &1 >= 0)),
+         true <-
+           ref_value?(base_ref) and ref_value?(head_ref) and git_identity?(base_sha) and
+             git_identity?(head_sha),
+         {:ok, author} <- context_actor(user),
+         {:ok, title, _title_truncated} <- context_text(title, false),
+         {:ok, body, truncated} <- context_text(Map.get(item, "body"), true),
+         :ok <- context_url(url),
+         :ok <- context_datetime(updated_at) do
+      {:ok,
+       %{
+         "additions" => additions,
+         "author" => author,
+         "base_ref" => base_ref,
+         "base_sha" => base_sha,
+         "body" => body,
+         "body_truncated" => truncated,
+         "changed_files" => changed_files,
+         "deletions" => deletions,
+         "draft" => draft,
+         "head_ref" => head_ref,
+         "head_sha" => head_sha,
+         "id" => id,
+         "kind" => "pull_request",
+         "merged" => merged,
+         "number" => number,
+         "state" => state,
+         "title" => title,
+         "updated_at" => updated_at,
+         "url" => url
+       }}
+    else
+      _invalid -> {:error, {:github_protocol_error, :context_subject}}
+    end
+  end
+
+  defp subject_item(item, %{number: number, subject_kind: "issue"}) do
+    with %{
+           "html_url" => url,
+           "id" => id,
+           "number" => ^number,
+           "state" => state,
+           "title" => title,
+           "updated_at" => updated_at,
+           "user" => user
+         } <- item,
+         true <- positive_id?(id) and state in ["open", "closed"],
+         {:ok, author} <- context_actor(user),
+         {:ok, title, _title_truncated} <- context_text(title, false),
+         {:ok, body, truncated} <- context_text(Map.get(item, "body"), true),
+         :ok <- context_url(url),
+         :ok <- context_datetime(updated_at) do
+      {:ok,
+       %{
+         "author" => author,
+         "body" => body,
+         "body_truncated" => truncated,
+         "id" => id,
+         "kind" => "issue",
+         "number" => number,
+         "state" => state,
+         "title" => title,
+         "updated_at" => updated_at,
+         "url" => url
+       }}
+    else
+      _invalid -> {:error, {:github_protocol_error, :context_subject}}
+    end
+  end
+
+  defp subject_item(_item, _request), do: {:error, {:github_protocol_error, :context_subject}}
+
+  defp context_item(item, "issue_comments"), do: comment_item(item, "issue_comment")
+
+  defp context_item(item, "reviews") do
+    with %{
+           "html_url" => url,
+           "id" => id,
+           "state" => state,
+           "submitted_at" => submitted_at,
+           "user" => user
+         } <- item,
+         true <- positive_id?(id) and is_binary(state),
+         {:ok, author} <- context_actor(user),
+         {:ok, body, truncated} <- context_text(Map.get(item, "body"), true),
+         :ok <- context_url(url),
+         :ok <- context_datetime(submitted_at) do
+      {:ok,
+       %{
+         "author" => author,
+         "body" => body,
+         "body_truncated" => truncated,
+         "id" => id,
+         "kind" => "pull_request_review",
+         "state" => String.downcase(state),
+         "submitted_at" => submitted_at,
+         "url" => url
+       }}
+    else
+      _invalid -> {:error, {:github_protocol_error, :context_review}}
+    end
+  end
+
+  defp context_item(item, section) when section in ["review_comments", "review_thread"] do
+    with {:ok, comment} <- comment_item(item, "pull_request_review_comment"),
+         path when is_binary(path) <- Map.get(item, "path"),
+         true <- byte_size(path) in 1..1_024,
+         line when is_integer(line) and line >= 0 <- Map.get(item, "line") || 0,
+         side when side in ["LEFT", "RIGHT", nil] <- Map.get(item, "side"),
+         reply when is_nil(reply) or (is_integer(reply) and reply > 0) <-
+           Map.get(item, "in_reply_to_id") do
+      {:ok,
+       Map.merge(comment, %{
+         "in_reply_to_id" => reply,
+         "line" => line,
+         "path" => path,
+         "side" => side
+       })}
+    else
+      _invalid -> {:error, {:github_protocol_error, :context_review_comment}}
+    end
+  end
+
+  defp context_item(item, "files") do
+    with %{
+           "additions" => additions,
+           "changes" => changes,
+           "deletions" => deletions,
+           "filename" => filename,
+           "status" => status
+         } <- item,
+         true <- Enum.all?([additions, changes, deletions], &(is_integer(&1) and &1 >= 0)),
+         true <- is_binary(filename) and byte_size(filename) in 1..1_024,
+         true <- status in ~w(added removed modified renamed copied changed unchanged) do
+      {:ok,
+       %{
+         "additions" => additions,
+         "changes" => changes,
+         "deletions" => deletions,
+         "filename" => filename,
+         "patch" => bounded_optional_text(Map.get(item, "patch"), @maximum_context_text_bytes),
+         "status" => status
+       }}
+    else
+      _invalid -> {:error, {:github_protocol_error, :context_file}}
+    end
+  end
+
+  defp comment_item(item, kind) do
+    with %{
+           "created_at" => created_at,
+           "html_url" => url,
+           "id" => id,
+           "updated_at" => updated_at,
+           "user" => user
+         } <- item,
+         true <- positive_id?(id),
+         {:ok, author} <- context_actor(user),
+         {:ok, body, truncated} <- context_text(Map.get(item, "body"), true),
+         :ok <- context_url(url),
+         :ok <- context_datetime(created_at),
+         :ok <- context_datetime(updated_at) do
+      {:ok,
+       %{
+         "author" => author,
+         "body" => body,
+         "body_truncated" => truncated,
+         "created_at" => created_at,
+         "id" => id,
+         "kind" => kind,
+         "updated_at" => updated_at,
+         "url" => url
+       }}
+    else
+      _invalid -> {:error, {:github_protocol_error, :context_comment}}
+    end
+  end
+
+  defp filter_context_items(items, %{section: "review_thread", review_root_id: root})
+       when is_integer(root),
+       do: Enum.filter(items, &(&1["id"] == root or &1["in_reply_to_id"] == root))
+
+  defp filter_context_items(items, _request), do: items
+
+  defp context_result(request, items, provider_count) do
+    %{
+      "items" => items,
+      "next_cursor" =>
+        if(request.section == "subject",
+          do: nil,
+          else: next_cursor(provider_count, request.page, request.limit)
+        ),
+      "repository" => request.repository,
+      "section" => request.section,
+      "subject" => %{"kind" => request.subject_kind, "number" => request.number}
+    }
+  end
+
+  defp search_request(%{} = request) do
+    with true <- Enum.sort(Map.keys(request)) == Enum.sort(@search_fields),
+         :ok <- repository(request.repository),
+         true <- request.kind in ["issues", "pull_requests", "all"],
+         true <- request.state in ["open", "closed", "all"],
+         true <- is_integer(request.page) and request.page in 1..@maximum_context_pages,
+         true <- is_integer(request.limit) and request.limit in 1..@maximum_context_page_size,
+         true <- valid_search_query?(request.query) do
+      {:ok, request}
+    else
+      _invalid -> {:error, {:invalid_github_api_request, :search}}
+    end
+  end
+
+  defp search_request(_request), do: {:error, {:invalid_github_api_request, :search}}
+
+  defp search_query(request) do
+    kind =
+      if request.kind == "all",
+        do: "",
+        else: " is:" <> if(request.kind == "issues", do: "issue", else: "pr")
+
+    state = if request.state == "all", do: "", else: " state:" <> request.state
+    String.trim(request.query) <> " repo:" <> request.repository <> kind <> state
+  end
+
+  defp search_items(
+         %{
+           body: %{"incomplete_results" => false, "items" => items, "total_count" => total},
+           status: 200
+         },
+         request
+       )
+       when is_list(items) and is_integer(total) and total >= 0 do
+    items
+    |> Enum.reduce_while({:ok, []}, fn item, {:ok, prepared} ->
+      case search_item(item, request) do
+        {:ok, result} -> {:cont, {:ok, [result | prepared]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, prepared} -> {:ok, Enum.reverse(prepared), total}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp search_items(%{status: 200}, _request),
+    do: {:error, {:github_protocol_error, :search}}
+
+  defp search_items(response, _request), do: api_error(response)
+
+  defp search_item(item, request) do
+    kind = if Map.has_key?(item, "pull_request"), do: "pull_request", else: "issue"
+
+    with %{
+           "html_url" => url,
+           "id" => id,
+           "number" => number,
+           "repository_url" => repository_url,
+           "state" => state,
+           "title" => title,
+           "updated_at" => updated_at,
+           "user" => user
+         } <- item,
+         true <- positive_id?(id) and positive_id?(number) and state in ["open", "closed"],
+         true <- search_kind_matches?(kind, request.kind),
+         true <- repository_url?(repository_url, request.repository),
+         {:ok, author} <- context_actor(user),
+         {:ok, title, _title_truncated} <- context_text(title, false),
+         {:ok, body, truncated} <- context_text(Map.get(item, "body"), true),
+         :ok <- context_url(url),
+         :ok <- context_datetime(updated_at) do
+      {:ok,
+       %{
+         "author" => author,
+         "body" => body,
+         "body_truncated" => truncated,
+         "id" => id,
+         "kind" => kind,
+         "number" => number,
+         "state" => state,
+         "title" => title,
+         "updated_at" => updated_at,
+         "url" => url
+       }}
+    else
+      false when is_map(item) -> {:error, {:github_protocol_error, :search_repository}}
+      _invalid -> {:error, {:github_protocol_error, :search}}
+    end
+  end
+
+  defp search_kind_matches?(_kind, "all"), do: true
+  defp search_kind_matches?("issue", "issues"), do: true
+  defp search_kind_matches?("pull_request", "pull_requests"), do: true
+  defp search_kind_matches?(_kind, _requested), do: false
+
+  defp context_actor(%{"id" => id, "login" => login, "type" => type})
+       when is_integer(id) and id > 0 and is_binary(login) and is_binary(type) and
+              byte_size(login) in 1..256 and byte_size(type) in 1..64,
+       do: {:ok, %{"id" => id, "login" => login, "type" => type}}
+
+  defp context_actor(_actor), do: {:error, {:github_protocol_error, :actor}}
+
+  defp context_text(nil, true), do: {:ok, nil, false}
+
+  defp context_text(value, nullable) when is_binary(value) do
+    if String.valid?(value) and (nullable or String.trim(value) != "") do
+      truncated = byte_size(value) > @maximum_context_text_bytes
+      {:ok, String.byte_slice(value, 0, @maximum_context_text_bytes), truncated}
+    else
+      {:error, {:github_protocol_error, :text}}
+    end
+  end
+
+  defp context_text(_value, _nullable), do: {:error, {:github_protocol_error, :text}}
+
+  defp bounded_optional_text(nil, _maximum), do: nil
+
+  defp bounded_optional_text(value, maximum) when is_binary(value) and byte_size(value) > 0,
+    do: String.byte_slice(value, 0, maximum)
+
+  defp bounded_optional_text(_value, _maximum), do: nil
+
+  defp context_url(value) when is_binary(value) and byte_size(value) in 1..2_048 do
+    case URI.new(value) do
+      {:ok, %URI{scheme: "https", host: host}} when is_binary(host) -> :ok
+      _invalid -> {:error, {:github_protocol_error, :url}}
+    end
+  end
+
+  defp context_url(_value), do: {:error, {:github_protocol_error, :url}}
+
+  defp repository_url?(value, repository) when is_binary(value) do
+    case URI.new(value) do
+      {:ok, %URI{scheme: "https", host: host, path: path}} when is_binary(host) ->
+        path == "/repos/#{repository}"
+
+      _invalid ->
+        false
+    end
+  end
+
+  defp repository_url?(_value, _repository), do: false
+
+  defp context_datetime(value) do
+    case DateTime.from_iso8601(value || "") do
+      {:ok, _datetime, 0} -> :ok
+      _invalid -> {:error, {:github_protocol_error, :datetime}}
+    end
+  end
+
+  defp valid_search_query?(value) do
+    is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_000 and
+      String.trim(value) != "" and not Regex.match?(~r/(?:\A|\s)(?:repo|org|user):/i, value)
+  end
+
+  defp ref_value?(value), do: is_binary(value) and byte_size(value) in 1..240
+  defp positive_id?(value), do: is_integer(value) and value > 0
+
+  defp next_cursor(items, page, limit) when is_list(items),
+    do: next_cursor(length(items), page, limit)
+
+  defp next_cursor(item_count, page, limit) when is_integer(item_count) do
+    if item_count == limit and page < @maximum_context_pages,
+      do: "page:#{page + 1}",
+      else: nil
   end
 
   defp find_comments(client, path, matcher, page \\ 1) do

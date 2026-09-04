@@ -318,7 +318,7 @@ defmodule Responder.Work.SubmissionBuilder do
          destination_transport: transport,
          execution_mode: :live
        })
-       when transport in ["slack", "control_plane"],
+       when transport in ["slack", "control_plane", "github"],
        do: true
 
   defp offer_confirmation_supported?(_episode), do: false

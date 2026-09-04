@@ -22,8 +22,8 @@ claim of whole-product parity.
 | Priority | Implemented | Partial | Total |
 |---|---:|---:|---:|
 | P0 | 28 | 0 | 28 |
-| P1 | 4 | 11 | 15 |
-| **All** | **32** | **11** | **43** |
+| P1 | 6 | 9 | 15 |
+| **All** | **34** | **9** | **43** |
 
 ## Implemented behavior
 
@@ -61,13 +61,13 @@ claim of whole-product parity.
 | P0 | `publication-conflict-recovery-and-deployment-verification` | [`Publication.Custody`](../lib/responder/publication/custody.ex) | [`publication/followups_test.exs`](../test/responder/publication/followups_test.exs) |
 | P1 | `model-choice-byoc-and-execution-metadata` | [`Ingress.WorkProfile`](../lib/responder/ingress/work_profile.ex) | [`product_contracts_test.exs`](../test/responder/product_contracts_test.exs) |
 | P1 | `standing-assignments` | [`State.Automations`](../lib/responder/state/automations.ex) | [`automations_test.exs`](../test/responder/state/automations_test.exs) |
+| P1 | `github-bounded-context-and-search` | [`GitHub.CapabilityTools`](../lib/responder/github/capability_tools.ex) | [`github/client_test.exs`](../test/responder/github/client_test.exs) |
+| P1 | `github-confirmation-backed-actions` | [`GitHub.Confirmations`](../lib/responder/github/confirmations.ex) | [`github/confirmations_test.exs`](../test/responder/github/confirmations_test.exs) |
 
 ## Partial behavior and exact owner
 
 | Priority | Capability | What is still missing | Owning task |
 |---|---|---|---|
-| P1 | `github-bounded-context-and-search` | Issue/PR body, discussion, changed-file, review-thread, and search tools. | `2026-09-04-make-github-a-full-conversation-and-confirmation` |
-| P1 | `github-confirmation-backed-actions` | Idempotent, actor-authorized confirmation syntax on GitHub. | `2026-09-04-make-github-a-full-conversation-and-confirmation` |
 | P1 | `conversation-summaries-and-rollups` | Durable typed situations and bounded continuity rollups. | `2026-09-04-restore-durable-conversation-continuity-and-memo` |
 | P1 | `privacy-aware-cross-channel-recall` | Conversation-summary recall with current private-membership intersection. | `2026-09-04-restore-durable-conversation-continuity-and-memo` |
 | P1 | `memory-review-controls` | Keep, merge, and edit review in addition to existing forget paths. | `2026-09-04-restore-durable-conversation-continuity-and-memo` |

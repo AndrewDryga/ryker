@@ -2,10 +2,10 @@ defmodule Responder.GitHub.Renderer do
   @moduledoc """
   Host-owned Markdown projection for typed records delivered to GitHub.
 
-  GitHub has no Block Kit controls. The projection therefore preserves the
-  durable question, wait, evidence, or offer in readable Markdown and never
-  invents an approval action. Governed Emisar approvals link only to their
-  already-validated authoritative URL.
+  The projection preserves each durable question, wait, evidence, or offer in
+  readable Markdown. Confirmable inert offers carry a host-owned textual
+  command; governed Emisar and publication approvals stay on their existing
+  authoritative surfaces.
   """
 
   alias Responder.Emisar.ApprovalStatus
@@ -13,7 +13,8 @@ defmodule Responder.GitHub.Renderer do
 
   @maximum_records 64
   @investigation_kinds ~w(evidence coverage finding progress goal goal_state alert_assessment)
-  @offer_kinds ~w(task_offer publication_offer schedule_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
+  @offer_kinds ~w(task_offer publication_offer schedule_offer automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
+  @confirmable_offer_kinds ~w(automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
 
   @spec render(map()) :: {:ok, String.t()} | {:error, term()}
   def render(%{"emisar_approval_status" => status} = document) when map_size(document) == 1 do
@@ -164,6 +165,13 @@ defmodule Responder.GitHub.Renderer do
     {:ok, "**Alert assessment — #{escape(payload["verdict"])}:** #{escape(payload["impact"])}"}
   end
 
+  defp record_markdown("task_offer", %{"kind" => "engineering"} = payload, ref, "open") do
+    repository = if payload["repository"], do: " in `#{escape(payload["repository"])}`", else: ""
+
+    {:ok,
+     "### Proposed engineering task\n\n**#{escape(payload["title"])}**#{repository}#{confirmation(ref)}"}
+  end
+
   defp record_markdown("task_offer", payload, _ref, "open") do
     repository = if payload["repository"], do: " in `#{escape(payload["repository"])}`", else: ""
 
@@ -176,23 +184,30 @@ defmodule Responder.GitHub.Renderer do
      "### Publication review offered\n\n**#{escape(payload["title"])}**\n\nNo branch or pull request is published until an operator reviews the committed workspace."}
   end
 
-  defp record_markdown("schedule_offer", payload, _ref, "open") do
+  defp record_markdown("schedule_offer", payload, ref, "open") do
     {:ok,
-     "### Schedule offered\n\n**#{escape(payload["title"])}**\n\nThis is an inert offer. An operator must confirm the exact cadence and authority before it becomes active."}
+     "### Schedule offered\n\n**#{escape(payload["title"])}**\n\nThis is an inert offer.#{confirmation(ref)}"}
   end
 
-  defp record_markdown(kind, payload, _ref, "open") when kind in @offer_kinds do
+  defp record_markdown(kind, payload, ref, "open") when kind in @confirmable_offer_kinds do
     title = payload["summary"] || payload["subject"] || payload["key"] || payload["task"] || kind
 
     {:ok,
-     "**Responder offer — #{escape(title)}:** This durable behavior remains inert until an operator confirms it."}
+     "**Responder offer — #{escape(title)}:** This durable behavior remains inert.#{confirmation(ref)}"}
   end
+
+  defp record_markdown(kind, _payload, _ref, "open") when kind in @offer_kinds,
+    do: {:error, {:invalid_github_render, :record}}
 
   defp record_markdown(kind, _payload, _ref, _status) when kind in @investigation_kinds,
     do: {:error, {:invalid_github_render, :record}}
 
   defp record_markdown(_kind, _payload, _ref, _status),
     do: {:error, {:invalid_github_render, :record}}
+
+  defp confirmation(ref) do
+    "\n\nTo confirm this exact offer, reply in this discussion with:\n\n`/responder confirm #{escape(ref)}`\n\nOnly a configured GitHub actor can confirm it. Replaying the command is safe."
+  end
 
   defp escape(value) when is_binary(value) do
     value

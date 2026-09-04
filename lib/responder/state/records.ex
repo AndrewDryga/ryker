@@ -238,7 +238,7 @@ defmodule Responder.State.Records do
       execution_mode != :live and kind not in @shadow_record_kinds ->
         {:error, :state_record_shadow_forbidden}
 
-      kind in @confirmation_offer_kinds and transport not in ["slack", "control_plane"] ->
+      kind in @confirmation_offer_kinds and transport not in ["slack", "control_plane", "github"] ->
         {:error, :state_record_confirmation_unsupported}
 
       kind == "slack_post_offer" and transport not in ["slack", "control_plane"] ->

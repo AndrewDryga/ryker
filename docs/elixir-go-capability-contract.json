@@ -369,26 +369,26 @@
     {
       "id": "github-bounded-context-and-search",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "required_behavior": "A GitHub conversation turn can fetch bounded issue or PR body, comments, review threads, changed files, and search results under the exact repository binding.",
       "design_capabilities": ["pr-checks-merge-deployment-and-verification"],
       "origin_refs": ["docs/architecture-next.md"],
       "implementation_refs": ["lib/responder/github/capability_tools.ex", "lib/responder/github/client.ex"],
       "proof_refs": ["test/responder/github/capability_tools_test.exs", "test/responder/github/client_test.exs"],
-      "gap": "GitHub ingress and delivery work, but the model cannot yet read and search the broader bounded issue and PR context.",
-      "next_task": "2026-09-04-make-github-a-full-conversation-and-confirmation"
+      "gap": null,
+      "next_task": null
     },
     {
       "id": "github-confirmation-backed-actions",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "required_behavior": "Responder status comments expose idempotent, actor-authorized textual confirmations for supported offers and retain exact source revision without granting merge or deployment authority.",
       "design_capabilities": ["contextual-next-step-controls", "pr-checks-merge-deployment-and-verification"],
       "origin_refs": ["docs/architecture-next.md"],
-      "implementation_refs": ["lib/responder/github/publisher.ex", "lib/responder/github/router.ex"],
-      "proof_refs": ["test/responder/github/publisher_test.exs", "test/responder/github/router_test.exs"],
-      "gap": "GitHub can receive and reply, but it has no supported confirmation syntax or durable offer execution surface.",
-      "next_task": "2026-09-04-make-github-a-full-conversation-and-confirmation"
+      "implementation_refs": ["lib/responder/github/confirmations.ex", "lib/responder/github/renderer.ex", "lib/responder/github/router.ex", "lib/responder/state/records.ex"],
+      "proof_refs": ["test/responder/github/confirmations_test.exs", "test/responder/github/renderer_test.exs", "test/responder/github/router_test.exs", "test/responder/state_tools/router_test.exs"],
+      "gap": null,
+      "next_task": null
     },
     {
       "id": "conversation-summaries-and-rollups",

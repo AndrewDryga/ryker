@@ -81,12 +81,22 @@ defmodule Responder.GitHub.RendererTest do
     assert rendered =~ "Open the exact run"
     assert rendered =~ "GitHub cannot approve this action"
 
+    assert {:ok, exact_run} =
+             Renderer.render(%{
+               "emisar_approval_status" =>
+                 status
+                 |> Map.put("remote_error", nil)
+                 |> Map.put("run_url", nil)
+             })
+
+    assert exact_run =~ "Exact run: `run-1`"
+
     assert Renderer.render(%{
              "emisar_approval_status" => %{status | "status" => "model_invented"}
            }) == {:error, {:invalid_github_render, :emisar_approval_status}}
   end
 
-  test "projects every durable investigation and offer record without executable controls" do
+  test "projects every durable investigation and offer with bounded textual controls" do
     records = [
       record("event_wait", %{
         "deadline_at" => "2099-08-29T12:00:00.000000Z",
@@ -167,6 +177,12 @@ defmodule Responder.GitHub.RendererTest do
         "repository" => "responder",
         "title" => "Fix retry reconciliation"
       }),
+      record("task_offer", %{
+        "kind" => "incident",
+        "prompt" => "Investigate the current incident without making changes.",
+        "repository" => nil,
+        "title" => "Investigate the incident"
+      }),
       record("publication_offer", %{
         "body" => "The committed workspace is ready for review.",
         "title" => "Publish the retry fix"
@@ -225,12 +241,21 @@ defmodule Responder.GitHub.RendererTest do
     assert rendered =~ "Goal — goal-health (required)"
     assert rendered =~ "Alert assessment — not_issue"
     assert rendered =~ "Proposed engineering task"
+    assert rendered =~ "Proposed incident task"
+    assert rendered =~ "explicit operator confirmation in a supported Responder control surface"
     assert rendered =~ "Publication review offered"
     assert rendered =~ "Schedule offered"
     assert rendered =~ "Responder offer — primary_repository"
     assert rendered =~ "Responder offer — response_detail"
     assert rendered =~ "Responder offer — Lead with risk."
     assert rendered =~ "Responder offer — Review each exact Terraform plan."
+    assert rendered =~ "/responder confirm record:task_offer:"
+    assert rendered =~ "/responder confirm record:schedule_offer:"
+    assert rendered =~ "/responder confirm record:memory_offer:"
+    assert rendered =~ "/responder confirm record:preference_offer:"
+    assert rendered =~ "/responder confirm record:guidance_offer:"
+    assert rendered =~ "/responder confirm record:standing_assignment_offer:"
+    refute rendered =~ "/responder confirm record:publication_offer:"
     refute rendered =~ "<button"
   end
 

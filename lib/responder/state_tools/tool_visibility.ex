@@ -2,6 +2,8 @@ defmodule Responder.StateTools.ToolVisibility do
   @moduledoc false
 
   @tool_transports %{
+    "read_github_conversation" => MapSet.new(["github"]),
+    "search_github" => MapSet.new(["github"]),
     "set_github_reaction" => MapSet.new(["github"]),
     "list_slack_channels" => MapSet.new(["control_plane", "slack"]),
     "search_slack" => MapSet.new(["control_plane", "slack"]),

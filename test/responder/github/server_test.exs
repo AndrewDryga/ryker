@@ -16,6 +16,16 @@ defmodule Responder.GitHub.ServerTest do
             secret: String.duplicate("s", 32)
           }
         },
+        confirmations: %{
+          repositories: %{
+            "responder" => %{
+              contributor_policy: %{
+                digest: String.duplicate("a", 64),
+                name: "responder-contributor"
+              }
+            }
+          }
+        },
         secret: String.duplicate("s", 32),
         port: 4_081
       })
@@ -23,10 +33,12 @@ defmodule Responder.GitHub.ServerTest do
     assert options.ip == {127, 0, 0, 1}
     assert options.port == 4_081
     assert %Binding{name: "github-main"} = options.bindings["github-main"]
+    assert options.confirmations.repositories["responder"].name == "responder-contributor"
 
     child =
       Server.child_spec(%{
         bindings: options.bindings,
+        confirmations: options.confirmations,
         port: 4_081,
         secret: String.duplicate("s", 32)
       })

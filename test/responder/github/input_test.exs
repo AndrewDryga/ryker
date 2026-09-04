@@ -4,6 +4,10 @@ defmodule Responder.GitHub.InputTest do
   alias Responder.GitHub.{Binding, Input}
   alias Responder.Ingress.Input, as: IngressInput
 
+  test "declares GitHub as its generic ingress source kind" do
+    assert Input.source_kind() == "github"
+  end
+
   test "a pull request comment becomes one canonical input with a trusted repository target" do
     payload = issue_comment_payload()
     payload = put_in(payload, ["destination"], %{"conversation_ref" => "attacker"})
@@ -83,6 +87,35 @@ defmodule Responder.GitHub.InputTest do
              "github:github-main:pull:42:review-thread:8001"
 
     assert :react in IngressInput.allowed_actions(comment)
+  end
+
+  test "issue and pull request lifecycle events retain stable subject identity across revisions" do
+    issue = issue_lifecycle_payload("opened", "2026-08-28T12:00:00Z")
+    edited_issue = issue_lifecycle_payload("edited", "2026-08-28T12:01:00Z")
+    closed_issue = issue_lifecycle_payload("closed", "2026-08-28T12:02:00Z")
+
+    assert {:ok, opened} = normalize("issues", issue, "issue-opened")
+    assert {:ok, edited} = normalize("issues", edited_issue, "issue-edited")
+    assert {:ok, closed} = normalize("issues", closed_issue, "issue-closed")
+
+    assert opened.event_kind == :event
+    assert opened.source_item_ref == "github:issue:4200"
+    assert opened.destination.thread_ref == "github:github-main:issue:42"
+    assert opened.native_input_id == edited.native_input_id
+    assert edited.native_input_id == closed.native_input_id
+    assert opened.revision < edited.revision
+    assert edited.revision < closed.revision
+    assert opened.source_capabilities == %{}
+
+    pull = pull_lifecycle_payload("opened", "2026-08-28T12:00:00Z")
+    synchronized = pull_lifecycle_payload("synchronize", "2026-08-28T12:01:00Z")
+
+    assert {:ok, first} = normalize("pull_request", pull, "pull-opened")
+    assert {:ok, second} = normalize("pull_request", synchronized, "pull-synchronized")
+    assert first.source_item_ref == "github:pull_request:4300"
+    assert first.destination.thread_ref == "github:github-main:pull:43"
+    assert first.native_input_id == second.native_input_id
+    assert first.revision < second.revision
   end
 
   test "the adapter rejects unsupported actions and payload-selected installation or repository" do
@@ -209,6 +242,43 @@ defmodule Responder.GitHub.InputTest do
       },
       "installation" => %{"id" => 41},
       "pull_request" => %{"number" => 42, "title" => "Make ingress generic"},
+      "repository" => %{"full_name" => "octo/example", "id" => 99},
+      "sender" => %{"id" => 7, "login" => "octocat", "type" => "User"}
+    }
+  end
+
+  defp issue_lifecycle_payload(action, updated_at) do
+    %{
+      "action" => action,
+      "installation" => %{"id" => 41},
+      "issue" => %{
+        "body" => "Lifecycle body",
+        "created_at" => "2026-08-28T12:00:00Z",
+        "id" => 4_200,
+        "number" => 42,
+        "title" => "Lifecycle issue",
+        "updated_at" => updated_at,
+        "user" => %{"id" => 7, "login" => "octocat", "type" => "User"}
+      },
+      "repository" => %{"full_name" => "octo/example", "id" => 99},
+      "sender" => %{"id" => 7, "login" => "octocat", "type" => "User"}
+    }
+  end
+
+  defp pull_lifecycle_payload(action, updated_at) do
+    %{
+      "action" => action,
+      "installation" => %{"id" => 41},
+      "pull_request" => %{
+        "body" => "Lifecycle body",
+        "created_at" => "2026-08-28T12:00:00Z",
+        "head" => %{"sha" => String.duplicate("a", 40)},
+        "id" => 4_300,
+        "number" => 43,
+        "title" => "Lifecycle pull request",
+        "updated_at" => updated_at,
+        "user" => %{"id" => 7, "login" => "octocat", "type" => "User"}
+      },
       "repository" => %{"full_name" => "octo/example", "id" => 99},
       "sender" => %{"id" => 7, "login" => "octocat", "type" => "User"}
     }

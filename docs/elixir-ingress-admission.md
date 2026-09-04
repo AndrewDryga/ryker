@@ -26,9 +26,9 @@ Content cannot select a channel, thread, episode, model, Coop policy, or authori
 episode command is validated before the input can enter the inbox.
 
 The Slack adapter binds a top-level message to its own thread and preserves an existing reply thread.
-The GitHub adapter binds signed issue comments, pull-request reviews, and inline review comments to
-one configured repository and their exact discussion thread. It offers GitHub's native reaction set
-only for live comment types that GitHub can react to.
+The GitHub adapter binds signed issue comments, pull-request reviews, inline review comments, and
+issue/pull-request lifecycle events to one configured repository and their exact discussion thread.
+It offers GitHub's native reaction set only for live comment types that GitHub can react to.
 Every webhook binds the event to the destination in trusted route configuration.
 
 ## Universal webhook
@@ -154,7 +154,7 @@ IDs:
 POST /v1/github
 Content-Type: application/json
 X-GitHub-Delivery: <required unique occurrence ID>
-X-GitHub-Event: issue_comment | pull_request_review | pull_request_review_comment
+X-GitHub-Event: issue_comment | pull_request_review | pull_request_review_comment | issues | pull_request
 X-Hub-Signature-256: sha256=<HMAC-SHA256 of the raw request body>
 ```
 
@@ -169,6 +169,25 @@ other sources. Issue comments on pull requests stay in the PR conversation. Inli
 retain their root review-comment thread. GitHub issue and review comments expose exactly GitHub's
 supported reaction names: `+1`, `-1`, `laugh`, `confused`, `heart`, `hooray`, `rocket`, and `eyes`.
 Deleted comments and top-level review submissions do not advertise a reaction operation.
+
+Supported issue and pull-request lifecycle actions normalize as generic `event` inputs with stable
+issue or pull identities across revisions. A lifecycle event for a pull request already published by
+Responder remains publication-owned; an unmatched pull request and every issue lifecycle event use
+ordinary generic admission.
+
+GitHub conversation turns can read one of six bounded context sections and search issues/PRs inside
+only the configured repository. Repository identity, subject number, review-thread root, credential,
+and destination are derived from the active episode. The model chooses only the section, bounded page
+cursor, result limit, search text, kind, and state.
+
+An open confirmable offer is rendered with `/responder confirm <record-ref>`. The Router recognizes
+that exact syntax only on a newly created, authenticated issue comment and consumes it before model
+admission. It rechecks the configured actor, exact current discussion, original settled delivery
+receipt, offer kind, and repository contributor policy, then calls the same durable confirmation
+service used by Slack and Conversation Lab. Duplicate webhook delivery or a repeated command returns
+the existing resource. Cross-thread, stale, malformed, incident-task, and publication commands fail
+closed without creating model work. This syntax cannot approve reviews, merge, deploy, or write
+repository content.
 
 ```yaml
 repositories:
@@ -211,6 +230,8 @@ github:
 
 The named environment value may be the complete PEM or its single-line standard-base64 encoding.
 Use the encoded form in the shipped systemd `EnvironmentFile`.
+The GitHub App must subscribe to issue comments, pull-request reviews, pull-request review comments,
+issues, and pull requests for the corresponding adapter and lifecycle paths to receive those events.
 
 The supervised runtime contains both `server` and `tokens` components: `server` owns the shared
 webhook listener and trusted bindings, while `tokens` signs short-lived App JWTs and mints the exact
