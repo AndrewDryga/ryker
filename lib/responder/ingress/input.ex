@@ -251,13 +251,11 @@ defmodule Responder.Ingress.Input do
     end
   end
 
-  # Webhook occurrence time is optional and may be assigned by Responder. It is
-  # therefore receipt metadata, not part of the sender's retry identity. The
-  # stable event id, revision, actor, content, and destination still conflict if
-  # a sender reuses an event id for different work.
-  defp fingerprint_document(
-         %__MODULE__{source: %{kind: "webhook"}, occurred_at_source: :ingress} = input
-       ) do
+  # Ingress-assigned occurrence time changes when an authenticated delivery is
+  # reconstructed on retry. It is receipt metadata, not sender identity. The
+  # stable event id, revision, actor, content, source, and destination still
+  # conflict if a sender reuses an event id for different work.
+  defp fingerprint_document(%__MODULE__{occurred_at_source: :ingress} = input) do
     input |> document() |> Map.delete("occurred_at")
   end
 
