@@ -681,6 +681,41 @@ defmodule Responder.ControlPlane.RouterTest do
     assert_received {:forgot_memory, "memory:one"}
   end
 
+  test "memory reviews support confirmed keep merge forget and an explicit edit form" do
+    for action <- ["keep", "merge", "forget"] do
+      path = "/actions/memory-review/memory-review%3Aone/#{action}"
+      confirm = request(:get, path)
+      assert confirm.status == 200
+      [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirm.resp_body)
+      accepted = request(:post, path, URI.encode_query(%{"_token" => token}))
+      assert accepted.status == 303
+      assert_received {:memory_review, "memory-review:one", resolved, nil}
+      assert Atom.to_string(resolved) == action
+    end
+
+    edit_path = "/actions/memory-review/memory-review%3Atwo/edit"
+    edit = request(:get, edit_path)
+    assert edit.status == 200
+    assert edit.resp_body =~ "Edit reviewed memory"
+    [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, edit.resp_body)
+
+    accepted =
+      request(
+        :post,
+        edit_path,
+        URI.encode_query(%{
+          "_token" => token,
+          "subject" => "primary_codebase",
+          "value" => "responder-elixir"
+        })
+      )
+
+    assert accepted.status == 303
+
+    assert_received {:memory_review, "memory-review:two", :edit,
+                     %{"subject" => "primary_codebase", "value" => "responder-elixir"}}
+  end
+
   test "a blocked delivery can be rearmed only from its exact confirmed intent" do
     failures = request(:get, "/failures")
     assert failures.status == 200
@@ -896,6 +931,7 @@ defmodule Responder.ControlPlane.RouterTest do
     assert memory.resp_body =~ "Disable…"
     assert memory.resp_body =~ "Resume…"
     assert memory.resp_body =~ "Delete…"
+    assert memory.resp_body =~ "scope workspace (slack:T123); visibility workspace"
     assert memory.resp_body =~ "—"
   end
 
@@ -1136,6 +1172,10 @@ defmodule Responder.ControlPlane.RouterTest do
         end,
         forget_memory: fn ref ->
           send(parent, {:forgot_memory, ref})
+          {:ok, %{ref: ref}}
+        end,
+        resolve_memory_review: fn ref, action, replacement ->
+          send(parent, {:memory_review, ref, action, replacement})
           {:ok, %{ref: ref}}
         end,
         rearm_admission: fn ref ->
@@ -1701,6 +1741,54 @@ defmodule Responder.ControlPlane.RouterTest do
                 ref: "memory:one",
                 status: :active,
                 subject: "checkout-api"
+              }
+            ],
+            reviews: [
+              %{
+                "entries" => [
+                  %{
+                    "kind" => "entity_relationship",
+                    "memory_ref" => "memory:one",
+                    "scope" => "workspace",
+                    "scope_ref" => "slack:T123",
+                    "status" => "active",
+                    "subject" => "checkout-api",
+                    "value" => "payments",
+                    "visibility" => "workspace"
+                  },
+                  %{
+                    "kind" => "entity_relationship",
+                    "memory_ref" => "memory:duplicate",
+                    "scope" => "workspace",
+                    "scope_ref" => "slack:T123",
+                    "status" => "active",
+                    "subject" => "payments-api",
+                    "value" => "payments",
+                    "visibility" => "workspace"
+                  }
+                ],
+                "kind" => "duplicate",
+                "reason" => "Same value",
+                "review_ref" => "memory-review:one",
+                "status" => "pending"
+              },
+              %{
+                "entries" => [
+                  %{
+                    "kind" => "repository_binding",
+                    "memory_ref" => "memory:two",
+                    "scope" => "repository",
+                    "scope_ref" => "responder",
+                    "status" => "active",
+                    "subject" => "primary_repository",
+                    "value" => "responder",
+                    "visibility" => "workspace"
+                  }
+                ],
+                "kind" => "stale",
+                "reason" => "Not recently used",
+                "review_ref" => "memory-review:two",
+                "status" => "pending"
               }
             ],
             schedules: [

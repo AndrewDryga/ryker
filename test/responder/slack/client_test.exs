@@ -407,6 +407,7 @@ defmodule Responder.Slack.ClientTest do
           %{
             "id" => "C123",
             "is_archived" => false,
+            "is_ext_shared" => false,
             "is_private" => false,
             "name" => "backend-ops",
             "properties" => %{"canvas" => %{"file_id" => "FCHANNEL"}},
@@ -416,6 +417,7 @@ defmodule Responder.Slack.ClientTest do
           %{
             "id" => "G456",
             "is_archived" => false,
+            "is_ext_shared" => false,
             "is_private" => true,
             "name" => "private-incident",
             "purpose" => %{"value" => ""},
@@ -472,7 +474,33 @@ defmodule Responder.Slack.ClientTest do
     {:ok, joined_requester} = FakeRequester.start([terminal_page])
 
     assert joined_requester |> client() |> Client.joined_conversations() ==
-             {:ok, ["C123", "G456"]}
+             {:ok,
+              [
+                %{channel_ref: "C123", external_shared: false, private: false},
+                %{channel_ref: "G456", external_shared: false, private: true}
+              ]}
+  end
+
+  test "conversation discovery rejects a missing external-sharing classification" do
+    page =
+      slack(%{
+        "channels" => [
+          %{
+            "id" => "C123",
+            "is_archived" => false,
+            "is_private" => false,
+            "name" => "backend-ops",
+            "purpose" => %{"value" => "Service operations"},
+            "topic" => %{"value" => "Checkout and API health"}
+          }
+        ],
+        "response_metadata" => %{"next_cursor" => ""}
+      })
+
+    {:ok, requester} = FakeRequester.start([page])
+
+    assert Client.list_conversations(client(requester), %{}) ==
+             {:error, {:slack_protocol_error, :conversations}}
   end
 
   test "reads one bounded Slack conversation and thread without exposing a credential" do
@@ -774,22 +802,52 @@ defmodule Responder.Slack.ClientTest do
       FakeRequester.start([
         slack(%{
           "channels" => [
-            %{"id" => "C456", "is_archived" => false, "is_member" => true},
-            %{"id" => "C999", "is_archived" => true, "is_member" => true}
+            %{
+              "id" => "C456",
+              "is_archived" => false,
+              "is_ext_shared" => true,
+              "is_member" => true,
+              "is_private" => false
+            },
+            %{
+              "id" => "C999",
+              "is_archived" => true,
+              "is_ext_shared" => false,
+              "is_member" => true,
+              "is_private" => false
+            }
           ],
           "response_metadata" => %{"next_cursor" => "next"}
         }),
         slack(%{
           "channels" => [
-            %{"id" => "G123", "is_archived" => false, "is_member" => true},
-            %{"id" => "C777", "is_archived" => false, "is_member" => false}
+            %{
+              "id" => "G123",
+              "is_archived" => false,
+              "is_ext_shared" => false,
+              "is_member" => true,
+              "is_private" => true
+            },
+            %{
+              "id" => "C777",
+              "is_archived" => false,
+              "is_ext_shared" => false,
+              "is_member" => false,
+              "is_private" => false
+            }
           ],
           "response_metadata" => %{"next_cursor" => ""}
         })
       ])
 
     client = client(requester)
-    assert Client.joined_conversations(client) == {:ok, ["C456", "G123"]}
+
+    assert Client.joined_conversations(client) ==
+             {:ok,
+              [
+                %{channel_ref: "C456", external_shared: true, private: false},
+                %{channel_ref: "G123", external_shared: false, private: true}
+              ]}
 
     assert Enum.map(FakeRequester.requests(requester), &elem(&1, 1)) == [
              "/users.conversations?exclude_archived=true&limit=200&types=public_channel%2Cprivate_channel",
@@ -1195,7 +1253,14 @@ defmodule Responder.Slack.ClientTest do
           "response_metadata" => %{"next_cursor" => ""}
         }),
         slack(%{
-          "channels" => [%{"id" => "not valid", "is_archived" => false, "is_member" => true}],
+          "channels" => [
+            %{
+              "id" => "not valid",
+              "is_archived" => false,
+              "is_member" => true,
+              "is_private" => false
+            }
+          ],
           "response_metadata" => %{"next_cursor" => ""}
         })
       ])

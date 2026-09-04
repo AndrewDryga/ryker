@@ -14,6 +14,7 @@ defmodule Responder.Work.Custody do
   alias Responder.Episodes
   alias Responder.Episodes.{Command, Episode}
   alias Responder.Repo
+  alias Responder.State.Continuity
 
   alias Responder.Work.{
     Cancellation,
@@ -219,10 +220,12 @@ defmodule Responder.Work.Custody do
          :ok <- non_negative_integer(semantic_version, :final_preflight_semantic_version) do
       Repo.transaction(fn ->
         {_, turn} = leased!(episode_id, turn_ref, lease_ref)
+        continuity_sha256 = Continuity.preflight_fingerprint_in_transaction(turn)
 
         turn
         |> TurnChangeset.record_final_preflight(
           candidate_sha256,
+          continuity_sha256,
           ledger_sha256,
           semantic_version
         )
@@ -284,7 +287,10 @@ defmodule Responder.Work.Custody do
         turn.id
       )
 
+    continuity_sha256 = Continuity.preflight_fingerprint_in_transaction(turn)
+
     if turn.final_preflight_candidate_sha256 == candidate_sha256 and
+         turn.final_preflight_continuity_sha256 == continuity_sha256 and
          turn.final_preflight_ledger_sha256 == ledger_sha256 and
          turn.final_preflight_semantic_version == episode.semantic_version do
       turn
@@ -1818,14 +1824,24 @@ defmodule Responder.Work.Custody do
        ) do
     {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
 
-    candidate_action(
-      turn,
-      expected_candidate_sha256,
-      expected_candidate_attempt,
-      candidate,
-      candidate_sha256,
-      candidate_attempt
-    )
+    case candidate_action(
+           turn,
+           expected_candidate_sha256,
+           expected_candidate_attempt,
+           candidate,
+           candidate_sha256,
+           candidate_attempt
+         ) do
+      %Turn{} = staged ->
+        case Continuity.candidate_staged_in_transaction(
+               staged,
+               candidate_sha256,
+               candidate_attempt
+             ) do
+          :ok -> staged
+          {:error, reason} -> Repo.rollback(reason)
+        end
+    end
   end
 
   defp candidate_action(
@@ -1974,7 +1990,7 @@ defmodule Responder.Work.Custody do
        ) do
     with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),
          :ok <- exact_episode(episode, episode_id),
-         {:ok, _session, turn} <- lock_turn_after_episode(episode_id, turn_ref),
+         {:ok, session, turn} <- lock_turn_after_episode(episode_id, turn_ref),
          {:ok, result} <- accepted_intent_result(turn),
          {:continue, command, attributes} <-
            prepare_result_acceptance(
@@ -1992,7 +2008,8 @@ defmodule Responder.Work.Custody do
            turn
            |> TurnChangeset.accept_result(attributes)
            |> Repo.update()
-           |> persistence_result(:work_result) do
+           |> persistence_result(:work_result),
+         :ok <- Continuity.accept_staged_in_transaction(episode, session, turn, turn.result_ref) do
       %{episode: transition.episode, turn: turn}
     else
       {:accepted, turn} -> %{episode: episode_for_result!(episode_key), turn: turn}

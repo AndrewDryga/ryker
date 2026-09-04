@@ -21,7 +21,7 @@ defmodule Responder.Evals.WorkCaseTest do
 
       expected_tools =
         if document["prompt"]["work"]["offer_confirmation_supported"] do
-          ~w(get_work_state cite_source request_input wait_for list_automations get_automation propose_automation request_task search_memory propose_memory record_feedback validate_final)
+          ~w(get_work_state cite_source request_input wait_for list_automations get_automation propose_automation request_task search_memory propose_memory update_conversation_summary record_feedback validate_final)
         else
           ~w(get_work_state cite_source request_input wait_for list_automations get_automation search_memory record_feedback validate_final)
         end

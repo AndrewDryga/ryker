@@ -399,29 +399,29 @@ flowchart TB
   Config --> Prompt
   Prompt --> Agent --> Validate
 
-  Validate -->|"structured memory"| CompactStore[("conversation_memories.state_json")]
+  Validate -->|"accepted staged summary"| CompactStore[("conversation_summaries.state")]
   Validate -->|"evidence"| EvidenceStore[("evidence + coverage")]
   Validate -->|"inert memory offer"| MemoryCard["Confirmation card"]
   Validate -->|"inert behavior offer"| BehaviorCard["Confirmation card"]
-  MemoryCard -->|"operator click"| MemoryStore[("memory_entries")]
-  BehaviorCard -->|"operator click"| BehaviorStore[("responder_preferences<br/>or standing_rules")]
-  Rules -->|"source input once"| RuleRuns[("standing_rule_runs")]
+  MemoryCard -->|"operator click"| MemoryStore[("operational_memory_entries")]
+  BehaviorCard -->|"operator click"| BehaviorStore[("operator_behaviors")]
+  Rules -->|"source input once"| RuleRuns[("standing_assignment_runs")]
 ```
 
 ### Memory layers
 
 | Layer | Stored in | Writer | Purpose | Trust and lifetime |
 | --- | --- | --- | --- | --- |
-| Exact Slack context | Slack history plus `slack_inputs`, then snapshotted in `agent_runs.context_json` | Context assembler | Preserve the thread root and messages nearest the target while avoiding unrelated threads | Raw event context only; 10-50 messages and operational-data retention |
-| Compact conversation situation | `conversation_memories.state_json` | Agent result after host validation | Carry purpose, situation, goal, active topics, topology, decisions, open loops, unresolved questions, and evidence references across turns | Continuity, not current-health proof; 90-day default retention |
-| Related workspace situations | Recent `conversation_memories` selected at prompt assembly | Host-owned context selection | Recall overlapping work from the same channel, repository, and public workspace channels | Bounded to eight summaries; private channels never cross channel boundaries |
-| Channel session state | `channel_memories.state_json` | Agent result after host validation | Preserve a fallback while the per-channel Coop session rotates | Session continuity, not the organizational memory boundary |
+| Exact Slack context | Slack history plus `ingress_inbox_entries`, frozen in the Work turn submission | Context assembler | Preserve the thread root and messages nearest the target while avoiding unrelated threads | Raw event context only; bounded inputs and operational-data retention |
+| Compact conversation situation | `conversation_summaries.state` | Turn-scoped state tool, published with accepted result | Carry purpose, situation, goal, active topics, topology, decisions, open loops, unresolved questions, and evidence references across turns | Continuity, not current-health proof; compacted after seven days |
+| Related workspace situations | Recent `conversation_summaries` selected at prompt assembly | Host-owned context selection | Recall overlapping work from joined public workspace channels | Bounded to eight summaries with same-repository priority; private channels and DMs never cross conversation boundaries |
 | Evidence ledger | `evidence`, `coverage`, `timeline_events` | Host after strict agent-report parsing | Preserve source-attributed observations independently of prose | Same-channel recall; time and source remain visible |
-| Confirmed durable memory | `memory_entries` | Configured operator click | Durable mapping or open-ended collaboration guidance | Mapping is an untrusted hint; guidance is advice, never evidence or authority; both have scope, expiry, and caps |
+| Confirmed durable memory | `operational_memory_entries` | Configured operator click | Durable alias, repository binding, evidence route, or entity relationship | Untrusted hint with explicit scope, expiry, provenance, and caps; never authority or current evidence |
+| Confirmed guidance | `operator_behaviors` | Configured operator click | Open-ended collaboration guidance | Advice with explicit scope, expiry, provenance, and caps; never evidence or authority |
 | Work commitments | `commitments` projected from `agent_runs` | Host when it accepts model-backed work | Show what Emisar owes, current progress, and the next operator action | Execution state, not prompt memory or evidence |
-| Preferences | `responder_preferences` | Configured operator click | Typed investigation depth or response detail | Closed catalog; precedence and expiry are host-owned |
-| Standing rules | `standing_rules` | Configured operator click | Typed channel subscription such as Terraform-plan review | Host matches trigger deterministically; read-only |
-| Rule executions | `standing_rule_runs` | Host | Prevent the same rule/source event from running twice, and record what each fire produced so a rule can be judged | Idempotency record kept on the episode-history horizon; the acted and quiet tallies on `standing_rules` outlive it |
+| Preferences | `operator_behaviors` (`preference`) | Configured operator click | Typed investigation depth or response detail | Closed catalog; precedence and expiry are host-owned |
+| Standing rules | `operator_behaviors` (`standing_assignment`) | Configured operator click | Typed channel subscription such as Terraform-plan review | Host matches trigger deterministically; read-only |
+| Rule executions | `standing_assignment_runs` | Host | Prevent the same rule/source event from running twice, and record what each fire produced so a rule can be judged | Idempotency record kept on the episode-history horizon; the acted and quiet tallies on `operator_behaviors` outlive it |
 | Incident intelligence | Incident, signals, agent runs, evidence, coverage, explicit events, proposals, Emisar approvals, publication | Webhook, host, agent, operators | Coordinate one incident or engineering task and derive its remediation timeline and postmortem | Bound to that work occurrence; source rows remain canonical |
 
 ### Evidence precedence
@@ -657,7 +657,8 @@ Key properties:
 - Automatic cleanup operates only on exact Responder-owned session IDs. It never accepts dirty
   work, and it accepts unmerged work only after the exact reviewed tree has been durably published.
 - Channel deletion removes conversation summaries, channel-scoped memory, preferences, and rules.
-  Repository reconciliation removes orphaned repository-scoped state. Normal maintenance prunes raw
+  Repository-scoped state remains until its own lifecycle or operator review removes it; automatic
+  orphan reconciliation is not yet implemented. Normal maintenance prunes raw
   operational data and compact conversation summaries on their separate schedules. Older summaries
   are first consolidated into bounded weekly rollups: public channels by repository and private
   channels only within that channel. Source summaries are removed transactionally only after their
@@ -674,7 +675,7 @@ Key properties:
 ```mermaid
 flowchart TB
   SlackInput[("slack_inputs")] --> Evaluation[("evaluation_decisions")]
-  SlackInput --> RuleRun[("standing_rule_runs")]
+  SlackInput --> RuleRun[("standing_assignment_runs")]
   SlackInput --> Evidence[("evidence / coverage")]
   SlackInput --> WorkOffer["Incident or task offer"]
 
@@ -701,20 +702,17 @@ flowchart TB
   PublicationEvents --> Timeline
   Remediation --> SlackViews["card Record row:<br/>timeline / evidence / handoff / postmortem"]
 
-  ChannelMemory[("channel_memories")] --> Evaluation
-  ConversationMemory[("conversation_memories")] --> PromptContext
+  ConversationMemory[("conversation_summaries")] --> PromptContext
   ConversationMemory --> Dreaming["deterministic memory consolidation"]
-  Dreaming --> Rollups[("memory_rollups")]
+  Dreaming --> Rollups[("conversation_rollups")]
   Rollups --> PromptContext
-  Memory[("memory_entries")] --> PromptContext["Future prompt context"]
+  Memory[("operational_memory_entries")] --> PromptContext["Future prompt context"]
   Memory --> Reviews[("memory_review_items")]
-  Preferences[("responder_preferences")] --> PromptContext
-  Rules[("standing_rules")] --> RuleRun
+  Preferences[("operator_behaviors<br/>preference")] --> PromptContext
+  Rules[("operator_behaviors<br/>standing_assignment")] --> RuleRun
   Evidence --> PromptContext
-  ChannelMemory --> PromptContext
 
   Incident --> Cleanup[("coop_cleanup")]
-  ChannelMemory --> Cleanup
   Scheduler[("work_items")] --> SlackInput
   Scheduler --> Webhook
   Scheduler --> AgentRuns

@@ -18,6 +18,15 @@ defmodule Responder.Slack.HomeInteractionTest do
     assert interaction.event_ref == "interaction:env-home-control"
     assert interaction.resource_ref == "memory:abc-123"
 
+    assert {:ok, review} =
+             HomeInteraction.from_socket(
+               envelope("responder_home_merge_memory_review", "memory-review:abc-123"),
+               "T123",
+               @now
+             )
+
+    assert review.action == :merge_memory_review
+
     assert HomeInteraction.from_socket(
              envelope("responder_home_forget_memory", "schedule:abc-123"),
              "T123",

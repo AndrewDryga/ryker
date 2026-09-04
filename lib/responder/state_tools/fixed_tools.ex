@@ -1,11 +1,24 @@
 defmodule Responder.StateTools.FixedTools do
   @moduledoc false
 
+  import Ecto.Query
+
   alias Responder.CanonicalJSON
   alias Responder.Delivery.{PlatformActionCustody, Presentation}
+  alias Responder.Episodes.Event
   alias Responder.Repo
-  alias Responder.Slack.Mentions
-  alias Responder.State.{Automations, Memories, Record, Records}
+  alias Responder.Slack.{ChannelMembership, Mentions}
+
+  alias Responder.State.{
+    Automations,
+    Behaviors,
+    Continuity,
+    ConversationSummaryState,
+    Memories,
+    Record,
+    Records
+  }
+
   alias Responder.Work.{Custody, Final, FinalPreflight, Validator}
 
   @contract_version "responder-state:v1"
@@ -22,6 +35,7 @@ defmodule Responder.StateTools.FixedTools do
     request_task
     search_memory
     propose_memory
+    update_conversation_summary
     record_feedback
     validate_final
   )
@@ -47,6 +61,7 @@ defmodule Responder.StateTools.FixedTools do
       request_task_tool(),
       search_memory_tool(),
       propose_memory_tool(),
+      update_conversation_summary_tool(),
       record_feedback_tool(),
       validate_final_tool()
     ]
@@ -211,29 +226,50 @@ defmodule Responder.StateTools.FixedTools do
         )
     }
 
-    query = String.downcase(arguments["query"])
+    operator_ref = latest_operator_ref(binding.episode.id)
+    query = arguments["query"]
+    scope = arguments["scope"]
+    limit = arguments["limit"]
 
-    memories =
-      context
-      |> Memories.recall(arguments["limit"])
-      |> Enum.filter(fn memory ->
-        memory |> CanonicalJSON.encode!() |> String.downcase() |> String.contains?(query)
+    {memories, left} =
+      append_search_results([], limit, arguments["kinds"], "fact", fn remaining ->
+        Memories.search(context, query, scope, remaining)
+      end)
+
+    behavior_context = Map.put(context, :operator_ref, operator_ref)
+
+    {memories, left} =
+      append_search_results(memories, left, arguments["kinds"], "guidance", fn remaining ->
+        Behaviors.search_guidance(behavior_context, query, scope, remaining)
+      end)
+
+    {memories, _left} =
+      append_search_results(memories, left, arguments["kinds"], "continuity", fn remaining ->
+        Continuity.search_context(
+          binding.episode,
+          binding.session.repository_ref,
+          query,
+          scope,
+          remaining
+        )
       end)
 
     {:ok, %{"cursor" => nil, "memories" => memories}}
   end
 
   defp dispatch("propose_memory", arguments, binding) do
+    scope = effective_memory_scope(arguments["scope"], binding.episode)
+
     case arguments["kind"] do
       "guidance" ->
         payload = %{
           "expires_in" => expiry(arguments["expires_at"]),
-          "repository" => memory_repository(arguments, binding),
-          "scope" => memory_scope(arguments["scope"]),
+          "repository" => memory_repository(scope, binding),
+          "scope" => memory_scope(scope),
           "subject" => arguments["subject"],
           "summary" => String.slice(arguments["value"], 0, 500),
           "text" => arguments["value"],
-          "visibility" => memory_visibility(arguments["scope"])
+          "visibility" => memory_visibility(scope)
         }
 
         create_record(
@@ -249,14 +285,21 @@ defmodule Responder.StateTools.FixedTools do
         payload = %{
           "expires_in" => expiry(arguments["expires_at"]),
           "kind" => "entity_relationship",
-          "repository" => memory_repository(arguments, binding),
-          "scope" => fact_scope(arguments["scope"]),
+          "repository" => memory_repository(scope, binding),
+          "scope" => fact_scope(scope),
           "subject" => arguments["subject"],
           "value" => arguments["value"],
-          "visibility" => fact_visibility(arguments["scope"])
+          "visibility" => fact_visibility(scope)
         }
 
         create_record(binding, "propose_memory", arguments, "memory_offer", payload)
+    end
+  end
+
+  defp dispatch("update_conversation_summary", %{"state" => state}, binding) do
+    case Continuity.stage(binding.state_token, state) do
+      {:ok, result} -> {:ok, Map.new(result, fn {key, value} -> {Atom.to_string(key), value} end)}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -323,6 +366,28 @@ defmodule Responder.StateTools.FixedTools do
       {:error, reason} ->
         {:error, error_code(reason)}
     end
+  end
+
+  defp append_search_results(memories, 0, _kinds, _kind, _search), do: {memories, 0}
+
+  defp append_search_results(memories, left, kinds, kind, search) do
+    if kind in kinds do
+      results = search.(left)
+      {memories ++ results, left - length(results)}
+    else
+      {memories, left}
+    end
+  end
+
+  defp latest_operator_ref(episode_id) do
+    Repo.one(
+      from(event in Event,
+        where: event.episode_id == ^episode_id,
+        order_by: [desc: event.sequence],
+        limit: 1,
+        select: fragment("(?::jsonb)->>'actor_ref'", event.payload)
+      )
+    )
   end
 
   # Feedback may name the one open task offer it is refining. Keep the original
@@ -751,8 +816,32 @@ defmodule Responder.StateTools.FixedTools do
   defp subject_ref(prefix, arguments),
     do: prefix <> ":" <> binary_part(digest(CanonicalJSON.encode!(arguments)), 0, 32)
 
-  defp memory_repository(%{"scope" => "repository"}, binding), do: binding.session.repository_ref
-  defp memory_repository(_arguments, _binding), do: nil
+  defp memory_repository("repository", binding), do: binding.session.repository_ref
+  defp memory_repository(_scope, _binding), do: nil
+
+  defp effective_memory_scope(scope, %{destination_transport: "slack"} = episode)
+       when scope in ["repository", "workspace"] do
+    if public_slack_destination?(episode), do: scope, else: "current_channel"
+  end
+
+  defp effective_memory_scope(scope, _episode), do: scope
+
+  defp public_slack_destination?(%{destination_conversation_ref: conversation_ref}) do
+    case String.split(conversation_ref, ":", parts: 3) do
+      ["slack", workspace_ref, channel_ref] ->
+        Repo.exists?(
+          from(membership in ChannelMembership,
+            where:
+              membership.workspace_ref == ^workspace_ref and
+                membership.channel_ref == ^channel_ref and membership.status == :joined and
+                membership.private == false and membership.external_shared == false
+          )
+        )
+
+      _invalid ->
+        false
+    end
+  end
 
   defp memory_scope("mine"), do: "operator"
   defp memory_scope("current_channel"), do: "conversation"
@@ -813,6 +902,7 @@ defmodule Responder.StateTools.FixedTools do
   defp error_code(:state_record_confirmation_unsupported), do: "confirmation_unsupported"
   defp error_code(:state_record_shadow_forbidden), do: "unauthorized"
   defp error_code(:state_record_operation_conflict), do: "operation_conflict"
+  defp error_code(:conversation_summary_unauthorized), do: "unauthorized"
   defp error_code({:invalid_schedule, _field}), do: "invalid_arguments"
   defp error_code({:invalid_state_record, _field}), do: "invalid_arguments"
   defp error_code(_reason), do: "temporarily_unavailable"
@@ -1002,6 +1092,14 @@ defmodule Responder.StateTools.FixedTools do
       "supersedes" => array(reference(256), 0, 20),
       "value" => text(4_000)
     })
+  end
+
+  defp update_conversation_summary_tool do
+    tool(
+      "update_conversation_summary",
+      "Stage a bounded derived situation summary. It becomes durable only if this turn's exact final candidate is accepted.",
+      %{"state" => ConversationSummaryState.json_schema()}
+    )
   end
 
   defp record_feedback_tool do

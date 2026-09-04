@@ -6,6 +6,7 @@ defmodule Responder.StateTools.RouterTest do
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Repo
+  alias Responder.Slack.ChannelMembership
   alias Responder.State.{BehaviorChangeset, Record, Records, Schedule, ScheduleChangeset}
   alias Responder.StateTools.{FixedTools, Router, Tools, ToolVisibility}
   alias Responder.Work.{Custody, FinalPreflight}
@@ -22,7 +23,7 @@ defmodule Responder.StateTools.RouterTest do
   @no_owner_options Router.init(token: "trusted-state-tools-token", capabilities: [])
   @policy_digest String.duplicate("a", 64)
 
-  test "exposes exactly the fixed twelve tools without model-supplied host credentials" do
+  test "exposes exactly the fixed state tools without model-supplied host credentials" do
     claim = claim!("mcp-task")
 
     options = bound_options(claim)
@@ -41,6 +42,7 @@ defmodule Responder.StateTools.RouterTest do
              "request_task",
              "search_memory",
              "propose_memory",
+             "update_conversation_summary",
              "record_feedback",
              "validate_final"
            ]
@@ -792,7 +794,17 @@ defmodule Responder.StateTools.RouterTest do
   end
 
   test "memory proposals map every durable scope without widening repository authority" do
-    claim = claim!("fixed-memory-scopes")
+    joined_channel!("T123", "C456", false)
+
+    claim =
+      claim!("fixed-memory-scopes", %{
+        destination: %{
+          conversation_ref: "slack:T123:C456",
+          thread_ref: "1787832000.000100",
+          transport: "slack"
+        }
+      })
+
     options = bound_options(claim)
 
     proposals = [
@@ -837,6 +849,104 @@ defmodule Responder.StateTools.RouterTest do
            end)
   end
 
+  test "private, Slack Connect, and unknown Slack sources cannot propose cross-channel memory" do
+    joined_channel!("T123", "G456", true)
+
+    private =
+      claim!("private-memory-scope", %{
+        destination: %{
+          conversation_ref: "slack:T123:G456",
+          thread_ref: "1787832000.000100",
+          transport: "slack"
+        }
+      })
+
+    for {kind, scope, subject} <- [
+          {"guidance", "workspace", "private-guidance"},
+          {"fact", "repository", "private-fact"}
+        ] do
+      assert {:ok, %{"record_ref" => _record_ref}} =
+               Tools.call(
+                 "propose_memory",
+                 %{
+                   "expires_at" => "2026-09-10T12:00:00.000000Z",
+                   "kind" => kind,
+                   "scope" => scope,
+                   "source_refs" => ["source:#{subject}"],
+                   "subject" => subject,
+                   "supersedes" => [],
+                   "value" => "Private channel content."
+                 },
+                 bound_options(private)
+               )
+    end
+
+    assert Enum.all?(Records.model_records(private.episode.id), fn record ->
+             record["payload"]["scope"] == "conversation" and
+               record["payload"]["visibility"] == "conversation" and
+               is_nil(record["payload"]["repository"])
+           end)
+
+    joined_channel!("T123", "C789", false, true)
+
+    external =
+      claim!("external-memory-scope", %{
+        destination: %{
+          conversation_ref: "slack:T123:C789",
+          thread_ref: "1787832000.000101",
+          transport: "slack"
+        }
+      })
+
+    assert {:ok, %{"record_ref" => _record_ref}} =
+             Tools.call(
+               "propose_memory",
+               %{
+                 "expires_at" => "2026-09-10T12:00:00.000000Z",
+                 "kind" => "guidance",
+                 "scope" => "workspace",
+                 "source_refs" => ["source:external-source"],
+                 "subject" => "external-source",
+                 "supersedes" => [],
+                 "value" => "Slack Connect content."
+               },
+               bound_options(external)
+             )
+
+    assert [external_record] = Records.model_records(external.episode.id)
+    assert external_record["payload"]["scope"] == "conversation"
+    assert external_record["payload"]["visibility"] == "conversation"
+    assert is_nil(external_record["payload"]["repository"])
+
+    unknown =
+      claim!("unknown-memory-scope", %{
+        destination: %{
+          conversation_ref: "slack:T123:C999",
+          thread_ref: nil,
+          transport: "slack"
+        }
+      })
+
+    assert {:ok, %{"record_ref" => _record_ref}} =
+             Tools.call(
+               "propose_memory",
+               %{
+                 "expires_at" => "2026-09-10T12:00:00.000000Z",
+                 "kind" => "fact",
+                 "scope" => "workspace",
+                 "source_refs" => ["source:unknown-source"],
+                 "subject" => "unknown-source",
+                 "supersedes" => [],
+                 "value" => "Unknown source content."
+               },
+               bound_options(unknown)
+             )
+
+    assert [record] = Records.model_records(unknown.episode.id)
+    assert record["payload"]["scope"] == "conversation"
+    assert record["payload"]["visibility"] == "conversation"
+  end
+
   test "implements the stateless MCP handshake and refuses unauthenticated calls" do
     initialize = rpc("initialize", %{"protocolVersion" => "2025-11-25"})
 
@@ -857,7 +967,7 @@ defmodule Responder.StateTools.RouterTest do
     assert Jason.decode!(unauthorized.resp_body) == %{"error" => "unauthorized"}
   end
 
-  test "keeps all twelve tools visible while disabled owners reject calls server-side" do
+  test "keeps all state tools visible while disabled owners reject calls server-side" do
     list = rpc("tools/list", %{}, @wait_only_options)
 
     names =
@@ -866,7 +976,7 @@ defmodule Responder.StateTools.RouterTest do
     assert "wait_for" in names
     refute "offer_publication" in names
     refute "offer_schedule" in names
-    assert length(names) == 12
+    assert length(names) == 13
 
     automation =
       list.resp_body
@@ -1520,5 +1630,18 @@ defmodule Responder.StateTools.RouterTest do
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     claim
+  end
+
+  defp joined_channel!(workspace_ref, channel_ref, private, external_shared \\ false) do
+    Repo.insert!(%ChannelMembership{
+      channel_ref: channel_ref,
+      external_shared: external_shared,
+      generation: 1,
+      id: Ecto.UUID.generate(),
+      joined_at: DateTime.utc_now(),
+      private: private,
+      status: :joined,
+      workspace_ref: workspace_ref
+    })
   end
 end

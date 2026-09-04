@@ -39,6 +39,7 @@ defmodule Responder.ControlPlane.Actions do
       discard_retention: &discard_retention/1,
       edit_lab_message: lab_message_editor(work_profile),
       forget_memory: &Memories.forget/1,
+      resolve_memory_review: &resolve_memory_review/3,
       rearm_admission: &retry_failure("admission", &1),
       rearm_delivery: &retry_failure("delivery", &1),
       rearm_emisar: &retry_failure("emisar", &1),
@@ -52,6 +53,18 @@ defmodule Responder.ControlPlane.Actions do
       set_schedule_status: &Schedules.set_status/2,
       view_lab_task_record: lab_task_record_view(work_view_options)
     }
+  end
+
+  defp resolve_memory_review(review_ref, action, replacement) do
+    case Repo.one(
+           from(review in Responder.State.MemoryReviewItem, where: review.ref == ^review_ref)
+         ) do
+      %Responder.State.MemoryReviewItem{workspace_ref: workspace_ref} ->
+        Memories.resolve_review(review_ref, action, @actor_ref, workspace_ref, replacement)
+
+      nil ->
+        {:error, :memory_review_not_found}
+    end
   end
 
   defp retry_failure(kind, ref) do

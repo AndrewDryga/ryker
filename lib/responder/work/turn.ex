@@ -32,6 +32,7 @@ defmodule Responder.Work.Turn do
     field(:validation_intent_fingerprint, :string)
     field(:validation_receipt, :string)
     field(:final_preflight_candidate_sha256, :string)
+    field(:final_preflight_continuity_sha256, :string)
     field(:final_preflight_ledger_sha256, :string)
     field(:final_preflight_semantic_version, :integer)
     field(:execution_target, :string)
@@ -112,6 +113,7 @@ defmodule Responder.Work.Turn do
           validation_intent_fingerprint: String.t() | nil,
           validation_receipt: String.t() | nil,
           final_preflight_candidate_sha256: String.t() | nil,
+          final_preflight_continuity_sha256: String.t() | nil,
           final_preflight_ledger_sha256: String.t() | nil,
           final_preflight_semantic_version: non_neg_integer() | nil,
           execution_target: String.t() | nil,

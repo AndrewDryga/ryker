@@ -14,6 +14,7 @@ defmodule Responder.Slack.AppHome do
   @maximum_incidents 5
   @maximum_behaviors 5
   @maximum_memories 5
+  @maximum_memory_reviews 2
   @maximum_schedules 5
   @maximum_text 240
 
@@ -49,8 +50,8 @@ defmodule Responder.Slack.AppHome do
     operators = Map.get(options, :operators)
 
     if match?(%MapSet{}, operators) and MapSet.member?(operators, event.actor_ref) do
-      with projection when is_function(projection, 1) <- Map.get(options, :projection),
-           %{} = snapshot <- projection.(event.workspace_ref) do
+      with projection when is_function(projection, 2) <- Map.get(options, :projection),
+           %{} = snapshot <- projection.(event.workspace_ref, event.actor_ref) do
         {:ok, :operator, operator_view(snapshot)}
       else
         _invalid -> {:error, {:invalid_app_home, :projection}}
@@ -78,6 +79,11 @@ defmodule Responder.Slack.AppHome do
     incidents = bounded_list(snapshot, :incidents, @maximum_incidents)
     behaviors = bounded_list(snapshot, :behaviors, @maximum_behaviors)
     memories = bounded_list(snapshot, :memories, @maximum_memories)
+    memory_reviews = bounded_list(snapshot, :memory_reviews, @maximum_memory_reviews)
+
+    memory_review_count =
+      bounded_count(Map.get(snapshot, :memory_review_count), length(memory_reviews))
+
     schedules = bounded_list(snapshot, :schedules, @maximum_schedules)
 
     blocks =
@@ -90,6 +96,8 @@ defmodule Responder.Slack.AppHome do
       |> append_section("In flight", work, &work_block/1)
       |> append_section("Incident rooms", incidents, &incident_block/1)
       |> append_counts(Map.get(snapshot, :counts, %{}))
+      |> append_control_section("Memory review", memory_reviews, &memory_review_blocks/1)
+      |> append_memory_review_overflow(memory_review_count, length(memory_reviews))
       |> append_control_section("Operational memory", memories, &memory_blocks/1)
       |> append_control_section("Behaviors", behaviors, &behavior_blocks/1)
       |> append_control_section("Schedules", schedules, &schedule_blocks/1)
@@ -97,7 +105,7 @@ defmodule Responder.Slack.AppHome do
         context("Refreshed when you open Home. Durable state remains authoritative.")
       ])
 
-    %{"blocks" => Enum.take(blocks, 99), "type" => "home"}
+    %{"blocks" => blocks, "type" => "home"}
   end
 
   defp restricted_view do
@@ -127,6 +135,17 @@ defmodule Responder.Slack.AppHome do
   defp append_control_section(blocks, title, rows, renderer) do
     blocks ++ [divider(), header(title)] ++ Enum.flat_map(rows, renderer)
   end
+
+  defp append_memory_review_overflow(blocks, count, shown) when count > shown do
+    blocks ++
+      [
+        context(
+          "#{count - shown} more memory #{if(count - shown == 1, do: "review is", else: "reviews are")} available in the Responder control plane."
+        )
+      ]
+  end
+
+  defp append_memory_review_overflow(blocks, _count, _shown), do: blocks
 
   defp append_counts(blocks, counts) when is_map(counts) do
     labels = [
@@ -185,6 +204,69 @@ defmodule Responder.Slack.AppHome do
       ])
     ]
   end
+
+  defp memory_review_blocks(row) do
+    kind = row |> Map.get("kind", "review") |> label()
+    review_ref = Map.get(row, "review_ref")
+    entries = Map.get(row, "entries", [])
+    entry_count = length(entries)
+    keep_label = if Map.get(row, "kind") == "duplicate", do: "Keep separate", else: "Keep"
+
+    review_actions = [
+      button("responder_home_keep_memory_review", keep_label, review_ref),
+      if(Map.get(row, "kind") == "duplicate",
+        do:
+          button(
+            "responder_home_merge_memory_review",
+            "Merge (#{entry_count})",
+            review_ref,
+            destructive_confirm(
+              "Merge #{entry_count} entries?",
+              "The newest entry will remain; #{max(entry_count - 1, 0)} duplicate values will be redacted.",
+              "Merge",
+              "Cancel"
+            )
+          ),
+        else: nil
+      ),
+      button(
+        "responder_home_forget_memory_review",
+        "Forget all (#{entry_count})",
+        review_ref,
+        destructive_confirm(
+          "Forget all #{entry_count} entries?",
+          "Every displayed stored value in this review will be redacted."
+        )
+      )
+    ]
+
+    summary =
+      section(
+        "#{kind} — #{entry_count} affected #{if(entry_count == 1, do: "entry", else: "entries")}\n#{Map.get(row, "reason", "Review this memory.")}"
+      )
+
+    entry_blocks =
+      entries
+      |> Enum.with_index(1)
+      |> Enum.map(fn {entry, index} ->
+        section(memory_review_entry(entry, index, entry_count))
+      end)
+
+    [summary | entry_blocks] ++ [actions(Enum.reject(review_actions, &is_nil/1))]
+  end
+
+  defp memory_review_entry(entry, index, count) do
+    subject = bounded_part(Map.get(entry, "subject", "Memory"), 40)
+    value = bounded_part(Map.get(entry, "value") || "(redacted)", 72)
+    scope = bounded_part(Map.get(entry, "scope", "unknown"), 12)
+    scope_ref = bounded_part(Map.get(entry, "scope_ref", "unknown"), 48)
+    visibility = bounded_part(Map.get(entry, "visibility", "unknown"), 12)
+
+    "#{index}/#{count} #{subject} — scope: #{scope} (#{scope_ref}); visibility: #{visibility}; value: #{value}"
+  end
+
+  defp bounded_count(value, _fallback) when is_integer(value) and value >= 0, do: value
+  defp bounded_count(_value, fallback), do: fallback
 
   defp behavior_blocks(row) do
     subject = bounded(Map.get(row, :subject, Map.get(row, :ref, "Behavior")))
@@ -266,6 +348,16 @@ defmodule Responder.Slack.AppHome do
 
   defp bounded(_value), do: "Unknown"
 
+  defp bounded_part(value, maximum) when is_binary(value) do
+    value = String.replace(value, ~r/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u, " ")
+
+    if String.length(value) > maximum,
+      do: String.slice(value, 0, maximum - 1) <> "…",
+      else: value
+  end
+
+  defp bounded_part(_value, _maximum), do: "unknown"
+
   defp header(text), do: %{"text" => plain(text), "type" => "header"}
   defp section(text), do: %{"text" => plain(text), "type" => "section"}
   defp context(text), do: %{"elements" => [plain(text)], "type" => "context"}
@@ -283,10 +375,10 @@ defmodule Responder.Slack.AppHome do
     if confirm, do: Map.put(button, "confirm", confirm), else: button
   end
 
-  defp destructive_confirm(title, text) do
+  defp destructive_confirm(title, text, confirm \\ "Delete", deny \\ "Keep") do
     %{
-      "confirm" => plain("Delete"),
-      "deny" => plain("Keep"),
+      "confirm" => plain(confirm),
+      "deny" => plain(deny),
       "style" => "danger",
       "text" => plain(text),
       "title" => plain(title)

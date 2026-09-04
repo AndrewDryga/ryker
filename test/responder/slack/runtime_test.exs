@@ -63,11 +63,12 @@ defmodule Responder.Slack.RuntimeTest do
     assert options.handler_settings.home_options.api == Client
     assert options.handler_settings.home_options.client == bot_client
     assert options.handler_settings.home_options.operators == MapSet.new(["U123"])
-    assert is_function(options.handler_settings.home_options.projection, 1)
+    assert is_function(options.handler_settings.home_options.projection, 2)
     assert options.handler_settings.home_interaction_handler == Responder.Slack.AppHomeControls
-    assert is_function(options.handler_settings.home_interaction_options.forget_memory, 2)
+    assert is_function(options.handler_settings.home_interaction_options.forget_memory, 3)
     assert is_function(options.handler_settings.home_interaction_options.refresh_home, 1)
-    assert is_function(options.handler_settings.home_interaction_options.set_behavior_status, 3)
+    assert is_function(options.handler_settings.home_interaction_options.resolve_memory_review, 4)
+    assert is_function(options.handler_settings.home_interaction_options.set_behavior_status, 4)
     assert is_function(options.handler_settings.home_interaction_options.set_schedule_status, 3)
     assert options.handler_settings.interaction_options.operators == MapSet.new(["U123"])
     assert is_function(options.handler_settings.interaction_audit, 2)

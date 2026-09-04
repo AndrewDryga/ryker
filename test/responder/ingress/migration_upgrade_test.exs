@@ -24,6 +24,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @operator_actions_version 20_260_904_000_200
   @publication_recovery_version 20_260_904_000_300
   @publication_stale_head_version 20_260_904_000_400
+  @conversation_continuity_version 20_260_904_000_500
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
   test "an installation that already ran the Slack inbox migration upgrades to generic ingress" do
@@ -61,7 +62,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @slack_thread_statuses_version,
                @operator_actions_version,
                @publication_recovery_version,
-               @publication_stale_head_version
+               @publication_stale_head_version,
+               @conversation_continuity_version
              ]
 
       refute table_exists?(repo, prefix, "slack_inbox_entries")
@@ -106,6 +108,17 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert table_exists?(repo, prefix, "responder_runtime_progress")
       assert table_exists?(repo, prefix, "ingress_input_artifact_references")
       assert table_exists?(repo, prefix, "work_input_artifact_references")
+      assert table_exists?(repo, prefix, "conversation_summary_drafts")
+      assert table_exists?(repo, prefix, "conversation_summaries")
+      assert table_exists?(repo, prefix, "conversation_rollups")
+      assert table_exists?(repo, prefix, "memory_review_items")
+
+      assert column_exists?(
+               repo,
+               prefix,
+               "episode_work_turns",
+               "final_preflight_continuity_sha256"
+             )
 
       assert cascading_foreign_key?(
                repo,
@@ -148,7 +161,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @slack_thread_statuses_version,
                @operator_actions_version,
                @publication_recovery_version,
-               @publication_stale_head_version
+               @publication_stale_head_version,
+               @conversation_continuity_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -162,6 +176,21 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  "SELECT execution_kind, episode_id FROM #{prefix}.episode_work_sessions WHERE id = $1::text::uuid",
                  [admission_session_id]
                )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@conversation_continuity_version]
+
+      refute table_exists?(repo, prefix, "conversation_summaries")
+
+      refute column_exists?(
+               repo,
+               prefix,
+               "episode_work_turns",
+               "final_preflight_continuity_sha256"
+             )
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
                step: 1,
@@ -275,7 +304,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @slack_thread_statuses_version,
                @operator_actions_version,
                @publication_recovery_version,
-               @publication_stale_head_version
+               @publication_stale_head_version,
+               @conversation_continuity_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -311,7 +341,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @slack_thread_statuses_version,
                @operator_actions_version,
                @publication_recovery_version,
-               @publication_stale_head_version
+               @publication_stale_head_version,
+               @conversation_continuity_version
              ]
 
       assert Release.migrate(options) == []
@@ -347,6 +378,16 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
         Release.rollback(@publication_recovery_version, options)
       end
+
+      assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
+        Release.rollback(@publication_stale_head_version, options)
+      end
+
+      assert Release.rollback(@conversation_continuity_version, options) == [
+               @conversation_continuity_version
+             ]
+
+      refute table_exists?(repo, prefix, "conversation_summaries")
 
       assert Release.rollback(@publication_stale_head_version, options) == [
                @publication_stale_head_version
@@ -435,6 +476,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         log: false
       )
 
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@conversation_continuity_version]
+
       {record_id, publication_id} = insert_stale_head_recovery_rows!(repo, prefix, ids)
 
       assert_raise Postgrex.Error, ~r/stale-head recovery has data/, fn ->
@@ -479,6 +526,49 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       assert %{rows: [["update"]]} =
                SQL.query!(repo, "SELECT action FROM #{prefix}.responder_operator_actions", [])
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  test "conversation continuity migration refuses to discard feature data on rollback" do
+    repo = start_migration_repo!()
+    prefix = "conversation_continuity_rollback_#{System.unique_integer([:positive])}"
+
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        all: true,
+        prefix: prefix,
+        log: false
+      )
+
+      review_id = Ecto.UUID.generate()
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.memory_review_items (
+          id, ref, workspace_ref, kind, entry_refs, reason, source_digest, status,
+          inserted_at, updated_at
+        ) VALUES (
+          $1::text::uuid, $2, 'slack:T123', 'stale', '[]', 'retention review', $3,
+          'pending', clock_timestamp(), clock_timestamp()
+        )
+        """,
+        [review_id, "memory-review:#{review_id}", String.duplicate("a", 64)]
+      )
+
+      assert_raise Postgrex.Error, ~r/conversation continuity has data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down,
+          step: 1,
+          prefix: prefix,
+          log: false
+        )
+      end
+
+      assert table_exists?(repo, prefix, "memory_review_items")
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end

@@ -65,6 +65,21 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
     assert rejoined.session.membership_generation == 2
   end
 
+  test "absence reconciliation cannot overwrite a join newer than its Slack snapshot" do
+    snapshot_started_at = DateTime.utc_now()
+
+    assert {:ok, joined} =
+             ChannelConfigurations.observe_membership(
+               membership(:joined, "event:join-after-snapshot"),
+               @catalog
+             )
+
+    assert {:ok, 0} =
+             ChannelConfigurations.reconcile_absent("T123", [], snapshot_started_at)
+
+    assert Repo.get!(ChannelMembership, joined.membership.id).status == :joined
+  end
+
   test "customization keeps every choice in a draft until exact confirmation saves it" do
     session = joined_session!()
     session = bind!(session, "1000.000001", nil)
@@ -284,16 +299,38 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
     assert deleted.membership.joined_at == nil
 
     assert {:ok, repaired} =
-             ChannelConfigurations.reconcile_joined("T123", ["C456", "C789", "C999"], @catalog)
+             ChannelConfigurations.reconcile_joined(
+               "T123",
+               Enum.map(
+                 ["C456", "C789", "C999"],
+                 &%{channel_ref: &1, external_shared: false, private: false}
+               ),
+               @catalog
+             )
 
     assert Enum.map(repaired, & &1.membership.channel_ref) == ["C456", "C789", "C999"]
     assert Enum.all?(repaired, &(&1.membership.status == :joined))
     assert Enum.all?(repaired, &match?(%ConfigurationSession{}, &1.session))
 
     assert {:ok, unchanged} =
-             ChannelConfigurations.reconcile_joined("T123", ["C456"], @catalog)
+             ChannelConfigurations.reconcile_joined(
+               "T123",
+               [%{channel_ref: "C456", external_shared: false, private: false}],
+               @catalog
+             )
 
     assert hd(unchanged).status == :unchanged
+
+    assert {:ok, [private]} =
+             ChannelConfigurations.reconcile_joined(
+               "T123",
+               [%{channel_ref: "C456", external_shared: true, private: true}],
+               @catalog
+             )
+
+    assert private.status == :unchanged
+    assert private.membership.private == true
+    assert private.membership.external_shared == true
   end
 
   test "reconfiguration, prompt binding, and action identities are exact and idempotent" do
@@ -459,7 +496,14 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
     assert ChannelConfigurations.reconcile_joined("T123", :invalid, @catalog) ==
              {:error, {:invalid_channel_configuration, :channel_refs}}
 
-    assert ChannelConfigurations.reconcile_joined("T123", ["C1", "C1"], @catalog) ==
+    assert ChannelConfigurations.reconcile_joined(
+             "T123",
+             [
+               %{channel_ref: "C1", private: false},
+               %{channel_ref: "C1", private: false}
+             ],
+             @catalog
+           ) ==
              {:error, {:invalid_channel_configuration, :channel_refs}}
 
     assert ChannelConfigurations.bind_prompt("bad", 0, "", :invalid) ==

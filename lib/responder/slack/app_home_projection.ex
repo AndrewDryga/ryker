@@ -13,7 +13,7 @@ defmodule Responder.Slack.AppHomeProjection do
   alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.Slack.IncidentRoom
-  alias Responder.State.{Behavior, MemoryEntry, Schedule}
+  alias Responder.State.{Behavior, Memories, MemoryEntry, Schedule}
   alias Responder.Work.Turn
 
   @active_episode_states [:working, :waiting_for_input, :waiting_for_event]
@@ -22,19 +22,28 @@ defmodule Responder.Slack.AppHomeProjection do
   @maximum_incidents 5
   @maximum_behaviors 5
   @maximum_memories 5
+  @maximum_memory_reviews 2
   @maximum_schedules 5
 
-  @spec snapshot(String.t()) :: map()
-  def snapshot(workspace_ref) do
-    if workspace_ref?(workspace_ref) do
+  @spec snapshot(String.t(), String.t()) :: map()
+  def snapshot(workspace_ref, actor_ref) do
+    if workspace_ref?(workspace_ref) and actor_ref?(actor_ref) do
       now = database_now!()
       prefix = "slack:#{workspace_ref}:%"
 
+      actor_scope = "slack:user:#{actor_ref}"
+      workspace_scope = "slack:#{workspace_ref}"
+
+      memory_reviews =
+        Memories.home_reviews(workspace_scope, actor_scope, limit: @maximum_memory_reviews)
+
       %{
-        behaviors: behaviors(workspace_ref, now),
+        behaviors: behaviors(workspace_ref, "slack:user:#{actor_ref}", now),
         counts: counts(workspace_ref, prefix, now),
         incidents: incidents(workspace_ref),
-        memories: memories(workspace_ref, now),
+        memories: memories("slack:#{workspace_ref}", now),
+        memory_review_count: memory_reviews.total,
+        memory_reviews: memory_reviews.items,
         needs_attention: needs_attention(workspace_ref, prefix),
         schedules: schedules(prefix, now),
         work: work(prefix)
@@ -60,6 +69,8 @@ defmodule Responder.Slack.AppHomeProjection do
       behaviors: [],
       incidents: [],
       memories: [],
+      memory_review_count: 0,
+      memory_reviews: [],
       needs_attention: [],
       schedules: [],
       work: []
@@ -70,7 +81,7 @@ defmodule Responder.Slack.AppHomeProjection do
     %{
       active_behaviors: active_behavior_count(workspace_ref, now),
       active_commitments: active_commitment_count(prefix),
-      active_memory: active_memory_count(workspace_ref, now),
+      active_memory: active_memory_count("slack:#{workspace_ref}", now),
       active_schedules: active_schedule_count(prefix, now),
       blocked_work: blocked_work_count(prefix),
       incident_history: incident_count(workspace_ref, :closed),
@@ -291,12 +302,15 @@ defmodule Responder.Slack.AppHomeProjection do
     )
   end
 
-  defp behaviors(workspace_ref, now) do
+  defp behaviors(workspace_ref, actor_ref, now) do
+    visibility = home_behavior_visibility(actor_ref)
+
     Repo.all(
       from(behavior in Behavior,
         where:
           behavior.workspace_ref == ^workspace_ref and behavior.status in [:active, :disabled] and
-            behavior.expires_at > ^now,
+            (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
+        where: ^visibility,
         order_by: [desc: behavior.updated_at, desc: behavior.id],
         limit: ^@maximum_behaviors,
         select: %{
@@ -309,12 +323,40 @@ defmodule Responder.Slack.AppHomeProjection do
     )
   end
 
+  defp home_behavior_visibility(actor_ref) do
+    dynamic(
+      [behavior],
+      fragment(
+        """
+        CASE WHEN ? = 'guidance' THEN
+          ((? = 'operator' AND ? = ? AND (?::jsonb)->>'visibility' = 'private') OR
+           (? IN ('repository', 'workspace') AND (?::jsonb)->>'visibility' = 'workspace'))
+        ELSE
+          ((? = 'operator' AND ? = ?) OR ? IN ('repository', 'workspace'))
+        END
+        """,
+        behavior.kind,
+        behavior.scope_kind,
+        behavior.scope_ref,
+        ^actor_ref,
+        behavior.payload,
+        behavior.scope_kind,
+        behavior.payload,
+        behavior.scope_kind,
+        behavior.scope_ref,
+        ^actor_ref,
+        behavior.scope_kind
+      )
+    )
+  end
+
   defp memories(workspace_ref, now) do
     Repo.all(
       from(memory in MemoryEntry,
         where:
           memory.workspace_ref == ^workspace_ref and memory.status == :active and
-            memory.expires_at > ^now,
+            memory.expires_at > ^now and memory.visibility == :workspace and
+            memory.scope_kind in [:repository, :workspace],
         order_by: [desc: memory.updated_at, desc: memory.id],
         limit: ^@maximum_memories,
         select: %{kind: memory.kind, ref: memory.ref, subject: memory.subject}
@@ -364,6 +406,10 @@ defmodule Responder.Slack.AppHomeProjection do
   end
 
   defp workspace_ref?(value) do
+    is_binary(value) and Regex.match?(~r/\A[A-Z0-9]+\z/, value) and byte_size(value) <= 256
+  end
+
+  defp actor_ref?(value) do
     is_binary(value) and Regex.match?(~r/\A[A-Z0-9]+\z/, value) and byte_size(value) <= 256
   end
 end

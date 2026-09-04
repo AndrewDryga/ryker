@@ -22,7 +22,8 @@ defmodule Responder.Slack.API do
   @callback file_info(term(), String.t()) :: {:ok, map()} | {:error, term()}
   @callback read_messages(term(), String.t(), String.t() | nil, map()) ::
               {:ok, map()} | {:error, term()}
-  @callback joined_conversations(term()) :: {:ok, [String.t()]} | {:error, term()}
+  @callback joined_conversations(term()) ::
+              {:ok, [%{channel_ref: String.t(), private: boolean()}]} | {:error, term()}
   @callback ensure_conversation(
               term(),
               String.t(),

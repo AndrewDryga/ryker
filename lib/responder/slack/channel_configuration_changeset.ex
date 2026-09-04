@@ -14,10 +14,12 @@ defmodule Responder.Slack.ChannelConfigurationChangeset do
   @membership_fields [
     :channel_ref,
     :deleted_at,
+    :external_shared,
     :generation,
     :id,
     :joined_at,
     :left_at,
+    :private,
     :status,
     :workspace_ref
   ]
@@ -83,7 +85,15 @@ defmodule Responder.Slack.ChannelConfigurationChangeset do
 
   def membership(%ChannelMembership{} = membership, attributes) do
     membership
-    |> cast(attributes, [:deleted_at, :generation, :joined_at, :left_at, :status])
+    |> cast(attributes, [
+      :deleted_at,
+      :external_shared,
+      :generation,
+      :joined_at,
+      :left_at,
+      :private,
+      :status
+    ])
     |> validate_required([:generation, :status])
     |> check_constraint(:status, name: :slack_channel_membership_valid)
   end

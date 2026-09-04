@@ -561,7 +561,7 @@ defmodule Responder.Slack.Client do
 
       cond do
         next_cursor == "" ->
-          {:ok, channels |> Enum.uniq() |> Enum.sort()}
+          {:ok, channels |> Enum.uniq_by(& &1.channel_ref) |> Enum.sort_by(& &1.channel_ref)}
 
         page < @maximum_pages ->
           joined_conversations_page(client, next_cursor, page + 1, channels)
@@ -784,18 +784,20 @@ defmodule Responder.Slack.Client do
       %{
         "id" => channel_ref,
         "is_archived" => archived,
+        "is_ext_shared" => external_shared,
         "is_private" => private,
         "name" => name
       } = channel,
       {:ok, conversations}
-      when is_boolean(archived) and is_boolean(private) and is_binary(name) ->
+      when is_boolean(archived) and is_boolean(external_shared) and is_boolean(private) and
+             is_binary(name) ->
         with :ok <- slack_id(channel_ref),
              {:ok, topic} <- conversation_text(channel["topic"]),
              {:ok, purpose} <- conversation_text(channel["purpose"]) do
           conversation = %{
             "channel_ref" => channel_ref,
             "is_archived" => archived,
-            "is_external_shared" => Map.get(channel, "is_ext_shared", false),
+            "is_external_shared" => external_shared,
             "is_private" => private,
             "name" => name,
             "purpose" => purpose,
@@ -837,8 +839,16 @@ defmodule Responder.Slack.Client do
 
   defp conversation_refs(channels) do
     Enum.reduce_while(channels, {:ok, []}, fn
-      %{"id" => channel_ref, "is_archived" => false} = channel, {:ok, refs} ->
-        conversation_ref(channel_ref, Map.get(channel, "is_member", true), refs)
+      %{"id" => channel_ref, "is_archived" => false, "is_private" => private} = channel,
+      {:ok, refs}
+      when is_boolean(private) ->
+        conversation_ref(
+          channel_ref,
+          Map.get(channel, "is_member", true),
+          private,
+          Map.get(channel, "is_ext_shared"),
+          refs
+        )
 
       %{"id" => _channel_ref}, {:ok, refs} ->
         {:cont, {:ok, refs}}
@@ -852,16 +862,30 @@ defmodule Responder.Slack.Client do
     end
   end
 
-  defp conversation_ref(_channel_ref, false, refs), do: {:cont, {:ok, refs}}
+  defp conversation_ref(_channel_ref, false, _private, _external_shared, refs),
+    do: {:cont, {:ok, refs}}
 
-  defp conversation_ref(channel_ref, true, refs) do
+  defp conversation_ref(channel_ref, true, private, external_shared, refs)
+       when is_boolean(external_shared) do
     case slack_id(channel_ref) do
-      :ok -> {:cont, {:ok, [channel_ref | refs]}}
-      {:error, _reason} -> {:halt, {:error, {:slack_protocol_error, :conversations}}}
+      :ok ->
+        {:cont,
+         {:ok,
+          [
+            %{
+              channel_ref: channel_ref,
+              external_shared: external_shared,
+              private: private
+            }
+            | refs
+          ]}}
+
+      {:error, _reason} ->
+        {:halt, {:error, {:slack_protocol_error, :conversations}}}
     end
   end
 
-  defp conversation_ref(_channel_ref, _member, _refs),
+  defp conversation_ref(_channel_ref, _member, _private, _external_shared, _refs),
     do: {:halt, {:error, {:slack_protocol_error, :conversations}}}
 
   defp conversation_list_document(%{} = document) do

@@ -181,19 +181,27 @@ defmodule Responder.Slack.Runtime do
       client: bot_client,
       directory: Client,
       operators: operators,
-      projection: &AppHomeProjection.snapshot/1
+      projection: &AppHomeProjection.snapshot/2
     }
 
     home_interaction_options = %{
       client: bot_client,
       directory: Client,
-      forget_memory: fn ref, workspace_ref ->
-        Memories.forget(ref, "slack:#{workspace_ref}")
+      forget_memory: fn ref, actor_ref, workspace_ref ->
+        Memories.forget_home(ref, "slack:user:#{actor_ref}", "slack:#{workspace_ref}")
       end,
       operators: operators,
       refresh_home: &AppHome.handle(&1, home_options),
-      set_behavior_status: fn ref, status, workspace_ref ->
-        Behaviors.set_status(ref, status, "slack:#{workspace_ref}")
+      resolve_memory_review: fn ref, action, actor_ref, workspace_ref ->
+        Memories.resolve_home_review(ref, action, "slack:user:#{actor_ref}", workspace_ref)
+      end,
+      set_behavior_status: fn ref, status, actor_ref, workspace_ref ->
+        Behaviors.set_home_status(
+          ref,
+          status,
+          "slack:user:#{actor_ref}",
+          "slack:#{workspace_ref}"
+        )
       end,
       set_schedule_status: fn ref, status, workspace_ref ->
         Schedules.set_status(ref, status, %{

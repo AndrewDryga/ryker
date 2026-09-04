@@ -7,6 +7,9 @@ defmodule Responder.Slack.HomeInteraction do
     "responder_home_disable_behavior" => {:disable_behavior, "behavior:"},
     "responder_home_enable_behavior" => {:enable_behavior, "behavior:"},
     "responder_home_forget_memory" => {:forget_memory, "memory:"},
+    "responder_home_forget_memory_review" => {:forget_memory_review, "memory-review:"},
+    "responder_home_keep_memory_review" => {:keep_memory_review, "memory-review:"},
+    "responder_home_merge_memory_review" => {:merge_memory_review, "memory-review:"},
     "responder_home_pause_schedule" => {:pause_schedule, "schedule:"},
     "responder_home_resume_schedule" => {:resume_schedule, "schedule:"}
   }
@@ -28,6 +31,9 @@ defmodule Responder.Slack.HomeInteraction do
           | :disable_behavior
           | :enable_behavior
           | :forget_memory
+          | :forget_memory_review
+          | :keep_memory_review
+          | :merge_memory_review
           | :pause_schedule
           | :resume_schedule
 

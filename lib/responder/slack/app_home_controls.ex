@@ -54,42 +54,61 @@ defmodule Responder.Slack.AppHomeControls do
   defp dispatch(
          %HomeInteraction{
            action: :forget_memory,
+           actor_ref: actor_ref,
            resource_ref: "memory:" <> _ = ref,
            workspace_ref: workspace_ref
          },
          options
        ),
-       do: unary(options, :forget_memory, ref, workspace_ref, :forgotten)
+       do: forget_memory(options, ref, actor_ref, workspace_ref)
+
+  defp dispatch(
+         %HomeInteraction{
+           action: action,
+           actor_ref: actor_ref,
+           resource_ref: "memory-review:" <> _ = ref,
+           workspace_ref: workspace_ref
+         },
+         options
+       )
+       when action in [:keep_memory_review, :merge_memory_review, :forget_memory_review] do
+    review_action = memory_review_action(action)
+
+    resolve_memory_review(options, ref, review_action, actor_ref, workspace_ref)
+  end
 
   defp dispatch(
          %HomeInteraction{
            action: :disable_behavior,
+           actor_ref: actor_ref,
            resource_ref: "behavior:" <> _ = ref,
            workspace_ref: workspace_ref
          },
          options
        ),
-       do: binary(options, :set_behavior_status, ref, :disabled, workspace_ref)
+       do: behavior_status(options, ref, :disabled, actor_ref, workspace_ref)
 
   defp dispatch(
          %HomeInteraction{
            action: :enable_behavior,
+           actor_ref: actor_ref,
            resource_ref: "behavior:" <> _ = ref,
            workspace_ref: workspace_ref
          },
          options
        ),
-       do: binary(options, :set_behavior_status, ref, :active, workspace_ref)
+       do: behavior_status(options, ref, :active, actor_ref, workspace_ref)
 
   defp dispatch(
          %HomeInteraction{
            action: :delete_behavior,
+           actor_ref: actor_ref,
            resource_ref: "behavior:" <> _ = ref,
            workspace_ref: workspace_ref
          },
          options
        ),
-       do: binary(options, :set_behavior_status, ref, :deleted, workspace_ref)
+       do: behavior_status(options, ref, :deleted, actor_ref, workspace_ref)
 
   defp dispatch(
          %HomeInteraction{
@@ -123,26 +142,92 @@ defmodule Responder.Slack.AppHomeControls do
 
   defp dispatch(_interaction, _options), do: {:error, :app_home_control_mismatch}
 
-  defp unary(options, key, ref, workspace_ref, outcome) do
-    case Map.get(options, key) do
-      callback when is_function(callback, 2) ->
-        case callback.(ref, workspace_ref) do
+  defp memory_review_action(:keep_memory_review), do: :keep
+  defp memory_review_action(:merge_memory_review), do: :merge
+  defp memory_review_action(:forget_memory_review), do: :forget
+
+  defp resolve_memory_review(options, ref, review_action, actor_ref, workspace_ref) do
+    case Map.get(options, :resolve_memory_review) do
+      callback when is_function(callback, 4) ->
+        callback.(ref, review_action, actor_ref, "slack:#{workspace_ref}")
+        |> memory_review_result(review_action)
+
+      _missing ->
+        {:error, {:invalid_app_home_control, :resolve_memory_review}}
+    end
+  end
+
+  defp memory_review_result({:ok, _result}, review_action), do: {:ok, review_action}
+
+  defp memory_review_result({:error, reason}, _review_action)
+       when reason in [
+              :memory_review_not_found,
+              :memory_review_workspace_mismatch,
+              :memory_review_stale,
+              :memory_review_cannot_merge,
+              :memory_review_conflict,
+              :memory_review_unauthorized
+            ],
+       do: {:ok, :invalid}
+
+  defp memory_review_result({:error, _reason} = error, _review_action), do: error
+
+  defp memory_review_result(_invalid, _review_action),
+    do: {:error, {:invalid_app_home_control, :resolve_memory_review}}
+
+  defp forget_memory(options, ref, actor_ref, workspace_ref) do
+    case Map.get(options, :forget_memory) do
+      callback when is_function(callback, 3) ->
+        case callback.(ref, actor_ref, workspace_ref) do
           {:ok, _resource} ->
-            {:ok, outcome}
+            {:ok, :forgotten}
 
           {:error, reason}
-          when reason in [:memory_not_found, :memory_workspace_mismatch, :memory_terminal] ->
+          when reason in [
+                 :memory_not_found,
+                 :memory_workspace_mismatch,
+                 :memory_terminal,
+                 :memory_unauthorized
+               ] ->
             {:ok, :invalid}
 
           {:error, _reason} = error ->
             error
 
           _invalid ->
-            {:error, {:invalid_app_home_control, key}}
+            {:error, {:invalid_app_home_control, :forget_memory}}
         end
 
       _missing ->
-        {:error, {:invalid_app_home_control, key}}
+        {:error, {:invalid_app_home_control, :forget_memory}}
+    end
+  end
+
+  defp behavior_status(options, ref, status, actor_ref, workspace_ref) do
+    case Map.get(options, :set_behavior_status) do
+      callback when is_function(callback, 4) ->
+        case callback.(ref, status, actor_ref, workspace_ref) do
+          {:ok, resource} ->
+            {:ok, resource.status}
+
+          {:error, reason}
+          when reason in [
+                 :behavior_not_found,
+                 :behavior_workspace_mismatch,
+                 :behavior_terminal,
+                 :behavior_unauthorized
+               ] ->
+            {:ok, :invalid}
+
+          {:error, _reason} = error ->
+            error
+
+          _invalid ->
+            {:error, {:invalid_app_home_control, :set_behavior_status}}
+        end
+
+      _missing ->
+        {:error, {:invalid_app_home_control, :set_behavior_status}}
     end
   end
 
