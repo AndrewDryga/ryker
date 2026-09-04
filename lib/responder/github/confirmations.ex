@@ -258,14 +258,22 @@ defmodule Responder.GitHub.Confirmations do
   defp repository!(_entry),
     do: raise(ArgumentError, "GitHub confirmation repository policy is invalid")
 
-  defp policy!(%{name: name, digest: digest}) when is_binary(name) and is_binary(digest) do
-    if Regex.match?(@reference, name) and Regex.match?(@digest, digest),
-      do: %{name: name, digest: digest},
-      else: raise(ArgumentError, "GitHub confirmation contributor policy is invalid")
+  defp policy!(%{name: name, digest: digest} = source)
+       when is_binary(name) and is_binary(digest) do
+    if Regex.match?(@reference, name) and Regex.match?(@digest, digest) do
+      %{name: name, digest: digest}
+      |> maybe_put(:repository_ref, Map.get(source, :repository_ref))
+      |> maybe_put(:repository_context, Map.get(source, :repository_context))
+    else
+      raise ArgumentError, "GitHub confirmation contributor policy is invalid"
+    end
   end
 
   defp policy!(_policy),
     do: raise(ArgumentError, "GitHub confirmation contributor policy is invalid")
 
   defp invalid, do: {:ok, %{"status" => "invalid"}}
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

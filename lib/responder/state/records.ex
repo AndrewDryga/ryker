@@ -19,7 +19,9 @@ defmodule Responder.State.Records do
   @operation_id ~r/\A[A-Za-z0-9_.:-]{1,80}\z/
   @maximum_records_per_turn 64
   @maximum_model_records 64
+  @maximum_working_goals 3
   @terminal_goal_states ~w(completed excluded cancelled)
+  @satisfied_prerequisite_states ~w(completed excluded)
   @shadow_record_kinds ~w(evidence coverage finding progress alert_assessment)
   @confirmation_offer_kinds ~w(task_offer publication_offer schedule_offer automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
 
@@ -28,24 +30,49 @@ defmodule Responder.State.Records do
 
   @spec create(String.t(), String.t(), String.t(), map()) ::
           {:ok, Record.t()} | {:error, term()}
-  def create(state_token, operation_id, kind, payload) do
+  def create(state_token, operation_id, kind, payload, options \\ []) do
     with {:ok, turn_id} <- turn_id(state_token),
          :ok <- operation_id(operation_id),
          :ok <- known_kind(kind),
+         {:ok, parallel_goal_limit} <- create_options(options),
          {:ok, episode_id} <- episode_id(turn_id) do
-      Repo.transaction(fn -> create_locked(episode_id, turn_id, operation_id, kind, payload) end)
+      Repo.transaction(fn ->
+        create_locked(
+          episode_id,
+          turn_id,
+          operation_id,
+          kind,
+          payload,
+          parallel_goal_limit
+        )
+      end)
       |> transaction_result()
     end
   end
 
-  defp create_locked(episode_id, turn_id, operation_id, kind, payload) do
+  defp create_locked(
+         episode_id,
+         turn_id,
+         operation_id,
+         kind,
+         payload,
+         parallel_goal_limit
+       ) do
     with {:ok, episode} <- lock_episode(episode_id),
          {:ok, turn} <- lock_turn(turn_id, episode_id),
          :ok <- authorize(episode, turn, kind),
          ref <- record_ref(turn.id, operation_id, kind),
          {:ok, prepared} <- RecordPayload.prepare(kind, payload, ref),
          {:ok, record} <-
-           create_or_reconcile(episode, turn, operation_id, kind, ref, prepared),
+           create_or_reconcile(
+             episode,
+             turn,
+             operation_id,
+             kind,
+             ref,
+             prepared,
+             parallel_goal_limit
+           ),
          :ok <- Approvals.ensure_registered_in_transaction(record) do
       record
     else
@@ -105,16 +132,18 @@ defmodule Responder.State.Records do
 
   def open_required_goals(_episode_id), do: []
 
+  @spec goals(Ecto.UUID.t()) :: [map()]
+  def goals(episode_id) when is_binary(episode_id) do
+    episode_id
+    |> goal_records()
+    |> current_goal_details()
+  end
+
+  def goals(_episode_id), do: []
+
   @spec repository_write_goals(Ecto.UUID.t()) :: [map()]
   def repository_write_goals(episode_id) when is_binary(episode_id) do
-    Repo.all(
-      from(record in Record,
-        where:
-          record.episode_id == ^episode_id and record.kind in ["goal", "goal_state"] and
-            record.status in [:open, :confirmed],
-        order_by: [asc: record.sequence]
-      )
-    )
+    goal_records(episode_id)
     |> current_goal_details()
     |> Enum.filter(&(&1["authority"] == "repository_write"))
     |> Enum.map(&Map.take(&1, ~w(id required state writable_repository)))
@@ -251,7 +280,15 @@ defmodule Responder.State.Records do
 
   defp authorize(_episode, _turn, _kind), do: {:error, :state_record_unauthorized}
 
-  defp create_or_reconcile(episode, turn, operation_id, kind, ref, prepared) do
+  defp create_or_reconcile(
+         episode,
+         turn,
+         operation_id,
+         kind,
+         ref,
+         prepared,
+         parallel_goal_limit
+       ) do
     fingerprint =
       CanonicalJSON.digest(%{
         "continuation" => prepared.continuation,
@@ -265,7 +302,13 @@ defmodule Responder.State.Records do
          ) do
       nil ->
         with :ok <- validate_temporal(kind, prepared.continuation),
-             :ok <- validate_relationships(episode.id, kind, prepared.payload),
+             :ok <-
+               validate_relationships(
+                 episode.id,
+                 kind,
+                 prepared.payload,
+                 parallel_goal_limit
+               ),
              :ok <- record_capacity(turn.id),
              :ok <- supersede_prior_record(episode.id, turn.id, kind, prepared.payload) do
           %{
@@ -361,10 +404,10 @@ defmodule Responder.State.Records do
 
   defp supersede_prior_record(_episode_id, _turn_id, _kind, _payload), do: :ok
 
-  defp validate_relationships(episode_id, "evidence", payload),
+  defp validate_relationships(episode_id, "evidence", payload, _parallel_goal_limit),
     do: evidence_refs_exist(episode_id, Map.get(payload, "supersedes", []), :supersedes)
 
-  defp validate_relationships(episode_id, "finding", payload) do
+  defp validate_relationships(episode_id, "finding", payload, _parallel_goal_limit) do
     refs =
       Map.get(payload, "cause_evidence", []) ++
         (payload
@@ -379,29 +422,52 @@ defmodule Responder.State.Records do
     evidence_refs_exist(episode_id, refs, :cause_evidence)
   end
 
-  defp validate_relationships(episode_id, "goal", payload) do
+  defp validate_relationships(episode_id, "goal", payload, _parallel_goal_limit) do
     goal_id = payload["id"]
+    parent_goal_id = payload["parent_goal_id"]
     prerequisites = Map.get(payload, "prerequisite_goal_ids", [])
 
     cond do
       goal_id in prerequisites ->
         {:error, {:invalid_state_record, :prerequisite_goal_ids}}
 
+      goal_id == parent_goal_id ->
+        {:error, {:invalid_state_record, :parent_goal_id}}
+
       goal_exists?(episode_id, goal_id) ->
         {:error, :state_record_subject_conflict}
 
       true ->
-        goals_exist(episode_id, prerequisites, :prerequisite_goal_ids)
+        with :ok <- optional_goal_exists(episode_id, parent_goal_id, :parent_goal_id) do
+          goals_exist(episode_id, prerequisites, :prerequisite_goal_ids)
+        end
     end
   end
 
-  defp validate_relationships(episode_id, "goal_state", payload) do
-    if goal_exists?(episode_id, payload["goal_id"]),
-      do: :ok,
-      else: {:error, {:invalid_state_record, :goal_id}}
+  defp validate_relationships(episode_id, "goal_state", payload, parallel_goal_limit) do
+    goal_id = payload["goal_id"]
+    requested_state = payload["state"]
+    goals = goals(episode_id)
+
+    case Enum.find(goals, &(&1["id"] == goal_id)) do
+      nil ->
+        {:error, {:invalid_state_record, :goal_id}}
+
+      goal ->
+        with :ok <- goal_transition(goal["state"], requested_state),
+             :ok <- prerequisites_satisfied(goal, goals, requested_state),
+             :ok <- children_terminal(goal_id, goals, requested_state) do
+          working_capacity(goal_id, goals, requested_state, parallel_goal_limit)
+        end
+    end
   end
 
-  defp validate_relationships(episode_id, "alert_assessment", payload) do
+  defp validate_relationships(
+         episode_id,
+         "alert_assessment",
+         payload,
+         _parallel_goal_limit
+       ) do
     cause_refs = Map.get(payload, "evidence_refs", [])
     scope = payload["scope"] || %{}
     scope_refs = Map.get(scope, "evidence_refs", [])
@@ -413,7 +479,7 @@ defmodule Responder.State.Records do
     end
   end
 
-  defp validate_relationships(_episode_id, _kind, _payload), do: :ok
+  defp validate_relationships(_episode_id, _kind, _payload, _parallel_goal_limit), do: :ok
 
   defp evidence_refs_exist(episode_id, refs, field) do
     case evidence_records(episode_id, Enum.uniq(refs), field) do
@@ -479,6 +545,14 @@ defmodule Responder.State.Records do
     )
   end
 
+  defp optional_goal_exists(_episode_id, nil, _field), do: :ok
+
+  defp optional_goal_exists(episode_id, goal_id, field) do
+    if goal_exists?(episode_id, goal_id),
+      do: :ok,
+      else: {:error, {:invalid_state_record, field}}
+  end
+
   defp goals_exist(_episode_id, [], _field), do: :ok
 
   defp goals_exist(episode_id, goal_ids, field) do
@@ -495,6 +569,60 @@ defmodule Responder.State.Records do
     if count == length(goal_ids), do: :ok, else: {:error, {:invalid_state_record, field}}
   end
 
+  defp goal_transition(current, requested) when current == requested, do: :ok
+
+  defp goal_transition(current, _requested) when current in @terminal_goal_states,
+    do: {:error, {:invalid_state_record, :goal_state}}
+
+  defp goal_transition(current, requested)
+       when current in ~w(ready working waiting blocked) and
+              requested in ~w(ready working waiting completed blocked excluded cancelled),
+       do: :ok
+
+  defp goal_transition(_current, _requested),
+    do: {:error, {:invalid_state_record, :goal_state}}
+
+  defp prerequisites_satisfied(_goal, _goals, state)
+       when state not in ["working", "completed"],
+       do: :ok
+
+  defp prerequisites_satisfied(goal, goals, _state) do
+    states = Map.new(goals, &{&1["id"], &1["state"]})
+
+    if Enum.all?(Map.get(goal, "prerequisite_goal_ids", []), fn prerequisite_id ->
+         Map.get(states, prerequisite_id) in @satisfied_prerequisite_states
+       end),
+       do: :ok,
+       else: {:error, {:invalid_state_record, :prerequisite_goal_ids}}
+  end
+
+  defp children_terminal(_goal_id, _goals, state) when state != "completed", do: :ok
+
+  defp children_terminal(goal_id, goals, "completed") do
+    open_child? =
+      Enum.any?(goals, fn goal ->
+        goal["parent_goal_id"] == goal_id and goal["required"] and
+          goal["state"] not in @terminal_goal_states
+      end)
+
+    if open_child?,
+      do: {:error, {:invalid_state_record, :child_goal_ids}},
+      else: :ok
+  end
+
+  defp working_capacity(_goal_id, _goals, state, _parallel_goal_limit)
+       when state != "working",
+       do: :ok
+
+  defp working_capacity(goal_id, goals, "working", parallel_goal_limit) do
+    already_working? = Enum.any?(goals, &(&1["id"] == goal_id and &1["state"] == "working"))
+    working = Enum.count(goals, &(&1["state"] == "working"))
+
+    if already_working? or working < parallel_goal_limit,
+      do: :ok,
+      else: {:error, {:invalid_state_record, :parallel_goal_limit}}
+  end
+
   defp current_required_goals(records) do
     records
     |> current_goal_details()
@@ -508,22 +636,29 @@ defmodule Responder.State.Records do
   end
 
   defp current_goal_details(records) do
-    {goals, states} =
-      Enum.reduce(records, {%{}, %{}}, fn
-        %Record{kind: "goal", subject_ref: id, payload: payload}, {goals, states} ->
-          {Map.put(goals, id, payload), states}
+    states =
+      records
+      |> Enum.filter(&(&1.kind == "goal_state"))
+      |> Map.new(&{&1.subject_ref, &1.payload["state"]})
 
-        %Record{kind: "goal_state", subject_ref: id, payload: payload}, {goals, states} ->
-          {goals, Map.put(states, id, payload["state"])}
-      end)
-
-    goals
-    |> Enum.map(fn {id, goal} ->
+    records
+    |> Enum.filter(&(&1.kind == "goal"))
+    |> Enum.map(fn %Record{subject_ref: id, payload: goal} ->
       goal
       |> Map.put("id", id)
       |> Map.put("state", Map.get(states, id, "ready"))
     end)
-    |> Enum.sort_by(& &1["id"])
+  end
+
+  defp goal_records(episode_id) do
+    Repo.all(
+      from(record in Record,
+        where:
+          record.episode_id == ^episode_id and record.kind in ["goal", "goal_state"] and
+            record.status in [:open, :confirmed],
+        order_by: [asc: record.sequence]
+      )
+    )
   end
 
   defp turn_id("state:" <> id) do
@@ -546,6 +681,26 @@ defmodule Responder.State.Records do
       do: :ok,
       else: {:error, {:invalid_state_record, :kind}}
   end
+
+  defp create_options(options) when is_list(options) do
+    if Keyword.keyword?(options) and
+         Enum.uniq(Keyword.keys(options)) == Keyword.keys(options) and
+         Keyword.keys(options) -- [:parallel_goal_limit] == [] do
+      create_options(Map.new(options))
+    else
+      {:error, {:invalid_state_record, :options}}
+    end
+  end
+
+  defp create_options(%{} = options) do
+    limit = Map.get(options, :parallel_goal_limit, @maximum_working_goals)
+
+    if Map.keys(options) -- [:parallel_goal_limit] == [] and is_integer(limit) and limit in 1..3,
+      do: {:ok, limit},
+      else: {:error, {:invalid_state_record, :parallel_goal_limit}}
+  end
+
+  defp create_options(_options), do: {:error, {:invalid_state_record, :options}}
 
   defp persistence_result({:ok, record}), do: {:ok, record}
 

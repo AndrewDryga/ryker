@@ -987,6 +987,9 @@ defmodule Responder.Slack.RendererTest do
         "completion_contract" => "A current worker observation exists.",
         "id" => "check-workers",
         "kind" => "check",
+        "parent_goal_id" => "verify-service",
+        "prerequisite_goal_ids" => ["check-api"],
+        "read_only_repositories" => ["runbooks"],
         "requested_outcome" => "Check worker health",
         "required" => true
       }),
@@ -1009,6 +1012,9 @@ defmodule Responder.Slack.RendererTest do
     assert inspect(rendered) =~ "&lt;API&gt;"
     assert inspect(rendered) =~ "production &amp; probe"
     assert inspect(rendered) =~ "Alert assessment · unverified"
+    assert inspect(rendered) =~ "Parent: verify-service"
+    assert inspect(rendered) =~ "Prerequisites: check-api"
+    assert inspect(rendered) =~ "Read-only repositories: runbooks"
   end
 
   test "renders every durable setup state without inventing configuration authority" do

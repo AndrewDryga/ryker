@@ -32,6 +32,8 @@ defmodule Responder.StateTools.FixedTools do
     list_automations
     get_automation
     propose_automation
+    plan_goal
+    update_goal
     request_task
     search_memory
     propose_memory
@@ -58,6 +60,8 @@ defmodule Responder.StateTools.FixedTools do
       list_automations_tool(),
       get_automation_tool(),
       propose_automation_tool(capabilities),
+      plan_goal_tool(),
+      update_goal_tool(),
       request_task_tool(),
       search_memory_tool(),
       propose_memory_tool(),
@@ -213,6 +217,16 @@ defmodule Responder.StateTools.FixedTools do
 
       create_record(binding, "request_task", arguments, "task_offer", payload)
     end
+  end
+
+  defp dispatch("plan_goal", arguments, binding) do
+    with :ok <- goal_repository_scope(arguments, binding.session) do
+      create_record(binding, "plan_goal", arguments, "goal", arguments)
+    end
+  end
+
+  defp dispatch("update_goal", arguments, binding) do
+    create_record(binding, "update_goal", arguments, "goal_state", arguments)
   end
 
   defp dispatch("search_memory", arguments, binding) do
@@ -548,7 +562,9 @@ defmodule Responder.StateTools.FixedTools do
   defp create_record(binding, tool, arguments, kind, payload, public_kind \\ nil) do
     operation_id = operation_id(binding, tool, arguments)
 
-    case Records.create(binding.state_token, operation_id, kind, payload) do
+    case Records.create(binding.state_token, operation_id, kind, payload,
+           parallel_goal_limit: parallel_goal_limit(binding.session)
+         ) do
       {:ok, record} ->
         {:ok,
          %{
@@ -562,6 +578,33 @@ defmodule Responder.StateTools.FixedTools do
     end
   end
 
+  defp parallel_goal_limit(%{repository_context: %{"parallel_goal_limit" => limit}})
+       when is_integer(limit) and limit in 1..3,
+       do: limit
+
+  defp parallel_goal_limit(_session), do: 3
+
+  defp goal_repository_scope(arguments, session) do
+    writable = arguments["writable_repository"]
+    read_only = arguments["read_only_repositories"]
+
+    expected_read_only =
+      case session.repository_context do
+        %{"read_only_repositories" => repositories} when is_list(repositories) -> repositories
+        _none -> []
+      end
+
+    writable_valid =
+      arguments["authority"] != "repository_write" or writable == session.repository_ref
+
+    read_only_valid =
+      is_list(read_only) and Enum.all?(read_only, &(&1 in expected_read_only))
+
+    if writable_valid and read_only_valid,
+      do: :ok,
+      else: {:error, :unauthorized}
+  end
+
   defp validation_context(binding, artifact_refs) do
     %{
       "artifact_delivery_supported" =>
@@ -569,7 +612,7 @@ defmodule Responder.StateTools.FixedTools do
       "artifact_metadata" => Enum.map(artifact_refs, &%{"id" => &1, "name" => &1}),
       "artifact_refs" => artifact_refs,
       "execution_mode" => Atom.to_string(binding.episode.execution_mode),
-      "open_required_goals" => [],
+      "open_required_goals" => Records.open_required_goals(binding.episode.id),
       "records" => validation_records(binding.episode.id, binding.turn.id),
       "slack_mentions" => Mentions.authority(binding.episode),
       "visible_reply_required" => true,
@@ -1065,6 +1108,37 @@ defmodule Responder.StateTools.FixedTools do
         "title" => text(120)
       },
       ~w(authority_limits instruction_ref prompt repository source_refs success_checks title)
+    )
+  end
+
+  defp plan_goal_tool do
+    tool(
+      "plan_goal",
+      "Create one durable goal node. Parent and prerequisite goals must already exist; the frozen repository context permits at most one to three independent working goals.",
+      %{
+        "authority" => enum(~w(read_only repository_write governed_operation)),
+        "completion_contract" => text(2_000),
+        "id" => reference(120),
+        "kind" => enum(~w(check engineering operation schedule)),
+        "parent_goal_id" => nullable(reference(120)),
+        "prerequisite_goal_ids" => array(reference(120), 0, 20),
+        "read_only_repositories" => array(reference(256), 0, 20),
+        "requested_outcome" => text(500),
+        "required" => %{"type" => "boolean"},
+        "writable_repository" => nullable(reference(256))
+      }
+    )
+  end
+
+  defp update_goal_tool do
+    tool(
+      "update_goal",
+      "Advance one existing goal. Prerequisites must be satisfied before working or completion, and a parent cannot complete while required children remain open.",
+      %{
+        "detail" => nullable(text(2_000)),
+        "goal_id" => reference(120),
+        "state" => enum(~w(ready working waiting completed blocked excluded cancelled))
+      }
     )
   end
 

@@ -109,14 +109,26 @@ defmodule Responder.ControlPlane.Server do
 
   defp task_policies!(policies) when is_map(policies) do
     Map.new(policies, fn
-      {repository_ref, %{name: name, digest: digest}} ->
+      {context_ref, %{name: name, digest: digest} = policy} ->
+        repository_ref = Map.get(policy, :repository_ref, context_ref)
+        repository_context = Map.get(policy, :repository_context)
+
         case WorkProfile.new(%{
                policy: name,
                policy_digest: digest,
+               repository_context: restore_repository_context(repository_context),
                repository_ref: repository_ref
              }) do
-          {:ok, _profile} -> {repository_ref, %{name: name, digest: digest}}
-          _invalid -> raise ArgumentError, "control-plane task policies are invalid"
+          {:ok, _profile} ->
+            prepared =
+              %{name: name, digest: digest}
+              |> maybe_put(:repository_ref, Map.get(policy, :repository_ref))
+              |> maybe_put(:repository_context, repository_context)
+
+            {context_ref, prepared}
+
+          _invalid ->
+            raise ArgumentError, "control-plane task policies are invalid"
         end
 
       _invalid ->
@@ -126,6 +138,22 @@ defmodule Responder.ControlPlane.Server do
 
   defp task_policies!(_policies),
     do: raise(ArgumentError, "control-plane task policies are invalid")
+
+  defp restore_repository_context(nil), do: nil
+
+  defp restore_repository_context(context) when is_map(context) do
+    %{
+      context_ref: context["context_ref"],
+      parallel_goal_limit: context["parallel_goal_limit"],
+      primary_repository: context["primary_repository"],
+      read_only_repositories: context["read_only_repositories"]
+    }
+  end
+
+  defp restore_repository_context(value), do: value
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp validate_coop!(nil, nil), do: :ok
 

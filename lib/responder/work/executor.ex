@@ -169,9 +169,14 @@ defmodule Responder.Work.Executor do
            ),
          {:ok, primary} <- primary_workspace(claim.session, remote_session),
          {:ok, companions} <- companion_workspaces(Map.get(remote_session, "companions", [])),
+         :ok <- repository_context_workspace(claim.session, companions),
          :ok <- required_workspaces(companions, settings.workspace_requirements),
          {:ok, freshness} <- repository_freshness(remote_session, primary, companions) do
-      {:ok, %{"companions" => companions, "freshness" => freshness, "primary" => primary}}
+      workspace =
+        %{"companions" => companions, "freshness" => freshness, "primary" => primary}
+        |> maybe_put_repository_context(claim.session.repository_context)
+
+      {:ok, workspace}
     end
   end
 
@@ -223,6 +228,37 @@ defmodule Responder.Work.Executor do
 
   defp companion_workspaces(_companions),
     do: {:error, {:coop_protocol_error, :session_workspace}}
+
+  defp repository_context_workspace(%{repository_context: nil}, _companions), do: :ok
+
+  defp repository_context_workspace(
+         %{
+           repository_ref: repository_ref,
+           repository_context: %{
+             "primary_repository" => repository_ref,
+             "read_only_repositories" => expected
+           }
+         },
+         companions
+       )
+       when is_list(expected) do
+    actual = Enum.map(companions, & &1["name"])
+
+    if Enum.sort(expected) == actual,
+      do: :ok,
+      else: {:error, {:coop_protocol_error, :repository_context}}
+  end
+
+  defp repository_context_workspace(_session, _companions),
+    do: {:error, {:coop_protocol_error, :repository_context}}
+
+  defp maybe_put_repository_context(workspace, nil), do: workspace
+
+  defp maybe_put_repository_context(workspace, context) do
+    workspace
+    |> Map.put("context_ref", context["context_ref"])
+    |> Map.put("parallel_goal_limit", context["parallel_goal_limit"])
+  end
 
   defp companion_workspace(
          %{

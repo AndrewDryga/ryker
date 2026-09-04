@@ -7,11 +7,13 @@ defmodule Responder.Ingress.WorkProfile do
   input enters durable admission custody.
   """
 
+  alias Responder.Work.RepositoryContext
+
   @work_classes [:conversational, :standard, :deep]
   @base_fields [:policy, :policy_digest, :repository_ref]
-  @fields @base_fields ++ [:authority_digest, :class_policies]
+  @fields @base_fields ++ [:authority_digest, :class_policies, :repository_context]
   @enforce_keys @base_fields
-  defstruct @base_fields ++ [authority_digest: nil, class_policies: nil]
+  defstruct @base_fields ++ [authority_digest: nil, class_policies: nil, repository_context: nil]
 
   @type t :: %__MODULE__{
           policy: String.t(),
@@ -26,6 +28,14 @@ defmodule Responder.Ingress.WorkProfile do
                 authority_digest: String.t() | nil
               }
             }
+            | nil,
+          repository_context:
+            %{
+              context_ref: String.t(),
+              parallel_goal_limit: 1..3,
+              primary_repository: String.t(),
+              read_only_repositories: [String.t()]
+            }
             | nil
         }
 
@@ -39,9 +49,18 @@ defmodule Responder.Ingress.WorkProfile do
          :ok <- optional_digest(attributes.authority_digest, :authority_digest),
          :ok <- optional_reference(attributes.repository_ref, :repository_ref, 1_024),
          {:ok, class_policies} <- class_policies(Map.get(attributes, :class_policies)),
+         {:ok, repository_context} <-
+           prepare_repository_context(
+             Map.get(attributes, :repository_context),
+             attributes.repository_ref
+           ),
          :ok <-
            authority_equivalence(attributes.authority_digest, class_policies, allow_legacy) do
-      attributes = Map.put(attributes, :class_policies, class_policies)
+      attributes =
+        attributes
+        |> Map.put(:class_policies, class_policies)
+        |> Map.put(:repository_context, repository_context)
+
       {:ok, struct!(__MODULE__, attributes)}
     end
   end
@@ -74,13 +93,16 @@ defmodule Responder.Ingress.WorkProfile do
           Map.fetch!(policies, work_class)
       end
 
-    {:ok,
-     %{
-       digest: selected.policy_digest,
-       authority_digest: selected.authority_digest,
-       name: selected.policy,
-       repository_ref: profile.repository_ref
-     }}
+    policy =
+      %{
+        digest: selected.policy_digest,
+        authority_digest: selected.authority_digest,
+        name: selected.policy,
+        repository_ref: profile.repository_ref
+      }
+      |> maybe_put_policy_repository_context(profile.repository_context)
+
+    {:ok, policy}
   end
 
   def policy_for(%__MODULE__{}, _work_class),
@@ -95,31 +117,49 @@ defmodule Responder.Ingress.WorkProfile do
       "repository_ref" => profile.repository_ref
     }
     |> maybe_put_authority_digest(profile.authority_digest)
+    |> maybe_put_repository_context(profile.repository_context)
   end
 
   @spec restore(map()) :: {:ok, t()} | {:error, term()}
   def restore(%{} = document) do
     keys = Map.keys(document) |> Enum.sort()
-    legacy = ~w(class_policies policy policy_digest repository_ref) |> Enum.sort()
-    current = ["authority_digest" | legacy] |> Enum.sort()
+    required = ~w(class_policies policy policy_digest repository_ref)
+    allowed = ["authority_digest", "repository_context" | required]
 
-    if keys in [legacy, current] do
-      build(
-        %{
-          authority_digest: Map.get(document, "authority_digest"),
-          class_policies: restore_class_policies(document["class_policies"]),
-          policy: document["policy"],
-          policy_digest: document["policy_digest"],
-          repository_ref: document["repository_ref"]
-        },
-        true
-      )
+    if Enum.all?(required, &(&1 in keys)) and keys -- allowed == [] do
+      case RepositoryContext.restore(
+             document["repository_context"],
+             document["repository_ref"]
+           ) do
+        {:ok, repository_context} ->
+          build(
+            %{
+              authority_digest: Map.get(document, "authority_digest"),
+              class_policies: restore_class_policies(document["class_policies"]),
+              policy: document["policy"],
+              policy_digest: document["policy_digest"],
+              repository_context: repository_context,
+              repository_ref: document["repository_ref"]
+            },
+            true
+          )
+
+        {:error, :invalid} ->
+          {:error, {:invalid_work_profile, :repository_context}}
+      end
     else
       {:error, {:invalid_work_profile, :fields}}
     end
   end
 
   def restore(_document), do: {:error, {:invalid_work_profile, :fields}}
+
+  defp prepare_repository_context(value, repository_ref) do
+    case RepositoryContext.prepare(value, repository_ref) do
+      {:ok, context} -> {:ok, context}
+      {:error, :invalid} -> {:error, {:invalid_work_profile, :repository_context}}
+    end
+  end
 
   defp attributes(attributes) when is_list(attributes) do
     if Keyword.keyword?(attributes) and
@@ -130,23 +170,15 @@ defmodule Responder.Ingress.WorkProfile do
 
   defp attributes(%{} = attributes) do
     keys = Map.keys(attributes) |> Enum.sort()
-    legacy_fields = @base_fields ++ [:class_policies]
 
-    cond do
-      keys == Enum.sort(@base_fields) ->
-        {:ok, attributes |> Map.put(:authority_digest, nil) |> Map.put(:class_policies, nil)}
-
-      keys == Enum.sort(legacy_fields) ->
-        {:ok, Map.put(attributes, :authority_digest, nil)}
-
-      keys == Enum.sort(@base_fields ++ [:authority_digest]) ->
-        {:ok, Map.put(attributes, :class_policies, nil)}
-
-      keys == Enum.sort(@fields) ->
-        {:ok, attributes}
-
-      true ->
-        {:error, {:invalid_work_profile, :fields}}
+    if Enum.all?(@base_fields, &(&1 in keys)) and keys -- @fields == [] do
+      {:ok,
+       attributes
+       |> Map.put_new(:authority_digest, nil)
+       |> Map.put_new(:class_policies, nil)
+       |> Map.put_new(:repository_context, nil)}
+    else
+      {:error, {:invalid_work_profile, :fields}}
     end
   end
 
@@ -267,10 +299,23 @@ defmodule Responder.Ingress.WorkProfile do
 
   defp restore_class_policies(value), do: value
 
+  @spec repository_context_document(map() | nil) :: map() | nil
+  def repository_context_document(context), do: RepositoryContext.document(context)
+
   defp maybe_put_authority_digest(document, nil), do: document
 
   defp maybe_put_authority_digest(document, authority_digest),
     do: Map.put(document, "authority_digest", authority_digest)
+
+  defp maybe_put_repository_context(document, nil), do: document
+
+  defp maybe_put_repository_context(document, context),
+    do: Map.put(document, "repository_context", repository_context_document(context))
+
+  defp maybe_put_policy_repository_context(policy, nil), do: policy
+
+  defp maybe_put_policy_repository_context(policy, context),
+    do: Map.put(policy, :repository_context, repository_context_document(context))
 
   defp reference(value, field, maximum) do
     if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and

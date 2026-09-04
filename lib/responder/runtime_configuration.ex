@@ -37,6 +37,7 @@ defmodule Responder.RuntimeConfiguration do
   alias Responder.State.ScheduleRuntime
 
   @configuration_env "RESPONDER_ELIXIR_CONFIG"
+  @coop_repository_name ~r/\A[a-z0-9][a-z0-9_-]{0,63}\z/
   @maximum_bytes 512 * 1_024
   @managed_application_keys [
     :admission,
@@ -58,7 +59,7 @@ defmodule Responder.RuntimeConfiguration do
     :work
   ]
   @root_required ~w(version mode host_ref coop repositories admission work)
-  @root_optional ~w(control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks model_evals)
+  @root_optional ~w(control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks model_evals repository_sets)
 
   @spec install_from_env!() :: :ok
   def install_from_env! do
@@ -132,22 +133,45 @@ defmodule Responder.RuntimeConfiguration do
     host_ref = reference!(root["host_ref"], "host_ref")
     coop = coop!(root["coop"], mode)
     repositories = repositories!(root["repositories"])
+    repository_sets = repository_sets!(root["repository_sets"], repositories)
+    repository_contexts = repository_contexts(repositories, repository_sets)
     work = work!(root["work"], coop, host_ref, mode)
     admission = admission!(root["admission"], coop, host_ref, mode, work)
 
     model_evals =
-      optional(root, "model_evals", &model_evals!(&1, admission, repositories, coop))
+      optional(
+        root,
+        "model_evals",
+        &model_evals!(&1, admission, repositories, repository_sets, coop)
+      )
 
     coop_worker_gateway =
       optional(root, "coop_worker_gateway", &coop_worker_gateway!(&1, env_provider))
 
     schedules = schedules!(root["schedules"], repositories, host_ref)
-    github = optional(root, "github", &github!(&1, repositories, env_provider))
-    slack = optional(root, "slack", &slack!(&1, repositories, work, schedules, env_provider))
-    control_plane = optional(root, "control_plane", &control_plane!(&1, repositories, work))
+
+    github =
+      optional(
+        root,
+        "github",
+        &github!(&1, repositories, repository_contexts, env_provider)
+      )
+
+    slack =
+      optional(
+        root,
+        "slack",
+        &slack!(&1, repository_contexts, work, schedules, env_provider)
+      )
+
+    control_plane =
+      optional(root, "control_plane", &control_plane!(&1, repository_contexts, work))
+
     adapters = adapters!(slack, github, control_plane)
     delivery = delivery!(root["delivery"], adapters, host_ref)
-    webhooks = webhooks!(root["webhooks"], env_provider, adapters, repositories)
+
+    webhooks =
+      webhooks!(root["webhooks"], env_provider, adapters, repositories, repository_contexts)
 
     publication =
       publication!(
@@ -348,6 +372,120 @@ defmodule Responder.RuntimeConfiguration do
   defp repositories!(_value),
     do: raise(ArgumentError, "repositories must be a map")
 
+  defp repository_sets!(nil, _repositories), do: %{}
+
+  defp repository_sets!(value, repositories) when is_map(value) do
+    Map.new(value, fn {name, attributes} ->
+      name = reference!(name, "repository_sets.name")
+
+      if Map.has_key?(repositories, name) do
+        raise ArgumentError, "repository_sets.#{name} conflicts with a repository name"
+      end
+
+      set =
+        object!(
+          attributes,
+          ~w(primary_repository read_only_repositories conversation_policy contributor_policy),
+          ~w(standard_policy deep_policy parallel_goal_limit),
+          "repository_sets.#{name}"
+        )
+
+      conversation_policy =
+        policy!(set["conversation_policy"], "repository_sets.#{name}.conversation_policy")
+
+      standard_policy =
+        optional_policy!(
+          set["standard_policy"],
+          conversation_policy,
+          "repository_sets.#{name}.standard_policy"
+        )
+
+      deep_policy =
+        optional_policy!(
+          set["deep_policy"],
+          standard_policy,
+          "repository_sets.#{name}.deep_policy"
+        )
+
+      validate_class_policy_authority!(
+        [conversation_policy, standard_policy, deep_policy],
+        "repository_sets.#{name}"
+      )
+
+      primary =
+        known_repository!(
+          set["primary_repository"],
+          repositories,
+          "repository_sets.#{name}.primary_repository"
+        )
+
+      read_only =
+        references!(
+          set["read_only_repositories"],
+          "repository_sets.#{name}.read_only_repositories"
+        )
+
+      if length(read_only) > 32 or primary in read_only or
+           not Regex.match?(@coop_repository_name, primary) or
+           not Enum.all?(read_only, &Regex.match?(@coop_repository_name, &1)) or
+           not Enum.all?(read_only, &Map.has_key?(repositories, &1)) do
+        raise ArgumentError,
+              "repository_sets.#{name} must name at most 32 distinct read-only repositories and exclude its primary"
+      end
+
+      {name,
+       %{
+         conversation_policy: conversation_policy,
+         contributor_policy:
+           policy!(set["contributor_policy"], "repository_sets.#{name}.contributor_policy"),
+         deep_policy: deep_policy,
+         parallel_goal_limit:
+           integer!(
+             set,
+             "parallel_goal_limit",
+             3,
+             1,
+             3,
+             "repository_sets.#{name}"
+           ),
+         primary_repository: primary,
+         read_only_repositories: read_only,
+         standard_policy: standard_policy
+       }}
+    end)
+  end
+
+  defp repository_sets!(_value, _repositories),
+    do: raise(ArgumentError, "repository_sets must be a map")
+
+  defp repository_contexts(repositories, repository_sets) do
+    direct =
+      Map.new(repositories, fn {name, repository} ->
+        {name,
+         %{
+           contributor_policy: repository.contributor_policy,
+           work_profile: repository_work_profile(name, repository)
+         }}
+      end)
+
+    sets =
+      Map.new(repository_sets, fn {name, set} ->
+        {name,
+         %{
+           contributor_policy:
+             set.contributor_policy
+             |> Map.put(:repository_ref, set.primary_repository)
+             |> Map.put(
+               :repository_context,
+               repository_context_document(name, set)
+             ),
+           work_profile: repository_set_work_profile(name, set)
+         }}
+      end)
+
+    Map.merge(direct, sets)
+  end
+
   defp admission!(value, coop, host_ref, mode, work) do
     object = object!(value, ~w(policy), ~w(decision_timeout_ms poll_interval_ms), "admission")
     policy = policy!(object["policy"], "admission.policy")
@@ -368,7 +506,7 @@ defmodule Responder.RuntimeConfiguration do
     end
   end
 
-  defp model_evals!(value, admission, repositories, coop) do
+  defp model_evals!(value, admission, repositories, repository_sets, coop) do
     object =
       object!(
         value,
@@ -404,8 +542,17 @@ defmodule Responder.RuntimeConfiguration do
               repository.deep_policy,
               repository.schedule_policy
             ]
-          end)
+          end) ++
+            Enum.flat_map(repository_sets, fn {_name, set} ->
+              [
+                set.conversation_policy,
+                set.contributor_policy,
+                set.standard_policy,
+                set.deep_policy
+              ]
+            end)
       ]
+      |> List.flatten()
 
     if Enum.any?(eval_policies, fn eval_policy ->
          Enum.any?(production_policies, fn production_policy ->
@@ -554,7 +701,7 @@ defmodule Responder.RuntimeConfiguration do
     retention
   end
 
-  defp control_plane!(value, repositories, work) do
+  defp control_plane!(value, repository_contexts, work) do
     object = object!(value, ~w(port work_profile), ~w(ip), "control_plane")
     ip = ip!(Map.get(object, "ip", "127.0.0.1"), "control_plane.ip")
 
@@ -567,10 +714,15 @@ defmodule Responder.RuntimeConfiguration do
       ip: ip,
       port: positive_port!(object["port"], "control_plane.port"),
       task_policies:
-        Map.new(repositories, fn {repository_ref, repository} ->
-          {repository_ref, repository.contributor_policy}
+        Map.new(repository_contexts, fn {repository_ref, context} ->
+          {repository_ref, context.contributor_policy}
         end),
-      work_profile: work_profile!(object["work_profile"], "control_plane.work_profile")
+      work_profile:
+        work_profile!(
+          object["work_profile"],
+          "control_plane.work_profile",
+          repository_contexts
+        )
     }
   end
 
@@ -683,7 +835,7 @@ defmodule Responder.RuntimeConfiguration do
     end
   end
 
-  defp github!(value, repositories, env_provider) do
+  defp github!(value, repositories, repository_contexts, env_provider) do
     object =
       object!(
         value,
@@ -730,12 +882,28 @@ defmodule Responder.RuntimeConfiguration do
           object!(
             attributes,
             ~w(repository installation_id repository_id responder_actor_id authorized_actor_ids),
-            ~w(max_body_bytes),
+            ~w(max_body_bytes repository_context),
             "github.bindings.#{name}"
           )
 
         repository_alias = reference!(binding["repository"], "github.bindings.#{name}.repository")
         repository = fetch_repository!(repositories, repository_alias, "github.bindings.#{name}")
+
+        context_ref =
+          optional_reference!(
+            binding["repository_context"],
+            "github.bindings.#{name}.repository_context"
+          ) || repository_alias
+
+        repository_context =
+          Map.get(repository_contexts, context_ref) ||
+            raise ArgumentError,
+                  "github.bindings.#{name}.repository_context names an unknown repository context"
+
+        unless repository_context.work_profile.repository_ref == repository_alias do
+          raise ArgumentError,
+                "github.bindings.#{name}.repository_context primary must match repository #{repository_alias}"
+        end
 
         unless repository.github_binding == name do
           raise ArgumentError,
@@ -793,7 +961,7 @@ defmodule Responder.RuntimeConfiguration do
               "github.bindings.#{name}.responder_actor_id"
             ),
           secret: webhook_secret,
-          work_profile: repository_work_profile(repository_alias, repository)
+          work_profile: repository_context.work_profile
         }
 
         {:ok, trusted_binding} = Binding.new(attributes)
@@ -812,8 +980,8 @@ defmodule Responder.RuntimeConfiguration do
     confirmations =
       Confirmations.options!(%{
         repositories:
-          Map.new(prepared, fn {_name, item} ->
-            {item.repository_alias, %{contributor_policy: item.repository.contributor_policy}}
+          Map.new(repository_contexts, fn {context_ref, context} ->
+            {context_ref, %{contributor_policy: context.contributor_policy}}
           end)
       })
 
@@ -873,7 +1041,7 @@ defmodule Responder.RuntimeConfiguration do
     end
   end
 
-  defp slack!(value, repositories, work, schedules, env_provider) do
+  defp slack!(value, repository_contexts, work, schedules, env_provider) do
     object =
       object!(
         value,
@@ -937,14 +1105,7 @@ defmodule Responder.RuntimeConfiguration do
         receive_timeout_ms: receive_timeout,
         reconnect_ms: integer!(object, "reconnect_ms", 1_000, 1, 60_000, "slack"),
         schedule_policies: schedules,
-        repositories:
-          Map.new(repositories, fn {name, repository} ->
-            {name,
-             %{
-               contributor_policy: repository.contributor_policy,
-               work_profile: repository_work_profile(name, repository)
-             }}
-          end),
+        repositories: repository_contexts,
         task_card_interval_ms:
           integer!(object, "task_card_interval_ms", 1_000, 1, 86_400_000, "slack"),
         task_card_reconcile_ms:
@@ -1298,9 +1459,9 @@ defmodule Responder.RuntimeConfiguration do
     }
   end
 
-  defp webhooks!(nil, _env_provider, _adapters, _repositories), do: nil
+  defp webhooks!(nil, _env_provider, _adapters, _repositories, _repository_contexts), do: nil
 
-  defp webhooks!(value, env_provider, adapters, repositories) do
+  defp webhooks!(value, env_provider, adapters, repositories, repository_contexts) do
     object = object!(value, ~w(port routes), ~w(ip), "webhooks")
     routes = map_nonempty!(object["routes"], "webhooks.routes")
 
@@ -1342,7 +1503,11 @@ defmodule Responder.RuntimeConfiguration do
                 "webhooks.routes.#{name}.publication_lifecycle"
               ),
             work_profile:
-              work_profile!(route["work_profile"], "webhooks.routes.#{name}.work_profile")
+              work_profile!(
+                route["work_profile"],
+                "webhooks.routes.#{name}.work_profile",
+                repository_contexts
+              )
           }
 
           validate_webhook_destination!(prepared.destination, adapters, name)
@@ -1526,7 +1691,7 @@ defmodule Responder.RuntimeConfiguration do
     }
   end
 
-  defp work_profile!(value, path) do
+  defp work_profile!(value, path, repository_contexts) do
     object =
       object!(
         value,
@@ -1535,12 +1700,29 @@ defmodule Responder.RuntimeConfiguration do
         path
       )
 
+    context_ref = object["repository_ref"]
+
+    placement =
+      if is_nil(context_ref) do
+        nil
+      else
+        Map.get(repository_contexts, context_ref) ||
+          raise ArgumentError, "#{path}.repository_ref names an unknown repository context"
+      end
+
+    repository_ref =
+      if placement, do: placement.work_profile.repository_ref, else: nil
+
+    repository_context =
+      if placement, do: Map.get(placement.work_profile, :repository_context), else: nil
+
     case WorkProfile.new(%{
            class_policies: class_policies!(object["class_policies"], "#{path}.class_policies"),
            authority_digest: object["authority_digest"],
            policy: object["policy"],
            policy_digest: object["policy_digest"],
-           repository_ref: object["repository_ref"]
+           repository_context: repository_context,
+           repository_ref: repository_ref
          }) do
       {:ok, profile} -> profile
       {:error, reason} -> raise ArgumentError, "invalid #{path}: #{inspect(reason)}"
@@ -1582,6 +1764,44 @@ defmodule Responder.RuntimeConfiguration do
       policy_digest: repository.conversation_policy.digest,
       repository_ref: repository_ref
     }
+  end
+
+  defp repository_set_work_profile(context_ref, set) do
+    %{
+      class_policies: %{
+        conversational: policy_profile(set.conversation_policy),
+        deep: policy_profile(set.deep_policy),
+        standard: policy_profile(set.standard_policy)
+      },
+      authority_digest: Map.get(set.conversation_policy, :authority_digest),
+      policy: set.conversation_policy.name,
+      policy_digest: set.conversation_policy.digest,
+      repository_context: repository_context(context_ref, set),
+      repository_ref: set.primary_repository
+    }
+  end
+
+  defp repository_context(context_ref, set) do
+    %{
+      context_ref: context_ref,
+      parallel_goal_limit: set.parallel_goal_limit,
+      primary_repository: set.primary_repository,
+      read_only_repositories: set.read_only_repositories
+    }
+  end
+
+  defp repository_context_document(context_ref, set) do
+    context_ref
+    |> repository_context(set)
+    |> WorkProfile.repository_context_document()
+  end
+
+  defp known_repository!(value, repositories, path) do
+    repository_ref = reference!(value, path)
+
+    if Map.has_key?(repositories, repository_ref),
+      do: repository_ref,
+      else: raise(ArgumentError, "#{path} references an unknown repository")
   end
 
   defp policy_profile(policy) do

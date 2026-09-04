@@ -7,7 +7,8 @@ defmodule Responder.StateTools.Tools do
 
   @fixed_tool_names ~w(
     get_work_state cite_source request_input wait_for list_automations get_automation
-    propose_automation request_task search_memory propose_memory record_feedback validate_final
+    propose_automation plan_goal update_goal request_task search_memory propose_memory
+    update_conversation_summary record_feedback validate_final
   )
 
   @spec list(keyword() | map()) :: [map()]

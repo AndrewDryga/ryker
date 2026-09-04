@@ -304,6 +304,17 @@ defmodule Responder.RuntimeConfigurationTest do
         schedule_policy:
           name: repository-b-schedule
           digest: "1111111111111111111111111111111111111111111111111111111111111111"
+    repository_sets:
+      platform:
+        primary_repository: repository-a
+        read_only_repositories: [repository-b]
+        parallel_goal_limit: 2
+        conversation_policy:
+          name: platform-read
+          digest: "2222222222222222222222222222222222222222222222222222222222222222"
+        contributor_policy:
+          name: platform-write
+          digest: "3333333333333333333333333333333333333333333333333333333333333333"
     admission:
       policy:
         name: admission-read
@@ -318,6 +329,7 @@ defmodule Responder.RuntimeConfigurationTest do
       bindings:
         binding-a:
           repository: repository-a
+          repository_context: platform
           installation_id: 1001
           repository_id: 2001
           responder_actor_id: 3001
@@ -354,6 +366,142 @@ defmodule Responder.RuntimeConfigurationTest do
 
     refute repositories["repository-a"].git_binding.token_provider ==
              repositories["repository-b"].git_binding.token_provider
+
+    assert configuration.github.server.bindings["binding-a"].work_profile.repository_context == %{
+             context_ref: "platform",
+             parallel_goal_limit: 2,
+             primary_repository: "repository-a",
+             read_only_repositories: ["repository-b"]
+           }
+
+    assert configuration.github.server.confirmations.repositories["platform"] == %{
+             digest: String.duplicate("3", 64),
+             name: "platform-write",
+             repository_context: %{
+               "context_ref" => "platform",
+               "parallel_goal_limit" => 2,
+               "primary_repository" => "repository-a",
+               "read_only_repositories" => ["repository-b"]
+             },
+             repository_ref: "repository-a"
+           }
+  end
+
+  test "repository sets freeze one primary, exact companions, policy classes, and parallel limit" do
+    document = """
+    version: 1
+    mode: component
+    host_ref: responder-repository-set
+    coop:
+      socket: /tmp/coop.sock
+    repositories:
+      service:
+        path: /srv/service
+        github_repository: acme/service
+        github_binding: service
+        base_branch: main
+        conversation_policy:
+          name: service-read
+          digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        contributor_policy:
+          name: service-write
+          digest: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+        schedule_policy:
+          name: service-schedule
+          digest: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      infrastructure:
+        path: /srv/infrastructure
+        github_repository: acme/infrastructure
+        github_binding: infrastructure
+        base_branch: main
+        conversation_policy:
+          name: infrastructure-read
+          digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+        contributor_policy:
+          name: infrastructure-write
+          digest: eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+        schedule_policy:
+          name: infrastructure-schedule
+          digest: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+    repository_sets:
+      platform:
+        primary_repository: service
+        read_only_repositories: [infrastructure]
+        parallel_goal_limit: 2
+        conversation_policy:
+          name: platform-conversation
+          digest: "1111111111111111111111111111111111111111111111111111111111111111"
+          authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
+        standard_policy:
+          name: platform-standard
+          digest: "2222222222222222222222222222222222222222222222222222222222222222"
+          authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
+        deep_policy:
+          name: platform-deep
+          digest: "3333333333333333333333333333333333333333333333333333333333333333"
+          authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
+        contributor_policy:
+          name: platform-write
+          digest: "4444444444444444444444444444444444444444444444444444444444444444"
+    admission:
+      policy:
+        name: admission-read
+        digest: "5555555555555555555555555555555555555555555555555555555555555555"
+    work: {}
+    control_plane:
+      port: 4321
+      work_profile:
+        authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
+        policy: platform-conversation
+        policy_digest: "1111111111111111111111111111111111111111111111111111111111111111"
+        repository_ref: platform
+        class_policies:
+          conversational:
+            authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
+            policy: platform-conversation
+            policy_digest: "1111111111111111111111111111111111111111111111111111111111111111"
+          standard:
+            authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
+            policy: platform-standard
+            policy_digest: "2222222222222222222222222222222222222222222222222222222222222222"
+          deep:
+            authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
+            policy: platform-deep
+            policy_digest: "3333333333333333333333333333333333333333333333333333333333333333"
+    delivery: {}
+    """
+
+    configuration = RuntimeConfiguration.from_string!(document)
+    profile = configuration.control_plane.work_profile
+
+    assert profile.repository_ref == "service"
+
+    assert profile.repository_context == %{
+             context_ref: "platform",
+             parallel_goal_limit: 2,
+             primary_repository: "service",
+             read_only_repositories: ["infrastructure"]
+           }
+
+    assert {:ok, %{name: "platform-standard"}} = WorkProfile.policy_for(profile, :standard)
+    assert {:ok, %{name: "platform-deep"}} = WorkProfile.policy_for(profile, :deep)
+
+    assert configuration.control_plane.task_policies["platform"] == %{
+             digest: String.duplicate("4", 64),
+             name: "platform-write",
+             repository_context: %{
+               "context_ref" => "platform",
+               "parallel_goal_limit" => 2,
+               "primary_repository" => "service",
+               "read_only_repositories" => ["infrastructure"]
+             },
+             repository_ref: "service"
+           }
+
+    assert configuration.control_plane.task_policies["service"] == %{
+             digest: String.duplicate("b", 64),
+             name: "service-write"
+           }
   end
 
   defp private_key_pem do

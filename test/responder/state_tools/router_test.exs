@@ -39,6 +39,8 @@ defmodule Responder.StateTools.RouterTest do
              "list_automations",
              "get_automation",
              "propose_automation",
+             "plan_goal",
+             "update_goal",
              "request_task",
              "search_memory",
              "propose_memory",
@@ -117,6 +119,106 @@ defmodule Responder.StateTools.RouterTest do
              Records.model_records(claim.episode.id)
 
     assert payload["target"] == "Exact phrase search results for Emisar MCP"
+  end
+
+  test "typed goal tools persist a dependency plan and preflight its live state" do
+    claim = claim!("typed-goals")
+    options = bound_options(claim)
+
+    assert {:error, "unauthorized"} =
+             Tools.call(
+               "plan_goal",
+               %{
+                 "authority" => "repository_write",
+                 "completion_contract" => "The unrelated repository changes.",
+                 "id" => "escape-workspace",
+                 "kind" => "engineering",
+                 "parent_goal_id" => nil,
+                 "prerequisite_goal_ids" => [],
+                 "read_only_repositories" => [],
+                 "requested_outcome" => "Change an unbound repository",
+                 "required" => true,
+                 "writable_repository" => "unbound"
+               },
+               options
+             )
+
+    assert {:ok, %{"kind" => "goal", "record_ref" => parent_ref}} =
+             Tools.call(
+               "plan_goal",
+               %{
+                 "authority" => "read_only",
+                 "completion_contract" => "Every required child has stopped successfully.",
+                 "id" => "answer-request",
+                 "kind" => "check",
+                 "parent_goal_id" => nil,
+                 "prerequisite_goal_ids" => [],
+                 "read_only_repositories" => [],
+                 "requested_outcome" => "Answer the complete request",
+                 "required" => true,
+                 "writable_repository" => nil
+               },
+               options
+             )
+
+    assert {:ok, %{"kind" => "goal", "record_ref" => child_ref}} =
+             Tools.call(
+               "plan_goal",
+               %{
+                 "authority" => "read_only",
+                 "completion_contract" => "The current state is established.",
+                 "id" => "inspect-current-state",
+                 "kind" => "check",
+                 "parent_goal_id" => "answer-request",
+                 "prerequisite_goal_ids" => [],
+                 "read_only_repositories" => [],
+                 "requested_outcome" => "Inspect current state",
+                 "required" => true,
+                 "writable_repository" => nil
+               },
+               options
+             )
+
+    candidate = %{
+      "decision_reason" => nil,
+      "delivery" => "reply",
+      "message" => "Done.",
+      "outcome" => %{
+        "artifact_refs" => [],
+        "record_refs" => [parent_ref, child_ref],
+        "state" => "complete"
+      }
+    }
+
+    assert {:ok, %{"accepted" => false, "violations" => [violation]}} =
+             Tools.call("validate_final", %{"candidate" => candidate}, options)
+
+    assert violation =~ "required goals remain open"
+
+    assert {:ok, %{"kind" => "goal_state"}} =
+             Tools.call(
+               "update_goal",
+               %{
+                 "detail" => "Fresh evidence established the current state.",
+                 "goal_id" => "inspect-current-state",
+                 "state" => "completed"
+               },
+               options
+             )
+
+    assert {:ok, %{"kind" => "goal_state"}} =
+             Tools.call(
+               "update_goal",
+               %{
+                 "detail" => "All required child outcomes are complete.",
+                 "goal_id" => "answer-request",
+                 "state" => "completed"
+               },
+               options
+             )
+
+    assert {:ok, %{"accepted" => true}} =
+             Tools.call("validate_final", %{"candidate" => candidate}, options)
   end
 
   test "request_task can offer a locally emulated incident to Slack or Conversation Lab" do
@@ -976,7 +1078,7 @@ defmodule Responder.StateTools.RouterTest do
     assert "wait_for" in names
     refute "offer_publication" in names
     refute "offer_schedule" in names
-    assert length(names) == 13
+    assert length(names) == 15
 
     automation =
       list.resp_body
@@ -1014,6 +1116,8 @@ defmodule Responder.StateTools.RouterTest do
     names = Tools.list(bound_options(claim)) |> Enum.map(& &1["name"])
 
     assert "propose_automation" in names
+    assert "plan_goal" in names
+    assert "update_goal" in names
     assert "propose_memory" in names
     assert "request_task" in names
 
@@ -1532,7 +1636,7 @@ defmodule Responder.StateTools.RouterTest do
     options = bound_options(claim)
 
     for tool <-
-          ~w(record_evidence record_coverage record_finding report_progress plan_goal update_goal record_alert_assessment) do
+          ~w(record_evidence record_coverage record_finding report_progress record_alert_assessment) do
       assert Tools.call(tool, %{}, options) == {:error, "unknown_tool"}
     end
   end

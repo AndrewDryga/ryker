@@ -774,13 +774,15 @@ defmodule Responder.Admission do
        ) do
     authority_digest = Map.get(work_policy, :authority_digest)
     repository_ref = Map.get(work_policy, :repository_ref)
+    repository_context = Map.get(work_policy, :repository_context)
 
     case Custody.pin_episode_in_transaction(
            episode_id,
            policy,
            policy_digest,
            authority_digest,
-           repository_ref
+           repository_ref,
+           repository_context
          ) do
       {:ok, _session} -> :ok
       {:error, _reason} = error -> error

@@ -319,9 +319,34 @@ defmodule Responder.Slack.WorkRecord do
     |> Enum.filter(&(&1.kind == "goal"))
     |> Enum.map(fn goal ->
       state = get_in(states, [goal.payload["id"], "state"]) || "ready"
-      "- #{goal.payload["id"]} · #{state}: #{compact(goal.payload["requested_outcome"], 500)}"
+
+      relationships =
+        [
+          optional_goal_relation("parent", goal.payload["parent_goal_id"]),
+          optional_goal_relation(
+            "after",
+            joined_goal_refs(goal.payload["prerequisite_goal_ids"])
+          ),
+          optional_goal_relation("writes", goal.payload["writable_repository"]),
+          optional_goal_relation(
+            "reads",
+            joined_goal_refs(goal.payload["read_only_repositories"])
+          )
+        ]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join(" · ")
+
+      suffix = if relationships == "", do: "", else: " (#{relationships})"
+
+      "- #{goal.payload["id"]} · #{state}: #{compact(goal.payload["requested_outcome"], 500)}#{suffix}"
     end)
   end
+
+  defp joined_goal_refs(values) when is_list(values) and values != [], do: Enum.join(values, ", ")
+  defp joined_goal_refs(_values), do: nil
+
+  defp optional_goal_relation(_label, nil), do: nil
+  defp optional_goal_relation(label, value), do: "#{label} #{value}"
 
   defp corrective_actions(records) do
     records

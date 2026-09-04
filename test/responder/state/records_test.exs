@@ -378,6 +378,131 @@ defmodule Responder.State.RecordsTest do
              )
   end
 
+  test "parent goals finalize only after children and prerequisites reach terminal state" do
+    claim = claim!("goal-dependencies")
+    token = Records.token(claim.turn)
+
+    assert {:ok, _parent} =
+             Records.create(token, "goal-parent", "goal", goal("deliver-change"))
+
+    assert Records.create(
+             token,
+             "goal-missing-parent",
+             "goal",
+             goal("orphan", %{"parent_goal_id" => "missing"})
+           ) == {:error, {:invalid_state_record, :parent_goal_id}}
+
+    assert {:ok, _implementation} =
+             Records.create(
+               token,
+               "goal-implementation",
+               "goal",
+               goal("implement", %{"parent_goal_id" => "deliver-change"})
+             )
+
+    assert {:ok, _verification} =
+             Records.create(
+               token,
+               "goal-verification",
+               "goal",
+               goal("verify", %{
+                 "parent_goal_id" => "deliver-change",
+                 "prerequisite_goal_ids" => ["implement"]
+               })
+             )
+
+    assert Records.create(token, "start-verification-early", "goal_state", %{
+             "goal_id" => "verify",
+             "state" => "working"
+           }) == {:error, {:invalid_state_record, :prerequisite_goal_ids}}
+
+    assert Records.create(token, "complete-parent-early", "goal_state", %{
+             "goal_id" => "deliver-change",
+             "state" => "completed"
+           }) == {:error, {:invalid_state_record, :child_goal_ids}}
+
+    for {operation, goal_id, state} <- [
+          {"start-implementation", "implement", "working"},
+          {"complete-implementation", "implement", "completed"},
+          {"start-verification", "verify", "working"},
+          {"complete-verification", "verify", "completed"},
+          {"complete-parent", "deliver-change", "completed"}
+        ] do
+      assert {:ok, _state} =
+               Records.create(token, operation, "goal_state", %{
+                 "goal_id" => goal_id,
+                 "state" => state
+               })
+    end
+
+    assert [] = Records.open_required_goals(claim.episode.id)
+
+    assert Records.create(token, "reopen-parent", "goal_state", %{
+             "goal_id" => "deliver-change",
+             "state" => "working"
+           }) == {:error, {:invalid_state_record, :goal_state}}
+  end
+
+  test "independent working goals are bounded and capacity returns after one stops" do
+    claim = claim!("goal-parallelism")
+    token = Records.token(claim.turn)
+
+    Enum.each(1..4, fn index ->
+      assert {:ok, _goal} =
+               Records.create(token, "plan-#{index}", "goal", goal("goal-#{index}"))
+    end)
+
+    Enum.each(1..3, fn index ->
+      assert {:ok, _state} =
+               Records.create(token, "start-#{index}", "goal_state", %{
+                 "goal_id" => "goal-#{index}",
+                 "state" => "working"
+               })
+    end)
+
+    assert Records.create(token, "start-4", "goal_state", %{
+             "goal_id" => "goal-4",
+             "state" => "working"
+           }) == {:error, {:invalid_state_record, :parallel_goal_limit}}
+
+    assert {:ok, _state} =
+             Records.create(token, "complete-1", "goal_state", %{
+               "goal_id" => "goal-1",
+               "state" => "completed"
+             })
+
+    assert {:ok, _state} =
+             Records.create(token, "start-4", "goal_state", %{
+               "goal_id" => "goal-4",
+               "state" => "working"
+             })
+
+    limited = claim!("goal-parallelism-limited")
+    limited_token = Records.token(limited.turn)
+
+    for id <- ["one", "two"] do
+      assert {:ok, _goal} =
+               Records.create(limited_token, "plan-limited-#{id}", "goal", goal(id))
+    end
+
+    assert {:ok, _state} =
+             Records.create(
+               limited_token,
+               "start-limited-one",
+               "goal_state",
+               %{"goal_id" => "one", "state" => "working"},
+               parallel_goal_limit: 1
+             )
+
+    assert Records.create(
+             limited_token,
+             "start-limited-two",
+             "goal_state",
+             %{"goal_id" => "two", "state" => "working"},
+             parallel_goal_limit: 1
+           ) == {:error, {:invalid_state_record, :parallel_goal_limit}}
+  end
+
   test "investigation relationships cannot cite missing or contradictory host records" do
     claim = claim!("investigation-relationships")
     token = Records.token(claim.turn)
@@ -482,5 +607,22 @@ defmodule Responder.State.RecordsTest do
       "repository" => "responder",
       "title" => "Implement the change"
     }
+  end
+
+  defp goal(id, overrides \\ %{}) do
+    Map.merge(
+      %{
+        "authority" => "read_only",
+        "completion_contract" => "The requested outcome is demonstrably complete.",
+        "id" => id,
+        "kind" => "check",
+        "prerequisite_goal_ids" => [],
+        "read_only_repositories" => [],
+        "requested_outcome" => "Complete #{id}",
+        "required" => true,
+        "writable_repository" => nil
+      },
+      overrides
+    )
   end
 end

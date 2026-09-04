@@ -78,7 +78,6 @@ defmodule Responder.CapabilityContractTest do
   )
 
   @open_tasks ~w(
-    2026-09-04-finish-goals-and-multi-repository-orchestration
     2026-09-04-finish-schedules-subscriptions-and-execution-his
   )
 

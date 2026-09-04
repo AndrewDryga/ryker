@@ -535,12 +535,15 @@ defmodule Responder.Slack.Runtime do
 
       case IncidentRooms.channel_profile(workspace_ref, channel_ref) do
         {:ok, profile} ->
-          {:ok,
-           %{
-             policy: profile.policy,
-             policy_digest: profile.policy_digest,
-             repository_ref: profile.repository_ref
-           }}
+          work_profile =
+            %{
+              policy: profile.policy,
+              policy_digest: profile.policy_digest,
+              repository_ref: profile.repository_ref
+            }
+            |> maybe_put_repository_context(profile.repository_context)
+
+          {:ok, work_profile}
 
         :not_found ->
           repository_ref = configured_repository(workspace_ref, channel_ref, default_repository)
@@ -704,11 +707,12 @@ defmodule Responder.Slack.Runtime do
 
   defp file_client!(_client), do: raise(ArgumentError, "Slack bot_client must use JSONClient")
 
-  defp policy!(%{digest: digest, name: name}, field) do
+  defp policy!(%{digest: digest, name: name} = source, field) do
     if is_binary(name) and String.valid?(name) and String.trim(name) != "" and
          byte_size(name) <= 256 and is_binary(digest) and
          Regex.match?(~r/\A[0-9a-f]{64}\z/, digest) do
       %{digest: digest, name: name}
+      |> maybe_put_policy_placement(source)
     else
       raise ArgumentError, "Slack #{field} must contain a policy name and SHA-256 digest"
     end
@@ -717,6 +721,19 @@ defmodule Responder.Slack.Runtime do
   defp policy!(_policy, field) do
     raise ArgumentError, "Slack #{field} must be a map"
   end
+
+  defp maybe_put_policy_placement(policy, %{repository_ref: repository_ref} = source) do
+    policy
+    |> Map.put(:repository_ref, repository_ref)
+    |> maybe_put_repository_context(Map.get(source, :repository_context))
+  end
+
+  defp maybe_put_policy_placement(policy, _source), do: policy
+
+  defp maybe_put_repository_context(policy, nil), do: policy
+
+  defp maybe_put_repository_context(policy, context),
+    do: Map.put(policy, :repository_context, context)
 
   defp slack_ref?(value) do
     is_binary(value) and Regex.match?(~r/\A[A-Z0-9]+\z/, value) and byte_size(value) <= 256

@@ -658,6 +658,159 @@
           "name": "propose_automation"
         },
         {
+          "description": "Create one durable goal node. Parent and prerequisite goals must already exist; the frozen repository context permits at most one to three independent working goals.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "authority": {
+                "enum": [
+                  "read_only",
+                  "repository_write",
+                  "governed_operation"
+                ],
+                "type": "string"
+              },
+              "completion_contract": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "id": {
+                "maxLength": 120,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "check",
+                  "engineering",
+                  "operation",
+                  "schedule"
+                ],
+                "type": "string"
+              },
+              "parent_goal_id": {
+                "anyOf": [
+                  {
+                    "maxLength": 120,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "prerequisite_goal_ids": {
+                "items": {
+                  "maxLength": 120,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "read_only_repositories": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "requested_outcome": {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "writable_repository": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "authority",
+              "completion_contract",
+              "id",
+              "kind",
+              "parent_goal_id",
+              "prerequisite_goal_ids",
+              "read_only_repositories",
+              "requested_outcome",
+              "required",
+              "writable_repository"
+            ],
+            "type": "object"
+          },
+          "name": "plan_goal"
+        },
+        {
+          "description": "Advance one existing goal. Prerequisites must be satisfied before working or completion, and a parent cannot complete while required children remain open.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "detail": {
+                "anyOf": [
+                  {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "goal_id": {
+                "maxLength": 120,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "ready",
+                  "working",
+                  "waiting",
+                  "completed",
+                  "blocked",
+                  "excluded",
+                  "cancelled"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "detail",
+              "goal_id",
+              "state"
+            ],
+            "type": "object"
+          },
+          "name": "update_goal"
+        },
+        {
           "description": "Create one inert engineering or incident-task proposal, or refine the exact open task_offer ref, under trusted authority. Kind defaults to engineering for compatible clients.",
           "inputSchema": {
             "additionalProperties": false,

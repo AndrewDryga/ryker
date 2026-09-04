@@ -4,7 +4,15 @@ defmodule Responder.ProductContractsTest do
   alias Responder.ControlPlane.CSRF
   alias Responder.Ingress.{Projections, WorkProfile}
   alias Responder.Publication.{LifecycleStatus, Receipt}
-  alias Responder.Slack.{ChannelSettingChangeset, ChannelSettingOverride, Supervisor}
+
+  alias Responder.Slack.{
+    ChannelSettingChangeset,
+    ChannelSettingOverride,
+    IncidentRoomChangeset,
+    Supervisor
+  }
+
+  alias Responder.Work.{RepositoryContext, SessionChangeset}
 
   @digest String.duplicate("a", 64)
   @standard_digest String.duplicate("b", 64)
@@ -123,6 +131,94 @@ defmodule Responder.ProductContractsTest do
 
     assert {:error, {:invalid_work_profile, :work_class}} =
              WorkProfile.policy_for(profile, :provider_named_by_model)
+  end
+
+  test "repository-set context round trips separately from the sole writable repository" do
+    context = %{
+      context_ref: "platform",
+      parallel_goal_limit: 2,
+      primary_repository: "infrastructure",
+      read_only_repositories: ["application", "runbooks"]
+    }
+
+    assert {:ok, profile} =
+             WorkProfile.new(%{
+               authority_digest: nil,
+               class_policies: nil,
+               policy: "platform-read",
+               policy_digest: @digest,
+               repository_context: context,
+               repository_ref: "infrastructure"
+             })
+
+    assert profile.repository_ref == "infrastructure"
+    assert profile.repository_context == context
+
+    assert {:ok, %{repository_context: document}} =
+             WorkProfile.policy_for(profile, :conversational)
+
+    assert document == %{
+             "context_ref" => "platform",
+             "parallel_goal_limit" => 2,
+             "primary_repository" => "infrastructure",
+             "read_only_repositories" => ["application", "runbooks"]
+           }
+
+    assert {:ok, ^profile} = profile |> WorkProfile.document() |> WorkProfile.restore()
+
+    invalid_document =
+      profile
+      |> WorkProfile.document()
+      |> put_in(["repository_context", "primary_repository"], "other")
+
+    assert WorkProfile.restore(invalid_document) ==
+             {:error, {:invalid_work_profile, :repository_context}}
+
+    assert WorkProfile.restore(:invalid) == {:error, {:invalid_work_profile, :fields}}
+
+    for invalid <- [
+          %{context | primary_repository: "other"},
+          %{context | read_only_repositories: ["infrastructure"]},
+          %{context | read_only_repositories: ["application", "application"]},
+          %{context | parallel_goal_limit: 4}
+        ] do
+      assert {:error, {:invalid_work_profile, :repository_context}} =
+               WorkProfile.new(%{
+                 authority_digest: nil,
+                 class_policies: nil,
+                 policy: "platform-read",
+                 policy_digest: @digest,
+                 repository_context: invalid,
+                 repository_ref: "infrastructure"
+               })
+    end
+  end
+
+  test "repository contexts reject values outside their typed document contract" do
+    assert RepositoryContext.prepare(:invalid, "responder") == {:error, :invalid}
+    assert RepositoryContext.restore(:invalid, "responder") == {:error, :invalid}
+    assert RepositoryContext.document(nil) == nil
+  end
+
+  test "persistence changesets reject malformed repository contexts" do
+    session_changeset =
+      SessionChangeset.insert_with_authority(
+        Ecto.UUID.generate(),
+        Ecto.UUID.generate(),
+        1,
+        "work-read-only",
+        @digest,
+        "responder",
+        "session:repository-context",
+        %{authority_digest: nil, repository_context: %{}, workspace_task: nil}
+      )
+
+    assert Keyword.has_key?(session_changeset.errors, :repository_context)
+
+    room_changeset =
+      IncidentRoomChangeset.insert(%{repository_context: %{}, repository_ref: "responder"})
+
+    assert Keyword.has_key?(room_changeset.errors, :repository_context)
   end
 
   test "model classes cannot widen the trusted execution authority" do
