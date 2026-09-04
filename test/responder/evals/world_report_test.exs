@@ -117,6 +117,27 @@ defmodule Responder.Evals.WorldReportTest do
     assert WorldReport.result(:invalid) == {:error, :report}
   end
 
+  test "typed evaluator failures remain serializable diagnostics" do
+    root =
+      Path.join(System.tmp_dir!(), "responder-world-report-#{System.unique_integer([:positive])}")
+
+    path = Path.join(root, "world.json")
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    reason =
+      {:coop_error, 503, "session_cleanup_error",
+       "session runtime cleanup is temporarily unavailable"}
+
+    report = put_in(valid_report(), [:quality, :reason], reason)
+
+    assert :ok = WorldReport.write(path, [report])
+
+    document = path |> File.read!() |> Jason.decode!()
+
+    assert get_in(document, ["results", Access.at(0), "quality", "reason"]) ==
+             inspect(reason)
+  end
+
   defp valid_report do
     %{
       deliveries: [],

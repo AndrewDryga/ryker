@@ -146,6 +146,8 @@ defmodule Responder.Evals.WorldReport do
 
   defp json_value(value) when is_list(value), do: Enum.map(value, &json_value/1)
 
+  defp json_value(value) when is_tuple(value), do: inspect(value)
+
   defp json_value(value) when is_atom(value) and value not in [true, false, nil],
     do: Atom.to_string(value)
 
