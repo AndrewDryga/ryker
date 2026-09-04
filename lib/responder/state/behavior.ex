@@ -27,6 +27,10 @@ defmodule Responder.State.Behavior do
     field(:expires_at, :utc_datetime_usec)
     field(:use_count, :integer, default: 0)
     field(:last_used_at, :utc_datetime_usec)
+    field(:last_reviewed_at, :utc_datetime_usec)
+    field(:edited_at, :utc_datetime_usec)
+    field(:edited_by_actor_ref, :string)
+    field(:edit_review_ref, :string)
     field(:revision, :integer, default: 1)
     timestamps(type: :utc_datetime_usec)
   end

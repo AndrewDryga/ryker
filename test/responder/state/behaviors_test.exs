@@ -1,14 +1,26 @@
 defmodule Responder.State.BehaviorsTest do
   use Responder.DataCase, async: false
 
+  import Ecto.Query
+
   @moduletag isolation: "REPEATABLE READ"
 
   alias Responder.Admission
   alias Responder.Admission.Decision
+  alias Responder.CanonicalJSON
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.{Inbox, Input}
-  alias Responder.State.{Behavior, Behaviors, Record, Records, StandingAssignmentRun}
+
+  alias Responder.State.{
+    Behavior,
+    BehaviorChangeset,
+    Behaviors,
+    Record,
+    Records,
+    StandingAssignmentRun
+  }
+
   alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -56,6 +68,12 @@ defmodule Responder.State.BehaviorsTest do
     assert recalled["subject"] == "terraform_review_style"
     assert recalled["text"] =~ "availability risk"
 
+    assert [searched] =
+             Behaviors.search_guidance(context, "availability risk", "current_channel", 20)
+
+    assert searched["behavior_ref"] == guidance.behavior.ref
+    assert Behaviors.search_guidance(context, "availability risk", "invalid", 20) == []
+
     other_conversation = %{context | conversation_ref: "slack:T123:C999"}
     assert Behaviors.guidance(other_conversation) == []
 
@@ -65,6 +83,163 @@ defmodule Responder.State.BehaviorsTest do
     assert duplicate.status == :duplicate
     assert duplicate.behavior.id == guidance.behavior.id
     assert Repo.aggregate(Behavior, :count, :id) == 3
+  end
+
+  test "App Home behavior controls cannot cross channel or operator scope" do
+    fixture = delivered_offers!("home-behavior-privacy")
+
+    assert {:ok, workspace} =
+             Behaviors.confirm(confirmation(fixture, fixture.workspace_preference, "workspace"))
+
+    assert {:ok, operator} =
+             Behaviors.confirm(confirmation(fixture, fixture.operator_preference, "operator"))
+
+    assert {:ok, conversation} =
+             Behaviors.confirm(confirmation(fixture, fixture.guidance, "conversation"))
+
+    assert Behaviors.set_home_status(
+             conversation.behavior.ref,
+             :deleted,
+             "slack:user:U123",
+             "slack:T123"
+           ) == {:error, :behavior_unauthorized}
+
+    assert Behaviors.set_home_status(
+             operator.behavior.ref,
+             :disabled,
+             "slack:user:U999",
+             "slack:T123"
+           ) == {:error, :behavior_unauthorized}
+
+    assert {:ok, own} =
+             Behaviors.set_home_status(
+               operator.behavior.ref,
+               :disabled,
+               "slack:user:U123",
+               "slack:T123"
+             )
+
+    assert own.status == :disabled
+
+    assert {:ok, shared} =
+             Behaviors.set_home_status(
+               workspace.behavior.ref,
+               :disabled,
+               "slack:user:U999",
+               "slack:T123"
+             )
+
+    assert shared.status == :disabled
+
+    assert Behaviors.set_home_status(
+             workspace.behavior.ref,
+             :active,
+             "slack:user:U123",
+             "slack:T999"
+           ) == {:error, :behavior_workspace_mismatch}
+
+    assert Behaviors.set_home_status(
+             "behavior:missing",
+             :active,
+             "slack:user:U123",
+             "slack:T123"
+           ) == {:error, :behavior_not_found}
+  end
+
+  test "unrelated newer behaviors cannot crowd visible guidance out of the bounded query" do
+    fixture = delivered_offers!("scope-before-limit")
+
+    assert {:ok, relevant} =
+             Behaviors.confirm(confirmation(fixture, fixture.guidance, "scope-before-limit"))
+
+    old = DateTime.add(DateTime.utc_now(), -60, :second)
+    Repo.update_all(Behavior, set: [inserted_at: old, updated_at: old])
+    insert_unrelated_guidance!(fixture.guidance, 100)
+
+    context = %{
+      conversation_ref: "slack:T123:C456",
+      operator_ref: "slack:user:U123",
+      repository: nil,
+      workspace_ref: "slack:T123"
+    }
+
+    assert [guidance] = Behaviors.guidance(context)
+    assert guidance["behavior_ref"] == relevant.behavior.ref
+  end
+
+  test "workspace guidance cannot crowd higher-precedence channel guidance out of the limit" do
+    fixture = delivered_offers!("precedence-before-limit")
+
+    assert {:ok, relevant} =
+             Behaviors.confirm(confirmation(fixture, fixture.guidance, "precedence-before-limit"))
+
+    old = DateTime.add(DateTime.utc_now(), -60, :second)
+    Repo.update_all(Behavior, set: [inserted_at: old, updated_at: old])
+    insert_unrelated_guidance!(fixture.guidance, 100)
+
+    workspace_payload = %{
+      "expires_in" => "30d",
+      "repository" => nil,
+      "scope" => "workspace",
+      "subject" => "workspace-guidance",
+      "summary" => "Newer workspace guidance",
+      "text" => "Newer workspace guidance",
+      "visibility" => "workspace"
+    }
+
+    Repo.update_all(
+      from(behavior in Behavior, where: behavior.id != ^relevant.behavior.id),
+      set: [payload: workspace_payload, scope_kind: :workspace, scope_ref: "slack:T123"]
+    )
+
+    context = %{
+      conversation_ref: "slack:T123:C456",
+      operator_ref: "slack:user:U123",
+      repository: nil,
+      workspace_ref: "slack:T123"
+    }
+
+    assert [first | _rest] = Behaviors.guidance(context)
+    assert first["behavior_ref"] == relevant.behavior.ref
+  end
+
+  test "conversation-visible repository guidance stays in its source channel" do
+    fixture = delivered_offers!("repository-guidance-visibility")
+
+    assert {:ok, confirmed} =
+             Behaviors.confirm(
+               confirmation(fixture, fixture.guidance, "repository-guidance-visibility")
+             )
+
+    payload =
+      confirmed.behavior.payload
+      |> Map.put("repository", "responder")
+      |> Map.put("scope", "repository")
+      |> Map.put("visibility", "conversation")
+
+    confirmed.behavior
+    |> BehaviorChangeset.update(%{
+      payload: payload,
+      scope_kind: :repository,
+      scope_ref: "responder"
+    })
+    |> Repo.update!()
+
+    source_context = %{
+      conversation_ref: "slack:T123:C456",
+      operator_ref: "slack:user:U123",
+      repository: "responder",
+      workspace_ref: "slack:T123"
+    }
+
+    assert [guidance] = Behaviors.guidance(source_context)
+    assert guidance["behavior_ref"] == confirmed.behavior.ref
+
+    assert [searched] =
+             Behaviors.search_guidance(source_context, "availability", "repository", 20)
+
+    assert searched["behavior_ref"] == confirmed.behavior.ref
+    assert Behaviors.guidance(%{source_context | conversation_ref: "slack:T123:C999"}) == []
   end
 
   test "a confirmed standing assignment admits only its exact source, channel, and event family" do
@@ -460,6 +635,55 @@ defmodule Responder.State.BehaviorsTest do
 
     assert Behaviors.set_status("behavior", :unknown, "slack:T123") ==
              {:error, {:invalid_behavior, :status}}
+
+    assert Behaviors.set_home_status("behavior", :unknown, "actor", "workspace") ==
+             {:error, {:invalid_behavior, :status}}
+
+    assert Behaviors.assignments_for_channel("", "") == []
+
+    assert Behaviors.manage_assignment("behavior", :unknown, "workspace", "conversation") ==
+             {:error, {:invalid_behavior, :assignment}}
+
+    assert Behaviors.manage_assignment(
+             "behavior:missing",
+             :active,
+             "slack:T123",
+             "slack:T123:C456"
+           ) == {:error, :behavior_not_found}
+
+    assert Behaviors.effective_preferences(%{}) == %{}
+    assert Behaviors.effective_preferences(:invalid) == %{}
+
+    assert Behaviors.model_context(%{}, "operator", nil) == %{
+             "guidance" => [],
+             "preferences" => %{},
+             "standing_assignments" => []
+           }
+
+    assert Behaviors.guidance(%{}, 20) == []
+    assert Behaviors.guidance(%{}, 0) == []
+    assert Behaviors.search_guidance(%{}, "query", "workspace", 20) == []
+    assert Behaviors.search_guidance(%{}, "query", "workspace", 0) == []
+    refute Behaviors.standing_match?(:invalid)
+
+    assert Behaviors.finalize_assignment_runs_in_transaction(
+             "input:one",
+             :reply,
+             "decision:one",
+             nil,
+             :decided
+           ) == {:error, :behavior_run_transaction_required}
+
+    assert {:ok, {:error, {:invalid_behavior_confirmation, :input_ref}}} =
+             Repo.transaction(fn ->
+               Behaviors.finalize_assignment_runs_in_transaction(
+                 "",
+                 :reply,
+                 "decision:one",
+                 nil,
+                 :decided
+               )
+             end)
   end
 
   defp delivered_offers!(suffix) do
@@ -577,6 +801,73 @@ defmodule Responder.State.BehaviorsTest do
       source_event_assignment: source_event_assignment,
       workspace_preference: workspace_preference
     })
+  end
+
+  defp insert_unrelated_guidance!(offer, count) do
+    now = DateTime.utc_now()
+
+    records_and_behaviors =
+      Enum.map(1..count, fn index ->
+        record_id = Ecto.UUID.generate()
+        behavior_id = Ecto.UUID.generate()
+
+        payload = %{
+          "expires_in" => "30d",
+          "repository" => nil,
+          "scope" => "conversation",
+          "subject" => "unrelated-#{index}",
+          "summary" => "Unrelated guidance #{index}",
+          "text" => "Unrelated guidance #{index}",
+          "visibility" => "conversation"
+        }
+
+        record = %{
+          confirmed_at: now,
+          confirmed_by_actor_ref: "slack:user:U123",
+          confirmation_ref: "confirmation:unrelated:#{index}",
+          episode_id: offer.episode_id,
+          id: record_id,
+          inserted_at: now,
+          kind: "guidance_offer",
+          operation_id: "unrelated-#{index}",
+          payload: payload,
+          payload_fingerprint: CanonicalJSON.digest(payload),
+          ref: "record:unrelated:#{record_id}",
+          status: :confirmed,
+          turn_id: offer.turn_id,
+          updated_at: now
+        }
+
+        behavior = %{
+          confirmation_ref: "confirmation:unrelated:#{index}",
+          confirmed_at: now,
+          confirmed_by_actor_ref: "slack:user:U123",
+          expires_at: DateTime.add(now, 86_400, :second),
+          id: behavior_id,
+          identity_key: "unrelated-#{index}",
+          inserted_at: now,
+          kind: :guidance,
+          offer_record_id: record_id,
+          payload: payload,
+          ref: "behavior:#{behavior_id}",
+          revision: 1,
+          scope_kind: :conversation,
+          scope_ref: "slack:T123:C#{index + 1_000}",
+          source_conversation_ref: "slack:T123:C#{index + 1_000}",
+          source_message_ref: "message:unrelated:#{index}",
+          source_transport: "slack",
+          status: :active,
+          updated_at: now,
+          use_count: 0,
+          workspace_ref: "slack:T123"
+        }
+
+        {record, behavior}
+      end)
+
+    {records, behaviors} = Enum.unzip(records_and_behaviors)
+    {^count, nil} = Repo.insert_all(Record, records)
+    {^count, nil} = Repo.insert_all(Behavior, behaviors)
   end
 
   defp bind_and_deliver!(claim, episode, suffix, records) do

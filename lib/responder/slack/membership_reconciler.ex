@@ -2,8 +2,8 @@ defmodule Responder.Slack.MembershipReconciler do
   @moduledoc """
   Bounded recovery for Slack bot membership events missed while disconnected.
 
-  The reconciler detects only absent-to-present transitions. A temporary Slack
-  listing failure can therefore delay onboarding but cannot falsely remove a
+  Only a complete Slack listing can repair both missed joins and missed leaves.
+  A temporary or partial listing failure therefore cannot falsely remove a
   channel or erase its configuration.
   """
 
@@ -45,16 +45,24 @@ defmodule Responder.Slack.MembershipReconciler do
 
   @spec run_once(map()) :: {:ok, map()} | {:error, term()}
   def run_once(options) do
-    with {:ok, channel_refs} <- options.api.joined_conversations(options.client),
-         managed_channel_refs <- managed_channel_refs(channel_refs, options),
+    snapshot_started_at = DateTime.utc_now()
+
+    with {:ok, channels} <- options.api.joined_conversations(options.client),
+         managed_channel_refs <- managed_channel_refs(channels, options),
          {:ok, results} <-
            options.configurations.reconcile_joined(
              options.workspace_ref,
-             channel_refs -- managed_channel_refs,
+             Enum.reject(channels, &(&1.channel_ref in managed_channel_refs)),
              options.setup_options.catalog
            ),
+         {:ok, left} <-
+           options.configurations.reconcile_absent(
+             options.workspace_ref,
+             channels,
+             snapshot_started_at
+           ),
          {:ok, prompted} <- prompt_sessions(results, options) do
-      {:ok, %{channels: length(channel_refs), prompted: prompted}}
+      {:ok, %{channels: length(channels), left: left, prompted: prompted}}
     end
   end
 
@@ -91,7 +99,9 @@ defmodule Responder.Slack.MembershipReconciler do
          workspace_ref: workspace_ref
        })
        when is_function(callback, 2) do
-    Enum.filter(channel_refs, &callback.(workspace_ref, &1))
+    channel_refs
+    |> Enum.map(& &1.channel_ref)
+    |> Enum.filter(&callback.(workspace_ref, &1))
   end
 
   defp managed_channel_refs(_channel_refs, _options), do: []

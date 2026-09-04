@@ -101,11 +101,12 @@ defmodule Responder.Work.TurnChangeset do
     |> work_constraints()
   end
 
-  @spec record_final_preflight(Turn.t(), String.t(), String.t(), non_neg_integer()) ::
+  @spec record_final_preflight(Turn.t(), String.t(), String.t(), String.t(), non_neg_integer()) ::
           Ecto.Changeset.t()
   def record_final_preflight(
         %Turn{} = turn,
         candidate_sha256,
+        continuity_sha256,
         ledger_sha256,
         semantic_version
       ) do
@@ -113,21 +114,25 @@ defmodule Responder.Work.TurnChangeset do
     |> cast(
       %{
         final_preflight_candidate_sha256: candidate_sha256,
+        final_preflight_continuity_sha256: continuity_sha256,
         final_preflight_ledger_sha256: ledger_sha256,
         final_preflight_semantic_version: semantic_version
       },
       [
         :final_preflight_candidate_sha256,
+        :final_preflight_continuity_sha256,
         :final_preflight_ledger_sha256,
         :final_preflight_semantic_version
       ]
     )
     |> validate_required([
       :final_preflight_candidate_sha256,
+      :final_preflight_continuity_sha256,
       :final_preflight_ledger_sha256,
       :final_preflight_semantic_version
     ])
     |> validate_format(:final_preflight_candidate_sha256, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:final_preflight_continuity_sha256, ~r/\A[0-9a-f]{64}\z/)
     |> validate_format(:final_preflight_ledger_sha256, ~r/\A[0-9a-f]{64}\z/)
     |> validate_number(:final_preflight_semantic_version, greater_than_or_equal_to: 0)
     |> work_constraints()

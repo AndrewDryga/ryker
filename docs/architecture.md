@@ -274,7 +274,7 @@ also host-owned and deterministic; the model receives only already-matched rules
 read-only threaded reply. This keeps arbitrary user prose out of executable triggers and authority
 while allowing confirmed guidance to steer model collaboration. It also allows one subscribed
 message class to operate while general proactivity is disabled. Expiry,
-channel deletion, repository reconciliation, and maintenance prune remove behavior state and
+channel deletion and maintenance prune remove behavior state and
 dependent run records.
 
 ## Operational actions

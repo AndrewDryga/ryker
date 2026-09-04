@@ -8,6 +8,8 @@ defmodule Responder.Slack.ChannelMembership do
   schema "slack_channel_memberships" do
     field(:workspace_ref, :string)
     field(:channel_ref, :string)
+    field(:external_shared, :boolean)
+    field(:private, :boolean)
     field(:status, Ecto.Enum, values: [:joined, :left, :deleted])
     field(:generation, :integer)
     field(:joined_at, :utc_datetime_usec)

@@ -14,6 +14,7 @@ defmodule Responder.State.Behaviors do
   alias Responder.Episodes.Episode
   alias Responder.Ingress.Input
   alias Responder.Repo
+  alias Responder.Slack.ChannelFence
 
   alias Responder.State.{
     Behavior,
@@ -70,6 +71,41 @@ defmodule Responder.State.Behaviors do
   end
 
   def set_status(_ref, _status, _workspace_ref), do: {:error, {:invalid_behavior, :status}}
+
+  @doc "Changes shared or actor-owned App Home behavior without crossing channel scope."
+  @spec set_home_status(String.t(), :active | :disabled | :deleted, String.t(), String.t()) ::
+          {:ok, Behavior.t()} | {:error, term()}
+  def set_home_status(ref, status, actor_ref, workspace_ref)
+      when status in [:active, :disabled, :deleted] do
+    with :ok <- reference(ref, :behavior_ref),
+         :ok <- reference(actor_ref, :actor_ref),
+         :ok <- reference(workspace_ref, :workspace_ref) do
+      Repo.transaction(fn -> set_home_status_locked(ref, status, actor_ref, workspace_ref) end)
+      |> transaction_result()
+    end
+  end
+
+  def set_home_status(_ref, _status, _actor_ref, _workspace_ref),
+    do: {:error, {:invalid_behavior, :status}}
+
+  defp set_home_status_locked(ref, status, actor_ref, workspace_ref) do
+    case Repo.one(from(behavior in Behavior, where: behavior.ref == ^ref, lock: "FOR UPDATE")) do
+      nil ->
+        Repo.rollback(:behavior_not_found)
+
+      %Behavior{workspace_ref: actual} when actual != workspace_ref ->
+        Repo.rollback(:behavior_workspace_mismatch)
+
+      %Behavior{} = behavior ->
+        set_visible_home_status(behavior, ref, status, actor_ref, workspace_ref)
+    end
+  end
+
+  defp set_visible_home_status(behavior, ref, status, actor_ref, workspace_ref) do
+    if home_behavior_visible?(behavior, actor_ref),
+      do: set_status_locked(ref, status, workspace_ref),
+      else: Repo.rollback(:behavior_unauthorized)
+  end
 
   @spec assignments_for_channel(String.t(), String.t()) :: [Behavior.t()]
   def assignments_for_channel(workspace_ref, conversation_ref) do
@@ -193,21 +229,92 @@ defmodule Responder.State.Behaviors do
 
   def guidance(_context, _limit), do: []
 
+  @spec search_guidance(map(), String.t(), String.t(), pos_integer()) :: [map()]
+  def search_guidance(context, query, scope, limit)
+      when is_map(context) and is_binary(query) and is_binary(scope) and is_integer(limit) and
+             limit in 1..50 do
+    case retrieval_context(context) do
+      {:ok, context} ->
+        active_for_context(:guidance, context)
+        |> Enum.filter(fn behavior ->
+          guidance_scope?(behavior, scope, context) and
+            behavior
+            |> guidance_document()
+            |> CanonicalJSON.encode!()
+            |> String.downcase()
+            |> String.contains?(String.downcase(query))
+        end)
+        |> Enum.take(limit)
+        |> account_guidance()
+
+      {:error, _reason} ->
+        []
+    end
+  end
+
+  def search_guidance(_context, _query, _scope, _limit), do: []
+
   defp guidance_context(context, limit) do
     active_for_context(:guidance, context)
     |> Enum.sort_by(&{preference_rank(&1), DateTime.to_unix(&1.updated_at, :microsecond) * -1})
     |> Enum.take(limit)
-    |> Enum.map(fn behavior ->
-      %{
-        "behavior_ref" => behavior.ref,
-        "scope" => Atom.to_string(behavior.scope_kind),
-        "subject" => behavior.payload["subject"],
-        "summary" => behavior.payload["summary"],
-        "text" => behavior.payload["text"],
-        "visibility" => behavior.payload["visibility"]
-      }
-    end)
+    |> account_guidance()
   end
+
+  defp account_guidance([]), do: []
+
+  defp account_guidance(behaviors) do
+    ids = Enum.map(behaviors, & &1.id)
+    now = database_now!()
+
+    Repo.update_all(from(behavior in Behavior, where: behavior.id in ^ids),
+      inc: [use_count: 1],
+      set: [last_used_at: now]
+    )
+
+    Enum.map(behaviors, &guidance_document/1)
+  end
+
+  defp guidance_document(behavior) do
+    %{
+      "behavior_ref" => behavior.ref,
+      "kind" => "guidance",
+      "scope" => Atom.to_string(behavior.scope_kind),
+      "subject" => behavior.payload["subject"],
+      "summary" => behavior.payload["summary"],
+      "text" => behavior.payload["text"],
+      "visibility" => behavior.payload["visibility"]
+    }
+    |> put_edit_provenance(behavior)
+  end
+
+  defp put_edit_provenance(document, %Behavior{edited_at: %DateTime{} = edited_at} = behavior) do
+    Map.put(document, "edit", %{
+      "actor_ref" => behavior.edited_by_actor_ref,
+      "edited_at" => DateTime.to_iso8601(edited_at),
+      "review_ref" => behavior.edit_review_ref
+    })
+  end
+
+  defp put_edit_provenance(document, _behavior), do: document
+
+  defp guidance_scope?(
+         %Behavior{scope_kind: :conversation, scope_ref: ref},
+         "current_channel",
+         context
+       ),
+       do: ref == context.conversation_ref
+
+  defp guidance_scope?(%Behavior{scope_kind: :repository, scope_ref: ref}, "repository", context),
+    do: ref == context.repository
+
+  defp guidance_scope?(%Behavior{scope_kind: :workspace, scope_ref: ref}, "workspace", context),
+    do: ref == context.workspace_ref
+
+  defp guidance_scope?(%Behavior{scope_kind: :operator, scope_ref: ref}, "mine", context),
+    do: ref == context.operator_ref
+
+  defp guidance_scope?(_behavior, _scope, _context), do: false
 
   @doc "Returns true only when an active channel assignment matches trusted source identity and event shape."
   @spec standing_match?(Input.t()) :: boolean()
@@ -287,6 +394,12 @@ defmodule Responder.State.Behaviors do
 
   defp confirm_locked(attributes) do
     with {:ok, record, episode, turn} <- lock_offer(attributes.record_ref),
+         :ok <-
+           ChannelFence.authorize_in_transaction(
+             episode.destination_transport,
+             episode.destination_conversation_ref
+           ),
+         :ok <- authorize_wide_guidance(record, episode),
          :ok <- delivered_from?(episode, turn, attributes.target) do
       case Repo.one(from(behavior in Behavior, where: behavior.offer_record_id == ^record.id)) do
         %Behavior{} = behavior ->
@@ -302,6 +415,19 @@ defmodule Responder.State.Behaviors do
       {:error, reason} -> Repo.rollback(reason)
     end
   end
+
+  defp authorize_wide_guidance(
+         %Record{kind: "guidance_offer", payload: %{"scope" => scope}},
+         %Episode{destination_transport: "slack"} = episode
+       )
+       when scope in ["repository", "workspace"] do
+    ChannelFence.authorize_public_in_transaction(
+      episode.destination_transport,
+      episode.destination_conversation_ref
+    )
+  end
+
+  defp authorize_wide_guidance(_record, _episode), do: :ok
 
   defp create_behavior(record, episode, attributes) do
     with {:ok, prepared} <- prepare_behavior(record, episode, attributes),
@@ -511,20 +637,60 @@ defmodule Responder.State.Behaviors do
 
   defp active_for_context(kind, context) do
     now = database_now!()
-    clauses = MapSet.new(context_clauses(context))
 
-    Repo.all(
+    scope_filter =
+      Enum.reduce(context_clauses(context), dynamic([behavior], false), fn {scope_kind, scope_ref},
+                                                                           dynamic ->
+        dynamic(
+          [behavior],
+          ^dynamic or (behavior.scope_kind == ^scope_kind and behavior.scope_ref == ^scope_ref)
+        )
+      end)
+
+    visibility_filter = behavior_visibility_filter(kind, context)
+
+    query =
       from(behavior in Behavior,
         where:
           behavior.kind == ^kind and behavior.status == :active and
             behavior.workspace_ref == ^context.workspace_ref and
-            (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
-        order_by: [desc: behavior.updated_at],
+            (is_nil(behavior.expires_at) or behavior.expires_at > ^now)
+      )
+
+    Repo.all(
+      from(behavior in query,
+        where: ^scope_filter,
+        where: ^visibility_filter,
+        order_by: [
+          asc:
+            fragment(
+              "CASE ? WHEN 'operator' THEN 0 WHEN 'conversation' THEN 1 WHEN 'repository' THEN 2 WHEN 'workspace' THEN 3 ELSE 4 END",
+              behavior.scope_kind
+            ),
+          desc: behavior.updated_at,
+          desc: behavior.id
+        ],
         limit: 100
       )
     )
-    |> Enum.filter(&MapSet.member?(clauses, {&1.scope_kind, &1.scope_ref}))
   end
+
+  defp behavior_visibility_filter(:guidance, context) do
+    dynamic(
+      [behavior],
+      fragment("(?::jsonb)->>'visibility'", behavior.payload) == "workspace" or
+        (behavior.scope_kind == :operator and
+           fragment("(?::jsonb)->>'visibility'", behavior.payload) == "private" and
+           behavior.scope_ref == ^context.operator_ref) or
+        (fragment(
+           "(?::jsonb)->>'visibility' IN ('conversation', 'private')",
+           behavior.payload
+         ) and
+           behavior.source_conversation_ref == ^context.conversation_ref)
+    )
+  end
+
+  defp behavior_visibility_filter(_kind, _context), do: dynamic([_behavior], true)
 
   defp assignment_context(episode_id) do
     Repo.all(
@@ -697,6 +863,20 @@ defmodule Responder.State.Behaviors do
     |> maybe_repository(context.repository)
     |> Enum.reject(fn {_kind, ref} -> is_nil(ref) end)
   end
+
+  defp home_behavior_visible?(
+         %Behavior{scope_kind: :operator, scope_ref: actor_ref},
+         actor_ref
+       ),
+       do: true
+
+  defp home_behavior_visible?(%Behavior{kind: :guidance} = behavior, _actor_ref),
+    do:
+      behavior.scope_kind in [:repository, :workspace] and
+        behavior.payload["visibility"] == "workspace"
+
+  defp home_behavior_visible?(%Behavior{} = behavior, _actor_ref),
+    do: behavior.scope_kind in [:repository, :workspace]
 
   defp maybe_repository(clauses, nil), do: clauses
   defp maybe_repository(clauses, repository), do: [{:repository, repository} | clauses]

@@ -11,10 +11,12 @@ defmodule Responder.Slack.ChannelConfigurations do
 
   alias Responder.CanonicalJSON
   alias Responder.Repo
+  alias Responder.State.{Continuity, Memories}
 
   alias Responder.Slack.{
     ChannelConfiguration,
     ChannelConfigurationChangeset,
+    ChannelFence,
     ChannelMembership,
     ChannelMembershipEvent,
     ConfigurationAction,
@@ -70,19 +72,68 @@ defmodule Responder.Slack.ChannelConfigurations do
     end
   end
 
-  @spec reconcile_joined(String.t(), [String.t()], catalog()) ::
+  @spec reconcile_joined(
+          String.t(),
+          [%{channel_ref: String.t(), external_shared: boolean() | nil, private: boolean()}],
+          catalog()
+        ) ::
           {:ok, [map()]} | {:error, term()}
-  def reconcile_joined(workspace_ref, channel_refs, catalog) do
+  def reconcile_joined(workspace_ref, channels, catalog) do
     with :ok <- reference(workspace_ref, :workspace_ref, 256),
-         :ok <- bounded_channel_refs(channel_refs),
+         :ok <- bounded_channels(channels),
          {:ok, catalog} <- catalog(catalog) do
-      reconcile_joined_channels(workspace_ref, channel_refs, catalog)
+      reconcile_joined_channels(workspace_ref, channels, catalog)
     end
   end
 
-  defp reconcile_joined_channels(workspace_ref, channel_refs, catalog) do
-    Enum.reduce_while(channel_refs, {:ok, []}, fn channel_ref, {:ok, results} ->
-      case reconcile_joined_channel(workspace_ref, channel_ref, catalog) do
+  @doc "Marks joined memberships missing from one complete Slack snapshot as left."
+  @spec reconcile_absent(
+          String.t(),
+          [%{channel_ref: String.t(), external_shared: boolean() | nil, private: boolean()}],
+          DateTime.t()
+        ) :: {:ok, non_neg_integer()} | {:error, term()}
+  def reconcile_absent(workspace_ref, channels, snapshot_started_at) do
+    with :ok <- reference(workspace_ref, :workspace_ref, 256),
+         :ok <- bounded_channels(channels),
+         :ok <- utc(snapshot_started_at, :snapshot_started_at) do
+      present_refs = Enum.map(channels, & &1.channel_ref)
+
+      Repo.transaction(fn ->
+        reconcile_absent_locked(workspace_ref, present_refs, snapshot_started_at)
+      end)
+      |> transaction_result()
+    end
+  end
+
+  defp reconcile_absent_locked(workspace_ref, present_refs, snapshot_started_at) do
+    query =
+      from(membership in ChannelMembership,
+        where:
+          membership.workspace_ref == ^workspace_ref and membership.status == :joined and
+            membership.updated_at <= ^snapshot_started_at,
+        order_by: [asc: membership.channel_ref],
+        lock: "FOR UPDATE"
+      )
+
+    query =
+      if present_refs == [],
+        do: query,
+        else: from(membership in query, where: membership.channel_ref not in ^present_refs)
+
+    memberships = Repo.all(query)
+    now = database_now!()
+
+    Enum.each(memberships, fn membership ->
+      cancel_active_sessions!(membership, :cancelled)
+      leave_membership!(membership, now)
+    end)
+
+    length(memberships)
+  end
+
+  defp reconcile_joined_channels(workspace_ref, channels, catalog) do
+    Enum.reduce_while(channels, {:ok, []}, fn channel, {:ok, results} ->
+      case reconcile_joined_channel(workspace_ref, channel, catalog) do
         {:ok, result} -> {:cont, {:ok, [result | results]}}
         {:error, _reason} = error -> {:halt, error}
       end
@@ -290,7 +341,13 @@ defmodule Responder.Slack.ChannelConfigurations do
     end
   end
 
-  defp reconcile_joined_channel(workspace_ref, channel_ref, catalog) do
+  defp reconcile_joined_channel(
+         workspace_ref,
+         %{channel_ref: channel_ref, private: private} = channel,
+         catalog
+       ) do
+    external_shared = Map.get(channel, :external_shared)
+
     Repo.transaction(fn ->
       lock_channel!(workspace_ref, channel_ref)
 
@@ -304,7 +361,14 @@ defmodule Responder.Slack.ChannelConfigurations do
           )
         )
 
-      reconcile_joined_membership(membership, workspace_ref, channel_ref, catalog)
+      reconcile_joined_membership(
+        membership,
+        workspace_ref,
+        channel_ref,
+        private,
+        external_shared,
+        catalog
+      )
     end)
     |> transaction_result()
   end
@@ -313,21 +377,44 @@ defmodule Responder.Slack.ChannelConfigurations do
          %ChannelMembership{status: :joined} = membership,
          _workspace_ref,
          _channel_ref,
+         private,
+         external_shared,
          _catalog
        ) do
+    membership =
+      if membership.private == private and membership.external_shared == external_shared do
+        membership
+      else
+        membership
+        |> ChannelConfigurationChangeset.membership(%{
+          external_shared: external_shared,
+          private: private
+        })
+        |> Repo.update!()
+      end
+
     %{membership: membership, session: active_or_latest_session(membership), status: :unchanged}
   end
 
-  defp reconcile_joined_membership(membership, workspace_ref, channel_ref, catalog) do
+  defp reconcile_joined_membership(
+         membership,
+         workspace_ref,
+         channel_ref,
+         private,
+         external_shared,
+         catalog
+       ) do
     generation = if membership, do: membership.generation + 1, else: 1
     now = database_now!()
 
     attributes = %{
       actor_ref: nil,
       channel_ref: channel_ref,
+      external_shared: external_shared,
       event_ref: "slack-reconcile:#{workspace_ref}:#{channel_ref}:#{generation}",
       kind: :joined,
       occurred_at: now,
+      private: private,
       workspace_ref: workspace_ref
     }
 
@@ -366,13 +453,21 @@ defmodule Responder.Slack.ChannelConfigurations do
           {insert_membership!(attributes, :left, 1), nil, :left}
 
         {nil, :deleted} ->
-          {insert_membership!(attributes, :deleted, 1), nil, :deleted}
+          membership = insert_membership!(attributes, :deleted, 1)
+          delete_channel_state!(membership)
+          {membership, nil, :deleted}
 
         {%ChannelMembership{status: :joined} = membership, :joined} ->
           {membership, active_or_latest_session(membership), :unchanged}
 
         {%ChannelMembership{} = membership, :joined} ->
-          membership = rejoin_membership!(membership, attributes.occurred_at)
+          membership =
+            rejoin_membership!(
+              membership,
+              attributes.occurred_at,
+              Map.get(attributes, :private),
+              Map.get(attributes, :external_shared)
+            )
 
           session =
             insert_session!(
@@ -403,20 +498,22 @@ defmodule Responder.Slack.ChannelConfigurations do
     timestamps = membership_timestamps(status, attributes.occurred_at)
 
     attributes
-    |> Map.take([:channel_ref, :workspace_ref])
+    |> Map.take([:channel_ref, :external_shared, :private, :workspace_ref])
     |> Map.merge(timestamps)
     |> Map.merge(%{generation: generation, id: Ecto.UUID.generate(), status: status})
     |> ChannelConfigurationChangeset.membership()
     |> Repo.insert!()
   end
 
-  defp rejoin_membership!(membership, occurred_at) do
+  defp rejoin_membership!(membership, occurred_at, private, external_shared) do
     membership
     |> ChannelConfigurationChangeset.membership(%{
       deleted_at: nil,
+      external_shared: external_shared,
       generation: membership.generation + 1,
       joined_at: occurred_at,
       left_at: nil,
+      private: private,
       status: :joined
     })
     |> Repo.update!()
@@ -523,6 +620,18 @@ defmodule Responder.Slack.ChannelConfigurations do
   end
 
   defp delete_channel_state!(membership) do
+    :ok =
+      Memories.delete_slack_channel_in_transaction(
+        membership.workspace_ref,
+        membership.channel_ref
+      )
+
+    :ok =
+      Continuity.delete_slack_channel_in_transaction(
+        membership.workspace_ref,
+        membership.channel_ref
+      )
+
     Repo.delete_all(
       from(configuration in ChannelConfiguration,
         where:
@@ -1117,14 +1226,27 @@ defmodule Responder.Slack.ChannelConfigurations do
   defp references([], _field), do: :ok
   defp references(_values, field), do: {:error, {:invalid_channel_configuration, field}}
 
-  defp bounded_channel_refs(values) when is_list(values) and length(values) <= 10_000 do
-    if Enum.uniq(values) == values and
-         Enum.all?(values, &(reference(&1, :channel_ref, 256) == :ok)),
+  defp bounded_channels(values) when is_list(values) and length(values) <= 10_000 do
+    refs =
+      Enum.map(values, fn
+        %{channel_ref: ref, private: private} = channel
+        when is_boolean(private) ->
+          if is_boolean(Map.get(channel, :external_shared)) or
+               is_nil(Map.get(channel, :external_shared)),
+             do: ref,
+             else: nil
+
+        _invalid ->
+          nil
+      end)
+
+    if Enum.uniq(refs) == refs and
+         Enum.all?(refs, &(reference(&1, :channel_ref, 256) == :ok)),
        do: :ok,
        else: {:error, {:invalid_channel_configuration, :channel_refs}}
   end
 
-  defp bounded_channel_refs(_values),
+  defp bounded_channels(_values),
     do: {:error, {:invalid_channel_configuration, :channel_refs}}
 
   defp member(value, values, field) do
@@ -1202,11 +1324,9 @@ defmodule Responder.Slack.ChannelConfigurations do
   defp fingerprint(document), do: CanonicalJSON.digest(document)
 
   defp lock_channel!(workspace_ref, channel_ref) do
-    key = "slack-configuration:#{workspace_ref}:#{channel_ref}"
-
-    case Repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key]) do
-      {:ok, _result} -> :ok
-      {:error, reason} -> Repo.rollback({:store_failed, :configuration_lock, reason})
+    case ChannelFence.lock_in_transaction(workspace_ref, channel_ref) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
     end
   end
 

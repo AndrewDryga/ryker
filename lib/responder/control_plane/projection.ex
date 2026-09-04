@@ -24,7 +24,7 @@ defmodule Responder.ControlPlane.Projection do
   alias Responder.Repo
   alias Responder.Retention.OperatorAction
   alias Responder.Slack.{IncidentRoom, InteractionAudit, ThreadStatus}
-  alias Responder.State.{Behavior, MemoryEntry, Record, Schedule}
+  alias Responder.State.{Behavior, Memories, MemoryEntry, Record, Schedule}
   alias Responder.Work.{Measurement, Session, Turn}
 
   @page_size 50
@@ -777,6 +777,7 @@ defmodule Responder.ControlPlane.Projection do
             }
           )
         ),
+      reviews: Memories.pending_reviews(100),
       schedules:
         Repo.all(
           from(schedule in Schedule,

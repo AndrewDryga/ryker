@@ -8,6 +8,7 @@ defmodule Responder.ControlPlane.Router do
 
   @behaviour Plug
   @maximum_form_bytes 4_096
+  @maximum_memory_form_bytes 16 * 1_024
   @maximum_lab_form_bytes 65_536
   @maximum_lab_multipart_bytes 8 * 1_024 * 1_024 + @maximum_lab_form_bytes
   @lab_multipart_parser Plug.Parsers.init(
@@ -392,6 +393,61 @@ defmodule Responder.ControlPlane.Router do
     |> put_resp_content_type("text/javascript")
     |> send_resp(200, HTML.lab_javascript())
     |> halt()
+  end
+
+  defp route(
+         %Plug.Conn{
+           method: "GET",
+           path_info: ["actions", "memory-review", resource_ref, "edit"]
+         } = conn,
+         options
+       ) do
+    with {:ok, resource_ref} <- path_ref(resource_ref),
+         {:ok, review} <- editable_memory_review(resource_ref, options) do
+      token = CSRF.token(options.csrf_secret, "memory-review:edit", resource_ref)
+
+      html(
+        conn,
+        200,
+        "Edit reviewed memory",
+        HTML.memory_edit(
+          review,
+          action_path("memory-review", resource_ref, "edit"),
+          token
+        )
+      )
+    else
+      {:error, _reason} -> html(conn, 404, "Not found", HTML.generic("Action", []))
+    end
+  end
+
+  defp route(
+         %Plug.Conn{
+           method: "POST",
+           path_info: ["actions", "memory-review", resource_ref, "edit"]
+         } = conn,
+         options
+       ) do
+    with {:ok, resource_ref} <- path_ref(resource_ref),
+         {:ok, _review} <- editable_memory_review(resource_ref, options),
+         {:ok, token, subject, value, conn} <- memory_review_form(conn),
+         true <-
+           CSRF.valid?(options.csrf_secret, "memory-review:edit", resource_ref, token),
+         {:ok, _resource} <-
+           options.actions.resolve_memory_review.(
+             resource_ref,
+             :edit,
+             %{"subject" => subject, "value" => value}
+           ) do
+      conn
+      |> put_resp_header("location", "/memory")
+      |> send_resp(303, "")
+      |> halt()
+    else
+      false -> text(conn, 403, "Invalid confirmation token")
+      {:error, :form} -> text(conn, 400, "Invalid form")
+      {:error, _reason} -> text(conn, 409, "Action is no longer available")
+    end
   end
 
   defp route(
@@ -836,6 +892,24 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
+  defp confirmation("memory-review", resource_ref, action, options)
+       when action in ["keep", "merge", "forget", "dismiss"] do
+    snapshot = options.projection.memory.()
+
+    case Enum.find(snapshot.reviews, &(&1["review_ref"] == resource_ref)) do
+      %{"kind" => kind, "status" => "pending"} = review
+      when action != "merge" or kind == "duplicate" ->
+        subjects = Enum.map_join(review["entries"], ", ", & &1["subject"])
+
+        {:ok, "#{String.capitalize(action)} reviewed memory?",
+         "This applies to #{subjects} through the audited memory-review lifecycle.",
+         "memory-review:#{action}"}
+
+      _missing_or_incompatible ->
+        {:error, :not_found}
+    end
+  end
+
   defp confirmation("behavior", resource_ref, action, options)
        when action in ["active", "disabled", "deleted"] do
     snapshot = options.projection.memory.()
@@ -971,6 +1045,10 @@ defmodule Responder.ControlPlane.Router do
   defp perform("memory", resource_ref, "forget", actions),
     do: actions.forget_memory.(resource_ref)
 
+  defp perform("memory-review", resource_ref, action, actions)
+       when action in ["keep", "merge", "forget", "dismiss"],
+       do: actions.resolve_memory_review.(resource_ref, String.to_existing_atom(action), nil)
+
   defp perform("admission", resource_ref, "rearm", actions),
     do: actions.rearm_admission.(resource_ref)
 
@@ -1025,6 +1103,21 @@ defmodule Responder.ControlPlane.Router do
          %{"_token" => token} = form <- Query.decode(body),
          true <- Map.keys(form) == ["_token"] and is_binary(token) do
       {:ok, token, conn}
+    else
+      _invalid -> {:error, :form}
+    end
+  end
+
+  defp memory_review_form(conn) do
+    with [content_type] <- get_req_header(conn, "content-type"),
+         true <-
+           String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
+         {:ok, body, conn} <- read_memory_form(conn),
+         %{"_token" => token, "subject" => subject, "value" => value} = form <-
+           Query.decode(body),
+         true <- Enum.sort(Map.keys(form)) == ["_token", "subject", "value"],
+         true <- is_binary(token) and is_binary(subject) and is_binary(value) do
+      {:ok, token, subject, value, conn}
     else
       _invalid -> {:error, :form}
     end
@@ -1231,6 +1324,16 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
+  defp read_memory_form(conn) do
+    case read_body(conn,
+           length: @maximum_memory_form_bytes + 1,
+           read_length: @maximum_memory_form_bytes + 1
+         ) do
+      {:ok, body, conn} when byte_size(body) <= @maximum_memory_form_bytes -> {:ok, body, conn}
+      _invalid -> {:error, :form}
+    end
+  end
+
   defp read_lab_form(conn) do
     case read_body(conn,
            length: @maximum_lab_form_bytes + 1,
@@ -1261,6 +1364,16 @@ defmodule Responder.ControlPlane.Router do
 
   defp action_path(kind, resource_ref, action),
     do: "/actions/#{kind}/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}/#{action}"
+
+  defp editable_memory_review(resource_ref, options) do
+    case Enum.find(options.projection.memory.().reviews, &(&1["review_ref"] == resource_ref)) do
+      %{"entries" => [_entry], "kind" => "stale", "status" => "pending"} = review ->
+        {:ok, review}
+
+      _missing_or_incompatible ->
+        {:error, :not_found}
+    end
+  end
 
   defp path_ref(encoded) when is_binary(encoded) and byte_size(encoded) <= 3_072 do
     decoded = URI.decode(encoded)

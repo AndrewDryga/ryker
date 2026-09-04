@@ -82,7 +82,6 @@ defmodule Responder.CapabilityContractTest do
     2026-09-04-complete-the-local-operator-product-for-incident
     2026-09-04-finish-goals-and-multi-repository-orchestration
     2026-09-04-finish-schedules-subscriptions-and-execution-his
-    2026-09-04-restore-durable-conversation-continuity-and-memo
   )
 
   test "the P0 and P1 replacement contract stays exact and evidence backed" do

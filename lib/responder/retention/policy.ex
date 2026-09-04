@@ -19,6 +19,21 @@ defmodule Responder.Retention.Policy do
 
   @policies [
     %{
+      table: "conversation_rollups",
+      class: :conversation_memory,
+      why: "bounded derived continuity retained after source-summary compaction"
+    },
+    %{
+      table: "conversation_summaries",
+      class: :conversation_memory,
+      why: "latest typed derived situation for one exact conversation"
+    },
+    %{
+      table: "conversation_summary_drafts",
+      class: :operational,
+      why: "turn-scoped summary staged until validated result acceptance"
+    },
+    %{
       table: "coop_session_placements",
       class: :audit,
       why: "immutable worker placement and authority generation for one Coop session"
@@ -142,6 +157,11 @@ defmodule Responder.Retention.Policy do
       table: "input_artifacts",
       class: :operational,
       why: "authenticated downloaded attachment bytes"
+    },
+    %{
+      table: "memory_review_items",
+      class: :audit,
+      why: "operator keep edit merge forget and dismiss decisions over bounded memory"
     },
     %{
       table: "operational_memory_entries",

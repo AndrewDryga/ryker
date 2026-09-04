@@ -22,8 +22,8 @@ claim of whole-product parity.
 | Priority | Implemented | Partial | Total |
 |---|---:|---:|---:|
 | P0 | 28 | 0 | 28 |
-| P1 | 6 | 9 | 15 |
-| **All** | **34** | **9** | **43** |
+| P1 | 8 | 7 | 15 |
+| **All** | **36** | **7** | **43** |
 
 ## Implemented behavior
 
@@ -63,14 +63,14 @@ claim of whole-product parity.
 | P1 | `standing-assignments` | [`State.Automations`](../lib/responder/state/automations.ex) | [`automations_test.exs`](../test/responder/state/automations_test.exs) |
 | P1 | `github-bounded-context-and-search` | [`GitHub.CapabilityTools`](../lib/responder/github/capability_tools.ex) | [`github/client_test.exs`](../test/responder/github/client_test.exs) |
 | P1 | `github-confirmation-backed-actions` | [`GitHub.Confirmations`](../lib/responder/github/confirmations.ex) | [`github/confirmations_test.exs`](../test/responder/github/confirmations_test.exs) |
+| P1 | `conversation-summaries-and-rollups` | [`State.Continuity`](../lib/responder/state/continuity.ex) | [`state/continuity_test.exs`](../test/responder/state/continuity_test.exs) |
+| P1 | `privacy-aware-cross-channel-recall` | [`State.Continuity`](../lib/responder/state/continuity.ex) | [`state/continuity_test.exs`](../test/responder/state/continuity_test.exs) |
 
 ## Partial behavior and exact owner
 
 | Priority | Capability | What is still missing | Owning task |
 |---|---|---|---|
-| P1 | `conversation-summaries-and-rollups` | Durable typed situations and bounded continuity rollups. | `2026-09-04-restore-durable-conversation-continuity-and-memo` |
-| P1 | `privacy-aware-cross-channel-recall` | Conversation-summary recall with current private-membership intersection. | `2026-09-04-restore-durable-conversation-continuity-and-memo` |
-| P1 | `memory-review-controls` | Keep, merge, and edit review in addition to existing forget paths. | `2026-09-04-restore-durable-conversation-continuity-and-memo` |
+| P1 | `memory-review-controls` | Slack App Home still needs the edit modal; keep, merge, and forget are present there and local controls support all four actions. | `2026-09-04-complete-slack-app-home-and-task-recovery-contro` |
 | P1 | `app-home-navigation-and-recovery-controls` | Exact titles/deep links plus memory, schedule, publication, and workspace recovery actions. | `2026-09-04-complete-slack-app-home-and-task-recovery-contro` |
 | P1 | `goal-planning-and-dependencies` | Model-callable goal tools, prerequisite validation, parallel execution, and coordinated finalization. | `2026-09-04-finish-goals-and-multi-repository-orchestration` |
 | P1 | `multi-repository-orchestration` | Repository sets, companion snapshots, child goals, and multi-workspace coordination. | `2026-09-04-finish-goals-and-multi-repository-orchestration` |

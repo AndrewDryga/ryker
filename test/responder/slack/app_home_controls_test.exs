@@ -25,7 +25,7 @@ defmodule Responder.Slack.AppHomeControlsTest do
 
     assert result.outcome == :forgotten
     assert result.resource_ref == "memory:one"
-    assert_received {:forgot_memory, "memory:one", "T123"}
+    assert_received {:forgot_memory, "memory:one", "U123", "T123"}
     assert_received {:refreshed_home, "U123", "T123"}
 
     assert {:ok, %{outcome: :paused}} =
@@ -36,7 +36,15 @@ defmodule Responder.Slack.AppHomeControlsTest do
     assert {:ok, %{outcome: :disabled}} =
              AppHomeControls.handle(interaction(:disable_behavior, "behavior:one"), options)
 
-    assert_received {:set_behavior, "behavior:one", :disabled, "T123"}
+    assert_received {:set_behavior, "behavior:one", :disabled, "U123", "T123"}
+
+    assert {:ok, %{outcome: :merge}} =
+             AppHomeControls.handle(
+               interaction(:merge_memory_review, "memory-review:one"),
+               options
+             )
+
+    assert_received {:memory_review, "memory-review:one", :merge, "U123", "slack:T123"}
   end
 
   test "a full nonoperator cannot mutate or repaint operational state" do
@@ -48,6 +56,11 @@ defmodule Responder.Slack.AppHomeControlsTest do
 
     refute_received {:set_schedule, _, _, _}
     refute_received {:refreshed_home, _, _}
+
+    denied = %{options(parent) | client: %{allowed: MapSet.new()}}
+
+    assert AppHomeControls.handle(interaction(:delete_schedule, "schedule:one"), denied) ==
+             {:ok, %{outcome: :denied}}
   end
 
   test "a stale or copied lifecycle button repaints once without asking Slack to retry" do
@@ -55,7 +68,7 @@ defmodule Responder.Slack.AppHomeControlsTest do
 
     options =
       options(parent)
-      |> Map.put(:forget_memory, fn _ref, _workspace_ref ->
+      |> Map.put(:forget_memory, fn _ref, _actor_ref, _workspace_ref ->
         {:error, :memory_workspace_mismatch}
       end)
 
@@ -72,9 +85,9 @@ defmodule Responder.Slack.AppHomeControlsTest do
 
     for {action, ref, outcome, message} <- [
           {:enable_behavior, "behavior:one", :active,
-           {:set_behavior, "behavior:one", :active, "T123"}},
+           {:set_behavior, "behavior:one", :active, "U123", "T123"}},
           {:delete_behavior, "behavior:one", :deleted,
-           {:set_behavior, "behavior:one", :deleted, "T123"}},
+           {:set_behavior, "behavior:one", :deleted, "U123", "T123"}},
           {:resume_schedule, "schedule:one", :active,
            {:set_schedule, "schedule:one", :active, "T123"}},
           {:delete_schedule, "schedule:one", :deleted,
@@ -86,6 +99,109 @@ defmodule Responder.Slack.AppHomeControlsTest do
       assert_received ^message
       assert_received {:refreshed_home, "U123", "T123"}
     end
+  end
+
+  test "memory review controls map every action and settle stale buttons" do
+    base = options(self())
+
+    for {action, resolved} <- [
+          {:keep_memory_review, :keep},
+          {:forget_memory_review, :forget}
+        ] do
+      assert {:ok, %{outcome: ^resolved}} =
+               AppHomeControls.handle(interaction(action, "memory-review:one"), base)
+
+      assert_received {:memory_review, "memory-review:one", ^resolved, "U123", "slack:T123"}
+      assert_received {:refreshed_home, "U123", "T123"}
+    end
+
+    stale =
+      Map.put(base, :resolve_memory_review, fn _ref, _action, _actor, _workspace ->
+        {:error, :memory_review_stale}
+      end)
+
+    assert {:ok, %{outcome: :invalid}} =
+             AppHomeControls.handle(
+               interaction(:keep_memory_review, "memory-review:stale"),
+               stale
+             )
+
+    missing = Map.delete(base, :resolve_memory_review)
+
+    assert AppHomeControls.handle(
+             interaction(:keep_memory_review, "memory-review:missing"),
+             missing
+           ) == {:error, {:invalid_app_home_control, :resolve_memory_review}}
+  end
+
+  test "typed callback errors and malformed results fail closed" do
+    base = options(self())
+
+    assert AppHomeControls.handle(
+             interaction(:keep_memory_review, "memory-review:one"),
+             Map.put(base, :resolve_memory_review, fn _ref, _action, _actor, _workspace ->
+               {:error, :database_unavailable}
+             end)
+           ) == {:error, :database_unavailable}
+
+    assert AppHomeControls.handle(
+             interaction(:keep_memory_review, "memory-review:one"),
+             Map.put(base, :resolve_memory_review, fn _ref, _action, _actor, _workspace ->
+               :invalid
+             end)
+           ) == {:error, {:invalid_app_home_control, :resolve_memory_review}}
+
+    assert AppHomeControls.handle(
+             interaction(:forget_memory, "memory:one"),
+             Map.put(base, :forget_memory, fn _ref, _actor, _workspace ->
+               {:error, :database_unavailable}
+             end)
+           ) == {:error, :database_unavailable}
+
+    assert AppHomeControls.handle(
+             interaction(:forget_memory, "memory:one"),
+             Map.delete(base, :forget_memory)
+           ) == {:error, {:invalid_app_home_control, :forget_memory}}
+
+    assert {:ok, %{outcome: :invalid}} =
+             AppHomeControls.handle(
+               interaction(:disable_behavior, "behavior:one"),
+               Map.put(base, :set_behavior_status, fn _ref, _status, _actor, _workspace ->
+                 {:error, :behavior_terminal}
+               end)
+             )
+
+    assert AppHomeControls.handle(
+             interaction(:disable_behavior, "behavior:one"),
+             Map.put(base, :set_behavior_status, fn _ref, _status, _actor, _workspace ->
+               :invalid
+             end)
+           ) == {:error, {:invalid_app_home_control, :set_behavior_status}}
+
+    assert AppHomeControls.handle(
+             interaction(:disable_behavior, "behavior:one"),
+             Map.put(base, :set_behavior_status, fn _ref, _status, _actor, _workspace ->
+               {:error, :database_unavailable}
+             end)
+           ) == {:error, :database_unavailable}
+
+    assert {:ok, %{outcome: :invalid}} =
+             AppHomeControls.handle(
+               interaction(:pause_schedule, "schedule:one"),
+               Map.put(base, :set_schedule_status, fn _ref, _status, _workspace ->
+                 {:error, :schedule_terminal}
+               end)
+             )
+
+    assert AppHomeControls.handle(
+             interaction(:pause_schedule, "schedule:one"),
+             Map.put(base, :set_schedule_status, fn _ref, _status, _workspace -> :invalid end)
+           ) == {:error, {:invalid_app_home_control, :set_schedule_status}}
+
+    assert AppHomeControls.handle(
+             interaction(:pause_schedule, "schedule:one"),
+             Map.delete(base, :set_schedule_status)
+           ) == {:error, {:invalid_app_home_control, :set_schedule_status}}
   end
 
   test "malformed authority, callbacks, and crossed resource kinds fail closed" do
@@ -119,7 +235,7 @@ defmodule Responder.Slack.AppHomeControlsTest do
 
     assert AppHomeControls.handle(
              interaction(:forget_memory, "memory:one"),
-             Map.put(base, :forget_memory, fn _ref, _workspace -> :invalid end)
+             Map.put(base, :forget_memory, fn _ref, _actor, _workspace -> :invalid end)
            ) == {:error, {:invalid_app_home_control, :forget_memory}}
 
     assert AppHomeControls.handle(
@@ -155,8 +271,8 @@ defmodule Responder.Slack.AppHomeControlsTest do
     %{
       client: %{allowed: MapSet.new(["U123"])},
       directory: Directory,
-      forget_memory: fn ref, workspace_ref ->
-        send(parent, {:forgot_memory, ref, workspace_ref})
+      forget_memory: fn ref, actor_ref, workspace_ref ->
+        send(parent, {:forgot_memory, ref, actor_ref, workspace_ref})
         {:ok, %{ref: ref}}
       end,
       operators: MapSet.new(["U123"]),
@@ -164,8 +280,12 @@ defmodule Responder.Slack.AppHomeControlsTest do
         send(parent, {:refreshed_home, event.actor_ref, event.workspace_ref})
         {:ok, %{outcome: :published}}
       end,
-      set_behavior_status: fn ref, status, workspace_ref ->
-        send(parent, {:set_behavior, ref, status, workspace_ref})
+      resolve_memory_review: fn ref, action, actor_ref, workspace_ref ->
+        send(parent, {:memory_review, ref, action, actor_ref, workspace_ref})
+        {:ok, %{status: :resolved}}
+      end,
+      set_behavior_status: fn ref, status, actor_ref, workspace_ref ->
+        send(parent, {:set_behavior, ref, status, actor_ref, workspace_ref})
         {:ok, %{ref: ref, status: status}}
       end,
       set_schedule_status: fn ref, status, workspace_ref ->

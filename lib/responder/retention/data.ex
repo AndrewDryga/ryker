@@ -9,11 +9,14 @@ defmodule Responder.Retention.Data do
   """
 
   alias Responder.Repo
+  alias Responder.State.{Continuity, Memories}
 
   @advisory_lock 7_152_019_552_843_111
   @terminal_episode_states ~w(complete cancelled)
   @terminal_turn_states ~w(settled superseded)
   @terminal_schedule_states ~w(completed expired deleted)
+  @summary_compaction_seconds 7 * 86_400
+  @memory_review_seconds 30 * 86_400
 
   @type result :: %{
           audit_episodes: non_neg_integer(),
@@ -66,6 +69,17 @@ defmodule Responder.Retention.Data do
   end
 
   defp prune_expiring_resources(result, settings) do
+    {:ok, _reviews_created} =
+      Memories.refresh_all_reviews_in_transaction(
+        min(settings.conversation_memory_seconds, @memory_review_seconds)
+      )
+
+    {:ok, compacted} =
+      Continuity.compact_in_transaction(
+        min(settings.conversation_memory_seconds, @summary_compaction_seconds),
+        settings.conversation_memory_seconds
+      )
+
     memory =
       execute_count(
         """
@@ -85,6 +99,41 @@ defmodule Responder.Retention.Data do
         [settings.conversation_memory_seconds]
       )
 
+    rollups =
+      execute_count("""
+      WITH candidates AS (
+        SELECT id
+        FROM conversation_rollups
+        WHERE expires_at <= clock_timestamp()
+        ORDER BY expires_at, id
+        LIMIT 100
+        FOR UPDATE SKIP LOCKED
+      )
+      DELETE FROM conversation_rollups AS rollup
+      USING candidates
+      WHERE rollup.id = candidates.id
+      """)
+
+    _drafts =
+      execute_count(
+        """
+        WITH candidates AS (
+          SELECT draft.id
+          FROM conversation_summary_drafts AS draft
+          JOIN episode_work_turns AS turn ON turn.id = draft.turn_id
+          WHERE turn.status IN ('settled', 'superseded')
+            AND draft.updated_at < clock_timestamp() - ($1 * interval '1 second')
+          ORDER BY draft.updated_at, draft.id
+          LIMIT 100
+          FOR UPDATE OF draft SKIP LOCKED
+        )
+        DELETE FROM conversation_summary_drafts AS draft
+        USING candidates
+        WHERE draft.id = candidates.id
+        """,
+        [settings.operational_data_seconds]
+      )
+
     _behaviors =
       execute_count("""
       WITH candidates AS (
@@ -99,6 +148,8 @@ defmodule Responder.Retention.Data do
       USING candidates
       WHERE behavior.id = candidates.id
       """)
+
+    :ok = Memories.dismiss_invalid_reviews_in_transaction()
 
     _schedules =
       execute_count(
@@ -124,7 +175,7 @@ defmodule Responder.Retention.Data do
         [@terminal_schedule_states, settings.episode_history_seconds]
       )
 
-    %{result | conversation_memory: memory}
+    %{result | conversation_memory: memory + compacted + rollups}
   end
 
   defp prune_operational(result, settings) do
@@ -858,6 +909,19 @@ defmodule Responder.Retention.Data do
           )
           DELETE FROM retention_operator_actions AS action
           USING candidates WHERE action.id = candidates.id
+          """,
+          [settings.audit_data_seconds]
+        ) +
+        execute_count(
+          """
+          WITH candidates AS (
+            SELECT id FROM memory_review_items
+            WHERE status <> 'pending'
+              AND updated_at < clock_timestamp() - ($1 * interval '1 second')
+            ORDER BY updated_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
+          )
+          DELETE FROM memory_review_items AS review
+          USING candidates WHERE review.id = candidates.id
           """,
           [settings.audit_data_seconds]
         )

@@ -393,26 +393,26 @@
     {
       "id": "conversation-summaries-and-rollups",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "required_behavior": "Each conversation retains a compact typed situation with goals, decisions, evidence, topology, open loops, and questions; bounded rollups survive Coop session rotation and retention compaction.",
       "design_capabilities": ["cross-channel-memory"],
       "origin_refs": ["internal/service/memory.go", "internal/service/memory_dreaming.go"],
-      "implementation_refs": ["lib/responder/state/memories.ex", "lib/responder/work/prompt.ex"],
-      "proof_refs": ["test/responder/state/memories_test.exs", "test/responder/work/prompt_test.exs"],
-      "gap": "Explicit memory and episode history exist, but the Go situation summary and deterministic continuity-rollup layer has not been rebuilt.",
-      "next_task": "2026-09-04-restore-durable-conversation-continuity-and-memo"
+      "implementation_refs": ["lib/responder/state/continuity.ex", "lib/responder/state/conversation_summary_state.ex", "lib/responder/work/submission_builder.ex", "lib/responder/retention/data.ex"],
+      "proof_refs": ["test/responder/state/continuity_test.exs", "test/responder/work/submission_builder_test.exs", "test/responder/retention/data_test.exs"],
+      "gap": null,
+      "next_task": null
     },
     {
       "id": "privacy-aware-cross-channel-recall",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "required_behavior": "Recall prefers same-conversation and same-repository history and intersects private-channel visibility with current membership before crossing a channel boundary.",
       "design_capabilities": ["cross-channel-memory"],
       "origin_refs": ["internal/service/memory_privacy_test.go"],
-      "implementation_refs": ["lib/responder/state/outcomes.ex", "lib/responder/state/memories.ex"],
-      "proof_refs": ["test/responder/state/outcomes_test.exs", "test/responder/state/memories_test.exs"],
-      "gap": "Typed outcomes and scoped memories exist, but conversation-summary recall and current-membership intersection are not complete.",
-      "next_task": "2026-09-04-restore-durable-conversation-continuity-and-memo"
+      "implementation_refs": ["lib/responder/state/continuity.ex", "lib/responder/slack/channel_membership.ex", "lib/responder/work/submission_builder.ex"],
+      "proof_refs": ["test/responder/state/continuity_test.exs", "test/responder/work/submission_builder_test.exs"],
+      "gap": null,
+      "next_task": null
     },
     {
       "id": "memory-review-controls",
@@ -421,10 +421,10 @@
       "required_behavior": "Operators can keep, merge, edit, and forget bounded memory through Slack App Home and the local control plane with provenance and idempotent audit.",
       "design_capabilities": ["freeform-operator-guidance", "app-home-and-web-control-plane"],
       "origin_refs": ["internal/memorydiff/change.go"],
-      "implementation_refs": ["lib/responder/slack/app_home_controls.ex", "lib/responder/control_plane/actions.ex"],
-      "proof_refs": ["test/responder/slack/app_home_controls_test.exs", "test/responder/control_plane/actions_test.exs"],
-      "gap": "Forget exists for some surfaces, but keep, merge, and edit review of continuity memory are incomplete.",
-      "next_task": "2026-09-04-restore-durable-conversation-continuity-and-memo"
+      "implementation_refs": ["lib/responder/state/memories.ex", "lib/responder/slack/app_home_controls.ex", "lib/responder/control_plane/actions.ex", "lib/responder/control_plane/router.ex"],
+      "proof_refs": ["test/responder/state/memories_test.exs", "test/responder/slack/app_home_controls_test.exs", "test/responder/control_plane/router_test.exs"],
+      "gap": "Keep, merge, and forget are available in Slack App Home and all four actions are available locally; Slack still needs the edit modal owned with the remaining App Home work.",
+      "next_task": "2026-09-04-complete-slack-app-home-and-task-recovery-contro"
     },
     {
       "id": "app-home-navigation-and-recovery-controls",

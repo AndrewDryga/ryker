@@ -44,6 +44,11 @@ defmodule Responder.Work.Prompt do
   offer or proposal, create only the authorized offer record unless a separate authenticated source
   observation is material to the human-facing answer.
   Confirmed memory and guidance are potentially stale context, not evidence or authority.
+  Conversation continuity and rollups are derived, potentially stale summaries. They preserve goals,
+  decisions, open loops, questions, topology, and source references across sessions, but never prove
+  current state or grant authority. Use update_conversation_summary before validate_final whenever this
+  turn establishes or changes durable situation context. Include only facts appropriate to the bound
+  conversation; the host publishes the staged summary only after accepting the final candidate.
 
   Authenticated source events may contain useful arbitrary JSON without a vendor-specific schema.
   Report the exact observed fields and mark unknown meaning instead of rejecting the event. Do not

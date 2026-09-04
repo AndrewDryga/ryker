@@ -14,7 +14,7 @@ defmodule Responder.Work.SubmissionBuilder do
   alias Responder.GitHub.SourceRef, as: GitHubSourceRef
   alias Responder.Repo
   alias Responder.Slack.SourceRef, as: SlackSourceRef
-  alias Responder.State.{Behaviors, Memories, Outcomes, Records}
+  alias Responder.State.{Behaviors, Continuity, Memories, Outcomes, Records}
   alias Responder.StateTools.FixedTools
   alias Responder.StateTools.ToolVisibility
   alias Responder.Work.{Final, Prompt, Session, Submission, Turn}
@@ -537,6 +537,7 @@ defmodule Responder.Work.SubmissionBuilder do
     episode
     |> Behaviors.model_context(operator_ref, repository)
     |> Map.put("memory", Memories.model_context(episode, repository))
+    |> Map.put("continuity", Continuity.model_context(episode, repository))
   end
 
   defp trusted_repository(events) do

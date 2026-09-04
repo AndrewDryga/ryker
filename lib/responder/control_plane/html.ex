@@ -433,78 +433,163 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  def memory(%{behaviors: behaviors, memories: memories, schedules: schedules}, csrf_secret) do
-    memory_rows =
-      Enum.map(memories, fn item ->
-        [
-          "<tr><td>",
-          escape(item.subject),
-          "</td><td>",
-          escape(item.kind),
-          "</td><td>",
-          escape(item.status),
-          "</td><td><a href=\"/actions/memory/",
-          segment(item.ref),
-          "/forget\">Forget…</a></td></tr>"
-        ]
-      end)
-
-    behavior_rows =
-      Enum.map(behaviors, fn item ->
-        next = if item.status == :disabled, do: :active, else: :disabled
-
-        [
-          "<tr><td>",
-          escape(item.subject),
-          "</td><td>",
-          escape(item.kind),
-          "</td><td>",
-          escape(item.status),
-          "</td><td><a href=\"/actions/behavior/",
-          segment(item.ref),
-          "/",
-          Atom.to_string(next),
-          "\">",
-          if(next == :active, do: "Enable…", else: "Disable…"),
-          "</a> <a href=\"/actions/behavior/",
-          segment(item.ref),
-          "/deleted\">Delete…</a></td></tr>"
-        ]
-      end)
-
-    schedule_rows =
-      Enum.map(schedules, fn item ->
-        next = if item.status == :paused, do: :active, else: :paused
-
-        [
-          "<tr><td>",
-          escape(item.title),
-          "</td><td>",
-          escape(item.status),
-          "</td><td>",
-          timestamp(item.next_occurrence_at),
-          "</td><td><a href=\"/actions/schedule/",
-          segment(item.ref),
-          "/",
-          Atom.to_string(next),
-          "\">",
-          if(next == :active, do: "Resume…", else: "Pause…"),
-          "</a> <a href=\"/actions/schedule/",
-          segment(item.ref),
-          "/deleted\">Delete…</a></td></tr>"
-        ]
-      end)
+  def memory(
+        %{behaviors: behaviors, memories: memories, schedules: schedules} = snapshot,
+        csrf_secret
+      ) do
+    reviews = Map.get(snapshot, :reviews, [])
+    memory_rows = Enum.map(memories, &memory_row/1)
+    behavior_rows = Enum.map(behaviors, &behavior_row/1)
+    schedule_rows = Enum.map(schedules, &schedule_row/1)
+    review_rows = Enum.map(reviews, &review_row/1)
 
     _secret_is_intentionally_not_rendered = csrf_secret
 
     [
       "<section><h2>Operational memory</h2>",
       table(["Subject", "Kind", "Status", "Action"], memory_rows),
+      "</section><section><h2>Memory review</h2>",
+      table(["Kind", "Entries", "Reason", "Action"], review_rows),
       "</section><section><h2>Behaviors</h2>",
       table(["Subject", "Kind", "Status", "Action"], behavior_rows),
       "</section><section><h2>Schedules</h2>",
       table(["Title", "Status", "Next", "Action"], schedule_rows),
       "</section>"
+    ]
+  end
+
+  defp memory_row(item) do
+    [
+      "<tr><td>",
+      escape(item.subject),
+      "</td><td>",
+      escape(item.kind),
+      "</td><td>",
+      escape(item.status),
+      "</td><td><a href=\"/actions/memory/",
+      segment(item.ref),
+      "/forget\">Forget…</a></td></tr>"
+    ]
+  end
+
+  defp behavior_row(item) do
+    next = if item.status == :disabled, do: :active, else: :disabled
+
+    [
+      "<tr><td>",
+      escape(item.subject),
+      "</td><td>",
+      escape(item.kind),
+      "</td><td>",
+      escape(item.status),
+      "</td><td><a href=\"/actions/behavior/",
+      segment(item.ref),
+      "/",
+      Atom.to_string(next),
+      "\">",
+      if(next == :active, do: "Enable…", else: "Disable…"),
+      "</a> <a href=\"/actions/behavior/",
+      segment(item.ref),
+      "/deleted\">Delete…</a></td></tr>"
+    ]
+  end
+
+  defp schedule_row(item) do
+    next = if item.status == :paused, do: :active, else: :paused
+
+    [
+      "<tr><td>",
+      escape(item.title),
+      "</td><td>",
+      escape(item.status),
+      "</td><td>",
+      timestamp(item.next_occurrence_at),
+      "</td><td><a href=\"/actions/schedule/",
+      segment(item.ref),
+      "/",
+      Atom.to_string(next),
+      "\">",
+      if(next == :active, do: "Resume…", else: "Pause…"),
+      "</a> <a href=\"/actions/schedule/",
+      segment(item.ref),
+      "/deleted\">Delete…</a></td></tr>"
+    ]
+  end
+
+  defp review_row(review) do
+    ref = segment(review["review_ref"])
+
+    [
+      "<tr><td>",
+      escape(review["kind"]),
+      "</td><td>",
+      Enum.map_join(review["entries"], "<br>", &review_entry/1),
+      "</td><td>",
+      escape(review["reason"]),
+      "</td><td>",
+      review_actions(review["kind"], ref),
+      "</td></tr>"
+    ]
+  end
+
+  defp review_entry(entry) do
+    [
+      "<strong>",
+      escape(entry["subject"]),
+      "</strong>: <code>",
+      escape(entry["value"] || "(redacted)"),
+      "</code><br><small>scope ",
+      escape(entry["scope"] || "unknown"),
+      " (",
+      escape(entry["scope_ref"] || "unknown"),
+      "); visibility ",
+      escape(entry["visibility"] || "unknown"),
+      "; saved ",
+      escape(entry["confirmed_at"] || "unknown"),
+      "; last used ",
+      escape(entry["last_recalled_at"] || "never"),
+      "; uses ",
+      escape(to_string(entry["recall_count"] || 0)),
+      "</small>"
+    ]
+  end
+
+  defp review_actions(kind, ref) do
+    [
+      "<a href=\"/actions/memory-review/",
+      ref,
+      "/keep\">",
+      if(kind == "duplicate", do: "Keep separate…", else: "Keep…"),
+      "</a> ",
+      review_secondary_action(kind, ref),
+      "<a href=\"/actions/memory-review/",
+      ref,
+      "/forget\">Forget…</a>"
+    ]
+  end
+
+  defp review_secondary_action("duplicate", ref),
+    do: ["<a href=\"/actions/memory-review/", ref, "/merge\">Merge…</a> "]
+
+  defp review_secondary_action(_kind, ref),
+    do: ["<a href=\"/actions/memory-review/", ref, "/edit\">Edit…</a> "]
+
+  def memory_edit(review, action, token) do
+    entry = hd(review["entries"])
+
+    [
+      "<section class=\"confirm\"><h2>Edit reviewed memory</h2><p>",
+      escape(review["reason"]),
+      "</p><form method=\"post\" action=\"",
+      escape(action),
+      "\"><input type=\"hidden\" name=\"_token\" value=\"",
+      escape(token),
+      "\"><label>Subject<input name=\"subject\" maxlength=\"120\" required value=\"",
+      escape(entry["subject"]),
+      "\"></label><label>Value<textarea name=\"value\" maxlength=\"4000\" required>",
+      escape(entry["value"]),
+      "</textarea></label><button type=\"submit\">Save edit</button>",
+      " <a href=\"/memory\">Cancel</a></form></section>"
     ]
   end
 

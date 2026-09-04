@@ -13,7 +13,7 @@ defmodule Responder.Slack.AppHomeProjectionTest do
     foreign = waiting_episode!("T999", "foreign")
     publication = PublicationFixture.published!("app-home-projection")
 
-    snapshot = AppHomeProjection.snapshot("T123")
+    snapshot = AppHomeProjection.snapshot("T123", "U123")
 
     assert snapshot.counts.active_commitments == 1
     assert snapshot.counts.published_work == 1
@@ -31,11 +31,16 @@ defmodule Responder.Slack.AppHomeProjectionTest do
     assert length(snapshot.incidents) <= 5
     assert length(snapshot.behaviors) <= 5
     assert length(snapshot.memories) <= 5
+    assert length(snapshot.memory_reviews) <= 2
+    assert snapshot.memory_review_count >= length(snapshot.memory_reviews)
     assert length(snapshot.schedules) <= 5
   end
 
   test "invalid workspace identity returns an empty bounded projection" do
-    assert AppHomeProjection.snapshot("not a Slack workspace") ==
+    assert AppHomeProjection.snapshot("not a Slack workspace", "U123") ==
+             AppHomeProjection.empty()
+
+    assert AppHomeProjection.snapshot("T123", "not a Slack user") ==
              AppHomeProjection.empty()
   end
 

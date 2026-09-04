@@ -11,10 +11,14 @@ defmodule Responder.State.BehaviorChangeset do
     :confirmation_ref,
     :cutover_item_id,
     :expires_at,
+    :edited_at,
+    :edited_by_actor_ref,
+    :edit_review_ref,
     :id,
     :identity_key,
     :kind,
     :last_used_at,
+    :last_reviewed_at,
     :offer_record_id,
     :payload,
     :ref,
@@ -34,6 +38,10 @@ defmodule Responder.State.BehaviorChangeset do
                      [
                        :cutover_item_id,
                        :expires_at,
+                       :edited_at,
+                       :edited_by_actor_ref,
+                       :edit_review_ref,
+                       :last_reviewed_at,
                        :last_used_at,
                        :source_thread_ref,
                        :use_count
@@ -42,6 +50,10 @@ defmodule Responder.State.BehaviorChangeset do
   @cutover_required @fields --
                       [
                         :expires_at,
+                        :edited_at,
+                        :edited_by_actor_ref,
+                        :edit_review_ref,
+                        :last_reviewed_at,
                         :last_used_at,
                         :offer_record_id,
                         :source_thread_ref,
@@ -74,6 +86,7 @@ defmodule Responder.State.BehaviorChangeset do
     |> foreign_key_constraint(:cutover_item_id)
     |> check_constraint(:offer_record_id, name: :operator_behavior_provenance_valid)
     |> check_constraint(:kind, name: :operator_behavior_valid)
+    |> check_constraint(:edited_at, name: :operator_behavior_edit_provenance_valid)
     |> check_constraint(:revision, name: :operator_behavior_revision_valid)
   end
 
@@ -82,6 +95,7 @@ defmodule Responder.State.BehaviorChangeset do
     |> cast(attributes, @fields)
     |> unique_constraint(:identity_key, name: :operator_behaviors_active_identity)
     |> check_constraint(:kind, name: :operator_behavior_valid)
+    |> check_constraint(:edited_at, name: :operator_behavior_edit_provenance_valid)
     |> check_constraint(:revision, name: :operator_behavior_revision_valid)
   end
 end

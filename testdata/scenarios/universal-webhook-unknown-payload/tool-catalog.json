@@ -890,6 +890,151 @@
           "name": "propose_memory"
         },
         {
+          "description": "Stage a bounded derived situation summary. It becomes durable only if this turn's exact final candidate is accepted.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "state": {
+                "additionalProperties": false,
+                "properties": {
+                  "active_topics": {
+                    "items": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "decisions": {
+                    "items": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "evidence_refs": {
+                    "items": {
+                      "maxLength": 1024,
+                      "minLength": 1,
+                      "pattern": "^[A-Za-z0-9_.:/-]+$",
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "goal": {
+                    "anyOf": [
+                      {
+                        "maxLength": 2000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "open_loops": {
+                    "items": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "participants": {
+                    "items": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "purpose": {
+                    "anyOf": [
+                      {
+                        "maxLength": 2000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "situation": {
+                    "anyOf": [
+                      {
+                        "maxLength": 2000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "topology": {
+                    "items": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "unresolved_questions": {
+                    "items": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "active_topics",
+                  "decisions",
+                  "evidence_refs",
+                  "goal",
+                  "open_loops",
+                  "participants",
+                  "purpose",
+                  "situation",
+                  "topology",
+                  "unresolved_questions"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "state"
+            ],
+            "type": "object"
+          },
+          "name": "update_conversation_summary"
+        },
+        {
           "description": "Record one actionable product-feedback item without replacing the reply.",
           "inputSchema": {
             "additionalProperties": false,

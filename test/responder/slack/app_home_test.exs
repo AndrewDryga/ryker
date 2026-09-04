@@ -43,6 +43,31 @@ defmodule Responder.Slack.AppHomeTest do
       memories: [
         %{kind: :repository_binding, ref: "memory:one", subject: "checkout-api"}
       ],
+      memory_review_count: 3,
+      memory_reviews: [
+        %{
+          "entries" => [
+            %{
+              "scope" => "workspace",
+              "scope_ref" => "slack:T123",
+              "subject" => "checkout-api",
+              "value" => "payments",
+              "visibility" => "workspace"
+            },
+            %{
+              "scope" => "workspace",
+              "scope_ref" => "slack:T123",
+              "subject" => "checkout-api-2",
+              "value" => "payments",
+              "visibility" => "workspace"
+            }
+          ],
+          "kind" => "duplicate",
+          "reason" => "Same value",
+          "review_ref" => "memory-review:one",
+          "status" => "pending"
+        }
+      ],
       needs_attention: [
         %{
           kind: :operator_input,
@@ -63,7 +88,7 @@ defmodule Responder.Slack.AppHomeTest do
       ]
     }
 
-    options = options(calls, fn "T123" -> snapshot end)
+    options = options(calls, fn "T123", "U123" -> snapshot end)
 
     assert {:ok, %{access: :operator, outcome: :published}} =
              AppHome.handle(event("U123"), options)
@@ -79,15 +104,74 @@ defmodule Responder.Slack.AppHomeTest do
     assert text =~ "Daily audit"
     assert text =~ "checkout-api"
     assert text =~ "responder_home_forget_memory"
+    assert text =~ "responder_home_keep_memory_review"
+    assert text =~ "responder_home_merge_memory_review"
+    assert text =~ "responder_home_forget_memory_review"
+    assert text =~ "Forget all (2)"
+    assert text =~ "Merge 2 entries?"
+    assert text =~ "checkout-api-2"
+    assert text =~ "scope: workspace (slack:T123)"
+    assert text =~ "visibility: workspace"
+    assert text =~ "2 more memory reviews are available"
     assert text =~ "responder_home_disable_behavior"
     assert text =~ "responder_home_pause_schedule"
+  end
+
+  test "a maximal operator view remains complete and below Slack's block limit" do
+    {:ok, calls} = Agent.start_link(fn -> [] end)
+
+    reviews =
+      Enum.map(1..5, fn review_index ->
+        %{
+          "entries" =>
+            Enum.map(1..8, fn entry_index ->
+              %{
+                "memory_ref" => "memory:#{review_index}:#{entry_index}",
+                "scope" => "workspace",
+                "scope_ref" => "slack:T123:" <> String.duplicate("channel", 150),
+                "subject" => String.duplicate("subject", 20),
+                "value" => "VALUE-" <> String.duplicate("detail", 700),
+                "visibility" => "workspace"
+              }
+            end),
+          "kind" => "duplicate",
+          "reason" => "Same value",
+          "review_ref" => "memory-review:#{review_index}"
+        }
+      end)
+
+    row = fn index ->
+      %{kind: :guidance, next_action: :continue_work, ref: "row:#{index}", status: :active}
+    end
+
+    snapshot = %{
+      behaviors: Enum.map(1..5, row),
+      counts: %{},
+      incidents: Enum.map(1..5, row),
+      memories: Enum.map(1..5, row),
+      memory_review_count: 5,
+      memory_reviews: reviews,
+      needs_attention: Enum.map(1..8, row),
+      schedules: Enum.map(1..5, row),
+      work: Enum.map(1..8, row)
+    }
+
+    assert {:ok, %{access: :operator, outcome: :published}} =
+             AppHome.handle(event("U123"), options(calls, fn _, _ -> snapshot end))
+
+    assert [{"U123", %{"blocks" => blocks}}] = Agent.get(calls, & &1)
+    assert length(blocks) < 100
+    rendered = Jason.encode!(blocks)
+    assert rendered =~ "3 more memory reviews are available"
+    assert rendered =~ "visibility: workspace; value: VALUE-"
+    assert rendered =~ "Durable state remains authoritative"
   end
 
   test "full nonoperators receive no operational details" do
     {:ok, calls} = Agent.start_link(fn -> [] end)
 
     options =
-      options(calls, fn _workspace_ref ->
+      options(calls, fn _workspace_ref, _actor_ref ->
         flunk("the operational projection must not be queried for a nonoperator")
       end)
 
@@ -106,7 +190,7 @@ defmodule Responder.Slack.AppHomeTest do
 
     options =
       put_in(
-        options(calls, fn _ -> flunk("must not query") end),
+        options(calls, fn _, _ -> flunk("must not query") end),
         [:client, :allowed],
         MapSet.new()
       )
