@@ -568,6 +568,44 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Enum.any?(delivered.trace.steps, &(&1.summary =~ "exact destination"))
   end
 
+  test "episode trace treats configured runtime clients as opaque while redacting replies" do
+    # One configured Slack client made every live episode detail return HTTP 500.
+    accepted_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    turn =
+      measured_turn!(
+        "opaque-runtime-client",
+        "codex:gpt-5.6-terra/medium@work",
+        accepted_at,
+        true,
+        :reply
+      )
+
+    episode = Repo.get!(Responder.Episodes.Episode, turn.episode_id)
+    key = :episode_trace_struct_regression
+    previous = Application.get_env(:responder, key, :missing)
+
+    Application.put_env(
+      :responder,
+      key,
+      %Responder.Slack.Client{http: :opaque, requester: Responder.Slack.Client}
+    )
+
+    on_exit(fn ->
+      if previous == :missing,
+        do: Application.delete_env(:responder, key),
+        else: Application.put_env(:responder, key, previous)
+    end)
+
+    Repo.update_all(
+      from(saved in Responder.Work.Turn, where: saved.id == ^turn.id),
+      set: [delivery_document: %{"delivery" => "reply", "message" => "A safe reply"}]
+    )
+
+    assert {:ok, detail} = Projection.episode(episode.key)
+    assert Enum.any?(detail.trace.steps, &(&1.summary == "A safe reply"))
+  end
+
   test "projects every kernel lifecycle and blocked work custody without model payloads" do
     working = start_episode!("working")
 

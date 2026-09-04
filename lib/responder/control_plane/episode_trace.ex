@@ -1809,6 +1809,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     |> Enum.uniq()
   end
 
+  defp secret_values(value, _inherited?) when is_struct(value), do: []
+
   defp secret_values(%{} = value, inherited?) do
     Enum.flat_map(value, fn {key, nested} ->
       secret? = inherited? or sensitive_key?(key) or to_string(key) == "secrets"
