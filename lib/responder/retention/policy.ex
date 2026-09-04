@@ -175,6 +175,11 @@ defmodule Responder.Retention.Policy do
       why: "one bounded payload-free current scheduler heartbeat per runtime lane"
     },
     %{
+      table: "responder_operator_actions",
+      class: :audit,
+      why: "idempotent privileged retry and replay decision ledger"
+    },
+    %{
       table: "retention_operator_actions",
       class: :audit,
       why: "local operator recovery and unmerged-discard decision ledger"

@@ -5,16 +5,15 @@ defmodule Responder.ControlPlane.Actions do
 
   alias Responder.CanonicalJSON
   alias Responder.ControlPlane.ConversationLab
-  alias Responder.Delivery.Operator
-  alias Responder.Emisar.Operator, as: EmisarOperator
   alias Responder.Episodes
   alias Responder.Episodes.{Command, Episode}
-  alias Responder.Ingress.{Inbox, WorkProfile}
+  alias Responder.Ingress.WorkProfile
+  alias Responder.Operator.Failures
   alias Responder.Publication.Custody, as: PublicationCustody
   alias Responder.Publication.{Followups, Publication}
   alias Responder.Repo
   alias Responder.Retention.Operator, as: RetentionOperator
-  alias Responder.Slack.{IncidentRooms, InteractionAudits, WorkDiff, WorkRecord}
+  alias Responder.Slack.{WorkDiff, WorkRecord}
 
   alias Responder.State.{
     Automations,
@@ -40,19 +39,26 @@ defmodule Responder.ControlPlane.Actions do
       discard_retention: &discard_retention/1,
       edit_lab_message: lab_message_editor(work_profile),
       forget_memory: &Memories.forget/1,
-      rearm_admission: &Inbox.rearm/1,
-      rearm_delivery: &Operator.rearm/1,
-      rearm_emisar: &EmisarOperator.rearm/1,
-      rearm_retention: &rearm_retention/1,
-      rearm_slack_incident: &IncidentRooms.rearm/1,
-      rearm_slack_interaction: &InteractionAudits.rearm/1,
+      rearm_admission: &retry_failure("admission", &1),
+      rearm_delivery: &retry_failure("delivery", &1),
+      rearm_emisar: &retry_failure("emisar", &1),
+      rearm_retention: &retry_failure("retention", &1),
+      rearm_slack_incident: &retry_failure("slack_incident", &1),
+      rearm_slack_interaction: &retry_failure("slack_interaction", &1),
       react_to_lab_message: &ConversationLab.react_to_message/4,
-      retry_work: &Custody.retry_blocked/1,
+      retry_work: &retry_failure("work", &1),
       send_lab_message: lab_sender(work_profile),
       set_behavior_status: &Behaviors.set_status/2,
       set_schedule_status: &Schedules.set_status/2,
       view_lab_task_record: lab_task_record_view(work_view_options)
     }
+  end
+
+  defp retry_failure(kind, ref) do
+    Failures.retry(kind, ref,
+      action_ref: "control-plane:retry:#{Ecto.UUID.generate()}",
+      actor_ref: @actor_ref
+    )
   end
 
   defp lab_task_record_view(work_view_options) do
@@ -777,10 +783,6 @@ defmodule Responder.ControlPlane.Actions do
 
   defp discard_retention(ref) do
     RetentionOperator.discard_unmerged(ref, @actor_ref, action_ref(:discard_unmerged))
-  end
-
-  defp rearm_retention(ref) do
-    RetentionOperator.rearm(ref, @actor_ref, action_ref(:rearm))
   end
 
   defp action_ref(action),

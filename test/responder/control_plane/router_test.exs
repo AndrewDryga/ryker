@@ -641,6 +641,13 @@ defmodule Responder.ControlPlane.RouterTest do
     assert admission.resp_body =~ "github-delivery-one"
     assert admission.resp_body =~ "github:github-main:repository:99"
     assert admission.resp_body =~ "Attempts"
+    assert admission.resp_body =~ "stored diagnostic sha256:"
+    refute admission.resp_body =~ "Frozen validation result was uncertain"
+
+    delivery = request(:get, "/failures/delivery/delivery%3Aone")
+    assert delivery.status == 200
+    assert delivery.resp_body =~ "stored diagnostic sha256:"
+    refute delivery.resp_body =~ "Slack returned HTTP 503"
 
     confirm = request(:get, "/actions/delivery/delivery%3Aone/rearm")
     assert confirm.status == 200
@@ -661,6 +668,21 @@ defmodule Responder.ControlPlane.RouterTest do
 
     stale = request(:get, "/actions/delivery/delivery%3Astale/rearm")
     assert stale.status == 404
+  end
+
+  test "failure collection errors remain unavailable instead of appearing empty" do
+    unavailable =
+      options()
+      |> put_in([:projection, :failures], fn _params -> {:error, :database_unavailable} end)
+
+    assert request_with_options(:get, "/failures", nil, unavailable).status == 503
+
+    assert request_with_options(
+             :get,
+             "/failures/delivery/delivery%3Aone",
+             nil,
+             unavailable
+           ).status == 503
   end
 
   test "each recoverable blocked custody has a typed confirmed action" do
@@ -1169,6 +1191,7 @@ defmodule Responder.ControlPlane.RouterTest do
              %{
                action: :rearm,
                attempt_count: 3,
+               detail: "stored diagnostic sha256:admission",
                destination: "github:github-main:repository:99 / github:github-main:pull:42",
                episode_ref: nil,
                kind: "admission",
@@ -1189,6 +1212,7 @@ defmodule Responder.ControlPlane.RouterTest do
           "delivery:one" ->
             {:ok,
              %{
+               detail: "stored diagnostic sha256:delivery",
                kind: :message,
                ref: "delivery:one",
                status: :blocked,
@@ -1248,64 +1272,67 @@ defmodule Responder.ControlPlane.RouterTest do
           }
         end,
         failures: fn _params ->
-          [
-            %{
-              action: :rearm,
-              attempt_count: 3,
-              destination: "slack:T123:C456 / 1787832000.001",
-              episode_ref: "episode:one",
-              kind: "delivery",
-              ref: "delivery:one",
-              source: nil,
-              status: :blocked,
-              summary: "provider_unavailable",
-              updated_at: ~U[2026-08-28 12:00:00Z]
-            },
-            %{
-              action: :rearm,
-              attempt_count: 3,
-              destination: "github:github-main:repository:99 / github:github-main:pull:42",
-              episode_ref: nil,
-              kind: "admission",
-              ref: "ingress-input:one",
-              source: "github:github-main · github-delivery-one",
-              status: :blocked,
-              summary: "operation_uncertain",
-              updated_at: ~U[2026-08-28 11:59:00Z]
-            },
-            %{
-              action: :retry,
-              kind: "work",
-              ref: "episode:blocked",
-              status: :blocked,
-              summary: "work_execution_blocked",
-              updated_at: ~U[2026-08-28 11:58:00Z]
-            },
-            %{
-              action: :rearm,
-              kind: "emisar",
-              ref: "approval:one",
-              status: :blocked,
-              summary: "emisar_unavailable",
-              updated_at: ~U[2026-08-28 11:57:00Z]
-            },
-            %{
-              action: :rearm,
-              kind: "slack_interaction",
-              ref: "interaction:one",
-              status: :blocked,
-              summary: "slack_unavailable",
-              updated_at: ~U[2026-08-28 11:56:00Z]
-            },
-            %{
-              action: :rearm,
-              kind: "slack_incident",
-              ref: "incident-room:one",
-              status: :blocked,
-              summary: "incident_audience_member_invalid",
-              updated_at: ~U[2026-08-28 11:55:00Z]
-            }
-          ]
+          {:ok,
+           [
+             %{
+               action: :rearm,
+               attempt_count: 3,
+               detail: "stored diagnostic sha256:delivery",
+               destination: "slack:T123:C456 / 1787832000.001",
+               episode_ref: "episode:one",
+               kind: "delivery",
+               ref: "delivery:one",
+               source: nil,
+               status: :blocked,
+               summary: "provider_unavailable",
+               updated_at: ~U[2026-08-28 12:00:00Z]
+             },
+             %{
+               action: :rearm,
+               attempt_count: 3,
+               detail: "stored diagnostic sha256:admission",
+               destination: "github:github-main:repository:99 / github:github-main:pull:42",
+               episode_ref: nil,
+               kind: "admission",
+               ref: "ingress-input:one",
+               source: "github:github-main · github-delivery-one",
+               status: :blocked,
+               summary: "operation_uncertain",
+               updated_at: ~U[2026-08-28 11:59:00Z]
+             },
+             %{
+               action: :retry,
+               kind: "work",
+               ref: "episode:blocked",
+               status: :blocked,
+               summary: "work_execution_blocked",
+               updated_at: ~U[2026-08-28 11:58:00Z]
+             },
+             %{
+               action: :rearm,
+               kind: "emisar",
+               ref: "approval:one",
+               status: :blocked,
+               summary: "emisar_unavailable",
+               updated_at: ~U[2026-08-28 11:57:00Z]
+             },
+             %{
+               action: :rearm,
+               kind: "slack_interaction",
+               ref: "interaction:one",
+               status: :blocked,
+               summary: "slack_unavailable",
+               updated_at: ~U[2026-08-28 11:56:00Z]
+             },
+             %{
+               action: :rearm,
+               kind: "slack_incident",
+               ref: "incident-room:one",
+               status: :blocked,
+               summary: "incident_audience_member_invalid",
+               updated_at: ~U[2026-08-28 11:55:00Z]
+             }
+           ]}
         end,
         findings: fn _params -> [] end,
         lab_artifact: fn

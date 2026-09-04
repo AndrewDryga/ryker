@@ -21,6 +21,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @work_classes_version 20_260_903_000_100
   @authority_digests_version 20_260_903_000_200
   @slack_thread_statuses_version 20_260_904_000_100
+  @operator_actions_version 20_260_904_000_200
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
   test "an installation that already ran the Slack inbox migration upgrades to generic ingress" do
@@ -55,7 +56,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @reaction_events_version,
                @work_classes_version,
                @authority_digests_version,
-               @slack_thread_statuses_version
+               @slack_thread_statuses_version,
+               @operator_actions_version
              ]
 
       refute table_exists?(repo, prefix, "slack_inbox_entries")
@@ -76,6 +78,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert table_exists?(repo, prefix, "slack_incident_room_lifecycle_events")
       assert table_exists?(repo, prefix, "slack_task_cards")
       assert table_exists?(repo, prefix, "slack_thread_statuses")
+      assert table_exists?(repo, prefix, "responder_operator_actions")
       assert table_exists?(repo, prefix, "slack_interaction_audit")
       assert table_exists?(repo, prefix, "retention_operator_actions")
       assert table_exists?(repo, prefix, "episode_emisar_approvals")
@@ -138,7 +141,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @reaction_events_version,
                @work_classes_version,
                @authority_digests_version,
-               @slack_thread_statuses_version
+               @slack_thread_statuses_version,
+               @operator_actions_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -152,6 +156,14 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  "SELECT execution_kind, episode_id FROM #{prefix}.episode_work_sessions WHERE id = $1::text::uuid",
                  [admission_session_id]
                )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@operator_actions_version]
+
+      refute table_exists?(repo, prefix, "responder_operator_actions")
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
                step: 1,
@@ -236,7 +248,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @reaction_events_version,
                @work_classes_version,
                @authority_digests_version,
-               @slack_thread_statuses_version
+               @slack_thread_statuses_version,
+               @operator_actions_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -269,7 +282,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @reaction_events_version,
                @work_classes_version,
                @authority_digests_version,
-               @slack_thread_statuses_version
+               @slack_thread_statuses_version,
+               @operator_actions_version
              ]
 
       assert Release.migrate(options) == []
@@ -293,6 +307,16 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
         Release.rollback(@authority_digests_version, options)
       end
+
+      assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
+        Release.rollback(@slack_thread_statuses_version, options)
+      end
+
+      assert Release.rollback(@operator_actions_version, options) == [
+               @operator_actions_version
+             ]
+
+      refute table_exists?(repo, prefix, "responder_operator_actions")
 
       assert Release.rollback(@slack_thread_statuses_version, options) == [
                @slack_thread_statuses_version

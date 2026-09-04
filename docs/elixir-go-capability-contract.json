@@ -333,14 +333,14 @@
     {
       "id": "operator-preflight-status-failure-replay",
       "priority": "P0",
-      "status": "partial",
+      "status": "implemented",
       "required_behavior": "Operators can run one read-only preflight and unified status, inspect every typed failure, retry the exact safe custody item, and replay a captured private Slack input without live delivery.",
       "design_capabilities": ["app-home-and-web-control-plane"],
       "origin_refs": ["internal/app/preflight.go", "internal/app/replay.go"],
-      "implementation_refs": ["lib/responder/control_plane/actions.ex", "lib/responder/delivery/operator.ex"],
-      "proof_refs": ["test/responder/control_plane/actions_test.exs", "test/responder/delivery/operator_task_test.exs"],
-      "gap": "Delivery and several custody retries exist, but there is no unified Elixir preflight/status service or private no-delivery Slack replay outcome.",
-      "next_task": "2026-09-04-restore-operator-preflight-failure-and-replay-wo"
+      "implementation_refs": ["lib/responder/operator/preflight.ex", "lib/responder/operator/status.ex", "lib/responder/operator/actions.ex", "lib/responder/operator/failures.ex", "lib/responder/operator/slack_replay.ex"],
+      "proof_refs": ["test/responder/operator/workflows_test.exs", "test/responder/operator/mix_tasks_test.exs", "test/responder/control_plane/router_test.exs", "test/responder/work/executor_test.exs"],
+      "gap": null,
+      "next_task": null
     },
     {
       "id": "grafana-lifecycle-webhook-adapter",

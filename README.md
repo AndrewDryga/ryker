@@ -593,44 +593,54 @@ Infrastructure access remains constrained by the selected Coop and Emisar polici
 and external Slack Connect identities are denied. See
 [`docs/slack-ux.md`](docs/slack-ux.md) for the complete interaction contract.
 
-## Operations
+## Current Elixir operations
+
+The frozen Go runtime archive above ends here. The commands below operate the current
+Elixir/PostgreSQL service.
 
 ```bash
-responder status --config /etc/responder/responder.yaml
-responder status --config /etc/responder/responder.yaml --json
-responder failures --config /etc/responder/responder.yaml
-responder retry --config /etc/responder/responder.yaml delivery delivery_...
-responder replay slack --config /etc/responder/responder.yaml \
-  --url 'https://workspace.slack.com/archives/C0123/p1785652207489039'
-curl -f http://127.0.0.1:8080/healthz
-curl -f http://127.0.0.1:8080/readyz
-curl -f http://127.0.0.1:8080/metrics
+MIX_ENV=prod mix responder.doctor --config /etc/responder/responder-elixir.yaml
+MIX_ENV=prod mix responder.status --config /etc/responder/responder-elixir.yaml
+MIX_ENV=prod mix responder.failures --config /etc/responder/responder-elixir.yaml
+MIX_ENV=prod mix responder.retry delivery 'delivery:...' \
+  --config /etc/responder/responder-elixir.yaml --operator U123 --action-ref retry-delivery-20260904-1
+MIX_ENV=prod mix responder.replay slack 'ingress-input:...' 'post-fix-check-1' \
+  --config /etc/responder/responder-elixir.yaml --operator U123 --action-ref replay-slack-20260904-1
+MIX_ENV=prod mix responder.replay show 'ingress-input:...' \
+  --config /etc/responder/responder-elixir.yaml
+curl -f http://127.0.0.1:4321/healthz
+curl -f http://127.0.0.1:4321/readyz
+curl -f http://127.0.0.1:4321/metrics
 ```
 
-`responder status --json` returns both lifecycle counters and the bounded incident directory.
-`responder failures` lists retryability and the retained error for failed Slack inputs, webhooks,
-Slack deliveries, agent runs, publications, and cleanup work.
-`responder replay slack` is a post-fix live verification tool. It clones the saved text,
-attachments, actor, channel, thread, and timestamp behind a Slack permalink (or accepts
-`--input` or `--channel` plus `--message-ts`), gives the clone a fresh idempotency identity, and
-queues it through the running service. Replays are private by default: the normal model and tool
-path runs, but Responder suppresses Slack status, reactions, messages, offers, schedules, tasks,
-and incidents. The command validates the resulting action without impersonating a new user turn.
-Add `--publish` only when another real response in the original Slack conversation is intentional;
-published replay additionally requires confirmed delivery and deterministic UX validation of the
-exact persisted message payload. Use `--expect react`, `ignore`, `incident`, or `any` only when
-that outcome is intentional.
-If the command reaches `--timeout`, it cancels the replay's durable local run rather than merely
-stopping its wait. It also interrupts the exact active Coop turn; if that remote interruption or an
-in-flight Slack write cannot be confirmed immediately, the command reports the uncertainty and
-durable recovery keeps retrying it. The cancellation is idempotent and recorded in the audit log.
+These Mix tasks are short-lived database clients; run them with the same `DATABASE_URL` and runtime
+configuration as the release. They do not start admission, Work, Delivery, Slack, or webhook
+workers. `responder.doctor` validates configuration, PostgreSQL, migration state, and durable queue
+readiness. Process-local runtime and scheduler-progress truth remains available from the running
+release at `/readyz`.
 
-State is one owner-private SQLite database in `state_dir`. Slack inputs, webhook events, outgoing
-Slack deliveries, agent runs, incident mappings, channel lifecycle, structured evidence, coverage,
-channel memory, operator-confirmed operational memory, Emisar approval holds, timelines,
-evaluation decisions, audit records, and the scheduler's compact work index are durable. Before a
-schema upgrade Responder creates and verifies a private pre-migration snapshot and retains the three
-newest migration backups.
+`responder.status` emits lifecycle, queue, fleet, preflight, and failure counts as JSON.
+`responder.failures` lists stable error codes, diagnostic hashes, and retryability for blocked
+admission, Work, delivery, Slack interaction repaint, Slack incident room, Emisar monitoring, and
+cleanup custody.
+`responder.retry` dispatches only those seven typed recovery paths; semantic publication review is
+not a generic infrastructure failure. Every mutation requires a configured Slack operator ID and
+an operator-chosen action reference; the action, prior safe state, and outcome are committed in the
+same PostgreSQL transaction so repeating that reference reconciles a lost response.
+
+`responder.replay slack` accepts an exact retained `ingress-input:` reference plus an
+operator-chosen idempotency reference. It preserves the normalized Slack content, attachments,
+actor, destination, timestamp, capabilities, and frozen Work profile under a fresh event identity,
+then records it in `shadow` mode. The normal admission, model, tools, and Work path runs, while the
+shared host boundary forbids Slack status, reactions, messages, offers, schedules, tasks, incidents,
+and every other visible platform effect. Repeating the same action reference is idempotent; use
+`responder.replay show` to inspect lifecycle state and the bounded accepted `decision_reason`
+describing what the model would have done. Pruned or non-Slack sources fail closed.
+
+PostgreSQL owns Slack inputs, webhook events, outgoing deliveries, Work, incident mappings,
+channel lifecycle, structured evidence, memory, Emisar approval holds, timelines, evaluation
+decisions, audit records, and scheduler custody. Normal release restart recovers pending work from
+those rows; deployment backup and restore checks are described below.
 Bounded retention removes expired operational payloads and closed work, and expires finished episode
 history on a separate, much longer horizon because that record is what the replay-fixture corpus is
 built from. No horizon deletes an episode a pending correction, open feedback, a live wakeup, an

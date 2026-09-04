@@ -12,6 +12,7 @@ defmodule Responder.Retention.DataTest do
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.{Inbox, Input}
+  alias Responder.Operator.Actions
   alias Responder.Repo
   alias Responder.Retention.Data
   alias Responder.Slack.Input, as: SlackInput
@@ -224,13 +225,15 @@ defmodule Responder.Retention.DataTest do
     blocked = insert_reaction!("blocked", "blocked")
     insert_setting_audit!("old-audit")
     insert_interaction_audit!("old-interaction")
+    insert_operator_action!("old-operator-action")
     backdate_rows!()
 
     assert {:ok, result} = Data.prune(settings(conversation_memory_seconds: 60))
     assert result.delivery_reactions == 1
     assert Repo.get(Responder.Delivery.Reaction, delivered) == nil
     assert Repo.get!(Responder.Delivery.Reaction, blocked).status == :blocked
-    assert result.audit_rows == 3
+    assert result.audit_rows == 4
+    assert Actions.fetch("operator-action:old-operator-action") == :error
   end
 
   test "cutover audit keeps fingerprints while expiring copied legacy bodies" do
@@ -706,6 +709,21 @@ defmodule Responder.Retention.DataTest do
     )
   end
 
+  defp insert_operator_action!(suffix) do
+    assert {:ok, %{status: :recorded}} =
+             Actions.run(
+               %{
+                 action: :retry,
+                 action_ref: "operator-action:#{suffix}",
+                 actor_ref: "slack:user:U1",
+                 kind: "admission",
+                 request: %{"operation" => "retry"},
+                 resource_ref: "ingress-input:#{suffix}"
+               },
+               fn -> {:ok, %{outcome: %{"status" => "pending"}, previous: %{}}} end
+             )
+  end
+
   defp start_active_episode!(suffix) do
     id = Ecto.UUID.generate()
 
@@ -836,6 +854,7 @@ defmodule Responder.Retention.DataTest do
   defp backdate_rows! do
     Repo.query!("UPDATE ingress_inbox_entries SET updated_at = $1", [@old])
     Repo.query!("UPDATE delivery_reactions SET updated_at = $1", [@old])
+    Repo.query!("UPDATE responder_operator_actions SET inserted_at = $1, updated_at = $1", [@old])
   end
 
   defp settings(overrides \\ []) do

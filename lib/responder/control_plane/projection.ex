@@ -19,6 +19,7 @@ defmodule Responder.ControlPlane.Projection do
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Observability
+  alias Responder.Operator.{Action, FailureDetail}
   alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.Retention.OperatorAction
@@ -468,12 +469,6 @@ defmodule Responder.ControlPlane.Projection do
       )
       |> Enum.map(&admission_item/1)
 
-    deliveries =
-      case DeliveryOperator.list_blocked(100) do
-        {:ok, items} -> Enum.map(items, &delivery_item/1)
-        {:error, _reason} -> []
-      end
-
     retention =
       Repo.all(
         from(session in Session,
@@ -508,23 +503,59 @@ defmodule Responder.ControlPlane.Projection do
       )
       |> Enum.map(&incident_item/1)
 
-    emisar =
-      case EmisarOperator.list_blocked(100) do
-        {:ok, items} -> Enum.map(items, &emisar_item/1)
-        {:error, _reason} -> []
-      end
+    with {:ok, delivery_items} <- DeliveryOperator.list_blocked(100),
+         {:ok, emisar_items} <- EmisarOperator.list_blocked(100) do
+      failures =
+        work ++
+          admission ++
+          Enum.map(delivery_items, &delivery_item/1) ++
+          retention ++
+          interaction_feedback ++
+          incident_rooms ++
+          Enum.map(emisar_items, &emisar_item/1)
 
-    (work ++
-       admission ++
-       deliveries ++
-       retention ++
-       interaction_feedback ++
-       incident_rooms ++
-       emisar)
-    |> decorate_failures()
-    |> Enum.sort_by(&DateTime.to_unix(&1.updated_at, :microsecond), :desc)
-    |> Enum.take(100)
+      {:ok,
+       failures
+       |> decorate_failures()
+       |> Enum.sort_by(&DateTime.to_unix(&1.updated_at, :microsecond), :desc)
+       |> Enum.take(100)}
+    end
+  rescue
+    _error -> {:error, :failure_projection_unavailable}
+  catch
+    _kind, _reason -> {:error, :failure_projection_unavailable}
   end
+
+  def failure(kind, ref) do
+    failure_exact(kind, ref)
+  rescue
+    _error -> {:error, :failure_projection_unavailable}
+  catch
+    _kind, _reason -> {:error, :failure_projection_unavailable}
+  end
+
+  defp failure_exact("admission", ref), do: admission(ref)
+  defp failure_exact("delivery", ref), do: delivery(ref)
+  defp failure_exact("emisar", ref), do: emisar(ref)
+  defp failure_exact("slack_incident", ref), do: slack_incident(ref)
+  defp failure_exact("slack_interaction", ref), do: slack_interaction(ref)
+  defp failure_exact("work", ref), do: work(ref)
+
+  defp failure_exact("retention", ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
+    case Repo.one(
+           from(session in Session,
+             join: episode in Episode,
+             on: episode.id == session.episode_id,
+             where: session.external_ref == ^ref and session.cleanup_status == :blocked,
+             select: {session, episode}
+           )
+         ) do
+      nil -> :not_found
+      row -> {:ok, row |> retention_item() |> decorate_failure()}
+    end
+  end
+
+  defp failure_exact(_kind, _ref), do: :not_found
 
   def delivery(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case DeliveryOperator.fetch(ref) do
@@ -692,7 +723,21 @@ defmodule Responder.ControlPlane.Projection do
         )
       )
 
-    (episode_events ++ interaction_events ++ retention_events)
+    operator_events =
+      Repo.all(
+        from(action in Action,
+          order_by: [desc: action.occurred_at, desc: action.id],
+          limit: 100,
+          select: %{
+            kind: fragment("? || ':' || ?", action.action, action.kind),
+            ref: action.action_ref,
+            summary: fragment("? || ' · ' || ?", action.actor_ref, action.resource_ref),
+            updated_at: action.occurred_at
+          }
+        )
+      )
+
+    (episode_events ++ interaction_events ++ retention_events ++ operator_events)
     |> Enum.sort_by(
       &{DateTime.to_unix(&1.updated_at, :microsecond), &1.ref},
       :desc
@@ -1543,6 +1588,7 @@ defmodule Responder.ControlPlane.Projection do
     %{
       action: :rearm,
       attempt_count: item.attempt_count,
+      detail: FailureDetail.project(item.error_detail),
       episode_id: Map.get(item, :episode_id),
       kind: "delivery",
       ref: item.delivery_ref,
@@ -1557,6 +1603,7 @@ defmodule Responder.ControlPlane.Projection do
     %{
       action: :rearm,
       attempt_count: entry.attempt_count,
+      detail: FailureDetail.project(entry.last_error_detail),
       destination: failure_destination(entry),
       episode_id: entry.episode_id,
       kind: "admission",
@@ -1585,6 +1632,7 @@ defmodule Responder.ControlPlane.Projection do
     %{
       action: :retry,
       attempt_count: max(turn.work_attempt_count, turn.cancel_attempt_count),
+      detail: FailureDetail.project(turn.last_error_detail),
       destination: failure_destination(episode),
       episode_id: episode.id,
       episode_ref: episode.key,
@@ -1601,6 +1649,7 @@ defmodule Responder.ControlPlane.Projection do
     %{
       action: :rearm,
       attempt_count: audit.attempt_count,
+      detail: FailureDetail.project(audit.last_error_detail),
       destination:
         join_target("slack:#{audit.workspace_ref}:#{audit.channel_ref}", audit.thread_ref),
       kind: "slack_interaction",
@@ -1616,6 +1665,7 @@ defmodule Responder.ControlPlane.Projection do
     %{
       action: :rearm,
       attempt_count: room.attempt_count || 0,
+      detail: FailureDetail.project(room.last_error_detail),
       destination:
         join_target(
           "slack:#{room.workspace_ref}:#{room.source_channel_ref}",
@@ -1635,12 +1685,13 @@ defmodule Responder.ControlPlane.Projection do
     %{
       action: :rearm,
       attempt_count: item.failure_count,
+      detail: FailureDetail.project(item.last_error),
       episode_id: item.episode_id,
       kind: "emisar",
       ref: item.request_id,
       source: "#{item.runner_ref} · #{item.action_id}",
       status: item.status,
-      summary: item.last_error || "Emisar approval monitoring blocked",
+      summary: "Emisar approval monitoring blocked",
       updated_at: item.updated_at
     }
   end
@@ -1649,6 +1700,7 @@ defmodule Responder.ControlPlane.Projection do
     %{
       action: :rearm,
       attempt_count: session.cleanup_attempt_count,
+      detail: FailureDetail.project(session.cleanup_last_error_detail),
       destination: failure_destination(episode),
       episode_id: episode.id,
       episode_ref: episode.key,
@@ -1667,6 +1719,8 @@ defmodule Responder.ControlPlane.Projection do
     |> attach_episode_contexts()
     |> Enum.map(&failure_defaults/1)
   end
+
+  defp decorate_failure(item), do: item |> List.wrap() |> decorate_failures() |> hd()
 
   defp attach_input_contexts(items) do
     input_ids =
@@ -1733,6 +1787,7 @@ defmodule Responder.ControlPlane.Projection do
     Map.merge(
       %{
         attempt_count: 0,
+        detail: nil,
         destination: nil,
         episode_ref: nil,
         source: nil

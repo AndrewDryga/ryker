@@ -114,6 +114,48 @@ When readiness fails:
 Never delete or rewrite a lease, operation key, receipt, or episode row by
 hand. The recovery APIs preserve the fences that make a replacement safe.
 
+### Read-only operator commands and typed recovery
+
+Run the short-lived Mix tasks with the same `MIX_ENV=prod`, `DATABASE_URL`, and
+absolute runtime configuration path as the release:
+
+```bash
+mix responder.doctor --config /etc/responder/responder-elixir.yaml
+mix responder.status --config /etc/responder/responder-elixir.yaml
+mix responder.failures --config /etc/responder/responder-elixir.yaml
+mix responder.retry admission 'ingress-input:...' \
+  --config /etc/responder/responder-elixir.yaml --operator U123 --action-ref retry-admission-20260904-1
+mix responder.replay slack 'ingress-input:...' 'post-fix-check-1' \
+  --config /etc/responder/responder-elixir.yaml --operator U123 --action-ref replay-slack-20260904-1
+mix responder.replay show 'ingress-input:...' \
+  --config /etc/responder/responder-elixir.yaml
+```
+
+The commands start only temporary database dependencies, never the Responder
+worker tree. Doctor therefore reports configuration, database, migration, and
+durable queue readiness; `/readyz` on the running release remains authoritative
+for process-local workers and progress heartbeats. Failure output contains
+stable error codes and diagnostic SHA-256 values but no raw provider error,
+source body, prompt, model candidate, token, or credential.
+
+Retry accepts only `admission`, `delivery`, `emisar`, `retention`,
+`slack_incident`, `slack_interaction`, and `work`. Inspect the current item
+first. Publication review is a semantic decision and deliberately has no
+generic retry. The local control plane uses the same typed recovery service but
+adds loopback Host checks, CSRF, and an exact-state confirmation page.
+Every retry and replay requires a configured Slack operator ID and a unique
+operator action reference. Its safe prior state and outcome are committed with
+the mutation; repeat the same action reference after a lost response to obtain
+the original outcome without running the mutation again.
+
+Slack replay accepts only a retained live Slack message input with a frozen
+Work profile. It mints a stable fresh event identity from the source and request
+reference, records shadow custody, and never calls Slack. Repeating the same
+action reference returns the first audited outcome. `show` reports admission,
+episode, and Work lifecycle state plus the bounded accepted `decision_reason`
+that says what the shadow model would have done; it never returns captured
+content or unreleased model output.
+
 ## Control plane and Conversation Lab
 
 The loopback control plane provides:

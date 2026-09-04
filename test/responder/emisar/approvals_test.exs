@@ -134,8 +134,10 @@ defmodule Responder.Emisar.ApprovalsTest do
     assert {:ok, %{action: :rearm, ref: "apr-operator", status: :blocked}} =
              Projection.emisar("apr-operator")
 
+    assert {:ok, failures} = Projection.failures(%{})
+
     assert %{kind: "emisar", ref: "apr-operator"} =
-             Enum.find(Projection.failures(%{}), &(&1.kind == "emisar"))
+             Enum.find(failures, &(&1.kind == "emisar"))
 
     assert {:ok, rearmed} = Operator.rearm("apr-operator")
     assert rearmed.status == :monitoring
