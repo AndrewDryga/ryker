@@ -538,7 +538,7 @@ defmodule Responder.ControlPlane.Router do
         conn,
         200,
         title,
-        HTML.confirmation(title, explanation, path, token, action_return_path(kind))
+        HTML.confirmation(title, explanation, path, token, action_return_path(kind, resource_ref))
       )
     else
       {:error, _reason} -> html(conn, 404, "Not found", HTML.generic("Action", []))
@@ -556,7 +556,7 @@ defmodule Responder.ControlPlane.Router do
          true <- CSRF.valid?(options.csrf_secret, canonical_action, resource_ref, token),
          {:ok, _resource} <- perform(kind, resource_ref, action, options.actions) do
       conn
-      |> put_resp_header("location", action_return_path(kind))
+      |> put_resp_header("location", action_return_path(kind, resource_ref))
       |> send_resp(303, "")
       |> halt()
     else
@@ -1083,6 +1083,34 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
+  defp confirmation("episode", resource_ref, "resolve", options) do
+    case options.projection.episode.(resource_ref) do
+      {:ok, %{trace: %{actions: actions}}} ->
+        if Enum.any?(actions, &String.ends_with?(&1.href, "/resolve")) do
+          {:ok, "Close this episode as no longer needed?",
+           "Responder will cancel the exact blocked or waiting owner. Nothing is deleted and no new external action is authorized.",
+           "episode:resolve"}
+        else
+          {:error, :not_found}
+        end
+
+      _unavailable ->
+        {:error, :not_found}
+    end
+  end
+
+  defp confirmation("episode", resource_ref, "review", options) do
+    case options.projection.episode.(resource_ref) do
+      {:ok, %{trace: %{review: %{awaiting: true}}}} ->
+        {:ok, "Mark this ending reviewed?",
+         "This records that the local operator read this exact terminal semantic version. A later ending becomes reviewable again.",
+         "episode:review"}
+
+      _unavailable ->
+        {:error, :not_found}
+    end
+  end
+
   defp confirmation("emisar", resource_ref, "rearm", options) do
     case options.projection.emisar.(resource_ref) do
       {:ok, %{action: :rearm, status: :blocked}} ->
@@ -1150,7 +1178,7 @@ defmodule Responder.ControlPlane.Router do
 
   defp perform("memory-review", resource_ref, action, actions)
        when action in ["keep", "merge", "forget", "dismiss"],
-       do: actions.resolve_memory_review.(resource_ref, String.to_existing_atom(action), nil)
+       do: actions.resolve_memory_review.(resource_ref, memory_review_action(action), nil)
 
   defp perform("admission", resource_ref, "rearm", actions),
     do: actions.rearm_admission.(resource_ref)
@@ -1176,6 +1204,12 @@ defmodule Responder.ControlPlane.Router do
   defp perform("work", resource_ref, "retry", actions),
     do: actions.retry_work.(resource_ref)
 
+  defp perform("episode", resource_ref, "resolve", actions),
+    do: actions.resolve_episode.(resource_ref)
+
+  defp perform("episode", resource_ref, "review", actions),
+    do: actions.review_episode.(resource_ref)
+
   defp perform("behavior", resource_ref, action, actions)
        when action in ["active", "disabled", "deleted"],
        do: actions.set_behavior_status.(resource_ref, String.to_existing_atom(action))
@@ -1189,15 +1223,23 @@ defmodule Responder.ControlPlane.Router do
 
   defp perform(_kind, _resource_ref, _action, _actions), do: {:error, :invalid_action}
 
-  defp action_return_path("delivery"), do: "/failures"
-  defp action_return_path("retention"), do: "/workspaces"
-  defp action_return_path("schedule"), do: "/schedules"
+  defp memory_review_action("keep"), do: :keep
+  defp memory_review_action("merge"), do: :merge
+  defp memory_review_action("forget"), do: :forget
+  defp memory_review_action("dismiss"), do: :dismiss
 
-  defp action_return_path(kind)
+  defp action_return_path("episode", resource_ref),
+    do: "/episodes/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}"
+
+  defp action_return_path("delivery", _resource_ref), do: "/failures"
+  defp action_return_path("retention", _resource_ref), do: "/workspaces"
+  defp action_return_path("schedule", _resource_ref), do: "/schedules"
+
+  defp action_return_path(kind, _resource_ref)
        when kind in ["admission", "emisar", "slack_incident", "slack_interaction", "work"],
        do: "/failures"
 
-  defp action_return_path(_kind), do: "/memory"
+  defp action_return_path(_kind, _resource_ref), do: "/memory"
 
   defp failure_kinds,
     do: ~w(admission delivery emisar retention slack_incident slack_interaction work)

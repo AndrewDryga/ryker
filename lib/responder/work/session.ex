@@ -18,6 +18,8 @@ defmodule Responder.Work.Session do
     field(:generation, :integer, default: 1)
     field(:create_generation, :integer, default: 1)
     field(:coop_session_id, :string)
+    field(:activity_cursor, :integer, default: 0)
+    field(:activity_sync_pending, :boolean, default: false)
     field(:workspace_task, Responder.CanonicalJSON.Type)
 
     field(:cleanup_status, Ecto.Enum,
@@ -78,6 +80,8 @@ defmodule Responder.Work.Session do
           generation: pos_integer(),
           create_generation: pos_integer(),
           coop_session_id: String.t() | nil,
+          activity_cursor: non_neg_integer(),
+          activity_sync_pending: boolean(),
           workspace_task: map() | nil,
           cleanup_status:
             :active

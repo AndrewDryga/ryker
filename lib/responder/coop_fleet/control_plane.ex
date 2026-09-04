@@ -16,7 +16,7 @@ defmodule Responder.CoopFleet.ControlPlane do
   alias Responder.CoopFleet.{Certificate, Command, Event, Placement, Protocol, Worker}
   alias Responder.Repo
   alias Responder.StateTools.Binding
-  alias Responder.Work.{Session, StateBinding, Turn}
+  alias Responder.Work.{Activity, Session, StateBinding, Turn}
 
   @current_placement_states [:assigning, :active, :draining, :revoking]
   @terminal_command_states [:succeeded, :failed, :uncertain]
@@ -237,7 +237,7 @@ defmodule Responder.CoopFleet.ControlPlane do
     acknowledged_result_command_ids =
       apply_command_results(worker_id, poll["command_results"], now)
 
-    event_acknowledgements = apply_event_batches(worker_id, poll["event_batches"])
+    event_acknowledgements = apply_event_batches(worker_id, poll["event_batches"], now)
     commands = deliver_commands(worker_id, now, state_tools_secret)
 
     response = %{
@@ -311,6 +311,7 @@ defmodule Responder.CoopFleet.ControlPlane do
         generation: generation,
         id: id,
         last_acked_event_sequence: 0,
+        last_acked_session_event_sequence: 0,
         lease_expires_at: DateTime.add(now, lease_seconds, :second),
         lease_ref: "placement-lease:#{id}",
         requirements: frozen_requirements,
@@ -324,6 +325,7 @@ defmodule Responder.CoopFleet.ControlPlane do
         :generation,
         :id,
         :last_acked_event_sequence,
+        :last_acked_session_event_sequence,
         :lease_expires_at,
         :lease_ref,
         :requirements,
@@ -581,11 +583,11 @@ defmodule Responder.CoopFleet.ControlPlane do
     placement.state == :active and DateTime.compare(placement.lease_expires_at, now) == :gt
   end
 
-  defp apply_event_batches(worker_id, batches) do
-    Enum.map(batches, fn batch -> apply_event_batch(worker_id, batch) end)
+  defp apply_event_batches(worker_id, batches, now) do
+    Enum.map(batches, fn batch -> apply_event_batch(worker_id, batch, now) end)
   end
 
-  defp apply_event_batch(worker_id, batch) do
+  defp apply_event_batch(worker_id, batch, now) do
     placement =
       Repo.one(
         from(placement in Placement,
@@ -600,45 +602,126 @@ defmodule Responder.CoopFleet.ControlPlane do
     after_sequence = batch["after_sequence"]
     events = batch["events"]
     last_sequence = if events == [], do: after_sequence, else: List.last(events)["sequence"]
+    session_events? = session_event_batch?(events)
+    cursor = event_cursor(placement, session_events?)
 
-    cond do
-      after_sequence == placement.last_acked_event_sequence ->
-        Enum.each(events, &insert_event!(placement, &1))
+    case event_batch_disposition(placement, after_sequence, last_sequence, events, cursor, now) do
+      :unauthorized ->
+        rollback({:coop_worker_event_placement_not_authorized, placement.id})
 
-        if last_sequence != placement.last_acked_event_sequence do
-          placement
-          |> change(%{last_acked_event_sequence: last_sequence})
-          |> check_constraint(:last_acked_event_sequence,
-            name: :coop_session_placement_identity_valid
-          )
-          |> Repo.update!()
-        end
+      :fresh ->
+        apply_fresh_event_batch(placement, events, cursor, last_sequence, session_events?)
 
-      last_sequence <= placement.last_acked_event_sequence ->
-        Enum.each(events, &verify_replayed_event!(placement, &1))
+      :replay ->
+        apply_replayed_event_batch(placement, events, cursor, session_events?)
 
-      true ->
-        rollback(
-          {:coop_worker_event_cursor_conflict, placement.last_acked_event_sequence,
-           after_sequence}
-        )
+      :conflict ->
+        rollback({:coop_worker_event_cursor_conflict, cursor, after_sequence})
     end
 
     %{
       "placement_generation" => placement.generation,
-      "sequence" => max(last_sequence, placement.last_acked_event_sequence),
+      "sequence" => max(last_sequence, cursor),
       "session_ref" => placement.session_id
     }
+  end
+
+  defp event_batch_disposition(_placement, cursor, _last_sequence, [], cursor, _now),
+    do: :fresh
+
+  defp event_batch_disposition(placement, cursor, _last_sequence, _events, cursor, now) do
+    if command_result_authorized?(placement, now), do: :fresh, else: :unauthorized
+  end
+
+  defp event_batch_disposition(_placement, _after_sequence, last_sequence, _events, cursor, _now)
+       when last_sequence <= cursor,
+       do: :replay
+
+  defp event_batch_disposition(
+         _placement,
+         _after_sequence,
+         _last_sequence,
+         _events,
+         _cursor,
+         _now
+       ),
+       do: :conflict
+
+  defp apply_fresh_event_batch(placement, events, cursor, last_sequence, session_events?) do
+    Enum.each(events, &insert_event!(placement, &1))
+    ingest_session_events!(placement, events, cursor, session_events?)
+    advance_event_cursor(placement, cursor, last_sequence, session_events?)
+  end
+
+  defp apply_replayed_event_batch(placement, events, cursor, session_events?) do
+    Enum.each(events, &verify_replayed_event!(placement, &1))
+    ingest_session_events!(placement, events, cursor, session_events?)
+  end
+
+  defp advance_event_cursor(_placement, cursor, cursor, _session_events?), do: :ok
+
+  defp advance_event_cursor(placement, _cursor, last_sequence, session_events?) do
+    placement
+    |> change(event_cursor_change(session_events?, last_sequence))
+    |> check_constraint(event_cursor_field(session_events?),
+      name: event_cursor_constraint(session_events?)
+    )
+    |> Repo.update!()
+  end
+
+  defp event_cursor_constraint(true),
+    do: :coop_session_placement_session_event_cursor_valid
+
+  defp event_cursor_constraint(false), do: :coop_session_placement_identity_valid
+
+  defp session_event_batch?([%{"kind" => "session_event"} | _rest]), do: true
+  defp session_event_batch?(_events), do: false
+
+  defp event_cursor(placement, true), do: placement.last_acked_session_event_sequence
+  defp event_cursor(placement, false), do: placement.last_acked_event_sequence
+
+  defp event_cursor_change(true, sequence),
+    do: %{last_acked_session_event_sequence: sequence}
+
+  defp event_cursor_change(false, sequence), do: %{last_acked_event_sequence: sequence}
+
+  defp event_cursor_field(true), do: :last_acked_session_event_sequence
+  defp event_cursor_field(false), do: :last_acked_event_sequence
+
+  defp ingest_session_events!(_placement, _events, _cursor, false), do: :ok
+
+  defp ingest_session_events!(placement, events, cursor, true) do
+    session_events =
+      Enum.flat_map(events, fn
+        %{"kind" => "session_event", "payload" => event} -> [event]
+        _coarse_event -> []
+      end)
+
+    case session_events do
+      [] ->
+        :ok
+
+      [%{"session_id" => remote_id} | _rest] = values ->
+        expected_cursor = List.last(values)["sequence"]
+
+        case Activity.ingest_fleet(placement.session_id, remote_id, cursor, values) do
+          {:ok, %{cursor: ^expected_cursor}} -> :ok
+          {:error, reason} -> rollback(reason)
+          _invalid -> rollback({:invalid_coop_activity, :cursor})
+        end
+    end
   end
 
   defp insert_event!(placement, event) do
     fingerprint = event_fingerprint(event)
 
+    stored_payload = if event["kind"] == "session_event", do: %{}, else: event["payload"]
+
     %Event{}
     |> cast(
       %{
         kind: event["kind"],
-        payload: event["payload"],
+        payload: stored_payload,
         payload_fingerprint: fingerprint,
         placement_generation: placement.generation,
         placement_id: placement.id,
@@ -677,17 +760,32 @@ defmodule Responder.CoopFleet.ControlPlane do
   end
 
   defp verify_replayed_event!(placement, event) do
-    stored =
-      Repo.one(
-        from(stored in Event,
-          where: stored.placement_id == ^placement.id and stored.sequence == ^event["sequence"]
-        )
-      )
+    stored = replayed_event(placement.id, event)
 
     if stored == nil or stored.kind != event["kind"] or
          stored.payload_fingerprint != event_fingerprint(event) do
       rollback({:coop_worker_event_replay_conflict, event["sequence"]})
     end
+  end
+
+  defp replayed_event(placement_id, %{"kind" => "session_event", "sequence" => sequence}) do
+    Repo.one(
+      from(stored in Event,
+        where:
+          stored.placement_id == ^placement_id and stored.sequence == ^sequence and
+            stored.kind == "session_event"
+      )
+    )
+  end
+
+  defp replayed_event(placement_id, %{"sequence" => sequence}) do
+    Repo.one(
+      from(stored in Event,
+        where:
+          stored.placement_id == ^placement_id and stored.sequence == ^sequence and
+            stored.kind != "session_event"
+      )
+    )
   end
 
   defp deliver_commands(worker_id, now, state_tools_secret) do

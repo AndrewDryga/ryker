@@ -3,12 +3,16 @@ defmodule Responder.ControlPlane.ProjectionTest do
 
   import Ecto.Query
 
+  alias Responder.CanonicalJSON
   alias Responder.ControlPlane.Projection
-  alias Responder.CoopFleet.Worker
+  alias Responder.CoopFleet.{Event, Placement, Worker}
+  alias Responder.Delivery.PlatformActionCustody
   alias Responder.Episodes
+  alias Responder.Episodes.Command
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
+  alias Responder.Ingress.Input, as: GenericInput
   alias Responder.Publication.Changeset, as: PublicationChangeset
   alias Responder.Repo
   alias Responder.Retention.Custody, as: RetentionCustody
@@ -28,7 +32,15 @@ defmodule Responder.ControlPlane.ProjectionTest do
     ScheduleOccurrenceChangeset
   }
 
-  alias Responder.Work.{Cancellation, Custody, Measurement, Result, SubmissionBuilder}
+  alias Responder.Work.{
+    ActivityEvent,
+    Cancellation,
+    Custody,
+    DeliveryReceipt,
+    Measurement,
+    Result,
+    SubmissionBuilder
+  }
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -72,6 +84,51 @@ defmodule Responder.ControlPlane.ProjectionTest do
     target = waiting_episode!("control:100%_literal", "raw-secret-value")
     _wildcard_decoy = waiting_episode!("control:100XXliteral", "other-secret-value")
 
+    first_event =
+      Repo.one!(
+        from(event in Responder.Episodes.Event,
+          where: event.episode_id == ^target.episode.id and event.sequence == 1
+        )
+      )
+
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U-TRACE"},
+               channel_ref: "C456",
+               content: %{"text" => "raw-secret-value"},
+               event_kind: :message,
+               event_ref: "Ev-control-trace-input",
+               message_ref: "1787832099.000300",
+               occurred_at: @now,
+               revision: 2,
+               thread_ref: target.episode.destination_thread_ref,
+               workspace_ref: "T123"
+             })
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+
+    decision = %{
+      "action" => "start_episode",
+      "episode_ref" => target.episode.key,
+      "reaction" => nil,
+      "relation" => "unrelated",
+      "reason" => "Material work is required.",
+      "work_class" => "standard"
+    }
+
+    Repo.update_all(
+      from(saved in Entry, where: saved.id == ^entry.id),
+      set: [
+        decision_action: :start_episode,
+        decision_document: decision,
+        decision_fingerprint: CanonicalJSON.digest(decision),
+        decision_ref: "decision:trace-input",
+        dedupe_key: first_event.dedupe_key,
+        episode_id: target.episode.id,
+        status: :decided
+      ]
+    )
+
     overview = Projection.overview()
     assert overview.counts.active == 2
     assert overview.counts.waiting == 2
@@ -86,8 +143,179 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert {:ok, detail} = Projection.episode(target.episode.key)
     assert detail.episode.ref == target.episode.key
     assert Enum.map(detail.events, & &1.summary) == ["input admitted", "input wait started"]
+    assert Enum.map(detail.trace.chapters, & &1.title) == ["What came in"]
+    assert Enum.map(detail.trace.steps, & &1.title) == ["Input admitted", "Input wait started"]
+    assert detail.trace.stopped.headline == "Waiting for a person"
+    assert detail.trace.stopped.action == "Reply in the bound conversation"
+    assert detail.episode.next_action == "operator input"
+    assert detail.trace.source.transport == "Slack"
+    assert detail.trace.source.href == "https://slack.com/archives/C456/p1787832099000300"
+
+    assert Enum.any?(
+             detail.trace.metrics,
+             &(&1.label == "State" and &1.value == "waiting for input")
+           )
+
     refute inspect(detail) =~ "raw-secret-value"
     refute Map.has_key?(detail, :payload)
+  end
+
+  test "episode trace links the exact GitHub pull request comment without exposing its body" do
+    id = Ecto.UUID.generate()
+
+    assert {:ok, input} =
+             GenericInput.new(%{
+               actor: %{kind: :user, ref: "github-user:7"},
+               content: %{
+                 "delivery_ref" => "delivery-github-trace",
+                 "event_name" => "issue_comment",
+                 "payload" => %{
+                   "comment" => %{"body" => "github-secret-body", "id" => 9_001},
+                   "issue" => %{"number" => 42, "pull_request" => %{"url" => "withheld"}},
+                   "repository" => %{"full_name" => "acme/responder"}
+                 }
+               },
+               destination: %{
+                 conversation_ref: "github:github-main:repository:99",
+                 thread_ref: "github:github-main:pull:42",
+                 transport: "github"
+               },
+               event_kind: :message,
+               event_ref: "github-body:#{String.duplicate("a", 64)}",
+               native_input_id: "github-item:#{String.duplicate("b", 64)}",
+               occurred_at: @now,
+               occurred_at_source: :source,
+               revision: 1,
+               source: %{kind: "github", ref: "github-main"},
+               source_capabilities: %{
+                 "react" => %{
+                   "emoji_names" => ~w(+1 -1 confused eyes heart hooray laugh rocket)
+                 }
+               },
+               source_item_ref: "github:issue_comment:9001"
+             })
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+
+    assert {:ok, transition} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 destination: input.destination,
+                 episode_id: id,
+                 episode_key: "github-trace:#{id}",
+                 native_input_id: input.native_input_id,
+                 occurred_at: input.occurred_at,
+                 payload: GenericInput.document(input),
+                 revision: input.revision,
+                 turn_ref: "github-trace-turn:#{id}"
+               })
+             )
+
+    first_event =
+      Repo.one!(
+        from(event in Responder.Episodes.Event,
+          where: event.episode_id == ^id and event.sequence == 1
+        )
+      )
+
+    Repo.update_all(
+      from(saved in Entry, where: saved.id == ^entry.id),
+      set: [
+        decision_action: :start_episode,
+        decision_document: %{
+          "action" => "start_episode",
+          "episode_ref" => transition.episode.key,
+          "reaction" => nil,
+          "relation" => "unrelated",
+          "reason" => "Material work is required.",
+          "work_class" => "standard"
+        },
+        decision_fingerprint:
+          CanonicalJSON.digest(%{
+            "action" => "start_episode",
+            "episode_ref" => transition.episode.key,
+            "reaction" => nil,
+            "relation" => "unrelated",
+            "reason" => "Material work is required.",
+            "work_class" => "standard"
+          }),
+        decision_ref: "decision:github-trace:#{id}",
+        dedupe_key: first_event.dedupe_key,
+        episode_id: id,
+        status: :decided
+      ]
+    )
+
+    assert {:ok, detail} = Projection.episode(transition.episode.key)
+
+    assert detail.trace.source == %{
+             href: "https://github.com/acme/responder/pull/42#issuecomment-9001",
+             label: "Open source comment",
+             transport: "GitHub"
+           }
+
+    refute inspect(detail.trace) =~ "github-secret-body"
+
+    for {source_item_ref, payload, expected} <- [
+          {
+            "github:pull_request_review_comment:9002",
+            %{
+              "comment" => %{"body" => "review-comment-secret", "id" => 9_002},
+              "pull_request" => %{"number" => 43},
+              "repository" => %{"full_name" => "acme/responder"}
+            },
+            "https://github.com/acme/responder/pull/43#discussion_r9002"
+          },
+          {
+            "github:issue_comment:9003",
+            %{
+              "comment" => %{"body" => "issue-comment-secret", "id" => 9_003},
+              "issue" => %{"number" => 44},
+              "repository" => %{"full_name" => "acme/responder"}
+            },
+            "https://github.com/acme/responder/issues/44#issuecomment-9003"
+          },
+          {
+            "github:pull_request_review:9004",
+            %{
+              "pull_request" => %{"number" => 45},
+              "repository" => %{"full_name" => "acme/responder"},
+              "review" => %{"body" => "review-secret", "id" => 9_004}
+            },
+            "https://github.com/acme/responder/pull/45#pullrequestreview-9004"
+          }
+        ] do
+      Repo.update_all(
+        from(saved in Entry, where: saved.id == ^entry.id),
+        set: [content: %{"payload" => payload}, source_item_ref: source_item_ref]
+      )
+
+      assert {:ok, linked} = Projection.episode(transition.episode.key)
+      assert linked.trace.source.href == expected
+      refute inspect(linked.trace) =~ "secret"
+    end
+
+    for {source_item_ref, repository} <- [
+          {"github:pull_request_review:9005", "not a repository"},
+          {"github:unsupported:9005", "acme/responder"}
+        ] do
+      Repo.update_all(
+        from(saved in Entry, where: saved.id == ^entry.id),
+        set: [
+          content: %{
+            "payload" => %{
+              "pull_request" => %{"number" => 46},
+              "repository" => %{"full_name" => repository},
+              "review" => %{"id" => 9_005}
+            }
+          },
+          source_item_ref: source_item_ref
+        ]
+      )
+
+      assert {:ok, unlinked} = Projection.episode(transition.episode.key)
+      assert unlinked.trace.source == nil
+    end
   end
 
   test "configuration reports only runtime presence and includes every product owner" do
@@ -135,6 +363,124 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert snapshot.totals.average_provider_ms == 5_000
     assert snapshot.totals.average_host_ms == measured.usage_host_ms
 
+    assert {:ok, detail} = Projection.episode(episode_key!(measured.episode_id))
+    prepared = Enum.find(detail.trace.steps, &(&1.title == "Turn 1 prepared"))
+    prepared_details = Map.new(prepared.details, &{&1.label, &1.value})
+
+    assert prepared_details["Prompt"] == "retained exact bytes; display withheld"
+    assert is_binary(prepared_details["Prompt bytes"])
+    assert String.ends_with?(prepared_details["Prompt digest"], "…")
+    assert String.ends_with?(prepared_details["Context digest"], "…")
+    assert String.ends_with?(prepared_details["Output schema"], "…")
+    assert String.ends_with?(prepared_details["Submission"], "…")
+    refute inspect(detail.trace) =~ "redacted by projection"
+
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Turn 1 model work"))
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Answer validated"))
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Turn 1 result accepted"))
+    assert Enum.any?(detail.trace.chapters, &(&1.title == "The answer"))
+
+    for {candidate, parse} <- [
+          {Jason.encode!(%{"delivery" => "none"}), "JSON object"},
+          {Jason.encode!(["not", "an", "object"]), "JSON value; object required"},
+          {"not-json", "invalid JSON"}
+        ] do
+      candidate_sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+
+      Repo.update_all(
+        from(saved in Responder.Work.Turn, where: saved.id == ^measured.id),
+        set: [
+          candidate: candidate,
+          candidate_sha256: candidate_sha256,
+          validation_history: []
+        ]
+      )
+
+      assert {:ok, legacy_detail} = Projection.episode(episode_key!(measured.episode_id))
+      validation = Enum.find(legacy_detail.trace.steps, &(&1.title == "Answer validated"))
+      validation_details = Map.new(validation.details, &{&1.label, &1.value})
+      assert validation_details["Parse"] == parse
+    end
+
+    current = Repo.get!(Responder.Work.Turn, measured.id)
+
+    validation_history = [
+      %{
+        "candidate_attempt" => 1,
+        "candidate_sha256" => current.candidate_sha256,
+        "intent_fingerprint" => current.validation_intent_fingerprint,
+        "parse" => "JSON object",
+        "recorded_at" => "invalid-time",
+        "response_bytes" => 120,
+        "verdict" => "reject",
+        "violations" => []
+      },
+      %{
+        "candidate_attempt" => 2,
+        "candidate_sha256" => current.candidate_sha256,
+        "intent_fingerprint" => current.validation_intent_fingerprint,
+        "parse" => "JSON object",
+        "recorded_at" => DateTime.to_iso8601(now),
+        "response_bytes" => 124,
+        "verdict" => "reject",
+        "violations" => ["Supply the missing evidence."]
+      },
+      %{
+        "candidate_attempt" => 3,
+        "candidate_sha256" => current.candidate_sha256,
+        "intent_fingerprint" => current.validation_intent_fingerprint,
+        "parse" => "JSON object",
+        "recorded_at" => DateTime.to_iso8601(now),
+        "response_bytes" => 128,
+        "verdict" => "accept",
+        "violations" => []
+      }
+    ]
+
+    Repo.update_all(
+      from(saved in Responder.Work.Turn, where: saved.id == ^measured.id),
+      set: [validation_history: validation_history]
+    )
+
+    assert {:ok, validation_detail} = Projection.episode(episode_key!(measured.episode_id))
+    validation_steps = Enum.filter(validation_detail.trace.steps, &(&1.stage == "Validation"))
+
+    assert Enum.map(validation_steps, & &1.summary) == [
+             "Supply the missing evidence.",
+             "The exact candidate passed host validation.",
+             "Responder rejected this candidate and requested a same-turn correction."
+           ]
+
+    for {workspace_task, expected} <- [
+          {%{"repository" => "acme/responder"}, "acme/responder"},
+          {%{"primary" => %{"name" => "responder-primary"}}, "responder-primary"}
+        ] do
+      Repo.update_all(
+        from(saved in Responder.Work.Session, where: saved.id == ^measured.session_id),
+        set: [workspace_task: workspace_task]
+      )
+
+      assert {:ok, workspace_detail} = Projection.episode(episode_key!(measured.episode_id))
+
+      session_step =
+        Enum.find(workspace_detail.trace.steps, &(&1.title == "Work session prepared"))
+
+      session_details = Map.new(session_step.details, &{&1.label, &1.value})
+      assert session_details["Workspace target"] == expected
+    end
+
+    for {provider_ms, expected} <- [{120_000, "2m"}, {7_200_000, "2h"}] do
+      Repo.update_all(
+        from(saved in Responder.Work.Turn, where: saved.id == ^measured.id),
+        set: [usage_provider_ms: provider_ms]
+      )
+
+      assert {:ok, duration_detail} = Projection.episode(episode_key!(measured.episode_id))
+      work_step = Enum.find(duration_detail.trace.steps, &(&1.title == "Turn 1 model work"))
+      work_details = Map.new(work_step.details, &{&1.label, &1.value})
+      assert work_details["Provider"] == expected
+    end
+
     assert %{provider: "claude", model: "opus", effort: "high", attempts: 1} =
              Enum.find(snapshot.targets, &(&1.target == measured.execution_target))
 
@@ -149,6 +495,79 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert target_episode.ref == episode_key!(measured.episode_id)
   end
 
+  test "episode trace distinguishes a pending reply from confirmed delivery" do
+    accepted_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    turn =
+      measured_turn!(
+        "visible-reply",
+        "codex:gpt-5.6-terra/medium@work",
+        accepted_at,
+        true,
+        :reply
+      )
+
+    episode = Repo.get!(Responder.Episodes.Episode, turn.episode_id)
+    secret = "trace-password-that-must-not-render"
+    previous = Application.get_env(:responder, :episode_trace_test)
+    Application.put_env(:responder, :episode_trace_test, %{token: secret})
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:responder, :episode_trace_test),
+        else: Application.put_env(:responder, :episode_trace_test, previous)
+    end)
+
+    document = %{
+      "delivery" => "reply",
+      "message" =>
+        "Done. password=#{secret} https://operator:private@example.com/result?token=hidden#fragment",
+      "outcome" => %{"artifact_refs" => ["artifact:one"], "record_refs" => []}
+    }
+
+    Repo.update_all(
+      from(saved in Responder.Work.Turn, where: saved.id == ^turn.id),
+      set: [delivery_document: document]
+    )
+
+    assert {:ok, pending} = Projection.episode(episode.key)
+    assert Enum.any?(pending.trace.steps, &(&1.title == "Reply delivery pending"))
+    assert Enum.any?(pending.trace.steps, &(&1.summary =~ "waiting for transport"))
+    accepted = Enum.find(pending.trace.steps, &(&1.title == "Turn 1 result accepted"))
+    accepted_details = Map.new(accepted.details, &{&1.label, &1.value})
+    assert accepted.summary == "Done. password=[redacted] https://example.com/result"
+    assert accepted_details["Reply preview"] == accepted.summary
+    rendered = inspect(accepted, limit: :infinity, printable_limit: :infinity)
+    refute rendered =~ secret
+    refute rendered =~ "operator:private"
+    refute rendered =~ "token=hidden"
+
+    assert {:ok, delivery} = Custody.claim_next("trace:delivery", 60, :delivery)
+
+    assert {:ok, receipt} =
+             DeliveryReceipt.new(
+               turn.delivery_ref,
+               episode.destination_transport,
+               episode.destination_conversation_ref,
+               episode.destination_thread_ref,
+               "message:trace:#{turn.id}"
+             )
+
+    assert {:ok, settled} =
+             Custody.confirm_delivery(
+               episode.id,
+               episode.key,
+               turn.turn_ref,
+               delivery.lease_ref,
+               receipt
+             )
+
+    assert settled.turn.status == :settled
+    assert {:ok, delivered} = Projection.episode(episode.key)
+    assert Enum.any?(delivered.trace.steps, &(&1.title == "Reply delivered"))
+    assert Enum.any?(delivered.trace.steps, &(&1.summary =~ "exact destination"))
+  end
+
   test "projects every kernel lifecycle and blocked work custody without model payloads" do
     working = start_episode!("working")
 
@@ -156,6 +575,83 @@ defmodule Responder.ControlPlane.ProjectionTest do
              Custody.pin_episode(working.episode.id, "policy:read", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("control-plane:test", 60, :work)
+
+    record_activity!(working.episode.id, session.id, 1, "model.thought", %{})
+
+    record_activity!(working.episode.id, session.id, 2, "tool.started", %{
+      "input" => %{
+        "operation" => "nomad.job_status",
+        "server" => "emisar",
+        "tool" => "run_action"
+      },
+      "tool_call_id" => "tool:nomad"
+    })
+
+    record_activity!(working.episode.id, session.id, 3, "tool.completed", %{
+      "status" => "completed",
+      "tool_call_id" => "tool:nomad"
+    })
+
+    record_activity!(working.episode.id, session.id, 4, "tool.completed", %{
+      "status" => "failed",
+      "tool_call_id" => "tool:orphan"
+    })
+
+    record_activity!(working.episode.id, session.id, 5, "model.plan", %{"step_count" => 2})
+
+    record_activity!(working.episode.id, session.id, 6, "permission.decided", %{
+      "option_kind" => "cancel",
+      "outcome" => "cancelled",
+      "tool_call_id" => "tool:permission"
+    })
+
+    record_activity!(working.episode.id, session.id, 7, "activity.elided", %{
+      "dropped" => 12
+    })
+
+    record_activity!(working.episode.id, session.id, 8, "provider.backoff", %{
+      "reset_at" => "2026-08-28T12:05:00Z",
+      "target" => "codex:gpt-5.6-sol/medium"
+    })
+
+    record_activity!(working.episode.id, session.id, 9, "provider.alive", %{
+      "bytes" => 4_096,
+      "frames" => 8
+    })
+
+    record_activity!(working.episode.id, session.id, 10, "tool.started", %{
+      "input" => %{
+        "arguments" => %{
+          "cmd" => "git status --short",
+          "token" => "must-not-render-tool-secret"
+        }
+      },
+      "kind" => "command",
+      "title" => "Inspect repository status",
+      "tool_call_id" => "tool:status"
+    })
+
+    record_activity!(working.episode.id, session.id, 11, "custom.notice", %{})
+    record_activity!(working.episode.id, session.id, 12, "tool.started", %{})
+    record_activity!(working.episode.id, session.id, 13, "permission.decided", %{})
+    record_activity!(working.episode.id, session.id, 14, "provider.backoff", %{})
+    record_activity!(working.episode.id, session.id, 15, "provider.alive", %{})
+
+    record_activity!(working.episode.id, session.id, 16, "model.plan", %{"entries" => ["invalid"]})
+
+    record_activity!(working.episode.id, session.id, 17, "permission.decided", %{
+      "outcome" => "selected"
+    })
+
+    record_activity!(working.episode.id, session.id, 18, "provider.alive", %{
+      "detail" => String.duplicate("x", 600),
+      "items" => [1, "frame", %{"token" => "must-not-render-nested-secret"}],
+      "optional" => nil
+    })
+
+    record_activity!(working.episode.id, session.id, 19, "tool.started", %{
+      "input" => %{"path" => "lib/responder/control_plane"}
+    })
 
     assert {:ok, progress} =
              Records.create(Records.token(claim.turn), "progress-one", "progress", %{
@@ -177,10 +673,87 @@ defmodule Responder.ControlPlane.ProjectionTest do
                "writable_repository" => nil
              })
 
+    assert {:ok, _evidence} =
+             Records.create(Records.token(claim.turn), "evidence-one", "evidence", %{
+               "claim_id" => "runtime.ready",
+               "observation" => "The current allocation is healthy.",
+               "source_name" => "Nomad",
+               "source_type" => "monitoring"
+             })
+
+    assert {:ok, _coverage} =
+             Records.create(Records.token(claim.turn), "coverage-one", "coverage", %{
+               "claim_ids" => ["runtime.ready"],
+               "detail" => "The active allocation was inspected.",
+               "layer" => "runtime",
+               "observed_at" => DateTime.to_iso8601(@now),
+               "source" => "Nomad",
+               "status" => "healthy"
+             })
+
+    assert {:ok, _goal_state} =
+             Records.create(Records.token(claim.turn), "goal-state-one", "goal_state", %{
+               "goal_id" => "verify-runtime",
+               "state" => "blocked"
+             })
+
+    assert {:ok, _input_request} =
+             Records.create(Records.token(claim.turn), "input-request-one", "input_request", %{
+               "choices" => ["Retry", "Stop"],
+               "question" => "How should the operator proceed?"
+             })
+
+    assert {:ok, _event_wait} =
+             Records.create(Records.token(claim.turn), "event-wait-one", "event_wait", %{
+               "deadline_at" => "2099-01-01T00:00:00.000000Z",
+               "event_matcher" => %{"deployment" => "release-1"},
+               "kind" => "deployment",
+               "verification" => "Verify the deployed revision."
+             })
+
     assert [%{status: :active, summary: "no repository"}] = Projection.workspaces(%{})
 
     assert {:ok, detail} = Projection.episode(working.episode.key)
-    assert Enum.map(detail.records, & &1.summary) == [progress.operation_id, goal.subject_ref]
+    assert Enum.flat_map(detail.trace.chapters, & &1.steps) == detail.trace.steps
+
+    assert Enum.map(detail.trace.chapters, & &1.band) ==
+             detail.trace.steps
+             |> Enum.chunk_by(& &1.band)
+             |> Enum.map(&List.first(&1).band)
+
+    assert progress.operation_id in Enum.map(detail.records, & &1.summary)
+    assert goal.subject_ref in Enum.map(detail.records, & &1.summary)
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Progress · investigating"))
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Goal recorded"))
+    assert Enum.any?(detail.trace.steps, &(&1.stage == "Evidence"))
+    assert Enum.any?(detail.trace.steps, &(&1.stage == "Coverage"))
+    assert Enum.any?(detail.trace.steps, &(&1.stage == "Plan" and &1.state == "open"))
+    assert Enum.any?(detail.trace.steps, &(&1.stage == "Wait"))
+
+    assert Enum.any?(
+             detail.trace.steps,
+             &(&1.title == "emisar · nomad.job_status" and &1.duration_ms == 1_000)
+           )
+
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Model reasoning checkpoint"))
+
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Model plan updated"))
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Tool permission decided"))
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Some activity was elided"))
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Provider rate limit"))
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Provider is still responding"))
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Custom.notice"))
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Tool call"))
+    refute inspect(detail.trace) =~ "must-not-render"
+    refute inspect(detail.trace) =~ "password"
+    refute inspect(detail.trace) =~ "token=private"
+
+    assert Enum.any?(
+             detail.trace.metrics,
+             &(&1.label == "Tool calls" and &1.value == "4")
+           )
+
+    assert detail.trace.activity == %{shown: 19, tool_calls: 4, total: 19, truncated: false}
 
     assert {:ok, %{status: :pending}} =
              Custody.request_block(
@@ -211,6 +784,15 @@ defmodule Responder.ControlPlane.ProjectionTest do
                cancellation_claim.lease_ref,
                cancellation_receipt
              )
+
+    assert {:ok, blocked_detail} = Projection.episode(working.episode.key)
+    assert blocked_detail.trace.stopped.headline == "Work needs operator recovery"
+    assert blocked_detail.episode.next_action == "operator recovery"
+
+    assert blocked_detail.trace.stopped.href ==
+             "/failures/work/#{URI.encode(working.episode.key, &URI.char_unreserved?/1)}"
+
+    assert "1 Work claim" in blocked_detail.trace.stopped.attempted
 
     waiting_event = start_episode!("waiting-event")
 
@@ -262,6 +844,64 @@ defmodule Responder.ControlPlane.ProjectionTest do
                })
              )
 
+    transferred = start_episode!("transferred")
+
+    assert {:ok, transferred} =
+             Episodes.apply(
+               EpisodeFixtures.transfer_owner(%{
+                 episode_key: transferred.episode.key,
+                 expected_owner: %{kind: :turn, ref: transferred.episode.owner_ref},
+                 new_owner: %{kind: :turn, ref: "replacement:#{transferred.episode.id}"},
+                 transfer_ref: "transfer:#{transferred.episode.id}"
+               })
+             )
+
+    assert {:ok, transferred_detail} = Projection.episode(transferred.episode.key)
+    assert Enum.any?(transferred_detail.trace.steps, &(&1.title == "Owner transferred"))
+
+    resumed = start_episode!("resumed")
+    wait_ref = "wait:input:#{resumed.episode.id}"
+
+    assert {:ok, _waiting} =
+             Episodes.apply(
+               EpisodeFixtures.start_wait(%{
+                 episode_key: resumed.episode.key,
+                 expected_turn_ref: resumed.episode.owner_ref,
+                 kind: :input,
+                 wait_ref: wait_ref
+               })
+             )
+
+    answer =
+      EpisodeFixtures.admit_input(%{
+        destination: %{
+          conversation_ref: resumed.episode.destination_conversation_ref,
+          thread_ref: resumed.episode.destination_thread_ref,
+          transport: resumed.episode.destination_transport
+        },
+        episode_id: resumed.episode.id,
+        episode_key: resumed.episode.key,
+        native_input_id: "resume-input:#{resumed.episode.id}",
+        payload: %{"text" => "Continue without exposing this input."},
+        turn_ref: "ignored:#{resumed.episode.id}"
+      })
+
+    assert {:ok, _queued_answer} = Episodes.apply(answer)
+
+    assert {:ok, resumed} =
+             Episodes.apply(
+               EpisodeFixtures.resume_wait(%{
+                 episode_key: resumed.episode.key,
+                 expected_wait: %{kind: :input, ref: wait_ref},
+                 resolution_ref: Command.dedupe_key(answer),
+                 turn_ref: "resumed:#{resumed.episode.id}"
+               })
+             )
+
+    assert {:ok, resumed_detail} = Projection.episode(resumed.episode.key)
+    assert Enum.any?(resumed_detail.trace.steps, &(&1.title == "Wait resumed"))
+    refute inspect(resumed_detail.trace) =~ "Continue without exposing"
+
     overview = Projection.overview()
     assert overview.counts.blocked == 1
 
@@ -275,6 +915,40 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert %{next_action: "deliver_result"} = listed_episode(delivery.episode.key)
     assert %{next_action: "complete"} = listed_episode(complete.episode.key)
     assert %{next_action: "cancelled"} = listed_episode(cancelled.episode.key)
+
+    assert {:ok, waiting_detail} = Projection.episode(waiting_event.episode.key)
+    assert waiting_detail.trace.stopped.headline == "Waiting for an external event"
+
+    assert {:ok, delivery_detail} = Projection.episode(delivery.episode.key)
+    assert Enum.any?(delivery_detail.trace.steps, &(&1.title == "Result accepted"))
+
+    assert {:ok, complete_detail} = Projection.episode(complete.episode.key)
+    assert Enum.any?(complete_detail.trace.steps, &(&1.title == "Result accepted"))
+
+    assert {:ok, cancelled_detail} = Projection.episode(cancelled.episode.key)
+    assert cancelled_detail.trace.stopped.headline == "Episode cancelled"
+
+    assert {:ok, _reaction} =
+             Episodes.apply(
+               EpisodeFixtures.record_reaction(%{
+                 episode_key: delivery.episode.key,
+                 event_ref: "reaction:#{delivery.episode.id}",
+                 target_delivery_ref: "delivery:#{delivery.episode.id}"
+               })
+             )
+
+    assert {:ok, delivered} =
+             Episodes.apply(
+               EpisodeFixtures.confirm_delivery(%{
+                 episode_key: delivery.episode.key,
+                 expected_delivery_ref: "delivery:#{delivery.episode.id}"
+               })
+             )
+
+    assert delivered.episode.state == :complete
+    assert {:ok, delivered_detail} = Projection.episode(delivery.episode.key)
+    assert Enum.any?(delivered_detail.trace.steps, &(&1.title == "Delivery confirmed"))
+    assert Enum.any?(delivered_detail.trace.steps, &(&1.title == "Reaction recorded"))
 
     assert {:ok,
             [
@@ -413,6 +1087,69 @@ defmodule Responder.ControlPlane.ProjectionTest do
     )
 
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    assert {:ok, %{action: post_action}} =
+             PlatformActionCustody.enqueue(claim, %{
+               conversation_ref: "slack:T123:C456",
+               document: %{"message" => "A bounded follow-up."},
+               host_slot: "post",
+               kind: :message,
+               source_item_ref: nil,
+               thread_ref: "1787832000.000100",
+               tool: :post_slack_message,
+               transport: "slack"
+             })
+
+    assert {:ok, %{action: slack_reaction}} =
+             PlatformActionCustody.enqueue(claim, %{
+               conversation_ref: "slack:T123:C456",
+               document: %{"action" => "add", "emoji_name" => "eyes"},
+               host_slot: "slack-reaction",
+               kind: :reaction,
+               source_item_ref: "1787832000.000100",
+               thread_ref: "1787832000.000100",
+               tool: :set_slack_reaction,
+               transport: "slack"
+             })
+
+    slack_reaction
+    |> Ecto.Changeset.change(%{
+      last_error_code: "rate_limited",
+      last_error_detail: "private platform diagnostic",
+      status: :blocked
+    })
+    |> Repo.update!()
+
+    assert {:ok, %{action: github_reaction}} =
+             PlatformActionCustody.enqueue(claim, %{
+               conversation_ref: "github:example/responder:pull:42",
+               document: %{"action" => "add", "emoji_name" => "eyes"},
+               host_slot: "github-reaction",
+               kind: :reaction,
+               source_item_ref: "review:123",
+               thread_ref: nil,
+               tool: :set_github_reaction,
+               transport: "github"
+             })
+
+    github_receipt = %{
+      "conversation_ref" => github_reaction.conversation_ref,
+      "delivery_ref" => github_reaction.action_ref,
+      "message_ref" => github_reaction.source_item_ref,
+      "thread_ref" => nil,
+      "transport" => "github"
+    }
+
+    github_reaction
+    |> Ecto.Changeset.change(%{
+      delivered_at: now,
+      external_receipt: github_receipt,
+      external_receipt_fingerprint: CanonicalJSON.digest(github_receipt),
+      status: :delivered
+    })
+    |> Repo.update!()
+
+    assert post_action.status == :pending
 
     configuration =
       %{
@@ -621,6 +1358,37 @@ defmodule Responder.ControlPlane.ProjectionTest do
       last_seen_at: now
     })
 
+    placement =
+      Repo.insert!(%Placement{
+        episode_id: source.episode.id,
+        generation: 1,
+        id: Ecto.UUID.generate(),
+        last_acked_event_sequence: 0,
+        lease_expires_at: DateTime.add(now, 60, :second),
+        lease_ref: "placement:operator",
+        requirements: %{},
+        requirements_fingerprint: CanonicalJSON.digest(%{}),
+        session_id: session.id,
+        state: :active,
+        worker_id: "operator-worker"
+      })
+
+    for {sequence, kind, payload} <- [
+          {1, "turn", %{"state" => "running"}},
+          {2, "candidate", %{}}
+        ] do
+      Repo.insert!(%Event{
+        kind: kind,
+        payload: payload,
+        payload_fingerprint: CanonicalJSON.digest(payload),
+        placement_generation: placement.generation,
+        placement_id: placement.id,
+        sequence: sequence,
+        session_id: session.id,
+        worker_id: placement.worker_id
+      })
+    end
+
     assert [
              %{
                publication_ref: "publication:operator:newer",
@@ -721,6 +1489,20 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert receipt.version == 2
     assert receipt.remote_identity == "origin"
     refute inspect(repository) =~ "must-not-render"
+
+    assert {:ok, episode_detail} = Projection.episode(source.episode.key)
+    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Operator incident"))
+    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Operator publication"))
+    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Newer operator publication"))
+    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Operator schedule"))
+    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Worker · turn"))
+    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Worker · candidate"))
+    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Additional message"))
+    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Slack reaction"))
+    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "GitHub reaction"))
+    refute inspect(episode_detail.trace) =~ "private-incident-marker"
+    refute inspect(episode_detail.trace) =~ "must-not-render-publication"
+    refute inspect(episode_detail.trace) =~ "private platform diagnostic"
   end
 
   test "model calibration attributes the admitted work class to the exact accepted turn" do
@@ -1019,7 +1801,24 @@ defmodule Responder.ControlPlane.ProjectionTest do
     |> Enum.find(&(&1.ref == ref))
   end
 
-  defp measured_turn!(suffix, target, accepted_at, usage? \\ true) do
+  defp record_activity!(episode_id, session_id, sequence, kind, payload) do
+    %ActivityEvent{
+      coop_turn_id: "remote-turn:#{session_id}",
+      episode_id: episode_id,
+      kind: kind,
+      occurred_at: DateTime.add(@now, sequence, :second),
+      payload: payload,
+      payload_fingerprint: CanonicalJSON.digest(payload),
+      remote_event_id: "trace-event:#{session_id}:#{sequence}",
+      remote_session_id: "remote-session:#{session_id}",
+      sequence: sequence,
+      session_id: session_id,
+      version: 1
+    }
+    |> Repo.insert!()
+  end
+
+  defp measured_turn!(suffix, target, accepted_at, usage? \\ true, delivery \\ :none) do
     transition = start_episode!("usage-#{suffix}")
 
     assert {:ok, session} =
@@ -1061,11 +1860,14 @@ defmodule Responder.ControlPlane.ProjectionTest do
                "remote:turn:#{turn.id}"
              )
 
+    message = if(delivery == :reply, do: "Investigation complete.")
+    decision_reason = if(delivery == :none, do: "No visible reply is required.")
+
     candidate =
       Jason.encode!(%{
-        "decision_reason" => "No visible reply is required.",
-        "delivery" => "none",
-        "message" => nil,
+        "decision_reason" => decision_reason,
+        "delivery" => Atom.to_string(delivery),
+        "message" => message,
         "outcome" => %{
           "artifact_refs" => [],
           "record_refs" => [],
@@ -1087,7 +1889,13 @@ defmodule Responder.ControlPlane.ProjectionTest do
                1
              )
 
-    assert {:ok, result} = Result.new(:none, nil, "No visible reply is required.")
+    result =
+      case delivery do
+        :none -> Result.new(:none, nil, decision_reason)
+        :reply -> Result.new(:reply, %{"message" => message})
+      end
+
+    assert {:ok, result} = result
 
     assert {:ok, _turn} =
              Custody.prepare_validation(

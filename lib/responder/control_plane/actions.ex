@@ -8,7 +8,7 @@ defmodule Responder.ControlPlane.Actions do
   alias Responder.Episodes
   alias Responder.Episodes.{Command, Episode}
   alias Responder.Ingress.WorkProfile
-  alias Responder.Operator.Failures
+  alias Responder.Operator.{EpisodeReviews, Failures}
   alias Responder.Publication.Custody, as: PublicationCustody
   alias Responder.Publication.{Followups, Operator, Publication}
   alias Responder.Repo
@@ -45,6 +45,7 @@ defmodule Responder.ControlPlane.Actions do
       discard_retention: &discard_retention/1,
       edit_lab_message: lab_message_editor(work_profile),
       forget_memory: &Memories.forget/1,
+      resolve_episode: &resolve_episode/1,
       resolve_memory_review: &resolve_memory_review/3,
       rearm_admission: &retry_failure("admission", &1),
       rearm_delivery: &retry_failure("delivery", &1),
@@ -54,6 +55,7 @@ defmodule Responder.ControlPlane.Actions do
       rearm_slack_interaction: &retry_failure("slack_interaction", &1),
       react_to_lab_message: &ConversationLab.react_to_message/4,
       retry_work: &retry_failure("work", &1),
+      review_episode: &EpisodeReviews.review(&1, @actor_ref),
       run_schedule: run_schedule(schedule_policy_resolver),
       send_lab_message: lab_sender(work_profile),
       set_behavior_status: &Behaviors.set_status/2,
@@ -97,6 +99,55 @@ defmodule Responder.ControlPlane.Actions do
       actor_ref: @actor_ref
     )
   end
+
+  defp resolve_episode(episode_key) do
+    episode_key
+    |> then(&Repo.get_by(Episode, key: &1))
+    |> resolve_episode_record()
+  end
+
+  defp resolve_episode_record(
+         %Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref} = episode
+       ) do
+    episode.id
+    |> then(&Repo.get_by(Turn, episode_id: &1, turn_ref: turn_ref))
+    |> resolve_blocked_episode(episode, turn_ref)
+  end
+
+  defp resolve_episode_record(
+         %Episode{state: state, owner_kind: owner_kind, owner_ref: owner_ref} = episode
+       )
+       when state in [:waiting_for_input, :waiting_for_event] and owner_kind in [:input, :event] do
+    %Command.CancelEpisode{
+      cancel_ref: resolve_action_ref(),
+      episode_key: episode.key,
+      expected_owner: %{kind: owner_kind, ref: owner_ref},
+      occurred_at: now(),
+      reason: "Closed by the local operator as no longer needed."
+    }
+    |> Episodes.apply()
+    |> resolved_episode_result()
+  end
+
+  defp resolve_episode_record(%Episode{}), do: {:error, :episode_not_resolvable}
+  defp resolve_episode_record(nil), do: {:error, :episode_not_found}
+
+  defp resolve_blocked_episode(%Turn{status: :blocked}, episode, turn_ref) do
+    Custody.request_cancel(
+      episode.id,
+      episode.key,
+      turn_ref,
+      resolve_action_ref(),
+      "Closed by the local operator as no longer needed."
+    )
+  end
+
+  defp resolve_blocked_episode(_not_blocked, _episode, _turn_ref),
+    do: {:error, :episode_not_resolvable}
+
+  defp resolved_episode_result({:ok, transition}), do: {:ok, transition.episode}
+  defp resolved_episode_result({:error, _reason} = error), do: error
+  defp resolve_action_ref, do: "control-plane:resolve:#{Ecto.UUID.generate()}"
 
   defp lab_task_record_view(work_view_options) do
     fn conversation_id, record_ref, view, params ->

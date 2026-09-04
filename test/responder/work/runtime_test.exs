@@ -22,15 +22,22 @@ defmodule Responder.Work.RuntimeTest do
     assert configuration[:concurrency] == 3
 
     assert {:ok, {_flags, workers}} = Runtime.init(configuration)
-    assert length(workers) == 3
+    assert length(workers) == 4
 
     assert Enum.map(workers, & &1.id) == [
+             Responder.Work.ActivitySyncWorker,
              {Responder.Work.Worker, 1},
              {Responder.Work.Worker, 2},
              {Responder.Work.Worker, 3}
            ]
 
-    workers
+    [sync_worker | work_workers] = workers
+
+    assert {Responder.Work.ActivitySyncWorker, :start_link, [sync_options]} = sync_worker.start
+    assert sync_options[:api] == Responder.Coop.Client
+    assert sync_options[:poll_interval_ms] == 500
+
+    work_workers
     |> Enum.with_index(1)
     |> Enum.each(fn {worker, index} ->
       assert {Responder.Work.Worker, :start_link, [options]} = worker.start

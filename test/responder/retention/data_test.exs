@@ -25,7 +25,7 @@ defmodule Responder.Retention.DataTest do
     ScheduleOccurrenceChangeset
   }
 
-  alias Responder.Work.{Custody, Result, Session, Submission, Turn}
+  alias Responder.Work.{Activity, ActivityEvent, Custody, Result, Session, Submission, Turn}
 
   @old ~U[2020-01-01 00:00:00.000000Z]
 
@@ -183,6 +183,7 @@ defmodule Responder.Retention.DataTest do
   test "episode history is indivisible, pinned while live work depends on it, and audit survives longer" do
     eligible = settled_work!("history") |> discard_session!()
     pinned = settled_work!("pinned") |> discard_session!()
+    insert_activity!(eligible, "history")
     insert_open_record!(pinned)
     backdate_history!(eligible, 120)
     backdate_history!(pinned, 120)
@@ -201,6 +202,13 @@ defmodule Responder.Retention.DataTest do
 
     assert %DateTime{} =
              Repo.get!(Responder.Episodes.Episode, eligible.episode.id).history_pruned_at
+
+    assert Repo.aggregate(
+             from(activity in ActivityEvent,
+               where: activity.episode_id == ^eligible.episode.id
+             ),
+             :count
+           ) == 0
 
     assert Repo.get!(Session, eligible.session.id).cleanup_receipt["kind"] == "discarded"
 
@@ -547,6 +555,22 @@ defmodule Responder.Retention.DataTest do
       )
 
     %{work | session: Repo.get!(Session, work.session.id)}
+  end
+
+  defp insert_activity!(work, suffix) do
+    assert {:ok, %{cursor: 1, inserted: 1}} =
+             Activity.ingest(work.session.id, [
+               %{
+                 "id" => "activity:#{suffix}",
+                 "occurred_at" => "2020-01-01T00:00:00.000000Z",
+                 "payload" => %{"text" => "Checked #{suffix}."},
+                 "sequence" => 1,
+                 "session_id" => work.session.coop_session_id,
+                 "turn_id" => work.turn.coop_turn_id,
+                 "type" => "model.thought",
+                 "version" => 1
+               }
+             ])
   end
 
   defp insert_open_record!(work) do

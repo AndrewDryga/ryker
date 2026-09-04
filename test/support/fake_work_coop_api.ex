@@ -9,6 +9,9 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
     Agent.start_link(fn ->
       %{
         candidates: candidates,
+        activity_error: Keyword.get(options, :activity_error),
+        activity_events: Keyword.get(options, :activity_events, []),
+        activity_requests: [],
         bindings: [],
         cancel_keys: [],
         changes: Keyword.get(options, :changes, []),
@@ -447,6 +450,26 @@ defmodule Responder.TestSupport.FakeWorkCoopAPI do
 
   @impl true
   def get_turn(agent, _session_id, _turn_id), do: {:ok, Agent.get(agent, & &1.turn)}
+
+  @impl true
+  def list_events(agent, session_id, after_sequence, limit) do
+    result =
+      Agent.get_and_update(agent, fn state ->
+        events =
+          state.activity_events
+          |> Enum.filter(&(&1["session_id"] == session_id and &1["sequence"] > after_sequence))
+          |> Enum.sort_by(& &1["sequence"])
+          |> Enum.take(limit)
+
+        {if(state.activity_error, do: {:error, state.activity_error}, else: {:ok, events}),
+         %{
+           state
+           | activity_requests: state.activity_requests ++ [{session_id, after_sequence, limit}]
+         }}
+      end)
+
+    result
+  end
 
   @impl true
   def get_output_artifact(agent, _session_id, _turn_id, artifact_id) do

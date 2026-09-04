@@ -2071,7 +2071,7 @@ defmodule Responder.Work.Custody do
     case validation_intent_ready(intent) do
       :ok ->
         turn
-        |> TurnChangeset.prepare_validation(intent, fingerprint)
+        |> TurnChangeset.prepare_validation(intent, fingerprint, database_now!())
         |> Repo.update()
         |> unwrap_or_rollback(:work_validation_intent)
 

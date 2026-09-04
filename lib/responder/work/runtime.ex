@@ -11,7 +11,7 @@ defmodule Responder.Work.Runtime do
   use Supervisor
 
   alias Responder.Coop.Client
-  alias Responder.Work.{Session, StateBinding, Turn, Worker}
+  alias Responder.Work.{ActivitySyncWorker, Session, StateBinding, Turn, Worker}
 
   @fields [
     :api,
@@ -53,7 +53,7 @@ defmodule Responder.Work.Runtime do
   def init(configuration) do
     options = options!(configuration)
 
-    children =
+    workers =
       for slot <- 1..options.concurrency do
         worker_options = [
           dispatcher_options: [
@@ -75,6 +75,15 @@ defmodule Responder.Work.Runtime do
 
         Supervisor.child_spec({Worker, worker_options}, id: {Worker, slot})
       end
+
+    children =
+      [
+        Supervisor.child_spec(
+          {ActivitySyncWorker,
+           api: options.api, client: options.client, poll_interval_ms: options.poll_interval_ms},
+          id: ActivitySyncWorker
+        )
+      ] ++ workers
 
     Supervisor.init(children, strategy: :one_for_one)
   end

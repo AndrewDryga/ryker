@@ -1,7 +1,9 @@
 defmodule Responder.ControlPlane.ActionsTest do
-  use Responder.DataCase, async: true
+  use Responder.DataCase, async: false
 
   alias Responder.ControlPlane.Actions
+  alias Responder.Episodes
+  alias Responder.Fixtures.Episodes, as: EpisodeFixtures
 
   test "local retention callbacks fail closed while preserving audited action identity" do
     callbacks = Actions.callbacks()
@@ -20,5 +22,67 @@ defmodule Responder.ControlPlane.ActionsTest do
 
     configured = Actions.callbacks(nil, %{}, %{}, fn _schedule -> {:ok, %{name: "policy"}} end)
     assert configured.run_schedule.("missing-schedule") == {:error, :schedule_not_found}
+  end
+
+  test "episode controls resolve waits and review the exact terminal semantic version" do
+    callbacks = Actions.callbacks()
+    waiting = start_episode!("resolve")
+    wait_ref = "wait:resolve:#{waiting.episode.id}"
+
+    assert {:ok, _waiting} =
+             Episodes.apply(
+               EpisodeFixtures.start_wait(%{
+                 episode_key: waiting.episode.key,
+                 expected_turn_ref: waiting.episode.owner_ref,
+                 kind: :input,
+                 wait_ref: wait_ref
+               })
+             )
+
+    assert {:ok, %{state: :cancelled}} = callbacks.resolve_episode.(waiting.episode.key)
+
+    assert callbacks.resolve_episode.(waiting.episode.key) ==
+             {:error, :episode_not_resolvable}
+
+    complete = start_episode!("review")
+
+    assert {:ok, completed} =
+             Episodes.apply(
+               EpisodeFixtures.accept_result(%{
+                 decision_reason: "No visible reply is required.",
+                 delivery: :none,
+                 delivery_ref: nil,
+                 episode_key: complete.episode.key,
+                 expected_turn_ref: complete.episode.owner_ref,
+                 result_ref: "result:review:#{complete.episode.id}"
+               })
+             )
+
+    assert {:ok, %{review: review, status: :recorded}} =
+             callbacks.review_episode.(complete.episode.key)
+
+    assert review.semantic_version == completed.episode.semantic_version
+    assert review.actor_ref == "control-plane:local"
+
+    assert {:ok, %{review: replayed, status: :duplicate}} =
+             callbacks.review_episode.(complete.episode.key)
+
+    assert replayed.id == review.id
+  end
+
+  defp start_episode!(suffix) do
+    id = Ecto.UUID.generate()
+
+    {:ok, transition} =
+      Episodes.apply(
+        EpisodeFixtures.admit_input(%{
+          episode_id: id,
+          episode_key: "control-plane-action:#{suffix}:#{id}",
+          native_input_id: "control-plane-action-input:#{suffix}:#{id}",
+          turn_ref: "control-plane-action-turn:#{suffix}:#{id}"
+        })
+      )
+
+    transition
   end
 end

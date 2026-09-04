@@ -369,17 +369,56 @@ defmodule Responder.Work.TurnChangeset do
     |> work_constraints()
   end
 
-  @spec prepare_validation(Turn.t(), map(), String.t()) :: Ecto.Changeset.t()
-  def prepare_validation(%Turn{} = turn, intent, fingerprint) do
+  @spec prepare_validation(Turn.t(), map(), String.t(), DateTime.t()) :: Ecto.Changeset.t()
+  def prepare_validation(%Turn{} = turn, intent, fingerprint, %DateTime{} = recorded_at) do
+    history =
+      (turn.validation_history || []) ++
+        [
+          %{
+            "candidate_attempt" => turn.candidate_attempt,
+            "candidate_sha256" => turn.candidate_sha256,
+            "intent_fingerprint" => fingerprint,
+            "parse" => candidate_parse(turn.candidate),
+            "recorded_at" => DateTime.to_iso8601(recorded_at),
+            "response_bytes" => byte_size(turn.candidate || ""),
+            "verdict" => intent["verdict"],
+            "violations" => intent["violations"] || []
+          }
+        ]
+
     turn
     |> cast(
-      %{validation_intent: intent, validation_intent_fingerprint: fingerprint},
-      [:validation_intent, :validation_intent_fingerprint]
+      %{
+        validation_history: history,
+        validation_intent: intent,
+        validation_intent_fingerprint: fingerprint
+      },
+      [:validation_history, :validation_intent, :validation_intent_fingerprint]
     )
-    |> validate_required([:validation_intent, :validation_intent_fingerprint])
+    |> validate_required([
+      :validation_history,
+      :validation_intent,
+      :validation_intent_fingerprint
+    ])
     |> validate_length(:validation_intent_fingerprint, is: 64)
+    |> validate_change(:validation_history, fn :validation_history, value ->
+      case Responder.CanonicalJSON.validate(value, max_bytes: @maximum_candidate_bytes) do
+        :ok -> []
+        {:error, _reason} -> [validation_history: "is invalid"]
+      end
+    end)
     |> work_constraints()
   end
+
+  defp candidate_parse(candidate) when is_binary(candidate) do
+    case Jason.decode(candidate) do
+      {:ok, value} when is_map(value) -> "JSON object"
+      {:ok, _value} -> "JSON value; object required"
+      {:error, _reason} -> "invalid JSON"
+    end
+  end
+
+  defp candidate_parse(_candidate), do: "not recorded"
 
   @spec advance_validation(Turn.t(), pos_integer()) :: Ecto.Changeset.t()
   def advance_validation(%Turn{} = turn, validation_generation) do

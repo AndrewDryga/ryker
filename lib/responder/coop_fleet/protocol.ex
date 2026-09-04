@@ -36,7 +36,8 @@ defmodule Responder.CoopFleet.Protocol do
   @worker_states ~w(eligible busy draining needs_auth)
   @capacity_states ~w(eligible busy cooldown needs_auth)
   @command_result_states ~w(succeeded failed uncertain)
-  @event_kinds ~w(operation session turn candidate validation workspace checkpoint capacity)
+  @event_kinds ~w(operation session turn candidate validation workspace checkpoint capacity session_event)
+  @activity_event_kinds ~w(tool.started tool.completed model.plan model.thought permission.decided activity.elided provider.backoff provider.alive)
   @reference ~r/\A[A-Za-z0-9_.:-]+\z/
 
   @spec version() :: 1
@@ -266,7 +267,8 @@ defmodule Responder.CoopFleet.Protocol do
          :ok <- positive(document["placement_generation"], :placement_generation),
          :ok <- nonnegative(document["after_sequence"], :after_sequence),
          {:ok, events} <- list(document["events"], :events, :poll, &event/1),
-         :ok <- ordered_events(events, document["after_sequence"]) do
+         :ok <- ordered_events(events, document["after_sequence"]),
+         :ok <- one_event_mode(events) do
       {:ok, Map.put(document, "events", events)}
     end
   end
@@ -277,12 +279,50 @@ defmodule Responder.CoopFleet.Protocol do
     with :ok <- exact_fields(document, ~w(sequence kind payload), :event),
          :ok <- positive(document["sequence"], :event_sequence),
          :ok <- enum(document["kind"], @event_kinds, :event_kind),
-         :ok <- payload(document["payload"], :event_payload) do
+         :ok <- payload(document["payload"], :event_payload),
+         :ok <- session_event(document["kind"], document["sequence"], document["payload"]) do
       {:ok, document}
     end
   end
 
   defp event(_document), do: {:error, {:invalid_coop_worker_poll, :event}}
+
+  defp session_event("session_event", sequence, %{} = document) do
+    allowed = ~w(id session_id sequence turn_id type version occurred_at payload)
+    required = ~w(id session_id sequence type version occurred_at)
+
+    with true <- Map.keys(document) -- allowed == [],
+         true <- Enum.all?(required, &Map.has_key?(document, &1)),
+         :ok <- reference(document["id"], 1_024, :session_event_id),
+         :ok <- reference(document["session_id"], 1_024, :session_event_session_id),
+         :ok <- optional_reference(document["turn_id"], 1_024, :session_event_turn_id),
+         :ok <- reference(document["type"], 128, :session_event_type),
+         :ok <- positive(document["version"], :session_event_version),
+         true <- document["version"] <= 65_535,
+         {:ok, _occurred_at} <- timestamp(document["occurred_at"], :session_event_occurred_at),
+         :ok <-
+           session_event_payload(document["type"], Map.get(document, "payload")),
+         true <- document["sequence"] == sequence do
+      :ok
+    else
+      false -> {:error, {:invalid_coop_worker_protocol, :session_event_sequence}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp session_event("session_event", _sequence, _document),
+    do: {:error, {:invalid_coop_worker_protocol, :session_event}}
+
+  defp session_event(_kind, _sequence, _document), do: :ok
+
+  defp session_event_payload(kind, value) when kind in @activity_event_kinds,
+    do: optional_payload(value, :session_event_payload)
+
+  defp session_event_payload(_kind, nil), do: :ok
+  defp session_event_payload(_kind, value) when value == %{}, do: :ok
+
+  defp session_event_payload(_kind, _value),
+    do: {:error, {:invalid_coop_worker_protocol, :session_event_payload}}
 
   defp command(%{} = document) do
     fields =
@@ -392,6 +432,9 @@ defmodule Responder.CoopFleet.Protocol do
   defp reference(_value, _maximum, field),
     do: {:error, {:invalid_coop_worker_protocol, field}}
 
+  defp optional_reference(nil, _maximum, _field), do: :ok
+  defp optional_reference(value, maximum, field), do: reference(value, maximum, field)
+
   defp digest(value, field) when is_binary(value) and byte_size(value) == 64 do
     if value == String.downcase(value) and String.match?(value, ~r/\A[0-9a-f]{64}\z/),
       do: :ok,
@@ -471,6 +514,14 @@ defmodule Responder.CoopFleet.Protocol do
     if sequences == expected,
       do: :ok,
       else: {:error, {:invalid_coop_worker_poll, :event_sequence}}
+  end
+
+  defp one_event_mode(events) do
+    session_events = Enum.count(events, &(&1["kind"] == "session_event"))
+
+    if session_events in [0, length(events)],
+      do: :ok,
+      else: {:error, {:invalid_coop_worker_poll, :event_batch}}
   end
 
   defp error_namespace(scope)

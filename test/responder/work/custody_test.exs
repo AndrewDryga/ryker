@@ -673,6 +673,16 @@ defmodule Responder.Work.CustodyTest do
     assert exact_intent_retry.validation_intent_fingerprint ==
              intent.validation_intent_fingerprint
 
+    assert [rejected_attempt] = exact_intent_retry.validation_history
+    assert rejected_attempt["candidate_attempt"] == 1
+    assert rejected_attempt["candidate_sha256"] == candidate_sha256
+    assert rejected_attempt["intent_fingerprint"] == intent.validation_intent_fingerprint
+    assert rejected_attempt["parse"] == "JSON object"
+    assert rejected_attempt["response_bytes"] == byte_size(candidate)
+    assert rejected_attempt["verdict"] == "reject"
+    assert rejected_attempt["violations"] == ["not ready"]
+    assert {:ok, _recorded_at, 0} = DateTime.from_iso8601(rejected_attempt["recorded_at"])
+
     assert {:error, {:work_validation_intent_conflict, stored_intent}} =
              Custody.prepare_validation(
                claim.episode.id,
@@ -721,6 +731,7 @@ defmodule Responder.Work.CustodyTest do
 
     assert replaced.candidate_attempt == 2
     assert replaced.validation_intent == nil
+    assert replaced.validation_history == [rejected_attempt]
   end
 
   test "outbound mutation fences reject malformed identity before invoking Coop" do
