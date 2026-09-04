@@ -648,7 +648,8 @@ defmodule Responder.Admission do
   defp maybe_resume_wait(context, selection, admit, current) do
     existing = existing_episode(selection)
 
-    if existing && waiting?(current) && Records.user_resumable_wait?(current.owner_ref) &&
+    if existing && waiting?(current) &&
+         Records.user_resumable_wait?(current.owner_ref, context.input) &&
          input_after_wait?(current, context.input.occurred_at) do
       resume = %Command.ResumeWait{
         episode_key: current.key,

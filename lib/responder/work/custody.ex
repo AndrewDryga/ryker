@@ -14,7 +14,7 @@ defmodule Responder.Work.Custody do
   alias Responder.Episodes
   alias Responder.Episodes.{Command, Episode}
   alias Responder.Repo
-  alias Responder.State.Continuity
+  alias Responder.State.{Continuity, EventSubscriptions}
 
   alias Responder.Work.{
     Cancellation,
@@ -2111,6 +2111,7 @@ defmodule Responder.Work.Custody do
            |> TurnChangeset.accept_result(attributes)
            |> Repo.update()
            |> persistence_result(:work_result),
+         {:ok, _subscription} <- EventSubscriptions.ensure_in_transaction(transition.episode),
          :ok <- Continuity.accept_staged_in_transaction(episode, session, turn, turn.result_ref) do
       %{episode: transition.episode, turn: turn}
     else
@@ -2147,7 +2148,8 @@ defmodule Responder.Work.Custody do
              delivered_at
            )
            |> Repo.update()
-           |> persistence_result(:work_delivery) do
+           |> persistence_result(:work_delivery),
+         {:ok, _subscription} <- EventSubscriptions.ensure_in_transaction(transition.episode) do
       %{episode: transition.episode, turn: turn}
     else
       {:delivered, turn} -> %{episode: episode_for_result!(episode_key), turn: turn}

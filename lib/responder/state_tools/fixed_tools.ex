@@ -1013,21 +1013,27 @@ defmodule Responder.StateTools.FixedTools do
         object(%{"at" => timestamp(), "type" => const("at")}, ~w(at type)),
         object(
           %{
+            "cursor" => nullable(%{"additionalProperties" => true, "type" => "object"}),
             "match" => %{"additionalProperties" => true, "type" => "object"},
+            "poll_after" => timestamp(),
             "source_kind" => nullable(reference(120)),
             "type" => const("source_event")
           },
-          ~w(match type)
+          ~w(match poll_after type)
         )
       ]
     }
 
-    tool("wait_for", "Create one durable event wait with a deadline and fallback.", %{
-      "deadline" => timestamp(),
-      "on_timeout" => text(2_000),
-      "trigger" => trigger,
-      "verification" => text(2_000)
-    })
+    tool(
+      "wait_for",
+      "Create one durable event wait. A source_event must include a poll_after at or before the hard deadline and may carry an opaque cursor; matching webhooks resume it first, while the poll fallback forces verification if an event is lost.",
+      %{
+        "deadline" => timestamp(),
+        "on_timeout" => text(2_000),
+        "trigger" => trigger,
+        "verification" => text(2_000)
+      }
+    )
   end
 
   defp list_automations_tool do

@@ -10,6 +10,7 @@ defmodule Responder.State.Automations do
   import Ecto.Query
 
   alias Responder.Episodes.Episode
+  alias Responder.Operator.FailureDetail
   alias Responder.Repo
 
   alias Responder.State.{
@@ -167,25 +168,54 @@ defmodule Responder.State.Automations do
 
   @spec detail(Schedule.t() | Behavior.t(), pos_integer()) :: map()
   def detail(%Schedule{} = schedule, limit) when is_integer(limit) and limit in 1..20 do
+    latest_turns =
+      from(turn in Turn,
+        distinct: turn.episode_id,
+        order_by: [asc: turn.episode_id, desc: turn.inserted_at, desc: turn.id],
+        select: %{
+          accepted_at: turn.accepted_at,
+          delivered_at: turn.delivered_at,
+          episode_id: turn.episode_id,
+          failure_code: turn.last_error_code,
+          failure_detail: turn.last_error_detail,
+          finished_at: turn.remote_finished_at,
+          started_at: turn.remote_started_at,
+          turn_status: turn.status,
+          work_attempt_count: turn.work_attempt_count
+        }
+      )
+
     runs =
       Repo.all(
         from(occurrence in ScheduleOccurrence,
           left_join: episode in Episode,
           on: episode.id == occurrence.child_episode_id,
+          left_join: turn in subquery(latest_turns),
+          on: turn.episode_id == occurrence.child_episode_id,
           where: occurrence.schedule_id == ^schedule.id,
           order_by: [desc: occurrence.scheduled_for, desc: occurrence.id],
           limit: ^limit,
           select: %{
+            "accepted_at" => turn.accepted_at,
+            "delivered_at" => turn.delivered_at,
             "episode_id" => occurrence.child_episode_id,
             "episode_state" => episode.state,
             "event_ref" => occurrence.event_ref,
+            "failure_code" => turn.failure_code,
+            "failure_detail" => turn.failure_detail,
+            "finished_at" => turn.finished_at,
             "missed_reason" => occurrence.missed_reason,
             "outcome" => occurrence.status,
             "run_ref" => occurrence.ref,
-            "scheduled_for" => occurrence.scheduled_for
+            "scheduled_for" => occurrence.scheduled_for,
+            "started_at" => turn.started_at,
+            "trigger" => occurrence.trigger,
+            "turn_status" => turn.turn_status,
+            "work_attempt_count" => turn.work_attempt_count
           }
         )
       )
+      |> Enum.map(&sanitize_run/1)
       |> Enum.map(&run_document/1)
 
     document(schedule) |> Map.put("recent_runs", runs)
@@ -690,6 +720,10 @@ defmodule Responder.State.Automations do
       {key, value} when is_atom(value) -> {key, Atom.to_string(value)}
       entry -> entry
     end)
+  end
+
+  defp sanitize_run(run) do
+    Map.update!(run, "failure_detail", &FailureDetail.project/1)
   end
 
   defp automation_kind(%Schedule{}), do: "time"

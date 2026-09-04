@@ -645,6 +645,22 @@ defmodule Responder.StateTools.RouterTest do
              {:error, "invalid_arguments"}
 
     assert Records.model_records(claim.episode.id) == []
+
+    assert Tools.call(
+             "wait_for",
+             %{
+               "deadline" => "2099-01-01T00:00:00.000000Z",
+               "on_timeout" => "Report that verification could not complete.",
+               "trigger" => %{
+                 "match" => %{"deployment" => "responder"},
+                 "poll_after" => "2099-01-01T00:05:00.000000Z",
+                 "source_kind" => "deployment",
+                 "type" => "source_event"
+               },
+               "verification" => "Verify the allocation is healthy."
+             },
+             options
+           ) == {:error, "invalid_arguments"}
   end
 
   test "automation mutations are inert, revision-fenced, scoped, and atomic as one proposal set" do
@@ -1399,7 +1415,9 @@ defmodule Responder.StateTools.RouterTest do
             "deadline" => "2099-08-29T12:00:00.000000Z",
             "on_timeout" => "Report that deployment health could not be verified.",
             "trigger" => %{
+              "cursor" => %{"deployment_id" => "responder"},
               "match" => %{"deployment" => "responder"},
+              "poll_after" => "2099-08-29T11:55:00.000000Z",
               "source_kind" => "deployment",
               "type" => "source_event"
             },
@@ -1430,6 +1448,7 @@ defmodule Responder.StateTools.RouterTest do
                "on_timeout" => "Report that verification could not complete.",
                "trigger" => %{
                  "match" => %{"deployment" => "responder"},
+                 "poll_after" => "1999-12-31T23:59:00.000000Z",
                  "source_kind" => "deployment",
                  "type" => "source_event"
                },

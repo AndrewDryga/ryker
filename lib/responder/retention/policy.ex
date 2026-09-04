@@ -109,6 +109,11 @@ defmodule Responder.Retention.Policy do
       why: "publication history owned by one publication"
     },
     %{
+      table: "episode_event_subscriptions",
+      class: :episode_history,
+      why: "webhook cursor, polling fallback, and resolution for an episode wait"
+    },
+    %{
       table: "episode_publications",
       class: :episode_history,
       why: "review and publication evidence attached to an episode"

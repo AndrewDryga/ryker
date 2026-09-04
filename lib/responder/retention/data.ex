@@ -776,6 +776,11 @@ defmodule Responder.Retention.Data do
     )
 
     execute_count(
+      "DELETE FROM episode_event_subscriptions WHERE episode_id IN (SELECT unnest($1::text[])::uuid) AND status <> 'active'",
+      params
+    )
+
+    execute_count(
       "DELETE FROM platform_actions WHERE episode_id IN (SELECT unnest($1::text[])::uuid) AND status = 'delivered'",
       params
     )

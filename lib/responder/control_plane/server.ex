@@ -10,10 +10,20 @@ defmodule Responder.ControlPlane.Server do
   alias Responder.ControlPlane.{Actions, Projection, Router}
   alias Responder.Ingress.WorkProfile
   alias Responder.Observability
+  alias Responder.State.ScheduleRuntime
 
   @loopback_v4 {127, 0, 0, 1}
   @loopback_v6 {0, 0, 0, 0, 0, 0, 0, 1}
-  @fields [:coop_api, :coop_client, :csrf_secret, :ip, :port, :task_policies, :work_profile]
+  @fields [
+    :coop_api,
+    :coop_client,
+    :csrf_secret,
+    :ip,
+    :port,
+    :schedule_policies,
+    :task_policies,
+    :work_profile
+  ]
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
@@ -25,10 +35,15 @@ defmodule Responder.ControlPlane.Server do
         {Router,
          %{
            actions:
-             Actions.callbacks(options.work_profile, options.task_policies, %{
-               coop_api: options.coop_api,
-               coop_client: options.coop_client
-             }),
+             Actions.callbacks(
+               options.work_profile,
+               options.task_policies,
+               %{
+                 coop_api: options.coop_api,
+                 coop_client: options.coop_client
+               },
+               options.schedule_policy_resolver
+             ),
            csrf_secret: options.csrf_secret,
            observability: Observability.callbacks(),
            projection: Projection.callbacks()
@@ -51,6 +66,10 @@ defmodule Responder.ControlPlane.Server do
 
     work_profile = Map.get(configuration, :work_profile)
     task_policies = Map.get(configuration, :task_policies, %{})
+
+    schedule_policy_resolver =
+      schedule_policy_resolver(Map.get(configuration, :schedule_policies))
+
     coop_api = Map.get(configuration, :coop_api)
     coop_client = Map.get(configuration, :coop_client)
 
@@ -78,6 +97,7 @@ defmodule Responder.ControlPlane.Server do
       csrf_secret: csrf_secret,
       ip: ip,
       port: port,
+      schedule_policy_resolver: schedule_policy_resolver,
       task_policies: task_policies,
       work_profile: work_profile
     }
@@ -138,6 +158,15 @@ defmodule Responder.ControlPlane.Server do
 
   defp task_policies!(_policies),
     do: raise(ArgumentError, "control-plane task policies are invalid")
+
+  defp schedule_policy_resolver(nil), do: nil
+
+  defp schedule_policy_resolver(configuration) do
+    configuration
+    |> ScheduleRuntime.options!()
+    |> Map.fetch!(:dispatcher_options)
+    |> Keyword.fetch!(:policy_resolver)
+  end
 
   defp restore_repository_context(nil), do: nil
 

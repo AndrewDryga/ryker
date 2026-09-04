@@ -465,26 +465,26 @@
     {
       "id": "schedules-run-now-replace-and-history",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "required_behavior": "Authorized Slack and control-plane actions create, replace, pause, resume, delete, and run a schedule now; each occurrence creates a fresh child episode with inspectable execution and failure history.",
       "design_capabilities": ["scheduled-and-recurring-work"],
       "origin_refs": ["internal/service/schedule.go"],
-      "implementation_refs": ["lib/responder/state/schedules.ex", "lib/responder/state/schedule_runtime.ex", "lib/responder/slack/app_home.ex", "lib/responder/slack/app_home_controls.ex"],
-      "proof_refs": ["test/responder/state/schedules_test.exs", "test/responder/state/schedule_runtime_test.exs", "test/responder/slack/app_home_test.exs", "test/responder/slack/app_home_controls_test.exs"],
-      "gap": "Recurring dispatch and Slack App Home run-now and lifecycle controls are durable; confirmed replacement, control-plane run-now, and useful execution and failure history remain incomplete.",
-      "next_task": "2026-09-04-finish-schedules-subscriptions-and-execution-his"
+      "implementation_refs": ["lib/responder/state/schedules.ex", "lib/responder/state/schedule_runtime.ex", "lib/responder/state/automations.ex", "lib/responder/slack/app_home.ex", "lib/responder/slack/app_home_controls.ex", "lib/responder/control_plane/actions.ex", "lib/responder/control_plane/operator_projection.ex"],
+      "proof_refs": ["test/responder/state/schedules_test.exs", "test/responder/state/schedule_runtime_test.exs", "test/responder/state/automations_test.exs", "test/responder/slack/app_home_test.exs", "test/responder/slack/app_home_controls_test.exs", "test/responder/control_plane/router_test.exs", "test/responder/control_plane/projection_test.exs"],
+      "gap": null,
+      "next_task": null
     },
     {
       "id": "subscriptions-and-poll-fallback",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "required_behavior": "Typed source subscriptions persist webhook cursor and polling fallback state so lost external events can wake the exact waiting episode without duplicate execution.",
       "design_capabilities": ["scheduled-and-recurring-work", "pr-checks-merge-deployment-and-verification"],
       "origin_refs": ["internal/schedule/external_poll.go"],
-      "implementation_refs": ["lib/responder/state/event_waits.ex", "lib/responder/state/event_wait_worker.ex"],
-      "proof_refs": ["test/responder/state/event_waits_test.exs", "test/responder/state/event_wait_worker_test.exs"],
-      "gap": "Exact event waits are durable, but generalized subscription ownership, cursors, and lost-event polling are not complete.",
-      "next_task": "2026-09-04-finish-schedules-subscriptions-and-execution-his"
+      "implementation_refs": ["lib/responder/state/event_subscription.ex", "lib/responder/state/event_subscriptions.ex", "lib/responder/state/event_waits.ex", "lib/responder/state/event_wait_worker.ex", "lib/responder/control_plane/operator_projection.ex"],
+      "proof_refs": ["test/responder/state/event_waits_test.exs", "test/responder/state/event_wait_worker_test.exs", "test/responder/work/result_custody_test.exs", "test/responder/control_plane/projection_test.exs"],
+      "gap": null,
+      "next_task": null
     },
     {
       "id": "repository-freshness-receipts",

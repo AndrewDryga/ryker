@@ -173,7 +173,7 @@
           "name": "request_input"
         },
         {
-          "description": "Create one durable event wait with a deadline and fallback.",
+          "description": "Create one durable event wait. A source_event must include a poll_after at or before the hard deadline and may carry an opaque cursor; matching webhooks resume it first, while the poll fallback forces verification if an event is lost.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
@@ -229,9 +229,24 @@
                   {
                     "additionalProperties": false,
                     "properties": {
+                      "cursor": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "match": {
                         "additionalProperties": true,
                         "type": "object"
+                      },
+                      "poll_after": {
+                        "format": "date-time",
+                        "type": "string"
                       },
                       "source_kind": {
                         "anyOf": [
@@ -253,6 +268,7 @@
                     },
                     "required": [
                       "match",
+                      "poll_after",
                       "type"
                     ],
                     "type": "object"

@@ -342,6 +342,15 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
+  defp route(%Plug.Conn{method: "GET", path_info: ["subscriptions"]} = conn, options) do
+    conn = fetch_query_params(conn)
+
+    snapshot =
+      options.projection.subscriptions.(Map.take(conn.query_params, ["q", "status"]))
+
+    html(conn, 200, "Subscriptions", HTML.subscriptions(snapshot))
+  end
+
   defp route(%Plug.Conn{method: "GET", path_info: ["channels"]} = conn, options) do
     conn = fetch_query_params(conn)
     snapshot = options.projection.channels.(Map.take(conn.query_params, ["q"]))
@@ -1008,6 +1017,19 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
+  defp confirmation("schedule", resource_ref, "run-now", options) do
+    case options.projection.schedule.(resource_ref) do
+      {:ok, %{schedule: %{status: status} = schedule}}
+      when status in [:active, :paused, :completed] ->
+        {:ok, "Run #{schedule.title} now?",
+         "Responder will create one fresh execution without changing the saved recurrence cadence.",
+         "schedule:run-now:#{schedule.revision}"}
+
+      _unavailable ->
+        {:error, :not_found}
+    end
+  end
+
   defp confirmation("schedule", resource_ref, action, options)
        when action in ["active", "paused", "deleted"] do
     snapshot = options.projection.memory.()
@@ -1162,10 +1184,14 @@ defmodule Responder.ControlPlane.Router do
        when action in ["active", "paused", "deleted"],
        do: actions.set_schedule_status.(resource_ref, String.to_existing_atom(action))
 
+  defp perform("schedule", resource_ref, "run-now", actions),
+    do: actions.run_schedule.(resource_ref)
+
   defp perform(_kind, _resource_ref, _action, _actions), do: {:error, :invalid_action}
 
   defp action_return_path("delivery"), do: "/failures"
   defp action_return_path("retention"), do: "/workspaces"
+  defp action_return_path("schedule"), do: "/schedules"
 
   defp action_return_path(kind)
        when kind in ["admission", "emisar", "slack_incident", "slack_interaction", "work"],

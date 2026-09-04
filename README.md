@@ -553,6 +553,12 @@ uses IANA timezone calendar arithmetic so local times follow daylight-saving cha
 can run only the latest missed occurrence after downtime or skip it after the configured grace
 period. One-time tasks complete after their occurrence; run-now remains available for an explicit
 manual repeat. Expired tasks and old run records are removed by normal retention maintenance.
+
+Source-event waits are durable subscriptions. They retain a bounded matcher, source kind, opaque
+cursor, polling-fallback time, hard deadline, and terminal resolution in PostgreSQL. Authenticated
+Slack, GitHub, and generic webhook inputs remain the low-latency path; if an event is lost, the
+existing wait worker resumes the exact episode at `poll_after` with host-authored verification
+evidence. The control plane exposes subscription state and digests without rendering source payloads.
 `/responder shadow` runs the classifier and records its decision, evidence, and coverage without
 posting or creating an incident.
 

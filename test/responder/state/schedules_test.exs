@@ -285,10 +285,13 @@ defmodule Responder.State.SchedulesTest do
     assert is_binary(first.outcome["episode_id"])
     assert is_binary(first.outcome["run_ref"])
 
-    unchanged = Repo.get!(Schedule, confirmed.schedule.id)
-    assert unchanged.status == :active
-    assert unchanged.revision == confirmed.schedule.revision
-    assert unchanged.next_occurrence_at == original_next
+    cadence = Repo.get!(Schedule, confirmed.schedule.id)
+    assert cadence.status == :active
+    assert cadence.revision == confirmed.schedule.revision + 1
+    assert cadence.next_occurrence_at == original_next
+
+    assert %ScheduleOccurrence{trigger: :manual} =
+             Repo.get_by!(ScheduleOccurrence, ref: first.outcome["run_ref"])
 
     assert {:ok, duplicate} =
              Schedules.run_now(
@@ -387,6 +390,29 @@ defmodule Responder.State.SchedulesTest do
     end
   end
 
+  test "the local operator can run a schedule through the same audited occurrence path" do
+    fixture = delivered_offer!("operator-run-now")
+    assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "operator-run-now"))
+    original_next = confirmed.schedule.next_occurrence_at
+
+    assert {:ok, receipt} =
+             Schedules.run_now_for_operator(
+               confirmed.schedule.ref,
+               "control-plane:local",
+               "control-plane:run-schedule:operator-run-now:1",
+               &policy/1
+             )
+
+    assert receipt.status == :recorded
+
+    assert %ScheduleOccurrence{trigger: :manual} =
+             Repo.get_by!(ScheduleOccurrence, ref: receipt.outcome["run_ref"])
+
+    stored = Repo.get!(Schedule, confirmed.schedule.id)
+    assert stored.next_occurrence_at == original_next
+    assert stored.revision == confirmed.schedule.revision + 1
+  end
+
   test "App Home lifecycle retries cannot overwrite a newer schedule decision" do
     fixture = delivered_offer!("home-lifecycle")
     assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "home-lifecycle"))
@@ -475,6 +501,7 @@ defmodule Responder.State.SchedulesTest do
     assert {:error, _reason} = Schedules.set_status("schedule", :unknown)
     assert {:error, _reason} = Schedules.set_status("schedule", :active, %{})
     assert {:error, _reason} = Schedules.run_now("", "", "", %{}, :not_a_resolver)
+    assert {:error, _reason} = Schedules.run_now_for_operator("", "", "", :not_a_resolver)
     assert Schedules.set_status("missing-schedule", :active) == {:error, :schedule_not_found}
     assert Schedules.list_for_destination("slack", "slack:T123:C456") == []
   end

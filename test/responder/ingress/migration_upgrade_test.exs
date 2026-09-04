@@ -26,6 +26,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @publication_stale_head_version 20_260_904_000_400
   @conversation_continuity_version 20_260_904_000_500
   @repository_contexts_version 20_260_904_000_600
+  @event_subscriptions_version 20_260_904_000_700
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
   test "an installation that already ran the Slack inbox migration upgrades to generic ingress" do
@@ -65,7 +66,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @publication_recovery_version,
                @publication_stale_head_version,
                @conversation_continuity_version,
-               @repository_contexts_version
+               @repository_contexts_version,
+               @event_subscriptions_version
              ]
 
       refute table_exists?(repo, prefix, "slack_inbox_entries")
@@ -165,7 +167,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @publication_recovery_version,
                @publication_stale_head_version,
                @conversation_continuity_version,
-               @repository_contexts_version
+               @repository_contexts_version,
+               @event_subscriptions_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -179,6 +182,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  "SELECT execution_kind, episode_id FROM #{prefix}.episode_work_sessions WHERE id = $1::text::uuid",
                  [admission_session_id]
                )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@event_subscriptions_version]
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
                step: 1,
@@ -318,7 +327,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @publication_recovery_version,
                @publication_stale_head_version,
                @conversation_continuity_version,
-               @repository_contexts_version
+               @repository_contexts_version,
+               @event_subscriptions_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -356,7 +366,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @publication_recovery_version,
                @publication_stale_head_version,
                @conversation_continuity_version,
-               @repository_contexts_version
+               @repository_contexts_version,
+               @event_subscriptions_version
              ]
 
       assert Release.migrate(options) == []
@@ -400,6 +411,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
         Release.rollback(@conversation_continuity_version, options)
       end
+
+      assert Release.rollback(@event_subscriptions_version, options) == [
+               @event_subscriptions_version
+             ]
 
       assert Release.rollback(@repository_contexts_version, options) == [
                @repository_contexts_version
@@ -505,6 +520,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                step: 1,
                prefix: prefix,
                log: false
+             ) == [@event_subscriptions_version]
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
              ) == [@repository_contexts_version]
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
@@ -579,6 +600,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                step: 1,
                prefix: prefix,
                log: false
+             ) == [@event_subscriptions_version]
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
              ) == [@repository_contexts_version]
 
       review_id = Ecto.UUID.generate()
@@ -646,6 +673,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         [context, ids.session_id]
       )
 
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@event_subscriptions_version]
+
       assert_raise Postgrex.Error, ~r/repository context has data/, fn ->
         Ecto.Migrator.run(repo, @migrations_path, :down,
           step: 1,
@@ -655,6 +688,77 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       end
 
       assert column_exists?(repo, prefix, "episode_work_sessions", "repository_context")
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  test "event subscription migration refuses to discard durable polling custody" do
+    repo = start_migration_repo!()
+    prefix = "event_subscription_rollback_#{System.unique_integer([:positive])}"
+
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      ids = insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        all: true,
+        prefix: prefix,
+        log: false
+      )
+
+      record_id = Ecto.UUID.generate()
+      subscription_id = Ecto.UUID.generate()
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.episode_state_records (
+          id, episode_id, turn_id, ref, operation_id, kind, status, payload,
+          payload_fingerprint, sequence, inserted_at, updated_at
+        ) VALUES (
+          $1::text::uuid, $2::text::uuid, $3::text::uuid,
+          'record:event-wait:rollback', 'wait-rollback', 'event_wait', 'open',
+          '{"deadline_at":"2099-01-01T01:00:00Z","event_matcher":{},"kind":"source_event","verification":"verify"}',
+          repeat('d', 64), 1, clock_timestamp(), clock_timestamp()
+        )
+        """,
+        [record_id, ids.episode_id, ids.turn_id]
+      )
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.episode_event_subscriptions (
+          id, episode_id, record_id, ref, status, source_kind, matcher, cursor,
+          poll_after, deadline_at, revision, inserted_at, updated_at
+        ) VALUES (
+          $1::text::uuid, $2::text::uuid, $3::text::uuid,
+          'event-subscription:rollback', 'active', 'github', '{"state":"healthy"}',
+          '{"revision":"abc123"}', '2099-01-01T00:30:00Z', '2099-01-01T01:00:00Z',
+          1, clock_timestamp(), clock_timestamp()
+        )
+        """,
+        [subscription_id, ids.episode_id, record_id]
+      )
+
+      assert_raise Postgrex.Error, ~r/subscription or manual schedule history has data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down,
+          step: 1,
+          prefix: prefix,
+          log: false
+        )
+      end
+
+      assert table_exists?(repo, prefix, "episode_event_subscriptions")
+      assert column_exists?(repo, prefix, "episode_schedule_occurrences", "trigger")
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end

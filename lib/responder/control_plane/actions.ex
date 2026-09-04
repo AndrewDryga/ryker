@@ -21,6 +21,7 @@ defmodule Responder.ControlPlane.Actions do
     InputRequests,
     Memories,
     Record,
+    Schedule,
     Schedules,
     SlackPostOffers,
     TaskOffers
@@ -31,8 +32,13 @@ defmodule Responder.ControlPlane.Actions do
   @actor_ref "control-plane:local"
   @lab_actor_ref "local-operator"
 
-  @spec callbacks(WorkProfile.t() | nil, map(), map()) :: map()
-  def callbacks(work_profile \\ nil, task_policies \\ %{}, work_view_options \\ %{}) do
+  @spec callbacks(WorkProfile.t() | nil, map(), map(), (Schedule.t() -> term()) | nil) :: map()
+  def callbacks(
+        work_profile \\ nil,
+        task_policies \\ %{},
+        work_view_options \\ %{},
+        schedule_policy_resolver \\ nil
+      ) do
     %{
       act_on_lab_record: lab_record_action(work_profile, task_policies),
       delete_lab_message: lab_message_deleter(work_profile),
@@ -48,11 +54,29 @@ defmodule Responder.ControlPlane.Actions do
       rearm_slack_interaction: &retry_failure("slack_interaction", &1),
       react_to_lab_message: &ConversationLab.react_to_message/4,
       retry_work: &retry_failure("work", &1),
+      run_schedule: run_schedule(schedule_policy_resolver),
       send_lab_message: lab_sender(work_profile),
       set_behavior_status: &Behaviors.set_status/2,
       set_schedule_status: &Schedules.set_status/2,
       view_lab_task_record: lab_task_record_view(work_view_options)
     }
+  end
+
+  defp run_schedule(policy_resolver) when is_function(policy_resolver, 1) do
+    fn schedule_ref ->
+      case Repo.get_by(Schedule, ref: schedule_ref) do
+        %{revision: revision} ->
+          action_ref = "control-plane:run-schedule:#{schedule_ref}:#{revision}"
+          Schedules.run_now_for_operator(schedule_ref, @actor_ref, action_ref, policy_resolver)
+
+        nil ->
+          {:error, :schedule_not_found}
+      end
+    end
+  end
+
+  defp run_schedule(_policy_resolver) do
+    fn _schedule_ref -> {:error, :schedule_policy_unavailable} end
   end
 
   defp resolve_memory_review(review_ref, action, replacement) do

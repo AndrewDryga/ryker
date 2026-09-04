@@ -23,13 +23,21 @@ defmodule Responder.ControlPlane.OperatorProjection do
     IncidentRoomLifecycleEvent
   }
 
-  alias Responder.State.{ConversationSummary, Record, Schedule, ScheduleOccurrence}
+  alias Responder.State.{
+    ConversationSummary,
+    EventSubscription,
+    Record,
+    Schedule,
+    ScheduleOccurrence
+  }
+
   alias Responder.Work.{Measurement, Session, Turn}
 
   @list_limit 100
   @detail_limit 200
   @configuration_owners ~w(admission work control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks)a
   @schedule_statuses ~w(active paused completed expired deleted)a
+  @subscription_statuses ~w(active resolved timed_out cancelled)a
   @incident_statuses ~w(requested ready blocked closed)a
 
   def incidents(params) when is_map(params) do
@@ -197,29 +205,92 @@ defmodule Responder.ControlPlane.OperatorProjection do
 
   def schedules(_params), do: schedules(%{})
 
+  def subscriptions(params) when is_map(params) do
+    query =
+      from(subscription in EventSubscription,
+        left_join: episode in Episode,
+        on: episode.id == subscription.episode_id,
+        order_by: [asc: subscription.status, asc: subscription.poll_after, desc: subscription.id],
+        limit: @list_limit,
+        select: %{
+          cursor: subscription.cursor,
+          deadline_at: subscription.deadline_at,
+          episode_ref: episode.key,
+          last_observation: subscription.last_observation,
+          last_observed_at: subscription.last_observed_at,
+          matcher: subscription.matcher,
+          poll_after: subscription.poll_after,
+          ref: subscription.ref,
+          resolution_kind: subscription.resolution_kind,
+          revision: subscription.revision,
+          source_kind: subscription.source_kind,
+          status: subscription.status,
+          updated_at: subscription.updated_at
+        }
+      )
+      |> subscription_status(filter_enum(params["status"], @subscription_statuses))
+      |> subscription_search(search(params["q"]))
+
+    query
+    |> Repo.all()
+    |> Enum.map(&sanitize_subscription/1)
+  end
+
+  def subscriptions(_params), do: subscriptions(%{})
+
   def schedule(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Repo.one(from(schedule in Schedule, where: schedule.ref == ^ref, limit: 1)) do
       nil ->
         :not_found
 
       schedule ->
+        latest_turns =
+          from(turn in Turn,
+            distinct: turn.episode_id,
+            order_by: [asc: turn.episode_id, desc: turn.inserted_at, desc: turn.id],
+            select: %{
+              accepted_at: turn.accepted_at,
+              delivered_at: turn.delivered_at,
+              episode_id: turn.episode_id,
+              last_error_code: turn.last_error_code,
+              last_error_detail: turn.last_error_detail,
+              remote_finished_at: turn.remote_finished_at,
+              remote_started_at: turn.remote_started_at,
+              status: turn.status,
+              work_attempt_count: turn.work_attempt_count
+            }
+          )
+
         occurrences =
           Repo.all(
             from(occurrence in ScheduleOccurrence,
               left_join: episode in Episode,
               on: episode.id == occurrence.child_episode_id,
+              left_join: turn in subquery(latest_turns),
+              on: turn.episode_id == occurrence.child_episode_id,
               where: occurrence.schedule_id == ^schedule.id,
               order_by: [desc: occurrence.scheduled_for, desc: occurrence.id],
               limit: @detail_limit,
               select: %{
+                accepted_at: turn.accepted_at,
+                delivered_at: turn.delivered_at,
                 episode_ref: episode.key,
+                episode_state: episode.state,
+                failure_code: turn.last_error_code,
+                failure_detail: turn.last_error_detail,
+                finished_at: turn.remote_finished_at,
                 missed_reason: occurrence.missed_reason,
                 ref: occurrence.ref,
                 scheduled_for: occurrence.scheduled_for,
-                status: occurrence.status
+                started_at: turn.remote_started_at,
+                status: occurrence.status,
+                trigger: occurrence.trigger,
+                turn_status: turn.status,
+                work_attempt_count: turn.work_attempt_count
               }
             )
           )
+          |> Enum.map(&sanitize_occurrence/1)
 
         {:ok,
          %{
@@ -630,6 +701,11 @@ defmodule Responder.ControlPlane.OperatorProjection do
   defp schedule_status(query, status),
     do: from(schedule in query, where: schedule.status == ^status)
 
+  defp subscription_status(query, nil), do: query
+
+  defp subscription_status(query, status),
+    do: from(subscription in query, where: subscription.status == ^status)
+
   defp schedule_search(query, nil), do: query
 
   defp schedule_search(query, search) do
@@ -642,6 +718,33 @@ defmodule Responder.ControlPlane.OperatorProjection do
           ilike(schedule.destination_conversation_ref, ^pattern)
     )
   end
+
+  defp subscription_search(query, nil), do: query
+
+  defp subscription_search(query, search) do
+    pattern = "%#{escape_like(search)}%"
+
+    from([subscription, episode] in query,
+      where:
+        ilike(subscription.ref, ^pattern) or ilike(subscription.source_kind, ^pattern) or
+          ilike(episode.key, ^pattern)
+    )
+  end
+
+  defp sanitize_subscription(subscription) do
+    subscription
+    |> Map.put(:cursor_digest, document_digest(subscription.cursor))
+    |> Map.put(:last_observation_digest, document_digest(subscription.last_observation))
+    |> Map.put(:matcher_digest, document_digest(subscription.matcher))
+    |> Map.drop([:cursor, :last_observation, :matcher])
+  end
+
+  defp sanitize_occurrence(occurrence) do
+    Map.put(occurrence, :failure_detail, FailureDetail.project(occurrence.failure_detail))
+  end
+
+  defp document_digest(nil), do: nil
+  defp document_digest(document), do: Responder.CanonicalJSON.digest(document)
 
   defp sanitize_publication(nil), do: nil
 

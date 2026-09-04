@@ -347,6 +347,7 @@ defmodule Responder.State.RecordPayload do
          :ok <- text(payload["verification"], 2_000, :verification),
          :ok <- json_object(payload["event_matcher"], :event_matcher),
          {:ok, deadline} <- utc_datetime(payload["deadline_at"]),
+         :ok <- event_wait_matcher(payload["event_matcher"], deadline),
          :ok <- canonical(payload) do
       {:ok,
        %{
@@ -363,6 +364,29 @@ defmodule Responder.State.RecordPayload do
   end
 
   defp event_wait(_payload, _ref), do: {:error, {:invalid_state_record, :payload}}
+
+  defp event_wait_matcher(%{"type" => "source_event"} = trigger, deadline) do
+    required = ~w(match on_timeout poll_after type)
+    allowed = required ++ ~w(cursor source_kind)
+
+    with true <- required -- Map.keys(trigger) == [] and Map.keys(trigger) -- allowed == [],
+         :ok <- json_object(trigger["match"], :event_matcher),
+         :ok <- optional_json_object(trigger["cursor"], :event_matcher),
+         :ok <- optional_reference(trigger["source_kind"], :event_matcher),
+         :ok <- text(trigger["on_timeout"], 2_000, :event_matcher),
+         {:ok, poll_after} <- utc_datetime(trigger["poll_after"]),
+         true <- DateTime.compare(poll_after, deadline) in [:lt, :eq] do
+      :ok
+    else
+      false -> {:error, {:invalid_state_record, :event_matcher}}
+      {:error, _reason} -> {:error, {:invalid_state_record, :event_matcher}}
+    end
+  end
+
+  defp event_wait_matcher(_legacy_or_timer, _deadline), do: :ok
+
+  defp optional_json_object(nil, _field), do: :ok
+  defp optional_json_object(value, field), do: json_object(value, field)
 
   defp task_repository("engineering", value), do: reference(value, :repository)
   defp task_repository("incident", nil), do: :ok
