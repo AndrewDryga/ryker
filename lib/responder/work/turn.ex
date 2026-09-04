@@ -30,6 +30,7 @@ defmodule Responder.Work.Turn do
     field(:candidate_attempt, :integer)
     field(:validation_intent, Responder.CanonicalJSON.Type)
     field(:validation_intent_fingerprint, :string)
+    field(:validation_history, Responder.CanonicalJSON.Type, default: [])
     field(:validation_receipt, :string)
     field(:final_preflight_candidate_sha256, :string)
     field(:final_preflight_continuity_sha256, :string)
@@ -111,6 +112,7 @@ defmodule Responder.Work.Turn do
           candidate_attempt: pos_integer() | nil,
           validation_intent: Responder.Work.ValidationIntent.t() | nil,
           validation_intent_fingerprint: String.t() | nil,
+          validation_history: [map()],
           validation_receipt: String.t() | nil,
           final_preflight_candidate_sha256: String.t() | nil,
           final_preflight_continuity_sha256: String.t() | nil,

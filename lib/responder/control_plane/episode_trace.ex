@@ -1,0 +1,1956 @@
+defmodule Responder.ControlPlane.EpisodeTrace do
+  @moduledoc """
+  Builds the bounded operator story for one durable episode.
+
+  This projection deliberately presents identities, lifecycle, measurements,
+  and host decisions rather than copying raw ingress, prompts, candidates, or
+  provider diagnostics into the control plane.
+  """
+
+  import Ecto.Query
+
+  alias Responder.CanonicalJSON
+  alias Responder.ControlPlane.Card
+  alias Responder.CoopFleet.Event, as: CoopEvent
+  alias Responder.Delivery.PlatformAction
+  alias Responder.Episodes.{Episode, Event}
+  alias Responder.Ingress.Inbox.Entry
+  alias Responder.Operator.{EpisodeReview, FailureDetail}
+  alias Responder.Publication.Publication
+  alias Responder.Repo
+  alias Responder.Slack.IncidentRoom
+  alias Responder.State.{Record, Schedule}
+  alias Responder.Work.{Activity, ActivityEvent, Session, Turn}
+
+  @chapters [
+    {:input, "What came in", "The input, continuation, or trigger that opened this work."},
+    {:ready, "Getting ready", "How Responder routed, scoped, and prepared the work."},
+    {:work, "The work", "What ran, what it recorded, and whether the provider stayed active."},
+    {:answer, "The answer", "Candidate validation, the accepted result, and any refusal."},
+    {:outcome, "What came of it", "Delivery, durable side effects, waits, and follow-up work."}
+  ]
+
+  @spec project(Episode.t(), [Event.t()], [Record.t()]) :: map()
+  def project(%Episode{} = episode, events, records) when is_list(events) and is_list(records) do
+    inputs = inputs(episode.id)
+    sessions = sessions(episode.id)
+    turns = turns(episode.id)
+    activity_page = Activity.page_for_episode(episode.id)
+    activity = activity_steps(activity_page.events)
+    current_turn = List.last(turns)
+    totals = totals(episode.id, events, records, sessions, turns)
+    review = review_state(episode)
+
+    steps =
+      []
+      |> Kernel.++(kernel_steps(events, inputs))
+      |> Kernel.++(session_steps(sessions))
+      |> Kernel.++(turn_steps(turns, sessions))
+      |> Kernel.++(activity)
+      |> Kernel.++(record_steps(records))
+      |> Kernel.++(coop_steps(sessions))
+      |> Kernel.++(platform_action_steps(episode.id))
+      |> Kernel.++(incident_steps(episode.id))
+      |> Kernel.++(publication_steps(episode.id))
+      |> Kernel.++(schedule_steps(episode.id))
+      |> chronological()
+
+    %{
+      activity: Map.drop(activity_page, [:events]),
+      actions: operator_actions(episode, current_turn, review),
+      chapters: chapters(steps, episode.inserted_at),
+      history: history(totals, activity_page),
+      metrics: metrics(episode, turns, records, activity_page, totals, steps),
+      next_action: next_action(episode, current_turn),
+      review: review,
+      source: source_link(episode, events, inputs),
+      stats: stats(steps, activity_page, totals),
+      steps: steps,
+      stopped: stopped(episode, current_turn)
+    }
+  end
+
+  defp inputs(episode_id) do
+    Repo.all(
+      from(entry in Entry,
+        where: entry.episode_id == ^episode_id,
+        order_by: [asc: entry.occurred_at, asc: entry.id],
+        limit: 200
+      )
+    )
+    |> Map.new(&{&1.dedupe_key, &1})
+  end
+
+  defp sessions(episode_id) do
+    Repo.all(
+      from(session in Session,
+        where: session.episode_id == ^episode_id,
+        order_by: [desc: session.inserted_at, desc: session.id],
+        limit: 50
+      )
+    )
+    |> Enum.reverse()
+  end
+
+  defp turns(episode_id) do
+    Repo.all(
+      from(turn in Turn,
+        where: turn.episode_id == ^episode_id,
+        order_by: [desc: turn.inserted_at, desc: turn.id],
+        limit: 200
+      )
+    )
+    |> Enum.reverse()
+  end
+
+  defp kernel_steps(events, inputs) do
+    events
+    |> Enum.with_index(1)
+    |> Enum.map(fn {event, index} ->
+      input = Map.get(inputs, event.dedupe_key)
+
+      step(
+        "kernel-#{event.sequence || index}",
+        kernel_band(event.kind),
+        event.occurred_at,
+        %{
+          actor: "Episode kernel",
+          details: kernel_details(event, input),
+          stage: kernel_stage(event.kind),
+          state: event.kind,
+          summary: kernel_summary(event.kind),
+          title: kernel_title(event.kind),
+          tone: kernel_tone(event.kind)
+        }
+      )
+    end)
+  end
+
+  defp kernel_details(event, nil) do
+    compact_details([
+      {"Sequence", event.sequence},
+      {"Identity", event.dedupe_key},
+      {"Fingerprint", short_digest(event.fingerprint)}
+    ])
+  end
+
+  defp kernel_details(event, input) do
+    compact_details([
+      {"Sequence", event.sequence},
+      {"Source", join_ref(input.source_kind, input.source_ref)},
+      {"Actor", join_ref(input.actor_kind, input.actor_ref)},
+      {"Event", input.event_kind},
+      {"Revision", input.revision},
+      {"Admission", input.status},
+      {"Decision", input.decision_action},
+      {"Repository", input.repository_ref},
+      {"Policy", input.work_policy},
+      {"Message", source_text(input)},
+      {"Attachments", source_attachments(input)},
+      {"Fingerprint", short_digest(event.fingerprint)}
+    ])
+  end
+
+  defp session_steps(sessions) do
+    Enum.map(sessions, fn session ->
+      target = workspace_target(session.workspace_task)
+
+      step(
+        "session-#{session.id}",
+        :ready,
+        session.inserted_at,
+        %{
+          actor: "Responder",
+          details:
+            compact_details([
+              {"Policy", session.policy},
+              {"Repository", session.repository_ref},
+              {"Generation", session.generation},
+              {"Coop session", session.coop_session_id},
+              {"Authority", short_digest(session.authority_digest)},
+              {"Policy digest", short_digest(session.policy_digest)},
+              {"Workspace target", target},
+              {"Cleanup", session.cleanup_status},
+              {"Retained reason", session.retained_reason}
+            ]),
+          stage: "Preparation",
+          state: session.cleanup_status,
+          summary: session_summary(session, target),
+          title: "Work session prepared",
+          tone: state_tone(session.cleanup_status)
+        }
+      )
+    end)
+  end
+
+  defp turn_steps(turns, sessions) do
+    sessions_by_id = Map.new(sessions, &{&1.id, &1})
+
+    turns
+    |> Enum.with_index(1)
+    |> Enum.flat_map(fn {turn, ordinal} ->
+      session = Map.get(sessions_by_id, turn.session_id)
+      context = submission_context(turn.submission)
+
+      prepared =
+        step(
+          "turn-#{turn.id}-prepared",
+          :ready,
+          turn.inserted_at,
+          %{
+            actor: "Responder",
+            details:
+              compact_details([
+                {"Turn", turn.turn_ref},
+                {"Coop turn", turn.coop_turn_id},
+                {"Policy", session && session.policy},
+                {"Repository", session && session.repository_ref},
+                {"Context mode", context.mode},
+                {"Inputs", context.inputs},
+                {"Omitted inputs", context.omitted_inputs},
+                {"Context sections", context.sections},
+                {"State tools", context.state_tools},
+                {"Source/action tools", context.platform_tools},
+                {"Input artifacts", context.artifacts},
+                {"Prompt", prompt_state(turn)},
+                {"Prompt bytes", prompt_bytes(turn.submission)},
+                {"Prompt digest", prompt_digest(turn.submission)},
+                {"Context digest", context_digest(turn.submission)},
+                {"Output schema", schema_digest(turn.submission)},
+                {"Submission", short_digest(turn.submission_fingerprint)},
+                {"Contract", submission_contract(turn.submission)}
+              ]),
+            stage: "Routing",
+            state: turn.status,
+            summary: turn_prepared_summary(turn, session),
+            title: "Turn #{ordinal} prepared",
+            tone: state_tone(turn.status)
+          }
+        )
+
+      work = work_step(turn, ordinal)
+      answer = answer_steps(turn, ordinal)
+      outcome = delivery_step(turn, ordinal)
+
+      ([prepared, work] ++ answer ++ [outcome])
+      |> Enum.reject(&is_nil/1)
+    end)
+  end
+
+  defp work_step(%Turn{remote_started_at: nil}, _ordinal), do: nil
+
+  defp work_step(turn, ordinal) do
+    step(
+      "turn-#{turn.id}-work",
+      :work,
+      turn.remote_started_at,
+      %{
+        actor: "Coop",
+        details:
+          compact_details([
+            {"Target", turn.execution_target},
+            {"Queued", format_ms(turn.usage_queued_ms)},
+            {"Provider", format_ms(turn.usage_provider_ms)},
+            {"Host", format_ms(turn.usage_host_ms)},
+            {"Work claims", turn.work_attempt_count},
+            {"Remote operation", turn.remote_operation_kind},
+            {"Measurement", turn.measurement_error_code || measurement_state(turn)}
+          ]),
+        duration_ms: turn.usage_provider_ms,
+        stage: "Execution",
+        state: work_state(turn),
+        summary: work_summary(turn),
+        title: "Turn #{ordinal} model work",
+        tone: state_tone(work_state(turn))
+      }
+    )
+  end
+
+  defp answer_steps(turn, ordinal) do
+    validations = validation_steps(turn, ordinal)
+    accepted = accepted_step(turn, ordinal)
+    validations ++ Enum.reject([accepted], &is_nil/1)
+  end
+
+  defp validation_steps(%Turn{validation_history: history} = turn, ordinal)
+       when is_list(history) and history != [] do
+    Enum.map(history, &validation_history_step(turn, ordinal, &1))
+  end
+
+  defp validation_steps(%Turn{validation_intent: nil, candidate_attempt: nil}, _ordinal), do: []
+
+  defp validation_steps(turn, ordinal), do: [validation_step(turn, ordinal)]
+
+  defp validation_history_step(turn, ordinal, entry) do
+    verdict = entry["verdict"]
+    violations = bounded_strings(entry["violations"])
+    attempt = entry["candidate_attempt"]
+    at = parsed_time(entry["recorded_at"]) || turn.updated_at
+
+    validation_step(turn, ordinal,
+      at: at,
+      attempt: attempt,
+      candidate_sha256: entry["candidate_sha256"],
+      intent_fingerprint: entry["intent_fingerprint"],
+      parse: entry["parse"],
+      receipt: if(verdict == "accept", do: turn.validation_receipt),
+      response_bytes: entry["response_bytes"],
+      verdict: verdict,
+      violations: violations
+    )
+  end
+
+  defp validation_step(turn, ordinal) do
+    verdict = get_in(turn.validation_intent || %{}, ["verdict"])
+    violations = bounded_strings(get_in(turn.validation_intent || %{}, ["violations"]))
+
+    validation_step(turn, ordinal,
+      at: turn.updated_at,
+      attempt: turn.candidate_attempt,
+      candidate_sha256: turn.candidate_sha256,
+      intent_fingerprint: turn.validation_intent_fingerprint,
+      parse: candidate_parse(turn.candidate),
+      receipt: turn.validation_receipt,
+      response_bytes: if(is_binary(turn.candidate), do: byte_size(turn.candidate)),
+      verdict: verdict,
+      violations: violations
+    )
+  end
+
+  defp validation_step(turn, ordinal, options) do
+    verdict = Keyword.fetch!(options, :verdict)
+    violations = Keyword.fetch!(options, :violations)
+    attempt = Keyword.fetch!(options, :attempt)
+    state = verdict || if(turn.validation_receipt, do: "accepted", else: "candidate recorded")
+    title = if(verdict == "reject", do: "Answer rejected", else: "Answer validated")
+
+    step(
+      "turn-#{turn.id}-validation-#{attempt || 0}",
+      :answer,
+      Keyword.fetch!(options, :at),
+      %{
+        actor: "Responder",
+        details:
+          compact_details([
+            {"Turn", ordinal},
+            {"Candidate attempt", attempt},
+            {"Candidate", short_digest(Keyword.fetch!(options, :candidate_sha256))},
+            {"Response bytes", Keyword.fetch!(options, :response_bytes)},
+            {"Parse", Keyword.fetch!(options, :parse)},
+            {"Verdict", verdict},
+            {"Violations", Enum.join(violations, " · ")},
+            {"Validation intent", short_digest(Keyword.fetch!(options, :intent_fingerprint))},
+            {"Validation receipt", receipt_state(Keyword.fetch!(options, :receipt))},
+            {"Final preflight", preflight_state(turn)}
+          ]),
+        stage: "Validation",
+        state: state,
+        summary: validation_summary(verdict, violations, turn),
+        title: title,
+        tone: if(verdict == "reject", do: :bad, else: :good)
+      }
+    )
+  end
+
+  defp accepted_step(%Turn{accepted_at: nil}, _ordinal), do: nil
+
+  defp accepted_step(turn, ordinal) do
+    step(
+      "turn-#{turn.id}-accepted",
+      :answer,
+      turn.accepted_at,
+      %{
+        actor: "Responder",
+        details:
+          compact_details([
+            {"Result", turn.result_ref},
+            {"Delivery", delivery_kind(turn.delivery_document)},
+            {"Artifacts", outcome_count(turn.delivery_document, "artifact_refs")},
+            {"Records", outcome_count(turn.delivery_document, "record_refs")},
+            {"Outcome", get_in(turn.delivery_document || %{}, ["outcome", "state"])},
+            {"Reply preview", accepted_reply(turn.delivery_document)}
+          ]),
+        stage: "Result",
+        state: "accepted",
+        summary: delivery_summary(turn.delivery_document),
+        title: "Turn #{ordinal} result accepted",
+        tone: :good
+      }
+    )
+  end
+
+  defp delivery_step(
+         %Turn{delivery_ref: nil, delivered_at: nil, external_receipt: nil},
+         _ordinal
+       ),
+       do: nil
+
+  defp delivery_step(turn, ordinal) do
+    delivered = not is_nil(turn.delivered_at)
+
+    step(
+      "turn-#{turn.id}-delivery",
+      :outcome,
+      turn.delivered_at || turn.updated_at,
+      %{
+        actor: delivery_actor(turn.external_receipt),
+        details:
+          compact_details([
+            {"Turn", ordinal},
+            {"Delivery", turn.delivery_ref},
+            {"Attempts", turn.delivery_attempt_count},
+            {"Retry generation", turn.delivery_retry_generation},
+            {"Transport", get_in(turn.external_receipt || %{}, ["transport"])},
+            {"Message", get_in(turn.external_receipt || %{}, ["message_ref"])}
+          ]),
+        stage: "Delivery",
+        state: if(delivered, do: "delivered", else: turn.status),
+        summary: delivery_outcome_summary(turn),
+        title: if(delivered, do: "Reply delivered", else: "Reply delivery pending"),
+        tone: if(delivered, do: :good, else: state_tone(turn.status))
+      }
+    )
+  end
+
+  defp record_steps(records) do
+    records
+    |> Enum.with_index(1)
+    |> Enum.map(fn {record, index} ->
+      card =
+        case Card.project(record) do
+          {:ok, projected} -> projected
+          :ignore -> nil
+        end
+
+      step(
+        "record-#{record.id || index}",
+        record_band(record.kind),
+        record.inserted_at,
+        %{
+          actor: "Responder state",
+          details: compact_details(record_details(record, card)),
+          href: record_href(record),
+          stage: record_stage(record.kind),
+          state: record.status,
+          summary: record_summary(record, card),
+          title: record_title(record, card),
+          tone: state_tone(record.status)
+        }
+      )
+    end)
+  end
+
+  defp coop_steps([]), do: []
+
+  defp coop_steps(sessions) do
+    session_ids = Enum.map(sessions, & &1.id)
+
+    Repo.all(
+      from(event in CoopEvent,
+        where: event.session_id in ^session_ids and event.kind != "session_event",
+        order_by: [asc: event.inserted_at, asc: event.sequence],
+        limit: 500
+      )
+    )
+    |> Enum.map(fn event ->
+      step(
+        "coop-event-#{event.id}",
+        coop_band(event.kind),
+        event.inserted_at,
+        %{
+          actor: "Coop fleet",
+          details:
+            compact_details([
+              {"Worker", event.worker_id},
+              {"Placement generation", event.placement_generation},
+              {"Sequence", event.sequence},
+              {"Event", event.kind},
+              {"Payload", short_digest(event.payload_fingerprint)}
+            ]),
+          stage: "Worker",
+          state: event.kind,
+          summary: coop_summary(event.payload),
+          title: coop_title(event.kind),
+          tone: coop_tone(event.kind)
+        }
+      )
+    end)
+  end
+
+  defp activity_steps(activity_events) do
+    activity_events
+    |> Enum.reduce({[], %{}}, &fold_activity/2)
+    |> elem(0)
+  end
+
+  defp fold_activity(%ActivityEvent{kind: "tool.started"} = event, {steps, open}) do
+    key = activity_tool_key(event)
+    activity_step = tool_started_step(event)
+    {steps ++ [activity_step], Map.put(open, key, length(steps))}
+  end
+
+  defp fold_activity(%ActivityEvent{kind: "tool.completed"} = event, {steps, open}) do
+    key = activity_tool_key(event)
+
+    case Map.pop(open, key) do
+      {nil, open} -> {steps ++ [tool_completed_step(event)], open}
+      {index, open} -> {List.update_at(steps, index, &complete_tool(&1, event)), open}
+    end
+  end
+
+  defp fold_activity(event, {steps, open}), do: {steps ++ [activity_step(event)], open}
+
+  defp tool_started_step(event) do
+    input = event.payload["input"]
+
+    step(
+      "activity-#{event.id}",
+      :work,
+      event.occurred_at,
+      %{
+        actor: "Coop",
+        details:
+          compact_details(
+            [
+              {"Kind", event.payload["kind"]},
+              {"Tool call", event.payload["tool_call_id"]}
+            ] ++ activity_tool_details(input)
+          ),
+        stage: "Tool call",
+        state: "running",
+        summary: activity_tool_summary(input),
+        title: activity_tool_title(event.payload),
+        tone: nil
+      }
+    )
+  end
+
+  defp tool_completed_step(event) do
+    status = event.payload["status"] || "completed"
+
+    step(
+      "activity-#{event.id}",
+      :work,
+      event.occurred_at,
+      %{
+        actor: "Coop",
+        details:
+          compact_details([
+            {"Kind", event.payload["kind"]},
+            {"Tool call", event.payload["tool_call_id"]},
+            {"Status", status}
+          ]),
+        stage: "Tool call",
+        state: status,
+        summary: "Coop recorded a terminal tool update whose start was not retained.",
+        title: event.payload["title"] || "Tool completion recorded",
+        tone: activity_status_tone(status)
+      }
+    )
+  end
+
+  defp complete_tool(step, event) do
+    status = event.payload["status"] || "completed"
+    duration_ms = nonnegative_diff(event.occurred_at, step.at)
+
+    %{
+      step
+      | details:
+          step.details ++
+            compact_details([
+              {"Status", status},
+              {"Finished", event.occurred_at}
+            ]),
+        duration_ms: duration_ms,
+        state: human(status),
+        tone: activity_status_tone(status)
+    }
+  end
+
+  defp activity_step(%ActivityEvent{kind: "model.thought"} = event) do
+    step(
+      "activity-#{event.id}",
+      :work,
+      event.occurred_at,
+      %{
+        actor: "Model",
+        details: [],
+        stage: "Reasoning",
+        state: "recorded",
+        summary: "A private reasoning checkpoint was recorded; its content is not retained.",
+        title: "Model reasoning checkpoint",
+        tone: nil
+      }
+    )
+  end
+
+  defp activity_step(%ActivityEvent{kind: "model.plan"} = event) do
+    count = event.payload["step_count"] || 0
+
+    step(
+      "activity-#{event.id}",
+      :work,
+      event.occurred_at,
+      %{
+        actor: "Model",
+        details: compact_details([{"Plan steps", count}]),
+        stage: "Plan",
+        state: "updated",
+        summary: plural(count, "plan step"),
+        title: "Model plan updated",
+        tone: nil
+      }
+    )
+  end
+
+  defp activity_step(%ActivityEvent{kind: "permission.decided"} = event) do
+    outcome = event.payload["outcome"] || "recorded"
+
+    step(
+      "activity-#{event.id}",
+      :work,
+      event.occurred_at,
+      %{
+        actor: "Coop policy",
+        details:
+          compact_details([
+            {"Tool call", event.payload["tool_call_id"]},
+            {"Option", event.payload["option_kind"]}
+          ]),
+        stage: "Permission",
+        state: outcome,
+        summary: permission_summary(event.payload),
+        title: "Tool permission decided",
+        tone: activity_status_tone(outcome)
+      }
+    )
+  end
+
+  defp activity_step(%ActivityEvent{kind: "activity.elided"} = event) do
+    step(
+      "activity-#{event.id}",
+      :work,
+      event.occurred_at,
+      %{
+        actor: "Coop",
+        details: compact_details([{"Dropped events", event.payload["dropped"]}]),
+        stage: "Recorder",
+        state: "bounded",
+        summary: "The turn exceeded its bounded narration budget.",
+        title: "Some activity was elided",
+        tone: :warn
+      }
+    )
+  end
+
+  defp activity_step(%ActivityEvent{kind: "provider.backoff"} = event) do
+    step(
+      "activity-#{event.id}",
+      :work,
+      event.occurred_at,
+      %{
+        actor: "Coop",
+        details: safe_payload_details(event.payload),
+        stage: "Provider",
+        state: "backing off",
+        summary: provider_backoff_summary(event.payload),
+        title: "Provider rate limit",
+        tone: :warn
+      }
+    )
+  end
+
+  defp activity_step(%ActivityEvent{kind: "provider.alive"} = event) do
+    step(
+      "activity-#{event.id}",
+      :work,
+      event.occurred_at,
+      %{
+        actor: "Coop",
+        details: safe_payload_details(event.payload),
+        stage: "Provider",
+        state: "alive",
+        summary: provider_alive_summary(event.payload),
+        title: "Provider is still responding",
+        tone: nil
+      }
+    )
+  end
+
+  defp activity_step(event) do
+    step(
+      "activity-#{event.id}",
+      :work,
+      event.occurred_at,
+      %{
+        actor: "Coop",
+        details: [],
+        stage: "Worker activity",
+        state: "recorded",
+        summary: "Bounded activity event recorded.",
+        title: capitalize(human(event.kind)),
+        tone: nil
+      }
+    )
+  end
+
+  defp activity_tool_key(event),
+    do:
+      {event.session_id, event.coop_turn_id,
+       event.payload["tool_call_id"] || event.remote_event_id}
+
+  defp activity_tool_title(%{
+         "input" => %{"operation" => action, "server" => server}
+       })
+       when is_binary(server) and is_binary(action),
+       do: "#{server} · #{action}"
+
+  defp activity_tool_title(_payload), do: "Tool call"
+
+  defp activity_tool_summary(%{} = input) do
+    [input["server"], input["operation"] || input["tool"]]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+    |> present()
+  end
+
+  defp activity_tool_summary(_input), do: "Tool execution recorded."
+
+  defp activity_tool_details(input) when is_map(input) do
+    [
+      {"Server", input["server"]},
+      {"Tool", input["tool"]},
+      {"Operation", input["operation"]}
+    ]
+  end
+
+  defp activity_tool_details(_input), do: []
+
+  defp safe_payload_details(payload), do: payload |> safe_fields() |> compact_details()
+
+  defp safe_fields(%{} = fields) do
+    fields
+    |> Enum.reject(fn {key, _value} -> sensitive_key?(key) end)
+    |> Enum.sort_by(fn {key, _value} -> to_string(key) end)
+    |> Enum.flat_map(fn {key, value} ->
+      case safe_activity_value(value) do
+        nil -> []
+        safe -> [{capitalize(human(key)), safe}]
+      end
+    end)
+    |> Enum.take(20)
+  end
+
+  defp safe_fields(_fields), do: []
+
+  defp safe_activity_value(value) when is_binary(value), do: value |> scrub_url() |> bounded(512)
+
+  defp safe_activity_value(value) when is_integer(value) or is_float(value) or is_boolean(value),
+    do: to_string(value)
+
+  defp safe_activity_value(value) when is_map(value) or is_list(value) do
+    value
+    |> redact_activity_value()
+    |> CanonicalJSON.encode!()
+    |> bounded(512)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp safe_activity_value(_value), do: nil
+
+  defp redact_activity_value(%{} = value) do
+    value
+    |> Enum.reject(fn {key, _nested} -> sensitive_key?(key) end)
+    |> Map.new(fn {key, nested} -> {to_string(key), redact_activity_value(nested)} end)
+  end
+
+  defp redact_activity_value(value) when is_list(value),
+    do: value |> Enum.take(32) |> Enum.map(&redact_activity_value/1)
+
+  defp redact_activity_value(value) when is_binary(value), do: scrub_url(value)
+  defp redact_activity_value(value), do: value
+
+  defp sensitive_key?(key),
+    do:
+      Regex.match?(~r/(?:authorization|cookie|credential|password|secret|token)/i, to_string(key))
+
+  defp scrub_url(value) do
+    case URI.parse(value) do
+      %URI{scheme: scheme, host: host} = uri
+      when scheme in ["http", "https"] and is_binary(host) ->
+        uri |> Map.merge(%{fragment: nil, query: nil, userinfo: nil}) |> URI.to_string()
+
+      _not_url ->
+        value
+    end
+  end
+
+  defp permission_summary(payload) do
+    case payload["outcome"] do
+      "cancelled" -> "Coop policy refused this unattended permission request."
+      outcome when is_binary(outcome) -> "Coop policy recorded #{human(outcome)}."
+      _missing -> "Coop policy recorded a permission decision."
+    end
+  end
+
+  defp provider_backoff_summary(payload) do
+    target = payload["target"] || payload["provider"]
+    reset = payload["reset_at"] || payload["retry_after"]
+
+    [target && "#{target} is rate limited", reset && "retry #{reset}"]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+    |> case do
+      "" -> "Coop paused this turn at the provider's rate limit."
+      summary -> summary
+    end
+  end
+
+  defp provider_alive_summary(payload) do
+    frames = payload["frames"]
+    bytes = payload["bytes"]
+
+    [frames && "#{frames} frames", bytes && "#{bytes} bytes observed"]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+    |> case do
+      "" -> "Provider frames are still arriving although no higher-level activity was narrated."
+      summary -> summary
+    end
+  end
+
+  defp activity_status_tone(status) when status in ["failed", "denied"], do: :bad
+  defp activity_status_tone(status) when status in ["cancelled", "backing off"], do: :warn
+  defp activity_status_tone(status) when status in ["completed", "selected", "allowed"], do: :good
+  defp activity_status_tone(_status), do: nil
+
+  defp nonnegative_diff(%DateTime{} = right, %DateTime{} = left),
+    do: max(DateTime.diff(right, left, :millisecond), 0)
+
+  defp nonnegative_diff(_right, _left), do: nil
+
+  defp platform_action_steps(episode_id) do
+    Repo.all(
+      from(action in PlatformAction,
+        where: action.episode_id == ^episode_id,
+        order_by: [asc: action.inserted_at, asc: action.id],
+        limit: 200
+      )
+    )
+    |> Enum.map(fn action ->
+      step(
+        "platform-action-#{action.id}",
+        :outcome,
+        action.delivered_at || action.inserted_at,
+        %{
+          actor: action.transport,
+          details:
+            compact_details([
+              {"Action", action.action_ref},
+              {"Conversation", action.conversation_ref},
+              {"Thread", action.thread_ref},
+              {"Attempts", action.attempt_count},
+              {"Last error", action.last_error_code},
+              {"Diagnostic", FailureDetail.project(action.last_error_detail)}
+            ]),
+          stage: "Platform action",
+          state: action.status,
+          summary: platform_action_summary(action),
+          title: platform_action_title(action.tool),
+          tone: state_tone(action.status)
+        }
+      )
+    end)
+  end
+
+  defp incident_steps(episode_id) do
+    Repo.all(
+      from(room in IncidentRoom,
+        where: room.episode_id == ^episode_id or room.source_episode_id == ^episode_id,
+        order_by: [asc: room.requested_at, asc: room.id],
+        limit: 50
+      )
+    )
+    |> Enum.map(fn room ->
+      step(
+        "incident-#{room.id}",
+        :outcome,
+        room.requested_at || room.inserted_at,
+        %{
+          actor: "Responder",
+          details:
+            compact_details([
+              {"Incident", room.ref},
+              {"Repository", room.repository_ref},
+              {"Channel", room.channel_ref},
+              {"Channel state", room.channel_state},
+              {"Attempts", room.attempt_count},
+              {"Last error", room.last_error_code}
+            ]),
+          href: "/incidents/#{segment(room.ref)}",
+          stage: "Incident",
+          state: room.status,
+          summary: incident_summary(room),
+          title: room.title || "Incident room",
+          tone: state_tone(room.status)
+        }
+      )
+    end)
+  end
+
+  defp publication_steps(episode_id) do
+    Repo.all(
+      from(publication in Publication,
+        where: publication.episode_id == ^episode_id,
+        order_by: [asc: publication.inserted_at, asc: publication.id],
+        limit: 50
+      )
+    )
+    |> Enum.map(fn publication ->
+      step(
+        "publication-#{publication.id}",
+        :outcome,
+        publication.published_at || publication.reviewed_at || publication.inserted_at,
+        %{
+          actor: "Responder",
+          details:
+            compact_details([
+              {"Publication", publication.ref},
+              {"Repository", publication.repository},
+              {"Branch", publication.branch_ref},
+              {"Commit", short_digest(publication.commit_sha)},
+              {"Pull request", publication.pull_request_number},
+              {"Attempts", publication.attempt_count},
+              {"Last error", publication.last_error_code}
+            ]),
+          stage: "Publication",
+          state: publication.status,
+          summary: publication_summary(publication),
+          title: publication.title || "Publication",
+          tone: state_tone(publication.status)
+        }
+      )
+    end)
+  end
+
+  defp schedule_steps(episode_id) do
+    Repo.all(
+      from(schedule in Schedule,
+        where: schedule.source_episode_id == ^episode_id,
+        order_by: [asc: schedule.confirmed_at, asc: schedule.id],
+        limit: 50
+      )
+    )
+    |> Enum.map(fn schedule ->
+      step(
+        "schedule-#{schedule.id}",
+        :outcome,
+        schedule.confirmed_at || schedule.inserted_at,
+        %{
+          actor: "Responder",
+          details:
+            compact_details([
+              {"Schedule", schedule.ref},
+              {"Authority", schedule.authority},
+              {"Repository", schedule.repository},
+              {"Next occurrence", schedule.next_occurrence_at},
+              {"Failures", schedule.failure_count}
+            ]),
+          href: "/schedules/#{segment(schedule.ref)}",
+          stage: "Schedule",
+          state: schedule.status,
+          summary: schedule_summary(schedule),
+          title: schedule.title || "Schedule confirmed",
+          tone: state_tone(schedule.status)
+        }
+      )
+    end)
+  end
+
+  defp totals(episode_id, events, records, sessions, turns) do
+    turn_totals =
+      Repo.one!(
+        from(turn in Turn,
+          where: turn.episode_id == ^episode_id,
+          select: %{
+            cost:
+              type(
+                fragment(
+                  "COALESCE(SUM(CASE WHEN ? THEN COALESCE(?, 0) ELSE 0 END), 0)",
+                  turn.usage_cost_recorded,
+                  turn.usage_cost_usd
+                ),
+                :decimal
+              ),
+            costed:
+              type(
+                fragment("COUNT(*) FILTER (WHERE ?)::bigint", turn.usage_cost_recorded),
+                :integer
+              ),
+            measured:
+              type(
+                fragment("COUNT(*) FILTER (WHERE ?)::bigint", turn.usage_recorded),
+                :integer
+              ),
+            repairs:
+              type(
+                fragment(
+                  "COALESCE(SUM(GREATEST(COALESCE(?, 1) - 1, 0)), 0)::bigint",
+                  turn.candidate_attempt
+                ),
+                :integer
+              ),
+            tokens:
+              type(
+                fragment(
+                  "COALESCE(SUM(CASE WHEN ? THEN COALESCE(?, 0) + COALESCE(?, 0) + COALESCE(?, 0) + COALESCE(?, 0) ELSE 0 END), 0)::bigint",
+                  turn.usage_recorded,
+                  turn.usage_input_tokens,
+                  turn.usage_cached_input_tokens,
+                  turn.usage_output_tokens,
+                  turn.usage_reasoning_tokens
+                ),
+                :integer
+              ),
+            turns: count(turn.id),
+            work_claims:
+              type(
+                fragment("COALESCE(SUM(?), 0)::bigint", turn.work_attempt_count),
+                :integer
+              )
+          }
+        )
+      )
+
+    Map.merge(turn_totals, %{
+      current_turn: List.last(turns),
+      events:
+        Repo.aggregate(from(event in Event, where: event.episode_id == ^episode_id), :count),
+      events_shown: length(events),
+      records:
+        Repo.aggregate(from(record in Record, where: record.episode_id == ^episode_id), :count),
+      records_shown: length(records),
+      sessions:
+        Repo.aggregate(from(session in Session, where: session.episode_id == ^episode_id), :count),
+      sessions_shown: length(sessions),
+      turns_shown: length(turns)
+    })
+  end
+
+  defp history(totals, activity_page) do
+    windows = [
+      history_window("kernel events", totals.events_shown, totals.events),
+      history_window("records", totals.records_shown, totals.records),
+      history_window("sessions", totals.sessions_shown, totals.sessions),
+      history_window("turns", totals.turns_shown, totals.turns),
+      history_window("activity events", activity_page.shown, activity_page.total)
+    ]
+
+    %{truncated: Enum.any?(windows, & &1.truncated), windows: windows}
+  end
+
+  defp history_window(label, shown, total),
+    do: %{label: label, shown: shown, total: total, truncated: total > shown}
+
+  defp latest_time(steps, fallback) do
+    Enum.reduce(steps, fallback, fn
+      %{at: %DateTime{} = at}, %DateTime{} = latest ->
+        if DateTime.compare(at, latest) == :gt, do: at, else: latest
+
+      _step, latest ->
+        latest
+    end)
+  end
+
+  defp metrics(episode, _turns, _records, activity_page, totals, steps) do
+    [
+      metric(
+        "State",
+        human(episode.state),
+        next_action(episode, totals.current_turn),
+        state_tone(episode.state)
+      ),
+      metric(
+        "Elapsed",
+        elapsed(episode.inserted_at, latest_time(steps, episode.updated_at)),
+        "first input to latest change"
+      ),
+      metric("Turns", totals.turns, plural(totals.work_claims, "Work claim")),
+      metric(
+        "Repairs",
+        totals.repairs,
+        "candidate corrections",
+        if(totals.repairs > 0, do: :warn, else: nil)
+      ),
+      metric(
+        "Tokens",
+        if(totals.measured == 0, do: "unmeasured", else: format_integer(totals.tokens)),
+        "#{totals.measured}/#{totals.turns} measured"
+      ),
+      metric(
+        "Cost",
+        if(totals.costed == 0,
+          do: "unmeasured",
+          else: "$" <> Decimal.to_string(totals.cost, :normal)
+        ),
+        "#{totals.costed}/#{totals.turns} costed"
+      ),
+      metric(
+        "Tool calls",
+        activity_page.tool_calls,
+        "durably narrated by Coop"
+      ),
+      metric("Records", totals.records, "durable state records")
+    ]
+  end
+
+  defp stats(steps, activity_page, totals) do
+    [
+      %{label: "steps shown", value: length(steps)},
+      %{label: "turns", value: totals.turns},
+      %{label: "records", value: totals.records},
+      %{label: "activity", value: activity_page.total}
+    ]
+  end
+
+  defp stopped(%Episode{state: :waiting_for_input}, _turn) do
+    %{
+      action: "Reply in the bound conversation",
+      attempted: [],
+      headline: "Waiting for a person",
+      href: nil,
+      reason: "The model recorded a material question and released its worker lease."
+    }
+  end
+
+  defp stopped(%Episode{state: :waiting_for_event}, _turn) do
+    %{
+      action: "Wait for the recorded event or deadline",
+      attempted: [],
+      headline: "Waiting for an external event",
+      href: nil,
+      reason: "The episode is parked durably and will resume only for its bound trigger."
+    }
+  end
+
+  defp stopped(episode, %Turn{status: :blocked} = turn) do
+    attempts =
+      [
+        plural(turn.work_attempt_count || 0, "Work claim"),
+        turn.candidate_attempt && plural(turn.candidate_attempt, "candidate attempt"),
+        turn.coop_turn_id && "Coop turn created",
+        turn.validation_intent && "host validation recorded"
+      ]
+      |> Enum.reject(&(&1 in [nil, "0 Work claims"]))
+
+    %{
+      action: "Inspect the failure and retry only after its cause is corrected",
+      attempted: attempts,
+      headline: "Work needs operator recovery",
+      href: "/failures/work/#{segment(episode.key)}",
+      reason:
+        turn.last_error_code || FailureDetail.project(turn.last_error_detail) || "Work blocked"
+    }
+  end
+
+  defp stopped(%Episode{state: :cancelled}, _turn) do
+    %{
+      action: "No action is required",
+      attempted: [],
+      headline: "Episode cancelled",
+      href: nil,
+      reason: "The durable episode owner recorded cancellation."
+    }
+  end
+
+  defp stopped(_episode, _turn), do: nil
+
+  defp chapters(steps, started_at) do
+    steps
+    |> Enum.chunk_by(& &1.band)
+    |> Enum.map(fn chapter_steps ->
+      {band, title, blurb} =
+        Enum.find(@chapters, fn {band, _title, _blurb} ->
+          band == List.first(chapter_steps).band
+        end)
+
+      %{
+        band: band,
+        title: title,
+        blurb: blurb,
+        span: chapter_span(chapter_steps, started_at),
+        steps: chapter_steps
+      }
+    end)
+  end
+
+  defp chapter_span(steps, started_at) do
+    values = steps |> Enum.map(&relative(&1.at, started_at)) |> Enum.reject(&is_nil/1)
+
+    case values do
+      [] -> nil
+      [one] -> one
+      many -> List.first(many) <> " → " <> List.last(many)
+    end
+  end
+
+  defp chronological(steps) do
+    steps
+    |> Enum.with_index()
+    |> Enum.sort_by(fn {item, index} -> {time_key(item.at), index} end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  defp step(id, band, at, attributes) do
+    %{
+      actor: human(Map.fetch!(attributes, :actor)),
+      at: at,
+      band: band,
+      details: Map.fetch!(attributes, :details),
+      duration_ms: Map.get(attributes, :duration_ms),
+      href: Map.get(attributes, :href),
+      id: id,
+      stage: human(Map.fetch!(attributes, :stage)),
+      state: human(Map.fetch!(attributes, :state)),
+      summary: present(Map.fetch!(attributes, :summary)),
+      title: present(Map.fetch!(attributes, :title)),
+      tone: Map.get(attributes, :tone)
+    }
+  end
+
+  defp metric(label, value, detail, tone \\ nil),
+    do: %{detail: to_string(detail), label: label, tone: tone, value: to_string(value)}
+
+  defp kernel_band(kind)
+       when kind in [:input_admitted, :input_wait_started, :event_wait_started, :wait_resumed],
+       do: :input
+
+  defp kernel_band(:owner_transferred), do: :ready
+  defp kernel_band(:result_accepted), do: :answer
+  defp kernel_band(_kind), do: :outcome
+
+  defp kernel_stage(:input_admitted), do: "Input"
+
+  defp kernel_stage(kind) when kind in [:input_wait_started, :event_wait_started, :wait_resumed],
+    do: "Wait"
+
+  defp kernel_stage(:owner_transferred), do: "Custody"
+  defp kernel_stage(:result_accepted), do: "Result"
+  defp kernel_stage(:delivery_confirmed), do: "Delivery"
+  defp kernel_stage(:reaction_recorded), do: "Feedback"
+  defp kernel_stage(:episode_cancelled), do: "Cancellation"
+  defp kernel_stage(_kind), do: "Lifecycle"
+
+  defp kernel_title(kind), do: kind |> human() |> capitalize()
+
+  defp kernel_summary(:input_admitted), do: "Authenticated input joined this episode."
+
+  defp kernel_summary(:owner_transferred),
+    do: "The kernel transferred exclusive responsibility for the next transition."
+
+  defp kernel_summary(:input_wait_started),
+    do: "Work parked until a person supplies the requested information."
+
+  defp kernel_summary(:event_wait_started),
+    do: "Work parked until an exact event or deadline resumes it."
+
+  defp kernel_summary(:wait_resumed),
+    do: "The recorded wait matched and work became eligible again."
+
+  defp kernel_summary(:result_accepted), do: "Responder accepted the host-validated result."
+
+  defp kernel_summary(:delivery_confirmed),
+    do: "The bound transport confirmed the visible result."
+
+  defp kernel_summary(:episode_cancelled), do: "The episode reached a durable cancelled state."
+
+  defp kernel_summary(:reaction_recorded),
+    do: "Conversation feedback was recorded for the next logical turn."
+
+  defp kernel_summary(_kind), do: "Durable lifecycle transition recorded."
+
+  defp kernel_tone(kind) when kind in [:result_accepted, :delivery_confirmed, :wait_resumed],
+    do: :good
+
+  defp kernel_tone(:episode_cancelled), do: :warn
+  defp kernel_tone(_kind), do: nil
+
+  defp record_band(kind)
+       when kind in [
+              "input_request",
+              "event_wait",
+              "task_offer",
+              "publication_offer",
+              "schedule_offer",
+              "automation_change_offer",
+              "memory_offer",
+              "preference_offer",
+              "guidance_offer",
+              "standing_assignment_offer",
+              "slack_post_offer",
+              "emisar_approval"
+            ],
+       do: :outcome
+
+  defp record_band(_kind), do: :work
+
+  defp record_stage("evidence"), do: "Evidence"
+  defp record_stage("coverage"), do: "Coverage"
+  defp record_stage("progress"), do: "Progress"
+  defp record_stage("goal"), do: "Plan"
+  defp record_stage("goal_state"), do: "Plan"
+  defp record_stage("input_request"), do: "Wait"
+  defp record_stage("event_wait"), do: "Wait"
+  defp record_stage(_kind), do: "State record"
+
+  defp record_title(%Record{kind: "progress"}, %{title: title}), do: "Progress · #{title}"
+  defp record_title(%Record{kind: "goal"}, _card), do: "Goal recorded"
+  defp record_title(%Record{kind: "goal_state"}, %{title: title}), do: "Goal · #{title}"
+
+  defp record_title(_record, %{label: label, title: title}) when is_binary(title),
+    do: "#{label} · #{title}"
+
+  defp record_title(record, _card), do: capitalize(human(record.kind)) <> " recorded"
+
+  defp record_summary(_record, %{summary: summary}) when is_binary(summary), do: summary
+  defp record_summary(%Record{subject_ref: value}, _card) when is_binary(value), do: value
+  defp record_summary(%Record{operation_id: value}, _card), do: value
+
+  defp record_details(record, nil),
+    do: [{"Record", record.ref}, {"Operation", record.operation_id}]
+
+  defp record_details(record, card) do
+    [{"Record", record.ref}, {"Operation", record.operation_id}, {"Status", record.status}] ++
+      Map.get(card, :details, [])
+  end
+
+  defp record_href(_record), do: nil
+
+  defp coop_band(kind) when kind in ["turn", "candidate", "validation"], do: :work
+  defp coop_band(_kind), do: :ready
+  defp coop_title(kind), do: "Worker · #{human(kind)}"
+  defp coop_summary(%{"state" => state}), do: "Worker reported #{human(state)}."
+  defp coop_summary(_payload), do: "Bound worker event recorded."
+  defp coop_tone(kind) when kind in ["candidate", "validation"], do: :good
+  defp coop_tone(_kind), do: nil
+
+  defp platform_action_title(:post_slack_message), do: "Additional message"
+  defp platform_action_title(:set_slack_reaction), do: "Slack reaction"
+  defp platform_action_title(:set_github_reaction), do: "GitHub reaction"
+  defp platform_action_title(tool), do: human(tool)
+
+  defp platform_action_summary(%PlatformAction{status: :delivered}),
+    do: "The bound platform confirmed the host-owned action."
+
+  defp platform_action_summary(%PlatformAction{last_error_code: code}) when is_binary(code),
+    do: "Delivery stopped: #{human(code)}."
+
+  defp platform_action_summary(_action), do: "The host-owned platform action is queued."
+
+  defp incident_summary(%IncidentRoom{status: :ready, channel_ref: channel}),
+    do: "Incident room ready#{if(channel, do: " at #{channel}", else: "")}."
+
+  defp incident_summary(%IncidentRoom{status: :blocked, last_error_code: code}),
+    do: "Incident provisioning blocked#{if(code, do: ": #{human(code)}", else: "")}."
+
+  defp incident_summary(_room), do: "Episode-linked incident lifecycle recorded."
+
+  defp publication_summary(%Publication{status: :published, pull_request_number: number}),
+    do: "Published as draft pull request#{if(number, do: " ##{number}", else: "")}."
+
+  defp publication_summary(%Publication{status: status}), do: "Publication is #{human(status)}."
+
+  defp schedule_summary(%Schedule{status: :active, next_occurrence_at: at}),
+    do: "Schedule active#{if(at, do: "; next occurrence #{DateTime.to_iso8601(at)}", else: "")}."
+
+  defp schedule_summary(%Schedule{status: status}), do: "Schedule is #{human(status)}."
+
+  defp turn_prepared_summary(turn, session) do
+    target = turn.execution_target || "target recorded after completion"
+    policy = session && session.policy
+    [target, policy && "policy #{policy}"] |> Enum.reject(&is_nil/1) |> Enum.join(" · ")
+  end
+
+  defp work_state(%Turn{status: :blocked}), do: "failed"
+  defp work_state(%Turn{remote_finished_at: nil}), do: "running"
+  defp work_state(_turn), do: "finished"
+
+  defp work_summary(%Turn{status: :blocked, last_error_code: code}),
+    do: "The remote turn stopped#{if(code, do: ": #{human(code)}", else: "")}."
+
+  defp work_summary(%Turn{remote_finished_at: nil}),
+    do: "The provider is still handling this turn."
+
+  defp work_summary(_turn), do: "The provider finished and returned control to Responder."
+
+  defp validation_summary("reject", [], _turn),
+    do: "Responder rejected this candidate and requested a same-turn correction."
+
+  defp validation_summary("reject", violations, _turn), do: Enum.join(violations, " ")
+
+  defp validation_summary(_verdict, _violations, %Turn{validation_receipt: receipt})
+       when is_binary(receipt), do: "The exact candidate passed host validation."
+
+  defp validation_summary(_verdict, _violations, _turn),
+    do: "A candidate reached the host validation boundary."
+
+  defp delivery_summary(%{"delivery" => "reply", "message" => message}) when is_binary(message),
+    do: message |> redact_operator_text() |> bounded(280)
+
+  defp delivery_summary(%{"message" => message}) when is_binary(message),
+    do: message |> redact_operator_text() |> bounded(280)
+
+  defp delivery_summary(%{"delivery" => "none", "decision_reason" => reason})
+       when is_binary(reason),
+       do: "No reply: " <> (reason |> redact_operator_text() |> bounded(240))
+
+  defp delivery_summary(_document), do: "Accepted result recorded."
+
+  defp delivery_outcome_summary(%Turn{delivered_at: %DateTime{}}),
+    do: "The accepted reply reached its exact destination."
+
+  defp delivery_outcome_summary(%Turn{last_error_code: code}) when is_binary(code),
+    do: "Delivery stopped: #{human(code)}."
+
+  defp delivery_outcome_summary(_turn),
+    do: "The accepted reply is waiting for transport confirmation."
+
+  defp delivery_actor(%{"transport" => transport}) when is_binary(transport), do: transport
+  defp delivery_actor(_receipt), do: "Delivery"
+
+  defp delivery_kind(%{"delivery" => value}), do: value
+  defp delivery_kind(%{}), do: "reply"
+  defp delivery_kind(_document), do: nil
+
+  defp accepted_reply(%{"delivery" => "reply", "message" => message}) when is_binary(message),
+    do: message |> redact_operator_text() |> bounded(1_024)
+
+  defp accepted_reply(%{"message" => message}) when is_binary(message),
+    do: message |> redact_operator_text() |> bounded(1_024)
+
+  defp accepted_reply(_document), do: nil
+
+  defp outcome_count(document, key) do
+    case get_in(document || %{}, ["outcome", key]) do
+      values when is_list(values) -> length(values)
+      _other -> nil
+    end
+  end
+
+  defp receipt_state(nil), do: nil
+  defp receipt_state(_receipt), do: "recorded"
+
+  defp preflight_state(%Turn{final_preflight_candidate_sha256: value}) when is_binary(value),
+    do: "recorded"
+
+  defp preflight_state(_turn), do: nil
+
+  defp measurement_state(%Turn{timing_recorded: true, usage_recorded: true}),
+    do: "usage and timing recorded"
+
+  defp measurement_state(%Turn{timing_recorded: true}), do: "timing recorded; usage unmeasured"
+  defp measurement_state(_turn), do: "unmeasured"
+
+  defp submission_context(%{"context" => context} = submission) when is_map(context) do
+    %{
+      artifacts:
+        submission
+        |> Map.get("input_artifact_refs", [])
+        |> bounded_strings()
+        |> Enum.join(" · "),
+      inputs: context_input_count(context),
+      mode: context["mode"],
+      omitted_inputs: context_omitted_count(context),
+      platform_tools: list_count(context["source_and_action_tools"], "tools"),
+      sections: context |> Map.keys() |> Enum.sort() |> Enum.join(" · "),
+      state_tools: list_count(context["responder_state_tools"], "tools")
+    }
+  end
+
+  defp submission_context(_submission),
+    do: %{
+      artifacts: nil,
+      inputs: nil,
+      mode: nil,
+      omitted_inputs: nil,
+      platform_tools: nil,
+      sections: nil,
+      state_tools: nil
+    }
+
+  defp submission_contract(%{"contract_version" => value}), do: value
+  defp submission_contract(_submission), do: nil
+
+  defp context_input_count(%{"inputs" => %{"items" => values}}) when is_list(values),
+    do: plural(length(values), "input")
+
+  defp context_input_count(%{"current_inputs" => %{"items" => values}}) when is_list(values),
+    do: plural(length(values), "input")
+
+  defp context_input_count(_context), do: nil
+
+  defp context_omitted_count(%{"inputs" => %{"omitted_count" => value}}), do: value
+
+  defp context_omitted_count(%{"current_inputs" => %{"omitted_count" => value}}), do: value
+
+  defp context_omitted_count(_context), do: nil
+
+  defp list_count(values, label) when is_list(values), do: "#{length(values)} #{label}"
+  defp list_count(_values, _label), do: nil
+
+  defp prompt_state(%Turn{submission: %{"prompt" => prompt}}) when is_binary(prompt),
+    do: "retained exact bytes; display withheld"
+
+  defp prompt_state(%Turn{operational_pruned_at: %DateTime{} = at}),
+    do: "expired #{DateTime.to_iso8601(at)}; digest retained"
+
+  defp prompt_state(_turn), do: "unrecorded"
+
+  defp prompt_bytes(%{"prompt" => prompt}) when is_binary(prompt), do: byte_size(prompt)
+  defp prompt_bytes(_submission), do: nil
+
+  defp prompt_digest(%{"prompt" => prompt}) when is_binary(prompt),
+    do: prompt |> sha256() |> short_digest()
+
+  defp prompt_digest(_submission), do: nil
+
+  defp context_digest(%{"context" => context}) when is_map(context),
+    do: context |> CanonicalJSON.digest() |> short_digest()
+
+  defp context_digest(_submission), do: nil
+
+  defp schema_digest(%{"output_schema" => schema}) when is_map(schema),
+    do: schema |> CanonicalJSON.digest() |> short_digest()
+
+  defp schema_digest(_submission), do: nil
+
+  defp candidate_parse(candidate) when is_binary(candidate) do
+    case Jason.decode(candidate) do
+      {:ok, value} when is_map(value) -> "JSON object"
+      {:ok, _value} -> "JSON value; object required"
+      {:error, _reason} -> "invalid JSON"
+    end
+  end
+
+  defp candidate_parse(_candidate), do: "not recorded"
+
+  defp parsed_time(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, time, 0} -> time
+      _invalid -> nil
+    end
+  end
+
+  defp parsed_time(_value), do: nil
+
+  defp workspace_target(%{"repository" => repository}) when is_binary(repository), do: repository
+  defp workspace_target(%{"primary" => %{"name" => name}}) when is_binary(name), do: name
+  defp workspace_target(_task), do: nil
+
+  defp source_text(%Entry{content: %{"text" => value}}) when is_binary(value),
+    do: retained_text(value)
+
+  defp source_text(%Entry{source_kind: "github", content: %{"payload" => payload}})
+       when is_map(payload) do
+    value =
+      get_in(payload, ["comment", "body"]) || get_in(payload, ["review", "body"]) ||
+        get_in(payload, ["issue", "body"]) || get_in(payload, ["pull_request", "body"])
+
+    if is_binary(value), do: retained_text(value), else: nil
+  end
+
+  defp source_text(_input), do: nil
+
+  defp source_attachments(%Entry{content: %{"files" => files}}) when is_list(files) do
+    names =
+      files
+      |> Enum.flat_map(fn
+        %{"name" => name} when is_binary(name) -> [bounded(name, 128)]
+        _file -> []
+      end)
+      |> Enum.take(5)
+
+    [plural(length(files), "file"), Enum.join(names, " · ")]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(" · ")
+  end
+
+  defp source_attachments(_input), do: nil
+
+  defp source_link(episode, events, inputs) do
+    events
+    |> Enum.find_value(fn event ->
+      case Map.get(inputs, event.dedupe_key) do
+        %Entry{} = input -> entry_source_link(episode, input)
+        nil -> nil
+      end
+    end)
+  end
+
+  defp entry_source_link(
+         %Episode{
+           destination_conversation_ref: "slack:" <> conversation,
+           destination_thread_ref: thread
+         },
+         %Entry{source_item_ref: message_ref}
+       ) do
+    with [_workspace, channel] <- String.split(conversation, ":", parts: 2),
+         true <- slack_ref?(channel),
+         true <- slack_timestamp?(message_ref) do
+      stamp = "p" <> String.replace(message_ref, ".", "")
+      base = "https://slack.com/archives/#{channel}/#{stamp}"
+
+      href =
+        if slack_timestamp?(thread) and thread != message_ref,
+          do: base <> "?" <> URI.encode_query(%{"cid" => channel, "thread_ts" => thread}),
+          else: base
+
+      %{href: href, label: "Open source message", transport: "Slack"}
+    else
+      _invalid -> nil
+    end
+  end
+
+  defp entry_source_link(
+         %Episode{destination_conversation_ref: "control-plane:lab:" <> conversation_id},
+         _input
+       ) do
+    case Ecto.UUID.cast(conversation_id) do
+      {:ok, id} -> %{href: "/lab/#{id}", label: "Open source conversation", transport: "Lab"}
+      :error -> nil
+    end
+  end
+
+  defp entry_source_link(
+         _episode,
+         %Entry{
+           source_kind: "github",
+           source_item_ref: source_item_ref,
+           content: %{"payload" => payload}
+         }
+       )
+       when is_map(payload) do
+    repository = get_in(payload, ["repository", "full_name"])
+    number = get_in(payload, ["issue", "number"]) || get_in(payload, ["pull_request", "number"])
+    comment_id = get_in(payload, ["comment", "id"])
+    review_id = get_in(payload, ["review", "id"])
+    pull? = is_map(get_in(payload, ["issue", "pull_request"]))
+
+    github_source_link(repository, number, comment_id, review_id, source_item_ref, pull?)
+  end
+
+  defp entry_source_link(_episode, _input), do: nil
+
+  defp review_state(%Episode{} = episode) do
+    latest =
+      Repo.one(
+        from(review in EpisodeReview,
+          where: review.episode_id == ^episode.id,
+          order_by: [desc: review.semantic_version, desc: review.reviewed_at],
+          limit: 1
+        )
+      )
+
+    terminal = episode.state in [:complete, :cancelled]
+    current = not is_nil(latest) and latest.semantic_version == episode.semantic_version
+
+    %{
+      actor_ref: latest && latest.actor_ref,
+      at: latest && latest.reviewed_at,
+      awaiting: terminal and not current,
+      current: current,
+      note: latest && latest.note,
+      semantic_version: latest && latest.semantic_version
+    }
+  end
+
+  defp operator_actions(episode, current_turn, review) do
+    []
+    |> maybe_action(
+      match?(%Turn{status: :blocked}, current_turn),
+      "Run again",
+      "/actions/work/#{segment(episode.key)}/retry",
+      :primary
+    )
+    |> maybe_action(
+      resolvable?(episode, current_turn),
+      "Close as no longer needed",
+      "/actions/episode/#{segment(episode.key)}/resolve",
+      :danger
+    )
+    |> maybe_action(
+      review.awaiting,
+      "Mark ending reviewed",
+      "/actions/episode/#{segment(episode.key)}/review",
+      :secondary
+    )
+  end
+
+  defp maybe_action(actions, true, label, href, tone),
+    do: actions ++ [%{href: href, label: label, tone: tone}]
+
+  defp maybe_action(actions, false, _label, _href, _tone), do: actions
+
+  defp resolvable?(%Episode{state: state}, _turn)
+       when state in [:waiting_for_input, :waiting_for_event],
+       do: true
+
+  defp resolvable?(%Episode{state: :working, owner_kind: :turn}, %Turn{status: :blocked}),
+    do: true
+
+  defp resolvable?(_episode, _turn), do: false
+
+  defp slack_ref?(value), do: is_binary(value) and Regex.match?(~r/\A[A-Z0-9]+\z/, value)
+
+  defp slack_timestamp?(value),
+    do: is_binary(value) and Regex.match?(~r/\A[0-9]{10,}\.[0-9]{1,6}\z/, value)
+
+  defp github_repository?(value),
+    do: is_binary(value) and Regex.match?(~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/, value)
+
+  defp github_source_link(
+         repository,
+         number,
+         comment_id,
+         _review_id,
+         "github:pull_request_review_comment:" <> _item_id,
+         _pull?
+       ),
+       do: github_comment_link(repository, number, comment_id, "pull", "discussion_r")
+
+  defp github_source_link(
+         repository,
+         number,
+         comment_id,
+         _review_id,
+         "github:issue_comment:" <> _item_id,
+         true
+       ),
+       do: github_comment_link(repository, number, comment_id, "pull", "issuecomment-")
+
+  defp github_source_link(
+         repository,
+         number,
+         comment_id,
+         _review_id,
+         "github:issue_comment:" <> _item_id,
+         false
+       ),
+       do: github_comment_link(repository, number, comment_id, "issues", "issuecomment-")
+
+  defp github_source_link(
+         repository,
+         number,
+         _comment_id,
+         review_id,
+         "github:pull_request_review:" <> _item_id,
+         _pull?
+       ),
+       do: github_review_link(repository, number, review_id)
+
+  defp github_source_link(
+         _repository,
+         _number,
+         _comment_id,
+         _review_id,
+         _source_item_ref,
+         _pull?
+       ),
+       do: nil
+
+  defp github_comment_link(repository, number, comment_id, path, anchor) do
+    if github_repository?(repository) and is_integer(number) and is_integer(comment_id) do
+      %{
+        href: "https://github.com/#{repository}/#{path}/#{number}##{anchor}#{comment_id}",
+        label: "Open source comment",
+        transport: "GitHub"
+      }
+    end
+  end
+
+  defp github_review_link(repository, number, review_id) do
+    if github_repository?(repository) and is_integer(number) and is_integer(review_id) do
+      %{
+        href: "https://github.com/#{repository}/pull/#{number}#pullrequestreview-#{review_id}",
+        label: "Open source review",
+        transport: "GitHub"
+      }
+    end
+  end
+
+  defp retained_text(value) do
+    "retained · #{byte_size(value)} bytes · sha256 #{value |> sha256() |> short_digest()} · content withheld"
+  end
+
+  defp redact_operator_text(value) do
+    configured_secrets()
+    |> Enum.reduce(value, &String.replace(&2, &1, "[redacted]"))
+    |> String.replace(~r/(?i)\b(bearer\s+)[A-Za-z0-9._~+\/-]+/, "\\1[redacted]")
+    |> String.replace(
+      ~r/(?i)\b(password|passwd|token|secret|api[_-]?key)\s*[:=]\s*[^\s,;]+/,
+      "\\1=[redacted]"
+    )
+    |> String.replace(
+      ~r/\b(?:xox[baprs]-|gh[pousr]_|github_pat_|sk-)[A-Za-z0-9_-]+/,
+      "[redacted]"
+    )
+    |> scrub_embedded_urls()
+  end
+
+  defp scrub_embedded_urls(value) do
+    Regex.replace(~r/https?:\/\/[^\s<>()]+/, value, fn url -> scrub_url(url) end)
+  end
+
+  defp configured_secrets do
+    Application.get_all_env(:responder)
+    |> Enum.flat_map(fn {_key, value} -> secret_values(value, false) end)
+    |> Enum.filter(&(byte_size(&1) >= 8))
+    |> Enum.uniq()
+  end
+
+  defp secret_values(%{} = value, inherited?) do
+    Enum.flat_map(value, fn {key, nested} ->
+      secret? = inherited? or sensitive_key?(key) or to_string(key) == "secrets"
+      secret_values(nested, secret?)
+    end)
+  end
+
+  defp secret_values(value, inherited?) when is_list(value),
+    do: Enum.flat_map(value, &secret_values(&1, inherited?))
+
+  defp secret_values(value, true) when is_binary(value), do: [value]
+  defp secret_values(_value, _inherited?), do: []
+
+  defp sha256(value),
+    do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
+
+  defp session_summary(session, target) do
+    [session.repository_ref || target || "no repository", "generation #{session.generation}"]
+    |> Enum.join(" · ")
+  end
+
+  defp next_action(%Episode{state: :waiting_for_input}, _turn), do: "operator input"
+  defp next_action(%Episode{state: :waiting_for_event}, _turn), do: "external event"
+  defp next_action(_episode, %Turn{status: :blocked}), do: "operator recovery"
+  defp next_action(%Episode{owner_kind: :delivery}, _turn), do: "deliver result"
+  defp next_action(%Episode{state: :complete}, _turn), do: "complete"
+  defp next_action(%Episode{state: :cancelled}, _turn), do: "cancelled"
+  defp next_action(_episode, nil), do: "start work"
+  defp next_action(_episode, _turn), do: "continue work"
+
+  defp compact_details(values) do
+    values
+    |> Enum.flat_map(fn
+      {_label, nil} -> []
+      {_label, ""} -> []
+      {label, %DateTime{} = value} -> [%{label: label, value: DateTime.to_iso8601(value)}]
+      {label, value} -> [%{label: label, value: bounded(to_string(value), 1_024)}]
+    end)
+    |> Enum.take(20)
+  end
+
+  defp bounded_strings(values) when is_list(values) do
+    values |> Enum.filter(&is_binary/1) |> Enum.map(&bounded(&1, 512)) |> Enum.take(16)
+  end
+
+  defp bounded_strings(_values), do: []
+
+  defp bounded(value, maximum) when byte_size(value) <= maximum, do: value
+  defp bounded(value, maximum), do: String.slice(value, 0, maximum) <> "…"
+
+  defp short_digest(value) when is_binary(value) and byte_size(value) > 12,
+    do: binary_part(value, 0, 12) <> "…"
+
+  defp short_digest(value) when is_binary(value), do: value
+  defp short_digest(_value), do: nil
+
+  defp join_ref(nil, nil), do: nil
+
+  defp join_ref(kind, ref),
+    do: [kind, ref] |> Enum.reject(&is_nil/1) |> Enum.map_join(":", &to_string/1)
+
+  defp elapsed(%DateTime{} = left, %DateTime{} = right),
+    do: format_ms(max(DateTime.diff(right, left, :millisecond), 0))
+
+  defp elapsed(_left, _right), do: "unmeasured"
+
+  defp relative(%DateTime{} = at, %DateTime{} = started_at),
+    do: "+" <> format_ms(max(DateTime.diff(at, started_at, :millisecond), 0))
+
+  defp relative(_at, _started_at), do: nil
+
+  defp time_key(%DateTime{} = value), do: DateTime.to_unix(value, :microsecond)
+  defp time_key(_value), do: 9_223_372_036_854_775_807
+
+  defp format_ms(nil), do: nil
+  defp format_ms(value) when value < 1_000, do: "#{value} ms"
+  defp format_ms(value) when value < 60_000, do: format_decimal(value / 1_000, "s")
+  defp format_ms(value) when value < 3_600_000, do: format_decimal(value / 60_000, "m")
+  defp format_ms(value), do: format_decimal(value / 3_600_000, "h")
+
+  defp format_decimal(value, suffix) do
+    number =
+      :erlang.float_to_binary(value, decimals: 1)
+      |> String.trim_trailing("0")
+      |> String.trim_trailing(".")
+
+    number <> suffix
+  end
+
+  defp format_integer(value),
+    do:
+      Integer.to_string(value)
+      |> String.reverse()
+      |> String.replace(~r/(\d{3})(?=\d)/, "\\1,")
+      |> String.reverse()
+
+  defp plural(1, noun), do: "1 #{noun}"
+  defp plural(value, noun), do: "#{value} #{noun}s"
+
+  defp human(nil), do: "unrecorded"
+  defp human(value) when is_atom(value), do: value |> Atom.to_string() |> human()
+  defp human(value) when is_binary(value), do: String.replace(value, "_", " ")
+  defp human(value), do: to_string(value)
+
+  defp capitalize(value), do: String.capitalize(value)
+
+  defp present(nil), do: nil
+  defp present(value), do: bounded(to_string(value), 2_000)
+
+  defp state_tone(state)
+       when state in [:blocked, "blocked", :failed, "failed", :superseded, "superseded"], do: :bad
+
+  defp state_tone(state)
+       when state in [
+              :complete,
+              "complete",
+              :settled,
+              "settled",
+              :delivered,
+              "delivered",
+              :published,
+              "published",
+              :ready,
+              "ready",
+              :active,
+              "active"
+            ],
+       do: :good
+
+  defp state_tone(state)
+       when state in [
+              :waiting_for_input,
+              :waiting_for_event,
+              :cancelled,
+              :cancel_pending,
+              :pending,
+              :review_pending,
+              :publish_pending
+            ],
+       do: :warn
+
+  defp state_tone(_state), do: nil
+
+  defp segment(value), do: URI.encode(to_string(value), &URI.char_unreserved?/1)
+end

@@ -11,6 +11,7 @@ defmodule Responder.ControlPlane.Projection do
 
   alias Responder.Artifacts.OutputArtifact
   alias Responder.ControlPlane.Card
+  alias Responder.ControlPlane.EpisodeTrace
   alias Responder.Delivery.Operator, as: DeliveryOperator
   alias Responder.Delivery.PlatformAction
   alias Responder.Delivery.Reaction
@@ -416,15 +417,18 @@ defmodule Responder.ControlPlane.Projection do
         :not_found
 
       episode ->
-        events =
+        event_records =
           Repo.all(
             from(event in Event,
               where: event.episode_id == ^episode.id,
-              order_by: [asc: event.sequence],
+              order_by: [desc: event.sequence],
               limit: 500
             )
           )
-          |> Enum.map(fn event ->
+          |> Enum.reverse()
+
+        events =
+          Enum.map(event_records, fn event ->
             %{
               kind: event.kind,
               occurred_at: event.occurred_at,
@@ -432,15 +436,18 @@ defmodule Responder.ControlPlane.Projection do
             }
           end)
 
-        records =
+        record_records =
           Repo.all(
             from(record in Record,
               where: record.episode_id == ^episode.id,
-              order_by: [asc: record.sequence, asc: record.id],
+              order_by: [desc: record.sequence, desc: record.id],
               limit: 500
             )
           )
-          |> Enum.map(fn record ->
+          |> Enum.reverse()
+
+        records =
+          Enum.map(record_records, fn record ->
             %{
               kind: record.kind,
               status: record.status,
@@ -448,16 +455,21 @@ defmodule Responder.ControlPlane.Projection do
             }
           end)
 
+        trace = EpisodeTrace.project(episode, event_records, record_records)
+
         {:ok,
          %{
            episode: %{
+             created_at: episode.inserted_at,
              destination: destination(episode),
+             next_action: trace.next_action,
              ref: episode.key,
              state: episode.state,
              updated_at: episode.updated_at
            },
            events: events,
-           records: records
+           records: records,
+           trace: trace
          }}
     end
   end

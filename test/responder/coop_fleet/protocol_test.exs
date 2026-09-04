@@ -41,7 +41,13 @@ defmodule Responder.CoopFleet.ProtocolTest do
 
     [batch] = poll["event_batches"]
     [first, second] = batch["events"]
-    gapped = %{batch | "events" => [first, %{second | "sequence" => 3}]}
+
+    gapped_second =
+      second
+      |> Map.put("sequence", 3)
+      |> put_in(["payload", "sequence"], 3)
+
+    gapped = %{batch | "events" => [first, gapped_second]}
 
     assert Protocol.poll(%{poll | "event_batches" => [gapped]}) ==
              {:error, {:invalid_coop_worker_poll, :event_sequence}}
@@ -50,6 +56,43 @@ defmodule Responder.CoopFleet.ProtocolTest do
 
     assert Protocol.response(%{response | "commands" => [%{command | "kind" => "shell"}]}) ==
              {:error, {:invalid_coop_worker_protocol, :command_kind}}
+  end
+
+  test "one fleet event carries the exact bounded Coop session event envelope" do
+    poll = @fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("poll")
+    [batch] = poll["event_batches"]
+    [event | _rest] = batch["events"]
+
+    session_event = %{
+      event
+      | "kind" => "session_event",
+        "payload" => %{
+          "id" => "evt-1",
+          "occurred_at" => "2026-08-29T12:00:00Z",
+          "payload" => %{"title" => "Read repository", "tool_call_id" => "tool-1"},
+          "sequence" => event["sequence"],
+          "session_id" => "coop-session-1",
+          "turn_id" => "turn-1",
+          "type" => "tool.started",
+          "version" => 1
+        }
+    }
+
+    assert {:ok, _prepared} =
+             Protocol.poll(%{poll | "event_batches" => [%{batch | "events" => [session_event]}]})
+
+    mismatched = put_in(session_event, ["payload", "sequence"], 2)
+
+    assert {:error, {:invalid_coop_worker_protocol, :session_event_sequence}} =
+             Protocol.poll(%{poll | "event_batches" => [%{batch | "events" => [mismatched]}]})
+
+    raw_lifecycle =
+      session_event
+      |> put_in(["payload", "type"], "assistant.message")
+      |> put_in(["payload", "payload"], %{"message" => "must not cross"})
+
+    assert {:error, {:invalid_coop_worker_protocol, :session_event_payload}} =
+             Protocol.poll(%{poll | "event_batches" => [%{batch | "events" => [raw_lifecycle]}]})
   end
 
   test "wire documents are bounded and result shapes cannot claim success without a resource" do

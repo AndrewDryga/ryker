@@ -15,6 +15,7 @@ defmodule Responder.Work.Executor do
   alias Responder.State.Records
 
   alias Responder.Work.{
+    Activity,
     Cancellation,
     Custody,
     FinalPreflight,
@@ -842,7 +843,12 @@ defmodule Responder.Work.Executor do
     end
   end
 
-  defp await_turn(
+  defp await_turn(claim, remote_turn, settings, left) do
+    _activity = Activity.sync(claim.session, settings.api, settings.client)
+    continue_await_turn(claim, remote_turn, settings, left)
+  end
+
+  defp continue_await_turn(
          claim,
          %{"state" => "awaiting_validation", "candidate" => candidate} = remote_turn,
          settings,
@@ -854,11 +860,16 @@ defmodule Responder.Work.Executor do
     end
   end
 
-  defp await_turn(claim, %{"state" => "completed"} = remote_turn, settings, _left) do
+  defp continue_await_turn(
+         claim,
+         %{"state" => "completed"} = remote_turn,
+         settings,
+         _left
+       ) do
     accept_completed(claim, remote_turn, settings)
   end
 
-  defp await_turn(claim, %{"state" => state}, settings, left)
+  defp continue_await_turn(claim, %{"state" => state}, settings, left)
        when state in @turn_waiting_states and left > 0 do
     with :ok <- pause(settings),
          {:ok, remote_turn} <- fetch_bound_turn(claim, settings) do
@@ -866,16 +877,16 @@ defmodule Responder.Work.Executor do
     end
   end
 
-  defp await_turn(_claim, %{"state" => state}, _settings, 0)
+  defp continue_await_turn(_claim, %{"state" => state}, _settings, 0)
        when state in @turn_waiting_states,
        do: {:error, {:work_poll_window_elapsed, :turn}}
 
-  defp await_turn(_claim, %{"state" => state} = turn, _settings, _left)
+  defp continue_await_turn(_claim, %{"state" => state} = turn, _settings, _left)
        when state in ~w(failed interrupted budget_exhausted cancelled) do
     {:error, {:work_turn_terminal, state, turn["error_code"], turn["error_detail"]}}
   end
 
-  defp await_turn(_claim, _turn, _settings, _left),
+  defp continue_await_turn(_claim, _turn, _settings, _left),
     do: {:error, {:coop_protocol_error, :turn_state}}
 
   defp handle_candidate(claim, candidate, artifacts, settings, left) do

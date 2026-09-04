@@ -12,6 +12,7 @@ defmodule Responder.Work.ExecutorTest do
   alias Responder.TestSupport.FakeWorkCoopAPI, as: FakeAPI
 
   alias Responder.Work.{
+    Activity,
     Cancellation,
     Custody,
     Executor,
@@ -210,7 +211,22 @@ defmodule Responder.Work.ExecutorTest do
 
   test "one frozen turn reaches a validated durable delivery intent" do
     claim = claim_episode!("valid")
-    {:ok, fake} = FakeAPI.start_link([reply("Investigation complete.")])
+
+    activity = [
+      %{
+        "id" => "event:valid:1",
+        "occurred_at" => DateTime.to_iso8601(@now),
+        "payload" => %{"text" => "Checking the requested evidence."},
+        "sequence" => 1,
+        "session_id" => "remote_work",
+        "turn_id" => "work_turn_remote_work_1",
+        "type" => "model.thought",
+        "version" => 1
+      }
+    ]
+
+    {:ok, fake} =
+      FakeAPI.start_link([reply("Investigation complete.")], activity_events: activity)
 
     assert {:ok, execution} = Executor.run(claim, options(fake))
     assert execution.status == :accepted
@@ -223,6 +239,24 @@ defmodule Responder.Work.ExecutorTest do
     assert Enum.map(state.validations, & &1.verdict) == [:accept]
     assert state.submissions |> hd() |> Map.fetch!(:schema) == Final.json_schema()
     refute state.submissions |> hd() |> Map.fetch!(:prompt) =~ ~s("$schema")
+    assert [{"remote_work", 0, 1_000} | _rest] = state.activity_requests
+
+    assert [%{kind: "model.thought"}] = Activity.list_for_episode(claim.episode.id)
+  end
+
+  test "activity narration failure never costs the accepted answer" do
+    claim = claim_episode!("activity-unavailable")
+
+    {:ok, fake} =
+      FakeAPI.start_link([reply("The answer still completes.")],
+        activity_error: {:coop_unavailable, :activity_stream}
+      )
+
+    assert {:ok, %{status: :accepted, turn: %{status: :delivery_pending}}} =
+             Executor.run(claim, options(fake))
+
+    assert [{"remote_work", 0, 1_000} | _rest] = FakeAPI.state(fake).activity_requests
+    assert Activity.list_for_episode(claim.episode.id) == []
   end
 
   test "accepted writable work is checkpointed before local delivery custody is released" do

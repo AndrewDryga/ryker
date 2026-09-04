@@ -119,6 +119,16 @@ defmodule Responder.Coop.Client do
   end
 
   @impl true
+  def list_events(%__MODULE__{} = client, session_id, after_sequence, limit) do
+    with {:ok, session_id} <- path_id(session_id),
+         :ok <- event_cursor(after_sequence),
+         :ok <- event_limit(limit) do
+      query = URI.encode_query(%{"after" => after_sequence, "limit" => limit})
+      request_list(client, "/v1/sessions/#{session_id}/events?#{query}")
+    end
+  end
+
+  @impl true
   def get_changes(%__MODULE__{} = client, session_id) do
     with {:ok, session_id} <- path_id(session_id) do
       request(client, :get, "/v1/sessions/#{session_id}/changes")
@@ -513,6 +523,18 @@ defmodule Responder.Coop.Client do
     end
   end
 
+  defp request_list(client, path) do
+    request = Finch.build(:get, "http://localhost" <> path, [], nil, unix_socket: client.socket)
+
+    case Finch.request(request, client.finch, receive_timeout: client.receive_timeout) do
+      {:ok, %Finch.Response{status: status, body: response_body}} ->
+        decode_list_response(status, response_body)
+
+      {:error, reason} ->
+        {:error, {:coop_unavailable, reason}}
+    end
+  end
+
   defp request_binary(client, path, artifact_id) do
     request =
       Finch.build(
@@ -723,6 +745,34 @@ defmodule Responder.Coop.Client do
     end
   end
 
+  defp decode_list_response(_status, body) when byte_size(body) > @max_response_bytes,
+    do: {:error, {:coop_protocol_error, :response_too_large}}
+
+  defp decode_list_response(status, body) do
+    case Jason.decode(body) do
+      {:ok, document} when status in 200..299 and is_list(document) ->
+        {:ok, document}
+
+      {:ok, %{"error" => %{"code" => code} = error}} when is_binary(code) ->
+        case Map.fetch(error, "detail") do
+          {:ok, detail} when is_binary(detail) ->
+            {:error, {:coop_error, status, code, detail}}
+
+          :error ->
+            {:error, {:coop_error, status, code, ""}}
+
+          {:ok, _invalid_detail} ->
+            {:error, {:coop_protocol_error, {:unexpected_status, status}}}
+        end
+
+      {:ok, _document} ->
+        {:error, {:coop_protocol_error, {:unexpected_status, status}}}
+
+      {:error, _reason} ->
+        {:error, {:coop_protocol_error, :invalid_json}}
+    end
+  end
+
   defp output_contract(schema) when is_map(schema) do
     case CanonicalJSON.validate(schema, max_bytes: 256 * 1_024) do
       :ok ->
@@ -828,6 +878,12 @@ defmodule Responder.Coop.Client do
 
   defp patch_offset(value) when is_integer(value) and value >= 0, do: :ok
   defp patch_offset(_value), do: {:error, {:invalid_coop_request, :patch_offset}}
+
+  defp event_cursor(value) when is_integer(value) and value >= 0, do: :ok
+  defp event_cursor(_value), do: {:error, {:invalid_coop_request, :event_cursor}}
+
+  defp event_limit(value) when is_integer(value) and value in 1..1_000, do: :ok
+  defp event_limit(_value), do: {:error, {:invalid_coop_request, :event_limit}}
 
   defp patch_limit(value) when is_integer(value) and value in 1..@max_changes_page_bytes, do: :ok
   defp patch_limit(_value), do: {:error, {:invalid_coop_request, :patch_limit}}

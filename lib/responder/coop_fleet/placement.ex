@@ -23,6 +23,7 @@ defmodule Responder.CoopFleet.Placement do
     field(:requirements_fingerprint, :string)
     field(:last_command_id, :binary_id)
     field(:last_acked_event_sequence, :integer, default: 0)
+    field(:last_acked_session_event_sequence, :integer, default: 0)
 
     timestamps(type: :utc_datetime_usec)
   end

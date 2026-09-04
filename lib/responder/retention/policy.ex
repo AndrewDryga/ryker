@@ -99,6 +99,11 @@ defmodule Responder.Retention.Policy do
       why: "the indivisible event stream of one episode"
     },
     %{
+      table: "episode_operator_reviews",
+      class: :audit,
+      why: "append-only local acknowledgement of one exact terminal episode version"
+    },
+    %{
       table: "episode_publication_followups",
       class: :cascade,
       why: "monitoring state owned by one publication"
@@ -137,6 +142,11 @@ defmodule Responder.Retention.Policy do
       table: "episode_state_records",
       class: :episode_history,
       why: "goals, evidence, waits, findings, and offers in the episode trace"
+    },
+    %{
+      table: "episode_work_activity",
+      class: :episode_history,
+      why: "bounded model and tool narration retained with its owning episode"
     },
     %{
       table: "episode_work_sessions",

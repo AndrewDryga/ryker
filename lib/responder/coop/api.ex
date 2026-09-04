@@ -44,6 +44,12 @@ defmodule Responder.Coop.API do
                       capabilities: 2
   @callback get_session(client :: term(), session_id :: String.t()) ::
               {:ok, map()} | {:error, term()}
+  @callback list_events(
+              client :: term(),
+              session_id :: String.t(),
+              after_sequence :: non_neg_integer(),
+              limit :: pos_integer()
+            ) :: {:ok, [map()]} | {:error, term()}
   @callback get_changes(client :: term(), session_id :: String.t()) ::
               {:ok, map()} | {:error, term()}
   @callback get_changes_page(
@@ -188,6 +194,7 @@ defmodule Responder.Coop.API do
 
   @optional_callbacks submit_turn_with_artifacts: 7,
                       fence_submit_turn_with_artifacts: 7,
+                      list_events: 4,
                       get_changes: 2,
                       get_changes_page: 4,
                       get_session_review_patch: 5,

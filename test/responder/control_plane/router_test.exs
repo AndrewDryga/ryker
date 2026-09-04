@@ -649,9 +649,37 @@ defmodule Responder.ControlPlane.RouterTest do
 
     detail = request(:get, "/episodes/episode%3Aone")
     assert detail.status == 200
-    assert detail.resp_body =~ "Timeline"
+    assert detail.resp_body =~ "Execution trace"
+    assert detail.resp_body =~ "What came in"
+    assert detail.resp_body =~ "trace-step"
     assert detail.resp_body =~ "input admitted"
+    assert detail.resp_body =~ "Why it stopped"
+    assert detail.resp_body =~ "3 candidate attempts"
+    assert detail.resp_body =~ "/failures/work/episode%3Aone"
+    assert detail.resp_body =~ "Open source message · Slack"
+    assert detail.resp_body =~ "/actions/episode/episode%3Aone/resolve"
+    assert detail.resp_body =~ "/actions/episode/episode%3Aone/review"
     refute detail.resp_body =~ "raw-secret-value"
+  end
+
+  test "episode resolution and review use exact confirmed local actions" do
+    for {action, title, received} <- [
+          {"resolve", "Close this episode as no longer needed?",
+           {:resolved_episode, "episode:one"}},
+          {"review", "Mark this ending reviewed?", {:reviewed_episode, "episode:one"}}
+        ] do
+      path = "/actions/episode/episode%3Aone/#{action}"
+      confirmation = request(:get, path)
+      assert confirmation.status == 200
+      assert confirmation.resp_body =~ title
+      assert confirmation.resp_body =~ "href=\"/episodes/episode%3Aone\""
+      [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
+
+      accepted = request(:post, path, URI.encode_query(%{"_token" => token}))
+      assert accepted.status == 303
+      assert get_resp_header(accepted, "location") == ["/episodes/episode%3Aone"]
+      assert_received ^received
+    end
   end
 
   test "memory mutations require a local two-step confirmation and exact CSRF token" do
@@ -1185,6 +1213,10 @@ defmodule Responder.ControlPlane.RouterTest do
           send(parent, {:forgot_memory, ref})
           {:ok, %{ref: ref}}
         end,
+        resolve_episode: fn ref ->
+          send(parent, {:resolved_episode, ref})
+          {:ok, %{key: ref}}
+        end,
         resolve_memory_review: fn ref, action, replacement ->
           send(parent, {:memory_review, ref, action, replacement})
           {:ok, %{ref: ref}}
@@ -1219,6 +1251,10 @@ defmodule Responder.ControlPlane.RouterTest do
         end,
         retry_work: fn ref ->
           send(parent, {:retried_work, ref})
+          {:ok, %{key: ref}}
+        end,
+        review_episode: fn ref ->
+          send(parent, {:reviewed_episode, ref})
           {:ok, %{key: ref}}
         end,
         act_on_lab_record: fn conversation_id, record_ref, action, choice_index ->
@@ -1451,7 +1487,9 @@ defmodule Responder.ControlPlane.RouterTest do
             {:ok,
              %{
                episode: %{
+                 created_at: ~U[2026-08-28 11:00:00Z],
                  destination: "slack:T123:C456",
+                 next_action: "continue work",
                  ref: "episode:one",
                  state: :working,
                  updated_at: ~U[2026-08-28 12:00:00Z]
@@ -1464,6 +1502,68 @@ defmodule Responder.ControlPlane.RouterTest do
                  }
                ],
                records: [%{kind: "evidence", status: :open, summary: "Repository checked"}],
+               trace: %{
+                 actions: [
+                   %{
+                     href: "/actions/episode/episode%3Aone/resolve",
+                     label: "Close as no longer needed",
+                     tone: :danger
+                   },
+                   %{
+                     href: "/actions/episode/episode%3Aone/review",
+                     label: "Mark ending reviewed",
+                     tone: :secondary
+                   }
+                 ],
+                 chapters: [
+                   %{
+                     blurb: "The input that opened this work.",
+                     span: "+0 ms",
+                     steps: [
+                       %{
+                         actor: "Episode kernel",
+                         at: ~U[2026-08-28 11:00:00Z],
+                         details: [
+                           %{label: "Source", value: "slack:message:one"},
+                           %{label: "Secret", value: "redacted"}
+                         ],
+                         duration_ms: nil,
+                         href: nil,
+                         id: "kernel-1",
+                         stage: "Input",
+                         state: "input admitted",
+                         summary: "Authenticated input joined this episode.",
+                         title: "Input admitted",
+                         tone: nil
+                       }
+                     ],
+                     title: "What came in"
+                   }
+                 ],
+                 metrics: [
+                   %{
+                     detail: "continue work",
+                     label: "State",
+                     tone: nil,
+                     value: "working"
+                   }
+                 ],
+                 next_action: "continue work",
+                 review: %{actor_ref: nil, at: nil, awaiting: true, current: false, note: nil},
+                 source: %{
+                   href: "https://slack.com/archives/C456/p1787832000001000",
+                   label: "Open source message",
+                   transport: "Slack"
+                 },
+                 stats: [%{label: "events", value: 1}],
+                 stopped: %{
+                   action: "Inspect the failure and retry only after its cause is corrected",
+                   attempted: ["3 candidate attempts", "host validation recorded"],
+                   headline: "Work needs operator recovery",
+                   href: "/failures/work/episode%3Aone",
+                   reason: "work execution blocked"
+                 }
+               },
                secret: "raw-secret-value"
              }}
 

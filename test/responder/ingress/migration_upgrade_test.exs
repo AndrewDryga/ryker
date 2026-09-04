@@ -27,6 +27,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @conversation_continuity_version 20_260_904_000_500
   @repository_contexts_version 20_260_904_000_600
   @event_subscriptions_version 20_260_904_000_700
+  @work_activity_version 20_260_904_000_800
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
   test "an installation that already ran the Slack inbox migration upgrades to generic ingress" do
@@ -67,7 +68,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @publication_stale_head_version,
                @conversation_continuity_version,
                @repository_contexts_version,
-               @event_subscriptions_version
+               @event_subscriptions_version,
+               @work_activity_version
              ]
 
       refute table_exists?(repo, prefix, "slack_inbox_entries")
@@ -116,6 +118,15 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert table_exists?(repo, prefix, "conversation_summaries")
       assert table_exists?(repo, prefix, "conversation_rollups")
       assert table_exists?(repo, prefix, "memory_review_items")
+      assert table_exists?(repo, prefix, "episode_work_activity")
+      assert column_exists?(repo, prefix, "episode_work_sessions", "activity_cursor")
+
+      assert constraint_definition(
+               repo,
+               prefix,
+               "coop_worker_events",
+               "coop_worker_event_identity_valid"
+             ) =~ "session_event"
 
       assert column_exists?(
                repo,
@@ -168,7 +179,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @publication_stale_head_version,
                @conversation_continuity_version,
                @repository_contexts_version,
-               @event_subscriptions_version
+               @event_subscriptions_version,
+               @work_activity_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -182,6 +194,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  "SELECT execution_kind, episode_id FROM #{prefix}.episode_work_sessions WHERE id = $1::text::uuid",
                  [admission_session_id]
                )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@work_activity_version]
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
                step: 1,
@@ -328,7 +346,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @publication_stale_head_version,
                @conversation_continuity_version,
                @repository_contexts_version,
-               @event_subscriptions_version
+               @event_subscriptions_version,
+               @work_activity_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -367,7 +386,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @publication_stale_head_version,
                @conversation_continuity_version,
                @repository_contexts_version,
-               @event_subscriptions_version
+               @event_subscriptions_version,
+               @work_activity_version
              ]
 
       assert Release.migrate(options) == []
@@ -411,6 +431,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
         Release.rollback(@conversation_continuity_version, options)
       end
+
+      assert Release.rollback(@work_activity_version, options) == [
+               @work_activity_version
+             ]
 
       assert Release.rollback(@event_subscriptions_version, options) == [
                @event_subscriptions_version
@@ -520,6 +544,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                step: 1,
                prefix: prefix,
                log: false
+             ) == [@work_activity_version]
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
              ) == [@event_subscriptions_version]
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
@@ -595,6 +625,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         prefix: prefix,
         log: false
       )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@work_activity_version]
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
                step: 1,
@@ -677,6 +713,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                step: 1,
                prefix: prefix,
                log: false
+             ) == [@work_activity_version]
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
              ) == [@event_subscriptions_version]
 
       assert_raise Postgrex.Error, ~r/repository context has data/, fn ->
@@ -713,6 +755,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         prefix: prefix,
         log: false
       )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@work_activity_version]
 
       record_id = Ecto.UUID.generate()
       subscription_id = Ecto.UUID.generate()
@@ -764,6 +812,64 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     end
   end
 
+  test "work activity migration refuses to discard durable narration on rollback" do
+    repo = start_migration_repo!()
+    prefix = "work_activity_rollback_#{System.unique_integer([:positive])}"
+
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      ids = insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        all: true,
+        prefix: prefix,
+        log: false
+      )
+
+      event_id = Ecto.UUID.generate()
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.episode_work_activity (
+          id, episode_id, session_id, remote_event_id, remote_session_id, sequence, kind, version,
+          occurred_at, payload, payload_fingerprint, inserted_at
+        ) VALUES (
+          $1::text::uuid, $2::text::uuid, $3::text::uuid, $4, $5, 1, 'model.thought', 1,
+          clock_timestamp(), '{}', repeat('a', 64), clock_timestamp()
+        )
+        """,
+        [
+          event_id,
+          ids.episode_id,
+          ids.session_id,
+          "activity-event:#{event_id}",
+          "remote-session:#{ids.session_id}"
+        ]
+      )
+
+      assert_raise Postgrex.Error, ~r/episode work activity has data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down,
+          step: 1,
+          prefix: prefix,
+          log: false
+        )
+      end
+
+      assert table_exists?(repo, prefix, "episode_work_activity")
+      assert column_exists?(repo, prefix, "episode_work_sessions", "activity_cursor")
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
   defp start_migration_repo! do
     config =
       Responder.Repo.config()
@@ -800,6 +906,23 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       )
 
     exists?
+  end
+
+  defp constraint_definition(repo, prefix, table, constraint) do
+    %{rows: [[definition]]} =
+      SQL.query!(
+        repo,
+        """
+        SELECT pg_get_constraintdef(c.oid)
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE n.nspname = $1 AND t.relname = $2 AND c.conname = $3
+        """,
+        [prefix, table, constraint]
+      )
+
+    definition
   end
 
   defp cascading_foreign_key?(repo, prefix, constraint) do

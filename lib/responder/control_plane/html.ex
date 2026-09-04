@@ -409,47 +409,273 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  def episode(%{episode: episode, events: events, records: records}) do
-    event_rows =
-      Enum.map(events, fn event ->
-        [
-          "<tr><td>",
-          timestamp(event.occurred_at),
-          "</td><td>",
-          escape(event.kind),
-          "</td><td>",
-          escape(event.summary),
-          "</td></tr>"
-        ]
-      end)
-
-    record_rows =
-      Enum.map(records, fn record ->
-        [
-          "<tr><td>",
-          escape(record.kind),
-          "</td><td>",
-          escape(record.status),
-          "</td><td>",
-          escape(record.summary),
-          "</td></tr>"
-        ]
-      end)
-
+  def episode(%{episode: episode, trace: trace}) do
     [
+      "<section class=\"episode-hero\"><div><p class=\"eyebrow\">Episode flight recorder</p>",
+      "<h2>One input. Every consequential handoff.</h2><p class=\"episode-ref\"><code>",
+      escape(episode.ref),
+      "</code></p></div><div class=\"episode-state ",
+      tone_class(state_tone(episode.state)),
+      "\"><span>Current state</span><strong>",
+      escape(episode.state),
+      "</strong><small>",
+      escape(episode.next_action),
+      "</small></div></section>",
+      episode_operator_strip(trace),
+      "<section class=\"episode-metrics\" aria-label=\"Episode measurements\">",
+      Enum.map(trace.metrics, &episode_metric/1),
+      "</section>",
+      episode_stopped(trace.stopped),
+      "<section class=\"episode-context\">",
       definition_list([
-        {"Reference", episode.ref},
-        {"State", episode.state},
         {"Destination", episode.destination},
-        {"Updated", episode.updated_at}
+        {"Started", episode.created_at},
+        {"Latest change", episode.updated_at}
       ]),
-      "<section><h2>Timeline</h2>",
-      table(["At", "Kind", "Summary"], event_rows),
-      "</section><section><h2>Records</h2>",
-      table(["Kind", "Status", "Summary"], record_rows),
+      "</section><section class=\"trace-shell\"><header class=\"trace-heading\"><div>",
+      "<p class=\"eyebrow\">Execution trace</p><h2>What happened, in order</h2>",
+      "<p>Durable host decisions, bounded worker activity, and visible side effects. Raw prompts, secrets, and provider diagnostics stay out.</p>",
+      episode_history_notice(Map.get(trace, :history)),
+      "</div><div class=\"trace-stats\">",
+      Enum.map(trace.stats, &trace_stat/1),
+      "</div></header>",
+      episode_chapters(trace.chapters),
       "</section>"
     ]
   end
+
+  defp episode_operator_strip(trace) do
+    source = Map.get(trace, :source)
+    actions = Map.get(trace, :actions, [])
+    review = Map.get(trace, :review, %{})
+
+    if source || actions != [] || review[:at] do
+      [
+        "<section class=\"episode-actions\" aria-label=\"Episode actions\"><div class=\"episode-action-copy\">",
+        episode_review_status(review),
+        "</div><div class=\"episode-action-buttons\">",
+        source_action(source),
+        Enum.map(actions, &episode_action/1),
+        "</div></section>"
+      ]
+    else
+      ""
+    end
+  end
+
+  defp episode_review_status(%{at: %DateTime{} = at, current: current} = review) do
+    status = if current, do: "Current ending reviewed", else: "Earlier ending reviewed"
+
+    [
+      "<span class=\"eyebrow\">Operator review</span><strong>",
+      escape(status),
+      "</strong><small>",
+      timestamp(at),
+      if(review[:actor_ref], do: [" · ", escape(review.actor_ref)], else: ""),
+      "</small>"
+    ]
+  end
+
+  defp episode_review_status(%{awaiting: true}) do
+    "<span class=\"eyebrow\">Operator review</span><strong>Awaiting review</strong><small>This exact ending has not been acknowledged.</small>"
+  end
+
+  defp episode_review_status(_review) do
+    "<span class=\"eyebrow\">Source and recovery</span><strong>Episode controls</strong><small>Every mutation opens an explicit confirmation.</small>"
+  end
+
+  defp source_action(%{href: href, label: label, transport: transport}) do
+    external = String.starts_with?(href, ["http://", "https://"])
+
+    [
+      "<a class=\"button secondary\" href=\"",
+      escape(href),
+      "\"",
+      if(external, do: " target=\"_blank\" rel=\"noopener noreferrer\"", else: ""),
+      ">",
+      escape(label),
+      " · ",
+      escape(transport),
+      "</a>"
+    ]
+  end
+
+  defp source_action(_source), do: ""
+
+  defp episode_action(action) do
+    [
+      "<a class=\"button ",
+      escape(action.tone),
+      "\" href=\"",
+      escape(action.href),
+      "\">",
+      escape(action.label),
+      "</a>"
+    ]
+  end
+
+  defp episode_metric(metric) do
+    [
+      "<article class=\"episode-metric ",
+      tone_class(metric.tone),
+      "\"><span>",
+      escape(metric.label),
+      "</span><strong>",
+      escape(metric.value),
+      "</strong><small>",
+      escape(metric.detail),
+      "</small></article>"
+    ]
+  end
+
+  defp episode_stopped(nil), do: ""
+
+  defp episode_stopped(stopped) do
+    [
+      "<section class=\"episode-stop\" role=\"status\"><div class=\"stop-signal\" aria-hidden=\"true\">!</div><div>",
+      "<p class=\"eyebrow\">Why it stopped</p><h2>",
+      escape(stopped.headline),
+      "</h2><p>",
+      escape(stopped.reason),
+      "</p>",
+      attempted(stopped.attempted),
+      "<div class=\"stop-action\"><span>Do this next</span><strong>",
+      escape(stopped.action),
+      "</strong>",
+      if(stopped.href,
+        do: ["<a class=\"button\" href=\"", escape(stopped.href), "\">Open recovery</a>"],
+        else: ""
+      ),
+      "</div></div></section>"
+    ]
+  end
+
+  defp attempted([]), do: ""
+
+  defp attempted(items) do
+    [
+      "<div class=\"stop-attempted\"><span>Already attempted</span><ul>",
+      Enum.map(items, &["<li>", escape(&1), "</li>"]),
+      "</ul></div>"
+    ]
+  end
+
+  defp episode_chapters([]) do
+    "<p class=\"trace-empty\">No durable activity has been recorded for this episode yet.</p>"
+  end
+
+  defp episode_chapters(chapters) do
+    chapters
+    |> Enum.with_index(1)
+    |> Enum.map(fn {chapter, index} ->
+      [
+        "<section class=\"trace-chapter\" data-chapter=\"",
+        integer(index),
+        "\"><header class=\"chapter-heading\"><span class=\"chapter-number\">",
+        String.pad_leading(integer(index), 2, "0"),
+        "</span><div><h3>",
+        escape(chapter.title),
+        "</h3><p>",
+        escape(chapter.blurb),
+        "</p></div><span class=\"chapter-span\">",
+        escape(chapter.span || "sequence only"),
+        "</span></header><div class=\"trace-rail\">",
+        Enum.map(chapter.steps, &trace_step/1),
+        "</div></section>"
+      ]
+    end)
+  end
+
+  defp trace_step(step) do
+    [
+      "<article id=\"",
+      escape(step.id),
+      "\" class=\"trace-step ",
+      tone_class(step.tone),
+      "\" data-stage=\"",
+      escape(step.stage),
+      "\" data-state=\"",
+      escape(step.state),
+      "\"><span class=\"trace-marker\" aria-hidden=\"true\"></span><div class=\"trace-card\">",
+      "<header class=\"trace-card-head\"><div class=\"trace-labels\"><span class=\"trace-stage\">",
+      escape(step.stage),
+      "</span><span class=\"trace-state\">",
+      escape(step.state),
+      "</span></div><div class=\"trace-time\"><span>",
+      timestamp(step.at),
+      "</span>",
+      trace_duration(step.duration_ms),
+      "</div></header><h4>",
+      trace_title(step),
+      "</h4><p>",
+      escape(step.summary || "No bounded summary was recorded."),
+      "</p><div class=\"trace-byline\">",
+      escape(step.actor),
+      "</div>",
+      trace_details(step.details),
+      "</div></article>"
+    ]
+  end
+
+  defp trace_title(%{href: href, title: title}) when is_binary(href),
+    do: ["<a href=\"", escape(href), "\">", escape(title), "</a>"]
+
+  defp trace_title(step), do: escape(step.title)
+
+  defp trace_duration(nil), do: ""
+  defp trace_duration(milliseconds), do: ["<span>", duration(milliseconds), "</span>"]
+
+  defp trace_details([]), do: ""
+
+  defp trace_details(details) do
+    [
+      "<details class=\"trace-details\"><summary>Inspect recorded details</summary><dl>",
+      Enum.map(details, fn detail ->
+        ["<dt>", escape(detail.label), "</dt><dd>", escape(detail.value), "</dd>"]
+      end),
+      "</dl></details>"
+    ]
+  end
+
+  defp trace_stat(stat) do
+    ["<span><strong>", escape(stat.value), "</strong>", escape(stat.label), "</span>"]
+  end
+
+  defp episode_history_notice(%{truncated: true, windows: windows}) do
+    truncated = Enum.filter(windows, & &1.truncated)
+
+    [
+      "<p class=\"trace-notice\"><strong>Bounded history:</strong> ",
+      truncated
+      |> Enum.map(fn window ->
+        [
+          "latest ",
+          integer(window.shown),
+          " of ",
+          integer(window.total),
+          " ",
+          escape(window.label)
+        ]
+      end)
+      |> Enum.intersperse(" · "),
+      ". Older rows remain durable but are outside this page.</p>"
+    ]
+  end
+
+  defp episode_history_notice(_history), do: ""
+
+  defp tone_class(:good), do: "tone-good"
+  defp tone_class(:warn), do: "tone-warn"
+  defp tone_class(:bad), do: "tone-bad"
+  defp tone_class(_tone), do: "tone-neutral"
+
+  defp state_tone(state) when state in [:complete, :settled], do: :good
+
+  defp state_tone(state) when state in [:waiting_for_input, :waiting_for_event, :cancelled],
+    do: :warn
+
+  defp state_tone(:blocked), do: :bad
+  defp state_tone(_state), do: nil
 
   def incidents(items) do
     rows =
@@ -1431,7 +1657,12 @@ defmodule Responder.ControlPlane.HTML do
     .message-reactions{display:flex;gap:.35rem;margin-top:.55rem}.reaction-chip{background:#1c2831;border:1px solid #3b5364;border-radius:999px;color:#d8f6ff;font-family:var(--mono);font-size:.75rem;padding:.2rem .5rem}.message-attachments{display:grid;gap:.55rem;margin-top:.7rem}.attachment-chip{background:#101920;border:1px solid #3b5364;border-radius:8px;color:#d8f6ff;display:flex;flex-wrap:wrap;font-size:.78rem;gap:.45rem;padding:.45rem .6rem}.attachment-chip span{color:var(--muted)}.attachment-download{color:inherit;display:grid;gap:.45rem;text-decoration:none}.attachment-download img{background:#080a0d;border:1px solid var(--line);border-radius:8px;display:block;max-height:280px;max-width:100%;object-fit:contain}.lab-message-controls{align-items:flex-start;border-top:1px solid #3f5d35;display:flex;gap:.55rem;justify-content:flex-end;margin-top:.8rem;padding-top:.65rem}.lab-message-controls details{flex:1}.lab-message-controls summary{cursor:pointer;font-size:.75rem;font-weight:800}.lab-message-controls label{display:grid;font-size:.72rem;gap:.35rem;margin-top:.55rem}.lab-message-controls textarea{background:#090d11;border:1px solid #3a4652;border-radius:8px;color:var(--text);font:inherit;padding:.6rem;resize:vertical;width:100%}.danger-button{border:1px solid #7f3a39;color:#ffb3ad}.message-cards{display:grid;gap:.7rem;margin-top:.85rem}.lab-card{background:#0e1419;border:1px solid #344553;border-left:3px solid var(--cyan);border-radius:10px;padding:.85rem}.lab-card-head{color:var(--cyan);display:flex;font-size:.68rem;font-weight:900;gap:1rem;justify-content:space-between;letter-spacing:.1em;text-transform:uppercase}.lab-card h3{font-size:1rem;margin:.45rem 0}.lab-card p{color:#cbd3da;margin:.35rem 0;white-space:pre-wrap}.lab-card dl{font-size:.78rem;grid-template-columns:max-content minmax(0,1fr);margin:.65rem 0}.choice-list{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.65rem}.choice-chip{background:#1c2831;border:1px solid #3b5364;border-radius:999px;color:#d8f6ff;font-size:.78rem;padding:.25rem .55rem}
     .lab-reaction-controls{border-top:1px solid #344553;margin-top:.8rem;padding-top:.65rem}.reaction-label{color:var(--muted);display:block;font-size:.7rem;font-weight:800;letter-spacing:.07em;margin-bottom:.45rem;text-transform:uppercase}.quick-reactions,.feedback-reactions{align-items:center;display:flex;flex-wrap:wrap;gap:.35rem}.feedback-reactions{margin-bottom:.45rem}.reaction-form{display:inline}.reaction-form button{background:#1c2831;border:1px solid #3b5364;color:#d8f6ff;font-size:.75rem;padding:.3rem .5rem}.feedback-reaction{align-items:center;background:#142017;border:1px solid #3f5d35;border-radius:999px;display:inline-flex;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.75rem;gap:.25rem;padding-left:.5rem}.feedback-reaction button{border:0;border-left:1px solid #3f5d35;border-radius:0 999px 999px 0;padding:.2rem .4rem}.lab-reaction-controls details{margin-top:.45rem}.lab-reaction-controls summary{cursor:pointer;font-size:.72rem}.lab-reaction-controls label{display:flex;font-size:.72rem;gap:.4rem;margin-top:.4rem}.lab-reaction-controls input[name=emoji]{background:#090d11;border:1px solid #3a4652;border-radius:7px;color:var(--text);font:inherit;padding:.35rem}.danger-button{background:#261312}.lab-card-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.75rem}.lab-card-actions form{margin:0}.lab-card-actions button,.lab-card-actions .button{font-size:.82rem;padding:.5rem .7rem}.work-view{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:1.2rem}.work-view pre{background:#090d11;border:1px solid var(--line);border-radius:10px;color:#dbe7ef;overflow:auto;padding:1rem;white-space:pre-wrap}.work-view-actions{align-items:center;display:flex;flex-wrap:wrap;gap:.7rem;margin-top:1rem}
     .workbench-intro{background:linear-gradient(125deg,#18222b,#101419 70%);border:1px solid #34414d;border-radius:16px;padding:1.4rem}.workbench-intro h2{margin:.15rem 0}.workbench-intro p:last-child{color:#b8c2cc;max-width:78ch}.search-form{align-items:end;display:grid;gap:.7rem;grid-template-columns:auto minmax(220px,1fr) auto;margin:1.2rem 0}.search-form label{color:var(--muted);font-size:.78rem;font-weight:800;text-transform:uppercase}.search-form input{background:#090d11;border:1px solid #3a4652;border-radius:8px;color:var(--text);font:inherit;padding:.65rem}.repository-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin:1rem 0;padding:1.2rem}.repository-card h2{margin:0}.repository-card h3{color:var(--cyan);font-size:.82rem;letter-spacing:.07em;margin-top:1.5rem;text-transform:uppercase}.record-body{background:#090d11;border:1px solid var(--line);border-radius:10px;color:#dbe7ef;overflow:auto;padding:1rem;white-space:pre-wrap}
-    @media(max-width:760px){header,main{padding-left:1rem;padding-right:1rem}.lab-hero,.lab-heading{align-items:stretch;flex-direction:column}.lab-stream{grid-template-columns:1fr}.custody-strip{border-left:0;border-top:1px solid var(--line)}.message{max-width:96%}.composer-actions{align-items:stretch;flex-direction:column}.journey-grid{grid-template-columns:1fr}.search-form{grid-template-columns:1fr}}
+    .episode-hero{align-items:end;background:linear-gradient(118deg,#172128 0,#0e1217 62%,#17200f 100%);border:1px solid #33404b;border-radius:20px;display:flex;gap:2rem;justify-content:space-between;overflow:hidden;padding:clamp(1.3rem,4vw,2.4rem);position:relative}.episode-hero:after{background:linear-gradient(90deg,transparent,var(--accent));bottom:0;content:"";height:2px;left:0;position:absolute;width:100%}.episode-hero h2{font-size:clamp(1.45rem,3vw,2.3rem);margin:.15rem 0}.episode-ref{color:var(--muted);margin:.7rem 0 0;overflow-wrap:anywhere}.episode-state{border-left:2px solid var(--line);display:grid;min-width:190px;padding:.2rem 0 .2rem 1rem}.episode-state span,.episode-state small{color:var(--muted);font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.episode-state strong{font-size:1.25rem;margin:.15rem 0}.episode-state.tone-good{border-color:var(--accent)}.episode-state.tone-warn{border-color:var(--warning)}.episode-state.tone-bad{border-color:var(--danger)}
+    .episode-actions{align-items:center;background:#11171c;border:1px solid var(--line);border-radius:14px;display:flex;gap:1rem;justify-content:space-between;margin:1rem 0;padding:.85rem 1rem}.episode-action-copy{display:grid;gap:.1rem}.episode-action-copy strong{font-size:.92rem}.episode-action-copy small{color:var(--muted)}.episode-action-buttons{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:flex-end}.button.secondary{background:#202a32}.button.danger{background:#5c2927}.episode-metrics{display:grid;gap:.65rem;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));margin:1rem 0}.episode-metric{background:#0e1318;border:1px solid var(--line);border-radius:11px;display:grid;min-height:112px;padding:.85rem}.episode-metric>span{color:var(--muted);font-size:.66rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase}.episode-metric strong{align-self:end;font-size:1.3rem;line-height:1.15;margin:.65rem 0 .25rem;overflow-wrap:anywhere}.episode-metric small{color:#89949f}.episode-metric.tone-good{border-top-color:#6c8e2e}.episode-metric.tone-warn{border-top-color:#8d6c25}.episode-metric.tone-bad{border-top-color:#994743}.episode-context{background:#0c1014;border:1px solid var(--line);border-radius:12px;margin:1rem 0;padding:.15rem 1rem}.episode-context dl{font-size:.78rem;grid-template-columns:max-content minmax(0,1fr)}
+    .episode-stop{background:linear-gradient(120deg,#2a1717,#151114);border:1px solid #713c3b;border-radius:16px;display:grid;gap:1.1rem;grid-template-columns:46px minmax(0,1fr);margin:1rem 0;padding:1.15rem}.stop-signal{align-items:center;background:var(--danger);border-radius:50%;color:#1b0909;display:flex;font-size:1.35rem;font-weight:950;height:42px;justify-content:center;width:42px}.episode-stop h2{font-size:1.25rem;margin:.1rem 0}.episode-stop p{color:#dbbfbd;margin:.35rem 0}.stop-attempted{border-top:1px solid #563130;margin-top:.8rem;padding-top:.7rem}.stop-attempted>span,.stop-action>span{color:#bf9693;display:block;font-size:.67rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase}.stop-attempted ul{display:flex;flex-wrap:wrap;gap:.4rem;list-style:none;margin:.45rem 0 0;padding:0}.stop-attempted li{background:#321d1e;border:1px solid #603333;border-radius:999px;color:#f0cdca;font-size:.76rem;padding:.18rem .55rem}.stop-action{align-items:center;display:grid;gap:.15rem;grid-template-columns:minmax(0,1fr) auto;margin-top:.85rem}.stop-action span,.stop-action strong{grid-column:1}.stop-action .button{grid-column:2;grid-row:1/3}
+    .trace-shell{background:#0b0f13;border:1px solid var(--line);border-radius:18px;margin-top:1.1rem;overflow:hidden}.trace-heading{align-items:flex-start;background:linear-gradient(110deg,#151c23,#0d1115);border-bottom:1px solid var(--line);display:flex;gap:2rem;justify-content:space-between;padding:1.4rem}.trace-heading h2{font-size:1.45rem;margin:.1rem 0}.trace-heading p:last-child{color:var(--muted);margin:.3rem 0;max-width:68ch}.trace-stats{display:flex;gap:.45rem}.trace-stats>span{background:#0a0e12;border:1px solid var(--line);border-radius:8px;color:var(--muted);display:grid;font-size:.62rem;letter-spacing:.08em;min-width:66px;padding:.45rem;text-align:center;text-transform:uppercase}.trace-stats strong{color:var(--text);font-size:1rem}.trace-chapter{padding:0 1.4rem}.trace-chapter+.trace-chapter{border-top:1px solid var(--line)}.chapter-heading{align-items:center;display:grid;gap:1rem;grid-template-columns:42px minmax(0,1fr) auto;padding:1.3rem 0 .8rem}.chapter-number{color:var(--cyan);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem;font-weight:900;letter-spacing:.12em}.chapter-heading h3{font-size:1.15rem;margin:0}.chapter-heading p{color:var(--muted);font-size:.82rem;margin:.15rem 0}.chapter-span{color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.7rem}
+    .trace-rail{padding:0 0 1.25rem 20px;position:relative}.trace-rail:before{background:#33414c;bottom:1.7rem;content:"";left:26px;position:absolute;top:.55rem;width:1px}.trace-step{display:grid;gap:1rem;grid-template-columns:14px minmax(0,1fr);position:relative}.trace-step+.trace-step{margin-top:.7rem}.trace-marker{background:#6f7c87;border:3px solid #0b0f13;border-radius:50%;height:13px;margin-top:1.1rem;position:relative;width:13px;z-index:1}.trace-step.tone-good .trace-marker{background:var(--accent)}.trace-step.tone-warn .trace-marker{background:var(--warning)}.trace-step.tone-bad .trace-marker{background:var(--danger)}.trace-card{background:#11171d;border:1px solid #293640;border-radius:11px;padding:.85rem 1rem}.trace-step.tone-good .trace-card{border-left-color:#6c8e2e}.trace-step.tone-warn .trace-card{border-left-color:#8d6c25}.trace-step.tone-bad .trace-card{border-left-color:#994743}.trace-card-head{align-items:center;display:flex;gap:1rem;justify-content:space-between}.trace-labels,.trace-time{align-items:center;display:flex;flex-wrap:wrap;gap:.4rem}.trace-stage,.trace-state{border:1px solid #3b4853;border-radius:999px;color:#aab6c0;font-size:.62rem;font-weight:900;letter-spacing:.08em;padding:.15rem .45rem;text-transform:uppercase}.trace-state{border-color:#365364;color:var(--cyan)}.trace-time{color:#788590;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.66rem}.trace-card h4{font-size:1rem;margin:.55rem 0 .15rem}.trace-card h4 a{color:var(--text)}.trace-card>p{color:#bdc6ce;margin:.2rem 0}.trace-byline{color:#7f8c97;font-size:.68rem;font-weight:800;letter-spacing:.08em;margin-top:.5rem;text-transform:uppercase}.trace-details{border-top:1px solid #293640;margin-top:.7rem;padding-top:.55rem}.trace-details summary{color:#9facb7;cursor:pointer;font-size:.7rem;font-weight:800;letter-spacing:.05em}.trace-details dl{font-size:.74rem;grid-template-columns:minmax(100px,max-content) minmax(0,1fr);margin:.65rem 0 .15rem}.trace-details dd{color:#d2dae1;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.trace-empty{color:var(--muted);padding:1.4rem}.tone-good .trace-state{border-color:#536d29;color:var(--accent)}.tone-warn .trace-state{border-color:#715a2a;color:var(--warning)}.tone-bad .trace-state{border-color:#743a39;color:var(--danger)}
+    @media(max-width:760px){header,main{padding-left:1rem;padding-right:1rem}.lab-hero,.lab-heading,.episode-hero,.episode-actions,.trace-heading{align-items:stretch;flex-direction:column}.episode-action-buttons{justify-content:flex-start}.lab-stream{grid-template-columns:1fr}.custody-strip{border-left:0;border-top:1px solid var(--line)}.message{max-width:96%}.composer-actions{align-items:stretch;flex-direction:column}.journey-grid{grid-template-columns:1fr}.search-form{grid-template-columns:1fr}.episode-state{min-width:0}.trace-stats{align-self:stretch}.trace-stats>span{flex:1}.chapter-heading{align-items:start;grid-template-columns:32px minmax(0,1fr)}.chapter-span{grid-column:2}.trace-chapter{padding:0 .85rem}.trace-rail{padding-left:10px}.trace-rail:before{left:16px}.trace-card-head{align-items:flex-start;flex-direction:column}.stop-action{grid-template-columns:1fr}.stop-action .button{grid-column:1;grid-row:auto;margin-top:.6rem;text-align:center}}
     """
   end
 

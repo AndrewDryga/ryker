@@ -11,7 +11,7 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
   alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
   alias Responder.StateTools.Binding
-  alias Responder.Work.{Custody, StateBinding}
+  alias Responder.Work.{ActivityEvent, Custody, Session, StateBinding}
 
   @authority_digest String.duplicate("d", 64)
   @policy_digest String.duplicate("b", 64)
@@ -705,6 +705,133 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
 
     assert {:error, {:coop_worker_event_replay_conflict, 2}} =
              ControlPlane.handle_poll("worker-a", changed)
+  end
+
+  test "public Coop session events advance activity custody without retaining lifecycle payloads" do
+    authorize_and_poll!("worker-a")
+    placement = place!("session-activity")
+    coop_session_id = "coop-session-activity"
+
+    coarse_poll =
+      poll("worker-a", "workspace-main", "poll:worker-a:coarse-before-session",
+        event_batches: [
+          %{
+            "after_sequence" => 0,
+            "events" => [
+              %{"kind" => "session", "payload" => %{"state" => "open"}, "sequence" => 1}
+            ],
+            "placement_generation" => placement.generation,
+            "session_ref" => placement.session_id
+          }
+        ]
+      )
+
+    assert {:ok, _response} = ControlPlane.handle_poll("worker-a", coarse_poll)
+
+    {1, nil} =
+      Repo.update_all(
+        from(session in Session, where: session.id == ^placement.session_id),
+        set: [coop_session_id: coop_session_id]
+      )
+
+    now = database_now!() |> DateTime.to_iso8601()
+
+    session_event = fn sequence, id, type, payload ->
+      %{
+        "kind" => "session_event",
+        "payload" => %{
+          "id" => id,
+          "occurred_at" => now,
+          "payload" => payload,
+          "sequence" => sequence,
+          "session_id" => coop_session_id,
+          "turn_id" => if(type == "session.created", do: nil, else: "turn-1"),
+          "type" => type,
+          "version" => 1
+        },
+        "sequence" => sequence
+      }
+    end
+
+    batch = %{
+      "after_sequence" => 0,
+      "events" => [
+        session_event.(1, "evt-session", "session.created", %{}),
+        session_event.(2, "evt-tool", "tool.started", %{
+          "title" => "Read repository",
+          "tool_call_id" => "tool-1"
+        })
+      ],
+      "placement_generation" => placement.generation,
+      "session_ref" => placement.session_id
+    }
+
+    event_poll =
+      poll("worker-a", "workspace-main", "poll:worker-a:session-activity", event_batches: [batch])
+
+    assert {:ok, response} = ControlPlane.handle_poll("worker-a", event_poll)
+    assert [%{"sequence" => 2}] = response["event_acknowledgements"]
+    assert Repo.get!(Session, placement.session_id).activity_cursor == 0
+    assert Repo.get!(Placement, placement.id).last_acked_session_event_sequence == 2
+    assert Repo.get!(Placement, placement.id).last_acked_event_sequence == 1
+
+    assert [%ActivityEvent{kind: "tool.started", remote_event_id: "evt-tool", sequence: 2}] =
+             Repo.all(ActivityEvent)
+
+    assert [%Event{payload: %{}, payload_fingerprint: fingerprint}] =
+             Repo.all(
+               from(event in Event, where: event.kind == "session_event" and event.sequence == 2)
+             )
+
+    assert byte_size(fingerprint) == 64
+
+    assert {:ok, _replayed} = ControlPlane.handle_poll("worker-a", event_poll)
+    assert Repo.aggregate(ActivityEvent, :count) == 1
+  end
+
+  test "fresh worker events require current placement authority but exact replay remains acknowledged" do
+    authorize_and_poll!("worker-a")
+    placement = place!("event-authority")
+
+    batch = %{
+      "after_sequence" => 0,
+      "events" => [%{"kind" => "turn", "payload" => %{"state" => "running"}, "sequence" => 1}],
+      "placement_generation" => placement.generation,
+      "session_ref" => placement.session_id
+    }
+
+    first =
+      poll("worker-a", "workspace-main", "poll:worker-a:event-authority:1",
+        event_batches: [batch]
+      )
+
+    assert {:ok, _response} = ControlPlane.handle_poll("worker-a", first)
+
+    placement |> Ecto.Changeset.change(state: :revoking) |> Repo.update!()
+
+    replay =
+      poll("worker-a", "workspace-main", "poll:worker-a:event-authority:2",
+        event_batches: [batch]
+      )
+
+    assert {:ok, _response} = ControlPlane.handle_poll("worker-a", replay)
+
+    fresh =
+      batch
+      |> Map.put("after_sequence", 1)
+      |> Map.put("events", [
+        %{"kind" => "turn", "payload" => %{"state" => "completed"}, "sequence" => 2}
+      ])
+
+    rejected =
+      poll("worker-a", "workspace-main", "poll:worker-a:event-authority:3",
+        event_batches: [fresh]
+      )
+
+    placement_id = placement.id
+
+    assert {:error, {:coop_worker_event_placement_not_authorized, ^placement_id}} =
+             ControlPlane.handle_poll("worker-a", rejected)
   end
 
   defp authorize_and_poll!(worker_id, options \\ []) do

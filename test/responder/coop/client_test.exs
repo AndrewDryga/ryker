@@ -344,6 +344,37 @@ defmodule Responder.Coop.ClientTest do
     end)
   end
 
+  test "pages the durable Coop event stream with an explicit bounded cursor" do
+    events = [
+      %{
+        "id" => "event_8",
+        "occurred_at" => "2026-09-04T12:00:00Z",
+        "payload" => %{"text" => "Checking the exact runtime."},
+        "sequence" => 8,
+        "session_id" => "remote_123",
+        "turn_id" => "turn_123",
+        "type" => "model.thought",
+        "version" => 1
+      }
+    ]
+
+    with_unix_server(events, fn client, request ->
+      assert {:ok, ^events} = Client.list_events(client, "remote_123", 7, 100)
+
+      uri = URI.parse(request.().path)
+      assert uri.path == "/v1/sessions/remote_123/events"
+      assert URI.decode_query(uri.query) == %{"after" => "7", "limit" => "100"}
+    end)
+
+    client = %Client{finch: __MODULE__, receive_timeout: 1, socket: "/tmp/not-used"}
+
+    assert Client.list_events(client, "remote_123", -1, 100) ==
+             {:error, {:invalid_coop_request, :event_cursor}}
+
+    assert Client.list_events(client, "remote_123", 0, 1_001) ==
+             {:error, {:invalid_coop_request, :event_limit}}
+  end
+
   test "reads the exact Coop capability document" do
     capabilities = %{"repository_freshness_receipt_versions" => [2]}
 
