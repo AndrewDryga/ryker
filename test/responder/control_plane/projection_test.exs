@@ -568,8 +568,8 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Enum.any?(delivered.trace.steps, &(&1.summary =~ "exact destination"))
   end
 
-  test "episode trace treats configured runtime clients as opaque while redacting replies" do
-    # One configured Slack client made every live episode detail return HTTP 500.
+  test "episode trace tolerates nonliteral runtime config shapes while redacting replies" do
+    # A Slack client and then a tuple-keyed runtime map each made every live episode detail return HTTP 500.
     accepted_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     turn =
@@ -588,7 +588,10 @@ defmodule Responder.ControlPlane.ProjectionTest do
     Application.put_env(
       :responder,
       key,
-      %Responder.Slack.Client{http: :opaque, requester: Responder.Slack.Client}
+      %{
+        :client => %Responder.Slack.Client{http: :opaque, requester: Responder.Slack.Client},
+        {"read_only", nil} => []
+      }
     )
 
     on_exit(fn ->
