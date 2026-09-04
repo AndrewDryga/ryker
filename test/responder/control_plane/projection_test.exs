@@ -4,14 +4,29 @@ defmodule Responder.ControlPlane.ProjectionTest do
   import Ecto.Query
 
   alias Responder.ControlPlane.Projection
+  alias Responder.CoopFleet.Worker
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
+  alias Responder.Publication.Changeset, as: PublicationChangeset
   alias Responder.Repo
   alias Responder.Retention.Custody, as: RetentionCustody
+
+  alias Responder.Slack.{
+    ChannelConfigurationChangeset,
+    IncidentRoomChangeset,
+    IncidentRoomLifecycleEventChangeset
+  }
+
   alias Responder.Slack.Input, as: SlackInput
-  alias Responder.State.Records
+
+  alias Responder.State.{
+    Records,
+    ScheduleChangeset,
+    ScheduleOccurrenceChangeset
+  }
+
   alias Responder.Work.{Cancellation, Custody, Measurement, Result, SubmissionBuilder}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -292,7 +307,510 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Projection.decisions(%{}) == []
     assert Projection.findings(%{}) == []
     assert length(Projection.audit(%{})) >= 9
-    assert map_size(Projection.callbacks()) == 21
+    assert map_size(Projection.callbacks()) == 30
+  end
+
+  test "operator workbench projections stay bounded and explicit with no durable rows" do
+    assert Projection.incidents(%{}) == []
+    assert Projection.schedules(%{}) == []
+    assert Projection.channels(%{}) == []
+    assert Projection.repositories(%{}) == []
+    assert Projection.calibration(%{"window" => "24h"}) == %{rows: [], window: "24h"}
+
+    assert Projection.incident("missing") == :not_found
+    assert Projection.schedule("missing") == :not_found
+    assert Projection.channel("T123", "C456") == :not_found
+
+    assert %{grants: grants, rows: rows, source: source} = Projection.operator_configuration()
+    assert is_list(grants)
+    assert is_list(rows)
+    assert is_binary(source)
+    refute inspect(%{grants: grants, rows: rows}) =~ "secret"
+
+    assert Projection.incidents(:invalid) == []
+    assert Projection.schedules(:invalid) == []
+    assert Projection.channels(:invalid) == []
+    assert Projection.repositories(:invalid) == []
+    assert Projection.calibration(:invalid) == %{rows: [], window: "30d"}
+    assert Projection.incident(nil) == :not_found
+    assert Projection.schedule(nil) == :not_found
+    assert Projection.channel(nil, nil) == :not_found
+  end
+
+  test "operator workbench joins incidents schedules channels and repository freshness without payload leaks" do
+    configuration_keys = [:control_plane, :schedules]
+
+    previous_configuration =
+      Map.new(configuration_keys, &{&1, Application.get_env(:responder, &1, :missing)})
+
+    Application.put_env(:responder, :control_plane, %{
+      task_policies: %{"responder" => %{name: "responder-contributor"}}
+    })
+
+    Application.put_env(:responder, :schedules, %{
+      repositories: %{"responder" => %{"name" => "responder-scheduled"}}
+    })
+
+    on_exit(fn ->
+      Enum.each(previous_configuration, fn
+        {key, :missing} -> Application.delete_env(:responder, key)
+        {key, value} -> Application.put_env(:responder, key, value)
+      end)
+    end)
+
+    source = start_episode!("operator-workbench")
+
+    assert {:ok, session} =
+             Custody.pin_episode(
+               source.episode.id,
+               "policy:operator",
+               String.duplicate("a", 64),
+               "responder"
+             )
+
+    assert {:ok, claim} = Custody.claim_next("operator-workbench", 60, :work)
+    assert claim.session.id == session.id
+
+    assert {:ok, record} =
+             Records.create(Records.token(claim.turn), "operator-evidence", "progress", %{
+               "next_due_at" => nil,
+               "phase" => "investigating",
+               "summary" => "Bounded operator projection evidence."
+             })
+
+    freshness = %{
+      "context" => %{
+        "workspace" => %{
+          "freshness" => %{
+            "owner" => "coop",
+            "repositories" => [
+              %{
+                "fetched_at" => "2026-08-28T11:59:00Z",
+                "name" => "primary",
+                "remote_identity" => "origin",
+                "requested_revision" => "refs/heads/main",
+                "resolved_revision" => String.duplicate("b", 40),
+                "stale_base_revision" => nil,
+                "stale_base_status" => "current",
+                "version" => 2,
+                "workspace_base_revision" => String.duplicate("b", 40)
+              }
+            ],
+            "status" => "recorded"
+          }
+        }
+      },
+      "private" => "must-not-render"
+    }
+
+    Repo.update_all(
+      from(turn in Responder.Work.Turn, where: turn.id == ^claim.turn.id),
+      set: [
+        submission: freshness,
+        submission_fingerprint: Responder.CanonicalJSON.digest(freshness)
+      ]
+    )
+
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    configuration =
+      %{
+        actor_ref: "U123",
+        alert_policy: :offer,
+        channel_ref: "C456",
+        id: Ecto.UUID.generate(),
+        invite_user_group_refs: [],
+        invite_user_refs: [],
+        participation: :proactive,
+        repository_ref: "responder",
+        revision: 1,
+        saved_at: now,
+        workspace_ref: "T123"
+      }
+      |> ChannelConfigurationChangeset.configuration()
+      |> Repo.insert!()
+
+    membership =
+      %{
+        channel_ref: "C456",
+        external_shared: false,
+        generation: 1,
+        id: Ecto.UUID.generate(),
+        joined_at: now,
+        private: true,
+        status: :joined,
+        workspace_ref: "T123"
+      }
+      |> ChannelConfigurationChangeset.membership()
+      |> Repo.insert!()
+
+    schedule =
+      %{
+        authority: :read_only,
+        catch_up: :latest,
+        confirmation_ref: "schedule-confirmation:operator",
+        confirmed_at: now,
+        confirmed_by_actor_ref: "U123",
+        destination_conversation_ref: "slack:T123:C456",
+        destination_thread_ref: nil,
+        destination_transport: "slack",
+        expires_at: DateTime.add(now, 86_400, :second),
+        id: Ecto.UUID.generate(),
+        next_occurrence_at: DateTime.add(now, 3_600, :second),
+        offer_record_id: record.id,
+        recurrence: %{
+          "every_seconds" => 3_600,
+          "kind" => "interval",
+          "starts_at" => DateTime.to_iso8601(now)
+        },
+        ref: "schedule:operator",
+        repository: "responder",
+        revision: 1,
+        source_episode_id: source.episode.id,
+        status: :active,
+        task: "Check the current deployment without exposing private-input-marker.",
+        timezone: "UTC",
+        title: "Operator schedule"
+      }
+      |> ScheduleChangeset.insert()
+      |> Repo.insert!()
+
+    occurrence =
+      %{
+        child_episode_id: source.episode.id,
+        event_ref: "schedule-event:operator",
+        id: Ecto.UUID.generate(),
+        ref: "schedule-occurrence:operator",
+        schedule_id: schedule.id,
+        scheduled_for: now,
+        status: :dispatched
+      }
+      |> ScheduleOccurrenceChangeset.insert()
+      |> Repo.insert!()
+
+    room =
+      %{
+        attempt_count: 1,
+        bot_user_ref: "U-BOT",
+        channel_name: "ems-operator-incident",
+        channel_ref: "CINCIDENT",
+        channel_state: :active,
+        channel_state_changed_at: now,
+        channel_state_event_ref: "channel-state:operator",
+        confirmation_ref: "incident-confirmation:operator",
+        episode_id: source.episode.id,
+        id: Ecto.UUID.generate(),
+        invite_user_group_refs: [],
+        invite_user_refs: ["U123"],
+        policy: "incident-investigate",
+        policy_digest: String.duplicate("c", 64),
+        private: true,
+        prompt: "Investigate private-incident-marker.",
+        reconciled_channel_state: :active,
+        record_id: record.id,
+        ref: "incident-room:operator",
+        repository_ref: "responder",
+        requested_at: now,
+        requested_by_actor_ref: "U123",
+        source_channel_ref: "C456",
+        source_episode_id: source.episode.id,
+        source_message_ref: "1787832000.000100",
+        status: :blocked,
+        title: "Operator incident",
+        topic: "Operator incident room",
+        workspace_ref: "T123"
+      }
+      |> IncidentRoomChangeset.insert()
+      |> Repo.insert!()
+
+    publication =
+      %{
+        body: "Private publication body must-not-render-publication-body.",
+        destination_conversation_ref: source.episode.destination_conversation_ref,
+        destination_thread_ref: source.episode.destination_thread_ref,
+        destination_transport: source.episode.destination_transport,
+        episode_id: source.episode.id,
+        id: Ecto.UUID.generate(),
+        last_error_detail: "provider-token must-not-render-publication-error",
+        offer_message_ref: "publication-offer:operator",
+        record_id: record.id,
+        ref: "publication:operator",
+        repository: "responder",
+        review_request_ref: "review-request:operator",
+        review_requested_at: now,
+        review_requested_by_actor_ref: "slack:user:U123",
+        session_id: session.id,
+        status: :review_pending,
+        title: "Operator publication"
+      }
+      |> PublicationChangeset.insert()
+      |> Repo.insert!()
+
+    assert {:ok, followup_record} =
+             Records.create(Records.token(claim.turn), "operator-followup", "progress", %{
+               "next_due_at" => nil,
+               "phase" => "publishing",
+               "summary" => "A newer publication for the same incident."
+             })
+
+    newer_publication =
+      %{
+        body: "Newer private publication body.",
+        destination_conversation_ref: source.episode.destination_conversation_ref,
+        destination_thread_ref: source.episode.destination_thread_ref,
+        destination_transport: source.episode.destination_transport,
+        episode_id: source.episode.id,
+        id: Ecto.UUID.generate(),
+        last_error_detail: "provider-token must-not-render-publication-error:newer",
+        offer_message_ref: "publication-offer:operator:newer",
+        record_id: followup_record.id,
+        ref: "publication:operator:newer",
+        repository: "responder",
+        review_request_ref: "review-request:operator:newer",
+        review_requested_at: DateTime.add(now, 1, :second),
+        review_requested_by_actor_ref: "slack:user:U123",
+        session_id: session.id,
+        status: :review_pending,
+        title: "Newer operator publication"
+      }
+      |> PublicationChangeset.insert()
+      |> Repo.insert!()
+
+    _lifecycle =
+      %{
+        channel_ref: "CINCIDENT",
+        event_fingerprint: String.duplicate("d", 64),
+        event_ref: "incident-lifecycle:operator",
+        id: Ecto.UUID.generate(),
+        kind: :observed_active,
+        occurred_at: now,
+        room_id: room.id,
+        workspace_ref: "T123"
+      }
+      |> IncidentRoomLifecycleEventChangeset.insert()
+      |> Repo.insert!()
+
+    Repo.insert!(%Worker{
+      id: "operator-worker",
+      workspace_ref: "workspace-operator",
+      certificate_sha256: String.duplicate("e", 64),
+      policy_digests: %{},
+      policy_authority_digests: %{},
+      repositories: ["ignored", %{"ref" => "responder", "revision" => "commit:operator"}],
+      capabilities: [],
+      capacity: %{},
+      state: :eligible,
+      last_seen_at: now
+    })
+
+    assert [
+             %{
+               publication_ref: "publication:operator:newer",
+               ref: "incident-room:operator",
+               status: :blocked
+             }
+           ] =
+             Projection.incidents(%{"q" => "Operator incident", "status" => "blocked"})
+
+    assert {:ok, incident} = Projection.incident(room.ref)
+    assert incident.room.episode_ref == source.episode.key
+    assert [%{kind: :observed_active}] = incident.lifecycle
+    assert Enum.map(incident.records, & &1.ref) == [record.ref, followup_record.ref]
+    assert publication.ref != newer_publication.ref
+    assert incident.publication.ref == newer_publication.ref
+    assert incident.publication.last_error =~ "stored diagnostic sha256:"
+    refute inspect(incident) =~ "private-incident-marker"
+    refute inspect(incident) =~ "must-not-render-publication"
+
+    assert [%{ref: "schedule:operator"}] =
+             Projection.schedules(%{"q" => "Operator", "status" => "active"})
+
+    assert {:ok, schedule_detail} = Projection.schedule(schedule.ref)
+    assert schedule_detail.schedule.recurrence == "every 3600 seconds"
+    assert [%{ref: occurrence_ref, episode_ref: episode_ref}] = schedule_detail.occurrences
+    assert occurrence_ref == occurrence.ref
+    assert episode_ref == source.episode.key
+
+    for {recurrence, label} <- [
+          {%{"kind" => "daily", "time" => "09:30"}, "daily at 09:30"},
+          {%{"kind" => "weekly", "time" => "10:00", "weekday" => "monday"},
+           "weekly on monday at 10:00"},
+          {%{"day" => 15, "kind" => "monthly", "time" => "11:00"}, "monthly on day 15 at 11:00"},
+          {%{"at" => "2026-09-05T12:00:00Z", "kind" => "once"}, "once at 2026-09-05T12:00:00Z"},
+          {%{"kind" => "future"}, "recorded recurrence"}
+        ] do
+      Repo.update_all(
+        from(saved in Responder.State.Schedule, where: saved.id == ^schedule.id),
+        set: [recurrence: recurrence]
+      )
+
+      assert {:ok, %{schedule: %{recurrence: ^label}}} = Projection.schedule(schedule.ref)
+    end
+
+    assert [%{membership: :joined, private: true, repository_ref: "responder"}] =
+             Projection.channels(%{"q" => "C456"})
+
+    assert {:ok, channel} = Projection.channel("T123", "C456")
+    assert channel.channel.configuration_revision == configuration.revision
+    assert channel.channel.membership == membership.status
+    assert Enum.any?(channel.schedules, &(&1.ref == schedule.ref))
+    assert Enum.any?(channel.episodes, &(&1.ref == source.episode.key))
+
+    assert {:ok, incident_channel} = Projection.channel("T123", "CINCIDENT")
+    assert incident_channel.channel.incident_room
+    assert incident_channel.channel.channel_state == :active
+    assert incident_channel.channel.private
+    assert incident_channel.channel.repository_ref == "responder"
+
+    assert [%{ref: "responder", freshness: receipt} = repository] =
+             Projection.repositories(%{"q" => "respond"})
+
+    assert repository.channels == 1
+    assert repository.schedules == 1
+    assert repository.sessions == 1
+
+    assert repository.configured == %{
+             contributor_policy: "responder-contributor",
+             schedule_policy: "responder-scheduled"
+           }
+
+    assert [%{revision: "commit:operator", worker_ref: "operator-worker"}] = repository.workers
+    assert receipt.version == 2
+    assert receipt.remote_identity == "origin"
+    refute inspect(repository) =~ "must-not-render"
+  end
+
+  test "model calibration attributes the admitted work class to the exact accepted turn" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    measured = measured_turn!("calibration", "codex:gpt-5.6-sol/medium@work", now)
+
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: "C456",
+               content: %{"text" => "Calibrate this turn"},
+               event_kind: :message,
+               event_ref: "Ev-control-calibration",
+               message_ref: "1787832099.000200",
+               occurred_at: now,
+               revision: 1,
+               thread_ref: nil,
+               workspace_ref: "T123"
+             })
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+
+    decision = %{
+      "action" => "start_episode",
+      "episode_ref" => nil,
+      "reaction" => nil,
+      "relation" => "unrelated",
+      "reason" => "Requires evidence.",
+      "work_class" => "standard"
+    }
+
+    Repo.update_all(
+      from(saved in Entry, where: saved.id == ^entry.id),
+      set: [
+        decision_action: :start_episode,
+        decision_document: decision,
+        decision_fingerprint: Responder.CanonicalJSON.digest(decision),
+        decision_ref: "decision:calibration",
+        episode_id: measured.episode_id,
+        status: :decided
+      ]
+    )
+
+    Repo.update_all(
+      from(turn in Responder.Work.Turn, where: turn.id == ^measured.id),
+      set: [turn_ref: "ingress-turn:#{entry.id}", validation_generation: 2]
+    )
+
+    assert %{window: "all", rows: [row]} = Projection.calibration(%{"window" => "all"})
+    assert row.class == "standard"
+    assert row.provider == "codex"
+    assert row.model == "gpt-5.6-sol"
+    assert row.effort == "medium"
+    assert row.attempts == 1
+    assert row.measured == 1
+    assert row.repair_rounds == 1
+    assert row.average_provider_ms == 5_000
+    assert Decimal.equal?(row.cost_usd, Decimal.new("0.0125"))
+
+    Repo.update_all(
+      from(turn in Responder.Work.Turn, where: turn.id == ^measured.id),
+      set: [
+        timing_recorded: false,
+        remote_finished_at: nil,
+        remote_queued_at: nil,
+        remote_started_at: nil,
+        usage_host_ms: nil,
+        usage_provider_ms: nil,
+        usage_queued_ms: nil
+      ]
+    )
+
+    assert %{rows: [%{average_provider_ms: nil}], window: "7d"} =
+             Projection.calibration(%{"window" => "7d"})
+  end
+
+  test "effective configuration exposes provenance and grant names but never secrets or callbacks" do
+    keys = [:state_tools, :work]
+    previous = Map.new(keys, &{&1, Application.get_env(:responder, &1, :missing)})
+    previous_path = System.get_env("RESPONDER_ELIXIR_CONFIG")
+
+    Application.put_env(:responder, :state_tools, %{
+      additional_call: fn _, _, _ -> :secret_callback end,
+      additional_tools: [
+        %{"name" => "search_slack", "description" => "private schema"},
+        %{name: "read_incident"},
+        %{unexpected: "ignored"}
+      ],
+      capabilities: [:emisar_approvals, :schedules],
+      token: "must-not-render-secret"
+    })
+
+    Application.put_env(:responder, :work, %{
+      concurrency: 4,
+      platform_tools: ["source_read"],
+      poll_interval_ms: 250
+    })
+
+    System.put_env("RESPONDER_ELIXIR_CONFIG", "/etc/responder/emisar.yaml")
+
+    on_exit(fn ->
+      Enum.each(previous, fn
+        {key, :missing} -> Application.delete_env(:responder, key)
+        {key, value} -> Application.put_env(:responder, key, value)
+      end)
+
+      if previous_path,
+        do: System.put_env("RESPONDER_ELIXIR_CONFIG", previous_path),
+        else: System.delete_env("RESPONDER_ELIXIR_CONFIG")
+    end)
+
+    snapshot = Projection.operator_configuration()
+    assert snapshot.source == "/etc/responder/emisar.yaml"
+
+    assert %{key: "work.concurrency", value: "4"} =
+             Enum.find(snapshot.rows, &(&1.key == "work.concurrency"))
+
+    assert Enum.any?(snapshot.grants, &match?(%{kind: "MCP tool", name: "search_slack"}, &1))
+    assert Enum.any?(snapshot.grants, &match?(%{kind: "MCP tool", name: "read_incident"}, &1))
+
+    assert Enum.any?(
+             snapshot.grants,
+             &match?(%{kind: "host capability", name: "emisar_approvals"}, &1)
+           )
+
+    assert Enum.any?(
+             snapshot.grants,
+             &match?(%{kind: "source/action tool", name: "source_read"}, &1)
+           )
+
+    refute inspect(snapshot) =~ "must-not-render-secret"
+    refute inspect(snapshot) =~ "secret_callback"
+    refute inspect(snapshot) =~ "private schema"
   end
 
   test "episode paging and filters fail closed to bounded defaults" do

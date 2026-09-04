@@ -472,13 +472,18 @@ replacement, not the older Go dashboard or the intended final design above.
 | Overview | Live for active, waiting, blocked, delivery-pending, admission queued/deciding/retrying counts, oldest active-admission time, durable Slack-status backlog age, and bounded attention records |
 | Conversation Lab | Live, with durable messages/files, generated-image delivery, the exact Slack chat tool schemas through a local-only adapter, reactions, confirmed extra posts, native cards/actions, episode custody, and same-session continuation |
 | Episodes list and detail | Live, with bounded search, state filtering, pagination, lifecycle metadata, and typed state-record summaries |
+| Incidents list and detail | Live, with bounded search, Slack-room lifecycle, linked source and investigation episodes, typed evidence records, and sanitized publication state |
+| Schedules list and detail | Live, with bounded search, recurrence and authority, destination, sanitized failures, and dispatched or missed occurrence history |
+| Channels list and detail | Live, with bounded search across durable Slack configuration, membership, incident ownership, conversation summaries, schedules, overrides, and recent episodes |
+| Repositories and topology | Live, with configured policy names, durable channel, schedule, session, and publication counts, serving Coop worker revisions, and the latest frozen freshness receipt |
 | Failures | Live, with typed confirmed recovery for admission, Work, delivery, Slack repaint/incident, Emisar monitoring, and retention custody |
 | Workspaces | Live, with audited cleanup rearm and explicit safe discard |
 | Decisions | Live, read-only |
+| Model calibration | Live, read-only and bounded by time window, with admitted work class, effective provider/model/effort, repair rounds, tokens, reported cost, and provider/queue/host timing |
 | Findings | Live, read-only |
 | Audit | Live, read-only and bounded |
 | Memory | Live for memory, behaviors, and schedules, with native confirmed mutations |
-| Configuration | Live for effective runtime presence only; secrets and endpoints are omitted |
+| Configuration | Live for an explicit allowlist of effective runtime values, source provenance, MCP/host/tool grant names, and repository-topology linkage; secrets, endpoints, callbacks, and raw policy documents are omitted |
 | Usage | Live for accepted Work turns, with provider coverage, tokens, reported cost, timings, daily trend, and target/channel/repository drill-downs |
 | Test journeys | Live, configuration-aware manual qualification for the Lab, Slack, GitHub, webhooks, state tools, and recovery |
 

@@ -316,6 +316,66 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
+  defp route(%Plug.Conn{method: "GET", path_info: ["incidents"]} = conn, options) do
+    conn = fetch_query_params(conn)
+    snapshot = options.projection.incidents.(Map.take(conn.query_params, ["q", "status"]))
+    html(conn, 200, "Incidents", HTML.incidents(snapshot))
+  end
+
+  defp route(%Plug.Conn{method: "GET", path_info: ["incidents", incident_ref]} = conn, options) do
+    case path_ref(incident_ref) do
+      {:ok, incident_ref} -> render_incident(conn, options, incident_ref)
+      {:error, :path_ref} -> html(conn, 404, "Not found", HTML.generic("Incident", []))
+    end
+  end
+
+  defp route(%Plug.Conn{method: "GET", path_info: ["schedules"]} = conn, options) do
+    conn = fetch_query_params(conn)
+    snapshot = options.projection.schedules.(Map.take(conn.query_params, ["q", "status"]))
+    html(conn, 200, "Schedules", HTML.schedules(snapshot))
+  end
+
+  defp route(%Plug.Conn{method: "GET", path_info: ["schedules", schedule_ref]} = conn, options) do
+    case path_ref(schedule_ref) do
+      {:ok, schedule_ref} -> render_schedule(conn, options, schedule_ref)
+      {:error, :path_ref} -> html(conn, 404, "Not found", HTML.generic("Schedule", []))
+    end
+  end
+
+  defp route(%Plug.Conn{method: "GET", path_info: ["channels"]} = conn, options) do
+    conn = fetch_query_params(conn)
+    snapshot = options.projection.channels.(Map.take(conn.query_params, ["q"]))
+    html(conn, 200, "Channels", HTML.channels(snapshot))
+  end
+
+  defp route(
+         %Plug.Conn{method: "GET", path_info: ["channels", workspace_ref, channel_ref]} = conn,
+         options
+       ) do
+    with {:ok, workspace_ref} <- path_ref(workspace_ref),
+         {:ok, channel_ref} <- path_ref(channel_ref) do
+      case options.projection.channel.(workspace_ref, channel_ref) do
+        {:ok, snapshot} -> html(conn, 200, channel_ref, HTML.channel(snapshot))
+        :not_found -> html(conn, 404, "Not found", HTML.generic("Channel", []))
+        {:error, _reason} -> html(conn, 503, "Unavailable", HTML.generic("Channel", []))
+      end
+    else
+      {:error, :path_ref} -> html(conn, 404, "Not found", HTML.generic("Channel", []))
+    end
+  end
+
+  defp route(%Plug.Conn{method: "GET", path_info: ["repositories"]} = conn, options) do
+    conn = fetch_query_params(conn)
+    snapshot = options.projection.repositories.(Map.take(conn.query_params, ["q"]))
+    html(conn, 200, "Repositories", HTML.repositories(snapshot))
+  end
+
+  defp route(%Plug.Conn{method: "GET", path_info: ["calibration"]} = conn, options) do
+    conn = fetch_query_params(conn)
+    snapshot = options.projection.calibration.(Map.take(conn.query_params, ["window"]))
+    html(conn, 200, "Model calibration", HTML.calibration(snapshot))
+  end
+
   defp route(%Plug.Conn{method: "GET", path_info: ["memory"]} = conn, options) do
     html(
       conn,
@@ -326,7 +386,12 @@ defmodule Responder.ControlPlane.Router do
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["configuration"]} = conn, options) do
-    html(conn, 200, "Configuration", HTML.configuration(options.projection.configuration.()))
+    html(
+      conn,
+      200,
+      "Configuration",
+      HTML.configuration(options.projection.operator_configuration.())
+    )
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["usage"]} = conn, options) do
@@ -502,6 +567,22 @@ defmodule Responder.ControlPlane.Router do
       {:ok, detail} -> html(conn, 200, "Episode", HTML.episode(detail))
       :not_found -> html(conn, 404, "Not found", HTML.generic("Episode", []))
       {:error, _reason} -> html(conn, 503, "Unavailable", HTML.generic("Episode", []))
+    end
+  end
+
+  defp render_incident(conn, options, incident_ref) do
+    case options.projection.incident.(incident_ref) do
+      {:ok, snapshot} -> html(conn, 200, snapshot.room.title, HTML.incident(snapshot))
+      :not_found -> html(conn, 404, "Not found", HTML.generic("Incident", []))
+      {:error, _reason} -> html(conn, 503, "Unavailable", HTML.generic("Incident", []))
+    end
+  end
+
+  defp render_schedule(conn, options, schedule_ref) do
+    case options.projection.schedule.(schedule_ref) do
+      {:ok, snapshot} -> html(conn, 200, snapshot.schedule.title, HTML.schedule(snapshot))
+      :not_found -> html(conn, 404, "Not found", HTML.generic("Schedule", []))
+      {:error, _reason} -> html(conn, 503, "Unavailable", HTML.generic("Schedule", []))
     end
   end
 

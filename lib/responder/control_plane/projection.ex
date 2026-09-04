@@ -39,6 +39,9 @@ defmodule Responder.ControlPlane.Projection do
     %{
       admission: &admission/1,
       audit: &audit/1,
+      calibration: &calibration/1,
+      channel: &channel/2,
+      channels: &channels/1,
       configuration: &configuration/0,
       decisions: &decisions/1,
       delivery: &delivery/1,
@@ -47,11 +50,17 @@ defmodule Responder.ControlPlane.Projection do
       episodes: &episodes/1,
       failures: &failures/1,
       findings: &findings/1,
+      incident: &incident/1,
+      incidents: &incidents/1,
       lab_artifact: &lab_artifact/3,
       lab_conversation: &lab_conversation/1,
       lab_index: &lab_index/0,
       memory: &memory/0,
       overview: &overview/0,
+      operator_configuration: &operator_configuration/0,
+      repositories: &repositories/1,
+      schedule: &schedule/1,
+      schedules: &schedules/1,
       usage: &usage/1,
       slack_incident: &slack_incident/1,
       slack_interaction: &slack_interaction/1,
@@ -60,6 +69,16 @@ defmodule Responder.ControlPlane.Projection do
       workspaces: &workspaces/1
     }
   end
+
+  defdelegate calibration(params), to: Responder.ControlPlane.OperatorProjection
+  defdelegate channel(workspace_ref, channel_ref), to: Responder.ControlPlane.OperatorProjection
+  defdelegate channels(params), to: Responder.ControlPlane.OperatorProjection
+  defdelegate incident(ref), to: Responder.ControlPlane.OperatorProjection
+  defdelegate incidents(params), to: Responder.ControlPlane.OperatorProjection
+  defdelegate operator_configuration(), to: Responder.ControlPlane.OperatorProjection
+  defdelegate repositories(params), to: Responder.ControlPlane.OperatorProjection
+  defdelegate schedule(ref), to: Responder.ControlPlane.OperatorProjection
+  defdelegate schedules(params), to: Responder.ControlPlane.OperatorProjection
 
   @doc """
   Lists recent loopback conversations without loading their message bodies.

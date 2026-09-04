@@ -22,8 +22,8 @@ claim of whole-product parity.
 | Priority | Implemented | Partial | Total |
 |---|---:|---:|---:|
 | P0 | 28 | 0 | 28 |
-| P1 | 8 | 7 | 15 |
-| **All** | **36** | **7** | **43** |
+| P1 | 11 | 4 | 15 |
+| **All** | **39** | **4** | **43** |
 
 ## Implemented behavior
 
@@ -67,6 +67,7 @@ claim of whole-product parity.
 | P1 | `privacy-aware-cross-channel-recall` | [`State.Continuity`](../lib/responder/state/continuity.ex) | [`state/continuity_test.exs`](../test/responder/state/continuity_test.exs) |
 | P1 | `memory-review-controls` | [`Slack.AppHomeEditor`](../lib/responder/slack/app_home_editor.ex) and [`State.Memories`](../lib/responder/state/memories.ex) | [`slack/app_home_editor_test.exs`](../test/responder/slack/app_home_editor_test.exs) and [`state/memories_test.exs`](../test/responder/state/memories_test.exs) |
 | P1 | `app-home-navigation-and-recovery-controls` | [`Slack.AppHomeProjection`](../lib/responder/slack/app_home_projection.ex) and [`Slack.AppHomeControls`](../lib/responder/slack/app_home_controls.ex) | [`slack/app_home_projection_test.exs`](../test/responder/slack/app_home_projection_test.exs) and [`slack/app_home_actions_test.exs`](../test/responder/slack/app_home_actions_test.exs) |
+| P1 | `operator-incident-schedule-repository-views` | [`ControlPlane.OperatorProjection`](../lib/responder/control_plane/operator_projection.ex) | [`control_plane/projection_test.exs`](../test/responder/control_plane/projection_test.exs) and [`control_plane/router_test.exs`](../test/responder/control_plane/router_test.exs) |
 
 ## Partial behavior and exact owner
 
@@ -76,7 +77,6 @@ claim of whole-product parity.
 | P1 | `multi-repository-orchestration` | Repository sets, companion snapshots, child goals, and multi-workspace coordination. | `2026-09-04-finish-goals-and-multi-repository-orchestration` |
 | P1 | `schedules-run-now-replace-and-history` | Confirmed replacement, control-plane run-now, and useful execution and failure history; Slack App Home run-now and lifecycle controls are implemented. | `2026-09-04-finish-schedules-subscriptions-and-execution-his` |
 | P1 | `subscriptions-and-poll-fallback` | General source subscription state, cursors, and lost-event polling. | `2026-09-04-finish-schedules-subscriptions-and-execution-his` |
-| P1 | `operator-incident-schedule-repository-views` | Complete search, incident, schedule, channel, repository, topology, grant, and calibration views. | `2026-09-04-complete-the-local-operator-product-for-incident` |
 
 ## Maintenance rule
 
