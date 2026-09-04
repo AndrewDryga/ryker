@@ -1698,7 +1698,11 @@ defmodule Responder.Slack.Renderer do
     [
       "*Goal · #{required} · #{mrkdwn(payload["id"])}*",
       mrkdwn(payload["requested_outcome"]),
-      "Done when: #{mrkdwn(payload["completion_contract"])}"
+      "Done when: #{mrkdwn(payload["completion_contract"])}",
+      optional_line("Parent", payload["parent_goal_id"]),
+      optional_line("Prerequisites", joined_refs(payload["prerequisite_goal_ids"])),
+      optional_line("Writable repository", payload["writable_repository"]),
+      optional_line("Read-only repositories", joined_refs(payload["read_only_repositories"]))
     ]
     |> compact_lines()
   end
@@ -1721,6 +1725,9 @@ defmodule Responder.Slack.Renderer do
     ]
     |> compact_lines()
   end
+
+  defp joined_refs(values) when is_list(values) and values != [], do: Enum.join(values, ", ")
+  defp joined_refs(_values), do: nil
 
   defp compact_lines(lines), do: lines |> Enum.reject(&is_nil/1) |> Enum.join("\n")
 

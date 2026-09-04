@@ -126,6 +126,48 @@ defmodule Responder.State.TaskOffersTest do
     assert Repo.get!(Record, frontend_offer.id).confirmed_episode_id == frontend.episode.id
   end
 
+  test "a repository-set offer pins one writable primary and frozen read-only companions" do
+    fixture =
+      delivered_offers!("repository-set", [
+        %{
+          "kind" => "engineering",
+          "prompt" => "Update the service using the infrastructure contract.",
+          "repository" => "platform",
+          "title" => "Update the platform"
+        }
+      ])
+      |> Map.put(:record, nil)
+
+    fixture = %{fixture | record: hd(fixture.records)}
+
+    repository_context = %{
+      "context_ref" => "platform",
+      "parallel_goal_limit" => 2,
+      "primary_repository" => "service",
+      "read_only_repositories" => ["infrastructure", "runbooks"]
+    }
+
+    attributes =
+      fixture
+      |> confirmation()
+      |> Map.put(:policy, %{
+        digest: @policy_digest,
+        name: "platform-contributor",
+        repository_context: repository_context,
+        repository_ref: "service"
+      })
+
+    assert {:ok, confirmed} = TaskOffers.confirm(attributes)
+    assert confirmed.session.repository_ref == "service"
+    assert confirmed.session.repository_context == repository_context
+    assert confirmed.episode.linked_episode_id == fixture.episode.id
+
+    malformed = put_in(attributes, [:policy, :repository_context, "primary_repository"], "other")
+
+    assert TaskOffers.confirm(malformed) ==
+             {:error, {:invalid_task_offer_confirmation, :repository_context}}
+  end
+
   test "crossed and undelivered controls cannot create work" do
     fixture = delivered_offer!("crossed")
 

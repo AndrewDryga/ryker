@@ -28,6 +28,7 @@ defmodule Responder.Slack.IncidentRoom do
     field(:policy, :string)
     field(:policy_digest, :string)
     field(:repository_ref, :string)
+    field(:repository_context, Responder.CanonicalJSON.Type)
     field(:title, :string)
     field(:prompt, :string)
     field(:channel_name, :string)

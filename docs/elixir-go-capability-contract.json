@@ -441,26 +441,26 @@
     {
       "id": "goal-planning-and-dependencies",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "required_behavior": "Typed plan_goal and update_goal tools create required parent and child goals, validate prerequisites, bound independent parallelism, and prevent terminal completion while required work remains.",
       "design_capabilities": ["engineering-changes"],
       "origin_refs": ["internal/store/goalstore/goals.go"],
-      "implementation_refs": ["lib/responder/episodes/episode.ex", "lib/responder/commitments.ex"],
-      "proof_refs": ["test/responder/episodes/kernel_test.exs", "test/responder/commitments_test.exs"],
-      "gap": "Required-goal counts and commitment validation exist, but model-callable goal planning, dependencies, and coordinated finalization do not.",
-      "next_task": "2026-09-04-finish-goals-and-multi-repository-orchestration"
+      "implementation_refs": ["lib/responder/state/investigation_payload.ex", "lib/responder/state/records.ex", "lib/responder/state_tools/fixed_tools.ex", "lib/responder/work/prompt.ex", "lib/responder/work/validator.ex"],
+      "proof_refs": ["test/responder/state/records_test.exs", "test/responder/state_tools/router_test.exs", "test/responder/work/executor_test.exs"],
+      "gap": null,
+      "next_task": null
     },
     {
       "id": "multi-repository-orchestration",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "required_behavior": "A parent episode coordinates child goals with one isolated writable repository each, exact-revision read-only companions, bounded parallelism, and explicit partial completion.",
       "design_capabilities": ["multi-repository-work"],
       "origin_refs": ["internal/repositorycapability/capability.go"],
-      "implementation_refs": ["lib/responder/ingress/work_profile.ex", "lib/responder/coop_fleet/placement.ex"],
-      "proof_refs": ["test/responder/product_contracts_test.exs", "test/responder/coop_fleet/placement_concurrency_test.exs"],
-      "gap": "One repository per Work profile and fleet placement are enforced, but repository sets, companion snapshots, parent-child goals, and multi-workspace coordination are incomplete.",
-      "next_task": "2026-09-04-finish-goals-and-multi-repository-orchestration"
+      "implementation_refs": ["lib/responder/runtime_configuration.ex", "lib/responder/ingress/work_profile.ex", "lib/responder/work/session.ex", "lib/responder/work/custody.ex", "lib/responder/work/executor.ex", "lib/responder/state/task_offers.ex", "lib/responder/state/records.ex"],
+      "proof_refs": ["test/responder/runtime_configuration_test.exs", "test/responder/product_contracts_test.exs", "test/responder/work/custody_test.exs", "test/responder/work/executor_test.exs", "test/responder/state/task_offers_test.exs", "test/responder/state/records_test.exs"],
+      "gap": null,
+      "next_task": null
     },
     {
       "id": "schedules-run-now-replace-and-history",

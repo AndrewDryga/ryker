@@ -534,12 +534,21 @@ defmodule Responder.Slack.InteractionHandler do
 
   defp policy(%{payload: %{"kind" => "engineering", "repository" => repository}}, options) do
     case get_in(options, [:repositories, repository, :contributor_policy]) do
-      %{digest: digest, name: name} -> {:ok, %{digest: digest, name: name}}
-      _missing -> {:error, {:slack_task_policy_not_configured, repository}}
+      %{digest: digest, name: name} = policy ->
+        {:ok,
+         %{digest: digest, name: name}
+         |> maybe_put(:repository_ref, Map.get(policy, :repository_ref))
+         |> maybe_put(:repository_context, Map.get(policy, :repository_context))}
+
+      _missing ->
+        {:error, {:slack_task_policy_not_configured, repository}}
     end
   end
 
   defp policy(_record, _options), do: {:error, :task_offer_action_mismatch}
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp confirm_task(interaction, policy, options) do
     options.confirm_task_offer.(%{

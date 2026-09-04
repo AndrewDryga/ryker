@@ -3,7 +3,7 @@ defmodule Responder.Work.SessionChangeset do
 
   import Ecto.Changeset
 
-  alias Responder.Work.Session
+  alias Responder.Work.{RepositoryContext, Session}
 
   @spec insert(
           Ecto.UUID.t(),
@@ -46,7 +46,7 @@ defmodule Responder.Work.SessionChangeset do
           String.t(),
           String.t() | nil,
           String.t(),
-          %{authority_digest: String.t() | nil, workspace_task: map() | nil}
+          map()
         ) ::
           Ecto.Changeset.t()
   def insert_with_authority(
@@ -57,8 +57,12 @@ defmodule Responder.Work.SessionChangeset do
         policy_digest,
         repository_ref,
         external_ref,
-        %{authority_digest: authority_digest, workspace_task: workspace_task}
+        options
       ) do
+    authority_digest = Map.fetch!(options, :authority_digest)
+    workspace_task = Map.fetch!(options, :workspace_task)
+    repository_context = Map.get(options, :repository_context)
+
     %Session{}
     |> cast(
       %{
@@ -70,6 +74,7 @@ defmodule Responder.Work.SessionChangeset do
         policy_digest: policy_digest,
         authority_digest: authority_digest,
         repository_ref: repository_ref,
+        repository_context: repository_context,
         external_ref: external_ref,
         workspace_task: workspace_task
       },
@@ -82,6 +87,7 @@ defmodule Responder.Work.SessionChangeset do
         :policy_digest,
         :authority_digest,
         :repository_ref,
+        :repository_context,
         :external_ref,
         :workspace_task
       ]
@@ -100,11 +106,13 @@ defmodule Responder.Work.SessionChangeset do
     |> validate_format(:authority_digest, ~r/\A[0-9a-f]{64}\z/)
     |> validate_length(:repository_ref, min: 1, max: 1_024)
     |> validate_length(:external_ref, min: 1, max: 1_024)
+    |> validate_repository_context()
     |> validate_workspace_task()
     |> unique_constraint([:episode_id, :generation])
     |> foreign_key_constraint(:episode_id)
     |> check_constraint(:policy, name: :episode_work_session_identity_valid)
     |> check_constraint(:repository_ref, name: :episode_work_session_repository_valid)
+    |> check_constraint(:repository_context, name: :episode_work_session_repository_context_valid)
   end
 
   @spec bind(Session.t(), String.t()) :: Ecto.Changeset.t()
@@ -138,6 +146,15 @@ defmodule Responder.Work.SessionChangeset do
       case Responder.CanonicalJSON.validate(value, max_bytes: 64 * 1_024) do
         :ok -> []
         {:error, _reason} -> [workspace_task: "is outside its canonical byte bound"]
+      end
+    end)
+  end
+
+  defp validate_repository_context(changeset) do
+    validate_change(changeset, :repository_context, fn :repository_context, value ->
+      case RepositoryContext.restore(value, get_field(changeset, :repository_ref)) do
+        {:ok, _context} -> []
+        {:error, :invalid} -> [repository_context: "is not a bounded repository set"]
       end
     end)
   end

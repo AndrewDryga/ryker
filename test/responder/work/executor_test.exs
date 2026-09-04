@@ -1970,7 +1970,13 @@ defmodule Responder.Work.ExecutorTest do
   end
 
   test "an evaluation freezes the exact trusted Coop workspace map before model submission" do
-    claim = claim_with_bound_empty_session!("eval-workspace-map")
+    claim =
+      claim_with_bound_repository_context!(
+        "eval-workspace-map",
+        "responder",
+        ["blitz-rivals-scraper"]
+      )
+
     {:ok, fake} = fake_for(claim, [reply("The repository is available.")])
 
     companion = %{
@@ -2025,6 +2031,7 @@ defmodule Responder.Work.ExecutorTest do
 
     assert get_in(accepted.submission, ["context", "workspace"]) == %{
              "companions" => [Map.put(companion, "read_only", true)],
+             "context_ref" => "platform",
              "freshness" => %{
                "owner" => "coop",
                "repositories" => [
@@ -2036,9 +2043,10 @@ defmodule Responder.Work.ExecutorTest do
                ],
                "status" => "recorded"
              },
+             "parallel_goal_limit" => 2,
              "primary" => %{
                "base_commit" => "5d1fa43d2efe46e8409dde0e93e79af93fb6622f",
-               "name" => "primary",
+               "name" => "responder",
                "path" => ".",
                "read_only" => true
              }
@@ -2059,6 +2067,21 @@ defmodule Responder.Work.ExecutorTest do
            ) == {:error, {:coop_protocol_error, :session_workspace}}
 
     assert FakeAPI.state(missing_fake).submit_count == 0
+
+    context_missing =
+      claim_with_bound_repository_context!(
+        "eval-repository-context-missing",
+        "responder",
+        ["blitz-rivals-scraper"]
+      )
+
+    {:ok, context_missing_fake} =
+      fake_for(context_missing, [reply("Must not run without the frozen companion.")])
+
+    assert Executor.run(context_missing, options(context_missing_fake)) ==
+             {:error, {:coop_protocol_error, :repository_context}}
+
+    assert FakeAPI.state(context_missing_fake).submit_count == 0
   end
 
   test "a Coop session without owner-issued repository freshness never reaches the model" do
@@ -2813,6 +2836,17 @@ defmodule Responder.Work.ExecutorTest do
     do: claim_episode!(suffix, payload, execution_mode, nil)
 
   defp claim_episode!(suffix, payload, execution_mode, authority_digest) do
+    claim_episode!(suffix, payload, execution_mode, authority_digest, nil, nil)
+  end
+
+  defp claim_episode!(
+         suffix,
+         payload,
+         execution_mode,
+         authority_digest,
+         repository_ref,
+         repository_context
+       ) do
     id = Ecto.UUID.generate()
 
     command =
@@ -2835,7 +2869,8 @@ defmodule Responder.Work.ExecutorTest do
                "work-read-only",
                String.duplicate("a", 64),
                authority_digest,
-               nil
+               repository_ref,
+               repository_context
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60, :work)
@@ -2919,6 +2954,30 @@ defmodule Responder.Work.ExecutorTest do
 
   defp claim_with_bound_empty_session!(suffix, authority_digest \\ nil) do
     claim = claim_episode!(suffix, nil, :live, authority_digest)
+
+    assert {:ok, session} =
+             Custody.bind_session(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               claim.session.generation,
+               claim.session.create_generation,
+               "remote:#{claim.episode.id}"
+             )
+
+    %{claim | session: session}
+  end
+
+  defp claim_with_bound_repository_context!(suffix, repository_ref, read_only_repositories) do
+    repository_context = %{
+      "context_ref" => "platform",
+      "parallel_goal_limit" => 2,
+      "primary_repository" => repository_ref,
+      "read_only_repositories" => read_only_repositories
+    }
+
+    claim =
+      claim_episode!(suffix, nil, :live, nil, repository_ref, repository_context)
 
     assert {:ok, session} =
              Custody.bind_session(

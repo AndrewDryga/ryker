@@ -25,6 +25,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @publication_recovery_version 20_260_904_000_300
   @publication_stale_head_version 20_260_904_000_400
   @conversation_continuity_version 20_260_904_000_500
+  @repository_contexts_version 20_260_904_000_600
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
   test "an installation that already ran the Slack inbox migration upgrades to generic ingress" do
@@ -63,7 +64,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @operator_actions_version,
                @publication_recovery_version,
                @publication_stale_head_version,
-               @conversation_continuity_version
+               @conversation_continuity_version,
+               @repository_contexts_version
              ]
 
       refute table_exists?(repo, prefix, "slack_inbox_entries")
@@ -162,7 +164,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @operator_actions_version,
                @publication_recovery_version,
                @publication_stale_head_version,
-               @conversation_continuity_version
+               @conversation_continuity_version,
+               @repository_contexts_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -176,6 +179,15 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  "SELECT execution_kind, episode_id FROM #{prefix}.episode_work_sessions WHERE id = $1::text::uuid",
                  [admission_session_id]
                )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@repository_contexts_version]
+
+      refute column_exists?(repo, prefix, "episode_work_sessions", "repository_context")
+      refute column_exists?(repo, prefix, "slack_incident_rooms", "repository_context")
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
                step: 1,
@@ -305,7 +317,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @operator_actions_version,
                @publication_recovery_version,
                @publication_stale_head_version,
-               @conversation_continuity_version
+               @conversation_continuity_version,
+               @repository_contexts_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -342,7 +355,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @operator_actions_version,
                @publication_recovery_version,
                @publication_stale_head_version,
-               @conversation_continuity_version
+               @conversation_continuity_version,
+               @repository_contexts_version
              ]
 
       assert Release.migrate(options) == []
@@ -382,6 +396,17 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
         Release.rollback(@publication_stale_head_version, options)
       end
+
+      assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
+        Release.rollback(@conversation_continuity_version, options)
+      end
+
+      assert Release.rollback(@repository_contexts_version, options) == [
+               @repository_contexts_version
+             ]
+
+      refute column_exists?(repo, prefix, "episode_work_sessions", "repository_context")
+      refute column_exists?(repo, prefix, "slack_incident_rooms", "repository_context")
 
       assert Release.rollback(@conversation_continuity_version, options) == [
                @conversation_continuity_version
@@ -480,6 +505,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                step: 1,
                prefix: prefix,
                log: false
+             ) == [@repository_contexts_version]
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
              ) == [@conversation_continuity_version]
 
       {record_id, publication_id} = insert_stale_head_recovery_rows!(repo, prefix, ids)
@@ -544,6 +575,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         log: false
       )
 
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@repository_contexts_version]
+
       review_id = Ecto.UUID.generate()
 
       SQL.query!(
@@ -569,6 +606,55 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       end
 
       assert table_exists?(repo, prefix, "memory_review_items")
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  test "repository context migration refuses to discard frozen placement on rollback" do
+    repo = start_migration_repo!()
+    prefix = "repository_context_rollback_#{System.unique_integer([:positive])}"
+
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      ids = insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        all: true,
+        prefix: prefix,
+        log: false
+      )
+
+      context =
+        Jason.encode!(%{
+          "context_ref" => "platform",
+          "parallel_goal_limit" => 2,
+          "primary_repository" => "responder",
+          "read_only_repositories" => ["emisar"]
+        })
+
+      SQL.query!(
+        repo,
+        "UPDATE #{prefix}.episode_work_sessions SET repository_ref = 'responder', repository_context = $1 WHERE id = $2::text::uuid",
+        [context, ids.session_id]
+      )
+
+      assert_raise Postgrex.Error, ~r/repository context has data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down,
+          step: 1,
+          prefix: prefix,
+          log: false
+        )
+      end
+
+      assert column_exists?(repo, prefix, "episode_work_sessions", "repository_context")
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end

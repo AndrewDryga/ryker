@@ -13,10 +13,10 @@ defmodule Responder.State.TaskOffers do
   alias Responder.Episodes.{Command, Episode}
   alias Responder.Repo
   alias Responder.State.{Record, RecordChangeset}
-  alias Responder.Work.{Custody, Session, Turn}
+  alias Responder.Work.{Custody, RepositoryContext, Session, Turn}
 
   @fields [:actor_ref, :confirmation_ref, :occurred_at, :policy, :record_ref, :target]
-  @policy_fields [:digest, :name]
+  @policy_fields [:digest, :name, :repository_context, :repository_ref]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
 
   @type confirmation :: %{
@@ -124,13 +124,15 @@ defmodule Responder.State.TaskOffers do
       turn_ref: turn_ref
     }
 
-    with {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
+    with :ok <- task_repository_placement(record.payload["repository"], attributes.policy),
+         {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
          {:ok, session} <-
            Custody.pin_task_episode_in_transaction(
              transition.episode.id,
              attributes.policy.name,
              attributes.policy.digest,
-             record.payload["repository"],
+             Map.get(attributes.policy, :repository_ref, record.payload["repository"]),
+             Map.get(attributes.policy, :repository_context),
              workspace_task(record)
            ),
          {:ok, record} <- persist_confirmation(record, transition.episode, attributes) do
@@ -161,6 +163,27 @@ defmodule Responder.State.TaskOffers do
       "title" => payload["title"]
     }
   end
+
+  defp task_repository_placement(nil, _policy), do: :ok
+
+  defp task_repository_placement(
+         context_ref,
+         %{
+           repository_context: %{"context_ref" => context_ref},
+           repository_ref: repository_ref
+         }
+       )
+       when is_binary(repository_ref),
+       do: :ok
+
+  defp task_repository_placement(repository_ref, %{repository_ref: repository_ref}), do: :ok
+
+  defp task_repository_placement(repository_ref, policy)
+       when not is_map_key(policy, :repository_ref),
+       do: if(is_binary(repository_ref), do: :ok, else: {:error, :task_offer_repository_mismatch})
+
+  defp task_repository_placement(_repository_ref, _policy),
+    do: {:error, :task_offer_repository_mismatch}
 
   defp persist_confirmation(record, episode, attributes) do
     record
@@ -212,9 +235,17 @@ defmodule Responder.State.TaskOffers do
   defp attributes(_attributes), do: {:error, {:invalid_task_offer_confirmation, :fields}}
 
   defp policy(%{} = policy) do
-    if Map.keys(policy) |> Enum.sort() == Enum.sort(@policy_fields) do
+    keys = Map.keys(policy)
+
+    if Enum.all?([:digest, :name], &(&1 in keys)) and keys -- @policy_fields == [] do
       with :ok <- reference(policy.name, :policy),
-           true <- is_binary(policy.digest) and Regex.match?(~r/\A[0-9a-f]{64}\z/, policy.digest) do
+           true <- is_binary(policy.digest) and Regex.match?(~r/\A[0-9a-f]{64}\z/, policy.digest),
+           :ok <- optional_reference(Map.get(policy, :repository_ref), :repository_ref),
+           :ok <-
+             repository_context(
+               Map.get(policy, :repository_context),
+               Map.get(policy, :repository_ref)
+             ) do
         {:ok, policy}
       else
         {:error, _reason} = error -> error
@@ -226,6 +257,13 @@ defmodule Responder.State.TaskOffers do
   end
 
   defp policy(_policy), do: {:error, {:invalid_task_offer_confirmation, :policy}}
+
+  defp repository_context(value, repository_ref) do
+    case RepositoryContext.restore(value, repository_ref) do
+      {:ok, _context} -> :ok
+      {:error, :invalid} -> {:error, {:invalid_task_offer_confirmation, :repository_context}}
+    end
+  end
 
   defp target(%{} = target) do
     if Map.keys(target) |> Enum.sort() == Enum.sort(@target_fields) do

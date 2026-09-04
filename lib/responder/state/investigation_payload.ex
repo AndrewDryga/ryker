@@ -109,7 +109,9 @@ defmodule Responder.State.InvestigationPayload do
 
   defp goal(%{} = payload) do
     required = ~w(authority completion_contract id kind requested_outcome required)
-    optional = ~w(prerequisite_goal_ids read_only_repositories writable_repository)
+
+    optional =
+      ~w(parent_goal_id prerequisite_goal_ids read_only_repositories writable_repository)
 
     with :ok <- fields(payload, required, optional),
          :ok <- reference(payload["id"], 120, :id),
@@ -117,6 +119,7 @@ defmodule Responder.State.InvestigationPayload do
          :ok <- text(payload["requested_outcome"], 500, :requested_outcome),
          :ok <- text(payload["completion_contract"], 2_000, :completion_contract),
          :ok <- boolean(payload["required"], :required),
+         :ok <- optional_reference(payload, "parent_goal_id", 120, :parent_goal_id),
          :ok <- optional_references(payload, "prerequisite_goal_ids", 20, :prerequisite_goal_ids),
          :ok <- optional_text(payload, "writable_repository", 256, :writable_repository),
          :ok <-
@@ -128,6 +131,7 @@ defmodule Responder.State.InvestigationPayload do
              :authority
            ),
          :ok <- goal_authority(payload),
+         :ok <- goal_repositories(payload),
          :ok <- canonical(payload) do
       {:ok, payload}
     end
@@ -232,6 +236,15 @@ defmodule Responder.State.InvestigationPayload do
        do: invalid(:writable_repository)
 
   defp goal_authority(_payload), do: :ok
+
+  defp goal_repositories(payload) do
+    writable = payload["writable_repository"]
+    read_only = Map.get(payload, "read_only_repositories", [])
+
+    if is_nil(writable) or writable not in read_only,
+      do: :ok,
+      else: invalid(:read_only_repositories)
+  end
 
   defp assessment_claim(%{"verdict" => verdict} = payload)
        when verdict in ~w(confirmed_issue likely_issue) do

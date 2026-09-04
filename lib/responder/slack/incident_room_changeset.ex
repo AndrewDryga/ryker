@@ -4,6 +4,7 @@ defmodule Responder.Slack.IncidentRoomChangeset do
   import Ecto.Changeset
 
   alias Responder.Slack.IncidentRoom
+  alias Responder.Work.RepositoryContext
 
   @fields [
     :attempt_count,
@@ -35,6 +36,7 @@ defmodule Responder.Slack.IncidentRoomChangeset do
     :reconciled_channel_state,
     :ref,
     :repository_ref,
+    :repository_context,
     :requested_at,
     :requested_by_actor_ref,
     :root_card_checked_at,
@@ -69,6 +71,7 @@ defmodule Responder.Slack.IncidentRoomChangeset do
                        :lease_ref,
                        :next_attempt_at,
                        :reconciled_channel_state,
+                       :repository_context,
                        :root_card_checked_at,
                        :root_card_fingerprint,
                        :root_card_ui_revision,
@@ -99,6 +102,7 @@ defmodule Responder.Slack.IncidentRoomChangeset do
     |> validate_length(:policy, min: 1, max: 256)
     |> validate_format(:policy_digest, ~r/\A[0-9a-f]{64}\z/)
     |> validate_length(:repository_ref, min: 1, max: 256)
+    |> validate_repository_context()
     |> validate_length(:title, min: 1, max: 200)
     |> validate_length(:prompt, min: 1, max: 4_000)
     |> validate_length(:channel_name, min: 1, max: 80)
@@ -130,5 +134,17 @@ defmodule Responder.Slack.IncidentRoomChangeset do
     |> foreign_key_constraint(:source_episode_id)
     |> foreign_key_constraint(:episode_id)
     |> check_constraint(:status, name: :slack_incident_room_valid)
+    |> check_constraint(:repository_context,
+      name: :slack_incident_room_repository_context_valid
+    )
+  end
+
+  defp validate_repository_context(changeset) do
+    validate_change(changeset, :repository_context, fn :repository_context, value ->
+      case RepositoryContext.restore(value, get_field(changeset, :repository_ref)) do
+        {:ok, _context} -> []
+        {:error, :invalid} -> [repository_context: "is not a bounded repository set"]
+      end
+    end)
   end
 end

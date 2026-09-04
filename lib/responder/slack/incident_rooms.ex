@@ -115,6 +115,7 @@ defmodule Responder.Slack.IncidentRooms do
                episode_id: room.episode_id,
                policy: room.policy,
                policy_digest: room.policy_digest,
+               repository_context: room.repository_context,
                repository_ref: room.repository_ref,
                room_ref: room.ref,
                status: room.status
@@ -752,6 +753,7 @@ defmodule Responder.Slack.IncidentRooms do
       prompt: prompt,
       record_id: record.id,
       ref: room_ref,
+      repository_context: source_session.repository_context,
       repository_ref: repository_ref,
       requested_at: attributes.occurred_at,
       requested_by_actor_ref: attributes.actor_ref,
@@ -1151,7 +1153,9 @@ defmodule Responder.Slack.IncidentRooms do
              transition.episode.id,
              room.policy,
              room.policy_digest,
-             room.repository_ref
+             nil,
+             room.repository_ref,
+             room.repository_context
            ),
          %Record{} = record <-
            Repo.one(

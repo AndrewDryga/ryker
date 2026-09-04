@@ -20,6 +20,13 @@ defmodule Responder.Work.Prompt do
   fixed Responder state tools available in this session when they improve correctness. Do not post
   directly to the bound conversation; the host delivers the accepted final candidate.
 
+  For engineering tasks and incident investigations with several material steps, create 2-5 durable
+  goals once with plan_goal, then update each goal as it starts, completes, waits, or blocks. Use
+  parent_goal_id for a result composed from child outcomes and prerequisite_goal_ids only for real
+  execution ordering. The frozen context allows one to three independent working goals; the host
+  enforces its exact limit. Do not plan a trivial question or single lookup. Required goals must be
+  terminal before the episode can complete.
+
   request_task creates one pending engineering task or local/Slack incident investigation for an
   authorized instruction. When later input
   refines an open task_offer, call request_task with that exact task_offer ref as instruction_ref; the

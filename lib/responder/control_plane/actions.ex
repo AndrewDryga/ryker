@@ -306,12 +306,15 @@ defmodule Responder.ControlPlane.Actions do
          action_ref
        ) do
     case Map.fetch(task_policies, payload["repository"]) do
-      {:ok, %{name: name, digest: digest}} ->
+      {:ok, %{name: name, digest: digest} = policy} ->
         TaskOffers.confirm(%{
           actor_ref: @actor_ref,
           confirmation_ref: action_ref,
           occurred_at: now(),
-          policy: %{name: name, digest: digest},
+          policy:
+            %{name: name, digest: digest}
+            |> maybe_put(:repository_ref, Map.get(policy, :repository_ref))
+            |> maybe_put(:repository_context, Map.get(policy, :repository_context)),
           record_ref: record.ref,
           target: target
         })
@@ -330,12 +333,21 @@ defmodule Responder.ControlPlane.Actions do
          _task_policies,
          action_ref
        ) do
-    if is_nil(payload["repository"]) or payload["repository"] == work_profile.repository_ref do
+    if is_nil(payload["repository"]) or payload["repository"] == context_ref(work_profile) do
       TaskOffers.confirm(%{
         actor_ref: @actor_ref,
         confirmation_ref: action_ref,
         occurred_at: now(),
-        policy: %{name: work_profile.policy, digest: work_profile.policy_digest},
+        policy:
+          %{
+            name: work_profile.policy,
+            digest: work_profile.policy_digest,
+            repository_ref: work_profile.repository_ref
+          }
+          |> maybe_put(
+            :repository_context,
+            WorkProfile.repository_context_document(work_profile.repository_context)
+          ),
         record_ref: record.ref,
         target: target
       })
@@ -864,4 +876,12 @@ defmodule Responder.ControlPlane.Actions do
 
   defp action_ref(action),
     do: "control-plane:retention:#{action}:#{Ecto.UUID.generate()}"
+
+  defp context_ref(%WorkProfile{repository_context: %{context_ref: context_ref}}),
+    do: context_ref
+
+  defp context_ref(%WorkProfile{repository_ref: repository_ref}), do: repository_ref
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

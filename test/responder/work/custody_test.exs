@@ -935,6 +935,13 @@ defmodule Responder.Work.CustodyTest do
       "title" => "Preserve workspace authority"
     }
 
+    repository_context = %{
+      "context_ref" => "platform",
+      "parallel_goal_limit" => 2,
+      "primary_repository" => "responder",
+      "read_only_repositories" => ["coop"]
+    }
+
     assert {:ok, {:ok, pinned}} =
              Repo.transaction(fn ->
                Custody.pin_task_episode_in_transaction(
@@ -942,6 +949,7 @@ defmodule Responder.Work.CustodyTest do
                  "work-writable",
                  String.duplicate("a", 64),
                  "responder",
+                 repository_context,
                  workspace_task
                )
              end)
@@ -969,6 +977,7 @@ defmodule Responder.Work.CustodyTest do
 
     assert replacement.generation == 2
     assert replacement.repository_ref == "responder"
+    assert replacement.repository_context == repository_context
     assert replacement.workspace_task == workspace_task
   end
 

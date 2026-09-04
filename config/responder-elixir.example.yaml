@@ -38,6 +38,33 @@ repositories:
       name: responder-scheduled-write-v1
       digest: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
+# A repository set is a logical context key exposed to Slack setup, webhooks,
+# and Conversation Lab. Its Coop policies must mount exactly one primary plus
+# the declared read-only companions; Responder verifies the returned immutable
+# revisions before the model sees them. The context may lower, but never raise,
+# the host maximum of three independently working goals.
+# repository_sets:
+#   platform:
+#     primary_repository: responder
+#     read_only_repositories:
+#       - coop
+#     parallel_goal_limit: 2
+#     conversation_policy:
+#       name: platform-conversation-v1
+#       digest: "4444444444444444444444444444444444444444444444444444444444444444"
+#       authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
+#     standard_policy:
+#       name: platform-standard-v1
+#       digest: "5555555555555555555555555555555555555555555555555555555555555555"
+#       authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
+#     deep_policy:
+#       name: platform-deep-v1
+#       digest: "6666666666666666666666666666666666666666666666666666666666666666"
+#       authority_digest: "6666666666666666666666666666666666666666666666666666666666666666"
+#     contributor_policy:
+#       name: platform-contributor-v1
+#       digest: "7777777777777777777777777777777777777777777777777777777777777777"
+
 admission:
   policy:
     name: responder-admission-v1
