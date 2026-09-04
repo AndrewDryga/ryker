@@ -38,6 +38,8 @@ defmodule Responder.Slack.Runtime do
     MintSocketTransport,
     Publisher,
     TaskCardWorker,
+    ThreadStatusProjection,
+    ThreadStatusWorker,
     WorkControls
   }
 
@@ -76,6 +78,7 @@ defmodule Responder.Slack.Runtime do
     :repositories,
     :task_card_interval_ms,
     :task_card_reconcile_ms,
+    :thread_status_interval_ms,
     :watch_channels
   ]
   @required_fields [
@@ -380,13 +383,28 @@ defmodule Responder.Slack.Runtime do
         worker_ref: "slack-interaction-feedback:#{identity.workspace_ref}"
       })
 
+    thread_status_worker =
+      ThreadStatusWorker.options!(%{
+        api: Client,
+        client: bot_client,
+        interval_ms: Map.get(configuration, :thread_status_interval_ms, 1_000),
+        minimum_interval_ms: 3_000,
+        name: ThreadStatusWorker,
+        refresh_interval_ms: 90_000,
+        retry_base_ms: 1_000,
+        snapshot: &ThreadStatusProjection.snapshot/1,
+        worker_ref: "slack-thread-status:#{identity.workspace_ref}",
+        workspace_ref: identity.workspace_ref
+      })
+
     %{
       action_tokens: %{name: ActionTokens},
       gateway: gateway,
       incident_worker: incident_worker,
       interaction_feedback_worker: interaction_feedback_worker,
       reconciler: reconciler,
-      task_card_worker: task_card_worker
+      task_card_worker: task_card_worker,
+      thread_status_worker: thread_status_worker
     }
   end
 

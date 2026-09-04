@@ -288,6 +288,12 @@ receipt. Candidate identity includes Coop's positive attempt as well as the dige
 accept key names that attempt, so two byte-identical repair attempts cannot replay one another's
 validation result.
 
+One admission execution also has a host-owned elapsed budget, 30 seconds by default. Session-operation
+and turn polling share that deadline as well as the existing poll-count bound. Crossing it releases the
+dispatcher back to durable Inbox retry/backoff rather than occupying the admission worker indefinitely;
+the frozen input, context, execution generation, and Coop operation keys remain available for exact
+reconciliation on the next attempt.
+
 After a decision, Coop has already parked and cleaned the provider runtime. Responder also asks Coop to
 close the isolated admission session. Episode Work sessions are separately owned by the retention
 runtime: it closes the exact recorded Coop session, observes a grace period, reviews Coop's exact

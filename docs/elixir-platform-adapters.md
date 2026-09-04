@@ -115,6 +115,14 @@ mention operation may reinsert only host-authorized identities.
 Reactions use `reactions.add` against the exact source message timestamp. Slack's `already_reacted`
 response is treated as the successful idempotent state.
 
+Native assistant thread status is derived from durable Inbox and episode ownership rather than model
+prose. Queued, admitting, working, delivery, and waiting phases become bounded status text; terminal
+and blocked phases become an empty clear. A PostgreSQL row per workspace/channel/thread owns the
+desired text, retry, lease, delivered generation, and 90-second refresh. Every semantic change or
+refresh advances the generation, so an older in-flight receipt cannot settle a newer update or clear
+after restart. Slack writes are paced at three seconds per thread and call the verified
+`assistant.threads.setStatus` shape with `channel_id`, `thread_ts`, and `status`.
+
 ## GitHub translation
 
 Issue conversation replies use the issue-comments API. A pull-request-root result creates a native

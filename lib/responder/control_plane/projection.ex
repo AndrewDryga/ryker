@@ -22,7 +22,7 @@ defmodule Responder.ControlPlane.Projection do
   alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.Retention.OperatorAction
-  alias Responder.Slack.{IncidentRoom, InteractionAudit}
+  alias Responder.Slack.{IncidentRoom, InteractionAudit, ThreadStatus}
   alias Responder.State.{Behavior, MemoryEntry, Record, Schedule}
   alias Responder.Work.{Measurement, Session, Turn}
 
@@ -214,8 +214,91 @@ defmodule Responder.ControlPlane.Projection do
         waiting: count(waiting_query)
       },
       fleet: fleet_overview(),
-      needs_attention: needs_attention()
+      needs_attention: needs_attention(),
+      progress: %{
+        admission: admission_progress(),
+        slack_status: slack_status_progress()
+      }
     }
+  end
+
+  defp admission_progress do
+    Repo.one!(
+      from(entry in Entry,
+        select: %{
+          admitting:
+            type(
+              fragment(
+                "COUNT(*) FILTER (WHERE ? = 'pending' AND ? IS NOT NULL AND ? > clock_timestamp())::bigint",
+                entry.status,
+                entry.lease_ref,
+                entry.lease_expires_at
+              ),
+              :integer
+            ),
+          blocked:
+            type(
+              fragment("COUNT(*) FILTER (WHERE ? = 'blocked')::bigint", entry.status),
+              :integer
+            ),
+          oldest_active_ms:
+            type(
+              fragment(
+                "COALESCE(EXTRACT(EPOCH FROM (clock_timestamp() - MIN(?) FILTER (WHERE ? = 'pending'))) * 1000, 0)::bigint",
+                entry.inserted_at,
+                entry.status
+              ),
+              :integer
+            ),
+          queued:
+            type(
+              fragment(
+                "COUNT(*) FILTER (WHERE ? = 'pending' AND (? IS NULL OR ? <= clock_timestamp()) AND (? IS NULL OR ? <= clock_timestamp()))::bigint",
+                entry.status,
+                entry.lease_expires_at,
+                entry.lease_expires_at,
+                entry.next_attempt_at,
+                entry.next_attempt_at
+              ),
+              :integer
+            ),
+          retrying:
+            type(
+              fragment(
+                "COUNT(*) FILTER (WHERE ? = 'pending' AND (? IS NULL OR ? <= clock_timestamp()) AND ? > clock_timestamp())::bigint",
+                entry.status,
+                entry.lease_expires_at,
+                entry.lease_expires_at,
+                entry.next_attempt_at
+              ),
+              :integer
+            )
+        }
+      )
+    )
+  end
+
+  defp slack_status_progress do
+    Repo.one!(
+      from(status in ThreadStatus,
+        select: %{
+          oldest_pending_ms:
+            type(
+              fragment(
+                "COALESCE(EXTRACT(EPOCH FROM (clock_timestamp() - MIN(?) FILTER (WHERE ? = 'pending'))) * 1000, 0)::bigint",
+                status.updated_at,
+                status.status
+              ),
+              :integer
+            ),
+          pending:
+            type(
+              fragment("COUNT(*) FILTER (WHERE ? = 'pending')::bigint", status.status),
+              :integer
+            )
+        }
+      )
+    )
   end
 
   defp fleet_overview do

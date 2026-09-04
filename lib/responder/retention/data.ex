@@ -130,6 +130,26 @@ defmodule Responder.Retention.Data do
   defp prune_operational(result, settings) do
     cutoff = settings.operational_data_seconds
 
+    _slack_thread_statuses =
+      execute_count(
+        """
+        WITH candidates AS (
+          SELECT id
+          FROM slack_thread_statuses
+          WHERE status = 'delivered'
+            AND desired_text = ''
+            AND updated_at < clock_timestamp() - ($1 * interval '1 second')
+          ORDER BY updated_at, id
+          LIMIT 100
+          FOR UPDATE SKIP LOCKED
+        )
+        DELETE FROM slack_thread_statuses AS status
+        USING candidates
+        WHERE status.id = candidates.id
+        """,
+        [cutoff]
+      )
+
     _worker_enrollment_tokens =
       execute_count(
         """

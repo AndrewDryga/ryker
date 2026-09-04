@@ -134,6 +134,55 @@ defmodule Responder.Slack.ClientTest do
            ] = FakeRequester.requests(requester)
   end
 
+  test "sets and clears the native assistant thread status with the verified Slack shape" do
+    {:ok, requester} = FakeRequester.start([slack(%{}), slack(%{})])
+    client = client(requester)
+
+    assert Client.set_thread_status(
+             client,
+             "C123",
+             "1787832000.000100",
+             "is deciding how to respond..."
+           ) == :ok
+
+    assert Client.set_thread_status(client, "C123", "1787832000.000100", "") == :ok
+
+    assert [
+             {:post, "/assistant.threads.setStatus",
+              %{
+                "channel_id" => "C123",
+                "status" => "is deciding how to respond...",
+                "thread_ts" => "1787832000.000100"
+              }, []},
+             {:post, "/assistant.threads.setStatus",
+              %{
+                "channel_id" => "C123",
+                "status" => "",
+                "thread_ts" => "1787832000.000100"
+              }, []}
+           ] = FakeRequester.requests(requester)
+  end
+
+  test "thread status rejects malformed identity and oversized text before Slack" do
+    {:ok, requester} = FakeRequester.start([])
+    client = client(requester)
+
+    assert Client.set_thread_status(client, "bad", "1787832000.000100", "working") ==
+             {:error, {:invalid_slack_api_request, :id}}
+
+    assert Client.set_thread_status(client, "C123", "not-a-thread", "working") ==
+             {:error, {:invalid_slack_api_request, :timestamp}}
+
+    assert Client.set_thread_status(
+             client,
+             "C123",
+             "1787832000.000100",
+             String.duplicate("x", 101)
+           ) == {:error, {:invalid_slack_api_request, :thread_status}}
+
+    assert FakeRequester.requests(requester) == []
+  end
+
   test "publishes one exact bounded App Home view" do
     {:ok, requester} =
       FakeRequester.start([

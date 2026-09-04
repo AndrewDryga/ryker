@@ -27,6 +27,7 @@ defmodule Responder.Admission.RuntimeTest do
     assert dispatcher[:lease_seconds] == 300
     assert dispatcher[:executor_options][:policy] == "admission-read-only"
     assert dispatcher[:executor_options][:policy_digest] == String.duplicate("a", 64)
+    assert dispatcher[:executor_options][:maximum_elapsed_ms] == 30_000
     assert dispatcher[:executor_options][:client].socket == "/tmp/coop.sock"
     assert dispatcher[:executor_options][:client].receive_timeout == 2_000
   end
@@ -102,6 +103,13 @@ defmodule Responder.Admission.RuntimeTest do
       %{
         policy: " ",
         policy_digest: String.duplicate("a", 64),
+        socket: "/tmp/coop.sock",
+        worker_ref: "responder:local"
+      },
+      %{
+        policy: "admission-read-only",
+        policy_digest: String.duplicate("a", 64),
+        decision_timeout_ms: 0,
         socket: "/tmp/coop.sock",
         worker_ref: "responder:local"
       },

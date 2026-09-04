@@ -12,6 +12,7 @@ defmodule Responder.Admission.Runtime do
   @fields [
     :api,
     :client,
+    :decision_timeout_ms,
     :policy,
     :policy_digest,
     :poll_interval_ms,
@@ -20,6 +21,7 @@ defmodule Responder.Admission.Runtime do
     :worker_ref
   ]
   @lease_seconds 300
+  @maximum_decision_timeout_ms @lease_seconds * 1_000
   @maximum_receive_timeout_ms div(@lease_seconds * 1_000, 3)
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
@@ -34,6 +36,7 @@ defmodule Responder.Admission.Runtime do
              api: options.api,
              bind_execution_session: options.bind_execution_session,
              client: options.client,
+             maximum_elapsed_ms: options.decision_timeout_ms,
              policy: options.policy,
              policy_digest: options.policy_digest,
              prepare_execution_session: options.prepare_execution_session,
@@ -55,10 +58,13 @@ defmodule Responder.Admission.Runtime do
     policy = Map.fetch!(configuration, :policy)
     policy_digest = Map.fetch!(configuration, :policy_digest)
     worker_ref = Map.fetch!(configuration, :worker_ref)
+    decision_timeout_ms = Map.get(configuration, :decision_timeout_ms, 30_000)
     poll_interval_ms = Map.get(configuration, :poll_interval_ms, 250)
     receive_timeout_ms = Map.get(configuration, :receive_timeout_ms, 30_000)
 
     validate_positive!(poll_interval_ms, :poll_interval_ms)
+    validate_positive!(decision_timeout_ms, :decision_timeout_ms)
+    validate_decision_timeout!(decision_timeout_ms)
     validate_positive!(receive_timeout_ms, :receive_timeout_ms)
     validate_receive_timeout!(receive_timeout_ms)
     validate_ref!(policy, :policy)
@@ -70,6 +76,7 @@ defmodule Responder.Admission.Runtime do
     Map.merge(callbacks, %{
       api: api,
       client: client,
+      decision_timeout_ms: decision_timeout_ms,
       policy: policy,
       policy_digest: policy_digest,
       poll_interval_ms: poll_interval_ms,
@@ -114,6 +121,12 @@ defmodule Responder.Admission.Runtime do
   defp validate_receive_timeout!(_value) do
     raise ArgumentError,
           "admission receive_timeout_ms must fit within the durable lease heartbeat window"
+  end
+
+  defp validate_decision_timeout!(value) when value <= @maximum_decision_timeout_ms, do: :ok
+
+  defp validate_decision_timeout!(_value) do
+    raise ArgumentError, "admission decision_timeout_ms must fit within the durable lease window"
   end
 
   defp coop_adapter!(%{api: api, client: client}, _receive_timeout_ms)

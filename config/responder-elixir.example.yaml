@@ -43,6 +43,7 @@ admission:
     name: responder-admission-v1
     digest: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
   poll_interval_ms: 250
+  decision_timeout_ms: 30000
 
 # Live eval commands refuse to inherit production authority. The no-tools
 # policy drives admission/final-contract cases. Candidate and baseline world
@@ -196,6 +197,7 @@ slack:
   channel_prefix: ems
   incident_private: true
   maximum_open_incidents: 25
+  thread_status_interval_ms: 1000
 
 github:
   api_url: https://api.github.com
