@@ -473,7 +473,8 @@ replacement, not the older Go dashboard or the intended final design above.
 | Conversation Lab | Live, with durable messages/files, generated-image delivery, the exact Slack chat tool schemas through a local-only adapter, reactions, confirmed extra posts, native cards/actions, episode custody, and same-session continuation |
 | Episodes list and detail | Live, with bounded search, state filtering, pagination, lifecycle metadata, and typed state-record summaries |
 | Incidents list and detail | Live, with bounded search, Slack-room lifecycle, linked source and investigation episodes, typed evidence records, and sanitized publication state |
-| Schedules list and detail | Live, with bounded search, recurrence and authority, destination, sanitized failures, and dispatched or missed occurrence history |
+| Schedules list and detail | Live, with bounded search, confirmed run-now, Conversation Lab replacement, recurrence and authority, destination, trigger kind, child execution state and timing, attempts, sanitized failures, and dispatched or missed occurrence history |
+| Subscriptions | Live, with bounded search, webhook source, lifecycle resolution, polling fallback, hard deadline, episode link, and matcher/cursor digests without raw source payloads |
 | Channels list and detail | Live, with bounded search across durable Slack configuration, membership, incident ownership, conversation summaries, schedules, overrides, and recent episodes |
 | Repositories and topology | Live, with configured policy names, durable channel, schedule, session, and publication counts, serving Coop worker revisions, and the latest frozen freshness receipt |
 | Failures | Live, with typed confirmed recovery for admission, Work, delivery, Slack repaint/incident, Emisar monitoring, and retention custody |

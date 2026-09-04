@@ -14,5 +14,11 @@ defmodule Responder.ControlPlane.ActionsTest do
 
     assert callbacks.discard_retention.("missing-session") ==
              {:error, :retention_session_not_found}
+
+    assert callbacks.run_schedule.("missing-schedule") ==
+             {:error, :schedule_policy_unavailable}
+
+    configured = Actions.callbacks(nil, %{}, %{}, fn _schedule -> {:ok, %{name: "policy"}} end)
+    assert configured.run_schedule.("missing-schedule") == {:error, :schedule_not_found}
   end
 end

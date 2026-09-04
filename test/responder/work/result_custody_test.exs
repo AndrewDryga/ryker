@@ -3,6 +3,7 @@ defmodule Responder.Work.ResultCustodyTest do
 
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.State.{EventSubscription, Records}
   alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission, SubmissionBuilder}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -384,14 +385,31 @@ defmodule Responder.Work.ResultCustodyTest do
 
   test "an event wait is frozen in the delivery intent and expired delivery resumes immediately" do
     work = bound_turn!("event-wait")
-    stage_candidate!(work)
+    poll_after = ~U[2099-08-28 12:04:00.000000Z]
     deadline = ~U[2099-08-28 12:05:00.000000Z]
+
+    assert {:ok, wait} =
+             Records.create(Records.token(work.turn), "wait-for-rollout", "event_wait", %{
+               "deadline_at" => DateTime.to_iso8601(deadline),
+               "event_matcher" => %{
+                 "cursor" => %{"revision" => "abc123"},
+                 "match" => %{"revision" => "abc123", "state" => "healthy"},
+                 "on_timeout" => "Report that rollout verification timed out.",
+                 "poll_after" => DateTime.to_iso8601(poll_after),
+                 "source_kind" => "github",
+                 "type" => "source_event"
+               },
+               "kind" => "source_event",
+               "verification" => "Verify the rollout is healthy."
+             })
+
+    stage_candidate!(work)
 
     continuation = %{
       "deadline_at" => deadline,
       "kind" => "wait",
       "wait_kind" => "event",
-      "wait_ref" => "verification:#{work.turn.id}"
+      "wait_ref" => wait.ref
     }
 
     result =
@@ -416,6 +434,14 @@ defmodule Responder.Work.ResultCustodyTest do
     assert delivered.episode.owner_kind == :event
     assert delivered.episode.owner_ref == continuation["wait_ref"]
     assert delivered.episode.owner_deadline_at == deadline
+
+    assert %EventSubscription{
+             cursor: %{"revision" => "abc123"},
+             deadline_at: ^deadline,
+             poll_after: ^poll_after,
+             source_kind: "github",
+             status: :active
+           } = Responder.Repo.get_by!(EventSubscription, record_id: wait.id)
   end
 
   test "an event deadline elapsed during Slack delivery starts an immediate continuation" do

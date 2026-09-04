@@ -22,8 +22,8 @@ claim of whole-product parity.
 | Priority | Implemented | Partial | Total |
 |---|---:|---:|---:|
 | P0 | 28 | 0 | 28 |
-| P1 | 11 | 4 | 15 |
-| **All** | **39** | **4** | **43** |
+| P1 | 15 | 0 | 15 |
+| **All** | **43** | **0** | **43** |
 
 ## Implemented behavior
 
@@ -70,13 +70,13 @@ claim of whole-product parity.
 | P1 | `operator-incident-schedule-repository-views` | [`ControlPlane.OperatorProjection`](../lib/responder/control_plane/operator_projection.ex) | [`control_plane/projection_test.exs`](../test/responder/control_plane/projection_test.exs) and [`control_plane/router_test.exs`](../test/responder/control_plane/router_test.exs) |
 | P1 | `goal-planning-and-dependencies` | [`State.Records`](../lib/responder/state/records.ex) and [`StateTools.FixedTools`](../lib/responder/state_tools/fixed_tools.ex) | [`state/records_test.exs`](../test/responder/state/records_test.exs) and [`state_tools/router_test.exs`](../test/responder/state_tools/router_test.exs) |
 | P1 | `multi-repository-orchestration` | [`RuntimeConfiguration`](../lib/responder/runtime_configuration.ex), [`Ingress.WorkProfile`](../lib/responder/ingress/work_profile.ex), and [`Work.Executor`](../lib/responder/work/executor.ex) | [`runtime_configuration_test.exs`](../test/responder/runtime_configuration_test.exs), [`work/custody_test.exs`](../test/responder/work/custody_test.exs), and [`work/executor_test.exs`](../test/responder/work/executor_test.exs) |
+| P1 | `schedules-run-now-replace-and-history` | [`State.Schedules`](../lib/responder/state/schedules.ex), [`State.Automations`](../lib/responder/state/automations.ex), and [`ControlPlane.OperatorProjection`](../lib/responder/control_plane/operator_projection.ex) | [`state/schedules_test.exs`](../test/responder/state/schedules_test.exs), [`state/automations_test.exs`](../test/responder/state/automations_test.exs), and [`control_plane/projection_test.exs`](../test/responder/control_plane/projection_test.exs) |
+| P1 | `subscriptions-and-poll-fallback` | [`State.EventSubscriptions`](../lib/responder/state/event_subscriptions.ex) and [`State.EventWaits`](../lib/responder/state/event_waits.ex) | [`state/event_waits_test.exs`](../test/responder/state/event_waits_test.exs) and [`work/result_custody_test.exs`](../test/responder/work/result_custody_test.exs) |
 
 ## Partial behavior and exact owner
 
-| Priority | Capability | What is still missing | Owning task |
-|---|---|---|---|
-| P1 | `schedules-run-now-replace-and-history` | Confirmed replacement, control-plane run-now, and useful execution and failure history; Slack App Home run-now and lifecycle controls are implemented. | `2026-09-04-finish-schedules-subscriptions-and-execution-his` |
-| P1 | `subscriptions-and-poll-fallback` | General source subscription state, cursors, and lost-event polling. | `2026-09-04-finish-schedules-subscriptions-and-execution-his` |
+There are no remaining P0 or P1 implementation gaps in this contract. Deployment, configured live
+acceptance, and production qualification remain separate evidence boundaries.
 
 ## Maintenance rule
 

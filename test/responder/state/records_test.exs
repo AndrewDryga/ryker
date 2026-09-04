@@ -3,11 +3,89 @@ defmodule Responder.State.RecordsTest do
 
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.Slack.Input, as: SlackInput
   alias Responder.State.Records
   alias Responder.Work.{Custody, Validator}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @policy_digest String.duplicate("a", 64)
+
+  test "a source-event wait resumes only for its typed recursive matcher" do
+    claim = claim!("source-event-matcher")
+
+    assert {:ok, wait} =
+             Records.create(Records.token(claim.turn), "deployment-wait", "event_wait", %{
+               "deadline_at" => "2099-08-28T13:00:00.000000Z",
+               "event_matcher" => %{
+                 "cursor" => %{"revision" => "abc123"},
+                 "match" => %{
+                   "deployment" => %{"id" => "deploy-1"},
+                   "state" => "healthy"
+                 },
+                 "on_timeout" => "Report that deployment verification timed out.",
+                 "poll_after" => "2099-08-28T12:30:00.000000Z",
+                 "source_kind" => "slack",
+                 "type" => "source_event"
+               },
+               "kind" => "source_event",
+               "verification" => "Verify all allocations are healthy."
+             })
+
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :app, ref: "A123"},
+               channel_ref: "C456",
+               content: %{
+                 "deployment" => %{"id" => "deploy-1", "region" => "va1"},
+                 "state" => "healthy"
+               },
+               event_kind: :message,
+               event_ref: "Ev-source-event-match",
+               message_ref: "1787832000.000100",
+               occurred_at: @now,
+               revision: 1,
+               thread_ref: "1787832000.000100",
+               workspace_ref: "T123"
+             })
+
+    assert Records.user_resumable_wait?(wait.ref, input)
+    assert Records.user_resumable_wait?(wait.ref)
+    refute Records.user_resumable_wait?(nil)
+    refute Records.user_resumable_wait?(wait.ref, %{input | content: %{"state" => "healthy"}})
+
+    refute Records.user_resumable_wait?(wait.ref, %{
+             input
+             | source: %{kind: "github", ref: "main"}
+           })
+
+    assert {:ok, untyped_source} =
+             Records.create(Records.token(claim.turn), "untyped-source", "event_wait", %{
+               "deadline_at" => "2099-08-28T13:00:00.000000Z",
+               "event_matcher" => %{
+                 "match" => %{"state" => "healthy"},
+                 "on_timeout" => "Report that verification timed out.",
+                 "poll_after" => "2099-08-28T12:30:00.000000Z",
+                 "type" => "source_event"
+               },
+               "kind" => "source_event",
+               "verification" => "Verify the state."
+             })
+
+    assert Records.user_resumable_wait?(untyped_source.ref, %{
+             input
+             | source: %{kind: "github", ref: "main"}
+           })
+
+    assert {:ok, legacy_wait} =
+             Records.create(Records.token(claim.turn), "legacy-event", "event_wait", %{
+               "deadline_at" => "2099-08-28T13:00:00.000000Z",
+               "event_matcher" => %{"deployment" => "responder"},
+               "kind" => "deployment_health",
+               "verification" => "Verify the legacy deployment wait."
+             })
+
+    assert Records.user_resumable_wait?(legacy_wait.ref, input)
+  end
 
   test "one active turn creates inert task, question, and event-wait records idempotently" do
     claim = claim!("typed-records")

@@ -79,7 +79,9 @@ defmodule Responder.RuntimeConfigurationTest do
     assert configuration.retention.episode_history_seconds == 2_592_000
     assert configuration.retention.audit_data_seconds == 2_592_000
 
-    assert configuration.control_plane == %{
+    assert configuration.control_plane.schedule_policies == configuration.schedules
+
+    assert Map.delete(configuration.control_plane, :schedule_policies) == %{
              coop_api: Responder.CoopFleet.Client,
              coop_client: configuration.work.client,
              ip: {127, 0, 0, 1},

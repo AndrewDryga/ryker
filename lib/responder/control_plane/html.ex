@@ -7,6 +7,7 @@ defmodule Responder.ControlPlane.HTML do
     {"Episodes", "/episodes"},
     {"Incidents", "/incidents"},
     {"Schedules", "/schedules"},
+    {"Subscriptions", "/subscriptions"},
     {"Channels", "/channels"},
     {"Repositories", "/repositories"},
     {"Failures", "/failures"},
@@ -579,9 +580,26 @@ defmodule Responder.ControlPlane.HTML do
           "<tr><td>",
           timestamp(occurrence.scheduled_for),
           "</td><td>",
+          escape(Map.get(occurrence, :trigger, :scheduled)),
+          "</td><td>",
           escape(occurrence.status),
           "</td><td>",
           episode_link(occurrence.episode_ref),
+          "</td><td>",
+          escape(Map.get(occurrence, :episode_state) || "—"),
+          " / ",
+          escape(Map.get(occurrence, :turn_status) || "—"),
+          "</td><td>",
+          timestamp(Map.get(occurrence, :started_at)),
+          " → ",
+          timestamp(
+            Map.get(occurrence, :delivered_at) || Map.get(occurrence, :finished_at) ||
+              Map.get(occurrence, :accepted_at)
+          ),
+          "</td><td>",
+          integer(Map.get(occurrence, :work_attempt_count, 0) || 0),
+          "</td><td>",
+          escape(occurrence_failure(occurrence)),
           "</td><td>",
           escape(occurrence.missed_reason || "—"),
           "</td></tr>"
@@ -589,6 +607,9 @@ defmodule Responder.ControlPlane.HTML do
       end)
 
     [
+      "<p class=\"actions\"><a href=\"/actions/schedule/",
+      segment(schedule.ref),
+      "/run-now\">Run now…</a> <a href=\"/lab\">Replace in Conversation Lab…</a></p>",
       definition_list([
         {"Reference", schedule.ref},
         {"Status", schedule.status},
@@ -608,8 +629,72 @@ defmodule Responder.ControlPlane.HTML do
       "<section><h2>What it asks for</h2><pre class=\"record-body\">",
       escape(schedule.task),
       "</pre></section><section><h2>Execution history</h2>",
-      table(["Due", "Outcome", "Episode", "Reason"], rows),
+      table(
+        [
+          "Due",
+          "Trigger",
+          "Dispatch",
+          "Episode",
+          "Execution",
+          "Timing",
+          "Attempts",
+          "Failure",
+          "Reason"
+        ],
+        rows
+      ),
       "</section>"
+    ]
+  end
+
+  def subscriptions(items) do
+    rows =
+      Enum.map(items, fn item ->
+        [
+          "<tr><td><code>",
+          escape(item.ref),
+          "</code></td><td>",
+          escape(item.source_kind || "any"),
+          "</td><td>",
+          escape(item.status),
+          " / ",
+          escape(item.resolution_kind || "waiting"),
+          "</td><td>",
+          timestamp(item.poll_after),
+          "</td><td>",
+          timestamp(item.deadline_at),
+          "</td><td>",
+          episode_link(item.episode_ref),
+          "</td><td><code>",
+          escape(item.matcher_digest),
+          "</code></td><td><code>",
+          escape(item.cursor_digest || "none"),
+          "</code></td><td>",
+          timestamp(item.last_observed_at),
+          "</td></tr>"
+        ]
+      end)
+
+    [
+      workbench_intro(
+        "External event subscriptions",
+        "Inspect durable webhook-first waits, their polling fallback, hard deadline, cursor custody, and terminal resolution without exposing source payloads."
+      ),
+      search_form("/subscriptions", "Search subscription, source, or episode"),
+      table(
+        [
+          "Subscription",
+          "Source",
+          "State",
+          "Poll fallback",
+          "Deadline",
+          "Episode",
+          "Matcher digest",
+          "Cursor digest",
+          "Observed"
+        ],
+        rows
+      )
     ]
   end
 
@@ -883,6 +968,8 @@ defmodule Responder.ControlPlane.HTML do
       "\">",
       if(next == :active, do: "Resume…", else: "Pause…"),
       "</a> <a href=\"/actions/schedule/",
+      segment(item.ref),
+      "/run-now\">Run now…</a> <a href=\"/actions/schedule/",
       segment(item.ref),
       "/deleted\">Delete…</a></td></tr>"
     ]
@@ -1849,6 +1936,15 @@ defmodule Responder.ControlPlane.HTML do
     if schedule.destination_thread_ref,
       do: "#{base} / #{schedule.destination_thread_ref}",
       else: base
+  end
+
+  defp occurrence_failure(occurrence) do
+    [Map.get(occurrence, :failure_code), Map.get(occurrence, :failure_detail)]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> "none"
+      parts -> Enum.join(parts, " / ")
+    end
   end
 
   defp policy_summary(nil), do: "observed only"

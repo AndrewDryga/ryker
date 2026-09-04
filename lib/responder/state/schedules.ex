@@ -200,6 +200,33 @@ defmodule Responder.State.Schedules do
   def run_now(_schedule_ref, _actor_ref, _action_ref, _scope, _policy_resolver),
     do: {:error, {:invalid_schedule, :run_now}}
 
+  @doc false
+  @spec run_now_for_operator(String.t(), String.t(), String.t(), (Schedule.t() ->
+                                                                    {:ok, map()}
+                                                                    | {:error, term()})) ::
+          {:ok, map()} | {:error, term()}
+  def run_now_for_operator(schedule_ref, actor_ref, action_ref, policy_resolver)
+      when is_function(policy_resolver, 1) do
+    with :ok <- reference(schedule_ref, :schedule_ref),
+         :ok <- reference(actor_ref, :actor_ref),
+         :ok <- reference(action_ref, :action_ref) do
+      Actions.run(
+        %{
+          action: :replay,
+          action_ref: action_ref,
+          actor_ref: actor_ref,
+          kind: "schedule",
+          request: %{"operation" => "run_now", "scope" => %{"kind" => "local_operator"}},
+          resource_ref: schedule_ref
+        },
+        fn -> run_now_locked(schedule_ref, nil, policy_resolver) end
+      )
+    end
+  end
+
+  def run_now_for_operator(_schedule_ref, _actor_ref, _action_ref, _policy_resolver),
+    do: {:error, {:invalid_schedule, :run_now}}
+
   @spec list_for_destination(String.t(), String.t()) :: [Schedule.t()]
   def list_for_destination(transport, conversation_ref) do
     Repo.all(
@@ -463,7 +490,7 @@ defmodule Responder.State.Schedules do
       else: latest_due(recurrence, timezone, next, now, steps + 1)
   end
 
-  defp create_occurrence(schedule, scheduled_for, policy) do
+  defp create_occurrence(schedule, scheduled_for, policy, trigger \\ :scheduled) do
     occurrence_id = Ecto.UUID.generate()
     episode_id = Ecto.UUID.generate()
     event_ref = "schedule-occurrence:#{occurrence_id}"
@@ -487,7 +514,8 @@ defmodule Responder.State.Schedules do
              ref: "schedule-run:#{occurrence_id}",
              schedule_id: schedule.id,
              scheduled_for: scheduled_for,
-             status: :dispatched
+             status: :dispatched,
+             trigger: trigger
            }) do
       {:ok, %{episode: transition.episode, occurrence: occurrence}}
     end
@@ -780,7 +808,9 @@ defmodule Responder.State.Schedules do
   defp create_manual_occurrence(schedule, now, policy_resolver) do
     with {:ok, policy} <- policy_resolver.(schedule),
          :ok <- policy(policy),
-         {:ok, result} <- create_occurrence(schedule, now, policy) do
+         {:ok, result} <- create_occurrence(schedule, now, policy, :manual) do
+      updated = update_schedule!(schedule, %{revision: schedule.revision + 1})
+
       {:ok,
        %{
          previous: %{
@@ -790,6 +820,7 @@ defmodule Responder.State.Schedules do
          },
          outcome: %{
            "episode_id" => result.episode.id,
+           "revision" => updated.revision,
            "run_ref" => result.occurrence.ref,
            "scheduled_for" => DateTime.to_iso8601(result.occurrence.scheduled_for),
            "status" => "dispatched"
@@ -814,6 +845,8 @@ defmodule Responder.State.Schedules do
        }
      }}
   end
+
+  defp schedule_in_scope?(_schedule, nil), do: true
 
   defp schedule_in_scope?(schedule, scope) do
     schedule.destination_transport == scope.transport and

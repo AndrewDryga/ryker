@@ -77,9 +77,7 @@ defmodule Responder.CapabilityContractTest do
     subscriptions-and-poll-fallback
   )
 
-  @open_tasks ~w(
-    2026-09-04-finish-schedules-subscriptions-and-execution-his
-  )
+  @open_tasks []
 
   test "the P0 and P1 replacement contract stays exact and evidence backed" do
     contract = @contract_path |> File.read!() |> Jason.decode!()

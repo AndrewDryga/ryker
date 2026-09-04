@@ -176,6 +176,7 @@
                   "revision": "99183465",
                   "state": "verification_due"
                 },
+                "poll_after": "2099-08-27T20:08:13.000000Z",
                 "source_kind": "terraform",
                 "type": "source_event"
               },
@@ -234,6 +235,7 @@
                   "revision": "99183465",
                   "state": "verification_due"
                 },
+                "poll_after": "2099-08-27T21:08:13.000000Z",
                 "source_kind": "terraform",
                 "type": "source_event"
               },

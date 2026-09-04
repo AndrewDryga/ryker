@@ -61,6 +61,7 @@ defmodule Responder.ControlPlane.Projection do
       repositories: &repositories/1,
       schedule: &schedule/1,
       schedules: &schedules/1,
+      subscriptions: &subscriptions/1,
       usage: &usage/1,
       slack_incident: &slack_incident/1,
       slack_interaction: &slack_interaction/1,
@@ -79,6 +80,7 @@ defmodule Responder.ControlPlane.Projection do
   defdelegate repositories(params), to: Responder.ControlPlane.OperatorProjection
   defdelegate schedule(ref), to: Responder.ControlPlane.OperatorProjection
   defdelegate schedules(params), to: Responder.ControlPlane.OperatorProjection
+  defdelegate subscriptions(params), to: Responder.ControlPlane.OperatorProjection
 
   @doc """
   Lists recent loopback conversations without loading their message bodies.

@@ -72,6 +72,7 @@
                   "run_id": "run-okjyXsDYXyMqqBYY",
                   "state": "applied"
                 },
+                "poll_after": "2099-08-27T16:10:00.000000Z",
                 "source_kind": "terraform",
                 "type": "source_event"
               },

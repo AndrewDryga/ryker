@@ -22,6 +22,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
   alias Responder.Slack.Input, as: SlackInput
 
   alias Responder.State.{
+    EventSubscriptionChangeset,
     Records,
     ScheduleChangeset,
     ScheduleOccurrenceChangeset
@@ -307,7 +308,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Projection.decisions(%{}) == []
     assert Projection.findings(%{}) == []
     assert length(Projection.audit(%{})) >= 9
-    assert map_size(Projection.callbacks()) == 30
+    assert map_size(Projection.callbacks()) == 31
   end
 
   test "operator workbench projections stay bounded and explicit with no durable rows" do
@@ -488,6 +489,23 @@ defmodule Responder.ControlPlane.ProjectionTest do
       |> ScheduleOccurrenceChangeset.insert()
       |> Repo.insert!()
 
+    subscription =
+      %{
+        cursor: %{"updated_at" => "private-cursor-marker"},
+        deadline_at: DateTime.add(now, 3_600, :second),
+        episode_id: source.episode.id,
+        id: Ecto.UUID.generate(),
+        matcher: %{"secret" => "private-matcher-marker"},
+        poll_after: DateTime.add(now, 300, :second),
+        record_id: record.id,
+        ref: "event-subscription:operator",
+        revision: 1,
+        source_kind: "github",
+        status: :active
+      }
+      |> EventSubscriptionChangeset.insert()
+      |> Repo.insert!()
+
     room =
       %{
         attempt_count: 1,
@@ -627,9 +645,34 @@ defmodule Responder.ControlPlane.ProjectionTest do
 
     assert {:ok, schedule_detail} = Projection.schedule(schedule.ref)
     assert schedule_detail.schedule.recurrence == "every 3600 seconds"
-    assert [%{ref: occurrence_ref, episode_ref: episode_ref}] = schedule_detail.occurrences
+
+    assert [
+             %{
+               episode_ref: episode_ref,
+               episode_state: :working,
+               ref: occurrence_ref,
+               trigger: :scheduled,
+               turn_status: :pending
+             }
+           ] = schedule_detail.occurrences
+
     assert occurrence_ref == occurrence.ref
     assert episode_ref == source.episode.key
+
+    assert [projected_subscription] =
+             Projection.subscriptions(%{"q" => "github", "status" => "active"})
+
+    assert projected_subscription.ref == subscription.ref
+    assert projected_subscription.episode_ref == source.episode.key
+    assert byte_size(projected_subscription.matcher_digest) == 64
+    assert byte_size(projected_subscription.cursor_digest) == 64
+    refute Map.has_key?(projected_subscription, :matcher)
+    refute Map.has_key?(projected_subscription, :cursor)
+    refute inspect(projected_subscription) =~ "private-matcher-marker"
+    refute inspect(projected_subscription) =~ "private-cursor-marker"
+
+    assert [%{ref: subscription_ref}] = Projection.subscriptions(:all)
+    assert subscription_ref == subscription.ref
 
     for {recurrence, label} <- [
           {%{"kind" => "daily", "time" => "09:30"}, "daily at 09:30"},

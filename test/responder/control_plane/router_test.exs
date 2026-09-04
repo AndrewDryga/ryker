@@ -915,6 +915,7 @@ defmodule Responder.ControlPlane.RouterTest do
           {"/incidents/incident%3Aone", "Room lifecycle"},
           {"/schedules", "Recurring and one-shot work"},
           {"/schedules/schedule%3Aone", "Execution history"},
+          {"/subscriptions", "External event subscriptions"},
           {"/channels", "Slack conversation roster"},
           {"/channels/T123/C456", "Conversation continuity"},
           {"/repositories", "Repository topology and freshness"},
@@ -945,11 +946,12 @@ defmodule Responder.ControlPlane.RouterTest do
   end
 
   test "behavior and schedule changes require their own current typed confirmation" do
-    for {kind, ref, action, expected} <- [
-          {"behavior", "behavior:one", "disabled", {:behavior_status, :disabled}},
-          {"behavior", "behavior:one", "deleted", {:behavior_status, :deleted}},
-          {"schedule", "schedule:one", "active", {:schedule_status, :active}},
-          {"schedule", "schedule:one", "deleted", {:schedule_status, :deleted}}
+    for {kind, ref, action, expected, return_path} <- [
+          {"behavior", "behavior:one", "disabled", {:behavior_status, :disabled}, "/memory"},
+          {"behavior", "behavior:one", "deleted", {:behavior_status, :deleted}, "/memory"},
+          {"schedule", "schedule:one", "active", {:schedule_status, :active}, "/schedules"},
+          {"schedule", "schedule:one", "deleted", {:schedule_status, :deleted}, "/schedules"},
+          {"schedule", "schedule:one", "run-now", :schedule_run_now, "/schedules"}
         ] do
       path = "/actions/#{kind}/#{URI.encode(ref, &URI.char_unreserved?/1)}/#{action}"
       confirmation = request(:get, path)
@@ -958,7 +960,7 @@ defmodule Responder.ControlPlane.RouterTest do
 
       accepted = request(:post, path, URI.encode_query(%{"_token" => token}))
       assert accepted.status == 303
-      assert get_resp_header(accepted, "location") == ["/memory"]
+      assert get_resp_header(accepted, "location") == [return_path]
       assert_received {^expected, ^ref}
     end
 
@@ -1278,6 +1280,10 @@ defmodule Responder.ControlPlane.RouterTest do
         set_schedule_status: fn ref, status ->
           send(parent, {{:schedule_status, status}, ref})
           {:ok, %{ref: ref, status: status}}
+        end,
+        run_schedule: fn ref ->
+          send(parent, {:schedule_run_now, ref})
+          {:ok, %{ref: ref, status: :dispatched}}
         end
       },
       csrf_secret: @secret,
@@ -2027,6 +2033,25 @@ defmodule Responder.ControlPlane.RouterTest do
               status: :active,
               timezone: "UTC",
               title: "Daily health",
+              updated_at: ~U[2026-08-28 12:00:00Z]
+            }
+          ]
+        end,
+        subscriptions: fn _params ->
+          [
+            %{
+              cursor_digest: String.duplicate("c", 64),
+              deadline_at: ~U[2026-08-29 12:00:00Z],
+              episode_ref: "episode:one",
+              last_observation_digest: nil,
+              last_observed_at: nil,
+              matcher_digest: String.duplicate("m", 64),
+              poll_after: ~U[2026-08-29 11:55:00Z],
+              ref: "event-subscription:one",
+              resolution_kind: nil,
+              revision: 1,
+              source_kind: "github",
+              status: :active,
               updated_at: ~U[2026-08-28 12:00:00Z]
             }
           ]

@@ -12,8 +12,9 @@ defmodule Responder.State.Records do
   alias Responder.CanonicalJSON
   alias Responder.Emisar.Approvals
   alias Responder.Episodes.Episode
+  alias Responder.Ingress.Input
   alias Responder.Repo
-  alias Responder.State.{Record, RecordChangeset, RecordPayload}
+  alias Responder.State.{EventSubscriptions, Record, RecordChangeset, RecordPayload}
   alias Responder.Work.Turn
 
   @operation_id ~r/\A[A-Za-z0-9_.:-]{1,80}\z/
@@ -175,8 +176,7 @@ defmodule Responder.State.Records do
         )
 
       _resolved = Repo.update_all(query, [])
-
-      :ok
+      EventSubscriptions.resolve_wait_in_transaction(wait_ref, :input)
     else
       {:error, :state_record_transaction_required}
     end
@@ -197,6 +197,46 @@ defmodule Responder.State.Records do
   end
 
   def user_resumable_wait?(_wait_ref), do: false
+
+  @doc false
+  @spec user_resumable_wait?(String.t(), Input.t()) :: boolean()
+  def user_resumable_wait?(wait_ref, %Input{} = input) when is_binary(wait_ref) do
+    case Repo.one(
+           from(record in Record,
+             where: record.ref == ^wait_ref and record.status == :open,
+             select: %{kind: record.kind, payload: record.payload}
+           )
+         ) do
+      %{kind: "emisar_approval"} -> false
+      %{kind: "event_wait", payload: payload} -> event_wait_matches?(payload, input)
+      %{kind: "input_request"} -> true
+      nil -> true
+      _other_record -> false
+    end
+  end
+
+  def user_resumable_wait?(_wait_ref, _input), do: false
+
+  defp event_wait_matches?(%{"event_matcher" => %{"type" => "source_event"} = trigger}, input) do
+    source_matches?(trigger["source_kind"], input.source.kind) and
+      partial_match?(trigger["match"], input.content)
+  end
+
+  defp event_wait_matches?(_legacy_or_timer, _input), do: true
+
+  defp source_matches?(nil, _actual), do: true
+  defp source_matches?(expected, actual), do: expected == actual
+
+  defp partial_match?(expected, actual) when is_map(expected) and is_map(actual) do
+    Enum.all?(expected, fn {key, value} ->
+      case Map.fetch(actual, key) do
+        {:ok, actual_value} -> partial_match?(value, actual_value)
+        :error -> false
+      end
+    end)
+  end
+
+  defp partial_match?(expected, actual), do: expected == actual
 
   defp fetch_records(refs, episode_id) do
     unique = Enum.uniq(refs)

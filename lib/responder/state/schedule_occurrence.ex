@@ -13,6 +13,7 @@ defmodule Responder.State.ScheduleOccurrence do
     field(:ref, :string)
     field(:scheduled_for, :utc_datetime_usec)
     field(:status, Ecto.Enum, values: [:dispatched, :missed])
+    field(:trigger, Ecto.Enum, values: [:scheduled, :manual], default: :scheduled)
     field(:event_ref, :string)
     field(:missed_reason, :string)
 

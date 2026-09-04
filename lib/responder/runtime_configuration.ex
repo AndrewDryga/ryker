@@ -165,7 +165,7 @@ defmodule Responder.RuntimeConfiguration do
       )
 
     control_plane =
-      optional(root, "control_plane", &control_plane!(&1, repository_contexts, work))
+      optional(root, "control_plane", &control_plane!(&1, repository_contexts, work, schedules))
 
     adapters = adapters!(slack, github, control_plane)
     delivery = delivery!(root["delivery"], adapters, host_ref)
@@ -701,7 +701,7 @@ defmodule Responder.RuntimeConfiguration do
     retention
   end
 
-  defp control_plane!(value, repository_contexts, work) do
+  defp control_plane!(value, repository_contexts, work, schedules) do
     object = object!(value, ~w(port work_profile), ~w(ip), "control_plane")
     ip = ip!(Map.get(object, "ip", "127.0.0.1"), "control_plane.ip")
 
@@ -713,6 +713,7 @@ defmodule Responder.RuntimeConfiguration do
       coop_client: work.client,
       ip: ip,
       port: positive_port!(object["port"], "control_plane.port"),
+      schedule_policies: schedules,
       task_policies:
         Map.new(repository_contexts, fn {repository_ref, context} ->
           {repository_ref, context.contributor_policy}
