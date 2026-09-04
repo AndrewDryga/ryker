@@ -620,6 +620,7 @@ defmodule Responder.ControlPlane.HTML do
         {"Attempts", Map.get(row, :attempt_count, 0)},
         {"Status", row.status},
         {"Cause", row.summary},
+        {"Detail", Map.get(row, :detail) || "not recorded"},
         {"Updated", timestamp(row.updated_at)}
       ]),
       "<p><a class=\"button\" href=\"/failures\">Back to failures</a></p></section>"

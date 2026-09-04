@@ -840,6 +840,18 @@ defmodule Responder.Retention.Data do
         execute_count(
           """
           WITH candidates AS (
+            SELECT id FROM responder_operator_actions
+            WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
+            ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
+          )
+          DELETE FROM responder_operator_actions AS action
+          USING candidates WHERE action.id = candidates.id
+          """,
+          [settings.audit_data_seconds]
+        ) +
+        execute_count(
+          """
+          WITH candidates AS (
             SELECT id FROM retention_operator_actions
             WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
             ORDER BY inserted_at, id LIMIT 100 FOR UPDATE SKIP LOCKED

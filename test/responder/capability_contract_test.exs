@@ -85,7 +85,6 @@ defmodule Responder.CapabilityContractTest do
     2026-09-04-finish-schedules-subscriptions-and-execution-his
     2026-09-04-make-github-a-full-conversation-and-confirmation
     2026-09-04-restore-durable-conversation-continuity-and-memo
-    2026-09-04-restore-operator-preflight-failure-and-replay-wo
   )
 
   test "the P0 and P1 replacement contract stays exact and evidence backed" do

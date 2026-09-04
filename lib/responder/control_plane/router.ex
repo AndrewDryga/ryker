@@ -336,7 +336,11 @@ defmodule Responder.ControlPlane.Router do
 
   defp route(%Plug.Conn{method: "GET", path_info: ["failures"]} = conn, options) do
     conn = fetch_query_params(conn)
-    html(conn, 200, "Failures", HTML.failures(options.projection.failures.(conn.query_params)))
+
+    case options.projection.failures.(conn.query_params) do
+      {:ok, rows} -> html(conn, 200, "Failures", HTML.failures(rows))
+      {:error, _reason} -> text(conn, 503, "Failures unavailable")
+    end
   end
 
   defp route(
@@ -345,12 +349,14 @@ defmodule Responder.ControlPlane.Router do
        ) do
     with true <- kind in failure_kinds(),
          {:ok, resource_ref} <- path_ref(resource_ref),
+         {:ok, failures} <- options.projection.failures.(%{}),
          %{} = row <-
-           Enum.find(options.projection.failures.(%{}), fn row ->
+           Enum.find(failures, fn row ->
              row.kind == kind and row.ref == resource_ref
            end) do
       html(conn, 200, "Failure context", HTML.failure(row))
     else
+      {:error, _reason} -> text(conn, 503, "Failure context unavailable")
       _not_found -> html(conn, 404, "Not found", HTML.generic("Failure", []))
     end
   end

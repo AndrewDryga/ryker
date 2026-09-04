@@ -21,9 +21,9 @@ claim of whole-product parity.
 
 | Priority | Implemented | Partial | Total |
 |---|---:|---:|---:|
-| P0 | 25 | 3 | 28 |
+| P0 | 26 | 2 | 28 |
 | P1 | 4 | 11 | 15 |
-| **All** | **29** | **14** | **43** |
+| **All** | **30** | **13** | **43** |
 
 ## Implemented behavior
 
@@ -56,6 +56,7 @@ claim of whole-product parity.
 | P0 | `slack-progress-and-bounded-admission` | [`Slack.ThreadStatusWorker`](../lib/responder/slack/thread_status_worker.ex) | [`thread_status_worker_test.exs`](../test/responder/slack/thread_status_worker_test.exs) |
 | P0 | `retention-cleanup-and-restart-recovery` | [`Retention.Custody`](../lib/responder/retention/custody.ex) | [`retention/custody_test.exs`](../test/responder/retention/custody_test.exs) |
 | P0 | `release-backup-restore-proof` | [`Release`](../lib/responder/release.ex) | [`release_test.exs`](../test/responder/release_test.exs) |
+| P0 | `operator-preflight-status-failure-replay` | [`Operator.Actions`](../lib/responder/operator/actions.ex) | [`operator/workflows_test.exs`](../test/responder/operator/workflows_test.exs) |
 | P1 | `model-choice-byoc-and-execution-metadata` | [`Ingress.WorkProfile`](../lib/responder/ingress/work_profile.ex) | [`product_contracts_test.exs`](../test/responder/product_contracts_test.exs) |
 | P1 | `standing-assignments` | [`State.Automations`](../lib/responder/state/automations.ex) | [`automations_test.exs`](../test/responder/state/automations_test.exs) |
 
@@ -63,7 +64,6 @@ claim of whole-product parity.
 
 | Priority | Capability | What is still missing | Owning task |
 |---|---|---|---|
-| P0 | `operator-preflight-status-failure-replay` | Unified Elixir preflight/status and private no-delivery Slack replay. | `2026-09-04-restore-operator-preflight-failure-and-replay-wo` |
 | P1 | `github-bounded-context-and-search` | Issue/PR body, discussion, changed-file, review-thread, and search tools. | `2026-09-04-make-github-a-full-conversation-and-confirmation` |
 | P1 | `github-confirmation-backed-actions` | Idempotent, actor-authorized confirmation syntax on GitHub. | `2026-09-04-make-github-a-full-conversation-and-confirmation` |
 | P1 | `conversation-summaries-and-rollups` | Durable typed situations and bounded continuity rollups. | `2026-09-04-restore-durable-conversation-continuity-and-memo` |

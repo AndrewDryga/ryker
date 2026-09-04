@@ -251,21 +251,25 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert %{next_action: "complete"} = listed_episode(complete.episode.key)
     assert %{next_action: "cancelled"} = listed_episode(cancelled.episode.key)
 
-    assert [
-             %{
-               action: :retry,
-               attempt_count: attempt_count,
-               destination: destination,
-               episode_ref: blocked_ref,
-               kind: "work",
-               ref: blocked_ref,
-               summary: "work_execution_blocked"
-             }
-           ] =
+    assert {:ok,
+            [
+              %{
+                action: :retry,
+                attempt_count: attempt_count,
+                destination: destination,
+                detail: detail,
+                episode_ref: blocked_ref,
+                kind: "work",
+                ref: blocked_ref,
+                summary: "work_execution_blocked"
+              }
+            ]} =
              Projection.failures(%{})
 
     assert blocked_ref == working.episode.key
     assert attempt_count >= 1
+    assert detail =~ "stored diagnostic sha256:"
+    refute detail =~ "manual recovery required"
     assert String.starts_with?(destination, "slack:T123:C456 / thread:")
 
     assert {:ok, %{action: :retry, ref: ^blocked_ref, status: :blocked}} =
@@ -338,10 +342,19 @@ defmodule Responder.ControlPlane.ProjectionTest do
                "private transport detail"
              )
 
-    assert %{kind: "retention", ref: ref, summary: "coop_unavailable"} =
-             Enum.find(Projection.failures(%{}), &(&1.kind == "retention"))
+    assert {:ok, failures} = Projection.failures(%{})
+
+    assert %{
+             detail: detail,
+             kind: "retention",
+             ref: ref,
+             summary: "coop_unavailable"
+           } =
+             Enum.find(failures, &(&1.kind == "retention"))
 
     assert ref == session.external_ref
+    assert detail =~ "stored diagnostic sha256:"
+    refute detail =~ "private transport detail"
     assert {:ok, workspace} = Projection.workspace(session.external_ref)
     assert workspace.action == :rearm
     assert workspace.status == :blocked
