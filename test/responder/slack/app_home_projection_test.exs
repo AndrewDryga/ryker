@@ -1,9 +1,12 @@
 defmodule Responder.Slack.AppHomeProjectionTest do
   use Responder.DataCase, async: false
 
+  import Ecto.Query
+
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Fixtures.Publication, as: PublicationFixture
+  alias Responder.Repo
   alias Responder.Slack.AppHomeProjection
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -13,16 +16,22 @@ defmodule Responder.Slack.AppHomeProjectionTest do
     foreign = waiting_episode!("T999", "foreign")
     publication = PublicationFixture.published!("app-home-projection")
 
-    snapshot = AppHomeProjection.snapshot("T123", "U123")
+    snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
 
     assert snapshot.counts.active_commitments == 1
     assert snapshot.counts.published_work == 1
 
     assert Enum.any?(snapshot.needs_attention, fn row ->
-             row.kind == :operator_input and row.ref == local.episode.key
+             row.kind == :operator_input and row.ref == local.episode.key and
+               row.title == "Choose local." and
+               row.url == "https://slack.com/app_redirect?team=T123&channel=C456"
            end)
 
-    assert Enum.any?(snapshot.work, &(&1.ref == local.episode.key))
+    assert Enum.any?(snapshot.work, fn row ->
+             row.ref == local.episode.key and row.title == "Choose local." and
+               row.url == "https://slack.com/app_redirect?team=T123&channel=C456"
+           end)
+
     refute Enum.any?(snapshot.work, &(&1.ref == foreign.episode.key))
     refute Enum.any?(snapshot.work, &(&1.ref == publication.episode.key))
 
@@ -37,14 +46,42 @@ defmodule Responder.Slack.AppHomeProjectionTest do
   end
 
   test "invalid workspace identity returns an empty bounded projection" do
-    assert AppHomeProjection.snapshot("not a Slack workspace", "U123") ==
+    assert AppHomeProjection.snapshot("not a Slack workspace", "U123", MapSet.new()) ==
              AppHomeProjection.empty()
 
-    assert AppHomeProjection.snapshot("T123", "not a Slack user") ==
+    assert AppHomeProjection.snapshot("T123", "not a Slack user", MapSet.new()) ==
+             AppHomeProjection.empty()
+
+    assert AppHomeProjection.snapshot("T123", "U123", ["C456"]) ==
              AppHomeProjection.empty()
   end
 
-  defp waiting_episode!(workspace_ref, suffix) do
+  test "private conversation titles and counts are absent when Home user no longer shares them" do
+    visible = waiting_episode!("T123", "visible", "C456")
+    secret = waiting_episode!("T123", "secret", "GSECRET")
+    %{publication: secret_publication} = PublicationFixture.published!("secret-home-publication")
+
+    Repo.update_all(
+      from(publication in Responder.Publication.Publication,
+        where: publication.id == ^secret_publication.id
+      ),
+      set: [
+        destination_conversation_ref: "slack:T123:GSECRET",
+        expected_remote_head_sha: String.duplicate("9", 40)
+      ]
+    )
+
+    snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
+
+    assert snapshot.counts.active_commitments == 1
+    assert snapshot.counts.published_work == 0
+    assert Enum.any?(snapshot.work, &(&1.ref == visible.episode.key))
+    refute Enum.any?(snapshot.work, &(&1.ref == secret.episode.key))
+    refute Jason.encode!(snapshot) =~ "Choose secret."
+    refute Jason.encode!(snapshot) =~ "Implement secret-home-publication"
+  end
+
+  defp waiting_episode!(workspace_ref, suffix, channel_ref \\ "C456") do
     id = Ecto.UUID.generate()
     turn_ref = "turn:app-home:#{suffix}:#{id}"
     key = "app-home:#{suffix}:#{id}"
@@ -53,7 +90,7 @@ defmodule Responder.Slack.AppHomeProjectionTest do
       Episodes.apply(
         EpisodeFixtures.admit_input(%{
           destination: %{
-            conversation_ref: "slack:#{workspace_ref}:C456",
+            conversation_ref: "slack:#{workspace_ref}:#{channel_ref}",
             thread_ref: "thread:#{suffix}",
             transport: "slack"
           },

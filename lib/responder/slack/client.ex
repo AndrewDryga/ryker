@@ -159,6 +159,21 @@ defmodule Responder.Slack.Client do
   end
 
   @impl true
+  def open_view(client, trigger_ref, view) do
+    with :ok <- bounded_text(trigger_ref, 256),
+         :ok <- modal_view(view),
+         {:ok, response} <-
+           request(client, :post, "/views.open", %{"trigger_id" => trigger_ref, "view" => view}),
+         {:ok, body} <- slack_response(response),
+         %{"view" => %{"type" => "modal"}} <- body do
+      :ok
+    else
+      {:error, _reason} = error -> error
+      _invalid -> {:error, {:slack_protocol_error, :modal_view}}
+    end
+  end
+
+  @impl true
   def add_reaction(client, channel, message_ref, emoji_name) do
     with :ok <- text(channel),
          :ok <- text(message_ref),
@@ -282,6 +297,14 @@ defmodule Responder.Slack.Client do
 
   @impl true
   def joined_conversations(client), do: joined_conversations_page(client)
+
+  @impl true
+  def shared_conversations(client, user_ref, workspace_ref) do
+    with :ok <- slack_id(user_ref),
+         :ok <- slack_id(workspace_ref) do
+      shared_conversations_page(client, user_ref, workspace_ref)
+    end
+  end
 
   @impl true
   def ensure_conversation(client, workspace_ref, name, private, creator_ref, requested_at) do
@@ -572,6 +595,49 @@ defmodule Responder.Slack.Client do
     end
   end
 
+  defp shared_conversations_page(
+         client,
+         user_ref,
+         workspace_ref,
+         cursor \\ nil,
+         page \\ 1,
+         channel_refs \\ []
+       ) do
+    parameters = [
+      {"exclude_archived", true},
+      {"limit", @conversation_page_size},
+      {"team_id", workspace_ref},
+      {"types", "public_channel,private_channel,mpim,im"},
+      {"user", user_ref}
+    ]
+
+    path = "/users.conversations?" <> query(parameters, cursor)
+
+    with {:ok, response} <- request(client, :get, path, nil),
+         {:ok, body} <- slack_response(response),
+         {:ok, page_refs, next_cursor} <- shared_conversation_page(body) do
+      channel_refs = channel_refs ++ page_refs
+
+      cond do
+        next_cursor == "" ->
+          {:ok, MapSet.new(channel_refs)}
+
+        page < @maximum_pages ->
+          shared_conversations_page(
+            client,
+            user_ref,
+            workspace_ref,
+            next_cursor,
+            page + 1,
+            channel_refs
+          )
+
+        true ->
+          {:error, {:slack_reconciliation_incomplete, @maximum_pages * @conversation_page_size}}
+      end
+    end
+  end
+
   defp find_conversation(
          client,
          name,
@@ -738,6 +804,65 @@ defmodule Responder.Slack.Client do
   end
 
   defp conversation_page(_body), do: {:error, {:slack_protocol_error, :conversations}}
+
+  defp shared_conversation_page(%{"channels" => channels} = body) when is_list(channels) do
+    cursor = get_in(body, ["response_metadata", "next_cursor"]) || ""
+
+    with true <- is_binary(cursor),
+         {:ok, refs} <- shared_conversation_refs(channels) do
+      {:ok, refs, cursor}
+    else
+      _invalid -> {:error, {:slack_protocol_error, :conversations}}
+    end
+  end
+
+  defp shared_conversation_page(_body),
+    do: {:error, {:slack_protocol_error, :conversations}}
+
+  defp shared_conversation_refs(channels) do
+    Enum.reduce_while(channels, {:ok, []}, fn channel, {:ok, refs} ->
+      case shared_conversation_ref(channel) do
+        {:ok, nil} -> {:cont, {:ok, refs}}
+        {:ok, channel_ref} -> {:cont, {:ok, [channel_ref | refs]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, refs} -> {:ok, Enum.reverse(refs)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp shared_conversation_ref(%{"id" => channel_ref, "is_im" => true} = channel),
+    do: current_shared_conversation_ref(channel_ref, channel)
+
+  defp shared_conversation_ref(%{"id" => channel_ref, "is_archived" => false} = channel),
+    do: current_shared_conversation_ref(channel_ref, channel)
+
+  defp shared_conversation_ref(%{"id" => _channel_ref, "is_archived" => true}), do: {:ok, nil}
+  defp shared_conversation_ref(_channel), do: {:error, {:slack_protocol_error, :conversations}}
+
+  defp current_shared_conversation_ref(channel_ref, channel) do
+    with :ok <- slack_id(channel_ref),
+         {:ok, external_shared} <- external_shared?(channel) do
+      if external_shared, do: {:ok, nil}, else: {:ok, channel_ref}
+    else
+      _invalid -> {:error, {:slack_protocol_error, :conversations}}
+    end
+  end
+
+  defp external_shared?(%{
+         "is_ext_shared" => external_shared,
+         "is_pending_ext_shared" => pending_external_shared
+       })
+       when is_boolean(external_shared) and is_boolean(pending_external_shared),
+       do: {:ok, external_shared or pending_external_shared}
+
+  defp external_shared?(%{"is_im" => true, "is_org_shared" => org_shared})
+       when is_boolean(org_shared),
+       do: {:ok, org_shared}
+
+  defp external_shared?(_channel), do: {:error, :external_shared}
 
   defp conversation_listing_page(%{"channels" => channels} = body) when is_list(channels) do
     cursor = get_in(body, ["response_metadata", "next_cursor"]) || ""
@@ -1291,6 +1416,18 @@ defmodule Responder.Slack.Client do
   end
 
   defp home_view(_view), do: {:error, {:invalid_slack_api_request, :home_view}}
+
+  defp modal_view(%{"blocks" => blocks, "type" => "modal"} = view)
+       when is_list(blocks) and length(blocks) <= 100 do
+    required = ~w(blocks callback_id close private_metadata submit title type)
+
+    if Map.keys(view) |> Enum.sort() == Enum.sort(required) and
+         Enum.all?(blocks, &is_map/1) and byte_size(Jason.encode!(view)) <= 256 * 1_024,
+       do: :ok,
+       else: {:error, {:invalid_slack_api_request, :modal_view}}
+  end
+
+  defp modal_view(_view), do: {:error, {:invalid_slack_api_request, :modal_view}}
 
   defp slack_id(value) do
     if is_binary(value) and Regex.match?(~r/\A[A-Z0-9]+\z/, value),

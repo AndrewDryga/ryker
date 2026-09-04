@@ -63,13 +63,24 @@ defmodule Responder.Slack.RuntimeTest do
     assert options.handler_settings.home_options.api == Client
     assert options.handler_settings.home_options.client == bot_client
     assert options.handler_settings.home_options.operators == MapSet.new(["U123"])
-    assert is_function(options.handler_settings.home_options.projection, 2)
+    assert is_function(options.handler_settings.home_options.projection, 3)
+    assert is_function(options.handler_settings.home_options.shared_conversations, 3)
     assert options.handler_settings.home_interaction_handler == Responder.Slack.AppHomeControls
+    assert is_function(options.handler_settings.home_interaction_options.authorize_resource, 1)
+    assert is_function(options.handler_settings.home_interaction_options.discard_workspace, 5)
     assert is_function(options.handler_settings.home_interaction_options.forget_memory, 3)
+
+    assert is_function(
+             options.handler_settings.home_interaction_options.open_memory_review_editor,
+             4
+           )
+
+    assert is_function(options.handler_settings.home_interaction_options.recover_publication, 6)
     assert is_function(options.handler_settings.home_interaction_options.refresh_home, 1)
-    assert is_function(options.handler_settings.home_interaction_options.resolve_memory_review, 4)
-    assert is_function(options.handler_settings.home_interaction_options.set_behavior_status, 4)
-    assert is_function(options.handler_settings.home_interaction_options.set_schedule_status, 3)
+    assert is_function(options.handler_settings.home_interaction_options.resolve_memory_review, 5)
+    assert is_function(options.handler_settings.home_interaction_options.run_schedule, 4)
+    assert is_function(options.handler_settings.home_interaction_options.set_behavior_status, 6)
+    assert is_function(options.handler_settings.home_interaction_options.set_schedule_status, 6)
     assert options.handler_settings.interaction_options.operators == MapSet.new(["U123"])
     assert is_function(options.handler_settings.interaction_audit, 2)
     assert is_function(options.handler_settings.reaction_feedback, 1)

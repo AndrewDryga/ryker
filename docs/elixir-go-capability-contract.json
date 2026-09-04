@@ -417,26 +417,26 @@
     {
       "id": "memory-review-controls",
       "priority": "P1",
-      "status": "partial",
+      "status": "implemented",
       "required_behavior": "Operators can keep, merge, edit, and forget bounded memory through Slack App Home and the local control plane with provenance and idempotent audit.",
       "design_capabilities": ["freeform-operator-guidance", "app-home-and-web-control-plane"],
       "origin_refs": ["internal/memorydiff/change.go"],
-      "implementation_refs": ["lib/responder/state/memories.ex", "lib/responder/slack/app_home_controls.ex", "lib/responder/control_plane/actions.ex", "lib/responder/control_plane/router.ex"],
-      "proof_refs": ["test/responder/state/memories_test.exs", "test/responder/slack/app_home_controls_test.exs", "test/responder/control_plane/router_test.exs"],
-      "gap": "Keep, merge, and forget are available in Slack App Home and all four actions are available locally; Slack still needs the edit modal owned with the remaining App Home work.",
-      "next_task": "2026-09-04-complete-slack-app-home-and-task-recovery-contro"
+      "implementation_refs": ["lib/responder/state/memories.ex", "lib/responder/slack/app_home.ex", "lib/responder/slack/app_home_controls.ex", "lib/responder/slack/app_home_editor.ex", "lib/responder/slack/home_submission.ex", "lib/responder/control_plane/actions.ex", "lib/responder/control_plane/router.ex"],
+      "proof_refs": ["test/responder/state/memories_test.exs", "test/responder/slack/app_home_test.exs", "test/responder/slack/app_home_controls_test.exs", "test/responder/slack/app_home_editor_test.exs", "test/responder/slack/home_submission_test.exs", "test/responder/control_plane/router_test.exs"],
+      "gap": null,
+      "next_task": null
     },
     {
       "id": "app-home-navigation-and-recovery-controls",
       "priority": "P1",
-      "status": "partial",
-      "required_behavior": "Every App Home row shows the exact request summary, deep-links to its work or source, and exposes state-specific memory, schedule, task, publication, and workspace recovery actions.",
+      "status": "implemented",
+      "required_behavior": "Every destination-backed App Home row shows the exact request summary and deep-links to its work; memory and behavior rows link to their source when the exact user still shares it, and state-specific memory, schedule, task, publication, and workspace recovery actions remain host-authorized.",
       "design_capabilities": ["app-home-and-web-control-plane", "contextual-next-step-controls"],
       "origin_refs": ["internal/slackui/message_home.go"],
-      "implementation_refs": ["lib/responder/slack/app_home_projection.ex", "lib/responder/slack/app_home_controls.ex"],
-      "proof_refs": ["test/responder/slack/app_home_projection_test.exs", "test/responder/slack/app_home_controls_test.exs"],
-      "gap": "Core rows and several controls render, but exact titles, navigation, run-now, edit, publication recovery, and workspace discard are incomplete.",
-      "next_task": "2026-09-04-complete-slack-app-home-and-task-recovery-contro"
+      "implementation_refs": ["lib/responder/slack/app_home_projection.ex", "lib/responder/slack/app_home.ex", "lib/responder/slack/app_home_controls.ex", "lib/responder/slack/app_home_actions.ex", "lib/responder/slack/client.ex", "lib/responder/slack/task_card_projection.ex", "lib/responder/slack/interaction_handler.ex", "lib/responder/state/schedules.ex"],
+      "proof_refs": ["test/responder/slack/app_home_projection_test.exs", "test/responder/slack/app_home_test.exs", "test/responder/slack/app_home_controls_test.exs", "test/responder/slack/app_home_actions_test.exs", "test/responder/slack/client_test.exs", "test/responder/slack/app_manifest_test.exs", "test/responder/slack/task_end_to_end_test.exs", "test/responder/state/schedules_test.exs"],
+      "gap": null,
+      "next_task": null
     },
     {
       "id": "goal-planning-and-dependencies",
@@ -469,9 +469,9 @@
       "required_behavior": "Authorized Slack and control-plane actions create, replace, pause, resume, delete, and run a schedule now; each occurrence creates a fresh child episode with inspectable execution and failure history.",
       "design_capabilities": ["scheduled-and-recurring-work"],
       "origin_refs": ["internal/service/schedule.go"],
-      "implementation_refs": ["lib/responder/state/schedules.ex", "lib/responder/state/schedule_runtime.ex"],
-      "proof_refs": ["test/responder/state/schedules_test.exs", "test/responder/state/schedule_runtime_test.exs"],
-      "gap": "Durable schedules and recurrence work, but replace, run-now, complete surface coverage, and useful execution history are incomplete.",
+      "implementation_refs": ["lib/responder/state/schedules.ex", "lib/responder/state/schedule_runtime.ex", "lib/responder/slack/app_home.ex", "lib/responder/slack/app_home_controls.ex"],
+      "proof_refs": ["test/responder/state/schedules_test.exs", "test/responder/state/schedule_runtime_test.exs", "test/responder/slack/app_home_test.exs", "test/responder/slack/app_home_controls_test.exs"],
+      "gap": "Recurring dispatch and Slack App Home run-now and lifecycle controls are durable; confirmed replacement, control-plane run-now, and useful execution and failure history remain incomplete.",
       "next_task": "2026-09-04-finish-schedules-subscriptions-and-execution-his"
     },
     {

@@ -29,7 +29,8 @@ webhooks, and token rotation.
 When updating an existing app, apply the new manifest. This changes the app and bot display names
 to `Emisar`; it does not rename the `/responder` command or any durable internal identifiers.
 Reinstall when Slack reports that the updated manifest adds an OAuth scope. The Agent experience
-adds `assistant:write` and `im:history`, while conversational channel setup uses
+adds `assistant:write` and `im:history`, while per-user Home visibility adds `im:read` and
+`mpim:read`. Conversational channel setup uses
 bounded `conversations.list` membership reconciliation and `usergroups:read` to validate and expand
 explicitly selected incident audiences. Lightweight acknowledgements use `reactions:write`;
 `reactions:read` plus the `reaction_added` and `reaction_removed` events let Emisar understand
@@ -129,7 +130,11 @@ Direct messages always start read-only triage even when normal-channel proactive
 is off. The **Investigate message** shortcut does the same for one selected message.
 App Home summarizes current incidents, active sessions, failed durable work, current channel
 situations, and the commitments Emisar owes the team; the web control plane shows the same records
-with more history. These surfaces do not weaken operator authorization or incident-creation rules.
+with more history. Each bounded destination-backed Home row links back to its exact Slack location;
+memory and behavior rows link to their source while the exact user still shares it. Configured
+operators can use state-specific memory, schedule, publication-recovery, and safe retained-work
+controls. Home excludes Slack Connect and private or direct conversations the operator no longer
+shares with the bot. These surfaces do not weaken operator authorization or incident-creation rules.
 
 An explicit repository-change request can return a concise **Start task** confirmation.
 Confirmation by any active full workspace member starts an engineering task in the source Slack

@@ -141,8 +141,9 @@ defmodule Responder.RuntimeConfiguration do
     coop_worker_gateway =
       optional(root, "coop_worker_gateway", &coop_worker_gateway!(&1, env_provider))
 
+    schedules = schedules!(root["schedules"], repositories, host_ref)
     github = optional(root, "github", &github!(&1, repositories, env_provider))
-    slack = optional(root, "slack", &slack!(&1, repositories, work, env_provider))
+    slack = optional(root, "slack", &slack!(&1, repositories, work, schedules, env_provider))
     control_plane = optional(root, "control_plane", &control_plane!(&1, repositories, work))
     adapters = adapters!(slack, github, control_plane)
     delivery = delivery!(root["delivery"], adapters, host_ref)
@@ -162,7 +163,6 @@ defmodule Responder.RuntimeConfiguration do
 
     retention = retention!(root["retention"], work, host_ref)
     event_waits = event_waits!(root["event_waits"])
-    schedules = schedules!(root["schedules"], repositories, host_ref)
 
     emisar =
       optional(
@@ -873,7 +873,7 @@ defmodule Responder.RuntimeConfiguration do
     end
   end
 
-  defp slack!(value, repositories, work, env_provider) do
+  defp slack!(value, repositories, work, schedules, env_provider) do
     object =
       object!(
         value,
@@ -936,6 +936,7 @@ defmodule Responder.RuntimeConfiguration do
         operators: references!(object["operators"], "slack.operators"),
         receive_timeout_ms: receive_timeout,
         reconnect_ms: integer!(object, "reconnect_ms", 1_000, 1, 60_000, "slack"),
+        schedule_policies: schedules,
         repositories:
           Map.new(repositories, fn {name, repository} ->
             {name,

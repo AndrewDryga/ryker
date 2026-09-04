@@ -7,6 +7,7 @@ defmodule Responder.State.SchedulesTest do
   alias Responder.Episodes.Episode
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Repo
+  alias Responder.Slack.AppHomeProjection
 
   alias Responder.State.{
     Automations,
@@ -254,6 +255,185 @@ defmodule Responder.State.SchedulesTest do
     assert {:ok, nil} = Schedules.claim_due("schedule-worker:once-retry", 60)
   end
 
+  test "run now is audited once and never moves the recurring cadence" do
+    fixture = delivered_offer!("run-now")
+    assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "run-now"))
+    original_next = confirmed.schedule.next_occurrence_at
+    scope = %{conversation_prefix: "slack:T123:", transport: "slack"}
+
+    assert Enum.any?(
+             AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"])).schedules,
+             fn row ->
+               row.ref == confirmed.schedule.ref and row.title == "Daily service health" and
+                 row.status == :active and row.next_occurrence_at == original_next and
+                 row.url ==
+                   "https://slack.com/app_redirect?team=T123&channel=C456&message_ts=1787832000.000100"
+             end
+           )
+
+    assert {:ok, first} =
+             Schedules.run_now(
+               confirmed.schedule.ref,
+               "slack:user:U123",
+               "interaction:run-now",
+               scope,
+               &policy/1
+             )
+
+    assert first.status == :recorded
+    assert first.outcome["status"] == "dispatched"
+    assert is_binary(first.outcome["episode_id"])
+    assert is_binary(first.outcome["run_ref"])
+
+    unchanged = Repo.get!(Schedule, confirmed.schedule.id)
+    assert unchanged.status == :active
+    assert unchanged.revision == confirmed.schedule.revision
+    assert unchanged.next_occurrence_at == original_next
+
+    assert {:ok, duplicate} =
+             Schedules.run_now(
+               confirmed.schedule.ref,
+               "slack:user:U123",
+               "interaction:run-now",
+               scope,
+               &policy/1
+             )
+
+    assert duplicate.status == :duplicate
+    assert duplicate.outcome == first.outcome
+    assert Repo.aggregate(ScheduleOccurrence, :count, :id) == 1
+
+    assert Schedules.run_now(
+             confirmed.schedule.ref,
+             "slack:user:U123",
+             "interaction:run-now-overlap",
+             scope,
+             &policy/1
+           ) == {:error, :schedule_occurrence_active}
+
+    assert Schedules.run_now(
+             confirmed.schedule.ref,
+             "slack:user:U123",
+             "interaction:run-now-crossed",
+             %{conversation_prefix: "slack:T999:", transport: "slack"},
+             &policy/1
+           ) == {:error, :schedule_scope_mismatch}
+  end
+
+  test "an elapsed schedule cannot dispatch or survive a stale App Home control" do
+    fixture = delivered_offer!("expired-home-run")
+    assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "expired-home-run"))
+    expire!(confirmed.schedule)
+    scope = %{conversation_prefix: "slack:T123:", transport: "slack"}
+    episode_count = Repo.aggregate(Episode, :count, :id)
+    occurrence_count = Repo.aggregate(ScheduleOccurrence, :count, :id)
+
+    assert {:ok, run_receipt} =
+             Schedules.run_now(
+               confirmed.schedule.ref,
+               "slack:user:U123",
+               "interaction:expired-home-run",
+               scope,
+               fn _schedule -> flunk("an expired schedule must not resolve a dispatch policy") end
+             )
+
+    assert run_receipt.status == :recorded
+    assert run_receipt.outcome["status"] == "expired"
+    assert Repo.get!(Schedule, confirmed.schedule.id).status == :expired
+    assert Repo.aggregate(Episode, :count, :id) == episode_count
+    assert Repo.aggregate(ScheduleOccurrence, :count, :id) == occurrence_count
+
+    deleted_fixture = delivered_offer!("expired-home-deleted")
+
+    assert {:ok, deleted} =
+             Schedules.confirm(confirmation(deleted_fixture, "expired-home-deleted"))
+
+    expire!(deleted.schedule, :deleted)
+
+    assert Schedules.run_now(
+             deleted.schedule.ref,
+             "slack:user:U123",
+             "interaction:expired-home-deleted",
+             scope,
+             fn _schedule -> flunk("deleted work must not resolve a dispatch policy") end
+           ) == {:error, :schedule_terminal}
+
+    assert Repo.get!(Schedule, deleted.schedule.id).status == :deleted
+
+    for {suffix, starting_status, requested_status} <- [
+          {"pause", :active, :paused},
+          {"resume", :paused, :active}
+        ] do
+      fixture = delivered_offer!("expired-home-#{suffix}")
+
+      assert {:ok, control} =
+               Schedules.confirm(confirmation(fixture, "expired-home-#{suffix}"))
+
+      expire!(control.schedule, starting_status)
+
+      assert {:ok, receipt} =
+               Schedules.set_home_status(
+                 control.schedule.ref,
+                 requested_status,
+                 control.schedule.revision,
+                 "slack:user:U123",
+                 "interaction:expired-home-#{suffix}",
+                 scope
+               )
+
+      assert receipt.status == :recorded
+      assert receipt.outcome["status"] == "expired"
+      assert Repo.get!(Schedule, control.schedule.id).status == :expired
+    end
+  end
+
+  test "App Home lifecycle retries cannot overwrite a newer schedule decision" do
+    fixture = delivered_offer!("home-lifecycle")
+    assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "home-lifecycle"))
+    schedule = confirmed.schedule
+    scope = %{conversation_prefix: "slack:T123:", transport: "slack"}
+
+    assert {:ok, paused_receipt} =
+             Schedules.set_home_status(
+               schedule.ref,
+               :paused,
+               schedule.revision,
+               "slack:user:U123",
+               "interaction:schedule:pause",
+               scope
+             )
+
+    assert paused_receipt.status == :recorded
+    assert paused_receipt.outcome["status"] == "paused"
+    paused = Repo.get!(Schedule, schedule.id)
+
+    assert {:ok, resumed_receipt} =
+             Schedules.set_home_status(
+               schedule.ref,
+               :active,
+               paused.revision,
+               "slack:user:U123",
+               "interaction:schedule:resume",
+               scope
+             )
+
+    assert resumed_receipt.status == :recorded
+    assert resumed_receipt.outcome["status"] == "active"
+
+    assert {:ok, duplicate} =
+             Schedules.set_home_status(
+               schedule.ref,
+               :paused,
+               schedule.revision,
+               "slack:user:U123",
+               "interaction:schedule:pause",
+               scope
+             )
+
+    assert duplicate.status == :duplicate
+    assert Repo.get!(Schedule, schedule.id).status == :active
+  end
+
   test "the next recurrence at or beyond expiry terminalizes the schedule" do
     fixture = delivered_offer!("next-expired")
     assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "next-expired"))
@@ -294,6 +474,7 @@ defmodule Responder.State.SchedulesTest do
     assert {:error, _reason} = Schedules.defer("schedule", "lease", 0, :failed)
     assert {:error, _reason} = Schedules.set_status("schedule", :unknown)
     assert {:error, _reason} = Schedules.set_status("schedule", :active, %{})
+    assert {:error, _reason} = Schedules.run_now("", "", "", %{}, :not_a_resolver)
     assert Schedules.set_status("missing-schedule", :active) == {:error, :schedule_not_found}
     assert Schedules.list_for_destination("slack", "slack:T123:C456") == []
   end
@@ -476,6 +657,13 @@ defmodule Responder.State.SchedulesTest do
         next_attempt_at: nil,
         next_occurrence_at: at
       ]
+    )
+  end
+
+  defp expire!(schedule, status \\ :active) do
+    Repo.update_all(
+      from(stored in Schedule, where: stored.id == ^schedule.id),
+      set: [expires_at: DateTime.add(database_now!(), -1, :second), status: status]
     )
   end
 

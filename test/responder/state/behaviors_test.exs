@@ -11,6 +11,7 @@ defmodule Responder.State.BehaviorsTest do
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.{Inbox, Input}
+  alias Responder.Slack.AppHomeProjection
 
   alias Responder.State.{
     Behavior,
@@ -97,12 +98,65 @@ defmodule Responder.State.BehaviorsTest do
     assert {:ok, conversation} =
              Behaviors.confirm(confirmation(fixture, fixture.guidance, "conversation"))
 
+    snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
+    assert snapshot.counts.active_behaviors == 2
+
+    assert Enum.any?(snapshot.behaviors, fn row ->
+             row.ref == workspace.behavior.ref and
+               row.url ==
+                 "https://slack.com/app_redirect?team=T123&channel=C456&message_ts=1787832000.000100"
+           end)
+
+    assert Enum.any?(snapshot.behaviors, &(&1.ref == operator.behavior.ref))
+    refute Enum.any?(snapshot.behaviors, &(&1.ref == conversation.behavior.ref))
+
     assert Behaviors.set_home_status(
              conversation.behavior.ref,
              :deleted,
              "slack:user:U123",
              "slack:T123"
            ) == {:error, :behavior_unauthorized}
+
+    assert {:ok, disabled_receipt} =
+             Behaviors.set_home_status(
+               workspace.behavior.ref,
+               :disabled,
+               workspace.behavior.revision,
+               "slack:user:U123",
+               "slack:T123",
+               "interaction:behavior:disable"
+             )
+
+    assert disabled_receipt.status == :recorded
+    assert disabled_receipt.outcome["status"] == "disabled"
+
+    disabled = Repo.get!(Behavior, workspace.behavior.id)
+
+    assert {:ok, enabled_receipt} =
+             Behaviors.set_home_status(
+               workspace.behavior.ref,
+               :active,
+               disabled.revision,
+               "slack:user:U123",
+               "slack:T123",
+               "interaction:behavior:enable"
+             )
+
+    assert enabled_receipt.status == :recorded
+    assert enabled_receipt.outcome["status"] == "active"
+
+    assert {:ok, duplicate} =
+             Behaviors.set_home_status(
+               workspace.behavior.ref,
+               :disabled,
+               workspace.behavior.revision,
+               "slack:user:U123",
+               "slack:T123",
+               "interaction:behavior:disable"
+             )
+
+    assert duplicate.status == :duplicate
+    assert Repo.get!(Behavior, workspace.behavior.id).status == :active
 
     assert Behaviors.set_home_status(
              operator.behavior.ref,

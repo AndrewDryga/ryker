@@ -19,6 +19,14 @@ defmodule Responder.Slack.AppManifestTest do
     assert "reaction_removed" in events
   end
 
+  test "the shipped Slack app can prove per-user Home visibility across all conversation kinds" do
+    scopes = bot_scopes!()
+
+    for scope <- ~w(channels:read groups:read im:read mpim:read) do
+      assert scope in scopes
+    end
+  end
+
   defp bot_scopes! do
     {:ok, manifest} = @manifest_path |> File.read!() |> YamlElixir.read_from_string()
     get_in(manifest, ["oauth_config", "scopes", "bot"])

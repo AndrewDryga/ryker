@@ -5,7 +5,13 @@ defmodule Responder.State.MemoriesTest do
 
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
-  alias Responder.Slack.{ChannelConfigurations, ChannelMembership}
+
+  alias Responder.Slack.{
+    AppHomeEditor,
+    AppHomeProjection,
+    ChannelConfigurations,
+    ChannelMembership
+  }
 
   alias Responder.State.{
     Behavior,
@@ -21,6 +27,13 @@ defmodule Responder.State.MemoriesTest do
   alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
+
+  defmodule ModalAPI do
+    def open_view(observer, trigger_ref, view) do
+      send(observer, {:opened_memory_modal, trigger_ref, view})
+      :ok
+    end
+  end
 
   test "confirmed operational memory is scoped, provenance-bearing, replaceable, and forgettable" do
     fixture = delivered_offers!("lifecycle")
@@ -153,6 +166,20 @@ defmodule Responder.State.MemoriesTest do
     assert {:error, _reason} = Memories.forget("")
   end
 
+  test "App Home memory count does not disclose conversation-private entries" do
+    fixture = delivered_offers!("home-count-privacy")
+    assert {:ok, private} = Memories.confirm(confirmation(fixture, fixture.first, "private"))
+
+    assert {:ok, workspace} =
+             Memories.confirm(confirmation(fixture, fixture.workspace, "workspace"))
+
+    snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
+
+    assert snapshot.counts.active_memory == 1
+    assert Enum.any?(snapshot.memories, &(&1.ref == workspace.memory.ref))
+    refute Enum.any?(snapshot.memories, &(&1.ref == private.memory.ref))
+  end
+
   test "malformed memory confirmations fail before durable state changes" do
     assert {:error, _reason} = Memories.confirm(%{})
     assert {:error, _reason} = Memories.confirm(actor_ref: "a", actor_ref: "b")
@@ -192,6 +219,9 @@ defmodule Responder.State.MemoriesTest do
     assert Memories.pending_reviews(0) == []
     assert Memories.fetch_review("") == :error
     assert Memories.fetch_review("memory-review:missing") == :error
+
+    assert Memories.fetch_home_review("", "slack:T123", "slack:user:U123") ==
+             {:error, :memory_review_not_found}
 
     assert Memories.resolve_review(
              "memory-review:missing",
@@ -502,11 +532,47 @@ defmodule Responder.State.MemoriesTest do
     assert get_in(visible, ["entries", Access.at(0), "memory_ref"]) == workspace.memory.ref
     assert Memories.home_review_count("slack:T123", "slack:user:U123") == 1
 
+    assert {:ok, fetched} =
+             Memories.fetch_home_review(
+               visible["review_ref"],
+               "slack:T123",
+               "slack:user:U123"
+             )
+
+    assert fetched["review_ref"] == visible["review_ref"]
+
+    assert :ok =
+             AppHomeEditor.open_memory_review(
+               ModalAPI,
+               self(),
+               visible["review_ref"],
+               "trigger.home-memory",
+               "slack:user:U123",
+               "slack:T123"
+             )
+
+    assert_received {:opened_memory_modal, "trigger.home-memory", %{"type" => "modal"}}
+
     hidden =
       Memories.list_reviews("slack:T123", limit: 5)
       |> Enum.find(fn review ->
         get_in(review, ["entries", Access.at(0), "memory_ref"]) == conversation.memory.ref
       end)
+
+    assert Memories.fetch_home_review(
+             hidden["review_ref"],
+             "slack:T123",
+             "slack:user:U123"
+           ) == {:error, :memory_review_not_found}
+
+    assert AppHomeEditor.open_memory_review(
+             ModalAPI,
+             self(),
+             hidden["review_ref"],
+             "trigger.hidden-memory",
+             "slack:user:U123",
+             "slack:T123"
+           ) == {:error, :memory_review_not_found}
 
     assert Memories.resolve_home_review(
              hidden["review_ref"],
@@ -522,6 +588,22 @@ defmodule Responder.State.MemoriesTest do
            ) == {:error, :memory_unauthorized}
 
     assert Repo.get!(MemoryEntry, conversation.memory.id).status == :active
+
+    edited_subject = String.duplicate("é", 120)
+    edited_value = String.duplicate("🙂", 4_000)
+
+    assert {:ok, %{status: :resolved}} =
+             Memories.resolve_home_review(
+               visible["review_ref"],
+               :edit,
+               "slack:user:U123",
+               "slack:T123",
+               %{"subject" => edited_subject, "value" => edited_value}
+             )
+
+    edited_workspace = Repo.get!(MemoryEntry, workspace.memory.id)
+    assert edited_workspace.subject == edited_subject
+    assert edited_workspace.payload["value"] == edited_value
 
     assert Memories.forget_home(
              "memory:missing",

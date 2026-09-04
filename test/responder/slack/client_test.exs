@@ -223,6 +223,33 @@ defmodule Responder.Slack.ClientTest do
     assert FakeRequester.requests(requester) == []
   end
 
+  test "opens one exact bounded host-owned modal" do
+    {:ok, requester} = FakeRequester.start([slack(%{"view" => %{"type" => "modal"}})])
+    client = client(requester)
+
+    view = %{
+      "blocks" => [%{"type" => "divider"}],
+      "callback_id" => "responder_home_edit_memory_review",
+      "close" => %{"text" => "Cancel", "type" => "plain_text"},
+      "private_metadata" => Jason.encode!(%{"review_ref" => "memory-review:one"}),
+      "submit" => %{"text" => "Save", "type" => "plain_text"},
+      "title" => %{"text" => "Edit memory", "type" => "plain_text"},
+      "type" => "modal"
+    }
+
+    assert Client.open_view(client, "trigger.123", view) == :ok
+
+    assert FakeRequester.requests(requester) == [
+             {:post, "/views.open", %{"trigger_id" => "trigger.123", "view" => view}, []}
+           ]
+
+    assert Client.open_view(client, "", view) ==
+             {:error, {:invalid_slack_api_request, :text}}
+
+    assert Client.open_view(client, "trigger.123", %{"type" => "home", "blocks" => []}) ==
+             {:error, {:invalid_slack_api_request, :modal_view}}
+  end
+
   test "Slack reactions are idempotent when the actor already reacted" do
     {:ok, requester} =
       FakeRequester.start([
@@ -479,6 +506,66 @@ defmodule Responder.Slack.ClientTest do
                 %{channel_ref: "C123", external_shared: false, private: false},
                 %{channel_ref: "G456", external_shared: false, private: true}
               ]}
+  end
+
+  test "lists only nonexternal conversations shared by the bot and exact Home user" do
+    {:ok, requester} =
+      FakeRequester.start([
+        slack(%{
+          "channels" => [
+            %{
+              "id" => "C123",
+              "is_archived" => false,
+              "is_ext_shared" => false,
+              "is_pending_ext_shared" => false,
+              "is_private" => false
+            },
+            %{
+              "id" => "GEXTERNAL",
+              "is_archived" => false,
+              "is_ext_shared" => true,
+              "is_pending_ext_shared" => false,
+              "is_private" => true
+            },
+            %{
+              "id" => "GPENDING",
+              "is_archived" => false,
+              "is_ext_shared" => false,
+              "is_pending_ext_shared" => true,
+              "is_private" => true
+            },
+            %{
+              "created" => 1_498_500_348,
+              "id" => "D123",
+              "is_im" => true,
+              "is_org_shared" => false,
+              "is_user_deleted" => false,
+              "user" => "U123"
+            }
+          ],
+          "response_metadata" => %{"next_cursor" => "next-page"}
+        }),
+        slack(%{
+          "channels" => [
+            %{
+              "id" => "G123",
+              "is_archived" => false,
+              "is_ext_shared" => false,
+              "is_pending_ext_shared" => false,
+              "is_private" => true
+            }
+          ],
+          "response_metadata" => %{"next_cursor" => ""}
+        })
+      ])
+
+    assert Client.shared_conversations(client(requester), "U123", "T123") ==
+             {:ok, MapSet.new(["C123", "D123", "G123"])}
+
+    assert Enum.map(FakeRequester.requests(requester), &elem(&1, 1)) == [
+             "/users.conversations?exclude_archived=true&limit=200&team_id=T123&types=public_channel%2Cprivate_channel%2Cmpim%2Cim&user=U123",
+             "/users.conversations?exclude_archived=true&limit=200&team_id=T123&types=public_channel%2Cprivate_channel%2Cmpim%2Cim&user=U123&cursor=next-page"
+           ]
   end
 
   test "conversation discovery rejects a missing external-sharing classification" do
