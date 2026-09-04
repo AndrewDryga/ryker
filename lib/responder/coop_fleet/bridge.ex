@@ -16,6 +16,7 @@ defmodule Responder.CoopFleet.Bridge do
 
   @option_keys [
     :capability_names,
+    :capability_versions,
     :lease_seconds,
     :max_waits,
     :poll_interval_ms,
@@ -32,6 +33,7 @@ defmodule Responder.CoopFleet.Bridge do
              session.id,
              %{
                capability_names: settings.capability_names,
+               capability_versions: settings.capability_versions,
                repository_ref: session.repository_ref,
                workspace_ref: settings.workspace_ref
              },
@@ -144,6 +146,7 @@ defmodule Responder.CoopFleet.Bridge do
 
     %{
       capability_names: Keyword.get(options, :capability_names, []),
+      capability_versions: Keyword.get(options, :capability_versions, %{}),
       lease_seconds: Keyword.get(options, :lease_seconds, 60),
       max_waits: Keyword.get(options, :max_waits, 3_000),
       poll_interval_ms: poll_interval_ms,
@@ -163,6 +166,7 @@ defmodule Responder.CoopFleet.Bridge do
   defp valid_settings?(settings) do
     Enum.all?([
       valid_capability_names?(settings.capability_names),
+      valid_capability_versions?(settings.capability_versions),
       is_integer(settings.lease_seconds),
       settings.lease_seconds in 1..3_600,
       is_integer(settings.max_waits),
@@ -177,6 +181,15 @@ defmodule Responder.CoopFleet.Bridge do
 
   defp valid_capability_names?(names) when is_list(names), do: Enum.all?(names, &is_binary/1)
   defp valid_capability_names?(_names), do: false
+
+  defp valid_capability_versions?(versions)
+       when is_map(versions) and map_size(versions) <= 100 do
+    Enum.all?(versions, fn {name, version} ->
+      is_binary(name) and name != "" and is_binary(version) and version != ""
+    end)
+  end
+
+  defp valid_capability_versions?(_versions), do: false
 
   defp invalid_options, do: {:error, {:invalid_coop_worker_bridge, :options}}
 end

@@ -489,26 +489,26 @@
     {
       "id": "repository-freshness-receipts",
       "priority": "P0",
-      "status": "partial",
-      "required_behavior": "Coop is the single source-fetch owner and every attempt records requested revision, resolved immutable revision, fetch time, remote identity, and stale-base evidence before review or publication.",
+      "status": "implemented",
+      "required_behavior": "Coop is the single source-fetch owner; every new repository-backed session records versioned requested revision, resolved immutable revision, workspace base, fetch time, remote identity, and stale-base evidence. Responder refuses attempts whose receipt set cannot be proven before model work, review, or publication, and mixed-version fleet placement requires live freshness-v2 proof from the exact serving daemon.",
       "design_capabilities": ["engineering-changes"],
       "origin_refs": ["internal/service/repository_freshness.go"],
-      "implementation_refs": ["lib/responder/work/submission_builder.ex", "lib/responder/coop_fleet/workspace_checkpoint.ex"],
-      "proof_refs": ["test/responder/work/submission_builder_test.exs", "test/responder/coop_fleet/workspace_checkpoint_test.exs"],
-      "gap": "Workspace and source revisions are pinned in several contracts, but fetch ownership and a complete per-attempt freshness receipt are not explicit.",
-      "next_task": "2026-09-04-clarify-repository-freshness-and-complete-public"
+      "implementation_refs": ["lib/responder/work/executor.ex", "lib/responder/coop_fleet/client.ex", "lib/responder/coop_fleet/control_plane.ex", "../coop/internal/sessionsvc/source.go", "../coop/internal/session/store.go", "../coop/internal/workerconnector/capabilities.go"],
+      "proof_refs": ["test/responder/work/executor_test.exs", "test/responder/coop_fleet/client_test.exs", "test/responder/coop_fleet/control_plane_test.exs", "../coop/internal/sessionsvc/service_test.go", "../coop/internal/sessionsvc/http_test.go", "../coop/internal/workerconnector/config_test.go"],
+      "gap": null,
+      "next_task": null
     },
     {
       "id": "publication-conflict-recovery-and-deployment-verification",
       "priority": "P0",
-      "status": "partial",
-      "required_behavior": "Stale-base, lease, push, PR-update, checks, merge, deployment, and verification transitions are durable; authorized operators can retry, update, or discard only the exact fenced publication generation.",
+      "status": "implemented",
+      "required_behavior": "Stale-base, lease, push, PR-update, checks, merge, deployment, and verification transitions are durable; authorized operators can retry transient failures, re-review and update only an exactly identified App-owned conflict, or discard any conflicted candidate on the exact fenced publication generation.",
       "design_capabilities": ["diff-and-draft-pr-controls", "pr-checks-merge-deployment-and-verification"],
       "origin_refs": ["internal/service/publication.go", "internal/publication/follower.go"],
-      "implementation_refs": ["lib/responder/publication/custody.ex", "lib/responder/publication/followups.ex"],
-      "proof_refs": ["test/responder/publication/custody_test.exs", "test/responder/publication/followups_test.exs"],
-      "gap": "Draft publication and follow-up are durable, but supported stale/conflict recovery actions and typed deployment verification are incomplete.",
-      "next_task": "2026-09-04-clarify-repository-freshness-and-complete-public"
+      "implementation_refs": ["lib/responder/publication/custody.ex", "lib/responder/publication/operator.ex", "lib/responder/publication/git.ex", "lib/responder/publication/followups.ex", "lib/responder/publication/deployment_signal.ex", "lib/responder/slack/task_card_projection.ex"],
+      "proof_refs": ["test/responder/publication/custody_test.exs", "test/responder/publication/git_test.exs", "test/responder/publication/followups_test.exs", "test/responder/publication/deployment_signal_test.exs", "test/responder/slack/work_controls_test.exs"],
+      "gap": null,
+      "next_task": null
     },
     {
       "id": "operator-incident-schedule-repository-views",

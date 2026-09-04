@@ -24,7 +24,8 @@ defmodule Responder.Publication.Publication do
         :publish_pending,
         :published_ready,
         :published,
-        :blocked
+        :blocked,
+        :discarded
       ]
     )
 
@@ -37,6 +38,7 @@ defmodule Responder.Publication.Publication do
     field(:review_requested_at, :utc_datetime_usec)
 
     field(:review_generation, :integer, default: 1)
+    field(:recovery_generation, :integer, default: 1)
     field(:review_expected_revision, :integer)
     field(:review_document, Responder.CanonicalJSON.Type)
     field(:review_fingerprint, :string)
@@ -54,6 +56,7 @@ defmodule Responder.Publication.Publication do
     field(:github_repository, :string)
     field(:branch_ref, :string)
     field(:commit_sha, :string)
+    field(:expected_remote_head_sha, :string)
     field(:pull_request_number, :integer)
     field(:pull_request_url, :string)
     field(:published_at, :utc_datetime_usec)

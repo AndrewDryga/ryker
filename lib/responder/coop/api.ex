@@ -8,6 +8,9 @@ defmodule Responder.Coop.API do
 
   @callback operation_by_key(client :: term(), key :: String.t()) ::
               {:ok, map()} | :not_found | {:error, term()}
+  @callback capabilities(client :: term()) :: {:ok, map()} | {:error, term()}
+  @callback capabilities(client :: term(), session :: term()) ::
+              {:ok, map()} | {:error, term()}
   @callback create_session(
               client :: term(),
               key :: String.t(),
@@ -35,7 +38,10 @@ defmodule Responder.Coop.API do
               responder_binding :: map()
             ) :: {:ok, map()} | {:error, term()}
 
-  @optional_callbacks create_bound_session: 5, fence_bound_session: 5
+  @optional_callbacks create_bound_session: 5,
+                      fence_bound_session: 5,
+                      capabilities: 1,
+                      capabilities: 2
   @callback get_session(client :: term(), session_id :: String.t()) ::
               {:ok, map()} | {:error, term()}
   @callback get_changes(client :: term(), session_id :: String.t()) ::

@@ -26,7 +26,7 @@ defmodule Responder.Slack.Renderer do
   @task_statuses ~w(working waiting_for_input waiting_for_event action_required stopping reviewing ready_for_review ready_to_publish published completed cancelled)
   @work_controls ~w(stop view_diff close timeline evidence handoff postmortem)
   @record_controls ~w(timeline evidence handoff postmortem)
-  @publication_controls ~w(readiness publish open check)
+  @publication_controls ~w(readiness publish open check retry update discard)
   @setup_statuses ~w(asking confirming saved cancelled expired)
   @setup_steps ~w(participation repository alerts audience confirm)
 
@@ -504,18 +504,27 @@ defmodule Responder.Slack.Renderer do
            "publication_ref" => publication_ref,
            "pull_request_number" => number,
            "pull_request_url" => url,
+           "recovery_generation" => recovery_generation,
            "review_offer_ref" => review_offer_ref,
            "status" => status
          } = publication
        )
-       when map_size(publication) == 6 do
+       when map_size(publication) == 7 do
     with :ok <- bounded_text(status, 120),
          :ok <- publication_controls(controls),
          :ok <- optional_publication_reference(publication_ref),
          :ok <- optional_publication_offer_reference(review_offer_ref),
          :ok <- optional_positive_integer(number),
+         :ok <- optional_positive_integer(recovery_generation),
          :ok <- optional_https_url(url) do
-      publication_control_identity(controls, publication_ref, review_offer_ref, number, url)
+      publication_control_identity(
+        controls,
+        publication_ref,
+        review_offer_ref,
+        number,
+        url,
+        recovery_generation
+      )
     end
   end
 
@@ -528,6 +537,7 @@ defmodule Responder.Slack.Renderer do
          "publication_ref" => publication_ref,
          "pull_request_number" => number,
          "pull_request_url" => url,
+         "recovery_generation" => recovery_generation,
          "review_offer_ref" => review_offer_ref,
          "status" => status
        }) do
@@ -567,6 +577,39 @@ defmodule Responder.Slack.Renderer do
             "Check delivery",
             "#{task_ref}|#{publication_ref}"
           )
+
+        "retry" ->
+          button(
+            "responder_task_retry_publication",
+            "Retry publication",
+            "#{task_ref}|#{publication_ref}|#{recovery_generation}",
+            "primary",
+            "Retry publication workflow",
+            "Retry this exact failed publication generation without changing its frozen review state?",
+            "Retry"
+          )
+
+        "update" ->
+          button(
+            "responder_task_update_publication",
+            "Review latest state",
+            "#{task_ref}|#{publication_ref}|#{recovery_generation}",
+            nil,
+            "Review latest repository state",
+            "Invalidate this exact review and run a new review against the latest repository state?",
+            "Review latest"
+          )
+
+        "discard" ->
+          button(
+            "responder_task_discard_publication",
+            "Discard candidate",
+            "#{task_ref}|#{publication_ref}|#{recovery_generation}",
+            "danger",
+            "Discard publication candidate",
+            "Discard this exact publication generation? Its review and remote evidence remain retained, but Responder will stop updating it.",
+            "Discard"
+          )
       end)
 
     if buttons == [],
@@ -583,13 +626,30 @@ defmodule Responder.Slack.Renderer do
 
   defp publication_controls(_controls), do: {:error, :invalid_publication_controls}
 
-  defp publication_control_identity(controls, publication_ref, review_offer_ref, number, url) do
+  defp publication_control_identity(
+         controls,
+         publication_ref,
+         review_offer_ref,
+         number,
+         url,
+         recovery_generation
+       ) do
     valid =
       Enum.all?(controls, fn
-        "readiness" -> is_nil(publication_ref) and is_binary(review_offer_ref)
-        "publish" -> is_binary(publication_ref)
-        "open" -> is_binary(publication_ref) and is_integer(number) and is_binary(url)
-        "check" -> is_binary(publication_ref) and is_integer(number) and is_binary(url)
+        "readiness" ->
+          is_nil(publication_ref) and is_binary(review_offer_ref)
+
+        "publish" ->
+          is_binary(publication_ref)
+
+        "open" ->
+          is_binary(publication_ref) and is_integer(number) and is_binary(url)
+
+        "check" ->
+          is_binary(publication_ref) and is_integer(number) and is_binary(url)
+
+        action when action in ~w(retry update discard) ->
+          is_binary(publication_ref) and is_integer(recovery_generation)
       end)
 
     if valid, do: :ok, else: {:error, :invalid_publication_controls}

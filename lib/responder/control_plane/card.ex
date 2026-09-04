@@ -382,20 +382,28 @@ defmodule Responder.ControlPlane.Card do
       |> optional_detail("Action needed", task["action_needed"])
       |> optional_detail("Session", task["session_generation"])
 
-    %{
+    card = %{
       action: nil,
       actions: task_actions(task["controls"], task["publication"]),
       choices: [],
       details: details,
       kind: "task",
       label: task_label(record),
+      recovery_generation: get_in(task, ["publication", "recovery_generation"]),
       ref: record.ref,
       status: task["status"],
       summary: task["summary"],
       title: task["title"],
       url: get_in(task, ["publication", "pull_request_url"])
     }
+
+    card
+    |> optional_card_ref(:publication_ref, get_in(task, ["publication", "publication_ref"]))
+    |> optional_card_ref(:review_offer_ref, get_in(task, ["publication", "review_offer_ref"]))
   end
+
+  defp optional_card_ref(card, key, value) when is_binary(value), do: Map.put(card, key, value)
+  defp optional_card_ref(card, _key, _value), do: card
 
   defp task_label(%Record{payload: %{"kind" => "incident"}}), do: "Local incident"
   defp task_label(%Record{}), do: "Engineering task"
@@ -424,6 +432,9 @@ defmodule Responder.ControlPlane.Card do
       "readiness" -> [:request_task_readiness]
       "publish" -> [:approve_task_publication]
       "check" -> [:check_task_publication]
+      "retry" -> [:retry_task_publication]
+      "update" -> [:update_task_publication]
+      "discard" -> [:discard_task_publication]
       _open_or_unknown -> []
     end)
   end

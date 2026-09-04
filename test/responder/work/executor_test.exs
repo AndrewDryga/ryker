@@ -30,6 +30,20 @@ defmodule Responder.Work.ExecutorTest do
 
     alias Responder.TestSupport.FakeWorkCoopAPI, as: FakeAPI
 
+    def capabilities(client),
+      do:
+        dispatch(client, :capabilities, fn ->
+          {:ok, %{"repository_freshness_receipt_versions" => [2]}}
+        end)
+
+    def capabilities(client, session) do
+      case Map.fetch(client.overrides, :session_capabilities) do
+        {:ok, function} when is_function(function, 1) -> function.(session)
+        {:ok, response} -> response
+        :error -> capabilities(client)
+      end
+    end
+
     def operation_by_key(client, key),
       do:
         dispatch(client, :operation_by_key, fn -> FakeAPI.operation_by_key(client.fake, key) end)
@@ -1485,6 +1499,202 @@ defmodule Responder.Work.ExecutorTest do
     assert persisted_turn.submission["context"]["mode"] == "full"
   end
 
+  test "a new repository session waits for freshness v2 before remote creation" do
+    claim = claim_episode!("new-session-capability-wait")
+
+    session =
+      claim.session
+      |> Ecto.Changeset.change(repository_ref: "responder")
+      |> Repo.update!()
+
+    claim = %{claim | session: session}
+    {:ok, fake} = fake_for(claim, [reply("Run only with current repository evidence.")])
+
+    incompatible =
+      protocol_options(fake, %{
+        session_capabilities: {:error, {:coop_error, 404, "not_found", "resource not found"}}
+      })
+
+    assert Executor.run(claim, incompatible) ==
+             {:error, {:coop_upgrade_required, :repository_freshness_v2}}
+
+    assert FakeAPI.state(fake).create_count == 0
+    assert FakeAPI.state(fake).submit_count == 0
+
+    malformed =
+      protocol_options(fake, %{
+        session_capabilities: {:ok, %{"repository_freshness_receipt_versions" => [2, 2]}}
+      })
+
+    assert Executor.run(claim, malformed) ==
+             {:error, {:coop_upgrade_required, :repository_freshness_v2}}
+
+    assert FakeAPI.state(fake).create_count == 0
+
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, protocol_options(fake, %{}))
+    assert FakeAPI.state(fake).create_count == 1
+    assert FakeAPI.state(fake).submit_count == 1
+  end
+
+  test "a new logical turn replaces an open legacy session before freezing freshness" do
+    claim = claim_with_bound_empty_session!("legacy-session-rotation")
+    {:ok, fake} = fake_for(claim, [reply("The replacement session has current evidence.")])
+
+    current_session = FakeAPI.state(fake).session
+    replacement_id = current_session["id"] <> ":fresh"
+
+    FakeAPI.update(fake, fn state ->
+      legacy =
+        state.session
+        |> Map.put("repository_freshness", [])
+        |> Map.put("repository_freshness_status", "unavailable")
+
+      %{state | session: legacy}
+    end)
+
+    create_session = fn fallback ->
+      FakeAPI.update(fake, fn state ->
+        fresh =
+          current_session
+          |> Map.put("external_ref", state.session["external_ref"])
+          |> Map.put("id", replacement_id)
+
+        %{state | session: fresh}
+      end)
+
+      fallback.()
+    end
+
+    assert {:ok, %{status: :accepted, turn: accepted}} =
+             Executor.run(claim, protocol_options(fake, %{create_session: create_session}))
+
+    sessions =
+      Repo.all(
+        from(session in Responder.Work.Session,
+          where: session.episode_id == ^claim.episode.id,
+          order_by: [asc: session.generation]
+        )
+      )
+
+    assert Enum.map(sessions, & &1.generation) == [1, 2]
+    assert List.last(sessions).coop_session_id == replacement_id
+
+    assert get_in(accepted.submission, ["context", "workspace", "freshness", "status"]) ==
+             "recorded"
+
+    assert FakeAPI.state(fake).submit_count == 1
+  end
+
+  test "a legacy session waits in place until Coop advertises freshness v2" do
+    claim = claim_with_bound_empty_session!("legacy-session-capability-wait")
+    {:ok, fake} = fake_for(claim, [reply("Must not run on v1.")])
+
+    FakeAPI.update(fake, fn state ->
+      legacy = %{
+        state.session
+        | "repository_freshness" => [
+            state.session["repository_freshness"]
+            |> hd()
+            |> Map.put("version", 1)
+            |> Map.delete("workspace_base_revision")
+          ]
+      }
+
+      %{state | session: legacy}
+    end)
+
+    options =
+      protocol_options(fake, %{
+        capabilities: {:error, {:coop_error, 404, "not_found", "resource not found"}}
+      })
+
+    for _attempt <- 1..2 do
+      assert Executor.run(claim, options) ==
+               {:error, {:coop_upgrade_required, :repository_freshness_v2}}
+    end
+
+    sessions =
+      Repo.all(
+        from(session in Responder.Work.Session, where: session.episode_id == ^claim.episode.id)
+      )
+
+    assert Enum.map(sessions, & &1.generation) == [1]
+    assert FakeAPI.state(fake).create_count == 0
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
+  test "an upgraded fleet placement rotates one legacy session exactly once" do
+    claim = claim_with_bound_empty_session!("legacy-fleet-capability-upgrade")
+    {:ok, fake} = fake_for(claim, [reply("The upgraded fleet session is current.")])
+    {:ok, upgraded?} = Agent.start_link(fn -> false end)
+
+    current_session = FakeAPI.state(fake).session
+    replacement_id = current_session["id"] <> ":fleet-v2"
+
+    FakeAPI.update(fake, fn state ->
+      legacy = %{
+        state.session
+        | "repository_freshness" => [
+            state.session["repository_freshness"]
+            |> hd()
+            |> Map.put("version", 1)
+            |> Map.delete("workspace_base_revision")
+          ]
+      }
+
+      %{state | session: legacy}
+    end)
+
+    session_capabilities = fn session ->
+      send(self(), {:freshness_capability_session, session.id})
+
+      versions = if Agent.get(upgraded?, & &1), do: [2], else: []
+      {:ok, %{"repository_freshness_receipt_versions" => versions}}
+    end
+
+    create_session = fn fallback ->
+      FakeAPI.update(fake, fn state ->
+        fresh =
+          current_session
+          |> Map.put("external_ref", state.session["external_ref"])
+          |> Map.put("id", replacement_id)
+
+        %{state | session: fresh}
+      end)
+
+      fallback.()
+    end
+
+    options =
+      protocol_options(fake, %{
+        create_session: create_session,
+        session_capabilities: session_capabilities
+      })
+
+    assert Executor.run(claim, options) ==
+             {:error, {:coop_upgrade_required, :repository_freshness_v2}}
+
+    assert_receive {:freshness_capability_session, session_id}
+    assert session_id == claim.session.id
+
+    Agent.update(upgraded?, fn _current -> true end)
+
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, options)
+
+    sessions =
+      Repo.all(
+        from(session in Responder.Work.Session,
+          where: session.episode_id == ^claim.episode.id,
+          order_by: [asc: session.generation]
+        )
+      )
+
+    assert Enum.map(sessions, & &1.generation) == [1, 2]
+    assert List.last(sessions).coop_session_id == replacement_id
+    assert FakeAPI.state(fake).create_count == 1
+    assert FakeAPI.state(fake).submit_count == 1
+  end
+
   test "a lost fleet placement rotates the immutable Work session before reconstruction" do
     claim = claim_with_bound_empty_session!("fleet-placement-rotation")
     candidate = reply("The reconstructed session completed the work.")
@@ -1769,11 +1979,36 @@ defmodule Responder.Work.ExecutorTest do
       "path" => "/coop/repositories/blitz-rivals-scraper"
     }
 
+    freshness = [
+      %{
+        "fetched_at" => "2026-09-04T08:00:00Z",
+        "name" => "primary",
+        "remote_identity" => "origin",
+        "requested_revision" => "refs/heads/main",
+        "resolved_revision" => "5d1fa43d2efe46e8409dde0e93e79af93fb6622f",
+        "stale_base_revision" => "31aa07bf02fa06445e4032980cfa6f66fd31290a",
+        "stale_base_status" => "stale",
+        "version" => 2,
+        "workspace_base_revision" => "5d1fa43d2efe46e8409dde0e93e79af93fb6622f"
+      },
+      %{
+        "fetched_at" => "2026-09-04T08:00:01Z",
+        "name" => "blitz-rivals-scraper",
+        "remote_identity" => "origin",
+        "requested_revision" => "refs/heads/main",
+        "resolved_revision" => "41af103a96d71c93887fe2b4dc9eed2d75f8fcb7",
+        "stale_base_status" => "unknown",
+        "version" => 2
+      }
+    ]
+
     FakeAPI.update(fake, fn state ->
       session =
         state.session
         |> Map.put("base_commit", "5d1fa43d2efe46e8409dde0e93e79af93fb6622f")
         |> Map.put("companions", [companion])
+        |> Map.put("repository_freshness", freshness)
+        |> Map.put("repository_freshness_status", "recorded")
 
       %{state | session: session}
     end)
@@ -1790,6 +2025,17 @@ defmodule Responder.Work.ExecutorTest do
 
     assert get_in(accepted.submission, ["context", "workspace"]) == %{
              "companions" => [Map.put(companion, "read_only", true)],
+             "freshness" => %{
+               "owner" => "coop",
+               "repositories" => [
+                 Enum.at(freshness, 0),
+                 freshness
+                 |> Enum.at(1)
+                 |> Map.put("stale_base_revision", nil)
+                 |> Map.put("workspace_base_revision", nil)
+               ],
+               "status" => "recorded"
+             },
              "primary" => %{
                "base_commit" => "5d1fa43d2efe46e8409dde0e93e79af93fb6622f",
                "name" => "primary",
@@ -1797,6 +2043,9 @@ defmodule Responder.Work.ExecutorTest do
                "read_only" => true
              }
            }
+
+    assert accepted.submission_fingerprint ==
+             Responder.CanonicalJSON.digest(accepted.submission)
 
     missing = claim_with_bound_empty_session!("eval-workspace-map-missing")
     {:ok, missing_fake} = fake_for(missing, [reply("Must not run.")])
@@ -1810,6 +2059,90 @@ defmodule Responder.Work.ExecutorTest do
            ) == {:error, {:coop_protocol_error, :session_workspace}}
 
     assert FakeAPI.state(missing_fake).submit_count == 0
+  end
+
+  test "a Coop session without owner-issued repository freshness never reaches the model" do
+    claim = claim_with_bound_empty_session!("legacy-workspace-freshness")
+    {:ok, fake} = fake_for(claim, [reply("Must not run.")])
+
+    FakeAPI.update(fake, fn state ->
+      %{
+        state
+        | session:
+            Map.drop(state.session, ["repository_freshness", "repository_freshness_status"])
+      }
+    end)
+
+    assert Executor.run(claim, options(fake)) ==
+             {:error, {:coop_protocol_error, :repository_freshness}}
+
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
+  test "freshness correlation is keyed and distinguishes a PR merge base from its base head" do
+    claim = claim_with_bound_empty_session!("pr-workspace-freshness")
+    {:ok, fake} = fake_for(claim, [reply("The repositories are pinned.")])
+
+    merge_base = String.duplicate("1", 40)
+    base_head = String.duplicate("2", 40)
+    pull_head = String.duplicate("3", 40)
+    alpha_head = String.duplicate("4", 40)
+    zulu_head = String.duplicate("5", 40)
+
+    companions = [
+      %{"base_commit" => zulu_head, "name" => "zulu", "path" => "/coop/repositories/zulu"},
+      %{"base_commit" => alpha_head, "name" => "alpha", "path" => "/coop/repositories/alpha"}
+    ]
+
+    receipt = fn name, resolved, workspace_base ->
+      %{
+        "fetched_at" => "2026-09-04T08:00:00Z",
+        "name" => name,
+        "remote_identity" => "origin",
+        "requested_revision" => "refs/heads/main",
+        "resolved_revision" => resolved,
+        "stale_base_status" => "unknown",
+        "version" => 2
+      }
+      |> then(fn value ->
+        if workspace_base,
+          do: Map.put(value, "workspace_base_revision", workspace_base),
+          else: value
+      end)
+    end
+
+    freshness = [
+      receipt.("primary", base_head, merge_base),
+      receipt.("zulu", zulu_head, nil),
+      receipt.("alpha", alpha_head, nil),
+      receipt.("pull_request", pull_head, nil)
+    ]
+
+    FakeAPI.update(fake, fn state ->
+      session =
+        state.session
+        |> Map.put("base_commit", merge_base)
+        |> Map.put("companions", companions)
+        |> Map.put("pull_request", %{
+          "head_commit" => pull_head,
+          "number" => 91,
+          "ref" => "refs/pull/91/head"
+        })
+        |> Map.put("repository_freshness", freshness)
+
+      %{state | session: session}
+    end)
+
+    assert {:ok, %{status: :accepted, turn: accepted}} = Executor.run(claim, options(fake))
+    workspace = get_in(accepted.submission, ["context", "workspace"])
+    assert Enum.map(workspace["companions"], & &1["name"]) == ["alpha", "zulu"]
+
+    assert workspace["freshness"]["repositories"] ==
+             Enum.map(freshness, fn item ->
+               item
+               |> Map.put_new("stale_base_revision", nil)
+               |> Map.put_new("workspace_base_revision", nil)
+             end)
   end
 
   test "a submit revision conflict spends only the submit generation" do

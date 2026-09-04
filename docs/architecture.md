@@ -179,11 +179,26 @@ Revision-bearing actions freeze the observed session and revision before the cal
 replays the exact request. A revision conflict is surfaced instead of silently guessing a new
 action.
 
+For every newly created repository-backed session, Coop returns version-2 freshness receipts keyed
+by repository alias. Each receipt binds the requested ref, fetched immutable remote head, sanitized
+remote identity, fetch time, and stale-base result; the primary receipt separately binds the actual
+workspace base so pull-request merge bases do not masquerade as the base branch head. Responder
+validates this complete set by alias before each model turn and fails closed before model execution
+when receipts are missing, legacy/unavailable, duplicated, or inconsistent with the pinned session.
+Before replacing a legacy session, Responder requires explicit version-2 receipt support from the
+serving Coop instance: direct mode reads its capability document, while fleet mode reads the
+live-daemon capability reported by the exact worker holding the current placement and requires that
+same version on every replacement placement. An older instance is retried in place, without
+spending session generations, until Coop is upgraded independently.
+
 Draft PR publication is a separate authority boundary. Coop returns a complete reviewed patch,
 exact parent commit, and candidate tree. Responder applies that patch to the exact parent in an
 isolated checkout and refuses publication unless `git write-tree` equals Coop's candidate tree. It
 then pushes a deterministic Responder-owned branch with `--force-with-lease` and creates or updates
 a draft PR. GitHub credentials are held only by Responder and are not projected into the agent box.
+If GitHub reports that the draft head moved, Responder durably records that exact observed head,
+invalidates the prior review and approval on an authorized update, and permits replacement only
+through a new review plus a force-with-lease compare-and-swap against the recorded head.
 Responder has no merge, signing, deployment, or arbitrary branch-push operation. A repository gate
 is validation evidence rather than publication authority: absence, failure, startup error, or gate
 source mutation is reported on the draft PR as a warning. Rebase conflicts, moving source,
@@ -191,11 +206,14 @@ incomplete reviewed patches, and policy findings still prevent publication.
 
 Published work remains a durable delivery commitment. A host-owned scheduler polls GitHub for
 check, close, and merge transitions and writes deduplicated lifecycle events back to the original
-engineering-task thread. Watched external-app messages may contribute deployment or Terraform
-events after a model classifies them, but the host accepts the correlation only when the message
-contains an exact recorded PR number, branch, head SHA, or merge SHA. The model cannot broaden that
-binding. Existing publications are baselined during migration so an upgrade cannot announce every
-historical merged PR; subsequent transitions remain observable.
+engineering-task thread. Only an authenticated system webhook route with an explicit
+`publication_lifecycle` scope may contribute deployment or Terraform events through the exact
+versioned `responder.publication_lifecycle.v1` envelope. The signal's repository, environment, kind,
+and target must all be in that route scope. The host then accepts correlation only when its
+reference list contains an exact recorded PR URL, full or bare branch, head SHA, or merge SHA;
+prose and provider-specific nested fields are not evidence.
+Existing publications are baselined during migration so an upgrade cannot announce every historical
+merged PR; subsequent transitions remain observable.
 
 Closed-session cleanup is ownership-based rather than name-based. Responder records the exact Coop
 session ID before requesting a discard plan. The plan pins revision, workspace identity, branch,

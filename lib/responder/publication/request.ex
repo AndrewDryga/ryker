@@ -15,6 +15,7 @@ defmodule Responder.Publication.Request do
     :approved_at,
     :approved_by_actor_ref,
     :body,
+    :existing_pull_request,
     :patch,
     :publication_ref,
     :repository,
@@ -28,6 +29,7 @@ defmodule Responder.Publication.Request do
           approved_at: DateTime.t(),
           approved_by_actor_ref: String.t(),
           body: String.t(),
+          existing_pull_request: nil | map(),
           patch: binary(),
           publication_ref: String.t(),
           repository: String.t(),
@@ -42,6 +44,7 @@ defmodule Responder.Publication.Request do
       approved_at: publication.approved_at,
       approved_by_actor_ref: publication.approved_by_actor_ref,
       body: publication.body,
+      existing_pull_request: existing_pull_request(publication),
       patch: publication.review_patch,
       publication_ref: publication.ref,
       repository: publication.repository,
@@ -56,6 +59,7 @@ defmodule Responder.Publication.Request do
          :ok <- text(request.repository, 256, :repository),
          :ok <- text(request.title, 120, :title),
          :ok <- text(request.body, 8_000, :body),
+         :ok <- validate_existing_pull_request(request.existing_pull_request),
          true <- is_map(request.review) and Review.publishable?(request.review),
          true <- is_binary(request.patch) and request.patch != "",
          true <- byte_size(request.patch) == request.review["patch_bytes"],
@@ -78,6 +82,7 @@ defmodule Responder.Publication.Request do
       "approved_at" => DateTime.to_iso8601(request.approved_at),
       "approved_by_actor_ref" => request.approved_by_actor_ref,
       "body" => request.body,
+      "existing_pull_request" => request.existing_pull_request,
       "patch_digest" => digest(request.patch),
       "publication_ref" => request.publication_ref,
       "repository" => request.repository,
@@ -87,6 +92,61 @@ defmodule Responder.Publication.Request do
   end
 
   defp reference(value, field), do: text(value, 1_024, field)
+
+  defp validate_existing_pull_request(nil), do: :ok
+
+  defp validate_existing_pull_request(
+         %{
+           "head_commit" => head_commit,
+           "number" => number,
+           "ref" => ref,
+           "url" => url
+         } = pull_request
+       )
+       when map_size(pull_request) == 4 and is_integer(number) and number > 0 do
+    with true <- git_identity?(head_commit),
+         true <- branch_ref?(ref),
+         true <- github_pull_url?(url, number) do
+      :ok
+    else
+      false -> {:error, {:invalid_publication_request, :existing_pull_request}}
+    end
+  end
+
+  defp validate_existing_pull_request(_pull_request),
+    do: {:error, {:invalid_publication_request, :existing_pull_request}}
+
+  defp existing_pull_request(%Publication{expected_remote_head_sha: nil}), do: nil
+
+  defp existing_pull_request(%Publication{} = publication) do
+    %{
+      "head_commit" => publication.expected_remote_head_sha,
+      "number" => publication.pull_request_number,
+      "ref" => publication.branch_ref,
+      "url" => publication.pull_request_url
+    }
+  end
+
+  defp git_identity?(value),
+    do: is_binary(value) and Regex.match?(~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/, value)
+
+  defp branch_ref?(value),
+    do:
+      is_binary(value) and
+        Regex.match?(~r/\Arefs\/heads\/[A-Za-z0-9._\/-]{1,240}\z/, value)
+
+  defp github_pull_url?(value, number) when is_binary(value) and byte_size(value) <= 2_048 do
+    case URI.new(value) do
+      {:ok, %URI{scheme: "https", host: "github.com", path: path}} ->
+        is_binary(path) and String.ends_with?(path, "/pull/#{number}") and
+          Regex.match?(~r/\A\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*\z/, path)
+
+      _invalid ->
+        false
+    end
+  end
+
+  defp github_pull_url?(_value, _number), do: false
 
   defp text(value, maximum, field) do
     if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and

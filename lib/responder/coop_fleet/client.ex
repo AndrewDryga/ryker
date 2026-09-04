@@ -17,6 +17,7 @@ defmodule Responder.CoopFleet.Client do
     Bridge,
     Command,
     Placement,
+    Worker,
     WorkspaceCheckpointTransfer
   }
 
@@ -27,6 +28,7 @@ defmodule Responder.CoopFleet.Client do
   @option_keys [
     :bridge,
     :capability_names,
+    :capability_versions,
     :lease_seconds,
     :max_waits,
     :poll_interval_ms,
@@ -37,6 +39,8 @@ defmodule Responder.CoopFleet.Client do
   defstruct @fields
 
   @type t :: %__MODULE__{bridge: module(), bridge_options: keyword()}
+
+  @repository_freshness_capability "repository-freshness"
 
   @spec new(keyword() | map()) :: {:ok, t()} | {:error, term()}
   def new(options) do
@@ -52,6 +56,7 @@ defmodule Responder.CoopFleet.Client do
            options
            |> Map.drop([:bridge])
            |> Map.put_new(:capability_names, ["responder-state"])
+           |> Map.put_new(:capability_versions, %{})
            |> Enum.to_list()
        }}
     else
@@ -218,6 +223,56 @@ defmodule Responder.CoopFleet.Client do
     with {:ok, session} <- session_by_coop_id(coop_session_id) do
       execute_read(client, session, "get_session", %{"coop_session_id" => coop_session_id})
     end
+  end
+
+  @impl true
+  def capabilities(%__MODULE__{} = client, %Session{id: session_id} = session) do
+    now = database_now!()
+
+    case Repo.one(
+           from(placement in Placement,
+             join: worker in Worker,
+             on: worker.id == placement.worker_id,
+             where:
+               placement.session_id == ^session_id and
+                 placement.state in [:assigning, :active, :draining, :revoking],
+             select: {placement, worker},
+             limit: 1
+           )
+         ) do
+      {%Placement{state: :active, lease_expires_at: expires_at}, %Worker{} = worker}
+      when not is_nil(expires_at) ->
+        placed_freshness_capabilities(worker, expires_at, now)
+
+      nil when is_nil(session.coop_session_id) ->
+        configured_freshness_capabilities(client)
+
+      _unavailable ->
+        {:error, {:coop_upgrade_required, :repository_freshness_v2}}
+    end
+  end
+
+  defp placed_freshness_capabilities(worker, expires_at, now) do
+    if DateTime.compare(expires_at, now) == :gt,
+      do: freshness_capability_document(worker.capabilities),
+      else: {:error, {:coop_upgrade_required, :repository_freshness_v2}}
+  end
+
+  defp configured_freshness_capabilities(client) do
+    versions = Keyword.get(client.bridge_options, :capability_versions, %{})
+
+    if versions[@repository_freshness_capability] == "2",
+      do: {:ok, %{"repository_freshness_receipt_versions" => [2]}},
+      else: {:ok, %{"repository_freshness_receipt_versions" => []}}
+  end
+
+  defp freshness_capability_document(capabilities) do
+    if Enum.any?(
+         capabilities,
+         &(&1["name"] == @repository_freshness_capability and &1["version"] == "2")
+       ),
+       do: {:ok, %{"repository_freshness_receipt_versions" => [2]}},
+       else: {:ok, %{"repository_freshness_receipt_versions" => []}}
   end
 
   @impl true
@@ -558,6 +613,11 @@ defmodule Responder.CoopFleet.Client do
   defp execute_read(client, session, kind, payload) do
     key = "responder:fleet:read:#{kind}:#{Ecto.UUID.generate()}"
     execute(client, session, kind, payload, key)
+  end
+
+  defp database_now! do
+    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
+    now
   end
 
   defp normalize_options(options) when is_list(options) do

@@ -193,3 +193,59 @@ impersonate a user, bot, destination, repository, or Work authority.
 Request fields such as `destination`, `policy`, `repository`, `secret`, or `adapter` have no effect
 unless a route explicitly maps one as ordinary bounded content. They can never alter trusted route
 authority.
+
+## Publication deployment and Terraform signals
+
+Lifecycle evidence needs a dedicated authenticated route with exact host-owned authority. For
+example:
+
+```yaml
+webhooks:
+  port: 4320
+  routes:
+    deployments:
+      auth:
+        kind: hmac_sha256
+        secret_env: RESPONDER_DEPLOYMENT_WEBHOOK_SECRET
+      destination:
+        transport: slack
+        conversation_ref: slack:T0123456789:C1111111111
+        thread_ref:
+      publication_lifecycle:
+        environments: [production]
+        kinds: [deployment, terraform]
+        repositories: [responder]
+        targets: [responder]
+      work_profile:
+        policy: responder-read-only-v1
+        policy_digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+        repository_ref: responder
+```
+
+The route is projected as a system actor. Its environment, kind, repository, and target lists are
+an allowlist, not hints. Only such a route may wake merged publication follow-up. Send the version
+in the `X-Responder-Event-Type: responder.publication_lifecycle.v1` header and use this exact JSON
+request body:
+
+```json
+{
+  "environment": "production",
+  "kind": "deployment",
+  "repository": "responder",
+  "references": [
+    "https://github.com/acme/responder/pull/91",
+    "refs/heads/responder/fix-91",
+    "0123456789abcdef0123456789abcdef01234567"
+  ],
+  "run_ref": "deploy:production:1842",
+  "state": "succeeded",
+  "target": "responder"
+}
+```
+
+`kind` is `deployment` or `terraform`; `state` is `pending`, `succeeded`, or `failed`. The envelope
+must match all four configured scope dimensions. References are bounded and compared by exact
+equality only within publications for the named repository, using the recorded PR URL, full branch
+ref, bare branch, publication commit, or merge SHA. Arbitrary prose, nested provider-specific
+status fields, substring matches, ordinary app/bot/user inputs, and envelopes with extra or missing
+fields do not wake an episode. The webhook's occurrence ID still owns replay and conflict semantics.

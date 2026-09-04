@@ -188,6 +188,8 @@ defmodule Responder.CoopFleet.BridgeTest do
           [workspace_ref: "workspace-main", workspace_ref: "duplicate"],
           [workspace_ref: "workspace-main", secret: "must-not-cross"],
           [workspace_ref: "workspace-main", capability_names: :all],
+          [workspace_ref: "workspace-main", capability_versions: :all],
+          [workspace_ref: "workspace-main", capability_versions: %{"freshness" => ""}],
           [workspace_ref: "workspace-main", max_waits: 0],
           [workspace_ref: "workspace-main", lease_seconds: 0],
           [workspace_ref: "workspace-main", poll_interval_ms: 0]

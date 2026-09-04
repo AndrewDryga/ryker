@@ -37,7 +37,7 @@ defmodule Responder.Webhooks.Input do
         occurred_at_source: metadata.occurred_at_source,
         revision: metadata.revision,
         source: %{kind: "webhook", ref: route.name},
-        source_capabilities: %{},
+        source_capabilities: source_capabilities(route),
         source_item_ref: nil
       })
     end
@@ -93,6 +93,19 @@ defmodule Responder.Webhooks.Input do
 
   defp native_input_id(route_name, item_id) do
     "webhook-item:" <> CanonicalJSON.digest([route_name, item_id])
+  end
+
+  defp source_capabilities(%Route{publication_lifecycle: nil}), do: %{}
+
+  defp source_capabilities(%Route{publication_lifecycle: scope}) do
+    %{
+      "publication_lifecycle" => %{
+        "environments" => scope.environments,
+        "kinds" => scope.kinds,
+        "repositories" => scope.repositories,
+        "targets" => scope.targets
+      }
+    }
   end
 
   defp reference?(value, maximum) do

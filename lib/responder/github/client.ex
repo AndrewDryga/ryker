@@ -469,10 +469,12 @@ defmodule Responder.GitHub.Client do
            "html_url" => url,
            "merged" => merged,
            "number" => number,
-           "state" => state
+           "state" => state,
+           "user" => %{"id" => author_id, "type" => author_type}
          } = pull
        ) do
     with true <- is_integer(number) and number > 0,
+         true <- is_integer(author_id) and author_id > 0 and author_type in ["Bot", "User"],
          true <- is_boolean(draft) and is_boolean(merged),
          true <- state in ["open", "closed"],
          :ok <- ref_component(base_ref),
@@ -482,6 +484,8 @@ defmodule Responder.GitHub.Client do
       with {:ok, merge_sha, merged_at} <- merge_identity(pull) do
         {:ok,
          %{
+           "author_id" => author_id,
+           "author_type" => author_type,
            "base_ref" => base_ref,
            "draft" => draft,
            "head_ref" => head_ref,

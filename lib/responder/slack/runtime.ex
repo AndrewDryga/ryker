@@ -276,6 +276,7 @@ defmodule Responder.Slack.Runtime do
         approve_task_publication: &WorkControls.approve_publication/1,
         check_publication: &Followups.request_check/2,
         check_task_publication: &WorkControls.check_publication/1,
+        recover_task_publication: &WorkControls.recover_publication/2,
         client: bot_client,
         close_work: &WorkControls.close/1,
         configure_channel: &ChannelSetup.handle_interaction(&1, setup_options),

@@ -208,6 +208,27 @@ defmodule Responder.Slack.InteractionTest do
       )
 
     assert Interaction.from_socket(crossed, "T123", @now) == :ignore
+
+    recovery =
+      publish
+      |> put_in(
+        ["payload", "actions", Access.at(0), "action_id"],
+        "responder_task_update_publication"
+      )
+      |> put_in(
+        ["payload", "actions", Access.at(0), "value"],
+        "task-card:abc123|publication:def456|42"
+      )
+
+    assert {:ok, interaction} = Interaction.from_socket(recovery, "T123", @now)
+    assert interaction.action_value == "task-card:abc123|publication:def456|42"
+
+    assert recovery
+           |> put_in(
+             ["payload", "actions", Access.at(0), "value"],
+             "task-card:abc123|publication:def456|0"
+           )
+           |> Interaction.from_socket("T123", @now) == :ignore
   end
 
   test "setup controls carry only the durable setup id" do

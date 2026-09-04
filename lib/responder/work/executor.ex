@@ -169,8 +169,9 @@ defmodule Responder.Work.Executor do
            ),
          {:ok, primary} <- primary_workspace(claim.session, remote_session),
          {:ok, companions} <- companion_workspaces(Map.get(remote_session, "companions", [])),
-         :ok <- required_workspaces(companions, settings.workspace_requirements) do
-      {:ok, %{"companions" => companions, "primary" => primary}}
+         :ok <- required_workspaces(companions, settings.workspace_requirements),
+         {:ok, freshness} <- repository_freshness(remote_session, primary, companions) do
+      {:ok, %{"companions" => companions, "freshness" => freshness, "primary" => primary}}
     end
   end
 
@@ -260,6 +261,164 @@ defmodule Responder.Work.Executor do
        else: {:error, {:coop_protocol_error, :session_workspace}}
   end
 
+  defp repository_freshness(remote_session, primary, companions) do
+    case {
+      Map.get(remote_session, "repository_freshness_status"),
+      Map.get(remote_session, "repository_freshness")
+    } do
+      {"recorded", receipts} when is_list(receipts) and length(receipts) in 1..34 ->
+        with {:ok, receipts} <- repository_freshness_receipts(receipts),
+             :ok <- exact_repository_receipts(receipts, remote_session, primary, companions) do
+          {:ok, %{"owner" => "coop", "repositories" => receipts, "status" => "recorded"}}
+        end
+
+      _invalid ->
+        {:error, {:coop_protocol_error, :repository_freshness}}
+    end
+  end
+
+  defp repository_freshness_receipts(receipts) do
+    Enum.reduce_while(receipts, {:ok, []}, fn receipt, {:ok, prepared} ->
+      case repository_freshness_receipt(receipt) do
+        {:ok, receipt} -> {:cont, {:ok, [receipt | prepared]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, prepared} ->
+        prepared = Enum.reverse(prepared)
+        names = Enum.map(prepared, & &1["name"])
+
+        if names == Enum.uniq(names),
+          do: {:ok, prepared},
+          else: {:error, {:coop_protocol_error, :repository_freshness}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp repository_freshness_receipt(
+         %{
+           "fetched_at" => fetched_at,
+           "name" => name,
+           "remote_identity" => remote_identity,
+           "requested_revision" => requested_revision,
+           "resolved_revision" => resolved_revision,
+           "stale_base_status" => stale_base_status,
+           "version" => 2
+         } = receipt
+       )
+       when map_size(receipt) in 7..9 and
+              stale_base_status in ~w(current stale unknown not_applicable) do
+    stale_base_revision = Map.get(receipt, "stale_base_revision")
+    workspace_base_revision = Map.get(receipt, "workspace_base_revision")
+
+    with true <- repository_name?(name),
+         true <- bounded_text?(remote_identity, 256),
+         true <- bounded_text?(requested_revision, 512),
+         true <- git_commit?(resolved_revision),
+         true <- is_nil(workspace_base_revision) or git_commit?(workspace_base_revision),
+         {:ok, fetched_at} <- repository_timestamp(fetched_at),
+         :ok <- stale_base_receipt(stale_base_status, stale_base_revision, resolved_revision) do
+      {:ok,
+       %{
+         "fetched_at" => fetched_at,
+         "name" => name,
+         "remote_identity" => remote_identity,
+         "requested_revision" => requested_revision,
+         "resolved_revision" => resolved_revision,
+         "stale_base_revision" => stale_base_revision,
+         "stale_base_status" => stale_base_status,
+         "version" => 2,
+         "workspace_base_revision" => workspace_base_revision
+       }}
+    else
+      _invalid -> {:error, {:coop_protocol_error, :repository_freshness}}
+    end
+  end
+
+  defp repository_freshness_receipt(_receipt),
+    do: {:error, {:coop_protocol_error, :repository_freshness}}
+
+  defp exact_repository_receipts(receipts, remote_session, primary, companions) do
+    by_name = Map.new(receipts, &{&1["name"], &1})
+
+    expected_names =
+      ["primary" | Enum.map(companions, & &1["name"])] ++ pull_request_names(remote_session)
+
+    valid =
+      Map.keys(by_name) |> Enum.sort() == Enum.sort(expected_names) and
+        primary_receipt_matches?(by_name["primary"], remote_session, primary) and
+        Enum.all?(companions, fn companion ->
+          receipt = by_name[companion["name"]]
+
+          receipt["resolved_revision"] == companion["base_commit"] and
+            is_nil(receipt["workspace_base_revision"])
+        end) and pull_request_receipt_matches?(by_name, remote_session)
+
+    if valid, do: :ok, else: {:error, {:coop_protocol_error, :repository_freshness}}
+  end
+
+  defp primary_receipt_matches?(receipt, remote_session, primary) when is_map(receipt) do
+    receipt["workspace_base_revision"] == primary["base_commit"] and
+      (pull_request_names(remote_session) == ["pull_request"] or
+         receipt["resolved_revision"] == primary["base_commit"])
+  end
+
+  defp primary_receipt_matches?(_receipt, _remote_session, _primary), do: false
+
+  defp pull_request_receipt_matches?(by_name, %{
+         "pull_request" => %{"head_commit" => head_commit}
+       }) do
+    receipt = by_name["pull_request"]
+
+    is_map(receipt) and receipt["resolved_revision"] == head_commit and
+      is_nil(receipt["workspace_base_revision"])
+  end
+
+  defp pull_request_receipt_matches?(_by_name, _remote_session), do: true
+
+  defp pull_request_names(%{"pull_request" => %{"head_commit" => head_commit}})
+       when is_binary(head_commit),
+       do: ["pull_request"]
+
+  defp pull_request_names(_remote_session), do: []
+
+  defp repository_name?(name),
+    do: name in ["primary", "pull_request"] or companion_name?(name)
+
+  defp companion_name?(name),
+    do: is_binary(name) and Regex.match?(@companion_name_regex, name)
+
+  defp bounded_text?(value, maximum) do
+    is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
+      :binary.match(value, <<0>>) == :nomatch
+  end
+
+  defp repository_timestamp(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, 0} -> {:ok, DateTime.to_iso8601(datetime)}
+      _invalid -> {:error, :invalid_timestamp}
+    end
+  end
+
+  defp repository_timestamp(_value), do: {:error, :invalid_timestamp}
+
+  defp stale_base_receipt("current", revision, resolved_revision)
+       when revision == resolved_revision,
+       do: :ok
+
+  defp stale_base_receipt("stale", revision, resolved_revision)
+       when revision != resolved_revision,
+       do: if(git_commit?(revision), do: :ok, else: :error)
+
+  defp stale_base_receipt(status, nil, _resolved_revision)
+       when status in ~w(unknown not_applicable),
+       do: :ok
+
+  defp stale_base_receipt(_status, _revision, _resolved_revision), do: :error
+
   defp ensure_session(%{session: %{coop_session_id: id}} = claim, settings)
        when is_binary(id) do
     case api_call(settings, fn -> settings.api.get_session(settings.client, id) end) do
@@ -285,10 +444,12 @@ defmodule Responder.Work.Executor do
     key = create_key(claim.session)
 
     result =
-      case operation_by_key(settings, key) do
-        :not_found -> create_session(claim, key, settings)
-        {:ok, operation} -> bind_session_from_operation(claim, operation, key, settings)
-        {:error, _reason} = error -> error
+      with :ok <- new_session_repository_capability(claim, settings) do
+        case operation_by_key(settings, key) do
+          :not_found -> create_session(claim, key, settings)
+          {:ok, operation} -> bind_session_from_operation(claim, operation, key, settings)
+          {:error, _reason} = error -> error
+        end
       end
 
     case result do
@@ -299,6 +460,15 @@ defmodule Responder.Work.Executor do
         other
     end
   end
+
+  defp new_session_repository_capability(%{session: %{repository_ref: nil}}, _settings), do: :ok
+
+  defp new_session_repository_capability(
+         %{session: %{repository_ref: repository_ref}} = claim,
+         settings
+       )
+       when is_binary(repository_ref),
+       do: repository_freshness_v2_capability(claim, settings)
 
   defp replace_lost_session(claim, settings) do
     with {:ok, rotated} <-
@@ -317,14 +487,29 @@ defmodule Responder.Work.Executor do
     end
   end
 
-  defp use_or_rotate_session(claim, %{"state" => "open"}, _settings), do: {:ok, claim}
-
   defp use_or_rotate_session(%{turn: %{coop_turn_id: id}} = claim, _remote, _settings)
        when is_binary(id),
        do: {:ok, claim}
 
+  defp use_or_rotate_session(claim, %{"state" => "open"} = remote, settings) do
+    if legacy_repository_freshness?(remote) do
+      with :ok <- repository_freshness_v2_capability(claim, settings) do
+        rotate_session(claim, settings)
+      end
+    else
+      {:ok, claim}
+    end
+  end
+
   defp use_or_rotate_session(claim, %{"state" => state}, settings)
        when state in ~w(exhausted closed discarded) do
+    rotate_session(claim, settings)
+  end
+
+  defp use_or_rotate_session(_claim, _remote, _settings),
+    do: {:error, {:coop_protocol_error, :session_state}}
+
+  defp rotate_session(claim, settings) do
     with {:ok, rotated} <-
            Custody.rotate_session(
              claim.episode.id,
@@ -341,8 +526,63 @@ defmodule Responder.Work.Executor do
     end
   end
 
-  defp use_or_rotate_session(_claim, _remote, _settings),
-    do: {:error, {:coop_protocol_error, :session_state}}
+  defp legacy_repository_freshness?(%{"repository_freshness_status" => "unavailable"}),
+    do: true
+
+  defp legacy_repository_freshness?(%{
+         "repository_freshness_status" => "recorded",
+         "repository_freshness" => receipts
+       })
+       when is_list(receipts),
+       do: Enum.any?(receipts, &(is_map(&1) and Map.get(&1, "version") == 1))
+
+  defp legacy_repository_freshness?(_remote), do: false
+
+  defp repository_freshness_v2_capability(claim, settings) do
+    with {:ok, capability_call} <- repository_freshness_capability_call(claim, settings) do
+      settings
+      |> api_call(capability_call)
+      |> validate_repository_freshness_capability()
+    end
+  end
+
+  defp repository_freshness_capability_call(claim, settings) do
+    cond do
+      function_exported?(settings.api, :capabilities, 2) ->
+        {:ok, fn -> settings.api.capabilities(settings.client, claim.session) end}
+
+      function_exported?(settings.api, :capabilities, 1) ->
+        {:ok, fn -> settings.api.capabilities(settings.client) end}
+
+      true ->
+        {:error, {:coop_upgrade_required, :repository_freshness_v2}}
+    end
+  end
+
+  defp validate_repository_freshness_capability(
+         {:ok, %{"repository_freshness_receipt_versions" => versions}}
+       ) do
+    if capability_versions?(versions) and 2 in versions,
+      do: :ok,
+      else: {:error, {:coop_upgrade_required, :repository_freshness_v2}}
+  end
+
+  defp validate_repository_freshness_capability({:ok, _invalid}),
+    do: {:error, {:coop_upgrade_required, :repository_freshness_v2}}
+
+  defp validate_repository_freshness_capability({:error, {:coop_error, 404, _code, _detail}}),
+    do: {:error, {:coop_upgrade_required, :repository_freshness_v2}}
+
+  defp validate_repository_freshness_capability({:error, _reason} = error), do: error
+
+  defp capability_versions?(versions)
+       when is_list(versions) and versions != [] and
+              length(versions) <= 16 do
+    versions == Enum.sort(Enum.uniq(versions)) and
+      Enum.all?(versions, &(is_integer(&1) and &1 > 0 and &1 <= 65_535))
+  end
+
+  defp capability_versions?(_versions), do: false
 
   defp create_session(claim, key, settings) do
     task = claim.session.external_ref

@@ -12,7 +12,13 @@ defmodule Responder.Webhooks.Route do
   @maximum_body_bytes 40_000
   @default_max_clock_skew_seconds 300
   @required_fields [:auth, :destination, :name]
-  @optional_fields [:adapter, :max_body_bytes, :max_clock_skew_seconds, :work_profile]
+  @optional_fields [
+    :adapter,
+    :max_body_bytes,
+    :max_clock_skew_seconds,
+    :publication_lifecycle,
+    :work_profile
+  ]
   @mapping_required [:event_id, :status, :title]
   @mapping_optional [
     :annotations,
@@ -44,6 +50,12 @@ defmodule Responder.Webhooks.Route do
           conversation_ref: String.t(),
           thread_ref: String.t() | nil
         }
+  @type publication_lifecycle :: %{
+          environments: [String.t()],
+          kinds: [String.t()],
+          repositories: [String.t()],
+          targets: [String.t()]
+        }
   @type t :: %__MODULE__{
           adapter: adapter(),
           auth: auth(),
@@ -51,6 +63,7 @@ defmodule Responder.Webhooks.Route do
           max_body_bytes: pos_integer(),
           max_clock_skew_seconds: pos_integer(),
           name: String.t(),
+          publication_lifecycle: publication_lifecycle() | nil,
           work_profile: WorkProfile.t() | nil
         }
 
@@ -58,10 +71,15 @@ defmodule Responder.Webhooks.Route do
   def new(attributes) do
     with {:ok, attributes} <- normalize_attributes(attributes),
          {:ok, adapter} <- prepare_adapter(Map.get(attributes, :adapter)),
+         {:ok, publication_lifecycle} <-
+           prepare_publication_lifecycle(Map.get(attributes, :publication_lifecycle)),
          {:ok, work_profile} <-
            WorkProfile.prepare(Map.get(attributes, :work_profile)),
          attributes <-
-           attributes |> Map.put(:adapter, adapter) |> Map.put(:work_profile, work_profile),
+           attributes
+           |> Map.put(:adapter, adapter)
+           |> Map.put(:publication_lifecycle, publication_lifecycle)
+           |> Map.put(:work_profile, work_profile),
          route <- struct!(__MODULE__, attributes),
          :ok <- validate(route) do
       {:ok, route}
@@ -87,6 +105,7 @@ defmodule Responder.Webhooks.Route do
        |> Map.put_new(:adapter, %{kind: :universal})
        |> Map.put_new(:max_body_bytes, @default_max_body_bytes)
        |> Map.put_new(:max_clock_skew_seconds, @default_max_clock_skew_seconds)
+       |> Map.put_new(:publication_lifecycle, nil)
        |> Map.put_new(:work_profile, nil)}
     else
       {:error, {:invalid_webhook_route, :fields}}
@@ -120,6 +139,39 @@ defmodule Responder.Webhooks.Route do
   end
 
   defp prepare_adapter(_adapter), do: {:error, {:invalid_webhook_route, :adapter}}
+
+  defp prepare_publication_lifecycle(nil), do: {:ok, nil}
+
+  defp prepare_publication_lifecycle(%{} = scope) when map_size(scope) == 4 do
+    with {:ok, environments} <- scope_list(scope[:environments]),
+         {:ok, kinds} <- scope_list(scope[:kinds]),
+         true <- Enum.all?(kinds, &(&1 in ~w(deployment terraform))),
+         {:ok, repositories} <- scope_list(scope[:repositories]),
+         {:ok, targets} <- scope_list(scope[:targets]) do
+      {:ok,
+       %{
+         environments: environments,
+         kinds: kinds,
+         repositories: repositories,
+         targets: targets
+       }}
+    else
+      _invalid -> {:error, {:invalid_webhook_route, :publication_lifecycle}}
+    end
+  end
+
+  defp prepare_publication_lifecycle(_scope),
+    do: {:error, {:invalid_webhook_route, :publication_lifecycle}}
+
+  defp scope_list(values) when is_list(values) and values != [] and length(values) <= 64 do
+    prepared = Enum.sort(Enum.uniq(values))
+
+    if length(prepared) == length(values) and Enum.all?(prepared, &reference?(&1, 256)),
+      do: {:ok, prepared},
+      else: {:error, :scope}
+  end
+
+  defp scope_list(_values), do: {:error, :scope}
 
   defp prepare_group_labels(labels) when is_list(labels) and length(labels) <= 16 do
     if labels != [] and Enum.uniq(labels) == labels and Enum.all?(labels, &path_segment?/1),

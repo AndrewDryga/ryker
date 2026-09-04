@@ -542,9 +542,6 @@ defmodule Responder.ControlPlane.RouterTest do
       {"record:publication_offer:lab", "review-publication", :review_publication},
       {"record:publication_review:lab", "publish-draft", :approve_publication},
       {"record:publication_result:lab", "check-publication", :check_publication},
-      {"record:task_offer:confirmed", "task-readiness", :request_task_readiness},
-      {"record:task_offer:confirmed", "task-publish", :approve_task_publication},
-      {"record:task_offer:confirmed", "task-check", :check_task_publication},
       {"record:task_offer:confirmed", "close-task", :close_task}
     ]
 
@@ -561,6 +558,65 @@ defmodule Responder.ControlPlane.RouterTest do
 
       assert accepted.status == 303
       assert_received {:lab_record_action, ^conversation_id, ^record_ref, ^action, nil}
+    end
+
+    for {action_name, action, field, value} <- [
+          {"task-readiness", :request_task_readiness, "review_offer_ref",
+           "record:publication_offer:ready"},
+          {"task-publish", :approve_task_publication, "publication_ref",
+           "publication:confirmed-task"},
+          {"task-check", :check_task_publication, "publication_ref", "publication:confirmed-task"}
+        ] do
+      record_ref = "record:task_offer:confirmed"
+      encoded_ref = URI.encode(record_ref, &URI.char_unreserved?/1)
+      path = "/lab/#{conversation_id}/records/#{encoded_ref}/#{action_name}"
+      assert conversation.resp_body =~ path
+
+      resource = "#{conversation_id}:#{record_ref}:#{action}:#{value}"
+      token = CSRF.token(@secret, "conversation_lab:record", resource)
+      accepted = request(:post, path, URI.encode_query(%{"_token" => token, field => value}))
+
+      assert accepted.status == 303
+
+      expected_context =
+        case field do
+          "publication_ref" -> %{publication_ref: value}
+          "review_offer_ref" -> %{review_offer_ref: value}
+        end
+
+      assert_received {:lab_record_action, ^conversation_id, ^record_ref, ^action,
+                       ^expected_context}
+    end
+
+    for {action_name, action} <- [
+          {"task-retry", :retry_task_publication},
+          {"task-update", :update_task_publication},
+          {"task-discard", :discard_task_publication}
+        ] do
+      record_ref = "record:task_offer:confirmed"
+      encoded_ref = URI.encode(record_ref, &URI.char_unreserved?/1)
+      path = "/lab/#{conversation_id}/records/#{encoded_ref}/#{action_name}"
+      assert conversation.resp_body =~ path
+
+      publication_ref = "publication:confirmed-task"
+      resource = "#{conversation_id}:#{record_ref}:#{action}:4:#{publication_ref}"
+      token = CSRF.token(@secret, "conversation_lab:record", resource)
+
+      accepted =
+        request(
+          :post,
+          path,
+          URI.encode_query(%{
+            "_token" => token,
+            "choice_index" => "4",
+            "publication_ref" => publication_ref
+          })
+        )
+
+      assert accepted.status == 303
+
+      assert_received {:lab_record_action, ^conversation_id, ^record_ref, ^action,
+                       %{generation: 4, publication_ref: ^publication_ref}}
     end
 
     invalid = request(:post, "/lab/#{conversation_id}/records/record:one/unknown", "")
@@ -1480,13 +1536,19 @@ defmodule Responder.ControlPlane.RouterTest do
                          :view_postmortem,
                          :request_task_readiness,
                          :approve_task_publication,
-                         :check_task_publication
+                         :check_task_publication,
+                         :retry_task_publication,
+                         :update_task_publication,
+                         :discard_task_publication
                        ],
                        choices: [],
                        details: [{"Work", "pending"}],
                        kind: "task",
                        label: "Engineering task",
+                       publication_ref: "publication:confirmed-task",
+                       recovery_generation: 4,
                        ref: "record:task_offer:confirmed",
+                       review_offer_ref: "record:publication_offer:ready",
                        status: "working",
                        summary: "Focused tests are running.",
                        title: "Confirmed Lab task",

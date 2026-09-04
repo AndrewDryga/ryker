@@ -199,6 +199,7 @@ defmodule Responder.Slack.RendererTest do
         "publication_ref" => "publication:def456",
         "pull_request_number" => 91,
         "pull_request_url" => "https://github.com/acme/responder/pull/91",
+        "recovery_generation" => 1,
         "review_offer_ref" => nil,
         "status" => "published"
       },
@@ -239,6 +240,7 @@ defmodule Responder.Slack.RendererTest do
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
         "pull_request_url" => nil,
+        "recovery_generation" => 1,
         "review_offer_ref" => nil,
         "status" => "reviewed"
       })
@@ -248,6 +250,53 @@ defmodule Responder.Slack.RendererTest do
     assert reviewed_rendered["blocks"]
            |> Enum.flat_map(&Map.get(&1, "elements", []))
            |> Enum.any?(&(&1["action_id"] == "responder_task_publish"))
+
+    recoverable =
+      put_in(task, ["publication"], %{
+        "controls" => ["update", "discard"],
+        "publication_ref" => "publication:def456",
+        "pull_request_number" => nil,
+        "pull_request_url" => nil,
+        "recovery_generation" => 3,
+        "review_offer_ref" => nil,
+        "status" => "blocked"
+      })
+
+    assert {:ok, recovery_rendered} = Renderer.render(%{"task_card" => recoverable})
+
+    recovery_buttons =
+      recovery_rendered["blocks"]
+      |> Enum.flat_map(&Map.get(&1, "elements", []))
+      |> Enum.filter(&String.starts_with?(&1["action_id"] || "", "responder_task_"))
+
+    assert Enum.map(recovery_buttons, &{&1["action_id"], &1["value"]}) == [
+             {"responder_task_update_publication", "task-card:abc123|publication:def456|3"},
+             {"responder_task_discard_publication", "task-card:abc123|publication:def456|3"}
+           ]
+
+    stale =
+      put_in(task, ["publication"], %{
+        "controls" => ["open", "check", "update", "discard"],
+        "publication_ref" => "publication:def456",
+        "pull_request_number" => 91,
+        "pull_request_url" => "https://github.com/acme/responder/pull/91",
+        "recovery_generation" => 4,
+        "review_offer_ref" => nil,
+        "status" => "published"
+      })
+
+    assert {:ok, stale_rendered} = Renderer.render(%{"task_card" => stale})
+
+    stale_buttons =
+      stale_rendered["blocks"]
+      |> Enum.flat_map(&Map.get(&1, "elements", []))
+      |> Enum.filter(&String.starts_with?(&1["action_id"] || "", "responder_task_"))
+
+    assert Enum.map(stale_buttons, & &1["action_id"]) == [
+             "responder_task_check",
+             "responder_task_update_publication",
+             "responder_task_discard_publication"
+           ]
   end
 
   test "renders incident controls from the host projection and rejects invented controls" do
@@ -1021,6 +1070,7 @@ defmodule Responder.Slack.RendererTest do
         "publication_ref" => nil,
         "pull_request_number" => nil,
         "pull_request_url" => nil,
+        "recovery_generation" => nil,
         "review_offer_ref" => "record:publication_offer:review123",
         "status" => "offered"
       })
@@ -1067,6 +1117,7 @@ defmodule Responder.Slack.RendererTest do
         "publication_ref" => nil,
         "pull_request_number" => 1,
         "pull_request_url" => "http://example.test/pr/1",
+        "recovery_generation" => nil,
         "review_offer_ref" => nil,
         "status" => "published"
       })

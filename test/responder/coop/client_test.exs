@@ -344,6 +344,15 @@ defmodule Responder.Coop.ClientTest do
     end)
   end
 
+  test "reads the exact Coop capability document" do
+    capabilities = %{"repository_freshness_receipt_versions" => [2]}
+
+    with_unix_server(capabilities, fn client, request ->
+      assert {:ok, ^capabilities} = Client.capabilities(client)
+      assert request.().path == "/v1/capabilities"
+    end)
+  end
+
   test "plans and executes one exact Coop session discard" do
     planned = %{
       "operation" => %{

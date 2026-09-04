@@ -10,7 +10,7 @@ defmodule Responder.ControlPlane.Actions do
   alias Responder.Ingress.WorkProfile
   alias Responder.Operator.Failures
   alias Responder.Publication.Custody, as: PublicationCustody
-  alias Responder.Publication.{Followups, Publication}
+  alias Responder.Publication.{Followups, Operator, Publication}
   alias Responder.Repo
   alias Responder.Retention.Operator, as: RetentionOperator
   alias Responder.Slack.{WorkDiff, WorkRecord}
@@ -245,6 +245,24 @@ defmodule Responder.ControlPlane.Actions do
        when is_integer(choice_index) and choice_index in 0..9,
        do: :ok
 
+  defp lab_action_arguments(action, %{generation: generation, publication_ref: publication_ref})
+       when action in [
+              :retry_task_publication,
+              :update_task_publication,
+              :discard_task_publication
+            ] and is_integer(generation) and generation > 0 and is_binary(publication_ref) and
+              byte_size(publication_ref) in 1..1_024,
+       do: :ok
+
+  defp lab_action_arguments(action, %{publication_ref: publication_ref})
+       when action in [:approve_task_publication, :check_task_publication] and
+              is_binary(publication_ref) and byte_size(publication_ref) in 1..1_024,
+       do: :ok
+
+  defp lab_action_arguments(:request_task_readiness, %{review_offer_ref: review_offer_ref})
+       when is_binary(review_offer_ref) and byte_size(review_offer_ref) in 1..1_024,
+       do: :ok
+
   defp lab_action_arguments(action, nil)
        when action in [
               :confirm_task,
@@ -258,10 +276,7 @@ defmodule Responder.ControlPlane.Actions do
               :stop_task,
               :close_task,
               :approve_publication,
-              :check_publication,
-              :request_task_readiness,
-              :approve_task_publication,
-              :check_task_publication
+              :check_publication
             ],
        do: :ok
 
@@ -454,6 +469,39 @@ defmodule Responder.ControlPlane.Actions do
   end
 
   defp perform_lab_record_action(
+         %Record{kind: "task_offer", status: :confirmed} = record,
+         target,
+         action,
+         %{generation: expected_generation, publication_ref: publication_ref},
+         _work_profile,
+         _task_policies,
+         action_ref
+       )
+       when action in [
+              :retry_task_publication,
+              :update_task_publication,
+              :discard_task_publication
+            ] do
+    recovery_action =
+      case action do
+        :retry_task_publication -> :retry
+        :update_task_publication -> :update
+        :discard_task_publication -> :discard
+      end
+
+    with {:ok, episode} <- task_episode(record, target),
+         %Publication{} = publication <- task_publication(episode.id, publication_ref) do
+      Operator.recover(publication.ref, recovery_action, expected_generation,
+        actor_ref: @actor_ref,
+        action_ref: action_ref
+      )
+    else
+      nil -> {:error, :conversation_lab_publication_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp perform_lab_record_action(
          %Record{kind: "publication_offer"} = record,
          target,
          :approve_publication,
@@ -493,13 +541,13 @@ defmodule Responder.ControlPlane.Actions do
          %Record{kind: "task_offer", status: :confirmed} = record,
          target,
          :request_task_readiness,
-         nil,
+         %{review_offer_ref: review_offer_ref},
          _work_profile,
          _task_policies,
          action_ref
        ) do
     with {:ok, episode} <- task_episode(record, target),
-         %Record{} = offer <- latest_task_publication_offer(episode.id) do
+         %Record{} = offer <- task_publication_offer(episode.id, review_offer_ref) do
       PublicationCustody.request_review(%{
         actor_ref: @actor_ref,
         occurred_at: now(),
@@ -517,14 +565,14 @@ defmodule Responder.ControlPlane.Actions do
          %Record{kind: "task_offer", status: :confirmed} = record,
          target,
          :approve_task_publication,
-         nil,
+         %{publication_ref: publication_ref},
          _work_profile,
          _task_policies,
          action_ref
        ) do
     with {:ok, episode} <- task_episode(record, target),
          {:ok, publication, review_target} <-
-           lab_task_publication(episode.id, target, :reviewed, :review) do
+           lab_task_publication(episode.id, publication_ref, target, :reviewed, :review) do
       PublicationCustody.approve(%{
         actor_ref: @actor_ref,
         approval_ref: action_ref,
@@ -539,14 +587,14 @@ defmodule Responder.ControlPlane.Actions do
          %Record{kind: "task_offer", status: :confirmed} = record,
          target,
          :check_task_publication,
-         nil,
+         %{publication_ref: publication_ref},
          _work_profile,
          _task_policies,
          action_ref
        ) do
     with {:ok, episode} <- task_episode(record, target),
          {:ok, publication, _published_target} <-
-           lab_task_publication(episode.id, target, :published, :published) do
+           lab_task_publication(episode.id, publication_ref, target, :published, :published) do
       Followups.request_check(publication.ref, action_ref)
     end
   end
@@ -657,35 +705,38 @@ defmodule Responder.ControlPlane.Actions do
     end
   end
 
-  defp lab_task_publication(episode_id, source_target, expected_status, receipt_kind) do
-    publication =
-      Repo.one(
-        from(publication in Publication,
-          where:
-            publication.episode_id == ^episode_id and
-              publication.status == ^expected_status,
-          order_by: [desc: publication.inserted_at, desc: publication.id],
-          limit: 1
-        )
-      )
+  defp lab_task_publication(
+         episode_id,
+         publication_ref,
+         source_target,
+         expected_status,
+         receipt_kind
+       ) do
+    publication = task_publication(episode_id, publication_ref)
 
     case publication do
-      %Publication{} -> lab_publication_target(publication, source_target, receipt_kind)
-      nil -> {:error, :conversation_lab_publication_not_found}
+      %Publication{status: ^expected_status} ->
+        lab_publication_target(publication, source_target, receipt_kind)
+
+      %Publication{} ->
+        {:error, :conversation_lab_publication_not_ready}
+
+      nil ->
+        {:error, :conversation_lab_publication_not_found}
     end
   end
 
-  defp latest_task_publication_offer(episode_id) do
-    Repo.one(
-      from(record in Record,
-        join: turn in Turn,
-        on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
-        where:
-          record.episode_id == ^episode_id and record.kind == "publication_offer" and
-            record.status == :open and record.operation_id == "host:publication:ready",
-        order_by: [desc: record.sequence, desc: record.id],
-        limit: 1
-      )
+  defp task_publication(episode_id, publication_ref) do
+    Repo.get_by(Publication, episode_id: episode_id, ref: publication_ref)
+  end
+
+  defp task_publication_offer(episode_id, review_offer_ref) do
+    Repo.get_by(Record,
+      episode_id: episode_id,
+      ref: review_offer_ref,
+      kind: "publication_offer",
+      status: :open,
+      operation_id: "host:publication:ready"
     )
   end
 
@@ -726,17 +777,30 @@ defmodule Responder.ControlPlane.Actions do
   end
 
   defp lab_action_ref(conversation_id, record_ref, action, choice_index) do
+    action_context = canonical_lab_action_context(choice_index)
+
     digest =
       CanonicalJSON.digest([
         "conversation-lab-action",
         conversation_id,
         record_ref,
         Atom.to_string(action),
-        choice_index
+        action_context
       ])
 
     "control-plane-action:#{digest}"
   end
+
+  defp canonical_lab_action_context(%{generation: generation, publication_ref: publication_ref}),
+    do: %{"generation" => generation, "publication_ref" => publication_ref}
+
+  defp canonical_lab_action_context(%{publication_ref: publication_ref}),
+    do: %{"publication_ref" => publication_ref}
+
+  defp canonical_lab_action_context(%{review_offer_ref: review_offer_ref}),
+    do: %{"review_offer_ref" => review_offer_ref}
+
+  defp canonical_lab_action_context(other), do: other
 
   defp now do
     DateTime.utc_now()

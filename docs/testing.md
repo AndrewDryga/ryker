@@ -552,6 +552,13 @@ workspace configuration. Then qualify these large features in disposable destina
    offer, then exercise status, progress repaint, run-now/resume where offered, and Stop. Double-click
    or replay every button payload; expect one audited transition and the same repainted card. Stop
    during a running Coop turn and verify remote cancellation is terminal before the episode cancels.
+   Continue one disposable task through readiness review and draft-PR publication. Move that
+   Responder-owned PR branch to a different harmless commit, click **Check delivery**, and expect the
+   task card to become action-required with **Review latest state** and **Discard candidate**. Review
+   latest state must create a new review generation, require a new publish approval, update the same
+   PR number, and use the exact observed remote head as its force-with-lease expectation. Move the
+   branch again after review but before publication; Responder must report a conflict and must not
+   overwrite the newer head. Replay the old action payload and expect a stale-generation rejection.
 4. **Slack reactions and files.** Add and remove a standard or configured custom emoji reaction on a
    live Responder reply and verify one normalized passive-feedback event, current member/count state,
    and no model turn until another message arrives. Ask Responder to react to a source message and verify
@@ -579,6 +586,13 @@ workspace configuration. Then qualify these large features in disposable destina
    qualification, bind the route to the exact Conversation Lab ref so the accepted reply is visible
    without generating Slack traffic; the configured production route may instead target Slack or
    GitHub through its registered adapter.
+   After merging the disposable draft PR, send a second event whose body is the exact
+   publication lifecycle body documented in `webhooks.md`, with the
+   `X-Responder-Event-Type: responder.publication_lifecycle.v1` header, a `deployment` or
+   `terraform` kind, and an exact recorded PR URL, branch, commit, or merge SHA. A successful signal
+   must create one verification wakeup. Change the reference to a substring, add an extra envelope
+   field, or send equivalent prose; each must be accepted as ordinary input without advancing the
+   publication verification lifecycle.
 9. **Stateful model behavior.** Ask for evidence, a progress update, a required goal, memory, a
    schedule, an operator question, and a governed Emisar action in separate safe conversations.
    Confirm offers before activation. Verify waits release leases, exact triggers resume once, open

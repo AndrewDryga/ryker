@@ -2,7 +2,7 @@ defmodule Responder.CoopFleet.ClientTest do
   use Responder.DataCase, async: true
 
   alias Responder.{Artifacts, CanonicalJSON}
-  alias Responder.CoopFleet.{Client, ControlPlane, WorkspaceCheckpointTransfer}
+  alias Responder.CoopFleet.{Client, ControlPlane, Placement, WorkspaceCheckpointTransfer}
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
@@ -81,6 +81,27 @@ defmodule Responder.CoopFleet.ClientTest do
              Client.new(workspace_ref: String.duplicate("w", 1_025))
   end
 
+  test "an unplaced session exposes only its enforced placement capability", %{session: session} do
+    assert {:ok, unversioned} = Client.new(workspace_ref: "workspace-main")
+
+    assert {:ok, %{"repository_freshness_receipt_versions" => []}} =
+             Client.capabilities(unversioned, session)
+
+    assert {:ok, versioned} =
+             Client.new(
+               capability_versions: %{"repository-freshness" => "2"},
+               workspace_ref: "workspace-main"
+             )
+
+    assert {:ok, %{"repository_freshness_receipt_versions" => [2]}} =
+             Client.capabilities(versioned, session)
+
+    bound = bind_session!(session, "remote:unplaced-capability")
+
+    assert Client.capabilities(versioned, bound) ==
+             {:error, {:coop_upgrade_required, :repository_freshness_v2}}
+  end
+
   test "create session carries the admission-pinned authority and no worker-selected policy", %{
     client: client,
     session: session
@@ -137,6 +158,49 @@ defmodule Responder.CoopFleet.ClientTest do
              "policy" => @policy,
              "policy_digest" => @policy_digest
            }
+  end
+
+  test "freshness capability follows the exact session placement during a rolling upgrade", %{
+    client: client,
+    session: session
+  } do
+    command = command!(session, "freshness-capability")
+
+    upgraded_worker_id = "client-worker-upgraded-#{Ecto.UUID.generate()}"
+    certificate_sha256 = :crypto.hash(:sha256, upgraded_worker_id) |> Base.encode16(case: :lower)
+
+    assert {:ok, _worker} =
+             ControlPlane.authorize_worker(
+               upgraded_worker_id,
+               "workspace-main",
+               certificate_sha256
+             )
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(
+               upgraded_worker_id,
+               poll(upgraded_worker_id, "upgraded-unplaced", true)
+             )
+
+    assert {:ok, %{"repository_freshness_receipt_versions" => []}} =
+             Client.capabilities(client, session)
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll(
+               command.worker_id,
+               poll(command.worker_id, "upgraded-placed", true)
+             )
+
+    assert {:ok, %{"repository_freshness_receipt_versions" => [2]}} =
+             Client.capabilities(client, session)
+
+    command.placement_id
+    |> then(&Repo.get!(Placement, &1))
+    |> Ecto.Changeset.change(lease_expires_at: DateTime.add(database_now!(), -1, :second))
+    |> Repo.update!()
+
+    assert Client.capabilities(client, session) ==
+             {:error, {:coop_upgrade_required, :repository_freshness_v2}}
   end
 
   test "a confirmed engineering session ensures its exact task before create returns", %{
@@ -850,7 +914,14 @@ defmodule Responder.CoopFleet.ClientTest do
     |> Repo.update!()
   end
 
-  defp poll(worker_id, suffix) do
+  defp poll(worker_id, suffix, freshness_v2? \\ false) do
+    capabilities =
+      [%{"name" => "responder-state", "version" => "1"}] ++
+        if(freshness_v2?,
+          do: [%{"name" => "repository-freshness", "version" => "2"}],
+          else: []
+        )
+
     %{
       "acknowledged_command_ids" => [],
       "command_results" => [],
@@ -859,7 +930,7 @@ defmodule Responder.CoopFleet.ClientTest do
       "version" => 1,
       "worker" => %{
         "build_version" => "coop-test",
-        "capabilities" => [%{"name" => "responder-state", "version" => "1"}],
+        "capabilities" => capabilities,
         "capacity" => %{
           "cooldown_until" => nil,
           "session_slots_free" => 2,

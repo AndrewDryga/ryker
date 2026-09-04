@@ -164,7 +164,8 @@ defmodule Responder.GitHub.ClientTest do
       "html_url" => "https://github.com/octo/example/pull/42",
       "merged" => false,
       "number" => 42,
-      "state" => "open"
+      "state" => "open",
+      "user" => %{"id" => 99, "type" => "Bot"}
     }
 
     {:ok, requester} =
@@ -246,7 +247,8 @@ defmodule Responder.GitHub.ClientTest do
       "merged" => true,
       "merged_at" => "2026-08-28T12:00:00Z",
       "number" => 42,
-      "state" => "closed"
+      "state" => "closed",
+      "user" => %{"id" => 99, "type" => "Bot"}
     }
 
     {:ok, requester} =
@@ -554,7 +556,8 @@ defmodule Responder.GitHub.ClientTest do
       "html_url" => "https://github.com/octo/example/pull/42",
       "merged" => false,
       "number" => 42,
-      "state" => "open"
+      "state" => "open",
+      "user" => %{"id" => 99, "type" => "Bot"}
     }
   end
 end

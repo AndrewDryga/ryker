@@ -12,13 +12,24 @@ defmodule Responder.Publication.Custody do
   alias Ecto.Changeset
   alias Responder.Delivery.Request
   alias Responder.Episodes.Episode
-  alias Responder.Publication.{Card, Changeset, Followups, Publication, Receipt, Review}
+
+  alias Responder.Publication.{
+    Card,
+    Changeset,
+    ConflictReceipt,
+    Followups,
+    Publication,
+    Receipt,
+    Review
+  }
+
   alias Responder.Repo
   alias Responder.Slack.TaskCard
   alias Responder.State.{Record, Records}
   alias Responder.Work.{DeliveryReceipt, Session, Turn}
 
   @claimable [:review_pending, :review_ready, :publish_pending, :published_ready]
+  @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch)
   @request_fields [:actor_ref, :occurred_at, :record_ref, :request_ref, :target]
   @approval_fields [:actor_ref, :approval_ref, :occurred_at, :publication_ref, :target]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
@@ -146,6 +157,15 @@ defmodule Responder.Publication.Custody do
     end
   end
 
+  def store_conflict(publication_ref, lease_ref, code, receipt) do
+    with :ok <- reference(publication_ref, :publication_ref),
+         :ok <- reference(lease_ref, :lease_ref),
+         {:ok, code} <- publication_conflict(code) do
+      Repo.transaction(fn -> store_conflict_locked(publication_ref, lease_ref, code, receipt) end)
+      |> transaction_result()
+    end
+  end
+
   def renew(publication_ref, lease_ref, lease_seconds) do
     with :ok <- reference(publication_ref, :publication_ref),
          :ok <- reference(lease_ref, :lease_ref),
@@ -166,6 +186,227 @@ defmodule Responder.Publication.Custody do
       end)
       |> transaction_result()
     end
+  end
+
+  @doc """
+  Recovers one exact publication generation.
+
+  Retry rearms a deferred executable phase without changing its frozen review
+  state. Update invalidates the prior review and queues a fresh one. Discard is
+  terminal and preserves the prior review as operator evidence. Every action is
+  fenced by `recovery_generation`, and an active executor lease always wins.
+  """
+  @spec recover(String.t(), :retry | :update | :discard, pos_integer()) ::
+          {:ok, %{previous: map(), publication: Publication.t()}} | {:error, term()}
+  def recover(publication_ref, action, expected_generation) do
+    with :ok <- reference(publication_ref, :publication_ref),
+         :ok <- recovery_action(action),
+         :ok <- positive(expected_generation, :recovery_generation) do
+      Repo.transaction(fn -> recover_locked(publication_ref, action, expected_generation) end)
+      |> transaction_result()
+    end
+  end
+
+  defp recover_locked(publication_ref, action, expected_generation) do
+    case lock_publication(publication_ref) do
+      nil ->
+        Repo.rollback(:publication_not_found)
+
+      publication ->
+        now = database_now!()
+
+        with :ok <- recovery_generation(publication, expected_generation),
+             :ok <- no_live_recovery_lease(publication, now),
+             {:ok, attributes} <- recovery_attributes(publication, action, now) do
+          previous = recovery_snapshot(publication)
+          recovered = update!(publication, attributes, now)
+          %{previous: previous, publication: recovered}
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+    end
+  end
+
+  defp recovery_generation(%Publication{recovery_generation: expected}, expected), do: :ok
+
+  defp recovery_generation(_publication, _expected),
+    do: {:error, :publication_recovery_generation_stale}
+
+  defp no_live_recovery_lease(%Publication{lease_ref: nil}, _now), do: :ok
+
+  defp no_live_recovery_lease(%Publication{lease_expires_at: %DateTime{} = expires_at}, now) do
+    if DateTime.compare(expires_at, now) == :gt,
+      do: {:error, :publication_recovery_lease_active},
+      else: :ok
+  end
+
+  defp no_live_recovery_lease(_publication, _now),
+    do: {:error, :publication_recovery_lease_active}
+
+  defp recovery_attributes(
+         %Publication{status: status, last_error_code: code, recovery_generation: generation},
+         :retry,
+         now
+       )
+       when status in @claimable and is_binary(code) and code not in @publication_conflicts do
+    {:ok,
+     %{
+       last_error_code: nil,
+       last_error_detail: nil,
+       lease_expires_at: nil,
+       lease_owner: nil,
+       lease_ref: nil,
+       next_attempt_at: now,
+       recovery_generation: generation + 1
+     }}
+  end
+
+  defp recovery_attributes(
+         %Publication{
+           status: :published,
+           expected_remote_head_sha: head_sha,
+           recovery_generation: generation
+         } = publication,
+         :update,
+         now
+       )
+       when is_binary(head_sha) do
+    with :ok <- Followups.rearm_stale_in_transaction(publication, now) do
+      {:ok,
+       publication
+       |> fresh_review_attributes(now)
+       |> Map.merge(%{
+         approval_ref: nil,
+         approved_at: nil,
+         approved_by_actor_ref: nil,
+         publication_receipt: nil,
+         publication_receipt_fingerprint: nil,
+         published_at: nil,
+         published_delivery_receipt: nil,
+         published_delivery_receipt_fingerprint: nil,
+         recovery_generation: generation + 1
+       })}
+    end
+  end
+
+  defp recovery_attributes(
+         %Publication{
+           status: :publish_pending,
+           expected_remote_head_sha: head_sha,
+           last_error_code: code,
+           recovery_generation: generation
+         } = publication,
+         :update,
+         now
+       )
+       when is_binary(head_sha) and code in @publication_conflicts do
+    with :ok <- Followups.rearm_conflict_in_transaction(publication, now) do
+      {:ok,
+       publication
+       |> fresh_review_attributes(now)
+       |> Map.merge(%{
+         approval_ref: nil,
+         approved_at: nil,
+         approved_by_actor_ref: nil,
+         recovery_generation: generation + 1
+       })}
+    end
+  end
+
+  defp recovery_attributes(
+         %Publication{status: status, approval_ref: nil, recovery_generation: generation} =
+           publication,
+         :update,
+         now
+       )
+       when status in [:reviewed, :blocked] do
+    {:ok,
+     publication
+     |> fresh_review_attributes(now)
+     |> Map.put(:recovery_generation, generation + 1)}
+  end
+
+  defp recovery_attributes(
+         %Publication{
+           status: :published,
+           expected_remote_head_sha: head_sha,
+           recovery_generation: generation
+         },
+         :discard,
+         _now
+       )
+       when is_binary(head_sha) do
+    {:ok, discard_attributes(generation)}
+  end
+
+  defp recovery_attributes(
+         %Publication{
+           status: :publish_pending,
+           last_error_code: code,
+           recovery_generation: generation
+         },
+         :discard,
+         _now
+       )
+       when code in @publication_conflicts do
+    {:ok, discard_attributes(generation)}
+  end
+
+  defp recovery_attributes(
+         %Publication{status: status, approval_ref: nil, recovery_generation: generation},
+         :discard,
+         _now
+       )
+       when status in [:reviewed, :blocked] do
+    {:ok, discard_attributes(generation)}
+  end
+
+  defp recovery_attributes(_publication, _action, _now),
+    do: {:error, :publication_recovery_not_allowed}
+
+  defp discard_attributes(generation) do
+    %{
+      last_error_code: nil,
+      last_error_detail: nil,
+      lease_expires_at: nil,
+      lease_owner: nil,
+      lease_ref: nil,
+      next_attempt_at: nil,
+      recovery_generation: generation + 1,
+      status: :discarded
+    }
+  end
+
+  defp recovery_snapshot(publication) do
+    snapshot = %{
+      "last_error_code" => publication.last_error_code,
+      "recovery_generation" => publication.recovery_generation,
+      "status" => Atom.to_string(publication.status)
+    }
+
+    if is_binary(publication.expected_remote_head_sha),
+      do: Map.put(snapshot, "expected_remote_head_sha", publication.expected_remote_head_sha),
+      else: snapshot
+  end
+
+  defp fresh_review_attributes(publication, now) do
+    %{
+      last_error_code: nil,
+      last_error_detail: nil,
+      lease_expires_at: nil,
+      lease_owner: nil,
+      lease_ref: nil,
+      next_attempt_at: now,
+      review_delivery_receipt: nil,
+      review_delivery_receipt_fingerprint: nil,
+      review_document: nil,
+      review_expected_revision: nil,
+      review_fingerprint: nil,
+      review_generation: publication.review_generation + 1,
+      review_patch: nil,
+      reviewed_at: nil,
+      status: :review_pending
+    }
   end
 
   defp freeze_review_revision_locked(publication_ref, lease_ref, revision) do
@@ -243,12 +484,35 @@ defmodule Responder.Publication.Custody do
     end
   end
 
+  defp store_conflict_locked(publication_ref, lease_ref, code, receipt) do
+    with {:ok, publication, now} <- lock_leased(publication_ref, lease_ref),
+         :ok <- status(publication, :publish_pending),
+         {:ok, receipt} <- ConflictReceipt.prepare(receipt, publication.repository) do
+      update!(
+        publication,
+        %{
+          branch_ref: receipt["branch_ref"],
+          commit_sha: receipt["candidate_commit_sha"],
+          expected_remote_head_sha: receipt["observed_head_sha"],
+          github_repository: receipt["github_repository"],
+          last_error_code: code,
+          pull_request_number: receipt["pull_request_number"],
+          pull_request_url: receipt["pull_request_url"]
+        },
+        now
+      )
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
   defp persist_publication(publication, receipt, now) do
     update!(
       publication,
       %{
         branch_ref: receipt["branch_ref"],
         commit_sha: receipt["commit_sha"],
+        expected_remote_head_sha: nil,
         github_repository: github_repository!(receipt["pull_request_url"]),
         publication_receipt: receipt,
         publication_receipt_fingerprint: Receipt.fingerprint(receipt),
@@ -521,42 +785,49 @@ defmodule Responder.Publication.Custody do
   defp claim_next_locked(worker_ref, lease_seconds) do
     now = database_now!()
 
-    query =
-      from(publication in Publication,
-        join: session in Session,
-        on: session.id == publication.session_id and session.episode_id == publication.episode_id,
-        where:
-          publication.status in ^@claimable and
-            (is_nil(publication.next_attempt_at) or publication.next_attempt_at <= ^now) and
-            (is_nil(publication.lease_expires_at) or publication.lease_expires_at <= ^now),
-        order_by: [asc: publication.inserted_at, asc: publication.id],
-        limit: 1,
-        select: {publication, session},
-        lock: "FOR UPDATE SKIP LOCKED"
-      )
-
-    case Repo.one(query) do
+    case Repo.one(next_claimable_query(now)) do
       nil ->
         nil
 
       {publication, session} ->
-        lease_ref = "publication-lease:#{Ecto.UUID.generate()}"
-
-        publication =
-          update!(
-            publication,
-            %{
-              attempt_count: publication.attempt_count + 1,
-              lease_expires_at: DateTime.add(now, lease_seconds, :second),
-              lease_owner: worker_ref,
-              lease_ref: lease_ref,
-              next_attempt_at: nil
-            },
-            now
-          )
-
-        %{lease_ref: lease_ref, publication: publication, session: session}
+        lease_publication(publication, session, worker_ref, lease_seconds, now)
     end
+  end
+
+  defp next_claimable_query(now) do
+    from(publication in Publication,
+      join: session in Session,
+      on: session.id == publication.session_id and session.episode_id == publication.episode_id,
+      where:
+        publication.status in ^@claimable and
+          (is_nil(publication.last_error_code) or
+             publication.last_error_code not in ^@publication_conflicts) and
+          (is_nil(publication.next_attempt_at) or publication.next_attempt_at <= ^now) and
+          (is_nil(publication.lease_expires_at) or publication.lease_expires_at <= ^now),
+      order_by: [asc: publication.inserted_at, asc: publication.id],
+      limit: 1,
+      select: {publication, session},
+      lock: "FOR UPDATE SKIP LOCKED"
+    )
+  end
+
+  defp lease_publication(publication, session, worker_ref, lease_seconds, now) do
+    lease_ref = "publication-lease:#{Ecto.UUID.generate()}"
+
+    publication =
+      update!(
+        publication,
+        %{
+          attempt_count: publication.attempt_count + 1,
+          lease_expires_at: DateTime.add(now, lease_seconds, :second),
+          lease_owner: worker_ref,
+          lease_ref: lease_ref,
+          next_attempt_at: nil
+        },
+        now
+      )
+
+    %{lease_ref: lease_ref, publication: publication, session: session}
   end
 
   defp confirm_delivery_locked(publication_ref, lease_ref, receipt) do
@@ -838,6 +1109,22 @@ defmodule Responder.Publication.Custody do
 
   defp positive(value, _field) when is_integer(value) and value > 0, do: :ok
   defp positive(_value, field), do: {:error, {:invalid_publication, field}}
+
+  defp recovery_action(action) when action in [:retry, :update, :discard], do: :ok
+
+  defp recovery_action(_action),
+    do: {:error, {:invalid_publication, :recovery_action}}
+
+  defp publication_conflict(code) when is_atom(code) do
+    code = Atom.to_string(code)
+
+    if code in @publication_conflicts,
+      do: {:ok, code},
+      else: {:error, {:invalid_publication, :conflict_code}}
+  end
+
+  defp publication_conflict(_code),
+    do: {:error, {:invalid_publication, :conflict_code}}
 
   defp utc_datetime(%DateTime{} = value) do
     if value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0 do

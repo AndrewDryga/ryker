@@ -345,6 +345,47 @@ defmodule Responder.Slack.WorkControlsTest do
     assert WorkControls.check_publication(crossed) == {:error, :task_publication_mismatch}
   end
 
+  test "a task card recovers only its exact publication generation" do
+    fixture = PublicationFixture.published!("task-card-recovery")
+    card = publication_task_card!(fixture.publication, "recovery")
+    observed_head = String.duplicate("d", 40)
+
+    Repo.update_all(
+      from(followup in Followup, where: followup.publication_id == ^fixture.publication.id),
+      set: [pr_state: "stale"]
+    )
+
+    {1, _rows} =
+      Repo.update_all(
+        from(publication in Publication, where: publication.id == ^fixture.publication.id),
+        set: [expected_remote_head_sha: observed_head]
+      )
+
+    attributes =
+      card
+      |> publication_attributes()
+      |> Map.merge(%{
+        expected_generation: 1,
+        publication_ref: fixture.publication.ref
+      })
+
+    assert {:ok, result} = WorkControls.recover_publication(attributes, :update)
+    assert result.outcome == :review_pending
+    assert result.work_ref == card.ref
+
+    recovered = Repo.get!(Publication, fixture.publication.id)
+    assert recovered.status == :review_pending
+    assert recovered.recovery_generation == 2
+    assert recovered.expected_remote_head_sha == observed_head
+    assert recovered.branch_ref == fixture.publication.branch_ref
+    assert Repo.get_by!(Followup, publication_id: recovered.id).pr_state == "open"
+
+    stale = %{attributes | request_ref: "interaction:stale-publication-recovery"}
+
+    assert WorkControls.recover_publication(stale, :update) ==
+             {:error, :publication_recovery_generation_stale}
+  end
+
   test "timeline and evidence controls publish one recoverable thread message" do
     fixture = task_fixture!("record-control", rich_records: true)
     slack = start_supervised!({Agent, fn -> %{messages: %{}, posts: [], updates: []} end})
@@ -442,6 +483,7 @@ defmodule Responder.Slack.WorkControlsTest do
     assert WorkControls.request_readiness(%{}) == {:error, :invalid_work_control}
     assert WorkControls.approve_publication(%{}) == {:error, :invalid_work_control}
     assert WorkControls.check_publication(%{}) == {:error, :invalid_work_control}
+    assert WorkControls.recover_publication(%{}, :retry) == {:error, :invalid_work_control}
   end
 
   test "work target resolution fences card and thread controls independently" do

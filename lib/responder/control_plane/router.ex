@@ -265,15 +265,15 @@ defmodule Responder.ControlPlane.Router do
     with {:ok, conversation_id} <- lab_id(conversation_id),
          {:ok, record_ref} <- path_ref(record_ref),
          {:ok, action} <- lab_record_action(action_name),
-         {:ok, token, choice_index, conn} <- lab_record_form(conn, action),
-         resource <- lab_record_resource(conversation_id, record_ref, action, choice_index),
+         {:ok, token, action_context, conn} <- lab_record_form(conn, action),
+         resource <- lab_record_resource(conversation_id, record_ref, action, action_context),
          true <- CSRF.valid?(options.csrf_secret, @lab_record_action, resource, token),
          {:ok, _result} <-
            options.actions.act_on_lab_record.(
              conversation_id,
              record_ref,
              action,
-             choice_index
+             action_context
            ) do
       conn
       |> put_resp_header("location", "/lab/#{conversation_id}")
@@ -558,11 +558,13 @@ defmodule Responder.ControlPlane.Router do
        when is_list(actions) and actions != [] do
     controls =
       Enum.map(actions, fn action ->
+        action_context = lab_action_context(card, action)
+
         lab_record_control(
           card.ref,
           conversation_id,
           action,
-          nil,
+          action_context,
           lab_record_label(action),
           secret
         )
@@ -599,22 +601,32 @@ defmodule Responder.ControlPlane.Router do
     Map.put(card, :controls, [control])
   end
 
-  defp lab_record_control(record_ref, conversation_id, action, choice_index, label, secret) do
+  defp lab_record_control(record_ref, conversation_id, action, action_context, label, secret) do
     action_name = lab_record_action_name(action)
 
     path =
       "/lab/#{conversation_id}/records/#{URI.encode(record_ref, &URI.char_unreserved?/1)}/#{action_name}"
 
     if lab_record_read_action?(action) do
-      %{choice_index: nil, label: label, method: :get, path: path, token: nil}
+      %{
+        choice_index: nil,
+        label: label,
+        method: :get,
+        path: path,
+        publication_ref: nil,
+        review_offer_ref: nil,
+        token: nil
+      }
     else
-      resource = lab_record_resource(conversation_id, record_ref, action, choice_index)
+      resource = lab_record_resource(conversation_id, record_ref, action, action_context)
 
       %{
-        choice_index: choice_index,
+        choice_index: lab_choice_index(action_context),
         label: label,
         method: :post,
         path: path,
+        publication_ref: lab_publication_ref(action_context),
+        review_offer_ref: lab_review_offer_ref(action_context),
         token: CSRF.token(secret, @lab_record_action, resource)
       }
     end
@@ -646,6 +658,9 @@ defmodule Responder.ControlPlane.Router do
   defp lab_record_action("task-readiness"), do: {:ok, :request_task_readiness}
   defp lab_record_action("task-publish"), do: {:ok, :approve_task_publication}
   defp lab_record_action("task-check"), do: {:ok, :check_task_publication}
+  defp lab_record_action("task-retry"), do: {:ok, :retry_task_publication}
+  defp lab_record_action("task-update"), do: {:ok, :update_task_publication}
+  defp lab_record_action("task-discard"), do: {:ok, :discard_task_publication}
   defp lab_record_action(_action), do: {:error, :lab_record_action}
 
   defp lab_record_action_name(:confirm_task), do: "confirm-task"
@@ -664,6 +679,9 @@ defmodule Responder.ControlPlane.Router do
   defp lab_record_action_name(:request_task_readiness), do: "task-readiness"
   defp lab_record_action_name(:approve_task_publication), do: "task-publish"
   defp lab_record_action_name(:check_task_publication), do: "task-check"
+  defp lab_record_action_name(:retry_task_publication), do: "task-retry"
+  defp lab_record_action_name(:update_task_publication), do: "task-update"
+  defp lab_record_action_name(:discard_task_publication), do: "task-discard"
   defp lab_record_action_name(:view_diff), do: "diff"
   defp lab_record_action_name(:view_timeline), do: "timeline"
   defp lab_record_action_name(:view_evidence), do: "evidence"
@@ -685,6 +703,9 @@ defmodule Responder.ControlPlane.Router do
   defp lab_record_label(:request_task_readiness), do: "Run readiness check"
   defp lab_record_label(:approve_task_publication), do: "Create draft PR"
   defp lab_record_label(:check_task_publication), do: "Check delivery"
+  defp lab_record_label(:retry_task_publication), do: "Retry publication"
+  defp lab_record_label(:update_task_publication), do: "Review latest state"
+  defp lab_record_label(:discard_task_publication), do: "Discard candidate"
   defp lab_record_label(:view_diff), do: "View diff"
   defp lab_record_label(:view_timeline), do: "Timeline"
   defp lab_record_label(:view_evidence), do: "Evidence"
@@ -766,12 +787,41 @@ defmodule Responder.ControlPlane.Router do
   defp view_action(:handoff), do: :view_handoff
   defp view_action(:postmortem), do: :view_postmortem
 
-  defp lab_record_resource(conversation_id, record_ref, action, choice_index) do
+  defp lab_record_resource(conversation_id, record_ref, action, action_context) do
     Enum.join(
-      [conversation_id, record_ref, Atom.to_string(action), choice_index || "none"],
+      [
+        conversation_id,
+        record_ref,
+        Atom.to_string(action),
+        lab_action_context_resource(action_context)
+      ],
       ":"
     )
   end
+
+  defp lab_action_context_resource(%{generation: generation, publication_ref: publication_ref}),
+    do: "#{generation}:#{publication_ref}"
+
+  defp lab_action_context_resource(%{publication_ref: publication_ref}),
+    do: publication_ref
+
+  defp lab_action_context_resource(%{review_offer_ref: review_offer_ref}),
+    do: review_offer_ref
+
+  defp lab_action_context_resource(choice_index) when is_integer(choice_index),
+    do: Integer.to_string(choice_index)
+
+  defp lab_action_context_resource(nil), do: "none"
+
+  defp lab_choice_index(%{generation: generation}), do: generation
+  defp lab_choice_index(%{}), do: nil
+  defp lab_choice_index(choice_index), do: choice_index
+
+  defp lab_publication_ref(%{publication_ref: publication_ref}), do: publication_ref
+  defp lab_publication_ref(_action_context), do: nil
+
+  defp lab_review_offer_ref(%{review_offer_ref: review_offer_ref}), do: review_offer_ref
+  defp lab_review_offer_ref(_action_context), do: nil
 
   defp confirmation("memory", resource_ref, "forget", options) do
     snapshot = options.projection.memory.()
@@ -1065,11 +1115,84 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
+  defp lab_record_form(conn, action)
+       when action in [
+              :retry_task_publication,
+              :update_task_publication,
+              :discard_task_publication
+            ] do
+    with [content_type] <- get_req_header(conn, "content-type"),
+         true <-
+           String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
+         {:ok, body, conn} <- read_form(conn),
+         %{
+           "_token" => token,
+           "choice_index" => generation,
+           "publication_ref" => publication_ref
+         } = form <- Query.decode(body),
+         true <- Enum.sort(Map.keys(form)) == ["_token", "choice_index", "publication_ref"],
+         {generation, ""} when generation > 0 <- Integer.parse(generation),
+         {:ok, publication_ref} <- path_ref(publication_ref) do
+      {:ok, token, %{generation: generation, publication_ref: publication_ref}, conn}
+    else
+      _invalid -> {:error, :form}
+    end
+  end
+
+  defp lab_record_form(conn, action)
+       when action in [:approve_task_publication, :check_task_publication] do
+    with [content_type] <- get_req_header(conn, "content-type"),
+         true <-
+           String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
+         {:ok, body, conn} <- read_form(conn),
+         %{"_token" => token, "publication_ref" => publication_ref} = form <- Query.decode(body),
+         true <- Enum.sort(Map.keys(form)) == ["_token", "publication_ref"],
+         {:ok, publication_ref} <- path_ref(publication_ref) do
+      {:ok, token, %{publication_ref: publication_ref}, conn}
+    else
+      _invalid -> {:error, :form}
+    end
+  end
+
+  defp lab_record_form(conn, :request_task_readiness) do
+    with [content_type] <- get_req_header(conn, "content-type"),
+         true <-
+           String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
+         {:ok, body, conn} <- read_form(conn),
+         %{"_token" => token, "review_offer_ref" => review_offer_ref} = form <- Query.decode(body),
+         true <- Enum.sort(Map.keys(form)) == ["_token", "review_offer_ref"],
+         {:ok, review_offer_ref} <- path_ref(review_offer_ref) do
+      {:ok, token, %{review_offer_ref: review_offer_ref}, conn}
+    else
+      _invalid -> {:error, :form}
+    end
+  end
+
   defp lab_record_form(conn, _action) do
     with {:ok, token, conn} <- form_token(conn) do
       {:ok, token, nil, conn}
     end
   end
+
+  defp lab_action_context(card, action)
+       when action in [
+              :retry_task_publication,
+              :update_task_publication,
+              :discard_task_publication
+            ],
+       do: %{
+         generation: Map.get(card, :recovery_generation),
+         publication_ref: Map.get(card, :publication_ref)
+       }
+
+  defp lab_action_context(card, action)
+       when action in [:approve_task_publication, :check_task_publication],
+       do: %{publication_ref: Map.get(card, :publication_ref)}
+
+  defp lab_action_context(card, :request_task_readiness),
+    do: %{review_offer_ref: Map.get(card, :review_offer_ref)}
+
+  defp lab_action_context(_card, _action), do: nil
 
   defp lab_message_edit_form(conn) do
     with [content_type] <- get_req_header(conn, "content-type"),

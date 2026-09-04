@@ -883,7 +883,11 @@ defmodule Responder.CoopFleet.ControlPlane do
     worker.policy_digests[session.policy] == session.policy_digest and
       worker_authority_matches?(worker, session.policy, session.authority_digest) and
       repository_available?(worker.repositories, requirements.repository_ref) and
-      capabilities_available?(worker.capabilities, requirements.capability_names) and
+      capabilities_available?(
+        worker.capabilities,
+        requirements.capability_names,
+        requirements.capability_versions
+      ) and
       worker.capacity["state"] == "eligible" and
       DateTime.diff(now, worker.clock_at, :second) |> abs() <= @maximum_clock_skew_seconds
   end
@@ -894,14 +898,17 @@ defmodule Responder.CoopFleet.ControlPlane do
     Enum.any?(repositories, &(&1["ref"] == repository_ref))
   end
 
-  defp capabilities_available?(capabilities, required_names) do
-    available = MapSet.new(capabilities, & &1["name"])
-    Enum.all?(required_names, &MapSet.member?(available, &1))
+  defp capabilities_available?(capabilities, required_names, required_versions) do
+    available = Map.new(capabilities, &{&1["name"], &1["version"]})
+
+    Enum.all?(required_names, &Map.has_key?(available, &1)) and
+      Enum.all?(required_versions, fn {name, version} -> available[name] == version end)
   end
 
   defp placement_requirements(session, worker, requirements) do
     %{
       "capability_names" => requirements.capability_names,
+      "capability_versions" => requirements.capability_versions,
       "authority_digest" => session.authority_digest,
       "policy" => session.policy,
       "policy_digest" => session.policy_digest,
@@ -921,7 +928,11 @@ defmodule Responder.CoopFleet.ControlPlane do
         requirements["authority_digest"]
       ) and
       repository_available?(worker.repositories, requirements["repository_ref"]) and
-      capabilities_available?(worker.capabilities, requirements["capability_names"])
+      capabilities_available?(
+        worker.capabilities,
+        requirements["capability_names"],
+        Map.get(requirements, "capability_versions", %{})
+      )
   end
 
   defp capacity_slot(worker, name), do: Map.get(worker.capacity, name, 0)
@@ -1005,13 +1016,16 @@ defmodule Responder.CoopFleet.ControlPlane do
     workspace_ref = Map.get(requirements, :workspace_ref)
     repository_ref = Map.get(requirements, :repository_ref)
     capability_names = Map.get(requirements, :capability_names, [])
+    capability_versions = Map.get(requirements, :capability_versions, %{})
 
     with :ok <- reference(workspace_ref, 256, :workspace_ref),
          :ok <- optional_reference(repository_ref, 256, :repository_ref),
-         :ok <- references(capability_names, :capability_names) do
+         :ok <- references(capability_names, :capability_names),
+         :ok <- capability_versions(capability_versions) do
       {:ok,
        %{
          capability_names: capability_names,
+         capability_versions: capability_versions,
          repository_ref: repository_ref,
          workspace_ref: workspace_ref
        }}
@@ -1028,6 +1042,18 @@ defmodule Responder.CoopFleet.ControlPlane do
   end
 
   defp references(_values, field), do: {:error, {:invalid_coop_session_placement, field}}
+
+  defp capability_versions(versions) when is_map(versions) and map_size(versions) <= 100 do
+    if Enum.all?(versions, fn {name, version} ->
+         reference(name, 256, :capability_versions) == :ok and
+           reference(version, 128, :capability_versions) == :ok
+       end),
+       do: :ok,
+       else: {:error, {:invalid_coop_session_placement, :capability_versions}}
+  end
+
+  defp capability_versions(_versions),
+    do: {:error, {:invalid_coop_session_placement, :capability_versions}}
 
   defp lease_seconds(value)
        when is_integer(value) and value > 0 and value <= @maximum_lease_seconds,

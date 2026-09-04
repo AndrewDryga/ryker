@@ -22,6 +22,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @authority_digests_version 20_260_903_000_200
   @slack_thread_statuses_version 20_260_904_000_100
   @operator_actions_version 20_260_904_000_200
+  @publication_recovery_version 20_260_904_000_300
+  @publication_stale_head_version 20_260_904_000_400
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
   test "an installation that already ran the Slack inbox migration upgrades to generic ingress" do
@@ -57,7 +59,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @work_classes_version,
                @authority_digests_version,
                @slack_thread_statuses_version,
-               @operator_actions_version
+               @operator_actions_version,
+               @publication_recovery_version,
+               @publication_stale_head_version
              ]
 
       refute table_exists?(repo, prefix, "slack_inbox_entries")
@@ -142,7 +146,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @work_classes_version,
                @authority_digests_version,
                @slack_thread_statuses_version,
-               @operator_actions_version
+               @operator_actions_version,
+               @publication_recovery_version,
+               @publication_stale_head_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -156,6 +162,24 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  "SELECT execution_kind, episode_id FROM #{prefix}.episode_work_sessions WHERE id = $1::text::uuid",
                  [admission_session_id]
                )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@publication_stale_head_version]
+
+      refute column_exists?(repo, prefix, "episode_publications", "expected_remote_head_sha")
+      assert column_exists?(repo, prefix, "episode_publications", "recovery_generation")
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@publication_recovery_version]
+
+      refute column_exists?(repo, prefix, "episode_publications", "recovery_generation")
+      assert table_exists?(repo, prefix, "responder_operator_actions")
 
       assert Ecto.Migrator.run(repo, @migrations_path, :down,
                step: 1,
@@ -249,7 +273,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @work_classes_version,
                @authority_digests_version,
                @slack_thread_statuses_version,
-               @operator_actions_version
+               @operator_actions_version,
+               @publication_recovery_version,
+               @publication_stale_head_version
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -283,7 +309,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @work_classes_version,
                @authority_digests_version,
                @slack_thread_statuses_version,
-               @operator_actions_version
+               @operator_actions_version,
+               @publication_recovery_version,
+               @publication_stale_head_version
              ]
 
       assert Release.migrate(options) == []
@@ -311,6 +339,28 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
         Release.rollback(@slack_thread_statuses_version, options)
       end
+
+      assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
+        Release.rollback(@operator_actions_version, options)
+      end
+
+      assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
+        Release.rollback(@publication_recovery_version, options)
+      end
+
+      assert Release.rollback(@publication_stale_head_version, options) == [
+               @publication_stale_head_version
+             ]
+
+      refute column_exists?(repo, prefix, "episode_publications", "expected_remote_head_sha")
+      assert column_exists?(repo, prefix, "episode_publications", "recovery_generation")
+
+      assert Release.rollback(@publication_recovery_version, options) == [
+               @publication_recovery_version
+             ]
+
+      refute column_exists?(repo, prefix, "episode_publications", "recovery_generation")
+      assert table_exists?(repo, prefix, "responder_operator_actions")
 
       assert Release.rollback(@operator_actions_version, options) == [
                @operator_actions_version
@@ -359,6 +409,76 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert Release.rollback(@product_schema_version, options) == [@product_schema_version]
       refute table_exists?(repo, prefix, "episode_publications")
       assert table_exists?(repo, prefix, "episode_work_sessions")
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  test "publication recovery migrations refuse to discard feature data on rollback" do
+    repo = start_migration_repo!()
+    prefix = "publication_recovery_rollback_#{System.unique_integer([:positive])}"
+
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      ids = insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        all: true,
+        prefix: prefix,
+        log: false
+      )
+
+      {record_id, publication_id} = insert_stale_head_recovery_rows!(repo, prefix, ids)
+
+      assert_raise Postgrex.Error, ~r/stale-head recovery has data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down,
+          step: 1,
+          prefix: prefix,
+          log: false
+        )
+      end
+
+      assert column_exists?(repo, prefix, "episode_publications", "expected_remote_head_sha")
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.episode_publications WHERE id = $1::text::uuid",
+        [publication_id]
+      )
+
+      SQL.query!(
+        repo,
+        "DELETE FROM #{prefix}.episode_state_records WHERE id = $1::text::uuid",
+        [record_id]
+      )
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) == [@publication_stale_head_version]
+
+      insert_publication_recovery_action!(repo, prefix)
+
+      assert_raise Postgrex.Error, ~r/publication recovery has data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down,
+          step: 1,
+          prefix: prefix,
+          log: false
+        )
+      end
+
+      assert column_exists?(repo, prefix, "episode_publications", "recovery_generation")
+
+      assert %{rows: [["update"]]} =
+               SQL.query!(repo, "SELECT action FROM #{prefix}.responder_operator_actions", [])
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
@@ -550,6 +670,69 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     )
 
     session_id
+  end
+
+  defp insert_stale_head_recovery_rows!(repo, prefix, ids) do
+    record_id = Ecto.UUID.generate()
+    publication_id = Ecto.UUID.generate()
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.episode_state_records (
+        id, episode_id, turn_id, ref, operation_id, kind, status, payload,
+        payload_fingerprint, sequence, inserted_at, updated_at
+      ) VALUES (
+        $1::text::uuid, $2::text::uuid, $3::text::uuid,
+        'record:publication:rollback', 'host:publication:ready', 'publication_offer',
+        'open', '{"title":"Rollback proof"}', repeat('c', 64), 1,
+        clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [record_id, ids.episode_id, ids.turn_id]
+    )
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.episode_publications (
+        id, ref, episode_id, record_id, session_id, repository, title, body, status,
+        destination_transport, destination_conversation_ref, destination_thread_ref,
+        offer_message_ref, review_request_ref, review_requested_by_actor_ref,
+        review_requested_at, review_generation, recovery_generation, attempt_count,
+        github_repository, branch_ref, commit_sha, expected_remote_head_sha,
+        pull_request_number, pull_request_url, inserted_at, updated_at
+      ) VALUES (
+        $1::text::uuid, 'publication:rollback-proof', $2::text::uuid, $3::text::uuid,
+        $4::text::uuid, 'responder', 'Rollback proof', 'Preserve the observed head.',
+        'review_pending', 'slack', 'slack:T123:C123', 'thread:rollback',
+        'message:offer', 'interaction:review', 'slack:user:U123', clock_timestamp(),
+        1, 1, 0, 'acme/responder', 'refs/heads/responder/rollback-proof', repeat('d', 40),
+        repeat('e', 40), 42, 'https://github.com/acme/responder/pull/42',
+        clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [publication_id, ids.episode_id, record_id, ids.session_id]
+    )
+
+    {record_id, publication_id}
+  end
+
+  defp insert_publication_recovery_action!(repo, prefix) do
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.responder_operator_actions (
+        id, action_ref, request_fingerprint, actor_ref, action, kind, resource_ref,
+        previous, outcome, occurred_at, inserted_at, updated_at
+      ) VALUES (
+        $1::text::uuid, 'operator-action:rollback-proof', repeat('f', 64),
+        'control-plane:operator', 'update', 'publication', 'publication:rollback-proof',
+        '{}', '{}', clock_timestamp(), clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [Ecto.UUID.generate()]
+    )
   end
 
   defp assert_stage3_rows!(repo, prefix, ids) do

@@ -29,10 +29,18 @@ defmodule Responder.RuntimeConfigurationTest do
     assert configuration.runtime_mode == :product
     assert configuration.webhooks.routes["universal"].adapter == %{kind: :universal}
 
+    assert configuration.webhooks.routes["deployments"].publication_lifecycle == %{
+             environments: ["production"],
+             kinds: ["deployment", "terraform"],
+             repositories: ["responder"],
+             targets: ["responder"]
+           }
+
     assert_received {:environment_read, "GITHUB_WEBHOOK_SECRET"}
     assert_received {:environment_read, "GITHUB_APP_PRIVATE_KEY"}
     assert_received {:environment_read, "RESPONDER_STATE_TOOLS_TOKEN"}
     assert_received {:environment_read, "RESPONDER_WEBHOOK_SECRET"}
+    assert_received {:environment_read, "RESPONDER_DEPLOYMENT_WEBHOOK_SECRET"}
     assert_received {:environment_read, "RESPONDER_CHECKPOINT_KEY"}
     refute_received {:environment_read, "SLACK_APP_TOKEN"}
     refute_received {:environment_read, "SLACK_BOT_TOKEN"}
@@ -50,6 +58,11 @@ defmodule Responder.RuntimeConfigurationTest do
     assert configuration.model_evals.no_tools_policy == "responder-eval-no-tools-v1"
     assert configuration.work.worker_ref == "responder-a:work"
     assert configuration.work.api == Responder.CoopFleet.Client
+
+    assert Keyword.fetch!(configuration.work.client.bridge_options, :capability_versions) == %{
+             "repository-freshness" => "2"
+           }
+
     assert configuration.work.client == configuration.retention.client
     assert configuration.work.client == configuration.publication.coop_client
     assert configuration.work.client == configuration.slack.coop_client

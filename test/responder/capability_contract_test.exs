@@ -78,7 +78,6 @@ defmodule Responder.CapabilityContractTest do
   )
 
   @open_tasks ~w(
-    2026-09-04-clarify-repository-freshness-and-complete-public
     2026-09-04-complete-slack-app-home-and-task-recovery-contro
     2026-09-04-complete-the-local-operator-product-for-incident
     2026-09-04-finish-goals-and-multi-repository-orchestration
