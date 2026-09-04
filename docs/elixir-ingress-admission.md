@@ -8,9 +8,9 @@ Slack, GitHub, and the universal webhook are adapters over the same input contra
 rules for Grafana, Terraform, Better Stack, or any other sender. The model interprets the supplied
 content.
 
-The module now composes with the optional Slack Socket Mode, GitHub App, and universal-webhook
-runtimes, but none of those replacement runtimes is enabled in the currently running Responder until
-the cutover gate and explicit deployment step are complete.
+The module composes with the optional Slack Socket Mode, GitHub App, and universal-webhook runtimes.
+Each adapter starts only when its strict trusted runtime configuration is present; deployment and live
+acceptance remain separate evidence from implementation.
 
 ## Trusted envelope
 

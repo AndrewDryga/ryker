@@ -1,10 +1,8 @@
 # Responder Target Architecture and Verification Plan
 
-Status: episode-kernel implementation landed; compatibility retirement remains,
-       and is now waiting on evidence rather than on work (the unused effect
-       ledger was retired in schema 40; attempts, goals, manifests, and wakeups
-       remain in use beside the legacy agent-run path)
-Last updated: 2026-08-06
+Status: target design; the Elixir/PostgreSQL replacement is canonical and remaining P0/P1 gaps are
+        tracked by the checked capability contract
+Last updated: 2026-09-04
 Audience: Responder maintainers, operators, and contributors
 
 This document defines the architecture Responder should evolve toward. It is more prescriptive
@@ -19,63 +17,22 @@ document prove its behavior.
 
 ### Current implementation boundary
 
-Schema version 41 carries the episode-first kernel described here. (40 removed
-the effect ledger; 41 moved product feedback out of its own database and into
-this one, where it is covered by the schema baseline, the verified
-pre-migration backup, and ordinary cross-table transactions.) The parts
-that are live today are attempts, goals, context manifests, and wakeups; the
-effect ledger was removed in schema 40 because no caller ever planned, leased,
-or completed an effect, and the `work_items` scheduler already owns delivery
-with the same fencing and retry guarantees.
+The canonical implementation is now the Elixir release backed by PostgreSQL. Generic ingress,
+admission, episodes, Coop Work, MCP state tools, platform delivery, approvals, publication, waits,
+schedules, retention, the local control plane, and optional Slack/GitHub/webhook adapters share that
+one durable ownership model. Normal process or host replacement reclaims database leases; it does not
+switch between a Go and Elixir writer or require a canary/promote state machine.
 
-The kernel still runs beside the legacy `agent_runs` path rather than replacing
-it: `internal/service/result_operations.go` folds typed operations back into
-the older free-text fields so both shapes stay readable. That fold is the
-remaining compatibility seam and the next thing to retire.
+The exact current boundary is machine-checked in the
+[Go-to-Elixir capability contract](elixir-go-capability-contract.md). It deliberately distinguishes
+implemented code with deterministic proof from partial behavior with an owning task, and both from
+deployment and live-acceptance evidence. The narrower lifecycle test manifest remains useful, but its
+230 mapped tests in 25 Go files are not whole-product parity.
 
-**The fold is retired.** The evidence came from replaying history rather than
-waiting for it: `responder audit-result-protocol` re-reads stored model results
-through the parser each run's mode actually used. Across 259 real production
-turns the result was 187 typed, 72 plain prose, and zero fallbacks — with the
-non-zero prose count as the check that the measurement worked at all. An invalid
-operation stream is now a correction the model is told about rather than a
-silent second reading of whatever prose sat beside it.
-
-That unblocked the rest. `internal/decision` now owns the result shapes, their
-parsers, validators and correction rules; `internal/investigation` owns the
-completion rules beside the contract they check; and `internal/service` has
-dropped from 27,180 to 23,743 code lines with publication, schedule, memory and
-channel setup extracted behind their own boundaries.
-
-Two things that do not need the window have landed in the meantime.
-`internal/episode_replay_coverage_test.go` parses the capability matrix in
-section 24 out of this document and fails the build if a capability has neither
-a replay fixture nor an explicitly acknowledged gap — so the rule in section 24,
-that no migration may remove a capability whose replacement is unproven, is now
-enforced rather than stated. It currently measures **2 of 24 capabilities
-proven**. And `responder record-episode` turns a completed episode into a
-sanitized fixture, so that number can move without waiting on a history export.
-
-The kernel establishes:
-
-- episodes own lifecycle state, modes, destinations, revisions, goals, attempts, context-manifest
-  lineage, effects, and wakeups;
-- replacement attempts resume the same episode after timers, approvals, and external waits;
-- required goals prevent premature completion;
-- context manifests freeze prompt, contract, tool-schema, repository revisions, policies,
-  artifacts, and source context for exact replay;
-- model results support independently validated goal, evidence, progress, wait, approval, artifact,
-  memory, configuration, and completion operations;
-- Slack text and file deliveries are pinned to an episode destination revision, and a committed
-  destination change supersedes output aimed at the old location;
-- scheduled occurrences and standing assignments create episode-owned work;
-- wakeup leases use fencing tokens, semantic idempotency, and retry state.
-
-The existing `agent_runs`, incident records, Slack delivery rows, commitment rows, and final result
-envelopes remain compatibility projections while their callers migrate. They no longer define the
-new lifecycle, but they cannot be removed until the historical corpus, adapter conformance suites,
-and live canaries prove every current capability. This is an intentional deployable cutover rather
-than an indefinite second architecture.
+The legacy Go source below `internal/` remains a historical behavior oracle and bounded rollback
+archive while the remaining contract gaps are rebuilt. It is not a second production runtime. The
+phase narrative below is retained as design rationale; use the checked contract, not old phase prose
+or module existence, for current implementation status.
 
 ## 1. Product objective
 
@@ -1182,6 +1139,10 @@ Start with four enforceable gates:
 Expand the gate only when a new check has demonstrated signal and acceptable stability.
 
 ## 24. Capability preservation matrix
+
+This table is the stable target taxonomy. Current P0/P1 status, implementation paths, deterministic
+proof, and exact remaining gaps live in the checked
+[Go-to-Elixir capability contract](elixir-go-capability-contract.md).
 
 | Capability | Required target behavior |
 | --- | --- |

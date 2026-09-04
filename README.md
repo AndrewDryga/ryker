@@ -9,9 +9,12 @@ is platform-neutral: Slack, GitHub comments and pull-request reviews, and authen
 webhooks are adapters over the same ingress, episode, Work, and Delivery contracts. It can answer,
 investigate, change code, and prepare reviewed work without turning every request into an incident.
 
+The checked [Go-to-Elixir capability contract](docs/elixir-go-capability-contract.md) is the source of
+truth for what is implemented, what remains partial, and which task owns each remaining P0/P1 gap.
+An implementation row is code-and-test evidence, not a claim that the commit is deployed or live-proved.
+
 It runs on one trusted host and:
 
-- accepts bounded Grafana or mapped JSON webhooks;
 - accepts arbitrary authenticated JSON through configured universal webhook routes without granting
   the payload authority over policy or destination;
 - handles GitHub issue comments, pull-request reviews, inline review comments, and GitHub's native
