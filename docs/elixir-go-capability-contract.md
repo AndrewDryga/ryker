@@ -21,9 +21,9 @@ claim of whole-product parity.
 
 | Priority | Implemented | Partial | Total |
 |---|---:|---:|---:|
-| P0 | 23 | 5 | 28 |
+| P0 | 25 | 3 | 28 |
 | P1 | 4 | 11 | 15 |
-| **All** | **27** | **16** | **43** |
+| **All** | **29** | **14** | **43** |
 
 ## Implemented behavior
 
@@ -31,6 +31,8 @@ claim of whole-product parity.
 |---|---|---|---|
 | P0 | `episode-lifecycle-and-destination` | [`Episodes.Kernel`](../lib/responder/episodes/kernel.ex) | [`kernel_test.exs`](../test/responder/episodes/kernel_test.exs) |
 | P0 | `generic-authenticated-webhook-ingress` | [`Webhooks.Router`](../lib/responder/webhooks/router.ex) | [`end_to_end_test.exs`](../test/responder/webhooks/end_to_end_test.exs) |
+| P0 | `grafana-lifecycle-webhook-adapter` | [`Webhooks.Transforms`](../lib/responder/webhooks/transforms.ex) | [`adapter_end_to_end_test.exs`](../test/responder/webhooks/adapter_end_to_end_test.exs) |
+| P0 | `mapped-json-webhook-adapters` | [`Webhooks.Transforms`](../lib/responder/webhooks/transforms.ex) | [`transforms_test.exs`](../test/responder/webhooks/transforms_test.exs) |
 | P0 | `slack-messages-edits-deletes` | [`Slack.Gateway`](../lib/responder/slack/gateway.ex) | [`gateway_test.exs`](../test/responder/slack/gateway_test.exs) |
 | P0 | `slack-thread-and-channel-continuation` | [`Slack.Engagement`](../lib/responder/slack/engagement.ex) | [`question_end_to_end_test.exs`](../test/responder/slack/question_end_to_end_test.exs) |
 | P0 | `github-comments-reviews-inline-and-reactions` | [`GitHub.Router`](../lib/responder/github/router.ex) | [`github/end_to_end_test.exs`](../test/responder/github/end_to_end_test.exs) |
@@ -62,8 +64,6 @@ claim of whole-product parity.
 | Priority | Capability | What is still missing | Owning task |
 |---|---|---|---|
 | P0 | `operator-preflight-status-failure-replay` | Unified Elixir preflight/status and private no-delivery Slack replay. | `2026-09-04-restore-operator-preflight-failure-and-replay-wo` |
-| P0 | `grafana-lifecycle-webhook-adapter` | Trusted Grafana fingerprint, group, firing/resolved, and revision translation. | `2026-09-04-restore-grafana-and-mapped-json-webhook-adapters` |
-| P0 | `mapped-json-webhook-adapters` | Bounded configured field paths above universal JSON ingress. | `2026-09-04-restore-grafana-and-mapped-json-webhook-adapters` |
 | P1 | `github-bounded-context-and-search` | Issue/PR body, discussion, changed-file, review-thread, and search tools. | `2026-09-04-make-github-a-full-conversation-and-confirmation` |
 | P1 | `github-confirmation-backed-actions` | Idempotent, actor-authorized confirmation syntax on GitHub. | `2026-09-04-make-github-a-full-conversation-and-confirmation` |
 | P1 | `conversation-summaries-and-rollups` | Durable typed situations and bounded continuity rollups. | `2026-09-04-restore-durable-conversation-continuity-and-memo` |

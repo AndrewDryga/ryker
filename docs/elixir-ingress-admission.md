@@ -4,9 +4,9 @@ This is the admission boundary of the replacement Responder. It accepts a bounde
 trusted adapter, stores it before reasoning, asks Coop for one generic model decision, validates that
 decision, and commits it with the episode transition in PostgreSQL.
 
-Slack, GitHub, and the universal webhook are adapters over the same input contract. None contains
-rules for Grafana, Terraform, Better Stack, or any other sender. The model interprets the supplied
-content.
+Slack, GitHub, and authenticated webhooks are adapters over the same input contract. Tagged webhook
+transforms derive trusted Grafana or configured mapped-JSON identity and bounded fields; generic
+admission and the model remain provider-neutral and interpret only the resulting content.
 
 The module composes with the optional Slack Socket Mode, GitHub App, and universal-webhook runtimes.
 Each adapter starts only when its strict trusted runtime configuration is present; deployment and live
@@ -29,7 +29,7 @@ The Slack adapter binds a top-level message to its own thread and preserves an e
 The GitHub adapter binds signed issue comments, pull-request reviews, and inline review comments to
 one configured repository and their exact discussion thread. It offers GitHub's native reaction set
 only for live comment types that GitHub can react to.
-The generic webhook binds every event to the destination in trusted route configuration.
+Every webhook binds the event to the destination in trusted route configuration.
 
 ## Universal webhook
 
@@ -48,6 +48,14 @@ X-Responder-Revision: <optional positive integer, default 1>
 The body may be any JSON value: object, array, string, number, boolean, or null. A `202` response means
 the exact input is durably queued; it does not claim that model work has finished. An exact retry
 returns the original receipt. Reusing the event identity with different data returns `409`.
+
+`adapter.kind: universal` uses that header contract unchanged. `adapter.kind: grafana` accepts an
+authenticated batch of 1–500 Grafana alerts and derives stable alert-cycle and occurrence identities.
+`adapter.kind: mapped_json` selects only configured bounded object paths and derives one alert. The
+specialized transforms do not require Responder metadata headers because their authenticated bodies
+own source identity; an HMAC request signs those absent header values as empty strings. A Grafana
+batch is recorded atomically. The complete configuration and mapping contract is documented in
+[`webhooks.md`](webhooks.md).
 
 Routes are explicit configuration. Each route owns its secret, payload limit, clock-skew limit, and
 destination. The payload cannot override them. The listener defaults to loopback and starts only when

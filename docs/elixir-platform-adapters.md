@@ -27,11 +27,16 @@ destination.
 | --- | --- | --- | --- |
 | Slack | message, edit, delete | workspace, channel, exact thread | reply; reaction on a live message |
 | GitHub | issue comment, PR review, inline review comment | configured repository and exact discussion | reply; GitHub reaction on a live comment |
-| Universal webhook | any JSON scalar or document | configured route | reply only by default |
+| Universal webhook | any JSON scalar or document with explicit occurrence identity | configured route | reply only by default |
+| Grafana webhook | 1–500 firing or resolved alerts per authenticated delivery | configured route | reply only by default |
+| Mapped JSON webhook | configured bounded fields from one JSON object | configured route | reply only by default |
 
 The universal endpoint intentionally has no platform guesser. A sender can post any authenticated JSON
 payload and the model can classify it, but the payload cannot grant reactions or invent a delivery
-target. A future integration adds a small trusted adapter only when it needs native identity,
+target. Grafana and mapped-JSON transforms sit immediately above that source-neutral boundary: they
+derive provider identity, lifecycle revision, correlation, and bounded content before producing the
+same `Ingress.Input`. They cannot choose destination, authority, Work profile, or implementation
+module. A future integration adds another small trusted transform only when it needs native identity,
 revision, threading, or capabilities.
 
 GitHub App webhook signatures cover the raw body at one App webhook URL. Only after signature

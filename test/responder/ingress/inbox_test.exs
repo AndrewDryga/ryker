@@ -46,6 +46,21 @@ defmodule Responder.Ingress.InboxTest do
     assert Repo.aggregate(Entry, :count) == 1
   end
 
+  test "a batch records every normalized input atomically" do
+    stored = input!(event_ref: "Ev-batch-conflict", content: %{"text" => "original"})
+    assert {:ok, _receipt} = Inbox.record(stored)
+
+    new_input = input!(event_ref: "Ev-batch-new")
+    conflict = input!(event_ref: "Ev-batch-conflict", content: %{"text" => "changed"})
+
+    assert {:error, {:input_conflict, _details}} = Inbox.record_many([new_input, conflict])
+    assert Repo.aggregate(Entry, :count) == 1
+
+    assert {:ok, receipts} = Inbox.record_many([new_input, stored])
+    assert Enum.map(receipts, & &1.status) == [:recorded, :duplicate]
+    assert Repo.aggregate(Entry, :count) == 2
+  end
+
   test "freezes execution mode on first receipt instead of re-reading channel settings" do
     input = input!(event_ref: "Ev-shadow")
 
@@ -314,6 +329,24 @@ defmodule Responder.Ingress.InboxTest do
 
     assert Repo.all(from(entry in Entry, order_by: entry.revision, select: entry.revision)) ==
              [1, 2]
+  end
+
+  test "unbounded receipt order continues beyond a provider's first thousand occurrences" do
+    assert {:ok, %{entry: first}} =
+             Inbox.record(input!(event_ref: "Ev-provider-1000", revision: 1_000))
+
+    assert {:ok, %{entry: next}} =
+             Inbox.record(
+               input!(
+                 content: %{"text" => "a later provider occurrence"},
+                 event_ref: "Ev-provider-1001",
+                 revision: 1
+               ),
+               revision_ties: :receipt_order_unbounded
+             )
+
+    assert first.native_input_id == next.native_input_id
+    assert next.revision == 1_001
   end
 
   test "claims the oldest eligible input and fences retry updates with its lease" do

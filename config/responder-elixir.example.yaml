@@ -220,6 +220,8 @@ webhooks:
   port: 4320
   routes:
     universal:
+      adapter:
+        kind: universal
       auth:
         kind: hmac_sha256
         secret_env: RESPONDER_WEBHOOK_SECRET

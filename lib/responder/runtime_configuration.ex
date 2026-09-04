@@ -1303,11 +1303,12 @@ defmodule Responder.RuntimeConfiguration do
             object!(
               attributes,
               ~w(auth destination work_profile),
-              ~w(max_body_bytes max_clock_skew_seconds),
+              ~w(adapter max_body_bytes max_clock_skew_seconds),
               "webhooks.routes.#{name}"
             )
 
           prepared = %{
+            adapter: webhook_adapter!(route["adapter"], "webhooks.routes.#{name}.adapter"),
             auth: webhook_auth!(route["auth"], env_provider, "webhooks.routes.#{name}.auth"),
             destination:
               destination!(route["destination"], "webhooks.routes.#{name}.destination"),
@@ -1331,6 +1332,66 @@ defmodule Responder.RuntimeConfiguration do
         end)
     }
   end
+
+  defp webhook_adapter!(nil, _path), do: %{kind: :universal}
+
+  defp webhook_adapter!(value, path) do
+    kind = value |> object!(~w(kind), ~w(group_by_labels mapping), path) |> Map.fetch!("kind")
+
+    case kind do
+      "universal" ->
+        _adapter = object!(value, ~w(kind), [], path)
+        %{kind: :universal}
+
+      "grafana" ->
+        adapter = object!(value, ~w(kind), ~w(group_by_labels), path)
+
+        %{
+          kind: :grafana,
+          group_by_labels:
+            references!(Map.get(adapter, "group_by_labels", []), "#{path}.group_by_labels")
+        }
+
+      "mapped_json" ->
+        adapter = object!(value, ~w(kind mapping), ~w(group_by_labels), path)
+        mapping_path = "#{path}.mapping"
+
+        mapping =
+          object!(
+            adapter["mapping"],
+            ~w(event_id status title),
+            ~w(annotations ends_at incident_id item_id labels revision severity source_url starts_at summary),
+            mapping_path
+          )
+
+        %{
+          kind: :mapped_json,
+          group_by_labels:
+            references!(Map.get(adapter, "group_by_labels", []), "#{path}.group_by_labels"),
+          mapping:
+            Map.new(mapping, fn {key, value} ->
+              {webhook_mapping_field!(key), reference!(value, "#{mapping_path}.#{key}")}
+            end)
+        }
+
+      _unsupported ->
+        raise ArgumentError, "#{path}.kind must be universal, grafana, or mapped_json"
+    end
+  end
+
+  defp webhook_mapping_field!("annotations"), do: :annotations
+  defp webhook_mapping_field!("ends_at"), do: :ends_at
+  defp webhook_mapping_field!("event_id"), do: :event_id
+  defp webhook_mapping_field!("incident_id"), do: :incident_id
+  defp webhook_mapping_field!("item_id"), do: :item_id
+  defp webhook_mapping_field!("labels"), do: :labels
+  defp webhook_mapping_field!("revision"), do: :revision
+  defp webhook_mapping_field!("severity"), do: :severity
+  defp webhook_mapping_field!("source_url"), do: :source_url
+  defp webhook_mapping_field!("starts_at"), do: :starts_at
+  defp webhook_mapping_field!("status"), do: :status
+  defp webhook_mapping_field!("summary"), do: :summary
+  defp webhook_mapping_field!("title"), do: :title
 
   defp validate_webhook_destination!(destination, adapters, route_name) do
     path = "webhooks.routes.#{route_name}.destination"

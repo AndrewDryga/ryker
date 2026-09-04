@@ -1,6 +1,6 @@
 defmodule Responder.Webhooks.Server do
   @moduledoc """
-  Optional Bandit listener for the universal webhook boundary.
+  Optional Bandit listener for the authenticated webhook boundary.
 
   No listener starts unless `:responder, :webhooks` is configured explicitly.
   """

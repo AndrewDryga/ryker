@@ -25,7 +25,7 @@ defmodule Responder.Webhooks.Auth do
   end
 
   defp signed_message(conn, timestamp, body) do
-    with {:ok, event_id} <- required_header(conn, "x-responder-event-id"),
+    with {:ok, event_id} <- optional_header(conn, "x-responder-event-id"),
          {:ok, item_id} <- optional_header(conn, "x-responder-item-id"),
          {:ok, event_type} <- optional_header(conn, "x-responder-event-type"),
          {:ok, occurred_at} <- optional_header(conn, "x-responder-occurred-at"),
@@ -42,13 +42,6 @@ defmodule Responder.Webhooks.Auth do
          body
        ]
        |> Enum.join("\n")}
-    end
-  end
-
-  defp required_header(conn, name) do
-    case Conn.get_req_header(conn, name) do
-      [value] when value != "" -> {:ok, value}
-      _other -> {:error, :header}
     end
   end
 
