@@ -1119,7 +1119,7 @@ defmodule Responder.StateTools.FixedTools do
            episode: %{destination_transport: transport, execution_mode: execution_mode}
          }
        }),
-       do: transport in ["slack", "control_plane"] and execution_mode == :live
+       do: transport in ["slack", "control_plane", "github"] and execution_mode == :live
 
   defp confirmation_surface?(%{
          "binding" => %{
@@ -1129,7 +1129,7 @@ defmodule Responder.StateTools.FixedTools do
            }
          }
        }),
-       do: transport in ["slack", "control_plane"] and execution_mode == "live"
+       do: transport in ["slack", "control_plane", "github"] and execution_mode == "live"
 
   defp confirmation_surface?(_options), do: true
 

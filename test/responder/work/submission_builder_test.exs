@@ -98,11 +98,11 @@ defmodule Responder.Work.SubmissionBuilderTest do
     assert [input] = submission["context"]["inputs"]["items"]
 
     assert input["source_ref"] == GitHubSourceRef.item("github-main", "issue_comment", 9_001)
-    refute submission["context"]["offer_confirmation_supported"]
+    assert submission["context"]["offer_confirmation_supported"]
 
-    refute "propose_automation" in submission["context"]["responder_state_tools"]
-    refute "propose_memory" in submission["context"]["responder_state_tools"]
-    refute "request_task" in submission["context"]["responder_state_tools"]
+    assert "propose_automation" in submission["context"]["responder_state_tools"]
+    assert "propose_memory" in submission["context"]["responder_state_tools"]
+    assert "request_task" in submission["context"]["responder_state_tools"]
 
     assert "request_input" in submission["context"]["responder_state_tools"]
     assert "record_feedback" in submission["context"]["responder_state_tools"]

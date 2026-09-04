@@ -29,6 +29,52 @@ defmodule Responder.GitHub.Input do
       "edited" => :edit
     }
   }
+  @lifecycle_actions %{
+    "issues" => %{
+      "assigned" => 1,
+      "closed" => 2,
+      "deleted" => 2,
+      "demilestoned" => 1,
+      "edited" => 1,
+      "labeled" => 1,
+      "locked" => 1,
+      "milestoned" => 1,
+      "opened" => 0,
+      "pinned" => 1,
+      "reopened" => 1,
+      "transferred" => 2,
+      "typed" => 1,
+      "unassigned" => 1,
+      "unlabeled" => 1,
+      "unlocked" => 1,
+      "unpinned" => 1,
+      "untyped" => 1
+    },
+    "pull_request" => %{
+      "assigned" => 1,
+      "auto_merge_disabled" => 1,
+      "auto_merge_enabled" => 1,
+      "closed" => 2,
+      "converted_to_draft" => 1,
+      "demilestoned" => 1,
+      "dequeued" => 1,
+      "edited" => 1,
+      "enqueued" => 1,
+      "labeled" => 1,
+      "locked" => 1,
+      "milestoned" => 1,
+      "opened" => 0,
+      "ready_for_review" => 1,
+      "reopened" => 1,
+      "review_request_removed" => 1,
+      "review_requested" => 1,
+      "synchronize" => 1,
+      "unassigned" => 1,
+      "unlabeled" => 1,
+      "unlocked" => 1,
+      "unmilestoned" => 1
+    }
+  }
 
   @impl Responder.Ingress.Adapter
   def source_kind, do: "github"
@@ -38,9 +84,9 @@ defmodule Responder.GitHub.Input do
     with :ok <- exact_event(event),
          :ok <- valid_delivery(event.delivery_ref),
          :ok <- valid_delivery(event.event_ref),
-         {:ok, event_kind} <- event_kind(event.event_name, event.payload),
+         {:ok, event_action} <- event_kind(event.event_name, event.payload),
          :ok <- Binding.authorize_payload(binding, event.payload),
-         {:ok, details} <- event_details(event.event_name, event.payload, event_kind),
+         {:ok, details} <- event_details(event.event_name, event.payload, event_action),
          {:ok, actor} <- actor(event.payload, binding),
          {:ok, occurred_at} <- occurred_at(details.item) do
       build_input(event, binding, details, actor, occurred_at)
@@ -67,7 +113,7 @@ defmodule Responder.GitHub.Input do
       native_input_id: native_input_id(binding, details),
       occurred_at: occurred_at,
       occurred_at_source: :source,
-      revision: revision(occurred_at, details.event_kind),
+      revision: revision(occurred_at, details.revision_rank),
       source: %{kind: "github", ref: binding.name},
       source_capabilities: source_capabilities(details),
       source_item_ref: "github:#{details.item_kind}:#{details.item_id}"
@@ -87,40 +133,58 @@ defmodule Responder.GitHub.Input do
   end
 
   defp event_kind(event_name, %{"action" => action}) when is_binary(action) do
-    with {:ok, actions} <- Map.fetch(@actions, event_name),
-         {:ok, event_kind} <- Map.fetch(actions, action) do
-      {:ok, event_kind}
-    else
-      :error when is_map_key(@actions, event_name) -> {:error, {:invalid_github_input, :action}}
-      :error -> {:error, {:invalid_github_input, :event}}
+    cond do
+      actions = @actions[event_name] ->
+        case Map.fetch(actions, action) do
+          {:ok, event_kind} ->
+            {:ok,
+             %{
+               event_kind: event_kind,
+               revision_rank: Map.fetch!(@revision_action_ranks, event_kind)
+             }}
+
+          :error ->
+            {:error, {:invalid_github_input, :action}}
+        end
+
+      actions = @lifecycle_actions[event_name] ->
+        case Map.fetch(actions, action) do
+          {:ok, rank} -> {:ok, %{event_kind: :event, revision_rank: rank}}
+          :error -> {:error, {:invalid_github_input, :action}}
+        end
+
+      true ->
+        {:error, {:invalid_github_input, :event}}
     end
   end
 
-  defp event_kind(event_name, _payload) when is_map_key(@actions, event_name),
-    do: {:error, {:invalid_github_input, :action}}
+  defp event_kind(event_name, _payload)
+       when is_map_key(@actions, event_name) or is_map_key(@lifecycle_actions, event_name),
+       do: {:error, {:invalid_github_input, :action}}
 
   defp event_kind(_event_name, _payload), do: {:error, {:invalid_github_input, :event}}
 
-  defp event_details("issue_comment", payload, event_kind) do
+  defp event_details("issue_comment", payload, event_action) do
     with %{"comment" => %{"id" => item_id} = item, "issue" => %{"number" => number} = issue} <-
            payload,
          true <- positive_id?(item_id) and positive_id?(number) do
       {:ok,
        %{
-         event_kind: event_kind,
+         event_kind: event_action.event_kind,
          item: item,
          item_id: item_id,
          item_kind: "issue_comment",
          subject_kind: if(Map.has_key?(issue, "pull_request"), do: "pull", else: "issue"),
          subject_number: number,
-         thread_root_id: nil
+         thread_root_id: nil,
+         revision_rank: event_action.revision_rank
        }}
     else
       _invalid -> {:error, {:invalid_github_input, :item}}
     end
   end
 
-  defp event_details("pull_request_review", payload, event_kind) do
+  defp event_details("pull_request_review", payload, event_action) do
     with %{
            "pull_request" => %{"number" => number},
            "review" => %{"id" => item_id} = item
@@ -128,20 +192,21 @@ defmodule Responder.GitHub.Input do
          true <- positive_id?(item_id) and positive_id?(number) do
       {:ok,
        %{
-         event_kind: event_kind,
+         event_kind: event_action.event_kind,
          item: item,
          item_id: item_id,
          item_kind: "pull_request_review",
          subject_kind: "pull",
          subject_number: number,
-         thread_root_id: nil
+         thread_root_id: nil,
+         revision_rank: event_action.revision_rank
        }}
     else
       _invalid -> {:error, {:invalid_github_input, :item}}
     end
   end
 
-  defp event_details("pull_request_review_comment", payload, event_kind) do
+  defp event_details("pull_request_review_comment", payload, event_action) do
     with %{
            "comment" => %{"id" => item_id} = item,
            "pull_request" => %{"number" => number}
@@ -151,13 +216,52 @@ defmodule Responder.GitHub.Input do
          true <- positive_id?(root_id) do
       {:ok,
        %{
-         event_kind: event_kind,
+         event_kind: event_action.event_kind,
          item: item,
          item_id: item_id,
          item_kind: "pull_request_review_comment",
          subject_kind: "pull",
          subject_number: number,
-         thread_root_id: root_id
+         thread_root_id: root_id,
+         revision_rank: event_action.revision_rank
+       }}
+    else
+      _invalid -> {:error, {:invalid_github_input, :item}}
+    end
+  end
+
+  defp event_details("issues", payload, event_action) do
+    with %{"issue" => %{"id" => item_id, "number" => number} = item} <- payload,
+         true <- positive_id?(item_id) and positive_id?(number) do
+      {:ok,
+       %{
+         event_kind: event_action.event_kind,
+         item: item,
+         item_id: item_id,
+         item_kind: "issue",
+         revision_rank: event_action.revision_rank,
+         subject_kind: "issue",
+         subject_number: number,
+         thread_root_id: nil
+       }}
+    else
+      _invalid -> {:error, {:invalid_github_input, :item}}
+    end
+  end
+
+  defp event_details("pull_request", payload, event_action) do
+    with %{"pull_request" => %{"id" => item_id, "number" => number} = item} <- payload,
+         true <- positive_id?(item_id) and positive_id?(number) do
+      {:ok,
+       %{
+         event_kind: event_action.event_kind,
+         item: item,
+         item_id: item_id,
+         item_kind: "pull_request",
+         revision_rank: event_action.revision_rank,
+         subject_kind: "pull",
+         subject_number: number,
+         thread_root_id: nil
        }}
     else
       _invalid -> {:error, {:invalid_github_input, :item}}
@@ -198,9 +302,7 @@ defmodule Responder.GitHub.Input do
   # GitHub can deliver webhooks out of order and can retain one timestamp across
   # edits. Keep create/edit/delete in disjoint semantic bands, then let the
   # Inbox allocate receipt-order ties only inside the exact action band.
-  defp revision(occurred_at, event_kind) do
-    action_rank = Map.fetch!(@revision_action_ranks, event_kind)
-
+  defp revision(occurred_at, action_rank) do
     DateTime.to_unix(occurred_at, :millisecond) *
       (@revision_tie_slots * map_size(@revision_action_ranks)) +
       action_rank * @revision_tie_slots

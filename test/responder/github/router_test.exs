@@ -139,6 +139,75 @@ defmodule Responder.GitHub.RouterTest do
     assert claim.publication.id == publication.id
   end
 
+  test "issue and unmatched pull request lifecycle events enter generic ingress with stable identity" do
+    issue = %{
+      "action" => "opened",
+      "installation" => %{"id" => 41},
+      "issue" => %{
+        "body" => "Track the adapter lifecycle.",
+        "created_at" => "2026-08-28T12:00:00Z",
+        "id" => 4_200,
+        "number" => 42,
+        "title" => "Lifecycle issue",
+        "updated_at" => "2026-08-28T12:00:00Z"
+      },
+      "repository" => %{"full_name" => "octo/example", "id" => 99},
+      "sender" => %{"id" => 7, "login" => "octocat", "type" => "User"}
+    }
+
+    pull = %{
+      "action" => "opened",
+      "installation" => %{"id" => 41},
+      "pull_request" => %{
+        "body" => "Unmatched pull request.",
+        "created_at" => "2026-08-28T12:00:00Z",
+        "head" => %{"sha" => String.duplicate("a", 40)},
+        "id" => 4_300,
+        "number" => 43,
+        "title" => "Unmatched pull",
+        "updated_at" => "2026-08-28T12:00:00Z"
+      },
+      "repository" => %{"full_name" => "octo/example", "id" => 99},
+      "sender" => %{"id" => 8, "login" => "reviewer", "type" => "User"}
+    }
+
+    issue_response =
+      request(Jason.encode!(issue), delivery_ref: "delivery-issue-open", event_name: "issues")
+
+    pull_response =
+      request(Jason.encode!(pull),
+        delivery_ref: "delivery-pull-open",
+        event_name: "pull_request"
+      )
+
+    issue_edit =
+      issue
+      |> put_in(["action"], "edited")
+      |> put_in(["issue", "updated_at"], "2026-08-28T12:01:00Z")
+
+    issue_edit_response =
+      request(Jason.encode!(issue_edit),
+        delivery_ref: "delivery-issue-edit",
+        event_name: "issues"
+      )
+
+    assert issue_response.status == 202
+    assert pull_response.status == 202
+    assert issue_edit_response.status == 202
+
+    {:ok, issue_entry} = Inbox.fetch(Jason.decode!(issue_response.resp_body)["input_ref"])
+    {:ok, pull_entry} = Inbox.fetch(Jason.decode!(pull_response.resp_body)["input_ref"])
+
+    {:ok, issue_edit_entry} =
+      Inbox.fetch(Jason.decode!(issue_edit_response.resp_body)["input_ref"])
+
+    assert issue_entry.native_input_id == issue_edit_entry.native_input_id
+    assert issue_entry.revision < issue_edit_entry.revision
+    assert issue_entry.destination_thread_ref == "github:github-main:issue:42"
+    assert pull_entry.destination_thread_ref == "github:github-main:pull:43"
+    assert Repo.aggregate(Responder.Ingress.Inbox.Entry, :count) == 3
+  end
+
   test "authenticated review feedback resumes the exact published engineering episode" do
     %{episode: episode, publication: publication} =
       PublicationFixture.published!("github-review-feedback-router",
@@ -278,6 +347,37 @@ defmodule Responder.GitHub.RouterTest do
 
     assert request(self_authored, delivery_ref: "delivery-self").status == 200
     assert request(unauthorized, delivery_ref: "delivery-outsider").status == 200
+    assert Repo.aggregate(Responder.Ingress.Inbox.Entry, :count) == 0
+  end
+
+  test "consumes an authenticated confirmation command without admitting model work" do
+    command =
+      payload()
+      |> put_in(["comment", "body"], "/responder confirm record:publication_offer:abc123")
+      |> Jason.encode!()
+
+    response =
+      request(command,
+        confirmations: %{
+          repositories: %{
+            "responder" => %{
+              contributor_policy: %{
+                digest: String.duplicate("b", 64),
+                name: "responder-contributor"
+              }
+            }
+          }
+        },
+        delivery_ref: "delivery-invalid-confirmation"
+      )
+
+    assert response.status == 202
+
+    assert Jason.decode!(response.resp_body) == %{
+             "confirmation" => %{"status" => "invalid"},
+             "status" => "invalid"
+           }
+
     assert Repo.aggregate(Responder.Ingress.Inbox.Entry, :count) == 0
   end
 
@@ -442,6 +542,7 @@ defmodule Responder.GitHub.RouterTest do
     content_type = Keyword.get(options, :content_type, "application/json")
     signature = Keyword.get(options, :signature, Auth.signature(@secret, body))
     bindings = Keyword.get(options, :bindings, %{"github-main" => binding!()})
+    confirmations = Keyword.get(options, :confirmations)
 
     conn =
       conn(:post, "/v1/github", body)
@@ -454,7 +555,14 @@ defmodule Responder.GitHub.RouterTest do
         do: put_req_header(conn, "x-github-delivery", delivery_ref),
         else: conn
 
-    Router.call(conn, Router.init(bindings: bindings, secret: @secret))
+    router_options = [bindings: bindings, secret: @secret]
+
+    router_options =
+      if confirmations,
+        do: Keyword.put(router_options, :confirmations, confirmations),
+        else: router_options
+
+    Router.call(conn, Router.init(router_options))
   end
 
   defp binding!(overrides \\ %{}) do

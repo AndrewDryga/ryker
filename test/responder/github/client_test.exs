@@ -154,6 +154,278 @@ defmodule Responder.GitHub.ClientTest do
            ] = FakeRequester.requests(requester)
   end
 
+  test "reads bounded pull request body discussion reviews threads and changed files" do
+    sha = String.duplicate("a", 40)
+
+    {:ok, requester} =
+      FakeRequester.start([
+        response(200, %{
+          "additions" => 12,
+          "base" => %{"ref" => "main", "sha" => sha},
+          "body" => "Exact pull body",
+          "changed_files" => 1,
+          "deletions" => 3,
+          "draft" => false,
+          "head" => %{"ref" => "feature", "sha" => sha},
+          "html_url" => "https://github.com/octo/example/pull/42",
+          "id" => 4_200,
+          "merged" => false,
+          "number" => 42,
+          "state" => "open",
+          "title" => "Make GitHub complete",
+          "updated_at" => "2026-08-28T12:00:00Z",
+          "user" => %{"id" => 7, "login" => "octocat", "type" => "User"}
+        }),
+        response(200, [
+          %{
+            "body" => "Issue discussion",
+            "created_at" => "2026-08-28T12:01:00Z",
+            "html_url" => "https://github.com/octo/example/pull/42#issuecomment-1",
+            "id" => 9_001,
+            "updated_at" => "2026-08-28T12:01:00Z",
+            "user" => %{"id" => 8, "login" => "reviewer", "type" => "User"}
+          }
+        ]),
+        response(200, [
+          %{
+            "body" => "Review summary",
+            "html_url" => "https://github.com/octo/example/pull/42#pullrequestreview-1",
+            "id" => 7_001,
+            "state" => "COMMENTED",
+            "submitted_at" => "2026-08-28T12:02:00Z",
+            "user" => %{"id" => 8, "login" => "reviewer", "type" => "User"}
+          }
+        ]),
+        response(200, [
+          %{
+            "body" => "Other thread",
+            "created_at" => "2026-08-28T12:03:00Z",
+            "html_url" => "https://github.com/octo/example/pull/42#discussion_r1",
+            "id" => 8_000,
+            "in_reply_to_id" => nil,
+            "line" => 10,
+            "path" => "lib/other.ex",
+            "side" => "RIGHT",
+            "updated_at" => "2026-08-28T12:03:00Z",
+            "user" => %{"id" => 8, "login" => "reviewer", "type" => "User"}
+          },
+          %{
+            "body" => "Exact thread reply",
+            "created_at" => "2026-08-28T12:04:00Z",
+            "html_url" => "https://github.com/octo/example/pull/42#discussion_r2",
+            "id" => 8_002,
+            "in_reply_to_id" => 8_001,
+            "line" => 42,
+            "path" => "lib/responder.ex",
+            "side" => "RIGHT",
+            "updated_at" => "2026-08-28T12:04:00Z",
+            "user" => %{"id" => 7, "login" => "octocat", "type" => "User"}
+          }
+        ]),
+        response(200, [
+          %{
+            "additions" => 12,
+            "changes" => 15,
+            "deletions" => 3,
+            "filename" => "lib/responder.ex",
+            "patch" => "@@ -1 +1 @@\n-old\n+new",
+            "status" => "modified"
+          }
+        ])
+      ])
+
+    client = client(requester)
+    base = context_request("subject")
+
+    assert {:ok, %{"items" => [%{"number" => 42, "title" => "Make GitHub complete"}]}} =
+             Client.read_context(client, base)
+
+    assert {:ok, %{"items" => [%{"body" => "Issue discussion"}]}} =
+             Client.read_context(client, %{base | section: "issue_comments"})
+
+    assert {:ok, %{"items" => [%{"state" => "commented"}]}} =
+             Client.read_context(client, %{base | section: "reviews"})
+
+    assert {:ok, %{"items" => [%{"body" => "Exact thread reply", "id" => 8_002}]}} =
+             Client.read_context(client, %{base | section: "review_thread"})
+
+    assert {:ok, %{"items" => [%{"filename" => "lib/responder.ex"}]}} =
+             Client.read_context(client, %{base | section: "files"})
+
+    assert Enum.map(FakeRequester.requests(requester), fn {_method, path, _body, _headers} ->
+             path
+           end) == [
+             "/repos/octo/example/pulls/42",
+             "/repos/octo/example/issues/42/comments?page=1&per_page=20",
+             "/repos/octo/example/pulls/42/reviews?page=1&per_page=20",
+             "/repos/octo/example/pulls/42/comments?page=1&per_page=20",
+             "/repos/octo/example/pulls/42/files?page=1&per_page=20"
+           ]
+  end
+
+  test "searches only the exact repository and rejects crossed result identities" do
+    item = %{
+      "body" => "A bounded result",
+      "html_url" => "https://github.com/octo/example/issues/42",
+      "id" => 4_200,
+      "number" => 42,
+      "pull_request" => %{"url" => "https://api.github.com/repos/octo/example/pulls/42"},
+      "repository_url" => "https://api.github.com/repos/octo/example",
+      "state" => "open",
+      "title" => "GitHub adapter",
+      "updated_at" => "2026-08-28T12:00:00Z",
+      "user" => %{"id" => 7, "login" => "octocat", "type" => "User"}
+    }
+
+    {:ok, requester} =
+      FakeRequester.start([
+        response(200, %{"incomplete_results" => false, "items" => [item], "total_count" => 1}),
+        response(200, %{
+          "incomplete_results" => false,
+          "items" => [%{item | "repository_url" => "https://api.github.com/repos/other/repo"}],
+          "total_count" => 1
+        })
+      ])
+
+    request = %{
+      kind: "pull_requests",
+      limit: 20,
+      page: 1,
+      query: "adapter state:open",
+      repository: "octo/example",
+      state: "all"
+    }
+
+    assert {:ok, %{"items" => [%{"kind" => "pull_request", "number" => 42}]}} =
+             Client.search(client(requester), request)
+
+    assert Client.search(client(requester), request) ==
+             {:error, {:github_protocol_error, :search_repository}}
+
+    [{:get, path, nil, _headers} | _rest] = FakeRequester.requests(requester)
+    query = path |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+    assert query["per_page"] == "20"
+    assert query["page"] == "1"
+    assert query["q"] =~ "repo:octo/example"
+    assert query["q"] =~ "is:pr"
+  end
+
+  test "keeps review-thread pagination when an unfiltered provider page is full" do
+    comments =
+      Enum.map(1..20, fn index ->
+        %{
+          "body" => "Unrelated review thread #{index}",
+          "created_at" => "2026-08-28T12:03:00Z",
+          "html_url" => "https://github.com/octo/example/pull/42#discussion_r#{index}",
+          "id" => 9_000 + index,
+          "in_reply_to_id" => 7_000,
+          "line" => index,
+          "path" => "lib/unrelated_#{index}.ex",
+          "side" => "RIGHT",
+          "updated_at" => "2026-08-28T12:03:00Z",
+          "user" => %{"id" => 8, "login" => "reviewer", "type" => "User"}
+        }
+      end)
+
+    {:ok, requester} = FakeRequester.start([response(200, comments)])
+
+    assert {:ok, %{"items" => [], "next_cursor" => "page:2"}} =
+             Client.read_context(client(requester), context_request("review_thread"))
+  end
+
+  test "bounded context fails closed on malformed requests and provider documents" do
+    issue = %{
+      "html_url" => "https://github.com/octo/example/issues/42",
+      "id" => 4_200,
+      "number" => 42,
+      "state" => "open",
+      "title" => "Exact issue",
+      "updated_at" => "2026-08-28T12:00:00Z",
+      "user" => %{"id" => 7, "login" => "octocat", "type" => "User"}
+    }
+
+    search_item =
+      Map.merge(issue, %{
+        "repository_url" => "https://api.github.com/repos/octo/example"
+      })
+
+    {:ok, requester} =
+      FakeRequester.start([
+        response(200, issue),
+        response(200, %{"unexpected" => true}),
+        response(503, %{"message" => "context unavailable"}),
+        response(200, [%{"id" => 1}]),
+        response(200, [%{"id" => 1, "state" => "COMMENTED"}]),
+        response(200, [%{"id" => 1, "path" => 42}]),
+        response(200, [
+          %{
+            "additions" => 1,
+            "changes" => 1,
+            "deletions" => 0,
+            "filename" => "lib/example.ex",
+            "status" => "unknown"
+          }
+        ]),
+        response(200, %{"unexpected" => true}),
+        response(503, %{"message" => "search unavailable"}),
+        response(200, %{
+          "incomplete_results" => false,
+          "items" => [search_item],
+          "total_count" => 1
+        })
+      ])
+
+    client = client(requester)
+    issue_request = %{context_request("subject") | subject_kind: "issue", review_root_id: nil}
+
+    assert Client.read_context(client, :invalid) ==
+             {:error, {:invalid_github_api_request, :context}}
+
+    assert {:ok, %{"items" => [%{"body" => nil, "kind" => "issue"}]}} =
+             Client.read_context(client, issue_request)
+
+    assert Client.read_context(client, %{issue_request | section: "issue_comments"}) ==
+             {:error, {:github_protocol_error, :context}}
+
+    assert {:error, {:github_api_error, 503, _body}} =
+             Client.read_context(client, %{issue_request | section: "issue_comments"})
+
+    assert Client.read_context(client, %{issue_request | section: "issue_comments"}) ==
+             {:error, {:github_protocol_error, :context_comment}}
+
+    for {section, reason} <- [
+          {"reviews", :context_review},
+          {"review_comments", :context_review_comment},
+          {"files", :context_file}
+        ] do
+      assert Client.read_context(client, %{context_request(section) | review_root_id: nil}) ==
+               {:error, {:github_protocol_error, reason}}
+    end
+
+    search_request = %{
+      kind: "pull_requests",
+      limit: 20,
+      page: 1,
+      query: "adapter",
+      repository: "octo/example",
+      state: "all"
+    }
+
+    assert Client.search(client, :invalid) ==
+             {:error, {:invalid_github_api_request, :search}}
+
+    assert Client.search(client, %{search_request | query: "repo:other/repository"}) ==
+             {:error, {:invalid_github_api_request, :search}}
+
+    assert Client.search(client, search_request) ==
+             {:error, {:github_protocol_error, :search}}
+
+    assert {:error, {:github_api_error, 503, _body}} = Client.search(client, search_request)
+
+    assert Client.search(client, search_request) ==
+             {:error, {:github_protocol_error, :search_repository}}
+  end
+
   test "finds, creates, and verifies exact draft pull requests" do
     sha = String.duplicate("a", 40)
 
@@ -532,6 +804,18 @@ defmodule Responder.GitHub.ClientTest do
   defp client(requester) do
     assert {:ok, client} = Client.new(http: requester, requester: FakeRequester)
     client
+  end
+
+  defp context_request(section) do
+    %{
+      limit: 20,
+      number: 42,
+      page: 1,
+      repository: "octo/example",
+      review_root_id: 8_001,
+      section: section,
+      subject_kind: "pull"
+    }
   end
 
   defp response(status, body, headers \\ []),

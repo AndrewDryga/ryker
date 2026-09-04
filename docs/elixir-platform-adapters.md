@@ -26,7 +26,7 @@ destination.
 | Adapter | Accepted input | Host-derived destination | Model-visible native action |
 | --- | --- | --- | --- |
 | Slack | message, edit, delete | workspace, channel, exact thread | reply; reaction on a live message |
-| GitHub | issue comment, PR review, inline review comment | configured repository and exact discussion | reply; GitHub reaction on a live comment |
+| GitHub | issue comment, PR review, inline review comment, issue/PR lifecycle | configured repository and exact discussion | reply; GitHub reaction on a live comment; bounded context/search |
 | Universal webhook | any JSON scalar or document with explicit occurrence identity | configured route | reply only by default |
 | Grafana webhook | 1–500 firing or resolved alerts per authenticated delivery | configured route | reply only by default |
 | Mapped JSON webhook | configured bounded fields from one JSON object | configured route | reply only by default |
@@ -49,7 +49,10 @@ receives only the already-authenticated event.
 GitHub revisions combine the provider timestamp with a host-owned action rank: create, then edit, then
 delete. This keeps a delayed edit from resurrecting a comment whose delete webhook with the same
 timestamp was already admitted. A database allocator supplies collision slots without trusting arrival
-order as source chronology.
+order as source chronology. Issue and pull-request lifecycle events retain one stable provider item
+identity across opened, edited, synchronized, closed, and other supported revisions. Published pull
+requests continue through publication-owned lifecycle handling; unmatched lifecycle events use the
+ordinary generic adapter path.
 
 Feedback on a pull request published by Responder is a host-owned continuation, not a fresh generic
 conversation. After authentication and normalization, the adapter matches the exact configured
@@ -61,6 +64,14 @@ admission. The resumed Work turn keeps the authenticated GitHub actor, item iden
 payload, but remains bound to the engineering task's original delivery thread and pinned repository
 authority. Generic GitHub conversations still expose the eight native emoji reactions; publication
 feedback is routed for task work rather than converted into a crossed-platform reaction target.
+
+GitHub Work turns expose `read_github_conversation` for one bounded page of the host-bound issue or
+pull request and `search_github` for repository-scoped issue/PR search. Sections cover the subject,
+issue discussion, review summaries, review comments, one exact inline review thread, and changed
+files. The host derives repository, subject number, and review root from the episode destination;
+the model supplies none of those authority fields. Pages contain at most 20 items, cursors stop after
+page 10, text is bounded per item, search rejects repository/org/user qualifiers, and every search
+result is checked against the configured repository.
 
 ## Outbound delivery
 
@@ -145,6 +156,14 @@ GitHub reactions use the distinct issue-comment and pull-request review-comment 
 The supported model choices are exactly `+1`, `-1`, `laugh`, `confused`, `heart`, `hooray`, `rocket`,
 and `eyes`.
 
+Open engineering-task, schedule, automation, memory, preference, guidance, and standing-assignment
+offers include an exact command such as `/responder confirm record:task_offer:...`. Only a configured
+GitHub actor may submit it, and the host consumes it before generic model admission. Confirmation
+reloads the referenced record, its settled delivery receipt, and its source episode; the current
+repository discussion must match that original conversation and thread. The webhook body identity is
+the confirmation receipt, so replay is idempotent. Incident-task and publication offers deliberately
+do not gain this command.
+
 Approving a PR, requesting changes, submitting a review, merging, or changing repository contents is
 not a generic emoji or reply. Each is a separate privileged typed operation with its own authority and
 validation boundary.
@@ -219,8 +238,9 @@ does not silently enable either in a running deployment.
 
 ## Deterministic proof
 
-The fast suite covers signed and crossed GitHub webhook payloads, GitHub comment/review normalization,
-same-timestamp create/edit/delete ordering, GitHub and Slack native emoji targets, lost message-response
+The fast suite covers signed and crossed GitHub webhook payloads, GitHub comment/review/lifecycle
+normalization, same-timestamp create/edit/delete ordering, bounded repository context and search,
+exact-thread idempotent confirmations, GitHub and Slack native emoji targets, lost message-response
 reconciliation, bounded pagination, typed receipt fencing, provider-directed rate-limit delays,
 operator inspection/rearm, independent message/reaction leasing, and full
 signed-GitHub-to-delivered-work and signed-GitHub-to-delivered-reaction paths. Tests use scripted

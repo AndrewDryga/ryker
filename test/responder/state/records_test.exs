@@ -150,7 +150,7 @@ defmodule Responder.State.RecordsTest do
   end
 
   test "destinations without an operator confirmation surface cannot create inert offers" do
-    claim = claim!("github-offers", :live, "github")
+    claim = claim!("unsupported-offers", :live, "email")
     token = Records.token(claim.turn)
 
     for {kind, payload} <- [
@@ -172,7 +172,7 @@ defmodule Responder.State.RecordsTest do
     end
 
     assert {:ok, _question} =
-             Records.create(token, "github-question", "input_request", %{
+             Records.create(token, "unsupported-question", "input_request", %{
                "choices" => [],
                "question" => "Which rollout should I inspect?"
              })

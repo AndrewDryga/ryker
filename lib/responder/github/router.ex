@@ -9,7 +9,7 @@ defmodule Responder.GitHub.Router do
 
   @behaviour Plug
 
-  alias Responder.GitHub.{Auth, Binding}
+  alias Responder.GitHub.{Auth, Binding, Confirmations}
   alias Responder.Ingress.{Adapters, HTTP, Inbox}
   alias Responder.Publication.Followups
 
@@ -29,9 +29,16 @@ defmodule Responder.GitHub.Router do
 
     binding_index = binding_index!(bindings)
 
+    confirmations =
+      case Keyword.get(options, :confirmations) do
+        nil -> nil
+        configured -> Confirmations.options!(configured)
+      end
+
     %{
       binding_index: binding_index,
       bindings: bindings,
+      confirmations: confirmations,
       max_body_bytes: bindings |> Map.values() |> Enum.map(& &1.max_body_bytes) |> Enum.max(),
       secret: secret
     }
@@ -79,14 +86,22 @@ defmodule Responder.GitHub.Router do
   defp route_event(conn, options, body, delivery_ref, event_name, payload) do
     with {:ok, binding} <- binding_for_payload(options.binding_index, payload),
          true <- byte_size(body) <= binding.max_body_bytes do
-      admit_event(conn, binding, delivery_ref, authenticated_event_ref(body), event_name, payload)
+      admit_event(
+        conn,
+        binding,
+        delivery_ref,
+        authenticated_event_ref(body),
+        event_name,
+        payload,
+        options.confirmations
+      )
     else
       false -> HTTP.respond(conn, 413, %{"error" => "payload_too_large"})
       {:error, :binding} -> HTTP.respond(conn, 400, %{"error" => "invalid_event"})
     end
   end
 
-  defp admit_event(conn, binding, _delivery_ref, event_ref, event_name, payload)
+  defp admit_event(conn, binding, delivery_ref, event_ref, event_name, payload, confirmations)
        when event_name in @lifecycle_events do
     with :ok <- Binding.authorize_payload(binding, payload),
          {:ok, outcome} <-
@@ -96,7 +111,16 @@ defmodule Responder.GitHub.Router do
              event_ref,
              payload
            ) do
-      HTTP.respond(conn, 202, %{"status" => Atom.to_string(outcome)})
+      route_lifecycle_outcome(
+        conn,
+        binding,
+        delivery_ref,
+        event_ref,
+        event_name,
+        payload,
+        confirmations,
+        outcome
+      )
     else
       {:error, {:invalid_github_input, _field}} ->
         HTTP.respond(conn, 400, %{"error" => "invalid_event"})
@@ -106,7 +130,60 @@ defmodule Responder.GitHub.Router do
     end
   end
 
-  defp admit_event(conn, binding, delivery_ref, event_ref, event_name, payload) do
+  defp admit_event(conn, binding, delivery_ref, event_ref, event_name, payload, confirmations) do
+    admit_generic_event(
+      conn,
+      binding,
+      delivery_ref,
+      event_ref,
+      event_name,
+      payload,
+      confirmations
+    )
+  end
+
+  defp route_lifecycle_outcome(
+         conn,
+         binding,
+         delivery_ref,
+         event_ref,
+         "pull_request" = event_name,
+         payload,
+         confirmations,
+         :ignored
+       ) do
+    admit_generic_event(
+      conn,
+      binding,
+      delivery_ref,
+      event_ref,
+      event_name,
+      payload,
+      confirmations
+    )
+  end
+
+  defp route_lifecycle_outcome(
+         conn,
+         _binding,
+         _delivery_ref,
+         _event_ref,
+         _event_name,
+         _payload,
+         _confirmations,
+         outcome
+       ),
+       do: HTTP.respond(conn, 202, %{"status" => Atom.to_string(outcome)})
+
+  defp admit_generic_event(
+         conn,
+         binding,
+         delivery_ref,
+         event_ref,
+         event_name,
+         payload,
+         confirmations
+       ) do
     event = %{
       delivery_ref: delivery_ref,
       event_name: event_name,
@@ -114,10 +191,10 @@ defmodule Responder.GitHub.Router do
       payload: payload
     }
 
-    with {:ok, input} <- Adapters.normalize("github", event, binding),
-         {:ok, subscription} <- Followups.observe_github_feedback(input) do
-      record_or_subscribe(conn, input, binding, subscription)
-    else
+    case Adapters.normalize("github", event, binding) do
+      {:ok, input} ->
+        confirm_or_record(conn, input, binding, confirmations)
+
       {:error, {:invalid_github_input, _field}} ->
         HTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
@@ -132,6 +209,26 @@ defmodule Responder.GitHub.Router do
 
       {:error, {:input_conflict, _details}} ->
         HTTP.respond(conn, 409, %{"error" => "event_conflict"})
+
+      {:error, _reason} ->
+        HTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
+    end
+  end
+
+  defp observe_and_record(conn, input, binding) do
+    case Followups.observe_github_feedback(input) do
+      {:ok, subscription} -> record_or_subscribe(conn, input, binding, subscription)
+      {:error, reason} -> route_record_error(conn, reason)
+    end
+  end
+
+  defp confirm_or_record(conn, input, binding, confirmations) do
+    case Confirmations.apply(input, confirmations) do
+      {:ok, :not_confirmation} ->
+        observe_and_record(conn, input, binding)
+
+      {:ok, %{"status" => status} = confirmation} ->
+        HTTP.respond(conn, 202, %{"confirmation" => confirmation, "status" => status})
 
       {:error, _reason} ->
         HTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
