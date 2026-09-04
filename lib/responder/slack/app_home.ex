@@ -33,6 +33,11 @@ defmodule Responder.Slack.AppHome do
 
   def handle(_event, _options), do: {:error, {:invalid_app_home, :request}}
 
+  @doc false
+  @spec render(:operator | :restricted, map()) :: map()
+  def render(:operator, %{} = snapshot), do: operator_view(snapshot)
+  def render(:restricted, %{}), do: restricted_view()
+
   defp allowed?(event, options) do
     with directory when is_atom(directory) <- Map.get(options, :directory),
          client <- Map.get(options, :client),

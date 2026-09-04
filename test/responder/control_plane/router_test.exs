@@ -8,6 +8,70 @@ defmodule Responder.ControlPlane.RouterTest do
 
   @secret String.duplicate("s", 32)
 
+  test "the Slack Card Lab previews and transitions exact specimens with durable feedback" do
+    index = request(:get, "/card-lab")
+
+    assert index.status == 200
+    assert index.resp_body =~ "Slack Card Lab"
+    assert index.resp_body =~ "Every production Slack surface"
+    assert index.resp_body =~ "Task card"
+    assert index.resp_body =~ "Production renderer"
+    assert index.resp_body =~ "Raw Block Kit JSON"
+
+    state = request(:get, "/card-lab/task-card/working")
+    assert state.status == 200
+    assert state.resp_body =~ "Fix parser retries"
+    assert state.resp_body =~ "Stop current run"
+    assert state.resp_body =~ "Transition without Slack"
+
+    transition_resource = "task-card:working:wait-input"
+    transition_token = CSRF.token(@secret, "card_lab:transition", transition_resource)
+
+    transitioned =
+      request(
+        :post,
+        "/card-lab/task-card/working/transitions/wait-input",
+        URI.encode_query(%{"_token" => transition_token})
+      )
+
+    assert transitioned.status == 303
+
+    assert get_resp_header(transitioned, "location") == [
+             "/card-lab/task-card/waiting-for-input"
+           ]
+
+    rejected =
+      request(
+        :post,
+        "/card-lab/task-card/working/transitions/wait-input",
+        URI.encode_query(%{"_token" => "wrong"})
+      )
+
+    assert rejected.status == 403
+
+    feedback_resource = "task-card:working"
+    feedback_token = CSRF.token(@secret, "card_lab:feedback", feedback_resource)
+
+    feedback =
+      request(
+        :post,
+        "/card-lab/task-card/working/feedback",
+        URI.encode_query(%{
+          "_token" => feedback_token,
+          "note" => "Make the progress line more prominent.",
+          "verdict" => "needs_work"
+        })
+      )
+
+    assert feedback.status == 303
+    assert get_resp_header(feedback, "location") == ["/card-lab/task-card/working#feedback"]
+
+    assert_received {:card_lab_feedback, "task-card", "working", "needs_work",
+                     "Make the progress line more prominent."}
+
+    assert request(:get, "/card-lab/missing/state").status == 404
+  end
+
   test "renders an offline overview with hard browser boundaries" do
     conn = request(:get, "/")
 
@@ -1201,6 +1265,10 @@ defmodule Responder.ControlPlane.RouterTest do
 
     %{
       actions: %{
+        record_card_feedback: fn card_id, state_id, verdict, note ->
+          send(parent, {:card_lab_feedback, card_id, state_id, verdict, note})
+          {:ok, %{id: Ecto.UUID.generate()}}
+        end,
         delete_lab_message: fn conversation_id, item_id ->
           send(parent, {:lab_message_delete, conversation_id, item_id})
           {:ok, %{status: :recorded}}
@@ -1332,6 +1400,20 @@ defmodule Responder.ControlPlane.RouterTest do
         ready: fn -> {:ok, %{stalled_queues: []}} end
       },
       projection: %{
+        card_lab_feedback: fn
+          "task-card", "working" ->
+            [
+              %{
+                actor_ref: "control-plane:local",
+                inserted_at: ~U[2026-09-04 12:00:00Z],
+                note: "Existing review note",
+                verdict: "good"
+              }
+            ]
+
+          _card_id, _state_id ->
+            []
+        end,
         admission: fn
           "ingress-input:one" ->
             {:ok,
