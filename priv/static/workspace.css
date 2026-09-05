@@ -124,6 +124,27 @@
 .legacy-surface button, .legacy-surface .button { background:#385f35; color:#fff; font-size:14px; font-weight:500; padding:8px 12px; border-radius:4px; }
 .legacy-surface input, .legacy-surface select, .legacy-surface textarea { background:#fff; color:#394e32; border:1px solid #cad7bf; border-radius:4px; padding:8px 10px; }
 .legacy-surface pre { background:#eef3e7; color:#4a6240; border:1px solid #d9e4ce; padding:16px; }
+/* Configuration is a readable field guide, not an unexplained key/value dump. */
+.configuration-guide { max-width:90ch; color:#3d493f; }
+.configuration-guide h2 { font-size:22px; margin:0 0 8px; }
+.configuration-guide p { font-size:16px; line-height:1.5; margin:8px 0; }
+.configuration-change-note { border-left:2px solid #9bad91; padding:4px 0 4px 16px; margin:20px 0; }
+.configuration-change-note strong { font-size:15px; }
+.configuration-change-note p { font-size:14px; color:#526153; }
+.configuration-settings { border-top:1px solid var(--stroke); margin:24px 0 32px; }
+.configuration-setting { display:grid; grid-template-columns:minmax(220px,1fr) minmax(0,2fr); gap:24px; padding:20px 0; border-bottom:1px solid var(--stroke); }
+.configuration-setting-value { min-width:0; }
+.configuration-setting-value h3 { color:#293b2e; font-size:17px; line-height:1.4; margin:0 0 4px; }
+.configuration-setting code, .configuration-guide code { overflow-wrap:anywhere; font-size:13px; color:#4d604c; }
+.configuration-value { font-size:20px; line-height:1.3; color:#2c4833; font-weight:550; margin:12px 0 4px; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+.configuration-raw { font-size:13px; color:#5b6658; }
+.configuration-setting-help { min-width:0; max-width:80ch; }
+.configuration-purpose { font-size:16px; line-height:1.5; color:#303f34; margin:0 0 8px; }
+.configuration-behavior { font-size:15px; line-height:1.5; color:#4d5c50; margin:0 0 12px; }
+.configuration-default, .configuration-provenance { font-size:14px; line-height:1.5; color:#526153; margin:8px 0 0; }
+.configuration-grant-help { max-width:55ch; font-size:14px; line-height:1.5; color:#526153; margin:8px 0 0; }
+.configuration-grants-note { font-size:15px; line-height:1.5; color:#526153; }
+@media (max-width:900px) { .configuration-setting { grid-template-columns:1fr; gap:12px; } }
 @media (min-width:1800px) { .activity-primary { padding:28px 32px; } .activity-layout.with-context { grid-template-columns:minmax(0,1fr) 310px; } .activity-rail { padding:28px 24px; } }
 @media (max-width:1280px) { .activity-layout.with-context { grid-template-columns:minmax(0,1fr) 250px; } .activity-rail { padding:24px 16px; } .ui-tabs { gap:16px; } }
 @media (max-width:1180px) { .activity-layout.with-context { grid-template-columns:1fr; } .activity-rail { border-top:1px solid var(--stroke); border-left:0; display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:24px; padding:24px; } .activity-rail .rail-section + .rail-section { border:0; margin:0; padding:0; } }

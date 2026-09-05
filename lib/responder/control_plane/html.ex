@@ -8,6 +8,7 @@ defmodule Responder.ControlPlane.HTML do
   @spec page(String.t(), iodata()) :: binary()
   alias Phoenix.HTML.Safe
   alias Responder.ControlPlane.CaseFile
+  alias Responder.ControlPlane.ConfigurationHelp
   alias Responder.ControlPlane.Layouts
   alias Responder.ControlPlane.SlackMarkdown
 
@@ -1747,14 +1748,35 @@ defmodule Responder.ControlPlane.HTML do
   def configuration(%{rows: rows, grants: grants, source: source}) do
     configuration_rows =
       Enum.map(rows, fn row ->
+        help = ConfigurationHelp.setting(row.key)
+
         [
-          "<tr><td><code>",
+          "<section class=\"configuration-setting\" data-setting=\"",
           escape(row.key),
-          "</code></td><td>",
+          "\"><div class=\"configuration-setting-value\"><h3>",
+          escape(help.title),
+          "</h3><code>",
+          escape(row.key),
+          "</code><p class=\"configuration-value\">",
+          escape(ConfigurationHelp.value(row.key, row.value)),
+          "</p><span class=\"configuration-raw\">Loaded value: <code>",
           escape(row.value),
-          "</td><td><code>",
-          escape(row.source),
-          "</code></td></tr>"
+          "</code></span></div><div class=\"configuration-setting-help\"><p class=\"configuration-purpose\">",
+          escape(help.purpose),
+          "</p><p class=\"configuration-behavior\">",
+          escape(help.behavior),
+          "</p><p class=\"configuration-default\"><strong>Default / requirement:</strong> ",
+          escape(help.default),
+          "</p>",
+          if(row.source != source,
+            do: [
+              "<p class=\"configuration-provenance\">Loaded from <code>",
+              escape(row.source),
+              "</code>.</p>"
+            ],
+            else: []
+          ),
+          "</div></section>"
         ]
       end)
 
@@ -1763,6 +1785,9 @@ defmodule Responder.ControlPlane.HTML do
         [
           "<tr><td>",
           escape(grant.kind),
+          "<p class=\"configuration-grant-help\">",
+          escape(ConfigurationHelp.grant(grant.kind)),
+          "</p>",
           "</td><td><code>",
           escape(grant.name),
           "</code></td><td><code>",
@@ -1772,15 +1797,11 @@ defmodule Responder.ControlPlane.HTML do
       end)
 
     [
-      workbench_intro(
-        "Effective host configuration",
-        "Only an explicit safe allowlist is rendered. Credentials, URLs, callback values, and raw policy documents remain private."
-      ),
-      "<p class=\"muted\">Loaded from <code>",
+      "<div class=\"configuration-guide\"><h2>Effective host configuration</h2><p>What this Responder is configured to do, and what each setting changes.</p><p>Loaded from <code>",
       escape(source),
-      "</code>.</p><section><h2>Effective values and provenance</h2>",
-      table(["Setting", "Effective value", "Source"], configuration_rows),
-      "</section><section><h2>MCP and tool grants</h2>",
+      "</code>.</p><div class=\"configuration-change-note\"><strong>How to change these settings</strong><p>This page is read-only. Edit the host YAML (or application environment in a component setup), validate it, then restart Responder through the normal deployment workflow. Refreshing this page does not reload the file or change running work.</p><p>Configured means the component has configuration, not that its connection or workers are healthy. Defaults below describe the v1 loader; example YAML values are not necessarily defaults. Credentials, URLs, callback values and raw policy documents remain private.</p></div></div><div class=\"configuration-settings\" aria-label=\"Effective values and explanations\">",
+      configuration_rows,
+      "</div><section><h2>MCP and tool grants</h2><p class=\"configuration-grants-note\">This is an inventory of configured names, not a live tool-health check. Listing a tool does not grant permission to use it.</p>",
       table(["Grant kind", "Capability or tool", "Source"], grant_rows),
       "</section><p class=\"muted\">Repository-specific policy topology and serving-worker revisions are shown under <a href=\"/repositories\">Repositories</a>.</p>"
     ]
