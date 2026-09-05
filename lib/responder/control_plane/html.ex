@@ -810,15 +810,7 @@ defmodule Responder.ControlPlane.HTML do
   defp source_action(_source), do: ""
 
   defp episode_action(action) do
-    [
-      "<a class=\"button ",
-      escape(action.tone),
-      "\" href=\"",
-      escape(action.href),
-      "\">",
-      escape(action.label),
-      "</a>"
-    ]
+    Components.action_button(action.href, action.label, action.tone)
   end
 
   defp episode_metric(metric) do
@@ -1142,9 +1134,13 @@ defmodule Responder.ControlPlane.HTML do
       end)
 
     [
-      "<p class=\"actions\"><a href=\"/actions/schedule/",
-      segment(schedule.ref),
-      "/run-now\">Run now…</a> <a href=\"/lab\">Replace in Conversation Lab…</a></p>",
+      "<div class=\"action-controls\">",
+      Components.action_button(
+        "/actions/schedule/#{segment(schedule.ref)}/run-now",
+        "Run now…",
+        :primary
+      ),
+      "<a href=\"/lab\">Replace in Conversation Lab…</a></div>",
       definition_list([
         {"Reference", schedule.ref},
         {"Status", schedule.status},
@@ -1477,9 +1473,9 @@ defmodule Responder.ControlPlane.HTML do
       escape(item.kind),
       "</td><td>",
       escape(item.status),
-      "</td><td><a href=\"/actions/memory/",
-      segment(item.ref),
-      "/forget\">Forget…</a></td></tr>"
+      "</td><td>",
+      Components.action_button("/actions/memory/#{segment(item.ref)}/forget", "Forget…", :danger),
+      "</td></tr>"
     ]
   end
 
@@ -1493,15 +1489,17 @@ defmodule Responder.ControlPlane.HTML do
       escape(item.kind),
       "</td><td>",
       escape(item.status),
-      "</td><td><a href=\"/actions/behavior/",
-      segment(item.ref),
-      "/",
-      Atom.to_string(next),
-      "\">",
-      if(next == :active, do: "Enable…", else: "Disable…"),
-      "</a> <a href=\"/actions/behavior/",
-      segment(item.ref),
-      "/deleted\">Delete…</a></td></tr>"
+      "</td><td><div class=\"action-controls\">",
+      Components.action_button(
+        "/actions/behavior/#{segment(item.ref)}/#{next}",
+        if(next == :active, do: "Enable…", else: "Disable…")
+      ),
+      Components.action_button(
+        "/actions/behavior/#{segment(item.ref)}/deleted",
+        "Delete…",
+        :danger
+      ),
+      "</div></td></tr>"
     ]
   end
 
@@ -1515,17 +1513,22 @@ defmodule Responder.ControlPlane.HTML do
       escape(item.status),
       "</td><td>",
       timestamp(item.next_occurrence_at),
-      "</td><td><a href=\"/actions/schedule/",
-      segment(item.ref),
-      "/",
-      Atom.to_string(next),
-      "\">",
-      if(next == :active, do: "Resume…", else: "Pause…"),
-      "</a> <a href=\"/actions/schedule/",
-      segment(item.ref),
-      "/run-now\">Run now…</a> <a href=\"/actions/schedule/",
-      segment(item.ref),
-      "/deleted\">Delete…</a></td></tr>"
+      "</td><td><div class=\"action-controls\">",
+      Components.action_button(
+        "/actions/schedule/#{segment(item.ref)}/#{next}",
+        if(next == :active, do: "Resume…", else: "Pause…")
+      ),
+      Components.action_button(
+        "/actions/schedule/#{segment(item.ref)}/run-now",
+        "Run now…",
+        :primary
+      ),
+      Components.action_button(
+        "/actions/schedule/#{segment(item.ref)}/deleted",
+        "Delete…",
+        :danger
+      ),
+      "</div></td></tr>"
     ]
   end
 
@@ -1569,23 +1572,23 @@ defmodule Responder.ControlPlane.HTML do
 
   defp review_actions(kind, ref) do
     [
-      "<a href=\"/actions/memory-review/",
-      ref,
-      "/keep\">",
-      if(kind == "duplicate", do: "Keep separate…", else: "Keep…"),
-      "</a> ",
+      "<div class=\"action-controls\">",
+      Components.action_button(
+        "/actions/memory-review/#{ref}/keep",
+        if(kind == "duplicate", do: "Keep separate…", else: "Keep…"),
+        :primary
+      ),
       review_secondary_action(kind, ref),
-      "<a href=\"/actions/memory-review/",
-      ref,
-      "/forget\">Forget…</a>"
+      Components.action_button("/actions/memory-review/#{ref}/forget", "Forget…", :danger),
+      "</div>"
     ]
   end
 
   defp review_secondary_action("duplicate", ref),
-    do: ["<a href=\"/actions/memory-review/", ref, "/merge\">Merge…</a> "]
+    do: Components.action_button("/actions/memory-review/#{ref}/merge", "Merge…")
 
   defp review_secondary_action(_kind, ref),
-    do: ["<a href=\"/actions/memory-review/", ref, "/edit\">Edit…</a> "]
+    do: Components.action_button("/actions/memory-review/#{ref}/edit", "Edit…")
 
   def memory_edit(review, action, token) do
     entry = hd(review["entries"])
@@ -1630,32 +1633,6 @@ defmodule Responder.ControlPlane.HTML do
   def failures(rows) do
     body =
       Enum.map(rows, fn row ->
-        action =
-          case row.action do
-            :rearm ->
-              [
-                "<a href=\"/actions/",
-                segment(row.kind),
-                "/",
-                segment(row.ref),
-                "/rearm\">",
-                escape(recovery_label(row.kind)),
-                "…</a>"
-              ]
-
-            :retry ->
-              [
-                "<a href=\"/actions/",
-                segment(row.kind),
-                "/",
-                segment(row.ref),
-                "/retry\">Retry…</a>"
-              ]
-
-            nil ->
-              "Inspect the owning episode"
-          end
-
         [
           "<article class=\"failure-card\"><div class=\"failure-card-top\"><h3 title=\"",
           escape(row.ref),
@@ -1683,7 +1660,7 @@ defmodule Responder.ControlPlane.HTML do
           "<span class=\"failure-attempts\"><strong>",
           integer(Map.get(row, :attempt_count, 0)),
           "</strong> attempts</span>",
-          action,
+          failure_recovery_action(row),
           "</div></article>"
         ]
       end)
@@ -1738,17 +1715,11 @@ defmodule Responder.ControlPlane.HTML do
   end
 
   defp failure_recovery_action(%{action: action} = row) when action in [:rearm, :retry] do
-    [
-      "<a class=\"button\" href=\"/actions/",
-      segment(row.kind),
-      "/",
-      segment(row.ref),
-      "/",
-      to_string(action),
-      "\">",
-      escape(recovery_label(row.kind)),
-      "…</a>"
-    ]
+    Components.action_button(
+      "/actions/#{segment(row.kind)}/#{segment(row.ref)}/#{action}",
+      recovery_label(row.kind) <> "…",
+      :primary
+    )
   end
 
   defp failure_recovery_action(_row), do: []
@@ -1762,18 +1733,18 @@ defmodule Responder.ControlPlane.HTML do
         action =
           case row.action do
             :rearm ->
-              [
-                "<a href=\"/actions/retention/",
-                segment(row.ref),
-                "/rearm\">Resume cleanup…</a>"
-              ]
+              Components.action_button(
+                "/actions/retention/#{segment(row.ref)}/rearm",
+                "Resume cleanup…",
+                :primary
+              )
 
             :discard_unmerged ->
-              [
-                "<a href=\"/actions/retention/",
-                segment(row.ref),
-                "/discard\">Discard unmerged…</a>"
-              ]
+              Components.action_button(
+                "/actions/retention/#{segment(row.ref)}/discard",
+                "Discard unmerged…",
+                :danger
+              )
 
             nil ->
               "Managed automatically"

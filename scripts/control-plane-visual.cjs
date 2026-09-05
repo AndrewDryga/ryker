@@ -128,6 +128,7 @@ async function interactions(page) {
           }));
           assert.equal(result.status, 200);
           assert.equal(await page.locator('a[href="/audit"]').count(), 0, 'The removed Audit page must not return to navigation');
+          assert.equal(await page.locator('a[href^="/actions/"]').count(), 0, 'Operator actions must be native buttons, not navigation links');
           assert(result.layout.scrollWidth <= width, 'Page overflows horizontally');
           if (name === 'task-working') assert(result.layout.previewTop < height - 120, 'Card preview is buried below the first screen');
           if (name === 'lab-chat' && width === 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');

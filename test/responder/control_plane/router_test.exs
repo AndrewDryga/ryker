@@ -8,6 +8,31 @@ defmodule Responder.ControlPlane.RouterTest do
 
   @secret String.duplicate("s", 32)
 
+  test "operator actions are buttons while inspection remains navigation" do
+    # Text links made recovery actions look like more inspection pages.
+    for path <- [
+          "/failures",
+          "/failures/delivery/delivery%3Aone",
+          "/workspaces",
+          "/memory",
+          "/schedules/schedule%3Aone",
+          "/episodes/episode%3Aone"
+        ] do
+      conn = request(:get, path)
+      assert conn.status == 200
+      document = LazyHTML.from_document(conn.resp_body)
+      assert LazyHTML.query(document, "a[href^='/actions/']") |> LazyHTML.to_tree() == []
+
+      buttons =
+        LazyHTML.query(document, "form[method='get'][action^='/actions/'] button[type='submit']")
+
+      assert LazyHTML.to_tree(buttons) != [], "#{path} must expose native action buttons"
+    end
+
+    failures = request(:get, "/failures").resp_body |> LazyHTML.from_document()
+    assert LazyHTML.query(failures, "a[href^='/failures/']") |> LazyHTML.text() =~ "Inspect cause"
+  end
+
   test "retry confirmation names the frozen specimen rather than the currently browsed state" do
     id = Ecto.UUID.generate()
     options = options()
@@ -959,6 +984,7 @@ defmodule Responder.ControlPlane.RouterTest do
     assert confirm.status == 200
     assert confirm.resp_body =~ "Retry this delivery?"
     assert confirm.resp_body =~ "href=\"/failures\""
+    refute_received {:rearmed_delivery, "delivery:one"}
     [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirm.resp_body)
 
     accepted =
