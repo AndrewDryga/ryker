@@ -20,7 +20,7 @@ const allCards = process.argv.includes('--cards');
 const routes = [
   ['requests', '/'], ['lab', '/lab'], ['episodes', '/episodes'],
   ['incidents', '/incidents'], ['failures', '/failures'], ['usage', '/usage'],
-  ['audit', '/audit'], ['schedules', '/schedules'], ['subscriptions', '/subscriptions'],
+  ['schedules', '/schedules'], ['subscriptions', '/subscriptions'],
   ['memory', '/memory'], ['decisions', '/decisions'], ['findings', '/findings'],
   ['calibration', '/calibration'], ['configuration', '/configuration'],
   ['channels', '/channels'], ['repositories', '/repositories'], ['workspaces', '/workspaces'],
@@ -127,6 +127,7 @@ async function interactions(page) {
             transcriptBottom: document.querySelector('.lab-transcript')?.getBoundingClientRect().bottom
           }));
           assert.equal(result.status, 200);
+          assert.equal(await page.locator('a[href="/audit"]').count(), 0, 'The removed Audit page must not return to navigation');
           assert(result.layout.scrollWidth <= width, 'Page overflows horizontally');
           if (name === 'task-working') assert(result.layout.previewTop < height - 120, 'Card preview is buried below the first screen');
           if (name === 'lab-chat' && width === 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');

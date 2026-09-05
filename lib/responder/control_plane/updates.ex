@@ -75,7 +75,7 @@ defmodule Responder.ControlPlane.Updates do
     do: ~w(activity episodes incidents lab decisions findings memory)
 
   defp domains("episode_" <> _),
-    do: ~w(activity episodes incidents lab usage workspaces failures audit)
+    do: ~w(activity episodes incidents lab usage workspaces failures)
 
   defp domains("ingress_" <> _), do: ~w(activity admission episodes lab usage failures channels)
 
@@ -85,7 +85,7 @@ defmodule Responder.ControlPlane.Updates do
   defp domains("slack_incident_" <> _), do: ~w(activity incidents episodes lab channels failures)
 
   defp domains("slack_" <> _),
-    do: ~w(activity channels incidents episodes lab failures configuration repositories audit)
+    do: ~w(activity channels incidents episodes lab failures configuration repositories)
 
   defp domains("coop_" <> _),
     do: ~w(activity workspaces episodes lab repositories configuration failures)
@@ -96,6 +96,6 @@ defmodule Responder.ControlPlane.Updates do
   defp domains("operator_behaviors"), do: ~w(memory configuration channels)
   defp domains("platform_actions"), do: ~w(activity episodes lab failures)
   defp domains("delivery_" <> _), do: ~w(activity episodes lab failures)
-  defp domains("responder_operator_actions"), do: ~w(activity failures audit)
+  defp domains("responder_operator_actions"), do: ~w(activity failures)
   defp domains(_table), do: ~w(activity calibration configuration)
 end

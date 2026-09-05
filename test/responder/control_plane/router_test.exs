@@ -1121,6 +1121,11 @@ defmodule Responder.ControlPlane.RouterTest do
     assert request(:get, "/metrics", "evil.example", {127, 0, 0, 1}).status == 421
   end
 
+  test "the removed audit page cannot be opened through HTTP or live snapshots" do
+    assert request(:get, "/audit").status == 404
+    assert Router.snapshot("/audit", "", options()).status == 404
+  end
+
   test "renders every bounded read-only operator view without external assets" do
     channel = request(:get, "/channels/T123/C456")
     assert channel.resp_body =~ "<h1>Slack channel</h1>"
@@ -1140,8 +1145,7 @@ defmodule Responder.ControlPlane.RouterTest do
           {"/calibration?window=30d", "Compare speed and reliability"},
           {"/workspaces", "Workspaces"},
           {"/decisions", "Decisions"},
-          {"/findings", "Findings"},
-          {"/audit", "Audit"}
+          {"/findings", "Findings"}
         ] do
       conn = request(:get, path)
       assert conn.status == 200
@@ -1578,7 +1582,6 @@ defmodule Responder.ControlPlane.RouterTest do
           _ref ->
             :not_found
         end,
-        audit: fn _params -> [] end,
         configuration: fn -> [%{key: "runtime", value: "configured"}] end,
         operator_configuration: fn ->
           %{

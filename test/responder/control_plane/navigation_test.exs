@@ -3,6 +3,15 @@ defmodule Responder.ControlPlane.NavigationTest do
   import Phoenix.LiveViewTest
   alias Responder.ControlPlane.{Layouts, Navigation}
 
+  test "the removed audit page is absent from live and HTTP navigation" do
+    # The standalone audit feed duplicated request history without useful actions.
+    for live <- [true, false], component <- [&Navigation.sidebar/1, &Navigation.mobile/1] do
+      html = render_component(component, path: "/", live: live)
+      refute html =~ "href=\"/audit\""
+      refute html =~ "Audit trail"
+    end
+  end
+
   test "navigation contains real operator destinations without invented accounts or workspaces" do
     # The template's fake profile and connected workspace looked like features
     # despite having no account, tenancy or presence contract behind them.
@@ -24,7 +33,7 @@ defmodule Responder.ControlPlane.NavigationTest do
              ]
 
       for path <-
-            ~w(/ /incidents /failures /usage /lab /card-lab /manual-tests /schedules /subscriptions /memory /decisions /findings /calibration /configuration /channels /repositories /workspaces /audit) do
+            ~w(/ /incidents /failures /usage /lab /card-lab /manual-tests /schedules /subscriptions /memory /decisions /findings /calibration /configuration /channels /repositories /workspaces) do
         assert path in (document |> LazyHTML.query("a") |> LazyHTML.attribute("href"))
       end
     end

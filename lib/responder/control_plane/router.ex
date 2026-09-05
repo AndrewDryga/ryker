@@ -1,5 +1,4 @@
 defmodule Responder.ControlPlane.Router do
-  alias Responder.ControlPlane.AuditHTML
   alias Responder.ControlPlane.SlackNames
   @moduledoc false
 
@@ -77,7 +76,7 @@ defmodule Responder.ControlPlane.Router do
 
   defp snapshot_path?([page]),
     do:
-      page in ~w(lab card-lab episodes incidents schedules subscriptions channels repositories failures workspaces decisions findings audit memory calibration usage configuration manual-tests)
+      page in ~w(lab card-lab episodes incidents schedules subscriptions channels repositories failures workspaces decisions findings memory calibration usage configuration manual-tests)
 
   defp snapshot_path?(["lab", "new"]), do: false
   defp snapshot_path?(["episodes", _, "requests"]), do: true
@@ -753,14 +752,13 @@ defmodule Responder.ControlPlane.Router do
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: [page]} = conn, options)
-       when page in ["decisions", "findings", "audit"] do
+       when page in ["decisions", "findings"] do
     conn = fetch_query_params(conn)
     callback = Map.fetch!(options.projection, String.to_existing_atom(page))
     rows = callback.(conn.query_params)
 
     body =
       case page do
-        "audit" -> AuditHTML.render(rows)
         "decisions" -> HTML.decisions(rows)
         _ -> HTML.generic(String.capitalize(page), rows)
       end

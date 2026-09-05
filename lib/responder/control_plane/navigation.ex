@@ -7,8 +7,7 @@ defmodule Responder.ControlPlane.Navigation do
     {:activity, "Requests", "/"},
     {:incident, "Incidents", "/incidents"},
     {:incident, "Failures", "/failures"},
-    {:usage, "Usage & cost", "/usage"},
-    {:book, "Audit trail", "/audit"}
+    {:usage, "Usage & cost", "/usage"}
   ]
   @testing [
     {:chat, "Conversation Lab", "/lab"},

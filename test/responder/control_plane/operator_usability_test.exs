@@ -1,5 +1,4 @@
 defmodule Responder.ControlPlane.OperatorUsabilityTest do
-  alias Responder.ControlPlane.AuditHTML
   alias Responder.ControlPlane.UsageChart
   use ExUnit.Case, async: true
   alias Responder.ControlPlane.HTML
@@ -115,7 +114,7 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
     assert html =~ "latest 366 calendar days"
   end
 
-  test "different requests in one repository remain distinguishable before cleanup or audit inspection" do
+  test "different requests in one repository remain distinguishable before cleanup" do
     rows =
       for title <- ["Investigate portal errors", "Update runner version"] do
         %{
@@ -135,33 +134,9 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
         }
       end
 
-    for html <- [HTML.workspaces(rows), AuditHTML.render(rows)] do
-      html = IO.iodata_to_binary(html)
-      assert html =~ ">Investigate portal errors</a>"
-      assert html =~ ">Update runner version</a>"
-    end
-  end
-
-  test "audit leads with the action and linked request rather than a dedupe key" do
-    html =
-      AuditHTML.render([
-        %{
-          kind: :delivery_confirmed,
-          ref: "episode:one",
-          summary: "dedupe-internal",
-          updated_at: ~U[2026-09-05 12:00:00Z],
-          source: :episode,
-          actor: "Responder",
-          target: "episode:one",
-          href: "/episodes/episode%3Aone"
-        }
-      ])
-      |> IO.iodata_to_binary()
-
-    assert html =~ "Reply delivered"
-    assert html =~ "Open request"
-    assert html =~ "Technical record"
-    refute html =~ "<h3>dedupe-internal"
+    html = rows |> HTML.workspaces() |> IO.iodata_to_binary()
+    assert html =~ ">Investigate portal errors</a>"
+    assert html =~ ">Update runner version</a>"
   end
 
   test "routing decisions lead with the chosen response and link to the inspected input" do

@@ -251,7 +251,7 @@ Do not broaden network exposure as part of this migration.
   publish observed changes. Each browser must not independently poll providers.
 
 Coverage includes Overview, episodes, incidents, failures, decisions, schedules,
-subscriptions, channels, repositories, workspaces, memory, audit, calibration,
+subscriptions, channels, repositories, workspaces, memory, calibration,
 Usage, Configuration, Conversation Lab, Card Lab, feedback, and test journeys.
 "Real time" means changes appear as they are committed or observed; an external
 service with no push signal must display the age of its last observation.
