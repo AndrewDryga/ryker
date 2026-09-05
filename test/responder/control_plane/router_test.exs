@@ -1326,7 +1326,8 @@ defmodule Responder.ControlPlane.RouterTest do
     assert html =~ "$0.25"
     assert html =~ "Daily measured token trend"
     # Hover-only SVG titles left the shipped chart as unexplained green bars.
-    assert html =~ "<time datetime=\"2026-08-29\">29 Aug</time>"
+    assert html =~ "data-date=\"2026-08-29\""
+    assert html =~ "aria-label=\"29 Aug: 1,000 tokens\""
     assert html =~ "<strong>1,000</strong>"
 
     # Changing the date previously silently reset a shadow audit to live traffic.

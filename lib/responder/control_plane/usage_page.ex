@@ -26,7 +26,7 @@ defmodule Responder.ControlPlane.UsagePage do
       "</section><section class=\"usage-timing-panel\"><h2>Where the time went</h2>",
       timing(totals),
       "</section></div>",
-      section("Coop profiles", "profiles", Map.get(snapshot, :profiles, []), snapshot, :profile),
+      section("Profiles", "profiles", Map.get(snapshot, :profiles, []), snapshot, :profile),
       section(
         "By model",
         "models",
@@ -88,20 +88,44 @@ defmodule Responder.ControlPlane.UsagePage do
   end
 
   defp section(title, id, rows, snapshot, kind) do
+    {missing, known} = Enum.split_with(rows, &missing_identity?(&1, kind))
+
     [
       "<section class=\"usage-breakdown\" id=\"usage-",
       id,
       "\"><div class=\"usage-section-heading\"><h2>",
       title,
       "</h2><span>",
-      if(length(rows) > 500, do: "500+", else: number(length(rows))),
+      if(length(rows) > 500, do: "500+", else: number(length(known))),
       "</span></div>",
-      breakdown(rows, snapshot, kind),
+      if(known == [] and missing != [], do: "", else: breakdown(known, snapshot, kind)),
+      Enum.map(missing, &missing_group(&1, snapshot, kind)),
+      truncation(rows),
       "</section>"
     ]
   end
 
   defp breakdown([], _, _), do: "<p class=\"empty\">No activity in this period.</p>"
+
+  defp breakdown(rows, snapshot, :person) do
+    [
+      "<div class=\"table-wrap\"><table class=\"usage-breakdown-table usage-people-table\"><thead><tr><th>Person</th><th>Episodes</th><th>Tokens</th><th>Cost</th></tr></thead><tbody>",
+      Enum.map(Enum.take(rows, 500), fn row ->
+        [
+          "<tr><td class=\"usage-identity\">",
+          identity(row, snapshot, :person),
+          "</td><td>",
+          primary(number(value(row, :episodes)), ""),
+          "</td><td>",
+          primary(tokens(row, :tokens), ""),
+          "</td><td class=\"usage-money\">",
+          e(money(row)),
+          "</td></tr>"
+        ]
+      end),
+      "</tbody></table></div>"
+    ]
+  end
 
   defp breakdown(rows, snapshot, kind) do
     [
@@ -109,11 +133,7 @@ defmodule Responder.ControlPlane.UsagePage do
       heading(kind),
       "</th><th>Usage</th><th>Input</th><th>Output</th><th>Performance</th><th>Cost</th></tr></thead><tbody>",
       Enum.map(Enum.take(rows, 500), &row(&1, snapshot, kind)),
-      "</tbody></table></div>",
-      if(length(rows) > 500,
-        do: "<p>Showing the 500 largest groups. Totals include all activity.</p>",
-        else: ""
-      )
+      "</tbody></table></div>"
     ]
   end
 
@@ -136,37 +156,49 @@ defmodule Responder.ControlPlane.UsagePage do
       secondary(duration(Map.get(row, :average_provider_ms)) <> " / execution"),
       "</td><td class=\"usage-money\">",
       e(money(row)),
-      "</td></tr>",
-      profile_models(row, snapshot, kind)
+      "</td></tr>"
     ]
   end
 
-  defp profile_models(%{models: models} = row, snapshot, :profile) when models != [] do
-    id = :crypto.hash(:sha256, "#{row.provider}@#{row.profile}") |> Base.encode16(case: :lower)
+  defp truncation(rows),
+    do:
+      if(length(rows) > 500,
+        do: "<p>Showing the 500 largest groups. Totals include all activity.</p>",
+        else: ""
+      )
+
+  defp missing_identity?(row, :profile), do: is_nil(row.profile)
+
+  defp missing_identity?(row, :kind),
+    do: row.work_kind not in ~w(admission conversational standard deep)
+
+  defp missing_identity?(row, :person), do: is_nil(row.actor)
+  defp missing_identity?(_, _), do: false
+
+  defp missing_group(row, snapshot, kind) do
+    {label, params} =
+      case kind do
+        :profile -> {"profile", %{profile: "", provider: row.provider}}
+        :kind -> {"work type", %{work_kind: row.work_kind}}
+        :person -> {"person", %{actor: "", workspace: row.workspace, source: row.source}}
+      end
+
+    count = number(row.attempts) <> if(row.attempts == 1, do: " execution", else: " executions")
 
     [
-      "<tr class=\"usage-profile-models\"><td colspan=\"6\"><details id=\"profile-",
-      id,
-      "\"><summary>Models used by ",
-      e(row.profile || "unattributed profile"),
-      "</summary>",
-      breakdown(models, snapshot, :model),
-      if(Map.get(row, :models_truncated, false),
-        do:
-          "<p>Some model rows are outside the display limit. Profile totals include all executions.</p>",
+      "<p class=\"usage-metadata-gap\">",
+      entity_link(count <> " without a saved " <> label, params, snapshot),
+      if(value(row, :costed) + value(row, :estimated) > 0,
+        do: ["<span>", e(money(row)), "</span>"],
         else: ""
       ),
-      "</details></td></tr>"
+      "</p>"
     ]
   end
 
-  defp profile_models(_, _, _), do: ""
-
   defp identity(row, snapshot, :profile) do
-    label = row.profile || "Unattributed profile"
-
     [
-      entity_link(label, %{profile: row.profile || "", provider: row.provider}, snapshot),
+      entity_link(row.profile, %{profile: row.profile, provider: row.provider}, snapshot),
       secondary(row.provider)
     ]
   end
@@ -175,7 +207,7 @@ defmodule Responder.ControlPlane.UsagePage do
     params =
       if Map.has_key?(row, :target),
         do: %{target: row.target},
-        else: %{model: row.model, provider: row.provider}
+        else: %{model: row.model, provider: row.provider, effort: Map.get(row, :effort)}
 
     [
       entity_link(
@@ -186,7 +218,12 @@ defmodule Responder.ControlPlane.UsagePage do
         params,
         snapshot
       ),
-      secondary(Enum.join(Enum.reject([row.provider, Map.get(row, :effort)], &is_nil/1), " · "))
+      secondary(
+        Enum.join(
+          Enum.reject([row.provider, effort_name(Map.get(row, :effort))], &is_nil/1),
+          " · "
+        )
+      )
     ]
   end
 
@@ -248,7 +285,10 @@ defmodule Responder.ControlPlane.UsagePage do
   defp kind_name("conversational"), do: "Conversation"
   defp kind_name("standard"), do: "Standard work"
   defp kind_name("deep"), do: "Deep work"
-  defp kind_name(_), do: "Unclassified work"
+
+  defp effort_name(nil), do: "Effort not saved"
+  defp effort_name("xhigh"), do: "Extra high effort"
+  defp effort_name(effort), do: String.capitalize(effort) <> " effort"
 
   defp channel(%{transport: "slack", conversation_ref: ref}) do
     SlackNames.destination(if String.starts_with?(ref, "slack:"), do: ref, else: "slack:" <> ref)
@@ -256,7 +296,6 @@ defmodule Responder.ControlPlane.UsagePage do
 
   defp channel(%{transport: "control_plane"}), do: "Conversation Lab"
   defp channel(row), do: "#{row.transport}:#{row.conversation_ref}"
-  defp person(%{actor: nil}), do: "Automated / unattributed"
   defp person(%{source: "control_plane"}), do: "Conversation Lab"
 
   defp person(%{source: "slack", workspace: workspace, actor: actor}),

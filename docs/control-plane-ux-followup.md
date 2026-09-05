@@ -4,7 +4,7 @@
 
 Usage leads with cost, distinct episodes and executions, then input/output token
 groups. Reasoning is a subset of output, never an extra term in the total.
-The same deduplicated accounting query feeds profile, model, channel, repository,
+The same deduplicated accounting query feeds profile, model-and-effort, channel, repository,
 work-class and person breakdowns. Provider plus the concrete retained Coop
 credential identifies a profile; missing targets and account ladders are not
 guessed from today's configuration. Profiles show comparative consumption, not
@@ -23,11 +23,18 @@ updates remain active and preserve reading state. Disconnection or a failed
 refresh is shown when it happens. Essential limitations live next to the affected
 value or in the collapsed cost-method section at the very bottom of Usage.
 
-Focused regression coverage includes profile/provider isolation, ambiguous
+Profiles are a flat table without a nested model disclosure. Missing profile,
+work-type and person metadata are inspectable links below the relevant table,
+not fabricated categories. Their accounting remains in the totals. The people
+table focuses on episodes, total tokens and cost. Daily chart values remain
+accessible on the bars; the duplicate daily-values table is removed.
+
+Focused regression coverage includes profile/provider/effort isolation, ambiguous
 credentials, non-overlapping token totals, missing measurements, safe labels,
 combined pricing, date labels and always-on LiveView updates. The read-only
 `scripts/usage-visual.cjs` verifies actual data at desktop, tablet and mobile
-widths, profile expansion, automatic refresh and request drill-downs; screenshots
+widths, flat profiles, model efforts, the compact people table, automatic refresh
+and request drill-downs; screenshots
 are written to a private directory outside the checkout.
 
 The final review found and closed three drill-down defects: admission-only

@@ -33,8 +33,7 @@ defmodule Responder.ControlPlane.UsageChart do
       " – ",
       date(last),
       "</figcaption><div class=\"chart-scroll\">",
-      "<svg viewBox=\"0 0 800 240\" role=\"img\" aria-label=\"Daily measured token trend\"><title>Daily measured token trend</title>",
-      "<desc>Tokens per day. Exact values are in the Daily values table below.</desc>",
+      "<svg viewBox=\"0 0 800 240\" role=\"group\" aria-label=\"Daily measured token trend\"><title>Daily measured token trend</title>",
       Enum.map([0, 0.5, 1], fn fraction ->
         y = 190 - fraction * 156
 
@@ -56,7 +55,11 @@ defmodule Responder.ControlPlane.UsageChart do
         x = 84 + step * index + (step - bar_width) / 2
 
         [
-          "<rect class=\"chart-bar\" x=\"",
+          "<rect class=\"chart-bar\" tabindex=\"0\" role=\"img\" data-date=\"",
+          Date.to_iso8601(day.date),
+          "\" aria-label=\"",
+          day_label(day),
+          "\" x=\"",
           coord(x),
           "\" y=\"",
           coord(190 - height),
@@ -65,14 +68,8 @@ defmodule Responder.ControlPlane.UsageChart do
           "\" height=\"",
           coord(height),
           "\" rx=\"2\"><title>",
-          date(day.date),
-          ": ",
-          number(day.tokens),
-          " counters; ",
-          to_string(day.measured),
-          " of ",
-          to_string(day.attempts),
-          " measured</title></rect>"
+          day_label(day),
+          "</title></rect>"
         ]
       end),
       ticks(length(series))
@@ -86,26 +83,11 @@ defmodule Responder.ControlPlane.UsageChart do
           "</text>"
         ]
       end),
-      "</svg></div><details id=\"daily-values\"><summary>Daily values</summary><div class=\"table-wrap\"><table><thead><tr><th>Day</th><th>Tokens</th><th>Executions</th></tr></thead><tbody>",
-      Enum.map(series, fn day ->
-        [
-          "<tr><td><time datetime=\"",
-          Date.to_iso8601(day.date),
-          "\">",
-          date(day.date),
-          "</time></td><td><strong>",
-          number(day.tokens),
-          "</strong></td><td>",
-          if(day.attempts == 0,
-            do: "No executions",
-            else: to_string(day.attempts)
-          ),
-          "</td></tr>"
-        ]
-      end),
-      "</tbody></table></div></details></figure>"
+      "</svg></div></figure>"
     ]
   end
+
+  defp day_label(day), do: date(day.date) <> ": " <> number(day.tokens) <> " tokens"
 
   defp date(date), do: Calendar.strftime(date, "%d %b")
   defp ticks(count) when count <= 7, do: Enum.to_list(0..(count - 1))

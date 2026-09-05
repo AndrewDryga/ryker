@@ -13,7 +13,7 @@ defmodule Responder.ControlPlane.UsagePageTest do
           "Output",
           "Reasoning",
           "Cache hit rate",
-          "Coop profiles",
+          "Profiles",
           "By model",
           "By channel",
           "By repository",
@@ -24,9 +24,69 @@ defmodule Responder.ControlPlane.UsagePageTest do
     end
 
     refute html =~ "<h2>Measurement coverage"
+    refute html =~ "Coop profiles"
     refute html =~ "UTC · empty days"
     assert html =~ "id=\"cost-method\""
     assert String.ends_with?(html, "</details></div>")
+  end
+
+  test "profiles are flat and missing metadata is not presented as a profile or work type" do
+    # Old runs created fake profiles and work types that could not explain any activity.
+    snapshot = Projection.usage(%{})
+    row = Map.merge(snapshot.totals, %{attempts: 4, episodes: 2})
+
+    profiles = [
+      Map.merge(row, %{
+        profile: "emisar",
+        provider: "codex",
+        models: [Map.merge(row, %{model: "gpt-5.6-sol", provider: "codex", effort: "medium"})]
+      }),
+      Map.merge(row, %{profile: nil, provider: "unrecorded", models: []})
+    ]
+
+    html =
+      %{snapshot | profiles: profiles, kinds: [Map.put(row, :work_kind, "unclassified")]}
+      |> HTML.usage()
+      |> IO.iodata_to_binary()
+
+    document = LazyHTML.from_document(html)
+
+    assert length(LazyHTML.query(document, "#usage-profiles tbody > tr") |> LazyHTML.to_tree()) ==
+             1
+
+    assert LazyHTML.query(document, "#usage-profiles details") |> LazyHTML.to_tree() == []
+    refute html =~ "Unattributed profile"
+    refute html =~ "Unclassified work"
+    assert html =~ "4 executions without a saved profile"
+    assert html =~ "4 executions without a saved work type"
+    assert LazyHTML.query(document, "#usage-work-types tbody tr") |> LazyHTML.to_tree() == []
+  end
+
+  test "people focus on episodes tokens and cost instead of provider internals" do
+    snapshot = Projection.usage(%{})
+
+    person =
+      Map.merge(snapshot.totals, %{
+        attempts: 2,
+        episodes: 1,
+        actor: "andrew",
+        source: "github",
+        workspace: "emisar"
+      })
+
+    html = %{snapshot | users: [person]} |> HTML.usage() |> IO.iodata_to_binary()
+    document = LazyHTML.from_document(html)
+    headers = document |> LazyHTML.query("#usage-people th") |> LazyHTML.to_tree()
+
+    assert Enum.map(headers, fn node -> LazyHTML.from_tree([node]) |> LazyHTML.text() end) == [
+             "Person",
+             "Episodes",
+             "Tokens",
+             "Cost"
+           ]
+
+    assert document |> LazyHTML.query("#usage-people tbody tr") |> LazyHTML.text() =~ "andrew"
+    refute document |> LazyHTML.query("#usage-people") |> LazyHTML.text() =~ "reasoning"
   end
 
   test "profile names are escaped and reported and estimated executions contribute one total" do
@@ -58,7 +118,7 @@ defmodule Responder.ControlPlane.UsagePageTest do
     snapshot = Projection.usage(%{})
 
     row =
-      Map.merge(snapshot.totals, %{attempts: 1, provider: "unrecorded", profile: nil, models: []})
+      Map.merge(snapshot.totals, %{attempts: 1, provider: "codex", profile: "emisar", models: []})
 
     totals =
       Map.merge(snapshot.totals, %{
@@ -116,7 +176,7 @@ defmodule Responder.ControlPlane.UsagePageTest do
           "Conversation",
           "Standard work",
           "Deep work",
-          "Unclassified work",
+          "1 execution without a saved work type",
           "Conversation Lab",
           "andrew",
           "$0.0012",

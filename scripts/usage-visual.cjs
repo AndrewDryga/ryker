@@ -25,19 +25,32 @@ const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwrigh
       assert.deepEqual(await page.locator('.usage-headlines .usage-stat > span').allTextContents(), ['Cost', 'Episodes', 'Executions', 'Total tokens']);
       assert.equal(await page.locator('.usage-page > :last-child').getAttribute('id'), 'cost-method');
       assert(await page.locator('#usage-profiles tbody > tr').count() > 0, 'Use actual populated execution data');
+      assert.equal(await page.locator('#usage-profiles h2').textContent(), 'Profiles');
+      assert.equal(await page.locator('#daily-values, #usage-profiles details').count(), 0);
+      assert.equal(await page.getByText('Unattributed profile', {exact: true}).count(), 0);
+      assert.equal(await page.getByText('Unclassified work', {exact: true}).count(), 0);
+      assert.deepEqual(await page.locator('#usage-people th').allTextContents(), ['Person', 'Episodes', 'Tokens', 'Cost']);
+      const peopleBounds = await page.locator('#usage-people table').evaluate(e => [e.getBoundingClientRect().width, e.parentElement.clientWidth]);
+      assert(peopleBounds[0] <= peopleBounds[1], 'The compact people table fits without horizontal scrolling');
+      for (const href of await page.locator('#usage-models .usage-identity a').evaluateAll(es => es.map(e => e.href))) {
+        assert(new URL(href).searchParams.has('usage_effort'), 'Model drilldown includes effort');
+      }
       const bounds = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
       assert(bounds[0] <= bounds[1], 'No horizontal page overflow');
       await page.screenshot({path: path.join(output, `summary-${width}.png`)});
       await page.screenshot({path: path.join(output, `usage-${width}.png`), fullPage: true});
       await page.locator('#usage-profiles').scrollIntoViewIfNeeded();
       await page.screenshot({path: path.join(output, `profiles-${width}.png`)});
-      const models = page.locator('.usage-profile-models details').first();
-      await models.locator('summary').click();
-      await page.screenshot({path: path.join(output, `profile-models-${width}.png`)});
-      // Automatic refresh must keep the expanded profile, without a Pause/Refresh UI.
+      await page.locator('#usage-models').scrollIntoViewIfNeeded();
+      await page.screenshot({path: path.join(output, `models-${width}.png`)});
+      await page.locator('#usage-people').scrollIntoViewIfNeeded();
+      await page.screenshot({path: path.join(output, `people-${width}.png`)});
+      const method = page.locator('#cost-method');
+      await method.locator('summary').click();
+      // Automatic refresh preserves reading state, without a Pause/Refresh UI.
       const updated = await page.locator('#responder-shell').getAttribute('data-updated-at');
       await page.waitForFunction(previous => document.querySelector('#responder-shell')?.dataset.updatedAt !== previous, updated, {timeout: 12000});
-      assert.notEqual(await models.getAttribute('open'), null);
+      assert.notEqual(await method.getAttribute('open'), null);
       const link = page.locator('#usage-profiles .usage-identity a').first();
       await link.click();
       await page.locator('.usage-drilldown').waitFor();

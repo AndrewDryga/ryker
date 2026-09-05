@@ -585,7 +585,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert emisar.output_tokens == 600
     assert emisar.cache_hit_rate == 0.4
     assert Decimal.equal?(emisar.cost_usd, Decimal.new("0.025"))
-    assert length(emisar.models) == 2
+    refute Map.has_key?(emisar, :models)
     assert Enum.find(snapshot.profiles, &is_nil(&1.profile)).usage_measured == 0
 
     assert Activity.list(%{
@@ -620,7 +620,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Activity.list(%{"usage_profile" => "", "usage_window" => "30d"}).total == 1
   end
 
-  test "unattributed profile model links find executions whose target was never recorded" do
+  test "missing model links find executions whose target was never recorded" do
     # Unknown targets previously linked to the nonexistent literal model "default".
     measured_turn!("missing-target", nil, DateTime.utc_now())
     measured_turn!("known-target", "codex:gpt-5.6-sol/medium@emisar", DateTime.utc_now())
@@ -630,13 +630,42 @@ defmodule Responder.ControlPlane.ProjectionTest do
 
     params =
       document
-      |> LazyHTML.query(".usage-profile-models a")
+      |> LazyHTML.query("#usage-models a")
       |> LazyHTML.attribute("href")
       |> Enum.map(&(URI.parse(&1).query |> URI.decode_query()))
-      |> Enum.find(fn params -> params["usage_target"] == "" end)
+      |> Enum.find(fn params -> params["usage_model"] == "" end)
 
     assert params, "The unknown target must use the nullable target filter"
     assert Activity.list(params).total == 1
+  end
+
+  test "model comparison and its drilldowns keep effort levels distinct across profiles" do
+    # Combining medium and high hid the actual latency and cost tradeoff.
+    now = DateTime.utc_now()
+
+    for {suffix, target} <- [
+          {"medium-a", "codex:gpt-5.6-sol/medium@emisar"},
+          {"medium-b", "codex:gpt-5.6-sol/medium@personal"},
+          {"high", "codex:gpt-5.6-sol/high@emisar"},
+          {"missing-effort", "codex:gpt-5.6-sol@emisar"}
+        ],
+        do: measured_turn!(suffix, target, now)
+
+    snapshot = Projection.usage(%{})
+
+    assert Enum.sort(Enum.map(snapshot.models, &{Map.get(&1, :effort), &1.attempts})) ==
+             [{nil, 1}, {"high", 1}, {"medium", 2}]
+
+    document = snapshot |> HTML.usage() |> IO.iodata_to_binary() |> LazyHTML.from_document()
+
+    for href <- document |> LazyHTML.query("#usage-models a") |> LazyHTML.attribute("href") do
+      params = URI.decode_query(URI.parse(href).query)
+      assert Map.has_key?(params, "usage_effort")
+      assert Activity.list(params).total == if(params["usage_effort"] == "medium", do: 2, else: 1)
+    end
+
+    assert Activity.list(%{"usage_effort" => %{"bad" => "query"}}).total == 0
+    assert Activity.list(%{"usage_effort" => String.duplicate("x", 513)}).total == 0
   end
 
   test "audit request links encode the exact opaque episode key" do

@@ -73,7 +73,7 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
     assert html =~ "class=\"sr-only\" for=\"operator-search\""
   end
 
-  test "daily graph keeps missing days on the time axis and exposes exact values without hover" do
+  test "daily graph keeps calendar spacing and accessible values without an extra table" do
     days = [
       %{date: ~D[2026-09-01], tokens: 1000, attempts: 2, measured: 2},
       %{date: ~D[2026-09-03], tokens: 2000, attempts: 3, measured: 2}
@@ -83,8 +83,10 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
     assert html =~ "<svg"
     assert html =~ "2026-09-02"
     assert html =~ "1,000"
-    assert html =~ "Daily values"
-    assert html =~ "No executions"
+    refute html =~ "Daily values"
+    refute html =~ "<table"
+    assert html =~ "02 Sep: 0 tokens"
+    assert html =~ "tabindex=\"0\""
   end
 
   # Four bars for 2-5 September were labelled 2, 4, 5: the operator read the
