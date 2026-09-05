@@ -3,6 +3,13 @@
 A local web dashboard for the operator who runs Responder, and for whoever has
 to work out why it did something.
 
+The current implementation plan is [Control-plane redesign](control-plane-redesign.md).
+It specifies Phoenix LiveView throughout, fast reliable admission, readable model
+request inspection, complete cost accounting, the reviewed learning flywheel,
+and simpler configuration. Its target technology and information architecture
+supersede the older proposals below; they are not yet deployed. This document
+remains the capability inventory and historical design rationale.
+
 This document preserves the intended complete control-plane design. The current
 Elixir replacement exposes only projections backed by durable Elixir state.
 Usage is now one of those projections: accepted Work turns retain the effective
@@ -572,6 +579,10 @@ when both the visible platform effect and its durable Episode/Work/Delivery
 record agree.
 
 ## Technology
+
+The following describes the current implementation. The target is Phoenix
+LiveView with committed-state updates and reconnect recovery, as specified in
+the [redesign plan](control-plane-redesign.md#1-liveview-throughout-the-control-plane).
 
 - **Elixir Plug/Bandit**, server-rendered. No frontend build step, bundler, or
   node_modules. Read models are bounded Ecto projections over the same durable

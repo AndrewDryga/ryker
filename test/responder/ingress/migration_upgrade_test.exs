@@ -29,6 +29,13 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @event_subscriptions_version 20_260_904_000_700
   @work_activity_version 20_260_904_000_800
   @card_lab_feedback_version 20_260_904_000_900
+  @workspace_versions [
+    20_260_905_000_100,
+    20_260_905_000_200,
+    20_260_905_000_300,
+    20_260_905_000_400,
+    20_260_905_000_500
+  ]
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
   test "an installation that already ran the Slack inbox migration upgrades to generic ingress" do
@@ -72,6 +79,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @event_subscriptions_version,
                @work_activity_version,
                @card_lab_feedback_version
+               | @workspace_versions
              ]
 
       refute table_exists?(repo, prefix, "slack_inbox_entries")
@@ -185,6 +193,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @event_subscriptions_version,
                @work_activity_version,
                @card_lab_feedback_version
+               | @workspace_versions
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -355,6 +364,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @event_subscriptions_version,
                @work_activity_version,
                @card_lab_feedback_version
+               | @workspace_versions
              ]
 
       assert_upgraded_rows!(repo, prefix, ids)
@@ -396,6 +406,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @event_subscriptions_version,
                @work_activity_version,
                @card_lab_feedback_version
+               | @workspace_versions
              ]
 
       assert Release.migrate(options) == []
@@ -438,6 +449,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       assert_raise ArgumentError, ~r/latest applied migration.*does not match/, fn ->
         Release.rollback(@conversation_continuity_version, options)
+      end
+
+      for version <- Enum.reverse(@workspace_versions) do
+        assert Release.rollback(version, options) == [version]
       end
 
       assert Release.rollback(@card_lab_feedback_version, options) == [
@@ -907,6 +922,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
         log: false
       )
 
+      rollback_workspace!(repo, prefix)
+
       SQL.query!(
         repo,
         """
@@ -935,6 +952,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   end
 
   defp rollback_card_lab_feedback!(repo, prefix) do
+    rollback_workspace!(repo, prefix)
+
     assert Ecto.Migrator.run(repo, @migrations_path, :down,
              step: 1,
              prefix: prefix,
@@ -942,6 +961,14 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
            ) == [@card_lab_feedback_version]
 
     refute table_exists?(repo, prefix, "card_lab_feedback")
+  end
+
+  defp rollback_workspace!(repo, prefix) do
+    assert Ecto.Migrator.run(repo, @migrations_path, :down,
+             to_exclusive: @card_lab_feedback_version,
+             prefix: prefix,
+             log: false
+           ) == Enum.reverse(@workspace_versions)
   end
 
   defp start_migration_repo! do

@@ -401,7 +401,9 @@ defmodule Responder.ObservabilityTest do
     Enum.each(keys, &Application.put_env(:responder, &1, false))
     Application.put_env(:responder, :admission, %{enabled: true})
 
-    assert {:ok, runtime} = Agent.start_link(fn -> :healthy end, name: Responder.Admission.Worker)
+    assert {:ok, runtime} =
+             Agent.start_link(fn -> :healthy end, name: Responder.Admission.Runtime)
+
     on_exit(fn -> if Process.alive?(runtime), do: Agent.stop(runtime) end)
     assert :ok = Progress.record(:admission, :cycle)
 

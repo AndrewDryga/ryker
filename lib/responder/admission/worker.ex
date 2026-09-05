@@ -15,8 +15,11 @@ defmodule Responder.Admission.Worker do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do
-    {name, options} = Keyword.pop(options, :name, __MODULE__)
-    GenServer.start_link(__MODULE__, options, name: name)
+    {name, options} = Keyword.pop(options, :name)
+
+    if name,
+      do: GenServer.start_link(__MODULE__, options, name: name),
+      else: GenServer.start_link(__MODULE__, options)
   end
 
   @impl GenServer

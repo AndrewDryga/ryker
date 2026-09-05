@@ -3,6 +3,35 @@ defmodule Responder.Work.MeasurementTest do
 
   alias Responder.Work.Measurement
 
+  # Unsuccessful turns consumed inference without appearing in Usage. When
+  # collecting them, a missing price must not turn their reported tokens into
+  # zero usage or an unverified provider cost into a measured dollar amount.
+  test "missing or invalid prices retain tokens without manufacturing measured cost" do
+    for usage <- [
+          %{"input_tokens" => 12, "cost_usd" => 9},
+          %{"input_tokens" => 12, "cost_recorded" => true},
+          %{"input_tokens" => 12, "cost_recorded" => true, "cost_usd" => "unknown"}
+        ] do
+      measured = Measurement.prepare(%{"usage" => usage}, %{"target" => "codex:test"})
+      assert measured.usage_recorded
+      assert measured.usage_input_tokens == 12
+      refute measured.usage_cost_recorded
+      assert measured.usage_cost_usd == nil
+    end
+  end
+
+  test "out of range telemetry cannot make a valid model answer fail a bigint write" do
+    measured =
+      Measurement.prepare(
+        %{"usage" => %{"input_tokens" => 9_223_372_036_854_775_808}},
+        %{"target" => "codex:test"}
+      )
+
+    refute measured.usage_recorded
+    assert measured.usage_input_tokens == nil
+    assert measured.measurement_error_code == "invalid_usage"
+  end
+
   test "malformed provider measurements remain explicit instead of becoming zero usage" do
     measured =
       Measurement.prepare(

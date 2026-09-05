@@ -230,14 +230,44 @@ defmodule Responder.Ingress.Inbox do
 
   defp claimable(now) do
     Repo.one(
-      from(entry in Entry,
-        where: entry.status == :pending,
-        where: is_nil(entry.next_attempt_at) or entry.next_attempt_at <= ^now,
-        where: is_nil(entry.lease_ref) or entry.lease_expires_at <= ^now,
+      from(entry in claimable_query(now),
         order_by: [asc: entry.inserted_at, asc: entry.id],
         limit: 1,
         lock: "FOR UPDATE SKIP LOCKED"
       )
+    )
+  end
+
+  @doc false
+  def claimable_query(%DateTime{} = now) do
+    # Admission's candidate generation covers the whole destination conversation,
+    # including cross-thread history. Serialize that boundary, not the entire
+    # inbox. A backoff must not let a later message overtake its missing context.
+    predecessor = conversation_predecessor(now)
+
+    from(entry in Entry,
+      as: :candidate,
+      where: entry.status == :pending,
+      where: is_nil(entry.next_attempt_at) or entry.next_attempt_at <= ^now,
+      where: is_nil(entry.lease_ref) or entry.lease_expires_at <= ^now,
+      where: not exists(subquery(predecessor))
+    )
+  end
+
+  defp conversation_predecessor(now) do
+    from(other in Entry,
+      where: other.status == :pending and other.id != parent_as(:candidate).id,
+      where:
+        other.destination_transport == parent_as(:candidate).destination_transport and
+          other.destination_conversation_ref ==
+            parent_as(:candidate).destination_conversation_ref and
+          other.execution_mode == parent_as(:candidate).execution_mode,
+      where:
+        other.inserted_at < parent_as(:candidate).inserted_at or
+          (other.inserted_at == parent_as(:candidate).inserted_at and
+             other.id < parent_as(:candidate).id) or
+          (not is_nil(other.lease_ref) and other.lease_expires_at > ^now),
+      select: 1
     )
   end
 

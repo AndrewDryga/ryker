@@ -2111,6 +2111,7 @@ defmodule Responder.Work.Custody do
            |> TurnChangeset.accept_result(attributes)
            |> Repo.update()
            |> persistence_result(:work_result),
+         :ok <- Responder.Accounting.accepted_in_transaction(episode, session, turn),
          {:ok, _subscription} <- EventSubscriptions.ensure_in_transaction(transition.episode),
          :ok <- Continuity.accept_staged_in_transaction(episode, session, turn, turn.result_ref) do
       %{episode: transition.episode, turn: turn}

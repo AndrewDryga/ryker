@@ -140,9 +140,12 @@ defmodule Responder.TestSupport.FakeCoopAPI do
   def get_session(agent, _session_id), do: {:ok, Agent.get(agent, & &1.session)}
 
   @impl true
-  def submit_turn(agent, session_id, key, _revision, _prompt, schema) do
+  def submit_turn(agent, session_id, key, _revision, prompt, schema) do
     Agent.get_and_update(agent, fn state ->
-      state = %{state | turn_keys: state.turn_keys ++ [key]}
+      state =
+        state
+        |> Map.put(:submitted_prompt, prompt)
+        |> Map.put(:turn_keys, state.turn_keys ++ [key])
 
       if state.fail_first_turn and is_nil(state.failed_turn_key) do
         failed = failed_turn(session_id, state.first_turn_state)

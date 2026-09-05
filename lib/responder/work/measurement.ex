@@ -3,6 +3,7 @@ defmodule Responder.Work.Measurement do
 
   @maximum_target_bytes 512
   @maximum_cost_usd Decimal.new("1000000000")
+  @maximum_counter 9_223_372_036_854_775_807
   @usage_keys ~w(input_tokens cached_input_tokens output_tokens reasoning_tokens)
 
   @type t :: map()
@@ -68,9 +69,9 @@ defmodule Responder.Work.Measurement do
   end
 
   defp measured_usage(value, errors) do
+    {cost, cost_recorded, errors} = recorded_cost(value, errors)
+
     with {:ok, tokens} <- usage_tokens(value),
-         {:ok, cost} <- usage_cost(value),
-         cost_recorded when is_boolean(cost_recorded) <- Map.get(value, "cost_recorded", false),
          true <- Enum.any?(Map.values(tokens), &(&1 > 0)) or cost_recorded do
       {%{
          usage_cached_input_tokens: tokens["cached_input_tokens"],
@@ -86,10 +87,23 @@ defmodule Responder.Work.Measurement do
     end
   end
 
+  defp recorded_cost(%{"cost_recorded" => true} = value, errors) do
+    case usage_cost(value) do
+      {:ok, cost} -> {cost, true, errors}
+      :error -> {nil, false, [:usage | errors]}
+    end
+  end
+
+  defp recorded_cost(value, errors) do
+    if Map.get(value, "cost_recorded", false) == false,
+      do: {nil, false, errors},
+      else: {nil, false, [:usage | errors]}
+  end
+
   defp usage_tokens(value) do
     Enum.reduce_while(@usage_keys, {:ok, %{}}, fn key, {:ok, values} ->
       case Map.get(value, key, 0) do
-        number when is_integer(number) and number >= 0 ->
+        number when is_integer(number) and number >= 0 and number <= @maximum_counter ->
           {:cont, {:ok, Map.put(values, key, number)}}
 
         _invalid ->
@@ -99,7 +113,7 @@ defmodule Responder.Work.Measurement do
   end
 
   defp usage_cost(value) do
-    with {:ok, decimal} <- decimal(Map.get(value, "cost_usd", 0)),
+    with {:ok, decimal} <- decimal(value["cost_usd"]),
          true <- Decimal.compare(decimal, Decimal.new(0)) in [:eq, :gt],
          true <- Decimal.compare(decimal, @maximum_cost_usd) in [:eq, :lt] do
       {:ok, decimal}
@@ -164,8 +178,11 @@ defmodule Responder.Work.Measurement do
 
   defp timestamp(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} -> {:ok, DateTime.truncate(datetime, :microsecond)}
-      _invalid -> :error
+      {:ok, datetime, 0} ->
+        {:ok, DateTime.from_unix!(DateTime.to_unix(datetime, :microsecond), :microsecond)}
+
+      _invalid ->
+        :error
     end
   end
 

@@ -1,10 +1,12 @@
 defmodule Responder.Admission.Runtime do
   @moduledoc """
-  Builds the optional admission worker from a small trusted configuration.
+  Supervises bounded admission slots from one trusted configuration.
 
   Incoming events cannot select the Coop socket, policy, worker identity, or
   execution limits.
   """
+
+  use Supervisor
 
   alias Responder.Admission.{FleetSession, Worker}
   alias Responder.Coop.Client
@@ -12,6 +14,7 @@ defmodule Responder.Admission.Runtime do
   @fields [
     :api,
     :client,
+    :concurrency,
     :decision_timeout_ms,
     :policy,
     :policy_digest,
@@ -26,29 +29,43 @@ defmodule Responder.Admission.Runtime do
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
+    _options = options!(configuration)
+    %{id: __MODULE__, start: {__MODULE__, :start_link, [configuration]}, type: :supervisor}
+  end
+
+  def start_link(configuration),
+    do: Supervisor.start_link(__MODULE__, configuration, name: __MODULE__)
+
+  @impl Supervisor
+  def init(configuration) do
     options = options!(configuration)
 
-    Supervisor.child_spec(
-      {Worker,
-       [
-         dispatcher_options: [
-           executor_options: [
-             api: options.api,
-             bind_execution_session: options.bind_execution_session,
-             client: options.client,
-             maximum_elapsed_ms: options.decision_timeout_ms,
-             policy: options.policy,
-             policy_digest: options.policy_digest,
-             prepare_execution_session: options.prepare_execution_session,
-             settle_execution_session: options.settle_execution_session
-           ],
-           lease_seconds: @lease_seconds,
-           worker_ref: options.worker_ref
-         ],
-         poll_interval_ms: options.poll_interval_ms
-       ]},
-      id: __MODULE__
-    )
+    children =
+      for slot <- 1..options.concurrency do
+        Supervisor.child_spec(
+          {Worker,
+           [
+             dispatcher_options: [
+               executor_options: [
+                 api: options.api,
+                 bind_execution_session: options.bind_execution_session,
+                 client: options.client,
+                 maximum_elapsed_ms: options.decision_timeout_ms,
+                 policy: options.policy,
+                 policy_digest: options.policy_digest,
+                 prepare_execution_session: options.prepare_execution_session,
+                 settle_execution_session: options.settle_execution_session
+               ],
+               lease_seconds: @lease_seconds,
+               worker_ref: "#{options.worker_ref}:slot-#{slot}"
+             ],
+             poll_interval_ms: options.poll_interval_ms
+           ]},
+          id: {Worker, slot}
+        )
+      end
+
+    Supervisor.init(children, strategy: :one_for_one)
   end
 
   @doc false
@@ -58,11 +75,16 @@ defmodule Responder.Admission.Runtime do
     policy = Map.fetch!(configuration, :policy)
     policy_digest = Map.fetch!(configuration, :policy_digest)
     worker_ref = Map.fetch!(configuration, :worker_ref)
+    concurrency = Map.get(configuration, :concurrency, 4)
     decision_timeout_ms = Map.get(configuration, :decision_timeout_ms, 30_000)
     poll_interval_ms = Map.get(configuration, :poll_interval_ms, 250)
     receive_timeout_ms = Map.get(configuration, :receive_timeout_ms, 30_000)
 
     validate_positive!(poll_interval_ms, :poll_interval_ms)
+
+    unless is_integer(concurrency) and concurrency in 1..32,
+      do: raise(ArgumentError, "admission concurrency must be between 1 and 32")
+
     validate_positive!(decision_timeout_ms, :decision_timeout_ms)
     validate_decision_timeout!(decision_timeout_ms)
     validate_positive!(receive_timeout_ms, :receive_timeout_ms)
@@ -76,6 +98,7 @@ defmodule Responder.Admission.Runtime do
     Map.merge(callbacks, %{
       api: api,
       client: client,
+      concurrency: concurrency,
       decision_timeout_ms: decision_timeout_ms,
       policy: policy,
       policy_digest: policy_digest,

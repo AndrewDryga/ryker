@@ -684,14 +684,16 @@ defmodule Responder.Publication.Custody do
   end
 
   defp task_card_offer_delivered(record, episode, %{transport: "slack"} = target) do
+    # The immutable offer ref is the rendering fence. checked_at and inserted_at
+    # come from PostgreSQL and the application host respectively; comparing
+    # those clocks can reject a genuinely rendered control after a fresh update.
     card =
       Repo.one(
         from(card in TaskCard,
           where:
             card.episode_id == ^episode.id and
               card.rendered_publication_offer_ref == ^record.ref and
-              not is_nil(card.card_fingerprint) and not is_nil(card.card_checked_at) and
-              card.card_checked_at >= ^record.inserted_at,
+              not is_nil(card.card_fingerprint) and not is_nil(card.card_checked_at),
           lock: "FOR SHARE"
         )
       )

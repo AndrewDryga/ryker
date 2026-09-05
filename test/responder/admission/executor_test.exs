@@ -5,6 +5,9 @@ defmodule Responder.Admission.ExecutorTest do
 
   @moduletag isolation: "REPEATABLE READ"
 
+  alias Responder.ControlPlane.ModelRequests
+  alias Responder.ControlPlane.ModelRequestsHTML
+
   alias Responder.Admission.Executor
   alias Responder.Ingress.Inbox
   alias Responder.Repo
@@ -54,6 +57,24 @@ defmodule Responder.Admission.ExecutorTest do
     assert Enum.map(state.validations, & &1.verdict) == [:accept]
     assert state.closed
     assert "react" in state.schema["properties"]["action"]["enum"]
+
+    # A minute spent admitting a greeting used to leave no inspectable request
+    # or phase history. Retain the submitted artifact, not a rebuilt template.
+    attempt = Repo.get_by!(Responder.Admission.Attempt, input_id: entry.id, generation: 1)
+    assert attempt.phase == "committed"
+    assert attempt.submission["output_schema"] == state.schema
+    assert attempt.submission["prompt"] == state.submitted_prompt
+    assert attempt.session_ref == execution.session_id
+    assert attempt.turn_ref == execution.turn_id
+    assert Map.has_key?(attempt.milestones, "response_received")
+    assert Map.has_key?(attempt.milestones, "committed")
+    assert {:ok, inspector} = ModelRequests.project_input(entry.id, %{})
+    request = Enum.find(inspector.selected.sections, &(&1.id == "request"))
+    assert request.artifact.state == :retained
+    assert request.artifact.text =~ "Please investigate the unfamiliar failure"
+    html = inspector |> ModelRequestsHTML.render() |> IO.iodata_to_binary()
+    assert html =~ "Observed execution milestones"
+    assert html =~ "frozen Responder admission submission"
   end
 
   test "a completed admission closes a Coop session that exhausted its final turn" do

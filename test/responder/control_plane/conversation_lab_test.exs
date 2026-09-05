@@ -5,6 +5,9 @@ defmodule Responder.ControlPlane.ConversationLabTest do
 
   import Ecto.Query
 
+  alias Responder.Admission.Attempts
+  alias Responder.ControlPlane.Activity
+
   alias Responder.Admission
   alias Responder.Admission.Decision
   alias Responder.Artifacts
@@ -69,6 +72,45 @@ defmodule Responder.ControlPlane.ConversationLabTest do
     assert entry.work_policy_digest == profile.policy_digest
     assert entry.repository_ref == nil
     assert {:ok, ^entry} = Inbox.fetch(Inbox.ref(entry))
+  end
+
+  test "the Lab explains admission before an episode exists and links the frozen request" do
+    {:ok, %{entry: entry}} =
+      ConversationLab.send_message(@conversation_id, "Show admission progress", profile())
+
+    assert {:ok, queued} = Projection.lab_conversation(@conversation_id)
+    assert [waiting] = queued.admission_progress
+    assert waiting.phase =~ "Queued"
+    assert waiting.href == "/admission/#{entry.id}"
+    assert queued.episodes == []
+
+    now = DateTime.utc_now()
+    {:ok, claim} = Inbox.claim_next("progress-test", now, 60)
+
+    settings = %{
+      lease_ref: claim.lease_ref,
+      now: fn -> now end,
+      policy: "admission",
+      policy_digest: String.duplicate("a", 64)
+    }
+
+    {:ok, _} = Attempts.prepare(claim.entry, settings)
+
+    :ok =
+      Attempts.observe(
+        claim.entry,
+        "provider_running",
+        %{execution_target: "recorded-target"},
+        settings
+      )
+
+    assert {:ok, running} = Projection.lab_conversation(@conversation_id)
+    assert [observed] = running.admission_progress
+    assert observed.phase == "Provider running"
+    assert observed.target == "recorded-target"
+    assert observed.generation == 1
+    assert observed.claims == 1
+    refute inspect(running.admission_progress) =~ claim.lease_ref
   end
 
   test "a Lab incident offer starts a linked local incident with the configured chat authority" do
@@ -352,7 +394,13 @@ defmodule Responder.ControlPlane.ConversationLabTest do
     assert message.event_kind == :edit
     assert message.item_id == @event_id
     assert message.editable == true
-    assert [%{message_count: 1}] = Projection.lab_index()
+    assert Enum.all?(edited.admission_progress, &(&1.title == "Corrected wording"))
+    assert [%{message_count: 1, title: "Corrected wording"}] = Projection.lab_index()
+
+    assert Enum.all?(
+             Activity.list(%{}).items,
+             &(&1.title == "Corrected wording")
+           )
 
     assert {:ok, %{entry: _deleted}} =
              ConversationLab.delete_message(
@@ -369,7 +417,13 @@ defmodule Responder.ControlPlane.ConversationLabTest do
     assert message.event_kind == :delete
     assert message.editable == false
     assert message.attachments == []
-    assert [%{message_count: 1}] = Projection.lab_index()
+    assert Enum.all?(deleted.admission_progress, &(&1.title == "Message deleted"))
+    assert [%{message_count: 1, title: "Message deleted"}] = Projection.lab_index()
+
+    assert Enum.all?(
+             Activity.list(%{}).items,
+             &(&1.title == "Message deleted")
+           )
   end
 
   test "the Lab reports queue custody across every message revision" do

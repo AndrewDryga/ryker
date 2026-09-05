@@ -7,7 +7,7 @@ defmodule Responder.ControlPlane.Server do
   refuses public bind addresses.
   """
 
-  alias Responder.ControlPlane.{Actions, Projection, Router}
+  alias Responder.ControlPlane.{Actions, Endpoint, Projection}
   alias Responder.Ingress.WorkProfile
   alias Responder.Observability
   alias Responder.State.ScheduleRuntime
@@ -29,27 +29,31 @@ defmodule Responder.ControlPlane.Server do
   def child_spec(configuration) do
     options = options!(configuration)
 
-    Bandit.child_spec(
-      ip: options.ip,
-      plug:
-        {Router,
-         %{
-           actions:
-             Actions.callbacks(
-               options.work_profile,
-               options.task_policies,
-               %{
-                 coop_api: options.coop_api,
-                 coop_client: options.coop_client
-               },
-               options.schedule_policy_resolver
-             ),
-           csrf_secret: options.csrf_secret,
-           observability: Observability.callbacks(),
-           projection: Projection.callbacks()
-         }},
-      port: options.port,
-      startup_log: false
+    Endpoint.child_spec(
+      server: true,
+      http: [ip: options.ip, port: options.port],
+      url: [host: "localhost", port: options.port],
+      check_origin: [
+        "//localhost:#{options.port}",
+        "//127.0.0.1:#{options.port}",
+        "//[::1]:#{options.port}"
+      ],
+      secret_key_base: Base.encode64(:crypto.hash(:sha512, options.csrf_secret)),
+      control_plane: %{
+        actions:
+          Actions.callbacks(
+            options.work_profile,
+            options.task_policies,
+            %{
+              coop_api: options.coop_api,
+              coop_client: options.coop_client
+            },
+            options.schedule_policy_resolver
+          ),
+        csrf_secret: options.csrf_secret,
+        observability: Observability.callbacks(),
+        projection: Projection.callbacks()
+      }
     )
     |> Map.put(:id, __MODULE__)
   end

@@ -8,6 +8,112 @@ defmodule Responder.ControlPlane.RouterTest do
 
   @secret String.duplicate("s", 32)
 
+  test "retry confirmation names the frozen specimen rather than the currently browsed state" do
+    id = Ecto.UUID.generate()
+    options = options()
+
+    options = %{
+      options
+      | projection:
+          Map.put(options.projection, :card_lab_post, fn ^id ->
+            {:ok,
+             %{
+               id: id,
+               card_id: "incident-room",
+               state_id: "provisioning",
+               revision: 1,
+               workspace_ref: "T123",
+               channel_ref: "C123"
+             }}
+          end),
+        actions:
+          Map.put(options.actions, :describe_card_slack_target, fn "T123", "C123" ->
+            {:ok, %{workspace_ref: "T123", channel_ref: "C123", channel_name: "test"}}
+          end)
+    }
+
+    page =
+      request_with_options(
+        :get,
+        "/card-lab/incident-room/resolved/slack/#{id}/retry",
+        nil,
+        options
+      )
+
+    assert page.status == 200
+    assert page.resp_body =~ "Provisioning"
+    refute page.resp_body =~ "· Resolved"
+  end
+
+  test "Card Lab requires destination review and a bound confirmation before posting to Slack" do
+    parent = self()
+    options = options()
+
+    options = %{
+      options
+      | actions:
+          Map.merge(options.actions, %{
+            describe_card_slack_target: fn "T123", "C123" ->
+              {:ok,
+               %{workspace_ref: "T123", channel_ref: "C123", channel_name: "responder-testing"}}
+            end,
+            post_card_to_slack: fn card, state, workspace, channel, id ->
+              send(parent, {:native_card_post, card, state, workspace, channel, id})
+              {:ok, %{id: id}}
+            end
+          }),
+        projection:
+          Map.put(options.projection, :card_lab_slack, fn _card ->
+            %{available: true, workspace_ref: "T123", channels: ["C123"], posts: []}
+          end)
+    }
+
+    path = "/card-lab/incident-room/provisioning"
+    page = request_with_options(:get, path, nil, options)
+    assert page.status == 200
+    assert page.resp_body =~ "Post to Slack"
+    assert page.resp_body =~ "Browser approximation"
+    refute_received {:native_card_post, _, _, _, _, _}
+
+    token = CSRF.token(@secret, "card_lab:prepare_slack", "incident-room:provisioning")
+
+    review =
+      request_with_options(
+        :post,
+        path <> "/slack/preview",
+        URI.encode_query(%{
+          "_token" => token,
+          "workspace_ref" => "T123",
+          "channel_ref" => "C123"
+        }),
+        options
+      )
+
+    assert review.status == 200
+    assert review.resp_body =~ "responder-testing"
+    assert review.resp_body =~ "Post test message"
+    refute_received {:native_card_post, _, _, _, _, _}
+
+    fields =
+      Regex.scan(~r/<input type="hidden" name="([^"]+)" value="([^"]*)"/, review.resp_body)
+      |> Map.new(fn [_, key, value] -> {key, value} end)
+
+    denied =
+      request_with_options(
+        :post,
+        path <> "/slack/post",
+        URI.encode_query(Map.put(fields, "channel_ref", "C999")),
+        options
+      )
+
+    assert denied.status == 403
+    refute_received {:native_card_post, _, _, _, _, _}
+
+    posted = request_with_options(:post, path <> "/slack/post", URI.encode_query(fields), options)
+    assert posted.status == 303
+    assert_received {:native_card_post, "incident-room", "provisioning", "T123", "C123", _id}
+  end
+
   test "the Slack Card Lab previews and transitions exact specimens with durable feedback" do
     index = request(:get, "/card-lab")
 
@@ -205,6 +311,22 @@ defmodule Responder.ControlPlane.RouterTest do
            ]
 
     assert_received {:lab_message, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6", "Follow up"}
+
+    receipt =
+      conn(
+        :post,
+        "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages",
+        URI.encode_query(%{"_token" => token, "message" => "Live draft receipt"})
+      )
+      |> Map.put(:host, "localhost")
+      |> Map.put(:remote_ip, {127, 0, 0, 1})
+      |> put_req_header("content-type", "application/x-www-form-urlencoded")
+      |> put_req_header("accept", "application/json")
+      |> Router.call(Router.init(options()))
+
+    assert receipt.status == 202
+    assert Jason.decode!(receipt.resp_body) == %{"accepted" => true}
+    assert_received {:lab_message, "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6", "Live draft receipt"}
 
     attachment = "service: emisar\nstatus: healthy\n"
 

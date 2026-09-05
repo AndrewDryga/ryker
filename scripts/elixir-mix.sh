@@ -16,12 +16,12 @@ mix local.rebar --if-missing --force >/dev/null
 
 cd "$root"
 
-required_dependencies=(bandit ecto_sql finch jason postgrex)
+required_dependencies=(bandit ecto_sql finch jason postgrex phoenix phoenix_html phoenix_live_view)
 if [[ ${MIX_ENV:-dev} != prod ]]; then
   required_dependencies+=(credo)
 fi
 if [[ ${MIX_ENV:-dev} == test ]]; then
-  required_dependencies+=(jsv)
+  required_dependencies+=(jsv lazy_html)
 fi
 
 for dependency in "${required_dependencies[@]}"; do

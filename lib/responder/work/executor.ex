@@ -734,6 +734,8 @@ defmodule Responder.Work.Executor do
            end),
          :ok <- exact_remote_session(claim.session, remote_session),
          {:ok, revision} <- revision(remote_session),
+         :ok <-
+           Responder.Accounting.observe_work(claim, %{"state" => "requested"}, remote_session),
          response <-
            mutation_call(settings, :submit_turn, key, revision, fn ->
              submit_frozen_turn(settings, claim, key, revision, artifacts)
@@ -845,7 +847,10 @@ defmodule Responder.Work.Executor do
 
   defp await_turn(claim, remote_turn, settings, left) do
     _activity = Activity.sync(claim.session, settings.api, settings.client)
-    continue_await_turn(claim, remote_turn, settings, left)
+
+    with :ok <- Responder.Accounting.observe_work(claim, remote_turn) do
+      continue_await_turn(claim, remote_turn, settings, left)
+    end
   end
 
   defp continue_await_turn(
@@ -1669,7 +1674,8 @@ defmodule Responder.Work.Executor do
              claim.turn.coop_turn_id,
              StateBinding.binding_digest(claim.turn)
            ),
-         {:ok, remote_session} <- fetch_cancellation_session(claim, settings) do
+         {:ok, remote_session} <- fetch_cancellation_session(claim, settings),
+         :ok <- Responder.Accounting.observe_work(claim, remote_turn, remote_session) do
       finish_cancellation_session(
         claim,
         {:terminal, key, remote_turn},

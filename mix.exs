@@ -59,6 +59,9 @@ defmodule Responder.MixProject do
   defp deps do
     [
       {:bandit, "~> 1.12"},
+      {:phoenix, "1.8.10"},
+      {:phoenix_live_view, "1.2.9"},
+      {:phoenix_html, "~> 4.3"},
       {:ecto_sql, "~> 3.14"},
       {:finch, "~> 0.23"},
       {:mint_web_socket, "~> 1.0"},
@@ -66,6 +69,7 @@ defmodule Responder.MixProject do
       {:jason, "~> 1.4"},
       {:yaml_elixir, "~> 2.12"},
       {:jsv, "~> 0.22", only: :test},
+      {:lazy_html, "~> 0.1.12", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end

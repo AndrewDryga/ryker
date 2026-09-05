@@ -411,8 +411,12 @@ watchdog-check:
 
 # Fast deterministic feedback for a completed edit batch. Independent checks
 # run concurrently; CI and candidate promotion still use the complete gate.
+.PHONY: control-plane-js-check
+control-plane-js-check:
+	node --test test/js/*_test.mjs
+
 dev-check:
-	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) tidy-check lint test elixir-check eval-replay build dev-workflow-check findings-coverage-check watchdog-check
+	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) tidy-check lint test elixir-check control-plane-js-check eval-replay build dev-workflow-check findings-coverage-check watchdog-check
 
 # These three targets are the frozen legacy Go/launch-agent rollback path. The
 # Elixir service uses elixir-release-check plus elixir-candidate-check and one
@@ -541,7 +545,7 @@ vulncheck:
 # The strict gate remains complete, but independent phases no longer wait for
 # one another. The race target performs its own balanced test sharding.
 check:
-	+$(MAKE) --no-print-directory -j$(CHECK_JOBS) tidy-check lint quality-watch-check eval-trend-check dev-workflow-check actionlint staticcheck test elixir-check eval-replay race build vulncheck
+	+$(MAKE) --no-print-directory -j$(CHECK_JOBS) tidy-check lint quality-watch-check eval-trend-check dev-workflow-check actionlint staticcheck test elixir-check control-plane-js-check eval-replay race build vulncheck
 
 # Signing is CI-only because keyless Sigstore needs GitHub's OIDC identity.
 snapshot:
