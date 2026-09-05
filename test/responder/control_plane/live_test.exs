@@ -452,7 +452,14 @@ defmodule Responder.ControlPlane.LiveTest do
     {:ok, view, _} = live(conn, "/admission/#{entry.id}")
     assert has_element?(view, ".admission-recovery", "Provider unavailable")
     href = "/actions/admission/#{URI.encode_www_form(Inbox.ref(entry))}/rearm"
-    assert has_element?(view, "a[href='#{href}']", "Review recovery")
+    refute has_element?(view, "a[href='#{href}']")
+
+    assert has_element?(
+             view,
+             "form[method='get'][action='#{href}'] button[type='submit']",
+             "Review recovery"
+           )
+
     confirmation = get(conn, href)
     assert html_response(confirmation, 200) =~ "Retry routing this message?"
   end

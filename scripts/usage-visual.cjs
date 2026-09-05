@@ -71,7 +71,7 @@ const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwrigh
           }
           for (const [index, header] of metrics.entries()) {
             const cell = body[index + 2];
-            if (getComputedStyle(header).textAlign !== 'right' || getComputedStyle(cell).textAlign !== 'right') issues.push(`${header.textContent}: numbers not right aligned`);
+            if (getComputedStyle(header).textAlign !== 'center' || getComputedStyle(cell).textAlign !== 'center') issues.push(`${header.textContent}: heading and values not centered`);
             if (Math.abs(header.getBoundingClientRect().right - cell.getBoundingClientRect().right) > 1) issues.push(`${header.textContent}: heading and values misaligned`);
           }
           return issues;

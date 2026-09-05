@@ -48,7 +48,12 @@ defmodule Responder.ControlPlane.EpisodePage do
       </div>
       <nav class="case-actions" aria-label="Execution actions">
         <a href="#execution-timeline">Read execution</a><a href="#latest-outcome">Latest outcome ↓</a>
-        <a :for={action <- @snapshot.trace.actions} class="ui-button secondary" href={action.href}>{action.label}</a>
+        <.action_button
+          :for={action <- @snapshot.trace.actions}
+          path={action.href}
+          label={action.label}
+          tone={action.tone}
+        />
         <.link patch={base(@snapshot) <> "/requests"}>Find a specific request <.icon name={:arrow} /></.link>
       </nav>
       <section :if={@snapshot.trace.stopped} class="story-stop">

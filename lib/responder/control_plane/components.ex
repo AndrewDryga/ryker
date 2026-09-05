@@ -2,6 +2,8 @@ defmodule Responder.ControlPlane.Components do
   @moduledoc "Shared, accessible primitives for the operator workspace."
   use Phoenix.Component
 
+  alias Phoenix.HTML.Safe
+
   @icons %{
     activity: "M3 12h4l3-8 4 16 3-8h4",
     chat: "M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 3V6a2 2 0 0 1 2-2Z",
@@ -40,6 +42,25 @@ defmodule Responder.ControlPlane.Components do
     ~H"""
     <span class={"ui-status status-#{tone(@state)}"}><i aria-hidden="true"></i>{label(@state)}</span>
     """
+  end
+
+  attr(:path, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:tone, :any, default: :secondary)
+
+  def action_button(assigns) do
+    ~H"""
+    <form class="action-control" method="get" action={@path}>
+      <button type="submit" class={"ui-button #{@tone}"}>{@label}</button>
+    </form>
+    """
+  end
+
+  def action_button(path, label, tone \\ :secondary) do
+    # GET only opens the existing confirmation; its protected POST performs the action.
+    %{path: path, label: label, tone: tone}
+    |> action_button()
+    |> Safe.to_iodata()
   end
 
   def label("pending"), do: "Queued"

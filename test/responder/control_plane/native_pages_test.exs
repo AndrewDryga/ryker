@@ -121,6 +121,13 @@ defmodule Responder.ControlPlane.NativePagesTest do
 
     trace =
       snapshot.trace
+      |> Map.put(:actions, [
+        %{
+          href: "/actions/episode/example/resolve",
+          label: "Close as no longer needed",
+          tone: :danger
+        }
+      ])
       |> Map.put(:source, %{href: "https://slack.com/archives/C123/p123", label: "Open source"})
       |> Map.put(:history, %{truncated: true})
       |> Map.put(:stopped, %{
@@ -152,6 +159,15 @@ defmodule Responder.ControlPlane.NativePagesTest do
     assert html =~ "Already attempted"
     assert html =~ "Reconciled the previous request"
     assert html =~ "Open recovery"
+    document = LazyHTML.from_document(html)
+    assert LazyHTML.query(document, "a[href^='/actions/']") |> LazyHTML.to_tree() == []
+
+    assert LazyHTML.query(
+             document,
+             "form[action='/actions/episode/example/resolve'] button.danger[type='submit']"
+           )
+           |> LazyHTML.text() == "Close as no longer needed"
+
     assert html =~ "Inspect related record"
     # The split panes hid the processing behind tabs and a second scroll area.
     assert html =~ "Complete execution timeline"

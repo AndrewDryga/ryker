@@ -57,8 +57,7 @@ defmodule Responder.ControlPlane.RequestPage do
           <section :if={@view.selected[:recovery]} class="admission-recovery story-stop">
             <h3>Admission needs attention</h3><p>{label(@view.selected.recovery.summary)}</p>
             <p>The input is retained. Review recovery to reconcile the same request.</p>
-            <a class="ui-button secondary" href={@view.selected.recovery.href}>Review recovery
-            <.icon name={:arrow} /></a>
+            <.action_button path={@view.selected.recovery.href} label="Review recovery" />
           </section>
           <.paging
             :if={Map.has_key?(@view.selected, :generation)}
