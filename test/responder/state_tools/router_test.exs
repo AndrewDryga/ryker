@@ -1,5 +1,10 @@
 defmodule Responder.StateTools.RouterTest do
   use Responder.DataCase, async: true
+
+  # A sandbox holds fixture inserts until the whole test rolls back. Reusing
+  # T123 with channel-configuration tests formed a membership -> conversation
+  # -> configuration -> membership deadlock across five unrelated tests.
+  # Keep this suite's authority fixtures in its own workspace, not a shared row.
   import Plug.Conn
   import Plug.Test
 
@@ -899,7 +904,7 @@ defmodule Responder.StateTools.RouterTest do
     assert Tools.call(
              "list_automations",
              %{
-               "channel_ref" => "slack:T123:C999",
+               "channel_ref" => "slack:TSTATETOOLS:C999",
                "cursor" => nil,
                "enabled" => nil,
                "limit" => 50,
@@ -912,12 +917,12 @@ defmodule Responder.StateTools.RouterTest do
   end
 
   test "memory proposals map every durable scope without widening repository authority" do
-    joined_channel!("T123", "C456", false)
+    joined_channel!("TSTATETOOLS", "C456", false)
 
     claim =
       claim!("fixed-memory-scopes", %{
         destination: %{
-          conversation_ref: "slack:T123:C456",
+          conversation_ref: "slack:TSTATETOOLS:C456",
           thread_ref: "1787832000.000100",
           transport: "slack"
         }
@@ -968,12 +973,12 @@ defmodule Responder.StateTools.RouterTest do
   end
 
   test "private, Slack Connect, and unknown Slack sources cannot propose cross-channel memory" do
-    joined_channel!("T123", "G456", true)
+    joined_channel!("TSTATETOOLS", "G456", true)
 
     private =
       claim!("private-memory-scope", %{
         destination: %{
-          conversation_ref: "slack:T123:G456",
+          conversation_ref: "slack:TSTATETOOLS:G456",
           thread_ref: "1787832000.000100",
           transport: "slack"
         }
@@ -1005,12 +1010,12 @@ defmodule Responder.StateTools.RouterTest do
                is_nil(record["payload"]["repository"])
            end)
 
-    joined_channel!("T123", "C789", false, true)
+    joined_channel!("TSTATETOOLS", "C789", false, true)
 
     external =
       claim!("external-memory-scope", %{
         destination: %{
-          conversation_ref: "slack:T123:C789",
+          conversation_ref: "slack:TSTATETOOLS:C789",
           thread_ref: "1787832000.000101",
           transport: "slack"
         }
@@ -1039,7 +1044,7 @@ defmodule Responder.StateTools.RouterTest do
     unknown =
       claim!("unknown-memory-scope", %{
         destination: %{
-          conversation_ref: "slack:T123:C999",
+          conversation_ref: "slack:TSTATETOOLS:C999",
           thread_ref: nil,
           transport: "slack"
         }

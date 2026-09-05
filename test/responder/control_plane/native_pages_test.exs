@@ -155,6 +155,9 @@ defmodule Responder.ControlPlane.NativePagesTest do
     assert html =~ "Inspect related record"
     # The split panes hid the processing behind tabs and a second scroll area.
     assert html =~ "Complete execution timeline"
+    assert html =~ "trace-chapter"
+    assert html =~ "What came in"
+    assert html =~ "What came of it"
     refute html =~ "aria-label=\"Episode view\""
     refute html =~ "aria-label=\"Selected event\""
     refute html =~ "phx-click=\"inspect-step\""
@@ -187,6 +190,23 @@ defmodule Responder.ControlPlane.NativePagesTest do
         ] do
       assert render_component(&Components.status/1, state: state) =~ expected
     end
+  end
+
+  test "timeline offsets include admission before the durable episode was created" do
+    # Slow admission happens before episode creation; measuring from creation
+    # made that whole wait appear as zero and understated every later offset.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+    [step | _] = snapshot.trace.steps
+
+    snapshot =
+      snapshot
+      |> put_in([:episode, :created_at], @now)
+      |> put_in([:trace, :steps], [%{step | band: :ready, at: DateTime.add(@now, -30)}])
+      |> put_in([:trace, :case_file, :conversation], [])
+      |> Map.update!(:trace, &Map.put(&1, :received_at, DateTime.add(@now, -60)))
+
+    assert episode_html(snapshot) =~ "+30s from start"
   end
 
   test "the packaged asset allowlist serves local modules but never arbitrary paths" do

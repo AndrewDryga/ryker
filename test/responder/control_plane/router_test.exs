@@ -1322,6 +1322,18 @@ defmodule Responder.ControlPlane.RouterTest do
     assert html =~ "$0.25"
     assert html =~ "Daily measured token trend"
 
+    # Changing the date previously silently reset a shadow audit to live traffic.
+    shadow = snapshot |> Map.put(:mode, "shadow") |> HTML.usage() |> IO.iodata_to_binary()
+    assert shadow =~ "mode=shadow&amp;window=7d"
+    assert shadow =~ "Measurement coverage"
+    assert shadow =~ "Where the time went"
+    assert shadow =~ "Coverage limits and token semantics"
+    # Scope defines every total, so it belongs above the figures, not inside
+    # a footnote below two panels (and below both panels on narrow screens).
+    {scope_at, _} = :binary.match(shadow, "Execution scope")
+    {metrics_at, _} = :binary.match(shadow, "class=\"metrics\"")
+    assert scope_at < metrics_at
+
     assert HTML.failures([]) =~ "No durable failures"
     assert HTML.workspaces([]) |> IO.iodata_to_binary() =~ "No durable workspaces"
 
