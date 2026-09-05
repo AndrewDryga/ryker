@@ -557,6 +557,94 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Enum.reduce(snapshot.channels, 0, &(&1.attempts + &2)) == 2
   end
 
+  test "people exclude apps bots system hooks and the shared Lab operator without losing their usage" do
+    # Emisar showed local-operator, an app, and the universal webhook as people.
+    # Use the retained actor type, not a display name or a platform-ID prefix.
+    now = DateTime.utc_now()
+
+    senders = [
+      {"slack", :user, "U0BHTNFCW6S"},
+      {"slack", :app, "A0BL6UCCBGR"},
+      {"webhook", :system, "universal"},
+      {"control_plane", :user, "local-operator"},
+      {"github", :user, "andrew"},
+      {"github", :bot, "andrew"}
+    ]
+
+    for {{source, kind, actor}, index} <- Enum.with_index(senders) do
+      {:ok, input} =
+        Responder.Ingress.Input.new(%{
+          actor: %{kind: kind, ref: actor},
+          content: %{"text" => "Usage attribution"},
+          destination: %{
+            transport: source,
+            conversation_ref: "#{source}:emisar:test",
+            thread_ref: nil
+          },
+          event_kind: :message,
+          event_ref: "people-#{index}",
+          native_input_id: "people-#{index}",
+          occurred_at: now,
+          occurred_at_source: :source,
+          revision: 1,
+          source: %{kind: source, ref: "emisar"},
+          source_capabilities: %{},
+          source_item_ref: "people-#{index}"
+        })
+
+      {:ok, %{entry: entry}} = Inbox.record(input)
+      turn = measured_turn!("people-#{index}", "codex:gpt-5.6-sol/medium@emisar", now)
+
+      Repo.update_all(from(t in Responder.Work.Turn, where: t.id == ^turn.id),
+        set: [turn_ref: "ingress-turn:#{entry.id}"]
+      )
+
+      Repo.insert!(%Responder.Accounting.Execution{
+        kind: "admission",
+        source_id: entry.id,
+        generation: "1",
+        transport: source,
+        conversation_ref: input.destination.conversation_ref,
+        execution_mode: "live",
+        status: "completed",
+        execution_target: "codex:gpt-5.6-luna/low@emisar",
+        usage_recorded: true,
+        usage_input_tokens: 10,
+        recorded_at: now
+      })
+    end
+
+    # A legacy execution with no retained sender must not invent a person either.
+    measured_turn!("people-missing", "codex:gpt-5.6-sol/medium@emisar", now)
+    snapshot = Projection.usage(%{})
+
+    assert Enum.sort(Enum.map(snapshot.users, &{&1.source, &1.actor, &1.attempts})) == [
+             {"github", "andrew", 2},
+             {"slack", "U0BHTNFCW6S", 2}
+           ]
+
+    assert snapshot.totals.attempts == 13
+    assert snapshot.totals.tokens == 16_160
+    assert Enum.sum(Enum.map(snapshot.profiles, & &1.attempts)) == 13
+
+    document = snapshot |> HTML.usage() |> IO.iodata_to_binary() |> LazyHTML.from_document()
+    people = LazyHTML.query(document, "#usage-people")
+
+    for label <- ["Conversation Lab", "universal", "Slack app", "without a saved person"],
+        do: refute(LazyHTML.text(people) =~ label)
+
+    params =
+      people
+      |> LazyHTML.query("a")
+      |> LazyHTML.attribute("href")
+      |> Enum.map(&URI.decode_query(URI.parse(&1).query))
+      |> Enum.find(&(&1["usage_source"] == "github"))
+
+    assert params["usage_actor_kind"] == "user"
+    # A bot with the same account name cannot sneak back into the drilldown.
+    assert Activity.list(params).total == 2
+  end
+
   # Subscription use disappeared behind model labels; reasoning was also added
   # twice to the headline and every breakdown despite being part of output.
   test "usage attributes concrete profiles and counts reasoning only within output" do

@@ -24,12 +24,12 @@ defmodule Responder.ControlPlane.UsagePage do
       stat("Cache hit rate", percent(totals.cache_hit_rate)),
       "</div></div></section>",
       measurement_gap(snapshot),
-      "<div class=\"usage-charts\"><section class=\"usage-trend-panel\"><h2>Daily tokens</h2>",
+      "<div class=\"usage-charts\"><section class=\"usage-trend-panel\"><h2>Token usage over time</h2>",
       UsageChart.render(snapshot.days),
       "</section><section class=\"usage-timing-panel\"><h2>Where the time went</h2>",
       timing(totals),
       "</section></div>",
-      section("Profiles", "profiles", Map.get(snapshot, :profiles, []), snapshot, :profile),
+      section("By profile", "profiles", Map.get(snapshot, :profiles, []), snapshot, :profile),
       section(
         "By model",
         "models",
@@ -259,7 +259,7 @@ defmodule Responder.ControlPlane.UsagePage do
     do:
       entity_link(
         person(row),
-        %{actor: row.actor || "", workspace: row.workspace || "", source: row.source || ""},
+        %{actor: row.actor, actor_kind: "user", workspace: row.workspace, source: row.source},
         snapshot
       )
 
@@ -301,7 +301,6 @@ defmodule Responder.ControlPlane.UsagePage do
 
   defp channel(%{transport: "control_plane"}), do: "Conversation Lab"
   defp channel(row), do: "#{row.transport}:#{row.conversation_ref}"
-  defp person(%{source: "control_plane"}), do: "Conversation Lab"
 
   defp person(%{source: "slack", workspace: workspace, actor: actor}),
     do: SlackNames.name(workspace, actor)

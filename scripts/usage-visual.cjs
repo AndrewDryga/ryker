@@ -25,7 +25,8 @@ const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwrigh
       assert.deepEqual(await page.locator('.usage-headlines .usage-stat > span').allTextContents(), ['Cost', 'Episodes', 'Executions', 'Total tokens']);
       assert.equal(await page.locator('.usage-page > :last-child').getAttribute('id'), 'cost-method');
       assert(await page.locator('#usage-profiles tbody > tr').count() > 0, 'Use actual populated execution data');
-      assert.equal(await page.locator('#usage-profiles h2').textContent(), 'Profiles');
+      assert.equal(await page.locator('#usage-profiles h2').textContent(), 'By profile');
+      assert.equal(await page.locator('.usage-trend-panel h2').textContent(), 'Token usage over time');
       assert.equal(await page.locator('#daily-values, #usage-profiles details').count(), 0);
       assert.equal(await page.getByText('Unattributed profile', {exact: true}).count(), 0);
       assert.equal(await page.getByText('Unclassified work', {exact: true}).count(), 0);
@@ -38,6 +39,13 @@ const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwrigh
         assert.equal(new URL(href).searchParams.get('usage_transport'), 'slack');
       }
       assert.deepEqual(await page.locator('#usage-people th').allTextContents(), ['Person', 'Episodes', 'Tokens', 'Cost']);
+      for (const label of ['Conversation Lab', 'Slack app', 'universal']) {
+        assert.equal(await page.locator('#usage-people').getByText(label, {exact: true}).count(), 0);
+      }
+      for (const href of await page.locator('#usage-people .usage-identity a').evaluateAll(es => es.map(e => e.href))) {
+        assert.equal(new URL(href).searchParams.get('usage_actor_kind'), 'user');
+        assert.notEqual(new URL(href).searchParams.get('usage_source'), 'control_plane');
+      }
       const peopleBounds = await page.locator('#usage-people table').evaluate(e => [e.getBoundingClientRect().width, e.parentElement.clientWidth]);
       assert(peopleBounds[0] <= peopleBounds[1], 'The compact people table fits without horizontal scrolling');
       for (const href of await page.locator('#usage-models .usage-identity a').evaluateAll(es => es.map(e => e.href))) {
