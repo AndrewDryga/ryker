@@ -29,18 +29,22 @@ defmodule Responder.ControlPlane.CardLabPage do
               </option>
             </select>
           </form>
-          <form id="card-state-form" phx-change="card-state">
-            <label for="card-state">State <span>{surface(@specimen.card.surface)}</span></label>
-            <select id="card-state" name="state">
-              <option
-                :for={state <- @specimen.card.states}
-                value={state.id}
-                selected={state.id == @specimen.state.id}
-              >
-                {state.label}
-              </option>
-            </select>
-          </form>
+          <div class="specimen-state-control">
+            <span class="state-control-label">State <span>{surface(@specimen.card.surface)}</span></span>
+            <details id="card-state-picker" class="state-picker">
+              <summary>{@specimen.state.label}<.icon name={:chevron} /></summary>
+              <nav aria-label="Card states">
+                <.link
+                  :for={state <- @specimen.card.states}
+                  patch={state_path(@specimen.card.id, state.id, @params)}
+                  data-state={state.id}
+                  aria-current={if state.id == @specimen.state.id, do: "page"}
+                >
+                  {state.label}
+                </.link>
+              </nav>
+            </details>
+          </div>
         </div>
         <div class="specimen-state-heading">
           <h2>{@specimen.state.label}</h2><p>{@specimen.state.description}</p>
@@ -150,6 +154,11 @@ defmodule Responder.ControlPlane.CardLabPage do
 
   defp path(card, state),
     do: "/card-lab/#{URI.encode_www_form(card)}/#{URI.encode_www_form(state)}"
+
+  defp state_path(card, state, params) do
+    query = URI.encode_query(Map.take(params, ~w(view width)))
+    path(card, state) <> if(query == "", do: "", else: "?" <> query)
+  end
 
   defp option_path(specimen, params, key, value),
     do:

@@ -1,4 +1,6 @@
 defmodule Responder.ControlPlane.OperatorProjection do
+  alias Responder.Accounting.Pricing
+
   @moduledoc """
   Bounded read models for the local operator workbench.
 
@@ -609,30 +611,50 @@ defmodule Responder.ControlPlane.OperatorProjection do
       from(turn in Turn,
         join: entry in Entry,
         on: turn.turn_ref == fragment("'ingress-turn:' || (?::text)", entry.id),
-        where: not is_nil(turn.accepted_at)
-      )
-      |> since(since)
-
-    rows =
-      Repo.all(
-        from([turn, entry] in base,
-          group_by: [
+        where: not is_nil(turn.accepted_at),
+        select:
+          map(turn, [
+            :id,
+            :execution_target,
+            :usage_recorded,
+            :usage_cost_recorded,
+            :usage_cost_usd,
+            :usage_input_tokens,
+            :usage_cached_input_tokens,
+            :usage_output_tokens,
+            :usage_reasoning_tokens,
+            :usage_host_ms,
+            :usage_provider_ms,
+            :usage_queued_ms,
+            :timing_recorded,
+            :validation_generation
+          ]),
+        select_merge: %{
+          work_class:
             fragment(
               "COALESCE((?::jsonb ->> 'work_class'), 'unrecorded')",
               entry.decision_document
-            ),
+            )
+        }
+      )
+      |> since(since)
+      |> Pricing.enrich()
+
+    rows =
+      Repo.all(
+        from(turn in base,
+          group_by: [
+            turn.work_class,
             turn.execution_target
           ],
           order_by: [desc: count(turn.id)],
           limit: @list_limit,
           select: %{
             attempts: count(turn.id),
-            class:
-              fragment(
-                "COALESCE((?::jsonb ->> 'work_class'), 'unrecorded')",
-                entry.decision_document
-              ),
+            class: turn.work_class,
             cost_usd: fragment("COALESCE(SUM(?), 0)", turn.usage_cost_usd),
+            estimated_cost_usd: fragment("COALESCE(SUM(?), 0)", turn.estimated_cost_usd),
+            estimated: count(turn.estimated_cost_usd),
             costed: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_cost_recorded),
             host_ms: type(fragment("COALESCE(SUM(?), 0)::bigint", turn.usage_host_ms), :integer),
             measured: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_recorded),

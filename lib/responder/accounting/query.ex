@@ -1,4 +1,6 @@
 defmodule Responder.Accounting.Query do
+  alias Responder.Accounting.Pricing
+
   @moduledoc "Ledger rows plus explicitly unreconciled legacy turn snapshots, without double counting."
   import Ecto.Query
   alias Responder.Accounting.Execution
@@ -101,6 +103,7 @@ defmodule Responder.Accounting.Query do
 
     query = from(e in subquery(union_all(ledger, ^legacy)))
     query = if since, do: where(query, [e], e.recorded_at >= ^since), else: query
-    if mode == "all", do: query, else: where(query, [e], e.execution_mode == ^mode)
+    query = if mode == "all", do: query, else: where(query, [e], e.execution_mode == ^mode)
+    Pricing.enrich(query)
   end
 end

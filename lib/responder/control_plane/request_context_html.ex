@@ -1,4 +1,6 @@
 defmodule Responder.ControlPlane.RequestContextHTML do
+  alias Responder.ControlPlane.SlackMarkdown
+  alias Responder.ControlPlane.SlackNames
   @moduledoc "Readable context derived only from an already sanitized inspection artifact."
 
   @sources %{
@@ -257,7 +259,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       escape(input["occurred_at"] || "Time not recorded"),
       "</span></header>",
       if(body,
-        do: ["<div class=\"context-message-body\">", escape(body), "</div>"],
+        do: ["<div class=\"context-message-body\">", message_body(body, input), "</div>"],
         else: "<p>Structured source event · fields below</p>"
       ),
       "<details><summary>Source fields and attachment metadata</summary><pre>",
@@ -271,8 +273,42 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   defp actor_label(input) do
     actor = if is_map(input["actor"]), do: input["actor"], else: %{}
 
-    name = actor["display_name"] || actor["name"] || input["actor_ref"] || actor["ref"]
-    actor_name(name, actor)
+    name = actor["display_name"] || actor["name"]
+    actor_reference(input, actor, name)
+  end
+
+  defp actor_reference(_input, _actor, name) when is_binary(name) and name != "", do: name
+
+  defp actor_reference(input, actor, _name) do
+    ref = input["actor_ref"] || actor["ref"]
+
+    case {slack_workspace(input), ref} do
+      {workspace, ref} when is_binary(workspace) and is_binary(ref) ->
+        SlackNames.name(
+          workspace,
+          String.replace_prefix(ref, "slack:user:", "")
+        )
+
+      _ ->
+        actor_name(ref, actor)
+    end
+  end
+
+  defp slack_workspace(%{"source" => %{"kind" => "slack", "ref" => workspace}}), do: workspace
+
+  defp slack_workspace(%{"content" => %{"source" => %{"kind" => "slack", "ref" => workspace}}}),
+    do: workspace
+
+  defp slack_workspace(_), do: nil
+
+  defp message_body(body, input) do
+    case slack_workspace(input) do
+      workspace when is_binary(workspace) ->
+        SlackMarkdown.render(body, workspace)
+
+      _ ->
+        escape(body)
+    end
   end
 
   defp actor_name("slack:user:" <> _, _actor), do: "Slack user"

@@ -1,4 +1,8 @@
 defmodule Responder.ControlPlane.HTML do
+  alias Responder.Accounting.Pricing
+  alias Responder.ControlPlane.Components
+  alias Responder.ControlPlane.SlackNames
+  alias Responder.ControlPlane.UsageChart
   @moduledoc false
 
   @native_slack_path Path.expand("../../../priv/static/native-slack.css", __DIR__)
@@ -391,9 +395,15 @@ defmodule Responder.ControlPlane.HTML do
 
   defp slack_element(%{"type" => "overflow", "options" => options}) do
     [
-      "<span class=\"slack-overflow\">More · ",
-      escape(Enum.map_join(options, " · ", &get_in(&1, ["text", "text"]))),
-      "</span>"
+      "<details class=\"slack-overflow\"><summary aria-label=\"More actions\">···</summary><div class=\"slack-overflow-menu\">",
+      Enum.map(options, fn option ->
+        [
+          "<button type=\"button\" disabled>",
+          escape(get_in(option, ["text", "text"])),
+          "</button>"
+        ]
+      end),
+      "</div></details>"
     ]
   end
 
@@ -1220,10 +1230,14 @@ defmodule Responder.ControlPlane.HTML do
           segment(item.workspace_ref),
           "/",
           segment(item.channel_ref),
-          "\"><code>",
+          "\" title=\"",
           escape(item.channel_ref),
-          "</code></a><br><span class=\"muted\">",
+          "\">",
+          escape(SlackNames.name(item.workspace_ref, item.channel_ref)),
+          "</a><br><span class=\"muted\" title=\"",
           escape(item.workspace_ref),
+          "\">",
+          escape(SlackNames.name(item.workspace_ref, item.workspace_ref)),
           "</span></td><td>",
           escape(channel_kind(item)),
           "</td><td>",
@@ -1275,8 +1289,8 @@ defmodule Responder.ControlPlane.HTML do
 
     [
       definition_list([
-        {"Workspace", channel.workspace_ref},
-        {"Channel", channel.channel_ref},
+        {"Workspace", {:safe, slack_reference(channel.workspace_ref, channel.workspace_ref)}},
+        {"Channel", {:safe, slack_reference(channel.workspace_ref, channel.channel_ref)}},
         {"Kind", if(channel.incident_room, do: "incident room", else: "conversation")},
         {"Channel state", fallback(channel.channel_state, "not recorded")},
         {"Membership", fallback(channel.membership, "not recorded")},
@@ -1303,28 +1317,37 @@ defmodule Responder.ControlPlane.HTML do
     rows =
       Enum.map(items, fn item ->
         [
-          "<article class=\"repository-card\"><h2><code>",
+          "<article class=\"repository-card\"><header class=\"repository-heading\"><h2>",
           escape(item.ref),
-          "</code></h2>",
-          definition_list([
-            {"Configured policies", policy_summary(item.configured)},
-            {"Channels", item.channels},
-            {"Schedules", item.schedules},
-            {"Work sessions", item.sessions},
-            {"Publications", item.publications}
-          ]),
-          "<h3>Latest frozen freshness receipt</h3>",
+          "</h2><a href=\"/episodes?repository=",
+          segment(item.ref),
+          "\">View requests →</a></header>",
+          "<div class=\"repository-summary\"><span><strong>",
+          integer(item.sessions),
+          "</strong> work sessions</span><span><strong>",
+          integer(item.channels),
+          "</strong> connected channels</span><span><strong>",
+          integer(item.schedules),
+          "</strong> schedules</span><span><strong>",
+          integer(item.publications),
+          "</strong> PR workflows</span></div>",
+          "<p class=\"repository-revision\">",
+          repository_revision(item.freshness),
+          "</p>",
+          "<details><summary>Code revision & access configuration</summary><p>Access: ",
+          escape(policy_summary(item.configured)),
+          " · <a href=\"/configuration\">Inspect configuration</a></p>",
           freshness_detail(item.freshness),
-          "<h3>Serving workers</h3>",
+          "</details><details><summary>Worker connections</summary>",
           worker_list(item.workers),
-          "</article>"
+          "<p><a href=\"/configuration\">Inspect worker configuration →</a></p></details></article>"
         ]
       end)
 
     [
       workbench_intro(
-        "Repository topology and freshness",
-        "Receipts are the exact Coop-owned evidence frozen before model work. This page does not re-fetch or guess current Git state."
+        "Where Responder can work",
+        "Connected repositories, the work they receive, and the code revision last used. Open a request to inspect the actual changes and model activity."
       ),
       search_form("/repositories", "Search repository"),
       if(rows == [],
@@ -1355,7 +1378,7 @@ defmodule Responder.ControlPlane.HTML do
           "</td><td>",
           number(row.tokens),
           "</td><td>",
-          money(row.cost_usd, row.costed),
+          Pricing.amount(row),
           "</td><td>",
           duration(row.average_provider_ms),
           "</td><td>",
@@ -1368,9 +1391,10 @@ defmodule Responder.ControlPlane.HTML do
 
     [
       workbench_intro(
-        "Live model-lane calibration",
-        "Actual selected class, effective provider/model/effort, semantic repair rounds, timing, tokens, and reported cost. Recorded eval judge scores remain a separate offline corpus result."
+        "Compare speed and reliability",
+        "See which model handled each type of work and where it spent time. Compare execution time and extra attempts to correct an invalid result before changing model routing in Configuration. This view includes accepted work with a linked input; it is not an answer-quality score or a complete failure rate."
       ),
+      "<p class=\"page-description\">≈ includes API-equivalent estimates, not subscription charges. <a href=\"/usage#cost-method\">How cost is calculated →</a></p>",
       "<nav class=\"windows\" aria-label=\"Calibration window\">",
       Enum.map(~w(24h 7d 30d all), fn item ->
         [
@@ -1394,7 +1418,7 @@ defmodule Responder.ControlPlane.HTML do
           "Measured",
           "Repair rounds",
           "Tokens",
-          "Reported USD",
+          "Cost (USD)",
           "Provider avg",
           "Queue avg",
           "Host avg"
@@ -1584,7 +1608,8 @@ defmodule Responder.ControlPlane.HTML do
   end
 
   def failures([]),
-    do: "<section><h2>Failed custody</h2><p class=\"empty\">No durable failures.</p></section>"
+    do:
+      "<section><h2>Nothing needs attention</h2><p>Failed requests, undelivered replies and interrupted cleanup appear here with a recovery action. No saved operations are currently blocked.</p></section>"
 
   def failures(rows) do
     body =
@@ -1597,7 +1622,9 @@ defmodule Responder.ControlPlane.HTML do
                 segment(row.kind),
                 "/",
                 segment(row.ref),
-                "/rearm\">Rearm…</a>"
+                "/rearm\">",
+                escape(recovery_label(row.kind)),
+                "…</a>"
               ]
 
             :retry ->
@@ -1614,76 +1641,101 @@ defmodule Responder.ControlPlane.HTML do
           end
 
         [
-          "<tr><td><a href=\"/failures/",
+          "<article class=\"failure-card\"><div class=\"failure-card-top\"><h3 title=\"",
+          escape(row.ref),
+          "\">",
+          escape(failure_kind(row.kind)),
+          "</h3>",
+          readable_time(row.updated_at),
+          "</div><p title=\"",
+          escape(row.summary),
+          "\">",
+          escape(failure_cause(row.summary)),
+          "</p><div class=\"failure-card-actions\"><a href=\"/failures/",
           segment(row.kind),
           "/",
           segment(row.ref),
           "\">",
-          escape(row.kind),
-          "</a></td><td>",
-          escape(row.ref),
-          "</td><td>",
+          "Inspect cause",
+          "</a>",
           failure_episode(row),
-          "</td><td>",
-          escape(Map.get(row, :destination) || Map.get(row, :source) || "not available"),
-          "</td><td>",
+          "<span title=\"",
+          escape(Map.get(row, :destination)),
+          "\">",
+          escape(SlackNames.destination(Map.get(row, :destination)) || ""),
+          "</span>",
+          "<span class=\"failure-attempts\"><strong>",
           integer(Map.get(row, :attempt_count, 0)),
-          "</td><td>",
-          escape(row.status),
-          "</td><td>",
-          escape(row.summary),
-          "</td><td>",
-          timestamp(row.updated_at),
-          "</td><td>",
+          "</strong> attempts</span>",
           action,
-          "</td></tr>"
+          "</div></article>"
         ]
       end)
 
     [
-      "<section><h2>Failed custody</h2>",
-      table(
-        [
-          "Kind",
-          "Reference",
-          "Episode",
-          "Target",
-          "Attempts",
-          "Status",
-          "Cause",
-          "Updated",
-          "Action"
-        ],
-        body
-      ),
+      "<section><h2>Needs attention</h2><p>These saved operations stopped after an error. Inspect the cause, fix the underlying problem, then retry the failed step. Retrying delivery sends the already accepted reply; it does not ask the model to generate a new one.</p>",
+      "<div class=\"failure-cards\">",
+      body,
+      "</div>",
       "</section>"
     ]
   end
 
   def failure(row) do
-    episode =
-      case Map.get(row, :episode_ref) do
-        nil -> "Before episode admission"
-        ref -> ["<a href=\"/episodes/", segment(ref), "\">", escape(ref), "</a>"]
-      end
-
     [
-      "<section><h2>Failure context</h2>",
+      "<section><h2>",
+      escape(failure_kind(row.kind)),
+      "</h2><p>",
+      escape(failure_cause(row.summary)),
+      "</p>",
       definition_list([
-        {"Kind", row.kind},
-        {"Custody reference", row.ref},
-        {"Episode", {:safe, episode}},
-        {"Source", Map.get(row, :source) || "not available"},
-        {"Destination", Map.get(row, :destination) || "not available"},
+        {"Request", {:safe, failure_episode(row)}},
+        {"Destination", failure_destination(row)},
         {"Attempts", Map.get(row, :attempt_count, 0)},
-        {"Status", row.status},
-        {"Cause", row.summary},
-        {"Detail", Map.get(row, :detail) || "not recorded"},
-        {"Updated", timestamp(row.updated_at)}
+        {"Last change", {:safe, readable_time(row.updated_at)}}
       ]),
-      "<p><a class=\"button\" href=\"/failures\">Back to failures</a></p></section>"
+      "<details><summary>Technical record</summary>",
+      definition_list([
+        {"Operation", row.kind},
+        {"Reference", row.ref},
+        {"Source", Map.get(row, :source) || "not available"},
+        {"Destination reference", Map.get(row, :destination) || "not available"},
+        {"State", row.status},
+        {"Error code", row.summary},
+        {"Detail", Map.get(row, :detail) || "not recorded"},
+        {"Recorded at", timestamp(row.updated_at)}
+      ]),
+      "</details><p>Check the saved diagnostic and resolve the underlying problem before retrying. Retry actions ask for confirmation.</p><div class=\"failure-card-actions\">",
+      failure_recovery_action(row),
+      "<a href=\"/failures\">← All failures</a></div></section>"
     ]
   end
+
+  defp failure_destination(row) do
+    case Map.get(row, :destination) do
+      value when is_binary(value) ->
+        value |> String.split(" / ", parts: 2) |> hd() |> SlackNames.destination()
+
+      _ ->
+        "Not recorded"
+    end
+  end
+
+  defp failure_recovery_action(%{action: action} = row) when action in [:rearm, :retry] do
+    [
+      "<a class=\"button\" href=\"/actions/",
+      segment(row.kind),
+      "/",
+      segment(row.ref),
+      "/",
+      to_string(action),
+      "\">",
+      escape(recovery_label(row.kind)),
+      "…</a>"
+    ]
+  end
+
+  defp failure_recovery_action(_row), do: []
 
   def workspaces([]),
     do: "<section><h2>Workspaces</h2><p class=\"empty\">No durable workspaces.</p></section>"
@@ -1697,7 +1749,7 @@ defmodule Responder.ControlPlane.HTML do
               [
                 "<a href=\"/actions/retention/",
                 segment(row.ref),
-                "/rearm\">Rearm…</a>"
+                "/rearm\">Resume cleanup…</a>"
               ]
 
             :discard_unmerged ->
@@ -1708,20 +1760,37 @@ defmodule Responder.ControlPlane.HTML do
               ]
 
             nil ->
-              "Inspection only"
+              "Managed automatically"
           end
 
         [
-          "<tr><td>",
+          "<tr><td title=\"",
           escape(row.ref),
+          "\"><strong>",
+          escape(Map.get(row, :repository) || "Repository not recorded"),
+          "</strong>",
+          if(row[:episode_ref],
+            do: [
+              "<br><a class=\"workspace-request-title\" href=\"/episodes/",
+              segment(row.episode_ref),
+              "\">",
+              workspace_request_label(row),
+              "</a>"
+            ],
+            else: []
+          ),
           "</td><td>",
-          escape(row.status),
+          escape(workspace_status(row.status)),
           "</td><td>",
+          "<span title=\"",
           escape(row.summary),
+          "\">",
+          escape(workspace_reason(row)),
+          "</span>",
           "</td><td>",
-          escape(row.state),
+          escape(Components.label(row.state)),
           "</td><td>",
-          timestamp(row.updated_at),
+          readable_time(row.updated_at),
           "</td><td>",
           action,
           "</td></tr>"
@@ -1729,10 +1798,22 @@ defmodule Responder.ControlPlane.HTML do
       end)
 
     [
-      "<section><h2>Workspaces</h2>",
-      table(["Workspace", "Cleanup", "Reason", "Episode", "Updated", "Action"], body),
+      "<section><h2>Repository working copies</h2><p>These are the checkout directories used by tasks, not Slack workspaces. Responder keeps unfinished or unmerged work safe. Resume interrupted cleanup below; discarding unmerged commits always requires confirmation.</p>",
+      table(
+        ["Working copy", "Lifecycle", "What happens next", "Request", "Updated", "Action"],
+        body
+      ),
       "</section>"
     ]
+  end
+
+  defp workspace_request_label(row) do
+    title = row[:request_title] || "Open request →"
+
+    case SlackNames.workspace_from_destination(row[:request_conversation]) do
+      nil -> escape(title)
+      workspace -> SlackMarkdown.mentions(title, workspace)
+    end
   end
 
   def generic(title, rows) when is_list(rows) do
@@ -1744,6 +1825,59 @@ defmodule Responder.ControlPlane.HTML do
 
     ["<section><h2>", escape(title), "</h2>", body, "</section>"]
   end
+
+  def decisions(rows) do
+    body =
+      Enum.map(rows, fn row ->
+        [
+          "<tr><td title=\"",
+          escape(row.ref),
+          "\"><strong>",
+          escape(decision_label(row.state)),
+          "</strong>",
+          if(row.status == :superseded,
+            do: "<br><small>Replaced by a newer message revision</small>",
+            else: []
+          ),
+          "</td><td>",
+          escape(decision_source(row.summary)),
+          "</td><td>",
+          readable_time(row.updated_at),
+          "</td><td>",
+          if(row[:input_id],
+            do: [
+              "<a href=\"/admission/",
+              segment(row.input_id),
+              "\">Inspect message & decision →</a>"
+            ],
+            else: "Input record unavailable"
+          ),
+          "</td></tr>"
+        ]
+      end)
+
+    [
+      workbench_intro(
+        "How messages were routed",
+        "For each incoming message, Responder chooses a direct reply, a reaction, work on a new or existing request, or no response. Inspect a decision to see the actual message, classifier input and saved result. Latest 100 decisions."
+      ),
+      if(rows == [],
+        do:
+          "<p class=\"empty\">No routing decisions yet. Send a message in Conversation Lab to follow one end to end.</p>",
+        else: table(["Decision", "Source", "When", "Inspect"], body)
+      )
+    ]
+  end
+
+  defp decision_label(:start_episode), do: "Start work"
+  defp decision_label(:join_episode), do: "Continue existing work"
+  defp decision_label(:reply), do: "Reply directly"
+  defp decision_label(:react), do: "React to the message"
+  defp decision_label(:ignore), do: "No response needed"
+  defp decision_label(other), do: Components.label(other)
+
+  defp decision_source("control_plane"), do: "Conversation Lab"
+  defp decision_source(source), do: String.capitalize(to_string(source))
 
   def configuration(%{rows: rows, grants: grants, source: source}) do
     configuration_rows =
@@ -1848,17 +1982,19 @@ defmodule Responder.ControlPlane.HTML do
           "</td><td>",
           number(row.tokens),
           "</td><td>",
-          money(row.cost_usd, row.costed),
+          Pricing.amount(row),
           "</td></tr>"
         ]
       end)
 
     channel_rows =
       Enum.map(snapshot.channels, fn row ->
-        label = "#{row.transport}:#{row.conversation_ref}"
+        label = usage_channel_label(row)
 
         [
-          "<tr><td><a href=\"/episodes?",
+          "<tr><td><a title=\"",
+          escape(row.conversation_ref),
+          "\" href=\"/episodes?",
           escape(
             URI.encode_query(%{
               "q" => row.conversation_ref,
@@ -1874,7 +2010,7 @@ defmodule Responder.ControlPlane.HTML do
           "</td><td>",
           number(row.tokens),
           "</td><td>",
-          money(row.cost_usd, row.costed),
+          Pricing.amount(row),
           "</td></tr>"
         ]
       end)
@@ -1911,7 +2047,7 @@ defmodule Responder.ControlPlane.HTML do
           "</td><td>",
           number(row.tokens),
           "</td><td>",
-          money(row.cost_usd, row.costed),
+          Pricing.amount(row),
           "</td></tr>"
         ]
       end)
@@ -1934,8 +2070,13 @@ defmodule Responder.ControlPlane.HTML do
       "</div><section class=\"metrics\">",
       metric("Execution requests", totals.attempts),
       metric("Provider measured", coverage(totals.usage_measured, totals.attempts)),
-      metric("Reported USD", money(totals.cost_usd, totals.costed)),
+      metric(
+        Pricing.label(totals),
+        Pricing.amount(totals)
+      ),
       metric("Input tokens reported", number(totals.input_tokens)),
+      "</section><section class=\"usage-chart-panel\"><h2>Daily token trend</h2>",
+      token_trend(snapshot.days),
       "</section><div class=\"usage-details\"><section aria-labelledby=\"usage-coverage\"><h2 id=\"usage-coverage\">Measurement coverage</h2><p class=\"muted\">Which requests and token dimensions were recorded.</p>",
       definition_list([
         {"Admission executions", Map.get(totals, :admission, "not recorded")},
@@ -1954,10 +2095,13 @@ defmodule Responder.ControlPlane.HTML do
         {"Average execution", duration(totals.average_provider_ms)},
         {"Average host observation", duration(totals.average_host_ms)}
       ]),
-      "</section></div><section class=\"measurement-notes\"><h2>How to read these numbers</h2><p>Reported money is shown only when the provider supplied it; unpriced attempts are not displayed as zero spend. Execution requests include admission and unsuccessful Work, not lease claims or polling.</p><details><summary>Coverage limits and token semantics</summary><p>Coop turn totals can include repairs; individual provider calls and child-task attribution are not yet available. Token-counter sums below are not normalized billable tokens: cached and reasoning dimensions may overlap provider totals. Historical executions without retained measurements remain unknown. Token-priced estimates are not yet available.</p></details>",
-      "</section><section><h2>Daily token trend</h2>",
-      token_trend(snapshot.days),
-      "</section><section><h2>Execution targets</h2>",
+      "</section></div><details class=\"measurement-notes\" id=\"cost-method\"><summary>How cost is calculated · coverage and limits</summary><p>Provider-reported charges take precedence. ≈ marks totals that include API-equivalent estimates for Codex Sol, Terra and Luna, using <a href=\"https://developers.openai.com/api/docs/pricing\">standard-context API rates</a> verified 5 September 2026. These are comparative estimates, not your ChatGPT subscription bill. Long-context multipliers, cache-write premiums, service tiers and tool fees cannot be recovered from aggregate turn counters and are excluded.</p><p>",
+      integer(Map.get(totals, :estimated, 0)),
+      " estimated · ",
+      integer(totals.costed),
+      " provider-priced · ",
+      integer(totals.attempts - totals.costed - Map.get(totals, :estimated, 0)),
+      " unpriced requests. Missing telemetry and unknown models remain unpriced, not zero. A turn may contain multiple provider calls; child-task attribution is not yet available. Codex output includes reasoning, so reasoning is not priced twice.</p></details><section><h2>Models used</h2>",
       table(
         [
           "Target",
@@ -1967,16 +2111,20 @@ defmodule Responder.ControlPlane.HTML do
           "Attempts",
           "Measured",
           "Tokens",
-          "Reported USD"
+          "Cost (USD)"
         ],
         target_rows
       ),
-      "</section><section><h2>Destinations</h2>",
-      table(["Destination", "Attempts", "Measured", "Tokens", "Reported USD"], channel_rows),
+      "</section><section><h2>Channels & conversations</h2>",
+      table(["Destination", "Attempts", "Measured", "Tokens", "Cost (USD)"], channel_rows),
+      "</section><section><h2>People using Responder</h2><p>Attributed to the exact triggering input, not the first person in a conversation. Unlinked and automated work remains unattributed.</p>",
+      usage_user_table(Map.get(snapshot, :users, [])),
       "</section><section><h2>Repositories</h2>",
-      table(["Repository", "Attempts", "Measured", "Tokens", "Reported USD"], repository_rows),
+      table(["Repository", "Attempts", "Measured", "Tokens", "Cost (USD)"], repository_rows),
       "</section>",
-      usage_execution_list(snapshot)
+      "<details class=\"execution-ledger-disclosure\" id=\"execution-ledger\"><summary>Inspect individual executions</summary>",
+      usage_execution_list(snapshot),
+      "</details>"
     ]
   end
 
@@ -1984,13 +2132,17 @@ defmodule Responder.ControlPlane.HTML do
 
   defp accounting_summary(totals) do
     [
-      "<section class=\"case-accounting\" aria-label=\"Execution cost\"><div><span>Reported cost</span><strong>",
-      money(totals.cost_usd, totals.costed),
+      "<section class=\"case-accounting\" aria-label=\"Execution cost\"><div><span>Cost (USD)</span><strong>",
+      Pricing.amount(totals),
       "</strong></div><p>",
-      escape(coverage(totals.costed, totals.attempts)),
-      " execution requests priced · ",
+      integer(totals.costed),
+      " reported · ",
+      integer(Map.get(totals, :estimated, 0)),
+      " estimated / ",
+      integer(totals.attempts),
+      " execution requests · ",
       escape(coverage(totals.usage_measured, totals.attempts)),
-      " with token telemetry<br><small>Includes admission and unsuccessful executions linked to this episode. Child-task cost and historical missing telemetry are not included.</small></p></section>"
+      " with token telemetry<br><small>Includes admission and unsuccessful executions linked to this episode. Child-task cost and historical missing telemetry are not included. <a href=\"/usage#cost-method\">Cost method and estimate limits</a>.</small></p></section>"
     ]
   end
 
@@ -2018,7 +2170,7 @@ defmodule Responder.ControlPlane.HTML do
     [
       "<section><h2>Execution ledger</h2><p class=\"muted\">One cumulative snapshot per durable execution generation. Observing the same result twice does not add its cost twice.</p>",
       table(
-        ["Execution", "Target", "Observed state", "Input / output counters", "Reported USD"],
+        ["Execution", "Target", "Observed state", "Input / output counters", "Cost (USD)"],
         Enum.map(executions.items, &usage_execution_row/1)
       ),
       "<nav aria-label=\"Execution pages\">",
@@ -2050,6 +2202,44 @@ defmodule Responder.ControlPlane.HTML do
   end
 
   defp usage_execution_list(_snapshot), do: ""
+
+  defp usage_channel_label(%{transport: "slack", conversation_ref: ref}) do
+    destination = if String.starts_with?(ref, "slack:"), do: ref, else: "slack:" <> ref
+    SlackNames.destination(destination)
+  end
+
+  defp usage_channel_label(%{transport: "control_plane"}), do: "Conversation Lab"
+
+  defp usage_channel_label(row), do: "#{row.transport}:#{row.conversation_ref}"
+
+  defp usage_user_name(%{actor: nil}), do: "Unattributed / automated"
+  defp usage_user_name(%{actor: "local-operator"}), do: "You · Conversation Lab"
+
+  defp usage_user_name(%{source: "slack", actor: actor, workspace: workspace}),
+    do: SlackNames.name(workspace, actor)
+
+  defp usage_user_name(%{actor: actor}), do: actor
+
+  defp usage_user_table(rows) do
+    table(
+      ["Person", "Requests", "Measured", "Cost (USD)"],
+      Enum.map(rows, fn row ->
+        [
+          "<tr><td title=\"",
+          escape(row.actor),
+          "\">",
+          escape(usage_user_name(row)),
+          "</td><td>",
+          integer(row.attempts),
+          "</td><td>",
+          coverage(row.measured, row.attempts),
+          "</td><td>",
+          Pricing.amount(row),
+          "</td></tr>"
+        ]
+      end)
+    )
+  end
 
   defp usage_execution_row(row) do
     label = if row.kind == "admission", do: "Admission", else: "Work"
@@ -2086,10 +2276,12 @@ defmodule Responder.ControlPlane.HTML do
         else: "Unknown"
       ),
       "</td><td>",
-      money(
-        row.usage_cost_usd || Decimal.new(0),
-        if(row.usage_cost_recorded, do: 1, else: 0)
-      ),
+      Pricing.amount(%{
+        cost_usd: row.usage_cost_usd,
+        costed: if(row.usage_cost_recorded, do: 1, else: 0),
+        estimated_cost_usd: row[:estimated_cost_usd],
+        estimated: if(row[:estimated_cost_usd], do: 1, else: 0)
+      }),
       "</td></tr>"
     ]
   end
@@ -2487,8 +2679,17 @@ defmodule Responder.ControlPlane.HTML do
 
   defp failure_episode(row) do
     case Map.get(row, :episode_ref) do
-      nil -> "Before admission"
-      ref -> ["<a href=\"/episodes/", segment(ref), "\">", escape(ref), "</a>"]
+      nil ->
+        "Before admission"
+
+      ref ->
+        [
+          "<a title=\"",
+          escape(ref),
+          "\" href=\"/episodes/",
+          segment(ref),
+          "\">Open request →</a>"
+        ]
     end
   end
 
@@ -2550,14 +2751,88 @@ defmodule Responder.ControlPlane.HTML do
     [
       "<form class=\"search-form\" method=\"get\" action=\"",
       escape(path),
-      "\"><label for=\"operator-search\">Search</label><input id=\"operator-search\" name=\"q\" maxlength=\"200\" placeholder=\"",
+      "\"><label class=\"sr-only\" for=\"operator-search\">Search</label><input type=\"search\" id=\"operator-search\" name=\"q\" maxlength=\"200\" placeholder=\"",
       escape(placeholder),
       "\"><button type=\"submit\">Search</button></form>"
     ]
   end
 
-  defp channel_label(workspace_ref, nil), do: "#{workspace_ref}:not provisioned"
-  defp channel_label(workspace_ref, channel_ref), do: "#{workspace_ref}:#{channel_ref}"
+  defp recovery_label("delivery"), do: "Retry delivery"
+  defp recovery_label("admission"), do: "Retry routing"
+  defp recovery_label("emisar"), do: "Resume approval checks"
+  defp recovery_label("slack_interaction"), do: "Refresh Slack message"
+  defp recovery_label("slack_incident"), do: "Resume room setup"
+  defp recovery_label("retention"), do: "Resume cleanup"
+  defp recovery_label(_), do: "Retry failed step"
+
+  defp failure_kind("retention"), do: "Working-copy cleanup stopped"
+  defp failure_kind("delivery"), do: "Reply could not be delivered"
+  defp failure_kind("admission"), do: "Message routing stopped"
+  defp failure_kind("work"), do: "Model work stopped"
+  defp failure_kind("slack_incident"), do: "Incident room setup stopped"
+  defp failure_kind("slack_interaction"), do: "Slack message update stopped"
+  defp failure_kind("emisar"), do: "Approval check stopped"
+  defp failure_kind(value), do: String.capitalize(String.replace(value, "_", " "))
+
+  defp failure_cause("coop_error"),
+    do: "The worker could not finish this step. Inspect the saved error before retrying."
+
+  defp failure_cause("coop_unavailable"),
+    do: "The worker could not be reached. Check its connection, then retry."
+
+  defp failure_cause(value),
+    do: to_string(value) |> String.replace("_", " ") |> String.capitalize()
+
+  defp channel_label(_workspace_ref, nil), do: "Channel not created yet"
+
+  defp channel_label(workspace_ref, channel_ref),
+    do: SlackNames.name(workspace_ref, channel_ref)
+
+  defp slack_reference(workspace, ref),
+    do: [
+      "<span title=\"",
+      escape(ref),
+      "\">",
+      escape(SlackNames.name(workspace, ref)),
+      "</span>"
+    ]
+
+  defp workspace_status(:active), do: "In use"
+  defp workspace_status(:grace), do: "Kept for follow-up"
+  defp workspace_status(:retained), do: "Changes preserved"
+  defp workspace_status(:discarded), do: "Removed safely"
+  defp workspace_status(:blocked), do: "Cleanup needs attention"
+  defp workspace_status(_), do: "Cleanup in progress"
+
+  defp workspace_reason(%{status: :discarded}),
+    do: "Working copy removed; request history remains available."
+
+  defp workspace_reason(%{status: :active}),
+    do: "Available to the current request and its follow-ups."
+
+  defp workspace_reason(%{status: :grace}),
+    do: "Kept temporarily so a follow-up can reuse the same checkout."
+
+  defp workspace_reason(%{summary: "unpublished_unmerged"}),
+    do: "Unmerged commits are being kept safe."
+
+  defp workspace_reason(%{summary: "dirty"}), do: "Uncommitted changes are being kept safe."
+  defp workspace_reason(%{status: :retained}), do: "Changes are preserved until cleanup is safe."
+  defp workspace_reason(%{status: :blocked, summary: value}), do: failure_cause(value)
+  defp workspace_reason(_), do: "Automatic cleanup is pending."
+
+  defp repository_revision(nil), do: "No code revision recorded yet."
+
+  defp repository_revision(freshness),
+    do: [
+      "Last used commit <code title=\"",
+      escape(freshness.resolved_revision),
+      "\">",
+      escape(String.slice(freshness.resolved_revision || "unknown", 0, 8)),
+      "</code> · fetched ",
+      readable_time(freshness.fetched_at),
+      ". This is the saved execution snapshot, not a live Git check."
+    ]
 
   defp channel_kind(%{incident_room: true}), do: "incident room"
   defp channel_kind(%{channel_ref: "D" <> _rest}), do: "direct message"
@@ -2707,7 +2982,9 @@ defmodule Responder.ControlPlane.HTML do
     ])
   end
 
-  defp worker_list([]), do: "<p class=\"empty\">No live worker advertises this repository.</p>"
+  defp worker_list([]),
+    do:
+      "<p class=\"empty\">No fleet worker is reporting this repository here. A configured local development worker is not listed in the fleet.</p>"
 
   defp worker_list(workers) do
     rows =
@@ -2728,34 +3005,7 @@ defmodule Responder.ControlPlane.HTML do
     table(["Worker", "State", "Advertised revision", "Last seen"], rows)
   end
 
-  defp token_trend([]), do: "<p class=\"empty\">No executions recorded in this window.</p>"
-
-  defp token_trend(days) do
-    maximum = days |> Enum.map(& &1.tokens) |> Enum.max(fn -> 0 end) |> max(1)
-
-    [
-      "<p class=\"muted\">Recorded token counters by day (UTC). Coverage shows which executions supplied measurements.</p>",
-      "<ol class=\"token-trend\" aria-label=\"Daily measured token trend\">",
-      Enum.map(days, fn day ->
-        [
-          "<li><time datetime=\"",
-          escape(day.date),
-          "\">",
-          escape(Calendar.strftime(day.date, "%d %b")),
-          "</time><progress class=\"token-bar\" aria-hidden=\"true\" max=\"",
-          integer(maximum),
-          "\" value=\"",
-          integer(day.tokens),
-          "\"></progress><strong>",
-          number(day.tokens),
-          "</strong><small>",
-          coverage(day.measured, day.attempts),
-          " measured</small></li>"
-        ]
-      end),
-      "</ol>"
-    ]
-  end
+  defp token_trend(days), do: UsageChart.render(days)
 
   defp definition_list(rows) do
     [
@@ -2802,6 +3052,26 @@ defmodule Responder.ControlPlane.HTML do
   defp timestamp(nil), do: "—"
   defp timestamp(value), do: escape(value)
 
+  defp readable_time(%DateTime{} = value),
+    do: [
+      "<time datetime=\"",
+      DateTime.to_iso8601(value),
+      "\" title=\"",
+      DateTime.to_iso8601(value),
+      "\">",
+      escape(Components.timestamp(value)),
+      "</time>"
+    ]
+
+  defp readable_time(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, time, _} -> readable_time(time)
+      _ -> escape(value)
+    end
+  end
+
+  defp readable_time(nil), do: "Time not recorded"
+
   defp segment(value), do: value |> to_string() |> URI.encode(&URI.char_unreserved?/1)
 
   defp coverage(_measured, 0), do: "0 of 0"
@@ -2814,10 +3084,6 @@ defmodule Responder.ControlPlane.HTML do
 
   defp duration(milliseconds),
     do: :erlang.float_to_binary(milliseconds / 1_000, decimals: 2) <> " s"
-
-  defp money(_amount, 0), do: "unreported"
-  defp money(%Decimal{} = amount, _count), do: "$" <> Decimal.to_string(amount, :normal)
-  defp money(amount, _count), do: "$" <> to_string(amount)
 
   defp integer(value) when is_integer(value), do: Integer.to_string(value)
   defp integer(value), do: to_string(value)

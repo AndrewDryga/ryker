@@ -160,7 +160,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     refute Map.has_key?(detail, :payload)
   end
 
-  test "episode trace links the exact GitHub pull request comment without exposing its body" do
+  test "GitHub source links contain only destination metadata while the conversation retains its message" do
     id = Ecto.UUID.generate()
 
     assert {:ok, input} =
@@ -254,7 +254,11 @@ defmodule Responder.ControlPlane.ProjectionTest do
              transport: "GitHub"
            }
 
-    refute inspect(detail.trace) =~ "github-secret-body"
+    # inspect(trace) truncates maps and made this depend on map iteration order.
+    # The source link must omit the body; the readable conversation intentionally
+    # includes it, just as it does for Slack and Lab messages.
+    refute inspect(detail.trace.source, limit: :infinity) =~ "github-secret-body"
+    assert [%{text: "github-secret-body"}] = detail.trace.case_file.messages
 
     for {source_item_ref, payload, expected} <- [
           {
@@ -292,7 +296,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
 
       assert {:ok, linked} = Projection.episode(transition.episode.key)
       assert linked.trace.source.href == expected
-      refute inspect(linked.trace) =~ "secret"
+      refute inspect(linked.trace.source, limit: :infinity) =~ "secret"
     end
 
     for {source_item_ref, repository} <- [
@@ -493,6 +497,93 @@ defmodule Responder.ControlPlane.ProjectionTest do
              Projection.episodes(%{"target" => "claude:opus/high@work"}).items
 
     assert target_episode.ref == episode_key!(measured.episode_id)
+  end
+
+  test "cost and power-user totals follow each triggering input without double counting" do
+    # Thread-level attribution assigned follow-up work to the first speaker;
+    # missing provider USD also hid all usable retained token measurements.
+    now = DateTime.utc_now()
+    first = measured_turn!("person-one", "codex:gpt-5.6-sol/medium", now)
+    second = measured_turn!("person-two", "codex:gpt-5.6-sol/medium", now)
+
+    for {turn, actor, message_ref} <- [
+          {first, "U123", "1787832099.000100"},
+          {second, "U456", "1787832100.000100"}
+        ] do
+      {:ok, input} =
+        SlackInput.new(%{
+          actor: %{kind: :user, ref: actor},
+          channel_ref: "C456",
+          content: %{"text" => "Usage attribution"},
+          event_kind: :message,
+          event_ref: "Ev-#{actor}",
+          message_ref: message_ref,
+          occurred_at: now,
+          revision: 1,
+          thread_ref: "1787832099.000100",
+          workspace_ref: "T123"
+        })
+
+      {:ok, %{entry: entry}} = Inbox.record(input)
+
+      Repo.update_all(from(t in Responder.Work.Turn, where: t.id == ^turn.id),
+        set: [turn_ref: "ingress-turn:#{entry.id}"]
+      )
+    end
+
+    Repo.update_all(from(t in Responder.Work.Turn, where: t.id == ^second.id),
+      set: [usage_cost_recorded: false, usage_cost_usd: nil]
+    )
+
+    Repo.update_all(
+      from(e in Responder.Accounting.Execution,
+        where: e.kind == "work" and e.source_id == ^second.id
+      ),
+      set: [usage_cost_recorded: false, usage_cost_usd: nil]
+    )
+
+    snapshot = Projection.usage(%{"window" => "24h"})
+    assert snapshot.totals.costed == 1
+    assert snapshot.totals.estimated == 1
+    assert Decimal.equal?(snapshot.totals.cost_usd, Decimal.new("0.0125"))
+    assert Decimal.equal?(snapshot.totals.estimated_cost_usd, Decimal.new("0.01112"))
+
+    assert Enum.sort(Enum.map(snapshot.users, &{&1.actor, &1.attempts, &1.costed, &1.estimated})) ==
+             [{"U123", 1, 1, 0}, {"U456", 1, 0, 1}]
+
+    assert [%{attempts: 2, costed: 1, estimated: 1}] = snapshot.targets
+    assert Enum.reduce(snapshot.channels, 0, &(&1.attempts + &2)) == 2
+  end
+
+  test "audit request links encode the exact opaque episode key" do
+    {:ok, %{episode: episode}} =
+      Episodes.apply(EpisodeFixtures.admit_input(%{episode_key: "request:one/part?x#fragment"}))
+
+    assert row = Enum.find(Projection.audit(%{}), &(&1.ref == episode.key))
+    assert row.href == "/episodes/request%3Aone%2Fpart%3Fx%23fragment"
+  end
+
+  test "usage groups Lab conversations into one destination without merging Slack channels" do
+    # The usage page showed a dozen indistinguishable Conversation Lab rows.
+    now = DateTime.utc_now()
+
+    for suffix <- ["lab-one", "lab-two"] do
+      turn = measured_turn!(suffix, "codex:gpt-5.6-sol/medium", now)
+
+      Repo.update_all(
+        from(e in Responder.Accounting.Execution, where: e.source_id == ^turn.id),
+        set: [transport: "control_plane", conversation_ref: "control-plane:lab:#{suffix}"]
+      )
+    end
+
+    measured_turn!("slack-one", "codex:gpt-5.6-sol/medium", now)
+    snapshot = Projection.usage(%{"window" => "24h"})
+
+    assert [%{attempts: 2, conversation_ref: "control-plane:lab:"}] =
+             Enum.filter(snapshot.channels, &(&1.transport == "control_plane"))
+
+    assert [%{attempts: 1, conversation_ref: "slack:T123:C456"}] =
+             Enum.filter(snapshot.channels, &(&1.transport == "slack"))
   end
 
   # Provider work still costs money when the host never accepts the answer.
@@ -1758,7 +1849,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert {:ok, claim} = RetentionCustody.claim_next("cleanup:projection", 60, 0)
     assert claim.session.id == session.id
 
-    assert {:ok, blocked} =
+    assert {:ok, _blocked} =
              RetentionCustody.block(
                session.id,
                claim.lease_ref,
@@ -1784,7 +1875,8 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert workspace.status == :blocked
     assert workspace.summary == "coop_unavailable"
     refute inspect(workspace) =~ "private transport detail"
-    refute inspect(workspace) =~ inspect(blocked.discard_plan)
+    refute Map.has_key?(workspace, :discard_plan)
+    refute Map.has_key?(workspace, :discard_plan_fingerprint)
     assert workspace in Projection.workspaces(%{})
   end
 

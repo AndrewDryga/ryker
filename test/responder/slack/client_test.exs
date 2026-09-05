@@ -6,6 +6,32 @@ defmodule Responder.Slack.ClientTest do
   alias __MODULE__.FakeRequester
   alias Responder.Slack.Client
 
+  test "directory labels validate identity and preserve workspace rate limits" do
+    {:ok, requester} =
+      FakeRequester.start([
+        slack(%{"team_id" => "T999", "team" => "Wrong workspace"}),
+        slack(%{"user" => %{"id" => "U123", "team_id" => "T999", "name" => "Wrong person"}}),
+        {:ok, %{status: 429, headers: [{"retry-after", "120"}], body: "rate limited"}}
+      ])
+
+    assert Client.directory_name(client(requester), "T123", "T123") ==
+             {:error, :directory_name_unavailable}
+
+    assert Client.directory_name(client(requester), "T123", "U123") ==
+             {:error, :directory_name_unavailable}
+
+    assert {:error, {:delivery_rate_limited, 120, _}} =
+             Client.directory_name(client(requester), "T123", "T123")
+  end
+
+  test "workspace names use the existing token without requesting an extra Slack scope" do
+    # Emisar's existing token lacks team:read. auth.test returns the bound team
+    # name without new scopes; identity must still match the configured team.
+    {:ok, requester} = FakeRequester.start([slack(%{"team" => "Emisar", "team_id" => "T123"})])
+    assert Client.directory_name(client(requester), "T123", "T123") == {:ok, "Emisar"}
+    assert [{:post, "/auth.test", %{}, []}] = FakeRequester.requests(requester)
+  end
+
   test "Card Lab reconciliation excludes channel history predating the durable post request" do
     {:ok, requester} = FakeRequester.start([slack(%{"messages" => []})])
     since = ~U[2026-09-05 01:00:00Z]

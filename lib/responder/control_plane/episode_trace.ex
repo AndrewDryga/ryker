@@ -1,4 +1,6 @@
 defmodule Responder.ControlPlane.EpisodeTrace do
+  alias Responder.ControlPlane.SlackNames
+
   @moduledoc """
   Builds the bounded operator story for one durable episode.
 
@@ -152,6 +154,12 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       at: input.occurred_at,
       transport: input.destination_transport,
       actor: if(input.actor_kind == :user, do: "User", else: "Source event"),
+      display_actor:
+        if(input.source_kind == "slack",
+          do: SlackNames.name(input.source_ref, input.actor_ref)
+        ),
+      actor_ref: input.actor_ref,
+      workspace: if(input.source_kind == "slack", do: input.source_ref),
       text: artifact.text,
       available: artifact.state == :retained,
       repository: input.repository_ref,
@@ -1297,9 +1305,15 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   @doc "Groups adjacent chronological entries without moving later messages ahead of earlier work."
   def chapters(steps, started_at) do
-    steps
-    |> Enum.chunk_by(& &1.band)
-    |> Enum.map(fn chapter_steps ->
+    {entries, _state} = Enum.map_reduce(steps, {0, MapSet.new()}, &conversation_part/2)
+
+    entries
+    |> Enum.chunk_by(fn {step, part, _boundary} -> {step.band, part} end)
+    |> Enum.map(fn chapter_entries ->
+      [{_step, conversation_turn, _boundary} | _] = chapter_entries
+      chapter_steps = Enum.map(chapter_entries, &elem(&1, 0))
+      starts_conversation = Enum.any?(chapter_entries, &elem(&1, 2))
+
       {band, title, blurb} =
         Enum.find(@chapters, fn {band, _title, _blurb} ->
           band == List.first(chapter_steps).band
@@ -1307,13 +1321,24 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
       %{
         band: band,
-        title: title,
+        title:
+          if(starts_conversation and conversation_turn > 1, do: "Follow-up received", else: title),
+        conversation_turn: conversation_turn,
+        starts_conversation: starts_conversation,
         blurb: blurb,
         span: chapter_span(chapter_steps, started_at),
         steps: chapter_steps
       }
     end)
   end
+
+  defp conversation_part(%{kind: :message, band: :input, id: id} = step, {part, seen}) do
+    boundary = not MapSet.member?(seen, id)
+    part = if boundary, do: part + 1, else: part
+    {{step, part, boundary}, {part, MapSet.put(seen, id)}}
+  end
+
+  defp conversation_part(step, {part, _seen} = state), do: {{step, part, false}, state}
 
   defp chapter_span(steps, started_at) do
     values = steps |> Enum.map(&relative(&1.at, started_at)) |> Enum.reject(&is_nil/1)

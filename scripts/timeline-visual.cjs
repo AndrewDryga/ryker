@@ -45,6 +45,7 @@ const {createCaptureDirectory} = require('./visual-artifacts.cjs');
         const instructions = page.locator('.prompt-source[data-source="instructions"]').first();
         await instructions.locator('summary').click();
         await instructions.locator('.prompt-source-body').waitFor();
+        await page.locator('#live-controls > summary').click();
         await page.locator('button[phx-click="refresh"]').click();
         await page.locator('button[phx-click="toggle-live"]').click();
         await page.locator('button[phx-click="toggle-live"][aria-pressed="true"]').waitFor();

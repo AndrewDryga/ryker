@@ -722,10 +722,11 @@ defmodule Responder.ControlPlane.Projection do
         on: episode.id == session.episode_id,
         order_by: [desc: session.updated_at, desc: session.id],
         limit: 100,
-        select: {session, episode.state}
+        select: {session, episode.state, episode.key}
       )
     )
     |> Enum.map(&workspace_item/1)
+    |> with_request_titles()
   end
 
   def workspace(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
@@ -734,11 +735,11 @@ defmodule Responder.ControlPlane.Projection do
              join: episode in Episode,
              on: episode.id == session.episode_id,
              where: session.external_ref == ^ref,
-             select: {session, episode.state}
+             select: {session, episode.state, episode.key}
            )
          ) do
       nil -> :not_found
-      row -> {:ok, workspace_item(row)}
+      row -> {:ok, row |> workspace_item() |> then(&with_request_titles([&1])) |> hd()}
     end
   end
 
@@ -753,6 +754,7 @@ defmodule Responder.ControlPlane.Projection do
         select: %{
           kind: "admission",
           ref: entry.decision_ref,
+          input_id: entry.id,
           state: entry.decision_action,
           status: entry.status,
           summary: entry.source_kind,
@@ -789,12 +791,21 @@ defmodule Responder.ControlPlane.Projection do
           limit: 100,
           select: %{
             kind: event.kind,
+            source: :episode,
+            actor: "Responder",
+            target: episode.key,
+            episode_ref: episode.key,
             ref: episode.key,
             summary: event.dedupe_key,
             updated_at: event.occurred_at
           }
         )
       )
+
+    episode_events =
+      Enum.map(episode_events, fn row ->
+        Map.put(row, :href, "/episodes/" <> URI.encode(row.ref, &URI.char_unreserved?/1))
+      end)
 
     interaction_events =
       Repo.all(
@@ -803,6 +814,10 @@ defmodule Responder.ControlPlane.Projection do
           limit: 100,
           select: %{
             kind: audit.outcome,
+            source: :slack,
+            actor: audit.actor_ref,
+            workspace: audit.workspace_ref,
+            target: audit.channel_ref,
             ref: audit.event_ref,
             summary: audit.action_id,
             updated_at: audit.occurred_at
@@ -819,6 +834,9 @@ defmodule Responder.ControlPlane.Projection do
           limit: 100,
           select: %{
             kind: action.action,
+            source: :retention,
+            actor: action.actor_ref,
+            target: session.repository_ref,
             ref: session.external_ref,
             summary: action.actor_ref,
             updated_at: action.occurred_at
@@ -833,6 +851,9 @@ defmodule Responder.ControlPlane.Projection do
           limit: 100,
           select: %{
             kind: fragment("? || ':' || ?", action.action, action.kind),
+            source: :operator,
+            actor: action.actor_ref,
+            target: action.resource_ref,
             ref: action.action_ref,
             summary: fragment("? || ' · ' || ?", action.actor_ref, action.resource_ref),
             updated_at: action.occurred_at
@@ -846,6 +867,25 @@ defmodule Responder.ControlPlane.Projection do
       :desc
     )
     |> Enum.take(100)
+    |> with_request_titles()
+  end
+
+  defp with_request_titles(rows) do
+    titles =
+      rows
+      |> Enum.map(&Map.get(&1, :episode_ref))
+      |> Enum.reject(&is_nil/1)
+      |> Activity.request_titles()
+
+    Enum.map(rows, fn row ->
+      case Map.get(titles, row[:episode_ref]) do
+        nil ->
+          row
+
+        title ->
+          Map.merge(row, %{request_title: title.title, request_conversation: title.conversation})
+      end
+    end)
   end
 
   def memory do
@@ -917,6 +957,7 @@ defmodule Responder.ControlPlane.Projection do
 
     %{
       channels: usage_channels(query),
+      users: usage_users(query),
       days: usage_days(query),
       repositories: usage_repositories(query),
       targets: usage_targets(query),
@@ -1921,10 +1962,13 @@ defmodule Responder.ControlPlane.Projection do
   defp join_target(target, nil), do: target
   defp join_target(target, thread), do: "#{target} / #{thread}"
 
-  defp workspace_item({%Session{} = session, episode_state}) do
+  defp workspace_item({%Session{} = session, episode_state, episode_ref}) do
     %{
       action: workspace_action(session),
       kind: "coop_session",
+      episode_ref: episode_ref,
+      repository: session.repository_ref,
+      discard_after: session.discard_after,
       ref: session.external_ref,
       state: episode_state,
       status: session.cleanup_status,
@@ -1972,6 +2016,8 @@ defmodule Responder.ControlPlane.Projection do
                 :integer
               ),
             cost_usd: fragment("COALESCE(SUM(?), 0)", turn.usage_cost_usd),
+            estimated_cost_usd: fragment("COALESCE(SUM(?), 0)", turn.estimated_cost_usd),
+            estimated: count(turn.estimated_cost_usd),
             costed:
               fragment(
                 "COUNT(*) FILTER (WHERE ? = TRUE)",
@@ -2037,6 +2083,7 @@ defmodule Responder.ControlPlane.Projection do
               :usage_recorded,
               :usage_cost_recorded,
               :usage_cost_usd,
+              :estimated_cost_usd,
               :usage_input_tokens,
               :usage_output_tokens
             ]),
@@ -2063,6 +2110,8 @@ defmodule Responder.ControlPlane.Projection do
         select: %{
           attempts: count(turn.id),
           cost_usd: fragment("COALESCE(SUM(?), 0)", turn.usage_cost_usd),
+          estimated_cost_usd: fragment("COALESCE(SUM(?), 0)", turn.estimated_cost_usd),
+          estimated: count(turn.estimated_cost_usd),
           costed: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_cost_recorded),
           measured: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_recorded),
           target: turn.execution_target,
@@ -2083,7 +2132,48 @@ defmodule Responder.ControlPlane.Projection do
     |> Enum.map(fn row -> Map.merge(row, Measurement.target_parts(row.target)) end)
   end
 
+  defp usage_users(query) do
+    Repo.all(
+      from(execution in query,
+        left_join: turn in Turn,
+        on: execution.kind == "work" and turn.id == execution.source_id,
+        left_join: entry in Entry,
+        on:
+          (execution.kind == "admission" and entry.id == execution.source_id) or
+            (execution.kind == "work" and
+               turn.turn_ref == fragment("'ingress-turn:' || ?::text", entry.id)),
+        group_by: [entry.source_kind, entry.source_ref, entry.actor_ref],
+        order_by: [desc: count(execution.id)],
+        limit: 50,
+        select: %{
+          source: entry.source_kind,
+          workspace: entry.source_ref,
+          actor: entry.actor_ref,
+          attempts: count(execution.id),
+          measured: fragment("COUNT(*) FILTER (WHERE ?)", execution.usage_recorded),
+          costed: fragment("COUNT(*) FILTER (WHERE ?)", execution.usage_cost_recorded),
+          cost_usd: fragment("COALESCE(SUM(?), 0)", execution.usage_cost_usd),
+          estimated: count(execution.estimated_cost_usd),
+          estimated_cost_usd: fragment("COALESCE(SUM(?), 0)", execution.estimated_cost_usd)
+        }
+      )
+    )
+  end
+
   defp usage_channels(query) do
+    query =
+      from(execution in query,
+        select_merge: %{
+          conversation_ref:
+            fragment(
+              "CASE WHEN ? = 'control_plane' THEN 'control-plane:lab:' ELSE ? END",
+              execution.transport,
+              execution.conversation_ref
+            )
+        }
+      )
+      |> subquery()
+
     Repo.all(
       from(turn in query,
         group_by: [turn.transport, turn.conversation_ref],
@@ -2093,6 +2183,8 @@ defmodule Responder.ControlPlane.Projection do
           attempts: count(turn.id),
           conversation_ref: turn.conversation_ref,
           cost_usd: fragment("COALESCE(SUM(?), 0)", turn.usage_cost_usd),
+          estimated_cost_usd: fragment("COALESCE(SUM(?), 0)", turn.estimated_cost_usd),
+          estimated: count(turn.estimated_cost_usd),
           costed: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_cost_recorded),
           measured: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_recorded),
           tokens:
@@ -2121,6 +2213,8 @@ defmodule Responder.ControlPlane.Projection do
         select: %{
           attempts: count(turn.id),
           cost_usd: fragment("COALESCE(SUM(?), 0)", turn.usage_cost_usd),
+          estimated_cost_usd: fragment("COALESCE(SUM(?), 0)", turn.estimated_cost_usd),
+          estimated: count(turn.estimated_cost_usd),
           costed: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_cost_recorded),
           measured: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_recorded),
           repository_ref: turn.repository_ref,
@@ -2149,6 +2243,8 @@ defmodule Responder.ControlPlane.Projection do
         select: %{
           attempts: count(turn.id),
           cost_usd: fragment("COALESCE(SUM(?), 0)", turn.usage_cost_usd),
+          estimated_cost_usd: fragment("COALESCE(SUM(?), 0)", turn.estimated_cost_usd),
+          estimated: count(turn.estimated_cost_usd),
           date: type(fragment("date(?)", turn.recorded_at), :date),
           measured: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_recorded),
           tokens:

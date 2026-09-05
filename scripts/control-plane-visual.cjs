@@ -1,5 +1,6 @@
 // Read-only browser acceptance. Screenshots contain local organization data;
-// keep the output private and outside the repository. No Slack/model calls.
+// keep the output private and outside the repository. No writes or model calls.
+// Configured display names can refresh using read-only Slack directory calls.
 // Usage: node scripts/control-plane-visual.cjs http://127.0.0.1:4321 OUTPUT [--cards]
 // Install Playwright separately, or set RESPONDER_PLAYWRIGHT_MODULE to its path.
 const { chromium } = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwright');
@@ -56,7 +57,7 @@ async function discover(page) {
     for (const family of families) {
       await page.selectOption('#card-family', family);
       await page.waitForURL(url => url.pathname.split('/')[2] === family);
-      const states = await page.locator('#card-state option').evaluateAll(es => es.map(e => e.value));
+      const states = await page.locator('#card-state-picker a').evaluateAll(es => es.map(e => e.dataset.state));
       for (const state of states) routes.push([`card-${family}-${state}`, `/card-lab/${family}/${state}`]);
     }
   }
@@ -66,16 +67,19 @@ async function discover(page) {
 async function interactions(page) {
   await page.goto(new URL('/card-lab/task-card/working', origin).href);
   await connected(page);
-  await page.selectOption('#card-state', 'recorded-goals');
+  await page.locator('#card-state-picker > summary').click();
+  await page.locator('#card-state-picker a[data-state="recorded-goals"]').click();
   await page.waitForURL('**/card-lab/task-card/recorded-goals');
   await page.locator('.preview-width a', {hasText: 'Compact'}).click();
   await page.locator('.specimen-canvas.compact').waitFor();
-  await page.selectOption('#card-state', 'working');
+  await page.locator('#card-state-picker > summary').click();
+  await page.locator('#card-state-picker a[data-state="working"]').click();
   await page.waitForURL('**/working?width=compact');
   await page.locator('button[phx-value-id="next-recorded"]').click();
   await page.waitForURL('**/working-validation');
   await page.locator('.specimen-provenance summary').click();
   await page.locator('.specimen-provenance details[open]').waitFor();
+  await page.locator('#live-controls > summary').click();
   await page.locator('button[phx-click="refresh"]').click();
   await page.locator('button[phx-click="toggle-live"]').click();
   await page.locator('button[phx-click="toggle-live"][aria-pressed="true"]').waitFor();
@@ -131,6 +135,14 @@ async function interactions(page) {
           assert(result.layout.scrollWidth <= width, 'Page overflows horizontally');
           if (name === 'task-working') assert(result.layout.previewTop < height - 120, 'Card preview is buried below the first screen');
           if (name === 'lab-chat' && width === 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');
+          if (name === 'repositories') {
+            const panels = await page.locator('.repository-card > header').evaluateAll(es => es.map(e => getComputedStyle(e).backgroundColor));
+            assert(panels.every(color => color === 'rgba(0, 0, 0, 0)' || color === 'rgb(255, 255, 255)'), 'Repository headings must not inherit the old dark page banner');
+          }
+          if (name === 'requests') {
+            const titles = await page.locator('.activity-title').allTextContents();
+            assert(titles.every(title => !/<@[UW][A-Z0-9]+>/.test(title)), 'Slack mentions must be readable in request titles');
+          }
           assert.equal(errors.length, 0, 'Browser or CSP errors');
         } catch (error) { result.failure = error.message; }
         await page.screenshot({path: path.join(output, file), animations: 'disabled'});

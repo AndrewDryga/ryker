@@ -84,6 +84,7 @@ defmodule Responder.Application do
       children ->
         [
           {Responder.ControlPlane.Updates, []},
+          {Responder.ControlPlane.SlackNames, []},
           {Responder.ControlPlane.CardLabWorker, []} | children
         ]
     end

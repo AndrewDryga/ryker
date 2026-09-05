@@ -58,6 +58,11 @@ const PreserveReadingState = {
     this.el.addEventListener("input", this.onInput)
     this.el.addEventListener("change", this.onInput)
     this.el.addEventListener("submit", this.onSubmit)
+    this.onClick = event => {
+      const choice = event.target.closest?.("#card-state-picker a")
+      if (choice) choice.closest("details").open = false
+    }
+    this.el.addEventListener("click", this.onClick)
     this.onKeydown = event => {
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && event.target.matches(".composer textarea")) {
         event.preventDefault()
@@ -102,6 +107,7 @@ const PreserveReadingState = {
     this.el.removeEventListener("input", this.onInput)
     this.el.removeEventListener("change", this.onInput)
     this.el.removeEventListener("submit", this.onSubmit)
+    this.el.removeEventListener("click", this.onClick)
     this.el.removeEventListener("keydown", this.onKeydown)
   }
 }

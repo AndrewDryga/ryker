@@ -413,7 +413,7 @@ defmodule Responder.Slack.Renderer do
              incident_action_block(action_needed),
              work_controls_block(task_ref, controls, :task),
              section(
-               "Reply in this thread to continue this task.\n_Updated #{mrkdwn(updated_at)}_"
+               "Reply in this thread to continue this task.\n_Updated #{display_time(updated_at)}_"
              )
            ])
         |> Enum.reject(&is_nil/1)
@@ -524,7 +524,7 @@ defmodule Responder.Slack.Renderer do
   defp task_status_label("action_required"), do: "Action required"
   defp task_status_label("stopping"), do: "Stopping current work"
   defp task_status_label("reviewing"), do: "Review or publication in progress"
-  defp task_status_label("ready_for_review"), do: "Changes ready for a readiness check"
+  defp task_status_label("ready_for_review"), do: "Changes ready · not published yet"
   defp task_status_label("ready_to_publish"), do: "Reviewed and ready for operator publication"
   defp task_status_label("published"), do: "Draft pull request published"
   defp task_status_label("completed"), do: "Completed"
@@ -580,7 +580,7 @@ defmodule Responder.Slack.Renderer do
         do: " · <#{url}|Open draft PR ##{number}>",
         else: ""
 
-    summary = section("Publication: `#{mrkdwn(status)}`#{detail}")
+    summary = section("#{publication_status_message(status, controls)}#{detail}")
 
     buttons =
       Enum.map(controls, fn
@@ -649,6 +649,33 @@ defmodule Responder.Slack.Renderer do
     if buttons == [],
       do: [summary],
       else: [summary, actions("#{task_ref}:publication", buttons)]
+  end
+
+  defp publication_status_message("offered", _),
+    do: "Changes are ready. Run a readiness check before creating a draft PR."
+
+  defp publication_status_message("reviewed", _),
+    do: "Readiness review complete. Create a draft PR when you are ready."
+
+  defp publication_status_message("blocked", _),
+    do:
+      "PR creation is blocked. Review the latest state to check the changes again, or discard this candidate to stop publishing it."
+
+  defp publication_status_message("published", _),
+    do: "Draft PR created. Open it to review the changes."
+
+  defp publication_status_message("published_ready", _),
+    do: "Draft PR created. Sending the publication update."
+
+  defp publication_status_message("discarded", _),
+    do: "PR preparation stopped. The review history is saved."
+
+  defp publication_status_message(status, controls) do
+    cond do
+      "retry" in controls -> "PR preparation stopped after an error. Retry the saved step below."
+      status == "publish_pending" -> "Creating the draft PR. Waiting for GitHub to confirm."
+      true -> "Checking the changes before creating a PR."
+    end
   end
 
   defp publication_controls(controls) when is_list(controls) do
@@ -1885,6 +1912,13 @@ defmodule Responder.Slack.Renderer do
   end
 
   defp mrkdwn(text), do: neutralize_control_syntax(text)
+
+  defp display_time(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, at, _} -> Calendar.strftime(at, "%d %b, %H:%M UTC")
+      _ -> mrkdwn(value)
+    end
+  end
 
   defp truncate(text, maximum) do
     graphemes = String.graphemes(text)

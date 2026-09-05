@@ -9,6 +9,16 @@ defmodule Responder.ControlPlane.Activity do
 
   @page_size 30
 
+  def request_titles([]), do: %{}
+
+  def request_titles(refs) do
+    refs = refs |> Enum.uniq() |> Enum.take(100)
+    secrets = InspectionRedactor.configured_secrets()
+
+    Repo.all(from(row in subquery(rows()), where: row.kind == "episode" and row.ref in ^refs))
+    |> Map.new(fn row -> {row.ref, present(row, secrets)} end)
+  end
+
   def list(params) do
     mode = if params["mode"] in ~w(shadow all), do: params["mode"], else: "live"
     page = page(params["page"])
@@ -159,6 +169,7 @@ defmodule Responder.ControlPlane.Activity do
     row
     |> Map.drop([:text, :ref, :conversation, :episode_state])
     |> Map.merge(%{
+      conversation: row.conversation,
       title: title,
       source: source,
       href:

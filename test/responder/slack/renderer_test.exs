@@ -263,6 +263,8 @@ defmodule Responder.Slack.RendererTest do
       })
 
     assert {:ok, recovery_rendered} = Renderer.render(%{"task_card" => recoverable})
+    assert Jason.encode!(recovery_rendered) =~ "PR creation is blocked"
+    refute Jason.encode!(recovery_rendered) =~ "Publication:"
 
     recovery_buttons =
       recovery_rendered["blocks"]

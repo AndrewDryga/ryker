@@ -1,15 +1,42 @@
 defmodule Responder.ControlPlane.SlackMarkdown do
+  alias Responder.ControlPlane.SlackNames
   @moduledoc "Small, HTML-inert renderer for the formatting used by Slack specimens."
 
-  @tokens ~r/(```[\s\S]*?```|`[^`\n]+`|<https?:\/\/[^>\n]+>|\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~)/u
+  @tokens ~r/(```[\s\S]*?```|`[^`\n]+`|<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>|<https?:\/\/[^>\n]+>|\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~)/u
+  @mentions ~r/(<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>)/u
 
-  def render(text) when is_binary(text) do
+  def mentions(text, workspace) when is_binary(text) do
+    @mentions
+    |> Regex.split(text, include_captures: true)
+    |> Enum.map(fn part ->
+      if Regex.match?(@mentions, part), do: token(part, workspace), else: escape(part)
+    end)
+  end
+
+  def render(text, workspace \\ SlackNames.workspace())
+      when is_binary(text) do
     @tokens
     |> Regex.split(text, include_captures: true)
     |> Enum.map(fn part ->
-      if Regex.match?(@tokens, part), do: token(part), else: escape(part)
+      if Regex.match?(@tokens, part), do: token(part, workspace), else: escape(part)
     end)
   end
+
+  defp token("<" <> <<prefix, rest::binary>>, workspace) when prefix in [?@, ?#] do
+    ref = rest |> String.trim_trailing(">") |> String.split("|", parts: 2) |> hd()
+    name = SlackNames.name(workspace, ref)
+
+    [
+      "<span class=\"slack-mention\" title=\"",
+      escape(ref),
+      "\">",
+      if(prefix == ?@, do: "@", else: ""),
+      escape(name),
+      "</span>"
+    ]
+  end
+
+  defp token(text, _workspace), do: token(text)
 
   defp token("```" <> text),
     do: ["<pre><code>", escape(String.slice(text, 0..-4//1)), "</code></pre>"]
