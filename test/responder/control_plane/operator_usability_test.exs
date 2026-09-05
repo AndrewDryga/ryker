@@ -3,6 +3,49 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
   use ExUnit.Case, async: true
   alias Responder.ControlPlane.HTML
 
+  test "cleanup recovery explains the ownership blocker instead of sending people to a hash" do
+    # The real September 2 failure was displayed as coop_error and a hash,
+    # encouraging retries that cannot supply the missing ownership proof.
+    html =
+      HTML.failure(%{
+        kind: "retention",
+        ref: "session:one",
+        episode_ref: "episode:one",
+        status: "blocked",
+        summary: "coop_error",
+        updated_at: nil,
+        request_title: "Hi",
+        source: "responder",
+        action: :rearm,
+        attempt_count: 2,
+        cleanup_phase: :plan_pending,
+        closed_at: ~U[2026-09-02 13:56:40Z],
+        discarded_at: nil,
+        diagnosis: %{http_status: 409, code: "invalid_session_state", reason: :missing_ownership},
+        detail: "stored diagnostic sha256:abc"
+      })
+      |> IO.iodata_to_binary()
+
+    assert html =~ "Ownership proof is missing"
+    assert html =~ "What happened"
+    assert html =~ "What to do"
+    assert html =~ "Preserve the working copy"
+    assert html =~ "Retrying alone will not repair"
+    assert html =~ "Check whether removal is safe"
+    assert html =~ "HTTP 409"
+
+    assert html
+           |> LazyHTML.from_document()
+           |> LazyHTML.query("a[href='/episodes/episode%3Aone']")
+           |> LazyHTML.text()
+           |> String.trim() == "Hi"
+
+    refute html =~ "Inspect the saved error"
+    refute html =~ "Resume cleanup…"
+    [primary | _] = String.split(html, "<details")
+    refute primary =~ "stored diagnostic sha256"
+  end
+
   # Operators could not tell what recovery would do; internal queue terms were
   # exposed as the primary action on failed deliveries and workspace cleanup.
   test "failed operations explain recovery without exposing queue jargon" do
@@ -60,10 +103,10 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
       })
       |> IO.iodata_to_binary()
 
-    assert html =~ "<h2>Working-copy cleanup stopped</h2>"
+    assert html =~ "Working-copy cleanup stopped"
     assert html =~ "Open request"
     assert html =~ "Conversation Lab"
-    assert html =~ "<details><summary>Technical record</summary>"
+    assert html =~ "<summary>Diagnostic reference</summary>"
     refute html =~ ">Custody reference</dt>"
   end
 

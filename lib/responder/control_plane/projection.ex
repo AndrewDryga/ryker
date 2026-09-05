@@ -1638,6 +1638,7 @@ defmodule Responder.ControlPlane.Projection do
       action: :rearm,
       attempt_count: item.attempt_count,
       detail: FailureDetail.project(item.error_detail),
+      diagnosis: FailureDetail.facts(item.error_detail),
       episode_id: Map.get(item, :episode_id),
       kind: "delivery",
       ref: item.delivery_ref,
@@ -1653,6 +1654,7 @@ defmodule Responder.ControlPlane.Projection do
       action: :rearm,
       attempt_count: entry.attempt_count,
       detail: FailureDetail.project(entry.last_error_detail),
+      diagnosis: FailureDetail.facts(entry.last_error_detail),
       destination: failure_destination(entry),
       episode_id: entry.episode_id,
       kind: "admission",
@@ -1682,6 +1684,7 @@ defmodule Responder.ControlPlane.Projection do
       action: :retry,
       attempt_count: max(turn.work_attempt_count, turn.cancel_attempt_count),
       detail: FailureDetail.project(turn.last_error_detail),
+      diagnosis: FailureDetail.facts(turn.last_error_detail),
       destination: failure_destination(episode),
       episode_id: episode.id,
       episode_ref: episode.key,
@@ -1699,6 +1702,7 @@ defmodule Responder.ControlPlane.Projection do
       action: :rearm,
       attempt_count: audit.attempt_count,
       detail: FailureDetail.project(audit.last_error_detail),
+      diagnosis: FailureDetail.facts(audit.last_error_detail),
       destination:
         join_target("slack:#{audit.workspace_ref}:#{audit.channel_ref}", audit.thread_ref),
       kind: "slack_interaction",
@@ -1715,6 +1719,7 @@ defmodule Responder.ControlPlane.Projection do
       action: :rearm,
       attempt_count: room.attempt_count || 0,
       detail: FailureDetail.project(room.last_error_detail),
+      diagnosis: FailureDetail.facts(room.last_error_detail),
       destination:
         join_target(
           "slack:#{room.workspace_ref}:#{room.source_channel_ref}",
@@ -1735,6 +1740,7 @@ defmodule Responder.ControlPlane.Projection do
       action: :rearm,
       attempt_count: item.failure_count,
       detail: FailureDetail.project(item.last_error),
+      diagnosis: FailureDetail.facts(item.last_error),
       episode_id: item.episode_id,
       kind: "emisar",
       ref: item.request_id,
@@ -1750,6 +1756,10 @@ defmodule Responder.ControlPlane.Projection do
       action: :rearm,
       attempt_count: session.cleanup_attempt_count,
       detail: FailureDetail.project(session.cleanup_last_error_detail),
+      diagnosis: FailureDetail.facts(session.cleanup_last_error_detail),
+      cleanup_phase: session.cleanup_blocked_from,
+      closed_at: session.closed_at,
+      discarded_at: session.discarded_at,
       destination: failure_destination(episode),
       episode_id: episode.id,
       episode_ref: episode.key,
@@ -1766,6 +1776,7 @@ defmodule Responder.ControlPlane.Projection do
     items
     |> attach_input_contexts()
     |> attach_episode_contexts()
+    |> with_request_titles()
     |> Enum.map(&failure_defaults/1)
   end
 

@@ -27,6 +27,7 @@ defmodule Responder.ControlPlane.RouterTest do
         LazyHTML.query(document, "form[method='get'][action^='/actions/'] button[type='submit']")
 
       assert LazyHTML.to_tree(buttons) != [], "#{path} must expose native action buttons"
+      refute LazyHTML.text(buttons) =~ "…"
     end
 
     failures = request(:get, "/failures").resp_body |> LazyHTML.from_document()
@@ -971,7 +972,7 @@ defmodule Responder.ControlPlane.RouterTest do
     assert admission.resp_body =~ "github:github-main"
     assert admission.resp_body =~ "github-delivery-one"
     assert admission.resp_body =~ "github:github-main:repository:99"
-    assert admission.resp_body =~ "Attempts"
+    assert admission.resp_body =~ "3 attempts"
     assert admission.resp_body =~ "stored diagnostic sha256:"
     refute admission.resp_body =~ "Frozen validation result was uncertain"
 
@@ -1193,9 +1194,9 @@ defmodule Responder.ControlPlane.RouterTest do
     assert usage.resp_body =~ "claude:opus/high@work"
 
     memory = request(:get, "/memory")
-    assert memory.resp_body =~ "Disable…"
-    assert memory.resp_body =~ "Resume…"
-    assert memory.resp_body =~ "Delete…"
+    assert memory.resp_body =~ ">Disable</button>"
+    assert memory.resp_body =~ ">Resume</button>"
+    assert memory.resp_body =~ ">Delete</button>"
     assert memory.resp_body =~ "scope workspace (slack:T123); visibility workspace"
     assert memory.resp_body =~ "—"
   end

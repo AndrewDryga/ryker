@@ -733,7 +733,7 @@ defmodule Responder.ControlPlane.Router do
            Enum.find(failures, fn row ->
              row.kind == kind and row.ref == resource_ref
            end) do
-      html(conn, 200, "Failure context", HTML.failure(row))
+      html(conn, 200, "Recovery", HTML.failure(row))
     else
       {:error, _reason} -> text(conn, 503, "Failure context unavailable")
       _not_found -> html(conn, 404, "Not found", HTML.generic("Failure", []))
