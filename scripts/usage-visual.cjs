@@ -51,6 +51,18 @@ const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwrigh
       for (const href of await page.locator('#usage-models .usage-identity a').evaluateAll(es => es.map(e => e.href))) {
         assert(new URL(href).searchParams.has('usage_effort'), 'Model drilldown includes effort');
       }
+      for (const table of await page.locator('.usage-detail-table').all()) {
+        assert.deepEqual(await table.locator('.usage-metric-headings th').allTextContents(), ['Fresh input', 'Cached input', 'Output', 'Reasoning']);
+        for (const value of await table.locator('.usage-token-cell').allTextContents()) {
+          assert(/^(?:[\d,.]+[kM]?|—)$/.test(value), `Token cells contain only numbers: ${value}`);
+        }
+        // The phone table once squeezed model names into the next column.
+        const crowdedNames = await table.locator('.usage-identity a').evaluateAll(links => links.filter(link => {
+          const cell = link.closest('td');
+          return link.getBoundingClientRect().right > cell.getBoundingClientRect().right - parseFloat(getComputedStyle(cell).paddingRight) + 1;
+        }).map(link => link.textContent));
+        assert.deepEqual(crowdedNames, [], 'Identity labels stay inside their column at every viewport');
+      }
       const bounds = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
       assert(bounds[0] <= bounds[1], 'No horizontal page overflow');
       await page.screenshot({path: path.join(output, `summary-${width}.png`)});
@@ -63,9 +75,10 @@ const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwrigh
       await page.screenshot({path: path.join(output, `people-${width}.png`)});
       const method = page.locator('#cost-method');
       await method.locator('summary').click();
-      assert.equal(await method.locator('summary').textContent(), 'Token pricing');
+      assert.equal(await method.locator('summary').textContent(), 'Rates used for estimates');
+      assert(!/Estimated cost:|Provider-reported cost:|executions/.test(await method.textContent()), 'Rate details must not repeat usage totals');
       const pricingBounds = await page.locator('.usage-pricing-table').evaluate(e => [e.getBoundingClientRect().width, e.parentElement.clientWidth]);
-      assert(pricingBounds[0] <= pricingBounds[1], 'Token pricing fits without horizontal scrolling');
+      assert(pricingBounds[0] <= pricingBounds[1], 'Estimate rates fit without horizontal scrolling');
       await method.scrollIntoViewIfNeeded();
       await page.screenshot({path: path.join(output, `pricing-${width}.png`)});
       // Automatic refresh preserves reading state, without a Pause/Refresh UI.

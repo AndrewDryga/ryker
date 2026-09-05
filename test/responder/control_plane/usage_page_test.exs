@@ -27,7 +27,7 @@ defmodule Responder.ControlPlane.UsagePageTest do
     refute html =~ "<h2>Measurement coverage"
     refute html =~ "Coop profiles"
     refute html =~ "UTC · empty days"
-    assert html =~ "id=\"cost-method\""
+    refute html =~ "id=\"cost-method\""
     refute html =~ "Individual executions"
     refute html =~ "Execution ledger"
     refute html =~ "Each execution contributes one cost"
@@ -46,6 +46,11 @@ defmodule Responder.ControlPlane.UsagePageTest do
     model =
       Map.merge(snapshot.totals, %{
         attempts: 1,
+        usage_measured: 1,
+        input_tokens: 41_500,
+        cached_input_tokens: 800,
+        output_tokens: 729,
+        reasoning_tokens: 25,
         model: "gpt-5.6-sol",
         effort: "high",
         provider: "codex",
@@ -57,9 +62,23 @@ defmodule Responder.ControlPlane.UsagePageTest do
     assert html =~ "Avg. model time: 1m 18s"
     refute html =~ "High effort"
     refute html =~ "/ execution"
+
+    document = LazyHTML.from_document(html)
+    headers = LazyHTML.query(document, "#usage-models thead tr:last-child th")
+
+    assert Enum.map(LazyHTML.to_tree(headers), &(LazyHTML.from_tree([&1]) |> LazyHTML.text())) ==
+             ["Fresh input", "Cached input", "Output", "Reasoning"]
+
+    cells = LazyHTML.query(document, "#usage-models tbody .usage-token-cell")
+
+    assert Enum.map(LazyHTML.to_tree(cells), &(LazyHTML.from_tree([&1]) |> LazyHTML.text())) ==
+             ["41.5k", "800", "729", "25"]
+
+    assert LazyHTML.query(document, "#usage-models th[scope=colgroup]") |> LazyHTML.text() ==
+             "InputOutput"
   end
 
-  test "token pricing shows the actual rates used without repeating model efforts or generic caveats" do
+  test "estimate rates do not repeat spend totals already shown in the usage breakdowns" do
     snapshot = Projection.usage(%{})
 
     totals =
@@ -84,8 +103,10 @@ defmodule Responder.ControlPlane.UsagePageTest do
       |> LazyHTML.from_document()
 
     pricing = LazyHTML.query(document, "#cost-method")
-    assert LazyHTML.text(pricing) =~ "Estimated cost: $1.25 from 2 executions."
-    assert LazyHTML.text(pricing) =~ "Provider-reported cost: $0.50."
+    assert LazyHTML.text(pricing) =~ "Rates used for estimates"
+    refute LazyHTML.text(pricing) =~ "$1.25"
+    refute LazyHTML.text(pricing) =~ "$0.50"
+    refute LazyHTML.text(pricing) =~ "executions"
     assert length(LazyHTML.query(pricing, "tbody tr") |> LazyHTML.to_tree()) == 1
 
     assert LazyHTML.query(pricing, "tbody td")

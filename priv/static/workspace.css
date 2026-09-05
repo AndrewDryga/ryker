@@ -47,11 +47,11 @@
 .usage-section-heading > span { color:var(--secondary); font-size:13px; }
 .usage-page .table-wrap { background:#fff; border:1px solid var(--stroke); border-radius:6px; }
 .responder-app .usage-breakdown-table { width:100%; min-width:850px; border-collapse:collapse; margin:0; table-layout:fixed; }
-.usage-breakdown-table th:first-child { width:25%; }
-.usage-breakdown-table th:nth-child(2) { width:21%; }
-.usage-breakdown-table th:nth-child(3), .usage-breakdown-table th:nth-child(4) { width:13%; }
-.usage-breakdown-table th:nth-child(5) { width:17%; }
-.usage-breakdown-table th:nth-child(6) { width:11%; }
+.responder-app .usage-page .usage-detail-table { min-width:1040px; }
+.usage-name-col { width:20%; }
+.usage-count-col, .usage-performance-col { width:18%; }
+.usage-token-col { width:8.5%; }
+.usage-cost-col { width:10%; }
 .responder-app .usage-breakdown-table th { background:#fafbf8; color:#596157; font-size:11px; font-weight:650; padding:10px 16px; letter-spacing:.05em; text-transform:uppercase; }
 .responder-app .usage-breakdown-table td { padding:16px; vertical-align:top; font-size:14px; font-variant-numeric:tabular-nums; color:var(--ink); border-bottom:1px solid var(--stroke); overflow-wrap:anywhere; }
 .responder-app .usage-breakdown-table td:first-child a { white-space:normal; font-size:15px; font-weight:600; color:var(--green); }
@@ -59,6 +59,13 @@
 .usage-secondary { display:block; color:var(--secondary); font-size:13px; line-height:1.6; margin-top:2px; }
 .usage-money { text-align:right; white-space:nowrap; font-weight:600; }
 .usage-breakdown-table th:last-child { text-align:right; }
+.responder-app .usage-detail-table th, .responder-app .usage-detail-table td { padding-left:10px; padding-right:10px; }
+.responder-app .usage-detail-table th { font-size:12px; letter-spacing:0; text-transform:none; }
+.responder-app .usage-column-groups th[rowspan] { vertical-align:bottom; padding-bottom:12px; }
+.responder-app .usage-column-groups th[scope=colgroup] { text-align:center; border-left:1px solid var(--stroke); }
+.responder-app .usage-metric-headings th { text-align:right; font-weight:500; }
+.responder-app .usage-token-cell { text-align:right; white-space:nowrap; font-weight:500; }
+.usage-detail-table tbody td:nth-child(3), .usage-detail-table tbody td:nth-child(5), .usage-detail-table tbody td:nth-child(7), .usage-metric-headings th:nth-child(odd) { border-left:1px solid var(--stroke); }
 .responder-app .usage-page .usage-people-table { min-width:0; }
 .responder-app .usage-people-table th:first-child { width:46%; }
 .responder-app .usage-people-table th:not(:first-child) { width:18%; text-align:right; }
@@ -133,7 +140,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .repository-summary strong { color:var(--ink); }
 .repository-revision { color:var(--secondary); font-size:14px; }
 .responder-app .table-wrap:has(th:nth-child(9)) table { min-width:1140px; }
-.responder-app .table-wrap:has(th:nth-child(6)) td:first-child a { white-space:nowrap; }
+.responder-app .table-wrap:has(th:nth-child(6)) table:not(.usage-breakdown-table) td:first-child a { white-space:nowrap; }
 .responder-app .table-wrap:has(th:nth-child(6)) td:first-child a.workspace-request-title { display:block; max-width:340px; min-width:180px; white-space:normal; }
 .responder-app .failure-cards { display:grid; gap:16px; }
 .responder-app .failure-card { border:1px solid var(--stroke); padding:20px; border-radius:6px; background:white; }
