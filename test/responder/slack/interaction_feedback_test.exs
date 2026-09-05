@@ -52,8 +52,8 @@ defmodule Responder.Slack.InteractionFeedbackTest do
 
     assert Repo.aggregate(InteractionAudit, :count) == 2
 
-    assert %{kind: :denied, ref: "interaction:denied", summary: action_id} =
-             Enum.find(Projection.audit(%{}), &(&1.ref == "interaction:denied"))
+    assert %{outcome: :denied, event_ref: "interaction:denied", action_id: action_id} =
+             Repo.get!(InteractionAudit, denied_audit.id)
 
     assert action_id == denied.action_id
   end

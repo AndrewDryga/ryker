@@ -7,7 +7,6 @@ defmodule Responder.Operator.WorkflowsTest do
 
   alias Responder.Admission
   alias Responder.Admission.Decision
-  alias Responder.ControlPlane.Projection
   alias Responder.Delivery.ReactionCustody
   alias Responder.Episodes
   alias Responder.Episodes.Command
@@ -181,13 +180,10 @@ defmodule Responder.Operator.WorkflowsTest do
     assert action.previous["detail"] =~ "stored diagnostic sha256:"
     refute inspect(action) =~ "inspect this failure"
 
-    assert %{
-             kind: "retry:admission",
-             ref: "operator-action:retry-admission",
-             summary: retry_summary
-           } = Enum.find(Projection.audit(%{}), &(&1.kind == "retry:admission"))
-
-    assert retry_summary == "control-plane:test · #{Inbox.ref(entry)}"
+    assert action.action == :retry
+    assert action.kind == "admission"
+    assert action.actor_ref == "control-plane:test"
+    assert action.resource_ref == Inbox.ref(entry)
 
     assert {:error, :operator_action_conflict} =
              Failures.retry("work", Inbox.ref(entry), options)

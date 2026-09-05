@@ -78,7 +78,7 @@ attached browser. The first actual desktop/phone pass captured 26 page/detail
 routes plus all 132 card states. Missing populated incident/schedule records are
 explicitly reported; no synthetic production rows are inserted for screenshots.
 This is visual evidence, not completion of every page's information architecture:
-audit/decision/failure/workspace views still expose too many raw identifiers, and
+decision/failure/workspace views still expose too many raw identifiers, and
 the unchecked product items below remain open.
 
 - [ ] Requests and filters
@@ -88,7 +88,6 @@ the unchecked product items below remain open.
 - [ ] Incidents and incident detail
 - [ ] Failures and confirmed recovery
 - [ ] Usage and cost, including drill-downs
-- [ ] Audit trail
 - [ ] Schedules and schedule detail
 - [ ] Subscriptions
 - [ ] Memory and review
@@ -101,6 +100,9 @@ the unchecked product items below remain open.
 - [ ] Workspaces
 - [ ] Test journeys
 - [ ] GitHub workbench when implemented
+
+The standalone Audit page was removed at operator request. Durable audit records
+and their retention remain; per-request execution history stays in the timeline.
 
 ## Live boundaries
 

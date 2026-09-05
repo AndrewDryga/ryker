@@ -23,10 +23,9 @@ defmodule Responder.ControlPlane.Projection do
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Observability
-  alias Responder.Operator.{Action, FailureDetail}
+  alias Responder.Operator.FailureDetail
   alias Responder.Publication.Publication
   alias Responder.Repo
-  alias Responder.Retention.OperatorAction
   alias Responder.Slack.{IncidentRoom, InteractionAudit, ThreadStatus}
   alias Responder.State.{Behavior, Memories, MemoryEntry, Record, Schedule}
   alias Responder.Work.{Session, Turn}
@@ -43,7 +42,6 @@ defmodule Responder.ControlPlane.Projection do
     %{
       activity: &Activity.list/1,
       admission: &admission/1,
-      audit: &audit/1,
       calibration: &calibration/1,
       card_lab_feedback: &CardLabFeedback.list/2,
       card_lab_slack: &CardLabDelivery.snapshot/1,
@@ -780,95 +778,6 @@ defmodule Responder.ControlPlane.Projection do
         }
       )
     )
-  end
-
-  def audit(_params) do
-    episode_events =
-      Repo.all(
-        from(event in Event,
-          join: episode in Episode,
-          on: episode.id == event.episode_id,
-          order_by: [desc: event.inserted_at, desc: event.id],
-          limit: 100,
-          select: %{
-            kind: event.kind,
-            source: :episode,
-            actor: "Responder",
-            target: episode.key,
-            episode_ref: episode.key,
-            ref: episode.key,
-            summary: event.dedupe_key,
-            updated_at: event.occurred_at
-          }
-        )
-      )
-
-    episode_events =
-      Enum.map(episode_events, fn row ->
-        Map.put(row, :href, "/episodes/" <> URI.encode(row.ref, &URI.char_unreserved?/1))
-      end)
-
-    interaction_events =
-      Repo.all(
-        from(audit in InteractionAudit,
-          order_by: [desc: audit.occurred_at, desc: audit.id],
-          limit: 100,
-          select: %{
-            kind: audit.outcome,
-            source: :slack,
-            actor: audit.actor_ref,
-            workspace: audit.workspace_ref,
-            target: audit.channel_ref,
-            ref: audit.event_ref,
-            summary: audit.action_id,
-            updated_at: audit.occurred_at
-          }
-        )
-      )
-
-    retention_events =
-      Repo.all(
-        from(action in OperatorAction,
-          join: session in Session,
-          on: session.id == action.session_id,
-          order_by: [desc: action.occurred_at, desc: action.id],
-          limit: 100,
-          select: %{
-            kind: action.action,
-            source: :retention,
-            actor: action.actor_ref,
-            target: session.repository_ref,
-            ref: session.external_ref,
-            summary: action.actor_ref,
-            updated_at: action.occurred_at
-          }
-        )
-      )
-
-    operator_events =
-      Repo.all(
-        from(action in Action,
-          order_by: [desc: action.occurred_at, desc: action.id],
-          limit: 100,
-          select: %{
-            kind: fragment("? || ':' || ?", action.action, action.kind),
-            source: :operator,
-            actor: action.actor_ref,
-            target: action.resource_ref,
-            ref: action.action_ref,
-            summary: fragment("? || ' · ' || ?", action.actor_ref, action.resource_ref),
-            updated_at: action.occurred_at
-          }
-        )
-      )
-
-    (episode_events ++ interaction_events ++ retention_events ++ operator_events)
-    |> Enum.sort_by(
-      &{DateTime.to_unix(&1.updated_at, :microsecond), &1.ref},
-      :desc
-    )
-    |> Enum.take(100)
-    |> with_request_titles()
   end
 
   defp with_request_titles(rows) do

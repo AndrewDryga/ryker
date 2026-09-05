@@ -99,15 +99,7 @@
 .usage-chart details { margin:4px 0 0; font-size:14px; }
 .responder-app details.measurement-notes { margin:20px 0; padding:16px 20px; background:#fff; border:1px solid var(--stroke); border-radius:6px; }
 details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var(--green); }
-.audit-feed { max-width:1000px; }
-.audit-event { display:grid; grid-template-columns:160px minmax(0,1fr); gap:24px; padding:20px 0; border-bottom:1px solid var(--stroke); }
-.audit-event > time { font-size:14px; color:var(--secondary); font-variant-numeric:tabular-nums; padding-top:3px; }
-.responder-app .audit-event h3 { font-size:18px; text-transform:none; letter-spacing:0; margin:0 0 4px; color:var(--ink); }
-.audit-event p { margin:0 0 8px; }
-.audit-byline { display:flex; flex-wrap:wrap; gap:16px; color:var(--secondary); font-size:14px; }
-.audit-event details { font-size:13px; margin-top:10px; }
-.audit-event details dd { overflow-wrap:anywhere; }
-@media(max-width:700px) { .audit-event { grid-template-columns:1fr; gap:6px; } .usage-chart figcaption span { width:100%; margin:0; } }
+@media(max-width:700px) { .usage-chart figcaption span { width:100%; margin:0; } }
 .responder-app .search-form { display:flex; flex-wrap:wrap; align-items:flex-end; gap:12px; width:100%; margin:16px 0 24px; }
 .responder-app .search-form input { min-width:0; flex:1; margin:0; height:40px; }
 .responder-app .search-form button { flex:none; margin:0; height:40px; padding:0 14px; }

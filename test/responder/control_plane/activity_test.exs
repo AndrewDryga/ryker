@@ -106,7 +106,6 @@ defmodule Responder.ControlPlane.ActivityTest do
     assert %{title: "Inspect the slow admission request"} =
              Activity.request_titles([episode.key])[episode.key]
 
-    assert Enum.all?(Projection.audit(%{}), &(&1.request_title == item.title))
     {:ok, _session} = Custody.pin_episode(episode.id, "label-test", String.duplicate("a", 64))
     assert [%{request_title: "Inspect the slow admission request"}] = Projection.workspaces(%{})
   end

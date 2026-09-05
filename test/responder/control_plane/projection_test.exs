@@ -817,14 +817,6 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Activity.list(%{"usage_effort" => String.duplicate("x", 513)}).total == 0
   end
 
-  test "audit request links encode the exact opaque episode key" do
-    {:ok, %{episode: episode}} =
-      Episodes.apply(EpisodeFixtures.admit_input(%{episode_key: "request:one/part?x#fragment"}))
-
-    assert row = Enum.find(Projection.audit(%{}), &(&1.ref == episode.key))
-    assert row.href == "/episodes/request%3Aone%2Fpart%3Fx%23fragment"
-  end
-
   test "the channel breakdown contains only Slack without excluding Lab from overall usage" do
     now = DateTime.utc_now()
 
@@ -1428,8 +1420,8 @@ defmodule Responder.ControlPlane.ProjectionTest do
 
     assert Projection.decisions(%{}) == []
     assert Projection.findings(%{}) == []
-    assert length(Projection.audit(%{})) >= 9
-    assert map_size(Projection.callbacks()) == 39
+    assert map_size(Projection.callbacks()) == 38
+    refute Map.has_key?(Projection.callbacks(), :audit)
     assert is_function(Projection.callbacks().usage_filter_options, 0)
     assert is_function(Projection.callbacks().model_timeline, 2)
     assert is_function(Projection.callbacks().activity, 1)

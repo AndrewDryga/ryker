@@ -495,6 +495,12 @@ defmodule Responder.ControlPlane.LiveTest do
     refute_receive {:refresh_projection, _}, 20
   end
 
+  test "the removed audit route does not mount a live page" do
+    conn = build_conn() |> Map.put(:host, "localhost") |> get("/audit")
+    assert conn.status == 404
+    refute conn.resp_body =~ "audit-feed"
+  end
+
   test "mobile workspace navigation preserves every secondary destination" do
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/")
     assert has_element?(view, "details.mobile-manage summary", "More")
@@ -504,12 +510,12 @@ defmodule Responder.ControlPlane.LiveTest do
       assert has_element?(view, ".mobile-manage a[href='/#{path}']")
     end
 
-    for path <- ~w(audit failures) do
-      assert has_element?(
-               view,
-               ".app-sidebar nav[aria-label='Main navigation'] a[href='/#{path}']"
-             )
-    end
+    assert has_element?(
+             view,
+             ".app-sidebar nav[aria-label='Main navigation'] a[href='/failures']"
+           )
+
+    refute has_element?(view, "a[href='/audit']")
   end
 
   test "projection failures preserve stale state but log only a safe diagnostic category", %{
