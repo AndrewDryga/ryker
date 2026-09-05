@@ -1,7 +1,7 @@
 // Read-only browser acceptance. Screenshots contain local organization data;
 // keep the output private and outside the repository. No writes or model calls.
 // Configured display names can refresh using read-only Slack directory calls.
-// Usage: node scripts/control-plane-visual.cjs http://127.0.0.1:4321 OUTPUT [--cards]
+// Usage: node scripts/control-plane-visual.cjs http://127.0.0.1:4321 OUTPUT [--cards|--filters]
 // Install Playwright separately, or set RESPONDER_PLAYWRIGHT_MODULE to its path.
 const { chromium } = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwright');
 const fs = require('node:fs/promises');
@@ -17,7 +17,8 @@ let output = path.resolve(process.argv[3]);
 const repository = path.resolve(__dirname, '..');
 assert(output !== repository && !output.startsWith(repository + path.sep), 'Do not commit organization screenshots');
 const allCards = process.argv.includes('--cards');
-const routes = [
+const filtersOnly = process.argv.includes('--filters');
+const routes = filtersOnly ? [['requests', '/'], ['episodes', '/episodes?state=complete']] : [
   ['requests', '/'], ['lab', '/lab'], ['episodes', '/episodes'],
   ['incidents', '/incidents'], ['failures', '/failures'], ['usage', '/usage'],
   ['schedules', '/schedules'], ['subscriptions', '/subscriptions'],
@@ -30,6 +31,34 @@ const routes = [
 
 async function connected(page) {
   await page.locator('[data-connection-state="connected"]').waitFor({timeout: 5000});
+}
+
+async function checkFilterAlignment(page) {
+  // The September 6 filter picker inherited 16px text and zero left padding,
+  // beside 14px controls; its heading also used an unrelated size and weight.
+  if (!await page.locator('#criterion-state').count()) {
+    await page.locator('#request-filter-add').selectOption('state');
+    await page.locator('#criterion-state').waitFor();
+  }
+  const layout = await page.evaluate(() => {
+    const properties = selector => {
+      const element = document.querySelector(selector);
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return {font: style.font, fontSize: style.fontSize, fontWeight: style.fontWeight,
+        paddingLeft: style.paddingLeft, paddingRight: style.paddingRight,
+        height: rect.height, centerY: rect.top + rect.height / 2};
+    };
+    return {picker: properties('#request-filter-add'), value: properties('#criterion-state'),
+      heading: properties('.criteria-heading h2'), label: properties('label[for="criterion-state"]')};
+  });
+  assert.equal(layout.picker.font, layout.value.font, 'Add filter must match criterion typography');
+  assert.equal(layout.picker.paddingLeft, layout.value.paddingLeft, 'Add filter text must have the same left inset');
+  assert.equal(layout.picker.paddingRight, layout.value.paddingRight, 'Select arrows must have the same inset');
+  assert.equal(layout.picker.height, layout.value.height, 'Filter controls must have matching heights');
+  assert.equal(layout.heading.fontSize, layout.label.fontSize, 'Filters heading must match filter labels');
+  assert.equal(layout.heading.fontWeight, layout.label.fontWeight, 'Filters heading must match label weight');
+  assert(Math.abs(layout.heading.centerY - layout.picker.centerY) < 1, 'Filters heading must be vertically centered with its picker');
 }
 
 async function discover(page) {
@@ -99,7 +128,7 @@ async function interactions(page) {
   const report = {origin: origin.origin, capturedAt: new Date().toISOString(), absent: [], captures: [], interactionError: null};
   try {
     const discovery = await browser.newPage();
-    report.absent = await discover(discovery);
+    if (!filtersOnly) report.absent = await discover(discovery);
     await discovery.close();
     for (const [width, height] of [[1440, 1000], [390, 844]]) {
       const context = await browser.newContext({viewport: {width, height}, reducedMotion: 'reduce', deviceScaleFactor: 1});
@@ -133,6 +162,7 @@ async function interactions(page) {
             assert(!/(?:…|\.\.\.)$/.test(label.trim()), 'Action labels must not end in ellipses');
           }
           assert(result.layout.scrollWidth <= width, 'Page overflows horizontally');
+          if (name === 'requests' || name === 'episodes') await checkFilterAlignment(page);
           if (name === 'task-working') {
             assert(result.layout.previewTop < height - 120, 'Card preview is buried below the first screen');
             if (width > 1000) {
@@ -167,7 +197,7 @@ async function interactions(page) {
         page.off('console', onConsole);
         console.log(`${name} ${width}: ${result.failure || 'PASS'}`);
       }
-      if (width === 1440) {
+      if (width === 1440 && !filtersOnly) {
         try { await interactions(page); }
         catch (error) { report.interactionError = error.message; }
       }

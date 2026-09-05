@@ -110,8 +110,8 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .request-criteria { padding:16px 20px; border-bottom:1px solid var(--stroke); background:#fafbf8; }
 .criteria-heading { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
 .criteria-heading .usage-drilldown { margin:0 0 0 auto; padding:0; border:0; background:none; gap:8px; }
-.responder-app .criteria-heading h2 { margin:0 8px 0 0; font-size:15px; font-weight:650; letter-spacing:0; }
-.responder-app .criteria-heading select { margin:0; width:auto; max-width:240px; height:38px; background-color:#fff; color:var(--ink); border:1px solid #b8c4b9; border-radius:5px; }
+.responder-app .criteria-heading h2 { margin:0 8px 0 0; font-size:13px; font-weight:600; line-height:1.5; letter-spacing:0; }
+.responder-app .criteria-heading select { margin:0; padding:8px 36px 8px 10px; width:auto; max-width:240px; height:40px; background-color:#fff; color:var(--ink); border:1px solid #b8c4b9; border-radius:5px; font-size:14px; }
 .criteria-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; margin-top:16px; }
 .criterion { min-width:0; }
 .criterion > label { display:block; margin-bottom:6px; }
