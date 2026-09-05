@@ -12,6 +12,54 @@ defmodule Responder.ControlPlane.ActivityTest do
   alias Responder.Work.Session
   alias Responder.Work.Turn
 
+  test "usage drilldowns retain measured admission requests that never created an episode" do
+    # Admission spend was visible in Usage but its request vanished on every drilldown.
+    {:ok, input} =
+      Input.new(%{
+        actor: %{kind: :user, ref: "U123"},
+        channel_ref: "C456",
+        content: %{"text" => "Inspect the slow admission request"},
+        event_kind: :message,
+        event_ref: "Ev-usage-admission",
+        message_ref: "1787832099.000100",
+        occurred_at: DateTime.utc_now(),
+        revision: 1,
+        thread_ref: nil,
+        workspace_ref: "T123"
+      })
+
+    {:ok, %{entry: entry}} = Inbox.record(input)
+
+    Repo.insert!(%Responder.Accounting.Execution{
+      kind: "admission",
+      source_id: entry.id,
+      generation: "1",
+      transport: entry.destination_transport,
+      conversation_ref: entry.destination_conversation_ref,
+      execution_mode: "live",
+      remote_ref: "usage-admission",
+      status: "completed",
+      execution_target: "codex:gpt-5.6-luna/low@emisar",
+      usage_recorded: true,
+      usage_input_tokens: 10,
+      recorded_at: DateTime.utc_now()
+    })
+
+    assert Projection.usage(%{}).totals.attempts == 1
+
+    for params <- [
+          %{"usage_profile" => "emisar"},
+          %{"usage_work_kind" => "admission"},
+          %{"usage_actor" => "U123", "usage_workspace" => "T123"}
+        ] do
+      assert %{total: 1, items: [%{kind: "admission", id: id}]} = Activity.list(params)
+      assert id == entry.id
+    end
+
+    assert Activity.list(%{"usage_profile" => "personal"}).total == 0
+    assert Activity.list(%{"usage_profile" => "emisar", "mode" => %{"bad" => "value"}}).total == 1
+  end
+
   test "activity shows the actual request before admission and follows its durable episode" do
     # The previous dashboard hid both queued requests and every human-readable title.
     {:ok, input} =
@@ -97,7 +145,8 @@ defmodule Responder.ControlPlane.ActivityTest do
           repositories: [Map.put(measurements, :repository_ref, "emisar")]
       }
 
-      html = snapshot |> HTML.usage() |> IO.iodata_to_binary()
+      html =
+        snapshot |> Map.put(:models, snapshot.targets) |> HTML.usage() |> IO.iodata_to_binary()
 
       links =
         html

@@ -32,13 +32,8 @@
 .workspace-toolbar { align-items: center; backdrop-filter: none; background: #101315f5; display: flex; gap: 24px; justify-content: space-between; padding: 20px 32px; }
 .workspace-breadcrumb { color: #89999e; display: block; font-size: 11px; }
 .workspace-toolbar h1 { font-size: 21px; letter-spacing: -.6px; line-height: 1.3; margin: 4px 0 0; }
-.live-controls { align-items: center; display: flex; gap: 10px; color: #a8b9b4; font-size: 11px; }
-.live-controls button { background: transparent; border: 1px solid #39454b; color: #c0cecc; cursor: pointer; font-size: 11px; font-weight: 500; padding: 5px 9px; }
-.live-controls button[aria-pressed=true] { border-color: var(--warning); color: var(--warning); }
-.connection-online:before { background: #8bcaa6; border-radius: 50%; content: ""; display: inline-block; height: 6px; margin-right: 6px; width: 6px; }
 .connection-offline { color: var(--warning); display: none; }
 .phx-disconnected .connection-offline { display: inline; }
-.phx-disconnected .connection-online { display: none; }
 .workspace-content main { margin: 0; max-width: 1680px; padding: 26px 32px; }
 .workspace-footer { border-top: 0; color: #7d8e94; font-size: 10px; margin: 0; max-width: none; padding: 8px 32px 28px; }
 .workspace-warning { background: #322719; border-bottom: 1px solid #76633b; color: #efcd8b; font-size: 12px; margin: 0; padding: 10px 32px; }

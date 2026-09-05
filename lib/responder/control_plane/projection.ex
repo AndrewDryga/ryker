@@ -9,7 +9,7 @@ defmodule Responder.ControlPlane.Projection do
 
   import Ecto.Query
 
-  alias Responder.ControlPlane.{Activity, AdmissionProgress, InspectionRedactor}
+  alias Responder.ControlPlane.{Activity, AdmissionProgress, InspectionRedactor, UsageProjection}
   alias Responder.ControlPlane.CurrentInputs
   alias Responder.ControlPlane.ModelRequests
 
@@ -29,7 +29,7 @@ defmodule Responder.ControlPlane.Projection do
   alias Responder.Retention.OperatorAction
   alias Responder.Slack.{IncidentRoom, InteractionAudit, ThreadStatus}
   alias Responder.State.{Behavior, Memories, MemoryEntry, Record, Schedule}
-  alias Responder.Work.{Measurement, Session, Turn}
+  alias Responder.Work.{Session, Turn}
 
   @page_size 50
   @maximum_page 10_000
@@ -955,17 +955,8 @@ defmodule Responder.ControlPlane.Projection do
     mode = if params["mode"] in ~w(shadow all), do: params["mode"], else: "live"
     query = Responder.Accounting.Query.executions(since, mode)
 
-    %{
-      channels: usage_channels(query),
-      users: usage_users(query),
-      days: usage_days(query),
-      repositories: usage_repositories(query),
-      targets: usage_targets(query),
-      executions: usage_executions(query, params),
-      totals: usage_totals(query),
-      mode: mode,
-      window: window
-    }
+    UsageProjection.snapshot(query)
+    |> Map.merge(%{executions: usage_executions(query, params), mode: mode, window: window})
   end
 
   def usage(_params), do: usage(%{})
@@ -1997,69 +1988,7 @@ defmodule Responder.ControlPlane.Projection do
 
   defp workspace_action(%Session{}), do: nil
 
-  defp usage_totals(query) do
-    totals =
-      Repo.one(
-        from(turn in query,
-          select: %{
-            attempts: count(turn.id),
-            admission: fragment("COUNT(*) FILTER (WHERE ? = 'admission')", turn.kind),
-            work: fragment("COUNT(*) FILTER (WHERE ? = 'work')", turn.kind),
-            unsuccessful:
-              fragment(
-                "COUNT(*) FILTER (WHERE ? IN ('failed', 'interrupted', 'budget_exhausted', 'cancelled'))",
-                turn.status
-              ),
-            cached_input_tokens:
-              type(
-                fragment("COALESCE(SUM(?), 0)::bigint", turn.usage_cached_input_tokens),
-                :integer
-              ),
-            cost_usd: fragment("COALESCE(SUM(?), 0)", turn.usage_cost_usd),
-            estimated_cost_usd: fragment("COALESCE(SUM(?), 0)", turn.estimated_cost_usd),
-            estimated: count(turn.estimated_cost_usd),
-            costed:
-              fragment(
-                "COUNT(*) FILTER (WHERE ? = TRUE)",
-                turn.usage_cost_recorded
-              ),
-            host_ms: type(fragment("COALESCE(SUM(?), 0)::bigint", turn.usage_host_ms), :integer),
-            input_tokens:
-              type(fragment("COALESCE(SUM(?), 0)::bigint", turn.usage_input_tokens), :integer),
-            measurement_errors:
-              fragment(
-                "COUNT(*) FILTER (WHERE ? IS NOT NULL)",
-                turn.measurement_error_code
-              ),
-            output_tokens:
-              type(fragment("COALESCE(SUM(?), 0)::bigint", turn.usage_output_tokens), :integer),
-            provider_ms:
-              type(fragment("COALESCE(SUM(?), 0)::bigint", turn.usage_provider_ms), :integer),
-            queued_ms:
-              type(fragment("COALESCE(SUM(?), 0)::bigint", turn.usage_queued_ms), :integer),
-            reasoning_tokens:
-              type(
-                fragment("COALESCE(SUM(?), 0)::bigint", turn.usage_reasoning_tokens),
-                :integer
-              ),
-            timed: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.timing_recorded),
-            usage_measured: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_recorded)
-          }
-        )
-      )
-
-    total_input = totals.input_tokens + totals.cached_input_tokens
-
-    totals
-    |> Map.put(
-      :cache_hit_rate,
-      if(total_input > 0, do: Float.round(totals.cached_input_tokens / total_input, 4))
-    )
-    |> Map.put(:average_queued_ms, average(totals.queued_ms, totals.timed))
-    |> Map.put(:average_provider_ms, average(totals.provider_ms, totals.timed))
-    |> Map.put(:average_host_ms, average(totals.host_ms, totals.timed))
-    |> Map.drop([:host_ms, :provider_ms, :queued_ms])
-  end
+  defp usage_totals(query), do: UsageProjection.totals(query)
 
   defp usage_executions(query, params) do
     selected_page = page(params["page"])
@@ -2100,171 +2029,6 @@ defmodule Responder.ControlPlane.Projection do
 
     %{items: Enum.take(rows, @page_size), page: selected_page, more: length(rows) > @page_size}
   end
-
-  defp usage_targets(query) do
-    Repo.all(
-      from(turn in query,
-        group_by: turn.execution_target,
-        order_by: [desc: count(turn.id), asc: turn.execution_target],
-        limit: 100,
-        select: %{
-          attempts: count(turn.id),
-          cost_usd: fragment("COALESCE(SUM(?), 0)", turn.usage_cost_usd),
-          estimated_cost_usd: fragment("COALESCE(SUM(?), 0)", turn.estimated_cost_usd),
-          estimated: count(turn.estimated_cost_usd),
-          costed: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_cost_recorded),
-          measured: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_recorded),
-          target: turn.execution_target,
-          tokens:
-            type(
-              fragment(
-                "(COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0))::bigint",
-                turn.usage_input_tokens,
-                turn.usage_cached_input_tokens,
-                turn.usage_output_tokens,
-                turn.usage_reasoning_tokens
-              ),
-              :integer
-            )
-        }
-      )
-    )
-    |> Enum.map(fn row -> Map.merge(row, Measurement.target_parts(row.target)) end)
-  end
-
-  defp usage_users(query) do
-    Repo.all(
-      from(execution in query,
-        left_join: turn in Turn,
-        on: execution.kind == "work" and turn.id == execution.source_id,
-        left_join: entry in Entry,
-        on:
-          (execution.kind == "admission" and entry.id == execution.source_id) or
-            (execution.kind == "work" and
-               turn.turn_ref == fragment("'ingress-turn:' || ?::text", entry.id)),
-        group_by: [entry.source_kind, entry.source_ref, entry.actor_ref],
-        order_by: [desc: count(execution.id)],
-        limit: 50,
-        select: %{
-          source: entry.source_kind,
-          workspace: entry.source_ref,
-          actor: entry.actor_ref,
-          attempts: count(execution.id),
-          measured: fragment("COUNT(*) FILTER (WHERE ?)", execution.usage_recorded),
-          costed: fragment("COUNT(*) FILTER (WHERE ?)", execution.usage_cost_recorded),
-          cost_usd: fragment("COALESCE(SUM(?), 0)", execution.usage_cost_usd),
-          estimated: count(execution.estimated_cost_usd),
-          estimated_cost_usd: fragment("COALESCE(SUM(?), 0)", execution.estimated_cost_usd)
-        }
-      )
-    )
-  end
-
-  defp usage_channels(query) do
-    query =
-      from(execution in query,
-        select_merge: %{
-          conversation_ref:
-            fragment(
-              "CASE WHEN ? = 'control_plane' THEN 'control-plane:lab:' ELSE ? END",
-              execution.transport,
-              execution.conversation_ref
-            )
-        }
-      )
-      |> subquery()
-
-    Repo.all(
-      from(turn in query,
-        group_by: [turn.transport, turn.conversation_ref],
-        order_by: [desc: count(turn.id), asc: turn.transport],
-        limit: 100,
-        select: %{
-          attempts: count(turn.id),
-          conversation_ref: turn.conversation_ref,
-          cost_usd: fragment("COALESCE(SUM(?), 0)", turn.usage_cost_usd),
-          estimated_cost_usd: fragment("COALESCE(SUM(?), 0)", turn.estimated_cost_usd),
-          estimated: count(turn.estimated_cost_usd),
-          costed: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_cost_recorded),
-          measured: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_recorded),
-          tokens:
-            type(
-              fragment(
-                "(COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0))::bigint",
-                turn.usage_input_tokens,
-                turn.usage_cached_input_tokens,
-                turn.usage_output_tokens,
-                turn.usage_reasoning_tokens
-              ),
-              :integer
-            ),
-          transport: turn.transport
-        }
-      )
-    )
-  end
-
-  defp usage_repositories(query) do
-    Repo.all(
-      from(turn in query,
-        group_by: turn.repository_ref,
-        order_by: [desc: count(turn.id), asc: turn.repository_ref],
-        limit: 100,
-        select: %{
-          attempts: count(turn.id),
-          cost_usd: fragment("COALESCE(SUM(?), 0)", turn.usage_cost_usd),
-          estimated_cost_usd: fragment("COALESCE(SUM(?), 0)", turn.estimated_cost_usd),
-          estimated: count(turn.estimated_cost_usd),
-          costed: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_cost_recorded),
-          measured: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_recorded),
-          repository_ref: turn.repository_ref,
-          tokens:
-            type(
-              fragment(
-                "(COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0))::bigint",
-                turn.usage_input_tokens,
-                turn.usage_cached_input_tokens,
-                turn.usage_output_tokens,
-                turn.usage_reasoning_tokens
-              ),
-              :integer
-            )
-        }
-      )
-    )
-  end
-
-  defp usage_days(query) do
-    Repo.all(
-      from(turn in query,
-        group_by: fragment("date(?)", turn.recorded_at),
-        order_by: [asc: fragment("date(?)", turn.recorded_at)],
-        limit: 366,
-        select: %{
-          attempts: count(turn.id),
-          cost_usd: fragment("COALESCE(SUM(?), 0)", turn.usage_cost_usd),
-          estimated_cost_usd: fragment("COALESCE(SUM(?), 0)", turn.estimated_cost_usd),
-          estimated: count(turn.estimated_cost_usd),
-          date: type(fragment("date(?)", turn.recorded_at), :date),
-          measured: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_recorded),
-          tokens:
-            type(
-              fragment(
-                "(COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0))::bigint",
-                turn.usage_input_tokens,
-                turn.usage_cached_input_tokens,
-                turn.usage_output_tokens,
-                turn.usage_reasoning_tokens
-              ),
-              :integer
-            )
-        }
-      )
-    )
-  end
-
-  defp average(_sum, 0), do: nil
-  defp average(sum, count), do: div(sum, count)
 
   defp usage_window("24h"), do: {"24h", DateTime.add(database_now!(), -24, :hour)}
   defp usage_window("30d"), do: {"30d", DateTime.add(database_now!(), -30, :day)}

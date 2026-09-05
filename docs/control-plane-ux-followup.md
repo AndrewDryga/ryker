@@ -1,12 +1,51 @@
 # Control-plane usability pass — 5 September 2026
 
+## Usage follow-up
+
+Usage leads with cost, distinct episodes and executions, then input/output token
+groups. Reasoning is a subset of output, never an extra term in the total.
+The same deduplicated accounting query feeds profile, model, channel, repository,
+work-class and person breakdowns. Provider plus the concrete retained Coop
+credential identifies a profile; missing targets and account ladders are not
+guessed from today's configuration. Profiles show comparative consumption, not
+subscription quotas or subscription invoices.
+
+Drill-down links preserve the selected time window and execution mode and filter
+the actual retained execution target. A profile can span models and an episode
+can span profiles; the headline counts distinct episodes independently of rows.
+Group reads are bounded, and the UI identifies a truncated breakdown only when
+that limit is actually reached. Charts label all dates in short windows and use
+calendar spacing for longer series. The timing donut uses recorded durations.
+
+Product copy policy: the ordinary state is silent. No standing live toolbar,
+pause button, generic warning banner or repeated coverage disclaimer. Automatic
+updates remain active and preserve reading state. Disconnection or a failed
+refresh is shown when it happens. Essential limitations live next to the affected
+value or in the collapsed cost-method section at the very bottom of Usage.
+
+Focused regression coverage includes profile/provider isolation, ambiguous
+credentials, non-overlapping token totals, missing measurements, safe labels,
+combined pricing, date labels and always-on LiveView updates. The read-only
+`scripts/usage-visual.cjs` verifies actual data at desktop, tablet and mobile
+widths, profile expansion, automatic refresh and request drill-downs; screenshots
+are written to a private directory outside the checkout.
+
+The final review found and closed three drill-down defects: admission-only
+executions now retain their request links, missing-target model rows use the
+nullable target filter, and malformed nested URL values cannot crash navigation.
+Regression tests were observed failing on each defect before the fixes. Unknown
+token measurements also remain unknown in the share column, not a misleading 0%.
+The shared shell passed 52 page/viewport checks with no browser or layout errors.
+The post-review fast gate passed 1,874 Elixir tests with 90.05% coverage, 80 script
+tests, and 22 recorded contract replays. No credentialed model evaluation was run.
+
 ## Implemented
 
-- Compact accessible search, a quiet live indicator with optional controls, a
-  wider Conversation Lab directory, and no persistent live-tools banner.
+- Compact accessible search, automatic updates without a standing live toolbar,
+  a wider Conversation Lab directory, and no persistent live-tools banner.
 - Follow-up chapters are labelled and visually separated in the single execution
   timeline. Retained instructions and context remain grouped by their source;
-  refreshed pages preserve expanded inspection sections and live-control menus.
+  refreshed pages preserve expanded inspection sections and reading state.
 - Failure lists and detail pages explain the interrupted operation and expose
   confirmed retry actions. IDs and error records remain in secondary inspection.
 - Human-readable audit events and routing decisions link to their owning request

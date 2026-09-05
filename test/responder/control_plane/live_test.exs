@@ -80,6 +80,21 @@ defmodule Responder.ControlPlane.LiveTest do
     assert has_element?(view, "[data-active-count]", "7")
   end
 
+  test "malformed usage filters cannot crash navigation or search links" do
+    # Nested URL values reached URI.encode_query as maps instead of scalars.
+    for query <- [
+          "usage_profile[x]=a",
+          "usage_profile=x&usage_window[x]=a",
+          "usage_profile=" <> String.duplicate("x", 513)
+        ] do
+      conn = build_conn() |> Map.put(:host, "localhost")
+      assert {:ok, view, _html} = live(conn, "/episodes?" <> query)
+      assert render(view) =~ "Requests"
+      view |> element("#activity-filters") |> render_change(%{"q" => "hello", "mode" => "live"})
+      assert render(view) =~ "Requests"
+    end
+  end
+
   test "the LiveView endpoint preserves the loopback and host boundary" do
     conn = build_conn() |> Map.put(:host, "attacker.example") |> get("/")
     assert conn.status == 421
@@ -93,7 +108,7 @@ defmodule Responder.ControlPlane.LiveTest do
     assert conn.status == 403
   end
 
-  test "the execution console removes template chrome while preserving live controls" do
+  test "the execution console refreshes without a standing live toolbar" do
     {:ok, view, html} = live(build_conn() |> Map.put(:host, "localhost"), "/")
     refute html =~ "Local operator"
     refute html =~ "Local workspace"
@@ -103,15 +118,11 @@ defmodule Responder.ControlPlane.LiveTest do
     refute html =~ "empty-capabilities"
     refute html =~ "Test your responder"
     assert has_element?(view, "h1", "Requests")
-    assert has_element?(view, "#live-status time")
-    assert has_element?(view, "button[phx-click=toggle-live]")
-    assert has_element?(view, "button[phx-click=refresh]")
+    refute has_element?(view, ".app-topbar")
+    refute has_element?(view, "button[phx-click=toggle-live]")
+    refute has_element?(view, "#live-controls")
+    assert has_element?(view, ".connection-offline", "Reconnecting")
     assert has_element?(view, "#activity-filters")
-    # HTML boolean attributes produced aria-pressed="" and no false state,
-    # so browsers could not expose whether live updates were paused.
-    assert has_element?(view, "button[phx-click=toggle-live][aria-pressed=false]", "Pause")
-    view |> element("button[phx-click=toggle-live]") |> render_click()
-    assert has_element?(view, "button[phx-click=toggle-live][aria-pressed=true]", "Resume")
   end
 
   test "native directory entry points and missing records remain usable across live navigation" do
@@ -281,12 +292,11 @@ defmodule Responder.ControlPlane.LiveTest do
     assert has_element?(view, ".lab-native-composer[phx-update=ignore]")
   end
 
-  test "pausing presentation does not block fresh state on manual refresh or remount", %{
+  test "presentation always follows durable updates and remounts with current data", %{
     counters: counters
   } do
     conn = build_conn() |> Map.put(:host, "localhost")
     {:ok, view, _html} = live(conn, "/")
-    view |> element("button", "Pause") |> render_click()
     Agent.update(counters, &Map.put(&1, :active, 9))
 
     Phoenix.PubSub.broadcast(
@@ -295,8 +305,7 @@ defmodule Responder.ControlPlane.LiveTest do
       :control_plane_changed
     )
 
-    assert has_element?(view, "[data-active-count]", "1")
-    view |> element("button", "Refresh") |> render_click()
+    view |> render_hook("refresh", %{})
     assert has_element?(view, "[data-active-count]", "9")
     Agent.update(counters, &Map.put(&1, :active, 12))
     {:ok, remounted, _html} = live(conn, "/")
@@ -336,7 +345,7 @@ defmodule Responder.ControlPlane.LiveTest do
     {:ok, view, _} = live(conn, "/admission/#{entry.id}")
     assert has_element?(view, ".request-reader-heading", "Admission · execution 1")
     entry |> Ecto.Changeset.change(execution_generation: 2) |> Repo.update!()
-    view |> element("button", "Refresh") |> render_click()
+    render_hook(view, "refresh", %{})
     assert has_element?(view, ".request-reader-heading", "Admission · execution 1")
     assert has_element?(view, ".request-reader[data-generation='1']")
     assert has_element?(view, ".artifact-instructions", "Responder admission instructions")
@@ -382,7 +391,7 @@ defmodule Responder.ControlPlane.LiveTest do
   test "pending invalidations are coalesced before running another projection" do
     # A slow database used to queue repeated full projections ahead of Pause and navigation.
     socket = %Phoenix.LiveView.Socket{
-      assigns: %{__changed__: %{}, paused: false, refresh_token: nil, refresh_failures: 0}
+      assigns: %{__changed__: %{}, refresh_token: nil, refresh_failures: 0}
     }
 
     {:noreply, first} =
@@ -424,7 +433,7 @@ defmodule Responder.ControlPlane.LiveTest do
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
-        view |> element("button", "Refresh") |> render_click()
+        render_hook(view, "refresh", %{})
       end)
 
     assert log =~ "category=RuntimeError"

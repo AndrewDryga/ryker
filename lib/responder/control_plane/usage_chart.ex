@@ -28,13 +28,13 @@ defmodule Responder.ControlPlane.UsageChart do
       ),
       "<figure class=\"usage-chart\"><figcaption><strong>",
       number(Enum.sum(Enum.map(days, & &1.tokens))),
-      "</strong> recorded token counters · ",
+      "</strong> tokens · ",
       date(first),
       " – ",
       date(last),
-      "<span>UTC · empty days remain on the axis</span></figcaption><div class=\"chart-scroll\">",
+      "</figcaption><div class=\"chart-scroll\">",
       "<svg viewBox=\"0 0 800 240\" role=\"img\" aria-label=\"Daily measured token trend\"><title>Daily measured token trend</title>",
-      "<desc>Recorded counters per UTC day. Exact values and measurement coverage are in the Daily values table below.</desc>",
+      "<desc>Tokens per day. Exact values are in the Daily values table below.</desc>",
       Enum.map([0, 0.5, 1], fn fraction ->
         y = 190 - fraction * 156
 
@@ -75,7 +75,7 @@ defmodule Responder.ControlPlane.UsageChart do
           " measured</title></rect>"
         ]
       end),
-      [0, div(length(series), 2), length(series) - 1]
+      ticks(length(series))
       |> Enum.uniq()
       |> Enum.map(fn index ->
         [
@@ -86,7 +86,7 @@ defmodule Responder.ControlPlane.UsageChart do
           "</text>"
         ]
       end),
-      "</svg></div><details id=\"daily-values\"><summary>Daily values & measurement coverage</summary><div class=\"table-wrap\"><table><thead><tr><th>Day (UTC)</th><th>Token counters</th><th>Measurements</th></tr></thead><tbody>",
+      "</svg></div><details id=\"daily-values\"><summary>Daily values</summary><div class=\"table-wrap\"><table><thead><tr><th>Day</th><th>Tokens</th><th>Executions</th></tr></thead><tbody>",
       Enum.map(series, fn day ->
         [
           "<tr><td><time datetime=\"",
@@ -98,7 +98,7 @@ defmodule Responder.ControlPlane.UsageChart do
           "</strong></td><td>",
           if(day.attempts == 0,
             do: "No executions",
-            else: "#{day.measured} of #{day.attempts} measured"
+            else: to_string(day.attempts)
           ),
           "</td></tr>"
         ]
@@ -108,6 +108,8 @@ defmodule Responder.ControlPlane.UsageChart do
   end
 
   defp date(date), do: Calendar.strftime(date, "%d %b")
+  defp ticks(count) when count <= 7, do: Enum.to_list(0..(count - 1))
+  defp ticks(count), do: Enum.uniq(Enum.map(0..6, &round(&1 * (count - 1) / 6)))
   defp coord(value), do: :erlang.float_to_binary(value * 1.0, decimals: 2)
   defp number(value), do: to_string(value) |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
   defp compact(value) when value >= 1_000_000, do: coord(value / 1_000_000) <> "m"

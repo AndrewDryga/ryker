@@ -87,6 +87,19 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
     assert html =~ "No executions"
   end
 
+  # Four bars for 2-5 September were labelled 2, 4, 5: the operator read the
+  # unlabelled third day as missing data, even though it had executions.
+  test "short daily charts label every day without a standing disclaimer" do
+    days =
+      for day <- 2..5,
+          do: %{date: Date.new!(2026, 9, day), tokens: 1000, attempts: 1, measured: 1}
+
+    html = UsageChart.render(days) |> IO.iodata_to_binary()
+    labels = Regex.scan(~r/<text class="chart-axis"[^>]*>([^<]+)<\/text>/, html)
+    assert Enum.any?(labels, fn [_, label] -> label == "03 Sep" end)
+    refute html =~ "empty days remain on the axis"
+  end
+
   test "sparse multi-year usage cannot expand into an unbounded daily chart" do
     days = [
       %{date: ~D[2000-01-01], tokens: 1000, attempts: 2, measured: 2},
