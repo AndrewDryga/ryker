@@ -11,6 +11,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     EpisodePage,
     LabPage,
     Navigation,
+    RequestFilters,
     RequestPage,
     Router,
     Updates,
@@ -41,6 +42,9 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        native: nil,
        overview: nil,
        activity: nil,
+       filter_draft: %{},
+       filter_draft_for_patch: nil,
+       filter_values: [],
        schedules: [],
        row_ids: [],
        new_items: 0,
@@ -66,6 +70,14 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     domain = Updates.domain(location.path)
     subscribe(socket, domain)
 
+    patch_path = location.path <> if(location.query, do: "?" <> location.query, else: "")
+
+    filter_draft =
+      case socket.assigns.filter_draft_for_patch do
+        {^patch_path, draft} -> draft
+        _ -> RequestFilters.draft(params)
+      end
+
     {:noreply,
      socket
      |> assign(
@@ -73,6 +85,8 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        query: location.query || "",
        domain: domain,
        params: params,
+       filter_draft: filter_draft,
+       filter_draft_for_patch: nil,
        request_selection: %{},
        native: :loading,
        body: "",
@@ -144,8 +158,22 @@ defmodule Responder.ControlPlane.WorkbenchLive do
         Map.take(UsageProjection.link_params(params), ~w(q mode))
       )
 
+    patch_path = socket.assigns.path <> "?" <> URI.encode_query(params)
+
     {:noreply,
-     push_patch(socket, to: socket.assigns.path <> "?" <> URI.encode_query(params), replace: true)}
+     socket
+     |> assign(:filter_draft_for_patch, {patch_path, socket.assigns.filter_draft})
+     |> push_patch(to: patch_path, replace: true)}
+  end
+
+  def handle_event("edit-request-filters", params, socket),
+    do:
+      {:noreply,
+       assign(socket, :filter_draft, RequestFilters.edit(socket.assigns.filter_draft, params))}
+
+  def handle_event("apply-request-filters", params, socket) do
+    query = RequestFilters.apply(socket.assigns.params, params) |> URI.encode_query()
+    {:noreply, push_patch(socket, to: socket.assigns.path <> "?" <> query)}
   end
 
   def handle_event(
@@ -232,6 +260,11 @@ defmodule Responder.ControlPlane.WorkbenchLive do
       native: :activity,
       page_title: "Requests",
       activity: Map.delete(activity, :items),
+      filter_values:
+        if(reset,
+          do: options.projection.usage_filter_options.(),
+          else: socket.assigns.filter_values
+        ),
       overview: options.projection.overview.(),
       schedules: schedules
     )
@@ -449,6 +482,8 @@ defmodule Responder.ControlPlane.WorkbenchLive do
           <ActivityPage.render
             :if={@native == :activity && @activity}
             activity={@activity}
+            filter_draft={@filter_draft}
+            filter_values={@filter_values}
             overview={@overview}
             schedules={@schedules}
             stream={@streams.activity}

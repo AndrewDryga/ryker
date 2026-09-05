@@ -23,7 +23,7 @@ defmodule Responder.ControlPlane.UsageProjection do
   }
 
   def filter_keys, do: Map.keys(@filters) ++ ["usage_window"]
-  def filtered?(params), do: Enum.any?(Map.keys(@filters), &Map.has_key?(params, &1))
+  def filtered?(params), do: Enum.any?(filter_keys(), &Map.has_key?(params, &1))
 
   def link_params(params),
     do: Map.filter(params, fn {_key, value} -> is_binary(value) and byte_size(value) <= 512 end)
@@ -101,6 +101,19 @@ defmodule Responder.ControlPlane.UsageProjection do
   end
 
   def totals(query), do: query |> aggregate() |> Repo.one!() |> finish()
+
+  def filter_options do
+    query = dimensions(Responder.Accounting.Query.executions(nil, "all"))
+
+    Repo.all(
+      from(e in query,
+        distinct: true,
+        select: map(e, [:source, :workspace, :actor, :actor_kind, :transport, :conversation_ref]),
+        order_by: [e.source, e.workspace, e.actor, e.conversation_ref],
+        limit: 500
+      )
+    )
+  end
 
   defp people(query) do
     # The Lab's shared local-operator is not an identifiable person. Apps, bots,

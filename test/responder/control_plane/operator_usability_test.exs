@@ -68,9 +68,11 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
     refute html =~ ">Custody reference</dt>"
   end
 
-  test "search has an accessible label without an extra visible column" do
+  test "search has a visible label grouped with its input instead of an extra column" do
     html = HTML.repositories([]) |> IO.iodata_to_binary()
-    assert html =~ "class=\"sr-only\" for=\"operator-search\""
+
+    assert html =~
+             "<div class=\"filter-field filter-search\"><label for=\"operator-search\">Search</label><input"
   end
 
   test "daily graph keeps calendar spacing and accessible values without an extra table" do

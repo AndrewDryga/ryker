@@ -3,6 +3,7 @@ defmodule Responder.ControlPlane.HTML do
   alias Responder.ControlPlane.Components
   alias Responder.ControlPlane.SlackNames
   alias Responder.ControlPlane.UsagePage
+  alias Responder.ControlPlane.UsageProjection
   @moduledoc false
 
   @native_slack_path Path.expand("../../../priv/static/native-slack.css", __DIR__)
@@ -975,7 +976,7 @@ defmodule Responder.ControlPlane.HTML do
   defp tone_class(:bad), do: "tone-bad"
   defp tone_class(_tone), do: "tone-neutral"
 
-  def incidents(items) do
+  def incidents(items, params \\ %{}) do
     rows =
       Enum.map(items, fn item ->
         [
@@ -1004,7 +1005,12 @@ defmodule Responder.ControlPlane.HTML do
         "Incident rooms and local incidents",
         "Follow the durable room, linked work, lifecycle, evidence records, and publication without relying on Slack history."
       ),
-      search_form("/incidents", "Search title, room, repository, workspace, or channel"),
+      search_form(
+        "/incidents",
+        "Title, room, repository or channel",
+        params,
+        ~w(requested ready blocked closed)
+      ),
       table(["Incident", "Status", "Repository", "Channel", "Publication", "Updated"], rows)
     ]
   end
@@ -1063,7 +1069,7 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  def schedules(items) do
+  def schedules(items, params \\ %{}) do
     rows =
       Enum.map(items, fn item ->
         [
@@ -1092,7 +1098,12 @@ defmodule Responder.ControlPlane.HTML do
         "Recurring and one-shot work",
         "Inspect the exact durable schedule and every dispatched or missed occurrence. Lifecycle controls remain host-confirmed."
       ),
-      search_form("/schedules", "Search title, schedule, repository, or destination"),
+      search_form(
+        "/schedules",
+        "Title, repository or destination",
+        params,
+        ~w(active paused completed expired deleted)
+      ),
       table(["Schedule", "Status", "Next", "Timezone", "Repository", "Failures"], rows)
     ]
   end
@@ -1171,7 +1182,7 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  def subscriptions(items) do
+  def subscriptions(items, params \\ %{}) do
     rows =
       Enum.map(items, fn item ->
         [
@@ -1204,7 +1215,12 @@ defmodule Responder.ControlPlane.HTML do
         "External event subscriptions",
         "Inspect durable webhook-first waits, their polling fallback, hard deadline, cursor custody, and terminal resolution without exposing source payloads."
       ),
-      search_form("/subscriptions", "Search subscription, source, or episode"),
+      search_form(
+        "/subscriptions",
+        "Subscription, source or episode",
+        params,
+        ~w(active resolved timed_out cancelled)
+      ),
       table(
         [
           "Subscription",
@@ -1222,7 +1238,7 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  def channels(items) do
+  def channels(items, params \\ %{}) do
     rows =
       Enum.map(items, fn item ->
         [
@@ -1259,7 +1275,7 @@ defmodule Responder.ControlPlane.HTML do
         "Slack conversation roster",
         "A channel remains visible when it has configuration, membership, incident custody, or recorded work."
       ),
-      search_form("/channels", "Search workspace, channel, repository, or participation"),
+      search_form("/channels", "Channel, workspace or repository", params),
       table(
         [
           "Channel",
@@ -1313,7 +1329,7 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  def repositories(items) do
+  def repositories(items, params \\ %{}) do
     rows =
       Enum.map(items, fn item ->
         [
@@ -1349,7 +1365,7 @@ defmodule Responder.ControlPlane.HTML do
         "Where Responder can work",
         "Connected repositories, the work they receive, and the code revision last used. Open a request to inspect the actual changes and model activity."
       ),
-      search_form("/repositories", "Search repository"),
+      search_form("/repositories", "Repository name", params),
       if(rows == [],
         do: "<p class=\"empty\">No configured or observed repositories.</p>",
         else: rows
@@ -2415,13 +2431,41 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  defp search_form(path, placeholder) do
+  defp search_form(path, placeholder, params, statuses \\ []) do
+    params = UsageProjection.link_params(params)
+
     [
       "<form class=\"search-form\" method=\"get\" action=\"",
       escape(path),
-      "\"><label class=\"sr-only\" for=\"operator-search\">Search</label><input type=\"search\" id=\"operator-search\" name=\"q\" maxlength=\"200\" placeholder=\"",
+      "\"><div class=\"filter-field filter-search\"><label for=\"operator-search\">Search</label><input type=\"search\" id=\"operator-search\" name=\"q\" maxlength=\"200\" value=\"",
+      escape(params["q"] || ""),
+      "\" placeholder=\"",
       escape(placeholder),
-      "\"><button type=\"submit\">Search</button></form>"
+      "\"></div>",
+      if(statuses != [],
+        do: [
+          "<div class=\"filter-field\"><label for=\"operator-status\">Status</label><select id=\"operator-status\" name=\"status\"><option value=\"\">All statuses</option>",
+          Enum.map(statuses, fn status ->
+            [
+              "<option value=\"",
+              escape(status),
+              "\"",
+              if(params["status"] == status, do: " selected", else: ""),
+              ">",
+              escape(Components.label(status)),
+              "</option>"
+            ]
+          end),
+          "</select></div>"
+        ],
+        else: []
+      ),
+      "<button class=\"ui-button primary\" type=\"submit\">Apply filters</button>",
+      if(params["q"] not in [nil, ""] or params["status"] in statuses,
+        do: ["<a class=\"ui-button secondary\" href=\"", escape(path), "\">Clear filters</a>"],
+        else: []
+      ),
+      "</form>"
     ]
   end
 

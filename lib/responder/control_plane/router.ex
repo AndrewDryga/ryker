@@ -619,7 +619,7 @@ defmodule Responder.ControlPlane.Router do
   defp route(%Plug.Conn{method: "GET", path_info: ["incidents"]} = conn, options) do
     conn = fetch_query_params(conn)
     snapshot = options.projection.incidents.(Map.take(conn.query_params, ["q", "status"]))
-    html(conn, 200, "Incidents", HTML.incidents(snapshot))
+    html(conn, 200, "Incidents", HTML.incidents(snapshot, conn.query_params))
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["incidents", incident_ref]} = conn, options) do
@@ -632,7 +632,7 @@ defmodule Responder.ControlPlane.Router do
   defp route(%Plug.Conn{method: "GET", path_info: ["schedules"]} = conn, options) do
     conn = fetch_query_params(conn)
     snapshot = options.projection.schedules.(Map.take(conn.query_params, ["q", "status"]))
-    html(conn, 200, "Schedules", HTML.schedules(snapshot))
+    html(conn, 200, "Schedules", HTML.schedules(snapshot, conn.query_params))
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["schedules", schedule_ref]} = conn, options) do
@@ -648,13 +648,13 @@ defmodule Responder.ControlPlane.Router do
     snapshot =
       options.projection.subscriptions.(Map.take(conn.query_params, ["q", "status"]))
 
-    html(conn, 200, "Subscriptions", HTML.subscriptions(snapshot))
+    html(conn, 200, "Subscriptions", HTML.subscriptions(snapshot, conn.query_params))
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["channels"]} = conn, options) do
     conn = fetch_query_params(conn)
     snapshot = options.projection.channels.(Map.take(conn.query_params, ["q"]))
-    html(conn, 200, "Channels", HTML.channels(snapshot))
+    html(conn, 200, "Channels", HTML.channels(snapshot, conn.query_params))
   end
 
   defp route(
@@ -681,7 +681,7 @@ defmodule Responder.ControlPlane.Router do
   defp route(%Plug.Conn{method: "GET", path_info: ["repositories"]} = conn, options) do
     conn = fetch_query_params(conn)
     snapshot = options.projection.repositories.(Map.take(conn.query_params, ["q"]))
-    html(conn, 200, "Repositories", HTML.repositories(snapshot))
+    html(conn, 200, "Repositories", HTML.repositories(snapshot, conn.query_params))
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["calibration"]} = conn, options) do

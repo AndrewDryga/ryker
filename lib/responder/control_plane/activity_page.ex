@@ -1,4 +1,5 @@
 defmodule Responder.ControlPlane.ActivityPage do
+  alias Responder.ControlPlane.RequestFilters
   alias Responder.ControlPlane.SlackMarkdown
   alias Responder.ControlPlane.SlackNames
   alias Responder.ControlPlane.UsageProjection
@@ -7,6 +8,11 @@ defmodule Responder.ControlPlane.ActivityPage do
   import Responder.ControlPlane.Components
 
   def render(assigns) do
+    assigns =
+      assigns
+      |> assign_new(:filter_draft, fn -> RequestFilters.draft(assigns.params) end)
+      |> assign_new(:filter_values, fn -> [] end)
+
     assigns =
       assign(
         assigns,
@@ -30,11 +36,6 @@ defmodule Responder.ControlPlane.ActivityPage do
           <a href="/failures"><b>{Map.get(@overview.counts, :blocked, 0)}</b>
           blocked <.icon name={:arrow} /></a>
           <a class="pulse-usage" href="/usage">Usage & cost <.icon name={:arrow} /></a>
-        </div>
-        <div :if={UsageProjection.filtered?(@params)} class="usage-drilldown">
-          <span>Requests from the selected usage group</span>
-          <a href={"/usage?" <> URI.encode_query(%{window: UsageProjection.window(@params["usage_window"]), mode: @activity.mode})}>Back to Usage</a>
-          <.link patch={@path}>Clear filter</.link>
         </div>
         <section class="activity-inbox" aria-label="Requests">
           <div class="inbox-toolbar">
@@ -60,29 +61,39 @@ defmodule Responder.ControlPlane.ActivityPage do
             phx-change="search-activity"
             phx-submit="search-activity"
           >
-            <.icon name={:search} /><label class="sr-only" for="activity-search">Search requests or repositories</label>
-            <input
-              id="activity-search"
-              name="q"
-              type="search"
-              value={@params["q"] || ""}
-              phx-debounce="300"
-              maxlength="200"
-              placeholder="Search requests or repositories…"
-              autocomplete="off"
-            />
-            <label class="sr-only" for="activity-mode">Execution mode</label><select
-              id="activity-mode"
-              name="mode"
-            ><option value="live" selected={@activity.mode == "live"}>Live work</option><option
-              value="shadow"
-              selected={@activity.mode == "shadow"}
-            >
-              Shadow runs
-            </option><option value="all" selected={@activity.mode == "all"}>
-              All execution modes
-            </option></select>
+            <div class="filter-field filter-search">
+              <label for="activity-search">Search</label>
+              <input
+                id="activity-search"
+                name="q"
+                type="search"
+                value={@params["q"] || ""}
+                phx-debounce="300"
+                maxlength="200"
+                placeholder="Search requests or repositories…"
+                autocomplete="off"
+              />
+            </div>
+            <div class="filter-field">
+              <label for="activity-mode">Work included</label><select
+                id="activity-mode"
+                name="mode"
+              ><option value="live" selected={@activity.mode == "live"}>Live work</option><option
+                value="shadow"
+                selected={@activity.mode == "shadow"}
+              >
+                Evaluations
+              </option><option value="all" selected={@activity.mode == "all"}>
+                All work
+              </option></select>
+            </div>
           </form>
+          <RequestFilters.render
+            draft={@filter_draft}
+            values={@filter_values}
+            params={@params}
+            path={@path}
+          />
           <button :if={@new_items > 0} class="new-activity" phx-click="show-new">{@new_items} new or reordered requests · Show latest
           <.icon name={:arrow} /></button>
           <div :if={@activity.total == 0} class="activity-empty">
