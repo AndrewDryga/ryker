@@ -148,11 +148,12 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .failure-card-actions { font-size:14px; }
 .failure-card-actions .failure-attempts { color:var(--secondary); }
 .responder-app .failure-detail { max-width:1100px; }
-.failure-heading { margin-bottom:20px; }
-.failure-kicker { display:block; color:var(--secondary); font-size:14px; margin-bottom:8px; }
+.failure-heading { margin-bottom:16px; }
+.responder-app .failure-outcome { margin:0 0 12px; font-size:17px; color:var(--ink); }
+.failure-repair-needed { color:#805d1e; font-weight:600; }
 .responder-app .failure-heading h2 { font-size:26px; line-height:1.25; margin:0 0 12px; }
 .failure-meta { display:flex; flex-wrap:wrap; gap:8px 20px; color:var(--secondary); font-size:14px; }
-.failure-request { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 20px; padding:14px 0; border-top:1px solid var(--stroke); border-bottom:1px solid var(--stroke); }
+.failure-request { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 20px; padding:12px 0; border-top:1px solid var(--stroke); border-bottom:1px solid var(--stroke); }
 .failure-request > span { color:var(--secondary); font-size:14px; }
 .failure-request a { font-size:17px; font-weight:600; overflow-wrap:anywhere; }
 .responder-app .failure-progress { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); list-style:none; padding:0; margin:24px 0; gap:12px; }
@@ -162,11 +163,10 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .failure-step-state { display:block; color:var(--secondary); font-size:13px; margin-bottom:4px; }
 .failure-progress .blocked .failure-step-state { color:#805d1e; font-weight:600; }
 .failure-progress strong { font-size:15px; font-weight:550; }
-.failure-explanation { display:grid; grid-template-columns:1fr 1fr; gap:32px; margin:24px 0; }
+.failure-explanation { display:grid; grid-template-columns:minmax(0,1fr); gap:20px; margin:24px 0; max-width:76ch; }
 .responder-app .failure-explanation section { margin:0; padding:0; border:0; background:none; }
-.responder-app .failure-explanation h3 { margin:0 0 12px; color:var(--ink); }
-.responder-app .failure-explanation p { font-size:16px; line-height:1.6; margin:0 0 12px; }
-.responder-app .failure-explanation .failure-response { font-size:14px; font-weight:600; color:var(--secondary); }
+.responder-app .failure-explanation h3 { margin:0 0 8px; color:var(--ink); }
+.responder-app .failure-explanation p { font-size:16px; line-height:1.6; margin:0; }
 .responder-app .failure-recovery { margin-top:20px; }
 .responder-app .failure-recovery p { font-size:14px; margin:10px 0 0; color:var(--secondary); }
 .failure-diagnostics { border-top:1px solid var(--stroke); padding-top:16px; margin-top:24px; }

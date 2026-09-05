@@ -8,23 +8,23 @@ defmodule Responder.ControlPlane.FailurePage do
 
     assigns =
       assigns
-      |> assign(:ownership_missing, get_in(row, [:diagnosis, :reason]) == :missing_ownership)
+      |> assign(:ownership_missing, manual_repair?(row))
       |> assign(:cause, cause(row))
       |> assign(:destination, destination(row))
       |> assign(:steps, cleanup_steps(row))
+      |> assign(:outcome, request_outcome(row))
 
     ~H"""
     <section class="failure-detail">
       <div class="failure-heading">
-        <span class="failure-kicker">{@title}</span>
         <h2>
-          {if @ownership_missing, do: "Ownership proof is missing", else: "This step needs attention"}
+          {if @ownership_missing, do: "Temporary files could not be removed", else: @title}
         </h2>
+        <p :if={@outcome} class="failure-outcome">{@outcome}</p>
         <div class="failure-meta">
-          <span :if={@row.kind == "retention" && @row[:source]}>{@row.source}</span>
-          <span :if={@destination}>{@destination}</span>
-          <span>{Map.get(@row, :attempt_count, 0)} attempts</span>
-          <time>{Components.timestamp(@row.updated_at)}</time>
+          <span :if={@destination && !@ownership_missing}>{@destination}</span>
+          <span :if={!@ownership_missing}>{Map.get(@row, :attempt_count, 0)} attempts</span>
+          <time>Updated {Components.timestamp(@row.updated_at)}</time>
         </div>
       </div>
 
@@ -40,30 +40,18 @@ defmodule Responder.ControlPlane.FailurePage do
         <a href={"/admission/" <> URI.encode_www_form(String.replace_prefix(@row.ref, "ingress-input:", ""))}>Open message and routing</a>
       </div>
 
-      <ol :if={@steps != []} class="failure-progress" aria-label="Cleanup progress">
-        <li :for={step <- @steps} class={step.state}>
-          <span class="failure-step-state">{step.status}</span><strong>{step.label}</strong>
-        </li>
-      </ol>
-
       <div class="failure-explanation">
         <section>
-          <h3>What happened</h3>
+          <h3>Why it stopped</h3>
           <p>{@cause}</p>
-          <p :if={@row[:diagnosis]} class="failure-response">
-            Coop returned HTTP {@row.diagnosis.http_status}.
-          </p>
-          <p :if={@row.kind == "retention" && !@row[:discarded_at]}>
-            Responder has no confirmed removal receipt for this working copy. The request history remains available.
-          </p>
         </section>
         <section class="failure-next-step">
-          <h3>What to do</h3>
+          <h3>Next step</h3>
           <p :if={@ownership_missing}>
-            Preserve the working copy before recreating this older session in Coop. Retrying alone will not repair the missing record.
+            A developer needs to check the leftover folder and repair the worker record before cleanup can continue. Retrying now will hit the same error.
           </p>
           <p :if={!@ownership_missing}>{next_step(@row)}</p>
-          <div :if={@recovery != ""} class="failure-recovery">
+          <div :if={!@ownership_missing && @recovery != ""} class="failure-recovery">
             {Phoenix.HTML.raw(@recovery)}
             <p>{recovery_effect(@row.kind)}</p>
           </div>
@@ -71,23 +59,40 @@ defmodule Responder.ControlPlane.FailurePage do
       </div>
 
       <details class="failure-diagnostics">
-        <summary>Diagnostic reference</summary>
+        <summary>Technical details</summary>
         <dl>
           <dt>Operation</dt><dd>{@row.kind}</dd>
+          <dt :if={@ownership_missing}>Attempts</dt>
+          <dd :if={@ownership_missing}>{Map.get(@row, :attempt_count, 0)}</dd>
+          <dt :if={@row[:diagnosis]}>Worker response</dt>
+          <dd :if={@row[:diagnosis]}>HTTP {@row.diagnosis.http_status}</dd>
           <dt>Error code</dt><dd>{get_in(@row, [:diagnosis, :code]) || @row.summary}</dd>
           <dt>Record</dt><dd>{@row.ref}</dd>
           <dt :if={@row[:source]}>Source</dt><dd :if={@row[:source]}>{@row.source}</dd>
+          <dt :if={@destination && @ownership_missing}>Conversation</dt>
+          <dd :if={@destination && @ownership_missing}>{@destination}</dd>
           <dt :if={@row[:detail]}>Fingerprint</dt><dd :if={@row[:detail]}>{@row.detail}</dd>
         </dl>
+        <ol :if={@steps != []} class="failure-progress" aria-label="Cleanup progress">
+          <li :for={step <- @steps} class={step.state}>
+            <span class="failure-step-state">{step.status}</span><strong>{step.label}</strong>
+          </li>
+        </ol>
+        <div :if={@ownership_missing && @recovery != ""} class="failure-recovery">
+          <p>
+            Use this only after repairing the worker record. It retries cleanup of the same folder.
+          </p>
+          {Phoenix.HTML.raw(@recovery)}
+        </div>
       </details>
       <a class="failure-back" href="/failures">← All failures</a>
     </section>
     """
   end
 
-  def cause(%{diagnosis: %{reason: :missing_ownership}}),
+  def cause(%{kind: "retention", diagnosis: %{reason: :missing_ownership}}),
     do:
-      "Coop cannot prove that this older session owns its working copy, so it refused cleanup. This safety check prevents removal of a directory that might belong to other work."
+      "The worker is missing the record linking this run to its temporary folder. It stopped cleanup to avoid deleting another run's files."
 
   def cause(%{diagnosis: %{code: "invalid_session_state"}}),
     do: "Coop rejected the operation because the saved session is not in a state that allows it."
@@ -113,6 +118,17 @@ defmodule Responder.ControlPlane.FailurePage do
   def cause(_row),
     do:
       "The operation stopped before Responder could confirm it had finished. No recognized error explanation is available in the saved record."
+
+  def manual_repair?(%{kind: "retention", diagnosis: %{reason: :missing_ownership}}), do: true
+  def manual_repair?(_row), do: false
+
+  defp request_outcome(%{kind: "retention", request_state: :complete}),
+    do: "The request is complete. Only automatic cleanup failed."
+
+  defp request_outcome(%{kind: "retention", request_state: :cancelled}),
+    do: "The request was cancelled. Its automatic cleanup failed."
+
+  defp request_outcome(_row), do: nil
 
   defp next_step(%{summary: code}) when code in ~w(coop_unavailable coop_transport_error),
     do: "Restore the worker connection, then retry the interrupted step."
