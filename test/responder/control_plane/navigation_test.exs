@@ -56,6 +56,7 @@ defmodule Responder.ControlPlane.NavigationTest do
       render_component(&Layouts.static/1, title: "Retry delivery", body: "Retained action review")
 
     refute html =~ "app-breadcrumb"
+    refute html =~ "app-topbar"
     refute html =~ "Local operator"
     assert html =~ "Retained action review"
 

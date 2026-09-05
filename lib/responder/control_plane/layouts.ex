@@ -17,9 +17,9 @@ defmodule Responder.ControlPlane.Layouts do
         <div class="responder-app">
           <Navigation.sidebar path="" live={false} />
           <div class="app-workspace">
-            <header class="app-topbar">
-              <Navigation.mobile path="" live={false} /><a class="static-return" href="/">← Requests</a>
-            </header>
+            <div class="mobile-navigation">
+              <Navigation.mobile path="" live={false} />
+            </div>
             <main class="legacy-surface action-page">
               <div class="secondary-page">
                 <div class="secondary-page-title"><h1>{@title}</h1></div>{Phoenix.HTML.raw(@body)}

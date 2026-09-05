@@ -984,6 +984,13 @@ defmodule Responder.ControlPlane.RouterTest do
     assert confirm.status == 200
     assert confirm.resp_body =~ "Retry this delivery?"
     assert confirm.resp_body =~ "href=\"/failures\""
+    document = LazyHTML.from_document(confirm.resp_body)
+    assert LazyHTML.query(document, "h2") |> LazyHTML.to_tree() == []
+    assert LazyHTML.query(document, "a.button") |> LazyHTML.to_tree() == []
+
+    assert LazyHTML.query(document, "button.ui-button[type='submit']") |> LazyHTML.text() ==
+             "Confirm"
+
     refute_received {:rearmed_delivery, "delivery:one"}
     [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirm.resp_body)
 
