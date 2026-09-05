@@ -2,7 +2,7 @@ defmodule Responder.ControlPlane.UsagePageTest do
   use Responder.DataCase, async: false
   alias Responder.ControlPlane.{HTML, Projection}
 
-  test "usage leads with operator metrics and ends with optional methodology" do
+  test "usage shows all work by default without an execution ledger or generic methodology" do
     html = Projection.usage(%{}) |> HTML.usage() |> IO.iodata_to_binary()
 
     for label <- [
@@ -27,7 +27,94 @@ defmodule Responder.ControlPlane.UsagePageTest do
     refute html =~ "Coop profiles"
     refute html =~ "UTC · empty days"
     assert html =~ "id=\"cost-method\""
-    assert String.ends_with?(html, "</details></div>")
+    refute html =~ "Individual executions"
+    refute html =~ "Execution ledger"
+    refute html =~ "Each execution contributes one cost"
+    refute html =~ "Dates use UTC"
+    assert html =~ "Evaluations"
+    document = LazyHTML.from_document(html)
+
+    assert document |> LazyHTML.query(".usage-scope [aria-current=page]") |> LazyHTML.text() ==
+             "All work"
+  end
+
+  test "model and effort form one readable label and average model time is explicit" do
+    # Operators read 1.3m as a token count; the duration must name what it measures.
+    snapshot = Projection.usage(%{})
+
+    model =
+      Map.merge(snapshot.totals, %{
+        attempts: 1,
+        model: "gpt-5.6-sol",
+        effort: "high",
+        provider: "codex",
+        average_provider_ms: 78_000
+      })
+
+    html = %{snapshot | models: [model]} |> HTML.usage() |> IO.iodata_to_binary()
+    assert html =~ "gpt-5.6-sol/high"
+    assert html =~ "Avg. model time: 1m 18s"
+    refute html =~ "High effort"
+    refute html =~ "/ execution"
+  end
+
+  test "token pricing shows the actual rates used without repeating model efforts or generic caveats" do
+    snapshot = Projection.usage(%{})
+
+    totals =
+      Map.merge(snapshot.totals, %{
+        attempts: 3,
+        usage_measured: 3,
+        estimated: 2,
+        estimated_cost_usd: Decimal.new("1.25"),
+        costed: 1,
+        cost_usd: Decimal.new("0.50")
+      })
+
+    models =
+      Enum.map(~w(medium high), fn effort ->
+        Map.merge(totals, %{provider: "codex", model: "gpt-5.6-sol", effort: effort})
+      end)
+
+    document =
+      %{snapshot | totals: totals, models: models}
+      |> HTML.usage()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_document()
+
+    pricing = LazyHTML.query(document, "#cost-method")
+    assert LazyHTML.text(pricing) =~ "Estimated cost: $1.25 from 2 executions."
+    assert LazyHTML.text(pricing) =~ "Provider-reported cost: $0.50."
+    assert length(LazyHTML.query(pricing, "tbody tr") |> LazyHTML.to_tree()) == 1
+
+    assert LazyHTML.query(pricing, "tbody td")
+           |> LazyHTML.to_tree()
+           |> Enum.map(fn node -> LazyHTML.from_tree([node]) |> LazyHTML.text() end) == [
+             "gpt-5.6-sol",
+             "$4",
+             "$0.40",
+             "$20"
+           ]
+
+    assert LazyHTML.query(document, ".usage-summary .usage-cost") |> LazyHTML.text() =~ "$1.75"
+
+    assert LazyHTML.query(document, ".usage-page > .usage-metadata-gap") |> LazyHTML.to_tree() ==
+             []
+  end
+
+  test "missing reports link to affected requests instead of inventing an unknown model" do
+    # Four historical failures appeared as a model row with no useful measurements.
+    snapshot = Projection.usage(%{})
+    totals = %{snapshot.totals | attempts: 4}
+    model = Map.merge(totals, %{model: nil, effort: nil, provider: "unrecorded"})
+    html = %{snapshot | totals: totals, models: [model]} |> HTML.usage() |> IO.iodata_to_binary()
+    document = LazyHTML.from_document(html)
+    assert html =~ "4 executions have no token report"
+    assert html =~ "usage_measurement=missing"
+    assert html =~ "mode=all"
+    assert html =~ "4 executions without a saved model"
+    refute html =~ "Unknown model"
+    assert LazyHTML.query(document, "#usage-models tbody tr") |> LazyHTML.to_tree() == []
   end
 
   test "profiles are flat and missing metadata is not presented as a profile or work type" do

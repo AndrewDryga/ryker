@@ -1944,7 +1944,7 @@ defmodule Responder.ControlPlane.HTML do
   def configuration(rows), do: generic("Effective host configuration", rows)
 
   def usage(snapshot),
-    do: UsagePage.render(snapshot, usage_execution_list(snapshot))
+    do: UsagePage.render(snapshot)
 
   defp accounting_summary(nil), do: ""
 
@@ -1961,88 +1961,6 @@ defmodule Responder.ControlPlane.HTML do
       " execution requests · ",
       escape(coverage(totals.usage_measured, totals.attempts)),
       " with token telemetry<br><small>Includes admission and unsuccessful executions linked to this episode. Child-task cost and historical missing telemetry are not included. <a href=\"/usage#cost-method\">Cost method and estimate limits</a>.</small></p></section>"
-    ]
-  end
-
-  defp usage_execution_list(%{executions: executions} = snapshot) do
-    [
-      "<section><h2>Execution ledger</h2><p class=\"muted\">One cumulative snapshot per durable execution generation. Observing the same result twice does not add its cost twice.</p>",
-      table(
-        ["Execution", "Target", "Observed state", "Input / output counters", "Cost (USD)"],
-        Enum.map(executions.items, &usage_execution_row/1)
-      ),
-      "<nav aria-label=\"Execution pages\">",
-      Enum.map(
-        [
-          {executions.page > 1, "Previous", executions.page - 1},
-          {executions.more, "Next", executions.page + 1}
-        ],
-        fn {enabled, label, page} ->
-          if enabled,
-            do: [
-              "<a href=\"/usage?",
-              escape(
-                URI.encode_query(%{
-                  window: snapshot.window,
-                  mode: Map.get(snapshot, :mode, "live"),
-                  page: page
-                })
-              ),
-              "\">",
-              label,
-              "</a>"
-            ],
-            else: ""
-        end
-      ),
-      "</nav></section>"
-    ]
-  end
-
-  defp usage_execution_list(_snapshot), do: ""
-
-  defp usage_execution_row(row) do
-    label = if row.kind == "admission", do: "Admission", else: "Work"
-
-    [
-      "<tr><td>",
-      if(row.kind == "admission",
-        do: [
-          "<a href=\"/admission/",
-          escape(row.source_id),
-          "?generation=",
-          escape(row.generation),
-          "\">",
-          label,
-          " →</a>"
-        ],
-        else: label
-      ),
-      "<br><small>",
-      timestamp(row.recorded_at),
-      " · execution ",
-      escape(row.generation),
-      "</small></td><td>",
-      escape(row.execution_target || "Target not recorded"),
-      "</td><td>",
-      escape(row.status),
-      "</td><td>",
-      if(row.usage_recorded,
-        do: [
-          number(row.usage_input_tokens || 0),
-          " / ",
-          number(row.usage_output_tokens || 0)
-        ],
-        else: "Unknown"
-      ),
-      "</td><td>",
-      Pricing.amount(%{
-        cost_usd: row.usage_cost_usd,
-        costed: if(row.usage_cost_recorded, do: 1, else: 0),
-        estimated_cost_usd: row[:estimated_cost_usd],
-        estimated: if(row[:estimated_cost_usd], do: 1, else: 0)
-      }),
-      "</td></tr>"
     ]
   end
 

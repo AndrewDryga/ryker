@@ -1322,7 +1322,7 @@ defmodule Responder.ControlPlane.RouterTest do
     assert html =~ "claude:opus/high@work"
     assert html =~ "No repository"
     assert html =~ "Not measured"
-    assert html =~ "unpriced executions"
+    assert html =~ "1 execution has no token report"
     assert html =~ "$0.25"
     assert html =~ "Daily measured token trend"
     # Hover-only SVG titles left the shipped chart as unexplained green bars.
@@ -1335,7 +1335,8 @@ defmodule Responder.ControlPlane.RouterTest do
     assert shadow =~ "mode=shadow&amp;window=7d"
     refute shadow =~ "<h2>Measurement coverage"
     assert shadow =~ "Where the time went"
-    assert shadow =~ "How cost is calculated"
+    assert shadow =~ "Token pricing"
+    assert shadow =~ "Evaluation runs: replies and reactions are suppressed."
     # Scope defines every total, so it belongs above the figures, not inside
     # a footnote below two panels (and below both panels on narrow screens).
     {scope_at, _} = :binary.match(shadow, "Execution scope")

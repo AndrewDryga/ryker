@@ -14,6 +14,8 @@ defmodule Responder.Accounting.Pricing do
     "codex:gpt-5.6-luna" => {"0.20", "0.02", "1.20"}
   }
 
+  def rates, do: @rates
+
   def enrich(query) do
     estimate =
       Enum.reduce(@rates, dynamic([_], fragment("NULL::numeric")), fn {target,

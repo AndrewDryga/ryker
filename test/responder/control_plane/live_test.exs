@@ -170,7 +170,7 @@ defmodule Responder.ControlPlane.LiveTest do
     assert has_element?(goals, ".specimen-provenance", "not a captured engineering task")
   end
 
-  test "a populated usage ledger connects and links admission with a printable UUID" do
+  test "populated usage connects and refreshes without rendering the execution ledger" do
     # The production Usage page entered a rapid reconnect loop: the UNION
     # projection returned UUID bytes, which could not be JSON-encoded by LiveView.
     source = "099bf049-b7c2-4ead-969d-225ec7a3c6d2"
@@ -186,15 +186,14 @@ defmodule Responder.ControlPlane.LiveTest do
       recorded_at: DateTime.utc_now()
     })
 
-    [row] = Projection.usage(%{}).executions.items
-    assert row.source_id == source
+    assert Projection.usage(%{}).totals.attempts == 1
     {:ok, view, html} = live(build_conn() |> Map.put(:host, "localhost"), "/usage")
     assert String.valid?(html)
     assert {:ok, _json} = Jason.encode(html)
     assert has_element?(view, "[data-connection-state=connected]")
-    assert has_element?(view, "a[href='/admission/#{source}?generation=1']")
+    refute has_element?(view, "#execution-ledger")
     send(view.pid, :reconcile)
-    assert render(view) =~ source
+    refute render(view) =~ source
   end
 
   test "card selectors expose every specimen without burying the preview" do

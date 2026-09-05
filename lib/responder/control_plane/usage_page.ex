@@ -1,8 +1,9 @@
 defmodule Responder.ControlPlane.UsagePage do
   @moduledoc "Usage as an operator's ledger: totals, subscriptions, and the work behind them."
+  alias Responder.Accounting.Pricing
   alias Responder.ControlPlane.{SlackNames, UsageChart}
 
-  def render(snapshot, ledger) do
+  def render(snapshot) do
     totals = snapshot.totals
 
     [
@@ -21,7 +22,9 @@ defmodule Responder.ControlPlane.UsagePage do
       stat("Reasoning", compact(totals.reasoning_tokens)),
       "</div><div class=\"usage-token-group usage-cache\">",
       stat("Cache hit rate", percent(totals.cache_hit_rate)),
-      "</div></div></section><div class=\"usage-charts\"><section class=\"usage-trend-panel\"><h2>Daily tokens</h2>",
+      "</div></div></section>",
+      measurement_gap(snapshot),
+      "<div class=\"usage-charts\"><section class=\"usage-trend-panel\"><h2>Daily tokens</h2>",
       UsageChart.render(snapshot.days),
       "</section><section class=\"usage-timing-panel\"><h2>Where the time went</h2>",
       timing(totals),
@@ -38,16 +41,13 @@ defmodule Responder.ControlPlane.UsagePage do
       section("By repository", "repositories", snapshot.repositories, snapshot, :repository),
       section("By work type", "work-types", Map.get(snapshot, :kinds, []), snapshot, :kind),
       section("By person", "people", Map.get(snapshot, :users, []), snapshot, :person),
-      "<details class=\"execution-ledger-disclosure\" id=\"execution-ledger\"><summary>Individual executions</summary>",
-      ledger,
-      "</details>",
-      methodology(totals),
+      methodology(snapshot),
       "</div>"
     ]
   end
 
   defp filters(snapshot) do
-    mode = Map.get(snapshot, :mode, "live")
+    mode = Map.get(snapshot, :mode, "all")
 
     [
       "<div class=\"usage-filters\"><nav class=\"windows\" aria-label=\"Usage window\">",
@@ -55,11 +55,16 @@ defmodule Responder.ControlPlane.UsagePage do
         filter_link(%{window: window, mode: mode}, window, window == snapshot.window)
       end),
       "</nav><nav class=\"windows usage-scope\" aria-label=\"Execution scope\">",
-      Enum.map([{"live", "Live work"}, {"shadow", "Shadow"}, {"all", "All work"}], fn {scope,
-                                                                                       label} ->
+      Enum.map([{"all", "All work"}, {"live", "Live work"}, {"shadow", "Evaluations"}], fn {scope,
+                                                                                            label} ->
         filter_link(%{window: snapshot.window, mode: scope}, label, scope == mode)
       end),
-      "</nav></div>"
+      "</nav></div>",
+      if(mode == "shadow",
+        do:
+          "<p class=\"usage-scope-description\">Evaluation runs: replies and reactions are suppressed.</p>",
+        else: ""
+      )
     ]
   end
 
@@ -153,7 +158,7 @@ defmodule Responder.ControlPlane.UsagePage do
       secondary(tokens(row, :reasoning_tokens) <> " reasoning"),
       "</td><td>",
       primary(percent(Map.get(row, :cache_hit_rate)), " cache"),
-      secondary(duration(Map.get(row, :average_provider_ms)) <> " / execution"),
+      secondary("Avg. model time: " <> elapsed(Map.get(row, :average_provider_ms))),
       "</td><td class=\"usage-money\">",
       e(money(row)),
       "</td></tr>"
@@ -173,14 +178,26 @@ defmodule Responder.ControlPlane.UsagePage do
     do: row.work_kind not in ~w(admission conversational standard deep)
 
   defp missing_identity?(row, :person), do: is_nil(row.actor)
+
+  defp missing_identity?(row, :model),
+    do: is_nil(row.model) or (Map.has_key?(row, :target) and is_nil(row.target))
+
   defp missing_identity?(_, _), do: false
 
   defp missing_group(row, snapshot, kind) do
     {label, params} =
       case kind do
-        :profile -> {"profile", %{profile: "", provider: row.provider}}
-        :kind -> {"work type", %{work_kind: row.work_kind}}
-        :person -> {"person", %{actor: "", workspace: row.workspace, source: row.source}}
+        :profile ->
+          {"profile", %{profile: "", provider: row.provider}}
+
+        :kind ->
+          {"work type", %{work_kind: row.work_kind}}
+
+        :person ->
+          {"person", %{actor: "", workspace: row.workspace, source: row.source}}
+
+        :model ->
+          {"model", %{model: row.model, provider: row.provider, effort: Map.get(row, :effort)}}
       end
 
     count = number(row.attempts) <> if(row.attempts == 1, do: " execution", else: " executions")
@@ -211,19 +228,11 @@ defmodule Responder.ControlPlane.UsagePage do
 
     [
       entity_link(
-        if(params[:target] == nil and Map.has_key?(params, :target),
-          do: "Unknown model",
-          else: row.model || "Unknown model"
-        ),
+        Enum.join(Enum.reject([row.model, Map.get(row, :effort)], &is_nil/1), "/"),
         params,
         snapshot
       ),
-      secondary(
-        Enum.join(
-          Enum.reject([row.provider, effort_name(Map.get(row, :effort))], &is_nil/1),
-          " · "
-        )
-      )
+      secondary(row.provider || "Provider not saved")
     ]
   end
 
@@ -260,7 +269,7 @@ defmodule Responder.ControlPlane.UsagePage do
     params =
       Map.new(params, fn {k, v} -> {"usage_#{k}", v || ""} end)
       |> Map.merge(%{
-        "mode" => Map.get(snapshot, :mode, "live"),
+        "mode" => Map.get(snapshot, :mode, "all"),
         "usage_window" => snapshot.window
       })
 
@@ -285,10 +294,6 @@ defmodule Responder.ControlPlane.UsagePage do
   defp kind_name("conversational"), do: "Conversation"
   defp kind_name("standard"), do: "Standard work"
   defp kind_name("deep"), do: "Deep work"
-
-  defp effort_name(nil), do: "Effort not saved"
-  defp effort_name("xhigh"), do: "Extra high effort"
-  defp effort_name(effort), do: String.capitalize(effort) <> " effort"
 
   defp channel(%{transport: "slack", conversation_ref: ref}) do
     SlackNames.destination(if String.starts_with?(ref, "slack:"), do: ref, else: "slack:" <> ref)
@@ -362,29 +367,93 @@ defmodule Responder.ControlPlane.UsagePage do
     end
   end
 
-  defp methodology(totals) do
+  defp measurement_gap(snapshot) do
+    missing = snapshot.totals.attempts - snapshot.totals.usage_measured
+
+    if missing > 0 do
+      label = number(missing) <> if(missing == 1, do: " execution has", else: " executions have")
+
+      [
+        "<p class=\"usage-metadata-gap\">",
+        entity_link(label <> " no token report", %{measurement: "missing"}, snapshot),
+        "</p>"
+      ]
+    else
+      ""
+    end
+  end
+
+  defp methodology(snapshot) do
+    totals = snapshot.totals
+    rates = Pricing.rates()
+
+    models =
+      Map.get(snapshot, :models, snapshot.targets)
+      |> Enum.filter(&(value(&1, :estimated) > 0))
+      |> Enum.uniq_by(&{&1.provider, &1.model})
+
     [
-      "<details class=\"measurement-notes\" id=\"cost-method\"><summary>How cost is calculated</summary>",
-      "<p>Each execution contributes one cost: the provider-reported amount when available, otherwise a token-priced estimate. Subscription profiles show comparative API-equivalent usage, not subscription charges or remaining quota.</p>",
-      "<p>Estimates use the built-in standard-context rate card for Codex Sol, Terra and Luna. Fresh input, cache reads and output are priced separately. Reasoning is included in output and is not added again. Provider-specific fees, long-context rates and child-task spend are not reconstructed from aggregate counters.</p>",
-      "<p>",
-      number(totals.costed),
-      " provider-priced · ",
-      number(value(totals, :estimated)),
-      " estimated · ",
-      number(max(totals.attempts - totals.costed - value(totals, :estimated), 0)),
-      " unpriced executions. Unpriced activity is excluded from cost, not treated as free.</p>",
-      "<p>",
-      number(totals.usage_measured),
-      " of ",
-      number(totals.attempts),
-      " executions have token measurements; ",
-      number(totals.timed),
-      " have timing; ",
-      number(totals.measurement_errors),
-      " measurement errors. Profile attribution uses the retained execution target, not the current configuration. Missing or ambiguous credentials remain unattributed.</p>",
-      "<p>Dates use UTC. Episode counts are distinct within each group; an episode using several models or profiles appears in each relevant group. Overall episode counts are deduplicated.</p></details>"
+      "<details class=\"measurement-notes\" id=\"cost-method\"><summary>Token pricing</summary>",
+      if(value(totals, :estimated) > 0,
+        do: [
+          "<p>Estimated cost: <strong>",
+          e(money(%{totals | costed: 0, cost_usd: Decimal.new(0)})),
+          "</strong> from ",
+          number(totals.estimated),
+          " executions.</p>"
+        ],
+        else: ""
+      ),
+      if(value(totals, :costed) > 0,
+        do: [
+          "<p>Provider-reported cost: <strong>",
+          e(money(Map.merge(totals, %{estimated: 0, estimated_cost_usd: Decimal.new(0)}))),
+          "</strong>.</p>"
+        ],
+        else: ""
+      ),
+      if(models != [],
+        do: [
+          "<div class=\"table-wrap\"><table class=\"usage-pricing-table\"><thead><tr><th>Model</th><th>Fresh input</th><th>Cache reads</th><th>Output</th></tr></thead><tbody>",
+          Enum.map(models, fn row ->
+            case rates["#{row.provider}:#{row.model}"] do
+              {input, cached, output} ->
+                [
+                  "<tr><td>",
+                  e(row.model),
+                  "</td><td>$",
+                  e(input),
+                  "</td><td>$",
+                  e(cached),
+                  "</td><td>$",
+                  e(output),
+                  "</td></tr>"
+                ]
+
+              nil ->
+                ""
+            end
+          end),
+          "</tbody></table></div><p>Prices per 1M tokens. Estimates compare usage at API prices, not subscription invoices.</p>"
+        ],
+        else: ""
+      ),
+      "</details>"
     ]
+  end
+
+  defp elapsed(nil), do: "—"
+  defp elapsed(ms) when ms < 60_000, do: decimal(ms / 1000) <> "s"
+
+  defp elapsed(ms) do
+    seconds = round(ms / 1000)
+    hours = div(seconds, 3600)
+    minutes = div(rem(seconds, 3600), 60)
+    rest = rem(seconds, 60)
+
+    [{hours, "h"}, {minutes, "m"}, {rest, "s"}]
+    |> Enum.reject(fn {count, _} -> count == 0 end)
+    |> Enum.map_join(" ", fn {count, unit} -> "#{count}#{unit}" end)
   end
 
   defp value(row, key), do: Map.get(row, key) || 0
