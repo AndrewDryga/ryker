@@ -79,15 +79,10 @@ async function interactions(page) {
   await page.waitForURL('**/working-validation');
   await page.locator('.specimen-provenance summary').click();
   await page.locator('.specimen-provenance details[open]').waitFor();
-  await page.locator('#live-controls > summary').click();
-  await page.locator('button[phx-click="refresh"]').click();
-  await page.locator('button[phx-click="toggle-live"]').click();
-  await page.locator('button[phx-click="toggle-live"][aria-pressed="true"]').waitFor();
-  // Pause's acknowledged DOM patch follows Refresh on the same LiveView
-  // channel. Do not inspect the already-open details before Refresh completes.
+  const updatedAt = await page.locator('#responder-shell').getAttribute('data-updated-at');
+  await page.waitForFunction(previous => document.querySelector('#responder-shell')?.dataset.updatedAt !== previous, updatedAt, {timeout: 12000});
+  // The automatic projection update must preserve the open disclosure.
   await page.locator('.specimen-provenance details[open]').waitFor();
-  await page.locator('button[phx-click="toggle-live"]').click();
-  await page.locator('button[phx-click="toggle-live"][aria-pressed="false"]').waitFor();
   await page.locator('a', {hasText: 'Block Kit payload'}).click();
   await page.locator('.specimen-payload').waitFor();
   await page.screenshot({path: path.join(output, 'interaction-payload.png')});

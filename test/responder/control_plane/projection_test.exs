@@ -4,6 +4,8 @@ defmodule Responder.ControlPlane.ProjectionTest do
   import Ecto.Query
 
   alias Responder.CanonicalJSON
+  alias Responder.ControlPlane.Activity
+  alias Responder.ControlPlane.HTML
   alias Responder.ControlPlane.Projection
   alias Responder.CoopFleet.{Event, Placement, Worker}
   alias Responder.Delivery.PlatformActionCustody
@@ -553,6 +555,88 @@ defmodule Responder.ControlPlane.ProjectionTest do
 
     assert [%{attempts: 2, costed: 1, estimated: 1}] = snapshot.targets
     assert Enum.reduce(snapshot.channels, 0, &(&1.attempts + &2)) == 2
+  end
+
+  # Subscription use disappeared behind model labels; reasoning was also added
+  # twice to the headline and every breakdown despite being part of output.
+  test "usage attributes concrete profiles and counts reasoning only within output" do
+    now = DateTime.utc_now()
+    measured_turn!("profile-a", "codex:gpt-5.6-sol/medium@emisar", now)
+    measured_turn!("profile-b", "codex:gpt-5.6-terra/medium@emisar", now)
+    measured_turn!("profile-c", "codex:gpt-5.6-sol/medium@personal", now)
+    measured_turn!("profile-unknown", "codex:gpt-5.6-sol/medium", now, false)
+
+    snapshot = Projection.usage(%{"window" => "24h"})
+    assert snapshot.totals.tokens == 6_900
+    assert snapshot.totals.episodes == 4
+    assert snapshot.totals.reasoning_tokens == 75
+    assert Enum.sum(Enum.map(snapshot.days, & &1.tokens)) == 6_900
+    assert Enum.sum(Enum.map(snapshot.channels, & &1.tokens)) == 6_900
+    assert Enum.sum(Enum.map(snapshot.repositories, & &1.tokens)) == 6_900
+    assert Enum.sum(Enum.map(snapshot.kinds, & &1.tokens)) == 6_900
+    assert Enum.sum(Enum.map(snapshot.profiles, & &1.tokens)) == 6_900
+
+    emisar = Enum.find(snapshot.profiles, &(&1.profile == "emisar"))
+    assert emisar.provider == "codex"
+    assert emisar.attempts == 2
+    assert emisar.episodes == 2
+    assert emisar.input_tokens == 2_400
+    assert emisar.cached_input_tokens == 1_600
+    assert emisar.output_tokens == 600
+    assert emisar.cache_hit_rate == 0.4
+    assert Decimal.equal?(emisar.cost_usd, Decimal.new("0.025"))
+    assert length(emisar.models) == 2
+    assert Enum.find(snapshot.profiles, &is_nil(&1.profile)).usage_measured == 0
+
+    assert Activity.list(%{
+             "usage_profile" => "emisar",
+             "usage_provider" => "codex",
+             "usage_window" => "24h"
+           }).total == 2
+
+    assert Activity.list(%{
+             "usage_profile" => "personal",
+             "usage_provider" => "codex"
+           }).total == 1
+
+    assert Activity.list(%{
+             "usage_profile" => "emisar",
+             "usage_provider" => "claude"
+           }).total == 0
+
+    assert Activity.list(%{
+             "usage_profile" => "",
+             "usage_provider" => "codex"
+           }).total == 1
+  end
+
+  test "profile attribution never guesses a credential from an account ladder" do
+    measured_turn!("profile-ladder", "codex:gpt-5.6-sol/medium@work,personal", DateTime.utc_now())
+    snapshot = Projection.usage(%{"window" => "24h"})
+    assert [%{profile: nil, attempts: 1}] = snapshot.profiles
+    assert Activity.list(%{"usage_profile" => %{"unexpected" => "nested query"}}).total == 0
+    assert Activity.list(%{"usage_profile" => String.duplicate("x", 513)}).total == 0
+    assert Activity.list(%{"usage_profile" => "", "usage_window" => "all"}).total == 1
+    assert Activity.list(%{"usage_profile" => "", "usage_window" => "30d"}).total == 1
+  end
+
+  test "unattributed profile model links find executions whose target was never recorded" do
+    # Unknown targets previously linked to the nonexistent literal model "default".
+    measured_turn!("missing-target", nil, DateTime.utc_now())
+    measured_turn!("known-target", "codex:gpt-5.6-sol/medium@emisar", DateTime.utc_now())
+
+    html = Projection.usage(%{}) |> HTML.usage() |> IO.iodata_to_binary()
+    document = LazyHTML.from_document(html)
+
+    params =
+      document
+      |> LazyHTML.query(".usage-profile-models a")
+      |> LazyHTML.attribute("href")
+      |> Enum.map(&(URI.parse(&1).query |> URI.decode_query()))
+      |> Enum.find(fn params -> params["usage_target"] == "" end)
+
+    assert params, "The unknown target must use the nullable target filter"
+    assert Activity.list(params).total == 1
   end
 
   test "audit request links encode the exact opaque episode key" do

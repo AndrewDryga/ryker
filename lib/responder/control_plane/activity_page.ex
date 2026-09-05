@@ -1,6 +1,7 @@
 defmodule Responder.ControlPlane.ActivityPage do
   alias Responder.ControlPlane.SlackMarkdown
   alias Responder.ControlPlane.SlackNames
+  alias Responder.ControlPlane.UsageProjection
   @moduledoc "The conversation-first activity inbox."
   use Phoenix.Component
   import Responder.ControlPlane.Components
@@ -29,6 +30,11 @@ defmodule Responder.ControlPlane.ActivityPage do
           <a href="/failures"><b>{Map.get(@overview.counts, :blocked, 0)}</b>
           blocked <.icon name={:arrow} /></a>
           <a class="pulse-usage" href="/usage">Usage & cost <.icon name={:arrow} /></a>
+        </div>
+        <div :if={UsageProjection.filtered?(@params)} class="usage-drilldown">
+          <span>Requests from the selected usage group</span>
+          <a href={"/usage?" <> URI.encode_query(%{window: UsageProjection.window(@params["usage_window"]), mode: @activity.mode})}>Back to Usage</a>
+          <.link patch={@path}>Clear filter</.link>
         </div>
         <section class="activity-inbox" aria-label="Requests">
           <div class="inbox-toolbar">
@@ -171,7 +177,13 @@ defmodule Responder.ControlPlane.ActivityPage do
       path <>
         "?" <>
         URI.encode_query(
-          Map.merge(Map.take(params, ~w(q mode target repository state)), %{"filter" => filter})
+          Map.merge(
+            Map.take(
+              UsageProjection.link_params(params),
+              ~w(q mode target repository state) ++ UsageProjection.filter_keys()
+            ),
+            %{"filter" => filter}
+          )
         )
 
   defp page_path(path, params, page),
@@ -179,13 +191,20 @@ defmodule Responder.ControlPlane.ActivityPage do
       path <>
         "?" <>
         URI.encode_query(
-          Map.put(Map.take(params, ~w(q mode filter target repository state)), "page", page)
+          Map.put(
+            Map.take(
+              UsageProjection.link_params(params),
+              ~w(q mode filter target repository state) ++ UsageProjection.filter_keys()
+            ),
+            "page",
+            page
+          )
         )
 
   defp filtered?(params),
     do:
       Enum.any?(~w(q target repository state), &(params[&1] not in [nil, ""])) or
-        params["filter"] not in [nil, "all"]
+        params["filter"] not in [nil, "all"] or UsageProjection.filtered?(params)
 
   defp worker_attention?(%{fleet: %{unavailable: true}}), do: true
   defp worker_attention?(%{fleet: %{required: true, eligible_workers: 0}}), do: true

@@ -2,7 +2,7 @@ defmodule Responder.ControlPlane.HTML do
   alias Responder.Accounting.Pricing
   alias Responder.ControlPlane.Components
   alias Responder.ControlPlane.SlackNames
-  alias Responder.ControlPlane.UsageChart
+  alias Responder.ControlPlane.UsagePage
   @moduledoc false
 
   @native_slack_path Path.expand("../../../priv/static/native-slack.css", __DIR__)
@@ -1943,190 +1943,8 @@ defmodule Responder.ControlPlane.HTML do
 
   def configuration(rows), do: generic("Effective host configuration", rows)
 
-  def usage(%{totals: totals} = snapshot) do
-    target_rows =
-      Enum.map(snapshot.targets, fn row ->
-        target = row.target || "unrecorded"
-
-        target_cell =
-          if row.target do
-            [
-              "<a href=\"/episodes?",
-              escape(
-                URI.encode_query(%{
-                  "target" => row.target,
-                  "mode" => Map.get(snapshot, :mode, "live")
-                })
-              ),
-              "\">",
-              escape(target),
-              "</a>"
-            ]
-          else
-            escape(target)
-          end
-
-        [
-          "<tr><td>",
-          target_cell,
-          "</td><td>",
-          escape(row.provider),
-          "</td><td>",
-          escape(row.model),
-          "</td><td>",
-          escape(row.effort),
-          "</td><td>",
-          integer(row.attempts),
-          "</td><td>",
-          coverage(row.measured, row.attempts),
-          "</td><td>",
-          number(row.tokens),
-          "</td><td>",
-          Pricing.amount(row),
-          "</td></tr>"
-        ]
-      end)
-
-    channel_rows =
-      Enum.map(snapshot.channels, fn row ->
-        label = usage_channel_label(row)
-
-        [
-          "<tr><td><a title=\"",
-          escape(row.conversation_ref),
-          "\" href=\"/episodes?",
-          escape(
-            URI.encode_query(%{
-              "q" => row.conversation_ref,
-              "mode" => Map.get(snapshot, :mode, "live")
-            })
-          ),
-          "\">",
-          escape(label),
-          "</a></td><td>",
-          integer(row.attempts),
-          "</td><td>",
-          coverage(row.measured, row.attempts),
-          "</td><td>",
-          number(row.tokens),
-          "</td><td>",
-          Pricing.amount(row),
-          "</td></tr>"
-        ]
-      end)
-
-    repository_rows =
-      Enum.map(snapshot.repositories, fn row ->
-        label = row.repository_ref || "no repository"
-
-        repository_cell =
-          if row.repository_ref do
-            [
-              "<a href=\"/episodes?",
-              escape(
-                URI.encode_query(%{
-                  "repository" => row.repository_ref,
-                  "mode" => Map.get(snapshot, :mode, "live")
-                })
-              ),
-              "\">",
-              escape(label),
-              "</a>"
-            ]
-          else
-            escape(label)
-          end
-
-        [
-          "<tr><td>",
-          repository_cell,
-          "</td><td>",
-          integer(row.attempts),
-          "</td><td>",
-          coverage(row.measured, row.attempts),
-          "</td><td>",
-          number(row.tokens),
-          "</td><td>",
-          Pricing.amount(row),
-          "</td></tr>"
-        ]
-      end)
-
-    [
-      "<div class=\"usage-filters\"><nav class=\"windows\" aria-label=\"Usage window\"><span>Period</span>",
-      Enum.map(~w(24h 7d 30d all), fn window ->
-        [
-          "<a href=\"/usage?",
-          escape(URI.encode_query(%{window: window, mode: Map.get(snapshot, :mode, "live")})),
-          "\"",
-          if(window == snapshot.window, do: " aria-current=\"page\"", else: ""),
-          ">",
-          window,
-          "</a>"
-        ]
-      end),
-      "</nav>",
-      usage_scope(snapshot),
-      "</div><section class=\"metrics\">",
-      metric("Execution requests", totals.attempts),
-      metric("Provider measured", coverage(totals.usage_measured, totals.attempts)),
-      metric(
-        Pricing.label(totals),
-        Pricing.amount(totals)
-      ),
-      metric("Input tokens reported", number(totals.input_tokens)),
-      "</section><section class=\"usage-chart-panel\"><h2>Daily token trend</h2>",
-      token_trend(snapshot.days),
-      "</section><div class=\"usage-details\"><section aria-labelledby=\"usage-coverage\"><h2 id=\"usage-coverage\">Measurement coverage</h2><p class=\"muted\">Which requests and token dimensions were recorded.</p>",
-      definition_list([
-        {"Admission executions", Map.get(totals, :admission, "not recorded")},
-        {"Work executions", Map.get(totals, :work, "not recorded")},
-        {"Unsuccessful remote executions", Map.get(totals, :unsuccessful, "not recorded")},
-        {"Cached input counter", number(totals.cached_input_tokens)},
-        {"Output counter", number(totals.output_tokens)},
-        {"Reasoning counter", number(totals.reasoning_tokens)},
-        {"Cache hit rate", percent(totals.cache_hit_rate)},
-        {"Measurement errors", totals.measurement_errors}
-      ]),
-      "</section><section aria-labelledby=\"usage-timing\"><h2 id=\"usage-timing\">Where the time went</h2><p class=\"muted\">Execution includes model startup and tools, not just inference.</p>",
-      definition_list([
-        {"Timed requests", coverage(totals.timed, totals.attempts)},
-        {"Average queued", duration(totals.average_queued_ms)},
-        {"Average execution", duration(totals.average_provider_ms)},
-        {"Average host observation", duration(totals.average_host_ms)}
-      ]),
-      "</section></div><details class=\"measurement-notes\" id=\"cost-method\"><summary>How cost is calculated · coverage and limits</summary><p>Provider-reported charges take precedence. ≈ marks totals that include API-equivalent estimates for Codex Sol, Terra and Luna, using <a href=\"https://developers.openai.com/api/docs/pricing\">standard-context API rates</a> verified 5 September 2026. These are comparative estimates, not your ChatGPT subscription bill. Long-context multipliers, cache-write premiums, service tiers and tool fees cannot be recovered from aggregate turn counters and are excluded.</p><p>",
-      integer(Map.get(totals, :estimated, 0)),
-      " estimated · ",
-      integer(totals.costed),
-      " provider-priced · ",
-      integer(totals.attempts - totals.costed - Map.get(totals, :estimated, 0)),
-      " unpriced requests. Missing telemetry and unknown models remain unpriced, not zero. A turn may contain multiple provider calls; child-task attribution is not yet available. Codex output includes reasoning, so reasoning is not priced twice.</p></details><section><h2>Models used</h2>",
-      table(
-        [
-          "Target",
-          "Provider",
-          "Model",
-          "Effort",
-          "Attempts",
-          "Measured",
-          "Tokens",
-          "Cost (USD)"
-        ],
-        target_rows
-      ),
-      "</section><section><h2>Channels & conversations</h2>",
-      table(["Destination", "Attempts", "Measured", "Tokens", "Cost (USD)"], channel_rows),
-      "</section><section><h2>People using Responder</h2><p>Attributed to the exact triggering input, not the first person in a conversation. Unlinked and automated work remains unattributed.</p>",
-      usage_user_table(Map.get(snapshot, :users, [])),
-      "</section><section><h2>Repositories</h2>",
-      table(["Repository", "Attempts", "Measured", "Tokens", "Cost (USD)"], repository_rows),
-      "</section>",
-      "<details class=\"execution-ledger-disclosure\" id=\"execution-ledger\"><summary>Inspect individual executions</summary>",
-      usage_execution_list(snapshot),
-      "</details>"
-    ]
-  end
+  def usage(snapshot),
+    do: UsagePage.render(snapshot, usage_execution_list(snapshot))
 
   defp accounting_summary(nil), do: ""
 
@@ -2143,26 +1961,6 @@ defmodule Responder.ControlPlane.HTML do
       " execution requests · ",
       escape(coverage(totals.usage_measured, totals.attempts)),
       " with token telemetry<br><small>Includes admission and unsuccessful executions linked to this episode. Child-task cost and historical missing telemetry are not included. <a href=\"/usage#cost-method\">Cost method and estimate limits</a>.</small></p></section>"
-    ]
-  end
-
-  defp usage_scope(snapshot) do
-    mode = Map.get(snapshot, :mode, "live")
-
-    [
-      "<nav class=\"windows\" aria-label=\"Execution scope\"><span>Traffic</span>",
-      Enum.map(~w(live shadow all), fn scope ->
-        [
-          "<a href=\"/usage?",
-          escape(URI.encode_query(%{window: snapshot.window, mode: scope})),
-          "\"",
-          if(mode == scope, do: " aria-current=\"page\"", else: ""),
-          ">",
-          escape(scope),
-          "</a>"
-        ]
-      end),
-      "</nav>"
     ]
   end
 
@@ -2202,44 +2000,6 @@ defmodule Responder.ControlPlane.HTML do
   end
 
   defp usage_execution_list(_snapshot), do: ""
-
-  defp usage_channel_label(%{transport: "slack", conversation_ref: ref}) do
-    destination = if String.starts_with?(ref, "slack:"), do: ref, else: "slack:" <> ref
-    SlackNames.destination(destination)
-  end
-
-  defp usage_channel_label(%{transport: "control_plane"}), do: "Conversation Lab"
-
-  defp usage_channel_label(row), do: "#{row.transport}:#{row.conversation_ref}"
-
-  defp usage_user_name(%{actor: nil}), do: "Unattributed / automated"
-  defp usage_user_name(%{actor: "local-operator"}), do: "You · Conversation Lab"
-
-  defp usage_user_name(%{source: "slack", actor: actor, workspace: workspace}),
-    do: SlackNames.name(workspace, actor)
-
-  defp usage_user_name(%{actor: actor}), do: actor
-
-  defp usage_user_table(rows) do
-    table(
-      ["Person", "Requests", "Measured", "Cost (USD)"],
-      Enum.map(rows, fn row ->
-        [
-          "<tr><td title=\"",
-          escape(row.actor),
-          "\">",
-          escape(usage_user_name(row)),
-          "</td><td>",
-          integer(row.attempts),
-          "</td><td>",
-          coverage(row.measured, row.attempts),
-          "</td><td>",
-          Pricing.amount(row),
-          "</td></tr>"
-        ]
-      end)
-    )
-  end
 
   defp usage_execution_row(row) do
     label = if row.kind == "admission", do: "Admission", else: "Work"
@@ -2727,16 +2487,6 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  defp metric(label, value) do
-    [
-      "<article class=\"metric\"><strong>",
-      escape(value),
-      "</strong><span>",
-      escape(label),
-      "</span></article>"
-    ]
-  end
-
   defp workbench_intro(title, description) do
     [
       "<section class=\"page-description\"><h2>",
@@ -3005,8 +2755,6 @@ defmodule Responder.ControlPlane.HTML do
     table(["Worker", "State", "Advertised revision", "Last seen"], rows)
   end
 
-  defp token_trend(days), do: UsageChart.render(days)
-
   defp definition_list(rows) do
     [
       "<dl>",
@@ -3076,9 +2824,6 @@ defmodule Responder.ControlPlane.HTML do
 
   defp coverage(_measured, 0), do: "0 of 0"
   defp coverage(measured, attempts), do: "#{measured} of #{attempts}"
-
-  defp percent(nil), do: "unmeasured"
-  defp percent(value), do: :erlang.float_to_binary(value * 100, decimals: 1) <> "%"
 
   defp duration(nil), do: "unmeasured"
 

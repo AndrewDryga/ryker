@@ -1,7 +1,7 @@
 defmodule Responder.ControlPlane.Activity do
   @moduledoc "A bounded conversation-first inbox, including work not yet admitted."
   import Ecto.Query
-  alias Responder.ControlPlane.{CurrentInputs, InspectionRedactor}
+  alias Responder.ControlPlane.{CurrentInputs, InspectionRedactor, UsageProjection}
   alias Responder.Episodes.Episode
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
@@ -24,7 +24,13 @@ defmodule Responder.ControlPlane.Activity do
     page = page(params["page"])
     query = from(row in subquery(rows()))
     query = if mode == "all", do: query, else: from(row in query, where: row.mode == ^mode)
-    query = filter(query, params["filter"]) |> legacy_filters(params) |> search(params["q"])
+
+    query =
+      filter(query, params["filter"])
+      |> legacy_filters(params)
+      |> UsageProjection.filter_activity(params)
+      |> search(params["q"])
+
     total = Repo.aggregate(query, :count)
     pages = max(1, ceil(total / @page_size))
     page = min(page, pages)

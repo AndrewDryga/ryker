@@ -711,7 +711,7 @@ defmodule Responder.ControlPlane.Router do
   defp route(%Plug.Conn{method: "GET", path_info: ["usage"]} = conn, options) do
     conn = fetch_query_params(conn)
     snapshot = options.projection.usage.(Map.take(conn.query_params, ["window", "mode", "page"]))
-    html(conn, 200, "Usage and timing", HTML.usage(snapshot))
+    html(conn, 200, "Usage & cost", HTML.usage(snapshot))
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["failures"]} = conn, options) do

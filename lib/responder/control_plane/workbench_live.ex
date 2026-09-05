@@ -13,7 +13,8 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     Navigation,
     RequestPage,
     Router,
-    Updates
+    Updates,
+    UsageProjection
   }
 
   @impl true
@@ -35,7 +36,6 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        unavailable: false,
        refresh_token: nil,
        refresh_failures: 0,
-       paused: false,
        observed_at: nil,
        domain: nil,
        native: nil,
@@ -108,13 +108,11 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   def handle_info({:refresh_projection, token}, socket) do
     if token == socket.assigns.refresh_token do
       socket = assign(socket, :refresh_token, nil)
-      {:noreply, if(socket.assigns.paused, do: socket, else: refresh(socket))}
+      {:noreply, refresh(socket)}
     else
       {:noreply, socket}
     end
   end
-
-  defp queue_refresh(%{assigns: %{paused: true}} = socket), do: socket
 
   defp queue_refresh(%{assigns: %{refresh_token: token}} = socket) when not is_nil(token),
     do: socket
@@ -132,19 +130,18 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   end
 
   @impl true
-  def handle_event("toggle-live", _params, socket) do
-    socket = assign(socket, :paused, not socket.assigns.paused)
-    {:noreply, if(socket.assigns.paused, do: socket, else: refresh(socket))}
-  end
-
   def handle_event(event, _params, socket) when event in ["refresh", "show-new"],
     do: {:noreply, refresh(socket, true)}
 
   def handle_event("search-activity", params, socket) do
     params =
       Map.merge(
-        Map.take(socket.assigns.params, ~w(filter target repository state)),
-        Map.take(params, ~w(q mode))
+        Map.take(
+          UsageProjection.link_params(socket.assigns.params),
+          ~w(filter target repository state) ++
+            UsageProjection.filter_keys()
+        ),
+        Map.take(UsageProjection.link_params(params), ~w(q mode))
       )
 
     {:noreply,
@@ -421,38 +418,21 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="responder-app" id="responder-shell" phx-hook="PreserveReadingState">
+    <div
+      class="responder-app"
+      id="responder-shell"
+      phx-hook="PreserveReadingState"
+      data-connection-state={if @connected, do: "connected", else: "connecting"}
+      data-updated-at={if @observed_at, do: DateTime.to_iso8601(@observed_at)}
+    >
       <Navigation.sidebar path={@path} live={true} />
       <div class="app-workspace">
-        <header class="app-topbar">
+        <div class="mobile-navigation">
           <Navigation.mobile path={@path} live={true} />
-          <div
-            class="app-live"
-            id="live-status"
-            data-connection-state={if @connected, do: "connected", else: "connecting"}
-          >
-            <span class="connection-offline" role="status">Disconnected · reconnecting</span>
-            <span class="connection-online" role="status">{cond do
-              @unavailable -> "Data unavailable"
-              @paused -> "Updates paused"
-              @connected -> "Live"
-              true -> "Connecting"
-            end}</span>
-            <details class="live-controls" id="live-controls">
-              <summary aria-label="Live update controls">···</summary>
-              <div class="live-controls-menu">
-                <span class="view-freshness">Last updated
-                <time>{if @observed_at,
-                  do: Calendar.strftime(@observed_at, "%H:%M:%S UTC"),
-                  else: "not yet"}</time></span>
-                <button type="button" phx-click="toggle-live" aria-pressed={to_string(@paused)}>{if @paused,
-                  do: "Resume",
-                  else: "Pause"}</button>
-                <button type="button" phx-click="refresh">Refresh</button>
-              </div>
-            </details>
-          </div>
-        </header>
+        </div>
+        <div class="connection-offline app-warning" role="status">
+          Reconnecting… Your view will update automatically.
+        </div>
         <div :if={@unavailable} class="app-warning" role="status">
           This view could not refresh. Showing the last observed state; execution continues independently.
           <button phx-click="refresh">Try again</button>

@@ -1151,8 +1151,8 @@ defmodule Responder.ControlPlane.RouterTest do
 
     usage = request(:get, "/usage?window=24h")
     assert usage.status == 200
-    assert usage.resp_body =~ "Usage and timing"
-    assert usage.resp_body =~ "Provider measured"
+    assert usage.resp_body =~ "Usage &amp; cost"
+    assert usage.resp_body =~ "Total tokens"
     assert usage.resp_body =~ "claude:opus/high@work"
 
     memory = request(:get, "/memory")
@@ -1320,9 +1320,9 @@ defmodule Responder.ControlPlane.RouterTest do
     html = snapshot |> HTML.usage() |> IO.iodata_to_binary()
     assert html =~ "github:channel/with spaces"
     assert html =~ "claude:opus/high@work"
-    assert html =~ "no repository"
+    assert html =~ "No repository"
     assert html =~ "Not measured"
-    assert html =~ "unmeasured"
+    assert html =~ "unpriced executions"
     assert html =~ "$0.25"
     assert html =~ "Daily measured token trend"
     # Hover-only SVG titles left the shipped chart as unexplained green bars.
@@ -1332,13 +1332,13 @@ defmodule Responder.ControlPlane.RouterTest do
     # Changing the date previously silently reset a shadow audit to live traffic.
     shadow = snapshot |> Map.put(:mode, "shadow") |> HTML.usage() |> IO.iodata_to_binary()
     assert shadow =~ "mode=shadow&amp;window=7d"
-    assert shadow =~ "Measurement coverage"
+    refute shadow =~ "<h2>Measurement coverage"
     assert shadow =~ "Where the time went"
     assert shadow =~ "How cost is calculated"
     # Scope defines every total, so it belongs above the figures, not inside
     # a footnote below two panels (and below both panels on narrow screens).
     {scope_at, _} = :binary.match(shadow, "Execution scope")
-    {metrics_at, _} = :binary.match(shadow, "class=\"metrics\"")
+    {metrics_at, _} = :binary.match(shadow, "class=\"usage-summary\"")
     assert scope_at < metrics_at
 
     assert HTML.failures([]) =~ "Nothing needs attention"
