@@ -1627,9 +1627,10 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  def failures([]),
-    do:
-      "<section><h2>Nothing needs attention</h2><p>Failed requests, undelivered replies and interrupted cleanup appear here with a recovery action. No saved operations are currently blocked.</p></section>"
+  def failures([]) do
+    [failure_summary([]), "<p class=\"empty\">Nothing needs attention.</p>"]
+    |> IO.iodata_to_binary()
+  end
 
   def failures(rows) do
     body =
@@ -1667,11 +1668,49 @@ defmodule Responder.ControlPlane.HTML do
       end)
 
     [
-      "<section><h2>Needs attention</h2><p>These saved operations stopped after an error. Inspect the cause, fix the underlying problem, then retry the failed step. Retrying delivery sends the already accepted reply; it does not ask the model to generate a new one.</p>",
+      failure_summary(rows),
       "<div class=\"failure-cards\">",
       body,
-      "</div>",
-      "</section>"
+      "</div>"
+    ]
+  end
+
+  defp failure_summary(rows) do
+    requests =
+      rows
+      |> Enum.map(&Map.get(&1, :episode_ref))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> length()
+
+    counts = Enum.frequencies_by(rows, & &1.kind)
+
+    types = [
+      {"work", "Model work"},
+      {"admission", "Routing"},
+      {"delivery", "Delivery"},
+      {"retention", "Cleanup"},
+      {"slack_interaction", "Slack updates"},
+      {"slack_incident", "Incident rooms"},
+      {"emisar", "Approvals"}
+    ]
+
+    stats =
+      [{"Failures", length(rows)}] ++
+        Enum.filter([{"Affected requests", requests}], fn {_, count} -> count > 0 end) ++
+        Enum.flat_map(types, fn {kind, label} ->
+          case Map.get(counts, kind, 0) do
+            0 -> []
+            count -> [{label, count}]
+          end
+        end)
+
+    [
+      "<dl class=\"failure-summary\" aria-label=\"Summary of listed failures\">",
+      Enum.map(stats, fn {label, count} ->
+        ["<div><dt>", escape(label), "</dt><dd>", integer(count), "</dd></div>"]
+      end),
+      "</dl>"
     ]
   end
 

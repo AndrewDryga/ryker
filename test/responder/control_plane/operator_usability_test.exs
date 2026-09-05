@@ -63,11 +63,62 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
       |> IO.iodata_to_binary()
 
     assert html =~ "Retry delivery"
-    assert html =~ "Needs attention"
+    refute html =~ "Needs attention"
     refute html =~ ">Rearm"
     assert html =~ "/rearm"
     refute html =~ "<th>Reference</th>"
     assert html =~ "Inspect cause"
+  end
+
+  test "failure summary counts listed operations and distinct requests without nesting the cards" do
+    # Two cleanup failures in one request were buried in a second large panel;
+    # the page gave no quick way to distinguish operation count from impact.
+    cleanup = %{
+      kind: "retention",
+      ref: "session:one",
+      episode_ref: "episode:one",
+      action: :rearm,
+      status: "blocked",
+      summary: "coop_error",
+      updated_at: nil
+    }
+
+    rows = [
+      cleanup,
+      %{cleanup | ref: "session:two"},
+      %{cleanup | kind: "delivery", ref: "delivery:one", episode_ref: "episode:two"},
+      %{cleanup | kind: "admission", ref: "input:one", episode_ref: nil}
+    ]
+
+    document = rows |> HTML.failures() |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+
+    summary =
+      document
+      |> LazyHTML.query(".failure-summary > div")
+      |> Enum.map(fn stat ->
+        {stat |> LazyHTML.query("dt") |> LazyHTML.text(),
+         stat |> LazyHTML.query("dd") |> LazyHTML.text()}
+      end)
+
+    assert summary == [
+             {"Failures", "4"},
+             {"Affected requests", "2"},
+             {"Routing", "1"},
+             {"Delivery", "1"},
+             {"Cleanup", "2"}
+           ]
+
+    assert Enum.count(LazyHTML.query(document, ".failure-cards > article")) == 4
+    assert Enum.empty?(LazyHTML.query(document, "section"))
+    refute LazyHTML.text(document) =~ "These saved operations"
+  end
+
+  test "empty failures show zero without empty categories or a surrounding panel" do
+    document = [] |> HTML.failures() |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+    assert LazyHTML.query(document, ".failure-summary dt") |> LazyHTML.text() == "Failures"
+    assert LazyHTML.query(document, ".failure-summary dd") |> LazyHTML.text() == "0"
+    assert LazyHTML.text(document) =~ "Nothing needs attention"
+    assert Enum.empty?(LazyHTML.query(document, "section"))
   end
 
   test "working copies do not present the repository name as a retention reason" do
