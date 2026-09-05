@@ -44,6 +44,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     DeliveryReceipt,
     Measurement,
     Result,
+    Session,
     SubmissionBuilder
   }
 
@@ -2161,6 +2162,32 @@ defmodule Responder.ControlPlane.ProjectionTest do
     refute Map.has_key?(workspace, :discard_plan)
     refute Map.has_key?(workspace, :discard_plan_fingerprint)
     assert workspace in Projection.workspaces(%{})
+
+    fixture = File.read!("testdata/control_plane/legacy_cleanup_failure.json") |> Jason.decode!()
+
+    Repo.update_all(from(saved in Session, where: saved.id == ^session.id),
+      set: [
+        cleanup_last_error_code: fixture["error_code"],
+        cleanup_last_error_detail: fixture["error_detail"],
+        cleanup_blocked_from: :plan_pending,
+        closed_at: ~U[2026-09-02 13:56:40.115749Z]
+      ]
+    )
+
+    assert {:ok, failure} = Projection.failure("retention", session.external_ref)
+
+    assert failure.diagnosis == %{
+             http_status: 409,
+             code: "invalid_session_state",
+             reason: :missing_ownership
+           }
+
+    assert failure.cleanup_phase == :plan_pending
+    assert failure.closed_at == ~U[2026-09-02 13:56:40.115749Z]
+    assert is_binary(failure.request_title)
+    refute inspect(failure) =~ fixture["error_detail"]
+    assert {:ok, failures} = Projection.failures(%{})
+    assert failure in failures
   end
 
   test "detail lookups and usage windows fail closed without leaking arbitrary references" do
