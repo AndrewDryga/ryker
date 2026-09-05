@@ -281,12 +281,17 @@ defmodule Responder.ControlPlane.ModelRequests do
     options = Keyword.put(options, :expired, expired)
     submission = if expired, do: %{}, else: turn.submission || %{}
     prompt = decode(submission["prompt"])
-    context = submission["context"] || %{}
-    tools = Map.take(context, ~w(responder_state_tools source_and_action_tools workspace))
+    context = prompt["work"]
+
+    tools =
+      Map.take(
+        if(is_map(context), do: context, else: %{}),
+        ~w(responder_state_tools source_and_action_tools workspace)
+      )
 
     sections = [
       section("instructions", "Responder instructions", prompt["instructions"], options),
-      section("context", "Messages and selected context", submission["context"], options),
+      section("context", "Messages and selected context", context, options),
       section(
         "tools",
         "Advertised tools and workspace scope",
@@ -330,7 +335,7 @@ defmodule Responder.ControlPlane.ModelRequests do
       target: turn.execution_target || "Execution target not recorded",
       policy: session.policy,
       fingerprint: turn.submission_fingerprint,
-      sections: sections,
+      sections: Enum.map(sections, &Map.put(&1, :source_kind, :work)),
       coverage:
         "This is Responder's retained submission. The Coop wrapper, provider-owned instructions, and full provider request are not recorded here. No private reasoning is displayed.",
       tools: tool_page(turn, params, options)
@@ -370,7 +375,8 @@ defmodule Responder.ControlPlane.ModelRequests do
         attempt_value(attempt, :submission_fingerprint) || entry.admission_context_fingerprint,
       coverage: admission_coverage(submission),
       sections:
-        admission_sections(entry, attempt, submission, prompt, response, generation, options),
+        admission_sections(entry, attempt, submission, prompt, response, generation, options)
+        |> Enum.map(&Map.put(&1, :source_kind, :admission)),
       tools: %{items: [], page: 1, pages: 1, total: 0}
     }
   end

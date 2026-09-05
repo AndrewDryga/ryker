@@ -87,7 +87,12 @@ defmodule Responder.ControlPlane.ModelRequestsHTML do
           state(section.artifact),
           "</small></summary>",
           if(section.id == "context",
-            do: RequestContextHTML.render(section.artifact),
+            do:
+              RequestContextHTML.render(
+                section.artifact,
+                if(section[:source_kind] == :work, do: "$.work", else: "$.context"),
+                "request-#{request.id}"
+              ),
             else: ""
           ),
           artifact(section.artifact),

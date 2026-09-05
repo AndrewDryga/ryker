@@ -21,6 +21,7 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
     assert raw.artifact.sha256 == :crypto.hash(:sha256, original) |> Base.encode16(case: :lower)
     assert view.selected.coverage =~ "Coop wrapper"
     html = view |> ModelRequestsHTML.render() |> IO.iodata_to_binary()
+    assert html =~ "$.work.inputs"
     assert html =~ "&lt;script&gt;"
     refute html =~ "<script>"
     refute html =~ "xoxb-recorded-credential"
@@ -56,6 +57,26 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
     assert :not_found == ModelRequests.project(episode.key, %{"attempt" => "not-a-uuid"})
   end
 
+  test "prompt provenance uses submitted work fields rather than an adjacent context copy" do
+    {episode, turn, _original} = frozen_turn!()
+    # A source-labelled viewer must not call a neighboring document model input.
+    submission = put_in(turn.submission, ["context", "inputs"], [])
+    turn |> Ecto.Changeset.change(submission: submission) |> Repo.update!()
+    {:ok, view} = ModelRequests.project(episode.key, %{})
+    context = Enum.find(view.selected.sections, &(&1.id == "context"))
+    assert context.artifact.text =~ "source message"
+
+    submission = Map.put(submission, "prompt", "unstructured historical prompt")
+    turn |> Ecto.Changeset.change(submission: submission) |> Repo.update!()
+    {:ok, view} = ModelRequests.project(episode.key, %{})
+
+    assert Enum.find(view.selected.sections, &(&1.id == "context")).artifact.state ==
+             :not_recorded
+
+    assert Enum.find(view.selected.sections, &(&1.id == "request")).artifact.text =~
+             "historical prompt"
+  end
+
   test "the continuous timeline includes frozen instructions and context together with bounded redaction" do
     {episode, turn, _prompt} = frozen_turn!()
     assert {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
@@ -81,6 +102,13 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
 
     assert html =~ "Host-authored retained instructions"
     assert html =~ "Messages supplied to this request"
+    # The old flat prompt hid which host/context source shaped the answer.
+    assert html =~ "data-source=\"instructions\""
+    assert html =~ "Responder work policy"
+    assert html =~ "$.instructions"
+    assert html =~ "$.work.inputs"
+    assert html =~ "$.work.responder_state_tools"
+    assert html =~ "data-source=\"inputs\""
     assert html =~ "source message &lt;script&gt;"
     refute html =~ "aria-label=\"Request contents\""
     refute html =~ "xoxb-recorded-credential"

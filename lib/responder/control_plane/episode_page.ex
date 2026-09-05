@@ -92,7 +92,12 @@ defmodule Responder.ControlPlane.EpisodePage do
             </div>
             <span :if={chapter.span} class="chapter-span">{chapter.span} from start</span>
           </div>
-          <article :for={entry <- chapter.steps} id={entry.id} class={"case-entry case-#{entry.kind}"}>
+          <article
+            :for={entry <- chapter.steps}
+            id={entry.id}
+            class={"case-entry case-#{entry.kind}"}
+            data-entry-kind={entry.kind}
+          >
             <div class="case-entry-time">
               <time>{clock_time(entry.at)}</time><span>{date(entry.at)}</span>
             </div>
