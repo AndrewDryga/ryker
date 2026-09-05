@@ -6,6 +6,25 @@ defmodule Responder.ControlPlane.CardLabTest do
   alias Responder.Slack.{Renderer, ThreadStatusProjection}
   alias Responder.State.RecordPayload
 
+  test "working task examples expose retained legacy progress and identify simulated states" do
+    # The default working task used invented parser prose, hiding the richness
+    # and actual length of requests operators had already worked with.
+    assert {:ok, working} = CardLab.fetch("task-card", "working")
+    assert working.rendered["text"] =~ "Bump the pinned admin runner release to 0.20.0"
+    assert Jason.encode!(working.rendered) =~ "Still working; implementing and validating"
+    assert working.state.provenance.basis == "Retained progress"
+    assert working.state.provenance.source_ref == "episode_run_9f179b957987eb77f5b860877b06c344"
+
+    assert {:ok, later} = CardLab.fetch("task-card", "working-validation")
+    assert later.state.provenance.observed_at == "2026-08-14T05:51:23.132457Z"
+    assert {:ok, goals} = CardLab.fetch("task-card", "recorded-goals")
+    assert Jason.encode!(goals.rendered) =~ "3 of 3 completed"
+    assert goals.state.provenance.basis == "Real goals · layout study"
+
+    assert {:ok, waiting} = CardLab.fetch("task-card", "waiting-for-input")
+    assert waiting.state.provenance.basis == "State simulation"
+  end
+
   test "confirmation dialogs never become inline card rows and remain in native Slack payloads" do
     # The inline confirmation disclosure split the Stop/View diff/Close button
     # row and gave operators a preview that Slack itself would never render.

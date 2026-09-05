@@ -13,7 +13,8 @@ defmodule Responder.Slack.TaskCardProjection do
   alias Responder.State.{Record, Records}
   alias Responder.Work.{Session, Turn}
 
-  @ui_revision 3
+  @ui_revision 4
+  @goal_priority %{"blocked" => 0, "working" => 1, "waiting" => 2, "ready" => 3}
   @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch)
 
   @spec build(TaskCard.t()) ::
@@ -54,6 +55,8 @@ defmodule Responder.Slack.TaskCardProjection do
     publication = latest_publication(episode.id)
     records = Records.model_records(episode.id)
     publication_offer = latest_publication_offer(episode.id)
+    goals = Records.goals(episode.id)
+    progress = progress(episode.id)
 
     projection = %{
       "action_needed" => action_needed(episode, turn, records, publication),
@@ -62,14 +65,23 @@ defmodule Responder.Slack.TaskCardProjection do
       "controls" => controls(record, episode, turn, session, publication),
       "episode_state" => Atom.to_string(episode.state),
       "publication" => publication(publication, publication_offer),
+      "progress" => progress,
+      "goals" =>
+        goals
+        |> Enum.sort_by(&Map.get(@goal_priority, &1["state"], 4))
+        |> Enum.take(8)
+        |> Enum.map(&card_goal/1),
+      "goals_total" => length(goals),
+      "goals_completed" => Enum.count(goals, &(&1["state"] == "completed")),
+      "request" => compact(record.payload["prompt"], 1_000),
       "repository" => record.payload["repository"],
       "session_generation" => session && session.generation,
       "status" => status(episode, turn, publication, publication_offer),
-      "summary" => summary(record, records),
+      "summary" => summary(record, progress),
       "task_ref" => task_ref,
       "title" => record.payload["title"],
       "ui_revision" => @ui_revision,
-      "updated_at" => DateTime.to_iso8601(episode.updated_at),
+      "updated_at" => DateTime.to_iso8601(updated_at(episode)),
       "work_state" => turn && Atom.to_string(turn.status)
     }
 
@@ -82,6 +94,53 @@ defmodule Responder.Slack.TaskCardProjection do
        publication_offer_ref: publication_offer && publication_offer["ref"],
        ui_revision: @ui_revision
      }}
+  end
+
+  defp progress(episode_id) do
+    Repo.all(
+      from(record in Record,
+        where:
+          record.episode_id == ^episode_id and record.kind == "progress" and
+            record.status in [:open, :confirmed] and
+            fragment("COALESCE((?::jsonb)->>'phase', '') NOT LIKE 'feedback:%'", record.payload),
+        order_by: [desc: record.sequence],
+        limit: 4
+      )
+    )
+    |> Enum.reverse()
+    |> Enum.map(fn record ->
+      %{
+        "phase" => compact(record.payload["phase"], 60),
+        "summary" => compact(record.payload["summary"], 600),
+        "at" => DateTime.to_iso8601(record.inserted_at)
+      }
+    end)
+  end
+
+  defp card_goal(goal) do
+    %{
+      "id" => goal["id"],
+      "parent_goal_id" => goal["parent_goal_id"],
+      "requested_outcome" => compact(goal["requested_outcome"], 250),
+      "state" => goal["state"]
+    }
+  end
+
+  defp updated_at(episode) do
+    latest =
+      Repo.one(
+        from(record in Record,
+          where:
+            record.episode_id == ^episode.id and record.kind in ["progress", "goal", "goal_state"] and
+              record.status in [:open, :confirmed] and
+              fragment("COALESCE((?::jsonb)->>'phase', '') NOT LIKE 'feedback:%'", record.payload),
+          select: max(record.inserted_at)
+        )
+      )
+
+    if latest && DateTime.compare(latest, episode.updated_at) == :gt,
+      do: latest,
+      else: episode.updated_at
   end
 
   defp current_turn(%Episode{owner_kind: :turn, owner_ref: turn_ref} = episode),
@@ -213,12 +272,9 @@ defmodule Responder.Slack.TaskCardProjection do
     end
   end
 
-  defp summary(record, records) do
-    records
-    |> Enum.reverse()
-    |> Enum.find(&(&1["kind"] == "progress"))
-    |> case do
-      %{"payload" => %{"summary" => summary}} -> compact(summary, 500)
+  defp summary(record, progress) do
+    case List.last(progress) do
+      %{"summary" => summary} -> summary
       _missing -> compact(record.payload["prompt"], 500)
     end
   end
@@ -354,6 +410,11 @@ defmodule Responder.Slack.TaskCardProjection do
   defp maybe_control(controls, true, control), do: controls ++ [control]
   defp maybe_control(controls, false, _control), do: controls
 
-  defp compact(value, maximum) when is_binary(value), do: String.slice(value, 0, maximum)
+  defp compact(value, maximum) when is_binary(value) do
+    if String.length(value) > maximum,
+      do: String.slice(value, 0, maximum - 1) <> "…",
+      else: value
+  end
+
   defp compact(_value, _maximum), do: nil
 end

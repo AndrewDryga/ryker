@@ -1,0 +1,28 @@
+{
+  "source": "Legacy Emisar responder.db, read-only export on 2026-09-05",
+  "runner_task": {
+    "incident_id": "inc_8c09acce84f0e845ddd2d0a87b416c99",
+    "episode_id": "episode_run_9f179b957987eb77f5b860877b06c344",
+    "title": "Bump the pinned admin runner release to 0.20.0 in infra/compute.tf",
+    "repository": "emisar",
+    "created_at": "2026-08-14T05:41:18.986771000Z",
+    "progress": [
+      {"sequence": 1, "phase": "accepted", "summary": "Accepted", "at": "2026-08-14T05:41:18.994260000Z"},
+      {"sequence": 2, "phase": "planning", "summary": "Planning the work", "at": "2026-08-14T05:41:22.503645Z"},
+      {"sequence": 3, "phase": "investigating", "summary": "Investigating", "at": "2026-08-14T05:41:22.717323Z"},
+      {"sequence": 4, "phase": "investigating", "summary": "Still working; implementing and validating the focused change", "at": "2026-08-14T05:43:22.788919Z"},
+      {"sequence": 8, "phase": "investigating", "summary": "Still working; implementing and validating the focused change", "at": "2026-08-14T05:51:23.132457Z"},
+      {"sequence": 12, "phase": "finalizing", "summary": "Preparing the result", "at": "2026-08-14T05:53:33.182387Z"},
+      {"sequence": 13, "phase": "finished", "summary": "Completed", "at": "2026-08-14T05:53:33.600411Z"}
+    ]
+  },
+  "portal_goals": {
+    "episode_id": "episode_run_b7a10e11c584456de7299d997ebd0ccd",
+    "note": "These goals belong to a separate portal investigation, not the runner engineering task. Only the retained final states are known.",
+    "goals": [
+      {"id": "goal-1", "requested_outcome": "Confirm the portal backend actually recovered", "completion_contract": "Backend service endpoint health and fresh edge probes observed", "state": "completed", "parent_goal_id": null},
+      {"id": "goal-2", "requested_outcome": "Bound the 503 burst and current user impact", "completion_contract": "5xx counts for the backend quantified over 24h against a positive control", "state": "completed", "parent_goal_id": null},
+      {"id": "goal-3", "requested_outcome": "Check for a rollout or change behind the 503s", "completion_contract": "Instance group version state and live revision compared with the repository", "state": "completed", "parent_goal_id": null}
+    ]
+  }
+}

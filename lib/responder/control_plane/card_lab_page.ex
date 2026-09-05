@@ -42,6 +42,18 @@ defmodule Responder.ControlPlane.CardLabPage do
             <span class="ui-eyebrow">SELECTED STATE</span><h3>{@specimen.state.label}</h3>
           </div><p>{@specimen.state.description}</p>
         </div>
+        <section
+          :if={@specimen.state[:provenance]}
+          class="specimen-provenance"
+          aria-label="Example provenance"
+        >
+          <strong>{@specimen.state.provenance.basis}</strong>
+          <span :if={@specimen.state.provenance.observed_at}>{@specimen.state.provenance.observed_at}</span>
+          <p>{@specimen.state.provenance.note}</p>
+          <details :if={@specimen.state.provenance.source_ref}>
+            <summary>Source record</summary><code>{@specimen.state.provenance.source_ref}</code>
+          </details>
+        </section>
         <div class="specimen-preview-toolbar">
           <nav class="ui-tabs" aria-label="Specimen view">
             <.link

@@ -20,6 +20,16 @@ an unrelated sandbox collision: state-tool authorization fixtures reused a Slack
 membership row held by channel-configuration tests. A suite-specific workspace
 removes that collision without changing production locks or serializing tests.
 
+The next task-card increment adds bounded chronological progress and current
+subtasks to the shared Slack renderer. Durable subtask changes refresh the same
+message during a pending turn, with no duplicate post or unchanged-state write.
+Product feedback is excluded from public progress and does not refresh the card.
+Card Lab includes three retained progress checkpoints from the old Emisar runner
+task and a separately labelled layout study using three real portal goals.
+Simulated task states are explicitly labelled, not presented as historical Slack
+payloads. Other card families still need real examples, and public streaming
+model output still requires Coop capture; private thoughts are not a substitute.
+
 ## Ordered implementation
 
 - [ ] Shared page readability: consistent surfaces, contrast, typography, spacing,

@@ -32,6 +32,7 @@ defmodule Responder.Slack.TaskEndToEndTest do
   @github_secret String.duplicate("s", 32)
   @read_policy_digest String.duplicate("a", 64)
   @write_policy_digest String.duplicate("b", 64)
+  @retained Jason.decode!(File.read!("priv/card_lab/legacy_task_records.json"))
 
   defmodule Directory do
     @behaviour Responder.Slack.MemberDirectory
@@ -263,6 +264,39 @@ defmodule Responder.Slack.TaskEndToEndTest do
     assert task_episode_id == task_episode.id
     assert length(SlackAPI.state(slack_api).posts) == 1
     assert length(SlackAPI.state(slack_api).updates) == 1
+
+    # A subtask must refresh the original card while the model turn is still
+    # pending, without waiting for final delivery or posting another message.
+    [retained_goal | _] = @retained["portal_goals"]["goals"]
+
+    goal =
+      retained_goal
+      |> Map.take(~w(id requested_outcome completion_contract))
+      |> Map.merge(%{"kind" => "check", "authority" => "read_only", "required" => false})
+
+    assert {:ok, _} = Records.create(Records.token(task_claim.turn), "live-goal", "goal", goal)
+
+    for state <- ["working", "completed"] do
+      assert {:ok, _} =
+               Records.create(
+                 Records.token(task_claim.turn),
+                 "live-goal-#{state}",
+                 "goal_state",
+                 %{"goal_id" => goal["id"], "state" => state}
+               )
+
+      _ = refresh_card!(card, slack_api)
+      assert_receive {:updated, "C456", "1788268001.000200", live_card, ^card_ref}
+      assert Jason.encode!(live_card) =~ goal["requested_outcome"]
+
+      assert Jason.encode!(live_card) =~
+               if(state == "completed", do: "1 of 1 completed", else: "0 of 1 completed")
+
+      assert length(SlackAPI.state(slack_api).posts) == 1
+    end
+
+    _ = refresh_card!(card, slack_api)
+    assert length(SlackAPI.state(slack_api).updates) == 3
 
     {:ok, task_api} =
       FakeWorkCoopAPI.start_link([writable_task_reply()],

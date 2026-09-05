@@ -11,7 +11,7 @@ defmodule Responder.Slack.Renderer do
 
   alias Responder.Emisar.ApprovalStatus
   alias Responder.Publication.Card, as: PublicationCard
-  alias Responder.Slack.{Mentions, WorkDiff}
+  alias Responder.Slack.{Mentions, TaskCardDetails, WorkDiff}
   alias Responder.State.RecordPayload
 
   @maximum_message_characters 20_000
@@ -24,6 +24,7 @@ defmodule Responder.Slack.Renderer do
   @investigation_kinds ~w(evidence coverage finding progress goal goal_state alert_assessment)
   @incident_statuses ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
   @task_statuses ~w(working waiting_for_input waiting_for_event action_required stopping reviewing ready_for_review ready_to_publish published completed cancelled)
+  @task_fields ~w(action_needed confirmed_at confirmed_by controls episode_state publication repository session_generation status summary task_ref title ui_revision updated_at work_state)
   @work_controls ~w(stop view_diff close timeline evidence handoff postmortem)
   @record_controls ~w(timeline evidence handoff postmortem)
   @publication_controls ~w(readiness publish open check retry update discard)
@@ -374,8 +375,12 @@ defmodule Responder.Slack.Renderer do
            "work_state" => work_state
          } = task
        )
-       when map_size(task) == 15 and status in @task_statuses do
-    with :ok <- task_reference(task_ref),
+       when status in @task_statuses do
+    with true <-
+           Map.keys(task) --
+             (@task_fields ++ ~w(request progress goals goals_total goals_completed)) == [],
+         true <- TaskCardDetails.valid?(task),
+         :ok <- task_reference(task_ref),
          :ok <- bounded_text(confirmed_by, 1_024),
          :ok <- bounded_text(episode_state, 120),
          :ok <- bounded_text(repository, 256),
@@ -391,9 +396,6 @@ defmodule Responder.Slack.Renderer do
          :ok <- iso8601(updated_at) do
       label = task_status_label(status)
 
-      session_text =
-        if session_generation, do: Integer.to_string(session_generation), else: "pending"
-
       short = task_ref |> String.split(":") |> List.last() |> String.slice(0, 8)
 
       text =
@@ -402,18 +404,16 @@ defmodule Responder.Slack.Renderer do
 
       blocks =
         ([
-           section("*Engineering task · #{mrkdwn(title)}*\n_Status: #{mrkdwn(label)}_"),
-           section(mrkdwn(summary)),
-           section(
-             "Repository: `#{mrkdwn(repository)}` · Episode: `#{mrkdwn(episode_state)}` · Work: `#{mrkdwn(work_state || "not started")}` · Session: `#{session_text}`"
-           )
+           section("*#{mrkdwn(title)}*"),
+           TaskCardDetails.context("*#{mrkdwn(label)}* · #{mrkdwn(repository)}")
          ] ++
+           TaskCardDetails.blocks(task) ++
            task_publication_blocks(task_ref, publication) ++
            [
              incident_action_block(action_needed),
              work_controls_block(task_ref, controls, :task),
              section(
-               "_Confirmed by `#{mrkdwn(confirmed_by)}` at #{mrkdwn(confirmed_at)} · Updated #{mrkdwn(updated_at)}. Reply in this thread to continue the same isolated task._"
+               "Reply in this thread to continue this task.\n_Updated #{mrkdwn(updated_at)}_"
              )
            ])
         |> Enum.reject(&is_nil/1)
