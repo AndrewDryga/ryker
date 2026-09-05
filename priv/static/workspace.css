@@ -61,11 +61,11 @@
 .usage-breakdown-table th:last-child { text-align:right; }
 .responder-app .usage-detail-table th, .responder-app .usage-detail-table td { padding-left:10px; padding-right:10px; }
 .responder-app .usage-detail-table th { font-size:12px; letter-spacing:0; text-transform:none; }
-.responder-app .usage-column-groups th[rowspan] { vertical-align:bottom; padding-bottom:12px; }
-.responder-app .usage-column-groups th[scope=colgroup] { text-align:center; border-left:1px solid var(--stroke); }
+.responder-app .usage-column-groups th[rowspan] { vertical-align:middle; }
+.responder-app .usage-column-groups th[scope=colgroup] { text-align:center; }
 .responder-app .usage-metric-headings th { text-align:right; font-weight:500; }
 .responder-app .usage-token-cell { text-align:right; white-space:nowrap; font-weight:500; }
-.usage-detail-table tbody td:nth-child(3), .usage-detail-table tbody td:nth-child(5), .usage-detail-table tbody td:nth-child(7), .usage-metric-headings th:nth-child(odd) { border-left:1px solid var(--stroke); }
+.responder-app .usage-detail-table .usage-group-start { border-left:1px solid var(--stroke); }
 .responder-app .usage-page .usage-people-table { min-width:0; }
 .responder-app .usage-people-table th:first-child { width:46%; }
 .responder-app .usage-people-table th:not(:first-child) { width:18%; text-align:right; }
