@@ -62,9 +62,19 @@ draft/validation JavaScript tests. Named offline integration checks traverse HTT
 confirmation, persistent specimen custody, the delivery worker and the Slack
 client through posting, rate limiting, retry and in-place update. Active leases
 exclude concurrent updates. These are not native browser acceptance.
-Read-only Slack checks verified the existing bot is in Emisar `#test`. The
-in-app browser provider lists no browser, so rendered visual acceptance remains
-unverified; native Slack acceptance is a separate post-installation step.
+Live Slack acceptance verified the existing bot in Emisar `#test`, posted one
+incident-room specimen, and updated the same message from provisioning to
+resolved. Slack read-back confirmed the exact receipt, metadata and eight Block
+Kit blocks. That check also exposed own app messages entering admission because
+app identity masked bot identity. A harvested-payload regression covers posts,
+edits and deletes; self checks now precede actor projection. Other apps remain
+eligible inputs. The in-app browser provider lists no browser, so rendered
+visual acceptance remains unverified; API read-back is not a visual review.
+
+A real Conversation Lab smoke check completed with the existing Emisar Coop
+profile and Terra/medium, including durable admission usage. It took about 128
+seconds end to end. Existing credentials work, but this does not meet the speed
+requirement and is not evidence that fast classification is complete.
 
 The shipping gate also exposed a pre-existing cross-clock readiness defect:
 PostgreSQL's card refresh timestamp could precede an application's offer timestamp.
