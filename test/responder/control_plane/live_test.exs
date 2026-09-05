@@ -284,9 +284,9 @@ defmodule Responder.ControlPlane.LiveTest do
     refute render(view) =~ source
   end
 
-  test "card selectors expose every specimen without burying the preview" do
-    # The catalog and 19 task-state buttons consumed the entire phone screen
-    # before the operator could see the card they came to review.
+  test "card families stay in the side rail with compact navigation for small screens" do
+    # A desktop dropdown hid all 18 families; the old expanded catalog also
+    # buried the preview on phones. Both layouts must retain every destination.
     {:ok, view, _} =
       live(
         build_conn() |> Map.put(:host, "localhost"),
@@ -295,7 +295,16 @@ defmodule Responder.ControlPlane.LiveTest do
 
     for card <- CardLab.catalog() do
       assert has_element?(view, "#card-family option[value='#{card.id}']", card.title)
+
+      assert has_element?(
+               view,
+               ".specimen-catalog nav a[href='/card-lab/#{card.id}/#{hd(card.states).id}?width=compact']",
+               card.title
+             )
     end
+
+    assert has_element?(view, ".specimen-catalog a[aria-current=page]", "Task card")
+    assert has_element?(view, ".specimen-family-mobile #card-family-form")
 
     {:ok, snapshot} = CardLab.fetch("task-card", "working")
 
@@ -316,9 +325,14 @@ defmodule Responder.ControlPlane.LiveTest do
              "Real goals · layout study"
            )
 
-    view |> form("#card-family-form", %{card: "incident-room"}) |> render_change()
+    view |> element(".specimen-catalog a", "Incident room") |> render_click()
     assert_patch(view, "/card-lab/incident-room/provisioning?width=compact")
+    assert has_element?(view, ".specimen-catalog a[aria-current=page]", "Incident room")
     assert has_element?(view, "#card-state-picker a[aria-current=page]", "Provisioning")
+
+    view |> form("#card-family-form", %{card: "task-card"}) |> render_change()
+    assert_patch(view, "/card-lab/task-card/working?width=compact")
+    assert has_element?(view, ".specimen-catalog a[aria-current=page]", "Task card")
     render_change(view, "card-family", %{"card" => "https://attacker.example"})
     refute_patched(view)
   end
