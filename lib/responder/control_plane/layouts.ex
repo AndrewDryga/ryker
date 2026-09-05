@@ -18,20 +18,13 @@ defmodule Responder.ControlPlane.Layouts do
           <Navigation.sidebar path="" live={false} />
           <div class="app-workspace">
             <header class="app-topbar">
-              <Navigation.mobile path="" live={false} /><div class="app-breadcrumb">
-                <span>Workspace</span><span>/</span><strong>{@title}</strong>
-              </div><a class="static-return" href="/">Back to activity</a>
+              <Navigation.mobile path="" live={false} /><a class="static-return" href="/">← Requests</a>
             </header>
             <main class="legacy-surface action-page">
               <div class="secondary-page">
-                <div class="secondary-page-title"><p class="ui-eyebrow">OPERATOR ACTION</p><h1>{@title}</h1></div>{Phoenix.HTML.raw(
-                  @body
-                )}
+                <div class="secondary-page-title"><h1>{@title}</h1></div>{Phoenix.HTML.raw(@body)}
               </div>
             </main>
-            <footer class="app-footer">
-              Changes require the confirmation shown above. Browsing never performs this action.
-            </footer>
           </div>
         </div>
       </body>

@@ -2,7 +2,6 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   @moduledoc "Live operator workspace. Browser state never owns execution custody."
   use Phoenix.LiveView, layout: false
   require Logger
-  import Responder.ControlPlane.Components
 
   alias Responder.ControlPlane.{
     ActivityPage,
@@ -31,7 +30,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        query: "",
        params: %{},
        body: "",
-       page_title: "Activity",
+       page_title: "Requests",
        connected: connected?(socket),
        unavailable: false,
        refresh_token: nil,
@@ -207,7 +206,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     socket
     |> assign(
       native: :activity,
-      page_title: "Activity",
+      page_title: "Requests",
       activity: Map.delete(activity, :items),
       overview: options.projection.overview.(),
       schedules: schedules
@@ -400,14 +399,15 @@ defmodule Responder.ControlPlane.WorkbenchLive do
       <div class="app-workspace">
         <header class="app-topbar">
           <Navigation.mobile path={@path} live={true} />
-          <div class="app-breadcrumb">
-            <.icon name={:grid} /><span>Workspace</span><span>/</span><strong>{@page_title}</strong>
-          </div>
           <div
             class="app-live"
             id="live-status"
             data-connection-state={if @connected, do: "connected", else: "connecting"}
           >
+            <span class="view-freshness">Observed
+            <time>{if @observed_at,
+              do: Calendar.strftime(@observed_at, "%H:%M:%S UTC"),
+              else: "not yet"}</time></span>
             <span class="connection-offline" role="status">Disconnected · reconnecting</span>
             <span class="connection-online" role="status">{cond do
               @unavailable -> "Data unavailable"
@@ -474,15 +474,9 @@ defmodule Responder.ControlPlane.WorkbenchLive do
             </p><.link navigate="/" class="ui-button secondary">Back to activity</.link>
           </section>
           <div :if={!@native} class="secondary-page">
-            <div class="secondary-page-title"><p class="ui-eyebrow">WORKSPACE</p><h1>{@page_title}</h1></div>{Phoenix.HTML.raw(
-              @body
-            )}
+            <div class="secondary-page-title"><h1>{@page_title}</h1></div>{Phoenix.HTML.raw(@body)}
           </div>
         </main>
-        <footer class="app-footer">
-          <span>Responder · Local, durable, yours.</span><span>Last observed
-          <time>{if @observed_at, do: Calendar.strftime(@observed_at, "%H:%M:%S UTC"), else: "not yet"}</time></span>
-        </footer>
       </div>
     </div>
     """

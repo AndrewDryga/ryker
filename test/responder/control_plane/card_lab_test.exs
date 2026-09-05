@@ -1,10 +1,50 @@
 defmodule Responder.ControlPlane.CardLabTest do
   use ExUnit.Case, async: true
 
-  alias Responder.ControlPlane.CardLab
+  alias Responder.ControlPlane.{CardLab, HTML}
   alias Responder.Emisar.RunState
   alias Responder.Slack.{Renderer, ThreadStatusProjection}
   alias Responder.State.RecordPayload
+
+  test "confirmation dialogs never become inline card rows and remain in native Slack payloads" do
+    # The inline confirmation disclosure split the Stop/View diff/Close button
+    # row and gave operators a preview that Slack itself would never render.
+    {:ok, snapshot} = CardLab.fetch("task-card", "working")
+
+    buttons =
+      snapshot.rendered["blocks"]
+      |> Enum.filter(&(&1["type"] == "actions"))
+      |> Enum.flat_map(& &1["elements"])
+
+    assert stop = Enum.find(buttons, &(get_in(&1, ["text", "text"]) == "Stop current run"))
+    assert is_map(stop["confirm"])
+
+    html = snapshot.rendered |> HTML.card_lab_preview(:message) |> IO.iodata_to_binary()
+    refute html =~ "slack-confirm"
+    refute html =~ "<summary>Confirmation</summary>"
+
+    assert html
+           |> LazyHTML.from_document()
+           |> LazyHTML.query(".slack-actions > *")
+           |> LazyHTML.attribute("class") ==
+             ["slack-button danger", "slack-button", "slack-button danger", "slack-overflow"]
+
+    {:ok, payload} = CardLab.slack_message("task-card", "working")
+
+    native_stop =
+      payload["blocks"]
+      |> Enum.filter(&(&1["type"] == "actions"))
+      |> Enum.flat_map(& &1["elements"])
+      |> Enum.find(&(get_in(&1, ["text", "text"]) == "Stop current run"))
+
+    assert native_stop["confirm"] == stop["confirm"]
+    assert native_stop["action_id"] =~ "card_lab_preview_"
+
+    for card <- CardLab.catalog(), state <- card.states do
+      preview = state.rendered |> HTML.card_lab_preview(card.surface) |> IO.iodata_to_binary()
+      refute preview =~ "slack-confirm", "#{card.id}/#{state.id} renders a dialog inline"
+    end
+  end
 
   test "real Slack specimens retain production blocks with isolated test controls" do
     Enum.each(CardLab.catalog(), fn card ->

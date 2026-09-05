@@ -62,8 +62,6 @@
 .slack-button.danger { background: #fff; border-color: #e01e5a; color: #e01e5a; }
 .slack-context, .slack-context .slack-text { color: #616061; font-size: 12px; line-height: 18px; }
 .slack-fields { column-gap: 24px; row-gap: 8px; margin-top: 8px; }
-.slack-confirm { width: 100%; border: 0; border-left: 2px solid #ddd; padding: 4px 8px; background: #fafafa; }
-.slack-confirm:not([open]) { font-size: 11px; color: #616061; }
 .slack-fallback { background: #fafafa; padding: 12px 20px; color: #616061; }
 .card-lab-slack select { background: var(--panel); border: 1px solid var(--line); color: var(--text); padding: 8px; width: 100%; }
 .card-lab-slack small { color: var(--muted); }

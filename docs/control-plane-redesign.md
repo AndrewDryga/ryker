@@ -6,6 +6,26 @@ Updated: 2026-09-05.
 
 ## Current execution: performance and three design passes
 
+### Operator-console refinement
+
+Remove product-template chrome that has no runtime contract: invented operator
+profiles, workspace identities, presence claims, generic breadcrumbs, slogans,
+decorative empty-state illustrations and repeated Lab promotions. This is an
+execution console, not an account dashboard. Keep real access checks unchanged.
+
+1. Navigation exposes requests, incidents, failures, cost and test tools directly;
+   automation, context and configuration remain reachable on desktop and mobile.
+2. Use a narrow, quiet navigation rail and a document-oriented main area. Page
+   titles name the job. Empty states give one relevant next action. Preserve live
+   freshness controls, worker availability, upcoming work and real-tool warnings.
+3. Regressions prove removal of invented identities without losing routes, live
+   status, drafts, actions or retained execution content. Preserve the pending
+   native Slack confirmation-preview correction. Verify the changed UI boundary;
+   the separate known continuity DateTime-sort defect is not part of this slice.
+
+Browser-rendered acceptance requires an attached browser. Do not claim visual
+review or deployment merely because component tests passed.
+
 The operator's latest correction is authoritative: readable typography, useful
 density and vertical rhythm, actions beside the relevant state, and one complete
 scrollable execution story. Tabs and a separately scrolling event picker are not
