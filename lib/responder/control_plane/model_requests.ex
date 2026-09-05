@@ -62,6 +62,176 @@ defmodule Responder.ControlPlane.ModelRequests do
 
   def project(_ref, _params), do: :not_found
 
+  @doc "A bounded chronological document, with bulk-loaded custody and no per-request tool queries."
+  def timeline(ref, _params) do
+    case Repo.get_by(Episode, key: ref) do
+      nil -> :not_found
+      episode -> timeline_for(episode)
+    end
+  end
+
+  defp timeline_for(episode) do
+    turns =
+      Repo.all(
+        from(t in Turn,
+          where: t.episode_id == ^episode.id,
+          order_by: [desc: t.inserted_at, desc: t.id],
+          limit: 21
+        )
+      )
+
+    entries =
+      Repo.all(
+        from(e in Entry,
+          where: e.episode_id == ^episode.id,
+          order_by: [desc: e.inserted_at, desc: e.id],
+          limit: 21
+        )
+      )
+
+    ids = Enum.map(Enum.take(entries, 20), & &1.id)
+
+    attempts =
+      Repo.all(
+        from(a in Attempt,
+          where: a.input_id in ^ids,
+          order_by: [desc: a.inserted_at, desc: a.id],
+          limit: 21
+        )
+      )
+
+    session_ids = Enum.map(Enum.take(turns, 20), & &1.session_id)
+
+    sessions =
+      Repo.all(from(s in Session, where: s.episode_id == ^episode.id and s.id in ^session_ids))
+      |> Map.new(&{&1.id, &1})
+
+    options = [
+      secrets: Redactor.configured_secrets(),
+      max_bytes: 16_384,
+      timeline: true,
+      sessions: sessions
+    ]
+
+    work =
+      Enum.flat_map(Enum.take(turns, 20), fn turn ->
+        request = inspect_row(turn, %{}, options)
+
+        timing = [
+          %{label: "Coop queue", value: milliseconds(turn.usage_queued_ms)},
+          %{label: "Agent execution", value: milliseconds(turn.usage_provider_ms)},
+          %{label: "Host processing", value: milliseconds(turn.usage_host_ms)}
+        ]
+
+        request_events(
+          request,
+          "request-#{turn.id}",
+          turn.remote_finished_at,
+          turn.candidate != nil or turn.validation_history != [] or turn.accepted_at != nil,
+          timing,
+          "/episodes/#{URI.encode_www_form(episode.key)}/requests?attempt=#{turn.id}"
+        )
+      end)
+
+    by_input = Enum.group_by(Enum.take(attempts, 20), & &1.input_id)
+
+    retained_inputs =
+      Repo.all(from(a in Attempt, where: a.input_id in ^ids, distinct: true, select: a.input_id))
+      |> MapSet.new()
+
+    admission =
+      Enum.flat_map(Enum.take(entries, 20), fn entry ->
+        missing = if MapSet.member?(retained_inputs, entry.id), do: [], else: [nil]
+        Enum.flat_map(Map.get(by_input, entry.id, missing), &admission_events(entry, &1, options))
+      end)
+
+    {:ok,
+     %{
+       items: work ++ admission,
+       truncated: length(turns) > 20 or length(entries) > 20 or length(attempts) > 20
+     }}
+  end
+
+  defp admission_events(entry, attempt, options) do
+    generation = if attempt, do: attempt.generation, else: entry.execution_generation
+
+    request =
+      inspect_row(
+        entry,
+        %{"generation" => to_string(generation)},
+        Keyword.put(options, :attempt, attempt)
+      )
+
+    request = %{request | at: if(attempt, do: attempt.inserted_at, else: entry.inserted_at)}
+    completed = admission_completed_at(attempt)
+    measurements = if attempt, do: attempt.measurements, else: %{}
+
+    timing = [
+      %{label: "Coop queue", value: milliseconds(measurements["usage_queued_ms"])},
+      %{label: "Agent execution", value: milliseconds(measurements["usage_provider_ms"])},
+      %{label: "Host processing", value: milliseconds(measurements["usage_host_ms"])}
+    ]
+
+    request_events(
+      request,
+      "admission-#{entry.id}-#{generation}",
+      completed,
+      attempt != nil and attempt.phase in ~w(response_received host_validation committed),
+      timing,
+      "/admission/#{entry.id}?generation=#{generation}"
+    )
+  end
+
+  defp admission_completed_at(%{milestones: %{"response_received" => at}}) do
+    case DateTime.from_iso8601(at) do
+      {:ok, time, _offset} -> time
+      _invalid -> nil
+    end
+  end
+
+  defp admission_completed_at(_), do: nil
+
+  defp request_events(request, id, completed, has_result, timing, href) do
+    {submission, outcome} =
+      Enum.split_with(
+        request.sections,
+        &(&1.id in ~w(input instructions context tools contract request))
+      )
+
+    start = %{
+      id: id,
+      at: request.at,
+      title: request.title,
+      target: request.target,
+      status: request.status,
+      coverage: request.coverage,
+      sections: submission,
+      timing: [],
+      href: href,
+      kind: :request
+    }
+
+    result =
+      if completed || has_result,
+        do: [
+          %{
+            start
+            | id: id <> "-result",
+              at: completed,
+              title: request.title <> " · result",
+              sections: outcome,
+              timing: timing
+          }
+        ],
+        else: []
+
+    [start | result]
+  end
+
+  defp milliseconds(nil), do: "Not recorded"
+  defp milliseconds(ms) when ms < 1_000, do: "#{ms} ms"
+  defp milliseconds(ms), do: "#{Float.round(ms / 1_000, 1)} s"
+
   def project_input(id, params) when is_map(params) do
     with {:ok, id} <- Ecto.UUID.cast(id), %Entry{} = entry <- Repo.get(Entry, id) do
       {:ok,
@@ -92,10 +262,17 @@ defmodule Responder.ControlPlane.ModelRequests do
     end
   end
 
+  defp request_session(turn, options) do
+    if options[:sessions],
+      do: Map.fetch!(options[:sessions], turn.session_id),
+      else: Repo.get!(Session, turn.session_id)
+  end
+
   defp inspect_row(nil, _params, _options), do: nil
 
   defp inspect_row(%Turn{} = turn, params, options) do
-    session = Repo.get!(Session, turn.session_id)
+    session = request_session(turn, options)
+
     expired = not is_nil(turn.operational_pruned_at)
     options = Keyword.put(options, :expired, expired)
     submission = if expired, do: %{}, else: turn.submission || %{}
@@ -165,7 +342,10 @@ defmodule Responder.ControlPlane.ModelRequests do
         do: min(page(params["generation"]), entry.execution_generation),
         else: entry.execution_generation
 
-    attempt = Repo.get_by(Attempt, input_id: entry.id, generation: generation)
+    attempt =
+      if Keyword.has_key?(options, :attempt),
+        do: options[:attempt],
+        else: Repo.get_by(Attempt, input_id: entry.id, generation: generation)
 
     submission = admission_submission(attempt, expired)
 
@@ -267,6 +447,12 @@ defmodule Responder.ControlPlane.ModelRequests do
     do: %{items: [], page: 1, pages: 1, total: 0}
 
   defp tool_page(turn, params, options) do
+    if options[:timeline],
+      do: %{items: [], page: 1, pages: 1, total: 0},
+      else: query_tool_page(turn, params, options)
+  end
+
+  defp query_tool_page(turn, params, options) do
     query =
       from(event in ActivityEvent,
         where:

@@ -1,7 +1,11 @@
 defmodule Responder.ControlPlane.ModelRequestsTest do
   use Responder.DataCase, async: true
   import Phoenix.LiveViewTest
+  alias Responder.Admission.Attempt
+  alias Responder.ControlPlane.ConversationLab
+  alias Responder.ControlPlane.{EpisodePage, InspectionRedactor, Projection}
   alias Responder.ControlPlane.{ModelRequests, ModelRequestsHTML, RequestPage}
+  alias Responder.Ingress.WorkProfile
   alias Responder.Work.{Custody, Submission, Turn}
 
   test "inspection reads the frozen request and distinguishes instructions from provider-owned context" do
@@ -32,6 +36,14 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
         )
 
       assert native =~ section.title
+      # Existing "Inspect accepted answer" links must open the requested artifact,
+      # not bury it below instructions and raw submissions after removing the tabs.
+      assert native
+             |> LazyHTML.from_document()
+             |> LazyHTML.query(".inspector-document")
+             |> LazyHTML.attribute("id")
+             |> hd() == "selected-#{turn.id}-#{section.id}"
+
       assert native =~ "attempt=#{turn.id}"
       refute native =~ "<script>"
       refute native =~ "xoxb-recorded-credential"
@@ -42,6 +54,219 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
     {episode, _turn, _prompt} = frozen_turn!()
     assert :not_found == ModelRequests.project(episode.key, %{"attempt" => Ecto.UUID.generate()})
     assert :not_found == ModelRequests.project(episode.key, %{"attempt" => "not-a-uuid"})
+  end
+
+  test "the continuous timeline includes frozen instructions and context together with bounded redaction" do
+    {episode, turn, _prompt} = frozen_turn!()
+    assert {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+    assert request = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}"))
+    assert Enum.any?(request.sections, &(&1.id == "instructions"))
+    assert Enum.any?(request.sections, &(&1.id == "context"))
+    text = Enum.map_join(request.sections, " ", &(&1.artifact.text || ""))
+    assert text =~ "Host-authored retained instructions"
+    assert text =~ "source message"
+    refute text =~ "xoxb-recorded-credential"
+    assert timeline.truncated == false
+    assert :not_found == ModelRequests.timeline("absent", %{})
+
+    {:ok, snapshot} = Projection.episode(episode.key)
+
+    html =
+      render_component(&EpisodePage.render/1,
+        snapshot: snapshot,
+        timeline: timeline,
+        requests: nil,
+        params: %{}
+      )
+
+    assert html =~ "Host-authored retained instructions"
+    assert html =~ "Messages supplied to this request"
+    assert html =~ "source message &lt;script&gt;"
+    refute html =~ "aria-label=\"Request contents\""
+    refute html =~ "xoxb-recorded-credential"
+    ids = html |> LazyHTML.from_document() |> LazyHTML.query("[id]") |> LazyHTML.attribute("id")
+    assert ids == Enum.uniq(ids)
+
+    # Millisecond timestamps can tie; kernel sequence 10 must not precede 9.
+    [step | _] = snapshot.trace.steps
+    steps = for sequence <- [9, 10], do: %{step | id: "kernel-#{sequence}"}
+    snapshot = put_in(snapshot, [:trace, :steps], steps)
+
+    tied =
+      render_component(&EpisodePage.render/1,
+        snapshot: snapshot,
+        timeline: timeline,
+        requests: nil,
+        params: %{}
+      )
+
+    assert tied
+           |> LazyHTML.from_document()
+           |> LazyHTML.query(".case-event")
+           |> LazyHTML.attribute("id") == ["event-kernel-9", "event-kernel-10"]
+  end
+
+  test "timeline timing separates remote queue from execution before host acceptance exists" do
+    {episode, turn, _prompt} = frozen_turn!()
+    started = DateTime.add(turn.inserted_at, 2)
+    finished = DateTime.add(started, 60)
+
+    turn
+    |> Ecto.Changeset.change(
+      timing_recorded: true,
+      remote_queued_at: DateTime.add(started, -2, :millisecond),
+      remote_started_at: started,
+      remote_finished_at: finished,
+      usage_queued_ms: 2,
+      usage_provider_ms: 60_000,
+      usage_host_ms: 1_000
+    )
+    |> Repo.update!()
+
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+    result = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}-result"))
+    assert result.at == finished
+
+    assert result.timing == [
+             %{label: "Coop queue", value: "2 ms"},
+             %{label: "Agent execution", value: "60.0 s"},
+             %{label: "Host processing", value: "1.0 s"}
+           ]
+
+    {:ok, snapshot} = Projection.episode(episode.key)
+
+    html =
+      render_component(&EpisodePage.render/1,
+        snapshot: snapshot,
+        timeline: timeline,
+        requests: nil,
+        params: %{}
+      )
+
+    assert html =~ "2 ms"
+    assert html =~ "60.0 s"
+    assert html =~ "not a measurement of thinking time alone"
+    assert html =~ "Host validation and repair history"
+  end
+
+  test "a truncated context remains readable inline instead of becoming an empty document" do
+    artifact =
+      InspectionRedactor.artifact(
+        %{"inputs" => [String.duplicate("retained context ", 50)]},
+        max_bytes: 100
+      )
+
+    html =
+      render_component(&RequestPage.artifact/1,
+        section: %{id: "context", title: "Frozen context", artifact: artifact},
+        prefix: "truncated"
+      )
+
+    assert html =~ "truncated display"
+    assert html =~ "[display truncated]"
+    assert html =~ "retained context"
+  end
+
+  test "retained model output remains inspectable when remote timing is absent" do
+    {episode, turn, _prompt} = frozen_turn!()
+    # Telemetry omission must not hide a rejected or still-pending model result.
+    turn
+    |> Ecto.Changeset.change(validation_history: [%{"verdict" => "rejected"}])
+    |> Repo.update!()
+
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+    assert result = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}-result"))
+    assert result.at == nil
+    assert Enum.any?(result.sections, &(&1.artifact.text && &1.artifact.text =~ "rejected"))
+  end
+
+  test "timeline retains each admission generation and marks missing older requests honestly" do
+    {episode, _turn, original} = frozen_turn!()
+
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "inspection-test",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    {:ok, %{entry: entry}} = ConversationLab.send_message(Ecto.UUID.generate(), "Hi", profile)
+
+    entry =
+      entry
+      |> Ecto.Changeset.change(
+        episode_id: episode.id,
+        status: :decided,
+        decision_action: :reply,
+        decision_ref: "decision:#{entry.id}",
+        decision_fingerprint: String.duplicate("a", 64),
+        execution_generation: 2,
+        decision_document: %{"action" => "reply", "work_class" => "conversational"}
+      )
+      |> Repo.update!()
+
+    {:ok, missing} = ModelRequests.timeline(episode.key, %{})
+    assert missing_request = Enum.find(missing.items, &(&1.id == "admission-#{entry.id}-2"))
+    assert missing_request.coverage =~ "no retained submitted prompt"
+
+    for generation <- 1..2 do
+      Repo.insert!(%Attempt{
+        input_id: entry.id,
+        generation: generation,
+        policy: "inspection-test",
+        policy_digest: String.duplicate("a", 64),
+        phase: "committed",
+        milestones: %{"response_received" => DateTime.to_iso8601(entry.inserted_at)},
+        submission: %{"prompt" => original},
+        measurements: %{"usage_queued_ms" => 2}
+      })
+    end
+
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+
+    for generation <- 1..2 do
+      assert request =
+               Enum.find(timeline.items, &(&1.id == "admission-#{entry.id}-#{generation}"))
+
+      assert request.href =~ "generation=#{generation}"
+
+      assert result =
+               Enum.find(timeline.items, &(&1.id == "admission-#{entry.id}-#{generation}-result"))
+
+      decision = Enum.find(result.sections, &(&1.id == "candidate"))
+      assert decision.artifact.state == if(generation == 2, do: :retained, else: :not_recorded)
+      assert result.at == entry.inserted_at
+    end
+
+    # A frequently retried input can consume the whole window. Older retained
+    # prompts must be omitted with the bounded-history notice, never called missing.
+    {:ok, %{entry: newer}} = ConversationLab.send_message(Ecto.UUID.generate(), "Hi", profile)
+
+    newer
+    |> Ecto.Changeset.change(
+      episode_id: episode.id,
+      execution_generation: 21,
+      status: :decided,
+      decision_action: :reply,
+      decision_ref: "decision:#{newer.id}",
+      decision_fingerprint: String.duplicate("a", 64),
+      decision_document: %{"action" => "reply", "work_class" => "conversational"}
+    )
+    |> Repo.update!()
+
+    for generation <- 1..21 do
+      Repo.insert!(%Attempt{
+        input_id: newer.id,
+        generation: generation,
+        policy: "inspection-test",
+        policy_digest: String.duplicate("a", 64),
+        submission: %{"prompt" => original}
+      })
+    end
+
+    {:ok, bounded} = ModelRequests.timeline(episode.key, %{})
+    assert bounded.truncated
+    refute Enum.any?(bounded.items, &(&1.coverage =~ "no retained submitted prompt"))
   end
 
   test "pruned request content is expired rather than silently reconstructed" do
