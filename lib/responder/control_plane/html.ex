@@ -1353,7 +1353,7 @@ defmodule Responder.ControlPlane.HTML do
           "</td><td>",
           integer(row.repair_rounds),
           "</td><td>",
-          integer(row.tokens),
+          number(row.tokens),
           "</td><td>",
           money(row.cost_usd, row.costed),
           "</td><td>",
@@ -1846,7 +1846,7 @@ defmodule Responder.ControlPlane.HTML do
           "</td><td>",
           coverage(row.measured, row.attempts),
           "</td><td>",
-          integer(row.tokens),
+          number(row.tokens),
           "</td><td>",
           money(row.cost_usd, row.costed),
           "</td></tr>"
@@ -1872,7 +1872,7 @@ defmodule Responder.ControlPlane.HTML do
           "</td><td>",
           coverage(row.measured, row.attempts),
           "</td><td>",
-          integer(row.tokens),
+          number(row.tokens),
           "</td><td>",
           money(row.cost_usd, row.costed),
           "</td></tr>"
@@ -1909,7 +1909,7 @@ defmodule Responder.ControlPlane.HTML do
           "</td><td>",
           coverage(row.measured, row.attempts),
           "</td><td>",
-          integer(row.tokens),
+          number(row.tokens),
           "</td><td>",
           money(row.cost_usd, row.costed),
           "</td></tr>"
@@ -1935,15 +1935,15 @@ defmodule Responder.ControlPlane.HTML do
       metric("Execution requests", totals.attempts),
       metric("Provider measured", coverage(totals.usage_measured, totals.attempts)),
       metric("Reported USD", money(totals.cost_usd, totals.costed)),
-      metric("Input tokens reported", integer(totals.input_tokens)),
+      metric("Input tokens reported", number(totals.input_tokens)),
       "</section><div class=\"usage-details\"><section aria-labelledby=\"usage-coverage\"><h2 id=\"usage-coverage\">Measurement coverage</h2><p class=\"muted\">Which requests and token dimensions were recorded.</p>",
       definition_list([
         {"Admission executions", Map.get(totals, :admission, "not recorded")},
         {"Work executions", Map.get(totals, :work, "not recorded")},
         {"Unsuccessful remote executions", Map.get(totals, :unsuccessful, "not recorded")},
-        {"Cached input counter", integer(totals.cached_input_tokens)},
-        {"Output counter", integer(totals.output_tokens)},
-        {"Reasoning counter", integer(totals.reasoning_tokens)},
+        {"Cached input counter", number(totals.cached_input_tokens)},
+        {"Output counter", number(totals.output_tokens)},
+        {"Reasoning counter", number(totals.reasoning_tokens)},
         {"Cache hit rate", percent(totals.cache_hit_rate)},
         {"Measurement errors", totals.measurement_errors}
       ]),
@@ -1956,7 +1956,7 @@ defmodule Responder.ControlPlane.HTML do
       ]),
       "</section></div><section class=\"measurement-notes\"><h2>How to read these numbers</h2><p>Reported money is shown only when the provider supplied it; unpriced attempts are not displayed as zero spend. Execution requests include admission and unsuccessful Work, not lease claims or polling.</p><details><summary>Coverage limits and token semantics</summary><p>Coop turn totals can include repairs; individual provider calls and child-task attribution are not yet available. Token-counter sums below are not normalized billable tokens: cached and reasoning dimensions may overlap provider totals. Historical executions without retained measurements remain unknown. Token-priced estimates are not yet available.</p></details>",
       "</section><section><h2>Daily token trend</h2>",
-      trend_svg(snapshot.days),
+      token_trend(snapshot.days),
       "</section><section><h2>Execution targets</h2>",
       table(
         [
@@ -2079,9 +2079,9 @@ defmodule Responder.ControlPlane.HTML do
       "</td><td>",
       if(row.usage_recorded,
         do: [
-          integer(row.usage_input_tokens || 0),
+          number(row.usage_input_tokens || 0),
           " / ",
-          integer(row.usage_output_tokens || 0)
+          number(row.usage_output_tokens || 0)
         ],
         else: "Unknown"
       ),
@@ -2728,39 +2728,32 @@ defmodule Responder.ControlPlane.HTML do
     table(["Worker", "State", "Advertised revision", "Last seen"], rows)
   end
 
-  defp trend_svg([]), do: "<p class=\"empty\">No accepted turns in this window.</p>"
+  defp token_trend([]), do: "<p class=\"empty\">No executions recorded in this window.</p>"
 
-  defp trend_svg(days) do
+  defp token_trend(days) do
     maximum = days |> Enum.map(& &1.tokens) |> Enum.max(fn -> 0 end) |> max(1)
-    width = max(length(days) * 28, 280)
-
-    bars =
-      days
-      |> Enum.with_index()
-      |> Enum.map(fn {day, index} ->
-        height = max(round(day.tokens / maximum * 96), if(day.tokens > 0, do: 1, else: 0))
-        x = index * 28 + 4
-        y = 104 - height
-
-        [
-          "<rect x=\"",
-          integer(x),
-          "\" y=\"",
-          integer(y),
-          "\" width=\"20\" height=\"",
-          integer(height),
-          "\"><title>",
-          escape("#{day.date}: #{day.tokens} tokens, #{day.measured}/#{day.attempts} measured"),
-          "</title></rect>"
-        ]
-      end)
 
     [
-      "<svg class=\"trend\" role=\"img\" aria-label=\"Daily measured token trend\" viewBox=\"0 0 ",
-      integer(width),
-      " 108\" preserveAspectRatio=\"none\">",
-      bars,
-      "</svg>"
+      "<p class=\"muted\">Recorded token counters by day (UTC). Coverage shows which executions supplied measurements.</p>",
+      "<ol class=\"token-trend\" aria-label=\"Daily measured token trend\">",
+      Enum.map(days, fn day ->
+        [
+          "<li><time datetime=\"",
+          escape(day.date),
+          "\">",
+          escape(Calendar.strftime(day.date, "%d %b")),
+          "</time><progress class=\"token-bar\" aria-hidden=\"true\" max=\"",
+          integer(maximum),
+          "\" value=\"",
+          integer(day.tokens),
+          "\"></progress><strong>",
+          number(day.tokens),
+          "</strong><small>",
+          coverage(day.measured, day.attempts),
+          " measured</small></li>"
+        ]
+      end),
+      "</ol>"
     ]
   end
 
@@ -2828,6 +2821,8 @@ defmodule Responder.ControlPlane.HTML do
 
   defp integer(value) when is_integer(value), do: Integer.to_string(value)
   defp integer(value), do: to_string(value)
+
+  defp number(value), do: value |> integer() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
 
   defp escape(value) do
     value

@@ -9,49 +9,54 @@ defmodule Responder.ControlPlane.CardLabPage do
 
     ~H"""
     <div class="specimen-workbench">
-      <aside class="specimen-directory">
-        <p class="ui-eyebrow">DESIGN & INTERACTION</p><h1>Slack Card Lab</h1>
-        <p>Every surface. Every state.</p>
-        <span class="specimen-total">{Enum.sum(Enum.map(@specimen.catalog, & &1.state_count))} specimens · {length(
-          @specimen.catalog
-        )} families</span>
-        <nav aria-label="Slack card families">
-          <.link
-            :for={card <- @specimen.catalog}
-            patch={path(card.id, card.first_state_id)}
-            aria-current={if card.id == @specimen.card.id, do: "page"}
-          >
-            <strong>{card.title}</strong><span>{card.state_count} states · {surface(card.surface)}</span>
-          </.link>
-        </nav>
-      </aside>
       <section class="specimen-stage">
         <div class="specimen-heading">
-          <p class="ui-eyebrow">{surface(@specimen.card.surface)} / PRODUCTION RENDERER</p>
-          <h2>{@specimen.card.title}</h2><p>{@specimen.card.description}</p>
+          <h1>Slack Card Lab</h1>
+          <p>
+            Inspect {Enum.sum(Enum.map(@specimen.catalog, & &1.state_count))} states from the production renderer. Review locally or in Slack.
+          </p>
         </div>
-        <nav class="specimen-states" aria-label="Card states">
-          <.link
-            :for={state <- @specimen.card.states}
-            patch={path(@specimen.card.id, state.id)}
-            aria-current={if state.id == @specimen.state.id, do: "page"}
-          >{state.label}</.link>
-        </nav>
+        <div class="specimen-selectors">
+          <form id="card-family-form" phx-change="card-family">
+            <label for="card-family">Card family <span>{length(@specimen.catalog)} families</span></label>
+            <select id="card-family" name="card">
+              <option
+                :for={card <- @specimen.catalog}
+                value={card.id}
+                selected={card.id == @specimen.card.id}
+              >
+                {card.title} · {card.state_count} states
+              </option>
+            </select>
+          </form>
+          <form id="card-state-form" phx-change="card-state">
+            <label for="card-state">State <span>{surface(@specimen.card.surface)}</span></label>
+            <select id="card-state" name="state">
+              <option
+                :for={state <- @specimen.card.states}
+                value={state.id}
+                selected={state.id == @specimen.state.id}
+              >
+                {state.label}
+              </option>
+            </select>
+          </form>
+        </div>
         <div class="specimen-state-heading">
-          <div>
-            <span class="ui-eyebrow">SELECTED STATE</span><h3>{@specimen.state.label}</h3>
-          </div><p>{@specimen.state.description}</p>
+          <h2>{@specimen.state.label}</h2><p>{@specimen.state.description}</p>
         </div>
         <section
           :if={@specimen.state[:provenance]}
           class="specimen-provenance"
           aria-label="Example provenance"
         >
-          <strong>{@specimen.state.provenance.basis}</strong>
-          <span :if={@specimen.state.provenance.observed_at}>{@specimen.state.provenance.observed_at}</span>
-          <p>{@specimen.state.provenance.note}</p>
-          <details :if={@specimen.state.provenance.source_ref}>
-            <summary>Source record</summary><code>{@specimen.state.provenance.source_ref}</code>
+          <details id={"provenance-#{@specimen.card.id}-#{@specimen.state.id}"}>
+            <summary>{@specimen.state.provenance.basis} <span>About this example</span></summary>
+            <p>{@specimen.state.provenance.note}</p>
+            <p :if={@specimen.state.provenance.observed_at}>
+              Observed: {@specimen.state.provenance.observed_at}
+            </p>
+            <code :if={@specimen.state.provenance.source_ref}>{@specimen.state.provenance.source_ref}</code>
           </details>
         </section>
         <div class="specimen-preview-toolbar">

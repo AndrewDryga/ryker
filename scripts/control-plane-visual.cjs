@@ -1,0 +1,161 @@
+// Read-only browser acceptance. Screenshots contain local organization data;
+// keep the output private and outside the repository. No Slack/model calls.
+// Usage: node scripts/control-plane-visual.cjs http://127.0.0.1:4321 OUTPUT [--cards]
+// Install Playwright separately, or set RESPONDER_PLAYWRIGHT_MODULE to its path.
+const { chromium } = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwright');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+const {createCaptureDirectory} = require('./visual-artifacts.cjs');
+
+const origin = new URL(process.argv[2] || 'http://127.0.0.1:4321');
+assert(['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname), 'Loopback only');
+assert(origin.protocol === 'http:' && !origin.username && !origin.password && origin.pathname === '/', 'Use a local HTTP origin');
+assert(process.argv[3], 'Supply a private output directory outside the repository');
+let output = path.resolve(process.argv[3]);
+const repository = path.resolve(__dirname, '..');
+assert(output !== repository && !output.startsWith(repository + path.sep), 'Do not commit organization screenshots');
+const allCards = process.argv.includes('--cards');
+const routes = [
+  ['requests', '/'], ['lab', '/lab'], ['episodes', '/episodes'],
+  ['incidents', '/incidents'], ['failures', '/failures'], ['usage', '/usage'],
+  ['audit', '/audit'], ['schedules', '/schedules'], ['subscriptions', '/subscriptions'],
+  ['memory', '/memory'], ['decisions', '/decisions'], ['findings', '/findings'],
+  ['calibration', '/calibration'], ['configuration', '/configuration'],
+  ['channels', '/channels'], ['repositories', '/repositories'], ['workspaces', '/workspaces'],
+  ['journeys', '/manual-tests'], ['task-working', '/card-lab/task-card/working'],
+  ['task-goals', '/card-lab/task-card/recorded-goals'], ['missing-episode', '/episodes/missing']
+];
+
+async function connected(page) {
+  await page.locator('[data-connection-state="connected"]').waitFor({timeout: 5000});
+}
+
+async function discover(page) {
+  const absent = [];
+  for (const [name, route, selector] of [
+    ['episode-detail', '/', '.activity-title[href^="/episodes/"]'],
+    ['lab-chat', '/lab', '.lab-directory-list a[href^="/lab/"]'],
+    ['channel-detail', '/channels', 'a[href^="/channels/"]'],
+    ['incident-detail', '/incidents', 'a[href^="/incidents/"]'],
+    ['schedule-detail', '/schedules', 'a[href^="/schedules/"]'],
+    ['failure-detail', '/failures', 'a[href^="/failures/"]']
+  ]) {
+    await page.goto(new URL(route, origin).href);
+    const link = page.locator(selector).first();
+    if (await link.count()) {
+      const href = await link.getAttribute('href');
+      routes.push([name, href]);
+      if (name === 'episode-detail') routes.push(['request-detail', href + '/requests']);
+    } else absent.push(name);
+  }
+  if (allCards) {
+    await page.goto(new URL('/card-lab/task-card/working', origin).href);
+    await connected(page);
+    const families = await page.locator('#card-family option').evaluateAll(es => es.map(e => e.value));
+    for (const family of families) {
+      await page.selectOption('#card-family', family);
+      await page.waitForURL(url => url.pathname.split('/')[2] === family);
+      const states = await page.locator('#card-state option').evaluateAll(es => es.map(e => e.value));
+      for (const state of states) routes.push([`card-${family}-${state}`, `/card-lab/${family}/${state}`]);
+    }
+  }
+  return absent;
+}
+
+async function interactions(page) {
+  await page.goto(new URL('/card-lab/task-card/working', origin).href);
+  await connected(page);
+  await page.selectOption('#card-state', 'recorded-goals');
+  await page.waitForURL('**/card-lab/task-card/recorded-goals');
+  await page.locator('.preview-width a', {hasText: 'Compact'}).click();
+  await page.locator('.specimen-canvas.compact').waitFor();
+  await page.selectOption('#card-state', 'working');
+  await page.waitForURL('**/working?width=compact');
+  await page.locator('button[phx-value-id="next-recorded"]').click();
+  await page.waitForURL('**/working-validation');
+  await page.locator('.specimen-provenance summary').click();
+  await page.locator('.specimen-provenance details[open]').waitFor();
+  await page.locator('button[phx-click="refresh"]').click();
+  await page.locator('button[phx-click="toggle-live"]').click();
+  await page.locator('button[phx-click="toggle-live"][aria-pressed="true"]').waitFor();
+  // Pause's acknowledged DOM patch follows Refresh on the same LiveView
+  // channel. Do not inspect the already-open details before Refresh completes.
+  await page.locator('.specimen-provenance details[open]').waitFor();
+  await page.locator('button[phx-click="toggle-live"]').click();
+  await page.locator('button[phx-click="toggle-live"][aria-pressed="false"]').waitFor();
+  await page.locator('a', {hasText: 'Block Kit payload'}).click();
+  await page.locator('.specimen-payload').waitFor();
+  await page.screenshot({path: path.join(output, 'interaction-payload.png')});
+  await page.selectOption('#card-family', 'incident-room');
+  await page.waitForURL(url => url.pathname === '/card-lab/incident-room/provisioning');
+  await page.locator('.specimen-selectors select').first().focus();
+  await page.screenshot({path: path.join(output, 'interaction-keyboard-focus.png')});
+}
+
+(async () => {
+  output = await createCaptureDirectory(output, repository);
+  console.log(`Private capture directory: ${output}`);
+  const browser = await chromium.launch({headless: true});
+  const report = {origin: origin.origin, capturedAt: new Date().toISOString(), absent: [], captures: [], interactionError: null};
+  try {
+    const discovery = await browser.newPage();
+    report.absent = await discover(discovery);
+    await discovery.close();
+    for (const [width, height] of [[1440, 1000], [390, 844]]) {
+      const context = await browser.newContext({viewport: {width, height}, reducedMotion: 'reduce', deviceScaleFactor: 1});
+      const page = await context.newPage();
+      page.setDefaultTimeout(5000);
+      for (const [name, route] of routes) {
+        const errors = [];
+        const onError = error => errors.push(error.message);
+        const onConsole = message => { if (message.type() === 'error') errors.push(message.text()); };
+        page.on('pageerror', onError);
+        page.on('console', onConsole);
+        const file = `${name}-${width}.png`;
+        const result = {name, route, width, file, errors};
+        try {
+          const response = await page.goto(new URL(route, origin).href, {waitUntil: 'domcontentloaded'});
+          result.status = response.status();
+          result.version = response.headers()['x-responder-version'];
+          await connected(page);
+          await page.evaluate(() => document.fonts.ready);
+          result.layout = await page.evaluate(() => ({
+            width: document.documentElement.clientWidth,
+            scrollWidth: document.documentElement.scrollWidth,
+            previewTop: document.querySelector('.specimen-canvas')?.getBoundingClientRect().top,
+            composerTop: document.querySelector('.lab-native-composer')?.getBoundingClientRect().top,
+            transcriptBottom: document.querySelector('.lab-transcript')?.getBoundingClientRect().bottom
+          }));
+          assert.equal(result.status, 200);
+          assert(result.layout.scrollWidth <= width, 'Page overflows horizontally');
+          if (name === 'task-working') assert(result.layout.previewTop < height - 120, 'Card preview is buried below the first screen');
+          if (name === 'lab-chat' && width === 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');
+          assert.equal(errors.length, 0, 'Browser or CSP errors');
+        } catch (error) { result.failure = error.message; }
+        await page.screenshot({path: path.join(output, file), animations: 'disabled'});
+        await page.screenshot({path: path.join(output, file.replace('.png', '-full.png')), fullPage: true, animations: 'disabled'});
+        // Read a mid-page chart at actual viewport size, not a shrunk tall image.
+        if (name === 'usage') {
+          await page.locator('.token-trend').scrollIntoViewIfNeeded().catch(() => {});
+          await page.screenshot({path: path.join(output, `usage-chart-${width}.png`)});
+        }
+        report.captures.push(result);
+        page.off('pageerror', onError);
+        page.off('console', onConsole);
+        console.log(`${name} ${width}: ${result.failure || 'PASS'}`);
+      }
+      if (width === 1440) {
+        try { await interactions(page); }
+        catch (error) { report.interactionError = error.message; }
+      }
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+    await fs.writeFile(path.join(output, 'manifest.json'), JSON.stringify(report, null, 2), {mode: 0o600});
+  }
+  const failed = report.captures.filter(capture => capture.failure);
+  console.log(`${report.captures.length} captures; ${failed.length} failures; interactions: ${report.interactionError || 'PASS'}`);
+  if (failed.length || report.interactionError) process.exitCode = 1;
+})().catch(error => {console.error(error.message); process.exitCode = 1;});
