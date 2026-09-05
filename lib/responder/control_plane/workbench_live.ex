@@ -421,7 +421,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="responder-app">
+    <div class="responder-app" id="responder-shell" phx-hook="PreserveReadingState">
       <Navigation.sidebar path={@path} live={true} />
       <div class="app-workspace">
         <header class="app-topbar">
@@ -431,20 +431,26 @@ defmodule Responder.ControlPlane.WorkbenchLive do
             id="live-status"
             data-connection-state={if @connected, do: "connected", else: "connecting"}
           >
-            <span class="view-freshness">Observed
-            <time>{if @observed_at,
-              do: Calendar.strftime(@observed_at, "%H:%M:%S UTC"),
-              else: "not yet"}</time></span>
             <span class="connection-offline" role="status">Disconnected · reconnecting</span>
             <span class="connection-online" role="status">{cond do
               @unavailable -> "Data unavailable"
               @paused -> "Updates paused"
-              @connected -> "Live updates"
+              @connected -> "Live"
               true -> "Connecting"
             end}</span>
-            <button type="button" phx-click="toggle-live" aria-pressed={to_string(@paused)}>{if @paused,
-              do: "Resume",
-              else: "Pause"}</button><button type="button" phx-click="refresh">Refresh</button>
+            <details class="live-controls" id="live-controls">
+              <summary aria-label="Live update controls">···</summary>
+              <div class="live-controls-menu">
+                <span class="view-freshness">Last updated
+                <time>{if @observed_at,
+                  do: Calendar.strftime(@observed_at, "%H:%M:%S UTC"),
+                  else: "not yet"}</time></span>
+                <button type="button" phx-click="toggle-live" aria-pressed={to_string(@paused)}>{if @paused,
+                  do: "Resume",
+                  else: "Pause"}</button>
+                <button type="button" phx-click="refresh">Refresh</button>
+              </div>
+            </details>
           </div>
         </header>
         <div :if={@unavailable} class="app-warning" role="status">
@@ -454,7 +460,6 @@ defmodule Responder.ControlPlane.WorkbenchLive do
         <main
           id="operator-page"
           class={if @native, do: "native-page", else: "legacy-surface"}
-          phx-hook="PreserveReadingState"
         >
           <section :if={@native == :loading && @unavailable} class="document-unavailable">
             <h1>This view is temporarily unavailable</h1><p>

@@ -48,9 +48,6 @@ defmodule Responder.ControlPlane.LabPage do
             true -> "Conversation saved"
           end}</span>
         </div>
-        <div class="lab-authority-note">
-          <.icon name={:incident} /><span>Live tools · Local delivery. Slack-owned effects are emulated; repository and Emisar actions use the configured authority.</span><a href="/configuration">Inspect</a>
-        </div>
         <div :if={@snapshot.messages == []} class="lab-first-message">
           <h3>
             Send a test message

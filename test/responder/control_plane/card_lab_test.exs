@@ -14,6 +14,7 @@ defmodule Responder.ControlPlane.CardLabTest do
     assert Jason.encode!(working.rendered) =~ "Still working; implementing and validating"
     assert working.state.provenance.basis == "Retained progress"
     assert working.state.provenance.source_ref == "episode_run_9f179b957987eb77f5b860877b06c344"
+    assert Jason.encode!(working.rendered) =~ "Updated 14 Aug, 05:43 UTC"
 
     assert {:ok, later} = CardLab.fetch("task-card", "working-validation")
     assert later.state.provenance.observed_at == "2026-08-14T05:51:23.132457Z"
@@ -41,6 +42,8 @@ defmodule Responder.ControlPlane.CardLabTest do
     html = snapshot.rendered |> HTML.card_lab_preview(:message) |> IO.iodata_to_binary()
     refute html =~ "slack-confirm"
     refute html =~ "<summary>Confirmation</summary>"
+    assert html =~ "aria-label=\"More actions\""
+    refute html =~ "More · Timeline"
 
     assert html
            |> LazyHTML.from_document()

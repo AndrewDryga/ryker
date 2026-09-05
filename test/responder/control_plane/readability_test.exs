@@ -18,8 +18,10 @@ defmodule Responder.ControlPlane.ReadabilityTest do
 
   test "calibration explains its purpose without a decorative operator banner" do
     html = HTML.calibration(%{rows: [], window: "7d"}) |> IO.iodata_to_binary()
-    assert html =~ "Live model-lane calibration"
+    assert html =~ "Compare speed and reliability"
     assert html =~ "page-description"
+    assert html =~ "API-equivalent estimates"
+    assert html =~ "/usage#cost-method"
     refute html =~ "Durable operator view"
     refute html =~ "workbench-intro"
   end
@@ -36,14 +38,43 @@ defmodule Responder.ControlPlane.ReadabilityTest do
             {"follow-up", :input},
             {"retry", :ready}
           ] do
-        %{id: id, band: band, at: now}
+        %{id: id, band: band, at: now, kind: if(band == :input, do: :message, else: :event)}
       end
 
     chapters = EpisodeTrace.chapters(entries, now)
     assert Enum.flat_map(chapters, & &1.steps) == entries
     assert Enum.map(chapters, & &1.band) == [:input, :work, :outcome, :input, :ready]
     assert Enum.at(chapters, 1).steps |> Enum.map(& &1.id) == ["tool-9", "tool-10"]
+    assert Enum.at(chapters, 3).title == "Follow-up received"
+    assert Enum.at(chapters, 3).conversation_turn == 2
+    assert Enum.at(chapters, 4).conversation_turn == 2
     assert [%{span: nil}] = EpisodeTrace.chapters([%{band: :ready, at: nil}], nil)
+  end
+
+  test "admission and waits cannot invent a follow-up before another message arrives" do
+    # Admission completion and waiting events share the input band; treating
+    # every input-band chapter as a new message invented conversation parts.
+    now = ~U[2026-09-05 12:00:00Z]
+
+    entries =
+      for {id, band, kind} <- [
+            {"message-1", :input, :message},
+            {"admission", :ready, :request},
+            {"input-admitted", :input, :event},
+            {"work", :work, :request},
+            {"input-wait-started", :input, :event},
+            {"message-2", :input, :message},
+            {"wait-resumed", :input, :event}
+          ],
+          do: %{id: id, band: band, kind: kind, at: now}
+
+    chapters = EpisodeTrace.chapters(entries, now)
+    assert Enum.flat_map(chapters, & &1.steps) == entries
+    assert Enum.count(chapters, &(&1.title == "Follow-up received")) == 1
+    assert List.last(chapters).conversation_turn == 2
+    assert List.first(List.last(chapters).steps).id == "message-2"
+
+    assert Enum.map(Enum.drop(chapters, -1), & &1.conversation_turn) == [1, 1, 1, 1, 1]
   end
 
   defp contrast(a, b) do

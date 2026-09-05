@@ -1,4 +1,6 @@
 defmodule Responder.ControlPlane.Router do
+  alias Responder.ControlPlane.AuditHTML
+  alias Responder.ControlPlane.SlackNames
   @moduledoc false
 
   import Plug.Conn
@@ -662,9 +664,14 @@ defmodule Responder.ControlPlane.Router do
     with {:ok, workspace_ref} <- path_ref(workspace_ref),
          {:ok, channel_ref} <- path_ref(channel_ref) do
       case options.projection.channel.(workspace_ref, channel_ref) do
-        {:ok, snapshot} -> html(conn, 200, channel_ref, HTML.channel(snapshot))
-        :not_found -> html(conn, 404, "Not found", HTML.generic("Channel", []))
-        {:error, _reason} -> html(conn, 503, "Unavailable", HTML.generic("Channel", []))
+        {:ok, snapshot} ->
+          html(conn, 200, SlackNames.name(workspace_ref, channel_ref), HTML.channel(snapshot))
+
+        :not_found ->
+          html(conn, 404, "Not found", HTML.generic("Channel", []))
+
+        {:error, _reason} ->
+          html(conn, 503, "Unavailable", HTML.generic("Channel", []))
       end
     else
       {:error, :path_ref} -> html(conn, 404, "Not found", HTML.generic("Channel", []))
@@ -680,7 +687,7 @@ defmodule Responder.ControlPlane.Router do
   defp route(%Plug.Conn{method: "GET", path_info: ["calibration"]} = conn, options) do
     conn = fetch_query_params(conn)
     snapshot = options.projection.calibration.(Map.take(conn.query_params, ["window"]))
-    html(conn, 200, "Model calibration", HTML.calibration(snapshot))
+    html(conn, 200, "Model performance", HTML.calibration(snapshot))
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["memory"]} = conn, options) do
@@ -750,7 +757,15 @@ defmodule Responder.ControlPlane.Router do
     conn = fetch_query_params(conn)
     callback = Map.fetch!(options.projection, String.to_existing_atom(page))
     rows = callback.(conn.query_params)
-    html(conn, 200, String.capitalize(page), HTML.generic(String.capitalize(page), rows))
+
+    body =
+      case page do
+        "audit" -> AuditHTML.render(rows)
+        "decisions" -> HTML.decisions(rows)
+        _ -> HTML.generic(String.capitalize(page), rows)
+      end
+
+    html(conn, 200, String.capitalize(page), body)
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["static", "app.css"]} = conn, _options) do
@@ -1365,7 +1380,7 @@ defmodule Responder.ControlPlane.Router do
   defp confirmation("delivery", resource_ref, "rearm", options) do
     case options.projection.delivery.(resource_ref) do
       {:ok, %{status: :blocked}} ->
-        {:ok, "Rearm this delivery?",
+        {:ok, "Retry this delivery?",
          "Responder will retry the exact accepted message, reaction, or platform action at its original destination.",
          "delivery:rearm"}
 
@@ -1377,7 +1392,7 @@ defmodule Responder.ControlPlane.Router do
   defp confirmation("admission", resource_ref, "rearm", options) do
     case options.projection.admission.(resource_ref) do
       {:ok, %{action: :rearm, status: :blocked}} ->
-        {:ok, "Rearm this admission?",
+        {:ok, "Retry routing this message?",
          "Responder will reconcile the same frozen input, context, and Coop operation identities.",
          "admission:rearm"}
 
@@ -1429,7 +1444,7 @@ defmodule Responder.ControlPlane.Router do
   defp confirmation("emisar", resource_ref, "rearm", options) do
     case options.projection.emisar.(resource_ref) do
       {:ok, %{action: :rearm, status: :blocked}} ->
-        {:ok, "Rearm this approval monitor?",
+        {:ok, "Resume approval checks?",
          "Responder will resume read-only observation of the same governed Emisar request. It will not approve, deny, or repeat the action.",
          "emisar:rearm"}
 
@@ -1441,7 +1456,7 @@ defmodule Responder.ControlPlane.Router do
   defp confirmation("slack_interaction", resource_ref, "rearm", options) do
     case options.projection.slack_interaction.(resource_ref) do
       {:ok, %{action: :rearm, status: :blocked}} ->
-        {:ok, "Rearm this Slack repaint?",
+        {:ok, "Refresh this Slack message?",
          "Responder will repaint the exact host-owned message recorded by the original interaction audit.",
          "slack_interaction:rearm"}
 
@@ -1453,7 +1468,7 @@ defmodule Responder.ControlPlane.Router do
   defp confirmation("slack_incident", resource_ref, "rearm", options) do
     case options.projection.slack_incident.(resource_ref) do
       {:ok, %{action: :rearm, status: :blocked}} ->
-        {:ok, "Rearm this incident room?",
+        {:ok, "Resume incident room setup?",
          "Responder will continue the exact durable Slack room reconciliation without duplicating resources already recorded.",
          "slack_incident:rearm"}
 
@@ -1465,7 +1480,7 @@ defmodule Responder.ControlPlane.Router do
   defp confirmation("retention", resource_ref, "rearm", options) do
     case options.projection.workspace.(resource_ref) do
       {:ok, %{action: :rearm, status: :blocked}} ->
-        {:ok, "Rearm this cleanup?",
+        {:ok, "Resume workspace cleanup?",
          "Responder will resume the exact blocked cleanup phase without changing its frozen Coop identity.",
          "retention:rearm"}
 

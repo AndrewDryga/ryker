@@ -33,6 +33,9 @@ defmodule Responder.ControlPlane.CurrentInputs do
         event_kind: current.event_kind,
         destination_transport: current.destination_transport,
         actor_kind: current.actor_kind,
+        actor_ref: current.actor_ref,
+        source_kind: current.source_kind,
+        source_ref: current.source_ref,
         repository_ref: current.repository_ref
       }
     )

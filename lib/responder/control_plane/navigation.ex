@@ -22,7 +22,7 @@ defmodule Responder.ControlPlane.Navigation do
        {"Memory", "/memory"},
        {"Decisions", "/decisions"},
        {"Findings", "/findings"},
-       {"Model calibration", "/calibration"}
+       {"Model performance", "/calibration"}
      ]},
     {:settings, "Connections & setup",
      [

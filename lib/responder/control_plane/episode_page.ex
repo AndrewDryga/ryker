@@ -1,4 +1,7 @@
 defmodule Responder.ControlPlane.EpisodePage do
+  alias Responder.Accounting.Pricing
+  alias Responder.ControlPlane.SlackMarkdown
+
   @moduledoc "One chronological case file: conversation, model requests, host decisions and delivery."
   use Phoenix.Component
   import Responder.ControlPlane.Components
@@ -82,12 +85,16 @@ defmodule Responder.ControlPlane.EpisodePage do
         </p>
         <section
           :for={{chapter, index} <- Enum.with_index(@chapters, 1)}
-          class="trace-chapter"
+          class={"trace-chapter #{if chapter.starts_conversation, do: "conversation-boundary"}"}
+          data-conversation-turn={chapter.conversation_turn}
           aria-labelledby={"chapter-#{index}"}
         >
           <div class="chapter-heading">
             <span class="chapter-number">{String.pad_leading(to_string(index), 2, "0")}</span>
             <div>
+              <p :if={chapter.starts_conversation} class="turn-divider-label">
+                CONVERSATION · PART {chapter.conversation_turn}
+              </p>
               <h3 id={"chapter-#{index}"}>{chapter.title}</h3><p>{chapter.blurb}</p>
             </div>
             <span :if={chapter.span} class="chapter-span">{chapter.span} from start</span>
@@ -137,10 +144,12 @@ defmodule Responder.ControlPlane.EpisodePage do
   defp message(assigns) do
     ~H"""
     <div class="story-byline">
-      <strong>{@message.actor}</strong><span :if={@message[:status]}>{@message.status}</span>
+      <strong title={@message[:actor_ref]}>{@message[:display_actor] || @message.actor}</strong><span :if={
+        @message[:status]
+      }>{@message.status}</span>
     </div>
     <p class="case-message-text">
-      {if @message.available, do: @message.text, else: "Source content not recorded or expired"}
+      {message_text(@message)}
     </p>
     <.link
       navigate={
@@ -151,6 +160,13 @@ defmodule Responder.ControlPlane.EpisodePage do
     <.icon name={:arrow} /></.link>
     """
   end
+
+  defp message_text(%{available: false}), do: "Source content not recorded or expired"
+
+  defp message_text(%{transport: "slack", workspace: workspace, text: text}) when is_binary(text),
+    do: text |> SlackMarkdown.mentions(workspace) |> Phoenix.HTML.raw()
+
+  defp message_text(message), do: message.text
 
   defp event(assigns) do
     ~H"""
@@ -249,13 +265,12 @@ defmodule Responder.ControlPlane.EpisodePage do
     end
   end
 
-  defp cost(%{costed: count, cost_usd: cost}) when count > 0,
-    do: "$" <> Decimal.to_string(cost, :normal)
+  defp cost(%{costed: _} = totals), do: Pricing.amount(totals)
 
   defp cost(_), do: "Cost not reported"
 
-  defp coverage(%{costed: costed, attempts: attempts}),
-    do: "#{costed}/#{attempts} requests priced · own cost"
+  defp coverage(%{costed: costed, attempts: attempts} = totals),
+    do: "#{costed} reported · #{Map.get(totals, :estimated, 0)} estimated / #{attempts} requests"
 
   defp coverage(_), do: "No price estimate substituted"
 end

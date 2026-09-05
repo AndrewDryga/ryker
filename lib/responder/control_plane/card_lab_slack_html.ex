@@ -1,4 +1,5 @@
 defmodule Responder.ControlPlane.CardLabSlackHTML do
+  alias Responder.ControlPlane.SlackNames
   @moduledoc false
 
   def panel(snapshot, delivery, token) do
@@ -20,7 +21,7 @@ defmodule Responder.ControlPlane.CardLabSlackHTML do
       " · ",
       escape(snapshot.state.label),
       "</strong></p><p>Workspace <strong>",
-      escape(target.workspace_ref),
+      workspace_name(target.workspace_ref),
       "</strong> · Channel <strong>#",
       escape(target.channel_name),
       "</strong> (",
@@ -57,7 +58,7 @@ defmodule Responder.ControlPlane.CardLabSlackHTML do
       "/slack/preview\">",
       hidden(%{"_token" => token, "workspace_ref" => delivery.workspace_ref}),
       "<label>Slack channel<input type=\"text\" name=\"channel_ref\" required maxlength=\"100\" placeholder=\"#test or channel ID\" autocomplete=\"off\"></label><small>Workspace ",
-      escape(delivery.workspace_ref),
+      workspace_name(delivery.workspace_ref),
       ". The next step resolves and confirms the channel name.</small><button type=\"submit\">Review Slack post</button></form>"
     ]
   end
@@ -107,6 +108,15 @@ defmodule Responder.ControlPlane.CardLabSlackHTML do
       ["<input type=\"hidden\" name=\"", escape(key), "\" value=\"", escape(value), "\">"]
     end)
   end
+
+  defp workspace_name(ref),
+    do: [
+      "<span title=\"",
+      escape(ref),
+      "\">",
+      escape(SlackNames.name(ref, ref)),
+      "</span>"
+    ]
 
   defp path(snapshot),
     do:

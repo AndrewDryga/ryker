@@ -144,7 +144,7 @@ defmodule Responder.ControlPlane.NativePagesTest do
     html = episode_html(snapshot)
 
     assert html =~ "$0.12"
-    assert html =~ "1/2 requests priced"
+    assert html =~ "1 reported · 0 estimated / 2 requests"
     assert html =~ "Delivery confirmed"
     assert html =~ "A retained answer &lt;not markup&gt;"
     assert html =~ "Inspect accepted answer"

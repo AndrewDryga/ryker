@@ -299,6 +299,51 @@ defmodule Responder.Slack.Client do
     end
   end
 
+  @doc "Read a display name only. These names never participate in authorization."
+  def directory_name(client, workspace, ref) do
+    with :ok <- slack_id(workspace), :ok <- slack_id(ref) do
+      directory_name_request(client, workspace, ref)
+    end
+  end
+
+  defp directory_name_request(client, workspace, "T" <> _ = workspace) do
+    # auth.test needs no additional scope and returns the token's bound team.
+    with {:ok, response} <- request(client, :post, "/auth.test", %{}),
+         {:ok, %{"team_id" => ^workspace, "team" => name}} <- slack_response(response) do
+      {:ok, name}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :directory_name_unavailable}
+    end
+  end
+
+  defp directory_name_request(client, workspace, <<prefix, _::binary>> = ref)
+       when prefix in [?U, ?W] do
+    with {:ok, response} <-
+           request(client, :get, "/users.info?" <> URI.encode_query(user: ref), nil),
+         {:ok, %{"user" => %{"id" => ^ref, "team_id" => ^workspace} = user}} <-
+           slack_response(response) do
+      profile = user["profile"] || %{}
+
+      {:ok,
+       Enum.find(
+         [profile["display_name"], profile["real_name"], user["name"]],
+         &(is_binary(&1) and String.trim(&1) != "")
+       )}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :directory_name_unavailable}
+    end
+  end
+
+  defp directory_name_request(client, _workspace, <<prefix, _::binary>> = ref)
+       when prefix in [?C, ?G, ?D] do
+    with {:ok, channel} <- conversation_info(client, ref),
+         do: {:ok, channel["name"] || "Direct message"}
+  end
+
+  defp directory_name_request(_, _, _), do: {:error, :directory_name_unavailable}
+
   @impl true
   def file_info(client, file_ref) do
     with :ok <- slack_id(file_ref),

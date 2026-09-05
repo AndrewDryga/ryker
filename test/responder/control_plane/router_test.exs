@@ -957,7 +957,7 @@ defmodule Responder.ControlPlane.RouterTest do
 
     confirm = request(:get, "/actions/delivery/delivery%3Aone/rearm")
     assert confirm.status == 200
-    assert confirm.resp_body =~ "Rearm this delivery?"
+    assert confirm.resp_body =~ "Retry this delivery?"
     assert confirm.resp_body =~ "href=\"/failures\""
     [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirm.resp_body)
 
@@ -995,15 +995,15 @@ defmodule Responder.ControlPlane.RouterTest do
     failures = request(:get, "/failures")
 
     for {kind, ref, action, title, received} <- [
-          {"admission", "ingress-input:one", "rearm", "Rearm this admission?",
+          {"admission", "ingress-input:one", "rearm", "Retry routing this message?",
            {:rearmed_admission, "ingress-input:one"}},
           {"work", "episode:blocked", "retry", "Retry this blocked work?",
            {:retried_work, "episode:blocked"}},
-          {"emisar", "approval:one", "rearm", "Rearm this approval monitor?",
+          {"emisar", "approval:one", "rearm", "Resume approval checks?",
            {:rearmed_emisar, "approval:one"}},
-          {"slack_interaction", "interaction:one", "rearm", "Rearm this Slack repaint?",
+          {"slack_interaction", "interaction:one", "rearm", "Refresh this Slack message?",
            {:rearmed_slack_interaction, "interaction:one"}},
-          {"slack_incident", "incident-room:one", "rearm", "Rearm this incident room?",
+          {"slack_incident", "incident-room:one", "rearm", "Resume incident room setup?",
            {:rearmed_slack_incident, "incident-room:one"}}
         ] do
       encoded_ref = URI.encode(ref, &URI.char_unreserved?/1)
@@ -1032,7 +1032,7 @@ defmodule Responder.ControlPlane.RouterTest do
 
     rearm = request(:get, "/actions/retention/workspace%3Ablocked/rearm")
     assert rearm.status == 200
-    assert rearm.resp_body =~ "Rearm this cleanup?"
+    assert rearm.resp_body =~ "Resume workspace cleanup?"
     [_, rearm_token] = Regex.run(~r/name="_token" value="([^"]+)"/, rearm.resp_body)
 
     accepted_rearm =
@@ -1122,6 +1122,10 @@ defmodule Responder.ControlPlane.RouterTest do
   end
 
   test "renders every bounded read-only operator view without external assets" do
+    channel = request(:get, "/channels/T123/C456")
+    assert channel.resp_body =~ "<h1>Slack channel</h1>"
+    refute channel.resp_body =~ "<h1>C456</h1>"
+
     for {path, marker} <- [
           {"/memory", "Operational memory"},
           {"/configuration", "Effective host configuration"},
@@ -1132,8 +1136,8 @@ defmodule Responder.ControlPlane.RouterTest do
           {"/subscriptions", "External event subscriptions"},
           {"/channels", "Slack conversation roster"},
           {"/channels/T123/C456", "Conversation continuity"},
-          {"/repositories", "Repository topology and freshness"},
-          {"/calibration?window=30d", "Live model-lane calibration"},
+          {"/repositories", "Where Responder can work"},
+          {"/calibration?window=30d", "Compare speed and reliability"},
           {"/workspaces", "Workspaces"},
           {"/decisions", "Decisions"},
           {"/findings", "Findings"},
@@ -1317,7 +1321,7 @@ defmodule Responder.ControlPlane.RouterTest do
     assert html =~ "github:channel/with spaces"
     assert html =~ "claude:opus/high@work"
     assert html =~ "no repository"
-    assert html =~ "unreported"
+    assert html =~ "Not measured"
     assert html =~ "unmeasured"
     assert html =~ "$0.25"
     assert html =~ "Daily measured token trend"
@@ -1330,14 +1334,14 @@ defmodule Responder.ControlPlane.RouterTest do
     assert shadow =~ "mode=shadow&amp;window=7d"
     assert shadow =~ "Measurement coverage"
     assert shadow =~ "Where the time went"
-    assert shadow =~ "Coverage limits and token semantics"
+    assert shadow =~ "How cost is calculated"
     # Scope defines every total, so it belongs above the figures, not inside
     # a footnote below two panels (and below both panels on narrow screens).
     {scope_at, _} = :binary.match(shadow, "Execution scope")
     {metrics_at, _} = :binary.match(shadow, "class=\"metrics\"")
     assert scope_at < metrics_at
 
-    assert HTML.failures([]) =~ "No durable failures"
+    assert HTML.failures([]) =~ "Nothing needs attention"
     assert HTML.workspaces([]) |> IO.iodata_to_binary() =~ "No durable workspaces"
 
     assert HTML.overview(%{counts: %{}, needs_attention: []}) |> IO.iodata_to_binary() =~

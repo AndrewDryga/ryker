@@ -34,6 +34,7 @@ defmodule Responder.ControlPlane.ActivityTest do
     assert item.state == "pending"
     assert item.href == "/admission/#{entry.id}"
     assert item.bucket == "running"
+    assert item.conversation == "slack:T123:C456"
     assert Activity.list(%{"q" => "slow admission"}).total == 1
     assert Activity.list(%{"q" => "%_"}).total == 0
 
@@ -53,6 +54,13 @@ defmodule Responder.ControlPlane.ActivityTest do
     assert %{items: [item], total: 1} = Activity.list(%{})
     assert item.title == "Inspect the slow admission request"
     assert item.href == "/episodes/#{URI.encode_www_form(episode.key)}"
+
+    assert %{title: "Inspect the slow admission request"} =
+             Activity.request_titles([episode.key])[episode.key]
+
+    assert Enum.all?(Projection.audit(%{}), &(&1.request_title == item.title))
+    {:ok, _session} = Custody.pin_episode(episode.id, "label-test", String.duplicate("a", 64))
+    assert [%{request_title: "Inspect the slow admission request"}] = Projection.workspaces(%{})
   end
 
   test "activity uses human fallback labels and never passes secrets or shadow traffic as live" do

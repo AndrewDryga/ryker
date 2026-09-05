@@ -202,20 +202,25 @@ defmodule Responder.ControlPlane.LiveTest do
     {:ok, snapshot} = CardLab.fetch("task-card", "working")
 
     for state <- snapshot.card.states do
-      assert has_element?(view, "#card-state option[value='#{state.id}']", state.label)
+      assert has_element?(view, "#card-state-picker a[data-state='#{state.id}']", state.label)
     end
 
-    view |> form("#card-state-form", %{state: "recorded-goals"}) |> render_change()
+    view |> element("#card-state-picker a[data-state='recorded-goals']") |> render_click()
     assert_patch(view, "/card-lab/task-card/recorded-goals?width=compact")
     assert has_element?(view, ".specimen-canvas.compact", "Subtasks")
 
     render_change(view, "card-state", %{"state" => "missing"})
     refute_patched(view)
-    assert has_element?(view, "#card-state option[selected]", "Real goals · layout study")
+
+    assert has_element?(
+             view,
+             "#card-state-picker a[aria-current=page]",
+             "Real goals · layout study"
+           )
 
     view |> form("#card-family-form", %{card: "incident-room"}) |> render_change()
     assert_patch(view, "/card-lab/incident-room/provisioning?width=compact")
-    assert has_element?(view, "#card-state option[selected]", "Provisioning")
+    assert has_element?(view, "#card-state-picker a[aria-current=page]", "Provisioning")
     render_change(view, "card-family", %{"card" => "https://attacker.example"})
     refute_patched(view)
   end
@@ -353,7 +358,7 @@ defmodule Responder.ControlPlane.LiveTest do
     href = "/actions/admission/#{URI.encode_www_form(Inbox.ref(entry))}/rearm"
     assert has_element?(view, "a[href='#{href}']", "Review recovery")
     confirmation = get(conn, href)
-    assert html_response(confirmation, 200) =~ "Rearm this admission?"
+    assert html_response(confirmation, 200) =~ "Retry routing this message?"
   end
 
   test "activity search and status links preserve existing Usage drill-down filters" do

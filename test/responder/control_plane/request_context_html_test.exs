@@ -2,6 +2,23 @@ defmodule Responder.ControlPlane.RequestContextHTMLTest do
   use ExUnit.Case, async: true
   alias Responder.ControlPlane.{InspectionRedactor, RequestContextHTML}
 
+  # A directory enhancement must not erase a name already retained with the
+  # message: operators otherwise lose the author while inspecting a request.
+  test "retained display names are not interpreted as Slack directory IDs" do
+    artifact =
+      InspectionRedactor.artifact(%{
+        "input" => %{
+          "source" => %{"kind" => "slack", "ref" => "T123"},
+          "actor" => %{"ref" => "U123", "display_name" => "Andrew <admin>"},
+          "text" => "Hello"
+        }
+      })
+
+    html = artifact |> RequestContextHTML.render() |> IO.iodata_to_binary()
+    assert html =~ "<strong>Andrew &lt;admin&gt;</strong>"
+    refute html =~ "<strong>Slack reference</strong>"
+  end
+
   test "message roles and context omissions are readable without making source HTML executable" do
     artifact =
       InspectionRedactor.artifact(%{

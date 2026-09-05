@@ -1,4 +1,6 @@
 defmodule Responder.ControlPlane.ActivityPage do
+  alias Responder.ControlPlane.SlackMarkdown
+  alias Responder.ControlPlane.SlackNames
   @moduledoc "The conversation-first activity inbox."
   use Phoenix.Component
   import Responder.ControlPlane.Components
@@ -97,12 +99,15 @@ defmodule Responder.ControlPlane.ActivityPage do
                 if item.source == "Conversation Lab", do: :chat, else: :activity
               } /></span>
               <div class="activity-row-copy">
-                <.link navigate={item.href} class="activity-title">{item.title}</.link><div class="activity-meta">
+                <.link navigate={item.href} class="activity-title">{title(item)}</.link><div class="activity-meta">
                   <span>{item.source}</span><span :if={item.repository}>{item.repository}</span><span :if={
                     item.target
-                  }>{item.target}</span><time title={timestamp(item.updated_at)}>{timestamp(
-                    item.updated_at
-                  )}</time>
+                  }>{item.target}</span><span
+                    :if={item.source == "Slack" && item[:conversation]}
+                    title={item[:conversation]}
+                  >{SlackNames.destination(item.conversation)}</span><time title={
+                    timestamp(item.updated_at)
+                  }>{timestamp(item.updated_at)}</time>
                 </div>
               </div>
               <div class="activity-row-status">
@@ -188,4 +193,11 @@ defmodule Responder.ControlPlane.ActivityPage do
 
   defp worker_label(%{fleet: %{eligible_workers: count}}), do: "#{count} eligible"
   defp worker_label(_), do: "Not observed"
+
+  defp title(%{source: "Slack"} = item) do
+    workspace = SlackNames.workspace_from_destination(item[:conversation])
+    item.title |> SlackMarkdown.mentions(workspace) |> Phoenix.HTML.raw()
+  end
+
+  defp title(item), do: item.title
 end
