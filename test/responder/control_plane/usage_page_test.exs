@@ -76,6 +76,13 @@ defmodule Responder.ControlPlane.UsagePageTest do
 
     assert LazyHTML.query(document, "#usage-models th[scope=colgroup]") |> LazyHTML.text() ==
              "InputOutput"
+
+    # Broken group borders made Performance appear to belong to Output.
+    assert LazyHTML.query(document, "#usage-models thead tr:first-child .usage-group-start")
+           |> LazyHTML.text() == "InputOutputPerformanceCost"
+
+    assert LazyHTML.query(document, "#usage-models colgroup col") |> LazyHTML.attribute("span") ==
+             ["2", "2"]
   end
 
   test "estimate rates do not repeat spend totals already shown in the usage breakdowns" do

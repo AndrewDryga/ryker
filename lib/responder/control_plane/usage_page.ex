@@ -134,9 +134,15 @@ defmodule Responder.ControlPlane.UsagePage do
 
   defp breakdown(rows, snapshot, kind) do
     [
-      "<div class=\"table-wrap\"><table class=\"usage-breakdown-table usage-detail-table\"><colgroup><col class=\"usage-name-col\"><col class=\"usage-count-col\"><col span=\"4\" class=\"usage-token-col\"><col class=\"usage-performance-col\"><col class=\"usage-cost-col\"></colgroup><thead><tr class=\"usage-column-groups\"><th scope=\"col\" rowspan=\"2\">",
+      "<div class=\"table-wrap\"><table class=\"usage-breakdown-table usage-detail-table\">",
+      "<colgroup><col class=\"usage-name-col\"></colgroup><colgroup><col class=\"usage-count-col\"></colgroup>",
+      "<colgroup><col span=\"2\" class=\"usage-token-col\"></colgroup><colgroup><col span=\"2\" class=\"usage-token-col\"></colgroup>",
+      "<colgroup><col class=\"usage-performance-col\"></colgroup><colgroup><col class=\"usage-cost-col\"></colgroup>",
+      "<thead><tr class=\"usage-column-groups\"><th scope=\"col\" rowspan=\"2\">",
       heading(kind),
-      "</th><th scope=\"col\" rowspan=\"2\">Usage</th><th scope=\"colgroup\" colspan=\"2\">Input</th><th scope=\"colgroup\" colspan=\"2\">Output</th><th scope=\"col\" rowspan=\"2\">Performance</th><th scope=\"col\" rowspan=\"2\">Cost</th></tr><tr class=\"usage-metric-headings\"><th scope=\"col\">Fresh input</th><th scope=\"col\">Cached input</th><th scope=\"col\">Output</th><th scope=\"col\">Reasoning</th></tr></thead><tbody>",
+      "</th><th scope=\"col\" rowspan=\"2\">Usage</th><th scope=\"colgroup\" colspan=\"2\" class=\"usage-group-start\">Input</th><th scope=\"colgroup\" colspan=\"2\" class=\"usage-group-start\">Output</th>",
+      "<th scope=\"col\" rowspan=\"2\" class=\"usage-group-start\">Performance</th><th scope=\"col\" rowspan=\"2\" class=\"usage-group-start\">Cost</th></tr>",
+      "<tr class=\"usage-metric-headings\"><th scope=\"col\" class=\"usage-group-start\">Fresh input</th><th scope=\"col\">Cached input</th><th scope=\"col\" class=\"usage-group-start\">Output</th><th scope=\"col\">Reasoning</th></tr></thead><tbody>",
       Enum.map(Enum.take(rows, 500), &row(&1, snapshot, kind)),
       "</tbody></table></div>"
     ]
@@ -152,12 +158,18 @@ defmodule Responder.ControlPlane.UsagePage do
       secondary(percent(share(row, snapshot.totals)) <> " of tokens"),
       "</td>",
       Enum.map([:input_tokens, :cached_input_tokens, :output_tokens, :reasoning_tokens], fn key ->
-        ["<td class=\"usage-token-cell\">", e(tokens(row, key)), "</td>"]
+        [
+          "<td class=\"usage-token-cell",
+          if(key in [:input_tokens, :output_tokens], do: " usage-group-start", else: ""),
+          "\">",
+          e(tokens(row, key)),
+          "</td>"
+        ]
       end),
-      "<td>",
+      "<td class=\"usage-group-start\">",
       primary(percent(Map.get(row, :cache_hit_rate)), " cache"),
       secondary("Avg. model time: " <> elapsed(Map.get(row, :average_provider_ms))),
-      "</td><td class=\"usage-money\">",
+      "</td><td class=\"usage-money usage-group-start\">",
       e(money(row)),
       "</td></tr>"
     ]
