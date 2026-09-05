@@ -34,8 +34,8 @@ defmodule Responder.Slack.Event do
       )
       when is_map(event) and is_binary(event_ref) do
     with :ok <- identity(identity),
+         :ok <- not_self(event, identity),
          {:ok, details} <- event_details(event),
-         :ok <- not_self(details, identity),
          {:ok, occurred_at, timestamp_revision} <- timestamp(details.event_timestamp),
          {:ok, input} <-
            Input.new(%{
@@ -175,9 +175,17 @@ defmodule Responder.Slack.Event do
       is_list(content["files"]) and is_binary(content["text"])
   end
 
-  defp not_self(%{actor: %{kind: :user, ref: ref}}, %{bot_user_ref: ref}), do: :ignore
-  defp not_self(%{actor: %{kind: :bot, ref: ref}}, %{bot_ref: ref}), do: :ignore
-  defp not_self(_details, _identity), do: :ok
+  # Check Slack's authenticated author fields before actor projection chooses
+  # app_id. App identity alone is not proof that this bot authored a message.
+  defp not_self(%{"type" => "message", "subtype" => "message_changed"} = event, identity),
+    do: not_self(event["message"], identity)
+
+  defp not_self(%{"type" => "message", "subtype" => "message_deleted"} = event, identity),
+    do: not_self(event["previous_message"], identity)
+
+  defp not_self(%{"user" => ref}, %{bot_user_ref: ref}), do: :ignore
+  defp not_self(%{"bot_id" => ref}, %{bot_ref: ref}), do: :ignore
+  defp not_self(_event, _identity), do: :ok
 
   defp audience(%{audience: :mention}), do: :mention
   defp audience(%{channel_ref: "D" <> _rest}), do: :direct

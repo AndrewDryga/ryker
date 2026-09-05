@@ -213,6 +213,58 @@ defmodule Responder.Slack.EventTest do
     assert Event.from_socket(%{"type" => "hello"}, identity()) == :ignore
   end
 
+  for lifecycle <- [:message, :edit, :delete] do
+    test "our app's #{lifecycle} never enters admission when app identity masks its bot identity" do
+      # Harvested from the Emisar #test specimen on 2026-09-05. One post and its
+      # update consumed two classifier calls because app_id hid the self check.
+      message = own_card_message()
+      own_identity = %{identity() | bot_ref: message["bot_id"], bot_user_ref: message["user"]}
+
+      for author <- [message, Map.delete(message, "user"), Map.delete(message, "bot_id")] do
+        envelope = events_api(card_lifecycle(author, unquote(lifecycle)))
+        assert Event.from_socket(envelope, own_identity) == :ignore
+      end
+    end
+  end
+
+  test "app identity alone does not suppress another bot's message or edit" do
+    for lifecycle <- [:message, :edit] do
+      envelope = events_api(card_lifecycle(own_card_message(), lifecycle))
+
+      assert {:ok, %{input: input}} = Event.from_socket(envelope, identity())
+      assert input.actor == %{kind: :app, ref: "A0BL6UCCBGR"}
+    end
+  end
+
+  defp own_card_message do
+    "testdata/slack/card-lab-own-message.json"
+    |> File.read!()
+    |> Jason.decode!()
+  end
+
+  defp card_lifecycle(message, :message), do: Map.put(message, "channel", "C0BLU1GACKC")
+
+  defp card_lifecycle(message, :edit) do
+    %{
+      "channel" => "C0BLU1GACKC",
+      "event_ts" => message["edited"]["ts"],
+      "message" => message,
+      "subtype" => "message_changed",
+      "type" => "message"
+    }
+  end
+
+  defp card_lifecycle(message, :delete) do
+    %{
+      "channel" => "C0BLU1GACKC",
+      "deleted_ts" => message["ts"],
+      "event_ts" => message["edited"]["ts"],
+      "previous_message" => message,
+      "subtype" => "message_deleted",
+      "type" => "message"
+    }
+  end
+
   defp identity do
     %{bot_ref: "B-BOT", bot_user_ref: "U-BOT", workspace_ref: "T123"}
   end
