@@ -115,10 +115,7 @@ defmodule Responder.ControlPlane.RequestPage do
       assign(
         assigns,
         :readable_context,
-        if(assigns.section.id == "context",
-          do: IO.iodata_to_binary(RequestContextHTML.render(assigns.section.artifact)),
-          else: ""
-        )
+        readable_artifact(assigns.section, assigns.prefix)
       )
 
     ~H"""
@@ -148,6 +145,19 @@ defmodule Responder.ControlPlane.RequestPage do
     </section>
     """
   end
+
+  defp readable_artifact(%{id: "context", artifact: artifact} = section, prefix) do
+    root = if section[:source_kind] == :work, do: "$.work", else: "$.context"
+    IO.iodata_to_binary(RequestContextHTML.render(artifact, root, prefix))
+  end
+
+  defp readable_artifact(%{id: "instructions", artifact: artifact} = section, prefix),
+    do:
+      IO.iodata_to_binary(
+        RequestContextHTML.instructions(artifact, section[:source_kind], prefix)
+      )
+
+  defp readable_artifact(_section, _prefix), do: ""
 
   defp paging(assigns) do
     ~H"""

@@ -39,6 +39,11 @@ the usage ledger; the latter prevented the populated Usage LiveView from connect
 Both have failing-before regression tests. The screenshot harness is documented
 in [control-plane-visual-testing.md](control-plane-visual-testing.md).
 
+The timeline follow-up fixes the inherited message margins that displaced the
+rail and restores source-labelled retained instructions/context. See
+[timeline-parity.md](timeline-parity.md) for the source-grounded remaining gaps;
+this increment does not mark the broader typed timeline item complete.
+
 ## Ordered implementation
 
 - [ ] Shared page readability: consistent surfaces, contrast, typography, spacing,

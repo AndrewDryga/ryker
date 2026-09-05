@@ -30,3 +30,14 @@ its path (the parent directory must already exist). It does not reuse an existin
 directory or follow a symlink into the repository. Inspect the PNGs at readable scale,
 including the dedicated usage-chart captures. A successful script is not a
 visual-quality verdict, nor does it establish backend or live Slack parity.
+
+For a focused timeline regression, use a populated real episode:
+
+```sh
+node scripts/timeline-visual.cjs http://127.0.0.1:4321/episodes/EPISODE_REFERENCE /tmp/responder-timeline-review
+```
+
+This captures 1440px, 900px and 390px layouts, asserts that message/event/request
+rows share the same rail, checks prompt source labels, and expands retained
+instructions through a server-acknowledged live refresh. It uses the same private
+artifact-directory protections and never submits a message or runs a model.
