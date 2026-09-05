@@ -1611,16 +1611,16 @@ defmodule Responder.ControlPlane.HTML do
 
   def confirmation(title, explanation, action, token, cancel_path) do
     [
-      "<section class=\"confirm\"><h2>",
+      "<section class=\"confirm\" aria-label=\"",
       escape(title),
-      "</h2><p>",
+      "\"><p>",
       escape(explanation),
-      "</p><form method=\"post\" action=\"",
+      "</p><form class=\"action-controls\" method=\"post\" action=\"",
       escape(action),
       "\"><input type=\"hidden\" name=\"_token\" value=\"",
       escape(token),
-      "\"><button class=\"danger\" type=\"submit\">Confirm</button> ",
-      "<a class=\"button\" href=\"",
+      "\"><button class=\"ui-button primary\" type=\"submit\">Confirm</button> ",
+      "<a href=\"",
       escape(cancel_path),
       "\">Cancel</a></form></section>"
     ]

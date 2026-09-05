@@ -187,6 +187,8 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .responder-app form.action-control { display:inline-flex; vertical-align:middle; padding:0; margin:0; gap:0; border:0; background:none; }
 .responder-app .action-control button { margin:0; }
 .responder-app .action-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.responder-app .confirm { max-width:720px; }
+.responder-app .confirm .action-controls { gap:20px; }
 .activity-pulse { display:flex; align-items:center; flex-wrap:wrap; gap:25px; border-top:1px solid var(--stroke); border-bottom:1px solid var(--stroke); margin:20px 0; padding:12px 0; font-size:14px; color:#686e66; }
 .activity-pulse > span, .activity-pulse > a { display:flex; align-items:center; gap:6px; }
 .activity-pulse b { color:#394537; font-weight:600; }
