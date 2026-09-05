@@ -11,6 +11,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   alias Responder.CanonicalJSON
   alias Responder.ControlPlane.Card
+  alias Responder.ControlPlane.CurrentInputs
+  alias Responder.ControlPlane.InspectionRedactor
   alias Responder.CoopFleet.Event, as: CoopEvent
   alias Responder.Delivery.PlatformAction
   alias Responder.Episodes.{Episode, Event}
@@ -40,6 +42,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     current_turn = List.last(turns)
     totals = totals(episode.id, events, records, sessions, turns)
     review = review_state(episode)
+    received_at = first_received_at(episode)
 
     steps =
       []
@@ -58,9 +61,10 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     %{
       activity: Map.drop(activity_page, [:events]),
       actions: operator_actions(episode, current_turn, review),
-      chapters: chapters(steps, episode.inserted_at),
+      case_file: case_file(episode.id, turns),
+      chapters: chapters(steps, received_at),
       history: history(totals, activity_page),
-      metrics: metrics(episode, turns, records, activity_page, totals, steps),
+      metrics: metrics(episode, received_at, activity_page, totals, steps),
       next_action: next_action(episode, current_turn),
       review: review,
       source: source_link(episode, events, inputs),
@@ -70,6 +74,102 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     }
   end
 
+  defp case_file(episode_id, turns) do
+    options = [
+      secrets: InspectionRedactor.configured_secrets(),
+      max_bytes: 12_000
+    ]
+
+    base = from(entry in subquery(CurrentInputs.for_episode(episode_id)))
+
+    first =
+      Repo.one(from(entry in base, order_by: [asc: entry.occurred_at, asc: entry.id], limit: 1))
+
+    first = if first, do: case_message(first, options)
+
+    messages =
+      Repo.all(
+        from(entry in base, order_by: [desc: entry.occurred_at, desc: entry.id], limit: 20)
+      )
+      |> Enum.reverse()
+      |> Enum.map(&case_message(&1, options))
+
+    replies = turns |> Enum.flat_map(&case_reply(&1, options)) |> Enum.take(-20)
+    latest_reply = List.last(replies)
+    current_turn = List.last(turns)
+
+    %{
+      title:
+        if(first && first.available, do: bounded(first.text, 180), else: "Episode case file"),
+      messages: messages,
+      repository: first && first.repository,
+      reply: latest_reply && latest_reply.text,
+      reply_status: latest_reply && latest_reply.status,
+      reply_request_id: latest_reply && latest_reply.id,
+      awaiting_reply: is_nil(current_turn) or is_nil(current_turn.delivery_document),
+      conversation: Enum.sort_by(messages ++ replies, & &1.at, DateTime)
+    }
+  end
+
+  defp case_reply(
+         %{operational_pruned_at: nil, delivery_document: %{"message" => text}} = turn,
+         options
+       )
+       when is_binary(text) do
+    artifact = InspectionRedactor.artifact(text, options)
+
+    [
+      %{
+        id: turn.id,
+        at: turn.accepted_at || turn.delivered_at || turn.inserted_at,
+        actor: "Responder",
+        status: case_reply_status(turn),
+        text: artifact.text,
+        available: artifact.state == :retained,
+        href: "requests?attempt=#{turn.id}&section=delivery"
+      }
+    ]
+  end
+
+  defp case_reply(_, _), do: []
+
+  defp case_message(input, options) do
+    artifact =
+      InspectionRedactor.artifact(
+        if(is_nil(input.operational_pruned_at),
+          do:
+            if(input.event_kind == :delete,
+              do: "Message deleted",
+              else: case_source_text(input.content)
+            )
+        ),
+        Keyword.put(options, :expired, not is_nil(input.operational_pruned_at))
+      )
+
+    %{
+      id: input.id,
+      at: input.occurred_at,
+      transport: input.destination_transport,
+      actor: if(input.actor_kind == :user, do: "User", else: "Source event"),
+      text: artifact.text,
+      available: artifact.state == :retained,
+      repository: input.repository_ref,
+      href: "/admission/#{input.id}"
+    }
+  end
+
+  defp case_source_text(%{"text" => text}) when is_binary(text), do: text
+
+  defp case_source_text(%{"payload" => payload}) when is_map(payload),
+    do: Enum.find_value(~w(comment review issue pull_request), &case_body(payload[&1]))
+
+  defp case_source_text(_content), do: nil
+  defp case_body(%{"body" => body}) when is_binary(body), do: body
+  defp case_body(_body), do: nil
+  defp case_reply_status(%{delivered_at: %DateTime{}}), do: "Delivery confirmed"
+  defp case_reply_status(%{accepted_at: %DateTime{}}), do: "Accepted · delivery not confirmed"
+  defp case_reply_status(_turn), do: nil
+
   defp inputs(episode_id) do
     Repo.all(
       from(entry in Entry,
@@ -78,7 +178,33 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         limit: 200
       )
     )
-    |> Map.new(&{&1.dedupe_key, &1})
+    |> Enum.flat_map(&[{&1.dedupe_key, &1}, {"ingress-turn:#{&1.id}", &1}])
+    |> Map.new()
+  end
+
+  defp first_received_at(episode) do
+    received_at =
+      Repo.one(
+        from(entry in Entry,
+          where: entry.episode_id == ^episode.id,
+          select: min(entry.inserted_at)
+        )
+      )
+
+    case received_at do
+      %DateTime{} = at ->
+        if DateTime.compare(at, episode.inserted_at) == :lt, do: at, else: episode.inserted_at
+
+      nil ->
+        episode.inserted_at
+    end
+  end
+
+  defp event_input(event, inputs) do
+    # Kernel command identity hashes and ingress delivery hashes have different
+    # contracts. Admission records the exact ingress identity in its turn ref.
+    Map.get(inputs, get_in(event.payload || %{}, ["turn_ref"])) ||
+      Map.get(inputs, event.dedupe_key)
   end
 
   defp sessions(episode_id) do
@@ -107,7 +233,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     events
     |> Enum.with_index(1)
     |> Enum.map(fn {event, index} ->
-      input = Map.get(inputs, event.dedupe_key)
+      input = event_input(event, inputs)
 
       step(
         "kernel-#{event.sequence || index}",
@@ -1065,7 +1191,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     end)
   end
 
-  defp metrics(episode, _turns, _records, activity_page, totals, steps) do
+  defp metrics(episode, received_at, activity_page, totals, steps) do
     [
       metric(
         "State",
@@ -1075,7 +1201,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       ),
       metric(
         "Elapsed",
-        elapsed(episode.inserted_at, latest_time(steps, episode.updated_at)),
+        elapsed(received_at, latest_time(steps, episode.updated_at)),
         "first input to latest change"
       ),
       metric("Turns", totals.turns, plural(totals.work_claims, "Work claim")),
@@ -1502,7 +1628,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp list_count(_values, _label), do: nil
 
   defp prompt_state(%Turn{submission: %{"prompt" => prompt}}) when is_binary(prompt),
-    do: "retained exact bytes; display withheld"
+    do: "retained; open model request inspector"
 
   defp prompt_state(%Turn{operational_pruned_at: %DateTime{} = at}),
     do: "expired #{DateTime.to_iso8601(at)}; digest retained"
@@ -1583,7 +1709,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp source_link(episode, events, inputs) do
     events
     |> Enum.find_value(fn event ->
-      case Map.get(inputs, event.dedupe_key) do
+      case event_input(event, inputs) do
         %Entry{} = input -> entry_source_link(episode, input)
         nil -> nil
       end

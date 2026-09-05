@@ -1,0 +1,323 @@
+defmodule Responder.ControlPlane.ModelRequests do
+  @moduledoc "Bounded, explicitly sensitive read boundary for retained model requests."
+  import Ecto.Query
+  alias Responder.Admission.Attempt
+  alias Responder.ControlPlane.InspectionRedactor, as: Redactor
+  alias Responder.Episodes.Episode
+  alias Responder.Ingress.Inbox
+  alias Responder.Ingress.Inbox.Entry
+  alias Responder.Repo
+  alias Responder.Work.{ActivityEvent, Session, Turn}
+
+  @page_size 20
+  @tool_page_size 30
+  @tool_kinds ~w(tool.started tool.completed permission.decided activity.elided provider.backoff)
+
+  def project(ref, params) when is_binary(ref) and byte_size(ref) <= 1_024 and is_map(params) do
+    case Repo.get_by(Episode, key: ref) do
+      %Episode{} = episode ->
+        kind = if params["kind"] == "admission", do: :admission, else: :work
+        page = page(params["page"])
+
+        base =
+          if kind == :work,
+            do: from(row in Turn, where: row.episode_id == ^episode.id),
+            else: from(row in Entry, where: row.episode_id == ^episode.id)
+
+        total = Repo.aggregate(base, :count)
+
+        rows =
+          Repo.all(
+            from(row in base,
+              order_by: [desc: row.inserted_at, desc: row.id],
+              offset: ^((page - 1) * @page_size),
+              limit: @page_size,
+              select: %{id: row.id, status: row.status, at: row.inserted_at}
+            )
+          )
+
+        case selected_row(base, params["attempt"], rows) do
+          :not_found ->
+            :not_found
+
+          selected ->
+            options = [secrets: Redactor.configured_secrets()]
+
+            {:ok,
+             %{
+               episode_ref: episode.key,
+               kind: kind,
+               page: page,
+               pages: max(1, ceil(total / @page_size)),
+               total: total,
+               items: rows,
+               selected: inspect_row(selected, params, options)
+             }}
+        end
+
+      _missing ->
+        :not_found
+    end
+  end
+
+  def project(_ref, _params), do: :not_found
+
+  def project_input(id, params) when is_map(params) do
+    with {:ok, id} <- Ecto.UUID.cast(id), %Entry{} = entry <- Repo.get(Entry, id) do
+      {:ok,
+       %{
+         episode_ref: nil,
+         input_id: id,
+         kind: :admission,
+         page: 1,
+         pages: 1,
+         total: 1,
+         items: [%{id: id, status: entry.status, at: entry.inserted_at}],
+         selected: inspect_row(entry, params, secrets: Redactor.configured_secrets())
+       }}
+    else
+      _missing -> :not_found
+    end
+  end
+
+  defp selected_row(_base, nil, []), do: nil
+  defp selected_row(base, nil, [first | _]), do: selected_row(base, first.id, [])
+
+  defp selected_row(base, id, _rows) do
+    with {:ok, uuid} <- Ecto.UUID.cast(id),
+         row when not is_nil(row) <- Repo.one(from(row in base, where: row.id == ^uuid)) do
+      row
+    else
+      _missing -> :not_found
+    end
+  end
+
+  defp inspect_row(nil, _params, _options), do: nil
+
+  defp inspect_row(%Turn{} = turn, params, options) do
+    session = Repo.get!(Session, turn.session_id)
+    expired = not is_nil(turn.operational_pruned_at)
+    options = Keyword.put(options, :expired, expired)
+    submission = if expired, do: %{}, else: turn.submission || %{}
+    prompt = decode(submission["prompt"])
+    context = submission["context"] || %{}
+    tools = Map.take(context, ~w(responder_state_tools source_and_action_tools workspace))
+
+    sections = [
+      section("instructions", "Responder instructions", prompt["instructions"], options),
+      section("context", "Messages and selected context", submission["context"], options),
+      section(
+        "tools",
+        "Advertised tools and workspace scope",
+        if(tools != %{}, do: tools),
+        options
+      ),
+      section("contract", "Required output contract", submission["output_schema"], options),
+      section("request", "Submitted prompt · sanitized raw view", submission["prompt"], options),
+      section(
+        "candidate",
+        "Model candidate · not a delivery receipt",
+        unless(expired, do: turn.candidate),
+        options
+      ),
+      section(
+        "validation",
+        "Host validation and repair history",
+        unless(expired,
+          do: %{
+            "verdict" => turn.validation_intent,
+            "history" => turn.validation_history,
+            "candidate_attempt" => turn.candidate_attempt,
+            "accepted_at" => iso(turn.accepted_at)
+          }
+        ),
+        options
+      ),
+      section(
+        "delivery",
+        "Host delivery document",
+        unless(expired, do: turn.delivery_document),
+        options
+      )
+    ]
+
+    %{
+      id: turn.id,
+      title: "Work request",
+      at: turn.inserted_at,
+      status: turn.status,
+      target: turn.execution_target || "Execution target not recorded",
+      policy: session.policy,
+      fingerprint: turn.submission_fingerprint,
+      sections: sections,
+      coverage:
+        "This is Responder's retained submission. The Coop wrapper, provider-owned instructions, and full provider request are not recorded here. No private reasoning is displayed.",
+      tools: tool_page(turn, params, options)
+    }
+  end
+
+  defp inspect_row(%Entry{} = entry, params, options) do
+    expired = not is_nil(entry.operational_pruned_at)
+    options = Keyword.put(options, :expired, expired)
+
+    generation =
+      if params["generation"],
+        do: min(page(params["generation"]), entry.execution_generation),
+        else: entry.execution_generation
+
+    attempt = Repo.get_by(Attempt, input_id: entry.id, generation: generation)
+
+    submission = admission_submission(attempt, expired)
+
+    prompt = decode(submission["prompt"])
+    response = if not expired, do: attempt_value(attempt, :response)
+
+    %{
+      id: entry.id,
+      title: "Admission · execution #{generation}",
+      generation: generation,
+      generations: entry.execution_generation,
+      recovery: admission_recovery(entry),
+      at: entry.inserted_at,
+      status: entry.status,
+      target: attempt_value(attempt, :execution_target) || "Execution target not recorded",
+      policy: attempt_value(attempt, :policy) || "Admission",
+      fingerprint:
+        attempt_value(attempt, :submission_fingerprint) || entry.admission_context_fingerprint,
+      coverage: admission_coverage(submission),
+      sections:
+        admission_sections(entry, attempt, submission, prompt, response, generation, options),
+      tools: %{items: [], page: 1, pages: 1, total: 0}
+    }
+  end
+
+  defp admission_recovery(%{status: :blocked} = entry) do
+    %{
+      summary:
+        Redactor.artifact(entry.last_error_code || "Admission blocked", max_bytes: 200).text,
+      href: "/actions/admission/#{URI.encode_www_form(Inbox.ref(entry))}/rearm"
+    }
+  end
+
+  defp admission_recovery(_), do: nil
+
+  defp admission_sections(entry, attempt, submission, prompt, response, generation, options) do
+    expired = Keyword.fetch!(options, :expired)
+
+    [
+      section("input", "Source input", unless(expired, do: entry.content), options),
+      section(
+        "instructions",
+        "Responder admission instructions",
+        prompt["instructions"],
+        options
+      ),
+      section(
+        "context",
+        "Frozen admission context",
+        unless(expired, do: prompt["context"]),
+        options
+      ),
+      section("request", "Submitted prompt", submission["prompt"], options),
+      section("contract", "Required output contract", submission["output_schema"], options),
+      section("response", "Observed model response", response, options),
+      section(
+        "candidate",
+        "Committed admission decision",
+        unless(expired or generation != entry.execution_generation,
+          do: entry.decision_document
+        ),
+        options
+      ),
+      section(
+        "progress",
+        "Observed execution milestones",
+        admission_milestones(attempt),
+        options
+      ),
+      section(
+        "measurements",
+        "Reported usage and timing",
+        attempt_value(attempt, :measurements),
+        options
+      )
+    ]
+  end
+
+  defp admission_submission(%{operational_pruned_at: nil, submission: submission}, false),
+    do: submission || %{}
+
+  defp admission_submission(_attempt, _expired), do: %{}
+  defp attempt_value(nil, _key), do: nil
+  defp attempt_value(attempt, key), do: Map.get(attempt, key)
+  defp admission_milestones(nil), do: nil
+
+  defp admission_milestones(attempt),
+    do: %{"phase" => attempt.phase, "milestones" => attempt.milestones}
+
+  defp admission_coverage(%{"prompt" => _prompt}),
+    do:
+      "This is the frozen Responder admission submission, not the Coop wrapper or complete provider request. Milestones are observed facts, not percent-complete estimates."
+
+  defp admission_coverage(_submission),
+    do:
+      "This execution has no retained submitted prompt. It may predate request capture or may not have submitted yet. Today's instructions are not substituted for missing history."
+
+  defp tool_page(%{coop_turn_id: nil}, _params, _options),
+    do: %{items: [], page: 1, pages: 1, total: 0}
+
+  defp tool_page(turn, params, options) do
+    query =
+      from(event in ActivityEvent,
+        where:
+          event.episode_id == ^turn.episode_id and
+            event.session_id == ^turn.session_id and event.coop_turn_id == ^turn.coop_turn_id and
+            event.kind in @tool_kinds
+      )
+
+    total = Repo.aggregate(query, :count)
+    page = page(params["tools_page"])
+
+    items =
+      Repo.all(
+        from(event in query,
+          order_by: [asc: event.sequence],
+          offset: ^((page - 1) * @tool_page_size),
+          limit: @tool_page_size
+        )
+      )
+      |> Enum.map(fn event ->
+        %{
+          id: event.id,
+          kind: event.kind,
+          at: event.occurred_at,
+          artifact: Redactor.artifact(event.payload, Keyword.put(options, :max_bytes, 16 * 1_024))
+        }
+      end)
+
+    %{items: items, page: page, pages: max(1, ceil(total / @tool_page_size)), total: total}
+  end
+
+  defp section(id, title, value, options),
+    do: %{id: id, title: title, artifact: Redactor.artifact(value, options)}
+
+  defp decode(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, map} when is_map(map) -> map
+      _other -> %{}
+    end
+  end
+
+  defp decode(_value), do: %{}
+
+  defp page(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {number, ""} when number in 1..10_000 -> number
+      _invalid -> 1
+    end
+  end
+
+  defp page(_value), do: 1
+  defp iso(nil), do: nil
+  defp iso(at), do: DateTime.to_iso8601(at)
+end

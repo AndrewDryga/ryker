@@ -96,6 +96,20 @@ defmodule Responder.Retention.DataTest do
 
     assert {:ok, %{entry: entry}} = Inbox.record(input)
 
+    # Admission request copies must follow input retention, not survive it in a
+    # second table after the original sensitive input is pruned.
+    admission_artifact = %{"prompt" => "retained admission source", "output_schema" => %{}}
+
+    attempt =
+      Repo.insert!(%Responder.Admission.Attempt{
+        input_id: entry.id,
+        generation: 1,
+        policy: "retention-test",
+        policy_digest: String.duplicate("a", 64),
+        submission: admission_artifact,
+        submission_fingerprint: CanonicalJSON.digest(admission_artifact)
+      })
+
     assert Repo.query!(
              "SELECT artifact_id FROM ingress_input_artifact_references WHERE input_id = $1",
              [uuid!(entry.id)]
@@ -109,7 +123,12 @@ defmodule Responder.Retention.DataTest do
           updated_at = $3
       WHERE id = $4
       """,
-      ["decision:#{suffix}", String.duplicate("d", 64), @old, uuid!(entry.id)]
+      [
+        "decision:#{suffix}",
+        String.duplicate("d", 64),
+        DateTime.add(DateTime.utc_now(), -120, :second),
+        uuid!(entry.id)
+      ]
     )
 
     Repo.query!("UPDATE input_artifacts SET updated_at = $1 WHERE id = $2", [
@@ -117,10 +136,14 @@ defmodule Responder.Retention.DataTest do
       uuid!(artifact.id)
     ])
 
-    assert {:ok, result} = Data.prune(settings())
+    assert {:ok, result} = Data.prune(settings(audit_data_seconds: 600))
     assert result.operational_inputs == 1
     assert result.input_artifacts == 1
     assert Repo.get(Responder.Artifacts.Artifact, artifact.id) == nil
+    pruned_attempt = Repo.get!(Responder.Admission.Attempt, attempt.id)
+    assert %DateTime{} = pruned_attempt.operational_pruned_at
+    assert pruned_attempt.submission == %{"retention" => "pruned"}
+    assert pruned_attempt.submission_fingerprint == attempt.submission_fingerprint
   end
 
   test "settled admission fleet identity retires without a fabricated episode" do

@@ -9,8 +9,12 @@ defmodule Responder.ControlPlane.Projection do
 
   import Ecto.Query
 
+  alias Responder.ControlPlane.{Activity, AdmissionProgress, InspectionRedactor}
+  alias Responder.ControlPlane.CurrentInputs
+  alias Responder.ControlPlane.ModelRequests
+
   alias Responder.Artifacts.OutputArtifact
-  alias Responder.ControlPlane.{Card, CardLabFeedback, EpisodeTrace}
+  alias Responder.ControlPlane.{Card, CardLabDelivery, CardLabFeedback, EpisodeTrace}
   alias Responder.Delivery.Operator, as: DeliveryOperator
   alias Responder.Delivery.PlatformAction
   alias Responder.Delivery.Reaction
@@ -37,10 +41,13 @@ defmodule Responder.ControlPlane.Projection do
   @spec callbacks() :: map()
   def callbacks do
     %{
+      activity: &Activity.list/1,
       admission: &admission/1,
       audit: &audit/1,
       calibration: &calibration/1,
       card_lab_feedback: &CardLabFeedback.list/2,
+      card_lab_slack: &CardLabDelivery.snapshot/1,
+      card_lab_post: &CardLabDelivery.fetch/1,
       channel: &channel/2,
       channels: &channels/1,
       configuration: &configuration/0,
@@ -48,6 +55,8 @@ defmodule Responder.ControlPlane.Projection do
       delivery: &delivery/1,
       emisar: &emisar/1,
       episode: &episode/1,
+      model_requests: &ModelRequests.project/2,
+      admission_request: &ModelRequests.project_input/2,
       episodes: &episodes/1,
       failures: &failures/1,
       findings: &findings/1,
@@ -108,6 +117,59 @@ defmodule Responder.ControlPlane.Projection do
         {:ok, id} -> [Map.put(item, :id, id)]
         :error -> []
       end
+    end)
+    |> lab_directory_titles()
+  end
+
+  defp lab_directory_titles([]), do: []
+
+  defp lab_directory_titles(items) do
+    refs = Enum.map(items, & &1.ref)
+
+    titles =
+      Repo.all(
+        from(entry in Entry,
+          join: current in subquery(CurrentInputs.latest()),
+          on:
+            current.native_input_id == entry.native_input_id and
+              current.execution_mode == entry.execution_mode,
+          where:
+            entry.destination_conversation_ref in ^refs and entry.source_kind == "control_plane",
+          distinct: entry.destination_conversation_ref,
+          order_by: [
+            asc: entry.destination_conversation_ref,
+            asc: entry.inserted_at,
+            asc: entry.id
+          ],
+          select:
+            {entry.destination_conversation_ref,
+             fragment(
+               "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE left(?::jsonb->>'text', 12000) END",
+               current.operational_pruned_at,
+               current.event_kind,
+               current.content
+             )}
+        )
+      )
+      |> Map.new()
+
+    secrets = InspectionRedactor.configured_secrets()
+
+    Enum.map(items, fn item ->
+      artifact =
+        InspectionRedactor.artifact(titles[item.ref],
+          secrets: secrets,
+          max_bytes: 600
+        )
+
+      Map.put(
+        item,
+        :title,
+        if(artifact.text in [nil, ""],
+          do: "Conversation · #{Calendar.strftime(item.updated_at, "%d %b")}",
+          else: String.slice(artifact.text, 0, 160)
+        )
+      )
     end)
   end
 
@@ -190,6 +252,7 @@ defmodule Responder.ControlPlane.Projection do
       {:ok,
        %{
          blocked: blocked,
+         admission_progress: AdmissionProgress.conversation(ref),
          conversation_id: conversation_id,
          conversation_ref: ref,
          episodes: episodes,
@@ -457,6 +520,11 @@ defmodule Responder.ControlPlane.Projection do
 
         trace = EpisodeTrace.project(episode, event_records, record_records)
 
+        accounting =
+          Responder.Accounting.Query.executions(nil, "all")
+          |> where([execution], execution.episode_id == ^episode.id)
+          |> usage_totals()
+
         {:ok,
          %{
            episode: %{
@@ -469,6 +537,7 @@ defmodule Responder.ControlPlane.Projection do
            },
            events: events,
            records: records,
+           accounting: accounting,
            trace: trace
          }}
     end
@@ -842,14 +911,17 @@ defmodule Responder.ControlPlane.Projection do
 
   def usage(params) when is_map(params) do
     {window, since} = usage_window(params["window"])
-    query = usage_query(since)
+    mode = if params["mode"] in ~w(shadow all), do: params["mode"], else: "live"
+    query = Responder.Accounting.Query.executions(since, mode)
 
     %{
       channels: usage_channels(query),
       days: usage_days(query),
       repositories: usage_repositories(query),
       targets: usage_targets(query),
+      executions: usage_executions(query, params),
       totals: usage_totals(query),
+      mode: mode,
       window: window
     }
   end
@@ -1880,18 +1952,19 @@ defmodule Responder.ControlPlane.Projection do
 
   defp workspace_action(%Session{}), do: nil
 
-  defp usage_query(nil),
-    do: from(turn in Turn, where: not is_nil(turn.accepted_at))
-
-  defp usage_query(%DateTime{} = since),
-    do: from(turn in Turn, where: not is_nil(turn.accepted_at) and turn.accepted_at >= ^since)
-
   defp usage_totals(query) do
     totals =
       Repo.one(
         from(turn in query,
           select: %{
             attempts: count(turn.id),
+            admission: fragment("COUNT(*) FILTER (WHERE ? = 'admission')", turn.kind),
+            work: fragment("COUNT(*) FILTER (WHERE ? = 'work')", turn.kind),
+            unsuccessful:
+              fragment(
+                "COUNT(*) FILTER (WHERE ? IN ('failed', 'interrupted', 'budget_exhausted', 'cancelled'))",
+                turn.status
+              ),
             cached_input_tokens:
               type(
                 fragment("COALESCE(SUM(?), 0)::bigint", turn.usage_cached_input_tokens),
@@ -1941,6 +2014,37 @@ defmodule Responder.ControlPlane.Projection do
     |> Map.drop([:host_ms, :provider_ms, :queued_ms])
   end
 
+  defp usage_executions(query, params) do
+    selected_page = page(params["page"])
+
+    rows =
+      Repo.all(
+        from(execution in query,
+          order_by: [desc: execution.recorded_at, desc: execution.id],
+          offset: ^((selected_page - 1) * @page_size),
+          limit: ^(@page_size + 1),
+          select:
+            map(execution, [
+              :id,
+              :source_id,
+              :kind,
+              :episode_id,
+              :generation,
+              :status,
+              :recorded_at,
+              :execution_target,
+              :usage_recorded,
+              :usage_cost_recorded,
+              :usage_cost_usd,
+              :usage_input_tokens,
+              :usage_output_tokens
+            ])
+        )
+      )
+
+    %{items: Enum.take(rows, @page_size), page: selected_page, more: length(rows) > @page_size}
+  end
+
   defp usage_targets(query) do
     Repo.all(
       from(turn in query,
@@ -1973,14 +2077,12 @@ defmodule Responder.ControlPlane.Projection do
   defp usage_channels(query) do
     Repo.all(
       from(turn in query,
-        join: episode in Episode,
-        on: episode.id == turn.episode_id,
-        group_by: [episode.destination_transport, episode.destination_conversation_ref],
-        order_by: [desc: count(turn.id), asc: episode.destination_transport],
+        group_by: [turn.transport, turn.conversation_ref],
+        order_by: [desc: count(turn.id), asc: turn.transport],
         limit: 100,
         select: %{
           attempts: count(turn.id),
-          conversation_ref: episode.destination_conversation_ref,
+          conversation_ref: turn.conversation_ref,
           cost_usd: fragment("COALESCE(SUM(?), 0)", turn.usage_cost_usd),
           costed: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_cost_recorded),
           measured: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_recorded),
@@ -1995,7 +2097,7 @@ defmodule Responder.ControlPlane.Projection do
               ),
               :integer
             ),
-          transport: episode.destination_transport
+          transport: turn.transport
         }
       )
     )
@@ -2004,17 +2106,15 @@ defmodule Responder.ControlPlane.Projection do
   defp usage_repositories(query) do
     Repo.all(
       from(turn in query,
-        join: session in Session,
-        on: session.id == turn.session_id,
-        group_by: session.repository_ref,
-        order_by: [desc: count(turn.id), asc: session.repository_ref],
+        group_by: turn.repository_ref,
+        order_by: [desc: count(turn.id), asc: turn.repository_ref],
         limit: 100,
         select: %{
           attempts: count(turn.id),
           cost_usd: fragment("COALESCE(SUM(?), 0)", turn.usage_cost_usd),
           costed: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_cost_recorded),
           measured: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_recorded),
-          repository_ref: session.repository_ref,
+          repository_ref: turn.repository_ref,
           tokens:
             type(
               fragment(
@@ -2034,13 +2134,13 @@ defmodule Responder.ControlPlane.Projection do
   defp usage_days(query) do
     Repo.all(
       from(turn in query,
-        group_by: fragment("date(?)", turn.accepted_at),
-        order_by: [asc: fragment("date(?)", turn.accepted_at)],
+        group_by: fragment("date(?)", turn.recorded_at),
+        order_by: [asc: fragment("date(?)", turn.recorded_at)],
         limit: 366,
         select: %{
           attempts: count(turn.id),
           cost_usd: fragment("COALESCE(SUM(?), 0)", turn.usage_cost_usd),
-          date: type(fragment("date(?)", turn.accepted_at), :date),
+          date: type(fragment("date(?)", turn.recorded_at), :date),
           measured: fragment("COUNT(*) FILTER (WHERE ? = TRUE)", turn.usage_recorded),
           tokens:
             type(

@@ -367,7 +367,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     prepared = Enum.find(detail.trace.steps, &(&1.title == "Turn 1 prepared"))
     prepared_details = Map.new(prepared.details, &{&1.label, &1.value})
 
-    assert prepared_details["Prompt"] == "retained exact bytes; display withheld"
+    assert prepared_details["Prompt"] == "retained; open model request inspector"
     assert is_binary(prepared_details["Prompt bytes"])
     assert String.ends_with?(prepared_details["Prompt digest"], "…")
     assert String.ends_with?(prepared_details["Context digest"], "…")
@@ -493,6 +493,31 @@ defmodule Responder.ControlPlane.ProjectionTest do
              Projection.episodes(%{"target" => "claude:opus/high@work"}).items
 
     assert target_episode.ref == episode_key!(measured.episode_id)
+  end
+
+  # Provider work still costs money when the host never accepts the answer.
+  # The old accepted_at predicate hid these executions entirely.
+  test "failed and cancelled executions remain visible in cost accounting" do
+    now = DateTime.utc_now()
+    failed = measured_turn!("failed-cost", "codex:gpt-5.6-terra/medium", now)
+    cancelled = measured_turn!("cancelled-cost", "codex:gpt-5.6-terra/medium", now)
+
+    for {turn, status} <- [{failed, :blocked}, {cancelled, :superseded}] do
+      Repo.update_all(from(t in Responder.Work.Turn, where: t.id == ^turn.id),
+        set: [
+          accepted_at: nil,
+          status: status,
+          validation_receipt: nil,
+          result_ref: nil,
+          continuation: nil
+        ]
+      )
+    end
+
+    snapshot = Projection.usage(%{"window" => "24h"})
+    assert snapshot.totals.attempts == 2
+    assert snapshot.totals.usage_measured == 2
+    assert Decimal.equal?(snapshot.totals.cost_usd, Decimal.new("0.025"))
   end
 
   test "episode trace distinguishes a pending reply from confirmed delivery" do
@@ -1023,7 +1048,12 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Projection.decisions(%{}) == []
     assert Projection.findings(%{}) == []
     assert length(Projection.audit(%{})) >= 9
-    assert map_size(Projection.callbacks()) == 32
+    assert map_size(Projection.callbacks()) == 37
+    assert is_function(Projection.callbacks().activity, 1)
+    assert is_function(Projection.callbacks().card_lab_slack, 1)
+    assert is_function(Projection.callbacks().card_lab_post, 1)
+    assert is_function(Projection.callbacks().model_requests, 2)
+    assert is_function(Projection.callbacks().admission_request, 2)
   end
 
   test "operator workbench projections stay bounded and explicit with no durable rows" do

@@ -65,6 +65,46 @@ defmodule Responder.ControlPlane.CardLab do
 
   def fetch(_card_id, _state_id), do: {:error, :card_lab_specimen_not_found}
 
+  @doc "Renders an explicitly labelled Slack test message with inert specimen controls."
+  @spec slack_message(String.t(), String.t()) :: {:ok, map()} | {:error, atom()}
+  def slack_message(card_id, state_id) do
+    with {:ok, snapshot} <- fetch(card_id, state_id),
+         true <- snapshot.card.surface == :message do
+      label = "Card Lab · #{snapshot.card.title} · #{snapshot.state.label} · Test controls only"
+
+      banner = %{
+        "type" => "context",
+        "elements" => [%{"type" => "plain_text", "text" => label}]
+      }
+
+      rendered = isolate_controls(snapshot.rendered)
+
+      {:ok,
+       %{
+         "blocks" => [banner | rendered["blocks"]],
+         "text" => label <> "\n" <> rendered["text"]
+       }}
+    else
+      false -> {:error, :card_lab_requires_native_surface}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp isolate_controls(values) when is_list(values), do: Enum.map(values, &isolate_controls/1)
+
+  defp isolate_controls(%{} = value) do
+    Map.new(value, fn
+      {"action_id", id} -> {"action_id", "card_lab_preview_" <> id}
+      {key, item} -> {key, isolate_controls(item)}
+    end)
+  end
+
+  defp isolate_controls(value) when is_binary(value) do
+    value |> String.replace("<!", "&lt;!") |> String.replace("<@", "&lt;@")
+  end
+
+  defp isolate_controls(value), do: value
+
   @spec default() :: map()
   def default do
     catalog = catalog()

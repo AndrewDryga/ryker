@@ -2,13 +2,19 @@
 
 Status: target design; the Elixir/PostgreSQL replacement is canonical and remaining P0/P1 gaps are
         tracked by the checked capability contract
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 Audience: Responder maintainers, operators, and contributors
 
 This document defines the architecture Responder should evolve toward. It is more prescriptive
 than [Architecture](architecture.md), which describes the deployed system, and more
 implementation-oriented than [How Responder Works](how-responder-works.md), which explains current
 product behavior.
+
+The [control-plane redesign plan](control-plane-redesign.md) specifies the next
+operator-facing slices: LiveView, faster admission with unchanged host authority,
+model-request inspection, complete invocation accounting, organization-scoped
+learning, and simpler configuration. It is planned work, not an expansion of
+the current implementation or deployment claims below.
 
 The goal is not to preserve the current implementation shape. The goal is to preserve every useful
 product capability while replacing competing lifecycles with one reliable ownership model. A

@@ -147,7 +147,7 @@ defmodule Responder.Slack.TaskEndToEndTest do
     def get_publication_status(_client, _repository, _number), do: {:error, :not_used}
   end
 
-  test "an authorized Slack task publishes once and repairs GitHub review in the same session" do
+  test "an authorized Slack task publishes once despite clock skew and repairs GitHub review in the same session" do
     claim = claim_episode!()
 
     assert {:ok, offer} =
@@ -314,6 +314,13 @@ defmodule Responder.Slack.TaskEndToEndTest do
     assert ready_card["status"] == "ready_for_review"
     assert ready_card["publication"]["review_offer_ref"] == offer.ref
     assert ready_card["publication"]["controls"] == ["readiness"]
+
+    # A freshly rendered readiness button was intermittently rejected in the
+    # release gate: Ecto stamps offers on the host, card custody uses PostgreSQL.
+    # The exact rendered offer identity must remain valid across clock skew.
+    Repo.update_all(from(saved in TaskCard, where: saved.id == ^card.id),
+      set: [card_checked_at: DateTime.add(offer.inserted_at, -10, :second)]
+    )
 
     assert Gateway.handle_envelope(
              readiness_interaction(card, offer.ref, "after-card-refresh"),

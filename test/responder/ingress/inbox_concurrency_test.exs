@@ -105,6 +105,47 @@ defmodule Responder.Ingress.InboxConcurrencyTest do
     end)
   end
 
+  test "simultaneous slots do not claim two pending inputs from the same conversation" do
+    Sandbox.unboxed_run(Repo, fn ->
+      refs = Enum.map(1..2, fn _ -> "Ev-ordered-#{Ecto.UUID.generate()}" end)
+
+      entries =
+        Enum.map(refs, fn ref ->
+          {:ok, %{entry: entry}} = Inbox.record(input!(ref))
+          entry
+        end)
+
+      parent = self()
+
+      contenders =
+        Enum.map(1..2, fn index ->
+          unboxed_task(fn ->
+            send(parent, {:ordered_ready, self()})
+
+            receive do
+              :claim -> Inbox.claim_next("ordered-slot:#{index}", DateTime.utc_now(), 60)
+            end
+          end)
+        end)
+
+      try do
+        Enum.each(contenders, fn task ->
+          pid = task.pid
+          assert_receive {:ordered_ready, ^pid}, 5_000
+        end)
+
+        Enum.each(contenders, &send(&1.pid, :claim))
+        results = Enum.map(contenders, &Task.await(&1, 5_000))
+        claims = for {:ok, %{entry: claimed}} <- results, do: claimed.id
+        assert claims == [hd(entries).id]
+        assert Enum.count(results, &(&1 == {:ok, nil})) == 1
+      after
+        stop_tasks(contenders)
+        Repo.delete_all(from(entry in Entry, where: entry.event_ref in ^refs))
+      end
+    end)
+  end
+
   defp input!(event_ref) do
     assert {:ok, input} =
              SlackInput.new(%{

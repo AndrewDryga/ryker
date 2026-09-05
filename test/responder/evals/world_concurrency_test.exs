@@ -2,6 +2,7 @@ defmodule Responder.Evals.WorldConcurrencyTest do
   use Responder.ConcurrencyCase, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias Responder.Accounting.Execution
   alias Responder.Delivery.Adapters
   alias Responder.Delivery.Dispatcher, as: DeliveryDispatcher
   alias Responder.Episodes
@@ -119,11 +120,17 @@ defmodule Responder.Evals.WorldConcurrencyTest do
           if Process.alive?(deliveries), do: Agent.stop(deliveries)
         end
       after
+        # Accounting deliberately survives operational deletion. Unboxed
+        # fixtures must remove their own ledger or every later world replay
+        # correctly refuses this no-longer-empty disposable database.
+        Repo.delete_all(from(usage in Execution, where: usage.episode_id == ^episode_id))
         Repo.delete_all(from(turn in Turn, where: turn.episode_id == ^episode_id))
         Repo.delete_all(from(session in Session, where: session.episode_id == ^episode_id))
         Repo.delete_all(from(event in Event, where: event.episode_id == ^episode_id))
         Repo.delete_all(from(episode in Episode, where: episode.id == ^episode_id))
       end
+
+      refute Repo.exists?(from(usage in Execution, where: usage.episode_id == ^episode_id))
     end)
   end
 

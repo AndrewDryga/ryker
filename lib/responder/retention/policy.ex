@@ -19,9 +19,21 @@ defmodule Responder.Retention.Policy do
 
   @policies [
     %{
+      table: "admission_attempts",
+      class: :operational,
+      why:
+        "classifier artifacts expire with source custody; compact attempts cascade with ingress"
+    },
+    %{
       table: "card_lab_feedback",
       class: :audit,
       why: "append-only operator review of one exact production-rendered card state"
+    },
+    %{
+      table: "card_lab_posts",
+      class: :kept,
+      why:
+        "frozen synthetic specimen and Slack receipt retained for idempotent retries and in-place updates"
     },
     %{
       table: "conversation_rollups",
@@ -162,6 +174,11 @@ defmodule Responder.Retention.Policy do
       table: "episode_work_turns",
       class: :episode_history,
       why: "logical turn history whose large transport bodies expire earlier"
+    },
+    %{
+      table: "execution_usage",
+      class: :kept,
+      why: "compact content-free execution accounting must survive operational artifact deletion"
     },
     %{
       table: "ingress_inbox_entries",

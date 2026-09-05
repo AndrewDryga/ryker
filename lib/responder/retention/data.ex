@@ -371,6 +371,22 @@ defmodule Responder.Retention.Data do
         [~w(decided superseded), cutoff]
       )
 
+    _admission_artifacts =
+      execute_count("""
+      WITH candidates AS (
+        SELECT attempt.id FROM admission_attempts attempt
+        JOIN ingress_inbox_entries input ON input.id = attempt.input_id
+        WHERE attempt.operational_pruned_at IS NULL AND input.operational_pruned_at IS NOT NULL
+        ORDER BY attempt.inserted_at, attempt.id LIMIT 100
+        FOR UPDATE OF attempt SKIP LOCKED
+      )
+      UPDATE admission_attempts attempt
+      SET submission = CASE WHEN submission IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
+          response = CASE WHEN response IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
+          operational_pruned_at = clock_timestamp()
+      FROM candidates WHERE attempt.id = candidates.id
+      """)
+
     operational_turns =
       execute_count(
         """

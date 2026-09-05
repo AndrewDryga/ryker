@@ -487,12 +487,20 @@ defmodule Responder.RuntimeConfiguration do
   end
 
   defp admission!(value, coop, host_ref, mode, work) do
-    object = object!(value, ~w(policy), ~w(decision_timeout_ms poll_interval_ms), "admission")
+    object =
+      object!(
+        value,
+        ~w(policy),
+        ~w(concurrency decision_timeout_ms poll_interval_ms),
+        "admission"
+      )
+
     policy = policy!(object["policy"], "admission.policy")
 
     configuration = %{
       policy: policy.name,
       policy_digest: policy.digest,
+      concurrency: integer!(object, "concurrency", 4, 1, 32, "admission"),
       decision_timeout_ms:
         integer!(object, "decision_timeout_ms", 30_000, 1_000, 300_000, "admission"),
       poll_interval_ms: integer!(object, "poll_interval_ms", 250, 1, 60_000, "admission"),

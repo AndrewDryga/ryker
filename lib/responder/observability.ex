@@ -9,6 +9,8 @@ defmodule Responder.Observability do
 
   import Ecto.Query
 
+  alias Responder.Ingress.Inbox
+
   alias Responder.CoopFleet.{Command, Placement, Worker, WorkspaceCheckpointTransfer}
   alias Responder.Delivery.Reaction
   alias Responder.Emisar.Approval
@@ -164,6 +166,23 @@ defmodule Responder.Observability do
       retention_queue(now),
       due_schedule_queue(now)
     ]
+  end
+
+  defp queue(Entry, :ingress, [:pending], age_field, now) do
+    active =
+      from(entry in Entry,
+        where:
+          entry.status == :pending and not is_nil(entry.lease_ref) and
+            entry.lease_expires_at > ^now
+      )
+
+    queue_projection(
+      Inbox.claimable_query(now),
+      active,
+      :ingress,
+      age_field,
+      now
+    )
   end
 
   defp queue(schema, name, statuses, age_field, now) do
@@ -573,7 +592,7 @@ defmodule Responder.Observability do
 
   defp runtime_status do
     [
-      admission: {:admission, {:named, Responder.Admission.Worker}},
+      admission: {:admission, {:named, Responder.Admission.Runtime}},
       coop_worker_gateway: {:coop_worker_gateway, {:supervised, Responder.CoopFleet.Server}},
       control_plane: {:control_plane, {:supervised, Responder.ControlPlane.Server}},
       delivery: {:delivery, {:named, Responder.Delivery.Runtime}},

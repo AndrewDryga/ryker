@@ -4,7 +4,7 @@ defmodule Responder.ControlPlane.Router do
   import Plug.Conn
 
   alias Plug.Conn.Query
-  alias Responder.ControlPlane.{CardLab, CSRF, HTML}
+  alias Responder.ControlPlane.{CardLab, CardLabSlackHTML, CSRF, HTML, ModelRequestsHTML}
 
   @behaviour Plug
   @maximum_form_bytes 4_096
@@ -22,6 +22,8 @@ defmodule Responder.ControlPlane.Router do
   @lab_record_action "conversation_lab:record"
   @card_lab_transition_action "card_lab:transition"
   @card_lab_feedback_action "card_lab:feedback"
+  @card_slack_prepare "card_lab:prepare_slack"
+  @card_slack_post "card_lab:post_slack"
 
   @impl Plug
   def init(options) do
@@ -46,6 +48,40 @@ defmodule Responder.ControlPlane.Router do
       true -> route(conn, options)
     end
   end
+
+  @doc false
+  def snapshot(path, query, options) do
+    segments = String.split(path, "/", trim: true)
+
+    if snapshot_path?(segments) do
+      route(
+        %Plug.Conn{
+          method: "GET",
+          path_info: segments,
+          request_path: path,
+          query_string: query,
+          host: "localhost",
+          remote_ip: {127, 0, 0, 1},
+          private: %{control_plane_snapshot: true}
+        },
+        options
+      )
+    else
+      %{status: 404, title: "Not found", body: "<p>This view does not exist.</p>"}
+    end
+  end
+
+  defp snapshot_path?([]), do: true
+
+  defp snapshot_path?([page]),
+    do:
+      page in ~w(lab card-lab episodes incidents schedules subscriptions channels repositories failures workspaces decisions findings audit memory calibration usage configuration manual-tests)
+
+  defp snapshot_path?(["lab", "new"]), do: false
+  defp snapshot_path?(["episodes", _, "requests"]), do: true
+  defp snapshot_path?([page, _ref]), do: page in ~w(lab admission episodes incidents schedules)
+  defp snapshot_path?([page, _, _]), do: page in ~w(card-lab channels failures)
+  defp snapshot_path?(_path), do: false
 
   defp release_version do
     case Application.spec(:responder, :vsn) do
@@ -88,6 +124,158 @@ defmodule Responder.ControlPlane.Router do
 
   defp route(%Plug.Conn{method: "GET", path_info: ["card-lab"]} = conn, options) do
     render_card_lab(conn, options, CardLab.default())
+  end
+
+  defp route(
+         %Plug.Conn{method: "POST", path_info: ["card-lab", card, state, "slack", "preview"]} =
+           conn,
+         options
+       ) do
+    with {:ok, snapshot} <- CardLab.fetch(card, state),
+         true <- snapshot.card.surface == :message,
+         {:ok, form, conn} <- card_slack_form(conn, ~w(_token channel_ref workspace_ref)),
+         true <-
+           CSRF.valid?(
+             options.csrf_secret,
+             @card_slack_prepare,
+             card_lab_feedback_resource(card, state),
+             form["_token"]
+           ),
+         {:ok, target} <-
+           options.actions.describe_card_slack_target.(form["workspace_ref"], form["channel_ref"]) do
+      fields = %{
+        "workspace_ref" => target.workspace_ref,
+        "channel_ref" => target.channel_ref,
+        "request_id" => Ecto.UUID.generate()
+      }
+
+      token =
+        CSRF.token(
+          options.csrf_secret,
+          @card_slack_post,
+          card_slack_resource(card, state, fields)
+        )
+
+      html(
+        conn,
+        200,
+        "Confirm Slack specimen",
+        CardLabSlackHTML.confirm(
+          snapshot,
+          target,
+          card_lab_path(card, state) <> "/slack/post",
+          Map.put(fields, "_token", token),
+          "Post test message"
+        )
+      )
+    else
+      false -> text(conn, 403, "Invalid confirmation or unsupported Slack surface")
+      {:error, :form} -> text(conn, 400, "Invalid form")
+      {:error, _} -> text(conn, 409, "Slack destination is unavailable or not eligible")
+    end
+  end
+
+  defp route(
+         %Plug.Conn{method: "POST", path_info: ["card-lab", card, state, "slack", "post"]} = conn,
+         options
+       ) do
+    with {:ok, _snapshot} <- CardLab.fetch(card, state),
+         {:ok, form, conn} <-
+           card_slack_form(conn, ~w(_token channel_ref request_id workspace_ref)),
+         true <-
+           CSRF.valid?(
+             options.csrf_secret,
+             @card_slack_post,
+             card_slack_resource(card, state, Map.delete(form, "_token")),
+             form["_token"]
+           ),
+         {:ok, _post} <-
+           options.actions.post_card_to_slack.(
+             card,
+             state,
+             form["workspace_ref"],
+             form["channel_ref"],
+             form["request_id"]
+           ) do
+      card_slack_redirect(conn, card, state)
+    else
+      false ->
+        text(conn, 403, "Invalid destination confirmation")
+
+      {:error, :form} ->
+        text(conn, 400, "Invalid form")
+
+      {:error, _} ->
+        text(conn, 409, "Specimen could not be queued; review the destination and try again")
+    end
+  end
+
+  defp route(
+         %Plug.Conn{method: "GET", path_info: ["card-lab", card, state, "slack", id, action]} =
+           conn,
+         options
+       )
+       when action in ["update", "retry"] do
+    with {:ok, snapshot} <- CardLab.fetch(card, state),
+         {:ok, post} <- options.projection.card_lab_post.(id),
+         true <- post.card_id == card,
+         {:ok, confirmed_snapshot} <- confirmed_card_snapshot(action, snapshot, post),
+         {:ok, target} <-
+           options.actions.describe_card_slack_target.(post.workspace_ref, post.channel_ref) do
+      fields = %{"post_id" => post.id, "revision" => to_string(post.revision)}
+
+      token =
+        CSRF.token(
+          options.csrf_secret,
+          "card_lab:slack_#{action}",
+          card_slack_resource(card, state, fields)
+        )
+
+      label = if action == "update", do: "Update test message", else: "Retry test delivery"
+
+      html(
+        conn,
+        200,
+        "Confirm Slack specimen",
+        CardLabSlackHTML.confirm(
+          confirmed_snapshot,
+          target,
+          card_lab_path(card, state) <> "/slack/#{id}/#{action}",
+          Map.put(fields, "_token", token),
+          label
+        )
+      )
+    else
+      _error -> text(conn, 404, "Slack specimen is unavailable")
+    end
+  end
+
+  defp route(
+         %Plug.Conn{method: "POST", path_info: ["card-lab", card, state, "slack", id, action]} =
+           conn,
+         options
+       )
+       when action in ["update", "retry"] do
+    with {:ok, _snapshot} <- CardLab.fetch(card, state),
+         {:ok, form, conn} <- card_slack_form(conn, ~w(_token post_id revision)),
+         true <- form["post_id"] == id,
+         true <-
+           CSRF.valid?(
+             options.csrf_secret,
+             "card_lab:slack_#{action}",
+             card_slack_resource(card, state, Map.delete(form, "_token")),
+             form["_token"]
+           ),
+         {revision, ""} <- Integer.parse(form["revision"]),
+         {:ok, post} <- options.projection.card_lab_post.(id),
+         true <- post.card_id == card and post.revision == revision,
+         {:ok, _updated} <- card_slack_action(action, post, state, options) do
+      card_slack_redirect(conn, card, state)
+    else
+      false -> text(conn, 403, "Invalid or stale specimen confirmation")
+      {:error, :form} -> text(conn, 400, "Invalid form")
+      _error -> text(conn, 409, "Specimen changed or delivery is busy; refresh and review again")
+    end
   end
 
   defp route(
@@ -202,10 +390,17 @@ defmodule Responder.ControlPlane.Router do
          true <- CSRF.valid?(options.csrf_secret, @lab_action, conversation_id, token),
          {:ok, _receipt} <-
            options.actions.send_lab_message.(conversation_id, message, attachments) do
-      conn
-      |> put_resp_header("location", "/lab/#{conversation_id}")
-      |> send_resp(303, "")
-      |> halt()
+      if get_req_header(conn, "accept") == ["application/json"] do
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(202, Jason.encode!(%{accepted: true}))
+        |> halt()
+      else
+        conn
+        |> put_resp_header("location", "/lab/#{conversation_id}")
+        |> send_resp(303, "")
+        |> halt()
+      end
     else
       false -> text(conn, 403, "Invalid confirmation token")
       {:error, :path_ref} -> text(conn, 404, "Conversation not found")
@@ -382,10 +577,40 @@ defmodule Responder.ControlPlane.Router do
     html(conn, 200, "Episodes", HTML.episodes(snapshot))
   end
 
+  defp route(
+         %Plug.Conn{method: "GET", path_info: ["episodes", episode_ref, "requests"]} = conn,
+         options
+       ) do
+    conn = fetch_query_params(conn)
+
+    with {:ok, ref} <- path_ref(episode_ref),
+         {:ok, view} <-
+           options.projection.model_requests.(
+             ref,
+             Map.take(conn.query_params, ~w(kind page attempt tools_page generation))
+           ) do
+      html(conn, 200, "Model request inspector", ModelRequestsHTML.render(view))
+    else
+      _not_found -> html(conn, 404, "Not found", HTML.generic("Model request", []))
+    end
+  end
+
   defp route(%Plug.Conn{method: "GET", path_info: ["episodes", episode_ref]} = conn, options) do
     case path_ref(episode_ref) do
       {:ok, episode_ref} -> render_episode(conn, options, episode_ref)
       {:error, :path_ref} -> html(conn, 404, "Not found", HTML.generic("Episode", []))
+    end
+  end
+
+  defp route(%Plug.Conn{method: "GET", path_info: ["admission", id]} = conn, options) do
+    conn = fetch_query_params(conn)
+
+    case options.projection.admission_request.(id, Map.take(conn.query_params, ~w(generation))) do
+      {:ok, view} ->
+        html(conn, 200, "Admission request inspector", ModelRequestsHTML.render(view))
+
+      _missing ->
+        html(conn, 404, "Not found", HTML.generic("Admission request", []))
     end
   end
 
@@ -478,7 +703,7 @@ defmodule Responder.ControlPlane.Router do
 
   defp route(%Plug.Conn{method: "GET", path_info: ["usage"]} = conn, options) do
     conn = fetch_query_params(conn)
-    snapshot = options.projection.usage.(Map.take(conn.query_params, ["window"]))
+    snapshot = options.projection.usage.(Map.take(conn.query_params, ["window", "mode", "page"]))
     html(conn, 200, "Usage and timing", HTML.usage(snapshot))
   end
 
@@ -669,6 +894,23 @@ defmodule Responder.ControlPlane.Router do
   end
 
   defp render_lab(conn, options, conversation_id) do
+    case lab_snapshot(conversation_id, options) do
+      {:ok, snapshot, token} ->
+        html(conn, 200, "Conversation Lab", HTML.lab_conversation(snapshot, token))
+
+      _unavailable ->
+        html(conn, 503, "Unavailable", HTML.generic("Conversation", []))
+    end
+  end
+
+  @doc false
+  def lab_snapshot(conversation_id, options) do
+    with {:ok, conversation_id} <- lab_id(conversation_id) do
+      prepare_lab_snapshot(conversation_id, options)
+    end
+  end
+
+  defp prepare_lab_snapshot(conversation_id, options) do
     snapshot =
       case options.projection.lab_conversation.(conversation_id) do
         {:ok, snapshot} -> snapshot
@@ -684,9 +926,9 @@ defmodule Responder.ControlPlane.Router do
         |> lab_message_controls(options.csrf_secret)
         |> lab_record_controls(options.csrf_secret)
 
-      html(conn, 200, "Conversation Lab", HTML.lab_conversation(snapshot, token))
+      {:ok, snapshot, token}
     else
-      html(conn, 503, "Unavailable", HTML.generic("Conversation", []))
+      {:error, :projection_unavailable}
     end
   end
 
@@ -1600,7 +1842,45 @@ defmodule Responder.ControlPlane.Router do
   defp lab_reaction_action(_action), do: {:error, :form}
 
   defp render_card_lab(conn, options, snapshot) do
+    view = card_lab_snapshot(snapshot, options)
+
+    html(
+      conn,
+      200,
+      "Slack Card Lab",
+      HTML.card_lab(
+        snapshot,
+        view.feedback,
+        view.transition_tokens,
+        view.feedback_token,
+        view.slack_panel
+      )
+    )
+  end
+
+  defp confirmed_card_snapshot("retry", _snapshot, post),
+    do: CardLab.fetch(post.card_id, post.state_id)
+
+  defp confirmed_card_snapshot("update", snapshot, _post), do: {:ok, snapshot}
+
+  @doc false
+  def card_lab_snapshot(snapshot, options) do
     feedback = options.projection.card_lab_feedback.(snapshot.card.id, snapshot.state.id)
+
+    slack =
+      case options.projection[:card_lab_slack] do
+        callback when is_function(callback, 1) -> callback.(snapshot.card.id)
+        _missing -> %{available: false, posts: [], channels: [], workspace_ref: nil}
+      end
+
+    slack_token =
+      CSRF.token(
+        options.csrf_secret,
+        @card_slack_prepare,
+        card_lab_feedback_resource(snapshot.card.id, snapshot.state.id)
+      )
+
+    slack_panel = CardLabSlackHTML.panel(snapshot, slack, slack_token)
 
     transition_tokens =
       Map.new(snapshot.state.transitions, fn transition ->
@@ -1617,12 +1897,13 @@ defmodule Responder.ControlPlane.Router do
         card_lab_feedback_resource(snapshot.card.id, snapshot.state.id)
       )
 
-    html(
-      conn,
-      200,
-      "Slack Card Lab",
-      HTML.card_lab(snapshot, feedback, transition_tokens, feedback_token)
-    )
+    %{
+      snapshot: snapshot,
+      feedback: feedback,
+      transition_tokens: transition_tokens,
+      feedback_token: feedback_token,
+      slack_panel: slack_panel
+    }
   end
 
   defp card_lab_path(card_id, state_id),
@@ -1633,6 +1914,36 @@ defmodule Responder.ControlPlane.Router do
     do: Enum.join([card_id, state_id, transition_id], ":")
 
   defp card_lab_feedback_resource(card_id, state_id), do: "#{card_id}:#{state_id}"
+
+  defp card_slack_resource(card, state, fields),
+    do: Responder.CanonicalJSON.digest([card, state, fields])
+
+  defp card_slack_form(conn, keys) do
+    with [content_type] <- get_req_header(conn, "content-type"),
+         true <-
+           String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
+         {:ok, body, conn} <- read_form(conn),
+         form when is_map(form) <- Query.decode(body),
+         true <- Enum.sort(Map.keys(form)) == Enum.sort(keys),
+         true <- Enum.all?(Map.values(form), &is_binary/1) do
+      {:ok, form, conn}
+    else
+      _error -> {:error, :form}
+    end
+  end
+
+  defp card_slack_redirect(conn, card, state) do
+    conn
+    |> put_resp_header("location", card_lab_path(card, state) <> "#slack-delivery")
+    |> send_resp(303, "")
+    |> halt()
+  end
+
+  defp card_slack_action("update", post, state, options),
+    do: options.actions.transition_card_slack_post.(post.id, state, post.revision)
+
+  defp card_slack_action("retry", post, _state, options),
+    do: options.actions.retry_card_slack_post.(post.id, post.revision)
 
   defp action_path(kind, resource_ref, action),
     do: "/actions/#{kind}/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}/#{action}"
@@ -1666,12 +1977,18 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
+  defp html(%{private: %{control_plane_snapshot: true}}, status, title, body),
+    do: %{status: status, title: title, body: IO.iodata_to_binary(body)}
+
   defp html(conn, status, title, body) do
     conn
     |> put_resp_content_type("text/html")
     |> send_resp(status, HTML.page(title, body))
     |> halt()
   end
+
+  defp text(%{private: %{control_plane_snapshot: true}}, status, body),
+    do: %{status: status, title: "Unavailable", body: Plug.HTML.html_escape(body)}
 
   defp text(conn, status, body) do
     conn

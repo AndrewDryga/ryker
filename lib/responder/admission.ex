@@ -8,6 +8,8 @@ defmodule Responder.Admission do
 
   import Ecto.Query
 
+  alias Responder.Admission.Attempts
+
   alias Responder.Admission.{Candidate, Context, Decision}
   alias Responder.Delivery.ReactionCustody
   alias Responder.Episodes
@@ -741,7 +743,8 @@ defmodule Responder.Admission do
     |> Repo.update()
     |> case do
       {:ok, decided} ->
-        with {:ok, _reaction} <- maybe_enqueue_reaction(decided) do
+        with :ok <- Attempts.committed(decided),
+             {:ok, _reaction} <- maybe_enqueue_reaction(decided) do
           {:ok, decided}
         end
 

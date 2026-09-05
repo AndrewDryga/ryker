@@ -356,6 +356,7 @@ defmodule Responder.Ingress.InboxTest do
              Inbox.record(
                input!(
                  event_ref: "Ev-second",
+                 channel_ref: "C789",
                  message_ref: "1787832001.000100",
                  occurred_at: DateTime.add(@occurred_at, 1, :second)
                )
@@ -427,6 +428,50 @@ defmodule Responder.Ingress.InboxTest do
              Inbox.claim_next("executor:receipt-order", @occurred_at, 60)
 
     assert claimed.id == received_first.id
+  end
+
+  # The Lab could wait behind unrelated minute-long classifiers. More slots are
+  # safe only if later messages cannot classify against an unfinished earlier
+  # message from the same conversation, including during retry backoff.
+  test "a slow admission blocks only its conversation and preserves message order" do
+    {:ok, %{entry: first}} = Inbox.record(input!(event_ref: "Ev-order-first"))
+
+    {:ok, %{entry: second}} =
+      Inbox.record(input!(event_ref: "Ev-order-second", message_ref: "1787832001.000100"))
+
+    {:ok, %{entry: other}} =
+      Inbox.record(input!(event_ref: "Ev-order-other", channel_ref: "C789"))
+
+    {:ok, %{entry: claimed, lease_ref: lease}} = Inbox.claim_next("slot:1", @occurred_at, 60)
+    assert claimed.id == first.id
+    assert {:ok, %{entry: independent}} = Inbox.claim_next("slot:2", @occurred_at, 60)
+    assert independent.id == other.id
+    assert {:ok, nil} = Inbox.claim_next("slot:3", @occurred_at, 60)
+
+    assert {:ok, _} =
+             Inbox.defer(
+               Inbox.ref(first),
+               lease,
+               @occurred_at,
+               1_000,
+               "retry",
+               "Retry under the same request identity"
+             )
+
+    assert {:ok, nil} = Inbox.claim_next("slot:3", @occurred_at, 60)
+
+    assert {:ok, %{entry: retry, lease_ref: next_lease}} =
+             Inbox.claim_next("slot:3", DateTime.add(@occurred_at, 1, :second), 60)
+
+    assert retry.id == first.id
+
+    assert {:ok, _} =
+             Inbox.block(Inbox.ref(first), next_lease, "blocked", "Operator recovery required")
+
+    assert {:ok, %{entry: following}} =
+             Inbox.claim_next("slot:4", DateTime.add(@occurred_at, 1, :second), 60)
+
+    assert following.id == second.id
   end
 
   test "an expired claim becomes eligible without spending or losing the input" do

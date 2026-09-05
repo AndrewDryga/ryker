@@ -15,7 +15,7 @@ defmodule Responder.ControlPlane.ServerTest do
     }
   }
 
-  test "builds an explicit loopback-only Bandit listener" do
+  test "builds an explicit loopback-only Phoenix listener on Bandit" do
     options =
       Server.options!(port: 4_090, task_policies: @task_policies, work_profile: @profile)
 
@@ -26,12 +26,19 @@ defmodule Responder.ControlPlane.ServerTest do
     assert options.task_policies == @task_policies
     assert byte_size(options.csrf_secret) == 32
 
-    assert %{id: Server, start: {Bandit, :start_link, [_options]}} =
+    assert %{
+             id: Server,
+             start: {Responder.ControlPlane.Endpoint, :start_link, [endpoint_options]}
+           } =
              Server.child_spec(
                port: 4_090,
                task_policies: @task_policies,
                work_profile: @profile
              )
+
+    assert endpoint_options[:http] == [ip: {127, 0, 0, 1}, port: 4_090]
+    assert "//localhost:4090" in endpoint_options[:check_origin]
+    refute endpoint_options[:check_origin] == false
   end
 
   test "refuses public, ambiguous, or malformed listener configuration" do

@@ -7,7 +7,7 @@ defmodule Responder.Admission.RuntimeTest do
     def get_session(_client, _session_id), do: {:error, :not_used}
   end
 
-  test "builds one worker from trusted Coop configuration" do
+  test "builds a bounded admission pool from trusted Coop configuration" do
     child =
       Runtime.child_spec(
         policy: "admission-read-only",
@@ -19,11 +19,16 @@ defmodule Responder.Admission.RuntimeTest do
       )
 
     assert child.id == Runtime
-    assert {Worker, :start_link, [options]} = child.start
+    assert {Runtime, :start_link, [configuration]} = child.start
+    assert child.type == :supervisor
+    assert {:ok, {_flags, workers}} = Runtime.init(configuration)
+    assert length(workers) == 4
+    assert Enum.map(workers, & &1.id) == Enum.map(1..4, &{Worker, &1})
+    assert {Worker, :start_link, [options]} = hd(workers).start
     assert options[:poll_interval_ms] == 500
 
     dispatcher = options[:dispatcher_options]
-    assert dispatcher[:worker_ref] == "responder:local"
+    assert dispatcher[:worker_ref] == "responder:local:slot-1"
     assert dispatcher[:lease_seconds] == 300
     assert dispatcher[:executor_options][:policy] == "admission-read-only"
     assert dispatcher[:executor_options][:policy_digest] == String.duplicate("a", 64)
@@ -46,7 +51,9 @@ defmodule Responder.Admission.RuntimeTest do
         worker_ref: "responder:fleet"
       )
 
-    assert {Worker, :start_link, [options]} = child.start
+    assert {Runtime, :start_link, [configuration]} = child.start
+    assert {:ok, {_flags, [worker | _workers]}} = Runtime.init(configuration)
+    assert {Worker, :start_link, [options]} = worker.start
     executor = options[:dispatcher_options][:executor_options]
     assert executor[:api] == FleetAPI
     assert executor[:client] == client
@@ -92,6 +99,20 @@ defmodule Responder.Admission.RuntimeTest do
 
   test "refuses malformed trusted configuration before supervision starts" do
     invalid_configurations = [
+      [
+        concurrency: 33,
+        policy: "admission",
+        policy_digest: String.duplicate("a", 64),
+        socket: "/tmp/coop.sock",
+        worker_ref: "worker"
+      ],
+      [
+        concurrency: 0,
+        policy: "admission",
+        policy_digest: String.duplicate("a", 64),
+        socket: "/tmp/coop.sock",
+        worker_ref: "worker"
+      ],
       :not_a_configuration,
       [
         policy: "admission-read-only",

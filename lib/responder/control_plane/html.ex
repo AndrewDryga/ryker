@@ -1,47 +1,21 @@
 defmodule Responder.ControlPlane.HTML do
   @moduledoc false
 
-  @nav [
-    {"Overview", "/"},
-    {"Conversation Lab", "/lab"},
-    {"Slack Card Lab", "/card-lab"},
-    {"Episodes", "/episodes"},
-    {"Incidents", "/incidents"},
-    {"Schedules", "/schedules"},
-    {"Subscriptions", "/subscriptions"},
-    {"Channels", "/channels"},
-    {"Repositories", "/repositories"},
-    {"Failures", "/failures"},
-    {"Workspaces", "/workspaces"},
-    {"Decisions", "/decisions"},
-    {"Findings", "/findings"},
-    {"Audit", "/audit"},
-    {"Memory", "/memory"},
-    {"Model calibration", "/calibration"},
-    {"Usage", "/usage"},
-    {"Configuration", "/configuration"},
-    {"Test journeys", "/manual-tests"}
-  ]
+  @native_slack_path Path.expand("../../../priv/static/native-slack.css", __DIR__)
+  @external_resource @native_slack_path
+  @native_slack_css File.read!(@native_slack_path)
 
   @spec page(String.t(), iodata()) :: binary()
+  alias Phoenix.HTML.Safe
+  alias Responder.ControlPlane.CaseFile
+  alias Responder.ControlPlane.Layouts
+  alias Responder.ControlPlane.SlackMarkdown
+
   def page(title, body) do
-    IO.iodata_to_binary([
-      "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">",
-      "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">",
-      "<title>",
-      escape(title),
-      " · Responder</title><link rel=\"stylesheet\" href=\"/static/app.css\"></head><body>",
-      "<header><a class=\"brand\" href=\"/\">Responder control plane</a>",
-      "<nav>",
-      Enum.map(@nav, fn {label, href} ->
-        ["<a href=\"", href, "\">", escape(label), "</a>"]
-      end),
-      "</nav></header><main><h1>",
-      escape(title),
-      "</h1>",
-      body,
-      "</main><footer>Local, durable, and offline. No external assets.</footer></body></html>"
-    ])
+    %{title: title, body: IO.iodata_to_binary(body)}
+    |> Layouts.static()
+    |> Safe.to_iodata()
+    |> IO.iodata_to_binary()
   end
 
   def overview(%{counts: counts, needs_attention: attention} = snapshot) do
@@ -125,7 +99,7 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  def card_lab(snapshot, feedback, transition_tokens, feedback_token) do
+  def card_lab(snapshot, feedback, transition_tokens, feedback_token, slack_panel \\ []) do
     selected_path = card_lab_path(snapshot.card.id, snapshot.state.id)
     specimen_count = Enum.sum(Enum.map(snapshot.catalog, & &1.state_count))
 
@@ -177,8 +151,8 @@ defmodule Responder.ControlPlane.HTML do
 
     [
       "<section class=\"card-lab-hero\"><div><p class=\"eyebrow\">Local specimen workbench</p>",
-      "<h2>Every production Slack surface, without posting to Slack</h2>",
-      "<p>Inspect exact production-renderer output, walk only declared state transitions, review confirmation dialogs and raw Block Kit, then leave feedback on the precise state. Lab actions never invoke Slack or mutate real work.</p></div>",
+      "<h2>Every production Slack surface, ready to review</h2>",
+      "<p>Inspect production-renderer output, walk declared state transitions, and leave feedback on the precise state. Use Post to Slack for native rendering in a confirmed test destination.</p></div>",
       "<div class=\"card-lab-totals\"><strong>",
       integer(specimen_count),
       "</strong><span>specimens</span><strong>",
@@ -206,9 +180,12 @@ defmodule Responder.ControlPlane.HTML do
       escape(snapshot.state.id),
       "</code></div>",
       card_lab_preview(snapshot.rendered, snapshot.card.surface),
+      "<p class=\"muted\">Browser approximation · Slack is the rendering authority. Use Post to Slack to verify layout and wrapping.</p>",
       "<details class=\"card-lab-json\"><summary>Raw Block Kit JSON</summary><pre><code>",
       escape(Jason.encode!(snapshot.rendered, pretty: true)),
-      "</code></pre></details></div><aside class=\"card-lab-inspector\"><section><p class=\"eyebrow\">State reducer</p><h2>Transition without Slack</h2><p>These controls select the next deterministic fixture. They do not run the production action behind a previewed Slack button.</p><div class=\"card-lab-transitions\">",
+      "</code></pre></details></div><aside class=\"card-lab-inspector\">",
+      slack_panel,
+      "<section><p class=\"eyebrow\">State reducer</p><h2>Transition without Slack</h2><p>These controls select the next deterministic fixture. They do not run the production action behind a previewed Slack button.</p><div class=\"card-lab-transitions\">",
       transitions,
       "</div></section><section id=\"feedback\"><p class=\"eyebrow\">Review notes</p><h2>Feedback on this state</h2><form class=\"card-lab-feedback-form\" method=\"post\" action=\"",
       selected_path,
@@ -270,7 +247,8 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  defp card_lab_preview(%{"type" => "thread_status", "status" => status}, _surface) do
+  @doc false
+  def card_lab_preview(%{"type" => "thread_status", "status" => status}, _surface) do
     [
       "<div class=\"slack-canvas thread-status-canvas\"><div class=\"slack-thread-head\"><span class=\"slack-avatar\">R</span><div><strong>Responder</strong><small>APP · thread</small></div></div><div class=\"slack-thread-status",
       if(status == "", do: " clear", else: ""),
@@ -280,11 +258,39 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  defp card_lab_preview(rendered, surface) do
+  def card_lab_preview(rendered, surface) when surface in [:app_home, :modal] do
     [
       "<div class=\"slack-canvas surface-",
       escape(surface),
-      "\"><div class=\"slack-chrome\"><div class=\"slack-dots\"><i></i><i></i><i></i></div><span># responder-card-lab</span><small>Local preview</small></div><article class=\"slack-message-preview\"><span class=\"slack-avatar\">R</span><div class=\"slack-message-content\"><header><strong>Responder</strong><span>APP</span><time>12:04</time></header>",
+      "\"><div class=\"slack-chrome\"><strong>",
+      if(surface == :modal,
+        do: escape(get_in(rendered, ["title", "text"]) || "Modal"),
+        else: "Responder · Home"
+      ),
+      "</strong><small>",
+      if(surface == :modal, do: "Modal preview", else: "App Home preview"),
+      "</small></div><div class=\"slack-native-view\">",
+      Enum.map(Map.get(rendered, "blocks", []), &slack_block/1),
+      "</div>",
+      if(surface == :modal,
+        do: [
+          "<div class=\"slack-modal-footer\">",
+          escape(get_in(rendered, ["close", "text"]) || "Close"),
+          " · ",
+          escape(get_in(rendered, ["submit", "text"]) || "Submit"),
+          "</div>"
+        ],
+        else: []
+      ),
+      "</div>"
+    ]
+  end
+
+  def card_lab_preview(rendered, surface) do
+    [
+      "<div class=\"slack-canvas surface-",
+      escape(surface),
+      "\"><div class=\"slack-chrome\"><strong># responder-card-lab</strong><small>Message preview</small></div><article class=\"slack-message-preview\"><span class=\"slack-avatar\">R</span><div class=\"slack-message-content\"><header><strong>Responder</strong><span>APP</span><time>12:04</time></header>",
       Enum.map(Map.get(rendered, "blocks", []), &slack_block/1),
       "</div></article>",
       if(rendered["text"],
@@ -300,7 +306,11 @@ defmodule Responder.ControlPlane.HTML do
   end
 
   defp slack_block(%{"type" => "markdown", "text" => text}),
-    do: ["<div class=\"slack-block slack-markdown\">", escape(text), "</div>"]
+    do: [
+      "<div class=\"slack-block slack-markdown\">",
+      SlackMarkdown.render(text),
+      "</div>"
+    ]
 
   defp slack_block(%{"type" => "section"} = block) do
     [
@@ -349,6 +359,13 @@ defmodule Responder.ControlPlane.HTML do
   defp slack_fields(fields),
     do: ["<div class=\"slack-fields\">", Enum.map(fields, &slack_text/1), "</div>"]
 
+  defp slack_text(%{"type" => "mrkdwn", "text" => text}),
+    do: [
+      "<div class=\"slack-text\">",
+      SlackMarkdown.render(text),
+      "</div>"
+    ]
+
   defp slack_text(%{"text" => text}), do: ["<span class=\"slack-text\">", escape(text), "</span>"]
 
   defp slack_text(text) when is_binary(text),
@@ -387,7 +404,7 @@ defmodule Responder.ControlPlane.HTML do
   defp slack_element(%{"type" => "overflow", "options" => options}) do
     [
       "<span class=\"slack-overflow\">More · ",
-      Enum.map_join(options, " · ", &get_in(&1, ["text", "text"])),
+      escape(Enum.map_join(options, " · ", &get_in(&1, ["text", "text"]))),
       "</span>"
     ]
   end
@@ -448,12 +465,13 @@ defmodule Responder.ControlPlane.HTML do
       "\" aria-live=\"polite\"><div class=\"messages\">",
       messages,
       "</div><aside class=\"custody-strip\"><strong>Durable custody</strong>",
-      if(episodes == [],
+      lab_admission_progress(Map.get(snapshot, :admission_progress, [])),
+      if(episodes == [] and Map.get(snapshot, :admission_progress, []) == [],
         do: "<p>Awaiting admission.</p>",
         else: ["<ul>", episodes, "</ul>"]
       ),
       "</aside></div>",
-      "<form class=\"composer\" method=\"post\" enctype=\"multipart/form-data\" action=\"/lab/",
+      "<form id=\"lab-composer\" phx-update=\"ignore\" class=\"composer\" method=\"post\" enctype=\"multipart/form-data\" action=\"/lab/",
       segment(snapshot.conversation_id),
       "/messages\"><input type=\"hidden\" name=\"_token\" value=\"",
       escape(csrf_token),
@@ -461,7 +479,7 @@ defmodule Responder.ControlPlane.HTML do
       "<textarea id=\"lab-message\" name=\"message\" maxlength=\"20000\" data-max-bytes=\"20000\" rows=\"5\" placeholder=\"Ask Responder to investigate, explain, remember, schedule, or continue work…\"></textarea>",
       "<label class=\"attachment-label\" for=\"lab-attachments\">Attachments</label>",
       "<input class=\"attachment-input\" id=\"lab-attachments\" name=\"attachments[]\" type=\"file\" multiple accept=\"image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,text/csv,application/json,application/yaml,application/x-yaml,application/pdf\">",
-      "<div class=\"composer-actions\"><span>Message or up to 2 files · 8 MiB total · durable on submit</span><button type=\"submit\">Send through Responder</button></div></form></section>",
+      "<p class=\"composer-status\" role=\"status\" hidden></p><div class=\"composer-actions\"><span>Message or up to 2 files · 8 MiB total · durable on submit</span><button type=\"submit\">Send through Responder</button></div></form></section>",
       "<script src=\"/static/lab.js\" defer></script>"
     ]
   end
@@ -621,6 +639,10 @@ defmodule Responder.ControlPlane.HTML do
 
       if (!window.location.hash) window.requestAnimationFrame(followLatest);
 
+      // LiveView owns this DOM when mounted in the live shell. Keep only the
+      // legacy form validation above; never run a competing HTML polling loop.
+      if (document.getElementById('operator-page')) return;
+
       const initial = document.querySelector('[data-lab-stream]');
       if (!initial || initial.dataset.live !== 'true') return;
 
@@ -689,22 +711,28 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  def episode(%{episode: episode, trace: trace}) do
+  def episode(%{episode: episode, trace: trace} = snapshot) do
     [
-      "<section class=\"episode-hero\"><div><p class=\"eyebrow\">Episode flight recorder</p>",
-      "<h2>One input. Every consequential handoff.</h2><p class=\"episode-ref\"><code>",
-      escape(episode.ref),
-      "</code></p></div><div class=\"episode-state ",
-      tone_class(state_tone(episode.state)),
-      "\"><span>Current state</span><strong>",
-      escape(episode.state),
-      "</strong><small>",
-      escape(episode.next_action),
-      "</small></div></section>",
+      CaseFile.render(%{
+        episode: episode,
+        case_file:
+          Map.get(trace, :case_file, %{
+            title: "Episode case file",
+            messages: [],
+            repository: nil,
+            reply: nil,
+            reply_status: nil
+          })
+      })
+      |> Safe.to_iodata(),
       episode_operator_strip(trace),
+      "<p class=\"episode-inspect-link\"><a class=\"button\" href=\"/episodes/",
+      segment(episode.ref),
+      "/requests\">Inspect model requests →</a><span>Instructions, messages, tools, candidates, and delivery</span></p>",
       "<section class=\"episode-metrics\" aria-label=\"Episode measurements\">",
       Enum.map(trace.metrics, &episode_metric/1),
       "</section>",
+      accounting_summary(Map.get(snapshot, :accounting)),
       episode_stopped(trace.stopped),
       "<section class=\"episode-context\">",
       definition_list([
@@ -714,7 +742,7 @@ defmodule Responder.ControlPlane.HTML do
       ]),
       "</section><section class=\"trace-shell\"><header class=\"trace-heading\"><div>",
       "<p class=\"eyebrow\">Execution trace</p><h2>What happened, in order</h2>",
-      "<p>Durable host decisions, bounded worker activity, and visible side effects. Raw prompts, secrets, and provider diagnostics stay out.</p>",
+      "<p>Durable host decisions, worker activity, and visible side effects. Open the request inspector for retained instructions, context, and results.</p>",
       episode_history_notice(Map.get(trace, :history)),
       "</div><div class=\"trace-stats\">",
       Enum.map(trace.stats, &trace_stat/1),
@@ -948,14 +976,6 @@ defmodule Responder.ControlPlane.HTML do
   defp tone_class(:warn), do: "tone-warn"
   defp tone_class(:bad), do: "tone-bad"
   defp tone_class(_tone), do: "tone-neutral"
-
-  defp state_tone(state) when state in [:complete, :settled], do: :good
-
-  defp state_tone(state) when state in [:waiting_for_input, :waiting_for_event, :cancelled],
-    do: :warn
-
-  defp state_tone(:blocked), do: :bad
-  defp state_tone(_state), do: nil
 
   def incidents(items) do
     rows =
@@ -1790,7 +1810,12 @@ defmodule Responder.ControlPlane.HTML do
           if row.target do
             [
               "<a href=\"/episodes?",
-              escape(URI.encode_query(%{"target" => row.target})),
+              escape(
+                URI.encode_query(%{
+                  "target" => row.target,
+                  "mode" => Map.get(snapshot, :mode, "live")
+                })
+              ),
               "\">",
               escape(target),
               "</a>"
@@ -1826,7 +1851,12 @@ defmodule Responder.ControlPlane.HTML do
 
         [
           "<tr><td><a href=\"/episodes?",
-          escape(URI.encode_query(%{"q" => row.conversation_ref})),
+          escape(
+            URI.encode_query(%{
+              "q" => row.conversation_ref,
+              "mode" => Map.get(snapshot, :mode, "live")
+            })
+          ),
           "\">",
           escape(label),
           "</a></td><td>",
@@ -1849,7 +1879,12 @@ defmodule Responder.ControlPlane.HTML do
           if row.repository_ref do
             [
               "<a href=\"/episodes?",
-              escape(URI.encode_query(%{"repository" => row.repository_ref})),
+              escape(
+                URI.encode_query(%{
+                  "repository" => row.repository_ref,
+                  "mode" => Map.get(snapshot, :mode, "live")
+                })
+              ),
               "\">",
               escape(label),
               "</a>"
@@ -1887,12 +1922,18 @@ defmodule Responder.ControlPlane.HTML do
         ]
       end),
       "</nav><section class=\"metrics\">",
-      metric("Attempts", totals.attempts),
+      metric("Execution requests", totals.attempts),
       metric("Provider measured", coverage(totals.usage_measured, totals.attempts)),
       metric("Reported USD", money(totals.cost_usd, totals.costed)),
-      metric("Total tokens", total_tokens(totals)),
+      metric("Input tokens reported", integer(totals.input_tokens)),
       "</section><section><h2>Coverage and timing</h2>",
       definition_list([
+        {"Admission executions", Map.get(totals, :admission, "not recorded")},
+        {"Work executions", Map.get(totals, :work, "not recorded")},
+        {"Unsuccessful remote executions", Map.get(totals, :unsuccessful, "not recorded")},
+        {"Cached input counter", integer(totals.cached_input_tokens)},
+        {"Output counter", integer(totals.output_tokens)},
+        {"Reasoning counter", integer(totals.reasoning_tokens)},
         {"Cache hit rate", percent(totals.cache_hit_rate)},
         {"Timed turns", coverage(totals.timed, totals.attempts)},
         {"Average queued", duration(totals.average_queued_ms)},
@@ -1900,7 +1941,8 @@ defmodule Responder.ControlPlane.HTML do
         {"Average host observation", duration(totals.average_host_ms)},
         {"Measurement errors", totals.measurement_errors}
       ]),
-      "<p class=\"muted\">Reported money is shown only when the provider supplied it; unpriced attempts are not displayed as zero spend.</p>",
+      "<p class=\"muted\">Reported money is shown only when the provider supplied it; unpriced attempts are not displayed as zero spend. Execution requests include admission and unsuccessful Work, not lease claims or polling. Coop turn totals can include repairs; individual provider calls and child-task attribution are not yet available. Token-counter sums below are not normalized billable tokens: cached and reasoning dimensions may overlap provider totals. Historical executions without retained measurements remain unknown. Token-priced estimates are not yet available.</p>",
+      usage_scope(snapshot),
       "</section><section><h2>Daily token trend</h2>",
       trend_svg(snapshot.days),
       "</section><section><h2>Execution targets</h2>",
@@ -1921,11 +1963,128 @@ defmodule Responder.ControlPlane.HTML do
       table(["Destination", "Attempts", "Measured", "Tokens", "Reported USD"], channel_rows),
       "</section><section><h2>Repositories</h2>",
       table(["Repository", "Attempts", "Measured", "Tokens", "Reported USD"], repository_rows),
-      "</section>"
+      "</section>",
+      usage_execution_list(snapshot)
     ]
   end
 
-  def css do
+  defp accounting_summary(nil), do: ""
+
+  defp accounting_summary(totals) do
+    [
+      "<section class=\"case-accounting\" aria-label=\"Execution cost\"><div><span>Reported cost</span><strong>",
+      money(totals.cost_usd, totals.costed),
+      "</strong></div><p>",
+      escape(coverage(totals.costed, totals.attempts)),
+      " execution requests priced · ",
+      escape(coverage(totals.usage_measured, totals.attempts)),
+      " with token telemetry<br><small>Includes admission and unsuccessful executions linked to this episode. Child-task cost and historical missing telemetry are not included.</small></p></section>"
+    ]
+  end
+
+  defp usage_scope(snapshot) do
+    mode = Map.get(snapshot, :mode, "live")
+
+    [
+      "<nav class=\"windows\" aria-label=\"Execution scope\">",
+      Enum.map(~w(live shadow all), fn scope ->
+        [
+          "<a href=\"/usage?",
+          escape(URI.encode_query(%{window: snapshot.window, mode: scope})),
+          "\"",
+          if(mode == scope, do: " aria-current=\"page\"", else: ""),
+          ">",
+          escape(scope),
+          "</a>"
+        ]
+      end),
+      "</nav>"
+    ]
+  end
+
+  defp usage_execution_list(%{executions: executions} = snapshot) do
+    [
+      "<section><h2>Execution ledger</h2><p class=\"muted\">One cumulative snapshot per durable execution generation. Observing the same result twice does not add its cost twice.</p>",
+      table(
+        ["Execution", "Target", "Observed state", "Input / output counters", "Reported USD"],
+        Enum.map(executions.items, &usage_execution_row/1)
+      ),
+      "<nav aria-label=\"Execution pages\">",
+      Enum.map(
+        [
+          {executions.page > 1, "Previous", executions.page - 1},
+          {executions.more, "Next", executions.page + 1}
+        ],
+        fn {enabled, label, page} ->
+          if enabled,
+            do: [
+              "<a href=\"/usage?",
+              escape(
+                URI.encode_query(%{
+                  window: snapshot.window,
+                  mode: Map.get(snapshot, :mode, "live"),
+                  page: page
+                })
+              ),
+              "\">",
+              label,
+              "</a>"
+            ],
+            else: ""
+        end
+      ),
+      "</nav></section>"
+    ]
+  end
+
+  defp usage_execution_list(_snapshot), do: ""
+
+  defp usage_execution_row(row) do
+    label = if row.kind == "admission", do: "Admission", else: "Work"
+
+    [
+      "<tr><td>",
+      if(row.kind == "admission",
+        do: [
+          "<a href=\"/admission/",
+          escape(row.source_id),
+          "?generation=",
+          escape(row.generation),
+          "\">",
+          label,
+          " →</a>"
+        ],
+        else: label
+      ),
+      "<br><small>",
+      timestamp(row.recorded_at),
+      " · execution ",
+      escape(row.generation),
+      "</small></td><td>",
+      escape(row.execution_target || "Target not recorded"),
+      "</td><td>",
+      escape(row.status),
+      "</td><td>",
+      if(row.usage_recorded,
+        do: [
+          integer(row.usage_input_tokens || 0),
+          " / ",
+          integer(row.usage_output_tokens || 0)
+        ],
+        else: "Unknown"
+      ),
+      "</td><td>",
+      money(
+        row.usage_cost_usd || Decimal.new(0),
+        if(row.usage_cost_recorded, do: 1, else: 0)
+      ),
+      "</td></tr>"
+    ]
+  end
+
+  def css, do: base_css() <> @native_slack_css
+
+  defp base_css do
     """
     :root{color-scheme:dark;--bg:#080a0d;--panel:#13171c;--panel-raised:#191f26;--text:#f3f4ef;--muted:#95a0ac;--line:#29323c;--accent:#c6ff47;--cyan:#79e8ff;--danger:#ff776d;--warning:#ffc857}
     *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 85% -10%,#142530 0,transparent 34rem),var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;line-height:1.5}
@@ -1960,6 +2119,23 @@ defmodule Responder.ControlPlane.HTML do
         ["<li><strong>", escape(row.title), "</strong> — ", escape(row.kind), "</li>"]
       end),
       "</ul>"
+    ]
+  end
+
+  @doc false
+  def lab_message_extras(message) do
+    [
+      "<div class=\"message-attachments\">",
+      Enum.map(Map.get(message, :attachments, []), &lab_attachment/1),
+      "</div>",
+      "<div class=\"message-reactions\">",
+      Enum.map(Map.get(message, :reactions, []), &lab_reaction/1),
+      "</div>",
+      "<div class=\"message-cards\">",
+      Enum.map(Map.get(message, :cards, []), &lab_card/1),
+      "</div>",
+      lab_feedback_reaction_controls(message),
+      lab_message_controls(message)
     ]
   end
 
@@ -2013,6 +2189,28 @@ defmodule Responder.ControlPlane.HTML do
   defp lab_message_status(%{event_kind: :edit, status: status}), do: "#{status} · edited"
   defp lab_message_status(%{event_kind: :delete, status: status}), do: "#{status} · deleted"
   defp lab_message_status(%{status: status}), do: to_string(status)
+
+  defp lab_admission_progress(items) do
+    Enum.map(items, fn item ->
+      [
+        "<article class=\"lab-admission-progress\"><header><strong>",
+        escape(item.phase),
+        "</strong><span>",
+        duration(item.elapsed_ms),
+        " since receipt</span></header><p>",
+        escape(item.title),
+        "</p><small>",
+        escape(item.target || "Execution target not yet observed"),
+        " · execution ",
+        escape(item.generation),
+        " · ",
+        escape(item.claims),
+        " lease claims (not model calls)</small><p><a href=\"",
+        escape(item.href),
+        "\">Inspect request and observed progress →</a></p></article>"
+      ]
+    end)
+  end
 
   defp lab_message_controls(%{
          message_controls: %{
@@ -2600,13 +2798,6 @@ defmodule Responder.ControlPlane.HTML do
   defp timestamp(value), do: escape(value)
 
   defp segment(value), do: value |> to_string() |> URI.encode(&URI.char_unreserved?/1)
-
-  defp total_tokens(totals) do
-    integer(
-      totals.input_tokens + totals.cached_input_tokens + totals.output_tokens +
-        totals.reasoning_tokens
-    )
-  end
 
   defp coverage(_measured, 0), do: "0 of 0"
   defp coverage(measured, attempts), do: "#{measured} of #{attempts}"

@@ -204,12 +204,19 @@ acceptance proves platform grants and APIs. None substitutes for another.
 
 Responder has two distinct model decisions. The short-lived admission session decides lifecycle
 (`reply`, start, continue, react, or ignore), candidate relation, and an abstract Work class. It is a
-classifier, so the recommended admission policy is Terra/medium. The durable Work session then uses
+classifier; the current setup uses Terra/medium. The durable Work session then uses
 the class selected from the host-owned profile:
 
 - conversational: Terra/medium;
 - standard: Sol/medium;
 - deep: Sol/xhigh.
+
+The [redesign plan](control-plane-redesign.md#2-fast-admission-with-preserved-authority-and-recovery)
+replaces admission's general-purpose agent path with a qualified fast classifier,
+durable progress, and safe escalation. This is planned, not a deployed model
+switch; Work routing above remains unchanged. The plan also replaces manual
+policy/digest configuration with resolved immutable execution profiles. Until
+that loader and migration ship, the v1 procedure below is still required.
 
 The full policy and model-independent authority digests are generated from the exact Coop policy
 file with:

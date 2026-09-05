@@ -88,11 +88,33 @@ defmodule Responder.Slack.Client do
     end
   end
 
+  @doc "Reconciles a specimen only within its durable creation window, allowing five minutes of clock skew."
+  def find_card_specimen(client, channel, delivery_ref, %DateTime{} = created_at) do
+    with :ok <- text(channel), :ok <- text(delivery_ref) do
+      oldest = "#{max(DateTime.to_unix(created_at) - 300, 0)}.000000"
+      find_message_page(client, channel, nil, delivery_ref, nil, 1, oldest)
+    end
+  end
+
   @impl true
   def post_message(client, channel, thread, body, delivery_ref) do
+    with {:ok, rendered} <- render(body) do
+      post_rendered_message(client, channel, thread, rendered, delivery_ref)
+    end
+  end
+
+  @doc "Posts frozen, isolated Card Lab Block Kit; never accepts model-authored controls."
+  @spec post_card_specimen(t(), String.t(), String.t() | nil, map(), String.t()) ::
+          {:ok, String.t()} | {:error, term()}
+  def post_card_specimen(client, channel, thread, rendered, delivery_ref) do
+    with :ok <- specimen_payload(rendered) do
+      post_rendered_message(client, channel, thread, rendered, delivery_ref)
+    end
+  end
+
+  defp post_rendered_message(client, channel, thread, rendered, delivery_ref) do
     with :ok <- text(channel),
          :ok <- optional_text(thread),
-         {:ok, rendered} <- render(body),
          :ok <- text(delivery_ref),
          document <- message_document(channel, thread, rendered, delivery_ref),
          {:ok, response} <- request(client, :post, "/chat.postMessage", document),
@@ -109,9 +131,23 @@ defmodule Responder.Slack.Client do
 
   @impl true
   def update_message(client, channel, message_ref, body, delivery_ref) do
+    with {:ok, rendered} <- render(body) do
+      update_rendered_message(client, channel, message_ref, rendered, delivery_ref)
+    end
+  end
+
+  @doc "Updates one existing Card Lab specimen without changing its delivery identity."
+  @spec update_card_specimen(t(), String.t(), String.t(), map(), String.t()) ::
+          :ok | {:error, term()}
+  def update_card_specimen(client, channel, message_ref, rendered, delivery_ref) do
+    with :ok <- specimen_payload(rendered) do
+      update_rendered_message(client, channel, message_ref, rendered, delivery_ref)
+    end
+  end
+
+  defp update_rendered_message(client, channel, message_ref, rendered, delivery_ref) do
     with :ok <- text(channel),
          :ok <- text(message_ref),
-         {:ok, rendered} <- render(body),
          :ok <- text(delivery_ref),
          document <-
            channel
@@ -543,8 +579,16 @@ defmodule Responder.Slack.Client do
       else: {:error, {:invalid_slack_api_request, :action_token}}
   end
 
-  defp find_message_page(client, channel, thread, delivery_ref, cursor \\ nil, page \\ 1) do
-    path = history_path(channel, thread, cursor)
+  defp find_message_page(
+         client,
+         channel,
+         thread,
+         delivery_ref,
+         cursor \\ nil,
+         page \\ 1,
+         oldest \\ nil
+       ) do
+    path = history_path(channel, thread, cursor, oldest)
 
     with {:ok, response} <- request(client, :get, path, nil),
          {:ok, body} <- slack_response(response),
@@ -557,7 +601,7 @@ defmodule Responder.Slack.Client do
           :not_found
 
         :not_found when page < @maximum_pages ->
-          find_message_page(client, channel, thread, delivery_ref, next_cursor, page + 1)
+          find_message_page(client, channel, thread, delivery_ref, next_cursor, page + 1, oldest)
 
         :not_found ->
           {:error, {:slack_reconciliation_incomplete, @maximum_pages * @page_size}}
@@ -1145,15 +1189,18 @@ defmodule Responder.Slack.Client do
     end
   end
 
-  defp history_path(channel, nil, cursor) do
+  defp history_path(channel, thread, cursor, oldest \\ nil)
+
+  defp history_path(channel, nil, cursor, oldest) do
     query(
-      [{"channel", channel}, {"limit", @page_size}, {"include_all_metadata", true}],
+      [{"channel", channel}, {"limit", @page_size}, {"include_all_metadata", true}] ++
+        if(oldest, do: [{"oldest", oldest}, {"inclusive", true}], else: []),
       cursor
     )
     |> then(&("/conversations.history?" <> &1))
   end
 
-  defp history_path(channel, thread, cursor) do
+  defp history_path(channel, thread, cursor, _oldest) do
     query(
       [
         {"channel", channel},
@@ -1297,6 +1344,32 @@ defmodule Responder.Slack.Client do
 
   defp render(%{} = document), do: Renderer.render(document)
   defp render(_body), do: {:error, {:invalid_slack_api_request, :message}}
+
+  defp specimen_payload(%{"text" => "Card Lab · " <> _, "blocks" => blocks} = payload)
+       when map_size(payload) == 2 and is_list(blocks) and length(blocks) in 1..50 do
+    if byte_size(Jason.encode!(payload)) <= 256 * 1_024 and specimen_controls?(payload),
+      do: :ok,
+      else: {:error, {:invalid_slack_api_request, :card_lab_specimen}}
+  end
+
+  defp specimen_payload(_payload),
+    do: {:error, {:invalid_slack_api_request, :card_lab_specimen}}
+
+  defp specimen_controls?(%{} = value) do
+    Enum.all?(value, fn
+      {"action_id", "card_lab_preview_" <> _id} -> true
+      {"action_id", _id} -> false
+      {key, _item} when key in ["callback_id", "private_metadata"] -> false
+      {_key, item} -> specimen_controls?(item)
+    end)
+  end
+
+  defp specimen_controls?(value) when is_list(value), do: Enum.all?(value, &specimen_controls?/1)
+
+  defp specimen_controls?(value) when is_binary(value),
+    do: not String.contains?(value, ["<!", "<@"])
+
+  defp specimen_controls?(_value), do: true
 
   defp message_document(channel, nil, rendered, delivery_ref),
     do: message_document(channel, rendered, delivery_ref)

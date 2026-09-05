@@ -6,6 +6,27 @@ defmodule Responder.ControlPlane.CardLabTest do
   alias Responder.Slack.{Renderer, ThreadStatusProjection}
   alias Responder.State.RecordPayload
 
+  test "real Slack specimens retain production blocks with isolated test controls" do
+    Enum.each(CardLab.catalog(), fn card ->
+      Enum.each(card.states, fn state ->
+        if card.surface == :message do
+          assert {:ok, message} = CardLab.slack_message(card.id, state.id)
+          assert message["text"] =~ "Card Lab"
+          assert length(message["blocks"]) <= 50
+          assert hd(message["blocks"])["type"] == "context"
+          assert length(message["blocks"]) == length(state.rendered["blocks"]) + 1
+          json = Jason.encode!(message)
+          refute json =~ ~s("action_id":"responder_)
+          refute json =~ "<!channel>"
+          refute json =~ "<!here>"
+        else
+          assert CardLab.slack_message(card.id, state.id) ==
+                   {:error, :card_lab_requires_native_surface}
+        end
+      end)
+    end)
+  end
+
   test "the catalog renders every declared Slack specimen through its production boundary" do
     catalog = CardLab.catalog()
 

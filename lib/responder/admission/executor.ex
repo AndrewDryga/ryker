@@ -9,7 +9,7 @@ defmodule Responder.Admission.Executor do
   """
 
   alias Responder.Admission
-  alias Responder.Admission.{Context, Decision, Prompt}
+  alias Responder.Admission.{Attempts, Context, Decision, Prompt}
   alias Responder.CanonicalJSON
   alias Responder.Ingress.{Inbox, Input, WorkProfile}
 
@@ -25,9 +25,21 @@ defmodule Responder.Admission.Executor do
          :ok <- renew_lease(settings),
          {:ok, entry} <- Inbox.fetch(input_ref),
          {:ok, entry, context} <- execution_context(input_ref, entry, settings),
+         {:ok, attempt} <- Attempts.prepare(entry, settings),
+         settings <-
+           Map.merge(settings, %{policy: attempt.policy, policy_digest: attempt.policy_digest}),
+         :ok <- Attempts.observe(entry, "execution_requested", %{}, settings),
          :ok <- prepare_execution_session(entry, settings),
          {:ok, session} <- ensure_session(entry, settings),
-         :ok <- bind_execution_session(entry, session, settings) do
+         :ok <- bind_execution_session(entry, session, settings),
+         settings <- Map.put(settings, :execution_target, session["target"]),
+         :ok <-
+           Attempts.observe(
+             entry,
+             "execution_requested",
+             %{session_ref: session["id"], execution_target: session["target"]},
+             settings
+           ) do
       run_context(entry, session, context, settings)
     else
       :error -> {:error, {:admission_execution_failed, :input_not_found}}
@@ -209,6 +221,8 @@ defmodule Responder.Admission.Executor do
       )
 
     with :ok <- renew_lease(settings),
+         {:ok, artifact} <-
+           Attempts.freeze(entry, %{"prompt" => prompt, "output_schema" => schema}, settings),
          {:ok, current_session} <- settings.api.get_session(settings.client, session["id"]),
          {:ok, current_session} <-
            validate_session(entry, current_session, settings, session["id"]),
@@ -219,8 +233,8 @@ defmodule Responder.Admission.Executor do
              session["id"],
              key,
              revision,
-             prompt,
-             schema
+             artifact.submission["prompt"],
+             artifact.submission["output_schema"]
            ) do
       case response do
         %{"turn" => turn} when is_map(turn) ->
@@ -343,7 +357,13 @@ defmodule Responder.Admission.Executor do
     await_decision(turn, context, entry, settings, settings.max_polls)
   end
 
-  defp await_decision(
+  defp await_decision(turn, context, entry, settings, left) do
+    with :ok <- Attempts.observe_turn(entry, turn, settings) do
+      observed_decision(turn, context, entry, settings, left)
+    end
+  end
+
+  defp observed_decision(
          %{"state" => "awaiting_validation", "candidate" => candidate} = turn,
          context,
          entry,
@@ -354,7 +374,7 @@ defmodule Responder.Admission.Executor do
     candidate_decision(turn, candidate, context, entry, settings, left)
   end
 
-  defp await_decision(
+  defp observed_decision(
          %{
            "state" => "completed",
            "assistant_message" => message,
@@ -380,7 +400,7 @@ defmodule Responder.Admission.Executor do
     end
   end
 
-  defp await_decision(
+  defp observed_decision(
          %{"state" => "completed"},
          _context,
          _entry,
@@ -389,30 +409,30 @@ defmodule Responder.Admission.Executor do
        ),
        do: generation_spent({:coop_protocol_error, :validation_receipt})
 
-  defp await_decision(%{"state" => state} = turn, _context, _entry, _settings, _left)
+  defp observed_decision(%{"state" => state} = turn, _context, _entry, _settings, _left)
        when state in @retryable_terminal_turn_states do
     generation_spent({:coop_turn_failed, state, turn["error_code"], turn["error_detail"]})
   end
 
-  defp await_decision(%{"state" => state} = turn, _context, _entry, _settings, _left)
+  defp observed_decision(%{"state" => state} = turn, _context, _entry, _settings, _left)
        when state in @stopped_turn_states do
     {:error,
      {:admission_execution_stopped,
       {:coop_turn_stopped, state, turn["error_code"], turn["error_detail"]}}}
   end
 
-  defp await_decision(%{"state" => state} = turn, context, entry, settings, left)
+  defp observed_decision(%{"state" => state} = turn, context, entry, settings, left)
        when state in @waiting_turn_states and left > 0 do
     with :ok <- renew_lease(settings) do
       poll_decision(turn, context, entry, settings, left)
     end
   end
 
-  defp await_decision(%{"state" => state}, _context, _entry, _settings, 0)
+  defp observed_decision(%{"state" => state}, _context, _entry, _settings, 0)
        when state in @waiting_turn_states,
        do: {:error, {:coop_timeout, :turn}}
 
-  defp await_decision(_turn, _context, _entry, _settings, _left),
+  defp observed_decision(_turn, _context, _entry, _settings, _left),
     do: {:error, {:coop_protocol_error, :turn_state}}
 
   defp poll_decision(turn, context, entry, settings, left) do
@@ -425,7 +445,8 @@ defmodule Responder.Admission.Executor do
   end
 
   defp candidate_decision(turn, candidate, context, entry, settings, left) do
-    with {:ok, message, candidate_sha256, candidate_attempt} <- candidate_fields(candidate) do
+    with {:ok, message, candidate_sha256, candidate_attempt} <- candidate_fields(candidate),
+         :ok <- Attempts.observe(entry, "host_validation", %{}, settings) do
       case parse_and_validate(message, context) do
         {:ok, decision} ->
           accept_candidate(

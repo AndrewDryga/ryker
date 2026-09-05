@@ -7,7 +7,11 @@ defmodule Responder.Application do
     :ok = Responder.RuntimeConfiguration.install_from_env!()
 
     children =
-      [Responder.Repo, {Finch, name: Responder.CoopFinch}] ++
+      [
+        Responder.Repo,
+        {Finch, name: Responder.CoopFinch},
+        {Phoenix.PubSub, name: Responder.ControlPlane.PubSub}
+      ] ++
         admission_children() ++
         work_children() ++
         retention_children() ++
@@ -73,7 +77,16 @@ defmodule Responder.Application do
   end
 
   defp control_plane_children do
-    optional_child(:control_plane, Responder.ControlPlane.Server)
+    case optional_child(:control_plane, Responder.ControlPlane.Server) do
+      [] ->
+        []
+
+      children ->
+        [
+          {Responder.ControlPlane.Updates, []},
+          {Responder.ControlPlane.CardLabWorker, []} | children
+        ]
+    end
   end
 
   defp coop_worker_gateway_children do

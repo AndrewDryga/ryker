@@ -1,7 +1,62 @@
 defmodule Responder.Slack.ClientTest do
   use ExUnit.Case, async: true
 
+  alias Responder.ControlPlane.CardLab
+
+  alias __MODULE__.FakeRequester
   alias Responder.Slack.Client
+
+  test "Card Lab reconciliation excludes channel history predating the durable post request" do
+    {:ok, requester} = FakeRequester.start([slack(%{"messages" => []})])
+    since = ~U[2026-09-05 01:00:00Z]
+
+    assert Client.find_card_specimen(client(requester), "C123", "card-lab:post-1", since) ==
+             :not_found
+
+    [{:get, path, nil, []}] = FakeRequester.requests(requester)
+    params = path |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+    assert params["oldest"] == "#{DateTime.to_unix(since) - 300}.000000"
+    assert params["include_all_metadata"] == "true"
+  end
+
+  test "a native Card Lab post preserves its frozen Block Kit and reconciliation marker" do
+    {:ok, requester} = FakeRequester.start([slack(%{"ts" => "1787832001.000200"})])
+    {:ok, payload} = CardLab.slack_message("incident-room", "provisioning")
+
+    assert Client.post_card_specimen(
+             client(requester),
+             "C123",
+             nil,
+             payload,
+             "card-lab:post-1"
+           ) == {:ok, "1787832001.000200"}
+
+    [{:post, "/chat.postMessage", posted, []}] = FakeRequester.requests(requester)
+    assert posted["blocks"] == payload["blocks"]
+    assert posted["text"] == payload["text"]
+    assert posted["metadata"]["event_payload"]["id"] == "card-lab:post-1"
+    assert posted["unfurl_links"] == false
+    refute Map.has_key?(posted, "thread_ts")
+  end
+
+  test "native Card Lab updates target the existing posted message" do
+    {:ok, requester} =
+      FakeRequester.start([slack(%{"channel" => "C123", "ts" => "1787832001.000200"})])
+
+    {:ok, payload} = CardLab.slack_message("incident-room", "resolved")
+
+    assert Client.update_card_specimen(
+             client(requester),
+             "C123",
+             "1787832001.000200",
+             payload,
+             "card-lab:post-1"
+           ) == :ok
+
+    [{:post, "/chat.update", posted, []}] = FakeRequester.requests(requester)
+    assert posted["blocks"] == payload["blocks"]
+    assert posted["ts"] == "1787832001.000200"
+  end
 
   defmodule FakeRequester do
     def start(responses), do: Agent.start_link(fn -> %{requests: [], responses: responses} end)
