@@ -575,6 +575,11 @@
 .specimen-stage { padding:24px; }
 .specimen-heading > p:last-child, .specimen-state-heading > p { font-size:15px; line-height:1.5; }
 .specimen-state-heading { margin-bottom:16px; }
+.specimen-provenance { padding:12px 16px; margin:0 0 16px; background:#eef2ea; border:1px solid #dce2d9; border-radius:5px; color:#354439; font-size:14px; }
+.specimen-provenance > span { display:block; margin-top:4px; font-variant-numeric:tabular-nums; }
+.specimen-provenance p { margin:8px 0 0; line-height:1.5; color:#525d55; }
+.specimen-provenance details { margin-top:8px; overflow-wrap:anywhere; }
+.specimen-provenance summary { cursor:pointer; }
 .specimen-states { padding:12px 0; margin:12px 0 16px; }
 .specimen-canvas { padding:16px; }
 @media (max-width:900px) {

@@ -138,6 +138,22 @@ defmodule Responder.ControlPlane.LiveTest do
     assert render(secondary) =~ "secondary-page"
   end
 
+  test "native card previews explain which material is retained and which state is simulated" do
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, _} = live(conn, "/card-lab/task-card/working")
+    assert has_element?(view, "[aria-label='Example provenance']", "Retained progress")
+    assert has_element?(view, ".specimen-provenance", "not an archived Slack payload")
+    view |> element("button[phx-value-id=next-recorded]") |> render_click()
+    assert_patch(view, "/card-lab/task-card/working-validation")
+    assert has_element?(view, ".specimen-provenance", "2026-08-14T05:51:23.132457Z")
+
+    {:ok, simulated, _} = live(conn, "/card-lab/task-card/waiting-for-input")
+    assert has_element?(simulated, ".specimen-provenance", "State simulation")
+
+    {:ok, goals, _} = live(conn, "/card-lab/task-card/recorded-goals")
+    assert has_element?(goals, ".specimen-provenance", "not a captured engineering task")
+  end
+
   test "an episode has one continuous execution document and preserves exact request links" do
     {:ok, %{episode: episode}} =
       Responder.Episodes.apply(Responder.Fixtures.Episodes.admit_input())

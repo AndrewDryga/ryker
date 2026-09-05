@@ -126,7 +126,7 @@ defmodule Responder.ControlPlane.RouterTest do
 
     state = request(:get, "/card-lab/task-card/working")
     assert state.status == 200
-    assert state.resp_body =~ "Fix parser retries"
+    assert state.resp_body =~ "Bump the pinned admin runner release to 0.20.0"
     assert state.resp_body =~ "Stop current run"
     assert state.resp_body =~ "Transition without Slack"
 

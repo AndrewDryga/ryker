@@ -10,6 +10,10 @@ defmodule Responder.ControlPlane.CardLab do
   alias Responder.Emisar.RunState
   alias Responder.Slack.{AppHome, AppHomeEditor, Renderer, ThreadStatusProjection}
 
+  @legacy_path Path.expand("../../../priv/card_lab/legacy_task_records.json", __DIR__)
+  @external_resource @legacy_path
+  @legacy Jason.decode!(File.read!(@legacy_path))
+
   @task_statuses ~w(working waiting_for_input waiting_for_event action_required stopping reviewing ready_for_review ready_to_publish published completed cancelled)
   @incident_statuses ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
   @spec catalog() :: [map()]
@@ -223,14 +227,37 @@ defmodule Responder.ControlPlane.CardLab do
       ])
 
     states =
+      Enum.map(states, fn specimen ->
+        if specimen.id == "working" do
+          historical_task_state("working", "Working · recorded", 4)
+        else
+          Map.put(specimen, :provenance, %{
+            basis: "State simulation",
+            source_ref: nil,
+            observed_at: nil,
+            note:
+              "This exercises a supported state. It is not a claim that this transition occurred in the legacy task."
+          })
+        end
+      end)
+      |> insert_after("working", [
+        historical_task_state("working-validation", "Later progress · recorded", 8),
+        historical_task_state("working-finalizing", "Finalizing · recorded", 12)
+      ])
+      |> insert_after("completed", [recorded_goal_state()])
+
+    states =
       put_transitions(states, %{
         "working" => [
+          t("next-recorded", "Next recorded update", "working-validation"),
           t("wait-input", "Need operator input", "waiting-for-input"),
           t("wait-event", "Wait for event", "waiting-for-event"),
           t("need-action", "Raise blocker", "action-required"),
           t("stop", "Stop current run", "stopping"),
           t("review", "Start review", "reviewing")
         ],
+        "working-validation" => [t("next-recorded", "Next recorded update", "working-finalizing")],
+        "working-finalizing" => [t("restart-recorded", "First recorded update", "working")],
         "waiting-for-input" => [t("resume", "Resume work", "working")],
         "waiting-for-event" => [t("event-arrived", "Event arrived", "working")],
         "action-required" => [t("correct", "Apply correction", "working")],
@@ -268,6 +295,72 @@ defmodule Responder.ControlPlane.CardLab do
       :message,
       states
     )
+  end
+
+  defp historical_task_state(id, label, sequence) do
+    source = @legacy["runner_task"]
+    progress = source["progress"] |> Enum.filter(&(&1["sequence"] <= sequence)) |> Enum.take(-4)
+    latest = List.last(progress)
+
+    task =
+      task_document("working")["task_card"]
+      |> Map.merge(%{
+        "title" => source["title"],
+        "repository" => source["repository"],
+        "summary" => latest["summary"],
+        "request" => source["title"],
+        "confirmed_at" => source["created_at"],
+        "confirmed_by" => "Legacy actor not retained",
+        "session_generation" => nil,
+        "work_state" => nil,
+        "updated_at" => latest["at"],
+        "progress" => Enum.map(progress, &Map.take(&1, ~w(phase summary at)))
+      })
+
+    state(
+      id,
+      label,
+      "The real runner-pin task, replayed from retained progress records.",
+      %{"task_card" => task},
+      %{task_status: "working"}
+    )
+    |> Map.put(:provenance, %{
+      basis: "Retained progress",
+      source_ref: source["episode_id"],
+      observed_at: latest["at"],
+      note:
+        "Request and progress are from the legacy database. This is a new-renderer replay, not an archived Slack payload. Controls are test-only; missing actor/session metadata is not reconstructed."
+    })
+  end
+
+  defp recorded_goal_state do
+    source = @legacy["portal_goals"]
+
+    task =
+      task_document("completed")["task_card"]
+      |> Map.merge(%{
+        "title" => "Portal recovery · retained goals",
+        "repository" => "emisar",
+        "summary" =>
+          "The three retained goals are complete. Overall task state is simulated for this layout study.",
+        "goals" =>
+          Enum.map(source["goals"], &Map.take(&1, ~w(id requested_outcome state parent_goal_id)))
+      })
+
+    state(
+      "recorded-goals",
+      "Real goals · layout study",
+      source["note"],
+      %{"task_card" => task},
+      %{task_status: "completed"}
+    )
+    |> Map.put(:provenance, %{
+      basis: "Real goals · layout study",
+      source_ref: source["episode_id"],
+      observed_at: nil,
+      note:
+        "Goal titles and final goal states are real. The surrounding task state and controls are a layout study, not a captured engineering task."
+    })
   end
 
   defp incident_rooms do

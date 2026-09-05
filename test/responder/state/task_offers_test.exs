@@ -221,7 +221,9 @@ defmodule Responder.State.TaskOffersTest do
 
     stored = Repo.get!(TaskCard, card.id)
     assert stored.card_fingerprint =~ ~r/\A[0-9a-f]{64}\z/
-    assert stored.card_ui_revision == 3
+    assert stored.card_ui_revision == 4
+    assert task["progress"] == []
+    assert task["goals"] == []
     refute stored.lease_ref
 
     assert {:ok, :idle} = TaskCardWorker.run_once(options)
