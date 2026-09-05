@@ -373,11 +373,22 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 @media (prefers-reduced-motion:no-preference) { .activity-row, .app-nav a, .ui-button { transition:background-color .12s ease; } }
 
 /* Case files and the model's desk use the same document, not a separate debug app. */
-.specimen-workbench { display:grid; grid-template-columns:minmax(0,1fr) 320px; min-height:calc(100vh - 48px); color:var(--ink); }
+.specimen-workbench { display:grid; grid-template-columns:220px minmax(0,1fr) 300px; min-height:calc(100vh - 48px); color:var(--ink); }
+.specimen-catalog { min-width:0; padding:24px 12px; border-right:1px solid var(--stroke); background:#fafaf7; }
+.specimen-catalog-sticky { position:sticky; top:20px; max-height:calc(100dvh - 40px); overflow:auto; }
+.specimen-catalog-heading { display:flex; align-items:baseline; justify-content:space-between; gap:8px; padding:0 8px 14px; }
+.specimen-catalog-heading h2 { margin:0; font-size:16px; font-weight:600; color:var(--ink); }
+.specimen-catalog-heading > span { font-size:12px; color:var(--secondary); }
+.specimen-catalog nav { display:grid; gap:2px; margin:0; }
+.specimen-catalog nav a { display:flex; align-items:baseline; justify-content:space-between; gap:12px; padding:9px 8px; border-left:2px solid transparent; color:var(--ink); font-size:14px; line-height:1.4; }
+.specimen-catalog nav small { flex-shrink:0; color:var(--secondary); font-size:12px; font-variant-numeric:tabular-nums; }
+.specimen-catalog nav a:hover { background:#eef1e9; }
+.specimen-catalog nav a[aria-current=page] { background:#e5ecdf; border-left-color:var(--green); color:var(--green); font-weight:600; }
+.specimen-family-mobile { display:none; }
 .specimen-stage { padding:24px; min-width:0; }
 .specimen-heading h1 { margin:0 0 8px; font-size:30px; line-height:1.2; font-weight:600; letter-spacing:-.7px; color:var(--ink); }
 .specimen-heading > p:last-child { font-size:15px; color:var(--secondary); line-height:1.5; margin:0; }
-.specimen-selectors { display:grid; grid-template-columns:1fr 1fr; gap:16px; padding:20px 0; margin:0 0 20px; border-bottom:1px solid var(--stroke); }
+.specimen-selectors { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; padding:20px 0; margin:0 0 20px; border-bottom:1px solid var(--stroke); }
 .specimen-selectors form { min-width:0; }
 .specimen-state-control { min-width:0; }
 .state-control-label { display:flex; justify-content:space-between; font-size:14px; font-weight:600; margin-bottom:6px; }
@@ -441,7 +452,8 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .specimen-feedback-note strong { color:#456337; font-size:14px; display:block; }
 .specimen-feedback-note time { color:#66735c; font-size:14px; display:block; margin-top:6px; }
 .specimen-feedback-note p { white-space:pre-wrap; overflow-wrap:anywhere; }
-@media (max-width:1100px) { .specimen-workbench { grid-template-columns:1fr; } .specimen-review { border-left:0; border-top:1px solid var(--stroke); display:grid; grid-template-columns:1fr 1fr; gap:24px; } .specimen-feedback { margin:0; padding:0; border:0; } }
+@media (max-width:1250px) { .specimen-workbench { grid-template-columns:220px minmax(0,1fr); } .specimen-catalog { grid-row:1 / span 2; } .specimen-review { grid-column:2; border-left:0; border-top:1px solid var(--stroke); display:grid; grid-template-columns:1fr 1fr; gap:24px; } .specimen-feedback { margin:0; padding:0; border:0; } }
+@media (max-width:1000px) { .specimen-workbench { grid-template-columns:minmax(0,1fr); } .specimen-catalog { display:none; } .specimen-family-mobile { display:block; } .specimen-selectors { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .specimen-review { grid-column:1; } }
 @media (max-width:700px) { .specimen-stage, .specimen-review { padding:20px 16px; } .specimen-review { display:block; } .specimen-selectors { gap:10px; padding:16px 0; margin-bottom:16px; } .specimen-selectors label span { display:none; } .specimen-selectors select { font-size:14px; padding:10px 6px; } .specimen-feedback { margin-top:24px; border-top:1px solid var(--stroke); padding-top:24px; } .specimen-preview-toolbar { flex-wrap:wrap; padding-bottom:8px; gap:4px; } .specimen-canvas { padding:8px; } }
 .mobile-manage { display:none; position:relative; }
 @media (max-width:800px) {

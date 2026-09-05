@@ -53,9 +53,9 @@ async function discover(page) {
   if (allCards) {
     await page.goto(new URL('/card-lab/task-card/working', origin).href);
     await connected(page);
-    const families = await page.locator('#card-family option').evaluateAll(es => es.map(e => e.value));
+    const families = await page.locator('.specimen-catalog a[data-family]').evaluateAll(es => es.map(e => e.dataset.family));
     for (const family of families) {
-      await page.selectOption('#card-family', family);
+      await page.locator(`.specimen-catalog a[data-family="${family}"]`).click();
       await page.waitForURL(url => url.pathname.split('/')[2] === family);
       const states = await page.locator('#card-state-picker a').evaluateAll(es => es.map(e => e.dataset.state));
       for (const state of states) routes.push([`card-${family}-${state}`, `/card-lab/${family}/${state}`]);
@@ -86,9 +86,9 @@ async function interactions(page) {
   await page.locator('a', {hasText: 'Block Kit payload'}).click();
   await page.locator('.specimen-payload').waitFor();
   await page.screenshot({path: path.join(output, 'interaction-payload.png')});
-  await page.selectOption('#card-family', 'incident-room');
+  await page.locator('.specimen-catalog a[data-family="incident-room"]').click();
   await page.waitForURL(url => url.pathname === '/card-lab/incident-room/provisioning');
-  await page.locator('.specimen-selectors select').first().focus();
+  await page.locator('.specimen-catalog a[aria-current="page"]').focus();
   await page.screenshot({path: path.join(output, 'interaction-keyboard-focus.png')});
 }
 
@@ -133,7 +133,17 @@ async function interactions(page) {
             assert(!/(?:…|\.\.\.)$/.test(label.trim()), 'Action labels must not end in ellipses');
           }
           assert(result.layout.scrollWidth <= width, 'Page overflows horizontally');
-          if (name === 'task-working') assert(result.layout.previewTop < height - 120, 'Card preview is buried below the first screen');
+          if (name === 'task-working') {
+            assert(result.layout.previewTop < height - 120, 'Card preview is buried below the first screen');
+            if (width > 1000) {
+              assert(await page.locator('.specimen-catalog').isVisible(), 'Card families belong in the desktop side rail');
+              assert(!await page.locator('#card-family').isVisible(), 'The family dropdown is only for narrow screens');
+              const edges = await page.locator('.specimen-catalog nav small').evaluateAll(es => es.map(e => e.getBoundingClientRect().right));
+              assert(edges.every(x => Math.abs(x - edges[0]) < 1), 'State counts must align in one column');
+            } else {
+              assert(await page.locator('#card-family').isVisible(), 'Keep a compact family picker on narrow screens');
+            }
+          }
           if (name === 'lab-chat' && width === 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');
           if (name === 'repositories') {
             const panels = await page.locator('.repository-card > header').evaluateAll(es => es.map(e => getComputedStyle(e).backgroundColor));

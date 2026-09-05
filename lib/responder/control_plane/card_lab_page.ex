@@ -9,6 +9,23 @@ defmodule Responder.ControlPlane.CardLabPage do
 
     ~H"""
     <div class="specimen-workbench">
+      <aside class="specimen-catalog">
+        <div class="specimen-catalog-sticky">
+          <div class="specimen-catalog-heading">
+            <h2>Card families</h2><span>States</span>
+          </div>
+          <nav aria-label="Card families">
+            <.link
+              :for={card <- @specimen.catalog}
+              patch={state_path(card.id, card.first_state_id, @params)}
+              data-family={card.id}
+              aria-current={if card.id == @specimen.card.id, do: "page"}
+            >
+              <span>{card.title}</span><small title={"#{card.state_count} states"}>{card.state_count}</small>
+            </.link>
+          </nav>
+        </div>
+      </aside>
       <section class="specimen-stage">
         <div class="specimen-heading">
           <h1>Slack Card Lab</h1>
@@ -17,18 +34,22 @@ defmodule Responder.ControlPlane.CardLabPage do
           </p>
         </div>
         <div class="specimen-selectors">
-          <form id="card-family-form" phx-change="card-family">
-            <label for="card-family">Card family <span>{length(@specimen.catalog)} families</span></label>
-            <select id="card-family" name="card">
-              <option
-                :for={card <- @specimen.catalog}
-                value={card.id}
-                selected={card.id == @specimen.card.id}
-              >
-                {card.title} · {card.state_count} states
-              </option>
-            </select>
-          </form>
+          <div class="specimen-family-mobile">
+            <form id="card-family-form" phx-change="card-family">
+              <label for="card-family">Card family <span>{length(@specimen.catalog)} families</span></label>
+              <select id="card-family" name="card">
+                <option
+                  :for={card <- @specimen.catalog}
+                  value={card.id}
+                  selected={card.id == @specimen.card.id}
+                >
+                  {card.title} · {card.state_count} {if card.state_count == 1,
+                    do: "state",
+                    else: "states"}
+                </option>
+              </select>
+            </form>
+          </div>
           <div class="specimen-state-control">
             <span class="state-control-label">State <span>{surface(@specimen.card.surface)}</span></span>
             <details id="card-state-picker" class="state-picker">
