@@ -9,6 +9,7 @@ defmodule Responder.ControlPlane.UsageProjection do
     "usage_profile" => :profile,
     "usage_provider" => :provider,
     "usage_model" => :model,
+    "usage_effort" => :effort,
     "usage_target" => :execution_target,
     "usage_channel" => :conversation_ref,
     "usage_transport" => :transport,
@@ -83,23 +84,11 @@ defmodule Responder.ControlPlane.UsageProjection do
         |> Map.merge(Measurement.target_parts(row.execution_target))
       end)
 
-    profiles =
-      groups(query, [:provider, :profile])
-      |> Enum.map(fn row ->
-        models =
-          Enum.filter(
-            targets,
-            &(&1.provider == row.provider and profile(&1.target) == row.profile)
-          )
-
-        row |> Map.put(:models, models) |> Map.put(:models_truncated, length(targets) > 500)
-      end)
-
     %{
       totals: totals(query),
-      profiles: profiles,
+      profiles: groups(query, [:provider, :profile]),
       targets: targets,
-      models: groups(query, [:provider, :model]),
+      models: groups(query, [:provider, :model, :effort]),
       channels: groups(query, [:transport, :conversation_ref]),
       repositories: groups(query, [:repository_ref]),
       kinds: groups(query, [:work_kind]),
@@ -109,20 +98,6 @@ defmodule Responder.ControlPlane.UsageProjection do
   end
 
   def totals(query), do: query |> aggregate() |> Repo.one!() |> finish()
-
-  # A configured account ladder is not evidence that its first credential ran.
-  # Missing/ambiguous historic targets stay unattributed instead of guessing.
-  def profile(target) when is_binary(target) do
-    case String.split(target, "@") do
-      [_head, account] when account != "" ->
-        if String.contains?(account, ","), do: nil, else: account
-
-      _ ->
-        nil
-    end
-  end
-
-  def profile(_), do: nil
 
   def dimensions(query) do
     from(e in query,
@@ -146,6 +121,12 @@ defmodule Responder.ControlPlane.UsageProjection do
             "NULLIF(split_part(split_part(split_part(?, '@', 1), '/', 1), ':', 2), '')",
             e.execution_target
           ),
+        effort:
+          fragment(
+            "NULLIF(split_part(split_part(?, '@', 1), '/', 2), '')",
+            e.execution_target
+          ),
+        # Account ladders are configuration, not evidence of which credential ran.
         profile:
           fragment(
             "CASE WHEN ? LIKE '%@%' AND ? NOT LIKE '%@%@%' AND split_part(?, '@', 2) NOT LIKE '%,%' THEN NULLIF(split_part(?, '@', 2), '') END",
