@@ -2,10 +2,17 @@ defmodule Responder.ControlPlane.EpisodePage do
   @moduledoc "One chronological case file: conversation, model requests, host decisions and delivery."
   use Phoenix.Component
   import Responder.ControlPlane.Components
+  alias Responder.ControlPlane.EpisodeTrace
 
   def render(assigns) do
     assigns = assign_new(assigns, :timeline, fn -> %{items: [], truncated: false} end)
-    assigns = assign(assigns, :entries, entries(assigns.snapshot, assigns.timeline))
+
+    chapters =
+      assigns.snapshot
+      |> entries(assigns.timeline)
+      |> EpisodeTrace.chapters(assigns.snapshot.trace.received_at)
+
+    assigns = assign(assigns, :chapters, chapters)
 
     ~H"""
     <div class="episode-workbench">
@@ -73,16 +80,29 @@ defmodule Responder.ControlPlane.EpisodePage do
         <p :if={@snapshot.trace.history.truncated || @timeline.truncated} class="timeline-bound">
           History is bounded. This view contains the latest retained records; use “Find a specific request” for older request pages. Long artifacts are labeled when truncated.
         </p>
-        <article :for={entry <- @entries} id={entry.id} class={"case-entry case-#{entry.kind}"}>
-          <div class="case-entry-time">
-            <time>{clock_time(entry.at)}</time><span>{date(entry.at)}</span>
+        <section
+          :for={{chapter, index} <- Enum.with_index(@chapters, 1)}
+          class="trace-chapter"
+          aria-labelledby={"chapter-#{index}"}
+        >
+          <div class="chapter-heading">
+            <span class="chapter-number">{String.pad_leading(to_string(index), 2, "0")}</span>
+            <div>
+              <h3 id={"chapter-#{index}"}>{chapter.title}</h3><p>{chapter.blurb}</p>
+            </div>
+            <span :if={chapter.span} class="chapter-span">{chapter.span} from start</span>
           </div>
-          <div class="case-entry-body">
-            <.message :if={entry.kind == :message} message={entry.message} base={base(@snapshot)} />
-            <.event :if={entry.kind == :event} step={entry.step} />
-            <.request :if={entry.kind == :request} request={entry} />
-          </div>
-        </article>
+          <article :for={entry <- chapter.steps} id={entry.id} class={"case-entry case-#{entry.kind}"}>
+            <div class="case-entry-time">
+              <time>{clock_time(entry.at)}</time><span>{date(entry.at)}</span>
+            </div>
+            <div class="case-entry-body">
+              <.message :if={entry.kind == :message} message={entry.message} base={base(@snapshot)} />
+              <.event :if={entry.kind == :event} step={entry.step} />
+              <.request :if={entry.kind == :request} request={entry} />
+            </div>
+          </article>
+        </section>
         <div id="latest-outcome" class="case-outcome">
           <div :if={@snapshot.trace.case_file.awaiting_reply} class="story-wait">
             <span class="pulse-dot"></span><div>
@@ -185,12 +205,18 @@ defmodule Responder.ControlPlane.EpisodePage do
   defp entries(snapshot, timeline) do
     messages =
       Enum.map(snapshot.trace.case_file.conversation, fn message ->
-        %{id: "story-message-#{message.id}", at: message.at, kind: :message, message: message}
+        %{
+          id: "story-message-#{message.id}",
+          at: message.at,
+          kind: :message,
+          message: message,
+          band: if(message.actor == "Responder", do: :outcome, else: :input)
+        }
       end)
 
     steps =
       Enum.map(snapshot.trace.steps, fn step ->
-        %{id: "event-#{step.id}", at: step.at, kind: :event, step: step}
+        %{id: "event-#{step.id}", at: step.at, kind: :event, step: step, band: step.band}
       end)
 
     # Stable sort preserves the trace's numeric sequence/lifecycle ordering on ties.

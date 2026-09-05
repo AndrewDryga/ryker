@@ -1917,11 +1917,11 @@ defmodule Responder.ControlPlane.HTML do
       end)
 
     [
-      "<nav class=\"windows\" aria-label=\"Usage window\">",
+      "<div class=\"usage-filters\"><nav class=\"windows\" aria-label=\"Usage window\"><span>Period</span>",
       Enum.map(~w(24h 7d 30d all), fn window ->
         [
-          "<a href=\"/usage?window=",
-          window,
+          "<a href=\"/usage?",
+          escape(URI.encode_query(%{window: window, mode: Map.get(snapshot, :mode, "live")})),
           "\"",
           if(window == snapshot.window, do: " aria-current=\"page\"", else: ""),
           ">",
@@ -1929,12 +1929,14 @@ defmodule Responder.ControlPlane.HTML do
           "</a>"
         ]
       end),
-      "</nav><section class=\"metrics\">",
+      "</nav>",
+      usage_scope(snapshot),
+      "</div><section class=\"metrics\">",
       metric("Execution requests", totals.attempts),
       metric("Provider measured", coverage(totals.usage_measured, totals.attempts)),
       metric("Reported USD", money(totals.cost_usd, totals.costed)),
       metric("Input tokens reported", integer(totals.input_tokens)),
-      "</section><section><h2>Coverage and timing</h2>",
+      "</section><div class=\"usage-details\"><section aria-labelledby=\"usage-coverage\"><h2 id=\"usage-coverage\">Measurement coverage</h2><p class=\"muted\">Which requests and token dimensions were recorded.</p>",
       definition_list([
         {"Admission executions", Map.get(totals, :admission, "not recorded")},
         {"Work executions", Map.get(totals, :work, "not recorded")},
@@ -1943,14 +1945,16 @@ defmodule Responder.ControlPlane.HTML do
         {"Output counter", integer(totals.output_tokens)},
         {"Reasoning counter", integer(totals.reasoning_tokens)},
         {"Cache hit rate", percent(totals.cache_hit_rate)},
-        {"Timed turns", coverage(totals.timed, totals.attempts)},
-        {"Average queued", duration(totals.average_queued_ms)},
-        {"Average provider", duration(totals.average_provider_ms)},
-        {"Average host observation", duration(totals.average_host_ms)},
         {"Measurement errors", totals.measurement_errors}
       ]),
-      "<p class=\"muted\">Reported money is shown only when the provider supplied it; unpriced attempts are not displayed as zero spend. Execution requests include admission and unsuccessful Work, not lease claims or polling. Coop turn totals can include repairs; individual provider calls and child-task attribution are not yet available. Token-counter sums below are not normalized billable tokens: cached and reasoning dimensions may overlap provider totals. Historical executions without retained measurements remain unknown. Token-priced estimates are not yet available.</p>",
-      usage_scope(snapshot),
+      "</section><section aria-labelledby=\"usage-timing\"><h2 id=\"usage-timing\">Where the time went</h2><p class=\"muted\">Execution includes model startup and tools, not just inference.</p>",
+      definition_list([
+        {"Timed requests", coverage(totals.timed, totals.attempts)},
+        {"Average queued", duration(totals.average_queued_ms)},
+        {"Average execution", duration(totals.average_provider_ms)},
+        {"Average host observation", duration(totals.average_host_ms)}
+      ]),
+      "</section></div><section class=\"measurement-notes\"><h2>How to read these numbers</h2><p>Reported money is shown only when the provider supplied it; unpriced attempts are not displayed as zero spend. Execution requests include admission and unsuccessful Work, not lease claims or polling.</p><details><summary>Coverage limits and token semantics</summary><p>Coop turn totals can include repairs; individual provider calls and child-task attribution are not yet available. Token-counter sums below are not normalized billable tokens: cached and reasoning dimensions may overlap provider totals. Historical executions without retained measurements remain unknown. Token-priced estimates are not yet available.</p></details>",
       "</section><section><h2>Daily token trend</h2>",
       trend_svg(snapshot.days),
       "</section><section><h2>Execution targets</h2>",
@@ -1994,7 +1998,7 @@ defmodule Responder.ControlPlane.HTML do
     mode = Map.get(snapshot, :mode, "live")
 
     [
-      "<nav class=\"windows\" aria-label=\"Execution scope\">",
+      "<nav class=\"windows\" aria-label=\"Execution scope\"><span>Traffic</span>",
       Enum.map(~w(live shadow all), fn scope ->
         [
           "<a href=\"/usage?",
@@ -2534,7 +2538,7 @@ defmodule Responder.ControlPlane.HTML do
 
   defp workbench_intro(title, description) do
     [
-      "<section class=\"workbench-intro\"><p class=\"eyebrow\">Durable operator view</p><h2>",
+      "<section class=\"page-description\"><h2>",
       escape(title),
       "</h2><p>",
       escape(description),

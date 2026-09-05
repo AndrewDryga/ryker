@@ -129,7 +129,8 @@ defmodule Responder.ControlPlane.ModelRequests do
           turn.remote_finished_at,
           turn.candidate != nil or turn.validation_history != [] or turn.accepted_at != nil,
           timing,
-          "/episodes/#{URI.encode_www_form(episode.key)}/requests?attempt=#{turn.id}"
+          "/episodes/#{URI.encode_www_form(episode.key)}/requests?attempt=#{turn.id}",
+          :work
         )
       end)
 
@@ -178,7 +179,8 @@ defmodule Responder.ControlPlane.ModelRequests do
       completed,
       attempt != nil and attempt.phase in ~w(response_received host_validation committed),
       timing,
-      "/admission/#{entry.id}?generation=#{generation}"
+      "/admission/#{entry.id}?generation=#{generation}",
+      :admission
     )
   end
 
@@ -191,7 +193,7 @@ defmodule Responder.ControlPlane.ModelRequests do
 
   defp admission_completed_at(_), do: nil
 
-  defp request_events(request, id, completed, has_result, timing, href) do
+  defp request_events(request, id, completed, has_result, timing, href, kind) do
     {submission, outcome} =
       Enum.split_with(
         request.sections,
@@ -208,6 +210,7 @@ defmodule Responder.ControlPlane.ModelRequests do
       sections: submission,
       timing: [],
       href: href,
+      band: :ready,
       kind: :request
     }
 
@@ -218,6 +221,7 @@ defmodule Responder.ControlPlane.ModelRequests do
             start
             | id: id <> "-result",
               at: completed,
+              band: if(kind == :admission, do: :ready, else: :answer),
               title: request.title <> " · result",
               sections: outcome,
               timing: timing

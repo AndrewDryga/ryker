@@ -66,6 +66,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       history: history(totals, activity_page),
       metrics: metrics(episode, received_at, activity_page, totals, steps),
       next_action: next_action(episode, current_turn),
+      received_at: received_at,
       review: review,
       source: source_link(episode, events, inputs),
       stats: stats(steps, activity_page, totals),
@@ -1294,7 +1295,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   defp stopped(_episode, _turn), do: nil
 
-  defp chapters(steps, started_at) do
+  @doc "Groups adjacent chronological entries without moving later messages ahead of earlier work."
+  def chapters(steps, started_at) do
     steps
     |> Enum.chunk_by(& &1.band)
     |> Enum.map(fn chapter_steps ->
