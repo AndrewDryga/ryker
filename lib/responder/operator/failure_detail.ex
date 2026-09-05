@@ -10,7 +10,10 @@ defmodule Responder.Operator.FailureDetail do
   alias Responder.CanonicalJSON
 
   @coop_codes ~w(invalid_session_state session_cleanup_error revision_conflict session_not_found operation_not_found operation_uncertain idempotency_conflict unauthorized forbidden)
-  @legacy_ownership ~s({:coop_error, 409, "invalid_session_state", "legacy remote session has no immutable fork ownership proof; recreate the session after preserving its workspace"})
+  @legacy_ownership [
+    ~s({:coop_error, 409, "invalid_session_state", "legacy remote session has no immutable fork ownership proof; recreate the session after preserving its workspace"}),
+    ~s({:coop_error, 409, "invalid_session_state", "invalid_session_state: legacy remote session has no immutable fork ownership proof; recreate the session after preserving its workspace"})
+  ]
 
   @doc "Allowlisted protocol facts only; never copies diagnostic payload text."
   def facts(detail) when is_binary(detail) and byte_size(detail) <= 4_096 do
@@ -19,7 +22,7 @@ defmodule Responder.Operator.FailureDetail do
         %{
           http_status: String.to_integer(status),
           code: code,
-          reason: if(detail == @legacy_ownership, do: :missing_ownership)
+          reason: if(detail in @legacy_ownership, do: :missing_ownership)
         }
 
       _unrecognized ->

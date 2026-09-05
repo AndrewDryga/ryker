@@ -1,0 +1,6 @@
+{
+  "error_code": "coop_error",
+  "error_detail": "{:coop_error, 409, \"invalid_session_state\", \"invalid_session_state: legacy remote session has no immutable fork ownership proof; recreate the session after preserving its workspace\"}",
+  "phase": "plan_pending",
+  "attempts": 1
+}

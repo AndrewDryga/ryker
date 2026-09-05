@@ -1661,9 +1661,11 @@ defmodule Responder.ControlPlane.HTML do
           "</span>",
           "<span class=\"failure-attempts\"><strong>",
           integer(Map.get(row, :attempt_count, 0)),
-          "</strong> attempts</span>",
+          "</strong> ",
+          if(row[:attempt_count] == 1, do: "attempt", else: "attempts"),
+          "</span>",
           if(FailurePage.manual_repair?(row),
-            do: "<span class=\"failure-repair-needed\">Needs developer repair</span>",
+            do: "<span class=\"failure-repair-needed\">Cleanup paused</span>",
             else: failure_recovery_action(row)
           ),
           "</div></article>"
@@ -1698,20 +1700,24 @@ defmodule Responder.ControlPlane.HTML do
       {"emisar", "Approvals"}
     ]
 
-    stats =
-      [{"Failures", length(rows)}] ++
-        Enum.filter([{"Affected requests", requests}], fn {_, count} -> count > 0 end) ++
-        Enum.flat_map(types, fn {kind, label} ->
-          case Map.get(counts, kind, 0) do
-            0 -> []
-            count -> [{label, count}]
-          end
-        end)
-
     [
       "<dl class=\"failure-summary\" aria-label=\"Summary of listed failures\">",
-      Enum.map(stats, fn {label, count} ->
+      Enum.map([{"Failures", length(rows)}, {"Affected requests", requests}], fn {label, count} ->
         ["<div><dt>", escape(label), "</dt><dd>", integer(count), "</dd></div>"]
+      end),
+      "</dl><dl class=\"failure-types\" aria-label=\"Listed failures by type\">",
+      Enum.map(types, fn {kind, label} ->
+        count = Map.get(counts, kind, 0)
+
+        [
+          "<div",
+          if(count > 0, do: " class=\"has-failures\"", else: ""),
+          "><dt>",
+          escape(label),
+          "</dt><dd>",
+          integer(count),
+          "</dd></div>"
+        ]
       end),
       "</dl>"
     ]

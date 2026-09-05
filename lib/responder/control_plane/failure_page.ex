@@ -23,7 +23,11 @@ defmodule Responder.ControlPlane.FailurePage do
         <p :if={@outcome} class="failure-outcome">{@outcome}</p>
         <div class="failure-meta">
           <span :if={@destination && !@ownership_missing}>{@destination}</span>
-          <span :if={!@ownership_missing}>{Map.get(@row, :attempt_count, 0)} attempts</span>
+          <span :if={!@ownership_missing}>
+            {Map.get(@row, :attempt_count, 0)} {if @row[:attempt_count] == 1,
+              do: "attempt",
+              else: "attempts"}
+          </span>
           <time>Updated {Components.timestamp(@row.updated_at)}</time>
         </div>
       </div>
@@ -48,7 +52,10 @@ defmodule Responder.ControlPlane.FailurePage do
         <section class="failure-next-step">
           <h3>Next step</h3>
           <p :if={@ownership_missing}>
-            A developer needs to check the leftover folder and repair the worker record before cleanup can continue. Retrying now will hit the same error.
+            Leave the folder in place for now. Do not retry cleanup.
+          </p>
+          <p :if={@ownership_missing}>
+            There is no supported recovery command for this older session yet. Freeing this disk space needs a cleanup fix in Coop, not a change to your request or configuration.
           </p>
           <p :if={!@ownership_missing}>{next_step(@row)}</p>
           <div :if={!@ownership_missing && @recovery != ""} class="failure-recovery">
@@ -80,7 +87,7 @@ defmodule Responder.ControlPlane.FailurePage do
         </ol>
         <div :if={@ownership_missing && @recovery != ""} class="failure-recovery">
           <p>
-            Use this only after repairing the worker record. It retries cleanup of the same folder.
+            This retries the same cleanup check. It cannot restore the missing ownership record.
           </p>
           {Phoenix.HTML.raw(@recovery)}
         </div>

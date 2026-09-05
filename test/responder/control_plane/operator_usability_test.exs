@@ -30,8 +30,9 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
     assert html =~ "Temporary files could not be removed"
     assert html =~ "The request is complete. Only automatic cleanup failed."
     assert html =~ "Why it stopped"
-    assert html =~ "A developer needs to check the leftover folder"
-    assert html =~ "Retrying now will hit the same error"
+    assert html =~ "Leave the folder in place for now. Do not retry cleanup."
+    assert html =~ "There is no supported recovery command for this older session yet."
+    refute html =~ "A developer needs to check the leftover folder"
     assert html =~ "HTTP 409"
 
     assert html
@@ -60,8 +61,16 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
     refute work =~ "Only automatic cleanup failed"
 
     list = [row] |> HTML.failures() |> IO.iodata_to_binary()
-    assert list =~ "Needs developer repair"
+    assert list =~ "Cleanup paused"
     refute list =~ "Resume cleanup"
+
+    one_attempt = %{row | kind: "work", attempt_count: 1}
+
+    for rendered <- [HTML.failure(one_attempt), HTML.failures([one_attempt])] do
+      text = rendered |> IO.iodata_to_binary() |> LazyHTML.from_fragment() |> LazyHTML.text()
+      assert text =~ "1 attempt"
+      refute text =~ "1 attempts"
+    end
   end
 
   # Operators could not tell what recovery would do; internal queue terms were
@@ -90,7 +99,7 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
 
   test "failure summary counts listed operations and distinct requests without nesting the cards" do
     # Two cleanup failures in one request were buried in a second large panel;
-    # the page gave no quick way to distinguish operation count from impact.
+    # missing zero counts left it unclear whether other failure types were healthy.
     cleanup = %{
       kind: "retention",
       ref: "session:one",
@@ -120,21 +129,40 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
 
     assert summary == [
              {"Failures", "4"},
-             {"Affected requests", "2"},
+             {"Affected requests", "2"}
+           ]
+
+    types =
+      document
+      |> LazyHTML.query(".failure-types > div")
+      |> Enum.map(fn stat ->
+        {stat |> LazyHTML.query("dt") |> LazyHTML.text(),
+         stat |> LazyHTML.query("dd") |> LazyHTML.text()}
+      end)
+
+    assert types == [
+             {"Model work", "0"},
              {"Routing", "1"},
              {"Delivery", "1"},
-             {"Cleanup", "2"}
+             {"Cleanup", "2"},
+             {"Slack updates", "0"},
+             {"Incident rooms", "0"},
+             {"Approvals", "0"}
            ]
+
+    assert Enum.count(LazyHTML.query(document, ".failure-types .has-failures")) == 3
 
     assert Enum.count(LazyHTML.query(document, ".failure-cards > article")) == 4
     assert Enum.empty?(LazyHTML.query(document, "section"))
     refute LazyHTML.text(document) =~ "These saved operations"
   end
 
-  test "empty failures show zero without empty categories or a surrounding panel" do
+  test "empty failures show zero for every type without a surrounding panel" do
     document = [] |> HTML.failures() |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
-    assert LazyHTML.query(document, ".failure-summary dt") |> LazyHTML.text() == "Failures"
-    assert LazyHTML.query(document, ".failure-summary dd") |> LazyHTML.text() == "0"
+    counts = LazyHTML.query(document, ".failure-summary dd, .failure-types dd")
+    assert Enum.count(counts) == 9
+    assert Enum.all?(counts, &(LazyHTML.text(&1) == "0"))
+    assert Enum.empty?(LazyHTML.query(document, ".has-failures"))
     assert LazyHTML.text(document) =~ "Nothing needs attention"
     assert Enum.empty?(LazyHTML.query(document, "section"))
   end
