@@ -134,9 +134,9 @@ defmodule Responder.ControlPlane.UsagePage do
 
   defp breakdown(rows, snapshot, kind) do
     [
-      "<div class=\"table-wrap\"><table class=\"usage-breakdown-table\"><thead><tr><th>",
+      "<div class=\"table-wrap\"><table class=\"usage-breakdown-table usage-detail-table\"><colgroup><col class=\"usage-name-col\"><col class=\"usage-count-col\"><col span=\"4\" class=\"usage-token-col\"><col class=\"usage-performance-col\"><col class=\"usage-cost-col\"></colgroup><thead><tr class=\"usage-column-groups\"><th scope=\"col\" rowspan=\"2\">",
       heading(kind),
-      "</th><th>Usage</th><th>Input</th><th>Output</th><th>Performance</th><th>Cost</th></tr></thead><tbody>",
+      "</th><th scope=\"col\" rowspan=\"2\">Usage</th><th scope=\"colgroup\" colspan=\"2\">Input</th><th scope=\"colgroup\" colspan=\"2\">Output</th><th scope=\"col\" rowspan=\"2\">Performance</th><th scope=\"col\" rowspan=\"2\">Cost</th></tr><tr class=\"usage-metric-headings\"><th scope=\"col\">Fresh input</th><th scope=\"col\">Cached input</th><th scope=\"col\">Output</th><th scope=\"col\">Reasoning</th></tr></thead><tbody>",
       Enum.map(Enum.take(rows, 500), &row(&1, snapshot, kind)),
       "</tbody></table></div>"
     ]
@@ -150,13 +150,11 @@ defmodule Responder.ControlPlane.UsagePage do
       primary(number(value(row, :episodes)), " episodes"),
       secondary(number(row.attempts) <> " executions · " <> tokens(row, :tokens) <> " tokens"),
       secondary(percent(share(row, snapshot.totals)) <> " of tokens"),
-      "</td><td>",
-      primary(tokens(row, :input_tokens), " fresh"),
-      secondary(tokens(row, :cached_input_tokens) <> " cached"),
-      "</td><td>",
-      primary(tokens(row, :output_tokens), " out"),
-      secondary(tokens(row, :reasoning_tokens) <> " reasoning"),
-      "</td><td>",
+      "</td>",
+      Enum.map([:input_tokens, :cached_input_tokens, :output_tokens, :reasoning_tokens], fn key ->
+        ["<td class=\"usage-token-cell\">", e(tokens(row, key)), "</td>"]
+      end),
+      "<td>",
       primary(percent(Map.get(row, :cache_hit_rate)), " cache"),
       secondary("Avg. model time: " <> elapsed(Map.get(row, :average_provider_ms))),
       "</td><td class=\"usage-money\">",
@@ -383,62 +381,40 @@ defmodule Responder.ControlPlane.UsagePage do
   end
 
   defp methodology(snapshot) do
-    totals = snapshot.totals
     rates = Pricing.rates()
 
     models =
       Map.get(snapshot, :models, snapshot.targets)
-      |> Enum.filter(&(value(&1, :estimated) > 0))
+      |> Enum.filter(
+        &(value(&1, :estimated) > 0 and Map.has_key?(rates, "#{&1.provider}:#{&1.model}"))
+      )
       |> Enum.uniq_by(&{&1.provider, &1.model})
 
-    [
-      "<details class=\"measurement-notes\" id=\"cost-method\"><summary>Token pricing</summary>",
-      if(value(totals, :estimated) > 0,
-        do: [
-          "<p>Estimated cost: <strong>",
-          e(money(%{totals | costed: 0, cost_usd: Decimal.new(0)})),
-          "</strong> from ",
-          number(totals.estimated),
-          " executions.</p>"
-        ],
-        else: ""
-      ),
-      if(value(totals, :costed) > 0,
-        do: [
-          "<p>Provider-reported cost: <strong>",
-          e(money(Map.merge(totals, %{estimated: 0, estimated_cost_usd: Decimal.new(0)}))),
-          "</strong>.</p>"
-        ],
-        else: ""
-      ),
-      if(models != [],
-        do: [
-          "<div class=\"table-wrap\"><table class=\"usage-pricing-table\"><thead><tr><th>Model</th><th>Fresh input</th><th>Cache reads</th><th>Output</th></tr></thead><tbody>",
-          Enum.map(models, fn row ->
-            case rates["#{row.provider}:#{row.model}"] do
-              {input, cached, output} ->
-                [
-                  "<tr><td>",
-                  e(row.model),
-                  "</td><td>$",
-                  e(input),
-                  "</td><td>$",
-                  e(cached),
-                  "</td><td>$",
-                  e(output),
-                  "</td></tr>"
-                ]
+    if models == [] do
+      []
+    else
+      [
+        "<details class=\"measurement-notes\" id=\"cost-method\"><summary>Rates used for estimates</summary>",
+        "<div class=\"table-wrap\"><table class=\"usage-pricing-table\"><thead><tr><th>Model</th><th>Fresh input</th><th>Cache reads</th><th>Output</th></tr></thead><tbody>",
+        Enum.map(models, fn row ->
+          {input, cached, output} = Map.fetch!(rates, "#{row.provider}:#{row.model}")
 
-              nil ->
-                ""
-            end
-          end),
-          "</tbody></table></div><p>Prices per 1M tokens. Estimates compare usage at API prices, not subscription invoices.</p>"
-        ],
-        else: ""
-      ),
-      "</details>"
-    ]
+          [
+            "<tr><td>",
+            e(row.model),
+            "</td><td>$",
+            e(input),
+            "</td><td>$",
+            e(cached),
+            "</td><td>$",
+            e(output),
+            "</td></tr>"
+          ]
+        end),
+        "</tbody></table></div><p>USD per million tokens. API-equivalent rates, not subscription charges.</p>",
+        "</details>"
+      ]
+    end
   end
 
   defp elapsed(nil), do: "—"
