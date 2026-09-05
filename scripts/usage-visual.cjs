@@ -76,7 +76,7 @@ const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwrigh
       await link.click();
       await page.locator('.usage-drilldown').waitFor();
       assert(await page.locator('#activity-stream article').count() > 0, 'Profile link finds its actual episodes');
-      await page.locator('.usage-drilldown a', {hasText: 'Clear filter'}).click();
+      await page.locator('.usage-drilldown a', {hasText: 'Clear usage filters'}).click();
       await page.locator('.usage-drilldown').waitFor({state: 'detached'});
       assert.deepEqual(errors, []);
       console.log(`Usage ${width}: PASS`);

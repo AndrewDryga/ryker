@@ -95,6 +95,76 @@ defmodule Responder.ControlPlane.LiveTest do
     end
   end
 
+  test "every searchable operator list keeps the search and exposes its supported status filter" do
+    # Query-string status filters were invisible, and every refresh emptied search.
+    for {path, status} <- [
+          {"/incidents", "blocked"},
+          {"/schedules", "paused"},
+          {"/subscriptions", "timed_out"},
+          {"/channels", nil},
+          {"/repositories", nil}
+        ] do
+      query = URI.encode_query(%{"q" => "emisar", "status" => status || ""})
+      {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), path <> "?" <> query)
+      assert has_element?(view, "form.search-form input[name=q][value=emisar]")
+      assert has_element?(view, "form.search-form a[href='#{path}']", "Clear filters")
+
+      if status,
+        do: assert(has_element?(view, "select[name=status] option[value='#{status}'][selected]"))
+
+      send(view.pid, :reconcile)
+      assert has_element?(view, "form.search-form input[name=q][value=emisar]")
+    end
+  end
+
+  test "usage drilldowns expose editable criteria and clearing one keeps the other filters" do
+    # The old banner hid the selected profile, model and scope behind generic text.
+    path = "/episodes?mode=all&q=health&usage_profile=emisar&usage_model=&usage_window=30d"
+    {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), path)
+
+    assert has_element?(
+             view,
+             "#request-criteria input[name='criteria[usage_profile][value]'][value=emisar]"
+           )
+
+    assert has_element?(
+             view,
+             "#request-criteria select[name='criteria[usage_model][match]'] option[value=missing][selected]"
+           )
+
+    assert has_element?(view, ".usage-drilldown a.ui-button", "Back to Usage")
+    assert has_element?(view, "#request-filter-add option[value=state]", "Request state")
+    assert has_element?(view, "#request-filter-add option[value=usage_actor]", "Person")
+
+    view
+    |> element("#request-criteria")
+    |> render_change(%{
+      "criteria" => %{"usage_profile" => %{"match" => "equals", "value" => "personal"}}
+    })
+
+    render_click(view, "refresh")
+    assert has_element?(view, "#criterion-usage_profile[value=personal]")
+
+    view
+    |> element("#request-criteria")
+    |> render_submit(%{
+      "criteria" => %{
+        "usage_profile" => %{"match" => "equals", "value" => "personal"},
+        "usage_model" => %{"match" => "any", "value" => ""},
+        "usage_window" => %{"match" => "equals", "value" => "30d"}
+      }
+    })
+
+    next = assert_patch(view)
+    params = URI.decode_query(URI.parse(next).query)
+    assert params["usage_profile"] == "personal"
+    assert params["mode"] == "all"
+    assert params["q"] == "health"
+    assert params["usage_window"] == "30d"
+    refute Map.has_key?(params, "usage_model")
+    refute Map.has_key?(params, "page")
+  end
+
   test "the LiveView endpoint preserves the loopback and host boundary" do
     conn = build_conn() |> Map.put(:host, "attacker.example") |> get("/")
     assert conn.status == 421
@@ -106,6 +176,24 @@ defmodule Responder.ControlPlane.LiveTest do
       |> get("/")
 
     assert conn.status == 403
+  end
+
+  test "editing search preserves pending criteria but clearing all resets them" do
+    {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/episodes?q=old")
+    render_change(view, "edit-request-filters", %{"add_filter" => "usage_profile"})
+
+    render_change(view, "edit-request-filters", %{
+      "criteria" => %{
+        "usage_profile" => %{"match" => "equals", "value" => "emisar"}
+      }
+    })
+
+    render_change(view, "search-activity", %{"q" => "new", "mode" => "all"})
+    assert_patch(view, "/episodes?mode=all&q=new")
+    assert has_element?(view, "#criterion-usage_profile[value=emisar]")
+    view |> element("a", "Clear all filters") |> render_click()
+    assert_patch(view, "/episodes")
+    refute has_element?(view, "#criterion-usage_profile")
   end
 
   test "the execution console refreshes without a standing live toolbar" do

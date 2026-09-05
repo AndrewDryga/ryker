@@ -74,6 +74,7 @@ defmodule Responder.ControlPlane.Projection do
       schedules: &schedules/1,
       subscriptions: &subscriptions/1,
       usage: &usage/1,
+      usage_filter_options: &UsageProjection.filter_options/0,
       slack_incident: &slack_incident/1,
       slack_interaction: &slack_interaction/1,
       work: &work/1,

@@ -2,11 +2,14 @@ defmodule Responder.ControlPlane.ProjectionTest do
   use Responder.DataCase, async: false
 
   import Ecto.Query
+  require Phoenix.LiveViewTest
 
   alias Responder.CanonicalJSON
   alias Responder.ControlPlane.Activity
   alias Responder.ControlPlane.HTML
   alias Responder.ControlPlane.Projection
+  alias Responder.ControlPlane.RequestFilters
+  alias Responder.ControlPlane.UsageProjection
   alias Responder.CoopFleet.{Event, Placement, Worker}
   alias Responder.Delivery.PlatformActionCustody
   alias Responder.Episodes
@@ -643,6 +646,38 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert params["usage_actor_kind"] == "user"
     # A bot with the same account name cannot sneak back into the drilldown.
     assert Activity.list(params).total == 2
+
+    options = UsageProjection.filter_options()
+
+    assert Enum.all?(
+             options,
+             &(Map.keys(&1) -- ~w(source workspace actor actor_kind transport conversation_ref)a ==
+                 [])
+           )
+
+    controls =
+      Phoenix.LiveViewTest.render_component(&RequestFilters.render/1, %{
+        draft:
+          RequestFilters.draft(%{
+            "usage_actor" => "andrew",
+            "usage_channel" => "slack:emisar:test"
+          }),
+        values: options,
+        params: %{},
+        path: "/episodes"
+      })
+      |> LazyHTML.from_document()
+
+    actors =
+      controls |> LazyHTML.query("#criterion-usage_actor option") |> LazyHTML.attribute("value")
+
+    assert Enum.sort(actors) == ["", "U0BHTNFCW6S", "andrew"]
+
+    channels =
+      controls |> LazyHTML.query("#criterion-usage_channel option") |> LazyHTML.attribute("value")
+
+    assert "slack:emisar:test" in channels
+    refute "control_plane:emisar:test" in channels
   end
 
   # Subscription use disappeared behind model labels; reasoning was also added
@@ -708,6 +743,22 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Activity.list(%{"usage_profile" => "", "usage_window" => "30d"}).total == 1
   end
 
+  test "the usage period filters requests without requiring another usage dimension" do
+    # A visible period picker must not silently show executions outside that period.
+    now = DateTime.utc_now()
+    measured_turn!("recent-period", "codex:gpt-5.6-sol/medium@emisar", now)
+    old_time = DateTime.add(now, -10, :day)
+    old = measured_turn!("old-period", "codex:gpt-5.6-sol/medium@emisar", old_time)
+
+    # The ledger captures the host submission time, independently of provider timing.
+    Repo.update_all(from(e in Responder.Accounting.Execution, where: e.source_id == ^old.id),
+      set: [recorded_at: old_time]
+    )
+
+    assert Activity.list(%{"usage_window" => "24h"}).total == 1
+    assert Activity.list(%{"usage_window" => "all"}).total == 2
+  end
+
   test "missing model links find executions whose target was never recorded" do
     # Unknown targets previously linked to the nonexistent literal model "default".
     measured_turn!("missing-target", nil, DateTime.utc_now())
@@ -725,6 +776,16 @@ defmodule Responder.ControlPlane.ProjectionTest do
 
     assert params, "The unknown target must use the nullable target filter"
     assert Activity.list(params).total == 1
+
+    missing =
+      RequestFilters.apply(%{}, %{
+        "criteria" => %{
+          "usage_provider" => %{"match" => "missing"},
+          "usage_work_kind" => %{"match" => "missing"}
+        }
+      })
+
+    assert Activity.list(missing).total == 1
   end
 
   test "model comparison and its drilldowns keep effort levels distinct across profiles" do
@@ -1368,7 +1429,8 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Projection.decisions(%{}) == []
     assert Projection.findings(%{}) == []
     assert length(Projection.audit(%{})) >= 9
-    assert map_size(Projection.callbacks()) == 38
+    assert map_size(Projection.callbacks()) == 39
+    assert is_function(Projection.callbacks().usage_filter_options, 0)
     assert is_function(Projection.callbacks().model_timeline, 2)
     assert is_function(Projection.callbacks().activity, 1)
     assert is_function(Projection.callbacks().card_lab_slack, 1)
