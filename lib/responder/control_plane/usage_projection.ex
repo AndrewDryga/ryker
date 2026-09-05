@@ -17,6 +17,7 @@ defmodule Responder.ControlPlane.UsageProjection do
     "usage_repository" => :repository_ref,
     "usage_work_kind" => :work_kind,
     "usage_actor" => :actor,
+    "usage_actor_kind" => :actor_kind,
     "usage_workspace" => :workspace,
     "usage_source" => :source
   }
@@ -94,12 +95,22 @@ defmodule Responder.ControlPlane.UsageProjection do
         groups(from(e in query, where: e.transport == "slack"), [:transport, :conversation_ref]),
       repositories: groups(query, [:repository_ref]),
       kinds: groups(query, [:work_kind]),
-      users: groups(query, [:source, :workspace, :actor]),
+      users: groups(people(query), [:source, :workspace, :actor]),
       days: days(query)
     }
   end
 
   def totals(query), do: query |> aggregate() |> Repo.one!() |> finish()
+
+  defp people(query) do
+    # The Lab's shared local-operator is not an identifiable person. Apps, bots,
+    # hooks and missing senders still contribute to every overall usage total.
+    from(e in query,
+      where:
+        e.actor_kind == "user" and e.source != "control_plane" and
+          not is_nil(e.actor) and e.actor != ""
+    )
+  end
 
   def dimensions(query) do
     from(e in query,
@@ -113,6 +124,7 @@ defmodule Responder.ControlPlane.UsageProjection do
         source: entry.source_kind,
         workspace: entry.source_ref,
         actor: entry.actor_ref,
+        actor_kind: type(entry.actor_kind, :string),
         measurement: fragment("CASE WHEN ? THEN 'measured' ELSE 'missing' END", e.usage_recorded),
         provider:
           fragment(

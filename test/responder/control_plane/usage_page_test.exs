@@ -13,7 +13,8 @@ defmodule Responder.ControlPlane.UsagePageTest do
           "Output",
           "Reasoning",
           "Cache hit rate",
-          "Profiles",
+          "By profile",
+          "Token usage over time",
           "By model",
           "By channel",
           "By repository",
@@ -248,7 +249,7 @@ defmodule Responder.ControlPlane.UsagePageTest do
 
     users =
       Enum.map(
-        [{"control_plane", "local-operator"}, {"github", "andrew"}, {"slack", "U123"}],
+        [{"github", "andrew"}, {"slack", "U123"}],
         fn {source, actor} ->
           Map.merge(row, %{source: source, actor: actor, workspace: "T123"})
         end
@@ -264,7 +265,6 @@ defmodule Responder.ControlPlane.UsagePageTest do
           "Standard work",
           "Deep work",
           "1 execution without a saved work type",
-          "Conversation Lab",
           "andrew",
           "$0.0012",
           "1.2M",
