@@ -4,6 +4,50 @@ Status: primary workspace implemented; remaining stages are tracked below.
 Deployment identity is the running process's x-responder-version header, not this plan.
 Updated: 2026-09-05.
 
+## Current execution: performance and three design passes
+
+The operator's latest correction is authoritative: readable typography, useful
+density and vertical rhythm, actions beside the relevant state, and one complete
+scrollable execution story. Tabs and a separately scrolling event picker are not
+an acceptable primary execution view.
+
+1. Remove mandatory model-side filesystem/schema-validation round trips in Coop
+   while retaining its exact-schema validator, bounded repair, semantic acceptance,
+   cancellation and recovery. Measure the existing greeting again with existing
+   credentials; do not claim queue tuning fixes inference time.
+2. Qualify the fast admission path against recorded lifecycle cases. Keep Work
+   routing unchanged, no keyword-based guesses, no undocumented OAuth API usage.
+3. Design pass one: 16px reading text, legible metadata, high contrast, a consistent
+   4px spacing scale and less page/card padding. Preserve the correct Slack preview
+   dimensions independently from the surrounding operator UI.
+4. Design pass two: combine inputs, admission, submitted requests, tool activity,
+   decisions, delivery and recovery into one chronological document. Show retained
+   instructions/context inline; long raw artifacts may use disclosure, but reading
+   the execution must not require switching tabs. Keep stable anchors and honest
+   bounds for older/expired history.
+5. Design pass three: expose contextual actions, elapsed-time attribution and
+   mobile layouts. Review rendered pages at desktop and narrow widths when the
+   browser is attached; no visual-acceptance claim without screenshots.
+6. Focused regressions after each edit, the fast precommit gate, one shipping gate
+   for changed shared execution contracts, then exact-release deployment and a
+   bounded live before/after check. No repeated whole-tree race/eval loops.
+
+Current qualification: the original greeting took 135.8 seconds with millisecond
+queue waits. Removing redundant schema-file/tool work reduced a same-target sample
+to 93.4 seconds. That sample still required a semantic repair; its apparent
+26-second Work queue was actually first-attempt execution misattributed when Coop
+reset the start timestamp. Preserve first-start timing and distinguish mandatory
+task validation from redundant JSON Schema checking. No authority check is removed.
+Luna/low admission passed five recorded routing/lifecycle cases in 13.6–16.1 seconds
+per case using the existing Emisar profile. Work targets remain unchanged.
+
+The three source design passes are implemented. Regression coverage includes
+continuous content, redaction, tied event order, bounded older attempts, retained
+results without timing, and existing artifact deep links. Rendered desktop/mobile
+acceptance remains pending because the in-app browser has no attached connection.
+Deployment and post-deployment latency must be verified separately; these numbers
+are individual samples, not a p95 or a reliability benchmark.
+
 This is the current plan for the Elixir control plane, fast admission, model
 observability, the learning flywheel, and simpler configuration. It supersedes
 the technology and layout proposals in [Control plane](control-plane.md), while

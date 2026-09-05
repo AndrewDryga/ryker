@@ -127,6 +127,11 @@ defmodule Responder.ControlPlane.NativePagesTest do
     assert html =~ "Reconciled the previous request"
     assert html =~ "Open recovery"
     assert html =~ "Inspect related record"
+    # The split panes hid the processing behind tabs and a second scroll area.
+    assert html =~ "Complete execution timeline"
+    refute html =~ "aria-label=\"Episode view\""
+    refute html =~ "aria-label=\"Selected event\""
+    refute html =~ "phx-click=\"inspect-step\""
 
     for {state, expected} <- [{:cancelled, "Stopped"}, {:complete, "No further reply was sent"}] do
       terminal = put_in(snapshot, [:episode, :state], state)

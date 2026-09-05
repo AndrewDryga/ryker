@@ -118,20 +118,21 @@ defmodule Responder.ControlPlane.LiveTest do
     assert render(secondary) =~ "secondary-page"
   end
 
-  test "an episode is a conversation and selectable history rather than a raw snapshot" do
+  test "an episode has one continuous execution document and preserves exact request links" do
     {:ok, %{episode: episode}} =
       Responder.Episodes.apply(Responder.Fixtures.Episodes.admit_input())
 
     path = "/episodes/" <> URI.encode_www_form(episode.key)
     {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), path)
-    assert has_element?(view, ".story-conversation")
-    assert has_element?(view, ".story-execution", "Behind the answer")
-    view |> element("button.execution-event") |> render_click()
-    assert has_element?(view, ".event-inspector", "Input admitted")
-    view |> element("a", "Model requests") |> render_click()
+    assert has_element?(view, "#execution-timeline", "Complete execution timeline")
+    assert has_element?(view, ".case-event", "Input admitted")
+    refute has_element?(view, "button.execution-event")
+    refute has_element?(view, "nav[aria-label='Episode view']")
+    view |> element("a", "Find a specific request") |> render_click()
     assert_patch(view, path <> "/requests")
     assert has_element?(view, ".model-inspector", "What the model received")
     assert has_element?(view, ".document-unavailable", "No requests recorded")
+    assert has_element?(view, "#execution-timeline", "Input admitted")
   end
 
   test "the native Lab never claims admission before a message exists and streams committed messages" do
@@ -230,10 +231,9 @@ defmodule Responder.ControlPlane.LiveTest do
     entry |> Ecto.Changeset.change(execution_generation: 2) |> Repo.update!()
     view |> element("button", "Refresh") |> render_click()
     assert has_element?(view, ".request-reader-heading", "Admission · execution 1")
-    assert has_element?(view, ".document-index a[href*='generation=1']")
-
-    assert view |> element(".document-index a", "Instructions") |> render_click() =~
-             "Admission · execution 1"
+    assert has_element?(view, ".request-reader[data-generation='1']")
+    assert has_element?(view, ".artifact-instructions", "Responder admission instructions")
+    assert has_element?(view, ".artifact-context", "Frozen admission context")
 
     assert has_element?(view, ".request-reader .ui-pagination", "1 / 2")
   end

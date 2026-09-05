@@ -48,7 +48,6 @@ defmodule Responder.ControlPlane.WorkbenchLive do
        episode: nil,
        requests: nil,
        request_selection: %{},
-       selected_step: nil,
        lab: nil,
        card_lab: nil,
        lab_token: nil,
@@ -153,10 +152,6 @@ defmodule Responder.ControlPlane.WorkbenchLive do
      push_patch(socket, to: socket.assigns.path <> "?" <> URI.encode_query(params), replace: true)}
   end
 
-  def handle_event("inspect-step", %{"id" => id}, socket) do
-    {:noreply, assign(socket, :selected_step, id)}
-  end
-
   def handle_event(
         "card-transition",
         %{"id" => id},
@@ -226,11 +221,13 @@ defmodule Responder.ControlPlane.WorkbenchLive do
 
   defp load_detail(socket, options, ["episodes", _ref | _rest]) do
     with {:ok, episode} <- options.projection.episode.(socket.assigns.params["ref"]),
-         {:ok, requests} <- episode_requests(socket, options) do
+         {:ok, requests} <- episode_requests(socket, options),
+         {:ok, timeline} <- options.projection.model_timeline.(socket.assigns.params["ref"], %{}) do
       assign(socket,
         native: :episode,
         page_title: "Episode",
         episode: episode,
+        timeline: timeline,
         requests: requests,
         request_selection: request_selection(requests)
       )
@@ -453,7 +450,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
             snapshot={@episode}
             requests={@requests}
             params={@params}
-            selected_step={@selected_step}
+            timeline={@timeline}
           />
           <LabPage.render
             :if={@native == :lab}

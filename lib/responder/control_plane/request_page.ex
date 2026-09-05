@@ -1,5 +1,5 @@
 defmodule Responder.ControlPlane.RequestPage do
-  @moduledoc "Native, section-oriented inspector of retained model requests."
+  @moduledoc "Continuous inspector of retained requests, honoring artifact deep links."
   use Phoenix.Component
   import Responder.ControlPlane.Components
   alias Responder.ControlPlane.RequestContextHTML
@@ -7,8 +7,8 @@ defmodule Responder.ControlPlane.RequestPage do
   def render(assigns) do
     assigns =
       assigns
-      |> assign(:section, section(assigns.view.selected, assigns.params["section"]))
       |> pin_selection()
+      |> assign_sections()
 
     ~H"""
     <section class="model-inspector" aria-label="Model request inspector">
@@ -42,7 +42,12 @@ defmodule Responder.ControlPlane.RequestPage do
           )}</strong><time>{timestamp(request.at)}</time></.link>
           <.paging path={@path} params={@params} page={@view.page} pages={@view.pages} key="page" />
         </aside>
-        <article :if={@view.selected} class="request-reader">
+        <article
+          :if={@view.selected}
+          class="request-reader"
+          data-request-id={@view.selected.id}
+          data-generation={@view.selected[:generation]}
+        >
           <div class="request-reader-heading">
             <div>
               <span>{@view.selected.title}</span><h3>{@view.selected.target}</h3>
@@ -63,48 +68,12 @@ defmodule Responder.ControlPlane.RequestPage do
             pages={@view.selected[:generations]}
             key="generation"
           />
-          <div class="request-document-layout">
-            <nav class="document-index" aria-label="Request contents">
-              <p class="ui-eyebrow">CONTENTS</p><.link
-                :for={section <- @view.selected.sections}
-                patch={path(@path, @params, %{section: section.id})}
-                aria-current={if @section && @section.id == section.id, do: "page"}
-              ><span>{short_title(section.id, section.title)}</span><i
-                class={"artifact-#{section.artifact.state}"}
-                title={to_string(section.artifact.state)}
-              ></i></.link><a href="#retained-tools">Tool activity
-              <span>{@view.selected.tools.total}</span></a>
-            </nav>
-            <section :if={@section} class="inspector-document" id={"document-#{@section.id}"}>
-              <div class="document-heading">
-                <h4>{@section.title}</h4><span>{artifact_label(@section.artifact)}</span>
-              </div>
-              <div :if={@section.artifact.state != :retained} class="document-unavailable">
-                <.icon name={:book} /><h3>
-                  {if @section.artifact.state == :expired,
-                    do: "This artifact has expired",
-                    else: "This artifact was not recorded"}
-                </h3><p>
-                  No reconstructed substitute is shown. You are inspecting the retained history, not today's regenerated prompt.
-                </p>
-              </div>
-              <div :if={@section.artifact.state == :retained}>
-                <div :if={@section.id == "context"} class="readable-model-context">
-                  {Phoenix.HTML.raw(RequestContextHTML.render(@section.artifact))}
-                </div>
-                <pre :if={@section.id != "context"} class="model-document-text" tabindex="0">{@section.artifact.text}</pre>
-                <details class="document-provenance">
-                  <summary>
-                    Artifact identity{if @section.artifact.redacted, do: " · redacted display"}{if @section.artifact.truncated,
-                      do: " · truncated display"}
-                  </summary><p>Original retained bytes: {@section.artifact.bytes}</p><code>{@section.artifact.sha256}</code><pre
-                    :if={@section.id == "context"}
-                    class="model-document-text"
-                    tabindex="0"
-                  >{@section.artifact.text}</pre>
-                </details>
-              </div>
-            </section>
+          <div class="request-document-flow">
+            <.artifact
+              :for={section <- @sections}
+              section={section}
+              prefix={"selected-#{@view.selected.id}"}
+            />
           </div>
           <section class="retained-tools" id="retained-tools">
             <div class="rail-heading">
@@ -141,6 +110,45 @@ defmodule Responder.ControlPlane.RequestPage do
     """
   end
 
+  def artifact(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :readable_context,
+        if(assigns.section.id == "context",
+          do: IO.iodata_to_binary(RequestContextHTML.render(assigns.section.artifact)),
+          else: ""
+        )
+      )
+
+    ~H"""
+    <section class={"inspector-document artifact-#{@section.id}"} id={"#{@prefix}-#{@section.id}"}>
+      <div class="document-heading">
+        <h4>{@section.title}</h4><span>{artifact_label(@section.artifact)}{if @section.artifact.truncated,
+          do: " · truncated display"}</span>
+      </div>
+      <p :if={@section.artifact.state != :retained} class="artifact-unavailable">
+        {if @section.artifact.state == :expired,
+          do: "This artifact has expired",
+          else: "This artifact was not recorded"}. No reconstructed substitute is shown.
+      </p>
+      <div :if={@section.artifact.state == :retained}>
+        <div :if={@readable_context != ""} class="readable-model-context">
+          {Phoenix.HTML.raw(@readable_context)}
+        </div>
+        <pre :if={@readable_context == ""} class="model-document-text" tabindex="0">{@section.artifact.text}</pre>
+        <details class="document-provenance" id={"#{@prefix}-#{@section.id}-provenance"}>
+          <summary>
+            Artifact identity{if @section.artifact.redacted, do: " · redacted display"}
+          </summary>
+          <p>Original retained bytes: {@section.artifact.bytes}</p><code>{@section.artifact.sha256}</code>
+          <pre :if={@section.id == "context"} class="model-document-text" tabindex="0">{@section.artifact.text}</pre>
+        </details>
+      </div>
+    </section>
+    """
+  end
+
   defp paging(assigns) do
     ~H"""
     <div :if={@pages > 1} class="ui-pagination">
@@ -165,6 +173,16 @@ defmodule Responder.ControlPlane.RequestPage do
 
   defp pin_selection(assigns), do: assigns
 
+  defp assign_sections(%{view: %{selected: nil}} = assigns),
+    do: assign(assigns, :sections, [])
+
+  defp assign_sections(assigns) do
+    {focused, rest} =
+      Enum.split_with(assigns.view.selected.sections, &(&1.id == assigns.params["section"]))
+
+    assign(assigns, :sections, focused ++ rest)
+  end
+
   defp path(path, params, changes),
     do:
       path <>
@@ -176,22 +194,8 @@ defmodule Responder.ControlPlane.RequestPage do
           )
         )
 
-  defp section(nil, _), do: nil
-
-  defp section(request, id),
-    do: Enum.find(request.sections, &(&1.id == id)) || List.first(request.sections)
-
   defp artifact_label(%{state: :expired}), do: "Expired"
   defp artifact_label(%{state: :not_recorded}), do: "Not recorded"
   defp artifact_label(%{redacted: true}), do: "Retained · redacted"
   defp artifact_label(_), do: "Retained"
-  defp short_title("instructions", _), do: "Instructions"
-  defp short_title("context", _), do: "Messages & context"
-  defp short_title("tools", _), do: "Tools & scope"
-  defp short_title("contract", _), do: "Output contract"
-  defp short_title("request", _), do: "Raw submission"
-  defp short_title("candidate", _), do: "Candidate / decision"
-  defp short_title("validation", _), do: "Validation & repairs"
-  defp short_title("delivery", _), do: "Delivery document"
-  defp short_title(_, title), do: title
 end

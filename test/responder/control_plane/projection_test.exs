@@ -1048,7 +1048,8 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Projection.decisions(%{}) == []
     assert Projection.findings(%{}) == []
     assert length(Projection.audit(%{})) >= 9
-    assert map_size(Projection.callbacks()) == 37
+    assert map_size(Projection.callbacks()) == 38
+    assert is_function(Projection.callbacks().model_timeline, 2)
     assert is_function(Projection.callbacks().activity, 1)
     assert is_function(Projection.callbacks().card_lab_slack, 1)
     assert is_function(Projection.callbacks().card_lab_post, 1)

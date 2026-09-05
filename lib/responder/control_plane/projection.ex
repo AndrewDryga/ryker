@@ -56,6 +56,7 @@ defmodule Responder.ControlPlane.Projection do
       emisar: &emisar/1,
       episode: &episode/1,
       model_requests: &ModelRequests.project/2,
+      model_timeline: &ModelRequests.timeline/2,
       admission_request: &ModelRequests.project_input/2,
       episodes: &episodes/1,
       failures: &failures/1,
