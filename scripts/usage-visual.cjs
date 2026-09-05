@@ -29,6 +29,14 @@ const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwrigh
       assert.equal(await page.locator('#daily-values, #usage-profiles details').count(), 0);
       assert.equal(await page.getByText('Unattributed profile', {exact: true}).count(), 0);
       assert.equal(await page.getByText('Unclassified work', {exact: true}).count(), 0);
+      assert.equal(await page.getByText('Execution ledger', {exact: true}).count(), 0);
+      assert.equal(await page.locator('.execution-ledger-disclosure').count(), 0);
+      assert.equal(await page.locator('.usage-scope [aria-current=page]').textContent(), 'All work');
+      assert.equal(await page.getByText('Unknown model', {exact: true}).count(), 0);
+      assert.equal(await page.locator('#usage-channels').getByText('Conversation Lab', {exact: true}).count(), 0);
+      for (const href of await page.locator('#usage-channels .usage-identity a').evaluateAll(es => es.map(e => e.href))) {
+        assert.equal(new URL(href).searchParams.get('usage_transport'), 'slack');
+      }
       assert.deepEqual(await page.locator('#usage-people th').allTextContents(), ['Person', 'Episodes', 'Tokens', 'Cost']);
       const peopleBounds = await page.locator('#usage-people table').evaluate(e => [e.getBoundingClientRect().width, e.parentElement.clientWidth]);
       assert(peopleBounds[0] <= peopleBounds[1], 'The compact people table fits without horizontal scrolling');
@@ -47,6 +55,11 @@ const {chromium} = require(process.env.RESPONDER_PLAYWRIGHT_MODULE || 'playwrigh
       await page.screenshot({path: path.join(output, `people-${width}.png`)});
       const method = page.locator('#cost-method');
       await method.locator('summary').click();
+      assert.equal(await method.locator('summary').textContent(), 'Token pricing');
+      const pricingBounds = await page.locator('.usage-pricing-table').evaluate(e => [e.getBoundingClientRect().width, e.parentElement.clientWidth]);
+      assert(pricingBounds[0] <= pricingBounds[1], 'Token pricing fits without horizontal scrolling');
+      await method.scrollIntoViewIfNeeded();
+      await page.screenshot({path: path.join(output, `pricing-${width}.png`)});
       // Automatic refresh preserves reading state, without a Pause/Refresh UI.
       const updated = await page.locator('#responder-shell').getAttribute('data-updated-at');
       await page.waitForFunction(previous => document.querySelector('#responder-shell')?.dataset.updatedAt !== previous, updated, {timeout: 12000});

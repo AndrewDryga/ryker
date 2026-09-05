@@ -71,6 +71,12 @@
 .usage-page .measurement-notes { border:0; border-top:1px solid var(--stroke); border-radius:0; background:none; padding:18px 0; }
 .usage-page .measurement-notes summary { font-size:14px; color:var(--secondary); }
 .usage-page .measurement-notes p { font-size:14px; max-width:90ch; }
+.responder-app .usage-page .usage-pricing-table { min-width:0; width:100%; max-width:720px; table-layout:fixed; background:var(--surface,#fff); font-size:13px; }
+.usage-page #cost-method .table-wrap { max-width:720px; }
+.responder-app .usage-pricing-table th, .responder-app .usage-pricing-table td { padding:12px 8px; overflow-wrap:anywhere; }
+.responder-app .usage-pricing-table th:first-child { width:37%; }
+.responder-app .usage-pricing-table th:not(:first-child), .responder-app .usage-pricing-table td:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; }
+.usage-scope-description { margin:0 0 20px; font-size:14px; color:var(--secondary); }
 @media(max-width:1200px) { .usage-charts { grid-template-columns:1fr; gap:16px; } .usage-donut { justify-content:flex-start; gap:32px; } .usage-donut dl { max-width:400px; } }
 @media(max-width:700px) { .usage-headlines { grid-template-columns:1fr 1fr; gap:24px; padding:20px; } .usage-stat > strong { font-size:28px; } .usage-token-groups { grid-template-columns:1fr; padding:20px; gap:20px; } .usage-token-group + .usage-token-group { border-left:0; border-top:1px solid var(--stroke); padding:38px 0 0; } .usage-token-group + .usage-token-group .usage-group-label { top:16px; left:0; } .usage-cache { padding-top:16px !important; } .usage-charts > section { padding:18px 16px; } .usage-page .usage-filters { gap:12px; } .usage-donut { gap:16px; } }
 .usage-chart { margin:0; }
@@ -84,8 +90,8 @@
 .chart-bar { fill:#526e43; }
 .chart-bar:hover { fill:#27472f; }
 .usage-chart details { margin:4px 0 0; font-size:14px; }
-.execution-ledger-disclosure, .responder-app details.measurement-notes { margin:20px 0; padding:16px 20px; background:#fff; border:1px solid var(--stroke); border-radius:6px; }
-.execution-ledger-disclosure > summary, details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var(--green); }
+.responder-app details.measurement-notes { margin:20px 0; padding:16px 20px; background:#fff; border:1px solid var(--stroke); border-radius:6px; }
+details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var(--green); }
 .audit-feed { max-width:1000px; }
 .audit-event { display:grid; grid-template-columns:160px minmax(0,1fr); gap:24px; padding:20px 0; border-bottom:1px solid var(--stroke); }
 .audit-event > time { font-size:14px; color:var(--secondary); font-variant-numeric:tabular-nums; padding-top:3px; }

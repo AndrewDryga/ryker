@@ -676,8 +676,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert row.href == "/episodes/request%3Aone%2Fpart%3Fx%23fragment"
   end
 
-  test "usage groups Lab conversations into one destination without merging Slack channels" do
-    # The usage page showed a dozen indistinguishable Conversation Lab rows.
+  test "the channel breakdown contains only Slack without excluding Lab from overall usage" do
     now = DateTime.utc_now()
 
     for suffix <- ["lab-one", "lab-two"] do
@@ -692,11 +691,40 @@ defmodule Responder.ControlPlane.ProjectionTest do
     measured_turn!("slack-one", "codex:gpt-5.6-sol/medium", now)
     snapshot = Projection.usage(%{"window" => "24h"})
 
-    assert [%{attempts: 2, conversation_ref: "control-plane:lab:"}] =
-             Enum.filter(snapshot.channels, &(&1.transport == "control_plane"))
-
     assert [%{attempts: 1, conversation_ref: "slack:T123:C456"}] =
-             Enum.filter(snapshot.channels, &(&1.transport == "slack"))
+             snapshot.channels
+
+    assert snapshot.totals.attempts == 3
+  end
+
+  test "usage includes live and evaluation work unless the operator narrows the scope" do
+    turn = measured_turn!("all-mode", "codex:gpt-5.6-sol/medium@emisar", DateTime.utc_now())
+
+    Repo.update_all(from(e in Responder.Accounting.Execution, where: e.source_id == ^turn.id),
+      set: [execution_mode: "shadow"]
+    )
+
+    assert Projection.usage(%{}).totals.attempts == 1
+    assert Projection.usage(%{}).mode == "all"
+    assert Projection.usage(%{"mode" => "live"}).totals.attempts == 0
+    assert Projection.usage(%{"mode" => "shadow"}).totals.attempts == 1
+    refute Map.has_key?(Projection.usage(%{}), :executions)
+    assert Activity.list(%{"usage_measurement" => "missing"}).total == 0
+  end
+
+  test "missing measurement drilldowns find only requests with missing reports" do
+    missing = measured_turn!("missing-report", "codex:gpt-5.6-sol/medium", DateTime.utc_now())
+    measured_turn!("measured-report", "codex:gpt-5.6-sol/medium", DateTime.utc_now())
+
+    Repo.update_all(from(e in Responder.Accounting.Execution, where: e.source_id == ^missing.id),
+      set: [usage_recorded: false]
+    )
+
+    result = Activity.list(%{"usage_measurement" => "missing", "mode" => "all"})
+    assert result.total == 1
+    assert hd(result.items).id == missing.episode_id
+    assert Activity.list(%{"usage_measurement" => "measured", "mode" => "all"}).total == 1
+    assert Activity.list(%{"usage_measurement" => %{"bad" => "query"}}).total == 0
   end
 
   # Provider work still costs money when the host never accepts the answer.

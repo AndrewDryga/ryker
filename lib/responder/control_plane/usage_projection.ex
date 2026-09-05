@@ -10,6 +10,7 @@ defmodule Responder.ControlPlane.UsageProjection do
     "usage_provider" => :provider,
     "usage_model" => :model,
     "usage_effort" => :effort,
+    "usage_measurement" => :measurement,
     "usage_target" => :execution_target,
     "usage_channel" => :conversation_ref,
     "usage_transport" => :transport,
@@ -89,7 +90,8 @@ defmodule Responder.ControlPlane.UsageProjection do
       profiles: groups(query, [:provider, :profile]),
       targets: targets,
       models: groups(query, [:provider, :model, :effort]),
-      channels: groups(query, [:transport, :conversation_ref]),
+      channels:
+        groups(from(e in query, where: e.transport == "slack"), [:transport, :conversation_ref]),
       repositories: groups(query, [:repository_ref]),
       kinds: groups(query, [:work_kind]),
       users: groups(query, [:source, :workspace, :actor]),
@@ -111,6 +113,7 @@ defmodule Responder.ControlPlane.UsageProjection do
         source: entry.source_kind,
         workspace: entry.source_ref,
         actor: entry.actor_ref,
+        measurement: fragment("CASE WHEN ? THEN 'measured' ELSE 'missing' END", e.usage_recorded),
         provider:
           fragment(
             "COALESCE(NULLIF(split_part(split_part(split_part(?, '@', 1), '/', 1), ':', 1), ''), 'unrecorded')",

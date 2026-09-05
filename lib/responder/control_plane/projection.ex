@@ -952,11 +952,11 @@ defmodule Responder.ControlPlane.Projection do
 
   def usage(params) when is_map(params) do
     {window, since} = usage_window(params["window"])
-    mode = if params["mode"] in ~w(shadow all), do: params["mode"], else: "live"
+    mode = if params["mode"] in ~w(live shadow), do: params["mode"], else: "all"
     query = Responder.Accounting.Query.executions(since, mode)
 
     UsageProjection.snapshot(query)
-    |> Map.merge(%{executions: usage_executions(query, params), mode: mode, window: window})
+    |> Map.merge(%{mode: mode, window: window})
   end
 
   def usage(_params), do: usage(%{})
@@ -1989,46 +1989,6 @@ defmodule Responder.ControlPlane.Projection do
   defp workspace_action(%Session{}), do: nil
 
   defp usage_totals(query), do: UsageProjection.totals(query)
-
-  defp usage_executions(query, params) do
-    selected_page = page(params["page"])
-
-    rows =
-      Repo.all(
-        from(execution in query,
-          order_by: [desc: execution.recorded_at, desc: execution.id],
-          offset: ^((selected_page - 1) * @page_size),
-          limit: ^(@page_size + 1),
-          select:
-            map(execution, [
-              :id,
-              :source_id,
-              :kind,
-              :episode_id,
-              :generation,
-              :status,
-              :recorded_at,
-              :execution_target,
-              :usage_recorded,
-              :usage_cost_recorded,
-              :usage_cost_usd,
-              :estimated_cost_usd,
-              :usage_input_tokens,
-              :usage_output_tokens
-            ]),
-          # The UNION loses schema loader metadata. Restore it at this UI
-          # boundary so UUIDs are text, not invalid bytes in LiveView JSON.
-          select_merge: %{
-            id: type(execution.id, :binary_id),
-            source_id: type(execution.source_id, :binary_id),
-            episode_id: type(execution.episode_id, :binary_id),
-            recorded_at: type(execution.recorded_at, :utc_datetime_usec)
-          }
-        )
-      )
-
-    %{items: Enum.take(rows, @page_size), page: selected_page, more: length(rows) > @page_size}
-  end
 
   defp usage_window("24h"), do: {"24h", DateTime.add(database_now!(), -24, :hour)}
   defp usage_window("30d"), do: {"30d", DateTime.add(database_now!(), -30, :day)}
