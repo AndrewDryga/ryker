@@ -9,11 +9,9 @@ defmodule Responder.ControlPlane.LabPage do
     <div class={"conversation-lab #{if @snapshot, do: "has-conversation", else: "lab-welcome"}"}>
       <aside class="lab-directory">
         <div class="lab-directory-heading">
-          <h1>Conversation Lab</h1><a href="/lab/new" aria-label="New conversation"><.icon name={
-            :plus
-          } /></a>
-        </div><p>Your private test bench</p>
-        <a class="ui-button secondary" href="/lab/new"><.icon name={:plus} />New conversation</a>
+          <h1>Conversation Lab</h1>
+        </div>
+        <a :if={@snapshot} class="ui-button secondary" href="/lab/new"><.icon name={:plus} />New conversation</a>
         <div class="lab-directory-list">
           <p class="ui-eyebrow">RECENT CONVERSATIONS</p><p
             :if={@items == []}
@@ -28,26 +26,16 @@ defmodule Responder.ControlPlane.LabPage do
           ><strong>{Map.get(item, :title, "Conversation")}</strong><span>{item.message_count} inputs · {timestamp(
             item.updated_at
           )}</span></.link>
-        </div><a class="lab-guide-link" href="/manual-tests">Manual testing guide
-        <.icon name={:arrow} /></a>
+        </div>
       </aside>
       <div :if={!@snapshot} class="lab-start">
-        <p class="ui-eyebrow">TEST WITHOUT THE SLACK NOISE</p><div
-          class="lab-start-symbol"
-          aria-hidden="true"
-        >
-          r<span>.</span>
-        </div><h2>A direct line<br />to Responder.</h2><p>
-          Talk to the same runtime, with the same configured models and tools. Follow each request from the first message to its final answer.
-        </p><a class="ui-button primary" href="/lab/new">Start a conversation <.icon name={:arrow} /></a><div class="lab-start-notes">
-          <div>
-            <.icon name={:chat} /><span><strong>Have a real conversation</strong>Follow-ups, attachments, tasks, approvals, and reactions.</span>
-          </div><div>
-            <.icon name={:search} /><span><strong>See behind the answer</strong>Read the request, inspect tools, and trace every recorded step.</span>
-          </div><div>
-            <.icon name={:incident} /><span><strong>Real tools, local delivery</strong>Slack effects are emulated here. Repository and Emisar actions still follow their real authority.</span>
-          </div>
-        </div>
+        <h2>Test a conversation</h2><p>
+          Send a message to the configured models and tools, then inspect the prompt, tool calls, and reply in its execution timeline.
+        </p><a class="ui-button primary" href="/lab/new">New conversation <.icon name={:arrow} /></a><p class="lab-start-notes">
+          <strong>Real tools, local replies.</strong>
+          Slack effects are emulated here. Repository and Emisar actions still use their configured authority.
+          <a href="/configuration">Inspect configuration</a>
+        </p>
       </div>
       <section :if={@snapshot} class="lab-chat" aria-label="Conversation">
         <div class="lab-chat-header">
@@ -64,8 +52,8 @@ defmodule Responder.ControlPlane.LabPage do
           <.icon name={:incident} /><span>Live tools · Local delivery. Slack-owned effects are emulated; repository and Emisar actions use the configured authority.</span><a href="/configuration">Inspect</a>
         </div>
         <div :if={@snapshot.messages == []} class="lab-first-message">
-          <span class="lab-start-symbol small" aria-hidden="true">r.</span><h3>
-            What would you like to work on?
+          <h3>
+            Send a test message
           </h3><p>
             Ask a question, investigate an issue, or try a feature. Your first message starts the conversation.
           </p>

@@ -74,8 +74,34 @@ defmodule Responder.ControlPlane.NativePagesTest do
 
     assert html =~ "No matching requests"
     assert html =~ "Clear filters"
-    assert html =~ "Local execution"
-    refute html =~ "Start with a conversation"
+    refute html =~ "activity-rail"
+    refute html =~ "No requests yet"
+  end
+
+  test "worker problems remain actionable without filling an empty inbox with decorative widgets" do
+    # The old rail hid worker status at tablet widths and showed invented account status.
+    for fleet <- [%{required: true, eligible_workers: 0}, %{unavailable: true}] do
+      html =
+        render_component(&ActivityPage.render/1,
+          overview: %{counts: %{}, fleet: fleet},
+          activity: %{total: 0, page: 1, pages: 1, mode: "live"},
+          params: %{},
+          path: "/",
+          now: @now,
+          stream: [],
+          new_items: 0,
+          schedules: []
+        )
+
+      assert html =~ "Worker attention"
+      assert html =~ "Inspect configuration"
+      assert html =~ "href=\"/workspaces\""
+      assert html =~ "No requests yet"
+      refute html =~ "Coming up"
+      refute html =~ "Test your responder"
+      refute html =~ "Local operator"
+      refute html =~ "empty-orbit"
+    end
   end
 
   test "the episode shows cost coverage, recovery evidence, and confirmed answers together" do

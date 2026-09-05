@@ -4,16 +4,21 @@ defmodule Responder.ControlPlane.ActivityPage do
   import Responder.ControlPlane.Components
 
   def render(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :show_context,
+        assigns.schedules != [] or worker_attention?(assigns.overview)
+      )
+
     ~H"""
-    <div class="activity-layout">
+    <div class={"activity-layout #{if @show_context, do: "with-context"}"}>
       <section class="activity-primary">
         <div class="page-intro">
           <div>
-            <p class="ui-eyebrow">WORKSPACE / ACTIVITY</p><h1>
-              Your activity<span class="title-period">.</span>
-            </h1><p>Every request. Its progress. The full story behind the answer.</p>
+            <h1>Requests</h1><p>Inspect incoming messages, running work, and delivered answers.</p>
           </div>
-          <a class="ui-button primary" href="/lab/new"><.icon name={:plus} />New conversation</a>
+          <a :if={@activity.total > 0} class="ui-button secondary" href="/lab/new"><.icon name={:plus} />Test a message</a>
         </div>
         <div class="activity-pulse" aria-label="Current workload">
           <span><i class="pulse-dot"></i><b data-active-count>{Map.get(@overview.counts, :active, 0)}</b>
@@ -29,7 +34,7 @@ defmodule Responder.ControlPlane.ActivityPage do
               <.link
                 :for={
                   {key, name} <- [
-                    {"all", "All activity"},
+                    {"all", "All requests"},
                     {"attention", "Needs you"},
                     {"running", "In progress"},
                     {"done", "Finished"}
@@ -73,24 +78,18 @@ defmodule Responder.ControlPlane.ActivityPage do
           <button :if={@new_items > 0} class="new-activity" phx-click="show-new">{@new_items} new or reordered requests · Show latest
           <.icon name={:arrow} /></button>
           <div :if={@activity.total == 0} class="activity-empty">
-            <div class="empty-orbit" aria-hidden="true">
-              <span></span><.icon name={:chat} /><span></span>
-            </div>
             <h2>
-              {if filtered?(@params), do: "No matching requests", else: "Start with a conversation"}
+              {if filtered?(@params), do: "No matching requests", else: "No requests yet"}
             </h2>
             <p>
               {if filtered?(@params),
                 do: "Try another phrase or view all activity. Your filters only change this view.",
                 else:
-                  "Send a message in the Lab to see Responder think, use its tools, and reply. No Slack noise required."}
+                  "Messages from connected platforms and the Conversation Lab appear here with their execution history."}
             </p>
             <.link :if={filtered?(@params)} class="ui-button secondary" patch={@path}>Clear filters</.link>
-            <a :if={!filtered?(@params)} class="ui-button primary" href="/lab/new">Open Conversation Lab
+            <a :if={!filtered?(@params)} class="ui-button primary" href="/lab/new">Test a message
             <.icon name={:arrow} /></a>
-            <div :if={!filtered?(@params)} class="empty-capabilities">
-              <span><.icon name={:check} />Configured models & tools</span><span><.icon name={:check} />Durable conversation history</span>
-            </div>
           </div>
           <div id="activity-stream" phx-update="stream" class="activity-list">
             <article :for={{dom_id, item} <- @stream} id={dom_id} class="activity-row">
@@ -127,19 +126,11 @@ defmodule Responder.ControlPlane.ActivityPage do
             >Next <.icon name={:arrow} /></.link>
           </div>
         </section>
-        <div class="activity-footnote">
-          <.icon name={:clock} /><span>Updates follow committed state. Open any request to inspect the context sent to the model.</span>
-        </div>
       </section>
-      <aside class="activity-rail" aria-label="Workspace context">
-        <section class="rail-section">
+      <aside :if={@show_context} class="activity-rail" aria-label="Execution context">
+        <section :if={@schedules != []} class="rail-section">
           <div class="rail-heading">
             <h2>Coming up</h2><a href="/schedules" aria-label="All schedules"><.icon name={:arrow} /></a>
-          </div>
-          <div :if={@schedules == []} class="rail-empty">
-            <.icon name={:clock} /><h3>No scheduled work</h3><p>
-              Recurring tasks and reminders will appear here.
-            </p><a href="/schedules">View schedules <.icon name={:arrow} /></a>
           </div>
           <a
             :for={schedule <- @schedules}
@@ -147,26 +138,18 @@ defmodule Responder.ControlPlane.ActivityPage do
             href={"/schedules/#{URI.encode_www_form(schedule.ref)}"}
           ><span>{timestamp(schedule.next_occurrence_at)}</span><strong>{schedule.title}</strong><small>{schedule.timezone}</small></a>
         </section>
-        <section class="rail-section">
+        <section :if={worker_attention?(@overview)} class="rail-section rail-runtime">
           <div class="rail-heading">
-            <h2>Test your responder</h2><span class="ui-label">LABS</span>
-          </div>
-          <a class="rail-link" href="/lab"><.icon name={:chat} /><div>
-            <strong>Conversation Lab</strong><span>Talk to the model. Inspect every step.</span>
-          </div><.icon name={:chevron} /></a>
-          <a class="rail-link" href="/card-lab"><.icon name={:cards} /><div>
-            <strong>Slack Card Lab</strong><span>Every card, state, and transition.</span>
-          </div><.icon name={:chevron} /></a>
-        </section>
-        <section class="rail-section rail-runtime">
-          <div class="rail-heading">
-            <h2>Runtime</h2><a href="/configuration">Inspect</a>
+            <h2>Worker attention</h2><a href="/configuration">Inspect configuration</a>
           </div>
           <p :if={get_in(@overview, [:fleet, :unavailable])} class="runtime-problem">
             Worker status is unavailable. Check configuration before starting work.
           </p>
+          <p :if={!get_in(@overview, [:fleet, :unavailable])} class="runtime-problem">
+            No eligible workers. Requests need a connected worker before they can run.
+          </p>
           <dl>
-            <dt>State</dt><dd>PostgreSQL</dd><dt>Access</dt><dd>Local operator</dd><dt>Workers</dt><dd>
+            <dt>Last recorded workers</dt><dd>
               {worker_label(@overview)}
             </dd>
           </dl>
@@ -199,7 +182,10 @@ defmodule Responder.ControlPlane.ActivityPage do
       Enum.any?(~w(q target repository state), &(params[&1] not in [nil, ""])) or
         params["filter"] not in [nil, "all"]
 
+  defp worker_attention?(%{fleet: %{unavailable: true}}), do: true
+  defp worker_attention?(%{fleet: %{required: true, eligible_workers: 0}}), do: true
+  defp worker_attention?(_), do: false
+
   defp worker_label(%{fleet: %{eligible_workers: count}}), do: "#{count} eligible"
-  defp worker_label(%{fleet: %{required: false}}), do: "Local execution"
   defp worker_label(_), do: "Not observed"
 end

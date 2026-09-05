@@ -62,8 +62,8 @@ defmodule Responder.ControlPlane.LiveTest do
   } do
     conn = build_conn() |> Map.put(:host, "localhost")
     assert {:ok, view, html} = live(conn, "/")
-    assert html =~ "Your activity"
-    assert html =~ "Start with a conversation"
+    assert html =~ "Requests"
+    assert html =~ "No requests yet"
     refute html =~ "class=\"metric\""
     assert has_element?(view, "[data-connection-state=connected]")
     assert has_element?(view, "[data-active-count]", "1")
@@ -93,11 +93,31 @@ defmodule Responder.ControlPlane.LiveTest do
     assert conn.status == 403
   end
 
+  test "the execution console removes template chrome while preserving live controls" do
+    {:ok, view, html} = live(build_conn() |> Map.put(:host, "localhost"), "/")
+    refute html =~ "Local operator"
+    refute html =~ "Local workspace"
+    refute html =~ "app-breadcrumb"
+    refute html =~ "Local, durable, yours"
+    refute html =~ "empty-orbit"
+    refute html =~ "empty-capabilities"
+    refute html =~ "Test your responder"
+    assert has_element?(view, "h1", "Requests")
+    assert has_element?(view, "#live-status time")
+    assert has_element?(view, "button[phx-click=toggle-live]")
+    assert has_element?(view, "button[phx-click=refresh]")
+    assert has_element?(view, "#activity-filters")
+  end
+
   test "native directory entry points and missing records remain usable across live navigation" do
     conn = build_conn() |> Map.put(:host, "localhost")
     {:ok, view, _} = live(conn, "/lab")
-    assert has_element?(view, ".lab-start", "A direct line")
-    assert has_element?(view, ".lab-start-notes", "Real tools, local delivery")
+    assert has_element?(view, ".lab-start", "Test a conversation")
+    assert has_element?(view, ".lab-start-notes", "Real tools, local replies")
+    assert has_element?(view, ".lab-start-notes", "Repository and Emisar actions")
+    assert has_element?(view, ".lab-start-notes a[href='/configuration']")
+    assert has_element?(view, ".lab-start a[href='/lab/new']")
+    refute has_element?(view, ".lab-directory a[href='/lab/new']")
     view |> element(".app-sidebar a", "Slack Card Lab") |> render_click()
     assert_redirect(view, "/card-lab")
     {:ok, cards, _} = live(conn, "/card-lab")
@@ -294,10 +314,18 @@ defmodule Responder.ControlPlane.LiveTest do
 
   test "mobile workspace navigation preserves every secondary destination" do
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/")
-    assert has_element?(view, "details.mobile-manage summary", "Manage")
+    assert has_element?(view, "details.mobile-manage summary", "More")
 
-    for path <- ~w(memory findings calibration repositories channels subscriptions audit) do
+    for path <-
+          ~w(memory findings calibration repositories channels subscriptions lab card-lab manual-tests) do
       assert has_element?(view, ".mobile-manage a[href='/#{path}']")
+    end
+
+    for path <- ~w(audit failures) do
+      assert has_element?(
+               view,
+               ".app-sidebar nav[aria-label='Main navigation'] a[href='/#{path}']"
+             )
     end
   end
 
