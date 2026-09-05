@@ -1758,6 +1758,7 @@ defmodule Responder.ControlPlane.Projection do
       detail: FailureDetail.project(session.cleanup_last_error_detail),
       diagnosis: FailureDetail.facts(session.cleanup_last_error_detail),
       cleanup_phase: session.cleanup_blocked_from,
+      request_state: episode.state,
       closed_at: session.closed_at,
       discarded_at: session.discarded_at,
       destination: failure_destination(episode),

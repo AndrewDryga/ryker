@@ -2183,6 +2183,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
            }
 
     assert failure.cleanup_phase == :plan_pending
+    assert failure.request_state == :complete
     assert failure.closed_at == ~U[2026-09-02 13:56:40.115749Z]
     assert is_binary(failure.request_title)
     refute inspect(failure) =~ fixture["error_detail"]

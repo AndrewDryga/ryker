@@ -1662,7 +1662,10 @@ defmodule Responder.ControlPlane.HTML do
           "<span class=\"failure-attempts\"><strong>",
           integer(Map.get(row, :attempt_count, 0)),
           "</strong> attempts</span>",
-          failure_recovery_action(row),
+          if(FailurePage.manual_repair?(row),
+            do: "<span class=\"failure-repair-needed\">Needs developer repair</span>",
+            else: failure_recovery_action(row)
+          ),
           "</div></article>"
         ]
       end)
@@ -1728,7 +1731,7 @@ defmodule Responder.ControlPlane.HTML do
   defp failure_recovery_action(%{action: action} = row) when action in [:rearm, :retry] do
     Components.action_button(
       "/actions/#{segment(row.kind)}/#{segment(row.ref)}/#{action}",
-      recovery_label(row.kind),
+      if(FailurePage.manual_repair?(row), do: "Retry cleanup", else: recovery_label(row.kind)),
       :primary
     )
   end
