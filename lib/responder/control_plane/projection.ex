@@ -2039,7 +2039,15 @@ defmodule Responder.ControlPlane.Projection do
               :usage_cost_usd,
               :usage_input_tokens,
               :usage_output_tokens
-            ])
+            ]),
+          # The UNION loses schema loader metadata. Restore it at this UI
+          # boundary so UUIDs are text, not invalid bytes in LiveView JSON.
+          select_merge: %{
+            id: type(execution.id, :binary_id),
+            source_id: type(execution.source_id, :binary_id),
+            episode_id: type(execution.episode_id, :binary_id),
+            recorded_at: type(execution.recorded_at, :utc_datetime_usec)
+          }
         )
       )
 

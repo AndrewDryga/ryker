@@ -165,6 +165,33 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     end
   end
 
+  def handle_event(
+        "card-family",
+        %{"card" => id},
+        %{assigns: %{card_lab: %{snapshot: snapshot}}} = socket
+      ) do
+    case Enum.find(snapshot.catalog, &(&1.id == id)) do
+      nil -> {:noreply, socket}
+      card -> select_card(socket, card.id, card.first_state_id)
+    end
+  end
+
+  def handle_event(
+        "card-state",
+        %{"state" => id},
+        %{assigns: %{card_lab: %{snapshot: snapshot}}} = socket
+      ) do
+    if Enum.any?(snapshot.card.states, &(&1.id == id)),
+      do: select_card(socket, snapshot.card.id, id),
+      else: {:noreply, socket}
+  end
+
+  defp select_card(socket, card, state) do
+    options = URI.encode_query(Map.take(socket.assigns.params, ~w(view width)))
+    path = "/card-lab/#{card}/#{state}" <> if(options == "", do: "", else: "?" <> options)
+    {:noreply, push_patch(socket, to: path)}
+  end
+
   defp refresh(socket, reset \\ false) do
     socket = assign(socket, :refresh_token, nil)
     options = Endpoint.config(:control_plane)
@@ -415,7 +442,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
               @connected -> "Live updates"
               true -> "Connecting"
             end}</span>
-            <button type="button" phx-click="toggle-live" aria-pressed={@paused}>{if @paused,
+            <button type="button" phx-click="toggle-live" aria-pressed={to_string(@paused)}>{if @paused,
               do: "Resume",
               else: "Pause"}</button><button type="button" phx-click="refresh">Refresh</button>
           </div>

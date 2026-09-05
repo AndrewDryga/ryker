@@ -107,6 +107,11 @@ defmodule Responder.ControlPlane.LiveTest do
     assert has_element?(view, "button[phx-click=toggle-live]")
     assert has_element?(view, "button[phx-click=refresh]")
     assert has_element?(view, "#activity-filters")
+    # HTML boolean attributes produced aria-pressed="" and no false state,
+    # so browsers could not expose whether live updates were paused.
+    assert has_element?(view, "button[phx-click=toggle-live][aria-pressed=false]", "Pause")
+    view |> element("button[phx-click=toggle-live]") |> render_click()
+    assert has_element?(view, "button[phx-click=toggle-live][aria-pressed=true]", "Resume")
   end
 
   test "native directory entry points and missing records remain usable across live navigation" do
@@ -152,6 +157,67 @@ defmodule Responder.ControlPlane.LiveTest do
 
     {:ok, goals, _} = live(conn, "/card-lab/task-card/recorded-goals")
     assert has_element?(goals, ".specimen-provenance", "not a captured engineering task")
+  end
+
+  test "a populated usage ledger connects and links admission with a printable UUID" do
+    # The production Usage page entered a rapid reconnect loop: the UNION
+    # projection returned UUID bytes, which could not be JSON-encoded by LiveView.
+    source = "099bf049-b7c2-4ead-969d-225ec7a3c6d2"
+
+    Repo.insert!(%Responder.Accounting.Execution{
+      kind: "admission",
+      source_id: source,
+      generation: "1",
+      execution_mode: "live",
+      transport: "control_plane",
+      conversation_ref: "control-plane:lab:925c519e-edf4-4e26-951f-b22d60392f10",
+      status: "completed",
+      recorded_at: DateTime.utc_now()
+    })
+
+    [row] = Projection.usage(%{}).executions.items
+    assert row.source_id == source
+    {:ok, view, html} = live(build_conn() |> Map.put(:host, "localhost"), "/usage")
+    assert String.valid?(html)
+    assert {:ok, _json} = Jason.encode(html)
+    assert has_element?(view, "[data-connection-state=connected]")
+    assert has_element?(view, "a[href='/admission/#{source}?generation=1']")
+    send(view.pid, :reconcile)
+    assert render(view) =~ source
+  end
+
+  test "card selectors expose every specimen without burying the preview" do
+    # The catalog and 19 task-state buttons consumed the entire phone screen
+    # before the operator could see the card they came to review.
+    {:ok, view, _} =
+      live(
+        build_conn() |> Map.put(:host, "localhost"),
+        "/card-lab/task-card/working?width=compact"
+      )
+
+    for card <- CardLab.catalog() do
+      assert has_element?(view, "#card-family option[value='#{card.id}']", card.title)
+    end
+
+    {:ok, snapshot} = CardLab.fetch("task-card", "working")
+
+    for state <- snapshot.card.states do
+      assert has_element?(view, "#card-state option[value='#{state.id}']", state.label)
+    end
+
+    view |> form("#card-state-form", %{state: "recorded-goals"}) |> render_change()
+    assert_patch(view, "/card-lab/task-card/recorded-goals?width=compact")
+    assert has_element?(view, ".specimen-canvas.compact", "Subtasks")
+
+    render_change(view, "card-state", %{"state" => "missing"})
+    refute_patched(view)
+    assert has_element?(view, "#card-state option[selected]", "Real goals · layout study")
+
+    view |> form("#card-family-form", %{card: "incident-room"}) |> render_change()
+    assert_patch(view, "/card-lab/incident-room/provisioning?width=compact")
+    assert has_element?(view, "#card-state option[selected]", "Provisioning")
+    render_change(view, "card-family", %{"card" => "https://attacker.example"})
+    refute_patched(view)
   end
 
   test "an episode has one continuous execution document and preserves exact request links" do

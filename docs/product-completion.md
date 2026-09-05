@@ -30,6 +30,15 @@ Simulated task states are explicitly labelled, not presented as historical Slack
 payloads. Other card families still need real examples, and public streaming
 model output still requires Coop capture; private thoughts are not a substitute.
 
+The Playwright increment replaces Card Lab's second catalog sidebar and state
+button wall with compact family/state selectors. It exposes provenance on demand,
+labels the usage chart with dates, counters and measurement coverage, and fixes
+the mobile journey overflow and composer overlapping the conversation. Browser
+interaction tests also exposed malformed pause-state ARIA and raw UUID bytes in
+the usage ledger; the latter prevented the populated Usage LiveView from connecting.
+Both have failing-before regression tests. The screenshot harness is documented
+in [control-plane-visual-testing.md](control-plane-visual-testing.md).
+
 ## Ordered implementation
 
 - [ ] Shared page readability: consistent surfaces, contrast, typography, spacing,
@@ -59,8 +68,13 @@ model output still requires Coop capture; private thoughts are not a substitute.
 ## Rendered page acceptance
 
 Inspect populated and empty states, errors, keyboard focus and narrow layouts.
-Browser discovery currently returns no attached browser. Screenshots supplied by
-the operator establish defects, not acceptance of our changes.
+Standalone Playwright is available even though in-app browser discovery has no
+attached browser. The first actual desktop/phone pass captured 26 page/detail
+routes plus all 132 card states. Missing populated incident/schedule records are
+explicitly reported; no synthetic production rows are inserted for screenshots.
+This is visual evidence, not completion of every page's information architecture:
+audit/decision/failure/workspace views still expose too many raw identifiers, and
+the unchecked product items below remain open.
 
 - [ ] Requests and filters
 - [ ] Episode and retained request detail
