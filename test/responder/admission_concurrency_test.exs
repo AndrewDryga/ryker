@@ -10,6 +10,7 @@ defmodule Responder.AdmissionConcurrencyTest do
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
+  alias Responder.State.ConversationObservation
 
   @now ~U[2026-08-27 12:00:01.000000Z]
 
@@ -83,6 +84,11 @@ defmodule Responder.AdmissionConcurrencyTest do
       after
         send(blocker.pid, :release)
         stop_tasks([blocker | contenders])
+
+        Repo.delete_all(
+          from(note in ConversationObservation, where: note.source_input_id == ^entry.id)
+        )
+
         Repo.delete_all(from(inbox in Entry, where: inbox.id == ^entry.id))
 
         case Repo.one(from(episode in Episode, where: episode.key == ^episode_key)) do

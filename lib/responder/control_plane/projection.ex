@@ -11,6 +11,7 @@ defmodule Responder.ControlPlane.Projection do
 
   alias Responder.ControlPlane.{Activity, AdmissionProgress, InspectionRedactor, UsageProjection}
   alias Responder.ControlPlane.BehaviorLibrary
+  alias Responder.ControlPlane.ConversationMemory
   alias Responder.ControlPlane.CurrentInputs
   alias Responder.ControlPlane.ModelRequests
 
@@ -67,7 +68,7 @@ defmodule Responder.ControlPlane.Projection do
       lab_artifact: &lab_artifact/3,
       lab_conversation: &lab_conversation/1,
       lab_index: &lab_index/0,
-      memory: &memory/0,
+      memory: &memory/1,
       overview: &overview/0,
       operator_configuration: &operator_configuration/0,
       repositories: &repositories/1,
@@ -197,7 +198,7 @@ defmodule Responder.ControlPlane.Projection do
     with {:ok, conversation_id} <- normalized_uuid(conversation_id),
          {:ok, turn_id} <- normalized_uuid(turn_id),
          true <- Regex.match?(~r/\A[A-Za-z0-9_.:-]{1,256}\z/, artifact_ref),
-         {artifact, delivery_document} when not is_nil(artifact) <-
+         %OutputArtifact{} = artifact <-
            Repo.one(
              from(artifact in OutputArtifact,
                join: turn in Turn,
@@ -209,11 +210,11 @@ defmodule Responder.ControlPlane.Projection do
                    episode.destination_transport == "control_plane" and
                    episode.destination_conversation_ref == ^(@lab_prefix <> conversation_id) and
                    episode.destination_thread_ref == ^(@lab_prefix <> conversation_id) and
-                   not is_nil(turn.accepted_at) and not is_nil(turn.delivery_document),
-               select: {artifact, turn.delivery_document}
+                   not is_nil(turn.accepted_at) and not is_nil(turn.delivery_document) and
+                   is_nil(turn.operational_pruned_at),
+               select: artifact
              )
-           ),
-         true <- artifact_ref in lab_reply_outcome(delivery_document)["artifact_refs"] do
+           ) do
       {:ok,
        %{
          byte_size: artifact.byte_size,
@@ -806,10 +807,11 @@ defmodule Responder.ControlPlane.Projection do
     end)
   end
 
-  def memory do
+  def memory(params \\ %{}) do
     now = database_now!()
 
     %{
+      conversation_memory: ConversationMemory.project(params),
       behaviors:
         Repo.all(
           from(behavior in Behavior,
@@ -1137,42 +1139,23 @@ defmodule Responder.ControlPlane.Projection do
   end
 
   defp lab_output_artifacts(replies, conversation_id) do
-    pairs =
-      replies
-      |> Enum.flat_map(fn reply ->
-        reply.document
-        |> lab_reply_outcome()
-        |> Map.get("artifact_refs", [])
-        |> bounded_refs()
-        |> Enum.map(&{reply.turn_id, &1})
-      end)
-      |> Enum.uniq()
-      |> Enum.take(@lab_message_limit * 5)
-
-    turn_ids = pairs |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
-    allowed = MapSet.new(pairs)
-
-    project_lab_output_artifacts(turn_ids, allowed, conversation_id)
+    replies
+    |> Enum.map(& &1.turn_id)
+    |> Enum.uniq()
+    |> project_lab_output_artifacts(conversation_id)
   end
 
-  defp project_lab_output_artifacts([], _allowed, _conversation_id), do: %{}
+  defp project_lab_output_artifacts([], _conversation_id), do: %{}
 
-  defp project_lab_output_artifacts(turn_ids, allowed, conversation_id) do
+  defp project_lab_output_artifacts(turn_ids, conversation_id) do
     Repo.all(
       from(artifact in OutputArtifact,
         where: artifact.turn_id in ^turn_ids,
+        order_by: [asc: artifact.name, asc: artifact.ref],
         limit: ^(@lab_message_limit * 5)
       )
     )
-    |> Enum.reduce(%{}, &put_lab_output_artifact(&1, &2, allowed, conversation_id))
-  end
-
-  defp put_lab_output_artifact(artifact, projected, allowed, conversation_id) do
-    key = {artifact.turn_id, artifact.ref}
-
-    if MapSet.member?(allowed, key),
-      do: Map.put(projected, key, lab_output_artifact(artifact, conversation_id)),
-      else: projected
+    |> Map.new(&{{&1.turn_id, &1.ref}, lab_output_artifact(&1, conversation_id)})
   end
 
   defp lab_output_artifact(artifact, conversation_id) do
@@ -1428,6 +1411,13 @@ defmodule Responder.ControlPlane.Projection do
       %{
         actor: :responder,
         artifact_refs: artifact_refs,
+        generated_files:
+          artifacts
+          |> Enum.filter(fn {{turn_id, ref}, _artifact} ->
+            turn_id == reply.turn_id and ref not in artifact_refs
+          end)
+          |> Enum.map(&elem(&1, 1))
+          |> Enum.sort_by(& &1.name),
         attachments:
           Enum.flat_map(artifact_refs, fn ref ->
             case Map.get(artifacts, {reply.turn_id, ref}) do

@@ -692,7 +692,10 @@ defmodule Responder.ControlPlane.Router do
       conn,
       200,
       "Memory",
-      HTML.memory(options.projection.memory.(), options.csrf_secret)
+      HTML.memory(
+        options.projection.memory.(fetch_query_params(conn).query_params),
+        options.csrf_secret
+      )
     )
   end
 
@@ -1331,7 +1334,7 @@ defmodule Responder.ControlPlane.Router do
   defp lab_review_offer_ref(_action_context), do: nil
 
   defp confirmation("memory", resource_ref, "forget", options) do
-    snapshot = options.projection.memory.()
+    snapshot = options.projection.memory.(%{})
 
     case Enum.find(snapshot.memories, &(&1.ref == resource_ref and &1.status == :active)) do
       nil ->
@@ -1345,7 +1348,7 @@ defmodule Responder.ControlPlane.Router do
 
   defp confirmation("memory-review", resource_ref, action, options)
        when action in ["keep", "merge", "forget", "dismiss"] do
-    snapshot = options.projection.memory.()
+    snapshot = options.projection.memory.(%{})
 
     case Enum.find(snapshot.reviews, &(&1["review_ref"] == resource_ref)) do
       %{"kind" => kind, "status" => "pending"} = review
@@ -2010,7 +2013,7 @@ defmodule Responder.ControlPlane.Router do
     do: "/actions/#{kind}/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}/#{action}"
 
   defp editable_memory_review(resource_ref, options) do
-    case Enum.find(options.projection.memory.().reviews, &(&1["review_ref"] == resource_ref)) do
+    case Enum.find(options.projection.memory.(%{}).reviews, &(&1["review_ref"] == resource_ref)) do
       %{"entries" => [_entry], "kind" => "stale", "status" => "pending"} = review ->
         {:ok, review}
 

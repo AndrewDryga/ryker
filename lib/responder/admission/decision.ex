@@ -10,13 +10,15 @@ defmodule Responder.Admission.Decision do
   @relations [:same_work, :history_only, :unrelated]
   @work_classes [:conversational, :standard, :deep]
   @fields ~w(action episode_ref reaction relation reason work_class)
+  alias Responder.State.Observations
   @nonblank_pattern "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
 
   @enforce_keys [:action, :episode_ref, :reaction, :relation, :reason, :work_class]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [observation: nil]
 
   @type t :: %__MODULE__{
           action: :start_episode | :continue_episode | :reply | :react | :ignore,
+          observation: map() | nil,
           episode_ref: String.t() | nil,
           reaction: %{emoji_name: String.t()} | nil,
           relation: :same_work | :history_only | :unrelated,
@@ -34,7 +36,8 @@ defmodule Responder.Admission.Decision do
          {:ok, reaction} <- parse_reaction(value["reaction"]),
          :ok <- validate_reason(value["reason"]),
          :ok <- validate_shape(action, value["episode_ref"], reaction, relation),
-         :ok <- validate_work_class(action, work_class) do
+         :ok <- validate_work_class(action, work_class),
+         {:ok, observation} <- Observations.prepare(value["observation"]) do
       {:ok,
        %__MODULE__{
          action: action,
@@ -42,7 +45,8 @@ defmodule Responder.Admission.Decision do
          reaction: reaction,
          relation: relation,
          reason: value["reason"],
-         work_class: work_class
+         work_class: work_class,
+         observation: observation
        }}
     end
   end
@@ -55,7 +59,7 @@ defmodule Responder.Admission.Decision do
 
   @spec document(t()) :: map()
   def document(%__MODULE__{} = decision) do
-    %{
+    document = %{
       "action" => Atom.to_string(decision.action),
       "episode_ref" => decision.episode_ref,
       "reaction" => reaction_document(decision.reaction),
@@ -63,6 +67,10 @@ defmodule Responder.Admission.Decision do
       "reason" => decision.reason,
       "work_class" => work_class_document(decision.work_class)
     }
+
+    if decision.observation,
+      do: Map.put(document, "observation", decision.observation),
+      else: document
   end
 
   @doc """
@@ -95,6 +103,7 @@ defmodule Responder.Admission.Decision do
       "$schema" => "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties" => false,
       "properties" => %{
+        "observation" => Observations.json_schema(),
         "action" => %{"enum" => Enum.map(actions, &Atom.to_string/1)},
         "episode_ref" => %{
           "anyOf" => [
@@ -188,9 +197,10 @@ defmodule Responder.Admission.Decision do
   end
 
   defp exact_fields(value) do
-    if Map.keys(value) |> Enum.sort() == Enum.sort(@fields),
-      do: :ok,
-      else: {:error, {:invalid_decision, :fields}}
+    if Enum.all?(@fields, &Map.has_key?(value, &1)) and
+         Enum.all?(Map.keys(value), &(&1 in ["observation" | @fields])),
+       do: :ok,
+       else: {:error, {:invalid_decision, :fields}}
   end
 
   defp parse_enum(value, allowed, field) when is_binary(value) do

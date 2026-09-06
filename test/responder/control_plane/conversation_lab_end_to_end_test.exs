@@ -252,6 +252,18 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
       "sha256" => sha256
     }
 
+    # The cat and RPS chart existed in Coop, but an earlier preflight made the model
+    # omit them from its reply. Lab must still expose verified files from that turn.
+    unselected_data = data <> "-generated"
+
+    unselected = %{
+      metadata
+      | "id" => "artifact_generated_but_not_attached",
+        "name" => "generated-1.png",
+        "bytes" => byte_size(unselected_data),
+        "sha256" => :crypto.hash(:sha256, unselected_data) |> Base.encode16(case: :lower)
+    }
+
     candidate =
       work_reply("The generated service chart is attached.")
       |> Jason.decode!()
@@ -260,8 +272,11 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
 
     {:ok, work} =
       FakeWorkCoopAPI.start_link([candidate],
-        output_artifact_metadata: [metadata],
-        output_artifacts: %{artifact_ref => Map.put(metadata, "data", data)}
+        output_artifact_metadata: [metadata, unselected],
+        output_artifacts: %{
+          artifact_ref => Map.put(metadata, "data", data),
+          unselected["id"] => Map.put(unselected, "data", unselected_data)
+        }
       )
 
     assert {:ok, {:executed, %{status: :accepted, turn: turn}}} =
@@ -284,6 +299,16 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
 
     assert artifact.data == data
     assert artifact.sha256 == sha256
+
+    assert [%{generated_files: [generated]}] =
+             Enum.filter(conversation.messages, &(&1.actor == :responder))
+
+    assert generated.name == "generated-1.png"
+
+    assert {:ok, %{data: ^unselected_data}} =
+             Projection.lab_artifact(@conversation_id, turn.id, unselected["id"])
+
+    assert Projection.lab_artifact(Ecto.UUID.generate(), turn.id, unselected["id"]) == :not_found
 
     assert Projection.lab_artifact(Ecto.UUID.generate(), turn.id, artifact_ref) == :not_found
 

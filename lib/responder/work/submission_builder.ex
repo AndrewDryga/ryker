@@ -56,6 +56,7 @@ defmodule Responder.Work.SubmissionBuilder do
          context <- Map.put(context, "responder_state_tools", state_tools),
          context <- Map.put(context, "source_and_action_tools", platform_tools),
          context <- maybe_put_workspace(context, workspace),
+         context <- fit_optional_observations(context),
          :ok <- context_fits(context) do
       Submission.new(
         context,
@@ -138,6 +139,18 @@ defmodule Responder.Work.SubmissionBuilder do
       else: {:error, {:work_active_input_bytes_overflow, bytes, @maximum_context_bytes}}
   end
 
+  defp fit_optional_observations(context) do
+    notes = get_in(context, ["operator_context", "continuity", "observations"]) || []
+
+    if notes != [] and byte_size(CanonicalJSON.encode!(context)) > @maximum_context_bytes do
+      context
+      |> put_in(["operator_context", "continuity", "observations"], Enum.drop(notes, -1))
+      |> fit_optional_observations()
+    else
+      context
+    end
+  end
+
   defp submission_context(episode, session, turn, snapshot, records, nil),
     do: full_context(episode, session, turn, snapshot, records, nil)
 
@@ -212,6 +225,7 @@ defmodule Responder.Work.SubmissionBuilder do
         context
       end
 
+    context = fit_optional_observations(context)
     context_bytes = context |> CanonicalJSON.encode!() |> byte_size()
 
     artifact_count = context |> model_artifact_refs() |> length()
@@ -265,6 +279,7 @@ defmodule Responder.Work.SubmissionBuilder do
       "repository_ref" => session.repository_ref
     }
 
+    context = fit_optional_observations(context)
     context_bytes = context |> CanonicalJSON.encode!() |> byte_size()
 
     if context_bytes <= @maximum_context_bytes,

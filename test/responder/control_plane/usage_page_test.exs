@@ -83,6 +83,13 @@ defmodule Responder.ControlPlane.UsagePageTest do
 
     assert LazyHTML.query(document, "#usage-models colgroup col") |> LazyHTML.attribute("span") ==
              ["2", "2"]
+
+    # Performance used to drift left while every neighboring numeric group was centered.
+    assert LazyHTML.query(document, "#usage-models th.usage-performance") |> LazyHTML.text() ==
+             "Performance"
+
+    assert LazyHTML.query(document, "#usage-models td.usage-performance") |> LazyHTML.text() =~
+             "Avg. model time: 1m 18s"
   end
 
   test "estimate rates do not repeat spend totals already shown in the usage breakdowns" do

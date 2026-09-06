@@ -17,7 +17,7 @@ defmodule Responder.Admission do
   alias Responder.Ingress.{Inbox, Input}
   alias Responder.Ingress.Inbox.{Entry, EntryChangeset}
   alias Responder.Repo
-  alias Responder.State.{Behaviors, Records}
+  alias Responder.State.{Behaviors, Observations, Records}
   alias Responder.Work.Custody
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
@@ -64,6 +64,11 @@ defmodule Responder.Admission do
       end
     end)
     |> transaction_result()
+  rescue
+    error in Postgrex.Error ->
+      if error.postgres[:code] in [:serialization_failure, :deadlock_detected],
+        do: {:error, {:admission_rejected, :context_stale}},
+        else: reraise(error, __STACKTRACE__)
   end
 
   defp ensure_snapshot_isolation(false) do
@@ -94,7 +99,8 @@ defmodule Responder.Admission do
         candidates: candidates,
         conversation_episode_count: conversation_episode_count(input, entry.execution_mode),
         input: input,
-        input_entry: entry
+        input_entry: entry,
+        observations: Observations.context(entry, entry.repository_ref, "", 5)
       }
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -457,6 +463,12 @@ defmodule Responder.Admission do
              {:ok, episode} <-
                maybe_resume_blocked_episode(episode, admitted_input_ref(transitions)),
              {:ok, decided} <- persist_decision(entry, decision, decision_ref, episode),
+             :ok <-
+               Observations.record_in_transaction(
+                 decided,
+                 decision.observation,
+                 decision_ref
+               ),
              :ok <-
                finalize_assignment_runs(entry, decision, decision_ref, episode, :decided) do
           {:ok, %{entry: decided, episode: episode, status: :applied, transitions: transitions}}

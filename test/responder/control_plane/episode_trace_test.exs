@@ -57,11 +57,67 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
     assert detail.trace.case_file.expired_at == @received
   end
 
+  test "an attachment-only source remains visible instead of looking erased" do
+    # Blitz's Traefik alert retained its payload but rendered an empty heading and message.
+    {entry, episode} = admitted_input!()
+
+    Repo.update_all(from(i in Entry, where: i.id == ^entry.id),
+      set: [
+        content: %{
+          "text" => "",
+          "attachments" => [
+            %{
+              "title" => "[VA1 FIRING:1] WARNING | Traefik config reload frequency high",
+              "text" =>
+                "*FIRING - 1 alert*\n\n*Traefik completed more than 10 configuration reloads in 10 minutes*\nA normal app rollout should settle quickly. Sustained successful reloads can drive retained-memory growth even when every configuration applies successfully."
+            }
+          ]
+        }
+      ]
+    )
+
+    {:ok, detail} = Projection.episode(episode.key)
+    assert detail.trace.case_file.title =~ "Traefik config reload frequency high"
+    [message] = Enum.filter(detail.trace.case_file.conversation, &(&1.actor != "Responder"))
+    assert message.available
+    assert message.text =~ "Traefik completed more than 10 configuration reloads in 10 minutes"
+    assert is_nil(detail.trace.case_file.expired_at)
+  end
+
   test "an input request addresses the episode it joined without a redirect" do
     {entry, episode} = admitted_input!()
     {:ok, detail} = Projection.episode("ingress-input:#{entry.id}")
     assert detail.episode.ref == episode.key
     assert {:ok, _} = ModelRequests.timeline("ingress-input:#{entry.id}", %{})
+  end
+
+  test "recorded BlockKit incident facts remain readable beside the answer" do
+    # This real alert's 45,840 errors were hidden behind its attachment fallback.
+    fixture =
+      File.stream!("testdata/elixir-eval/work.jsonl")
+      |> Enum.map(&Jason.decode!/1)
+      |> Enum.find(&(&1["eval_id"] == "automated_alert_controls_do_not_replace_the_incident"))
+
+    content = fixture["context"]["inputs"]["items"] |> hd() |> get_in(["content", "content"])
+    {entry, episode} = admitted_input!()
+    Repo.update_all(from(i in Entry, where: i.id == ^entry.id), set: [content: content])
+    {:ok, detail} = Projection.episode(episode.key)
+    [message] = Enum.filter(detail.trace.case_file.conversation, &(&1.actor != "Responder"))
+    assert message.text =~ "45,840 errors over 2.0h"
+    refute message.text =~ "[no preview available]"
+  end
+
+  test "arbitrary source metadata cannot hide valid message text or crash its preview" do
+    {entry, episode} = admitted_input!()
+
+    for content <- [
+          %{"text" => "Check health", "attachments" => "not Slack attachments", "blocks" => nil},
+          %{"text" => "Check health", "payload" => %{"result" => "ready"}}
+        ] do
+      Repo.update_all(from(i in Entry, where: i.id == ^entry.id), set: [content: content])
+      assert {:ok, detail} = Projection.episode(episode.key)
+      assert detail.trace.case_file.title == "Check health"
+    end
   end
 
   test "preparing an input question is work, not proof a question was sent" do

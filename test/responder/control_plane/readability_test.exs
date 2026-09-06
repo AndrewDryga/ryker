@@ -26,6 +26,15 @@ defmodule Responder.ControlPlane.ReadabilityTest do
     refute html =~ "workbench-intro"
   end
 
+  test "conversation memory headings cannot inherit the dark application banner" do
+    # Browser QA caught nearly black titles against the global header background.
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    [_, header] = Regex.run(~r/\.memory-card header \{([^}]+)\}/, css)
+    assert header =~ "background:transparent"
+    assert header =~ "position:static"
+    assert header =~ "padding:0"
+  end
+
   test "chapters preserve late follow-ups and tied activity in execution order" do
     now = ~U[2026-09-05 12:00:00Z]
 

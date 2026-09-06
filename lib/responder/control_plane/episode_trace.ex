@@ -205,12 +205,50 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     }
   end
 
-  defp case_source_text(%{"text" => text}) when is_binary(text), do: text
+  defp case_source_text(%{} = content) do
+    text = content["text"]
 
-  defp case_source_text(%{"payload" => payload}) when is_map(payload),
-    do: Enum.find_value(~w(comment review issue pull_request), &case_body(payload[&1]))
+    blocks =
+      if is_binary(text) and String.trim(text) != "", do: [], else: source_list(content["blocks"])
+
+    [text | Enum.flat_map(source_list(content["attachments"]), &attachment_text/1)]
+    |> Kernel.++(Enum.flat_map(blocks, &block_text/1))
+    |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+    |> Enum.uniq()
+    |> case do
+      [] -> source_payload_text(content["payload"])
+      parts -> Enum.join(parts, "\n\n")
+    end
+  end
 
   defp case_source_text(_content), do: nil
+
+  defp source_list(value) when is_list(value), do: value
+  defp source_list(_), do: []
+
+  defp source_payload_text(%{} = payload),
+    do: Enum.find_value(~w(comment review issue pull_request), &case_body(payload[&1]))
+
+  defp source_payload_text(_), do: nil
+
+  defp attachment_text(%{} = attachment) do
+    parts =
+      (Enum.map(~w(pretext title text), &attachment[&1]) ++
+         Enum.flat_map(source_list(attachment["blocks"]), &block_text/1))
+      |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+
+    if parts == [], do: [attachment["fallback"]], else: parts
+  end
+
+  defp attachment_text(_), do: []
+  defp block_text(%{"text" => %{"text" => text}}), do: [text]
+  defp block_text(%{"text" => text}) when is_binary(text), do: [text]
+
+  defp block_text(%{"elements" => elements}) when is_list(elements),
+    do: Enum.flat_map(elements, &block_text/1)
+
+  defp block_text(_), do: []
+
   defp case_body(%{"body" => body}) when is_binary(body), do: body
   defp case_body(_body), do: nil
   defp case_reply_status(%{delivered_at: %DateTime{}}), do: "Delivery confirmed"

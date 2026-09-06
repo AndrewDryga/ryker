@@ -16,6 +16,7 @@ defmodule Responder.ControlPlane.HTML do
   alias Responder.ControlPlane.CaseFile
   alias Responder.ControlPlane.ConfigurationHelp
   alias Responder.ControlPlane.Layouts
+  alias Responder.ControlPlane.MemoryPage
   alias Responder.ControlPlane.SlackMarkdown
 
   def page(title, body) do
@@ -1476,8 +1477,14 @@ defmodule Responder.ControlPlane.HTML do
     _secret_is_intentionally_not_rendered = csrf_secret
 
     [
-      "<p class=\"page-description\">Confirmed aliases, repository bindings, evidence routes, and relationships that Responder can recall. Ask it to remember a mapping, then confirm the proposed memory card.</p>",
+      "<p class=\"page-description\">What Responder learned from conversations, with the messages and work it came from.</p>",
       "<nav class=\"behavior-links\" aria-label=\"Related saved instructions\"><a href=\"/rules\">Standing rules →</a><a href=\"/preferences\">Preferences →</a><a href=\"/guidance\">Guidance →</a></nav>",
+      if(snapshot[:conversation_memory],
+        do:
+          MemoryPage.render(%{view: snapshot.conversation_memory})
+          |> Safe.to_iodata(),
+        else: []
+      ),
       "<section><h2>Operational memory</h2>",
       if(memory_rows == [],
         do: "<p>No confirmed memory is active.</p>",
@@ -1990,6 +1997,7 @@ defmodule Responder.ControlPlane.HTML do
       "<div class=\"message-attachments\">",
       Enum.map(Map.get(message, :attachments, []), &lab_attachment/1),
       "</div>",
+      lab_generated_files(Map.get(message, :generated_files, [])),
       "<div class=\"message-reactions\">",
       Enum.map(Map.get(message, :reactions, []), &lab_reaction/1),
       "</div>",
@@ -1998,6 +2006,16 @@ defmodule Responder.ControlPlane.HTML do
       "</div>",
       lab_feedback_reaction_controls(message),
       lab_message_controls(message)
+    ]
+  end
+
+  defp lab_generated_files([]), do: ""
+
+  defp lab_generated_files(files) do
+    [
+      "<section class=\"lab-generated-files\"><h4>Generated files</h4><div class=\"message-attachments\">",
+      Enum.map(files, &lab_attachment/1),
+      "</div></section>"
     ]
   end
 

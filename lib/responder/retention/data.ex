@@ -177,7 +177,21 @@ defmodule Responder.Retention.Data do
         [@terminal_schedule_states, settings.episode_history_seconds]
       )
 
-    %{result | conversation_memory: memory + compacted + rollups}
+    observations =
+      execute_count(
+        """
+        WITH candidates AS (
+          SELECT id FROM conversation_observations
+          WHERE updated_at < clock_timestamp() - ($1 * interval '1 second')
+          ORDER BY updated_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
+        )
+        DELETE FROM conversation_observations AS note USING candidates
+        WHERE note.id = candidates.id
+        """,
+        [settings.conversation_memory_seconds]
+      )
+
+    %{result | conversation_memory: memory + compacted + rollups + observations}
   end
 
   defp prune_operational(result, settings) do
