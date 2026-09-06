@@ -1,6 +1,7 @@
 defmodule Responder.Work.ActivityTest do
-  alias Responder.ControlPlane.Projection
+  alias Responder.ControlPlane.{Projection, ToolCard}
   use Responder.DataCase, async: false
+  import Phoenix.LiveViewTest
 
   defmodule OversizedAPI do
     def list_events(_client, _session_id, _cursor, _limit),
@@ -28,6 +29,87 @@ defmodule Responder.Work.ActivityTest do
   alias Responder.Work.{Activity, ActivitySyncWorker, Custody}
 
   @now ~U[2026-09-04 12:00:00.000000Z]
+
+  test "stored file paths are re-redacted when a secret is configured after ingestion" do
+    # Relative path facts introduced another visible copy of a filename. Rotating
+    # secrets must redact that copy too, without changing the historical event.
+    {:ok, started} = Episodes.apply(EpisodeFixtures.admit_input())
+
+    {:ok, session} =
+      Custody.pin_episode(started.episode.id, "policy:paths", String.duplicate("a", 64))
+
+    {:ok, claim} = Custody.claim_next("path-redaction", 60, :work)
+
+    {:ok, session} =
+      Custody.bind_session(
+        started.episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        session.generation,
+        session.create_generation,
+        "remote:path-redaction"
+      )
+
+    secret = "future-file-secret-value"
+
+    paths = %{
+      "basis" => "lexical",
+      "paths" => [
+        %{"source" => "/locations/0/path", "scope" => "project", "path" => "lib/#{secret}.ex"}
+      ]
+    }
+
+    payload = %{"tool_call_id" => "read-pair", "kind" => "read", "path_context" => paths}
+
+    events = [
+      event(session, 1, "tool.started", payload),
+      event(session, 2, "tool.completed", Map.put(payload, "status", "completed")),
+      event(
+        session,
+        3,
+        "tool.completed",
+        Map.merge(payload, %{"tool_call_id" => "read-late", "status" => "completed"})
+      )
+    ]
+
+    assert {:ok, %{inserted: 3}} = Activity.ingest(session.id, events)
+
+    assert Enum.all?(
+             Activity.list_for_episode(started.episode.id),
+             &(inspect(&1.payload) =~ secret)
+           )
+
+    previous = Application.get_env(:responder, :activity_path_test_secret)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:responder, :activity_path_test_secret, previous),
+        else: Application.delete_env(:responder, :activity_path_test_secret)
+    end)
+
+    Application.put_env(:responder, :activity_path_test_secret, secret)
+
+    {:ok, detail} = Projection.episode(started.episode.key)
+    steps = Enum.filter(detail.trace.steps, &String.starts_with?(&1.id, "activity-"))
+    assert length(steps) == 3
+
+    for step <- steps do
+      refute inspect(step.path_context) =~ secret
+      assert inspect(step.path_context) =~ "[redacted]"
+
+      html =
+        render_component(&ToolCard.render/1,
+          step: step
+        )
+
+      refute html =~ secret
+    end
+
+    assert Enum.all?(
+             Activity.list_for_episode(started.episode.id),
+             &(inspect(&1.payload) =~ secret)
+           )
+  end
 
   test "native tool errors and public progress survive ingestion with safe evidence" do
     # The Sept 6 infra run showed failed plan_goal without its arguments or error, hiding the cause.
@@ -113,6 +195,36 @@ defmodule Responder.Work.ActivityTest do
     assert tool.summary =~ "unauthorized"
     assert Enum.any?(tool.artifacts, &(&1.label == "Arguments" && &1.artifact.text =~ "emisar"))
     refute Enum.any?(detail.trace.steps, &(&1.title == "Model reasoning checkpoint"))
+
+    # A late path must appear on the completed event, never rewrite its start.
+    paths = %{
+      "basis" => "lexical",
+      "paths" => [
+        %{"source" => "/locations/0/path", "scope" => "project", "path" => "lib/config.ex"},
+        %{"source" => "/locations/1/path", "scope" => "outside"}
+      ]
+    }
+
+    assert {:ok, %{inserted: 2}} =
+             Activity.ingest(session.id, [
+               event(session, 7, "tool.started", %{
+                 "tool_call_id" => "native-read",
+                 "title" => "Read file 'config.ex'"
+               }),
+               event(session, 8, "tool.completed", %{
+                 "tool_call_id" => "native-read",
+                 "kind" => "read",
+                 "status" => "completed",
+                 "path_context" => paths
+               })
+             ])
+
+    {:ok, detail} = Projection.episode(started.episode.key)
+    reads = Enum.filter(detail.trace.steps, &(&1.title == "Read file 'config.ex'"))
+    assert [read_start, read_finish] = reads
+    assert Map.get(read_start, :path_context) == nil
+    assert Map.get(read_finish, :path_context) == paths
+    assert read_finish.tool_kind == "read"
   end
 
   test "a replayed Coop page advances one durable cursor without duplicating activity" do

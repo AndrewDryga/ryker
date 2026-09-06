@@ -17,7 +17,7 @@ defmodule Responder.Work.Activity do
   alias Ecto.Changeset
   alias Responder.CanonicalJSON
   alias Responder.Repo
-  alias Responder.Work.{ActivityEvent, Session}
+  alias Responder.Work.{ActivityEvent, ActivityPaths, Session}
 
   @activity_kinds ~w(
     tool.started
@@ -618,7 +618,8 @@ defmodule Responder.Work.Activity do
   defp enrich_tool(base, payload) do
     evidence =
       payload
-      |> Map.take(~w(title kind input output content locations error))
+      |> Map.put("path_context", ActivityPaths.sanitize(payload["path_context"]))
+      |> Map.take(~w(title kind input output content locations error path_context))
       |> Map.reject(fn {_key, value} -> is_nil(value) end)
       |> Map.new(fn {key, value} -> {key, sanitize_evidence(value)} end)
 
