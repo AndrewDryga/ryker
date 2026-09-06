@@ -21,6 +21,7 @@ defmodule Responder.State.ConversationObservation do
     field(:revision, :integer)
     field(:occurred_at, :utc_datetime_usec)
     field(:note, Responder.CanonicalJSON.Type)
+    field(:source_dependencies, Responder.CanonicalJSON.Type)
     timestamps(type: :utc_datetime_usec)
   end
 end

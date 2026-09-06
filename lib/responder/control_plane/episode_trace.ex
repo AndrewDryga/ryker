@@ -48,6 +48,9 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     totals = totals(episode.id, events, records, sessions, turns)
     review = review_state(episode)
     received_at = first_received_at(episode)
+    platform_actions = platform_actions(episode.id)
+    publications = publications(episode.id)
+    source = source_link(episode, events, inputs)
 
     steps =
       []
@@ -58,9 +61,9 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       |> Kernel.++(slack_status_steps(episode.id))
       |> Kernel.++(record_steps(records))
       |> Kernel.++(coop_steps(sessions))
-      |> Kernel.++(platform_action_steps(episode.id))
+      |> Kernel.++(platform_action_steps(platform_actions))
       |> Kernel.++(incident_steps(episode.id))
-      |> Kernel.++(publication_steps(episode.id))
+      |> Kernel.++(publication_steps(publications))
       |> Kernel.++(schedule_steps(episode.id))
       |> chronological()
 
@@ -69,12 +72,13 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       actions: operator_actions(episode, current_turn, review),
       case_file: case_file(episode.id, turns),
       chapters: chapters(steps, received_at),
+      follow_through: follow_through(platform_actions, publications, source),
       history: history(totals, activity_page),
       metrics: metrics(episode, received_at, activity_page, totals, steps),
       next_action: next_action(episode, current_turn),
       received_at: received_at,
       review: review,
-      source: source_link(episode, events, inputs),
+      source: source,
       stats: stats(steps, activity_page, totals),
       steps: steps,
       stopped: stopped(episode, current_turn)
@@ -151,7 +155,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       reply_status: latest_reply && latest_reply.status,
       reply_request_id: latest_reply && latest_reply.id,
       awaiting_reply: is_nil(current_turn) or is_nil(current_turn.delivery_document),
-      conversation: Enum.sort_by(messages ++ replies, & &1.at, DateTime)
+      conversation:
+        Enum.sort_by(messages ++ Enum.filter(replies, & &1.delivered), & &1.at, DateTime)
     }
   end
 
@@ -387,7 +392,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       answer = answer_steps(turn, ordinal)
       outcome = delivery_step(turn, ordinal)
 
-      ([prepared, work] ++ answer ++ [outcome])
+      ([prepared, work] ++ answer ++ outcome)
       |> Enum.reject(&is_nil/1)
     end)
   end
@@ -437,6 +442,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp validation_steps(turn, ordinal), do: [validation_step(turn, ordinal)]
 
   defp validation_band(nil, _at), do: :work
+  defp validation_band(_finished_at, nil), do: :answer
 
   defp validation_band(finished_at, at),
     do: if(DateTime.compare(at, finished_at) == :lt, do: :work, else: :answer)
@@ -445,7 +451,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     verdict = entry["verdict"]
     violations = bounded_strings(entry["violations"])
     attempt = entry["candidate_attempt"]
-    at = parsed_time(entry["recorded_at"]) || turn.updated_at
+    at = parsed_time(entry["recorded_at"])
 
     validation_step(turn, ordinal,
       at: at,
@@ -465,7 +471,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     violations = bounded_strings(get_in(turn.validation_intent || %{}, ["violations"]))
 
     validation_step(turn, ordinal,
-      at: turn.updated_at,
+      at: nil,
       attempt: turn.candidate_attempt,
       candidate_sha256: turn.candidate_sha256,
       intent_fingerprint: turn.validation_intent_fingerprint,
@@ -482,7 +488,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     violations = Keyword.fetch!(options, :violations)
     attempt = Keyword.fetch!(options, :attempt)
     state = verdict || "candidate recorded"
-    title = if(verdict == "reject", do: "Answer rejected", else: "Answer validated")
+
+    {title, tone} = validation_presentation(verdict)
 
     step(
       "turn-#{turn.id}-validation-#{attempt || 0}",
@@ -504,10 +511,14 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         state: state,
         summary: validation_summary(verdict, violations, turn),
         title: title,
-        tone: if(verdict == "reject", do: :bad, else: :good)
+        tone: tone
       }
     )
   end
+
+  defp validation_presentation("reject"), do: {"Answer rejected", :bad}
+  defp validation_presentation("accept"), do: {"Answer validated", :good}
+  defp validation_presentation(_), do: {"Response recorded", nil}
 
   defp accepted_step(%Turn{accepted_at: nil}, _ordinal), do: nil
 
@@ -540,34 +551,55 @@ defmodule Responder.ControlPlane.EpisodeTrace do
          %Turn{delivery_ref: nil, delivered_at: nil, external_receipt: nil},
          _ordinal
        ),
-       do: nil
+       do: []
 
   defp delivery_step(turn, ordinal) do
-    delivered = not is_nil(turn.delivered_at)
+    queued =
+      step(
+        "turn-#{turn.id}-delivery-queued",
+        :outcome,
+        turn.accepted_at,
+        %{
+          actor: "Responder",
+          delivery_ref: turn.delivery_ref,
+          details: compact_details([{"Turn", ordinal}]),
+          stage: "Delivery",
+          state: "queued",
+          summary: "The accepted response was queued for delivery.",
+          title: "Response queued for delivery",
+          tone: nil
+        }
+      )
 
-    step(
-      "turn-#{turn.id}-delivery",
-      :outcome,
-      turn.delivered_at || turn.updated_at,
-      %{
-        actor: delivery_actor(turn.external_receipt),
-        delivery_ref: turn.delivery_ref,
-        details:
-          compact_details([
-            {"Turn", ordinal},
-            {"Delivery", turn.delivery_ref},
-            {"Attempts", turn.delivery_attempt_count},
-            {"Retry generation", turn.delivery_retry_generation},
-            {"Transport", get_in(turn.external_receipt || %{}, ["transport"])},
-            {"Message", get_in(turn.external_receipt || %{}, ["message_ref"])}
-          ]),
-        stage: "Delivery",
-        state: if(delivered, do: "delivered", else: turn.status),
-        summary: delivery_outcome_summary(turn),
-        title: if(delivered, do: "Reply delivered", else: "Reply delivery pending"),
-        tone: if(delivered, do: :good, else: state_tone(turn.status))
-      }
-    )
+    [queued | confirmed_delivery_step(turn, ordinal)]
+  end
+
+  defp confirmed_delivery_step(%Turn{delivered_at: nil}, _ordinal), do: []
+
+  defp confirmed_delivery_step(turn, ordinal) do
+    [
+      step(
+        "turn-#{turn.id}-delivery-confirmed",
+        :outcome,
+        turn.delivered_at,
+        %{
+          actor: delivery_actor(turn.external_receipt),
+          delivery_ref: turn.delivery_ref,
+          details:
+            compact_details([
+              {"Turn", ordinal},
+              {"Delivery", turn.delivery_ref},
+              {"Transport", get_in(turn.external_receipt || %{}, ["transport"])},
+              {"Message", get_in(turn.external_receipt || %{}, ["message_ref"])}
+            ]),
+          stage: "Delivery",
+          state: "delivered",
+          summary: delivery_confirmation(turn.external_receipt),
+          title: "Delivery confirmed",
+          tone: :good
+        }
+      )
+    ]
   end
 
   defp record_steps(records) do
@@ -1059,7 +1091,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   defp nonnegative_diff(_right, _left), do: nil
 
-  defp platform_action_steps(episode_id) do
+  defp platform_actions(episode_id) do
     Repo.all(
       from(action in PlatformAction,
         where: action.episode_id == ^episode_id,
@@ -1067,29 +1099,47 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         limit: 200
       )
     )
-    |> Enum.map(fn action ->
-      step(
-        "platform-action-#{action.id}",
-        :outcome,
-        action.delivered_at || action.inserted_at,
-        %{
-          actor: action.transport,
-          details:
-            compact_details([
-              {"Action", action.action_ref},
-              {"Conversation", action.conversation_ref},
-              {"Thread", action.thread_ref},
-              {"Attempts", action.attempt_count},
-              {"Last error", action.last_error_code},
-              {"Diagnostic", FailureDetail.project(action.last_error_detail)}
-            ]),
-          stage: "Platform action",
-          state: action.status,
-          summary: platform_action_summary(action),
-          title: platform_action_title(action.tool),
-          tone: state_tone(action.status)
-        }
-      )
+  end
+
+  defp platform_action_steps(actions) do
+    Enum.flat_map(actions, fn action ->
+      queued =
+        step(
+          "platform-action-#{action.id}",
+          :outcome,
+          action.inserted_at,
+          %{
+            actor: action.transport,
+            details:
+              compact_details([
+                {"Action", action.action_ref},
+                {"Conversation", action.conversation_ref},
+                {"Thread", action.thread_ref}
+              ]),
+            stage: "Platform action",
+            state: "queued",
+            summary: "Queued for #{capitalize(action.transport)} delivery.",
+            title: platform_action_title(action.tool),
+            tone: nil
+          }
+        )
+
+      if action.delivered_at do
+        [
+          queued,
+          step("platform-action-#{action.id}-confirmed", :outcome, action.delivered_at, %{
+            actor: action.transport,
+            details: [],
+            stage: "Platform action",
+            state: "confirmed",
+            title: platform_action_title(action.tool) <> " confirmed",
+            summary: "#{capitalize(action.transport)} confirmed the action.",
+            tone: :good
+          })
+        ]
+      else
+        [queued]
+      end
     end)
   end
 
@@ -1111,24 +1161,20 @@ defmodule Responder.ControlPlane.EpisodeTrace do
           details:
             compact_details([
               {"Incident", room.ref},
-              {"Repository", room.repository_ref},
-              {"Channel", room.channel_ref},
-              {"Channel state", room.channel_state},
-              {"Attempts", room.attempt_count},
-              {"Last error", room.last_error_code}
+              {"Repository", room.repository_ref}
             ]),
           href: "/incidents/#{segment(room.ref)}",
           stage: "Incident",
-          state: room.status,
-          summary: incident_summary(room),
-          title: room.title || "Incident room",
-          tone: state_tone(room.status)
+          state: nil,
+          summary: "An incident room was requested. Open the incident for its current state.",
+          title: "Incident requested",
+          tone: nil
         }
       )
     end)
   end
 
-  defp publication_steps(episode_id) do
+  defp publications(episode_id) do
     Repo.all(
       from(publication in Publication,
         where: publication.episode_id == ^episode_id,
@@ -1136,31 +1182,85 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         limit: 50
       )
     )
-    |> Enum.map(fn publication ->
-      step(
-        "publication-#{publication.id}",
-        :outcome,
-        publication.published_at || publication.reviewed_at || publication.inserted_at,
-        %{
-          actor: "Responder",
-          details:
-            compact_details([
-              {"Publication", publication.ref},
-              {"Repository", publication.repository},
-              {"Branch", publication.branch_ref},
-              {"Commit", short_digest(publication.commit_sha)},
-              {"Pull request", publication.pull_request_number},
-              {"Attempts", publication.attempt_count},
-              {"Last error", publication.last_error_code}
-            ]),
-          stage: "Publication",
-          state: publication.status,
-          summary: publication_summary(publication),
-          title: publication.title || "Publication",
-          tone: state_tone(publication.status)
-        }
-      )
+  end
+
+  defp publication_steps(publications) do
+    Enum.flat_map(publications, fn publication ->
+      requested =
+        step(
+          "publication-#{publication.id}",
+          :outcome,
+          publication.inserted_at,
+          %{
+            actor: "Responder",
+            details:
+              compact_details([
+                {"Publication", publication.ref},
+                {"Repository", publication.repository}
+              ]),
+            stage: "Publication",
+            state: nil,
+            summary: "Changes were offered for review before publication.",
+            title: "Publication requested",
+            tone: nil
+          }
+        )
+
+      if publication.published_at do
+        [
+          requested,
+          step("publication-#{publication.id}-published", :outcome, publication.published_at, %{
+            actor: "Responder",
+            stage: "Publication",
+            state: nil,
+            title: "Draft pull request published",
+            summary: "Pull request ##{publication.pull_request_number}",
+            details:
+              compact_details([
+                {"Repository", publication.repository},
+                {"Branch", publication.branch_ref},
+                {"Commit", publication.commit_sha}
+              ]),
+            tone: :good
+          })
+        ]
+      else
+        [requested]
+      end
     end)
+  end
+
+  # Current follow-through is deliberately outside historical timeline events.
+  # Retrying may change this status; it must not rewrite the original request.
+  defp follow_through(actions, publications, source) do
+    action_status =
+      for action <- actions,
+          action.status != :delivered,
+          action.status == :blocked or not is_nil(action.last_error_code) do
+        %{
+          id: "platform-action-#{action.id}",
+          title: platform_action_title(action.tool),
+          state: capitalize(human(action.status)),
+          error: InspectionRedactor.artifact(action.last_error_code).text,
+          href:
+            if(action.status == :blocked, do: "/failures/delivery/#{segment(action.action_ref)}"),
+          link_label: "Open recovery"
+        }
+      end
+
+    publication_status =
+      for publication <- publications, publication.status != :published do
+        %{
+          id: "publication-#{publication.id}",
+          title: InspectionRedactor.artifact(publication.title).text,
+          state: capitalize(human(publication.status)),
+          error: InspectionRedactor.artifact(publication.last_error_code).text,
+          href: if(source, do: source.href),
+          link_label: "Open conversation"
+        }
+      end
+
+    action_status ++ publication_status
   end
 
   defp schedule_steps(episode_id) do
@@ -1180,18 +1280,14 @@ defmodule Responder.ControlPlane.EpisodeTrace do
           actor: "Responder",
           details:
             compact_details([
-              {"Schedule", schedule.ref},
-              {"Authority", schedule.authority},
-              {"Repository", schedule.repository},
-              {"Next occurrence", schedule.next_occurrence_at},
-              {"Failures", schedule.failure_count}
+              {"Schedule", schedule.ref}
             ]),
           href: "/schedules/#{segment(schedule.ref)}",
           stage: "Schedule",
-          state: schedule.status,
-          summary: schedule_summary(schedule),
-          title: schedule.title || "Schedule confirmed",
-          tone: state_tone(schedule.status)
+          state: nil,
+          summary: "A schedule was created. Open it for its configuration and next run.",
+          title: "Schedule created",
+          tone: nil
         }
       )
     end)
@@ -1604,32 +1700,6 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp platform_action_title(:set_github_reaction), do: "GitHub reaction"
   defp platform_action_title(tool), do: human(tool)
 
-  defp platform_action_summary(%PlatformAction{status: :delivered}),
-    do: "The bound platform confirmed the host-owned action."
-
-  defp platform_action_summary(%PlatformAction{last_error_code: code}) when is_binary(code),
-    do: "Delivery stopped: #{human(code)}."
-
-  defp platform_action_summary(_action), do: "The host-owned platform action is queued."
-
-  defp incident_summary(%IncidentRoom{status: :ready, channel_ref: channel}),
-    do: "Incident room ready#{if(channel, do: " at #{channel}", else: "")}."
-
-  defp incident_summary(%IncidentRoom{status: :blocked, last_error_code: code}),
-    do: "Incident provisioning blocked#{if(code, do: ": #{human(code)}", else: "")}."
-
-  defp incident_summary(_room), do: "Episode-linked incident lifecycle recorded."
-
-  defp publication_summary(%Publication{status: :published, pull_request_number: number}),
-    do: "Published as draft pull request#{if(number, do: " ##{number}", else: "")}."
-
-  defp publication_summary(%Publication{status: status}), do: "Publication is #{human(status)}."
-
-  defp schedule_summary(%Schedule{status: :active, next_occurrence_at: at}),
-    do: "Schedule active#{if(at, do: "; next occurrence #{DateTime.to_iso8601(at)}", else: "")}."
-
-  defp schedule_summary(%Schedule{status: status}), do: "Schedule is #{human(status)}."
-
   defp work_state(%Turn{remote_finished_at: nil}), do: "running"
   defp work_state(_turn), do: "finished"
 
@@ -1661,14 +1731,16 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   defp delivery_summary(_document), do: "Accepted result recorded."
 
-  defp delivery_outcome_summary(%Turn{delivered_at: %DateTime{}}),
-    do: "The accepted reply reached its exact destination."
+  defp delivery_confirmation(%{"message_ref" => "eval-message:" <> _}),
+    do: "The private replay captured the response. Nothing was sent to Slack."
 
-  defp delivery_outcome_summary(%Turn{last_error_code: code}) when is_binary(code),
-    do: "Delivery stopped: #{human(code)}."
+  defp delivery_confirmation(%{"transport" => "slack"}),
+    do: "Slack transport confirmed the delivery."
 
-  defp delivery_outcome_summary(_turn),
-    do: "The accepted reply is waiting for transport confirmation."
+  defp delivery_confirmation(%{"transport" => "control_plane"}),
+    do: "Conversation Lab recorded the response."
+
+  defp delivery_confirmation(_), do: "The destination confirmed the delivery."
 
   defp delivery_actor(%{"transport" => transport}) when is_binary(transport), do: transport
   defp delivery_actor(_receipt), do: "Delivery"

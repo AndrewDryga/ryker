@@ -140,12 +140,16 @@ defmodule Responder.Work.SubmissionBuilder do
   end
 
   defp fit_optional_observations(context) do
-    notes = get_in(context, ["operator_context", "continuity", "observations"]) || []
+    context |> fit_memory("observations") |> fit_memory("knowledge")
+  end
+
+  defp fit_memory(context, key) do
+    notes = get_in(context, ["operator_context", "continuity", key]) || []
 
     if notes != [] and byte_size(CanonicalJSON.encode!(context)) > @maximum_context_bytes do
       context
-      |> put_in(["operator_context", "continuity", "observations"], Enum.drop(notes, -1))
-      |> fit_optional_observations()
+      |> put_in(["operator_context", "continuity", key], Enum.drop(notes, -1))
+      |> fit_memory(key)
     else
       context
     end

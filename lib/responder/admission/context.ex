@@ -16,7 +16,8 @@ defmodule Responder.Admission.Context do
     :input,
     :input_entry
   ]
-  defstruct @enforce_keys ++ [observations: []]
+  defstruct @enforce_keys ++
+              [observations: [], knowledge: [], knowledge_omissions: [], source_dependencies: nil]
 
   @type t :: %__MODULE__{
           active_episode_fingerprint: String.t(),
@@ -36,6 +37,7 @@ defmodule Responder.Admission.Context do
       "input" => Input.model_document(context.input)
     }
     |> put_observations(context.observations)
+    |> put_knowledge(context.knowledge)
   end
 
   @doc false
@@ -45,9 +47,12 @@ defmodule Responder.Admission.Context do
       "active_episode_fingerprint" => context.active_episode_fingerprint,
       "built_at" => DateTime.to_iso8601(context.built_at),
       "candidates" => Enum.map(context.candidates, &Candidate.snapshot/1),
-      "conversation_episode_count" => context.conversation_episode_count
+      "conversation_episode_count" => context.conversation_episode_count,
+      "source_dependencies" => context.source_dependencies,
+      "knowledge_omissions" => context.knowledge_omissions
     }
     |> put_observations(context.observations)
+    |> put_knowledge(context.knowledge)
   end
 
   @doc false
@@ -71,11 +76,24 @@ defmodule Responder.Admission.Context do
 
     with true <-
            is_map(snapshot) and
-             Enum.sort(Map.keys(Map.delete(snapshot, "conversation_observations"))) ==
+             Enum.sort(
+               Map.keys(
+                 Map.drop(snapshot, [
+                   "conversation_observations",
+                   "conversation_knowledge",
+                   "source_dependencies",
+                   "knowledge_omissions"
+                 ])
+               )
+             ) ==
                Enum.sort(fields),
          observations when is_list(observations) <-
            Map.get(snapshot, "conversation_observations", []),
          true <- length(observations) <= 5,
+         knowledge when is_list(knowledge) <- Map.get(snapshot, "conversation_knowledge", []),
+         true <- length(knowledge) <= 8,
+         omissions when is_list(omissions) <- Map.get(snapshot, "knowledge_omissions", []),
+         true <- length(omissions) <= 8 and Enum.all?(omissions, &is_map/1),
          {:ok, built_at} <- parse_datetime(snapshot["built_at"]),
          true <- valid_fingerprint?(snapshot["active_episode_fingerprint"]),
          true <- valid_count?(snapshot["conversation_episode_count"]),
@@ -88,7 +106,10 @@ defmodule Responder.Admission.Context do
          conversation_episode_count: snapshot["conversation_episode_count"],
          input: input,
          input_entry: entry,
-         observations: observations
+         observations: observations,
+         knowledge: knowledge,
+         knowledge_omissions: omissions,
+         source_dependencies: snapshot["source_dependencies"]
        }}
     else
       {:error, _reason} = error -> error
@@ -103,6 +124,9 @@ defmodule Responder.Admission.Context do
 
   defp put_observations(document, notes),
     do: Map.put(document, "conversation_observations", notes)
+
+  defp put_knowledge(document, []), do: document
+  defp put_knowledge(document, items), do: Map.put(document, "conversation_knowledge", items)
 
   defp restore_candidates(candidates, episodes) when is_list(candidates) do
     candidates

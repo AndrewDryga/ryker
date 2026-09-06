@@ -16,6 +16,7 @@ defmodule Responder.State.ConversationSummary do
     field(:repository_ref, :string)
     field(:visibility, Ecto.Enum, values: [:public, :private, :direct, :conversation])
     field(:state, Responder.CanonicalJSON.Type)
+    field(:source_dependencies, Responder.CanonicalJSON.Type, default: [])
     field(:state_fingerprint, :string)
     field(:source_episode_id, :binary_id)
     field(:source_turn_id, :binary_id)

@@ -10,15 +10,16 @@ defmodule Responder.Admission.Decision do
   @relations [:same_work, :history_only, :unrelated]
   @work_classes [:conversational, :standard, :deep]
   @fields ~w(action episode_ref reaction relation reason work_class)
-  alias Responder.State.Observations
+  alias Responder.State.{KnowledgeUpdate, Observations}
   @nonblank_pattern "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
 
   @enforce_keys [:action, :episode_ref, :reaction, :relation, :reason, :work_class]
-  defstruct @enforce_keys ++ [observation: nil]
+  defstruct @enforce_keys ++ [observation: nil, knowledge: nil]
 
   @type t :: %__MODULE__{
           action: :start_episode | :continue_episode | :reply | :react | :ignore,
           observation: map() | nil,
+          knowledge: map() | nil,
           episode_ref: String.t() | nil,
           reaction: %{emoji_name: String.t()} | nil,
           relation: :same_work | :history_only | :unrelated,
@@ -37,7 +38,9 @@ defmodule Responder.Admission.Decision do
          :ok <- validate_reason(value["reason"]),
          :ok <- validate_shape(action, value["episode_ref"], reaction, relation),
          :ok <- validate_work_class(action, work_class),
-         {:ok, observation} <- Observations.prepare(value["observation"]) do
+         {:ok, observation} <- Observations.prepare(value["observation"]),
+         {:ok, knowledge} <- KnowledgeUpdate.prepare(value["knowledge"]),
+         :ok <- knowledge_source(knowledge, observation) do
       {:ok,
        %__MODULE__{
          action: action,
@@ -46,7 +49,8 @@ defmodule Responder.Admission.Decision do
          relation: relation,
          reason: value["reason"],
          work_class: work_class,
-         observation: observation
+         observation: observation,
+         knowledge: knowledge
        }}
     end
   end
@@ -68,9 +72,12 @@ defmodule Responder.Admission.Decision do
       "work_class" => work_class_document(decision.work_class)
     }
 
-    if decision.observation,
-      do: Map.put(document, "observation", decision.observation),
-      else: document
+    document =
+      if decision.observation,
+        do: Map.put(document, "observation", decision.observation),
+        else: document
+
+    if decision.knowledge, do: Map.put(document, "knowledge", decision.knowledge), else: document
   end
 
   @doc """
@@ -104,6 +111,7 @@ defmodule Responder.Admission.Decision do
       "additionalProperties" => false,
       "properties" => %{
         "observation" => Observations.json_schema(),
+        "knowledge" => KnowledgeUpdate.json_schema(),
         "action" => %{"enum" => Enum.map(actions, &Atom.to_string/1)},
         "episode_ref" => %{
           "anyOf" => [
@@ -127,6 +135,18 @@ defmodule Responder.Admission.Decision do
         }
       },
       "oneOf" => decision_shapes(actions, reaction_names),
+      "allOf" => [
+        %{
+          "if" => %{
+            "required" => ["knowledge"],
+            "properties" => %{"knowledge" => %{"type" => "object"}}
+          },
+          "then" => %{
+            "required" => ["observation"],
+            "properties" => %{"observation" => %{"type" => "object"}}
+          }
+        }
+      ],
       "required" => @fields,
       "title" => "Responder admission decision",
       "type" => "object"
@@ -198,7 +218,7 @@ defmodule Responder.Admission.Decision do
 
   defp exact_fields(value) do
     if Enum.all?(@fields, &Map.has_key?(value, &1)) and
-         Enum.all?(Map.keys(value), &(&1 in ["observation" | @fields])),
+         Enum.all?(Map.keys(value), &(&1 in ["observation", "knowledge" | @fields])),
        do: :ok,
        else: {:error, {:invalid_decision, :fields}}
   end
@@ -290,6 +310,10 @@ defmodule Responder.Admission.Decision do
     do: invalid(:relation)
 
   defp invalid(field), do: {:error, {:invalid_decision, field}}
+
+  defp knowledge_source(nil, _), do: :ok
+  defp knowledge_source(_, %{}), do: :ok
+  defp knowledge_source(_, _), do: invalid(:knowledge)
 
   defp bounded_string_schema(maximum) do
     %{

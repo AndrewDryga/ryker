@@ -147,6 +147,7 @@ defmodule Responder.ControlPlane.InspectionRedactor do
       end)
 
     value
+    |> scrub_urls()
     |> String.replace(
       ~r/-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----.*?-----END (?:[A-Z ]+ )?PRIVATE KEY-----/s,
       @marker
@@ -157,15 +158,18 @@ defmodule Responder.ControlPlane.InspectionRedactor do
       ~r/(?i)\b(password|passwd|(?:access[_-]?)?token|(?:client[_-]?)?secret|api[_-]?key)["']?\s*[:=]\s*(?:"[^"\n]*"|'[^'\n]*'|[^\s,;]+)/,
       "\\1=[redacted]"
     )
-    |> scrub_urls()
   end
 
   defp scrub_urls(value) do
     Regex.replace(~r/https?:\/\/[^\s<>"']+/, value, fn url ->
-      uri = URI.parse(url)
+      # Prose and Markdown delimiters are not part of a signed URL. Scrub the
+      # complete URL before generic token assignments can consume its closing ).
+      resource = String.replace(url, ~r/[).,;!?]+$/, "")
+      suffix = binary_part(url, byte_size(resource), byte_size(url) - byte_size(resource))
+      uri = URI.parse(resource)
       # Signed links and opaque query parameters are not inspection credentials.
       # Preserve the useful resource path; omit query and fragment wholesale.
-      %{uri | userinfo: nil, query: nil, fragment: nil} |> URI.to_string()
+      URI.to_string(%{uri | userinfo: nil, query: nil, fragment: nil}) <> suffix
     end)
   end
 

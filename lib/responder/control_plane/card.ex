@@ -6,6 +6,13 @@ defmodule Responder.ControlPlane.Card do
   alias Responder.Slack.TaskCardProjection
   alias Responder.State.{Record, RecordPayload}
 
+  @doc "Only actionable cards expose their custody status; facts and transitions have no open lifecycle."
+  def display_status(%{kind: kind})
+      when kind in ~w(evidence coverage finding progress goal goal_state alert_assessment),
+      do: nil
+
+  def display_status(card), do: card.status
+
   @spec project(Record.t()) :: {:ok, map()} | :ignore
   def project(%Record{} = record) do
     case RecordPayload.prepare(record.kind, record.payload, record.ref) do
@@ -347,7 +354,7 @@ defmodule Responder.ControlPlane.Card do
   defp card(%Record{kind: "goal_state"} = record, payload) do
     common(
       record,
-      "Goal state",
+      "Goal updated",
       humanize(payload["state"]),
       payload["detail"] || "Goal #{payload["goal_id"]}",
       [{"Goal", payload["goal_id"]}],

@@ -21,7 +21,7 @@ defmodule Responder.Admission.Candidate do
     :ref,
     :same_thread
   ]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [source_documents: []]
 
   @type t :: %__MODULE__{
           allowed_relations: [:same_work | :history_only],
@@ -85,7 +85,8 @@ defmodule Responder.Admission.Candidate do
       latest_input_preview: endpoints |> Map.get(:latest) |> preview(),
       model_state: model_state(episode.state),
       ref: opaque_ref(episode.id),
-      same_thread: same_thread
+      same_thread: same_thread,
+      source_documents: endpoints |> Map.values() |> Enum.map(&source_document/1)
     }
   end
 
@@ -245,4 +246,7 @@ defmodule Responder.Admission.Candidate do
 
   defp preview_payload(payload) when is_map(payload), do: payload
   defp preview_payload(payload), do: %{"content" => payload}
+
+  defp source_document(%{payload: %{"payload" => payload}}) when is_map(payload), do: payload
+  defp source_document(_), do: nil
 end

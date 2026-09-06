@@ -15,6 +15,7 @@ defmodule Responder.StateTools.FixedTools do
     Behaviors,
     Continuity,
     ConversationSummaryState,
+    KnowledgeSnapshot,
     Memories,
     Record,
     Records
@@ -269,7 +270,9 @@ defmodule Responder.StateTools.FixedTools do
         )
       end)
 
-    {:ok, %{"cursor" => nil, "memories" => memories}}
+    with :ok <- KnowledgeSnapshot.expose(binding, memories) do
+      {:ok, %{"cursor" => nil, "memories" => memories}}
+    end
   end
 
   defp dispatch("propose_memory", arguments, binding) do

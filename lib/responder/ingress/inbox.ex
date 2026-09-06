@@ -15,6 +15,7 @@ defmodule Responder.Ingress.Inbox do
   alias Responder.Ingress.Projections
   alias Responder.Ingress.WorkProfile
   alias Responder.Repo
+  alias Responder.State.Observations
 
   @ref_prefix "ingress-input:"
 
@@ -443,10 +444,16 @@ defmodule Responder.Ingress.Inbox do
 
     with {:ok, receipt} <- reconcile_record(input, load(dedupe_key), settings),
          :ok <- attach_artifacts(input, receipt),
+         :ok <- receive_observation(receipt),
          :ok <- Projections.observe(input, ref(receipt.entry)) do
       {:ok, receipt}
     end
   end
+
+  defp receive_observation(%{status: :recorded, entry: entry}),
+    do: Observations.receive_in_transaction(entry)
+
+  defp receive_observation(_receipt), do: :ok
 
   defp record_batch_locked(inputs, settings) do
     case lock_batch(inputs, settings) do

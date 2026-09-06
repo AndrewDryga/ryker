@@ -344,7 +344,9 @@ defmodule Responder.State.ObservationsTest do
       assert {:error, {:invalid_decision, :observation}} = Observations.prepare(invalid)
     end
 
-    assert Repo.aggregate(ConversationObservation, :count) == 0
+    # Receipt custody keeps only a revision fence until classification succeeds.
+    assert [%{note: nil, source_result_ref: nil}] = Repo.all(ConversationObservation)
+    assert Observations.context(entry, nil) == []
   end
 
   defp observe!(event, channel, note, options \\ []) do

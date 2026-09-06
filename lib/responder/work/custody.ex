@@ -14,7 +14,7 @@ defmodule Responder.Work.Custody do
   alias Responder.Episodes
   alias Responder.Episodes.{Command, Episode}
   alias Responder.Repo
-  alias Responder.State.{Continuity, EventSubscriptions}
+  alias Responder.State.{Continuity, EventSubscriptions, KnowledgeSnapshot}
 
   alias Responder.Work.{
     Cancellation,
@@ -463,8 +463,8 @@ defmodule Responder.Work.Custody do
   @doc """
   Moves an unsubmitted logical turn to the next immutable Coop session generation.
 
-  The caller must first prove the currently bound remote session cannot accept a
-  new turn. A frozen submission cannot move because a same-session delta may not
+  The caller must first prove the currently bound remote session is exhausted or
+  unsafe to reuse (for example, its retained knowledge was withdrawn). A frozen submission cannot move because a same-session delta may not
   be self-contained in the replacement provider transcript.
   """
   @spec rotate_session(Ecto.UUID.t(), String.t(), String.t(), pos_integer()) ::
@@ -2104,6 +2104,13 @@ defmodule Responder.Work.Custody do
              validation_receipt,
              result,
              measurement
+           ),
+         :ok <- KnowledgeSnapshot.authorize_session(episode, session),
+         :ok <-
+           KnowledgeSnapshot.authorize_submission(
+             episode,
+             session.repository_ref,
+             turn.submission
            ),
          {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
          {:ok, turn} <-

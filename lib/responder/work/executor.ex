@@ -12,7 +12,7 @@ defmodule Responder.Work.Executor do
   alias Responder.Artifacts.Outputs
   alias Responder.Delivery.{PlatformActionCustody, Presentation}
   alias Responder.Slack.Mentions
-  alias Responder.State.Records
+  alias Responder.State.{KnowledgeSnapshot, Records}
 
   alias Responder.Work.{
     Activity,
@@ -62,6 +62,13 @@ defmodule Responder.Work.Executor do
          :ok <- require_project_isolation(claim, settings),
          {:ok, claim} <- ensure_state_binding(claim, settings),
          {:ok, claim} <- ensure_submission(claim, settings),
+         :ok <- KnowledgeSnapshot.authorize_session(claim.episode, claim.session),
+         :ok <-
+           KnowledgeSnapshot.authorize_submission(
+             claim.episode,
+             claim.session.repository_ref,
+             claim.turn.submission
+           ),
          {:ok, claim, remote_turn} <- ensure_turn(claim, settings) do
       await_turn(claim, remote_turn, settings, settings.max_polls)
     end
@@ -534,7 +541,10 @@ defmodule Responder.Work.Executor do
         rotate_session(claim, settings)
       end
     else
-      {:ok, claim}
+      case KnowledgeSnapshot.authorize_session(claim.episode, claim.session) do
+        :ok -> {:ok, claim}
+        {:error, :work_knowledge_context_stale} -> rotate_session(claim, settings)
+      end
     end
   end
 
@@ -2018,15 +2028,17 @@ defmodule Responder.Work.Executor do
   end
 
   defp submit_frozen_turn(settings, claim, key, revision, artifacts) do
-    settings.api.submit_frozen_turn(
-      settings.client,
-      claim.session.coop_session_id,
-      key,
-      revision,
-      claim.turn.submission,
-      state_binding_document(claim),
-      artifacts
-    )
+    with :ok <- KnowledgeSnapshot.expose_submission(claim) do
+      settings.api.submit_frozen_turn(
+        settings.client,
+        claim.session.coop_session_id,
+        key,
+        revision,
+        claim.turn.submission,
+        state_binding_document(claim),
+        artifacts
+      )
+    end
   end
 
   defp fence_frozen_turn(settings, claim, key, revision, artifacts) do

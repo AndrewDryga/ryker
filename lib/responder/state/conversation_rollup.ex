@@ -15,6 +15,7 @@ defmodule Responder.State.ConversationRollup do
     field(:period_start, :utc_datetime_usec)
     field(:period_end, :utc_datetime_usec)
     field(:state, Responder.CanonicalJSON.Type)
+    field(:source_dependencies, Responder.CanonicalJSON.Type, default: [])
     field(:state_fingerprint, :string)
     field(:source_refs, Responder.CanonicalJSON.Type)
     field(:source_scopes, Responder.CanonicalJSON.Type)

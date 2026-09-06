@@ -36,7 +36,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     20_260_905_000_400,
     20_260_905_000_500,
     20_260_906_001_000,
-    20_260_906_002_000
+    20_260_906_002_000,
+    20_260_906_004_000
   ]
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
@@ -978,7 +979,11 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       )
 
       assert_raise Postgrex.Error, ~r/conversation observations have data/, fn ->
-        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+        Ecto.Migrator.run(repo, @migrations_path, :down,
+          to: 20_260_906_002_000,
+          prefix: prefix,
+          log: false
+        )
       end
 
       assert %{rows: [[1]]} =
@@ -993,6 +998,51 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  """,
                  [prefix <> ".conversation_observations"]
                )
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  test "source-only learning fences survive a refused rollback without a knowledge head" do
+    repo = start_migration_repo!()
+    prefix = "knowledge_lineage_rollback_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false)
+      id = Ecto.UUID.generate()
+      sources = Jason.encode!([%{"source_input_id" => id, "revision" => 1}])
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.conversation_observations
+          (id, identity_key, transport, workspace_ref, conversation_ref, visibility,
+           source_input_id, source_message_ref, source_result_ref, source_fingerprint, actor_ref,
+           execution_mode, revision, occurred_at, note, source_dependencies, inserted_at, updated_at)
+        VALUES ($1::text::uuid, 'source', 'slack', 'slack:T', 'slack:T:C', 'public',
+                $1::text::uuid, '1787832000.000100', 'result', repeat('a', 64), 'U',
+                'shadow', 1, clock_timestamp(), '{"summary":"Keep the service","topics":[]}', $2,
+                clock_timestamp(), clock_timestamp())
+        """,
+        [id, sources]
+      )
+
+      assert %{rows: [[0]]} =
+               SQL.query!(repo, "SELECT count(*) FROM #{prefix}.conversation_knowledge", [])
+
+      assert_raise Postgrex.Error, ~r/conversation learning has data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      assert %{rows: [[^sources]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT source_dependencies FROM #{prefix}.conversation_observations",
+                 []
+               )
+
+      assert table_exists?(repo, prefix, "episode_work_source_exposures")
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end

@@ -1,5 +1,6 @@
 defmodule Responder.ControlPlane.HTML do
   alias Responder.Accounting.Pricing
+  alias Responder.ControlPlane.Card
   alias Responder.ControlPlane.Components
   alias Responder.ControlPlane.FailurePage
   alias Responder.ControlPlane.SlackNames
@@ -1407,7 +1408,7 @@ defmodule Responder.ControlPlane.HTML do
 
     [
       "<p class=\"page-description\">What Responder learned from conversations, with the messages and work it came from.</p>",
-      "<div class=\"page-help\"><p>Notes preserve observations from individual messages, including messages that did not need a reply. Conversation summaries keep the situation, decisions and open questions from completed work. Responder recalls relevant entries when routing and working on later requests.</p><p>For a deliberate saved fact, ask Responder to remember it in Slack or Conversation Lab and confirm the proposal. Confirmed facts appear under Operational memory; use Forget to remove one. Correct conversation context in its original conversation. Source links let you check what was actually said. Retention is measured from the last saved update; older summaries may first be combined into longer-term summaries.</p></div>",
+      "<div class=\"page-help\"><p>Current knowledge keeps one evolving summary per subject, with source-linked updates. Responder learns useful decisions, intentions and changes from conversations even when it does not reply, including in shadow mode. Related topics are recalled for later routing and work. Notes are individual source observations; conversation summaries describe completed work.</p><p>To create or correct conversation knowledge, explain the fact or change in the original Slack conversation or Conversation Lab. Related updates maintain the same topic. Edits, deletions and expiry invalidate knowledge that depended on the old source; invalidated items remain inspectable but are not recalled. Retention follows the oldest supporting source, so a new update cannot keep an expired fact alive indefinitely.</p><p>For a deliberate saved fact, ask Responder to remember it and confirm the proposal. Those confirmed facts appear under Operational memory; use Forget to remove one. Knowledge is context, not an instruction, permission or proof of current health.</p></div>",
       "<nav class=\"behavior-links\" aria-label=\"Related saved instructions\"><a href=\"/rules\">Standing rules →</a><a href=\"/preferences\">Preferences →</a><a href=\"/guidance\">Guidance →</a></nav>",
       if(snapshot[:conversation_memory],
         do:
@@ -2137,9 +2138,12 @@ defmodule Responder.ControlPlane.HTML do
       escape(card.kind),
       "\"><div class=\"lab-card-head\"><span>",
       escape(card.label),
-      "</span><span>",
-      escape(card.status),
-      "</span></div><h3>",
+      "</span>",
+      if(Card.display_status(card),
+        do: ["<span>", escape(Card.display_status(card)), "</span>"],
+        else: ""
+      ),
+      "</div><h3>",
       escape(card.title),
       "</h3>",
       if(card.summary, do: ["<p>", escape(card.summary), "</p>"], else: ""),
