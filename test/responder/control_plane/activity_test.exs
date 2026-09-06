@@ -12,6 +12,51 @@ defmodule Responder.ControlPlane.ActivityTest do
   alias Responder.Work.Session
   alias Responder.Work.Turn
 
+  test "attachment-only Slack notifications keep readable searchable request titles" do
+    # Most replay rows said source unavailable although Slack retained the alert
+    # in attachments. This fallback is harvested from the blocked HCP notification.
+    title = "Run run-Ko2xq6dNyoefZfUX"
+
+    {:ok, input} =
+      Input.new(%{
+        actor: %{kind: :bot, ref: "B08N64XSHNU"},
+        channel_ref: "C456",
+        content: %{"text" => "", "attachments" => [%{"fallback" => title}]},
+        event_kind: :message,
+        event_ref: "Ev-attachment-title",
+        message_ref: "1788370103.362809",
+        occurred_at: DateTime.utc_now(),
+        revision: 1,
+        thread_ref: nil,
+        workspace_ref: "T123"
+      })
+
+    {:ok, %{entry: entry}} = Inbox.record(input)
+    assert %{items: [%{title: ^title}]} = Activity.list(%{})
+    assert Activity.list(%{"q" => "Ko2xq6dNyoefZfUX"}).total == 1
+
+    {:ok, %{episode: episode}} = Episodes.apply(Fixtures.admit_input())
+
+    Repo.update_all(from(e in Entry, where: e.id == ^entry.id),
+      set: [
+        episode_id: episode.id,
+        status: :decided,
+        decision_action: :start_episode,
+        decision_ref: "decision:attachment-title",
+        decision_fingerprint: String.duplicate("a", 64),
+        decision_document: %{"action" => "start_episode", "episode_ref" => episode.key}
+      ]
+    )
+
+    assert Activity.request_titles([episode.key])[episode.key].title == title
+
+    Repo.update_all(from(e in Entry, where: e.id == ^entry.id),
+      set: [operational_pruned_at: DateTime.utc_now()]
+    )
+
+    assert Activity.list(%{"q" => "Ko2xq6dNyoefZfUX"}).total == 0
+  end
+
   test "usage drilldowns retain measured admission requests that never created an episode" do
     # Admission spend was visible in Usage but its request vanished on every drilldown.
     {:ok, input} =

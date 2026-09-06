@@ -137,11 +137,9 @@ defmodule Responder.ControlPlane.Activity do
           repository: input.repository,
           text:
             fragment(
-              "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE left(COALESCE(?::jsonb ->> 'text', ?::jsonb #>> '{payload,comment,body}', ?::jsonb #>> '{payload,review,body}'), 12000) END",
+              "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE (SELECT left(COALESCE(NULLIF(source ->> 'text', ''), source #>> '{payload,comment,body}', source #>> '{payload,review,body}', source #>> '{attachments,0,title}', source #>> '{attachments,0,pretext}', source #>> '{attachments,0,text}', source #>> '{attachments,0,fallback}', source #>> '{blocks,0,text,text}', source #>> '{files,0,name}'), 12000) FROM (SELECT ?::jsonb AS source) AS payload) END",
               input.pruned_at,
               input.event_kind,
-              input.content,
-              input.content,
               input.content
             ),
           started_at: fragment("LEAST(?, ?)", episode.inserted_at, input.inserted_at),
@@ -182,11 +180,9 @@ defmodule Responder.ControlPlane.Activity do
           repository: entry.repository_ref,
           text:
             fragment(
-              "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE left(COALESCE(?::jsonb ->> 'text', ?::jsonb #>> '{payload,comment,body}', ?::jsonb #>> '{payload,review,body}'), 12000) END",
+              "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE (SELECT left(COALESCE(NULLIF(source ->> 'text', ''), source #>> '{payload,comment,body}', source #>> '{payload,review,body}', source #>> '{attachments,0,title}', source #>> '{attachments,0,pretext}', source #>> '{attachments,0,text}', source #>> '{attachments,0,fallback}', source #>> '{blocks,0,text,text}', source #>> '{files,0,name}'), 12000) FROM (SELECT ?::jsonb AS source) AS payload) END",
               current.operational_pruned_at,
               current.event_kind,
-              current.content,
-              current.content,
               current.content
             ),
           started_at: entry.inserted_at,
