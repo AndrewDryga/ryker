@@ -1,4 +1,5 @@
 defmodule Responder.ControlPlane.ModelRequests do
+  alias Responder.Work.ActivityRetention
   @moduledoc "Bounded, explicitly sensitive read boundary for retained model requests."
   import Ecto.Query
   alias Responder.Admission.Attempt
@@ -62,6 +63,15 @@ defmodule Responder.ControlPlane.ModelRequests do
 
   def project(_ref, _params), do: :not_found
 
+  def admission_destination(ref, _id, nil), do: "/episodes/" <> URI.encode_www_form(ref)
+
+  def admission_destination(ref, id, generation) do
+    "/episodes/" <>
+      URI.encode_www_form(ref) <>
+      "/requests?" <>
+      URI.encode_query(%{"kind" => "admission", "attempt" => id, "generation" => generation})
+  end
+
   @doc "A bounded chronological document, with bulk-loaded custody and no per-request tool queries."
   def timeline(ref, _params) do
     case Repo.get_by(Episode, key: ref) do
@@ -110,6 +120,7 @@ defmodule Responder.ControlPlane.ModelRequests do
       secrets: Redactor.configured_secrets(),
       max_bytes: 16_384,
       timeline: true,
+      episode_ref: episode.key,
       sessions: sessions
     ]
 
@@ -179,7 +190,7 @@ defmodule Responder.ControlPlane.ModelRequests do
       completed,
       attempt != nil and attempt.phase in ~w(response_received host_validation committed),
       timing,
-      "/admission/#{entry.id}?generation=#{generation}",
+      "/episodes/#{URI.encode_www_form(options[:episode_ref])}/requests?kind=admission&attempt=#{entry.id}&generation=#{generation}",
       :admission
     )
   end
@@ -243,7 +254,10 @@ defmodule Responder.ControlPlane.ModelRequests do
     with {:ok, id} <- Ecto.UUID.cast(id), %Entry{} = entry <- Repo.get(Entry, id) do
       {:ok,
        %{
-         episode_ref: nil,
+         episode_ref:
+           if(entry.episode_id,
+             do: Repo.one(from(e in Episode, where: e.id == ^entry.episode_id, select: e.key))
+           ),
          input_id: id,
          kind: :admission,
          page: 1,
@@ -380,7 +394,7 @@ defmodule Responder.ControlPlane.ModelRequests do
       sections:
         admission_sections(entry, attempt, submission, prompt, response, generation, options)
         |> Enum.map(&Map.put(&1, :source_kind, :admission)),
-      tools: %{items: [], page: 1, pages: 1, total: 0}
+      tools: admission_tool_page(entry, generation, params, options)
     }
   end
 
@@ -474,6 +488,28 @@ defmodule Responder.ControlPlane.ModelRequests do
             event.kind in @tool_kinds
       )
 
+    activity_page(query, params, options)
+  end
+
+  defp admission_tool_page(entry, generation, params, options) do
+    if options[:timeline] || options[:expired] do
+      %{items: [], page: 1, pages: 1, total: 0}
+    else
+      query =
+        from(event in ActivityEvent,
+          join: session in Session,
+          on: session.id == event.session_id,
+          where:
+            event.admission_input_id == ^entry.id and session.generation == ^generation and
+              event.kind in @tool_kinds
+        )
+
+      activity_page(query, params, options)
+    end
+  end
+
+  defp activity_page(query, params, options) do
+    query = ActivityRetention.visible(query)
     total = Repo.aggregate(query, :count)
     page = page(params["tools_page"])
 
@@ -496,6 +532,17 @@ defmodule Responder.ControlPlane.ModelRequests do
 
     %{items: items, page: page, pages: max(1, ceil(total / @tool_page_size)), total: total}
   end
+
+  defp section("request" = id, title, value, options),
+    do: %{
+      id: id,
+      title: title,
+      artifact:
+        Redactor.artifact(
+          value,
+          Keyword.merge(options, preserve_format: true, max_bytes: 128 * 1_024)
+        )
+    }
 
   defp section(id, title, value, options),
     do: %{id: id, title: title, artifact: Redactor.artifact(value, options)}

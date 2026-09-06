@@ -1,4 +1,6 @@
 defmodule Responder.Admission.Executor do
+  alias Responder.Work.Activity
+
   @moduledoc """
   Runs one durable ingress input through Coop's admission model turn.
 
@@ -359,6 +361,8 @@ defmodule Responder.Admission.Executor do
 
   defp await_decision(turn, context, entry, settings, left) do
     with :ok <- Attempts.observe_turn(entry, turn, settings) do
+      # Telemetry has separate retry custody and must never reject a valid routing decision.
+      _ = Activity.sync_admission(entry, turn["session_id"], settings)
       observed_decision(turn, context, entry, settings, left)
     end
   end
@@ -638,6 +642,7 @@ defmodule Responder.Admission.Executor do
              ~w(open exhausted closed discarded)
            ),
          :ok <- close_current_session(current, entry, settings) do
+      _ = Activity.close_admission(entry, session["id"])
       settle_execution_session(entry, session["id"], settings)
     end
   end

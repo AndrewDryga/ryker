@@ -19,6 +19,11 @@ defmodule Responder.Retention.Policy do
 
   @policies [
     %{
+      table: "slack_thread_status_receipts",
+      class: :operational,
+      why: "actual Slack status acknowledgments expire at the operational horizon"
+    },
+    %{
       table: "admission_attempts",
       class: :operational,
       why:
@@ -163,7 +168,8 @@ defmodule Responder.Retention.Policy do
     %{
       table: "episode_work_activity",
       class: :episode_history,
-      why: "bounded model and tool narration retained with its owning episode"
+      why:
+        "replay identity follows episode history; tool and progress bodies expire with operational input or turn custody"
     },
     %{
       table: "episode_work_sessions",

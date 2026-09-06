@@ -1,4 +1,6 @@
 defmodule Responder.Slack.ThreadStatusWorker do
+  alias Responder.Slack.ThreadStatusReceipts
+
   @moduledoc """
   Reconciles durable lifecycle state into generation-fenced Slack status writes.
   """
@@ -105,12 +107,17 @@ defmodule Responder.Slack.ThreadStatusWorker do
            status.desired_text
          ) do
       :ok ->
-        case ThreadStatuses.confirm(status.id, status.lease_ref, status.generation) do
+        confirmation =
+          with {:ok, _} <- ThreadStatusReceipts.record(status, :ok),
+               do: ThreadStatuses.confirm(status.id, status.lease_ref, status.generation)
+
+        case confirmation do
           {:ok, _confirmed} -> {:ok, Map.update!(outcome, :written, &(&1 + 1))}
           {:error, _reason} = error -> {error, Map.update!(outcome, :failed, &(&1 + 1))}
         end
 
       {:error, reason} ->
+        _ = ThreadStatusReceipts.record(status, {:error, reason})
         retry_ms = retry_delay(status.attempt_count, options.retry_base_ms)
 
         case ThreadStatuses.defer(

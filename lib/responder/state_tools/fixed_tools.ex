@@ -594,6 +594,8 @@ defmodule Responder.StateTools.FixedTools do
         _none -> []
       end
 
+    expected_read_only = [session.repository_ref | expected_read_only] |> Enum.reject(&is_nil/1)
+
     writable_valid =
       arguments["authority"] != "repository_write" or writable == session.repository_ref
 

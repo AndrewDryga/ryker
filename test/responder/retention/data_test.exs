@@ -25,9 +25,61 @@ defmodule Responder.Retention.DataTest do
     ScheduleOccurrenceChangeset
   }
 
-  alias Responder.Work.{Activity, ActivityEvent, Custody, Result, Session, Submission, Turn}
+  alias Responder.Work.{
+    Activity,
+    ActivityEvent,
+    ActivityRetention,
+    Custody,
+    Result,
+    Session,
+    Submission,
+    Turn
+  }
 
   @old ~U[2020-01-01 00:00:00.000000Z]
+
+  test "operational expiry removes tool bodies and replay cannot restore them" do
+    # Tool results duplicate source content; retaining them after the prompt expires leaks history.
+    work = settled_work!("tool-body") |> discard_session!()
+
+    event = %{
+      "id" => "tool-body",
+      "occurred_at" => "2020-01-01T00:00:00.000000Z",
+      "payload" => %{
+        "tool_call_id" => "tool",
+        "status" => "completed",
+        "output" => "source-content"
+      },
+      "sequence" => 1,
+      "session_id" => work.session.coop_session_id,
+      "turn_id" => work.turn.coop_turn_id,
+      "type" => "tool.completed",
+      "version" => 1
+    }
+
+    assert {:ok, _} = Activity.ingest(work.session.id, [event])
+    backdate_operational!(work)
+    assert {:ok, _} = Data.prune(settings())
+    activity = Repo.one!(ActivityEvent)
+    # Replay may have read the legacy row before expiry. Its delayed write must
+    # recheck the marker, even when the caller still holds the original body.
+    assert {0, _} =
+             ActivityRetention.enrich(activity.id,
+               payload: %{"output" => "source-content"}
+             )
+
+    refute inspect(activity.payload) =~ "source-content"
+    assert Activity.list_for_episode(work.episode.id) == []
+    assert {:ok, %{inserted: 0}} = Activity.ingest(work.session.id, [event])
+
+    assert {:ok, _} =
+             Activity.ingest(work.session.id, [
+               %{event | "id" => "late-tool-body", "sequence" => 2}
+             ])
+
+    refute inspect(Repo.all(ActivityEvent)) =~ "source-content"
+    assert Activity.list_for_episode(work.episode.id) == []
+  end
 
   test "operational bodies expire only after the exact Coop workspace is discarded" do
     discarded = settled_work!("discarded-secret") |> discard_session!()
@@ -192,6 +244,56 @@ defmodule Responder.Retention.DataTest do
         state: :retired,
         worker_id: worker.id
       })
+
+    Repo.query!("UPDATE episode_work_sessions SET updated_at = $1 WHERE id = $2", [
+      @old,
+      uuid!(session.id)
+    ])
+
+    # Routing evidence must neither block retention forever nor vanish before its input expires.
+    assert {:ok, _} =
+             Activity.ingest(session.id, [
+               %{
+                 "id" => "retention-routing",
+                 "occurred_at" => "2020-01-01T00:00:00.000000Z",
+                 "payload" => %{
+                   "tool_call_id" => "routing",
+                   "status" => "completed",
+                   "output" => "routing-source"
+                 },
+                 "sequence" => 1,
+                 "session_id" => "coop-admission-retention",
+                 "turn_id" => "routing-turn",
+                 "type" => "tool.completed",
+                 "version" => 1
+               }
+             ])
+
+    Repo.query!("UPDATE episode_work_sessions SET updated_at = $1 WHERE id = $2", [
+      @old,
+      uuid!(session.id)
+    ])
+
+    assert {:ok, _result} = Data.prune(settings())
+    assert Repo.get(Session, session.id)
+    assert Repo.one!(ActivityEvent).payload["output"] == "routing-source"
+
+    Repo.query!("UPDATE ingress_inbox_entries SET operational_pruned_at = $1 WHERE id = $2", [
+      @old,
+      uuid!(entry.id)
+    ])
+
+    assert {:ok, _result} = Data.prune(settings())
+    refute inspect(Repo.all(ActivityEvent)) =~ "routing-source"
+
+    Repo.query!("UPDATE episode_work_sessions SET updated_at = $1 WHERE id = $2", [
+      DateTime.utc_now(),
+      uuid!(session.id)
+    ])
+
+    assert {:ok, _result} = Data.prune(settings())
+    assert Repo.get(Session, session.id)
+    assert Repo.aggregate(ActivityEvent, :count) == 1
 
     Repo.query!("UPDATE episode_work_sessions SET updated_at = $1 WHERE id = $2", [
       @old,

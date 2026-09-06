@@ -1,4 +1,8 @@
 defmodule Responder.Work.Activity do
+  alias Responder.Admission.FleetSession
+  alias Responder.ControlPlane.InspectionRedactor
+  alias Responder.Work.ActivityRetention
+
   @moduledoc """
   Durable, replay-safe custody for Coop's bounded turn narration.
 
@@ -20,6 +24,7 @@ defmodule Responder.Work.Activity do
     tool.completed
     model.plan
     model.thought
+    model.progress
     permission.decided
     activity.elided
     provider.backoff
@@ -32,12 +37,39 @@ defmodule Responder.Work.Activity do
   @sync_page_size 1_000
   @projection_limit 1_000
 
+  @doc "Capture routing activity without requiring or inventing a kernel episode."
+  def sync_admission(entry, remote_id, settings) do
+    if function_exported?(settings.api, :list_events, 4) do
+      with {:ok, _} <-
+             FleetSession.ensure(entry, %{
+               name: settings.policy,
+               digest: settings.policy_digest
+             }),
+           {:ok, session} <- FleetSession.bind(entry, remote_id) do
+        sync(session, settings.api, settings.client)
+      end
+    else
+      {:ok, %{cursor: 0, inserted: 0}}
+    end
+  end
+
+  @doc false
+  def close_admission(entry, remote_id) do
+    if Repo.exists?(
+         from(s in Session,
+           where:
+             s.execution_kind == :admission and s.admission_input_id == ^entry.id and
+               s.generation == ^entry.execution_generation
+         )
+       ), do: FleetSession.settle(entry, remote_id), else: :ok
+  end
+
   @spec sync(Session.t(), module(), term()) ::
           {:ok, %{cursor: non_neg_integer(), inserted: non_neg_integer()}} | {:error, term()}
   def sync(%Session{coop_session_id: remote_id} = session, api, client)
       when is_binary(remote_id) and is_atom(api) do
     if function_exported?(api, :list_events, 4) do
-      result = sync_pages(session.id, remote_id, session.activity_cursor, api, client, 0)
+      result = sync_pages(session.id, remote_id, session.activity_cursor, api, client, 0, 32)
       persist_sync_obligation(session.id, result)
       result
     else
@@ -129,10 +161,18 @@ defmodule Responder.Work.Activity do
           truncated: boolean()
         }
   def page_for_episode(episode_id) when is_binary(episode_id) do
+    inputs =
+      from(i in Responder.Ingress.Inbox.Entry, where: i.episode_id == ^episode_id, select: i.id)
+
+    query =
+      from(event in ActivityEvent,
+        where: event.episode_id == ^episode_id or event.admission_input_id in subquery(inputs)
+      )
+      |> ActivityRetention.visible()
+
     totals =
       Repo.one!(
-        from(event in ActivityEvent,
-          where: event.episode_id == ^episode_id,
+        from(event in query,
           select: %{
             tool_calls:
               type(
@@ -146,8 +186,7 @@ defmodule Responder.Work.Activity do
 
     events =
       Repo.all(
-        from(event in ActivityEvent,
-          where: event.episode_id == ^episode_id,
+        from(event in query,
           order_by: [desc: event.occurred_at, desc: event.session_id, desc: event.sequence],
           limit: @projection_limit
         )
@@ -164,26 +203,30 @@ defmodule Responder.Work.Activity do
   def page_for_episode(_episode_id),
     do: %{events: [], shown: 0, tool_calls: 0, total: 0, truncated: false}
 
-  defp sync_pages(session_id, remote_id, cursor, api, client, inserted) do
-    with {:ok, events} <- api.list_events(client, remote_id, cursor, @sync_page_size),
+  defp sync_pages(_session_id, _remote_id, _cursor, _api, _client, _inserted, 0),
+    do: {:error, :coop_activity_more_pages}
+
+  defp sync_pages(session_id, remote_id, cursor, api, client, inserted, pages_left) do
+    with {:ok, events} <- fetch_events(api, client, remote_id, cursor),
          true <- is_list(events) and length(events) <= @sync_page_size,
          {:ok, page} <- ingest(session_id, events) do
       case {length(events), page.cursor > cursor} do
-        {@sync_page_size, true} ->
+        {0, _} ->
+          {:ok, %{cursor: page.cursor, inserted: inserted + page.inserted}}
+
+        {_nonempty_page, true} ->
           sync_pages(
             session_id,
             remote_id,
             page.cursor,
             api,
             client,
-            inserted + page.inserted
+            inserted + page.inserted,
+            pages_left - 1
           )
 
-        {@sync_page_size, false} ->
+        {_nonempty_page, false} ->
           {:error, {:invalid_coop_activity, :stalled_cursor}}
-
-        {_short_page, _progress} ->
-          {:ok, %{cursor: page.cursor, inserted: inserted + page.inserted}}
       end
     else
       false -> {:error, {:invalid_coop_activity, :page}}
@@ -191,11 +234,23 @@ defmodule Responder.Work.Activity do
     end
   end
 
+  # Recording failure leaves retry custody; it must not turn an otherwise valid
+  # admission or work result into an execution failure.
+  defp fetch_events(api, client, remote_id, cursor) do
+    api.list_events(client, remote_id, cursor, @sync_page_size)
+  rescue
+    _ -> {:error, :coop_activity_unavailable}
+  catch
+    :exit, _ -> {:error, :coop_activity_unavailable}
+  end
+
   defp prepare_page(events, session) do
+    retention = ActivityRetention.context(session)
+
     events
     |> Enum.reduce_while({:ok, []}, fn event, {:ok, prepared} ->
       case prepare_event(event, session) do
-        {:ok, value} -> {:cont, {:ok, [value | prepared]}}
+        {:ok, value} -> {:cont, {:ok, [ActivityRetention.mark(value, retention) | prepared]}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
@@ -228,6 +283,7 @@ defmodule Responder.Work.Activity do
          occurred_at: occurred_at,
          payload: payload,
          payload_fingerprint: CanonicalJSON.digest(payload),
+         remote_payload_fingerprint: CanonicalJSON.digest(event["payload"] || %{}),
          remote_event_id: event["id"],
          remote_session_id: event["session_id"],
          sequence: event["sequence"],
@@ -291,10 +347,29 @@ defmodule Responder.Work.Activity do
 
     case stored do
       %ActivityEvent{} = activity ->
-        replay_verdict(replayed_activity?(activity, event), event.sequence)
+        matches = replayed_activity?(activity, event)
+        if matches, do: enrich_legacy(activity, event)
+        replay_verdict(matches, event.sequence)
 
       _missing_or_changed ->
         {:halt, {:error, {:coop_activity_replay_conflict, event.sequence}}}
+    end
+  end
+
+  defp enrich_legacy(activity, event) do
+    if is_nil(activity.operational_pruned_at) &&
+         is_nil(event.operational_pruned_at) &&
+         not Map.has_key?(activity.payload, "evidence_version") &&
+         Map.has_key?(event.payload, "evidence_version") do
+      # Re-reading real retained Coop events can enrich a legacy projection;
+      # it cannot manufacture an output the provider never saved.
+      # Retention can expire the row after this read. The update predicate
+      # must be rechecked under its row lock, never overwrite a tombstone.
+      ActivityRetention.enrich(activity.id,
+        payload: event.payload,
+        payload_fingerprint: event.payload_fingerprint,
+        remote_payload_fingerprint: event.remote_payload_fingerprint
+      )
     end
   end
 
@@ -303,11 +378,20 @@ defmodule Responder.Work.Activity do
       :remote_event_id,
       :coop_turn_id,
       :kind,
-      :version,
-      :payload_fingerprint
+      :version
     ]
 
-    Map.take(activity, fields) == Map.take(event, fields) and
+    same_payload =
+      if activity.remote_payload_fingerprint do
+        activity.remote_payload_fingerprint == event.remote_payload_fingerprint
+      else
+        activity.payload_fingerprint == event.payload_fingerprint ||
+          (not Map.has_key?(activity.payload, "evidence_version") &&
+             activity.payload_fingerprint ==
+               CanonicalJSON.digest(legacy_payload(event.kind, event.payload)))
+      end
+
+    Map.take(activity, fields) == Map.take(event, fields) and same_payload and
       DateTime.compare(activity.occurred_at, event.occurred_at) == :eq
   end
 
@@ -333,17 +417,22 @@ defmodule Responder.Work.Activity do
     |> Enum.reduce_while({:ok, 0}, fn event, {:ok, count} ->
       attributes =
         event
+        |> ActivityRetention.expire()
         |> Map.put(:episode_id, session.episode_id)
+        |> Map.put(:admission_input_id, session.admission_input_id)
         |> Map.put(:session_id, session.id)
 
       case %ActivityEvent{}
            |> Changeset.cast(attributes, [
              :coop_turn_id,
              :episode_id,
+             :admission_input_id,
              :kind,
              :occurred_at,
              :payload,
              :payload_fingerprint,
+             :remote_payload_fingerprint,
+             :operational_pruned_at,
              :remote_event_id,
              :remote_session_id,
              :sequence,
@@ -351,7 +440,6 @@ defmodule Responder.Work.Activity do
              :version
            ])
            |> Changeset.validate_required([
-             :episode_id,
              :kind,
              :occurred_at,
              :payload,
@@ -439,14 +527,15 @@ defmodule Responder.Work.Activity do
     with {:ok, tool_call_id} <- public_text(payload["tool_call_id"], 1_024, :tool_call_id) do
       visible = public_tool_input(payload["input"])
 
-      {:ok, compact_map(%{"tool_call_id" => tool_call_id, "input" => visible})}
+      {:ok,
+       enrich_tool(compact_map(%{"tool_call_id" => tool_call_id, "input" => visible}), payload)}
     end
   end
 
   defp public_payload("tool.completed", payload) do
     with {:ok, tool_call_id} <- public_text(payload["tool_call_id"], 1_024, :tool_call_id),
          {:ok, status} <- public_enum(payload["status"], ~w(completed failed cancelled), :status) do
-      {:ok, %{"tool_call_id" => tool_call_id, "status" => status}}
+      {:ok, enrich_tool(%{"tool_call_id" => tool_call_id, "status" => status}, payload)}
     end
   end
 
@@ -458,12 +547,34 @@ defmodule Responder.Work.Activity do
         true -> 0
       end
 
-    if count >= 0 and count <= 32,
-      do: {:ok, %{"step_count" => count}},
-      else: {:error, {:invalid_coop_activity, :step_count}}
+    if count >= 0 and count <= 32 do
+      entries =
+        case payload["entries"] do
+          entries when is_list(entries) ->
+            Enum.filter(entries, &is_map/1)
+            |> Enum.map(&Map.take(&1, ~w(content text status priority)))
+
+          _ ->
+            []
+        end
+
+      {:ok,
+       %{"step_count" => count, "entries" => sanitize_evidence(entries), "evidence_version" => 1}}
+    else
+      {:error, {:invalid_coop_activity, :step_count}}
+    end
   end
 
   defp public_payload("model.thought", _payload), do: {:ok, %{}}
+
+  defp public_payload("model.progress", payload) do
+    with {:ok, text} <- public_text(payload["text"], 65_536, :text) do
+      artifact = InspectionRedactor.artifact(text, max_bytes: 16_384)
+
+      {:ok,
+       %{"text" => artifact.text, "truncated" => artifact.truncated, "evidence_version" => 1}}
+    end
+  end
 
   defp public_payload("permission.decided", payload) do
     with {:ok, outcome} <-
@@ -503,6 +614,40 @@ defmodule Responder.Work.Activity do
      |> optional_public_integer("frames", payload["frames"])
      |> optional_public_integer("bytes", payload["bytes"])}
   end
+
+  defp enrich_tool(base, payload) do
+    evidence =
+      payload
+      |> Map.take(~w(title kind input output content locations error))
+      |> Map.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new(fn {key, value} -> {key, sanitize_evidence(value)} end)
+
+    Map.merge(base, evidence) |> Map.put("evidence_version", 1)
+  end
+
+  defp sanitize_evidence(value) do
+    artifact = InspectionRedactor.artifact(value, max_bytes: 16_384)
+
+    if artifact.truncated do
+      %{"preview" => artifact.text, "truncated" => true}
+    else
+      case Jason.decode(artifact.text) do
+        {:ok, decoded} when is_map(decoded) or is_list(decoded) -> decoded
+        _ -> artifact.text
+      end
+    end
+  end
+
+  defp legacy_payload("tool.started", payload),
+    do:
+      compact_map(%{
+        "tool_call_id" => payload["tool_call_id"],
+        "input" => public_tool_input(payload["input"])
+      })
+
+  defp legacy_payload("tool.completed", payload), do: Map.take(payload, ~w(tool_call_id status))
+  defp legacy_payload("model.plan", payload), do: Map.take(payload, ~w(step_count))
+  defp legacy_payload(_kind, payload), do: Map.delete(payload, "evidence_version")
 
   defp public_tool_input(%{} = input) do
     arguments = public_tool_arguments(input["arguments"])

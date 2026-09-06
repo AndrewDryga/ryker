@@ -20,6 +20,8 @@ defmodule Responder.Slack.ThreadStatusChangeset do
     :lease_ref,
     :next_attempt_at,
     :phase,
+    :origin_kind,
+    :origin_id,
     :status,
     :thread_ref,
     :workspace_ref

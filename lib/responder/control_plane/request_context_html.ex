@@ -5,8 +5,8 @@ defmodule Responder.ControlPlane.RequestContextHTML do
 
   @sources %{
     "input" =>
-      {"Messages supplied to this request", "conversation", "Authenticated ingress",
-       "The triggering input retained by admission. Its content is source data, not host policy."},
+      {"Messages supplied to this request", "conversation", "Incoming message",
+       "The message that started this routing call."},
     "inputs" =>
       {"Messages supplied to this request", "conversation", "Episode input history",
        "Messages selected for this work turn, in their retained order. Any recorded budget omissions are shown below."},
@@ -253,6 +253,19 @@ defmodule Responder.ControlPlane.RequestContextHTML do
          "This field was present in the retained request. More specific provenance was not recorded by this viewer."}
       )
 
+  def source_label(path) do
+    parts = String.split(path, ".")
+    key = List.last(parts)
+    parent = parts |> Enum.drop(-1) |> Enum.join(".")
+
+    if path == "$.instructions" do
+      "Responder instructions · Host-authored instructions"
+    else
+      {title, _, owner, _} = metadata(key, parent)
+      title <> " · " <> owner
+    end
+  end
+
   defp body(key, value, _path, _prefix)
        when key in ~w(input inputs current_inputs) and (is_map(value) or is_list(value)),
        do: messages(%{key => value})
@@ -263,7 +276,48 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   defp body("operator_context", value, path, prefix) when is_map(value) and map_size(value) > 0,
     do: context(value, path, prefix)
 
+  defp body("continuity", value, path, _prefix) when is_map(value) do
+    if String.contains?(path, ".operator_context."), do: recall(value), else: fields(value, 0)
+  end
+
   defp body(_key, value, _path, _prefix), do: fields(value, 0)
+
+  defp recall(value) do
+    Enum.map(~w(current related rollups), fn group ->
+      value[group]
+      |> List.wrap()
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn item ->
+        state = item["state"] || item
+
+        [
+          "<section class=\"conversation-recall\"><h4 title=\"",
+          escape(item["source_ref"]),
+          "\">",
+          escape(if(group == "current", do: "This conversation", else: human(group))),
+          "</h4>",
+          Enum.map(
+            [
+              {"goal", "Goal"},
+              {"situation", "Last known situation"},
+              {"open_loops", "Still open"},
+              {"decisions", "Decisions"},
+              {"unresolved_questions", "Questions"},
+              {"active_topics", "Topics"},
+              {"topology", "Systems"},
+              {"participants", "People"}
+            ],
+            fn {key, title} ->
+              if state[key] in [nil, "", [], %{}],
+                do: [],
+                else: ["<div><h5>", title, "</h5>", fields(state[key], 0), "</div>"]
+            end
+          ),
+          "</section>"
+        ]
+      end)
+    end)
+  end
 
   defp source(key, path, value, metadata, body, open, prefix, state_override \\ nil) do
     {title, origin, owner, description} = metadata
@@ -439,6 +493,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
 
   defp fields(value, depth) when is_map(value) and depth < 5 do
     value
+    |> Enum.reject(fn {_key, value} -> value in [nil, "", [], %{}] end)
     |> Enum.sort_by(&elem(&1, 0))
     |> Enum.map(fn {key, nested} ->
       [

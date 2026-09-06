@@ -8,6 +8,7 @@ defmodule Responder.Work.Session do
 
   schema "episode_work_sessions" do
     belongs_to(:episode, Responder.Episodes.Episode)
+    belongs_to(:admission_input, Responder.Ingress.Inbox.Entry)
     field(:execution_kind, Ecto.Enum, values: [:work, :admission], default: :work)
     field(:policy, :string)
     field(:policy_digest, :string)

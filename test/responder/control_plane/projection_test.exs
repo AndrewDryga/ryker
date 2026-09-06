@@ -386,6 +386,33 @@ defmodule Responder.ControlPlane.ProjectionTest do
     refute inspect(detail.trace) =~ "redacted by projection"
 
     assert Enum.any?(detail.trace.steps, &(&1.title == "Turn 1 model work"))
+    # A completed execution used to be stamped at its start, above tools it had not run yet.
+    model_work = Enum.find(detail.trace.steps, &(&1.title == "Turn 1 model work"))
+    assert model_work.at == measured.remote_finished_at
+    # validate_final can finish before the model returns its answer; that is
+    # still work, not evidence of an already-delivered answer.
+    for {offset, band} <- [{-1, :work}, {1, :answer}] do
+      history = [
+        %{
+          "verdict" => "accept",
+          "candidate_attempt" => 1,
+          "recorded_at" => DateTime.to_iso8601(DateTime.add(measured.remote_finished_at, offset))
+        }
+      ]
+
+      Repo.update_all(from(t in Responder.Work.Turn, where: t.id == ^measured.id),
+        set: [validation_history: history]
+      )
+
+      {:ok, checked} = Projection.episode(episode_key!(measured.episode_id))
+      validation = Enum.find(checked.trace.steps, &(&1.title == "Answer validated"))
+      assert validation.band == band
+    end
+
+    Repo.update_all(from(t in Responder.Work.Turn, where: t.id == ^measured.id),
+      set: [validation_history: measured.validation_history]
+    )
+
     assert Enum.any?(detail.trace.steps, &(&1.title == "Answer validated"))
     assert Enum.any?(detail.trace.steps, &(&1.title == "Turn 1 result accepted"))
     assert Enum.any?(detail.trace.chapters, &(&1.title == "The answer"))
@@ -473,7 +500,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
       assert {:ok, workspace_detail} = Projection.episode(episode_key!(measured.episode_id))
 
       session_step =
-        Enum.find(workspace_detail.trace.steps, &(&1.title == "Work session prepared"))
+        Enum.find(workspace_detail.trace.steps, &(&1.title == "Work session configured"))
 
       session_details = Map.new(session_step.details, &{&1.label, &1.value})
       assert session_details["Workspace target"] == expected
@@ -1175,7 +1202,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
              &(&1.title == "emisar · nomad.job_status" and &1.duration_ms == 1_000)
            )
 
-    assert Enum.any?(detail.trace.steps, &(&1.title == "Model reasoning checkpoint"))
+    refute Enum.any?(detail.trace.steps, &(&1.title == "Model reasoning checkpoint"))
 
     assert Enum.any?(detail.trace.steps, &(&1.title == "Model plan updated"))
     assert Enum.any?(detail.trace.steps, &(&1.title == "Tool permission decided"))

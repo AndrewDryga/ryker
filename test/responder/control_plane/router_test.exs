@@ -8,6 +8,32 @@ defmodule Responder.ControlPlane.RouterTest do
 
   @secret String.duplicate("s", 32)
 
+  test "an assigned input opens its real episode instead of a second admission timeline" do
+    id = Ecto.UUID.generate()
+    options = options()
+
+    options = %{
+      options
+      | projection:
+          Map.put(options.projection, :admission_request, fn ^id, _ ->
+            {:ok, %{episode_ref: "existing:conversation"}}
+          end)
+    }
+
+    response = request_with_options(:get, "/admission/#{id}", nil, options)
+    assert response.status == 303
+    assert get_resp_header(response, "location") == ["/episodes/existing%3Aconversation"]
+    response = request_with_options(:get, "/admission/#{id}?generation=2", nil, options)
+    [destination] = get_resp_header(response, "location")
+    assert destination =~ "/episodes/existing%3Aconversation/requests?"
+
+    assert URI.decode_query(URI.parse(destination).query) == %{
+             "kind" => "admission",
+             "attempt" => id,
+             "generation" => "2"
+           }
+  end
+
   test "operator actions are buttons while inspection remains navigation" do
     # Text links made recovery actions look like more inspection pages.
     for path <- [

@@ -45,17 +45,17 @@ assert(routes.length && routes.every(route => /^\/episodes\/[^/?#]+$/.test(route
           assert.equal(await page.locator('.case-receipt-group, .case-system-event').count(), 0, 'Actions must not be hidden inside nested receipt groups');
           assert.equal(await page.locator('.case-timeline details details details').count(), 0, 'Timeline evidence must not have three disclosure levels');
           const phases = await page.locator('.chapter-heading h3').allTextContents();
-          assert(phases.every(title => ['Getting ready', 'The work', 'The answer'].includes(title)));
+          assert(phases.every(title => ['Getting ready', 'Routing', 'The work', 'The answer'].includes(title)));
           assert.equal(await page.locator('.chapter-description > p:not(.turn-divider-label):visible').count(), phases.length);
           assert.equal(await page.locator('.case-timeline').evaluate(e => getComputedStyle(e).backgroundColor), 'rgba(0, 0, 0, 0)', 'The timeline is a sequence of action cards, not one white panel');
           assert.equal(await page.getByText('Inspect admission', {exact: true}).count(), 0);
           if ((await page.locator('h1').innerText()).trim() === 'Hi') {
             // This real greeting previously occupied 11,151px and seven chapters.
             assert(result.layout.height < (width < 600 ? 4100 : width < 1000 ? 3200 : 2900), 'A greeting must remain a compact readable execution');
-            assert.deepEqual(phases, ['Getting ready', 'The work', 'The answer']);
-            assert.equal(await page.getByRole('heading', {name: 'Routing decision', exact: true}).count(), 1);
+            assert.deepEqual(phases, ['Getting ready', 'Routing', 'The work', 'The answer']);
+            assert.equal(await page.getByRole('heading', {name: 'Conversational reply', exact: true}).count(), 1);
           }
-          const followup = page.locator('.conversation-boundary').first();
+          const followup = page.locator('.conversation-boundary').filter({has: page.locator('.turn-divider-label')}).first();
           if (await followup.count()) {
             await followup.scrollIntoViewIfNeeded();
             await capture('followup');
@@ -85,6 +85,39 @@ assert(routes.length && routes.every(route => /^\/episodes\/[^/?#]+$/.test(route
           if (await work.count()) {
             await work.scrollIntoViewIfNeeded();
             await capture('work');
+          }
+          const prompt = page.locator('.phase-work .final-prompt').first();
+          if (await prompt.count()) {
+            await prompt.locator(':scope > summary').click();
+            await prompt.locator('.submitted-prompt').waitFor({state: 'visible'});
+            assert(await prompt.locator('.prompt-fragment[title][data-source]').count() > 0, 'The submitted prompt must identify its actual sources');
+            await prompt.scrollIntoViewIfNeeded();
+            assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'The full prompt must not overflow the page');
+            await capture('full-prompt');
+            await prompt.locator(':scope > summary').click();
+          }
+          const recall = page.locator('.prompt-assembly details[data-source="continuity"]').last();
+          if (await recall.count()) {
+            await recall.evaluate(element => { for (let parent = element; parent; parent = parent.parentElement) if (parent.tagName === 'DETAILS') parent.open = true; });
+            await recall.scrollIntoViewIfNeeded();
+            assert(await recall.locator('.conversation-recall').count() > 0, 'Conversation recall must use the compact summary layout');
+            await capture('recall');
+            await recall.evaluate(element => { for (let parent = element; parent; parent = parent.parentElement) if (parent.tagName === 'DETAILS') parent.open = false; });
+          }
+          const argumentsPanel = page.locator('.tool-evidence > details').filter({has: page.locator('summary', {hasText: 'Arguments'})}).first();
+          if (await argumentsPanel.count()) {
+            await argumentsPanel.locator(':scope > summary').click();
+            await argumentsPanel.scrollIntoViewIfNeeded();
+            await argumentsPanel.locator('pre').waitFor({state: 'visible'});
+            const metadata = argumentsPanel.locator('..').locator('..').locator('.case-event-details');
+            if (await metadata.count()) {
+              const position = element => { const rect = element.getBoundingClientRect(); return {x: rect.x + scrollX, y: rect.y + scrollY}; };
+              const before = await metadata.locator('summary').evaluate(position);
+              await metadata.locator('summary').click();
+              const after = await metadata.locator('summary').evaluate(position);
+              assert(Math.abs(before.x - after.x) < 1 && Math.abs(before.y - after.y) < 1, 'Opening metadata must not move its disclosure control');
+            }
+            await capture('tool-evidence');
           }
           const outcome = page.getByRole('link', {name: 'Jump to latest outcome'});
           const destination = await outcome.getAttribute('href');

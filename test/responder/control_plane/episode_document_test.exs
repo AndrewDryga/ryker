@@ -6,9 +6,24 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
 
-  test "admission belongs to preparation rather than a second execution cycle" do
+  test "missing full prompts explain availability instead of opening a blank panel" do
+    for {artifact, label} <- [
+          {InspectionRedactor.artifact(nil), "Not recorded"},
+          {InspectionRedactor.artifact(nil, expired: true), "Expired"}
+        ] do
+      html =
+        render_request(:work, :submission, [
+          %{id: "request", title: "Submitted request", artifact: artifact}
+        ])
+
+      assert html =~ label
+      refute html =~ "Highlighted text"
+    end
+  end
+
+  test "routing shows its briefing and decision separately at their real times" do
     # A one-word greeting looked like two executions with tiny repeated phases.
-    # Route and result are one setup action; work and answer remain separate.
+    # Routing is one model execution, but its input and result have distinct times.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
     {:ok, snapshot} = Projection.episode(episode.key)
     at = snapshot.trace.received_at
@@ -48,28 +63,29 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
         %{step | id: "answer", at: DateTime.add(at, 3), band: :answer}
       ])
 
-    document = render_episode(snapshot, [start, result]) |> LazyHTML.from_fragment()
+    briefing = %{start | id: "work-briefing", source_kind: :work, at: DateTime.add(at, 2)}
+    document = render_episode(snapshot, [start, result, briefing]) |> LazyHTML.from_fragment()
 
     assert document |> LazyHTML.query(".chapter-heading h3") |> Enum.map(&LazyHTML.text/1) ==
-             ["Getting ready", "The work", "The answer"]
+             ["Routing", "The work", "The answer"]
 
-    assert document |> LazyHTML.query(".phase-ready .case-request") |> Enum.count() == 1
+    assert document |> LazyHTML.query(".phase-routing .case-request") |> Enum.count() == 2
 
-    assert document |> LazyHTML.query(".phase-ready") |> LazyHTML.text() =~
+    assert document |> LazyHTML.query(".phase-routing") |> LazyHTML.text() =~
              "The user sent a greeting that can be answered directly."
 
-    assert document |> LazyHTML.query(".phase-ready") |> LazyHTML.text() =~
-             "How Responder set this up"
+    assert document |> LazyHTML.query("#routing-1-result time") |> LazyHTML.text() ==
+             Calendar.strftime(result.at, "%H:%M:%S")
 
     assert Enum.empty?(LazyHTML.query(document, ".case-receipt-group, .case-system-event"))
     assert LazyHTML.query(document, "#routing-1-result") |> Enum.count() == 1
 
-    assert LazyHTML.query(document, ".phase-ready .chapter-span") |> LazyHTML.text() ==
+    assert LazyHTML.query(document, ".phase-routing .chapter-span") |> LazyHTML.text() ==
              "+0s → +1s from start"
 
     # Truncated history may retain either side of the pair. Neither disappears.
     assert render_episode(snapshot, [result]) =~ "Conversational reply"
-    assert render_episode(snapshot, [start]) =~ "Routing input"
+    assert render_episode(snapshot, [start]) =~ "Routing briefing"
   end
 
   test "follow-up setup stays after earlier model activity in its own message group" do
@@ -292,7 +308,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
 
     assert Enum.count(
              LazyHTML.from_fragment(html)
-             |> LazyHTML.query(".request-provenance .artifact-request")
+             |> LazyHTML.query(".final-prompt .submitted-prompt")
            ) == 1
   end
 

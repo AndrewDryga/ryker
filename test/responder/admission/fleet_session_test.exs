@@ -1,7 +1,9 @@
 defmodule Responder.Admission.FleetSessionTest do
+  alias Responder.Work.Activity
   use Responder.DataCase, async: true
 
   alias Responder.Admission.FleetSession
+  alias Responder.ControlPlane.ModelRequests
   alias Responder.Ingress.Inbox
   alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
@@ -42,6 +44,36 @@ defmodule Responder.Admission.FleetSessionTest do
 
     assert {:ok, bound} = FleetSession.bind(entry, "coop-admission-session")
     assert bound.coop_session_id == "coop-admission-session"
+
+    # Routing can call tools before it decides to create an episode. Its activity must not vanish.
+    event = %{
+      "id" => "routing-call",
+      "session_id" => bound.coop_session_id,
+      "sequence" => 1,
+      "turn_id" => "routing-turn",
+      "type" => "tool.started",
+      "version" => 1,
+      "occurred_at" => "2026-09-06T02:35:37.000000Z",
+      "payload" => %{
+        "tool_call_id" => "routing-tool",
+        "title" => "Read channel history",
+        "input" => %{"channel" => "infra"}
+      }
+    }
+
+    assert {:ok, %{inserted: 1, cursor: 1}} =
+             Activity.ingest_fleet(bound.id, bound.coop_session_id, 0, [event])
+
+    activity = Repo.one!(Responder.Work.ActivityEvent)
+    assert activity.episode_id == nil
+    assert Map.get(activity, :admission_input_id) == entry.id
+    assert {:ok, request} = ModelRequests.project_input(entry.id, %{})
+    assert request.episode_ref == nil
+    assert request.selected.tools.total == 1
+    assert hd(request.selected.tools.items).artifact.text =~ "Read channel history"
+
+    assert {:ok, %{inserted: 0}} =
+             Activity.ingest_fleet(bound.id, bound.coop_session_id, 1, [event])
 
     assert {:ok, settled} = FleetSession.settle(entry, "coop-admission-session")
     assert settled.cleanup_status == :discarded

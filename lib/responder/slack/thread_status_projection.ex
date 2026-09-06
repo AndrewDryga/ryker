@@ -95,7 +95,12 @@ defmodule Responder.Slack.ThreadStatusProjection do
   defp entry_candidate(%Entry{execution_mode: :live} = entry, workspace_ref) do
     with {:ok, key} <- destination(entry, workspace_ref),
          {:ok, phase, status, priority} <- entry_status(entry) do
-      [candidate(key, phase, status, priority)]
+      [
+        Map.merge(candidate(key, phase, status, priority), %{
+          origin_kind: "input",
+          origin_id: entry.id
+        })
+      ]
     else
       _invalid -> []
     end
@@ -106,7 +111,12 @@ defmodule Responder.Slack.ThreadStatusProjection do
   defp episode_candidate(%Episode{execution_mode: :live} = episode, workspace_ref) do
     with {:ok, key} <- destination(episode, workspace_ref),
          {:ok, phase, status, priority} <- episode_status(episode) do
-      [candidate(key, phase, status, priority)]
+      [
+        Map.merge(candidate(key, phase, status, priority), %{
+          origin_kind: "episode",
+          origin_id: episode.id
+        })
+      ]
     else
       _invalid -> []
     end

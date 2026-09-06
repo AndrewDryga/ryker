@@ -1,4 +1,5 @@
 defmodule Responder.Work.ActivityTest do
+  alias Responder.ControlPlane.Projection
   use Responder.DataCase, async: false
 
   defmodule OversizedAPI do
@@ -10,12 +11,16 @@ defmodule Responder.Work.ActivityTest do
     def list_events(_client, _session_id, _cursor, _limit), do: {:error, :unavailable}
   end
 
+  defmodule RaisingAPI do
+    def list_events(_, _, _, _), do: raise("transport unavailable")
+  end
+
   defmodule EmptyAPI do
     def list_events(_client, _session_id, _cursor, _limit), do: {:ok, []}
   end
 
   defmodule PagedAPI do
-    def list_events(pages, _session_id, cursor, _limit), do: {:ok, Map.fetch!(pages, cursor)}
+    def list_events(pages, _session_id, cursor, _limit), do: {:ok, Map.get(pages, cursor, [])}
   end
 
   alias Responder.Episodes
@@ -23,6 +28,89 @@ defmodule Responder.Work.ActivityTest do
   alias Responder.Work.{Activity, ActivitySyncWorker, Custody}
 
   @now ~U[2026-09-04 12:00:00.000000Z]
+
+  test "native tool errors and public progress survive ingestion with safe evidence" do
+    # The Sept 6 infra run showed failed plan_goal without its arguments or error, hiding the cause.
+    {:ok, started} = Episodes.apply(EpisodeFixtures.admit_input())
+
+    {:ok, session} =
+      Custody.pin_episode(started.episode.id, "policy:activity", String.duplicate("a", 64))
+
+    {:ok, claim} = Custody.claim_next("activity-evidence", 60, :work)
+
+    {:ok, session} =
+      Custody.bind_session(
+        started.episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        session.generation,
+        session.create_generation,
+        "remote:evidence"
+      )
+
+    events = [
+      event(session, 1, "tool.started", %{
+        "tool_call_id" => "exec-fea1da1f",
+        "title" => "responder-state · plan_goal",
+        "kind" => "mcp",
+        "input" => %{
+          "server" => "responder-state",
+          "tool" => "plan_goal",
+          "arguments" => %{"read_only_repositories" => ["emisar"], "token" => "must-not-survive"}
+        }
+      }),
+      event(session, 2, "tool.completed", %{
+        "tool_call_id" => "exec-fea1da1f",
+        "status" => "failed",
+        "output" => %{"error" => "unauthorized"}
+      }),
+      event(session, 3, "model.progress", %{"text" => "Checking both production runners."}),
+      event(session, 4, "model.thought", %{"text" => "private reasoning"})
+    ]
+
+    assert {:ok, %{inserted: 4}} = Activity.ingest(session.id, events)
+    assert [start, finish, progress, thought] = Activity.list_for_episode(started.episode.id)
+    assert start.payload["input"]["arguments"]["read_only_repositories"] == ["emisar"]
+    assert start.payload["input"]["arguments"]["token"] == "[redacted]"
+    assert finish.payload["output"] == %{"error" => "unauthorized"}
+    assert progress.payload["text"] == "Checking both production runners."
+    assert thought.payload == %{}
+    assert {:ok, %{inserted: 0}} = Activity.ingest(session.id, events)
+
+    # Secret rotation must not change replay identity or restore an already-redacted body.
+    Application.put_env(:responder, :activity_test_secret, "opaque-private-value")
+    on_exit(fn -> Application.delete_env(:responder, :activity_test_secret) end)
+    secret_event = event(session, 5, "model.progress", %{"text" => "opaque-private-value"})
+    assert {:ok, %{inserted: 1}} = Activity.ingest(session.id, [secret_event])
+    Application.put_env(:responder, :activity_test_secret, "rotated-private-value")
+    assert {:ok, %{inserted: 0}} = Activity.ingest(session.id, [secret_event])
+    refute inspect(Activity.list_for_episode(started.episode.id)) =~ "opaque-private-value"
+    changed = put_in(secret_event, ["payload", "text"], "different text")
+    assert {:error, {:coop_activity_replay_conflict, 5}} = Activity.ingest(session.id, [changed])
+    assert {:error, :coop_activity_unavailable} = Activity.sync(session, RaisingAPI, nil)
+
+    # Keep a complete public message through redaction, including secrets that
+    # straddled Coop's former 4 KiB event boundary. Only then bound display text.
+    Application.put_env(:responder, :activity_test_secret, "opaque-configured-secret")
+
+    long_text =
+      String.duplicate("🙂", 1_023) <> "opaque-configured-secret" <> String.duplicate("x", 13_000)
+
+    assert {:ok, %{inserted: 1}} =
+             Activity.ingest(session.id, [
+               event(session, 6, "model.progress", %{"text" => long_text})
+             ])
+
+    last = Activity.list_for_episode(started.episode.id) |> List.last()
+    assert last.payload["text"] =~ "[redacted]"
+    refute last.payload["text"] =~ "opaque-configured-secret"
+
+    {:ok, detail} = Projection.episode(started.episode.key)
+    tool = Enum.find(detail.trace.steps, &(&1.stage == "Tool call"))
+    assert tool.summary =~ "unauthorized"
+    assert Enum.any?(tool.artifacts, &(&1.label == "Arguments" && &1.artifact.text =~ "emisar"))
+    refute Enum.any?(detail.trace.steps, &(&1.title == "Model reasoning checkpoint"))
+  end
 
   test "a replayed Coop page advances one durable cursor without duplicating activity" do
     episode_id = Ecto.UUID.generate()
@@ -79,13 +167,32 @@ defmodule Responder.Work.ActivityTest do
     assert thought.payload == %{}
     assert started_tool.kind == "tool.started"
 
-    assert started_tool.payload == %{
-             "input" => %{"operation" => "nomad.job_status"},
+    assert started_tool.payload["input"]["action_id"] == "nomad.job_status"
+    assert started_tool.payload["input"]["args"] == %{"job" => "responder"}
+    assert started_tool.payload["title"] == "mcp.emisar.run_action"
+
+    assert completed_tool.kind == "tool.completed"
+
+    assert Map.take(completed_tool.payload, ~w(status tool_call_id)) == %{
+             "status" => "completed",
              "tool_call_id" => "tool-1"
            }
 
-    assert completed_tool.kind == "tool.completed"
-    assert completed_tool.payload == %{"status" => "completed", "tool_call_id" => "tool-1"}
+    # An upgrade must accept redelivery of a row stored by the old lossy projection.
+    legacy = %{"tool_call_id" => "tool-1", "input" => %{"operation" => "nomad.job_status"}}
+
+    started_tool
+    |> Ecto.Changeset.change(
+      payload: legacy,
+      payload_fingerprint: Responder.CanonicalJSON.digest(legacy)
+    )
+    |> Repo.update!()
+
+    assert {:ok, %{inserted: 0}} = Activity.ingest(session.id, events)
+
+    assert Repo.get!(Responder.Work.ActivityEvent, started_tool.id).payload["input"]["args"] == %{
+             "job" => "responder"
+           }
 
     changed_identity = events |> Enum.at(1) |> Map.put("id", "event-2-changed")
 
@@ -133,7 +240,9 @@ defmodule Responder.Work.ActivityTest do
     assert [plan, permission, elided, backoff, alive, empty_plan, filtered_backoff, tool] =
              Activity.list_for_episode(episode_id) |> Enum.take(-8)
 
-    assert plan.payload == %{"step_count" => 1}
+    assert plan.payload["step_count"] == 1
+    assert plan.payload["entries"] == [%{"text" => "private plan text"}]
+    refute Map.has_key?(plan.payload, "private")
 
     assert permission.payload == %{
              "option_kind" => "allow_once",
@@ -150,9 +259,9 @@ defmodule Responder.Work.ActivityTest do
            }
 
     assert alive.payload == %{"bytes" => 2_048, "frames" => 4}
-    assert empty_plan.payload == %{"step_count" => 0}
+    assert empty_plan.payload == %{"step_count" => 0, "entries" => [], "evidence_version" => 1}
     assert filtered_backoff.payload == %{"reset_at" => "2026-09-04T12:05:00Z"}
-    assert tool.payload["input"] == %{"operation" => "nomad.allocations"}
+    assert tool.payload["input"] == %{"arguments" => %{"action_id" => "nomad.allocations"}}
 
     assert {:error, {:coop_activity_cursor_gap, 13, 14}} =
              Activity.ingest(session.id, [event(session, 14, "model.plan", %{"entries" => []})])
@@ -255,11 +364,13 @@ defmodule Responder.Work.ActivityTest do
                "remote:window:#{session.id}"
              )
 
-    first_page = Enum.map(1..1_000, &event(session, &1, "model.thought", %{}))
-    final_page = [event(session, 1_001, "model.thought", %{})]
+    # The HTTP endpoint can return a short page at its byte limit. A short
+    # page is not the end: otherwise terminal tool results disappear forever.
+    first_page = Enum.map(1..2, &event(session, &1, "model.thought", %{}))
+    final_page = Enum.map(3..1_001, &event(session, &1, "model.thought", %{}))
 
     assert {:ok, %{cursor: 1_001, inserted: 1_001}} =
-             Activity.sync(session, PagedAPI, %{0 => first_page, 1_000 => final_page})
+             Activity.sync(session, PagedAPI, %{0 => first_page, 2 => final_page})
 
     persisted_session = Repo.get!(Responder.Work.Session, session.id)
 

@@ -34,7 +34,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     20_260_905_000_200,
     20_260_905_000_300,
     20_260_905_000_400,
-    20_260_905_000_500
+    20_260_905_000_500,
+    20_260_906_001_000
   ]
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 

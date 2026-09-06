@@ -8,6 +8,7 @@ defmodule Responder.Work.ActivityEvent do
 
   schema "episode_work_activity" do
     belongs_to(:episode, Responder.Episodes.Episode)
+    belongs_to(:admission_input, Responder.Ingress.Inbox.Entry)
     belongs_to(:session, Responder.Work.Session)
     field(:remote_event_id, :string)
     field(:remote_session_id, :string)
@@ -18,6 +19,8 @@ defmodule Responder.Work.ActivityEvent do
     field(:occurred_at, :utc_datetime_usec)
     field(:payload, Responder.CanonicalJSON.Type)
     field(:payload_fingerprint, :string)
+    field(:remote_payload_fingerprint, :string)
+    field(:operational_pruned_at, :utc_datetime_usec)
 
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end

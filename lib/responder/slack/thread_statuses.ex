@@ -66,7 +66,9 @@ defmodule Responder.Slack.ThreadStatuses do
       channel_ref: status.channel_ref,
       phase: :clear,
       status: "",
-      thread_ref: status.thread_ref
+      thread_ref: status.thread_ref,
+      origin_kind: status.origin_kind,
+      origin_id: status.origin_id
     })
   end
 
@@ -149,12 +151,17 @@ defmodule Responder.Slack.ThreadStatuses do
   end
 
   defp reconcile_existing!(status, target, now, minimum_interval_ms, refresh_interval_ms) do
-    changed = status.phase != target.phase or status.desired_text != target.status
+    changed =
+      status.phase != target.phase or status.desired_text != target.status or
+        status.origin_kind != target[:origin_kind] or status.origin_id != target[:origin_id]
+
     refresh = refresh_due?(status, now, refresh_interval_ms)
 
     if changed or refresh do
       update!(status, %{
         desired_text: target.status,
+        origin_kind: target[:origin_kind],
+        origin_id: target[:origin_id],
         generation: status.generation + 1,
         last_error_code: nil,
         last_error_detail: nil,
@@ -193,6 +200,8 @@ defmodule Responder.Slack.ThreadStatuses do
       channel_ref: target.channel_ref,
       delivered_generation: 0,
       desired_text: target.status,
+      origin_kind: target[:origin_kind],
+      origin_id: target[:origin_id],
       generation: 1,
       id: Ecto.UUID.generate(),
       phase: target.phase,

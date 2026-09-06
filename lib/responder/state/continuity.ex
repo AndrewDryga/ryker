@@ -995,7 +995,7 @@ defmodule Responder.State.Continuity do
     do: {:error, {:conversation_rollup_persistence, changeset.errors}}
 
   defp merge_states(states) do
-    states = Enum.sort_by(states, fn {updated_at, _state} -> updated_at end, :desc)
+    states = Enum.sort_by(states, fn {updated_at, _state} -> updated_at end, {:desc, DateTime})
     list_fields = ConversationSummaryState.list_fields()
 
     base =

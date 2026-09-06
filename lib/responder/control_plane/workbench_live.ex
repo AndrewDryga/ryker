@@ -10,6 +10,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     Endpoint,
     EpisodePage,
     LabPage,
+    ModelRequests,
     Navigation,
     RequestFilters,
     RequestPage,
@@ -348,10 +349,20 @@ defmodule Responder.ControlPlane.WorkbenchLive do
            socket.assigns.params["id"],
            inspection_params(socket)
          ) do
+      {:ok, %{episode_ref: ref}} when is_binary(ref) ->
+        push_navigate(socket,
+          to:
+            ModelRequests.admission_destination(
+              ref,
+              socket.assigns.params["id"],
+              socket.assigns.params["generation"]
+            )
+        )
+
       {:ok, requests} ->
         assign(socket,
           native: :request,
-          page_title: "Admission",
+          page_title: "Message routing",
           requests: requests,
           request_selection: request_selection(requests)
         )
