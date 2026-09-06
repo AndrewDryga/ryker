@@ -537,7 +537,9 @@ defmodule Responder.Admission.DispatcherTest do
   end
 
   test "candidate overflow waits without a model turn and recovers when capacity returns" do
-    entry = record_input!("Ev-candidate-overflow")
+    # Only continuable candidates require capacity; unrelated human-thread
+    # history must not prevent dispatch (covered by ContextTest).
+    entry = record_input!("Ev-candidate-overflow", actor: %{kind: :app, ref: "A-history"})
 
     active_episodes =
       for index <- 1..9 do
