@@ -812,7 +812,8 @@ defmodule Responder.Admission do
              input.destination,
              input.native_input_id,
              execution_mode,
-             settings.candidate_limit
+             settings.candidate_limit,
+             cross_thread_relation_scope(input)
            ) do
       destination = input.destination
       history_cutoff = DateTime.add(settings.now, -settings.history_window, :second)
@@ -877,8 +878,14 @@ defmodule Responder.Admission do
     end
   end
 
-  defp required_candidates_fit(destination, native_input_id, execution_mode, candidate_limit) do
-    required = required_candidate_count(destination, native_input_id, execution_mode)
+  defp required_candidates_fit(
+         destination,
+         native_input_id,
+         execution_mode,
+         candidate_limit,
+         scope
+       ) do
+    required = required_candidate_count(destination, native_input_id, execution_mode, scope)
 
     if required <= candidate_limit,
       do: :ok,
@@ -888,7 +895,28 @@ defmodule Responder.Admission do
   defp required_candidate_count(
          %{thread_ref: nil} = destination,
          native_input_id,
-         execution_mode
+         execution_mode,
+         :none
+       ) do
+    # History-only options are bounded context, not runnable owners. Requiring
+    # all of them can permanently stop an unrelated channel message at capacity.
+    Repo.aggregate(
+      from(episode in Episode,
+        where:
+          episode.destination_transport == ^destination.transport and
+            episode.destination_conversation_ref == ^destination.conversation_ref and
+            episode.execution_mode == ^execution_mode and
+            fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id)
+      ),
+      :count
+    )
+  end
+
+  defp required_candidate_count(
+         %{thread_ref: nil} = destination,
+         native_input_id,
+         execution_mode,
+         _scope
        ) do
     Repo.aggregate(
       from(episode in Episode,
@@ -903,7 +931,7 @@ defmodule Responder.Admission do
     )
   end
 
-  defp required_candidate_count(destination, native_input_id, execution_mode) do
+  defp required_candidate_count(destination, native_input_id, execution_mode, scope) do
     exact_thread = exact_thread_query(destination, execution_mode)
 
     if Repo.exists?(exact_thread),
@@ -914,7 +942,8 @@ defmodule Responder.Admission do
         required_candidate_count(
           %{destination | thread_ref: nil},
           native_input_id,
-          execution_mode
+          execution_mode,
+          scope
         )
   end
 

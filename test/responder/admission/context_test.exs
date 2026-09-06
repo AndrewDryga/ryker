@@ -251,6 +251,43 @@ defmodule Responder.Admission.ContextTest do
              build_context(current)
   end
 
+  test "unrelated active threads cannot block an input that cannot continue them" do
+    # The Blitz replay retried this 386 times and held 255 later messages: every
+    # mandatory candidate was actually history-only under the Slack thread fence.
+    for index <- 1..21 do
+      create_episode!(
+        key: "history-only-active-#{index}",
+        thread_ref: "1787831000.#{String.pad_leading(Integer.to_string(index), 6, "0")}",
+        content: %{"text" => "Earlier work in another thread"}
+      )
+    end
+
+    for actor <- [%{kind: :bot, ref: "B08N64XSHNU"}, %{kind: :user, ref: "U123"}] do
+      current =
+        record_input!(
+          actor: actor,
+          message_ref: "1787832000.#{if actor.kind == :bot, do: "000100", else: "000200"}"
+        )
+
+      assert {:ok, context} = build_context(current)
+      assert length(context.candidates) == 8
+      assert Enum.all?(context.candidates, &(&1.allowed_relations == [:history_only]))
+
+      owner =
+        create_episode!(
+          key: "old-owner-#{actor.ref}",
+          thread_ref: "1787830000.#{if actor.kind == :bot, do: "000100", else: "000200"}",
+          native_input_id: current.native_input_id,
+          content: %{"text" => "The original input's owner"},
+          updated_at: DateTime.add(@now, -60 * 24 * 60 * 60, :second)
+        )
+
+      assert {:ok, with_owner} = build_context(current)
+      assert hd(with_owner.candidates).episode.id == owner.id
+      assert :same_work in hd(with_owner.candidates).allowed_relations
+    end
+  end
+
   test "shadow episodes cannot consume live admission capacity" do
     current = record_input!()
 
