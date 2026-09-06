@@ -1,6 +1,8 @@
 defmodule Responder.Admission.CommitTest do
   use Responder.DataCase, async: true
 
+  # A suite-owned workspace keeps conversation locks out of other async fixtures.
+
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
@@ -70,7 +72,7 @@ defmodule Responder.Admission.CommitTest do
     assert first.entry.decision_action == :start_episode
     assert first.entry.episode_id == first.episode.id
     assert first.episode.destination_thread_ref == entry.destination_thread_ref
-    assert first.episode.destination_conversation_ref == "slack:T123:C456"
+    assert first.episode.destination_conversation_ref == "slack:TADMISSIONCOMMIT:C456"
     assert length(first.transitions) == 1
 
     assert [event] = Episodes.list_events(first.episode.key)
@@ -1109,7 +1111,7 @@ defmodule Responder.Admission.CommitTest do
           occurred_at: @now,
           revision: 1,
           thread_ref: nil,
-          workspace_ref: "T123"
+          workspace_ref: "TADMISSIONCOMMIT"
         ],
         overrides
       )
@@ -1206,7 +1208,7 @@ defmodule Responder.Admission.CommitTest do
           occurred_at: @now,
           revision: 1,
           thread_ref: nil,
-          workspace_ref: "T123"
+          workspace_ref: "TADMISSIONCOMMIT"
         ],
         overrides
       )

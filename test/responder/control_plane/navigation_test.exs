@@ -49,8 +49,12 @@ defmodule Responder.ControlPlane.NavigationTest do
              ]
 
       for path <-
-            ~w(/ /incidents /failures /usage /lab /card-lab /manual-tests /schedules /subscriptions /memory /decisions /findings /calibration /configuration /channels /repositories /workspaces) do
+            ~w(/ /incidents /failures /usage /lab /card-lab /manual-tests /schedules /subscriptions /memory /findings /configuration /channels /repositories /workspaces) do
         assert path in (document |> LazyHTML.query("a") |> LazyHTML.attribute("href"))
+      end
+
+      for removed <- ["/decisions", "/calibration"] do
+        refute removed in (document |> LazyHTML.query("a") |> LazyHTML.attribute("href"))
       end
     end
   end

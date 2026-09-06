@@ -614,7 +614,7 @@ defmodule Responder.Ingress.InboxTest do
   end
 
   test "the database cannot move a Slack post grant onto a non-user source" do
-    destination_ref = SourceRef.channel("T123", "C789")
+    destination_ref = SourceRef.channel("T1C9FD29A9B6E", "C789")
 
     assert {:ok, %{entry: entry}} =
              Inbox.record(
@@ -646,7 +646,7 @@ defmodule Responder.Ingress.InboxTest do
           occurred_at: @occurred_at,
           revision: 1,
           thread_ref: nil,
-          workspace_ref: "T123"
+          workspace_ref: "T1C9FD29A9B6E"
         ],
         overrides
       )

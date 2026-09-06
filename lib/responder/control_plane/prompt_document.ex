@@ -106,7 +106,7 @@ defmodule Responder.ControlPlane.PromptDocument do
       [
         "<span tabindex=\"0\" class=\"prompt-fragment\" data-source=\"",
         escape(path),
-        "\" title=\"",
+        "\" data-source-label=\"",
         escape(label <> " · " <> path),
         "\">",
         html,

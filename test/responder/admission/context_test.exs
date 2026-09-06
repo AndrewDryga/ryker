@@ -722,7 +722,7 @@ defmodule Responder.Admission.ContextTest do
           occurred_at: @now,
           revision: 1,
           thread_ref: nil,
-          workspace_ref: "T123"
+          workspace_ref: "TA6E21ABA08AF"
         ],
         overrides
       )

@@ -596,7 +596,7 @@ defmodule Responder.ControlPlane.HTML do
           "Open Incidents and verify a room links to its source and investigation episodes, lifecycle observations, evidence records, and sanitized publication state.",
           "Open Schedules and verify recurrence, authority, destination, next occurrence, and dispatched or missed history agree with PostgreSQL-backed product behavior.",
           "Open Channels and Repositories; verify configuration, membership, continuity, serving worker revisions, and the latest frozen Coop freshness receipt without fetching Git live.",
-          "Open Configuration and Model calibration; verify only allowlisted values and grant names render, and that actual admitted lanes show effective target, repairs, tokens, cost, and timing."
+          "Open Configuration and Usage; verify only allowlisted values and grant names render, and that work types show the effective model, response corrections, tokens, cost, and timing."
         ],
         "/incidents"
       ),
@@ -1395,77 +1395,6 @@ defmodule Responder.ControlPlane.HTML do
     ]
   end
 
-  def calibration(%{rows: rows, window: window}) do
-    body =
-      Enum.map(rows, fn row ->
-        [
-          "<tr><td>",
-          escape(row.class),
-          "</td><td>",
-          escape(row.provider),
-          "</td><td>",
-          escape(row.model),
-          "</td><td>",
-          escape(row.effort),
-          "</td><td>",
-          integer(row.attempts),
-          "</td><td>",
-          coverage(row.measured, row.attempts),
-          "</td><td>",
-          integer(row.repair_rounds),
-          "</td><td>",
-          number(row.tokens),
-          "</td><td>",
-          Pricing.amount(row),
-          "</td><td>",
-          duration(row.average_provider_ms),
-          "</td><td>",
-          duration(row.average_queued_ms),
-          "</td><td>",
-          duration(row.average_host_ms),
-          "</td></tr>"
-        ]
-      end)
-
-    [
-      workbench_intro(
-        "Compare speed and reliability",
-        "See which model handled each type of work and where it spent time. Compare execution time and extra attempts to correct an invalid result before changing model routing in Configuration. This view includes accepted work with a linked input; it is not an answer-quality score or a complete failure rate."
-      ),
-      "<p class=\"page-description\">≈ includes API-equivalent estimates, not subscription charges. <a href=\"/usage#cost-method\">How cost is calculated →</a></p>",
-      "<nav class=\"windows\" aria-label=\"Calibration window\">",
-      Enum.map(~w(24h 7d 30d all), fn item ->
-        [
-          "<a href=\"/calibration?window=",
-          item,
-          "\"",
-          if(item == window, do: " aria-current=\"page\"", else: ""),
-          ">",
-          item,
-          "</a>"
-        ]
-      end),
-      "</nav>",
-      table(
-        [
-          "Class",
-          "Provider",
-          "Model",
-          "Effort",
-          "Attempts",
-          "Measured",
-          "Repair rounds",
-          "Tokens",
-          "Cost (USD)",
-          "Provider avg",
-          "Queue avg",
-          "Host avg"
-        ],
-        body
-      )
-    ]
-  end
-
   def memory(
         %{memories: memories} = snapshot,
         csrf_secret
@@ -1478,6 +1407,7 @@ defmodule Responder.ControlPlane.HTML do
 
     [
       "<p class=\"page-description\">What Responder learned from conversations, with the messages and work it came from.</p>",
+      "<div class=\"page-help\"><p>Notes preserve observations from individual messages, including messages that did not need a reply. Conversation summaries keep the situation, decisions and open questions from completed work. Responder recalls relevant entries when routing and working on later requests.</p><p>For a deliberate saved fact, ask Responder to remember it in Slack or Conversation Lab and confirm the proposal. Confirmed facts appear under Operational memory; use Forget to remove one. Correct conversation context in its original conversation. Source links let you check what was actually said. Retention is measured from the last saved update; older summaries may first be combined into longer-term summaries.</p></div>",
       "<nav class=\"behavior-links\" aria-label=\"Related saved instructions\"><a href=\"/rules\">Standing rules →</a><a href=\"/preferences\">Preferences →</a><a href=\"/guidance\">Guidance →</a></nav>",
       if(snapshot[:conversation_memory],
         do:
@@ -1810,61 +1740,14 @@ defmodule Responder.ControlPlane.HTML do
         _ -> Enum.map(rows, &generic_row/1)
       end
 
-    ["<section><h2>", escape(title), "</h2>", body, "</section>"]
+    ["<section><h2>", escape(title), "</h2>", generic_help(title), body, "</section>"]
   end
 
-  def decisions(rows) do
-    body =
-      Enum.map(rows, fn row ->
-        [
-          "<tr><td title=\"",
-          escape(row.ref),
-          "\"><strong>",
-          escape(decision_label(row.state)),
-          "</strong>",
-          if(row.status == :superseded,
-            do: "<br><small>Replaced by a newer message revision</small>",
-            else: []
-          ),
-          "</td><td>",
-          escape(decision_source(row.summary)),
-          "</td><td>",
-          readable_time(row.updated_at),
-          "</td><td>",
-          if(row[:input_id],
-            do: [
-              "<a href=\"/episodes/ingress-input%3A",
-              segment(row.input_id),
-              "\">Inspect message & decision →</a>"
-            ],
-            else: "Input record unavailable"
-          ),
-          "</td></tr>"
-        ]
-      end)
+  defp generic_help("Findings"),
+    do:
+      "<div class=\"page-help\"><h3>What was found</h3><p>Findings are saved conclusions about an investigation: what was observed, whether it is explained or expected, and which evidence supports it. This is not a second list of episodes, nor does each Slack alert automatically become a finding.</p><p>This page reads retained investigation records. The current model tool catalog does not currently expose a tool to create findings, and this page has no create or edit control. Evidence and conversation summaries are available in the source episode and Memory; this missing creation workflow is a product gap, not proof that no issues were found.</p></div>"
 
-    [
-      workbench_intro(
-        "How messages were routed",
-        "For each incoming message, Responder chooses a direct reply, a reaction, work on a new or existing request, or no response. Inspect a decision to see the actual message, classifier input and saved result. Latest 100 decisions."
-      ),
-      if(rows == [],
-        do:
-          "<p class=\"empty\">No routing decisions yet. Send a message in Conversation Lab to follow one end to end.</p>",
-        else: table(["Decision", "Source", "When", "Inspect"], body)
-      )
-    ]
-  end
-
-  defp decision_label(:start_episode), do: "Start work"
-  defp decision_label(:join_episode), do: "Continue existing work"
-  defp decision_label(:reply), do: "Reply directly"
-  defp decision_label(:react), do: "React to the message"
-  defp decision_label(:ignore), do: "No response needed"
-  defp decision_label(other), do: Components.label(other)
-
-  defp decision_source("control_plane"), do: "Conversation Lab"
-  defp decision_source(source), do: String.capitalize(to_string(source))
+  defp generic_help(_), do: []
 
   def configuration(%{rows: rows, grants: grants, source: source}) do
     configuration_rows =
@@ -2778,8 +2661,6 @@ defmodule Responder.ControlPlane.HTML do
 
   defp integer(value) when is_integer(value), do: Integer.to_string(value)
   defp integer(value), do: to_string(value)
-
-  defp number(value), do: value |> integer() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
 
   defp escape(value) do
     value

@@ -144,7 +144,7 @@ defmodule Responder.Slack.GatewayTest do
 
     assert_received {:handled_home, event}
     assert event.actor_ref == "U123"
-    assert event.workspace_ref == "T123"
+    assert event.workspace_ref == "T74CADB5B58F9"
   end
 
   test "a transient App Home publication failure leaves the envelope retryable" do
@@ -334,8 +334,10 @@ defmodule Responder.Slack.GatewayTest do
         :setup_options,
         %{observer: self(), result: {:ok, %{outcome: :must_not_run}}}
       )
-      |> Map.put(:setup_allowed, fn "T123", "slack:T123:C456" -> {:ok, false} end)
-      |> Map.put(:effective_settings, fn "T123", "slack:T123:C456" ->
+      |> Map.put(:setup_allowed, fn "T74CADB5B58F9", "slack:T74CADB5B58F9:C456" ->
+        {:ok, false}
+      end)
+      |> Map.put(:effective_settings, fn "T74CADB5B58F9", "slack:T74CADB5B58F9:C456" ->
         %{
           proactive: %{source: :incident_room, value: true},
           shadow: %{source: :incident_room, value: false}
@@ -364,7 +366,7 @@ defmodule Responder.Slack.GatewayTest do
              Gateway.handle_envelope(message_envelope("Ev-watched", "message"), watched)
 
     configured =
-      Map.put(settings(), :effective_settings, fn "T123", "slack:T123:C456" ->
+      Map.put(settings(), :effective_settings, fn "T74CADB5B58F9", "slack:T74CADB5B58F9:C456" ->
         %{
           proactive: %{source: :channel, value: true},
           shadow: %{source: :deployment, value: false}
@@ -385,7 +387,7 @@ defmodule Responder.Slack.GatewayTest do
 
   test "shadow engages ambient and addressed traffic but freezes it as observe-only" do
     shadowed =
-      Map.put(settings(), :effective_settings, fn "T123", "slack:T123:C456" ->
+      Map.put(settings(), :effective_settings, fn "T74CADB5B58F9", "slack:T74CADB5B58F9:C456" ->
         %{
           proactive: %{source: :workspace, value: false},
           shadow: %{source: :channel, value: true}
@@ -408,7 +410,7 @@ defmodule Responder.Slack.GatewayTest do
     assert mention.execution_mode == :shadow
 
     live =
-      Map.put(settings(), :effective_settings, fn "T123", "slack:T123:C456" ->
+      Map.put(settings(), :effective_settings, fn "T74CADB5B58F9", "slack:T74CADB5B58F9:C456" ->
         %{
           proactive: %{source: :channel, value: true},
           shadow: %{source: :deployment, value: false}
@@ -425,7 +427,7 @@ defmodule Responder.Slack.GatewayTest do
   test "trusted channel placement is frozen beside the Slack input before acknowledgement" do
     placed =
       settings()
-      |> Map.put(:work_profile, fn "T123", "slack:T123:C456" ->
+      |> Map.put(:work_profile, fn "T74CADB5B58F9", "slack:T74CADB5B58F9:C456" ->
         {:ok,
          %{
            policy: "incident-read-only",
@@ -562,7 +564,7 @@ defmodule Responder.Slack.GatewayTest do
       "payload" => %{
         "event" => %{"type" => "reaction_added"},
         "event_id" => "Ev-unsupported",
-        "team_id" => "T123",
+        "team_id" => "T74CADB5B58F9",
         "type" => "event_callback"
       },
       "type" => "events_api"
@@ -608,7 +610,7 @@ defmodule Responder.Slack.GatewayTest do
                       emoji_name: "eyes",
                       event_ref: "Ev-reaction",
                       target: %{
-                        conversation_ref: "slack:T123:C456",
+                        conversation_ref: "slack:T74CADB5B58F9:C456",
                         message_ref: "1787832000.000100",
                         transport: "slack"
                       }
@@ -696,7 +698,7 @@ defmodule Responder.Slack.GatewayTest do
     %{
       client: %{allowed: MapSet.new(["U123"])},
       directory: Directory,
-      identity: %{bot_ref: "B-BOT", bot_user_ref: "U-BOT", workspace_ref: "T123"},
+      identity: %{bot_ref: "B-BOT", bot_user_ref: "U-BOT", workspace_ref: "T74CADB5B58F9"},
       inbox: Inbox,
       interaction_handler: Responder.Slack.InteractionHandler,
       interaction_options: %{},
@@ -720,7 +722,7 @@ defmodule Responder.Slack.GatewayTest do
         "event" => event,
         "event_id" => event_ref,
         "event_time" => 1_787_832_001,
-        "team_id" => "T123",
+        "team_id" => "T74CADB5B58F9",
         "type" => "event_callback"
       },
       "type" => "events_api"
@@ -744,7 +746,7 @@ defmodule Responder.Slack.GatewayTest do
           "user" => "U123"
         },
         "event_id" => "Ev-reaction",
-        "team_id" => "T123",
+        "team_id" => "T74CADB5B58F9",
         "type" => "event_callback"
       },
       "type" => "events_api"
@@ -769,7 +771,7 @@ defmodule Responder.Slack.GatewayTest do
           "thread_ts" => "1787832000.000100",
           "type" => "message"
         },
-        "team" => %{"id" => "T123"},
+        "team" => %{"id" => "T74CADB5B58F9"},
         "type" => "block_actions",
         "user" => %{"id" => "U123"}
       },
@@ -790,7 +792,7 @@ defmodule Responder.Slack.GatewayTest do
           "ts" => "1787832001.000200",
           "user" => "U999"
         },
-        "team" => %{"id" => "T123"},
+        "team" => %{"id" => "T74CADB5B58F9"},
         "type" => "message_action",
         "user" => %{"id" => "U123"}
       },
@@ -809,7 +811,7 @@ defmodule Responder.Slack.GatewayTest do
           "user" => "U123"
         },
         "event_id" => "Ev-home-1",
-        "team_id" => "T123",
+        "team_id" => "T74CADB5B58F9",
         "type" => "event_callback"
       },
       "type" => "events_api"
@@ -828,7 +830,7 @@ defmodule Responder.Slack.GatewayTest do
           }
         ],
         "container" => %{"type" => "view", "view_id" => "V123"},
-        "team" => %{"id" => "T123"},
+        "team" => %{"id" => "T74CADB5B58F9"},
         "type" => "block_actions",
         "user" => %{"id" => "U123"},
         "view" => %{"id" => "V123", "type" => "home"}
@@ -841,7 +843,7 @@ defmodule Responder.Slack.GatewayTest do
     %{
       "envelope_id" => "env-home-edit",
       "payload" => %{
-        "team" => %{"id" => "T123"},
+        "team" => %{"id" => "T74CADB5B58F9"},
         "type" => "view_submission",
         "user" => %{"id" => "U123"},
         "view" => %{
@@ -875,7 +877,7 @@ defmodule Responder.Slack.GatewayTest do
         "channel_id" => "C456",
         "command" => "/responder",
         "response_url" => "https://hooks.slack.com/commands/secret",
-        "team_id" => "T123",
+        "team_id" => "T74CADB5B58F9",
         "text" => "status",
         "trigger_id" => "trigger-1",
         "user_id" => "U123"

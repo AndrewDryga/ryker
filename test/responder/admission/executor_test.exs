@@ -30,7 +30,7 @@ defmodule Responder.Admission.ExecutorTest do
                occurred_at: @now,
                revision: 1,
                thread_ref: nil,
-               workspace_ref: "T123"
+               workspace_ref: "TE5D7C8842D32"
              })
 
     assert {:ok, %{entry: entry}} = Inbox.record(input)
@@ -138,7 +138,7 @@ defmodule Responder.Admission.ExecutorTest do
                occurred_at: @now,
                revision: 1,
                thread_ref: nil,
-               workspace_ref: "T123"
+               workspace_ref: "TE5D7C8842D32"
              })
 
     work_profile = %{
@@ -257,7 +257,7 @@ defmodule Responder.Admission.ExecutorTest do
                  occurred_at: DateTime.add(@now, index, :microsecond),
                  revision: 1,
                  thread_ref: nil,
-                 workspace_ref: "T123"
+                 workspace_ref: "TE5D7C8842D32"
                })
 
       assert {:ok, %{entry: entry}} = Inbox.record(input, work_profile: work_profile)
@@ -288,7 +288,7 @@ defmodule Responder.Admission.ExecutorTest do
              Route.new(%{
                auth: {:bearer, "a-secret-token-long-enough"},
                destination: %{
-                 conversation_ref: "slack:T123:C456",
+                 conversation_ref: "slack:TE5D7C8842D32:C456",
                  thread_ref: nil,
                  transport: "slack"
                },
@@ -372,7 +372,7 @@ defmodule Responder.Admission.ExecutorTest do
                occurred_at: @now,
                revision: 1,
                thread_ref: nil,
-               workspace_ref: "T123"
+               workspace_ref: "TE5D7C8842D32"
              })
 
     assert {:ok, %{entry: entry}} = Inbox.record(input)
@@ -608,7 +608,7 @@ defmodule Responder.Admission.ExecutorTest do
                occurred_at: @now,
                revision: 1,
                thread_ref: nil,
-               workspace_ref: "T123"
+               workspace_ref: "TE5D7C8842D32"
              })
 
     assert {:ok, %{entry: entry}} = Inbox.record(input)

@@ -45,7 +45,7 @@ defmodule Responder.State.RecordsTest do
                occurred_at: @now,
                revision: 1,
                thread_ref: "1787832000.000100",
-               workspace_ref: "T123"
+               workspace_ref: "TAABB028FCC2E"
              })
 
     assert Records.user_resumable_wait?(wait.ref, input)

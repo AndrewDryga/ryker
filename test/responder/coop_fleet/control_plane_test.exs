@@ -143,7 +143,7 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
                occurred_at: database_now!(),
                revision: 1,
                thread_ref: nil,
-               workspace_ref: "T123"
+               workspace_ref: "TE4A6CC529D81"
              })
 
     assert {:ok, %{entry: entry}} = Inbox.record(input)

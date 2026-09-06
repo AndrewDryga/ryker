@@ -14,7 +14,9 @@ defmodule Responder.Slack.AppHomeProjectionTest do
   test "projects bounded operator state from the exact Slack workspace" do
     local = waiting_episode!("T123", "local")
     foreign = waiting_episode!("T999", "foreign")
-    publication = PublicationFixture.published!("app-home-projection")
+
+    publication =
+      PublicationFixture.published!("app-home-projection", conversation_ref: "slack:T123:C456")
 
     snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
 
@@ -59,7 +61,11 @@ defmodule Responder.Slack.AppHomeProjectionTest do
   test "private conversation titles and counts are absent when Home user no longer shares them" do
     visible = waiting_episode!("T123", "visible", "C456")
     secret = waiting_episode!("T123", "secret", "GSECRET")
-    %{publication: secret_publication} = PublicationFixture.published!("secret-home-publication")
+
+    %{publication: secret_publication} =
+      PublicationFixture.published!("secret-home-publication",
+        conversation_ref: "slack:T123:C456"
+      )
 
     Repo.update_all(
       from(publication in Responder.Publication.Publication,

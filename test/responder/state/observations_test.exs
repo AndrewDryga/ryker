@@ -53,6 +53,28 @@ defmodule Responder.State.ObservationsTest do
     refute html =~ "&lt;@"
   end
 
+  test "memory expiry is the configured retention horizon, not the original message date" do
+    previous = Application.get_env(:responder, :retention)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:responder, :retention, previous),
+        else: Application.delete_env(:responder, :retention)
+    end)
+
+    Application.put_env(:responder, :retention, %{conversation_memory_seconds: 7_776_000})
+    entry = observe!("expiry", "C1", @note)
+    saved = Repo.get!(ConversationObservation, entry.id)
+    [item] = ConversationMemory.project(%{"kind" => "notes"}).items
+    assert item.expires_at == DateTime.add(saved.updated_at, 7_776_000)
+    html = HTML.memory(Projection.memory(), "test-secret") |> IO.iodata_to_binary()
+    assert html =~ "Retention"
+    assert html =~ Calendar.strftime(item.expires_at, "%d %b %Y")
+    Application.delete_env(:responder, :retention)
+    [item] = ConversationMemory.project(%{"kind" => "notes"}).items
+    assert item.expires_at == nil
+  end
+
   for channel <- ["CSOURCE", "CTARGET"], boundary <- [:restored, :completed] do
     test "#{boundary} routing rejects frozen notes after #{channel} access changes" do
       # A persisted prompt must not carry formerly-public notes through retry or commit.

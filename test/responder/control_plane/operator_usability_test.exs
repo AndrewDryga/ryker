@@ -3,6 +3,14 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
   use ExUnit.Case, async: true
   alias Responder.ControlPlane.HTML
 
+  test "findings explain their scope and do not invent an unsupported creation control" do
+    html = HTML.generic("Findings", []) |> IO.iodata_to_binary()
+    assert html =~ "What was found"
+    assert html =~ "not a second list of episodes"
+    assert html =~ "does not currently expose a tool"
+    refute html =~ "Create finding"
+  end
+
   test "cleanup recovery explains the ownership blocker instead of sending people to a hash" do
     # The real September 2 failure was displayed as coop_error and a hash,
     # encouraging retries that cannot supply the missing ownership proof.
@@ -277,26 +285,5 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
     html = rows |> HTML.workspaces() |> IO.iodata_to_binary()
     assert html =~ ">Investigate portal errors</a>"
     assert html =~ ">Update runner version</a>"
-  end
-
-  test "routing decisions lead with the chosen response and link to the inspected input" do
-    html =
-      HTML.decisions([
-        %{
-          kind: "admission",
-          ref: "opaque-decision",
-          input_id: "one",
-          state: :start_episode,
-          status: :decided,
-          summary: "slack",
-          updated_at: ~U[2026-09-05 12:00:00Z]
-        }
-      ])
-      |> IO.iodata_to_binary()
-
-    assert html =~ "Start work"
-    assert html =~ "/episodes/ingress-input%3Aone"
-    assert html =~ "05 Sep, 12:00 UTC"
-    refute html =~ "<dt>ref</dt>"
   end
 end

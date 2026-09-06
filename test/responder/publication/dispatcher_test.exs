@@ -524,7 +524,7 @@ defmodule Responder.Publication.DispatcherTest do
              Episodes.apply(
                EpisodeFixtures.admit_input(%{
                  destination: %{
-                   conversation_ref: "slack:T123:C456",
+                   conversation_ref: "slack:TPUBLICATIONDISPATCH:C456",
                    thread_ref: "thread:#{suffix}",
                    transport: "slack"
                  },

@@ -376,6 +376,9 @@ defmodule Responder.ControlPlane.LiveTest do
     assert_patch(view, path <> "/requests")
     assert has_element?(view, ".model-inspector", "What the model received")
     assert has_element?(view, ".document-unavailable", "No requests recorded")
+    refute has_element?(view, "#execution-timeline")
+    view |> element("a", "Back to the episode timeline") |> render_click()
+    assert_patch(view, path)
     assert has_element?(view, "#execution-timeline", "Input admitted")
   end
 
@@ -591,7 +594,7 @@ defmodule Responder.ControlPlane.LiveTest do
     assert has_element?(view, "details.mobile-manage summary", "More")
 
     for path <-
-          ~w(memory findings calibration repositories channels subscriptions lab card-lab manual-tests) do
+          ~w(memory findings repositories channels subscriptions lab card-lab manual-tests) do
       assert has_element?(view, ".mobile-manage a[href='/#{path}']")
     end
 

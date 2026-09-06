@@ -17,7 +17,7 @@ defmodule Responder.Slack.ChannelSettingsTest do
   test "channel and workspace overrides have explicit precedence and inherit deletes an override" do
     defaults = %{proactive: false, shadow: false}
 
-    assert ChannelSettings.effective("T123", "slack:T123:C456", defaults) == %{
+    assert ChannelSettings.effective("T79ED658E769C", "slack:T79ED658E769C:C456", defaults) == %{
              proactive: %{source: :deployment, value: false},
              shadow: %{source: :deployment, value: false}
            }
@@ -79,7 +79,7 @@ defmodule Responder.Slack.ChannelSettingsTest do
       repository_ref: "infrastructure",
       revision: 1,
       saved_at: @now,
-      workspace_ref: "T123"
+      workspace_ref: "T79ED658E769C"
     }
     |> ChannelConfigurationChangeset.configuration()
     |> Repo.insert!()
@@ -87,7 +87,7 @@ defmodule Responder.Slack.ChannelSettingsTest do
     assert {:ok, _workspace} =
              ChannelSettings.change(change(:workspace, :shadow, :off, "event:workspace-shadow"))
 
-    assert ChannelSettings.effective("T123", "slack:T123:C456", %{
+    assert ChannelSettings.effective("T79ED658E769C", "slack:T79ED658E769C:C456", %{
              proactive: true,
              shadow: false
            }).shadow == %{source: :configuration, value: true}
@@ -95,7 +95,7 @@ defmodule Responder.Slack.ChannelSettingsTest do
     assert {:ok, _channel} =
              ChannelSettings.change(change(:channel, :shadow, :off, "event:channel-shadow"))
 
-    assert ChannelSettings.effective("T123", "slack:T123:C456", %{
+    assert ChannelSettings.effective("T79ED658E769C", "slack:T79ED658E769C:C456", %{
              proactive: true,
              shadow: false
            }).shadow == %{source: :channel, value: false}
@@ -105,20 +105,22 @@ defmodule Responder.Slack.ChannelSettingsTest do
     assert ChannelSettings.change(%{change(:channel, :shadow, :on, "event:bad") | actor_ref: ""}) ==
              {:error, {:invalid_channel_setting, :actor_ref}}
 
-    assert ChannelSettings.effective("T123", "slack:T123:C456", %{proactive: true}) ==
+    assert ChannelSettings.effective("T79ED658E769C", "slack:T79ED658E769C:C456", %{
+             proactive: true
+           }) ==
              {:error, {:invalid_channel_setting, :defaults}}
   end
 
   defp change(scope, setting, value, event_ref) do
     %{
       actor_ref: "U123",
-      conversation_ref: "slack:T123:C456",
+      conversation_ref: "slack:T79ED658E769C:C456",
       event_ref: event_ref,
       occurred_at: @now,
       scope: scope,
       setting: setting,
       value: value,
-      workspace_ref: "T123"
+      workspace_ref: "T79ED658E769C"
     }
   end
 end

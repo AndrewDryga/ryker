@@ -152,7 +152,7 @@ defmodule Responder.Slack.AttachmentIngestorTest do
                  "text" => "Please inspect this screenshot."
                },
                destination: %{
-                 conversation_ref: "slack:T123:C456",
+                 conversation_ref: "slack:TBEFEAD653F6D:C456",
                  thread_ref: "1787832000.000100",
                  transport: "slack"
                },
@@ -162,7 +162,7 @@ defmodule Responder.Slack.AttachmentIngestorTest do
                occurred_at: ~U[2026-08-28 12:00:00.000000Z],
                occurred_at_source: :source,
                revision: 1,
-               source: %{kind: "slack", ref: "T123"},
+               source: %{kind: "slack", ref: "TBEFEAD653F6D"},
                source_capabilities: %{"react" => %{"emoji_names" => nil}},
                source_item_ref: "1787832000.000100"
              })
@@ -176,7 +176,7 @@ defmodule Responder.Slack.AttachmentIngestorTest do
       "mimetype" => "image/png",
       "name" => "failure.png",
       "size" => byte_size(@png),
-      "url_private" => "https://files.slack.com/files-pri/T123-F123/failure.png"
+      "url_private" => "https://files.slack.com/files-pri/TBEFEAD653F6D-F123/failure.png"
     }
   end
 

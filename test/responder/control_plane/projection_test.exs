@@ -374,20 +374,16 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert snapshot.totals.average_host_ms == measured.usage_host_ms
 
     assert {:ok, detail} = Projection.episode(episode_key!(measured.episode_id))
-    prepared = Enum.find(detail.trace.steps, &(&1.title == "Turn 1 prepared"))
+    prepared = Enum.find(detail.trace.steps, &(&1.title == "Turn 1 queued"))
     prepared_details = Map.new(prepared.details, &{&1.label, &1.value})
 
-    assert prepared_details["Prompt"] == "retained; open model request inspector"
-    assert is_binary(prepared_details["Prompt bytes"])
-    assert String.ends_with?(prepared_details["Prompt digest"], "…")
-    assert String.ends_with?(prepared_details["Context digest"], "…")
-    assert String.ends_with?(prepared_details["Output schema"], "…")
-    assert String.ends_with?(prepared_details["Submission"], "…")
+    assert Map.keys(prepared_details) |> Enum.sort() == ["Policy", "Turn"]
+    assert prepared.state == ""
     refute inspect(detail.trace) =~ "redacted by projection"
 
-    assert Enum.any?(detail.trace.steps, &(&1.title == "Turn 1 model work"))
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Turn 1 finished"))
     # A completed execution used to be stamped at its start, above tools it had not run yet.
-    model_work = Enum.find(detail.trace.steps, &(&1.title == "Turn 1 model work"))
+    model_work = Enum.find(detail.trace.steps, &(&1.title == "Turn 1 finished"))
     assert model_work.at == measured.remote_finished_at
     # validate_final can finish before the model returns its answer; that is
     # still work, not evidence of an already-delivered answer.
@@ -484,7 +480,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
 
     assert Enum.map(validation_steps, & &1.summary) == [
              "Supply the missing evidence.",
-             "The exact candidate passed host validation.",
+             "The response passed the checks for this attempt.",
              "Responder rejected this candidate and requested a same-turn correction."
            ]
 
@@ -500,7 +496,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
       assert {:ok, workspace_detail} = Projection.episode(episode_key!(measured.episode_id))
 
       session_step =
-        Enum.find(workspace_detail.trace.steps, &(&1.title == "Work session configured"))
+        Enum.find(workspace_detail.trace.steps, &(&1.title == "Workspace selected"))
 
       session_details = Map.new(session_step.details, &{&1.label, &1.value})
       assert session_details["Workspace target"] == expected
@@ -513,7 +509,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
       )
 
       assert {:ok, duration_detail} = Projection.episode(episode_key!(measured.episode_id))
-      work_step = Enum.find(duration_detail.trace.steps, &(&1.title == "Turn 1 model work"))
+      work_step = Enum.find(duration_detail.trace.steps, &(&1.title == "Turn 1 finished"))
       work_details = Map.new(work_step.details, &{&1.label, &1.value})
       assert work_details["Provider"] == expected
     end
@@ -961,9 +957,13 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Enum.any?(pending.trace.steps, &(&1.summary =~ "waiting for transport"))
     accepted = Enum.find(pending.trace.steps, &(&1.title == "Turn 1 result accepted"))
     accepted_details = Map.new(accepted.details, &{&1.label, &1.value})
-    assert accepted.summary == "Done. password=[redacted] https://example.com/result"
-    assert accepted_details["Reply preview"] == accepted.summary
-    rendered = inspect(accepted, limit: :infinity, printable_limit: :infinity)
+    assert accepted.summary == "Responder accepted this response for delivery."
+    refute Map.has_key?(accepted_details, "Reply preview")
+
+    assert pending.trace.case_file.reply ==
+             "Done. password=[redacted] https://example.com/result"
+
+    rendered = inspect(pending.trace, limit: :infinity, printable_limit: :infinity)
     refute rendered =~ secret
     refute rendered =~ "operator:private"
     refute rendered =~ "token=hidden"
@@ -1032,7 +1032,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     )
 
     assert {:ok, detail} = Projection.episode(episode.key)
-    assert Enum.any?(detail.trace.steps, &(&1.summary == "A safe reply"))
+    assert detail.trace.case_file.reply == "A safe reply"
   end
 
   test "projects every kernel lifecycle and blocked work custody without model payloads" do
@@ -1054,10 +1054,22 @@ defmodule Responder.ControlPlane.ProjectionTest do
       "tool_call_id" => "tool:nomad"
     })
 
+    {:ok, before_completion} = Projection.episode(working.episode.key)
+    started = Enum.find(before_completion.trace.steps, &(&1.stage == "Tool call"))
+
     record_activity!(working.episode.id, session.id, 3, "tool.completed", %{
       "status" => "completed",
       "tool_call_id" => "tool:nomad"
     })
+
+    # A completed tool was previously rewritten into its earlier start card.
+    {:ok, after_completion} = Projection.episode(working.episode.key)
+    assert Enum.find(after_completion.trace.steps, &(&1.id == started.id)) == started
+
+    assert Enum.any?(
+             after_completion.trace.steps,
+             &(&1.stage == "Tool call" && &1.state == "completed" && &1.at > started.at)
+           )
 
     record_activity!(working.episode.id, session.id, 4, "tool.completed", %{
       "status" => "failed",
@@ -1194,7 +1206,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Enum.any?(detail.trace.steps, &(&1.title == "Goal recorded"))
     assert Enum.any?(detail.trace.steps, &(&1.stage == "Evidence"))
     assert Enum.any?(detail.trace.steps, &(&1.stage == "Coverage"))
-    assert Enum.any?(detail.trace.steps, &(&1.stage == "Plan" and &1.state == "open"))
+    assert Enum.any?(detail.trace.steps, &(&1.stage == "Plan" and &1.state == ""))
     assert Enum.any?(detail.trace.steps, &(&1.stage == "Wait"))
 
     assert Enum.any?(
@@ -1446,9 +1458,8 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Projection.episode(:invalid) == :not_found
     assert Projection.episode("missing") == :not_found
 
-    assert Projection.decisions(%{}) == []
     assert Projection.findings(%{}) == []
-    assert map_size(Projection.callbacks()) == 40
+    assert map_size(Projection.callbacks()) == 38
     assert is_function(Projection.callbacks().behavior, 1)
     assert is_function(Projection.callbacks().behaviors, 2)
     refute Map.has_key?(Projection.callbacks(), :audit)
@@ -1466,7 +1477,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Projection.schedules(%{}) == []
     assert Projection.channels(%{}) == []
     assert Projection.repositories(%{}) == []
-    assert Projection.calibration(%{"window" => "24h"}) == %{rows: [], window: "24h"}
+    assert Projection.usage(%{"window" => "24h"}).performance == []
 
     assert Projection.incident("missing") == :not_found
     assert Projection.schedule("missing") == :not_found
@@ -1482,7 +1493,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Projection.schedules(:invalid) == []
     assert Projection.channels(:invalid) == []
     assert Projection.repositories(:invalid) == []
-    assert Projection.calibration(:invalid) == %{rows: [], window: "30d"}
+    assert Projection.usage(:invalid).performance == []
     assert Projection.incident(nil) == :not_found
     assert Projection.schedule(nil) == :not_found
     assert Projection.channel(nil, nil) == :not_found
@@ -1981,7 +1992,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
     refute inspect(episode_detail.trace) =~ "private platform diagnostic"
   end
 
-  test "model calibration attributes the admitted work class to the exact accepted turn" do
+  test "usage compares work classes and response corrections without counting transport retries" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
     measured = measured_turn!("calibration", "codex:gpt-5.6-sol/medium@work", now)
 
@@ -2027,14 +2038,20 @@ defmodule Responder.ControlPlane.ProjectionTest do
       set: [turn_ref: "ingress-turn:#{entry.id}", validation_generation: 2]
     )
 
-    assert %{window: "all", rows: [row]} = Projection.calibration(%{"window" => "all"})
-    assert row.class == "standard"
+    assert %{window: "all", performance: [row]} = Projection.usage(%{"window" => "all"})
+    assert row.work_kind == "standard"
     assert row.provider == "codex"
     assert row.model == "gpt-5.6-sol"
     assert row.effort == "medium"
     assert row.attempts == 1
     assert row.measured == 1
-    assert row.repair_rounds == 1
+    assert row.corrections == 0
+
+    Repo.update_all(from(t in Responder.Work.Turn, where: t.id == ^measured.id),
+      set: [validation_history: [%{"candidate_attempt" => 1, "verdict" => "reject"}]]
+    )
+
+    assert [%{corrections: 1}] = Projection.usage(%{"window" => "all"}).performance
     assert row.average_provider_ms == 5_000
     assert Decimal.equal?(row.cost_usd, Decimal.new("0.0125"))
 
@@ -2051,8 +2068,9 @@ defmodule Responder.ControlPlane.ProjectionTest do
       ]
     )
 
-    assert %{rows: [%{average_provider_ms: nil}], window: "7d"} =
-             Projection.calibration(%{"window" => "7d"})
+    # Usage reads the frozen execution ledger, not a later mutation of the custody row.
+    assert %{performance: [%{average_provider_ms: 5_000}], window: "7d"} =
+             Projection.usage(%{"window" => "7d"})
   end
 
   test "effective configuration exposes provenance and grant names but never secrets or callbacks" do

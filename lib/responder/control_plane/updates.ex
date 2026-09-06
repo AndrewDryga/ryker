@@ -66,13 +66,13 @@ defmodule Responder.ControlPlane.Updates do
   def domain(path), do: path |> String.split("/", trim: true) |> List.first()
 
   defp domains("card_lab_" <> _), do: ["card-lab"]
-  defp domains("execution_usage"), do: ~w(activity admission episodes lab usage calibration)
-  defp domains("episode_operator_reviews"), do: ~w(activity episodes decisions findings)
+  defp domains("execution_usage"), do: ~w(activity admission episodes lab usage)
+  defp domains("episode_operator_reviews"), do: ~w(activity episodes findings)
   defp domains("episode_schedule" <> _), do: ~w(activity schedules channels episodes lab)
   defp domains("episode_event_subscriptions"), do: ~w(activity subscriptions episodes lab)
 
   defp domains("episode_state_" <> _),
-    do: ~w(activity episodes incidents lab decisions findings memory)
+    do: ~w(activity episodes incidents lab findings memory)
 
   defp domains("episode_" <> _),
     do: ~w(activity episodes incidents lab usage workspaces failures)
@@ -80,7 +80,7 @@ defmodule Responder.ControlPlane.Updates do
   defp domains("ingress_" <> _), do: ~w(activity admission episodes lab usage failures channels)
 
   defp domains("admission_" <> _),
-    do: ~w(activity admission episodes lab usage failures calibration)
+    do: ~w(activity admission episodes lab usage failures)
 
   defp domains("slack_incident_" <> _), do: ~w(activity incidents episodes lab channels failures)
 
@@ -101,5 +101,5 @@ defmodule Responder.ControlPlane.Updates do
   defp domains("platform_actions"), do: ~w(activity episodes lab failures)
   defp domains("delivery_" <> _), do: ~w(activity episodes lab failures)
   defp domains("responder_operator_actions"), do: ~w(activity failures)
-  defp domains(_table), do: ~w(activity calibration configuration)
+  defp domains(_table), do: ~w(activity usage configuration)
 end

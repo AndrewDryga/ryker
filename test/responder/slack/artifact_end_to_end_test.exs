@@ -146,7 +146,7 @@ defmodule Responder.Slack.ArtifactEndToEndTest do
 
     assert receipt["delivery_ref"] == delivery_ref
     assert receipt["message_ref"] == "1788265001.000200"
-    assert receipt["conversation_ref"] == "slack:T123:C456"
+    assert receipt["conversation_ref"] == "slack:T4E78287F015E:C456"
     assert receipt["thread_ref"] == "1788265000.000100"
   end
 
@@ -157,7 +157,7 @@ defmodule Responder.Slack.ArtifactEndToEndTest do
              Episodes.apply(
                EpisodeFixtures.admit_input(%{
                  destination: %{
-                   conversation_ref: "slack:T123:C456",
+                   conversation_ref: "slack:T4E78287F015E:C456",
                    thread_ref: "1788265000.000100",
                    transport: "slack"
                  },
@@ -181,7 +181,7 @@ defmodule Responder.Slack.ArtifactEndToEndTest do
     assert {:ok, adapters} =
              Adapters.new(%{
                "slack" => %{
-                 binding: %{workspaces: %{"T123" => %{api: SlackAPI, client: slack_api}}},
+                 binding: %{workspaces: %{"T4E78287F015E" => %{api: SlackAPI, client: slack_api}}},
                  message_publisher: Publisher,
                  reaction_publisher: Publisher
                }

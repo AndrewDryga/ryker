@@ -24,7 +24,7 @@ defmodule Responder.Admission.FleetSessionTest do
                occurred_at: ~U[2026-08-30 12:00:00.000000Z],
                revision: 1,
                thread_ref: nil,
-               workspace_ref: "T123"
+               workspace_ref: "T4E9BBB321532"
              })
 
     assert {:ok, %{entry: entry}} = Inbox.record(input)

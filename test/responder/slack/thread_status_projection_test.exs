@@ -19,20 +19,20 @@ defmodule Responder.Slack.ThreadStatusProjectionTest do
                occurred_at: ~U[2026-09-04 07:00:00.000000Z],
                revision: 1,
                thread_ref: nil,
-               workspace_ref: "T123"
+               workspace_ref: "TF2975945C602"
              })
 
     assert {:ok, %{entry: _entry}} = Inbox.record(input)
 
     assert {:ok, [%{phase: :queued, status: "is queued..."}]} =
-             ThreadStatusProjection.snapshot("T123")
+             ThreadStatusProjection.snapshot("TF2975945C602")
 
     assert ThreadStatusProjection.snapshot("") ==
              {:error, {:invalid_slack_thread_status, :workspace_ref}}
   end
 
   test "durable ingress and episode ownership become truthful native status phases" do
-    key = %{conversation: "slack:T123:C456", thread: "1787832000.000100"}
+    key = %{conversation: "slack:TF2975945C602:C456", thread: "1787832000.000100"}
 
     targets =
       ThreadStatusProjection.targets(
@@ -41,7 +41,7 @@ defmodule Responder.Slack.ThreadStatusProjectionTest do
           entry(key, :pending, lease_ref: "lease:admission")
         ],
         [episode(key, :working, :turn)],
-        "T123"
+        "TF2975945C602"
       )
 
     assert [target] = targets
@@ -52,20 +52,20 @@ defmodule Responder.Slack.ThreadStatusProjectionTest do
              ThreadStatusProjection.targets(
                [],
                [episode(key, :waiting_for_event, :event)],
-               "T123"
+               "TF2975945C602"
              )
 
     assert waiting.phase == :waiting_for_event
     assert waiting.status == "is waiting for an external event..."
 
     assert [complete] =
-             ThreadStatusProjection.targets([], [episode(key, :complete, nil)], "T123")
+             ThreadStatusProjection.targets([], [episode(key, :complete, nil)], "TF2975945C602")
 
     assert complete.phase == :clear
     assert complete.status == ""
 
     assert [blocked] =
-             ThreadStatusProjection.targets([entry(key, :blocked)], [], "T123")
+             ThreadStatusProjection.targets([entry(key, :blocked)], [], "TF2975945C602")
 
     assert blocked.phase == :blocked
     assert blocked.status == ""
@@ -74,7 +74,7 @@ defmodule Responder.Slack.ThreadStatusProjectionTest do
   test "foreign workspaces shadow work and malformed destinations never spend Slack writes" do
     foreign = %{conversation: "slack:T999:C456", thread: "1787832000.000100"}
     malformed = %{conversation: "github:main:repository:1", thread: "issue:1"}
-    local = %{conversation: "slack:T123:C456", thread: "1787832000.000100"}
+    local = %{conversation: "slack:TF2975945C602:C456", thread: "1787832000.000100"}
 
     assert ThreadStatusProjection.targets(
              [
@@ -88,12 +88,12 @@ defmodule Responder.Slack.ThreadStatusProjectionTest do
                episode(local, :working, :turn, execution_mode: :shadow),
                episode(local, :unknown, nil)
              ],
-             "T123"
+             "TF2975945C602"
            ) == []
   end
 
   test "every durable lifecycle branch maps to one bounded semantic status" do
-    key = %{conversation: "slack:T123:C456", thread: "1787832000.000100"}
+    key = %{conversation: "slack:TF2975945C602:C456", thread: "1787832000.000100"}
     retry_at = ~U[2026-09-04 07:01:00.000000Z]
 
     cases = [
@@ -108,7 +108,7 @@ defmodule Responder.Slack.ThreadStatusProjectionTest do
 
     Enum.each(cases, fn {entries, episodes, {phase, status}} ->
       assert [%{phase: ^phase, status: ^status}] =
-               ThreadStatusProjection.targets(entries, episodes, "T123")
+               ThreadStatusProjection.targets(entries, episodes, "TF2975945C602")
     end)
   end
 
@@ -124,7 +124,7 @@ defmodule Responder.Slack.ThreadStatusProjectionTest do
           lease_ref: nil,
           next_attempt_at: nil,
           source_kind: "slack",
-          source_ref: "T123",
+          source_ref: "TF2975945C602",
           status: status
         ],
         attributes

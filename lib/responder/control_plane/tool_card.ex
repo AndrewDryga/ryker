@@ -1,0 +1,290 @@
+defmodule Responder.ControlPlane.ToolCard do
+  @moduledoc "Readable actions, derived only from retained, sanitized tool evidence."
+  use Phoenix.Component
+  alias Responder.ControlPlane.SlackMarkdown
+
+  @tools %{
+    "cite_source" =>
+      {"Record evidence", "Evidence recorded", "Keeps a source-linked observation for this work."},
+    "plan_goal" =>
+      {"Create a plan", "Plan recorded", "Defines the goals Responder will track while working."},
+    "update_goal" =>
+      {"Update a goal", "Goal updated", "Records progress or a blocker against an existing goal."},
+    "update_conversation_summary" =>
+      {"Draft conversation context", "Conversation summary drafted",
+       "Prepares the situation, decisions and open questions. Responder saves this draft when it accepts the result."},
+    "request_input" =>
+      {"Prepare a question", "Question prepared",
+       "The question can be included in the response after validation."},
+    "wait_for" =>
+      {"Prepare an event wait", "Event wait prepared",
+       "Defines which event or deadline can resume this work."},
+    "search_memory" =>
+      {"Search saved knowledge", "Saved knowledge searched",
+       "Looks up relevant memories, guidance and conversation context."},
+    "propose_memory" =>
+      {"Propose a memory", "Memory proposed",
+       "Prepares a remembered fact or instruction for confirmation."},
+    "request_task" =>
+      {"Prepare a task", "Task proposed", "Prepares follow-up work for confirmation."},
+    "record_feedback" =>
+      {"Record feedback", "Feedback recorded", "Keeps a correction for future behavior."},
+    "validate_final" =>
+      {"Check the response", "Response check completed",
+       "Checks the proposed response and its referenced evidence."},
+    "get_work_state" =>
+      {"Read work state", "Work state read",
+       "Reads the current goals, evidence and pending work."},
+    "list_automations" =>
+      {"List automations", "Automations listed",
+       "Reads saved recurring work and event subscriptions."},
+    "get_automation" =>
+      {"Read an automation", "Automation read", "Inspects a saved trigger and its instruction."},
+    "propose_automation" =>
+      {"Propose an automation", "Automation proposed",
+       "Prepares a recurring or event-triggered instruction for confirmation."},
+    "record_emisar_approval" =>
+      {"Record approval request", "Approval request recorded",
+       "Keeps the pending infrastructure approval so work can resume after a decision."}
+  }
+
+  def render(assigns) do
+    assigns = assign(assigns, :action, project(assigns.step))
+
+    ~H"""
+    <div class={"action-card action-#{@action.kind} action-event-#{@step.state}"}>
+      <header>
+        <span class="action-symbol" aria-hidden="true">{@action.symbol}</span>
+        <h3>{if @step.state == "started", do: "Started: "}{@action.title}</h3>
+        <span
+          :if={@step.state in ["failed", "cancelled", "running"]}
+          class={"action-state action-#{@step.state}"}
+        >{@step.state}</span>
+        <span :if={@step.duration_ms} class="action-duration">{duration(@step.duration_ms)}</span>
+      </header>
+      <p :if={@action.description && @step.state != "started"} class="action-description">
+        {@action.description}
+      </p>
+      <p :if={@action.warning} class="action-warning">⚠ {@action.warning}</p>
+      <code :if={@action.path} class="action-path">{@action.path}</code>
+      <p :if={@step.summary && @step.state in ["failed", "cancelled"]} class="action-error">
+        {@step.summary}
+      </p>
+      <dl :if={@action.facts != [] && @step.state != "started"} class="action-facts">
+        <div :for={{label, value} <- @action.facts}>
+          <dt>{label}</dt><dd>{value}</dd>
+        </div>
+      </dl>
+      <div :if={@action.text && @step.state != "started"} class="action-observation markdown-preview">
+        {Phoenix.HTML.raw(SlackMarkdown.preview(@action.text))}
+      </div>
+      <section
+        :for={{label, items} <- @action.groups}
+        :if={@step.state != "started"}
+        class="action-result-group"
+      >
+        <h4>{label}</h4><ul>
+          <li :for={item <- items}>{item}</li>
+        </ul>
+      </section>
+      <pre :if={@action.diff && @step.state != "started"} class="action-diff">{@action.diff}</pre>
+      <details :for={artifact <- @step.artifacts} class="action-raw">
+        <summary>
+          {if artifact.label == "Arguments", do: "Raw arguments", else: artifact.label}{if artifact.artifact.truncated,
+            do: " · partial record"}
+        </summary>
+        <pre>{artifact.artifact.text}</pre>
+      </details>
+    </div>
+    """
+  end
+
+  def project(step) do
+    input = artifact(step, "Arguments")
+    args = if is_map(input["arguments"]), do: input["arguments"], else: input
+    tool = input["tool"] || input["operation"]
+    metadata = if input["server"] == "responder-state", do: @tools[tool]
+
+    {title, description, kind, symbol} =
+      case metadata do
+        {verb, completed, description} ->
+          {if(step.state == "completed", do: completed, else: verb), description, "responder",
+           "◇"}
+
+        nil ->
+          common_action(step, args)
+      end
+
+    file = file_path(args, step.title)
+    {display_path, warning} = if file, do: path(file, step[:project_root]), else: {nil, nil}
+
+    %{
+      title: title,
+      description: description,
+      kind: kind,
+      symbol: symbol,
+      path: display_path,
+      warning: warning,
+      text: readable_text(tool, args),
+      facts: facts(tool, args),
+      groups: groups(tool, args),
+      diff: string(args["diff"] || args["patch"])
+    }
+  end
+
+  defp common_action(%{tool_kind: "edit"}, _), do: {"Edit files", nil, "edit", "±"}
+  defp common_action(%{tool_kind: "read"}, _), do: {"Read file", nil, "read", "↳"}
+
+  defp common_action(%{tool_kind: "search"} = step, _),
+    do: {"Search project", step.title, "search", "⌕"}
+
+  defp common_action(step, args) do
+    command = args["command"] || args["cmd"]
+
+    cond do
+      String.starts_with?(step.title, "Read file ") ->
+        {"Read file", nil, "read", "↳"}
+
+      String.starts_with?(step.title, "Search for ") ->
+        {"Search project", step.title, "search", "⌕"}
+
+      edit?(step.title, args) ->
+        {"Edit files", nil, "edit", "±"}
+
+      is_binary(command) ->
+        {"Run command", command, "command", ">_"}
+
+      true ->
+        {if(String.trim(step.title) == "", do: "Tool call", else: step.title), nil, "tool", "◇"}
+    end
+  end
+
+  defp edit?(title, args),
+    do:
+      String.starts_with?(title, ["Edit file", "Write file", "Apply patch"]) ||
+        is_binary(args["diff"] || args["patch"])
+
+  defp readable_text("cite_source", args), do: string(args["observation"])
+
+  defp readable_text("update_conversation_summary", %{"state" => state}) when is_map(state),
+    do: string(state["situation"])
+
+  defp readable_text(_, args),
+    do:
+      string(
+        args["reason"] || args["description"] || args["summary"] || args["context"] ||
+          args["detail"]
+      )
+
+  defp groups("request_input", args) do
+    args["questions"]
+    |> List.wrap()
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(fn question ->
+      {string(question["text"]) || "Question",
+       Enum.filter(List.wrap(question["choices"]), &is_binary/1)}
+    end)
+  end
+
+  defp groups("update_conversation_summary", %{"state" => state}) when is_map(state) do
+    for {key, label} <- [
+          {"decisions", "Decisions"},
+          {"open_loops", "Open work"},
+          {"unresolved_questions", "Open questions"}
+        ],
+        items = Enum.filter(List.wrap(state[key]), &is_binary/1),
+        items != [],
+        do: {label, items}
+  end
+
+  defp groups(_, _), do: []
+
+  defp fact_keys(tool) do
+    case tool do
+      "cite_source" ->
+        [{"subject", "Subject"}, {"relation", "Relation"}, {"source_ref", "Source"}]
+
+      "plan_goal" ->
+        [
+          {"requested_outcome", "Goal"},
+          {"completion_contract", "Done when"},
+          {"authority", "Allowed work"},
+          {"writable_repository", "Writable project"}
+        ]
+
+      "update_conversation_summary" ->
+        []
+
+      "search_memory" ->
+        [{"query", "Search"}, {"kind", "Knowledge type"}]
+
+      "update_goal" ->
+        [{"goal_id", "Goal"}, {"state", "Progress"}]
+
+      "wait_for" ->
+        [
+          {"deadline", "Wait until"},
+          {"verification", "What to verify"},
+          {"on_timeout", "If time runs out"}
+        ]
+
+      _ ->
+        [
+          {"title", "Title"},
+          {"objective", "Objective"},
+          {"query", "Search"},
+          {"pattern", "Pattern"}
+        ]
+    end
+  end
+
+  defp facts(tool, args) do
+    for {key, label} <- fact_keys(tool),
+        value = args[key],
+        is_binary(value) && value != "",
+        do: {label, value}
+  end
+
+  defp file_path(args, title) do
+    cond do
+      is_binary(args["path"]) ->
+        args["path"]
+
+      is_binary(args["file_path"]) ->
+        args["file_path"]
+
+      true ->
+        case Regex.run(~r/\ARead file '(.+)'\z/s, title) do
+          [_, path] -> path
+          _ -> nil
+        end
+    end
+  end
+
+  @doc "Only a recorded project root establishes the boundary; prefixes and '..' cannot hide escapes."
+  def path(value, root) when is_binary(root) and root != "" do
+    root = Path.expand(root)
+    absolute = Path.expand(value, root)
+    relative = Path.relative_to(absolute, root)
+
+    if absolute == root || String.starts_with?(absolute, root <> "/"),
+      do: {relative, nil},
+      else: {if(Path.type(value) == :absolute, do: absolute, else: value), "Outside project"}
+  end
+
+  def path(value, _root),
+    do: {value, if(Path.type(value) == :absolute, do: "Project boundary not recorded")}
+
+  defp artifact(step, label) do
+    with %{artifact: %{state: :retained, text: text, truncated: false}} <-
+           Enum.find(step.artifacts, &(&1.label == label)),
+         {:ok, value} when is_map(value) <- Jason.decode(text),
+         do: value,
+         else: (_ -> %{})
+  end
+
+  defp string(value) when is_binary(value), do: value
+  defp string(_), do: nil
+  defp duration(ms) when ms < 1_000, do: "#{ms} ms"
+  defp duration(ms), do: "#{Float.round(ms / 1_000, 1)} s"
+end

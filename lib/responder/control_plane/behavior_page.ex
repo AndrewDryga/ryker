@@ -22,16 +22,19 @@ defmodule Responder.ControlPlane.BehaviorPage do
             <dt>{label}</dt><dd>{@view.counts[status] || 0}</dd>
           </div>
         </dl>
-        <details class="behavior-create" id={"#{@path}-create"}>
-          <summary>{create_label(@view.kind)}</summary>
+        <section class="behavior-create" id={"#{@path}-create"}>
+          <h2>{create_label(@view.kind)}</h2>
           <p>{create_help(@view.kind)}</p>
           <p>Review and confirm the proposed card in that conversation before it takes effect.</p>
+          <p>
+            Use Pause or Resume below to change whether it applies. Delete removes it from active use while keeping its history.
+          </p>
           <div class="behavior-links">
             <a href="/channels">Slack channels →</a><a href="/lab">Try in Conversation Lab →</a><a href={
               preview(@view.kind)
             }>Preview the card →</a>
           </div>
-        </details>
+        </section>
       </div>
       <form method="get" action={@path} class="behavior-filters">
         <div>

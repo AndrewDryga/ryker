@@ -46,14 +46,12 @@ defmodule Responder.ControlPlane.Projection do
       behavior: &BehaviorLibrary.fetch/1,
       behaviors: &BehaviorLibrary.list/2,
       admission: &admission/1,
-      calibration: &calibration/1,
       card_lab_feedback: &CardLabFeedback.list/2,
       card_lab_slack: &CardLabDelivery.snapshot/1,
       card_lab_post: &CardLabDelivery.fetch/1,
       channel: &channel/2,
       channels: &channels/1,
       configuration: &configuration/0,
-      decisions: &decisions/1,
       delivery: &delivery/1,
       emisar: &emisar/1,
       episode: &episode/1,
@@ -85,7 +83,6 @@ defmodule Responder.ControlPlane.Projection do
     }
   end
 
-  defdelegate calibration(params), to: Responder.ControlPlane.OperatorProjection
   defdelegate channel(workspace_ref, channel_ref), to: Responder.ControlPlane.OperatorProjection
   defdelegate channels(params), to: Responder.ControlPlane.OperatorProjection
   defdelegate incident(ref), to: Responder.ControlPlane.OperatorProjection
@@ -752,25 +749,6 @@ defmodule Responder.ControlPlane.Projection do
   end
 
   def workspace(_ref), do: :not_found
-
-  def decisions(_params) do
-    Repo.all(
-      from(entry in Entry,
-        where: entry.status in [:decided, :superseded],
-        order_by: [desc: entry.updated_at, desc: entry.id],
-        limit: 100,
-        select: %{
-          kind: "admission",
-          ref: entry.decision_ref,
-          input_id: entry.id,
-          state: entry.decision_action,
-          status: entry.status,
-          summary: entry.source_kind,
-          updated_at: entry.updated_at
-        }
-      )
-    )
-  end
 
   def findings(_params) do
     Repo.all(

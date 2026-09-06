@@ -1,6 +1,8 @@
 defmodule Responder.Slack.EndToEndTest do
   use Responder.DataCase, async: true
 
+  # A suite-owned workspace keeps conversation locks out of other async fixtures.
+
   @moduletag isolation: "REPEATABLE READ"
 
   alias Responder.Admission.Dispatcher, as: AdmissionDispatcher
@@ -27,7 +29,7 @@ defmodule Responder.Slack.EndToEndTest do
     @behaviour Responder.Slack.MemberDirectory
 
     @impl true
-    def user_allowed(_client, "U123", "T123"), do: {:ok, true}
+    def user_allowed(_client, "U123", "TSLACKENDTOEND"), do: {:ok, true}
   end
 
   defmodule SlackAPI do
@@ -67,7 +69,7 @@ defmodule Responder.Slack.EndToEndTest do
 
     assert {:ok, entry} = Inbox.fetch(input_ref)
     assert entry.source_kind == "slack"
-    assert entry.destination_conversation_ref == "slack:T123:C456"
+    assert entry.destination_conversation_ref == "slack:TSLACKENDTOEND:C456"
     assert entry.destination_thread_ref == "1787832001.000200"
     assert entry.work_policy == "conversation-read-only"
     assert entry.work_policy_digest == @policy_digest
@@ -78,7 +80,7 @@ defmodule Responder.Slack.EndToEndTest do
              AdmissionDispatcher.run_once(admission_options(admission))
 
     assert admitted.result.entry.id == entry.id
-    assert admitted.result.episode.destination_conversation_ref == "slack:T123:C456"
+    assert admitted.result.episode.destination_conversation_ref == "slack:TSLACKENDTOEND:C456"
     assert admitted.result.episode.destination_thread_ref == "1787832001.000200"
 
     assert %Session{policy: "conversation-read-only", policy_digest: policy_digest} =
@@ -109,7 +111,7 @@ defmodule Responder.Slack.EndToEndTest do
     assert {:ok, adapters} =
              Adapters.new(%{
                "slack" => %{
-                 binding: %{workspaces: %{"T123" => %{api: SlackAPI, client: slack}}},
+                 binding: %{workspaces: %{"TSLACKENDTOEND" => %{api: SlackAPI, client: slack}}},
                  message_publisher: Publisher,
                  reaction_publisher: Publisher
                }
@@ -136,12 +138,12 @@ defmodule Responder.Slack.EndToEndTest do
     assert %Turn{status: :settled, external_receipt: receipt} =
              Repo.get!(Turn, execution.turn.id)
 
-    assert receipt["conversation_ref"] == "slack:T123:C456"
+    assert receipt["conversation_ref"] == "slack:TSLACKENDTOEND:C456"
     assert receipt["thread_ref"] == "1787832001.000200"
     assert receipt["message_ref"] == "1787832002.000300"
 
     audit = %InteractionAudit{
-      workspace_ref: "T123",
+      workspace_ref: "TSLACKENDTOEND",
       channel_ref: "C456",
       thread_ref: "1787832001.000200",
       message_ref: "1787832002.000300"
@@ -186,7 +188,7 @@ defmodule Responder.Slack.EndToEndTest do
              Gateway.handle_envelope(followup_envelope(), gateway_settings())
 
     assert {:ok, followup_entry} = Inbox.fetch(followup_ref)
-    assert followup_entry.destination_conversation_ref == "slack:T123:C456"
+    assert followup_entry.destination_conversation_ref == "slack:TSLACKENDTOEND:C456"
     assert followup_entry.destination_thread_ref == "1787832001.000200"
     assert followup_entry.work_policy == "conversation-read-only"
 
@@ -242,7 +244,7 @@ defmodule Responder.Slack.EndToEndTest do
     assert %Turn{status: :settled, external_receipt: continuation_receipt} =
              Repo.get!(Turn, continuation.turn.id)
 
-    assert continuation_receipt["conversation_ref"] == "slack:T123:C456"
+    assert continuation_receipt["conversation_ref"] == "slack:TSLACKENDTOEND:C456"
     assert continuation_receipt["thread_ref"] == "1787832001.000200"
 
     assert {:ok, :idle} =
@@ -263,12 +265,12 @@ defmodule Responder.Slack.EndToEndTest do
       client: :directory,
       continuation: &Engagement.continuation?/1,
       directory: Directory,
-      identity: %{bot_ref: "B-BOT", bot_user_ref: "U-BOT", workspace_ref: "T123"},
+      identity: %{bot_ref: "B-BOT", bot_user_ref: "U-BOT", workspace_ref: "TSLACKENDTOEND"},
       inbox: Inbox,
       interaction_handler: InteractionHandler,
       interaction_options: %{},
       watch_channels: MapSet.new(),
-      work_profile: fn "T123", "slack:T123:C456" ->
+      work_profile: fn "TSLACKENDTOEND", "slack:TSLACKENDTOEND:C456" ->
         {:ok,
          %{
            policy: "conversation-read-only",
@@ -293,7 +295,7 @@ defmodule Responder.Slack.EndToEndTest do
         },
         "event_id" => "Ev-slack-e2e",
         "event_time" => 1_787_832_001,
-        "team_id" => "T123",
+        "team_id" => "TSLACKENDTOEND",
         "type" => "event_callback"
       },
       "type" => "events_api"
@@ -315,7 +317,7 @@ defmodule Responder.Slack.EndToEndTest do
         },
         "event_id" => "Ev-slack-e2e-followup",
         "event_time" => 1_787_832_003,
-        "team_id" => "T123",
+        "team_id" => "TSLACKENDTOEND",
         "type" => "event_callback"
       },
       "type" => "events_api"

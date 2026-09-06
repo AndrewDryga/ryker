@@ -1,6 +1,8 @@
 defmodule Responder.Admission.DispatcherTest do
   use Responder.DataCase, async: true
 
+  # A suite-owned workspace keeps conversation locks out of other async fixtures.
+
   @moduletag isolation: "REPEATABLE READ"
 
   alias Responder.Admission
@@ -429,7 +431,7 @@ defmodule Responder.Admission.DispatcherTest do
              Episodes.apply(%Command.AdmitInput{
                actor_ref: "slack:app:A-original",
                destination: %{
-                 conversation_ref: "slack:T123:C456",
+                 conversation_ref: "slack:TADMISSIONDISPATCH:C456",
                  thread_ref: thread_ref,
                  transport: "slack"
                },
@@ -504,7 +506,7 @@ defmodule Responder.Admission.DispatcherTest do
              Episodes.apply(%Command.AdmitInput{
                actor_ref: "slack:user:U-reopen",
                destination: %{
-                 conversation_ref: "slack:T123:C456",
+                 conversation_ref: "slack:TADMISSIONDISPATCH:C456",
                  thread_ref: thread_ref,
                  transport: "slack"
                },
@@ -652,7 +654,7 @@ defmodule Responder.Admission.DispatcherTest do
                occurred_at: @now,
                revision: 1,
                thread_ref: nil,
-               workspace_ref: "T123"
+               workspace_ref: "TADMISSIONDISPATCH"
              ]
              |> Keyword.merge(overrides)
              |> Input.new()

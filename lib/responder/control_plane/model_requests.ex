@@ -123,7 +123,7 @@ defmodule Responder.ControlPlane.ModelRequests do
 
     options = [
       secrets: Redactor.configured_secrets(),
-      max_bytes: 16_384,
+      max_bytes: 2 * 1_024 * 1_024,
       timeline: true,
       episode_ref: episode.key,
       sessions: sessions
@@ -324,7 +324,7 @@ defmodule Responder.ControlPlane.ModelRequests do
       section("request", "Submitted prompt · sanitized raw view", submission["prompt"], options),
       section(
         "candidate",
-        "Model candidate · not a delivery receipt",
+        "Response to validate",
         unless(expired, do: turn.candidate),
         options
       ),
@@ -343,7 +343,7 @@ defmodule Responder.ControlPlane.ModelRequests do
       ),
       section(
         "delivery",
-        "Host delivery document",
+        "Validated response",
         unless(expired, do: turn.delivery_document),
         options
       )
@@ -545,7 +545,7 @@ defmodule Responder.ControlPlane.ModelRequests do
       artifact:
         Redactor.artifact(
           value,
-          Keyword.merge(options, preserve_format: true, max_bytes: 128 * 1_024)
+          Keyword.merge(options, preserve_format: true, max_bytes: 2 * 1_024 * 1_024)
         )
     }
 

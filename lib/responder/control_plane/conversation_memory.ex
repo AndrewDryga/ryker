@@ -128,6 +128,7 @@ defmodule Responder.ControlPlane.ConversationMemory do
       workspace: SlackNames.workspace_from_destination(item.conversation_ref),
       conversation_path: Activity.conversation_path(item.transport, item.conversation_ref),
       at: item.updated_at,
+      expires_at: expires_at(item.updated_at),
       repository: item.repository_ref,
       request_path:
         case episodes[item.source_episode_id] do
@@ -135,6 +136,18 @@ defmodule Responder.ControlPlane.ConversationMemory do
           key -> "/episodes/" <> URI.encode(key, &URI.char_unreserved?/1)
         end
     }
+  end
+
+  defp expires_at(updated_at) do
+    settings = Application.get_env(:responder, :retention) || %{}
+
+    case if(is_list(settings),
+           do: Keyword.get(settings, :conversation_memory_seconds),
+           else: Map.get(settings, :conversation_memory_seconds)
+         ) do
+      seconds when is_integer(seconds) and seconds > 0 -> DateTime.add(updated_at, seconds)
+      _ -> nil
+    end
   end
 
   defp source_message(%{

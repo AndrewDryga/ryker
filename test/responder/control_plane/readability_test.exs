@@ -1,7 +1,7 @@
 defmodule Responder.ControlPlane.ReadabilityTest do
   use ExUnit.Case, async: true
 
-  alias Responder.ControlPlane.{Assets, EpisodeTrace, HTML}
+  alias Responder.ControlPlane.{Assets, EpisodeTrace}
 
   test "secondary labels remain legible on both paper and panel surfaces" do
     # Every usage label was pale green on paper; calibration put dark headings
@@ -16,14 +16,14 @@ defmodule Responder.ControlPlane.ReadabilityTest do
     end
   end
 
-  test "calibration explains its purpose without a decorative operator banner" do
-    html = HTML.calibration(%{rows: [], window: "7d"}) |> IO.iodata_to_binary()
-    assert html =~ "Compare speed and reliability"
-    assert html =~ "page-description"
-    assert html =~ "API-equivalent estimates"
-    assert html =~ "/usage#cost-method"
-    refute html =~ "Durable operator view"
-    refute html =~ "workbench-intro"
+  test "prompt and action headings cannot inherit the dark application banner" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    for selector <- [".prompt-group > header", ".action-card > header"] do
+      [_, rule] = Regex.run(Regex.compile!(Regex.escape(selector) <> " \\{([^}]+)\\}"), css)
+      assert rule =~ "background:transparent"
+      assert rule =~ "position:static"
+    end
   end
 
   test "conversation memory headings cannot inherit the dark application banner" do
@@ -36,6 +36,23 @@ defmodule Responder.ControlPlane.ReadabilityTest do
     [_, footer] = Regex.run(~r/^\.memory-card footer \{([^}]+)\}/m, css)
     assert footer =~ "padding:12px 0 0"
     assert footer =~ "margin:16px 0 0"
+  end
+
+  test "prompt token counts are visible and action facts fit a narrow viewport" do
+    # Desktop HTML tests missed a hidden token-count rule and an inherited
+    # two-column grid that pushed a 390px viewport to 753px.
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    [_, tokens] = Regex.run(~r/\.prompt-assembly \.prompt-source-state \{([^}]+)\}/, css)
+    assert tokens =~ "display:inline"
+    [_, facts] = Regex.run(~r/\.action-facts \{([^}]+)\}/, css)
+    assert facts =~ "grid-template-columns:minmax(0,1fr)"
+    [_, cards] = Regex.run(~r/\.memory-cards \{([^}]+)\}/, css)
+    assert cards =~ "grid-template-columns:minmax(0,1fr)"
+    [_, card] = Regex.run(~r/\.memory-card \{([^}]+)\}/, css)
+    assert card =~ "overflow-wrap:anywhere"
+    [_, tooltip] = Regex.run(~r/\.prompt-fragment:focus::before \{([^}]+)\}/, css)
+    assert tooltip =~ "position:fixed"
+    assert tooltip =~ "calc(100vw - 32px)"
   end
 
   test "chapters preserve late follow-ups and tied activity in execution order" do

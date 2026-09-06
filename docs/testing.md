@@ -73,6 +73,12 @@ new runtime owns production input.
 
 ## Tests run against a real database
 
+Parallel PostgreSQL tests must use suite-owned conversation/workspace identities. Sandbox rollback
+does not release transaction-scoped advisory locks until the test ends: unrelated tests using
+`slack:T123:C456` can block each other even though their rows are isolated. Publication fixtures
+derive a destination from their unique suffix; transport integration tests pass their configured
+`conversation_ref` explicitly. Do not increase production lock timeouts to hide fixture collisions.
+
 `internal/service` and `internal/httpapi` take `*store.Store` directly rather than an interface,
 so every service test opens a real SQLite database in a temporary directory. That is deliberate.
 
@@ -216,8 +222,11 @@ to be remembered after every review. So the maintenance lane drains kept correct
 `limits.max_auto_promoted_fixtures_per_week` (default 5), into whichever configured repository
 already contains the corpus. Nothing is promoted before the corpus has been re-parsed with the new
 fixture in place; one that would not decode, or whose name is already taken, is held back instead
-and appears on the control plane's Decisions page, where it waits for a person rather than being
-retried. `make promote-corrections` still exists and does the same thing on demand, with the
+and requires operator review rather than being retried. This fixture-candidate
+curation workflow belongs to the Go tooling; the current Elixir control plane
+has no keep/discard queue. Episode timelines expose retained response checks for
+inspection, not fixture promotion. `make promote-corrections` still exists in
+the Go tooling and does the same thing on demand, with the
 credentialed gate on both sides of it.
 
 The human's remaining job is demotion: read the diff the drain leaves in the checkout, and revert

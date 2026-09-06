@@ -2,7 +2,7 @@ defmodule Responder.ControlPlane.SlackMarkdown do
   alias Responder.ControlPlane.SlackNames
   @moduledoc "Small, HTML-inert renderer for the formatting used by Slack specimens."
 
-  @tokens ~r/(```[\s\S]*?```|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>|<https?:\/\/[^>\n]+>|\*\*[^*\n]+\*\*|\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~)/u
+  @tokens ~r/(```[\s\S]*?```|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|<!date\^[^>\n]+\|[^>\n]+>|<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>|<https?:\/\/[^>\n]+>|\*\*[^*\n]+\*\*|\*[^*\n]+\*|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_])|~[^~\n]+~)/u
   @mentions ~r/(<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>)/u
 
   def mentions(text, workspace) when is_binary(text) do
@@ -79,6 +79,11 @@ defmodule Responder.ControlPlane.SlackMarkdown do
   end
 
   defp token(text, _workspace), do: token(text)
+
+  defp token("<!date^" <> text) do
+    # Slack supplies a readable fallback; keep it as text, never execute the token's optional URL.
+    text |> String.trim_trailing(">") |> String.split("|", parts: 2) |> List.last() |> escape()
+  end
 
   defp token("```" <> text),
     do: ["<pre><code>", escape(String.slice(text, 0..-4//1)), "</code></pre>"]

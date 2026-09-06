@@ -95,7 +95,7 @@ defmodule Responder.Delivery.PresentationTest do
   defp episode("slack") do
     %Episode{
       active_input_refs: [],
-      destination_conversation_ref: "slack:T123:C456",
+      destination_conversation_ref: "slack:TAC2C82AA8963:C456",
       destination_thread_ref: "1787832000.000100",
       destination_transport: "slack",
       execution_mode: :live,

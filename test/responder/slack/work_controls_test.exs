@@ -262,7 +262,9 @@ defmodule Responder.Slack.WorkControlsTest do
   end
 
   test "the exact task card starts its delivered readiness review" do
-    fixture = PublicationFixture.published!("task-card-readiness")
+    fixture =
+      PublicationFixture.published!("task-card-readiness", conversation_ref: "slack:T123:C456")
+
     card = publication_task_card!(fixture.publication, "readiness")
 
     Repo.delete_all(
@@ -289,7 +291,9 @@ defmodule Responder.Slack.WorkControlsTest do
   end
 
   test "the exact task card approves only its reviewed publication" do
-    fixture = PublicationFixture.published!("task-card-publish")
+    fixture =
+      PublicationFixture.published!("task-card-publish", conversation_ref: "slack:T123:C456")
+
     card = publication_task_card!(fixture.publication, "publish")
 
     Repo.delete_all(
@@ -328,7 +332,9 @@ defmodule Responder.Slack.WorkControlsTest do
   end
 
   test "a task card refreshes only its own published GitHub lifecycle" do
-    fixture = PublicationFixture.published!("task-card-check")
+    fixture =
+      PublicationFixture.published!("task-card-check", conversation_ref: "slack:T123:C456")
+
     card = publication_task_card!(fixture.publication, "check")
 
     attributes =
@@ -340,13 +346,15 @@ defmodule Responder.Slack.WorkControlsTest do
     assert result.outcome == :requested
     assert result.publication_ref == fixture.publication.ref
 
-    other = PublicationFixture.published!("task-card-other")
+    other = PublicationFixture.published!("task-card-other", conversation_ref: "slack:T123:C456")
     crossed = %{attributes | publication_ref: other.publication.ref}
     assert WorkControls.check_publication(crossed) == {:error, :task_publication_mismatch}
   end
 
   test "a task card recovers only its exact publication generation" do
-    fixture = PublicationFixture.published!("task-card-recovery")
+    fixture =
+      PublicationFixture.published!("task-card-recovery", conversation_ref: "slack:T123:C456")
+
     card = publication_task_card!(fixture.publication, "recovery")
     observed_head = String.duplicate("d", 40)
 

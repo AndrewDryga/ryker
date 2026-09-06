@@ -14,7 +14,15 @@ defmodule Responder.Fixtures.Publication do
     github_repository = Keyword.get(options, :github_repository, "acme/responder")
     pull_request_number = Keyword.get(options, :pull_request_number, 91)
     thread_ref = Keyword.get(options, :thread_ref, "thread:#{suffix}")
-    claim = claim_episode!(suffix, repository, thread_ref)
+    # Sandbox transactions hold conversation advisory locks until the test exits.
+    # Shared fixture destinations stalled four unrelated suites for 15 seconds;
+    # only transport-integration tests should opt into an explicitly shared scope.
+    fixture_workspace =
+      "TPUBLICATION" <> (suffix |> digest() |> String.slice(0, 12) |> String.upcase())
+
+    conversation_ref = Keyword.get(options, :conversation_ref, "slack:#{fixture_workspace}:C456")
+
+    claim = claim_episode!(suffix, repository, thread_ref, conversation_ref)
 
     {:ok, _goal} =
       Records.create(Records.token(claim.turn), "goal-#{suffix}", "goal", %{
@@ -204,14 +212,14 @@ defmodule Responder.Fixtures.Publication do
     %{episode: claim.episode, publication: published, receipt: receipt}
   end
 
-  defp claim_episode!(suffix, repository, thread_ref) do
+  defp claim_episode!(suffix, repository, thread_ref, conversation_ref) do
     id = Ecto.UUID.generate()
 
     {:ok, _transition} =
       Episodes.apply(
         EpisodeFixtures.admit_input(%{
           destination: %{
-            conversation_ref: "slack:T123:C456",
+            conversation_ref: conversation_ref,
             thread_ref: thread_ref,
             transport: "slack"
           },

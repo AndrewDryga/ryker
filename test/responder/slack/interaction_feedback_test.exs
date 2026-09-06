@@ -94,7 +94,7 @@ defmodule Responder.Slack.InteractionFeedbackTest do
     session =
       Repo.insert!(%ConfigurationSession{
         id: Ecto.UUID.generate(),
-        workspace_ref: "T123",
+        workspace_ref: "T7E5D2338E2F5",
         channel_ref: "C456",
         membership_generation: 1,
         start_event_ref: "event:setup",
@@ -273,7 +273,7 @@ defmodule Responder.Slack.InteractionFeedbackTest do
       message_ref: "1787832001.000200",
       occurred_at: @now,
       thread_ref: "1787832000.000100",
-      workspace_ref: "T123"
+      workspace_ref: "T7E5D2338E2F5"
     }
   end
 end

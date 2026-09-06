@@ -136,7 +136,7 @@ defmodule Responder.Webhooks.AdapterEndToEndTest do
 
     ref = request("mapped", route, body) |> response_ref()
     assert {:ok, entry} = Inbox.fetch(ref)
-    assert entry.destination_conversation_ref == "slack:T123:C456"
+    assert entry.destination_conversation_ref == "slack:TD5D0E5FC8A18:C456"
     assert entry.content["payload"]["external_event_id"] == "evt-1"
     assert entry.content["payload"]["status"] == "firing"
     refute Map.has_key?(entry.content["payload"], "destination")
@@ -201,7 +201,7 @@ defmodule Responder.Webhooks.AdapterEndToEndTest do
                adapter: adapter,
                auth: auth,
                destination: %{
-                 conversation_ref: "slack:T123:C456",
+                 conversation_ref: "slack:TD5D0E5FC8A18:C456",
                  thread_ref: nil,
                  transport: "slack"
                },

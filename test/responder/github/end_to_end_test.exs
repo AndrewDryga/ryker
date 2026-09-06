@@ -177,6 +177,7 @@ defmodule Responder.GitHub.EndToEndTest do
   test "a signed inline review continues the Slack engineering task in its original Work session" do
     %{episode: episode, publication: publication} =
       PublicationFixture.published!("github-review-e2e",
+        conversation_ref: "slack:TB14ADAF3E1AF:C456",
         github_repository: "octo/example",
         pull_request_number: 42,
         thread_ref: "1787832001.000200"
@@ -232,7 +233,7 @@ defmodule Responder.GitHub.EndToEndTest do
     assert {:ok, resumed} = Responder.Episodes.fetch_by_key(episode.key)
     assert resumed.id == episode.id
     assert resumed.destination_transport == "slack"
-    assert resumed.destination_conversation_ref == "slack:T123:C456"
+    assert resumed.destination_conversation_ref == "slack:TB14ADAF3E1AF:C456"
     assert resumed.destination_thread_ref == "1787832001.000200"
     assert resumed.state == :working
 
@@ -329,7 +330,7 @@ defmodule Responder.GitHub.EndToEndTest do
              Repo.get!(Turn, execution.turn.id)
 
     assert receipt["transport"] == "slack"
-    assert receipt["conversation_ref"] == "slack:T123:C456"
+    assert receipt["conversation_ref"] == "slack:TB14ADAF3E1AF:C456"
     assert receipt["thread_ref"] == "1787832001.000200"
   end
 
@@ -429,7 +430,7 @@ defmodule Responder.GitHub.EndToEndTest do
     assert {:ok, adapters} =
              Adapters.new(%{
                "slack" => %{
-                 binding: %{workspaces: %{"T123" => %{api: SlackAPI, client: slack}}},
+                 binding: %{workspaces: %{"TB14ADAF3E1AF" => %{api: SlackAPI, client: slack}}},
                  message_publisher: SlackPublisher,
                  reaction_publisher: SlackPublisher
                }

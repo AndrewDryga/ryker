@@ -100,7 +100,7 @@ defmodule Responder.Acceptance.LiveObserverTest do
                occurred_at: @now,
                revision: 1,
                thread_ref: "1788102000.100000",
-               workspace_ref: "T123"
+               workspace_ref: "T5F3F14E8DE3B"
              })
 
     assert {:ok, %{entry: entry}} = Inbox.record(input)
@@ -165,7 +165,7 @@ defmodule Responder.Acceptance.LiveObserverTest do
     candidate_sha = String.duplicate("c", 64)
 
     receipt = %{
-      "conversation_ref" => "slack:T123:C456",
+      "conversation_ref" => "slack:T5F3F14E8DE3B:C456",
       "delivery_ref" => "delivery:#{turn_id}",
       "message_ref" => "1788102000.200000",
       "thread_ref" => "1788102000.100000",

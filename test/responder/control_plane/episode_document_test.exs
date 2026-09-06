@@ -21,6 +21,138 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
     end
   end
 
+  test "a visible input and answer do not acquire duplicate receipt cards" do
+    # The replay repeated one delivery as a response, kernel receipt and turn receipt.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+    [step | _] = snapshot.trace.steps
+    at = snapshot.trace.received_at
+
+    messages = [
+      %{id: "input", at: at, actor: "User", text: "Hello", available: true},
+      %{
+        id: "turn",
+        at: at,
+        actor: "Responder",
+        text: "Hello back",
+        available: true,
+        status: "Response sent",
+        delivery_ref: "delivery:turn"
+      }
+    ]
+
+    snapshot =
+      snapshot
+      |> put_in([:trace, :case_file, :conversation], messages)
+      |> put_in([:trace, :steps], [
+        %{step | input_id: "input"},
+        %{
+          step
+          | id: "kernel-3",
+            title: "Delivery confirmed",
+            stage: "Delivery",
+            state: "delivery confirmed",
+            delivery_ref: "delivery:turn"
+        },
+        %{
+          step
+          | id: "turn-turn-delivery",
+            title: "Reply delivered",
+            stage: "Delivery",
+            state: "delivered",
+            delivery_ref: "delivery:turn"
+        }
+      ])
+
+    html = render_episode(snapshot, [])
+    refute html =~ "Input admitted"
+    refute html =~ "Delivery confirmed"
+    refute html =~ "Reply delivered"
+    assert html =~ "Response sent"
+    assert html =~ "Hello back"
+  end
+
+  test "the same accepted result is not repeated as a kernel card and a turn card" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+    [base | _] = snapshot.trace.steps
+
+    kernel =
+      Map.merge(base, %{
+        id: "kernel-2",
+        stage: "Result",
+        title: "Result accepted",
+        state: "result accepted",
+        result_ref: "result:one"
+      })
+
+    turn =
+      Map.merge(base, %{
+        id: "turn-one-accepted",
+        stage: "Result",
+        title: "Response accepted",
+        state: "accepted",
+        result_ref: "result:one"
+      })
+
+    html = snapshot |> put_in([:trace, :steps], [kernel, turn]) |> render_episode([])
+    assert html =~ "Response accepted"
+    refute html =~ "Result accepted"
+  end
+
+  test "briefing groups all inputs and contract with token estimates and immediate source labels" do
+    html =
+      render_request(:admission, :submission, [
+        section("instructions", "Instructions", "Classify the source input"),
+        section("context", "Context", %{"input" => %{"text" => "Check the alert"}}),
+        section("contract", "Required output contract", %{"type" => "object"}),
+        section(
+          "request",
+          "Submitted prompt",
+          Jason.encode!(%{
+            "instructions" => "Classify the source input",
+            "context" => %{"input" => %{"text" => "Check the alert"}}
+          })
+        )
+      ])
+
+    document = LazyHTML.from_fragment(html)
+    assert LazyHTML.query(document, ".prompt-group") |> Enum.count() >= 3
+    assert LazyHTML.query(document, ".prompt-source[open]") |> Enum.empty?()
+
+    assert LazyHTML.query(document, ".prompt-source[data-source='contract']") |> LazyHTML.text() =~
+             "object"
+
+    assert html =~ "estimated tokens"
+
+    assert LazyHTML.query(document, ".prompt-fragment")
+           |> LazyHTML.attribute("data-source-label")
+           |> Enum.any?(&String.contains?(&1, "Messages"))
+
+    refute html =~ "Open full request record"
+  end
+
+  test "work response review shows the message and evidence without duplicating the delivery document" do
+    html =
+      render_request(:work, :result, [
+        section("candidate", "Response to validate", %{
+          "delivery" => "reply",
+          "message" => "The check is **partial**",
+          "outcome" => %{"record_refs" => ["record:evidence:one"]}
+        }),
+        section("delivery", "Validated response", %{"message" => "The check is **partial**"}),
+        section("validation", "Validation history", %{
+          "history" => [%{"verdict" => "accept", "candidate_attempt" => 1}]
+        })
+      ])
+
+    assert html =~ "Response to validate"
+    assert html =~ "<strong>partial</strong>"
+    assert html =~ "Supporting records"
+    refute html =~ "Validated response"
+    refute html =~ "Validation history"
+  end
+
   test "routing shows its briefing and decision separately at their real times" do
     # A one-word greeting looked like two executions with tiny repeated phases.
     # Routing is one model execution, but its input and result have distinct times.
@@ -140,7 +272,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
     document = LazyHTML.from_fragment(html)
 
     summaries =
-      document |> LazyHTML.query(".prompt-assembly > details > summary") |> LazyHTML.text()
+      document |> LazyHTML.query(".prompt-assembly .prompt-source > summary") |> LazyHTML.text()
 
     assert summaries =~ "Responder instructions"
     assert summaries =~ "Confirmed guidance"
@@ -303,7 +435,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
 
     assert Enum.count(
              LazyHTML.from_fragment(html)
-             |> LazyHTML.query(".prompt-assembly > details")
+             |> LazyHTML.query(".prompt-assembly .prompt-source")
            ) == 2
 
     assert Enum.count(

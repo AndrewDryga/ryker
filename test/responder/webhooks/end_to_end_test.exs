@@ -94,7 +94,7 @@ defmodule Responder.Webhooks.EndToEndTest do
 
     assert execution.result.entry.source_kind == "webhook"
     assert execution.result.entry.decision_action == :start_episode
-    assert execution.result.episode.destination_conversation_ref == "slack:T123:C456"
+    assert execution.result.episode.destination_conversation_ref == "slack:T6E06DA3564B2:C456"
 
     assert [event] = Episodes.list_events(execution.result.episode.key)
     assert event.payload["payload"]["content"]["payload"] == Jason.decode!(body)
@@ -131,7 +131,7 @@ defmodule Responder.Webhooks.EndToEndTest do
     assert {:ok, adapters} =
              Adapters.new(%{
                "slack" => %{
-                 binding: %{workspaces: %{"T123" => %{api: SlackAPI, client: slack}}},
+                 binding: %{workspaces: %{"T6E06DA3564B2" => %{api: SlackAPI, client: slack}}},
                  message_publisher: SlackPublisher,
                  reaction_publisher: SlackPublisher
                }
@@ -177,7 +177,7 @@ defmodule Responder.Webhooks.EndToEndTest do
              Repo.get!(Turn, work_execution.turn.id)
 
     assert receipt["transport"] == "slack"
-    assert receipt["conversation_ref"] == "slack:T123:C456"
+    assert receipt["conversation_ref"] == "slack:T6E06DA3564B2:C456"
     assert receipt["thread_ref"] == nil
 
     assert {:ok, :idle} =
@@ -264,7 +264,10 @@ defmodule Responder.Webhooks.EndToEndTest do
   end
 
   test "a scoped lifecycle webhook records only an exactly authorized merged publication signal" do
-    %{publication: publication} = PublicationFixture.published!("webhook-lifecycle-e2e")
+    %{publication: publication} =
+      PublicationFixture.published!("webhook-lifecycle-e2e",
+        conversation_ref: "slack:T6E06DA3564B2:C456"
+      )
 
     Repo.update_all(
       from(followup in Followup, where: followup.publication_id == ^publication.id),
@@ -323,7 +326,7 @@ defmodule Responder.Webhooks.EndToEndTest do
              Route.new(%{
                auth: {:bearer, @secret},
                destination: %{
-                 conversation_ref: "slack:T123:C456",
+                 conversation_ref: "slack:T6E06DA3564B2:C456",
                  thread_ref: nil,
                  transport: "slack"
                },
@@ -369,7 +372,7 @@ defmodule Responder.Webhooks.EndToEndTest do
              Route.new(%{
                auth: {:bearer, @secret},
                destination: %{
-                 conversation_ref: "slack:T123:C456",
+                 conversation_ref: "slack:T6E06DA3564B2:C456",
                  thread_ref: nil,
                  transport: "slack"
                },

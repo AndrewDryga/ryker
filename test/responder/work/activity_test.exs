@@ -106,7 +106,10 @@ defmodule Responder.Work.ActivityTest do
     refute last.payload["text"] =~ "opaque-configured-secret"
 
     {:ok, detail} = Projection.episode(started.episode.key)
-    tool = Enum.find(detail.trace.steps, &(&1.stage == "Tool call"))
+    start = Enum.find(detail.trace.steps, &(&1.stage == "Tool call" && &1.state == "started"))
+    tool = Enum.find(detail.trace.steps, &(&1.stage == "Tool call" && &1.state == "failed"))
+    refute start.summary =~ "unauthorized"
+    assert DateTime.compare(start.at, tool.at) == :lt
     assert tool.summary =~ "unauthorized"
     assert Enum.any?(tool.artifacts, &(&1.label == "Arguments" && &1.artifact.text =~ "emisar"))
     refute Enum.any?(detail.trace.steps, &(&1.title == "Model reasoning checkpoint"))

@@ -12,9 +12,9 @@ defmodule Responder.Episodes.ReactionsTest do
       emoji_name: "eyes",
       event_ref: "Ev-reaction",
       occurred_at: @now,
-      source: %{kind: "slack", ref: "T123"},
+      source: %{kind: "slack", ref: "T8BABF9A8D74D"},
       target: %{
-        conversation_ref: "slack:T123:C456",
+        conversation_ref: "slack:T8BABF9A8D74D:C456",
         message_ref: "1787832000.000100",
         transport: "slack"
       }
@@ -27,7 +27,7 @@ defmodule Responder.Episodes.ReactionsTest do
       {:emoji_name, %{valid | emoji_name: "eyes:ship"}},
       {:event_ref, %{valid | event_ref: ""}},
       {:occurred_at, %{valid | occurred_at: DateTime.to_iso8601(@now)}},
-      {:source, %{valid | source: %{kind: "slack", ref: "T123", role: "admin"}}},
+      {:source, %{valid | source: %{kind: "slack", ref: "T8BABF9A8D74D", role: "admin"}}},
       {:target, %{valid | target: Map.put(valid.target, :repository, "other/repo")}},
       {:transport, put_in(valid, [:target, :transport], "control_plane")}
     ]
