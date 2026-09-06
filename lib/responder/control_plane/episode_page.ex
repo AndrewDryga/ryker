@@ -13,10 +13,9 @@ defmodule Responder.ControlPlane.EpisodePage do
     chapters =
       assigns.snapshot
       |> entries(assigns.timeline)
-      |> Enum.map(fn entry ->
-        if entry.band == :outcome, do: %{entry | band: :answer}, else: entry
-      end)
+      |> combine_routing()
       |> EpisodeTrace.chapters(assigns.snapshot.trace.received_at)
+      |> execution_phases()
 
     assigns = assign(assigns, :chapters, chapters)
 
@@ -45,7 +44,7 @@ defmodule Responder.ControlPlane.EpisodePage do
           <dt>Model cost</dt><dd>{cost(@snapshot[:accounting])}</dd>
         </div>
         <div>
-          <dt>Executions</dt><dd>{get_in(@snapshot, [:accounting, :attempts]) || "—"}</dd>
+          <dt>Work turns</dt><dd>{metric(@snapshot.trace.metrics, "Turns")}</dd>
         </div>
         <div>
           <dt>Tool calls</dt><dd>{metric(@snapshot.trace.metrics, "Tool calls")}</dd>
@@ -83,23 +82,19 @@ defmodule Responder.ControlPlane.EpisodePage do
         />
       </details>
       <section class="case-timeline" id="execution-timeline" aria-label="Complete execution timeline">
-        <div class="story-section-heading">
-          <h2>Execution timeline</h2><span>{count_label(
-            metric(@snapshot.trace.metrics, "Turns"),
-            "work turn"
-          )} · {count_label(metric(@snapshot.trace.metrics, "Repairs"), "correction")}</span>
-        </div>
+        <h2 class="sr-only">Execution timeline</h2>
         <p :if={@snapshot.trace.history.truncated || @timeline.truncated} class="timeline-bound">
           History is bounded. Older model requests are available under “All model requests” in the technical record below. Long artifacts are labeled when truncated.
         </p>
         <section
           :for={{chapter, index} <- Enum.with_index(@chapters, 1)}
-          class={"trace-chapter #{if chapter.starts_conversation && chapter.conversation_turn > 1, do: "conversation-boundary"}"}
+          class={"trace-chapter phase-#{chapter.band} #{if chapter.starts_conversation && chapter.conversation_turn > 1, do: "conversation-boundary"}"}
           data-conversation-turn={chapter.conversation_turn}
           aria-labelledby={"chapter-#{index}"}
         >
           <div class="chapter-heading">
-            <div>
+            <span class="phase-number" aria-hidden="true">{phase_number(chapter.band)}</span>
+            <div class="chapter-description">
               <p
                 :if={chapter.starts_conversation && chapter.conversation_turn > 1}
                 class="turn-divider-label"
@@ -107,13 +102,16 @@ defmodule Responder.ControlPlane.EpisodePage do
                 Message {chapter.conversation_turn}
               </p>
               <h3 id={"chapter-#{index}"}>{chapter_title(chapter)}</h3>
+              <p>{chapter_description(chapter.band)}</p>
             </div>
             <span :if={chapter.span} class="chapter-span" title="Time since the first message">{chapter_span(
               chapter,
               @snapshot.trace.received_at
             )} from start</span>
           </div>
-          <.entry_group :for={group <- entry_groups(chapter.steps)} group={group} />
+          <div class="phase-entries">
+            <.entry :for={entry <- chapter.steps} entry={entry} />
+          </div>
         </section>
         <div id="latest-outcome" class="case-outcome">
           <div :if={@snapshot.trace.case_file.awaiting_reply} class="story-wait">
@@ -141,27 +139,57 @@ defmodule Responder.ControlPlane.EpisodePage do
     """
   end
 
-  defp entry_groups(steps), do: Enum.chunk_by(steps, &receipt_entry?/1)
+  # Admission is one preparation action, not a second execution of the work.
+  # Match the exact retained pair; incomplete histories keep their standalone result.
+  defp combine_routing(entries) do
+    results =
+      for %{kind: :request, source_kind: :admission, phase: :result} = entry <- entries,
+          into: %{},
+          do: {entry.id, entry}
 
-  defp receipt_entry?(%{kind: :event, band: :answer, step: step}), do: bookkeeping?(step)
-  defp receipt_entry?(_entry), do: false
+    paired_ids =
+      for %{kind: :request, source_kind: :admission, phase: :submission} = entry <- entries,
+          Map.has_key?(results, entry.id <> "-result"),
+          into: MapSet.new(),
+          do: entry.id <> "-result"
 
-  defp entry_group(assigns) do
-    assigns =
-      assign(assigns, :grouped, length(assigns.group) > 1 && receipt_entry?(hd(assigns.group)))
+    entries
+    |> Enum.reject(&MapSet.member?(paired_ids, &1.id))
+    |> Enum.map(fn
+      %{kind: :request, source_kind: :admission, phase: :submission} = entry ->
+        Map.put(entry, :routing_result, results[entry.id <> "-result"])
 
-    ~H"""
-    <details :if={@grouped} class="case-receipt-group" id={"receipts-#{hd(@group).id}"}>
-      <summary>Result & delivery details <span>{length(@group)} records</span></summary>
-      <.entry :for={entry <- @group} entry={entry} />
-    </details>
-    <.entry :for={entry <- @group} :if={!@grouped} entry={entry} />
-    """
+      entry ->
+        entry
+    end)
   end
+
+  # Establish message boundaries before merging input into setup. Only adjacent
+  # phases merge: a follow-up never moves ahead of work that already happened.
+  defp execution_phases(chapters) do
+    chapters
+    |> Enum.map(&%{&1 | band: phase_band(&1.band)})
+    |> Enum.chunk_by(&{&1.band, &1.conversation_turn})
+    |> Enum.map(fn [first | _] = group ->
+      %{
+        first
+        | steps: Enum.flat_map(group, & &1.steps),
+          starts_conversation: Enum.any?(group, & &1.starts_conversation)
+      }
+    end)
+  end
+
+  defp phase_band(:input), do: :ready
+  defp phase_band(:outcome), do: :answer
+  defp phase_band(band), do: band
 
   defp entry(assigns) do
     ~H"""
-    <article id={@entry.id} class={"case-entry case-#{@entry.kind}"} data-entry-kind={@entry.kind}>
+    <article
+      id={@entry.id}
+      class={"case-entry case-#{@entry.kind} #{if compact_entry?(@entry), do: "case-checkpoint"}"}
+      data-entry-kind={@entry.kind}
+    >
       <div class="case-entry-time">
         <time title={timestamp(@entry.at)}>{clock_time(@entry.at)}</time>
       </div>
@@ -193,19 +221,13 @@ defmodule Responder.ControlPlane.EpisodePage do
   defp message_text(message), do: message.text
 
   defp event(assigns) do
-    assigns = assign(assigns, :bookkeeping, bookkeeping?(assigns.step))
-
     ~H"""
-    <details :if={@bookkeeping} class="case-system-event" id={"event-detail-#{@step.id}"}>
-      <summary>{@step.title}</summary>
-      <p class="case-event-summary">{@step.summary}</p>
-      <.event_details step={@step} />
-    </details>
-    <div :if={!@bookkeeping}>
+    <div class="case-event-content">
       <div class="case-event-heading">
-        <h3>{event_title(@step)}</h3><span class={"event-state tone-#{@step.tone}"}>{label(
-          @step.state
-        )}</span>
+        <h3>{event_title(@step)}</h3><span
+          :if={show_event_state?(@step)}
+          class={"event-state tone-#{@step.tone}"}
+        >{label(@step.state)}</span>
         <span :if={@step.duration_ms}>{duration(@step.duration_ms)}</span>
       </div>
       <p :if={@step.summary && @step.summary != event_title(@step)} class="case-event-summary">
@@ -239,6 +261,14 @@ defmodule Responder.ControlPlane.EpisodePage do
         not silent_result?(step) and
         step.stage in ["Preparation", "Routing", "Input", "Result", "Delivery", "Validation"]
 
+  defp compact_entry?(%{kind: :event, step: step}), do: bookkeeping?(step)
+  defp compact_entry?(_), do: false
+
+  defp show_event_state?(step),
+    do:
+      (step.stage != "Preparation" || step.tone in [:bad, :warn]) &&
+        String.downcase(label(step.state)) != String.downcase(event_title(step))
+
   defp event_title(%{stage: "Tool call", title: "Tool call", summary: summary})
        when is_binary(summary), do: summary
 
@@ -249,14 +279,24 @@ defmodule Responder.ControlPlane.EpisodePage do
 
   defp silent_result?(_step), do: false
 
-  defp chapter_title(%{starts_conversation: true, conversation_turn: turn}) when turn > 1,
-    do: "Follow-up received"
-
-  defp chapter_title(%{band: :input}), do: "Message received"
-  defp chapter_title(%{band: :ready}), do: "Routing & preparation"
-  defp chapter_title(%{band: :work}), do: "Model activity"
-  defp chapter_title(%{band: :answer}), do: "Answer & delivery"
+  defp chapter_title(%{band: :ready}), do: "Getting ready"
+  defp chapter_title(%{band: :work}), do: "The work"
+  defp chapter_title(%{band: :answer}), do: "The answer"
   defp chapter_title(chapter), do: chapter.title
+
+  defp phase_number(:ready), do: "01"
+  defp phase_number(:work), do: "02"
+  defp phase_number(:answer), do: "03"
+
+  defp chapter_description(:ready),
+    do: "How Responder set this up: the routing, the model, and its briefing."
+
+  defp chapter_description(:work),
+    do:
+      "What the model did once it started: what it reasoned about, what it ran, and what came back."
+
+  defp chapter_description(:answer),
+    do: "What the model returned and what Responder decided to do."
 
   defp metric(metrics, label) do
     case Enum.find(metrics, &(&1.label == label)) do
@@ -337,9 +377,6 @@ defmodule Responder.ControlPlane.EpisodePage do
     end
   end
 
-  defp count_label(count, noun) when count in [1, "1"], do: "1 #{noun}"
-  defp count_label(count, noun), do: "#{count} #{noun}s"
-
   defp elapsed(%{trace: %{received_at: nil}}), do: "Not recorded"
 
   defp elapsed(snapshot) do
@@ -352,7 +389,11 @@ defmodule Responder.ControlPlane.EpisodePage do
   end
 
   defp chapter_span(chapter, started) do
-    times = chapter.steps |> Enum.map(& &1.at) |> Enum.reject(&is_nil/1)
+    times =
+      chapter.steps
+      |> Enum.flat_map(fn entry -> [entry.at, get_in(entry, [:routing_result, :at])] end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.sort_by(&unix/1)
 
     offsets =
       [List.first(times), List.last(times)]

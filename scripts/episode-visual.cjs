@@ -42,19 +42,18 @@ assert(routes.length && routes.every(route => /^\/episodes\/[^/?#]+$/.test(route
           assert(result.layout.width <= width, 'The page must not overflow horizontally');
           assert(result.layout.rails.every(left => Math.abs(left - result.layout.rails[0]) < 1), 'Every timeline entry must share one aligned rail');
           assert.equal(await page.locator('.case-timeline pre:visible').count(), 0, 'Raw protocol data must not dominate the default timeline');
-          const receipts = page.locator('.case-receipt-group').first();
-          if (await receipts.count()) {
-            await receipts.locator(':scope > summary').click();
-            assert(await receipts.locator('.case-entry time').first().isVisible(), 'Grouped receipts retain individual timestamps');
-            const rails = await page.locator('.case-entry-body:visible').evaluateAll(es => es.map(e => e.getBoundingClientRect().left));
-            assert(rails.every(left => Math.abs(left - rails[0]) < 1), 'Expanded receipts must share the timeline rail');
-            await receipts.locator(':scope > summary').click();
-          }
+          assert.equal(await page.locator('.case-receipt-group, .case-system-event').count(), 0, 'Actions must not be hidden inside nested receipt groups');
+          assert.equal(await page.locator('.case-timeline details details details').count(), 0, 'Timeline evidence must not have three disclosure levels');
+          const phases = await page.locator('.chapter-heading h3').allTextContents();
+          assert(phases.every(title => ['Getting ready', 'The work', 'The answer'].includes(title)));
+          assert.equal(await page.locator('.chapter-description > p:not(.turn-divider-label):visible').count(), phases.length);
+          assert.equal(await page.locator('.case-timeline').evaluate(e => getComputedStyle(e).backgroundColor), 'rgba(0, 0, 0, 0)', 'The timeline is a sequence of action cards, not one white panel');
           assert.equal(await page.getByText('Inspect admission', {exact: true}).count(), 0);
           if ((await page.locator('h1').innerText()).trim() === 'Hi') {
             // This real greeting previously occupied 11,151px and seven chapters.
-            assert(result.layout.height < (width < 600 ? 4100 : 2900), 'A greeting must remain a compact readable execution');
-            assert.equal(await page.locator('.chapter-heading h3').filter({hasText: 'Answer & delivery'}).count(), 1);
+            assert(result.layout.height < (width < 600 ? 4100 : width < 1000 ? 3200 : 2900), 'A greeting must remain a compact readable execution');
+            assert.deepEqual(phases, ['Getting ready', 'The work', 'The answer']);
+            assert.equal(await page.getByRole('heading', {name: 'Routing decision', exact: true}).count(), 1);
           }
           const followup = page.locator('.conversation-boundary').first();
           if (await followup.count()) {
@@ -62,7 +61,7 @@ assert(routes.length && routes.every(route => /^\/episodes\/[^/?#]+$/.test(route
             await capture('followup');
             assert(await followup.locator('.turn-divider-label').isVisible());
           }
-          const instructions = page.locator('.request-input-parts > details').filter({has: page.locator('.prompt-source-body pre')}).first();
+          const instructions = page.locator('.prompt-assembly > details[data-source="instructions"]').first();
           if (await instructions.count()) {
             await instructions.locator(':scope > summary').click();
             // One click should expose the instructions, including their actual source.
@@ -74,13 +73,18 @@ assert(routes.length && routes.every(route => /^\/episodes\/[^/?#]+$/.test(route
             assert(await instructions.locator('.prompt-source-body pre').isVisible(), 'Live updates must preserve open evidence');
             await instructions.locator(':scope > summary').click();
           }
-          const context = page.locator('.request-input-parts > details').filter({has: page.locator('.request-context-readable')}).first();
+          const context = page.locator('.prompt-assembly > details[data-origin="conversation"]').first();
           if (await context.count()) {
             await context.locator(':scope > summary').click();
             assert(await context.locator('.prompt-source-location').first().isVisible(), 'Context must explain where each component came from');
             assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Opened context must not overflow');
             await capture('context');
             await context.locator(':scope > summary').click();
+          }
+          const work = page.locator('.phase-work').first();
+          if (await work.count()) {
+            await work.scrollIntoViewIfNeeded();
+            await capture('work');
           }
           const outcome = page.getByRole('link', {name: 'Jump to latest outcome'});
           const destination = await outcome.getAttribute('href');

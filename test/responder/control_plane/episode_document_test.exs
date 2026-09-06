@@ -6,6 +6,135 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
 
+  test "admission belongs to preparation rather than a second execution cycle" do
+    # A one-word greeting looked like two executions with tiny repeated phases.
+    # Route and result are one setup action; work and answer remain separate.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+    at = snapshot.trace.received_at
+    [step | _] = snapshot.trace.steps
+
+    start = %{
+      id: "routing-1",
+      at: at,
+      kind: :request,
+      source_kind: :admission,
+      phase: :submission,
+      band: :ready,
+      target: "codex:gpt-5.6-luna/low@emisar",
+      timing: [],
+      coverage: "Retained",
+      href: "/admission/one",
+      sections: []
+    }
+
+    result = %{
+      start
+      | id: "routing-1-result",
+        phase: :result,
+        at: DateTime.add(at, 1),
+        sections: [
+          section("candidate", "Decision", %{
+            "action" => "reply",
+            "work_class" => "conversational",
+            "reason" => "The user sent a greeting that can be answered directly."
+          })
+        ]
+    }
+
+    snapshot =
+      put_in(snapshot, [:trace, :steps], [
+        %{step | id: "work", at: DateTime.add(at, 2), band: :work},
+        %{step | id: "answer", at: DateTime.add(at, 3), band: :answer}
+      ])
+
+    document = render_episode(snapshot, [start, result]) |> LazyHTML.from_fragment()
+
+    assert document |> LazyHTML.query(".chapter-heading h3") |> Enum.map(&LazyHTML.text/1) ==
+             ["Getting ready", "The work", "The answer"]
+
+    assert document |> LazyHTML.query(".phase-ready .case-request") |> Enum.count() == 1
+
+    assert document |> LazyHTML.query(".phase-ready") |> LazyHTML.text() =~
+             "The user sent a greeting that can be answered directly."
+
+    assert document |> LazyHTML.query(".phase-ready") |> LazyHTML.text() =~
+             "How Responder set this up"
+
+    assert Enum.empty?(LazyHTML.query(document, ".case-receipt-group, .case-system-event"))
+    assert LazyHTML.query(document, "#routing-1-result") |> Enum.count() == 1
+
+    assert LazyHTML.query(document, ".phase-ready .chapter-span") |> LazyHTML.text() ==
+             "+0s → +1s from start"
+
+    # Truncated history may retain either side of the pair. Neither disappears.
+    assert render_episode(snapshot, [result]) =~ "Conversational reply"
+    assert render_episode(snapshot, [start]) =~ "Routing input"
+  end
+
+  test "follow-up setup stays after earlier model activity in its own message group" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+    at = snapshot.trace.received_at
+    [step | _] = snapshot.trace.steps
+
+    messages = [
+      %{id: "first", at: at, actor: "User", text: "How is health of our infra?", available: true},
+      %{
+        id: "next",
+        at: DateTime.add(at, 2),
+        actor: "User",
+        text: "And how many customers we have right now?",
+        available: true
+      }
+    ]
+
+    snapshot =
+      snapshot
+      |> put_in([:trace, :case_file, :conversation], messages)
+      |> put_in([:trace, :steps], [%{step | id: "running", band: :work, at: DateTime.add(at, 1)}])
+
+    document = render_episode(snapshot, []) |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(document, ".case-entry") |> LazyHTML.attribute("id") ==
+             ["story-message-first", "event-running", "story-message-next"]
+
+    assert LazyHTML.query(document, ".chapter-heading h3") |> Enum.map(&LazyHTML.text/1) ==
+             ["Getting ready", "The work", "Getting ready"]
+
+    assert LazyHTML.query(document, ".conversation-boundary .turn-divider-label")
+           |> LazyHTML.text() =~ "Message 2"
+  end
+
+  test "the briefing lists prompt sources without outer or recursively nested disclosures" do
+    # Instructions and operator context previously took three or four clicks
+    # to reach. The source inventory must be visible before opening any part.
+    html =
+      render_request(:work, :submission, [
+        section("instructions", "Instructions", "Retained host policy <not markup>"),
+        section("context", "Context", %{
+          "inputs" => [%{"text" => "Hi"}],
+          "operator_context" => %{
+            "guidance" => [%{"subject" => "Review style", "summary" => "Risk first"}]
+          },
+          "destination" => %{"transport" => "slack"}
+        })
+      ])
+
+    document = LazyHTML.from_fragment(html)
+
+    summaries =
+      document |> LazyHTML.query(".prompt-assembly > details > summary") |> LazyHTML.text()
+
+    assert summaries =~ "Responder instructions"
+    assert summaries =~ "Confirmed guidance"
+    assert summaries =~ "Episode input history"
+    assert Enum.empty?(LazyHTML.query(document, ".prompt-assembly details details details"))
+    assert Enum.empty?(LazyHTML.query(document, ".request-input-parts > details"))
+    assert html =~ "$.work.operator_context.guidance"
+    assert html =~ "Retained host policy &lt;not markup&gt;"
+  end
+
   test "a model call names the confirmed rules and recalled instructions it actually received" do
     # A rule affecting a reply was invisible unless the operator decoded context JSON.
     context = %{
@@ -108,7 +237,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
 
     assert Enum.count(
              LazyHTML.query(document, ".chapter-heading h3"),
-             &(LazyHTML.text(&1) == "Answer & delivery")
+             &(LazyHTML.text(&1) == "The answer")
            ) == 1
 
     assert Enum.count(LazyHTML.query(document, ".case-request details.request-evidence")) == 1
@@ -143,9 +272,9 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
     }
 
     html = render_episode(snapshot, [input])
-    assert html =~ "Model input"
+    assert html =~ "Model briefing"
     assert html =~ "Responder instructions"
-    assert LazyHTML.from_fragment(html) |> LazyHTML.text() =~ "Conversation & context"
+    assert LazyHTML.from_fragment(html) |> LazyHTML.text() =~ "Briefing sources"
     assert html =~ "Host-authored instructions"
     assert html =~ "Episode input history"
     assert html =~ "Retained instructions &lt;not HTML&gt;"
@@ -154,14 +283,11 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
     assert html =~ "$.work.inputs"
     assert Enum.empty?(LazyHTML.from_fragment(html) |> LazyHTML.query(".request-evidence[open]"))
 
-    assert Enum.count(
-             LazyHTML.from_fragment(html)
-             |> LazyHTML.query(".prompt-source[data-source=instructions][open]")
-           ) == 1
+    assert Enum.empty?(LazyHTML.from_fragment(html) |> LazyHTML.query(".prompt-source[open]"))
 
     assert Enum.count(
              LazyHTML.from_fragment(html)
-             |> LazyHTML.query(".request-input-parts > details")
+             |> LazyHTML.query(".prompt-assembly > details")
            ) == 2
 
     assert Enum.count(
@@ -301,7 +427,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
     end
   end
 
-  test "adjacent successful receipts collapse without hiding failures or losing their order" do
+  test "every receipt has its own visible action block without hiding failures or losing order" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
     {:ok, snapshot} = Projection.episode(episode.key)
     [step | _] = snapshot.trace.steps
@@ -321,13 +447,14 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
 
     page = put_in(snapshot, [:trace, :steps], steps)
     document = render_episode(page, []) |> LazyHTML.from_fragment()
-    assert Enum.count(LazyHTML.query(document, ".case-receipt-group")) == 2
-    assert Enum.empty?(LazyHTML.query(document, ".case-receipt-group[open]"))
+    assert Enum.empty?(LazyHTML.query(document, ".case-receipt-group"))
+    assert Enum.count(LazyHTML.query(document, ".case-entry h3")) == 5
 
     assert LazyHTML.query(document, ".case-entry") |> LazyHTML.attribute("id") ==
              Enum.map(steps, &("event-" <> &1.id))
 
     assert Enum.empty?(LazyHTML.query(document, ".case-receipt-group #event-receipt-2"))
+    assert Enum.empty?(LazyHTML.query(document, ".case-checkpoint#event-receipt-2"))
     assert LazyHTML.query(document, ".chapter-span") |> LazyHTML.text() == "+1m 24s from start"
   end
 

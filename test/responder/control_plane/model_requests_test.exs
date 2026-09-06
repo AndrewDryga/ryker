@@ -104,7 +104,7 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
     assert html =~ "Messages supplied to this request"
     # The old flat prompt hid which host/context source shaped the answer.
     assert html =~ "data-source=\"instructions\""
-    assert html =~ "Responder work policy"
+    assert html =~ "Responder instructions"
     assert html =~ "$.instructions"
     assert html =~ "$.work.inputs"
     assert html =~ "$.work.responder_state_tools"
