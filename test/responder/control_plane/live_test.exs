@@ -343,11 +343,11 @@ defmodule Responder.ControlPlane.LiveTest do
 
     path = "/episodes/" <> URI.encode_www_form(episode.key)
     {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), path)
-    assert has_element?(view, "#execution-timeline", "Complete execution timeline")
+    assert has_element?(view, "#execution-timeline", "Execution timeline")
     assert has_element?(view, ".case-event", "Input admitted")
     refute has_element?(view, "button.execution-event")
     refute has_element?(view, "nav[aria-label='Episode view']")
-    view |> element("a", "Find a specific request") |> render_click()
+    view |> element("a", "All model requests") |> render_click()
     assert_patch(view, path <> "/requests")
     assert has_element?(view, ".model-inspector", "What the model received")
     assert has_element?(view, ".document-unavailable", "No requests recorded")

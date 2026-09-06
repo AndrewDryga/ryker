@@ -5,7 +5,7 @@ defmodule Responder.ControlPlane.EpisodePage do
   @moduledoc "One chronological case file: conversation, model requests, host decisions and delivery."
   use Phoenix.Component
   import Responder.ControlPlane.Components
-  alias Responder.ControlPlane.EpisodeTrace
+  alias Responder.ControlPlane.{EpisodeRequest, EpisodeTrace}
 
   def render(assigns) do
     assigns = assign_new(assigns, :timeline, fn -> %{items: [], truncated: false} end)
@@ -13,12 +13,15 @@ defmodule Responder.ControlPlane.EpisodePage do
     chapters =
       assigns.snapshot
       |> entries(assigns.timeline)
+      |> Enum.map(fn entry ->
+        if entry.band == :outcome, do: %{entry | band: :answer}, else: entry
+      end)
       |> EpisodeTrace.chapters(assigns.snapshot.trace.received_at)
 
     assigns = assign(assigns, :chapters, chapters)
 
     ~H"""
-    <div class="episode-workbench">
+    <div class="episode-workbench execution-document">
       <div class="episode-page-intro">
         <.link navigate="/" class="back-to-activity">← Activity</.link>
         <div class="episode-title-row">
@@ -26,35 +29,36 @@ defmodule Responder.ControlPlane.EpisodePage do
             to_string(@snapshot.episode.state)
           } />
         </div>
-        <p>
-          {@snapshot.episode.next_action}<span :if={@snapshot.trace.case_file.repository}> · {@snapshot.trace.case_file.repository}</span>
+        <p class="episode-location">
+          <span :if={@snapshot.trace.case_file.repository}>{@snapshot.trace.case_file.repository}</span>
+          <time>{timestamp(@snapshot.trace.received_at)}</time>
+          <a :if={@snapshot.trace.source} href={@snapshot.trace.source.href} rel="noopener noreferrer">{@snapshot.trace.source.label} →</a>
         </p>
       </div>
-      <div class="episode-context-bar">
+      <dl class="episode-metrics">
         <div>
-          <.icon name={:clock} /><span>{elapsed(@snapshot.trace.metrics)}</span><small>received → latest change</small>
+          <dt title="First message to the latest recorded change">Elapsed</dt><dd>
+            {elapsed(@snapshot)}
+          </dd>
         </div>
         <div>
-          <.icon name={:usage} /><strong>{cost(@snapshot[:accounting])}</strong><small>{coverage(
-            @snapshot[:accounting]
-          )}</small>
+          <dt>Model cost</dt><dd>{cost(@snapshot[:accounting])}</dd>
         </div>
-        <a
-          :if={@snapshot.trace.source}
-          class="source-jump"
-          href={@snapshot.trace.source.href}
-          rel="noopener noreferrer"
-        >{@snapshot.trace.source.label} <.icon name={:arrow} /></a>
-      </div>
+        <div>
+          <dt>Executions</dt><dd>{get_in(@snapshot, [:accounting, :attempts]) || "—"}</dd>
+        </div>
+        <div>
+          <dt>Tool calls</dt><dd>{metric(@snapshot.trace.metrics, "Tool calls")}</dd>
+        </div>
+      </dl>
       <nav class="case-actions" aria-label="Execution actions">
-        <a href="#execution-timeline">Read execution</a><a href="#latest-outcome">Latest outcome ↓</a>
+        <a href={outcome_anchor(@snapshot)}>Jump to latest outcome ↓</a>
         <.action_button
           :for={action <- @snapshot.trace.actions}
           path={action.href}
           label={action.label}
           tone={action.tone}
         />
-        <.link patch={base(@snapshot) <> "/requests"}>Find a specific request <.icon name={:arrow} /></.link>
       </nav>
       <section :if={@snapshot.trace.stopped} class="story-stop">
         <p class="ui-eyebrow">NEXT ACTION</p><h3>{@snapshot.trace.stopped.headline}</h3>
@@ -80,45 +84,36 @@ defmodule Responder.ControlPlane.EpisodePage do
       </details>
       <section class="case-timeline" id="execution-timeline" aria-label="Complete execution timeline">
         <div class="story-section-heading">
-          <h2>Complete execution timeline</h2><span>Oldest → newest · live</span>
+          <h2>Execution timeline</h2><span>{count_label(
+            metric(@snapshot.trace.metrics, "Turns"),
+            "work turn"
+          )} · {count_label(metric(@snapshot.trace.metrics, "Repairs"), "correction")}</span>
         </div>
-        <p class="timeline-explainer">
-          Messages, what the model received, public tool activity, host validation and delivery — in execution order. No private reasoning is recorded.
-        </p>
         <p :if={@snapshot.trace.history.truncated || @timeline.truncated} class="timeline-bound">
-          History is bounded. This view contains the latest retained records; use “Find a specific request” for older request pages. Long artifacts are labeled when truncated.
+          History is bounded. Older model requests are available under “All model requests” in the technical record below. Long artifacts are labeled when truncated.
         </p>
         <section
           :for={{chapter, index} <- Enum.with_index(@chapters, 1)}
-          class={"trace-chapter #{if chapter.starts_conversation, do: "conversation-boundary"}"}
+          class={"trace-chapter #{if chapter.starts_conversation && chapter.conversation_turn > 1, do: "conversation-boundary"}"}
           data-conversation-turn={chapter.conversation_turn}
           aria-labelledby={"chapter-#{index}"}
         >
           <div class="chapter-heading">
-            <span class="chapter-number">{String.pad_leading(to_string(index), 2, "0")}</span>
             <div>
-              <p :if={chapter.starts_conversation} class="turn-divider-label">
-                CONVERSATION · PART {chapter.conversation_turn}
+              <p
+                :if={chapter.starts_conversation && chapter.conversation_turn > 1}
+                class="turn-divider-label"
+              >
+                Message {chapter.conversation_turn}
               </p>
-              <h3 id={"chapter-#{index}"}>{chapter.title}</h3><p>{chapter.blurb}</p>
+              <h3 id={"chapter-#{index}"}>{chapter_title(chapter)}</h3>
             </div>
-            <span :if={chapter.span} class="chapter-span">{chapter.span} from start</span>
+            <span :if={chapter.span} class="chapter-span" title="Time since the first message">{chapter_span(
+              chapter,
+              @snapshot.trace.received_at
+            )} from start</span>
           </div>
-          <article
-            :for={entry <- chapter.steps}
-            id={entry.id}
-            class={"case-entry case-#{entry.kind}"}
-            data-entry-kind={entry.kind}
-          >
-            <div class="case-entry-time">
-              <time>{clock_time(entry.at)}</time><span>{date(entry.at)}</span>
-            </div>
-            <div class="case-entry-body">
-              <.message :if={entry.kind == :message} message={entry.message} base={base(@snapshot)} />
-              <.event :if={entry.kind == :event} step={entry.step} />
-              <.request :if={entry.kind == :request} request={entry} />
-            </div>
-          </article>
+          <.entry_group :for={group <- entry_groups(chapter.steps)} group={group} />
         </section>
         <div id="latest-outcome" class="case-outcome">
           <div :if={@snapshot.trace.case_file.awaiting_reply} class="story-wait">
@@ -126,14 +121,14 @@ defmodule Responder.ControlPlane.EpisodePage do
               <strong>{pending_answer_label(@snapshot)}</strong><p>{@snapshot.episode.next_action}</p>
             </div>
           </div>
-          <p :if={!@snapshot.trace.case_file.awaiting_reply}>
-            End of retained execution · {@snapshot.episode.next_action}
-          </p>
           <a href="#execution-timeline">Back to start ↑</a>
         </div>
       </section>
       <details class="story-identity">
-        <summary>Source identity & review history</summary><dl>
+        <summary>Technical record & review history</summary>
+        <.link patch={base(@snapshot) <> "/requests"}>All model requests →</.link>
+        <p>{coverage(@snapshot[:accounting])}</p>
+        <dl>
           <dt>Episode</dt><dd>{@snapshot.episode.ref}</dd><dt>Destination</dt><dd>
             {@snapshot.episode.destination}
           </dd>
@@ -146,6 +141,39 @@ defmodule Responder.ControlPlane.EpisodePage do
     """
   end
 
+  defp entry_groups(steps), do: Enum.chunk_by(steps, &receipt_entry?/1)
+
+  defp receipt_entry?(%{kind: :event, band: :answer, step: step}), do: bookkeeping?(step)
+  defp receipt_entry?(_entry), do: false
+
+  defp entry_group(assigns) do
+    assigns =
+      assign(assigns, :grouped, length(assigns.group) > 1 && receipt_entry?(hd(assigns.group)))
+
+    ~H"""
+    <details :if={@grouped} class="case-receipt-group" id={"receipts-#{hd(@group).id}"}>
+      <summary>Result & delivery details <span>{length(@group)} records</span></summary>
+      <.entry :for={entry <- @group} entry={entry} />
+    </details>
+    <.entry :for={entry <- @group} :if={!@grouped} entry={entry} />
+    """
+  end
+
+  defp entry(assigns) do
+    ~H"""
+    <article id={@entry.id} class={"case-entry case-#{@entry.kind}"} data-entry-kind={@entry.kind}>
+      <div class="case-entry-time">
+        <time title={timestamp(@entry.at)}>{clock_time(@entry.at)}</time>
+      </div>
+      <div class="case-entry-body">
+        <.message :if={@entry.kind == :message} message={@entry.message} />
+        <.event :if={@entry.kind == :event} step={@entry.step} />
+        <EpisodeRequest.render :if={@entry.kind == :request} request={@entry} />
+      </div>
+    </article>
+    """
+  end
+
   defp message(assigns) do
     ~H"""
     <div class="story-byline">
@@ -153,16 +181,7 @@ defmodule Responder.ControlPlane.EpisodePage do
         @message[:status]
       }>{@message.status}</span>
     </div>
-    <p class="case-message-text">
-      {message_text(@message)}
-    </p>
-    <.link
-      navigate={
-        if @message.actor == "Responder", do: @base <> "/" <> @message.href, else: @message.href
-      }
-      class="message-inspect"
-    >{if @message.actor == "Responder", do: "Inspect accepted answer", else: "Inspect admission"}
-    <.icon name={:arrow} /></.link>
+    <p class="case-message-text">{message_text(@message)}</p>
     """
   end
 
@@ -174,59 +193,80 @@ defmodule Responder.ControlPlane.EpisodePage do
   defp message_text(message), do: message.text
 
   defp event(assigns) do
-    ~H"""
-    <div class="case-event-heading">
-      <i class={"event-dot tone-#{@step.tone}"}></i><h3>{@step.title}</h3><span>{@step.actor} · {@step.state}</span>
-    </div>
-    <p :if={@step.summary && @step.summary != @step.title} class="case-event-summary">
-      {@step.summary}
-    </p>
-    <a :if={@step.href} href={@step.href}>Inspect related record <.icon name={:arrow} /></a>
-    <details :if={@step.details != []} class="case-event-details" id={"event-detail-#{@step.id}"}>
-      <summary>Recorded details</summary><dl>
-        <div :for={detail <- @step.details}>
-          <dt>{detail.label}</dt><dd>{detail.value}</dd>
-        </div>
-      </dl>
-    </details>
-    """
-  end
+    assigns = assign(assigns, :bookkeeping, bookkeeping?(assigns.step))
 
-  defp request(assigns) do
     ~H"""
-    <div class="case-request-heading">
-      <div>
-        <p class="ui-eyebrow">{@request.title}</p><h3>{@request.target}</h3>
-      </div><a href={@request.href}>Full artifact <.icon name={:arrow} /></a>
-    </div>
-    <dl :if={@request.timing != []} class="request-timing">
-      <div :for={metric <- @request.timing}>
-        <dt>{metric.label}</dt><dd>{metric.value}</dd>
+    <details :if={@bookkeeping} class="case-system-event" id={"event-detail-#{@step.id}"}>
+      <summary>{@step.title}</summary>
+      <p class="case-event-summary">{@step.summary}</p>
+      <.event_details step={@step} />
+    </details>
+    <div :if={!@bookkeeping}>
+      <div class="case-event-heading">
+        <h3>{event_title(@step)}</h3><span class={"event-state tone-#{@step.tone}"}>{label(
+          @step.state
+        )}</span>
+        <span :if={@step.duration_ms}>{duration(@step.duration_ms)}</span>
       </div>
-    </dl>
-    <p :if={@request.timing != []} class="coverage-note">
-      Agent execution includes provider startup, model and tool work. It is not a measurement of thinking time alone.
-    </p>
-    <p class="coverage-note">{@request.coverage}</p>
-    <div :for={section <- @request.sections}>
-      <Responder.ControlPlane.RequestPage.artifact
-        :if={section.id not in ["request", "contract"]}
-        section={section}
-        prefix={@request.id}
-      />
+      <p :if={@step.summary && @step.summary != event_title(@step)} class="case-event-summary">
+        {@step.summary}
+      </p>
       <details
-        :if={section.id in ["request", "contract"]}
-        class="case-raw-artifact"
-        id={"#{@request.id}-#{section.id}-disclosure"}
+        :if={@step.details != [] || @step.href}
+        class="case-event-details"
+        id={"event-detail-#{@step.id}"}
       >
-        <summary>{section.title}</summary><Responder.ControlPlane.RequestPage.artifact
-          section={section}
-          prefix={@request.id}
-        />
+        <summary>Details</summary><.event_details step={@step} />
       </details>
     </div>
     """
   end
+
+  defp event_details(assigns) do
+    ~H"""
+    <a :if={@step.href} href={@step.href}>Inspect related record →</a>
+    <dl class="event-facts">
+      <div :for={detail <- @step.details}>
+        <dt>{detail.label}</dt><dd>{detail.value}</dd>
+      </div>
+    </dl>
+    """
+  end
+
+  defp bookkeeping?(step),
+    do:
+      step.tone not in [:bad, :warn] and
+        not silent_result?(step) and
+        step.stage in ["Preparation", "Routing", "Input", "Result", "Delivery", "Validation"]
+
+  defp event_title(%{stage: "Tool call", title: "Tool call", summary: summary})
+       when is_binary(summary), do: summary
+
+  defp event_title(step), do: if(silent_result?(step), do: "No reply sent", else: step.title)
+
+  defp silent_result?(%{stage: "Result", details: details}),
+    do: Enum.any?(details, &(&1.label == "Delivery" && &1.value == "none"))
+
+  defp silent_result?(_step), do: false
+
+  defp chapter_title(%{starts_conversation: true, conversation_turn: turn}) when turn > 1,
+    do: "Follow-up received"
+
+  defp chapter_title(%{band: :input}), do: "Message received"
+  defp chapter_title(%{band: :ready}), do: "Routing & preparation"
+  defp chapter_title(%{band: :work}), do: "Model activity"
+  defp chapter_title(%{band: :answer}), do: "Answer & delivery"
+  defp chapter_title(chapter), do: chapter.title
+
+  defp metric(metrics, label) do
+    case Enum.find(metrics, &(&1.label == label)) do
+      nil -> "—"
+      metric -> metric.value
+    end
+  end
+
+  defp duration(ms) when ms < 1_000, do: "#{ms} ms"
+  defp duration(ms), do: "#{Float.round(ms / 1_000, 1)} s"
 
   defp entries(snapshot, timeline) do
     messages =
@@ -254,8 +294,6 @@ defmodule Responder.ControlPlane.EpisodePage do
   defp unix(at), do: DateTime.to_unix(at, :microsecond)
   defp clock_time(nil), do: "Not recorded"
   defp clock_time(at), do: Calendar.strftime(at, "%H:%M:%S")
-  defp date(nil), do: ""
-  defp date(at), do: Calendar.strftime(at, "%d %b · UTC")
   defp base(snapshot), do: "/episodes/" <> URI.encode_www_form(snapshot.episode.ref)
   defp pending_answer_label(%{episode: %{state: :cancelled}}), do: "Stopped"
   defp pending_answer_label(%{episode: %{state: :complete}}), do: "No further reply was sent"
@@ -263,11 +301,74 @@ defmodule Responder.ControlPlane.EpisodePage do
   defp pending_answer_label(%{trace: %{case_file: %{reply: nil}}}), do: "No visible answer yet"
   defp pending_answer_label(_), do: "Follow-up in progress"
 
-  defp elapsed(metrics) do
-    case Enum.find(metrics, &(&1.label == "Elapsed")) do
-      nil -> "Not recorded"
-      metric -> metric.value
+  defp outcome_anchor(snapshot) do
+    if snapshot.trace.case_file.awaiting_reply do
+      "#latest-outcome"
+    else
+      accepted_outcome_anchor(snapshot)
     end
+  end
+
+  defp accepted_outcome_anchor(snapshot) do
+    decision =
+      snapshot.trace.steps
+      |> Enum.reverse()
+      |> Enum.find(fn step ->
+        step.stage == "Result" && Enum.any?(step.details, &(&1.label == "Delivery"))
+      end)
+
+    reply =
+      snapshot.trace.case_file.conversation
+      |> Enum.reverse()
+      |> Enum.find(&(&1.actor == "Responder"))
+
+    cond do
+      decision && silent_result?(decision) ->
+        "#event-#{decision.id}"
+
+      decision && (is_nil(reply) || decision.id != "turn-#{reply.id}-accepted") ->
+        "#event-#{decision.id}"
+
+      reply ->
+        "#story-message-#{reply.id}"
+
+      true ->
+        "#latest-outcome"
+    end
+  end
+
+  defp count_label(count, noun) when count in [1, "1"], do: "1 #{noun}"
+  defp count_label(count, noun), do: "#{count} #{noun}s"
+
+  defp elapsed(%{trace: %{received_at: nil}}), do: "Not recorded"
+
+  defp elapsed(snapshot) do
+    latest =
+      Enum.max([unix(snapshot.episode.updated_at) | Enum.map(snapshot.trace.steps, &unix(&1.at))])
+
+    seconds = max(div(latest - unix(snapshot.trace.received_at), 1_000_000), 0)
+
+    if seconds == 0, do: "< 1s", else: duration_seconds(seconds)
+  end
+
+  defp chapter_span(chapter, started) do
+    times = chapter.steps |> Enum.map(& &1.at) |> Enum.reject(&is_nil/1)
+
+    offsets =
+      [List.first(times), List.last(times)]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&("+" <> duration_seconds(max(div(unix(&1) - unix(started), 1_000_000), 0))))
+      |> Enum.uniq()
+
+    Enum.join(offsets, " → ")
+  end
+
+  defp duration_seconds(0), do: "0s"
+
+  defp duration_seconds(seconds) do
+    [{div(seconds, 3600), "h"}, {div(rem(seconds, 3600), 60), "m"}, {rem(seconds, 60), "s"}]
+    |> Enum.reject(fn {count, _} -> count == 0 end)
+    |> Enum.map_join(" ", fn {count, unit} -> "#{count}#{unit}" end)
   end
 
   defp cost(%{costed: _} = totals), do: Pricing.amount(totals)

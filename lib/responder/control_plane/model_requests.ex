@@ -207,6 +207,8 @@ defmodule Responder.ControlPlane.ModelRequests do
       target: request.target,
       status: request.status,
       coverage: request.coverage,
+      source_kind: kind,
+      phase: :submission,
       sections: submission,
       timing: [],
       href: href,
@@ -223,6 +225,7 @@ defmodule Responder.ControlPlane.ModelRequests do
               at: completed,
               band: if(kind == :admission, do: :ready, else: :answer),
               title: request.title <> " · result",
+              phase: :result,
               sections: outcome,
               timing: timing
           }

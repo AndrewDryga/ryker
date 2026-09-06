@@ -173,7 +173,9 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
 
     assert html =~ "2 ms"
     assert html =~ "60.0 s"
-    assert html =~ "not a measurement of thinking time alone"
+    assert html =~ "Model execution"
+    assert html =~ "Processing"
+    assert html =~ "1.0 s"
     assert html =~ "Host validation and repair history"
   end
 
