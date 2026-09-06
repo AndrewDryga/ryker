@@ -15,10 +15,17 @@ defmodule Responder.ControlPlane.Navigation do
     {:book, "Test journeys", "/manual-tests"}
   ]
   @secondary [
-    {:clock, "Automation", [{"Schedules", "/schedules"}, {"Subscriptions", "/subscriptions"}]},
+    {:clock, "Automation",
+     [
+       {"Standing rules", "/rules"},
+       {"Schedules", "/schedules"},
+       {"Event waits", "/subscriptions"}
+     ]},
     {:book, "Memory & learning",
      [
        {"Memory", "/memory"},
+       {"Preferences", "/preferences"},
+       {"Guidance", "/guidance"},
        {"Decisions", "/decisions"},
        {"Findings", "/findings"},
        {"Model performance", "/calibration"}

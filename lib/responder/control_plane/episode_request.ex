@@ -2,6 +2,7 @@ defmodule Responder.ControlPlane.EpisodeRequest do
   @moduledoc "A readable model call, with the retained evidence available inline."
   use Phoenix.Component
 
+  alias Responder.ControlPlane.Components
   alias Responder.ControlPlane.RequestPage
 
   def render(assigns) do
@@ -13,6 +14,7 @@ defmodule Responder.ControlPlane.EpisodeRequest do
       |> assign(:headline, headline(request))
       |> assign(:explanation, explanation(request))
       |> assign(:result?, request.phase == :result)
+      |> assign(:applied, applied_context(request))
       |> assign(
         :input_sections,
         Enum.filter(request.sections, &(&1.id in ~w(instructions context)))
@@ -31,6 +33,21 @@ defmodule Responder.ControlPlane.EpisodeRequest do
         </div>
       </div>
       <p :if={@explanation} class="request-explanation">{@explanation}</p>
+      <section
+        :if={@applied != []}
+        class="applied-context"
+        aria-label="Saved context used by this call"
+      >
+        <div :for={group <- @applied}>
+          <h4>{group.title}</h4>
+          <ul>
+            <li :for={entry <- group.entries}>
+              <strong :if={entry.title}>{entry.title}</strong><span>{entry.text}</span>
+            </li>
+          </ul>
+          <a href={group.href}>Manage {group.manage} →</a>
+        </div>
+      </section>
       <dl :if={@request.timing != []} class="request-timing">
         <div :for={metric <- @request.timing} :if={metric.value != "Not recorded"}>
           <dt>{timing_label(metric.label)}</dt><dd>{metric.value}</dd>
@@ -86,6 +103,80 @@ defmodule Responder.ControlPlane.EpisodeRequest do
   end
 
   def model(_), do: %{name: "Model not recorded", account: nil}
+
+  defp applied_context(%{phase: :submission} = request) do
+    case document(request, "context") do
+      %{"operator_context" => context} when is_map(context) ->
+        [
+          %{
+            title: "Standing rules used",
+            manage: "rules",
+            href: "/rules",
+            entries: context_entries(context["standing_assignments"], "title", "task")
+          },
+          %{
+            title: "Preferences used",
+            manage: "preferences",
+            href: "/preferences",
+            entries: preference_entries(context["preferences"])
+          },
+          %{
+            title: "Guidance recalled",
+            manage: "guidance",
+            href: "/guidance",
+            entries: context_entries(context["guidance"], "subject", "summary")
+          },
+          %{
+            title: "Memory recalled",
+            manage: "memory",
+            href: "/memory",
+            entries: context_entries(context["memory"], "subject", "value")
+          }
+        ]
+        |> Enum.reject(&(&1.entries == []))
+
+      _ ->
+        []
+    end
+  end
+
+  defp applied_context(_), do: []
+
+  defp context_entries(entries, title_key, text_key) when is_list(entries) do
+    Enum.flat_map(entries, fn
+      %{} = entry ->
+        case entry[text_key] do
+          text when is_binary(text) -> [%{title: safe_title(entry[title_key]), text: text}]
+          _ -> []
+        end
+
+      _ ->
+        []
+    end)
+  end
+
+  defp context_entries(_, _, _), do: []
+  defp safe_title(value) when is_binary(value), do: value
+  defp safe_title(_), do: nil
+
+  defp preference_entries(entries) when is_map(entries) do
+    entries
+    |> Enum.sort()
+    |> Enum.flat_map(fn
+      {key, %{"value" => value}} when is_binary(value) ->
+        [
+          %{
+            title: Components.label(key),
+            text: Components.label(value)
+          }
+        ]
+
+      _ ->
+        []
+    end)
+  end
+
+  defp preference_entries(_), do: []
 
   defp headline(%{phase: :submission, source_kind: :admission}), do: "Routing input"
   defp headline(%{phase: :submission}), do: "Model input"

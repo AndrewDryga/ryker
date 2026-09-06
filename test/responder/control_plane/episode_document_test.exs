@@ -6,6 +6,59 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
 
+  test "a model call names the confirmed rules and recalled instructions it actually received" do
+    # A rule affecting a reply was invisible unless the operator decoded context JSON.
+    context = %{
+      "operator_context" => %{
+        "standing_assignments" => [
+          %{
+            "assignment_ref" => "rule:recorded",
+            "task" => "Review the posted plan <as text>",
+            "trigger" => "terraform_plan"
+          }
+        ],
+        "preferences" => %{"response_detail" => %{"value" => "concise", "scope" => "operator"}},
+        "guidance" => [%{"subject" => "Review style", "summary" => "Lead with availability risk"}],
+        "memory" => [%{"subject" => "Primary repository", "value" => "emisar"}]
+      }
+    }
+
+    request = %{
+      id: "context-test",
+      phase: :submission,
+      source_kind: :work,
+      target: "codex:recorded",
+      timing: [],
+      coverage: "Retained",
+      href: "/",
+      sections: [section("context", "Context", context)]
+    }
+
+    html = render_component(&EpisodeRequest.render/1, request: request)
+
+    visible =
+      html |> LazyHTML.from_fragment() |> LazyHTML.query(".applied-context") |> LazyHTML.text()
+
+    assert visible =~ "Standing rules used"
+    assert visible =~ "Review the posted plan <as text>"
+    assert visible =~ "Response detail"
+    assert visible =~ "Lead with availability risk"
+    assert visible =~ "Primary repository"
+    refute html =~ "<as text>"
+
+    for artifact <- [
+          InspectionRedactor.artifact(nil),
+          %{hd(request.sections).artifact | truncated: true}
+        ] do
+      html =
+        render_component(&EpisodeRequest.render/1,
+          request: %{request | sections: [%{hd(request.sections) | artifact: artifact}]}
+        )
+
+      refute html =~ "applied-context"
+    end
+  end
+
   test "a greeting explains routing without expanding protocol JSON or duplicating delivery chapters" do
     # The real September 5 "Hi" took 11,151 pixels and 63 disclosures to explain;
     # its accepted reply was separated from delivery by a second answer chapter.

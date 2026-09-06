@@ -67,6 +67,7 @@ defmodule Responder.ControlPlane.UpdatesTest do
       "operational_memory_entries" => "memory",
       "memory_review_items" => "memory",
       "operator_behaviors" => "configuration",
+      "standing_assignment_runs" => "rules",
       "platform_actions" => "episodes",
       "delivery_reactions" => "lab",
       "responder_operator_actions" => "failures",

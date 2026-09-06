@@ -93,7 +93,11 @@ defmodule Responder.ControlPlane.Updates do
   defp domains("conversation_" <> _), do: ~w(memory lab channels episodes)
   defp domains("operational_memory_" <> _), do: ~w(memory lab episodes)
   defp domains("memory_" <> _), do: ~w(memory lab episodes)
-  defp domains("operator_behaviors"), do: ~w(memory configuration channels)
+
+  defp domains("operator_behaviors"),
+    do: ~w(rules preferences guidance memory configuration channels episodes)
+
+  defp domains("standing_assignment_runs"), do: ~w(rules episodes)
   defp domains("platform_actions"), do: ~w(activity episodes lab failures)
   defp domains("delivery_" <> _), do: ~w(activity episodes lab failures)
   defp domains("responder_operator_actions"), do: ~w(activity failures)

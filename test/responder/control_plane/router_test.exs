@@ -1194,17 +1194,17 @@ defmodule Responder.ControlPlane.RouterTest do
     assert usage.resp_body =~ "claude:opus/high@work"
 
     memory = request(:get, "/memory")
-    assert memory.resp_body =~ ">Disable</button>"
-    assert memory.resp_body =~ ">Resume</button>"
-    assert memory.resp_body =~ ">Delete</button>"
+    assert memory.resp_body =~ "href=\"/rules\""
+    assert memory.resp_body =~ "href=\"/preferences\""
+    assert memory.resp_body =~ "href=\"/guidance\""
     assert memory.resp_body =~ "scope workspace (slack:T123); visibility workspace"
-    assert memory.resp_body =~ "—"
+    assert memory.resp_body =~ "Keep separate"
   end
 
   test "behavior and schedule changes require their own current typed confirmation" do
     for {kind, ref, action, expected, return_path} <- [
-          {"behavior", "behavior:one", "disabled", {:behavior_status, :disabled}, "/memory"},
-          {"behavior", "behavior:one", "deleted", {:behavior_status, :deleted}, "/memory"},
+          {"behavior", "behavior:one", "disabled", {:behavior_status, :disabled}, "/rules"},
+          {"behavior", "behavior:one", "deleted", {:behavior_status, :deleted}, "/rules"},
           {"schedule", "schedule:one", "active", {:schedule_status, :active}, "/schedules"},
           {"schedule", "schedule:one", "deleted", {:schedule_status, :deleted}, "/schedules"},
           {"schedule", "schedule:one", "run-now", :schedule_run_now, "/schedules"}
@@ -1223,6 +1223,40 @@ defmodule Responder.ControlPlane.RouterTest do
     assert request(:get, "/actions/behavior/missing/active").status == 404
     assert request(:get, "/actions/schedule/missing/paused").status == 404
     assert request(:get, "/actions/unknown/ref/delete").status == 404
+  end
+
+  test "schedule lifecycle controls stay discoverable after leaving Memory" do
+    # Moving schedules to their own page must not remove the only pause,
+    # resume and delete controls from the console.
+    {:ok, detail} = options().projection.schedule.("schedule:one")
+
+    for {status, label, action} <- [{:active, "Pause", "paused"}, {:paused, "Resume", "active"}] do
+      html =
+        HTML.schedule(%{
+          detail
+          | schedule: %{detail.schedule | status: status}
+        })
+        |> IO.iodata_to_binary()
+
+      document = LazyHTML.from_fragment(html)
+
+      assert document
+             |> LazyHTML.query("form[action='/actions/schedule/schedule%3Aone/#{action}'] button")
+             |> LazyHTML.text() == label
+
+      assert html =~ "/actions/schedule/schedule%3Aone/deleted"
+    end
+
+    for status <- [:deleted, :expired] do
+      html =
+        HTML.schedule(%{
+          detail
+          | schedule: %{detail.schedule | status: status}
+        })
+        |> IO.iodata_to_binary()
+
+      refute html =~ "/actions/schedule/"
+    end
   end
 
   test "malformed, stale, and unsupported mutations fail closed" do
@@ -2268,6 +2302,19 @@ defmodule Responder.ControlPlane.RouterTest do
               updated_at: ~U[2026-08-28 12:00:00Z]
             }
           ]
+        end,
+        behavior: fn
+          "behavior:one" ->
+            {:ok,
+             %{
+               kind: :standing_assignment,
+               ref: "behavior:one",
+               status: "active",
+               payload: %{"title" => "Triage deployment alerts"}
+             }}
+
+          _ ->
+            :not_found
         end,
         memory: fn ->
           %{

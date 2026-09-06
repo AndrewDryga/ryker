@@ -1136,11 +1136,7 @@ defmodule Responder.ControlPlane.HTML do
 
     [
       "<div class=\"action-controls\">",
-      Components.action_button(
-        "/actions/schedule/#{segment(schedule.ref)}/run-now",
-        "Run now",
-        :primary
-      ),
+      schedule_controls(schedule),
       "<a href=\"/lab\">Replace in Conversation Lab…</a></div>",
       definition_list([
         {"Reference", schedule.ref},
@@ -1176,6 +1172,34 @@ defmodule Responder.ControlPlane.HTML do
         rows
       ),
       "</section>"
+    ]
+  end
+
+  defp schedule_controls(schedule) do
+    [
+      if(schedule.status in [:active, :paused, :completed],
+        do:
+          Components.action_button(
+            "/actions/schedule/#{segment(schedule.ref)}/run-now",
+            "Run now",
+            :primary
+          ),
+        else: []
+      ),
+      if(schedule.status in [:active, :paused],
+        do: [
+          Components.action_button(
+            "/actions/schedule/#{segment(schedule.ref)}/#{if schedule.status == :active, do: "paused", else: "active"}",
+            if(schedule.status == :active, do: "Pause", else: "Resume")
+          ),
+          Components.action_button(
+            "/actions/schedule/#{segment(schedule.ref)}/deleted",
+            "Delete",
+            :danger
+          )
+        ],
+        else: []
+      )
     ]
   end
 
@@ -1442,26 +1466,28 @@ defmodule Responder.ControlPlane.HTML do
   end
 
   def memory(
-        %{behaviors: behaviors, memories: memories, schedules: schedules} = snapshot,
+        %{memories: memories} = snapshot,
         csrf_secret
       ) do
     reviews = Map.get(snapshot, :reviews, [])
     memory_rows = Enum.map(memories, &memory_row/1)
-    behavior_rows = Enum.map(behaviors, &behavior_row/1)
-    schedule_rows = Enum.map(schedules, &schedule_row/1)
     review_rows = Enum.map(reviews, &review_row/1)
 
     _secret_is_intentionally_not_rendered = csrf_secret
 
     [
+      "<p class=\"page-description\">Confirmed aliases, repository bindings, evidence routes, and relationships that Responder can recall. Ask it to remember a mapping, then confirm the proposed memory card.</p>",
+      "<nav class=\"behavior-links\" aria-label=\"Related saved instructions\"><a href=\"/rules\">Standing rules →</a><a href=\"/preferences\">Preferences →</a><a href=\"/guidance\">Guidance →</a></nav>",
       "<section><h2>Operational memory</h2>",
-      table(["Subject", "Kind", "Status", "Action"], memory_rows),
+      if(memory_rows == [],
+        do: "<p>No confirmed memory is active.</p>",
+        else: table(["Subject", "Kind", "Status", "Action"], memory_rows)
+      ),
       "</section><section><h2>Memory review</h2>",
-      table(["Kind", "Entries", "Reason", "Action"], review_rows),
-      "</section><section><h2>Behaviors</h2>",
-      table(["Subject", "Kind", "Status", "Action"], behavior_rows),
-      "</section><section><h2>Schedules</h2>",
-      table(["Title", "Status", "Next", "Action"], schedule_rows),
+      if(review_rows == [],
+        do: "<p>No stale or duplicate memories need review.</p>",
+        else: table(["Kind", "Entries", "Reason", "Action"], review_rows)
+      ),
       "</section>"
     ]
   end
@@ -1477,59 +1503,6 @@ defmodule Responder.ControlPlane.HTML do
       "</td><td>",
       Components.action_button("/actions/memory/#{segment(item.ref)}/forget", "Forget", :danger),
       "</td></tr>"
-    ]
-  end
-
-  defp behavior_row(item) do
-    next = if item.status == :disabled, do: :active, else: :disabled
-
-    [
-      "<tr><td>",
-      escape(item.subject),
-      "</td><td>",
-      escape(item.kind),
-      "</td><td>",
-      escape(item.status),
-      "</td><td><div class=\"action-controls\">",
-      Components.action_button(
-        "/actions/behavior/#{segment(item.ref)}/#{next}",
-        if(next == :active, do: "Enable", else: "Disable")
-      ),
-      Components.action_button(
-        "/actions/behavior/#{segment(item.ref)}/deleted",
-        "Delete",
-        :danger
-      ),
-      "</div></td></tr>"
-    ]
-  end
-
-  defp schedule_row(item) do
-    next = if item.status == :paused, do: :active, else: :paused
-
-    [
-      "<tr><td>",
-      escape(item.title),
-      "</td><td>",
-      escape(item.status),
-      "</td><td>",
-      timestamp(item.next_occurrence_at),
-      "</td><td><div class=\"action-controls\">",
-      Components.action_button(
-        "/actions/schedule/#{segment(item.ref)}/#{next}",
-        if(next == :active, do: "Resume", else: "Pause")
-      ),
-      Components.action_button(
-        "/actions/schedule/#{segment(item.ref)}/run-now",
-        "Run now",
-        :primary
-      ),
-      Components.action_button(
-        "/actions/schedule/#{segment(item.ref)}/deleted",
-        "Delete",
-        :danger
-      ),
-      "</div></td></tr>"
     ]
   end
 

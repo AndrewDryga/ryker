@@ -22,6 +22,7 @@ const routes = filtersOnly ? [['requests', '/'], ['episodes', '/episodes?state=c
   ['requests', '/'], ['lab', '/lab'], ['episodes', '/episodes'],
   ['incidents', '/incidents'], ['failures', '/failures'], ['usage', '/usage'],
   ['schedules', '/schedules'], ['subscriptions', '/subscriptions'],
+  ['rules', '/rules'], ['preferences', '/preferences'], ['guidance', '/guidance'],
   ['memory', '/memory'], ['decisions', '/decisions'], ['findings', '/findings'],
   ['calibration', '/calibration'], ['configuration', '/configuration'],
   ['channels', '/channels'], ['repositories', '/repositories'], ['workspaces', '/workspaces'],
