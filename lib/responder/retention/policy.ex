@@ -19,6 +19,11 @@ defmodule Responder.Retention.Policy do
 
   @policies [
     %{
+      table: "conversation_observations",
+      class: :conversation_memory,
+      why: "source-linked notes learned independently of responding; own memory horizon"
+    },
+    %{
       table: "slack_thread_status_receipts",
       class: :operational,
       why: "actual Slack status acknowledgments expire at the operational horizon"

@@ -6,6 +6,7 @@ defmodule Responder.Work.SubmissionBuilderTest do
   alias Responder.GitHub.SourceRef, as: GitHubSourceRef
   alias Responder.Slack.SourceRef
   alias Responder.State.{BehaviorChangeset, MemoryEntryChangeset, RecordChangeset, Records}
+  alias Responder.State.{Continuity, ConversationObservation, Observations}
   alias Responder.Work.{Custody, DeliveryReceipt, Final, Result, Submission, SubmissionBuilder}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -617,6 +618,130 @@ defmodule Responder.Work.SubmissionBuilderTest do
   test "the builder rejects a value that is not a complete leased claim" do
     assert SubmissionBuilder.build(%{}) ==
              {:error, {:invalid_work_submission_builder, :claim}}
+  end
+
+  test "optional learned notes cannot crowd the exact current input out of a full briefing" do
+    text = String.duplicate("CURRENT_REQUEST ", 3_000)
+    claim = claim_episode!("notes-full-budget", text)
+    seed_large_observations!(claim)
+    assert_bounded_with_notes(claim, "inputs", text)
+  end
+
+  test "optional learned notes leave room for the current continuation and final workspace metadata" do
+    first = claim_episode!("notes-continuation-budget", "initial")
+    {:ok, submission} = SubmissionBuilder.build(first)
+    bind_remote_turn!(first, submission)
+    text = String.duplicate("CURRENT_REQUEST ", 3_000)
+
+    {:ok, _} =
+      Episodes.apply(
+        EpisodeFixtures.admit_input(%{
+          destination: destination(first),
+          episode_id: first.episode.id,
+          episode_key: first.episode.key,
+          native_input_id: "source:notes-next",
+          occurred_at: DateTime.add(@now, 1, :second),
+          payload: %{"text" => text},
+          turn_ref: "unused:notes-next"
+        })
+      )
+
+    candidate = ~s({"delivery":"none","message":null})
+    hash = digest(candidate)
+
+    {:ok, _} =
+      Custody.stage_candidate(
+        first.episode.id,
+        first.turn.turn_ref,
+        first.lease_ref,
+        nil,
+        nil,
+        candidate,
+        hash,
+        1
+      )
+
+    {:ok, result} = Result.new(:none, nil, "The first turn is superseded by queued feedback.")
+
+    {:ok, _} =
+      Custody.prepare_validation(
+        first.episode.id,
+        first.turn.turn_ref,
+        first.lease_ref,
+        hash,
+        1,
+        :accept,
+        result
+      )
+
+    {:ok, _} =
+      Custody.accept_result(
+        first.episode.id,
+        first.episode.key,
+        first.turn.turn_ref,
+        first.lease_ref,
+        hash,
+        1,
+        "validation:notes-first"
+      )
+
+    {:ok, second} = Custody.claim_next("worker:notes-second", 60)
+    assert second.session.id == first.session.id
+    seed_large_observations!(second)
+    assert_bounded_with_notes(second, "current_inputs", text)
+  end
+
+  defp assert_bounded_with_notes(claim, input_key, text) do
+    assert {:ok, submission} =
+             SubmissionBuilder.build(claim,
+               workspace: %{"description" => String.duplicate("w", 15_000)}
+             )
+
+    assert [current] = submission["context"][input_key]["items"]
+    assert current["content"] == %{"text" => text}
+
+    assert length(
+             get_in(submission, ["context", "operator_context", "continuity", "observations"]) ||
+               []
+           ) < 16
+
+    assert byte_size(Responder.CanonicalJSON.encode!(submission["context"])) <= 160 * 1_024
+    assert byte_size(submission["prompt"]) <= 256 * 1_024
+  end
+
+  defp seed_large_observations!(claim) do
+    # Structural boundary mutation: legal multibyte notes, not a manufactured model behavior fixture.
+    {:ok, scope} = Continuity.destination_context(claim.episode, claim.session.repository_ref)
+
+    note = %{
+      "summary" => String.duplicate("😀", 1_200),
+      "topics" => Enum.map(1..8, &(to_string(&1) <> String.duplicate("😀", 79)))
+    }
+
+    assert {:ok, _} = Observations.prepare(note)
+
+    for _ <- 1..16 do
+      id = Ecto.UUID.generate()
+
+      Repo.insert!(
+        struct!(
+          ConversationObservation,
+          Map.merge(scope, %{
+            id: id,
+            identity_key: id,
+            source_input_id: id,
+            source_message_ref: "1787832000.000100",
+            source_result_ref: "budget-test",
+            source_fingerprint: String.duplicate("a", 64),
+            actor_ref: "U123",
+            execution_mode: :shadow,
+            revision: 1,
+            occurred_at: @now,
+            note: note
+          })
+        )
+      )
+    end
   end
 
   test "a frozen claim cannot see input admitted for the following logical turn" do

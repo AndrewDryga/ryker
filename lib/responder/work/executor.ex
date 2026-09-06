@@ -2333,10 +2333,22 @@ defmodule Responder.Work.Executor do
   defp retain_selected_artifacts(claim, metadata, settings) do
     with {:ok, refs} <- accepted_artifact_refs(claim.turn.validation_intent),
          {:ok, selected} <- select_artifact_metadata(metadata, refs),
+         selected <- lab_generated_artifacts(claim, metadata, selected),
          {:ok, fetched} <- fetch_output_artifacts(claim, selected, settings) do
       Outputs.put_many(claim.turn.id, fetched)
     end
   end
+
+  # The local console can inspect a completed turn's verified files even when
+  # its answer omits them. Slack delivery still receives only selected refs.
+  defp lab_generated_artifacts(
+         %{episode: %{destination_transport: "control_plane", execution_mode: :live}},
+         metadata,
+         _selected
+       ),
+       do: metadata
+
+  defp lab_generated_artifacts(_claim, _metadata, selected), do: selected
 
   defp accepted_artifact_refs(intent) do
     case ValidationIntent.result(intent) do

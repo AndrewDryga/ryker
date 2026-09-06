@@ -313,6 +313,9 @@ defmodule Responder.ControlPlane.EpisodePage do
 
   defp silent_result?(_step), do: false
 
+  defp chapter_title(%{band: :ready, conversation_turn: turn}) when turn > 1,
+    do: "New input received"
+
   defp chapter_title(%{band: :ready}), do: "Getting ready"
   defp chapter_title(%{band: :routing}), do: "Routing"
   defp chapter_title(%{band: :work}), do: "The work"

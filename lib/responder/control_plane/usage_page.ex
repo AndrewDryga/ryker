@@ -141,7 +141,7 @@ defmodule Responder.ControlPlane.UsagePage do
       "<thead><tr class=\"usage-column-groups\"><th scope=\"col\" rowspan=\"2\">",
       heading(kind),
       "</th><th scope=\"col\" rowspan=\"2\">Usage</th><th scope=\"colgroup\" colspan=\"2\" class=\"usage-group-start\">Input</th><th scope=\"colgroup\" colspan=\"2\" class=\"usage-group-start\">Output</th>",
-      "<th scope=\"col\" rowspan=\"2\" class=\"usage-group-start\">Performance</th><th scope=\"col\" rowspan=\"2\" class=\"usage-group-start\">Cost</th></tr>",
+      "<th scope=\"col\" rowspan=\"2\" class=\"usage-group-start usage-performance\">Performance</th><th scope=\"col\" rowspan=\"2\" class=\"usage-group-start\">Cost</th></tr>",
       "<tr class=\"usage-metric-headings\"><th scope=\"col\" class=\"usage-group-start\">Fresh input</th><th scope=\"col\">Cached input</th><th scope=\"col\" class=\"usage-group-start\">Output</th><th scope=\"col\">Reasoning</th></tr></thead><tbody>",
       Enum.map(Enum.take(rows, 500), &row(&1, snapshot, kind)),
       "</tbody></table></div>"
@@ -166,7 +166,7 @@ defmodule Responder.ControlPlane.UsagePage do
           "</td>"
         ]
       end),
-      "<td class=\"usage-group-start\">",
+      "<td class=\"usage-group-start usage-performance\">",
       primary(percent(Map.get(row, :cache_hit_rate)), " cache"),
       secondary("Avg. model time: " <> elapsed(Map.get(row, :average_provider_ms))),
       "</td><td class=\"usage-money usage-group-start\">",

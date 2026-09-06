@@ -2336,7 +2336,7 @@ defmodule Responder.ControlPlane.RouterTest do
           _ ->
             :not_found
         end,
-        memory: fn ->
+        memory: fn _params ->
           %{
             behaviors: [
               %{

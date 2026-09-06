@@ -16,7 +16,7 @@ defmodule Responder.Admission.Context do
     :input,
     :input_entry
   ]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [observations: []]
 
   @type t :: %__MODULE__{
           active_episode_fingerprint: String.t(),
@@ -35,6 +35,7 @@ defmodule Responder.Admission.Context do
       "execution_mode" => Atom.to_string(context.input_entry.execution_mode),
       "input" => Input.model_document(context.input)
     }
+    |> put_observations(context.observations)
   end
 
   @doc false
@@ -46,6 +47,7 @@ defmodule Responder.Admission.Context do
       "candidates" => Enum.map(context.candidates, &Candidate.snapshot/1),
       "conversation_episode_count" => context.conversation_episode_count
     }
+    |> put_observations(context.observations)
   end
 
   @doc false
@@ -67,7 +69,13 @@ defmodule Responder.Admission.Context do
   def restore(snapshot, %Input{} = input, %Entry{} = entry, episodes) when is_map(episodes) do
     fields = ~w(active_episode_fingerprint built_at candidates conversation_episode_count)
 
-    with true <- is_map(snapshot) and Enum.sort(Map.keys(snapshot)) == Enum.sort(fields),
+    with true <-
+           is_map(snapshot) and
+             Enum.sort(Map.keys(Map.delete(snapshot, "conversation_observations"))) ==
+               Enum.sort(fields),
+         observations when is_list(observations) <-
+           Map.get(snapshot, "conversation_observations", []),
+         true <- length(observations) <= 5,
          {:ok, built_at} <- parse_datetime(snapshot["built_at"]),
          true <- valid_fingerprint?(snapshot["active_episode_fingerprint"]),
          true <- valid_count?(snapshot["conversation_episode_count"]),
@@ -79,7 +87,8 @@ defmodule Responder.Admission.Context do
          candidates: candidates,
          conversation_episode_count: snapshot["conversation_episode_count"],
          input: input,
-         input_entry: entry
+         input_entry: entry,
+         observations: observations
        }}
     else
       {:error, _reason} = error -> error
@@ -89,6 +98,11 @@ defmodule Responder.Admission.Context do
 
   def restore(_snapshot, _input, _entry, _episodes),
     do: {:error, {:invalid_admission_context_snapshot, :document}}
+
+  defp put_observations(document, []), do: document
+
+  defp put_observations(document, notes),
+    do: Map.put(document, "conversation_observations", notes)
 
   defp restore_candidates(candidates, episodes) when is_list(candidates) do
     candidates

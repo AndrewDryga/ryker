@@ -4,6 +4,7 @@ defmodule Responder.State.ContinuityTest do
   import Ecto.Query
 
   alias Responder.CanonicalJSON
+  alias Responder.ControlPlane.{HTML, Projection}
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Repo
@@ -20,6 +21,19 @@ defmodule Responder.State.ContinuityTest do
   alias Responder.Work.{Custody, FinalPreflight, Result, Submission}
 
   @now ~U[2026-09-04 12:00:00.000000Z]
+
+  test "shadow work can publish derived summaries without creating a visible result" do
+    # Observe-only work used to be unable to save its own conversation summary.
+    joined!("T123", "CSHADOW")
+    work = open_work!("shadow-memory", "slack:T123:CSHADOW", nil, "responder", "slack", :shadow)
+
+    assert {:ok, _} =
+             Continuity.stage(work.state_token, state("Observed a keep-service decision"))
+
+    assert %{turn: %{delivery_document: nil}} = accept!(work)
+    assert Repo.one!(ConversationSummary).state["situation"] == "Observed a keep-service decision"
+    assert Repo.aggregate(Responder.Delivery.Reaction, :count) == 0
+  end
 
   test "validated result acceptance atomically publishes the latest staged situation" do
     joined!("T123", "C111")
@@ -44,6 +58,15 @@ defmodule Responder.State.ContinuityTest do
     assert summary.repository_ref == "responder"
     assert summary.visibility == :public
     assert summary.source_result_ref == "result:#{work.claim.turn.id}"
+
+    # Hundreds of saved summaries were invisible on Memory, making replay look empty.
+    html =
+      Projection.memory()
+      |> HTML.memory("test-secret")
+      |> IO.iodata_to_binary()
+
+    assert html =~ "Conversation summaries"
+    assert html =~ "Verify production delivery"
 
     recalled = Continuity.model_context(work.claim.episode, "responder")
     assert recalled["current"]["state"] == revised
@@ -622,7 +645,14 @@ defmodule Responder.State.ContinuityTest do
     assert {:ok, _state} = ConversationSummaryState.prepare(rollup.state)
   end
 
-  defp open_work!(suffix, conversation_ref, thread_ref, repository_ref, transport \\ "slack") do
+  defp open_work!(
+         suffix,
+         conversation_ref,
+         thread_ref,
+         repository_ref,
+         transport \\ "slack",
+         mode \\ :live
+       ) do
     episode_id = Ecto.UUID.generate()
     turn_ref = "turn:continuity:#{suffix}:#{episode_id}"
 
@@ -635,6 +665,7 @@ defmodule Responder.State.ContinuityTest do
                    transport: transport
                  },
                  episode_id: episode_id,
+                 execution_mode: mode,
                  episode_key: "continuity:#{suffix}:#{episode_id}",
                  native_input_id: "slack-message:continuity:#{suffix}:#{episode_id}",
                  occurred_at: @now,

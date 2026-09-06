@@ -14,6 +14,7 @@ defmodule Responder.Admission.Executor do
   alias Responder.Admission.{Attempts, Context, Decision, Prompt}
   alias Responder.CanonicalJSON
   alias Responder.Ingress.{Inbox, Input, WorkProfile}
+  alias Responder.State.Observations
 
   @retryable_terminal_turn_states ~w(failed)
   @stopped_turn_states ~w(cancelled interrupted budget_exhausted)
@@ -50,10 +51,12 @@ defmodule Responder.Admission.Executor do
   end
 
   defp run_context(entry, session, context, settings) do
-    with {:ok, turn} <- ensure_turn(entry, session, context, settings),
+    with :ok <- Observations.reauthorize(entry, entry.repository_ref, context.observations),
+         {:ok, turn} <- ensure_turn(entry, session, context, settings),
          {:ok, decision, candidate_sha256} <- await_decision(turn, context, entry, settings),
          {:ok, work_policy} <- work_policy(entry, decision, settings),
          :ok <- close_session(session, entry, settings),
+         :ok <- Observations.reauthorize(entry, entry.repository_ref, context.observations),
          {:ok, result} <-
            Admission.commit(context, decision, decision_ref(turn, candidate_sha256),
              lease_ref: settings.lease_ref,
@@ -229,6 +232,7 @@ defmodule Responder.Admission.Executor do
          {:ok, current_session} <-
            validate_session(entry, current_session, settings, session["id"]),
          {:ok, revision} <- session_revision(current_session),
+         :ok <- Observations.reauthorize(entry, entry.repository_ref, context.observations),
          {:ok, response} <-
            settings.api.submit_turn(
              settings.client,

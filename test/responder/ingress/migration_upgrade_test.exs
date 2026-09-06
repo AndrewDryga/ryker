@@ -35,7 +35,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     20_260_905_000_300,
     20_260_905_000_400,
     20_260_905_000_500,
-    20_260_906_001_000
+    20_260_906_001_000,
+    20_260_906_002_000
   ]
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
@@ -947,6 +948,51 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       end
 
       assert table_exists?(repo, prefix, "card_lab_feedback")
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  test "conversation memory survives a refused rollback and invalidates its live reader" do
+    # A rollback must not silently erase the knowledge learned from ignored messages.
+    repo = start_migration_repo!()
+    prefix = "observations_rollback_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false)
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.conversation_observations
+          (id, identity_key, transport, workspace_ref, conversation_ref, visibility,
+           source_input_id, source_message_ref, source_result_ref, source_fingerprint, actor_ref,
+           execution_mode, revision, occurred_at, note, inserted_at, updated_at)
+        VALUES ($1::text::uuid, 'source', 'slack', 'slack:T', 'slack:T:C', 'public',
+                $1::text::uuid, '1787832000.000100', 'result', 'fingerprint', 'U',
+                'shadow', 1, clock_timestamp(), '{"summary":"Keep the service","topics":[]}',
+                clock_timestamp(), clock_timestamp())
+        """,
+        [Ecto.UUID.generate()]
+      )
+
+      assert_raise Postgrex.Error, ~r/conversation observations have data/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      assert %{rows: [[1]]} =
+               SQL.query!(repo, "SELECT count(*) FROM #{prefix}.conversation_observations", [])
+
+      assert %{rows: [[true]]} =
+               SQL.query!(
+                 repo,
+                 """
+                 SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = $1::text::regclass
+                   AND tgname = 'responder_control_plane_changed')
+                 """,
+                 [prefix <> ".conversation_observations"]
+               )
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end

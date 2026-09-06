@@ -66,6 +66,23 @@
 .responder-app .usage-metric-headings th { text-align:center; font-weight:500; }
 .responder-app .usage-token-cell { text-align:center; white-space:nowrap; font-weight:500; }
 .responder-app .usage-detail-table .usage-group-start { border-left:1px solid var(--stroke); }
+.responder-app .usage-detail-table .usage-performance { text-align:center; }
+.memory-totals { display:flex; gap:12px; margin:20px 0; }
+.memory-totals a { display:flex; flex:1; align-items:center; justify-content:space-between; gap:16px; padding:16px 20px; border:1px solid var(--stroke); border-radius:8px; color:var(--text); background:var(--panel); }
+.memory-totals a[aria-current=page] { border-color:#60795f; background:#eaf0e5; }
+.memory-totals strong { font-size:28px; font-variant-numeric:tabular-nums; }
+.memory-cards { display:grid; gap:16px; margin:20px 0 32px; }
+.memory-card { padding:20px 24px; border:1px solid var(--stroke); border-radius:8px; background:var(--panel); }
+.memory-card header { position:static; padding:0; margin:0; border:0; background:transparent; backdrop-filter:none; display:flex; gap:20px; justify-content:space-between; align-items:baseline; }
+.memory-card h2 { font-size:19px; margin:0; }
+.memory-card time { flex-shrink:0; font-size:13px; color:var(--muted); }
+.memory-card .memory-source, .memory-card footer { display:flex; flex-wrap:wrap; gap:16px; font-size:13px; }
+.memory-card .memory-source { margin:6px 0 16px; color:var(--muted); }
+.memory-card footer { margin-top:16px; }
+.memory-card .memory-facts h3 { font-size:13px; margin:14px 0 4px; }
+.memory-card .memory-facts ul { margin:0; padding-left:20px; }
+.memory-card .memory-facts li p { margin:4px 0; }
+@media(max-width:700px) { .memory-card { padding:16px; } .memory-card header { display:block; } .memory-totals a { align-items:flex-start; flex-direction:column; padding:12px; gap:6px; } }
 .responder-app .usage-page .usage-people-table { min-width:0; }
 .responder-app .usage-people-table th:first-child { width:46%; }
 .responder-app .usage-people-table th:not(:first-child) { width:18%; text-align:right; }

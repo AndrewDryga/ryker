@@ -116,7 +116,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
              ["story-message-first", "event-running", "story-message-next"]
 
     assert LazyHTML.query(document, ".chapter-heading h3") |> Enum.map(&LazyHTML.text/1) ==
-             ["Getting ready", "The work", "Getting ready"]
+             ["Getting ready", "The work", "New input received"]
 
     assert LazyHTML.query(document, ".conversation-boundary .turn-divider-label")
            |> LazyHTML.text() =~ "Message 2"

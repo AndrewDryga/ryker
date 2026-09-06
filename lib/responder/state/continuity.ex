@@ -2,7 +2,7 @@ defmodule Responder.State.Continuity do
   @moduledoc """
   Durable, derived conversation continuity.
 
-  A model may stage a typed summary only while it owns a live Work turn. The
+  A model may stage a typed summary only while it owns an active Work turn. The
   summary becomes recallable in the same transaction that accepts the validated
   result. Summaries and rollups are bounded hints, never evidence or authority.
   """
@@ -19,7 +19,8 @@ defmodule Responder.State.Continuity do
     ConversationRollup,
     ConversationSummary,
     ConversationSummaryDraft,
-    ConversationSummaryState
+    ConversationSummaryState,
+    Observations
   }
 
   alias Responder.Work.{Session, Turn}
@@ -170,8 +171,16 @@ defmodule Responder.State.Continuity do
   def model_context(%Episode{} = episode, repository_ref)
       when is_binary(repository_ref) or is_nil(repository_ref) do
     case destination_context(episode, repository_ref) do
-      {:ok, context} -> recall_context(context)
-      {:error, _reason} -> empty_context()
+      {:ok, context} ->
+        result = recall_context(context)
+
+        case Observations.context(episode, repository_ref) do
+          [] -> result
+          notes -> Map.put(result, "observations", notes)
+        end
+
+      {:error, _reason} ->
+        empty_context()
     end
   end
 
@@ -183,8 +192,13 @@ defmodule Responder.State.Continuity do
       when (is_binary(repository_ref) or is_nil(repository_ref)) and is_binary(query) and
              is_binary(scope) and is_integer(limit) and limit in 1..50 do
     case destination_context(episode, repository_ref) do
-      {:ok, context} -> search_context(context, query, scope, limit)
-      {:error, _reason} -> []
+      {:ok, context} ->
+        (Observations.context(episode, repository_ref, query, limit, scope) ++
+           search_context(context, query, scope, limit))
+        |> Enum.take(limit)
+
+      {:error, _reason} ->
+        []
     end
   end
 
@@ -266,6 +280,15 @@ defmodule Responder.State.Continuity do
     delete_channel_summaries(scoped_workspace_ref, conversation_ref)
     delete_channel_drafts(conversation_ref)
     delete_channel_rollups(scoped_workspace_ref, conversation_ref, workspace_ref, channel_ref)
+
+    Repo.delete_all(
+      from(note in Responder.State.ConversationObservation,
+        where:
+          note.workspace_ref == ^scoped_workspace_ref and
+            note.conversation_ref == ^conversation_ref
+      )
+    )
+
     :ok
   end
 
@@ -369,7 +392,6 @@ defmodule Responder.State.Continuity do
 
   defp stage_authorized(
          %Episode{
-           execution_mode: :live,
            owner_kind: :turn,
            owner_ref: owner_ref,
            state: :working
@@ -1098,7 +1120,8 @@ defmodule Responder.State.Continuity do
 
   defp latest_datetime(values), do: Enum.max_by(values, &DateTime.to_unix(&1, :microsecond))
 
-  defp destination_context(episode, repository_ref) do
+  @doc false
+  def destination_context(episode, repository_ref) do
     with {:ok, workspace_ref, visibility} <-
            destination_scope(episode.destination_transport, episode.destination_conversation_ref) do
       identity_key =
