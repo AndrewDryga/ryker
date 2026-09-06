@@ -90,7 +90,9 @@ defmodule Responder.ControlPlane.ConversationMemory do
     base(note, episodes)
     |> Map.merge(%{
       title: Enum.join(state["topics"] || [], " · "),
-      text: state["summary"] || "",
+      text:
+        String.trim_trailing(state["summary"] || "", " Source: message #{note.source_input_id}."),
+      at: note.occurred_at,
       groups: [],
       source: source_message(note)
     })
@@ -125,7 +127,7 @@ defmodule Responder.ControlPlane.ConversationMemory do
       conversation: SlackNames.destination(item.conversation_ref),
       workspace: SlackNames.workspace_from_destination(item.conversation_ref),
       conversation_path: Activity.conversation_path(item.transport, item.conversation_ref),
-      updated_at: item.updated_at,
+      at: item.updated_at,
       repository: item.repository_ref,
       request_path:
         case episodes[item.source_episode_id] do

@@ -22,8 +22,16 @@ defmodule Responder.State.ObservationsTest do
   }
 
   test "Memory shows silently learned notes with sources and visible search controls" do
-    observe!("visible", "C1", @note)
+    entry = observe!("visible", "C1", @note)
+    # A replay's import time and raw UUID are not the date or substance of the discussion.
+    Repo.update_all(from(n in ConversationObservation, where: n.id == ^entry.id),
+      set: [note: %{@note | "summary" => @note["summary"] <> " Source: message #{entry.id}."}]
+    )
+
     snapshot = Projection.memory()
+    [item] = snapshot.conversation_memory.items
+    assert item.at == @now
+    assert item.text == @note["summary"]
     html = HTML.memory(snapshot, "test-secret") |> IO.iodata_to_binary()
     assert html =~ "draft-ai-suggestions"
     assert html =~ "Source message"
