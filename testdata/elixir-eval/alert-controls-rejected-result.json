@@ -1,0 +1,1 @@
+{"message":"I can’t acknowledge this incident from this session: no incident action tool is available. Please use the alert’s Acknowledge button.","outcome":{"state":"complete","record_refs":[],"artifact_refs":[]},"delivery":"reply","decision_reason":null}

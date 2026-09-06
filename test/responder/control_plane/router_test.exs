@@ -8,7 +8,7 @@ defmodule Responder.ControlPlane.RouterTest do
 
   @secret String.duplicate("s", 32)
 
-  test "an assigned input opens its real episode instead of a second admission timeline" do
+  test "removed admission pages are not redirects or compatibility aliases" do
     id = Ecto.UUID.generate()
     options = options()
 
@@ -21,17 +21,11 @@ defmodule Responder.ControlPlane.RouterTest do
     }
 
     response = request_with_options(:get, "/admission/#{id}", nil, options)
-    assert response.status == 303
-    assert get_resp_header(response, "location") == ["/episodes/existing%3Aconversation"]
+    assert response.status == 404
+    assert get_resp_header(response, "location") == []
     response = request_with_options(:get, "/admission/#{id}?generation=2", nil, options)
-    [destination] = get_resp_header(response, "location")
-    assert destination =~ "/episodes/existing%3Aconversation/requests?"
-
-    assert URI.decode_query(URI.parse(destination).query) == %{
-             "kind" => "admission",
-             "attempt" => id,
-             "generation" => "2"
-           }
+    assert response.status == 404
+    assert get_resp_header(response, "location") == []
   end
 
   test "operator actions are buttons while inspection remains navigation" do

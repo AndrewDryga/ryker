@@ -80,7 +80,7 @@ defmodule Responder.ControlPlane.ActivityTest do
     assert %{items: [item], total: 1} = Activity.list(%{})
     assert item.title == "Inspect the slow admission request"
     assert item.state == "pending"
-    assert item.href == "/admission/#{entry.id}"
+    assert item.href == "/episodes/ingress-input%3A#{entry.id}"
     assert item.bucket == "running"
     assert item.conversation == "slack:T123:C456"
     assert Activity.list(%{"q" => "slow admission"}).total == 1
@@ -108,6 +108,42 @@ defmodule Responder.ControlPlane.ActivityTest do
 
     {:ok, _session} = Custody.pin_episode(episode.id, "label-test", String.duplicate("a", 64))
     assert [%{request_title: "Inspect the slow admission request"}] = Projection.workspaces(%{})
+  end
+
+  test "conversation history includes every page without requiring usage measurements" do
+    # The Lab rail stopped at twenty episodes and Slack had no conversation view.
+    for index <- 1..32 do
+      {:ok, _} =
+        Episodes.apply(
+          Fixtures.admit_input(%{
+            episode_id: Ecto.UUID.generate(),
+            episode_key: "conversation:#{index}",
+            native_input_id: "conversation:#{index}",
+            turn_ref: "conversation-turn:#{index}",
+            destination: %{
+              conversation_ref: "slack:T123:C-history",
+              thread_ref: if(index == 32, do: "another-thread", else: "thread-one"),
+              transport: "slack"
+            }
+          })
+        )
+    end
+
+    {:ok, _} = Episodes.apply(Fixtures.admit_input())
+    params = %{"conversation" => "slack:T123:C-history", "transport" => "slack", "mode" => "all"}
+    assert %{total: 32, pages: 2, items: first} = Activity.list(params)
+    assert length(first) == 30
+    assert %{total: 32, page: 2, items: second} = Activity.list(Map.put(params, "page", "2"))
+    assert length(second) == 2
+    assert length(Enum.uniq_by(first ++ second, & &1.id)) == 32
+    assert Activity.list(Map.put(params, "thread", "thread-one")).total == 31
+    assert Activity.list(Map.put(params, "conversation", "slack:T123:C-other")).total == 0
+    assert Activity.list(Map.put(params, "transport", "control_plane")).total == 0
+
+    assert Enum.any?(
+             Activity.conversation_filter_options(),
+             &(&1.conversation_ref == params["conversation"])
+           )
   end
 
   test "activity uses human fallback labels and never passes secrets or shadow traffic as live" do

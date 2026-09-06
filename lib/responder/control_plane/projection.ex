@@ -478,6 +478,8 @@ defmodule Responder.ControlPlane.Projection do
   end
 
   def episode(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
+    ref = ModelRequests.episode_ref(ref)
+
     case Repo.one(from(episode in Episode, where: episode.key == ^ref)) do
       nil ->
         :not_found
@@ -533,6 +535,9 @@ defmodule Responder.ControlPlane.Projection do
            episode: %{
              created_at: episode.inserted_at,
              destination: destination(episode),
+             conversation_ref: episode.destination_conversation_ref,
+             thread_ref: episode.destination_thread_ref,
+             transport: episode.destination_transport,
              next_action: trace.next_action,
              ref: episode.key,
              state: episode.state,

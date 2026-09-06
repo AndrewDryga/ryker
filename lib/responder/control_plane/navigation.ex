@@ -111,9 +111,7 @@ defmodule Responder.ControlPlane.Navigation do
   end
 
   defp selected?(path, "/"),
-    do:
-      path == "/" or String.starts_with?(path, "/episodes") or
-        String.starts_with?(path, "/admission")
+    do: path == "/" or String.starts_with?(path, "/episodes")
 
   defp selected?(path, href), do: path == href or String.starts_with?(path, href <> "/")
 end

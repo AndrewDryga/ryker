@@ -140,6 +140,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     %{
       title:
         if(first && first.available, do: bounded(first.text, 180), else: "Episode case file"),
+      expired_at: Enum.find_value(messages, & &1.expired_at),
       messages: messages,
       repository: first && first.repository,
       reply: latest_reply && latest_reply.text,
@@ -199,7 +200,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       text: artifact.text,
       available: artifact.state == :retained,
       repository: input.repository_ref,
-      href: "/admission/#{input.id}"
+      expired_at: input.operational_pruned_at,
+      href: "/episodes/ingress-input%3A#{input.id}"
     }
   end
 

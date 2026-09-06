@@ -33,7 +33,7 @@ defmodule Responder.Evals.OperatorTaskTest do
     Eval.run(["work-pack"])
 
     documents = collect_info([])
-    assert length(documents) == 3
+    assert length(documents) == 4
 
     decoded = Enum.map(documents, &Jason.decode!/1)
     assert Enum.any?(decoded, &(&1["eval_id"] == "github_and_slack_remain_platform_adapters"))
@@ -213,7 +213,7 @@ defmodule Responder.Evals.OperatorTaskTest do
       Eval.run(["admission", "--config", config_path])
     end
 
-    assert_raise Mix.Error, ~r/3 work model eval\(s\) failed/, fn ->
+    assert_raise Mix.Error, ~r/4 work model eval\(s\) failed/, fn ->
       Eval.run(["work", "--config", config_path])
     end
 

@@ -1826,7 +1826,7 @@ defmodule Responder.ControlPlane.HTML do
           "</td><td>",
           if(row[:input_id],
             do: [
-              "<a href=\"/admission/",
+              "<a href=\"/episodes/ingress-input%3A",
               segment(row.input_id),
               "\">Inspect message & decision →</a>"
             ],

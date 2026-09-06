@@ -77,10 +77,12 @@ defmodule Responder.ControlPlane.LabPage do
               do: "You",
               else: "r."}</span><div class="lab-chat-message-content">
               <div class="story-byline">
-                <strong>{actor(message.actor)}</strong><time>{timestamp(message.occurred_at)}</time><span>{label(
-                  message.status
+                <strong>{actor(message.actor)}</strong><time>{timestamp(message.occurred_at)}</time><span>{message_status(
+                  message
                 )}</span>
-              </div><p class="chat-message-text">{message.text}</p><div class="chat-message-extras">
+              </div><div class="chat-message-text markdown-preview">
+                {Phoenix.HTML.raw(Responder.ControlPlane.SlackMarkdown.preview(message.text || ""))}
+              </div><div class="chat-message-extras">
                 {Phoenix.HTML.raw(HTML.lab_message_extras(message))}
               </div><details
                 :if={message.record_refs != [] || message.artifact_refs != []}
@@ -129,7 +131,12 @@ defmodule Responder.ControlPlane.LabPage do
       <aside :if={@snapshot} class="lab-runtime" aria-label="Processing progress">
         <div class="rail-heading">
           <h2>Behind this conversation</h2><.icon name={:activity} />
-        </div><p class="lab-runtime-note">Observed progress, not an estimated percentage.</p>
+        </div><a href={
+          Responder.ControlPlane.Activity.conversation_path(
+            "control_plane",
+            "control-plane:lab:#{@snapshot.conversation_id}"
+          )
+        }>All requests in this conversation →</a>
         <div :if={@snapshot.messages == []} class="lab-runtime-empty">
           <.icon name={:clock} /><strong>No request yet</strong><p>
             When you send a message, its admission and execution progress will appear here.
@@ -191,6 +198,12 @@ defmodule Responder.ControlPlane.LabPage do
 
     if notices == [], do: nil, else: Enum.join(notices, " ")
   end
+
+  defp message_status(%{actor: :operator, status: status}) when status in [:decided, :pending],
+    do: "Sent"
+
+  defp message_status(%{actor: :responder, status: :settled}), do: "Delivered"
+  defp message_status(message), do: label(message.status)
 
   defp actor(:operator), do: "You"
   defp actor(:integration), do: "Integration"

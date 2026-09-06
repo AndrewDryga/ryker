@@ -3,9 +3,20 @@ defmodule Responder.Evals.WorkCaseTest do
 
   alias Responder.Evals.WorkCase
 
+  test "recorded incident-button refusals fail the alert behavior regression" do
+    # Two real alerts got only an unsolicited acknowledgement refusal while
+    # their tens of thousands of application errors went unaddressed.
+    eval = case_by_id!("automated_alert_controls_do_not_replace_the_incident")
+    candidate = File.read!("testdata/elixir-eval/alert-controls-rejected-result.json")
+    assert {:accept, accepted} = WorkCase.validate(eval, candidate)
+    assert {:error, {:work_eval_mismatch, mismatch}} = WorkCase.assess(eval, accepted)
+    assert "acknowledge" in mismatch.forbidden_message_terms
+    assert "error" in mismatch.missing_message_terms
+  end
+
   test "the recorded Work corpus compiles into the production prompt and final contract" do
     assert {:ok, cases} = WorkCase.all()
-    assert length(cases) == 3
+    assert length(cases) == 4
     assert Enum.uniq_by(cases, & &1.eval_id) == cases
 
     assert Enum.any?(cases, &(&1.eval_id == "github_and_slack_remain_platform_adapters"))
@@ -26,7 +37,8 @@ defmodule Responder.Evals.WorkCaseTest do
           ~w(get_work_state cite_source request_input wait_for list_automations get_automation search_memory record_feedback validate_final)
         end
 
-      assert document["prompt"]["work"]["responder_state_tools"] == expected_tools
+      tools = document["prompt"]["work"]["responder_state_tools"]
+      assert tools == expected_tools or (tools == [] and eval.source["kind"] == "recorded_replay")
 
       refute Map.has_key?(document["prompt"]["work"], "state_tools")
       refute Jason.encode!(document) =~ "SLACK_BOT_TOKEN"

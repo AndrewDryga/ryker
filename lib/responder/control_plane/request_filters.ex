@@ -8,6 +8,9 @@ defmodule Responder.ControlPlane.RequestFilters do
      ~w(working waiting_for_input waiting_for_event complete cancelled)},
     {"repository", "Repository", :text},
     {"target", "Execution target", :text},
+    {"conversation", "Conversation", :conversation},
+    {"thread", "Thread", :text},
+    {"transport", "Conversation platform", ~w(slack github control_plane)},
     {"usage_profile", "Profile", :text},
     {"usage_model", "Model", :text},
     {"usage_effort", "Reasoning effort", ~w(none minimal low medium high xhigh max)},
@@ -112,7 +115,7 @@ defmodule Responder.ControlPlane.RequestFilters do
         URI.encode_query(
           params
           |> UsageProjection.link_params()
-          |> Map.take(~w(q mode filter state target repository))
+          |> Map.take(~w(q mode filter state target repository conversation thread transport))
         )
 
   def render(assigns) do
@@ -202,6 +205,11 @@ defmodule Responder.ControlPlane.RequestFilters do
   defp choices(type, rows, selected, params) do
     options =
       case type do
+        :conversation ->
+          rows
+          |> Enum.filter(&Map.has_key?(&1, :conversation_label))
+          |> Enum.map(&{&1.conversation_ref, &1.conversation_label})
+
         :person ->
           rows
           |> Enum.filter(&(&1.actor_kind == "user" and &1.source != "control_plane"))
@@ -234,6 +242,7 @@ defmodule Responder.ControlPlane.RequestFilters do
        do: SlackNames.name(workspace, value)
 
   defp selected_label(:channel, value, _), do: SlackNames.destination(value)
+  defp selected_label(:conversation, value, _), do: SlackNames.destination(value)
   defp selected_label(_, value, _), do: value
   defp choice_label("control_plane"), do: "Conversation Lab"
   defp choice_label("github"), do: "GitHub"

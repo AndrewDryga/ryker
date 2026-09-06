@@ -12,6 +12,21 @@ defmodule Responder.Ingress.InboxTest do
 
   @occurred_at ~U[2026-08-27 12:00:00Z]
 
+  test "incoming messages and model answers share the database clock" do
+    # A 28 ms app/database clock skew reordered Lab follow-ups before their answers.
+    assert {:ok, _} = Inbox.record(input!())
+    input = input!(event_ref: "Ev-clock-order", message_ref: "1787832001.000100")
+    %{rows: [[before_record]]} = Repo.query!("SELECT clock_timestamp()")
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+    %{rows: [[after_record]]} = Repo.query!("SELECT clock_timestamp()")
+    assert DateTime.compare(entry.inserted_at, before_record) in [:eq, :gt]
+    assert DateTime.compare(entry.inserted_at, after_record) in [:eq, :lt]
+    assert entry.updated_at == entry.inserted_at
+    assert {:ok, %{status: :duplicate, entry: duplicate}} = Inbox.record(input)
+    assert duplicate.inserted_at == entry.inserted_at
+    assert duplicate.updated_at == entry.updated_at
+  end
+
   test "records an arbitrary Slack event without interpreting its provider" do
     content = %{
       "blocks" => [%{"type" => "rich_text", "vendor_state" => "something-new"}],

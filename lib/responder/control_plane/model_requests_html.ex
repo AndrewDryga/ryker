@@ -7,7 +7,7 @@ defmodule Responder.ControlPlane.ModelRequestsHTML do
     path =
       if view.episode_ref,
         do: "/episodes/#{URI.encode_www_form(view.episode_ref)}/requests",
-        else: "/admission/#{view.input_id}"
+        else: "/episodes/ingress-input%3A#{view.input_id}"
 
     back =
       if view.episode_ref, do: "/episodes/#{URI.encode_www_form(view.episode_ref)}", else: "/lab"

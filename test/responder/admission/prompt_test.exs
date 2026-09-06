@@ -36,6 +36,8 @@ defmodule Responder.Admission.PromptTest do
 
     assert Map.keys(request) |> Enum.sort() == ["context", "instructions"]
     assert request["instructions"] =~ "Interpret the event itself"
+    assert request["instructions"] =~ "notification controls, confirmation dialogs"
+    assert request["instructions"] =~ "Preserve explicit human requests and trusted assignments"
     assert request["instructions"] =~ "Never ignore a request"
     assert request["instructions"] =~ "directed\n  at Responder."
     assert request["instructions"] =~ "history_only"

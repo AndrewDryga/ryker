@@ -39,7 +39,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
       target: "codex:gpt-5.6-luna/low@emisar",
       timing: [],
       coverage: "Retained",
-      href: "/admission/one",
+      href: "/episodes/ingress-input%3Aone",
       sections: []
     }
 
@@ -222,7 +222,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
       target: "codex:gpt-5.6-luna/low@emisar",
       status: :decided,
       coverage: "Retained submission only",
-      href: "/admission/recorded",
+      href: "/episodes/ingress-input%3Arecorded",
       timing: [%{label: "Agent execution", value: "37.7 s"}],
       sections: [
         section("candidate", "Committed admission decision", %{
@@ -327,7 +327,7 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
             target: "Not recorded",
             timing: [],
             coverage: "Retained only",
-            href: "/admission/missing",
+            href: "/episodes/ingress-input%3Amissing",
             sections: [
               %{id: "candidate", title: "Decision", source_kind: :admission, artifact: artifact}
             ]

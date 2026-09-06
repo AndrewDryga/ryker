@@ -1,13 +1,46 @@
 defmodule Responder.ControlPlane.Activity do
   @moduledoc "A bounded conversation-first inbox, including work not yet admitted."
   import Ecto.Query
-  alias Responder.ControlPlane.{CurrentInputs, InspectionRedactor, UsageProjection}
+  alias Responder.ControlPlane.{CurrentInputs, InspectionRedactor, SlackNames, UsageProjection}
   alias Responder.Episodes.Episode
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
   alias Responder.Work.Turn
 
   @page_size 30
+
+  def conversation_path(transport, conversation, thread \\ nil) do
+    params = %{"transport" => transport, "conversation" => conversation, "mode" => "all"}
+    params = if thread in [nil, ""], do: params, else: Map.put(params, "thread", thread)
+    "/episodes?" <> URI.encode_query(params)
+  end
+
+  def conversation_filter_options do
+    secrets = InspectionRedactor.configured_secrets()
+
+    from(row in subquery(rows()),
+      distinct: [row.source, row.conversation],
+      order_by: [row.source, row.conversation, desc: row.updated_at],
+      limit: 500
+    )
+    |> Repo.all()
+    |> Enum.map(fn row ->
+      label =
+        if row.source == "control_plane",
+          do: "Lab · " <> present(row, secrets).title,
+          else: SlackNames.destination(row.conversation)
+
+      %{
+        source: row.source,
+        transport: row.source,
+        conversation_ref: row.conversation,
+        conversation_label: label,
+        actor: nil,
+        actor_kind: nil,
+        workspace: nil
+      }
+    end)
+  end
 
   def request_titles([]), do: %{}
 
@@ -28,6 +61,7 @@ defmodule Responder.ControlPlane.Activity do
     query =
       filter(query, params["filter"])
       |> legacy_filters(params)
+      |> conversation_filters(params)
       |> UsageProjection.filter_activity(params)
       |> search(params["q"])
 
@@ -82,6 +116,7 @@ defmodule Responder.ControlPlane.Activity do
           kind: type(^"episode", :string),
           ref: episode.key,
           conversation: episode.destination_conversation_ref,
+          thread: episode.destination_thread_ref,
           episode_state: fragment("?::text", episode.state),
           mode: fragment("?::text", episode.execution_mode),
           state:
@@ -127,6 +162,7 @@ defmodule Responder.ControlPlane.Activity do
           kind: type(^"admission", :string),
           ref: fragment("?::text", entry.id),
           conversation: entry.destination_conversation_ref,
+          thread: entry.destination_thread_ref,
           episode_state: type(^nil, :string),
           mode: fragment("?::text", entry.execution_mode),
           state:
@@ -179,7 +215,7 @@ defmodule Responder.ControlPlane.Activity do
       title: title,
       source: source,
       href:
-        "/#{if row.kind == "episode", do: "episodes", else: "admission"}/#{URI.encode_www_form(row.ref)}"
+        "/episodes/#{URI.encode_www_form(if row.kind == "episode", do: row.ref, else: "ingress-input:#{row.ref}")}"
     })
   end
 
@@ -192,6 +228,23 @@ defmodule Responder.ControlPlane.Activity do
     do: from(row in query, where: row.bucket == ^value)
 
   defp filter(query, _), do: query
+
+  defp conversation_filters(query, params) do
+    Enum.reduce(
+      [{"conversation", :conversation}, {"thread", :thread}, {"transport", :source}],
+      query,
+      fn
+        {key, column}, query ->
+          case params[key] do
+            value when is_binary(value) and byte_size(value) in 1..512 ->
+              from(row in query, where: field(row, ^column) == ^value)
+
+            _ ->
+              query
+          end
+      end
+    )
+  end
 
   defp legacy_filters(query, params) do
     Enum.reduce(~w(state target repository), query, fn key, query ->
