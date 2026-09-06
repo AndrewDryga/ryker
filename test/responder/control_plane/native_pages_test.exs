@@ -154,7 +154,7 @@ defmodule Responder.ControlPlane.NativePagesTest do
     assert html =~ "1 reported · 0 estimated / 2 requests"
     assert html =~ "Delivery confirmed"
     assert html =~ "A retained answer &lt;not markup&gt;"
-    assert html =~ "Inspect accepted answer"
+    refute html =~ "Inspect accepted answer"
     assert html =~ "History is bounded"
     assert html =~ "Already attempted"
     assert html =~ "Reconciled the previous request"
@@ -170,10 +170,10 @@ defmodule Responder.ControlPlane.NativePagesTest do
 
     assert html =~ "Inspect related record"
     # The split panes hid the processing behind tabs and a second scroll area.
-    assert html =~ "Complete execution timeline"
+    assert html =~ "Execution timeline"
     assert html =~ "trace-chapter"
-    assert html =~ "What came in"
-    assert html =~ "What came of it"
+    assert html =~ "Message received"
+    assert LazyHTML.from_fragment(html) |> LazyHTML.text() =~ "Answer & delivery"
     refute html =~ "aria-label=\"Episode view\""
     refute html =~ "aria-label=\"Selected event\""
     refute html =~ "phx-click=\"inspect-step\""

@@ -81,9 +81,9 @@ defmodule Responder.ControlPlane.RequestContextHTML do
 
   def render(_artifact, _root, _prefix), do: []
 
-  def instructions(artifact, kind, prefix \\ "instructions")
+  def instructions(artifact, kind, prefix \\ "instructions", open \\ false)
 
-  def instructions(%{state: :retained, text: text}, kind, prefix) do
+  def instructions(%{state: :retained, text: text}, kind, prefix, open) do
     title = if kind == :admission, do: "Responder admission policy", else: "Responder work policy"
 
     source(
@@ -93,12 +93,12 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       {title, "policy", "Host-authored instructions",
        "The instruction field retained with this exact request. This is not the Coop wrapper or provider system prompt, and it is not loaded from today's source code."},
       ["<pre class=\"model-document-text\">", escape(text), "</pre>"],
-      false,
+      open,
       prefix
     )
   end
 
-  def instructions(_artifact, _kind, _prefix), do: []
+  def instructions(_artifact, _kind, _prefix, _open), do: []
 
   defp context(context, root, prefix) do
     [
