@@ -57,19 +57,6 @@ defmodule Responder.ControlPlane.ToolCardTest do
     refute html =~ "<script>"
   end
 
-  test "project paths use a recorded root and cannot hide traversal outside it" do
-    assert ToolCard.path("/repo/terraform/main.tf", "/repo") == {"terraform/main.tf", nil}
-
-    assert ToolCard.path("/repository/main.tf", "/repo") ==
-             {"/repository/main.tf", "Outside project"}
-
-    assert ToolCard.path("/repo/../secrets.txt", "/repo") == {"/secrets.txt", "Outside project"}
-    assert ToolCard.path("../../secrets.txt", "/repo") == {"../../secrets.txt", "Outside project"}
-
-    assert ToolCard.path("/unverified/main.tf", nil) ==
-             {"/unverified/main.tf", "Project boundary not recorded"}
-  end
-
   test "edits are not mislabeled as reads just because they have a path argument" do
     payload = %{
       "title" => "Edit file",
@@ -79,6 +66,23 @@ defmodule Responder.ControlPlane.ToolCardTest do
     html = render_component(&ToolCard.render/1, step: step(payload))
     assert html =~ "Edit files"
     refute html =~ "Read file"
+  end
+
+  test "worker path facts show relative files and warn about every outside path" do
+    step =
+      step(%{"title" => "Read file '/private/checkout/lib/config.ex'"})
+      |> Map.put(:path_context, %{
+        "basis" => "lexical",
+        "paths" => [
+          %{"source" => "/locations/0/path", "scope" => "project", "path" => "lib/config.ex"},
+          %{"source" => "/locations/1/path", "scope" => "outside"}
+        ]
+      })
+
+    html = render_component(&ToolCard.render/1, step: step)
+    assert html =~ "lib/config.ex"
+    assert html =~ "Outside project"
+    refute html =~ "/private/checkout"
   end
 
   test "file names and search terms cannot change the type of activity" do

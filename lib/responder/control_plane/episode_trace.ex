@@ -26,7 +26,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   alias Responder.Repo
   alias Responder.Slack.IncidentRoom
   alias Responder.State.{Record, Schedule}
-  alias Responder.Work.{Activity, ActivityEvent, Session, Turn}
+  alias Responder.Work.{Activity, ActivityEvent, ActivityPaths, Session, Turn}
 
   @chapters [
     {:input, "What came in", "The input, continuation, or trigger that opened this work."},
@@ -688,6 +688,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
           ),
         stage: "Tool call",
         tool_kind: event.payload["kind"],
+        path_context: safe_path_context(event.payload["path_context"]),
         state: "started",
         summary: activity_tool_summary(input),
         title: activity_tool_title(event.payload),
@@ -714,6 +715,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
           ]),
         stage: "Tool call",
         tool_kind: event.payload["kind"],
+        path_context: safe_path_context(event.payload["path_context"]),
         state: status,
         summary: tool_outcome(event.payload, status),
         title: event.payload["title"] || "Tool completion recorded",
@@ -731,6 +733,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       | id: "activity-#{event.id}",
         at: event.occurred_at,
         artifacts: merge_artifacts(step[:artifacts] || [], tool_artifacts(event.payload)),
+        tool_kind: event.payload["kind"] || step.tool_kind,
+        path_context: safe_path_context(event.payload["path_context"] || step.path_context),
         summary: tool_outcome(event.payload, status),
         details:
           step.details ++
@@ -742,6 +746,16 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         state: human(status),
         tone: activity_status_tone(status)
     }
+  end
+
+  defp safe_path_context(value) do
+    with %{} = paths <- ActivityPaths.sanitize(value),
+         %{text: text, truncated: false} <- InspectionRedactor.artifact(paths, max_bytes: 16_384),
+         {:ok, redacted} <- Jason.decode(text) do
+      ActivityPaths.sanitize(redacted)
+    else
+      _ -> nil
+    end
   end
 
   defp activity_step(%ActivityEvent{kind: "model.progress"} = event) do
@@ -1448,6 +1462,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       details: Map.fetch!(attributes, :details),
       duration_ms: Map.get(attributes, :duration_ms),
       tool_kind: Map.get(attributes, :tool_kind),
+      path_context: Map.get(attributes, :path_context),
       href: Map.get(attributes, :href),
       id: id,
       stage: human(Map.fetch!(attributes, :stage)),

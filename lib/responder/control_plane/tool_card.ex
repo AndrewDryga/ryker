@@ -2,6 +2,7 @@ defmodule Responder.ControlPlane.ToolCard do
   @moduledoc "Readable actions, derived only from retained, sanitized tool evidence."
   use Phoenix.Component
   alias Responder.ControlPlane.SlackMarkdown
+  alias Responder.Work.ActivityPaths
 
   @tools %{
     "cite_source" =>
@@ -66,7 +67,7 @@ defmodule Responder.ControlPlane.ToolCard do
         {@action.description}
       </p>
       <p :if={@action.warning} class="action-warning">⚠ {@action.warning}</p>
-      <code :if={@action.path} class="action-path">{@action.path}</code>
+      <code :for={path <- @action.paths} class="action-path">{path}</code>
       <p :if={@step.summary && @step.state in ["failed", "cancelled"]} class="action-error">
         {@step.summary}
       </p>
@@ -116,14 +117,14 @@ defmodule Responder.ControlPlane.ToolCard do
       end
 
     file = file_path(args, step.title)
-    {display_path, warning} = if file, do: path(file, step[:project_root]), else: {nil, nil}
+    {paths, warning} = display_paths(step[:path_context], file)
 
     %{
       title: title,
       description: description,
       kind: kind,
       symbol: symbol,
-      path: display_path,
+      paths: paths,
       warning: warning,
       text: readable_text(tool, args),
       facts: facts(tool, args),
@@ -261,19 +262,29 @@ defmodule Responder.ControlPlane.ToolCard do
     end
   end
 
-  @doc "Only a recorded project root establishes the boundary; prefixes and '..' cannot hide escapes."
-  def path(value, root) when is_binary(root) and root != "" do
-    root = Path.expand(root)
-    absolute = Path.expand(value, root)
-    relative = Path.relative_to(absolute, root)
+  defp display_paths(context, file) do
+    case ActivityPaths.sanitize(context) do
+      %{"paths" => paths} = context ->
+        files = for %{"scope" => "project", "path" => path} <- paths, do: path
+        {Enum.uniq(files), path_warnings(context)}
 
-    if absolute == root || String.starts_with?(absolute, root <> "/"),
-      do: {relative, nil},
-      else: {if(Path.type(value) == :absolute, do: absolute, else: value), "Outside project"}
+      nil ->
+        {List.wrap(file),
+         if(file && Path.type(file) == :absolute, do: "Project boundary not recorded")}
+    end
   end
 
-  def path(value, _root),
-    do: {value, if(Path.type(value) == :absolute, do: "Project boundary not recorded")}
+  defp path_warnings(%{"paths" => paths} = context) do
+    warnings =
+      [
+        if(Enum.any?(paths, &(&1["scope"] == "outside")), do: "Outside project"),
+        if(Enum.any?(paths, &(&1["scope"] == "unknown")), do: "Project boundary not recorded"),
+        if(context["partial"], do: "Some paths were not retained")
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    if warnings != [], do: Enum.join(warnings, " · ")
+  end
 
   defp artifact(step, label) do
     with %{artifact: %{state: :retained, text: text, truncated: false}} <-
