@@ -753,7 +753,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .case-timeline .chapter-heading h3 { font-size:25px; line-height:1.25; letter-spacing:-.5px; margin:0; color:var(--ink); font-weight:650; }
 .case-timeline .chapter-heading p { font-size:15px; line-height:1.5; margin:6px 0 0; color:#525d55; max-width:78ch; }
 .case-timeline .phase-number { color:var(--phase-color); font-size:20px; line-height:32px; font-weight:650; font-variant-numeric:tabular-nums; }
-.case-timeline .conversation-boundary { border-top:3px solid #8da38d; }
+.case-timeline .trace-chapter.conversation-boundary { border-top:3px solid #8da38d; }
 .case-timeline .conversation-boundary > .chapter-heading { background:#eaf0e5; padding:20px 16px; margin-bottom:16px; border-radius:0 0 6px 6px; }
 .case-timeline .chapter-heading .turn-divider-label { margin:0 0 4px; font-size:11px; letter-spacing:.12em; color:#345c43; font-weight:650; }
 .case-timeline .chapter-span { font-size:13px; line-height:32px; color:#525d55; }
@@ -769,7 +769,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .case-message-text { font-size:17px; line-height:1.6; color:#253329; white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0 0; max-width:90ch; }
 .case-event-content { display:grid; grid-template-columns:minmax(0,1fr) auto; column-gap:16px; align-items:start; }
 .case-event-heading, .case-event-summary { grid-column:1; }
-.case-event-content > .case-event-details { grid-column:2; grid-row:1 / span 2; margin-top:0; }
+.case-event-content > .case-event-details { grid-column:1 / -1; grid-row:auto; margin-top:8px; }
 .case-event-content > .case-event-details > summary { padding:2px 0; }
 .case-event-content > .case-event-details[open] { grid-column:1 / -1; grid-row:auto; }
 .case-event-heading { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; }
@@ -788,6 +788,10 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .event-state.tone-warn { background:#fff1d9; color:#805315; }
 .case-event-details dl > div { display:grid; grid-template-columns:160px minmax(0,1fr); gap:12px; padding:8px 0; border-top:1px solid #e6ece2; }
 .case-event-details dd { overflow-wrap:anywhere; margin:0; }
+.tool-evidence { grid-column:1 / -1; margin-top:10px; }
+.tool-evidence > details { border-top:1px solid #e3e8df; }
+.tool-evidence summary { cursor:pointer; font-size:14px; padding:10px 0; }
+.tool-evidence pre { margin:0 0 12px; padding:14px; border:1px solid #e3e8df; background:#f7f9f4; color:#27352b; max-height:480px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .case-checkpoint .case-entry-body { padding:12px 20px; background:#fbfcf9; }
 .case-checkpoint .case-entry-time { padding-top:12px; }
 .case-checkpoint .case-entry-body::before { top:17px; }
@@ -811,9 +815,6 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .request-provenance > summary { cursor:pointer; padding:2px 0; }
 .request-provenance > p { margin:8px 0; max-width:85ch; }
 .request-result-evidence { margin-top:10px; }
-.routing-outcome { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 16px; margin:8px 0; font-size:14px; }
-.routing-outcome strong { color:#36593d; }
-.routing-outcome time { font-size:12px; color:var(--secondary); }
 .timeline-artifact { padding:12px 16px; min-width:0; overflow-wrap:anywhere; }
 .timeline-artifact + .timeline-artifact { border-top:1px solid var(--stroke); }
 .timeline-artifact h4 { font-size:15px; margin:0 0 8px; }
@@ -835,6 +836,33 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .prompt-assembly .model-document-text { font:15px/1.65 "Avenir Next", Avenir, "Segoe UI", sans-serif; white-space:pre-wrap; overflow-wrap:anywhere; }
 .prompt-assembly .context-message header { position:static; background:transparent; padding:0; border:0; backdrop-filter:none; display:flex; flex-wrap:wrap; gap:8px; font-size:13px; color:#52604f; }
 .prompt-assembly .context-message header strong { color:var(--ink); }
+.context-message { background:#f2f6ef; color:#29352b; border-color:#8fa48d; }
+.context-message header strong, .context-message-body, .context-message details { color:#29352b; }
+.context-message header span { color:#52604f; }
+.context-message header { position:static; background:transparent; padding:0; border:0; }
+.conversation-recall { max-width:80ch; margin:0; }
+.conversation-recall h4 { font-size:16px; margin:0 0 14px; color:var(--ink); }
+.conversation-recall > div { margin:12px 0; }
+.conversation-recall h5 { font:600 13px/1.4 var(--font-sans); color:#53604f; margin:0 0 4px; }
+.conversation-recall p, .conversation-recall ul { margin:0; }
+.conversation-recall ul { padding-left:20px; }
+.markdown-preview { white-space:normal; }
+.markdown-preview p { white-space:pre-wrap; margin:0 0 12px; }
+.markdown-preview p:last-child { margin-bottom:0; }
+.markdown-preview ul, .markdown-preview ol { margin:10px 0 16px; padding-left:24px; }
+.markdown-preview li { margin:4px 0; }
+.markdown-preview a { text-decoration:underline; text-underline-offset:3px; color:#365a42; }
+.final-prompt { border-top:1px solid var(--stroke); margin-top:12px; padding-top:10px; }
+.final-prompt > summary { cursor:pointer; font-size:14px; font-weight:600; }
+.final-prompt > summary span { font-size:12px; font-weight:400; margin-left:10px; }
+.prompt-legend { font-size:12px; color:#53604f; margin:12px 0; }
+.submitted-prompt { background:#fafbf8; color:#27352b; padding:16px; border:1px solid var(--stroke); white-space:pre-wrap; overflow-wrap:anywhere; max-height:70vh; overflow:auto; font:13px/1.8 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.submitted-prompt code { font:inherit; color:inherit; background:transparent; padding:0; }
+.prompt-fragment { background:#edf2e8; border-bottom:2px solid #9bad91; }
+.prompt-fragment[data-source="$.instructions"] { background:#ecf0fa; border-color:#8e9fc4; }
+.prompt-fragment[data-source*="operator_context"] { background:#f8f0df; border-color:#b7a376; }
+.prompt-fragment:hover { background:#dfeacf; }
+.prompt-fragment:focus-visible { background:#dfeacf; outline:2px solid #5d7952; outline-offset:2px; }
 .prompt-runtime-field + .prompt-runtime-field { margin-top:20px; border-top:1px solid #e2e7de; padding-top:12px; }
 .prompt-runtime-field > h4 { margin:0; font-size:15px; }
 .prompt-runtime-field > p { color:#52604f; font-size:13px; }

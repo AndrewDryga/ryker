@@ -126,6 +126,38 @@ defmodule Responder.StateTools.RouterTest do
     assert payload["target"] == "Exact phrase search results for Emisar MCP"
   end
 
+  test "a read-only goal may inspect the pinned primary but never an unbound repository" do
+    # Three health_check plans failed unauthorized on Sep 6 while reading their own emisar workspace.
+    for context <- [nil, %{"read_only_repositories" => ["docs"]}] do
+      claim = claim!("health-goal-#{Ecto.UUID.generate()}")
+      claim = put_in(claim.session.repository_ref, "emisar")
+      claim = put_in(claim.session.repository_context, context)
+
+      arguments = %{
+        "authority" => "read_only",
+        "completion_contract" => "Check infrastructure health and flag issues",
+        "id" => "health_check",
+        "kind" => "check",
+        "parent_goal_id" => nil,
+        "prerequisite_goal_ids" => [],
+        "read_only_repositories" => ["emisar"],
+        "requested_outcome" => "Check infrastructure health and flag issues",
+        "required" => true,
+        "writable_repository" => nil
+      }
+
+      assert {:ok, %{"kind" => "goal"}} = Tools.call("plan_goal", arguments, bound_options(claim))
+      assert Enum.any?(Records.model_records(claim.episode.id), &(&1["kind"] == "goal"))
+
+      assert {:error, "unauthorized"} =
+               Tools.call(
+                 "plan_goal",
+                 %{arguments | "id" => "escape", "read_only_repositories" => ["unbound"]},
+                 bound_options(claim)
+               )
+    end
+  end
+
   test "typed goal tools persist a dependency plan and preflight its live state" do
     claim = claim!("typed-goals")
     options = bound_options(claim)

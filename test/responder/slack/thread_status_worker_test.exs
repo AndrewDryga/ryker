@@ -1,4 +1,5 @@
 defmodule Responder.Slack.ThreadStatusWorkerTest do
+  alias Responder.Slack.ThreadStatusReceipts
   use Responder.DataCase, async: false
 
   import ExUnit.CaptureLog
@@ -47,6 +48,13 @@ defmodule Responder.Slack.ThreadStatusWorkerTest do
              {"C456", "1787832000.000100", "is working..."},
              {"C456", "1787832000.000100", ""}
            ]
+
+    # The mutable status row previously erased both starts when the final clear arrived.
+    receipts =
+      ThreadStatusReceipts.for_thread("T123", "C456", "1787832000.000100")
+
+    assert Enum.map(receipts, & &1.text) == ["is queued...", "is working...", ""]
+    assert Enum.all?(receipts, & &1.acknowledged_at)
   end
 
   test "a Slack failure leaves a durable retry that a restarted worker honors" do
@@ -82,6 +90,17 @@ defmodule Responder.Slack.ThreadStatusWorkerTest do
 
     assert ThreadStatuses.confirm(claimed.id, claimed.lease_ref, claimed.generation) ==
              {:error, :slack_thread_status_lease_lost}
+
+    # Slack may acknowledge the old write after a newer clear was queued.
+    # Keep that observation without falsely confirming the newer desired state.
+    assert {:ok, _} = ThreadStatusReceipts.record(claimed, :ok)
+    assert {:ok, _} = ThreadStatusReceipts.record(claimed, :ok)
+
+    assert [receipt] =
+             ThreadStatusReceipts.for_thread("T123", "C456", "1787832000.000100")
+
+    assert receipt.generation == 1
+    assert receipt.text == "is working..."
 
     assert %ThreadStatus{generation: 2, desired_text: "", status: :pending} = status!()
   end

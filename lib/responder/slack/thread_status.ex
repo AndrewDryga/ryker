@@ -9,6 +9,8 @@ defmodule Responder.Slack.ThreadStatus do
     field(:workspace_ref, :string)
     field(:channel_ref, :string)
     field(:thread_ref, :string)
+    field(:origin_kind, :string)
+    field(:origin_id, :binary_id)
 
     field(:phase, Ecto.Enum,
       values: [

@@ -13,7 +13,7 @@ defmodule Responder.ControlPlane.EpisodePage do
     chapters =
       assigns.snapshot
       |> entries(assigns.timeline)
-      |> combine_routing()
+      |> separate_routing()
       |> EpisodeTrace.chapters(assigns.snapshot.trace.received_at)
       |> execution_phases()
 
@@ -88,7 +88,7 @@ defmodule Responder.ControlPlane.EpisodePage do
         </p>
         <section
           :for={{chapter, index} <- Enum.with_index(@chapters, 1)}
-          class={"trace-chapter phase-#{chapter.band} #{if chapter.starts_conversation && chapter.conversation_turn > 1, do: "conversation-boundary"}"}
+          class={"trace-chapter phase-#{chapter.band} #{if chapter.starts_conversation, do: "conversation-boundary"}"}
           data-conversation-turn={chapter.conversation_turn}
           aria-labelledby={"chapter-#{index}"}
         >
@@ -139,25 +139,19 @@ defmodule Responder.ControlPlane.EpisodePage do
     """
   end
 
-  # Admission is one preparation action, not a second execution of the work.
-  # Match the exact retained pair; incomplete histories keep their standalone result.
-  defp combine_routing(entries) do
-    results =
-      for %{kind: :request, source_kind: :admission, phase: :result} = entry <- entries,
-          into: %{},
-          do: {entry.id, entry}
+  # Routing has its own model call. The work briefing belongs to the following
+  # work phase, so preparation does not restart after routing has finished.
+  defp separate_routing(entries) do
+    Enum.map(entries, fn
+      %{kind: :request, source_kind: :admission} = entry ->
+        %{entry | band: :routing}
 
-    paired_ids =
-      for %{kind: :request, source_kind: :admission, phase: :submission} = entry <- entries,
-          Map.has_key?(results, entry.id <> "-result"),
-          into: MapSet.new(),
-          do: entry.id <> "-result"
+      %{kind: :request, source_kind: :work, band: :ready} = entry ->
+        %{entry | band: :work}
 
-    entries
-    |> Enum.reject(&MapSet.member?(paired_ids, &1.id))
-    |> Enum.map(fn
-      %{kind: :request, source_kind: :admission, phase: :submission} = entry ->
-        Map.put(entry, :routing_result, results[entry.id <> "-result"])
+      %{kind: :event, band: :ready, step: %{stage: stage}} = entry
+      when stage in ["Preparation", "Routing"] ->
+        %{entry | band: :work}
 
       entry ->
         entry
@@ -209,16 +203,16 @@ defmodule Responder.ControlPlane.EpisodePage do
         @message[:status]
       }>{@message.status}</span>
     </div>
-    <p class="case-message-text">{message_text(@message)}</p>
+    <div class="case-message-text markdown-preview">{message_text(@message)}</div>
     """
   end
 
   defp message_text(%{available: false}), do: "Source content not recorded or expired"
 
   defp message_text(%{transport: "slack", workspace: workspace, text: text}) when is_binary(text),
-    do: text |> SlackMarkdown.mentions(workspace) |> Phoenix.HTML.raw()
+    do: text |> SlackMarkdown.preview(workspace) |> Phoenix.HTML.raw()
 
-  defp message_text(message), do: message.text
+  defp message_text(message), do: message.text |> SlackMarkdown.preview() |> Phoenix.HTML.raw()
 
   defp event(assigns) do
     ~H"""
@@ -233,12 +227,27 @@ defmodule Responder.ControlPlane.EpisodePage do
       <p :if={@step.summary && @step.summary != event_title(@step)} class="case-event-summary">
         {@step.summary}
       </p>
+      <div :if={(@step[:artifacts] || []) != []} class="tool-evidence">
+        <details
+          :for={{item, index} <- Enum.with_index(@step.artifacts)}
+          id={"tool-evidence-#{@step.id}-#{index}"}
+        >
+          <summary>
+            {item.label}<span :if={item.artifact.truncated}> · Partial display</span><span :if={
+              item.artifact.redacted
+            }> · Secrets redacted</span>
+          </summary>
+          <pre>{item.artifact.text}</pre>
+        </details>
+      </div>
       <details
         :if={@step.details != [] || @step.href}
         class="case-event-details"
         id={"event-detail-#{@step.id}"}
       >
-        <summary>Details</summary><.event_details step={@step} />
+        <summary>{if @step.stage == "Tool call", do: "Call metadata", else: "Details"}</summary><.event_details step={
+          @step
+        } />
       </details>
     </div>
     """
@@ -280,20 +289,25 @@ defmodule Responder.ControlPlane.EpisodePage do
   defp silent_result?(_step), do: false
 
   defp chapter_title(%{band: :ready}), do: "Getting ready"
+  defp chapter_title(%{band: :routing}), do: "Routing"
   defp chapter_title(%{band: :work}), do: "The work"
   defp chapter_title(%{band: :answer}), do: "The answer"
   defp chapter_title(chapter), do: chapter.title
 
   defp phase_number(:ready), do: "01"
-  defp phase_number(:work), do: "02"
-  defp phase_number(:answer), do: "03"
+  defp phase_number(:routing), do: "02"
+  defp phase_number(:work), do: "03"
+  defp phase_number(:answer), do: "04"
 
   defp chapter_description(:ready),
-    do: "How Responder set this up: the routing, the model, and its briefing."
+    do: "The message and context that started this part of the conversation."
+
+  defp chapter_description(:routing),
+    do:
+      "The model call that decides whether to respond, continue earlier work, or leave the message alone."
 
   defp chapter_description(:work),
-    do:
-      "What the model did once it started: what it reasoned about, what it ran, and what came back."
+    do: "The model's briefing, progress, tool calls, and results."
 
   defp chapter_description(:answer),
     do: "What the model returned and what Responder decided to do."

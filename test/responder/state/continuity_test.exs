@@ -350,7 +350,10 @@ defmodule Responder.State.ContinuityTest do
     assert {:ok, _draft} = Continuity.stage(first.state_token, state("First", ["source:first"]))
     accept!(first)
 
-    first_time = DateTime.add(DateTime.utc_now(), -180, :second)
+    # Term-order sorting ranked microseconds before the actual clock time,
+    # letting an older conversation replace the newest situation in a rollup.
+    now = DateTime.utc_now()
+    first_time = %{DateTime.add(now, -180, :second) | microsecond: {900_000, 6}}
     Repo.update_all(ConversationSummary, set: [inserted_at: first_time, updated_at: first_time])
 
     assert {:ok, {:ok, 1}} =
@@ -365,7 +368,7 @@ defmodule Responder.State.ContinuityTest do
 
     accept!(second)
 
-    second_time = DateTime.add(DateTime.utc_now(), -120, :second)
+    second_time = %{DateTime.add(now, -120, :second) | microsecond: {100_000, 6}}
     Repo.update_all(ConversationSummary, set: [inserted_at: second_time, updated_at: second_time])
 
     assert {:ok, {:ok, 1}} =

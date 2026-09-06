@@ -2,7 +2,7 @@ defmodule Responder.ControlPlane.SlackMarkdown do
   alias Responder.ControlPlane.SlackNames
   @moduledoc "Small, HTML-inert renderer for the formatting used by Slack specimens."
 
-  @tokens ~r/(```[\s\S]*?```|`[^`\n]+`|<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>|<https?:\/\/[^>\n]+>|\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~)/u
+  @tokens ~r/(```[\s\S]*?```|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>|<https?:\/\/[^>\n]+>|\*\*[^*\n]+\*\*|\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~)/u
   @mentions ~r/(<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>)/u
 
   def mentions(text, workspace) when is_binary(text) do
@@ -20,6 +20,48 @@ defmodule Responder.ControlPlane.SlackMarkdown do
     |> Enum.map(fn part ->
       if Regex.match?(@tokens, part), do: token(part, workspace), else: escape(part)
     end)
+  end
+
+  @doc "HTML-inert Markdown for human-facing answers and public progress."
+  def preview(text, workspace \\ SlackNames.workspace()) when is_binary(text) do
+    ~r/(```[\s\S]*?```)/u
+    |> Regex.split(text, include_captures: true)
+    |> Enum.map(fn
+      "```" <> _ = code ->
+        token(code)
+
+      prose ->
+        prose |> String.split(~r/\n\s*\n/u, trim: true) |> Enum.map(&paragraph(&1, workspace))
+    end)
+  end
+
+  defp paragraph(text, workspace) do
+    lines = String.split(text, "\n")
+
+    cond do
+      Enum.all?(lines, &Regex.match?(~r/^\s*[-*•] /u, &1)) ->
+        [
+          "<ul>",
+          Enum.map(
+            lines,
+            &["<li>", render(Regex.replace(~r/^\s*[-*•] /u, &1, ""), workspace), "</li>"]
+          ),
+          "</ul>"
+        ]
+
+      Enum.all?(lines, &Regex.match?(~r/^\s*\d+\. /u, &1)) ->
+        [
+          "<ol>",
+          Enum.map(
+            lines,
+            &["<li>", render(Regex.replace(~r/^\s*\d+\. /u, &1, ""), workspace), "</li>"]
+          ),
+          "</ol>"
+        ]
+
+      true ->
+        ["<p>", render(text, workspace), "</p>"]
+    end
   end
 
   defp token("<" <> <<prefix, rest::binary>>, workspace) when prefix in [?@, ?#] do
@@ -42,6 +84,7 @@ defmodule Responder.ControlPlane.SlackMarkdown do
     do: ["<pre><code>", escape(String.slice(text, 0..-4//1)), "</code></pre>"]
 
   defp token("`" <> text), do: ["<code>", escape(String.slice(text, 0..-2//1)), "</code>"]
+  defp token("**" <> text), do: ["<strong>", escape(String.slice(text, 0..-3//1)), "</strong>"]
   defp token("*" <> text), do: wrapped("strong", text)
   defp token("_" <> text), do: wrapped("em", text)
   defp token("~" <> text), do: wrapped("del", text)
@@ -60,6 +103,11 @@ defmodule Responder.ControlPlane.SlackMarkdown do
          "</a>"
        ],
        else: escape(text)
+  end
+
+  defp token("[" <> text) do
+    [label, url] = text |> String.trim_trailing(")") |> String.split("](", parts: 2)
+    token("<" <> url <> "|" <> label <> ">")
   end
 
   defp token(text), do: escape(text)

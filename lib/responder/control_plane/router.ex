@@ -14,6 +14,7 @@ defmodule Responder.ControlPlane.Router do
     CardLabSlackHTML,
     CSRF,
     HTML,
+    ModelRequests,
     ModelRequestsHTML
   }
 
@@ -617,8 +618,16 @@ defmodule Responder.ControlPlane.Router do
     conn = fetch_query_params(conn)
 
     case options.projection.admission_request.(id, Map.take(conn.query_params, ~w(generation))) do
+      {:ok, %{episode_ref: ref}} when is_binary(ref) ->
+        conn
+        |> put_resp_header(
+          "location",
+          ModelRequests.admission_destination(ref, id, conn.query_params["generation"])
+        )
+        |> send_resp(303, "")
+
       {:ok, view} ->
-        html(conn, 200, "Admission request inspector", ModelRequestsHTML.render(view))
+        html(conn, 200, "Message routing", ModelRequestsHTML.render(view))
 
       _missing ->
         html(conn, 404, "Not found", HTML.generic("Admission request", []))

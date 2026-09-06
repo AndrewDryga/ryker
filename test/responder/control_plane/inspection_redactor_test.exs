@@ -2,6 +2,42 @@ defmodule Responder.ControlPlane.InspectionRedactorTest do
   use ExUnit.Case, async: true
   alias Responder.ControlPlane.InspectionRedactor
 
+  test "preserving prompt bytes never restores a secret hidden by duplicate JSON keys" do
+    # The exact-prompt viewer must inspect every occurrence, not just the decoder's last value.
+    for text <- [
+          ~s({"note":"safe","note":"Bearer hidden-value"}),
+          ~s({"nested":{"note":"safe","no\\u0074e":"Bearer hidden-value"}}),
+          ~s({"note":"safe","note":"Bearer hidd\\u0065n-value"})
+        ] do
+      artifact = InspectionRedactor.artifact(text, preserve_format: true, secrets: [])
+      refute artifact.text =~ "hidden-value"
+      refute artifact.text =~ "hidd\\u0065n"
+      assert artifact.text =~ "safe"
+    end
+  end
+
+  test "provider-truncated structured evidence cannot bypass credential redaction" do
+    for preview <- [
+          ~s({"authorization":"Basic dXNlcjpmb3JlaWduLXNlY3JldA==","body":"),
+          ~s({"credentials":{"user":"foreign-user","password":"foreign-value),
+          "{\"file\":\"-----BEGIN PRIVATE KEY-----foreign-key"
+        ] do
+      artifact = InspectionRedactor.artifact(%{"truncated" => true, "preview" => preview})
+      refute artifact.text =~ "dXNlcjpmb3JlaWduLXNlY3JldA"
+      refute artifact.text =~ "foreign-"
+    end
+
+    for depth <- [31, 32, 33] do
+      nested =
+        Enum.reduce(1..depth, %{"truncated" => true, "preview" => "foreign-secret"}, fn _,
+                                                                                        value ->
+          %{"nested" => value}
+        end)
+
+      refute InspectionRedactor.artifact(nested).text =~ "foreign-secret"
+    end
+  end
+
   test "structured and embedded credentials are removed without hiding useful context" do
     input = %{
       "instructions" => "Inspect the deployment; retain input_tokens and the source URL.",

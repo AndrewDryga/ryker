@@ -33,7 +33,14 @@ defmodule Responder.ControlPlane.InspectionRedactor do
       secrets = Keyword.get_lazy(options, :secrets, &configured_secrets/0)
       document = decode(value)
       sanitized = sanitize(document, secrets, 0)
-      text = if is_binary(sanitized), do: sanitized, else: Jason.encode!(sanitized, pretty: true)
+
+      text =
+        cond do
+          options[:preserve_format] && sanitized == document && unique_keys?(original) -> original
+          is_binary(sanitized) -> sanitized
+          true -> Jason.encode!(sanitized, pretty: true)
+        end
+
       maximum = Keyword.get(options, :max_bytes, 512 * 1_024)
       truncated = byte_size(text) > maximum
       text = if truncated, do: utf8_prefix(text, maximum) <> "\n[display truncated]", else: text
@@ -69,6 +76,14 @@ defmodule Responder.ControlPlane.InspectionRedactor do
 
   defp sanitize(_value, _secrets, depth) when depth > 32, do: "[inspection depth limit]"
 
+  # A provider-cut JSON string cannot be safely inspected as a structured document.
+  defp sanitize(%{"truncated" => true, "preview" => _} = value, secrets, depth),
+    do:
+      value
+      |> Map.delete("preview")
+      |> sanitize(secrets, depth)
+      |> Map.put("preview", "[partial structured content withheld]")
+
   defp sanitize(value, secrets, depth) when is_map(value) do
     Map.new(value, fn {key, nested} ->
       {scrub(to_string(key), secrets),
@@ -99,6 +114,23 @@ defmodule Responder.ControlPlane.InspectionRedactor do
   end
 
   defp decode(value), do: value
+
+  defp unique_keys?(text) do
+    case Jason.decode(text, objects: :ordered_objects) do
+      {:ok, value} -> unique_object?(value)
+      _ -> true
+    end
+  end
+
+  defp unique_object?(%Jason.OrderedObject{values: values}) do
+    keys = Enum.map(values, &elem(&1, 0))
+
+    length(keys) == MapSet.size(MapSet.new(keys)) &&
+      Enum.all?(values, &unique_object?(elem(&1, 1)))
+  end
+
+  defp unique_object?(values) when is_list(values), do: Enum.all?(values, &unique_object?/1)
+  defp unique_object?(_), do: true
 
   defp sensitive?(key) when is_atom(key) or is_binary(key),
     do:

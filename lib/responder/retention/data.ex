@@ -1,4 +1,6 @@
 defmodule Responder.Retention.Data do
+  alias Responder.Work.ActivityRetention
+
   @moduledoc """
   Ownership-aware PostgreSQL data pruning.
 
@@ -269,6 +271,7 @@ defmodule Responder.Retention.Data do
           FROM episode_work_sessions AS session
           WHERE session.execution_kind = 'admission'
             AND session.cleanup_status = 'discarded'
+            AND NOT session.activity_sync_pending
             AND session.updated_at < clock_timestamp() - ($1 * interval '1 second')
             AND NOT EXISTS (
               SELECT 1 FROM coop_worker_commands command
@@ -278,9 +281,17 @@ defmodule Responder.Retention.Data do
               SELECT 1 FROM coop_worker_events event
               WHERE event.session_id = session.id
             )
+            AND NOT EXISTS (
+              SELECT 1 FROM episode_work_activity activity
+              WHERE activity.session_id = session.id AND activity.operational_pruned_at IS NULL
+            )
           ORDER BY session.updated_at, session.id
           LIMIT 100
           FOR UPDATE OF session SKIP LOCKED
+        ), retired_activity AS (
+          DELETE FROM episode_work_activity AS activity
+          USING candidates WHERE activity.session_id = candidates.id
+          RETURNING activity.session_id
         ), retired_placements AS (
           DELETE FROM coop_session_placements AS placement
           USING candidates
@@ -387,6 +398,18 @@ defmodule Responder.Retention.Data do
       FROM candidates WHERE attempt.id = candidates.id
       """)
 
+    _status_receipts =
+      execute_count(
+        """
+        DELETE FROM slack_thread_status_receipts WHERE id IN (
+          SELECT id FROM slack_thread_status_receipts
+          WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')
+          ORDER BY inserted_at LIMIT 1000
+        )
+        """,
+        [cutoff]
+      )
+
     operational_turns =
       execute_count(
         """
@@ -415,6 +438,8 @@ defmodule Responder.Retention.Data do
         """,
         [@terminal_turn_states, cutoff]
       )
+
+    _activity_evidence = ActivityRetention.prune()
 
     _input_artifact_references =
       execute_count("""

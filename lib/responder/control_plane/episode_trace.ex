@@ -1,5 +1,6 @@
 defmodule Responder.ControlPlane.EpisodeTrace do
   alias Responder.ControlPlane.SlackNames
+  alias Responder.Slack.ThreadStatusReceipts
 
   @moduledoc """
   Builds the bounded operator story for one durable episode.
@@ -29,6 +30,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   @chapters [
     {:input, "What came in", "The input, continuation, or trigger that opened this work."},
     {:ready, "Getting ready", "How Responder routed, scoped, and prepared the work."},
+    {:routing, "Routing", "The routing model's briefing, activity, and decision."},
     {:work, "The work", "What ran, what it recorded, and whether the provider stayed active."},
     {:answer, "The answer", "Candidate validation, the accepted result, and any refusal."},
     {:outcome, "What came of it", "Delivery, durable side effects, waits, and follow-up work."}
@@ -52,6 +54,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       |> Kernel.++(session_steps(sessions))
       |> Kernel.++(turn_steps(turns, sessions))
       |> Kernel.++(activity)
+      |> Kernel.++(slack_status_steps(episode.id))
       |> Kernel.++(record_steps(records))
       |> Kernel.++(coop_steps(sessions))
       |> Kernel.++(platform_action_steps(episode.id))
@@ -76,6 +79,39 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       stopped: stopped(episode, current_turn)
     }
   end
+
+  defp slack_status_steps(episode_id) do
+    Enum.map(ThreadStatusReceipts.for_episode(episode_id), fn receipt ->
+      clear = receipt.text == ""
+
+      band = status_band(receipt)
+
+      step("slack-status-#{receipt.id}", band, receipt.acknowledged_at || receipt.inserted_at, %{
+        actor: "Slack",
+        stage: "Status",
+        state: if(receipt.error, do: "failed", else: ""),
+        title: status_title(receipt),
+        summary: receipt.error || if(clear, do: nil, else: receipt.text),
+        details:
+          compact_details([
+            {"Confirmation",
+             if(receipt.acknowledged_at, do: "Slack acknowledged this status update.")},
+            {"Status generation", receipt.generation}
+          ]),
+        tone: if(receipt.error, do: :warn)
+      })
+    end)
+  end
+
+  defp status_band(%{text: ""}), do: :outcome
+
+  defp status_band(%{phase: phase}) when phase in ~w(queued admitting admission_retry),
+    do: :routing
+
+  defp status_band(_), do: :work
+  defp status_title(%{error: error}) when is_binary(error), do: "Slack status update failed"
+  defp status_title(%{text: ""}), do: "Slack working status cleared"
+  defp status_title(_), do: "Slack working status set"
 
   defp case_file(episode_id, turns) do
     options = [
@@ -124,7 +160,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     [
       %{
         id: turn.id,
-        at: turn.accepted_at || turn.delivered_at || turn.inserted_at,
+        at: turn.delivered_at || turn.accepted_at || turn.inserted_at,
         actor: "Responder",
         status: case_reply_status(turn),
         text: artifact.text,
@@ -311,7 +347,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
           stage: "Preparation",
           state: session.cleanup_status,
           summary: session_summary(session, target),
-          title: "Work session prepared",
+          title: "Work session configured",
           tone: state_tone(session.cleanup_status)
         }
       )
@@ -378,7 +414,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     step(
       "turn-#{turn.id}-work",
       :work,
-      turn.remote_started_at,
+      turn.remote_finished_at || turn.remote_started_at,
       %{
         actor: "Coop",
         details:
@@ -415,6 +451,11 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp validation_steps(%Turn{validation_intent: nil, candidate_attempt: nil}, _ordinal), do: []
 
   defp validation_steps(turn, ordinal), do: [validation_step(turn, ordinal)]
+
+  defp validation_band(nil, _at), do: :work
+
+  defp validation_band(finished_at, at),
+    do: if(DateTime.compare(at, finished_at) == :lt, do: :work, else: :answer)
 
   defp validation_history_step(turn, ordinal, entry) do
     verdict = entry["verdict"]
@@ -461,7 +502,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
     step(
       "turn-#{turn.id}-validation-#{attempt || 0}",
-      :answer,
+      validation_band(turn.remote_finished_at, Keyword.fetch!(options, :at)),
       Keyword.fetch!(options, :at),
       %{
         actor: "Responder",
@@ -613,9 +654,19 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   end
 
   defp activity_steps(activity_events) do
+    routing_ids =
+      activity_events
+      |> Enum.filter(&(not is_nil(&1.admission_input_id)))
+      |> Enum.map(&("activity-" <> &1.id))
+      |> MapSet.new()
+
     activity_events
+    |> Enum.reject(&(&1.kind == "model.thought"))
     |> Enum.reduce({[], %{}}, &fold_activity/2)
     |> elem(0)
+    |> Enum.map(fn step ->
+      if MapSet.member?(routing_ids, step.id), do: %{step | band: :routing}, else: step
+    end)
   end
 
   defp fold_activity(%ActivityEvent{kind: "tool.started"} = event, {steps, open}) do
@@ -644,6 +695,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       event.occurred_at,
       %{
         actor: "Coop",
+        artifacts: tool_artifacts(event.payload),
         details:
           compact_details(
             [
@@ -669,6 +721,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       event.occurred_at,
       %{
         actor: "Coop",
+        artifacts: tool_artifacts(event.payload),
         details:
           compact_details([
             {"Kind", event.payload["kind"]},
@@ -677,7 +730,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
           ]),
         stage: "Tool call",
         state: status,
-        summary: "Coop recorded a terminal tool update whose start was not retained.",
+        summary: tool_outcome(event.payload, status),
         title: event.payload["title"] || "Tool completion recorded",
         tone: activity_status_tone(status)
       }
@@ -690,7 +743,9 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
     %{
       step
-      | details:
+      | artifacts: merge_artifacts(step[:artifacts] || [], tool_artifacts(event.payload)),
+        summary: tool_outcome(event.payload, status),
+        details:
           step.details ++
             compact_details([
               {"Status", status},
@@ -702,21 +757,15 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     }
   end
 
-  defp activity_step(%ActivityEvent{kind: "model.thought"} = event) do
-    step(
-      "activity-#{event.id}",
-      :work,
-      event.occurred_at,
-      %{
-        actor: "Model",
-        details: [],
-        stage: "Reasoning",
-        state: "recorded",
-        summary: "A private reasoning checkpoint was recorded; its content is not retained.",
-        title: "Model reasoning checkpoint",
-        tone: nil
-      }
-    )
+  defp activity_step(%ActivityEvent{kind: "model.progress"} = event) do
+    step("activity-#{event.id}", :work, event.occurred_at, %{
+      actor: "Model",
+      details: [],
+      stage: "Progress",
+      state: "",
+      summary: event.payload["text"],
+      title: "Progress update"
+    })
   end
 
   defp activity_step(%ActivityEvent{kind: "model.plan"} = event) do
@@ -728,6 +777,16 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       event.occurred_at,
       %{
         actor: "Model",
+        artifacts:
+          if(event.payload["entries"] in [nil, []],
+            do: [],
+            else: [
+              %{
+                label: "Plan",
+                artifact: InspectionRedactor.artifact(event.payload["entries"], max_bytes: 20_000)
+              }
+            ]
+          ),
         details: compact_details([{"Plan steps", count}]),
         stage: "Plan",
         state: "updated",
@@ -829,6 +888,35 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     )
   end
 
+  defp tool_artifacts(payload) do
+    for {key, label} <- [
+          {"input", "Arguments"},
+          {"output", "Response"},
+          {"error", "Error"},
+          {"content", "Output and changes"},
+          {"locations", "Files"}
+        ],
+        Map.has_key?(payload, key),
+        payload[key] != nil do
+      %{label: label, artifact: InspectionRedactor.artifact(payload[key], max_bytes: 20_000)}
+    end
+  end
+
+  defp merge_artifacts(start, finish),
+    do:
+      Enum.reject(start, fn artifact -> Enum.any?(finish, &(&1.label == artifact.label)) end) ++
+        finish
+
+  defp tool_outcome(payload, "failed") do
+    case payload["error"] || payload["output"] || payload["content"] do
+      nil -> "The tool failed. Its error response was not recorded for this older call."
+      value -> value |> InspectionRedactor.artifact(max_bytes: 300) |> Map.fetch!(:text)
+    end
+  end
+
+  defp tool_outcome(_payload, "cancelled"), do: "The tool call was cancelled."
+  defp tool_outcome(_payload, _status), do: nil
+
   defp activity_tool_key(event),
     do:
       {event.session_id, event.coop_turn_id,
@@ -839,6 +927,9 @@ defmodule Responder.ControlPlane.EpisodeTrace do
        })
        when is_binary(server) and is_binary(action),
        do: "#{server} · #{action}"
+
+  defp activity_tool_title(%{"title" => title}) when is_binary(title),
+    do: InspectionRedactor.artifact(title, max_bytes: 200).text
 
   defp activity_tool_title(_payload), do: "Tool call"
 
@@ -1360,6 +1451,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp step(id, band, at, attributes) do
     %{
       actor: human(Map.fetch!(attributes, :actor)),
+      artifacts: Map.get(attributes, :artifacts, []),
       at: at,
       band: band,
       details: Map.fetch!(attributes, :details),
@@ -1399,7 +1491,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   defp kernel_title(kind), do: kind |> human() |> capitalize()
 
-  defp kernel_summary(:input_admitted), do: "Authenticated input joined this episode."
+  defp kernel_summary(:input_admitted), do: "Message added to this request."
 
   defp kernel_summary(:owner_transferred),
     do: "The kernel transferred exclusive responsibility for the next transition."
@@ -1431,6 +1523,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp kernel_tone(:episode_cancelled), do: :warn
   defp kernel_tone(_kind), do: nil
 
+  # Creating an offer/question is model work. Only a delivery receipt proves it was sent.
   defp record_band(kind)
        when kind in [
               "input_request",
@@ -1446,7 +1539,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
               "slack_post_offer",
               "emisar_approval"
             ],
-       do: :outcome
+       do: :work
 
   defp record_band(_kind), do: :work
 
@@ -1460,6 +1553,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp record_stage(_kind), do: "State record"
 
   defp record_title(%Record{kind: "progress"}, %{title: title}), do: "Progress · #{title}"
+  defp record_title(%Record{kind: "input_request"}, _card), do: "Question prepared"
+  defp record_title(%Record{kind: "event_wait"}, _card), do: "Wait prepared"
   defp record_title(%Record{kind: "goal"}, _card), do: "Goal recorded"
   defp record_title(%Record{kind: "goal_state"}, %{title: title}), do: "Goal · #{title}"
 
@@ -1467,6 +1562,9 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     do: "#{label} · #{title}"
 
   defp record_title(record, _card), do: capitalize(human(record.kind)) <> " recorded"
+
+  defp record_summary(%Record{kind: "input_request", payload: payload}, _card),
+    do: payload["reason"] || "The model prepared a question for the reply."
 
   defp record_summary(_record, %{summary: summary}) when is_binary(summary), do: summary
   defp record_summary(%Record{subject_ref: value}, _card) when is_binary(value), do: value
@@ -1983,8 +2081,10 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
   defp session_summary(session, target) do
-    [session.repository_ref || target || "no repository", "generation #{session.generation}"]
-    |> Enum.join(" · ")
+    case session.repository_ref || target do
+      nil -> "No repository working copy was requested."
+      repository -> "Repository selected: #{repository}."
+    end
   end
 
   defp next_action(%Episode{state: :waiting_for_input}, _turn), do: "operator input"

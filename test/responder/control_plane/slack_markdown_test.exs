@@ -2,6 +2,24 @@ defmodule Responder.ControlPlane.SlackMarkdownTest do
   use ExUnit.Case, async: true
   alias Responder.ControlPlane.SlackMarkdown
 
+  test "answer previews render recorded Markdown links and lists without activating HTML" do
+    # The infrastructure answer displayed literal evidence links instead of clickable receipts.
+    html =
+      SlackMarkdown.preview(
+        "The check is **partial**.\n\n- Both are connected.\n- Health remains unverified.\n\n[Boot check: emisar-b3tg](https://emisar.dev/app/emisar/runs/01a07493-e351-7ba1-ad7a-5d4bd96be230)\n\n<script>bad</script> [bad](javascript:alert(1))"
+      )
+      |> IO.iodata_to_binary()
+
+    assert html =~ "<strong>partial</strong>"
+    assert html =~ "<ul><li>Both are connected.</li><li>Health remains unverified.</li></ul>"
+
+    assert html =~
+             ~s(href="https://emisar.dev/app/emisar/runs/01a07493-e351-7ba1-ad7a-5d4bd96be230")
+
+    refute html =~ "<script>"
+    refute html =~ ~s(href="javascript:)
+  end
+
   test "unmatched formatting delimiters do not remove any source text" do
     Enum.each(
       ["*unfinished", "_unfinished", "~unfinished", "`unfinished", "```unfinished"],

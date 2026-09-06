@@ -3,30 +3,35 @@ defmodule Responder.ControlPlane.EpisodeRequest do
   use Phoenix.Component
 
   alias Responder.ControlPlane.Components
+  alias Responder.ControlPlane.PromptDocument
   alias Responder.ControlPlane.RequestContextHTML
 
   def render(assigns) do
     request = assigns.request
-    routing_result = request[:routing_result]
-    display = routing_result || request
 
     assigns =
       assigns
       |> assign(:model, model(request.target))
-      |> assign(:headline, if(routing_result, do: "Routing decision", else: headline(request)))
-      |> assign(:explanation, explanation(display))
-      |> assign(:routing_result, routing_result)
-      |> assign(:routing_label, if(routing_result, do: headline(routing_result)))
-      |> assign(:timing, display.timing)
+      |> assign(:headline, headline(request))
+      |> assign(:explanation, explanation(request))
+      |> assign(:timing, request.timing)
       |> assign(:result?, request.phase == :result)
       |> assign(:applied, applied_context(request))
+      |> assign(
+        :prompt_section,
+        if(request.phase == :submission, do: Enum.find(request.sections, &(&1.id == "request")))
+      )
       |> assign(
         :input_sections,
         Enum.filter(request.sections, &(&1.id in ~w(instructions context)))
       )
       |> assign(
         :technical_sections,
-        Enum.reject(request.sections, &(&1.id in ~w(instructions context)))
+        Enum.reject(
+          request.sections,
+          &(&1.id in ~w(instructions context) ||
+              (request.phase == :submission && &1.id == "request"))
+        )
       )
 
     ~H"""
@@ -38,12 +43,6 @@ defmodule Responder.ControlPlane.EpisodeRequest do
         </div>
       </div>
       <p :if={@explanation} class="request-explanation">{@explanation}</p>
-      <div :if={@routing_result} id={@routing_result.id} class="routing-outcome">
-        <strong>{@routing_label}</strong>
-        <time :if={@routing_result.at} title={Components.timestamp(@routing_result.at)}>
-          Decided {Calendar.strftime(@routing_result.at, "%H:%M:%S")}
-        </time>
-      </div>
       <section
         :if={@applied != []}
         class="applied-context"
@@ -84,6 +83,21 @@ defmodule Responder.ControlPlane.EpisodeRequest do
           </details>
         <% end %>
       </div>
+      <details :if={@prompt_section} class="final-prompt" id={"#{@request.id}-final-prompt"}>
+        <summary>
+          Full submitted prompt
+          <span :if={@prompt_section.artifact.redacted}>Secrets redacted</span><span :if={
+            @prompt_section.artifact.truncated
+          }>Partial display</span>
+        </summary>
+        <p :if={@prompt_section.artifact.state == :retained} class="prompt-legend">
+          Highlighted text is linked to its briefing source. Hover or focus a section to see its source path.
+        </p>
+        <p :if={@prompt_section.artifact.state != :retained}>
+          {if @prompt_section.artifact.state == :expired, do: "Expired", else: "Not recorded"}
+        </p>
+        {Phoenix.HTML.raw(PromptDocument.render(@prompt_section.artifact))}
+      </details>
       <details
         :if={@result?}
         class="request-evidence request-result-evidence"
@@ -102,10 +116,6 @@ defmodule Responder.ControlPlane.EpisodeRequest do
         <.artifact_text
           :for={section <- @technical_sections}
           :if={!@result?}
-          section={section}
-        />
-        <.artifact_text
-          :for={section <- (@routing_result && @routing_result.sections) || []}
           section={section}
         />
       </details>
@@ -226,7 +236,7 @@ defmodule Responder.ControlPlane.EpisodeRequest do
 
   defp preference_entries(_), do: []
 
-  defp headline(%{phase: :submission, source_kind: :admission}), do: "Routing input"
+  defp headline(%{phase: :submission, source_kind: :admission}), do: "Routing briefing"
   defp headline(%{phase: :submission}), do: "Model briefing"
 
   defp headline(%{source_kind: :admission} = request) do

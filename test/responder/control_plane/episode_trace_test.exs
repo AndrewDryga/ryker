@@ -1,4 +1,6 @@
 defmodule Responder.ControlPlane.EpisodeTraceTest do
+  alias Responder.ControlPlane.EpisodeTrace
+  alias Responder.ControlPlane.ModelRequests
   use Responder.DataCase, async: true
 
   import Ecto.Query
@@ -42,6 +44,44 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
     assert {:ok, detail} = Projection.episode(episode.key)
     metric = Enum.find(detail.trace.metrics, &(&1.label == "Elapsed"))
     assert metric.value == "2.3m"
+  end
+
+  test "preparing an input question is work, not proof a question was sent" do
+    # The real infrastructure trace jumped answer -> work -> answer before its first delivery.
+    {_entry, episode} = admitted_input!()
+
+    record = %Responder.State.Record{
+      id: Ecto.UUID.generate(),
+      kind: "input_request",
+      status: :answered,
+      inserted_at: @received,
+      payload: %{
+        "reason" => "Available cloud service diagnostics require an explicit project ID.",
+        "questions" => [%{"question" => "Which Google Cloud project ID should I check?"}]
+      }
+    }
+
+    trace = EpisodeTrace.project(episode, [], [record])
+    step = Enum.find(trace.steps, &String.starts_with?(&1.id, "record-"))
+    assert step.band == :work
+    assert step.title == "Question prepared"
+    refute step.summary =~ "Reply below"
+  end
+
+  test "admission links resolve to the episode they actually joined" do
+    {entry, episode} = admitted_input!()
+
+    assert {:ok, %{episode_ref: ref}} =
+             ModelRequests.project_input(entry.id, %{})
+
+    assert ref == episode.key
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+
+    assert Enum.all?(timeline.items, fn request ->
+             request.source_kind != :admission ||
+               (request.href =~ "/requests?" && request.href =~ "kind=admission" &&
+                  request.href =~ entry.id)
+           end)
   end
 
   test "a follow-up turn cannot erase an earlier delivered answer" do
