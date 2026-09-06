@@ -33,6 +33,9 @@ defmodule Responder.ControlPlane.ReadabilityTest do
     assert header =~ "background:transparent"
     assert header =~ "position:static"
     assert header =~ "padding:0"
+    [_, footer] = Regex.run(~r/^\.memory-card footer \{([^}]+)\}/m, css)
+    assert footer =~ "padding:12px 0 0"
+    assert footer =~ "margin:16px 0 0"
   end
 
   test "chapters preserve late follow-ups and tied activity in execution order" do

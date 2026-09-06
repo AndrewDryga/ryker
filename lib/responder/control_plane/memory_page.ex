@@ -47,7 +47,10 @@ defmodule Responder.ControlPlane.MemoryPage do
         <article :for={item <- @view.items} class="memory-card" id={"memory-#{item.id}"}>
           <header>
             <h2>{if item.title == "", do: item.conversation, else: item.title}</h2>
-            <time>{Calendar.strftime(item.updated_at, "%d %b, %H:%M UTC")}</time>
+            <time datetime={DateTime.to_iso8601(item.at)}>{Calendar.strftime(
+              item.at,
+              "%d %b, %H:%M UTC"
+            )}</time>
           </header>
           <p class="memory-source"><a href={item.conversation_path}>{item.conversation}</a>
             <span :if={item.repository}>{item.repository}</span></p>
