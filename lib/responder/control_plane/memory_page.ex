@@ -63,6 +63,9 @@ defmodule Responder.ControlPlane.MemoryPage do
           <footer>
             <a :if={item.source} href={item.source} rel="noopener noreferrer">Source message →</a>
             <a :if={item.request_path} href={item.request_path}>Source request →</a>
+            <span class="memory-expiry">Retention: {if item.expires_at,
+              do: "until " <> Calendar.strftime(item.expires_at, "%d %b %Y"),
+              else: "automatic expiry is not configured"}</span>
           </footer>
         </article>
       </div>

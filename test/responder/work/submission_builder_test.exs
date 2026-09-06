@@ -35,7 +35,7 @@ defmodule Responder.Work.SubmissionBuilderTest do
       "actor" => %{"kind" => "user", "ref" => "U123"},
       "content" => %{"text" => "Please acknowledge this."},
       "destination" => %{
-        "conversation_ref" => "slack:T123:C456",
+        "conversation_ref" => "slack:TD0983425B9D3:C456",
         "thread_ref" => "1787832000.000100",
         "transport" => "slack"
       },
@@ -45,7 +45,7 @@ defmodule Responder.Work.SubmissionBuilderTest do
       "occurred_at" => DateTime.to_iso8601(@now),
       "occurred_at_source" => "source",
       "revision" => 1,
-      "source" => %{"kind" => "slack", "ref" => "T123"},
+      "source" => %{"kind" => "slack", "ref" => "TD0983425B9D3"},
       "source_capabilities" => %{"react" => %{"emoji_names" => nil}},
       "source_item_ref" => "1787832001.000200"
     }
@@ -54,7 +54,7 @@ defmodule Responder.Work.SubmissionBuilderTest do
       claim_episode_payload!("slack-source-ref", payload,
         episode_id: id,
         destination: %{
-          conversation_ref: "slack:T123:C456",
+          conversation_ref: "slack:TD0983425B9D3:C456",
           thread_ref: "1787832000.000100",
           transport: "slack"
         }
@@ -64,7 +64,7 @@ defmodule Responder.Work.SubmissionBuilderTest do
     assert [input] = submission["context"]["inputs"]["items"]
 
     assert input["source_ref"] ==
-             SourceRef.message("T123", "C456", "1787832001.000200")
+             SourceRef.message("TD0983425B9D3", "C456", "1787832001.000200")
   end
 
   test "a GitHub briefing exposes an opaque exact comment ref for native emoji actions" do
@@ -475,7 +475,7 @@ defmodule Responder.Work.SubmissionBuilderTest do
                media_type: "text/plain",
                name: "current.txt",
                source_kind: "slack",
-               source_ref: "T123:F-current"
+               source_ref: "TD0983425B9D3:F-current"
              })
 
     first =
@@ -495,7 +495,7 @@ defmodule Responder.Work.SubmissionBuilderTest do
                media_type: "text/plain",
                name: "future.txt",
                source_kind: "slack",
-               source_ref: "T123:F-future"
+               source_ref: "TD0983425B9D3:F-future"
              })
 
     assert {:ok, _queued} =

@@ -77,6 +77,28 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
              "historical prompt"
   end
 
+  test "inline briefing retains the entire submitted context past sixteen kilobytes" do
+    # The replay hid most of the frozen admission context behind 'Partial display'.
+    {episode, turn, original} = frozen_turn!()
+    prompt = Jason.decode!(original)
+
+    context =
+      Map.put(prompt["work"], "large_context", String.duplicate("retained context ", 12_000))
+
+    submission =
+      Map.put(turn.submission, "prompt", Jason.encode!(Map.put(prompt, "work", context)))
+
+    turn |> Ecto.Changeset.change(submission: submission) |> Repo.update!()
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+    request = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}"))
+
+    for id <- ["context", "request"] do
+      artifact = Enum.find(request.sections, &(&1.id == id)).artifact
+      refute artifact.truncated
+      assert {:ok, _} = Jason.decode(artifact.text)
+    end
+  end
+
   test "the continuous timeline includes frozen instructions and context together with bounded redaction" do
     {episode, turn, _prompt} = frozen_turn!()
     assert {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
@@ -176,7 +198,8 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
     assert html =~ "Model execution"
     assert html =~ "Processing"
     assert html =~ "1.0 s"
-    assert html =~ "Host validation and repair history"
+    refute html =~ "Host validation and repair history"
+    assert html =~ "Response to validate"
   end
 
   test "a truncated context remains readable inline instead of becoming an empty document" do

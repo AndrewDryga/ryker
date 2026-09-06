@@ -16,6 +16,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   alias Responder.ControlPlane.Card
   alias Responder.ControlPlane.CurrentInputs
   alias Responder.ControlPlane.InspectionRedactor
+  alias Responder.ControlPlane.SourceText
   alias Responder.CoopFleet.Event, as: CoopEvent
   alias Responder.Delivery.PlatformAction
   alias Responder.Episodes.{Episode, Event}
@@ -139,7 +140,10 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
     %{
       title:
-        if(first && first.available, do: bounded(first.text, 180), else: "Episode case file"),
+        if(first && first.available,
+          do: first.text |> String.split("\n", parts: 2) |> hd() |> bounded(120),
+          else: "Episode case file"
+        ),
       expired_at: Enum.find_value(messages, & &1.expired_at),
       messages: messages,
       repository: first && first.repository,
@@ -163,6 +167,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         id: turn.id,
         at: turn.delivered_at || turn.accepted_at || turn.inserted_at,
         actor: "Responder",
+        delivery_ref: turn.delivery_ref,
+        delivered: not is_nil(turn.delivered_at),
         status: case_reply_status(turn),
         text: artifact.text,
         available: artifact.state == :retained,
@@ -180,7 +186,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
           do:
             if(input.event_kind == :delete,
               do: "Message deleted",
-              else: case_source_text(input.content)
+              else: SourceText.from_content(input.content)
             )
         ),
         Keyword.put(options, :expired, not is_nil(input.operational_pruned_at))
@@ -205,53 +211,13 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     }
   end
 
-  defp case_source_text(%{} = content) do
-    text = content["text"]
+  defp case_reply_status(%{
+         delivered_at: %DateTime{},
+         external_receipt: %{"message_ref" => "eval-message:" <> _}
+       }),
+       do: "Response captured in private replay"
 
-    blocks =
-      if is_binary(text) and String.trim(text) != "", do: [], else: source_list(content["blocks"])
-
-    [text | Enum.flat_map(source_list(content["attachments"]), &attachment_text/1)]
-    |> Kernel.++(Enum.flat_map(blocks, &block_text/1))
-    |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
-    |> Enum.uniq()
-    |> case do
-      [] -> source_payload_text(content["payload"])
-      parts -> Enum.join(parts, "\n\n")
-    end
-  end
-
-  defp case_source_text(_content), do: nil
-
-  defp source_list(value) when is_list(value), do: value
-  defp source_list(_), do: []
-
-  defp source_payload_text(%{} = payload),
-    do: Enum.find_value(~w(comment review issue pull_request), &case_body(payload[&1]))
-
-  defp source_payload_text(_), do: nil
-
-  defp attachment_text(%{} = attachment) do
-    parts =
-      (Enum.map(~w(pretext title text), &attachment[&1]) ++
-         Enum.flat_map(source_list(attachment["blocks"]), &block_text/1))
-      |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
-
-    if parts == [], do: [attachment["fallback"]], else: parts
-  end
-
-  defp attachment_text(_), do: []
-  defp block_text(%{"text" => %{"text" => text}}), do: [text]
-  defp block_text(%{"text" => text}) when is_binary(text), do: [text]
-
-  defp block_text(%{"elements" => elements}) when is_list(elements),
-    do: Enum.flat_map(elements, &block_text/1)
-
-  defp block_text(_), do: []
-
-  defp case_body(%{"body" => body}) when is_binary(body), do: body
-  defp case_body(_body), do: nil
-  defp case_reply_status(%{delivered_at: %DateTime{}}), do: "Delivery confirmed"
+  defp case_reply_status(%{delivered_at: %DateTime{}}), do: "Response sent"
   defp case_reply_status(%{accepted_at: %DateTime{}}), do: "Accepted · delivery not confirmed"
   defp case_reply_status(_turn), do: nil
 
@@ -326,6 +292,9 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         event.occurred_at,
         %{
           actor: "Episode kernel",
+          input_id: input && input.id,
+          delivery_ref: get_in(event.payload || %{}, ["expected_delivery_ref"]),
+          result_ref: get_in(event.payload || %{}, ["result_ref"]),
           details: kernel_details(event, input),
           stage: kernel_stage(event.kind),
           state: event.kind,
@@ -352,10 +321,6 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       {"Actor", join_ref(input.actor_kind, input.actor_ref)},
       {"Event", input.event_kind},
       {"Revision", input.revision},
-      {"Admission", input.status},
-      {"Decision", input.decision_action},
-      {"Repository", input.repository_ref},
-      {"Policy", input.work_policy},
       {"Message", source_text(input)},
       {"Attachments", source_attachments(input)},
       {"Fingerprint", short_digest(event.fingerprint)}
@@ -377,18 +342,13 @@ defmodule Responder.ControlPlane.EpisodeTrace do
               {"Policy", session.policy},
               {"Repository", session.repository_ref},
               {"Generation", session.generation},
-              {"Coop session", session.coop_session_id},
-              {"Authority", short_digest(session.authority_digest)},
-              {"Policy digest", short_digest(session.policy_digest)},
-              {"Workspace target", target},
-              {"Cleanup", session.cleanup_status},
-              {"Retained reason", session.retained_reason}
+              {"Workspace target", target}
             ]),
           stage: "Preparation",
-          state: session.cleanup_status,
+          state: "",
           summary: session_summary(session, target),
-          title: "Work session configured",
-          tone: state_tone(session.cleanup_status)
+          title: "Workspace selected",
+          tone: nil
         }
       )
     end)
@@ -401,7 +361,6 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     |> Enum.with_index(1)
     |> Enum.flat_map(fn {turn, ordinal} ->
       session = Map.get(sessions_by_id, turn.session_id)
-      context = submission_context(turn.submission)
 
       prepared =
         step(
@@ -413,29 +372,14 @@ defmodule Responder.ControlPlane.EpisodeTrace do
             details:
               compact_details([
                 {"Turn", turn.turn_ref},
-                {"Coop turn", turn.coop_turn_id},
                 {"Policy", session && session.policy},
-                {"Repository", session && session.repository_ref},
-                {"Context mode", context.mode},
-                {"Inputs", context.inputs},
-                {"Omitted inputs", context.omitted_inputs},
-                {"Context sections", context.sections},
-                {"State tools", context.state_tools},
-                {"Source/action tools", context.platform_tools},
-                {"Input artifacts", context.artifacts},
-                {"Prompt", prompt_state(turn)},
-                {"Prompt bytes", prompt_bytes(turn.submission)},
-                {"Prompt digest", prompt_digest(turn.submission)},
-                {"Context digest", context_digest(turn.submission)},
-                {"Output schema", schema_digest(turn.submission)},
-                {"Submission", short_digest(turn.submission_fingerprint)},
-                {"Contract", submission_contract(turn.submission)}
+                {"Repository", session && session.repository_ref}
               ]),
             stage: "Routing",
-            state: turn.status,
-            summary: turn_prepared_summary(turn, session),
-            title: "Turn #{ordinal} prepared",
-            tone: state_tone(turn.status)
+            state: "",
+            summary: "The new input was queued for model work.",
+            title: "Turn #{ordinal} queued",
+            tone: nil
           }
         )
 
@@ -448,7 +392,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     end)
   end
 
-  defp work_step(%Turn{remote_started_at: nil}, _ordinal), do: nil
+  defp work_step(%Turn{remote_finished_at: nil}, _ordinal), do: nil
 
   defp work_step(turn, ordinal) do
     step(
@@ -471,7 +415,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         stage: "Execution",
         state: work_state(turn),
         summary: work_summary(turn),
-        title: "Turn #{ordinal} model work",
+        title: "Turn #{ordinal} finished",
         tone: state_tone(work_state(turn))
       }
     )
@@ -509,7 +453,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       candidate_sha256: entry["candidate_sha256"],
       intent_fingerprint: entry["intent_fingerprint"],
       parse: entry["parse"],
-      receipt: if(verdict == "accept", do: turn.validation_receipt),
+      receipt: nil,
       response_bytes: entry["response_bytes"],
       verdict: verdict,
       violations: violations
@@ -537,7 +481,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     verdict = Keyword.fetch!(options, :verdict)
     violations = Keyword.fetch!(options, :violations)
     attempt = Keyword.fetch!(options, :attempt)
-    state = verdict || if(turn.validation_receipt, do: "accepted", else: "candidate recorded")
+    state = verdict || "candidate recorded"
     title = if(verdict == "reject", do: "Answer rejected", else: "Answer validated")
 
     step(
@@ -550,14 +494,11 @@ defmodule Responder.ControlPlane.EpisodeTrace do
           compact_details([
             {"Turn", ordinal},
             {"Candidate attempt", attempt},
-            {"Candidate", short_digest(Keyword.fetch!(options, :candidate_sha256))},
             {"Response bytes", Keyword.fetch!(options, :response_bytes)},
             {"Parse", Keyword.fetch!(options, :parse)},
             {"Verdict", verdict},
             {"Violations", Enum.join(violations, " · ")},
-            {"Validation intent", short_digest(Keyword.fetch!(options, :intent_fingerprint))},
-            {"Validation receipt", receipt_state(Keyword.fetch!(options, :receipt))},
-            {"Final preflight", preflight_state(turn)}
+            {"Result", if(verdict == "accept", do: "Passed the response checks")}
           ]),
         stage: "Validation",
         state: state,
@@ -577,14 +518,14 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       turn.accepted_at,
       %{
         actor: "Responder",
+        result_ref: turn.result_ref,
         details:
           compact_details([
             {"Result", turn.result_ref},
             {"Delivery", delivery_kind(turn.delivery_document)},
             {"Artifacts", outcome_count(turn.delivery_document, "artifact_refs")},
             {"Records", outcome_count(turn.delivery_document, "record_refs")},
-            {"Outcome", get_in(turn.delivery_document || %{}, ["outcome", "state"])},
-            {"Reply preview", accepted_reply(turn.delivery_document)}
+            {"Outcome", get_in(turn.delivery_document || %{}, ["outcome", "state"])}
           ]),
         stage: "Result",
         state: "accepted",
@@ -610,6 +551,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       turn.delivered_at || turn.updated_at,
       %{
         actor: delivery_actor(turn.external_receipt),
+        delivery_ref: turn.delivery_ref,
         details:
           compact_details([
             {"Turn", ordinal},
@@ -633,7 +575,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     |> Enum.with_index(1)
     |> Enum.map(fn {record, index} ->
       card =
-        case Card.project(record) do
+        case Card.project(%{record | status: :open, updated_at: record.inserted_at}) do
           {:ok, projected} -> projected
           :ignore -> nil
         end
@@ -644,13 +586,14 @@ defmodule Responder.ControlPlane.EpisodeTrace do
         record.inserted_at,
         %{
           actor: "Responder state",
+          record_ref: record.ref,
           details: compact_details(record_details(record, card)),
           href: record_href(record),
           stage: record_stage(record.kind),
-          state: record.status,
+          state: "",
           summary: record_summary(record, card),
           title: record_title(record, card),
-          tone: state_tone(record.status)
+          tone: nil
         }
       )
     end)
@@ -720,7 +663,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
     case Map.pop(open, key) do
       {nil, open} -> {steps ++ [tool_completed_step(event)], open}
-      {index, open} -> {List.update_at(steps, index, &complete_tool(&1, event)), open}
+      {index, open} -> {steps ++ [complete_tool(Enum.at(steps, index), event)], open}
     end
   end
 
@@ -744,7 +687,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
             ] ++ activity_tool_details(input)
           ),
         stage: "Tool call",
-        state: "running",
+        tool_kind: event.payload["kind"],
+        state: "started",
         summary: activity_tool_summary(input),
         title: activity_tool_title(event.payload),
         tone: nil
@@ -769,6 +713,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
             {"Status", status}
           ]),
         stage: "Tool call",
+        tool_kind: event.payload["kind"],
         state: status,
         summary: tool_outcome(event.payload, status),
         title: event.payload["title"] || "Tool completion recorded",
@@ -783,7 +728,9 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
     %{
       step
-      | artifacts: merge_artifacts(step[:artifacts] || [], tool_artifacts(event.payload)),
+      | id: "activity-#{event.id}",
+        at: event.occurred_at,
+        artifacts: merge_artifacts(step[:artifacts] || [], tool_artifacts(event.payload)),
         summary: tool_outcome(event.payload, status),
         details:
           step.details ++
@@ -1491,11 +1438,16 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp step(id, band, at, attributes) do
     %{
       actor: human(Map.fetch!(attributes, :actor)),
+      input_id: Map.get(attributes, :input_id),
+      record_ref: Map.get(attributes, :record_ref),
+      result_ref: Map.get(attributes, :result_ref),
+      delivery_ref: Map.get(attributes, :delivery_ref),
       artifacts: Map.get(attributes, :artifacts, []),
       at: at,
       band: band,
       details: Map.fetch!(attributes, :details),
       duration_ms: Map.get(attributes, :duration_ms),
+      tool_kind: Map.get(attributes, :tool_kind),
       href: Map.get(attributes, :href),
       id: id,
       stage: human(Map.fetch!(attributes, :stage)),
@@ -1596,6 +1548,10 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp record_title(%Record{kind: "input_request"}, _card), do: "Question prepared"
   defp record_title(%Record{kind: "event_wait"}, _card), do: "Wait prepared"
   defp record_title(%Record{kind: "goal"}, _card), do: "Goal recorded"
+
+  defp record_title(%Record{kind: "evidence"}, %{title: title}),
+    do: "Evidence recorded · #{title}"
+
   defp record_title(%Record{kind: "goal_state"}, %{title: title}), do: "Goal · #{title}"
 
   defp record_title(_record, %{label: label, title: title}) when is_binary(title),
@@ -1614,7 +1570,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     do: [{"Record", record.ref}, {"Operation", record.operation_id}]
 
   defp record_details(record, card) do
-    [{"Record", record.ref}, {"Operation", record.operation_id}, {"Status", record.status}] ++
+    [{"Record", record.ref}, {"Operation", record.operation_id}] ++
       Map.get(card, :details, [])
   end
 
@@ -1659,18 +1615,8 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   defp schedule_summary(%Schedule{status: status}), do: "Schedule is #{human(status)}."
 
-  defp turn_prepared_summary(turn, session) do
-    target = turn.execution_target || "target recorded after completion"
-    policy = session && session.policy
-    [target, policy && "policy #{policy}"] |> Enum.reject(&is_nil/1) |> Enum.join(" · ")
-  end
-
-  defp work_state(%Turn{status: :blocked}), do: "failed"
   defp work_state(%Turn{remote_finished_at: nil}), do: "running"
   defp work_state(_turn), do: "finished"
-
-  defp work_summary(%Turn{status: :blocked, last_error_code: code}),
-    do: "The remote turn stopped#{if(code, do: ": #{human(code)}", else: "")}."
 
   defp work_summary(%Turn{remote_finished_at: nil}),
     do: "The provider is still handling this turn."
@@ -1682,17 +1628,17 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   defp validation_summary("reject", violations, _turn), do: Enum.join(violations, " ")
 
-  defp validation_summary(_verdict, _violations, %Turn{validation_receipt: receipt})
-       when is_binary(receipt), do: "The exact candidate passed host validation."
+  defp validation_summary("accept", _violations, _turn),
+    do: "The response passed the checks for this attempt."
 
   defp validation_summary(_verdict, _violations, _turn),
     do: "A candidate reached the host validation boundary."
 
   defp delivery_summary(%{"delivery" => "reply", "message" => message}) when is_binary(message),
-    do: message |> redact_operator_text() |> bounded(280)
+    do: "Responder accepted this response for delivery."
 
   defp delivery_summary(%{"message" => message}) when is_binary(message),
-    do: message |> redact_operator_text() |> bounded(280)
+    do: "Responder accepted this response for delivery."
 
   defp delivery_summary(%{"delivery" => "none", "decision_reason" => reason})
        when is_binary(reason),
@@ -1716,14 +1662,6 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp delivery_kind(%{}), do: "reply"
   defp delivery_kind(_document), do: nil
 
-  defp accepted_reply(%{"delivery" => "reply", "message" => message}) when is_binary(message),
-    do: message |> redact_operator_text() |> bounded(1_024)
-
-  defp accepted_reply(%{"message" => message}) when is_binary(message),
-    do: message |> redact_operator_text() |> bounded(1_024)
-
-  defp accepted_reply(_document), do: nil
-
   defp outcome_count(document, key) do
     case get_in(document || %{}, ["outcome", key]) do
       values when is_list(values) -> length(values)
@@ -1731,92 +1669,11 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     end
   end
 
-  defp receipt_state(nil), do: nil
-  defp receipt_state(_receipt), do: "recorded"
-
-  defp preflight_state(%Turn{final_preflight_candidate_sha256: value}) when is_binary(value),
-    do: "recorded"
-
-  defp preflight_state(_turn), do: nil
-
   defp measurement_state(%Turn{timing_recorded: true, usage_recorded: true}),
     do: "usage and timing recorded"
 
   defp measurement_state(%Turn{timing_recorded: true}), do: "timing recorded; usage unmeasured"
   defp measurement_state(_turn), do: "unmeasured"
-
-  defp submission_context(%{"context" => context} = submission) when is_map(context) do
-    %{
-      artifacts:
-        submission
-        |> Map.get("input_artifact_refs", [])
-        |> bounded_strings()
-        |> Enum.join(" · "),
-      inputs: context_input_count(context),
-      mode: context["mode"],
-      omitted_inputs: context_omitted_count(context),
-      platform_tools: list_count(context["source_and_action_tools"], "tools"),
-      sections: context |> Map.keys() |> Enum.sort() |> Enum.join(" · "),
-      state_tools: list_count(context["responder_state_tools"], "tools")
-    }
-  end
-
-  defp submission_context(_submission),
-    do: %{
-      artifacts: nil,
-      inputs: nil,
-      mode: nil,
-      omitted_inputs: nil,
-      platform_tools: nil,
-      sections: nil,
-      state_tools: nil
-    }
-
-  defp submission_contract(%{"contract_version" => value}), do: value
-  defp submission_contract(_submission), do: nil
-
-  defp context_input_count(%{"inputs" => %{"items" => values}}) when is_list(values),
-    do: plural(length(values), "input")
-
-  defp context_input_count(%{"current_inputs" => %{"items" => values}}) when is_list(values),
-    do: plural(length(values), "input")
-
-  defp context_input_count(_context), do: nil
-
-  defp context_omitted_count(%{"inputs" => %{"omitted_count" => value}}), do: value
-
-  defp context_omitted_count(%{"current_inputs" => %{"omitted_count" => value}}), do: value
-
-  defp context_omitted_count(_context), do: nil
-
-  defp list_count(values, label) when is_list(values), do: "#{length(values)} #{label}"
-  defp list_count(_values, _label), do: nil
-
-  defp prompt_state(%Turn{submission: %{"prompt" => prompt}}) when is_binary(prompt),
-    do: "retained; open model request inspector"
-
-  defp prompt_state(%Turn{operational_pruned_at: %DateTime{} = at}),
-    do: "expired #{DateTime.to_iso8601(at)}; digest retained"
-
-  defp prompt_state(_turn), do: "unrecorded"
-
-  defp prompt_bytes(%{"prompt" => prompt}) when is_binary(prompt), do: byte_size(prompt)
-  defp prompt_bytes(_submission), do: nil
-
-  defp prompt_digest(%{"prompt" => prompt}) when is_binary(prompt),
-    do: prompt |> sha256() |> short_digest()
-
-  defp prompt_digest(_submission), do: nil
-
-  defp context_digest(%{"context" => context}) when is_map(context),
-    do: context |> CanonicalJSON.digest() |> short_digest()
-
-  defp context_digest(_submission), do: nil
-
-  defp schema_digest(%{"output_schema" => schema}) when is_map(schema),
-    do: schema |> CanonicalJSON.digest() |> short_digest()
-
-  defp schema_digest(_submission), do: nil
 
   defp candidate_parse(candidate) when is_binary(candidate) do
     case Jason.decode(candidate) do
@@ -2122,8 +1979,11 @@ defmodule Responder.ControlPlane.EpisodeTrace do
 
   defp session_summary(session, target) do
     case session.repository_ref || target do
-      nil -> "No repository working copy was requested."
-      repository -> "Repository selected: #{repository}."
+      nil ->
+        "No repository working copy was requested."
+
+      repository ->
+        "#{repository} was supplied by this input's configured work profile. Routing chooses the work class; it does not choose an arbitrary repository."
     end
   end
 

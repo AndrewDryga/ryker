@@ -1196,9 +1196,7 @@ defmodule Responder.ControlPlane.RouterTest do
           {"/channels", "Slack conversation roster"},
           {"/channels/T123/C456", "Conversation continuity"},
           {"/repositories", "Where Responder can work"},
-          {"/calibration?window=30d", "Compare speed and reliability"},
           {"/workspaces", "Workspaces"},
-          {"/decisions", "Decisions"},
           {"/findings", "Findings"}
         ] do
       conn = request(:get, path)
@@ -1219,6 +1217,14 @@ defmodule Responder.ControlPlane.RouterTest do
     assert memory.resp_body =~ "href=\"/guidance\""
     assert memory.resp_body =~ "scope workspace (slack:T123); visibility workspace"
     assert memory.resp_body =~ "Keep separate"
+  end
+
+  test "superseded decisions and calibration pages are removed without redirects" do
+    for path <- ["/decisions", "/calibration"] do
+      conn = request(:get, path)
+      assert conn.status == 404
+      assert get_resp_header(conn, "location") == []
+    end
   end
 
   test "behavior and schedule changes require their own current typed confirmation" do
@@ -1682,30 +1688,6 @@ defmodule Responder.ControlPlane.RouterTest do
             source: "/etc/responder.yaml"
           }
         end,
-        calibration: fn _params ->
-          %{
-            rows: [
-              %{
-                attempts: 2,
-                average_host_ms: 250,
-                average_provider_ms: 5_000,
-                average_queued_ms: 100,
-                class: "standard",
-                cost_usd: Decimal.new("0.02"),
-                costed: 2,
-                effort: "medium",
-                measured: 2,
-                model: "gpt-5.6-sol",
-                provider: "codex",
-                repair_rounds: 1,
-                target: "codex:gpt-5.6-sol/medium@work",
-                timed: 2,
-                tokens: 4_200
-              }
-            ],
-            window: "30d"
-          }
-        end,
         channels: fn _params ->
           [
             %{
@@ -1776,7 +1758,6 @@ defmodule Responder.ControlPlane.RouterTest do
           _workspace, _channel ->
             :not_found
         end,
-        decisions: fn _params -> [] end,
         delivery: fn
           "delivery:one" ->
             {:ok,

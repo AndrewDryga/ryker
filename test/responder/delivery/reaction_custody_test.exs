@@ -1,6 +1,10 @@
 defmodule Responder.Delivery.ReactionCustodyTest do
   use Responder.DataCase, async: true
 
+  # Six async suites once shared T123:C456: sandbox transactions held the
+  # conversation lock until test exit and cascaded into 15-second timeouts.
+  # Keep this fixture's workspace distinct; production locks remain unchanged.
+
   @moduletag isolation: "REPEATABLE READ"
 
   alias Responder.Admission
@@ -26,7 +30,7 @@ defmodule Responder.Delivery.ReactionCustodyTest do
     assert pending.decision_ref == "decision:reaction-custody"
     assert pending.document == %{"emoji_name" => "eyes"}
     assert pending.transport == "slack"
-    assert pending.conversation_ref == "slack:T123:C456"
+    assert pending.conversation_ref == "slack:TREACTIONCUSTODY:C456"
     assert pending.thread_ref == "1787832000.000100"
     assert pending.source_item_ref == "1787832001.000200"
 
@@ -49,7 +53,7 @@ defmodule Responder.Delivery.ReactionCustodyTest do
              DeliveryReceipt.new(
                pending.delivery_ref,
                "slack",
-               "slack:T123:C999",
+               "slack:TREACTIONCUSTODY:C999",
                pending.thread_ref,
                pending.source_item_ref
              )
@@ -219,7 +223,7 @@ defmodule Responder.Delivery.ReactionCustodyTest do
                occurred_at: @now,
                revision: 1,
                thread_ref: "1787832000.000100",
-               workspace_ref: "T123"
+               workspace_ref: "TREACTIONCUSTODY"
              })
 
     assert {:ok, %{entry: entry, status: :recorded}} =

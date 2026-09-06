@@ -76,7 +76,7 @@ defmodule Responder.ControlPlane.EpisodePage do
         </p>
       </section>
       <nav class="case-actions" aria-label="Execution actions">
-        <a href={outcome_anchor(@snapshot)}>Jump to latest outcome ↓</a>
+        <a href={if(@requests, do: base(@snapshot), else: "") <> outcome_anchor(@snapshot)}>Jump to latest outcome ↓</a>
         <.action_button
           :for={action <- @snapshot.trace.actions}
           path={action.href}
@@ -98,6 +98,7 @@ defmodule Responder.ControlPlane.EpisodePage do
           </ul>
         </details>
       </section>
+      <p :if={@requests}><.link patch={base(@snapshot)}>← Back to the episode timeline</.link></p>
       <details :if={@requests} open class="specific-request">
         <summary>Selected request · exact retained artifact</summary>
         <Responder.ControlPlane.RequestPage.render
@@ -106,7 +107,12 @@ defmodule Responder.ControlPlane.EpisodePage do
           path={base(@snapshot) <> "/requests"}
         />
       </details>
-      <section class="case-timeline" id="execution-timeline" aria-label="Complete execution timeline">
+      <section
+        :if={!@requests}
+        class="case-timeline"
+        id="execution-timeline"
+        aria-label="Complete execution timeline"
+      >
         <h2 class="sr-only">Execution timeline</h2>
         <p :if={@snapshot.trace.history.truncated || @timeline.truncated} class="timeline-bound">
           History is bounded. Older model requests are available under “All model requests” in the technical record below. Long artifacts are labeled when truncated.
@@ -214,7 +220,11 @@ defmodule Responder.ControlPlane.EpisodePage do
       </div>
       <div class="case-entry-body">
         <.message :if={@entry.kind == :message} message={@entry.message} />
-        <.event :if={@entry.kind == :event} step={@entry.step} />
+        <Responder.ControlPlane.ToolCard.render
+          :if={@entry.kind == :event && @entry.step.stage == "Tool call"}
+          step={@entry.step}
+        />
+        <.event :if={@entry.kind == :event && @entry.step.stage != "Tool call"} step={@entry.step} />
         <EpisodeRequest.render :if={@entry.kind == :request} request={@entry} />
       </div>
     </article>
@@ -300,7 +310,8 @@ defmodule Responder.ControlPlane.EpisodePage do
 
   defp show_event_state?(step),
     do:
-      (step.stage != "Preparation" || step.tone in [:bad, :warn]) &&
+      step.state not in [nil, ""] &&
+        step.stage not in ["Preparation", "Execution", "Evidence"] &&
         String.downcase(label(step.state)) != String.downcase(event_title(step))
 
   defp event_title(%{stage: "Tool call", title: "Tool call", summary: summary})
@@ -351,6 +362,14 @@ defmodule Responder.ControlPlane.EpisodePage do
   defp duration(ms), do: "#{Float.round(ms / 1_000, 1)} s"
 
   defp entries(snapshot, timeline) do
+    record_links =
+      for step <- snapshot.trace.steps,
+          step[:record_ref],
+          into: %{},
+          do: {step.record_ref, %{href: "#event-#{step.id}", title: step.title}}
+
+    requests = Enum.map(timeline.items, &Map.put(&1, :record_links, record_links))
+
     messages =
       Enum.map(snapshot.trace.case_file.conversation, fn message ->
         %{
@@ -362,14 +381,61 @@ defmodule Responder.ControlPlane.EpisodePage do
         }
       end)
 
+    copies = visible_copies(snapshot.trace.steps, messages, timeline.items)
+
     steps =
-      Enum.map(snapshot.trace.steps, fn step ->
+      snapshot.trace.steps
+      |> Enum.reject(&redundant_step?(&1, copies))
+      |> Enum.map(fn step ->
         %{id: "event-#{step.id}", at: step.at, kind: :event, step: step, band: step.band}
       end)
 
     # Stable sort preserves the trace's numeric sequence/lifecycle ordering on ties.
-    Enum.sort_by(messages ++ steps ++ timeline.items, &unix(&1.at))
+    Enum.sort_by(messages ++ steps ++ requests, &unix(&1.at))
   end
+
+  defp visible_copies(steps, messages, requests) do
+    input_ids = for %{message: message} <- messages, message.actor != "Responder", do: message.id
+
+    delivery_refs =
+      for %{message: message} <- messages,
+          delivered_message?(message),
+          do: message.delivery_ref
+
+    briefing_ids =
+      for %{phase: :submission, source_kind: :work} = item <- requests, do: item.id
+
+    result_refs =
+      for step <- steps,
+          String.starts_with?(step.id, "turn-") && step.stage == "Result" && step[:result_ref],
+          do: step.result_ref
+
+    %{
+      input_ids: input_ids,
+      result_refs: result_refs,
+      delivery_refs: delivery_refs,
+      briefing_ids: briefing_ids
+    }
+  end
+
+  defp delivered_message?(message),
+    do:
+      message.actor == "Responder" && message[:delivery_ref] &&
+        (message[:delivered] || message[:status] == "Response sent")
+
+  defp redundant_step?(%{state: "input admitted"} = step, copies),
+    do: step[:input_id] in copies.input_ids
+
+  defp redundant_step?(%{state: "result accepted"} = step, copies),
+    do: step[:result_ref] in copies.result_refs
+
+  defp redundant_step?(%{stage: "Delivery"} = step, copies),
+    do: step[:delivery_ref] in copies.delivery_refs
+
+  defp redundant_step?(step, copies),
+    do:
+      String.ends_with?(step.id, "-prepared") &&
+        String.replace(step.id, ~r/^turn-(.*)-prepared$/, "request-\\1") in copies.briefing_ids
 
   defp unix(nil), do: 0
   defp unix(%NaiveDateTime{} = at), do: at |> DateTime.from_naive!("Etc/UTC") |> unix()

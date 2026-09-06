@@ -809,7 +809,7 @@ defmodule Responder.Publication.CustodyTest do
              Episodes.apply(
                EpisodeFixtures.admit_input(%{
                  destination: %{
-                   conversation_ref: "slack:T123:C456",
+                   conversation_ref: "slack:TPUBLICATIONCUSTODY:C456",
                    thread_ref: "thread:#{suffix}",
                    transport: "slack"
                  },

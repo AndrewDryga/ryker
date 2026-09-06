@@ -2,6 +2,18 @@ defmodule Responder.ControlPlane.SlackMarkdownTest do
   use ExUnit.Case, async: true
   alias Responder.ControlPlane.SlackMarkdown
 
+  test "Slack alert dates and underscored identifiers remain readable" do
+    # The OOM source rendered raw date syntax and italicized half of CONSTRAINT_MEMCG.
+    text =
+      "CONSTRAINT_MEMCG. CONSTRAINT_MEMCG means a cgroup limit.\n<!date^1788629330^{date_short_pretty} at {time_secs}|2026-09-05 17:28:50 UTC>"
+
+    html = SlackMarkdown.render(text) |> IO.iodata_to_binary()
+    assert html =~ "CONSTRAINT_MEMCG. CONSTRAINT_MEMCG"
+    assert html =~ "2026-09-05 17:28:50 UTC"
+    refute html =~ "&lt;!date"
+    refute html =~ "<em>"
+  end
+
   test "answer previews render recorded Markdown links and lists without activating HTML" do
     # The infrastructure answer displayed literal evidence links instead of clickable receipts.
     html =

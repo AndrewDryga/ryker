@@ -132,4 +132,77 @@ defmodule Responder.ControlPlane.RequestContextHTMLTest do
 
     assert Enum.empty?(LazyHTML.query(document, ".prompt-source[open]"))
   end
+
+  test "each collapsed partial exposes every retained value without a second hidden cutoff" do
+    # The old readable view silently stopped at 40 items even when the full
+    # retained component was available, making the prompt impossible to audit.
+    artifact =
+      InspectionRedactor.artifact(%{
+        "records" => Enum.to_list(1..51),
+        "unknown" => %{"empty" => []}
+      })
+
+    html = artifact |> RequestContextHTML.assembly("$.work", "all") |> IO.iodata_to_binary()
+    assert html =~ "<p>51</p>"
+    assert html =~ "Empty"
+    refute html =~ "Additional entries remain"
+    assert Enum.empty?(html |> LazyHTML.from_fragment() |> LazyHTML.query("details[open]"))
+  end
+
+  test "conversation recall keeps source metadata and unfamiliar state fields inspectable" do
+    # The readable summary previously dropped purpose, evidence and new fields.
+    context = %{
+      "operator_context" => %{
+        "continuity" => %{
+          "current" => %{
+            "source_ref" => "continuity:source",
+            "state" => %{
+              "situation" => "Allocation recovered",
+              "purpose" => "Track recovery",
+              "future" => "<extra>"
+            }
+          }
+        }
+      }
+    }
+
+    html =
+      context
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.work", "recall")
+      |> IO.iodata_to_binary()
+
+    assert html =~ "Track recovery"
+    assert html =~ "&lt;extra&gt;"
+    assert html =~ "Exact component"
+  end
+
+  test "attachment-only messages are readable in the briefing as well as the timeline" do
+    # Slack alert bodies can live entirely in attachments while text is empty.
+    context = %{
+      "input" => %{
+        "content" => %{
+          "text" => "",
+          "attachments" => [
+            %{"title" => "Host OOM kills", "text" => "RESOLVED - 1 alert"}
+          ]
+        }
+      }
+    }
+
+    html =
+      context
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.context", "source")
+      |> IO.iodata_to_binary()
+
+    body =
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".context-message-body")
+      |> LazyHTML.text()
+
+    assert body =~ "Host OOM kills"
+    assert body =~ "RESOLVED - 1 alert"
+  end
 end

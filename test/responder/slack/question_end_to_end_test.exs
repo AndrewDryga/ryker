@@ -1,6 +1,8 @@
 defmodule Responder.Slack.QuestionEndToEndTest do
   use Responder.DataCase, async: true
 
+  # A suite-owned workspace keeps conversation locks out of other async fixtures.
+
   @moduletag isolation: "REPEATABLE READ"
 
   alias Responder.Admission.Dispatcher, as: AdmissionDispatcher
@@ -20,7 +22,7 @@ defmodule Responder.Slack.QuestionEndToEndTest do
     @behaviour Responder.Slack.MemberDirectory
 
     @impl true
-    def user_allowed(_client, "U123", "T123"), do: {:ok, true}
+    def user_allowed(_client, "U123", "TQUESTIONENDTOEND"), do: {:ok, true}
   end
 
   defmodule SlackAPI do
@@ -175,7 +177,9 @@ defmodule Responder.Slack.QuestionEndToEndTest do
     assert {:ok, adapters} =
              Adapters.new(%{
                "slack" => %{
-                 binding: %{workspaces: %{"T123" => %{api: SlackAPI, client: slack_api}}},
+                 binding: %{
+                   workspaces: %{"TQUESTIONENDTOEND" => %{api: SlackAPI, client: slack_api}}
+                 },
                  message_publisher: Publisher,
                  reaction_publisher: Publisher
                }
@@ -200,12 +204,12 @@ defmodule Responder.Slack.QuestionEndToEndTest do
       client: :directory,
       continuation: &Engagement.continuation?/1,
       directory: Directory,
-      identity: %{bot_ref: "B-BOT", bot_user_ref: "U-BOT", workspace_ref: "T123"},
+      identity: %{bot_ref: "B-BOT", bot_user_ref: "U-BOT", workspace_ref: "TQUESTIONENDTOEND"},
       inbox: Inbox,
       interaction_handler: InteractionHandler,
       interaction_options: %{},
       watch_channels: MapSet.new(),
-      work_profile: fn "T123", "slack:T123:C456" ->
+      work_profile: fn "TQUESTIONENDTOEND", "slack:TQUESTIONENDTOEND:C456" ->
         {:ok,
          %{
            policy: "conversation-read-only",
@@ -266,7 +270,7 @@ defmodule Responder.Slack.QuestionEndToEndTest do
         "event" => event,
         "event_id" => event_id,
         "event_time" => String.to_integer(event_seconds),
-        "team_id" => "T123",
+        "team_id" => "TQUESTIONENDTOEND",
         "type" => "event_callback"
       },
       "type" => "events_api"

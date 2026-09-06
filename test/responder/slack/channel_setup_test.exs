@@ -38,11 +38,11 @@ defmodule Responder.Slack.ChannelSetupTest do
   end
 
   defmodule Directory do
-    def user_allowed(_client, "U123", "T123"), do: {:ok, true}
-    def user_allowed(_client, "U456", "T123"), do: {:ok, true}
+    def user_allowed(_client, "U123", "TD65C7CD93124"), do: {:ok, true}
+    def user_allowed(_client, "U456", "TD65C7CD93124"), do: {:ok, true}
     def user_allowed(_client, _user_ref, _workspace_ref), do: {:ok, false}
 
-    def user_group_members(_client, "S123", "T123"), do: {:ok, ["U123", "U456"]}
+    def user_group_members(_client, "S123", "TD65C7CD93124"), do: {:ok, ["U123", "U456"]}
     def user_group_members(_client, _group_ref, _workspace_ref), do: {:error, :unknown_group}
   end
 
@@ -134,7 +134,7 @@ defmodule Responder.Slack.ChannelSetupTest do
                occurred_at: @now,
                revision: 1,
                thread_ref: session.root_message_ref,
-               workspace_ref: "T123"
+               workspace_ref: "TD65C7CD93124"
              })
 
     assert {:ok, %{outcome: :advanced}} =
@@ -208,7 +208,7 @@ defmodule Responder.Slack.ChannelSetupTest do
   test "the durable setup card maps every control to one typed host action", %{options: options} do
     session = %ConfigurationSession{
       id: Ecto.UUID.generate(),
-      workspace_ref: "T123",
+      workspace_ref: "TD65C7CD93124",
       channel_ref: "C456",
       step: :repository,
       status: :asking,
@@ -288,7 +288,7 @@ defmodule Responder.Slack.ChannelSetupTest do
              ChannelSetup.handle_message(normalized("U123", "save configuration", nil), options)
 
     assert session_ref == joined.session.id
-    configuration = ChannelConfigurations.configuration("T123", "C456")
+    configuration = ChannelConfigurations.configuration("TD65C7CD93124", "C456")
     assert configuration.participation == :mentions
     assert configuration.repository_ref == "backend"
     assert configuration.alert_policy == :automatic
@@ -391,7 +391,7 @@ defmodule Responder.Slack.ChannelSetupTest do
              ChannelSetup.handle_message(normalized("U123", "be proactive", nil), options)
 
     assert session_ref == joined.session.id
-    configuration = ChannelConfigurations.configuration("T123", "C456")
+    configuration = ChannelConfigurations.configuration("TD65C7CD93124", "C456")
     assert configuration.participation == :proactive
     assert configuration.alert_policy == :reply
   end
@@ -410,7 +410,7 @@ defmodule Responder.Slack.ChannelSetupTest do
                  event_ref: "event:restart-after-defaults",
                  occurred_at: @now,
                  thread_ref: joined.session.root_message_ref,
-                 workspace_ref: "T123"
+                 workspace_ref: "TD65C7CD93124"
                },
                options.catalog
              )
@@ -462,7 +462,7 @@ defmodule Responder.Slack.ChannelSetupTest do
       put_in(
         unknown_user,
         [:input, Access.key(:destination), Access.key(:conversation_ref)],
-        "slack:T123"
+        "slack:TD65C7CD93124"
       )
 
     assert ChannelSetup.handle_message(malformed_destination, options) == :not_setup
@@ -508,7 +508,7 @@ defmodule Responder.Slack.ChannelSetupTest do
       event_ref: "event:join",
       kind: :joined,
       occurred_at: @now,
-      workspace_ref: "T123"
+      workspace_ref: "TD65C7CD93124"
     }
   end
 
@@ -522,7 +522,7 @@ defmodule Responder.Slack.ChannelSetupTest do
       message_ref: session.current_message_ref,
       occurred_at: @now,
       thread_ref: session.response_thread_ref,
-      workspace_ref: "T123"
+      workspace_ref: "TD65C7CD93124"
     }
   end
 
@@ -538,7 +538,7 @@ defmodule Responder.Slack.ChannelSetupTest do
         occurred_at: @now,
         revision: 1,
         thread_ref: thread_ref,
-        workspace_ref: "T123"
+        workspace_ref: "TD65C7CD93124"
       })
 
     %{audience: audience, input: input, platform_thread_ref: thread_ref}

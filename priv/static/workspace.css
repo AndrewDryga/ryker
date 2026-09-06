@@ -71,8 +71,8 @@
 .memory-totals a { display:flex; flex:1; align-items:center; justify-content:space-between; gap:16px; padding:16px 20px; border:1px solid var(--stroke); border-radius:8px; color:var(--text); background:var(--panel); }
 .memory-totals a[aria-current=page] { border-color:#60795f; background:#eaf0e5; }
 .memory-totals strong { font-size:28px; font-variant-numeric:tabular-nums; }
-.memory-cards { display:grid; gap:16px; margin:20px 0 32px; }
-.memory-card { padding:20px 24px; border:1px solid var(--stroke); border-radius:8px; background:var(--panel); }
+.memory-cards { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; margin:20px 0 32px; }
+.memory-card { min-width:0; overflow-wrap:anywhere; padding:20px 24px; border:1px solid var(--stroke); border-radius:8px; background:var(--panel); }
 .memory-card header { position:static; padding:0; margin:0; border:0; background:transparent; backdrop-filter:none; display:flex; gap:20px; justify-content:space-between; align-items:baseline; }
 .memory-card h2 { font-size:19px; margin:0; }
 .memory-card time { flex-shrink:0; font-size:13px; color:var(--muted); }
@@ -844,7 +844,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .prompt-assembly > .prompt-source:last-child { border-bottom:0; }
 .prompt-assembly > .prompt-source > summary { padding:8px 12px; }
 .prompt-assembly .prompt-source-title { font-size:14px; }
-.prompt-assembly .prompt-source-state { display:none; }
+.prompt-assembly .prompt-source-state { display:inline; }
 .prompt-assembly .prompt-source-partial .prompt-source-state { display:inline; color:#805315; font-weight:600; }
 .prompt-assembly .prompt-source-location { display:inline; padding-left:8px; margin:0; font-size:12px; }
 .prompt-assembly .prompt-source-location code { display:none; }
@@ -878,7 +878,15 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .prompt-fragment { background:#edf2e8; border-bottom:2px solid #9bad91; }
 .prompt-fragment[data-source="$.instructions"] { background:#ecf0fa; border-color:#8e9fc4; }
 .prompt-fragment[data-source*="operator_context"] { background:#f8f0df; border-color:#b7a376; }
+.prompt-fragment { position:relative; }
 .prompt-fragment:hover { background:#dfeacf; }
+.prompt-fragment:hover::before, .prompt-fragment:focus::before {
+  content:attr(data-source-label); position:fixed; z-index:20; bottom:16px; right:16px;
+  max-width:min(520px, calc(100vw - 32px)); box-sizing:border-box; width:max-content; white-space:normal; padding:8px 12px;
+  border:1px solid var(--stroke); border-radius:4px; background:#26372d; color:#fff;
+  font:500 13px/1.4 var(--font-body, sans-serif); box-shadow:0 3px 12px #26372d24;
+  pointer-events:none;
+}
 .prompt-fragment:focus-visible { background:#dfeacf; outline:2px solid #5d7952; outline-offset:2px; }
 .prompt-runtime-field + .prompt-runtime-field { margin-top:20px; border-top:1px solid #e2e7de; padding-top:12px; }
 .prompt-runtime-field > h4 { margin:0; font-size:15px; }
@@ -907,6 +915,30 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .prompt-source-body > p:first-child { font-size:14px; color:var(--secondary); margin:0 0 12px; }
 .prompt-source-body .model-document-text { padding:0; margin:0; background:transparent; }
 .prompt-source-body h3 { font-size:15px; margin:12px 0 8px; }
+.prompt-group { margin:20px 0; }
+.prompt-group > header { margin:0 0 8px; padding:0; background:transparent; color:var(--ink); position:static; border:0; display:block; }
+.prompt-group > header h4 { margin:0; font-size:14px; }
+.prompt-group > header p { margin:3px 0 0; font-size:13px; color:var(--secondary); }
+.prompt-group .prompt-source-location code { display:none; }
+.prompt-source-state { font-variant-numeric:tabular-nums; }
+.submitted-contract { border-top:1px solid var(--stroke); margin-top:20px; padding-top:12px; }
+.action-card > header { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; position:static; background:transparent; color:var(--ink); border:0; padding:0; }
+.action-card h3 { margin:0; font-size:16px; font-weight:650; }
+.action-symbol { color:var(--secondary); font-size:18px; }
+.action-duration { margin-left:auto; font-size:12px; color:var(--secondary); font-variant-numeric:tabular-nums; }
+.action-description { color:var(--secondary); font-size:13px; margin:6px 0 12px; }
+.action-state { font-size:12px; text-transform:capitalize; }
+.action-failed, .action-error { color:#a33124; }
+.action-warning { color:#835c21; font-size:12px; }
+.action-path { display:block; overflow-wrap:anywhere; white-space:pre-wrap; margin:12px 0; font-size:13px; }
+.action-facts { margin:12px 0; display:grid; grid-template-columns:minmax(0,1fr); gap:8px; }
+.action-facts > div { display:grid; grid-template-columns:90px minmax(0, 1fr); gap:12px; }
+.action-facts dt { color:var(--secondary); font-size:13px; }
+.action-facts dd { margin:0; min-width:0; white-space:normal; overflow-wrap:anywhere; font-size:14px; }
+.action-raw { margin-top:12px; border-top:1px solid var(--stroke); padding-top:8px; }
+.action-raw summary { font-size:13px; color:var(--secondary); }
+.action-raw pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:420px; overflow:auto; font-size:12px; }
+.usage-performance-table th:not(:first-child), .usage-performance-table td:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; }
 .prompt-source-body .context-message { margin:12px 0; }
 .prompt-source-body .context-field h4 { font-size:14px; }
 .readable-model-context .prompt-source-body pre, .readable-model-context .prompt-source-body p { color:var(--ink); }
@@ -1006,7 +1038,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .behavior-counts dt { color:#576159; font-size:14px; }
 .behavior-counts dd { margin:0; font-size:30px; font-weight:650; line-height:1.2; font-variant-numeric:tabular-nums; }
 .behavior-create { margin-left:auto; max-width:580px; }
-.behavior-create summary { color:#35533d; font-weight:600; padding:8px 0; }
+.behavior-create h2 { color:#35533d; font-size:15px; font-weight:600; margin:0; padding:8px 0; }
 .behavior-create p { margin:8px 0; max-width:68ch; }
 .behavior-links { display:flex; align-items:center; flex-wrap:wrap; gap:10px 20px; }
 .behavior-links a, .behavior-pagination a, .workflow-guide a, .applied-context a { color:#34563e; }

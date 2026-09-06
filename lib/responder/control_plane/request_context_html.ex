@@ -1,6 +1,7 @@
 defmodule Responder.ControlPlane.RequestContextHTML do
   alias Responder.ControlPlane.SlackMarkdown
   alias Responder.ControlPlane.SlackNames
+  alias Responder.ControlPlane.SourceText
   @moduledoc "Readable context derived only from an already sanitized inspection artifact."
 
   @sources %{
@@ -70,6 +71,62 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   }
   @order ~w(input inputs current_inputs continuity operator_context records related_outcomes prior_outcome candidates responder_state_tools source_and_action_tools workspace repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
 
+  @doc "The complete submitted components, grouped for reading without hiding source labels."
+  def briefing(sections, kind, prefix) do
+    instructions = Enum.find(sections, &(&1.id == "instructions"))
+    context = Enum.find(sections, &(&1.id == "context"))
+    contract = Enum.find(sections, &(&1.id == "contract"))
+    root = if kind == :admission, do: "$.context", else: "$.work"
+
+    [
+      if(instructions,
+        do:
+          group(
+            "Instructions",
+            "How Responder asked the model to work.",
+            assembly_instructions(instructions.artifact, prefix)
+          ),
+        else: []
+      ),
+      if(context, do: assembly(context.artifact, root, prefix), else: []),
+      if(contract,
+        do:
+          group(
+            "Response format",
+            "The output contract was supplied alongside the prompt text.",
+            contract(contract.artifact, prefix)
+          ),
+        else: []
+      )
+    ]
+  end
+
+  defp contract(%{state: :retained, text: text}, prefix) do
+    source(
+      "contract",
+      "$.output_schema",
+      text,
+      {"Required output contract", "policy", "Response format",
+       "The structure the model was asked to return."},
+      ["<pre class=\"model-document-text\">", escape(text), "</pre>"],
+      false,
+      prefix
+    )
+  end
+
+  defp contract(_, _), do: "<p>Output contract not recorded.</p>"
+
+  defp group(title, description, content),
+    do: [
+      "<section class=\"prompt-group\"><header><h4>",
+      title,
+      "</h4><p>",
+      description,
+      "</p></header>",
+      content,
+      "</section>"
+    ]
+
   def render(artifact, root \\ "$.context", prefix \\ "context")
 
   def render(%{state: :retained, truncated: false, text: text}, root, prefix) do
@@ -113,21 +170,53 @@ defmodule Responder.ControlPlane.RequestContextHTML do
         origin not in ["runtime", "other"] && value not in [nil, [], %{}, ""]
       end)
 
-    [
-      Enum.map(components, fn {key, value, parent} ->
-        path = field_path(parent, key)
+    groups = Enum.group_by(components, fn {key, _, parent} -> elem(metadata(key, parent), 1) end)
 
-        source(
-          key,
-          path,
-          value,
-          metadata(key, parent),
-          body(key, value, path, prefix),
-          false,
-          prefix
-        )
-      end),
-      runtime_context(scope, root, prefix)
+    [
+      Enum.map(
+        [
+          {"conversation", "Messages",
+           "The original input and any conversation history supplied to this call."},
+          {"memory", "Selected knowledge",
+           "Earlier work, decisions and instructions recalled for this request."},
+          {"tools", "Tools and workspace",
+           "The capabilities and project context available to the model."}
+        ],
+        fn {origin, title, description} ->
+          case Map.get(groups, origin, []) do
+            [] ->
+              []
+
+            entries ->
+              group(
+                title,
+                description,
+                Enum.map(entries, fn {key, value, parent} ->
+                  path = field_path(parent, key)
+
+                  source(
+                    key,
+                    path,
+                    value,
+                    metadata(key, parent),
+                    body(key, value, path, prefix),
+                    false,
+                    prefix
+                  )
+                end)
+              )
+          end
+        end
+      ),
+      if(scope != [],
+        do:
+          group(
+            "Request settings",
+            "Where the request came from and the limits applied to it.",
+            runtime_context(scope, root, prefix)
+          ),
+        else: []
+      )
     ]
   end
 
@@ -137,7 +226,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
     source(
       "scope",
       root,
-      scope,
+      Map.new(scope, fn {key, value, parent} -> {field_path(parent, key), value} end),
       {"Runtime context", "runtime", "Bound scope and remaining fields",
        "The remaining fields retained with this request."},
       Enum.map(scope, fn {key, value, parent} ->
@@ -212,7 +301,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
           value,
           metadata(key, root),
           body(key, value, path, prefix),
-          key in ~w(input inputs current_inputs),
+          false,
           prefix
         )
       end),
@@ -277,7 +366,14 @@ defmodule Responder.ControlPlane.RequestContextHTML do
     do: context(value, path, prefix)
 
   defp body("continuity", value, path, _prefix) when is_map(value) do
-    if String.contains?(path, ".operator_context."), do: recall(value), else: fields(value, 0)
+    if String.contains?(path, ".operator_context."),
+      do: [
+        recall(value),
+        "<details><summary>Exact component</summary><pre>",
+        escape(Jason.encode!(value, pretty: true)),
+        "</pre></details>"
+      ],
+      else: fields(value, 0)
   end
 
   defp body(_key, value, _path, _prefix), do: fields(value, 0)
@@ -339,7 +435,8 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       if(open, do: " open", else: ""),
       "><summary>",
       "<span class=\"prompt-source-state\">",
-      state,
+      if(state_override || value in [nil, [], %{}, ""], do: [state, " · "], else: []),
+      estimated_tokens(value),
       "</span>",
       "<span class=\"prompt-source-title\">",
       escape(title),
@@ -355,6 +452,13 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       body,
       "</div></details>"
     ]
+  end
+
+  # Provider totals are measured separately. Component counts are estimates over
+  # the displayed, sanitized text, not fabricated provider tokenizer receipts.
+  defp estimated_tokens(value) do
+    text = if is_binary(value), do: value, else: Jason.encode!(value)
+    "≈ #{ceil(byte_size(text) / 4)} estimated tokens"
   end
 
   defp field_path(root, key) do
@@ -385,18 +489,13 @@ defmodule Responder.ControlPlane.RequestContextHTML do
 
       [
         "<section>",
-        Enum.map(Enum.take(items, 40), &message/1),
+        Enum.map(items, &message/1),
         if(is_integer(omitted) and omitted > 0,
           do: [
             "<p class=\"context-omission\">",
             escape(omitted),
             " earlier inputs were omitted by the submitted context budget.</p>"
           ],
-          else: ""
-        ),
-        if(length(items) > 40,
-          do:
-            "<p class=\"context-omission\">More messages are available in the sanitized document below.</p>",
           else: ""
         ),
         "</section>"
@@ -475,11 +574,11 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   defp actor_name(name, _actor) when is_binary(name), do: name
   defp actor_name(_name, actor), do: human(actor["kind"] || "Source")
 
-  defp message_text(%{"text" => text}) when is_binary(text), do: text
   defp message_text(%{"body" => text}) when is_binary(text), do: text
 
   defp message_text(%{} = value) do
-    Enum.find_value(~w(content comment review payload), fn key -> message_text(value[key]) end)
+    SourceText.from_content(value) ||
+      Enum.find_value(~w(content comment review payload), fn key -> message_text(value[key]) end)
   end
 
   defp message_text(value) when is_binary(value) do
@@ -493,7 +592,6 @@ defmodule Responder.ControlPlane.RequestContextHTML do
 
   defp fields(value, depth) when is_map(value) and depth < 5 do
     value
-    |> Enum.reject(fn {_key, value} -> value in [nil, "", [], %{}] end)
     |> Enum.sort_by(&elem(&1, 0))
     |> Enum.map(fn {key, nested} ->
       [
@@ -509,12 +607,8 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   defp fields(value, depth) when is_list(value) and depth < 5 do
     [
       "<ul>",
-      Enum.map(Enum.take(value, 40), &["<li>", fields(&1, depth + 1), "</li>"]),
-      "</ul>",
-      if(length(value) > 40,
-        do: "<p>Additional entries remain in the sanitized document below.</p>",
-        else: ""
-      )
+      Enum.map(value, &["<li>", fields(&1, depth + 1), "</li>"]),
+      "</ul>"
     ]
   end
 
@@ -527,7 +621,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   defp candidates(items) when is_list(items) and items != [] do
     [
       "<section><h3>Episodes offered to admission</h3><p>These were the allowed candidates, not a new search of today's state.</p>",
-      Enum.map(Enum.take(items, 40), &candidate/1),
+      Enum.map(items, &candidate/1),
       "</section>"
     ]
   end

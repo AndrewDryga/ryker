@@ -10,7 +10,7 @@ defmodule Responder.Slack.EngagementTest do
       Episodes.apply(
         EpisodeFixtures.admit_input(%{
           destination: %{
-            conversation_ref: "slack:T123:C456",
+            conversation_ref: "slack:T26585AFC9D10:C456",
             thread_ref: "1787832000.000100",
             transport: "slack"
           },
@@ -24,7 +24,7 @@ defmodule Responder.Slack.EngagementTest do
              Event.from_socket(thread_reply_envelope(), %{
                bot_ref: "B-BOT",
                bot_user_ref: "U-BOT",
-               workspace_ref: "T123"
+               workspace_ref: "T26585AFC9D10"
              })
 
     assert normalized.audience == :ambient
@@ -47,7 +47,7 @@ defmodule Responder.Slack.EngagementTest do
     refute Engagement.continuation?(%{
              input: %{
                destination: %{
-                 conversation_ref: "slack:T123:C456",
+                 conversation_ref: "slack:T26585AFC9D10:C456",
                  thread_ref: "1787832000.999999",
                  transport: "slack"
                }
@@ -69,7 +69,7 @@ defmodule Responder.Slack.EngagementTest do
           "user" => "U123"
         },
         "event_id" => "Ev-thread-reply",
-        "team_id" => "T123",
+        "team_id" => "T26585AFC9D10",
         "type" => "event_callback"
       },
       "type" => "events_api"

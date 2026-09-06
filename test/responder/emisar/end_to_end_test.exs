@@ -115,7 +115,7 @@ defmodule Responder.Emisar.EndToEndTest do
     assert {:ok, adapters} =
              Adapters.new(%{
                "slack" => %{
-                 binding: %{workspaces: %{"T123" => %{api: SlackAPI, client: slack}}},
+                 binding: %{workspaces: %{"TEC879C5EE335" => %{api: SlackAPI, client: slack}}},
                  message_publisher: Publisher,
                  reaction_publisher: Publisher
                }
@@ -226,7 +226,7 @@ defmodule Responder.Emisar.EndToEndTest do
     command =
       EpisodeFixtures.admit_input(%{
         destination: %{
-          conversation_ref: "slack:T123:C456",
+          conversation_ref: "slack:TEC879C5EE335:C456",
           thread_ref: "1788019100.000100",
           transport: "slack"
         },

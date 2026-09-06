@@ -75,7 +75,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
              )
 
     assert {:ok, 0} =
-             ChannelConfigurations.reconcile_absent("T123", [], snapshot_started_at)
+             ChannelConfigurations.reconcile_absent("TCE3E523134AD", [], snapshot_started_at)
 
     assert Repo.get!(ChannelMembership, joined.membership.id).status == :joined
   end
@@ -89,7 +89,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
                control(session, :customize, nil, "event:customize")
              )
 
-    refute Repo.get_by(ChannelConfiguration, workspace_ref: "T123", channel_ref: "C456")
+    refute Repo.get_by(ChannelConfiguration, workspace_ref: "TCE3E523134AD", channel_ref: "C456")
     session = bind!(customized.session, "1000.000002", nil)
 
     assert {:ok, participation} =
@@ -125,7 +125,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
              )
 
     assert audience.session.status == :confirming
-    refute Repo.get_by(ChannelConfiguration, workspace_ref: "T123", channel_ref: "C456")
+    refute Repo.get_by(ChannelConfiguration, workspace_ref: "TCE3E523134AD", channel_ref: "C456")
     session = bind!(audience.session, "1000.000006", "1000.000001")
 
     assert {:ok, saved} =
@@ -135,7 +135,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
     assert saved.session.status == :saved
 
     configuration =
-      Repo.get_by!(ChannelConfiguration, workspace_ref: "T123", channel_ref: "C456")
+      Repo.get_by!(ChannelConfiguration, workspace_ref: "TCE3E523134AD", channel_ref: "C456")
 
     assert configuration.participation == :shadow
     assert configuration.repository_ref == "backend"
@@ -234,21 +234,21 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
                  event_ref: "event:race-before-reservation",
                  occurred_at: @now,
                  thread_ref: nil,
-                 workspace_ref: "T123"
+                 workspace_ref: "TCE3E523134AD"
                },
                @catalog
              )
 
-    assert :ok = ChannelConfigurations.reserve_managed_channel("T123", "C456")
+    assert :ok = ChannelConfigurations.reserve_managed_channel("TCE3E523134AD", "C456")
 
     assert Repo.get!(ConfigurationSession, session.id).status == :saved
     assert Repo.get!(ConfigurationSession, active.id).status == :cancelled
-    refute Repo.get_by(ChannelConfiguration, workspace_ref: "T123", channel_ref: "C456")
+    refute Repo.get_by(ChannelConfiguration, workspace_ref: "TCE3E523134AD", channel_ref: "C456")
 
-    assert Repo.get_by!(ChannelMembership, workspace_ref: "T123", channel_ref: "C456").status ==
+    assert Repo.get_by!(ChannelMembership, workspace_ref: "TCE3E523134AD", channel_ref: "C456").status ==
              :joined
 
-    assert :ok = ChannelConfigurations.reserve_managed_channel("T123", "C456")
+    assert :ok = ChannelConfigurations.reserve_managed_channel("TCE3E523134AD", "C456")
   end
 
   test "an addressed operator can start one idempotent reconfiguration in its current thread" do
@@ -265,7 +265,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
       event_ref: "event:reconfigure",
       occurred_at: @now,
       thread_ref: "4999.000001",
-      workspace_ref: "T123"
+      workspace_ref: "TCE3E523134AD"
     }
 
     assert {:ok, started} = ChannelConfigurations.start_reconfiguration(request, @catalog)
@@ -300,7 +300,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
 
     assert {:ok, repaired} =
              ChannelConfigurations.reconcile_joined(
-               "T123",
+               "TCE3E523134AD",
                Enum.map(
                  ["C456", "C789", "C999"],
                  &%{channel_ref: &1, external_shared: false, private: false}
@@ -314,7 +314,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
 
     assert {:ok, unchanged} =
              ChannelConfigurations.reconcile_joined(
-               "T123",
+               "TCE3E523134AD",
                [%{channel_ref: "C456", external_shared: false, private: false}],
                @catalog
              )
@@ -323,7 +323,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
 
     assert {:ok, [private]} =
              ChannelConfigurations.reconcile_joined(
-               "T123",
+               "TCE3E523134AD",
                [%{channel_ref: "C456", external_shared: true, private: true}],
                @catalog
              )
@@ -340,7 +340,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
       event_ref: "event:reconfigure-without-membership",
       occurred_at: @now,
       thread_ref: nil,
-      workspace_ref: "T123"
+      workspace_ref: "TCE3E523134AD"
     }
 
     assert ChannelConfigurations.start_reconfiguration(request, @catalog) ==
@@ -493,11 +493,11 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
              %{}
            ) == {:error, {:invalid_channel_configuration, :catalog}}
 
-    assert ChannelConfigurations.reconcile_joined("T123", :invalid, @catalog) ==
+    assert ChannelConfigurations.reconcile_joined("TCE3E523134AD", :invalid, @catalog) ==
              {:error, {:invalid_channel_configuration, :channel_refs}}
 
     assert ChannelConfigurations.reconcile_joined(
-             "T123",
+             "TCE3E523134AD",
              [
                %{channel_ref: "C1", private: false},
                %{channel_ref: "C1", private: false}
@@ -555,7 +555,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
       event_ref: event_ref,
       kind: kind,
       occurred_at: @now,
-      workspace_ref: "T123"
+      workspace_ref: "TCE3E523134AD"
     }
   end
 
@@ -571,7 +571,7 @@ defmodule Responder.Slack.ChannelConfigurationsTest do
       source: :control,
       thread_ref: session.response_thread_ref,
       value: value,
-      workspace_ref: "T123"
+      workspace_ref: "TCE3E523134AD"
     }
   end
 end

@@ -32,25 +32,20 @@ Ground rules for the whole pass:
 - A decision you cannot make from the evidence is written down as a decision card
   (a `50_blocked/` task with decision.md), not guessed.
 
-## 1. Pending corrections — keep or discard, with the episode open
+## 1. Response corrections — inspect the episode and preserve the regression
 
-Corrections the host issued that are waiting to become regression fixtures. Approved
-ones promote themselves (bounded weekly); YOUR job is the judgment on pending ones
-before their 14-day TTL.
+Use the episode timeline and its model request inspector to read retained response
+checks: what the model saw, what Responder refused, and what happened next. The
+current Elixir control plane has no fixture-candidate keep/discard queue. Do not
+invent a Decisions page or send its obsolete actions.
 
-- List: `sqlite3 <db> "SELECT id, class, detail, created_at FROM fixture_candidates
-  WHERE status='pending' ORDER BY created_at"` on both DBs.
-- For each: open its episode on the control plane (Decisions page shows the pairing;
-  `/episodes/<id>` shows the full trace — what the model saw, what the host refused,
-  what happened next). Ask: would this exact pairing make a good permanent test, or
-  does it encode a bug that has since been fixed, or model behavior we no longer
-  want to pin?
-- Act via the Decisions page keep/discard actions. Record a one-line reason per
-  decision in your session notes; batch-summarize at the end.
-- If the same correction class repeats across many candidates, that is a finding,
-  not N separate keeps: diagnose which side of the CLAUDE.md split it is on
-  (host bug the model cannot satisfy vs prompt the model did not satisfy) and open
-  a task with the evidence.
+- Inspect concrete rejected candidates with their exact submitted context.
+- If the same correction repeats, diagnose whether the host mishandled a valid
+  result or the model returned an unusable result, following AGENTS.md.
+- Harvest the relevant recorded result into the owning deterministic regression
+  test or prompt evaluation. Record the source episode and why the case matters.
+- Fix confirmed defects test-first through the normal gate. Do not silently turn
+  a model answer into a policy or an operator-confirmed memory.
 
 ## 2. Memory review — keep, merge, forget
 

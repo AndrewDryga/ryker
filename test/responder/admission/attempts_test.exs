@@ -95,7 +95,7 @@ defmodule Responder.Admission.AttemptsTest do
         occurred_at: now,
         revision: 1,
         thread_ref: nil,
-        workspace_ref: "T123"
+        workspace_ref: "TB509DF5B0F14"
       })
 
     {:ok, %{entry: recorded}} = Inbox.record(input)

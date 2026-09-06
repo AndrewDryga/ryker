@@ -1,7 +1,7 @@
 defmodule Responder.ControlPlane.UsagePage do
   @moduledoc "Usage as an operator's ledger: totals, subscriptions, and the work behind them."
   alias Responder.Accounting.Pricing
-  alias Responder.ControlPlane.{SlackNames, UsageChart}
+  alias Responder.ControlPlane.{Components, SlackNames, UsageChart}
 
   def render(snapshot) do
     totals = snapshot.totals
@@ -29,6 +29,7 @@ defmodule Responder.ControlPlane.UsagePage do
       "</section><section class=\"usage-timing-panel\"><h2>Where the time went</h2>",
       timing(totals),
       "</section></div>",
+      performance(Map.get(snapshot, :performance, []), snapshot),
       section("By profile", "profiles", Map.get(snapshot, :profiles, []), snapshot, :profile),
       section(
         "By model",
@@ -43,6 +44,43 @@ defmodule Responder.ControlPlane.UsagePage do
       section("By person", "people", Map.get(snapshot, :users, []), snapshot, :person),
       methodology(snapshot),
       "</div>"
+    ]
+  end
+
+  defp performance([], _), do: []
+
+  defp performance(rows, snapshot) do
+    [
+      "<section id=\"model-performance\" class=\"usage-section\"><h2>Model performance by work type</h2>",
+      "<p>Compare speed, failed runs and retained response corrections. Corrections count rejected responses, not transport retries; this is not an answer-quality score.</p>",
+      "<div class=\"table-wrap\"><table class=\"usage-performance-table\"><thead><tr><th>Work type / model</th><th>Executions</th><th>Failed runs</th><th>Response corrections</th><th>Average model time</th></tr></thead><tbody>",
+      Enum.map(Enum.take(rows, 500), fn row ->
+        [
+          "<tr><td>",
+          entity_link(
+            kind_name(row.work_kind),
+            %{
+              work_kind: row.work_kind,
+              model: row.model,
+              provider: row.provider,
+              effort: row.effort
+            },
+            snapshot
+          ),
+          "<br><small>",
+          e(Enum.join(Enum.reject([row.provider, row.model, row.effort], &is_nil/1), " · ")),
+          "</small></td><td>",
+          e(number(row.attempts)),
+          "</td><td>",
+          e(number(row.unsuccessful)),
+          "</td><td>",
+          e(number(row.corrections)),
+          "</td><td>",
+          e(duration(row.average_provider_ms)),
+          "</td></tr>"
+        ]
+      end),
+      "</tbody></table></div></section>"
     ]
   end
 
@@ -304,6 +342,7 @@ defmodule Responder.ControlPlane.UsagePage do
   defp kind_name("conversational"), do: "Conversation"
   defp kind_name("standard"), do: "Standard work"
   defp kind_name("deep"), do: "Deep work"
+  defp kind_name(value), do: Components.label(value || "unclassified")
 
   defp channel(%{transport: "slack", conversation_ref: ref}) do
     SlackNames.destination(if String.starts_with?(ref, "slack:"), do: ref, else: "slack:" <> ref)

@@ -46,6 +46,28 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
     assert metric.value == "2.3m"
   end
 
+  test "preparation events do not acquire later admission and cleanup state" do
+    # The replay showed admission 'decided' before routing and 'Settled' on turn preparation.
+    {_entry, episode} = admitted_input!()
+    {:ok, session} = Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+    {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
+    {:ok, before} = Projection.episode(episode.key)
+
+    Repo.update_all(from(s in Responder.Work.Session, where: s.id == ^session.id),
+      set: [cleanup_status: :blocked, retained_reason: "Later cleanup failure"]
+    )
+
+    Repo.update_all(from(t in Turn, where: t.id == ^claim.turn.id),
+      set: [status: :blocked, lease_ref: nil, lease_owner: nil, lease_expires_at: nil]
+    )
+
+    {:ok, after_update} = Projection.episode(episode.key)
+    earlier = fn trace -> Enum.filter(trace.steps, &(&1.band in [:input, :ready])) end
+    assert earlier.(before.trace) == earlier.(after_update.trace)
+    input_step = Enum.find(before.trace.steps, &(&1.stage == "Input"))
+    refute Enum.any?(input_step.details, &(&1.label in ["Admission", "Decision"]))
+  end
+
   test "expired request content names its expiry instead of looking like a deleted episode" do
     {entry, episode} = admitted_input!()
 
@@ -55,6 +77,37 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
 
     {:ok, detail} = Projection.episode(episode.key)
     assert detail.trace.case_file.expired_at == @received
+  end
+
+  test "accepting a reply records the decision without repeating the response body" do
+    # The OOM reply appeared in candidate, acceptance and delivery cards.
+    {_entry, episode} = admitted_input!()
+    {:ok, _session} = Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+    {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
+    document = %{"delivery" => "reply", "message" => "Unique reply body"}
+    digest = CanonicalJSON.digest(document)
+
+    Repo.update_all(from(t in Turn, where: t.id == ^claim.turn.id),
+      set: [
+        accepted_at: @received,
+        candidate: Jason.encode!(document),
+        candidate_sha256: digest,
+        candidate_attempt: 1,
+        validation_intent: %{},
+        validation_intent_fingerprint: digest,
+        validation_receipt: "receipt:trace",
+        result_ref: "result:trace",
+        continuation: %{},
+        delivery_document: document,
+        delivery_ref: "delivery:trace",
+        delivery_fingerprint: digest
+      ]
+    )
+
+    {:ok, detail} = Projection.episode(episode.key)
+    accepted = Enum.find(detail.trace.steps, &(&1.id == "turn-#{claim.turn.id}-accepted"))
+    refute accepted.summary =~ "Unique reply body"
+    refute Enum.any?(accepted.details, &(&1.label == "Reply preview"))
   end
 
   test "an attachment-only source remains visible instead of looking erased" do
@@ -189,7 +242,7 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
 
     assert {:ok, detail} = Projection.episode(episode.key)
     assert detail.trace.case_file.reply == "The first confirmed answer"
-    assert detail.trace.case_file.reply_status == "Delivery confirmed"
+    assert detail.trace.case_file.reply_status == "Response sent"
     assert detail.trace.case_file.reply_request_id == claim.turn.id
   end
 
@@ -208,7 +261,7 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
           occurred_at: DateTime.add(@received, revision),
           revision: revision,
           thread_ref: nil,
-          workspace_ref: "T123"
+          workspace_ref: "TC9F5B40D364C"
         })
 
       {:ok, _} = Inbox.record(input)
@@ -254,7 +307,7 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
         occurred_at: @received,
         revision: 1,
         thread_ref: nil,
-        workspace_ref: "T123"
+        workspace_ref: "TC9F5B40D364C"
       })
 
     {:ok, %{entry: entry}} = Inbox.record(input)
@@ -264,7 +317,7 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
         EpisodeFixtures.admit_input(%{
           actor_ref: "slack:user:U123",
           destination: %{
-            conversation_ref: "slack:T123:C456",
+            conversation_ref: "slack:TC9F5B40D364C:C456",
             thread_ref: "1788562304.000100",
             transport: "slack"
           },

@@ -91,6 +91,7 @@ defmodule Responder.ControlPlane.UsageProjection do
       profiles: groups(query, [:provider, :profile]),
       targets: targets,
       models: groups(query, [:provider, :model, :effort]),
+      performance: groups(query, [:work_kind, :provider, :model, :effort]),
       channels:
         groups(from(e in query, where: e.transport == "slack"), [:transport, :conversation_ref]),
       repositories: groups(query, [:repository_ref]),
@@ -138,6 +139,17 @@ defmodule Responder.ControlPlane.UsageProjection do
         workspace: entry.source_ref,
         actor: entry.actor_ref,
         actor_kind: type(entry.actor_kind, :string),
+        corrections:
+          fragment(
+            "CASE WHEN ? = 'work' AND (? = ? OR (? IS NULL AND ? = ?)) THEN (SELECT count(*) FROM jsonb_array_elements(COALESCE(?::jsonb, '[]'::jsonb)) AS v WHERE v->>'verdict' = 'reject') ELSE 0 END",
+            e.kind,
+            e.remote_ref,
+            turn.coop_turn_id,
+            e.remote_ref,
+            e.id,
+            turn.id,
+            turn.validation_history
+          ),
         measurement: fragment("CASE WHEN ? THEN 'measured' ELSE 'missing' END", e.usage_recorded),
         provider:
           fragment(
@@ -184,6 +196,7 @@ defmodule Responder.ControlPlane.UsageProjection do
     query
     |> group_by([e], ^fields)
     |> aggregate()
+    |> correction_counts(fields)
     |> select_merge([e], map(e, ^fields))
     |> order_by([e],
       desc:
@@ -200,6 +213,14 @@ defmodule Responder.ControlPlane.UsageProjection do
     |> Enum.map(&finish/1)
     |> Enum.sort_by(&{-&1.tokens, -&1.attempts, inspect(Map.take(&1, fields))})
   end
+
+  defp correction_counts(query, [:work_kind, :provider, :model, :effort]),
+    do:
+      select_merge(query, [e], %{
+        corrections: type(fragment("COALESCE(SUM(?), 0)::bigint", e.corrections), :integer)
+      })
+
+  defp correction_counts(query, _), do: query
 
   defp days(query) do
     query

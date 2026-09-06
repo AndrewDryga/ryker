@@ -91,9 +91,9 @@ the unchecked product items below remain open.
 - [ ] Schedules and schedule detail
 - [ ] Subscriptions
 - [ ] Memory and review
-- [ ] Decisions
+- [ ] Routing decisions and response checks within episode detail
 - [ ] Findings
-- [ ] Model calibration
+- [ ] Work-class and model performance comparisons in Usage
 - [ ] Configuration
 - [ ] Channels and channel detail
 - [ ] Repositories

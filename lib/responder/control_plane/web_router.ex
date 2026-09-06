@@ -20,7 +20,7 @@ defmodule Responder.ControlPlane.WebRouter do
     live("/", Responder.ControlPlane.WorkbenchLive)
 
     for path <-
-          ~w(lab card-lab episodes incidents schedules subscriptions channels repositories failures workspaces decisions findings memory rules preferences guidance calibration usage configuration manual-tests) do
+          ~w(lab card-lab episodes incidents schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance usage configuration manual-tests) do
       live("/#{path}", Responder.ControlPlane.WorkbenchLive)
     end
 

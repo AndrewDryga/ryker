@@ -16,6 +16,14 @@ defmodule Responder.ControlPlane.EpisodeRequest do
       |> assign(:explanation, explanation(request))
       |> assign(:timing, request.timing)
       |> assign(:result?, request.phase == :result)
+      |> assign(
+        :response,
+        if(request.phase == :result && request.source_kind == :work,
+          do: document(request, "candidate")
+        )
+      )
+      |> assign(:record_links, request[:record_links] || %{})
+      |> assign(:contract_section, Enum.find(request.sections, &(&1.id == "contract")))
       |> assign(:applied, applied_context(request))
       |> assign(
         :prompt_section,
@@ -24,14 +32,6 @@ defmodule Responder.ControlPlane.EpisodeRequest do
       |> assign(
         :input_sections,
         Enum.filter(request.sections, &(&1.id in ~w(instructions context)))
-      )
-      |> assign(
-        :technical_sections,
-        Enum.reject(
-          request.sections,
-          &(&1.id in ~w(instructions context) ||
-              (request.phase == :submission && &1.id == "request"))
-        )
       )
 
     ~H"""
@@ -64,13 +64,15 @@ defmodule Responder.ControlPlane.EpisodeRequest do
         </div>
       </dl>
       <div
-        :if={!@result? && @input_sections != []}
+        :if={!@result? && (@input_sections != [] || @contract_section)}
         class="prompt-assembly"
         aria-label="Briefing sources"
       >
         <h4 class="sr-only">Briefing sources</h4>
+        {Phoenix.HTML.raw(
+          RequestContextHTML.briefing(@request.sections, @request.source_kind, @request.id)
+        )}
         <%= for section <- @input_sections do %>
-          {Phoenix.HTML.raw(assembly(section, @request))}
           <details
             :if={unavailable_assembly?(section)}
             class="briefing-unavailable"
@@ -85,52 +87,57 @@ defmodule Responder.ControlPlane.EpisodeRequest do
       </div>
       <details :if={@prompt_section} class="final-prompt" id={"#{@request.id}-final-prompt"}>
         <summary>
-          Full submitted prompt
+          Full submitted request
           <span :if={@prompt_section.artifact.redacted}>Secrets redacted</span><span :if={
             @prompt_section.artifact.truncated
           }>Partial display</span>
         </summary>
         <p :if={@prompt_section.artifact.state == :retained} class="prompt-legend">
-          Highlighted text is linked to its briefing source. Hover or focus a section to see its source path.
+          Prompt text, including its messages and context. Point to or focus a highlight to identify its component.
         </p>
         <p :if={@prompt_section.artifact.state != :retained}>
           {if @prompt_section.artifact.state == :expired, do: "Expired", else: "Not recorded"}
         </p>
         {Phoenix.HTML.raw(PromptDocument.render(@prompt_section.artifact))}
+        <section :if={@contract_section} class="submitted-contract">
+          <h4>Output contract</h4>
+          <p>Supplied with the prompt as the required response format.</p>
+          {Phoenix.HTML.raw(PromptDocument.render(@contract_section.artifact))}
+        </section>
       </details>
+      <section :if={is_map(@response)} class="response-review">
+        <div :if={is_binary(@response["message"])} class="markdown-preview">
+          {Phoenix.HTML.raw(Responder.ControlPlane.SlackMarkdown.preview(@response["message"]))}
+        </div>
+        <p :if={is_binary(@response["decision_reason"])}>{@response["decision_reason"]}</p>
+        <div :if={response_records(@response) != []} class="response-records">
+          <h4>Supporting records</h4>
+          <p>These records were created during the work and selected to support this response.</p>
+          <ul>
+            <li :for={ref <- response_records(@response)}>
+              <a :if={@record_links[ref]} href={@record_links[ref].href}>{@record_links[ref].title}</a>
+              <code :if={!@record_links[ref]}>{ref}</code>
+            </li>
+          </ul>
+        </div>
+      </section>
       <details
         :if={@result?}
         class="request-evidence request-result-evidence"
         id={"#{@request.id}-evidence"}
       >
-        <summary>Response & validation records</summary>
+        <summary>
+          {if @request.source_kind == :work, do: "Raw model response", else: "Routing records"}
+        </summary>
         <.artifact_text
           :for={section <- @request.sections}
-          section={section}
-        />
-      </details>
-      <details class="request-provenance" id={"#{@request.id}-provenance"}>
-        <summary>Request record</summary>
-        <p>{@request.coverage}</p>
-        <a href={@request.href}>Open full request record →</a>
-        <.artifact_text
-          :for={section <- @technical_sections}
-          :if={!@result?}
+          :if={@request.source_kind != :work || section.id == "candidate"}
           section={section}
         />
       </details>
     </div>
     """
   end
-
-  defp assembly(%{id: "instructions", artifact: artifact}, request),
-    do: RequestContextHTML.assembly_instructions(artifact, request.id)
-
-  defp assembly(%{id: "context", artifact: artifact}, request),
-    do: RequestContextHTML.assembly(artifact, context_root(request), request.id)
-
-  defp context_root(%{source_kind: :admission}), do: "$.context"
-  defp context_root(_), do: "$.work"
 
   defp unavailable_assembly?(%{id: "instructions", artifact: artifact}),
     do: artifact.state != :retained
@@ -252,9 +259,10 @@ defmodule Responder.ControlPlane.EpisodeRequest do
   end
 
   defp headline(request) do
-    case document(request, "validation") do
-      %{"verdict" => %{"verdict" => "reject"}} -> "Answer needs correction"
-      %{"verdict" => %{"verdict" => "accept"}} -> "Answer passed validation"
+    case {document(request, "candidate"), document(request, "validation")} do
+      {%{}, _} -> "Response to validate"
+      {_, %{"verdict" => %{"verdict" => "reject"}}} -> "Answer needs correction"
+      {_, %{"verdict" => %{"verdict" => "accept"}}} -> "Answer passed validation"
       _ -> "Model result"
     end
   end
@@ -280,7 +288,7 @@ defmodule Responder.ControlPlane.EpisodeRequest do
   end
 
   defp explanation(request) do
-    case document(request, "validation") do
+    case if(is_nil(document(request, "candidate")), do: document(request, "validation")) do
       %{"candidate_attempt" => attempt, "verdict" => %{"verdict" => verdict}}
       when is_integer(attempt) and verdict in ~w(accept reject) ->
         "Candidate #{attempt} " <>
@@ -293,6 +301,11 @@ defmodule Responder.ControlPlane.EpisodeRequest do
         nil
     end
   end
+
+  defp response_records(%{"outcome" => %{"record_refs" => refs}}) when is_list(refs),
+    do: Enum.filter(refs, &is_binary/1)
+
+  defp response_records(_), do: []
 
   # Decode only complete, already-sanitized artifacts. A partial archive must
   # not become a confident routing or validation explanation.

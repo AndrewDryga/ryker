@@ -1,6 +1,8 @@
 defmodule Responder.Webhooks.RouterTest do
   use Responder.DataCase, async: true
 
+  # A suite-owned workspace keeps conversation locks out of other async fixtures.
+
   @moduletag isolation: "REPEATABLE READ"
 
   import Plug.Conn
@@ -31,7 +33,7 @@ defmodule Responder.Webhooks.RouterTest do
     assert entry.status == :pending
     assert entry.source_kind == "webhook"
     assert entry.content["payload"] == %{"new_vendor" => %{"state" => "firing"}}
-    assert entry.destination_conversation_ref == "slack:T123:C456"
+    assert entry.destination_conversation_ref == "slack:TWEBHOOKROUTER:C456"
     assert entry.destination_thread_ref == nil
     assert entry.work_policy == "webhook-read-only"
     assert entry.work_policy_digest == String.duplicate("a", 64)
@@ -56,7 +58,7 @@ defmodule Responder.Webhooks.RouterTest do
              })
 
     assert {:ok, result} = Admission.commit(context, decision, "webhook-decision:evt-123")
-    assert result.episode.destination_conversation_ref == "slack:T123:C456"
+    assert result.episode.destination_conversation_ref == "slack:TWEBHOOKROUTER:C456"
     assert result.episode.destination_thread_ref == nil
   end
 
@@ -353,7 +355,7 @@ defmodule Responder.Webhooks.RouterTest do
              Route.new(%{
                auth: auth,
                destination: %{
-                 conversation_ref: "slack:T123:C456",
+                 conversation_ref: "slack:TWEBHOOKROUTER:C456",
                  thread_ref: nil,
                  transport: "slack"
                },

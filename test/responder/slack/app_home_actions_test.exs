@@ -29,7 +29,9 @@ defmodule Responder.Slack.AppHomeActionsTest do
   end
 
   test "resource authorization rechecks exact user visibility before mutation" do
-    %{publication: publication} = PublicationFixture.published!("app-home-visibility")
+    %{publication: publication} =
+      PublicationFixture.published!("app-home-visibility", conversation_ref: "slack:T123:C456")
+
     interaction = home_interaction(:retry_publication, "publication-recovery:#{publication.id}:1")
 
     assert AppHomeActions.authorize_resource(
@@ -133,7 +135,8 @@ defmodule Responder.Slack.AppHomeActionsTest do
              "interaction:publication:missing"
            ) == {:error, :publication_not_found}
 
-    %{publication: publication} = PublicationFixture.published!("app-home-recovery")
+    %{publication: publication} =
+      PublicationFixture.published!("app-home-recovery", conversation_ref: "slack:T123:C456")
 
     Repo.update_all(
       from(saved in Publication, where: saved.id == ^publication.id),

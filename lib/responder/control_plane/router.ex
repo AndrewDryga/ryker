@@ -86,7 +86,7 @@ defmodule Responder.ControlPlane.Router do
 
   defp snapshot_path?([page]),
     do:
-      page in ~w(lab card-lab episodes incidents schedules subscriptions channels repositories failures workspaces decisions findings memory rules preferences guidance calibration usage configuration manual-tests)
+      page in ~w(lab card-lab episodes incidents schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance usage configuration manual-tests)
 
   defp snapshot_path?(["lab", "new"]), do: false
   defp snapshot_path?(["episodes", _, "requests"]), do: true
@@ -681,12 +681,6 @@ defmodule Responder.ControlPlane.Router do
     html(conn, 200, "Repositories", HTML.repositories(snapshot, conn.query_params))
   end
 
-  defp route(%Plug.Conn{method: "GET", path_info: ["calibration"]} = conn, options) do
-    conn = fetch_query_params(conn)
-    snapshot = options.projection.calibration.(Map.take(conn.query_params, ["window"]))
-    html(conn, 200, "Model performance", HTML.calibration(snapshot))
-  end
-
   defp route(%Plug.Conn{method: "GET", path_info: ["memory"]} = conn, options) do
     html(
       conn,
@@ -766,16 +760,12 @@ defmodule Responder.ControlPlane.Router do
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: [page]} = conn, options)
-       when page in ["decisions", "findings"] do
+       when page == "findings" do
     conn = fetch_query_params(conn)
     callback = Map.fetch!(options.projection, String.to_existing_atom(page))
     rows = callback.(conn.query_params)
 
-    body =
-      case page do
-        "decisions" -> HTML.decisions(rows)
-        _ -> HTML.generic(String.capitalize(page), rows)
-      end
+    body = HTML.generic("Findings", rows)
 
     html(conn, 200, String.capitalize(page), body)
   end

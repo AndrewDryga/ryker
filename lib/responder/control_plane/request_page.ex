@@ -68,10 +68,27 @@ defmodule Responder.ControlPlane.RequestPage do
             key="generation"
           />
           <div class="request-document-flow">
+            <div :if={!@params["section"]} class="prompt-assembly" aria-label="Briefing sources">
+              {Phoenix.HTML.raw(
+                RequestContextHTML.briefing(
+                  @view.selected.sections,
+                  @view.kind,
+                  "selected-#{@view.selected.id}"
+                )
+              )}
+            </div>
             <.artifact
-              :for={section <- @sections}
+              :for={
+                section <-
+                  Enum.reject(
+                    @sections,
+                    &(!@params["section"] && &1.id in ~w(instructions context contract) &&
+                        &1.artifact.state == :retained && !&1.artifact.truncated)
+                  )
+              }
               section={section}
               prefix={"selected-#{@view.selected.id}"}
+              expanded_source={@params["section"] == section.id}
             />
           </div>
           <section class="retained-tools" id="retained-tools">
@@ -118,11 +135,15 @@ defmodule Responder.ControlPlane.RequestPage do
       )
 
     ~H"""
-    <section class={"inspector-document artifact-#{@section.id}"} id={"#{@prefix}-#{@section.id}"}>
-      <div class="document-heading">
+    <details
+      class={"inspector-document artifact-#{@section.id}"}
+      id={"#{@prefix}-#{@section.id}"}
+      open={assigns[:expanded_source] || false}
+    >
+      <summary class="document-heading">
         <h4>{@section.title}</h4><span>{artifact_label(@section.artifact)}{if @section.artifact.truncated,
           do: " · truncated display"}</span>
-      </div>
+      </summary>
       <p :if={@section.artifact.state != :retained} class="artifact-unavailable">
         {if @section.artifact.state == :expired,
           do: "This artifact has expired",
@@ -141,7 +162,7 @@ defmodule Responder.ControlPlane.RequestPage do
           <pre :if={@section.id == "context"} class="model-document-text" tabindex="0">{@section.artifact.text}</pre>
         </details>
       </div>
-    </section>
+    </details>
     """
   end
 

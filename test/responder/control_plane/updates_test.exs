@@ -53,7 +53,7 @@ defmodule Responder.ControlPlane.UpdatesTest do
   test "each retained domain can invalidate its reader without publishing row contents" do
     tables = %{
       "execution_usage" => "usage",
-      "episode_operator_reviews" => "decisions",
+      "episode_operator_reviews" => "episodes",
       "episode_schedules" => "schedules",
       "episode_event_subscriptions" => "subscriptions",
       "episode_state_records" => "memory",

@@ -42,6 +42,10 @@ defmodule Responder.ControlPlane.BehaviorPageTest do
       assert html =~ "Applies to"
       assert html =~ "No #{String.downcase(BehaviorPage.title(kind))} yet"
       document = LazyHTML.from_fragment(html)
+
+      assert document |> LazyHTML.query(".behavior-create:not(details)") |> LazyHTML.text() =~
+               "Review and confirm"
+
       [path] = document |> LazyHTML.query("a[href^='/card-lab/']") |> LazyHTML.attribute("href")
       ["card-lab", family, state] = String.split(path, "/", trim: true)
       assert {:ok, _} = CardLab.fetch(family, state)

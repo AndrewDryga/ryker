@@ -178,67 +178,24 @@ conflict — and will never look again without a person acting.
 **Source:** `coop_cleanup`, joined to `incidents`, `channel_memories` and
 `conversation_sessions` for what each session belonged to.
 
-### 4. Decisions — "what did it choose, and was it right?"
+### 4. Routing and response checks
 
-Responder's judgement, made inspectable.
+An episode's Routing section shows the saved briefing, activity, decision and
+reason for each incoming message. Response checks appear as individual events
+in the same timeline. The request inspector provides the full retained artifacts
+for a selected model execution; it is not another execution or a second timeline.
 
-- Every watch decision: action taken, attention scores, the reason it recorded
-- Distribution of ignore/react/reply/incident over time
-- Correction rate by class (unreadable, incomplete, rejected), which is currently
-  only visible by running a CLI
-- Judged eval results per corpus, with pass rate trend
-- **Corrections triage**: keep or discard a fixture candidate *with the episode
-  that produced it on the same page*. Today that decision is made against a
-  one-line string with no context, which is why fifteen of them have sat
-  unreviewed.
+Usage compares work classes and models using the execution ledger: runs, failures,
+elapsed model time, and retained response corrections. Provider retries are not
+counted as response corrections. Credentialed evaluation results remain in their
+recorded reports and are not presented as live-traffic quality scores.
 
-- **Audition**: which model deserves which lane. One row per case class, per
-  profile the turn asked for, per model that actually answered — attempts,
-  how many of them a provider measured, corrections and corrections per
-  attempt, and cost. The panel carries the live half only; gate-pass rate and
-  judge score live in the recorded evaluation results on disk, which the
-  dashboard does not read, so it names `responder audition` rather than
-  rendering an empty column that reads as broken.
-
-**Source:** `evaluation_decisions`, `fixture_candidates`, `agent_runs`,
-`context_manifests` joined to runs on `attempt_id`, `audit_events` of kind
-`result.correction`, correction-rate projection.
-
-#### The audition report — two halves that are not joined
-
-`responder audition` prints both halves; the Decisions panel shows the live one.
-
-The live half comes from the database: `context_manifests` for the effective
-provider, model and effort and for every usage column, the `execution_profile`
-reference for the profile the turn *asked* for, and `audit_events` of kind
-`result.correction` for the re-work. Corrections attach to an agent run, so the
-attribution walks run → attempt → manifest; the run join is on `attempt_id` and
-never on `episode_id`, for the reason the Usage section gives.
-
-The recorded half comes from the evaluation history — the JSON `make eval`
-already writes with `--results` — and gives gate-pass rate, judge mean over the
-number of answers the judge actually scored, and the case count. The newest run
-of each corpus only.
-
-**The two are printed apart and never joined.** `EvaluationSummary` records no
-provider and no model anywhere, and live traffic has no gate to pass, so no row
-can honestly carry both. A grid keyed by class *and* model would be inventing
-the attribution neither source holds. The report says this out loud rather than
-leaving the reader to notice.
-
-Promotion metrics are gate-pass rate, judge score and correction rate. There is
-deliberately no similarity-to-frontier-prose score, and adding one would be a
-change to what this product optimises for, not a new column.
-
-Cost follows the same rule as the Usage page: a lane the provider charged for is
-reported and is **not** also estimated, an unpriced model reports no estimate
-rather than a zero, and an unmeasured lane reads "not measured" rather than
-"0.00". The two totals are printed on separate lines with the reason beside
-them.
+There are no standalone Decisions or Calibration pages. The current Elixir
+control plane does not provide fixture-candidate keep/discard controls.
 
 ### 4a. Findings — "what is wrong with Responder itself?"
 
-Decisions is about whether Responder judged a situation correctly. This is about
+Routing inspection is about whether Responder judged a situation correctly. This is about
 whether Responder is broken, which is a different question with a different
 source: `scripts/quality-watch.sh` reads every terminal work episode out of
 process, asks an assessor whether it reveals a concrete product defect, and then
@@ -486,14 +443,12 @@ replacement, not the older Go dashboard or the intended final design above.
 | Repositories and topology | Live, with configured policy names, durable channel, schedule, session, and publication counts, serving Coop worker revisions, and the latest frozen freshness receipt |
 | Failures | Live, with typed confirmed recovery for admission, Work, delivery, Slack repaint/incident, Emisar monitoring, and retention custody |
 | Workspaces | Live, with audited cleanup rearm and explicit safe discard |
-| Decisions | Live, read-only |
-| Model calibration | Live, read-only and bounded by time window, with admitted work class, effective provider/model/effort, repair rounds, tokens, reported cost, and provider/queue/host timing |
+| Usage | Filtered execution ledger, cost and timing, plus work-class/model comparisons and retained response corrections |
 | Findings | Live, read-only |
 | Standing rules | Live, with active/paused/expired counts, searchable scope/status filters, paginated confirmed instructions, original conversation, expiry, recent matches, and confirmed pause/resume/delete |
 | Preferences and Guidance | Separate live libraries with visible scope, effective expiry, full guidance, provenance, history filters, and confirmed lifecycle controls |
 | Memory | Operational mappings and stale/duplicate reviews, with confirmed keep/merge/edit/forget; rules, guidance, preferences, and schedules have their own pages |
 | Configuration | Live for an explicit allowlist of effective runtime values, source provenance, MCP/host/tool grant names, and repository-topology linkage; secrets, endpoints, callbacks, and raw policy documents are omitted |
-| Usage | Live for accepted Work turns, with provider coverage, tokens, reported cost, timings, daily trend, and target/channel/repository drill-downs |
 | Test journeys | Live, configuration-aware manual qualification for the Lab, Slack, GitHub, webhooks, state tools, and recovery |
 
 Every administrative action is a POST behind a native two-step confirm and

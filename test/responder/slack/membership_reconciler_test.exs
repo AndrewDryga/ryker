@@ -101,7 +101,7 @@ defmodule Responder.Slack.MembershipReconcilerTest do
 
     options =
       options(agent)
-      |> Map.put(:managed_channel?, fn "T123", channel_ref ->
+      |> Map.put(:managed_channel?, fn "T9E23FDA39DE5", channel_ref ->
         channel_ref == "CINCIDENT"
       end)
 
@@ -226,7 +226,7 @@ defmodule Responder.Slack.MembershipReconcilerTest do
         directory: nil,
         operators: MapSet.new()
       },
-      workspace_ref: "T123"
+      workspace_ref: "T9E23FDA39DE5"
     }
   end
 end
