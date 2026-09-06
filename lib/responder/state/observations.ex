@@ -4,7 +4,7 @@ defmodule Responder.State.Observations do
   alias Responder.{CanonicalJSON, Repo}
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Slack.{ChannelFence, ChannelMembership}
-  alias Responder.State.{Continuity, ConversationObservation}
+  alias Responder.State.{Continuity, ConversationObservation, Knowledge, LearningSources}
 
   def prepare(nil), do: {:ok, nil}
 
@@ -40,8 +40,28 @@ defmodule Responder.State.Observations do
   end
 
   @doc "Persist only after the source decision wins custody, without creating an episode or effect."
-  def record_in_transaction(%Entry{status: :decided} = entry, note, result_ref)
+  def record_in_transaction(entry, note, result_ref, sources \\ :source_only)
+
+  def record_in_transaction(%Entry{status: :decided} = entry, note, result_ref, sources)
       when is_binary(result_ref) and result_ref != "" do
+    write_source(entry, note, result_ref, sources)
+  end
+
+  def record_in_transaction(_, _, _, _), do: {:error, :observation_source_not_decided}
+
+  @doc "Revoke previous facts immediately when authenticated source custody advances."
+  def receive_in_transaction(%Entry{} = entry), do: write_source(entry, nil, nil, nil)
+
+  @doc false
+  def source_identity(entry) do
+    CanonicalJSON.digest(%{
+      "source_kind" => entry.source_kind,
+      "source_ref" => entry.source_ref,
+      "native_input_id" => entry.native_input_id
+    })
+  end
+
+  defp write_source(entry, note, result_ref, sources) do
     with true <- Repo.in_transaction?(),
          {:ok, note} <- prepare(note),
          :ok <-
@@ -50,13 +70,6 @@ defmodule Responder.State.Observations do
              entry.destination_conversation_ref
            ),
          {:ok, scope} <- Continuity.destination_context(entry, entry.repository_ref) do
-      identity =
-        CanonicalJSON.digest(%{
-          "source_kind" => entry.source_kind,
-          "source_ref" => entry.source_ref,
-          "native_input_id" => entry.native_input_id
-        })
-
       now = DateTime.utc_now()
 
       # Keep a revision tombstone even when an edit has nothing to remember. A
@@ -66,7 +79,7 @@ defmodule Responder.State.Observations do
           ConversationObservation,
           Map.merge(scope, %{
             id: entry.id,
-            identity_key: identity,
+            identity_key: source_identity(entry),
             source_input_id: entry.id,
             source_episode_id: entry.episode_id,
             source_message_ref: entry.source_item_ref || entry.native_input_id,
@@ -82,19 +95,21 @@ defmodule Responder.State.Observations do
           })
         )
 
+      sources = if sources == :source_only, do: LearningSources.for_source(record), else: sources
+
+      record = %{
+        record
+        | source_dependencies: sources,
+          note: if(is_list(sources), do: record.note)
+      }
+
       fields =
-        ~w(visibility source_input_id source_episode_id source_message_ref source_result_ref source_fingerprint actor_ref execution_mode revision occurred_at note updated_at)a
+        ~w(repository_ref thread_ref visibility source_input_id source_episode_id source_message_ref source_result_ref source_fingerprint actor_ref execution_mode revision occurred_at note source_dependencies updated_at)a
 
       updates = Enum.map(fields, &{&1, Map.fetch!(record, &1)})
 
-      conflict =
-        from(old in ConversationObservation,
-          where: old.revision < fragment("EXCLUDED.revision"),
-          update: [set: ^updates]
-        )
-
       case Repo.insert(record,
-             on_conflict: conflict,
+             on_conflict: monotonic_source_update(updates),
              conflict_target: [:identity_key],
              allow_stale: true
            ) do
@@ -108,7 +123,30 @@ defmodule Responder.State.Observations do
     end
   end
 
-  def record_in_transaction(_, _, _), do: {:error, :observation_source_not_decided}
+  defp monotonic_source_update(updates) do
+    updates = Keyword.delete(updates, :updated_at)
+
+    from(old in ConversationObservation,
+      where:
+        old.revision < fragment("EXCLUDED.revision") or
+          (old.revision == fragment("EXCLUDED.revision") and
+             old.source_input_id == fragment("EXCLUDED.source_input_id") and
+             old.source_fingerprint == fragment("EXCLUDED.source_fingerprint") and
+             is_nil(old.source_result_ref) and
+             not is_nil(fragment("EXCLUDED.source_result_ref"))),
+      update: [set: ^updates],
+      update: [
+        set: [
+          updated_at:
+            fragment(
+              "CASE WHEN ? = EXCLUDED.revision THEN ? ELSE EXCLUDED.updated_at END",
+              old.revision,
+              old.updated_at
+            )
+        ]
+      ]
+    )
+  end
 
   def context(destination, repository_ref, query \\ "", limit \\ 16, search_scope \\ "workspace") do
     case Repo.transaction(fn ->
@@ -159,7 +197,12 @@ defmodule Responder.State.Observations do
           )
         )
 
-      current = notes |> authorized_notes(scope) |> Enum.map(&document/1)
+      current =
+        notes
+        |> authorized_notes(scope)
+        |> Enum.filter(&LearningSources.valid?(&1.source_dependencies, scope))
+        |> Enum.map(&document/1)
+
       MapSet.new(current) == MapSet.new(documents)
     else
       _ -> false
@@ -175,7 +218,8 @@ defmodule Responder.State.Observations do
 
   defp observation_id(_), do: nil
 
-  defp locked_scope(destination, repository_ref) do
+  @doc false
+  def locked_scope(destination, repository_ref) do
     with :ok <-
            ChannelFence.authorize_in_transaction(
              destination.destination_transport,
@@ -194,6 +238,7 @@ defmodule Responder.State.Observations do
     query =
       from(note in ConversationObservation,
         where: note.workspace_ref == ^scope.workspace_ref and not is_nil(note.note),
+        where: note.id not in subquery(Knowledge.current_source_ids_query(scope)),
         where: ^allowed,
         order_by: [
           desc: note.conversation_ref == ^scope.conversation_ref,
@@ -205,14 +250,17 @@ defmodule Responder.State.Observations do
       )
 
     query
+    |> LearningSources.eligible(scope)
     |> within_scope(scope, search_scope)
     |> matching(search)
     |> Repo.all()
     |> authorized_notes(scope)
+    |> Enum.filter(&LearningSources.valid?(&1.source_dependencies, scope))
     |> Enum.map(&document/1)
   end
 
-  defp authorized_notes(notes, scope) do
+  @doc false
+  def authorized_notes(notes, scope) do
     members = notes |> Enum.map(& &1.conversation_ref) |> lock_memberships()
 
     Enum.filter(notes, fn note ->
@@ -237,7 +285,8 @@ defmodule Responder.State.Observations do
     |> Map.new()
   end
 
-  defp visible_conversations(%{transport: "slack", visibility: :public} = scope) do
+  @doc false
+  def visible_conversations(%{transport: "slack", visibility: :public} = scope) do
     workspace = String.replace_prefix(scope.workspace_ref, "slack:", "")
 
     public =
@@ -255,7 +304,7 @@ defmodule Responder.State.Observations do
     )
   end
 
-  defp visible_conversations(scope),
+  def visible_conversations(scope),
     do: dynamic([note], note.conversation_ref == ^scope.conversation_ref)
 
   defp within_scope(query, _scope, "workspace"), do: query

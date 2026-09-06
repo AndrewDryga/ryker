@@ -19,9 +19,26 @@ defmodule Responder.Retention.Policy do
 
   @policies [
     %{
+      table: "conversation_knowledge",
+      class: :conversation_memory,
+      why:
+        "derived topic text expires with its oldest source; compact topic/version receipts remain"
+    },
+    %{
+      table: "conversation_knowledge_sources",
+      class: :conversation_memory,
+      why: "source text copies expire by generation; revision fences prevent replay resurrection"
+    },
+    %{
+      table: "conversation_knowledge_revisions",
+      class: :conversation_memory,
+      why:
+        "historical derived text expires with its supporting source generation; audit identities remain"
+    },
+    %{
       table: "conversation_observations",
       class: :conversation_memory,
-      why: "source-linked notes learned independently of responding; own memory horizon"
+      why: "source-linked notes expire at the memory horizon; monotonic revision receipts remain"
     },
     %{
       table: "slack_thread_status_receipts",
@@ -180,6 +197,16 @@ defmodule Responder.Retention.Policy do
       table: "episode_work_sessions",
       class: :audit,
       why: "immutable Coop authority binding and cleanup receipt"
+    },
+    %{
+      table: "episode_work_knowledge_exposures",
+      class: :cascade,
+      why: "content-free revocation fences for knowledge disclosed to one native session"
+    },
+    %{
+      table: "episode_work_source_exposures",
+      class: :cascade,
+      why: "content-free source receipts for memory disclosed to one native session"
     },
     %{
       table: "episode_work_turns",

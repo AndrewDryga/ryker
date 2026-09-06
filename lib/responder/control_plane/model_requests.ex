@@ -219,6 +219,7 @@ defmodule Responder.ControlPlane.ModelRequests do
     start = %{
       id: id,
       at: request.at,
+      sort_at: request.at,
       title: request.title,
       target: request.target,
       status: request.status,
@@ -239,6 +240,7 @@ defmodule Responder.ControlPlane.ModelRequests do
             start
             | id: id <> "-result",
               at: completed,
+              sort_at: completed || request.at,
               band: if(kind == :admission, do: :ready, else: :answer),
               title: request.title <> " · result",
               phase: :result,

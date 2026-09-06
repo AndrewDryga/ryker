@@ -2,6 +2,18 @@ defmodule Responder.ControlPlane.InspectionRedactorTest do
   use ExUnit.Case, async: true
   alias Responder.ControlPlane.InspectionRedactor
 
+  test "redacting URL credentials preserves the closing punctuation of Markdown links" do
+    # The real OOM memory's ?orgId=1 link swallowed its closing parenthesis,
+    # leaving an unclickable Markdown fragment in the operator preview.
+    for query <- ["orgId=1", "token=unpublished-value", "X-Amz-Signature=opaque-value"] do
+      artifact =
+        InspectionRedactor.artifact("[Alert](https://example.test/view?#{query}).", secrets: [])
+
+      assert artifact.text == "[Alert](https://example.test/view)."
+      refute artifact.text =~ query
+    end
+  end
+
   test "preserving prompt bytes never restores a secret hidden by duplicate JSON keys" do
     # The exact-prompt viewer must inspect every occurrence, not just the decoder's last value.
     for text <- [

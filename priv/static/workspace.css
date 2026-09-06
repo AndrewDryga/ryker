@@ -82,6 +82,14 @@
 .memory-card .memory-facts h3 { font-size:13px; margin:14px 0 4px; }
 .memory-card .memory-facts ul { margin:0; padding-left:20px; }
 .memory-card .memory-facts li p { margin:4px 0; }
+.memory-unavailable { border-left:3px solid #a88445; padding:8px 12px; background:#f5f0e6; color:var(--text); font-size:14px; }
+.knowledge-history { margin:28px 0; }
+.knowledge-history > p { color:var(--muted); font-size:14px; }
+.knowledge-history ol { list-style:none; padding:0; margin:20px 0; border-left:2px solid var(--stroke); }
+.knowledge-history li { position:relative; margin:0 0 24px 20px; padding:0 0 20px; border-bottom:1px solid var(--stroke); overflow-wrap:anywhere; }
+.knowledge-history li::before { content:""; position:absolute; width:8px; height:8px; border-radius:50%; left:-25px; top:8px; background:#60795f; }
+.knowledge-history header { display:flex; justify-content:space-between; gap:16px; position:static; padding:0; background:none; border:0; }
+.knowledge-history time, .knowledge-history small { color:var(--muted); font-size:13px; }
 @media(max-width:700px) { .memory-card { padding:16px; } .memory-card header { display:block; } .memory-totals a { align-items:flex-start; flex-direction:column; padding:12px; gap:6px; } }
 .responder-app .usage-page .usage-people-table { min-width:0; }
 .responder-app .usage-people-table th:first-child { width:46%; }
@@ -1100,3 +1108,10 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
   .behavior-counts { gap:28px; }
   .behavior-history li { grid-template-columns:1fr; }
 }
+.episode-follow-through { margin-block: 1.5rem; padding-block: 1rem; border-block: 1px solid var(--stroke); }
+.episode-follow-through h2 { font-size: 1rem; margin: 0 0 .75rem; }
+.episode-follow-through h2 small { margin-left: .5rem; font-weight: 400; }
+.episode-follow-through ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 1rem; }
+.episode-follow-through li { display: flex; align-items: baseline; flex-wrap: wrap; gap: .35rem 1rem; overflow-wrap: anywhere; }
+.episode-follow-through li div { display: flex; flex-wrap: wrap; gap: .35rem .75rem; }
+.episode-follow-through li p { margin: 0; }

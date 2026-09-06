@@ -7,20 +7,289 @@ defmodule Responder.State.ContinuityTest do
   alias Responder.ControlPlane.{HTML, Projection}
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Responder.Repo
   alias Responder.Slack.{ChannelConfigurations, ChannelMembership}
 
   alias Responder.State.{
     Continuity,
+    ConversationObservation,
     ConversationRollup,
     ConversationSummary,
     ConversationSummaryDraft,
-    ConversationSummaryState
+    ConversationSummaryState,
+    KnowledgeRetention,
+    KnowledgeSnapshot,
+    LearningSources,
+    Observations,
+    SourceExposure
   }
 
   alias Responder.Work.{Custody, FinalPreflight, Result, Submission}
 
   @now ~U[2026-09-04 12:00:00.000000Z]
+
+  for boundary <- [:count, :bytes] do
+    test "#{boundary} source overflow cannot publish a summary without its expiry receipts" do
+      # A warm session can expose more roots than fit into one derived-memory record.
+      work =
+        open_work!(
+          "summary-capacity",
+          "control-plane:lab:summary-capacity",
+          nil,
+          "responder",
+          "control_plane"
+        )
+
+      {entry, document} = KnowledgeFixtures.learn!(work.claim.episode, "responder")
+      original = Repo.get!(ConversationObservation, entry.id)
+      [receipt] = LearningSources.for_entry(entry)
+      dependencies = receipt_group(receipt, unquote(boundary))
+
+      for dependency <- dependencies do
+        source =
+          original
+          |> Map.from_struct()
+          |> Map.delete(:__meta__)
+          |> Map.merge(%{
+            id: dependency["observation_id"],
+            identity_key: CanonicalJSON.digest(dependency),
+            source_input_id: dependency["source_input_id"],
+            repository_ref: dependency["repository_ref"],
+            source_dependencies: [dependency]
+          })
+
+        Repo.insert!(struct!(ConversationObservation, source))
+
+        Repo.insert!(%SourceExposure{
+          session_id: work.claim.session.id,
+          observation_id: source.id,
+          source_input_id: source.source_input_id,
+          receipt: dependency
+        })
+      end
+
+      assert KnowledgeSnapshot.session_sources(work.claim.session.id) == nil
+      assert {:ok, _} = Continuity.stage(work.state_token, state(document["summary"]))
+      assert %{turn: %{result_ref: result}} = accept!(work)
+      assert is_binary(result)
+      assert Repo.aggregate(ConversationSummary, :count) == 0
+      assert Repo.aggregate(ConversationSummaryDraft, :count) == 0
+    end
+
+    test "#{boundary} rollup overflow preserves the source summaries instead of stripping lineage" do
+      work =
+        open_work!(
+          "rollup-capacity",
+          "control-plane:lab:rollup-capacity",
+          nil,
+          "responder",
+          "control_plane"
+        )
+
+      {entry, document} = KnowledgeFixtures.learn!(work.claim.episode, "responder")
+      assert {:ok, _} = Continuity.stage(work.state_token, state(document["summary"]))
+      accept!(work)
+      summary = Repo.one!(ConversationSummary)
+      [receipt] = LearningSources.for_entry(entry)
+
+      {left, right} =
+        receipt_group(receipt, unquote(boundary))
+        |> Enum.split(if(unquote(boundary) == :count, do: 65, else: 32))
+
+      assert is_list(LearningSources.merge([left]))
+      assert is_list(LearningSources.merge([right]))
+      old = DateTime.add(DateTime.utc_now(), -120)
+      Repo.update!(Ecto.Changeset.change(summary, source_dependencies: left, updated_at: old))
+
+      duplicate = %{
+        summary
+        | id: Ecto.UUID.generate(),
+          identity_key: CanonicalJSON.digest(Ecto.UUID.generate()),
+          ref: "continuity:#{Ecto.UUID.generate()}",
+          source_dependencies: right,
+          updated_at: old
+      }
+
+      Repo.insert!(duplicate)
+
+      assert {:ok, {:ok, 0}} =
+               Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+
+      assert Repo.aggregate(ConversationRollup, :count) == 0
+      assert Repo.aggregate(ConversationSummary, :count) == 2
+    end
+  end
+
+  test "a retention-pruned rollup can be rebuilt by later sources in the same week" do
+    work =
+      open_work!(
+        "pruned-rollup",
+        "control-plane:lab:pruned-rollup",
+        nil,
+        "responder",
+        "control_plane"
+      )
+
+    {_entry, document} = KnowledgeFixtures.learn!(work.claim.episode, "responder")
+    assert {:ok, _} = Continuity.stage(work.state_token, state(document["summary"]))
+    accept!(work)
+
+    Repo.update_all(ConversationSummary,
+      set: [updated_at: DateTime.add(DateTime.utc_now(), -120)]
+    )
+
+    summary = Repo.one!(ConversationSummary)
+
+    assert {:ok, {:ok, 1}} =
+             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+
+    rollup = Repo.one!(ConversationRollup)
+
+    Repo.update!(
+      Ecto.Changeset.change(rollup,
+        state: %{"retention" => "pruned"},
+        source_dependencies: nil,
+        state_fingerprint: CanonicalJSON.digest(%{"retention" => "pruned"})
+      )
+    )
+
+    Repo.insert!(%{summary | id: Ecto.UUID.generate(), ref: "continuity:#{Ecto.UUID.generate()}"})
+
+    assert {:ok, {:ok, 1}} =
+             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+
+    assert Repo.one!(ConversationRollup).state == summary.state
+    assert Repo.one!(ConversationRollup).id == rollup.id
+  end
+
+  defp receipt_group(receipt, boundary) do
+    count = if boundary == :count, do: 129, else: 64
+
+    for _ <- 1..count do
+      id = Ecto.UUID.generate()
+
+      %{
+        receipt
+        | "observation_id" => id,
+          "source_input_id" => id,
+          "repository_ref" =>
+            if(boundary == :bytes, do: String.duplicate("r", 1024), else: "responder")
+      }
+    end
+    |> Enum.sort_by(&CanonicalJSON.encode!/1)
+  end
+
+  test "repeated source disclosure keeps the earliest expiry in subsequent summaries" do
+    # A newer tool result must not refresh source facts already inherited from older memory.
+    work =
+      open_work!(
+        "earliest-source",
+        "control-plane:lab:earliest-source",
+        nil,
+        "responder",
+        "control_plane"
+      )
+
+    {entry, document} = KnowledgeFixtures.learn!(work.claim.episode, "responder")
+    assert :ok = KnowledgeSnapshot.expose(work.claim, [document])
+    [receipt] = KnowledgeSnapshot.session_sources(work.claim.session.id)
+
+    earlier =
+      Map.put(receipt, "retained_at", DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), -600)))
+
+    source = Repo.get_by!(ConversationObservation, source_input_id: entry.id)
+    Repo.update!(Ecto.Changeset.change(source, source_dependencies: [earlier]))
+
+    assert :ok =
+             KnowledgeSnapshot.expose(work.claim, [Observations.document(source)])
+
+    assert KnowledgeSnapshot.session_sources(work.claim.session.id) == [earlier]
+  end
+
+  for compact? <- [false, true] do
+    test "a fresh #{if compact?, do: "rollup", else: "summary"} loses copied prose when its original source expires" do
+      # Copying an old learned fact must not restart its configured retention clock.
+      work =
+        open_work!(
+          "summary-expiry",
+          "control-plane:lab:summary-expiry",
+          nil,
+          "responder",
+          "control_plane"
+        )
+
+      {_source, document} = KnowledgeFixtures.learn!(work.claim.episode, "responder")
+      assert :ok = KnowledgeSnapshot.expose(work.claim, [document])
+      assert {:ok, _} = Continuity.stage(work.state_token, state(document["summary"]))
+      accept!(work)
+      summary = Repo.one!(ConversationSummary)
+
+      dependencies =
+        Enum.map(
+          summary.source_dependencies,
+          &Map.put(
+            &1,
+            "retained_at",
+            DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), -3601))
+          )
+        )
+
+      Repo.update!(Ecto.Changeset.change(summary, source_dependencies: dependencies))
+
+      if unquote(compact?) do
+        Repo.update_all(ConversationSummary,
+          set: [updated_at: DateTime.add(DateTime.utc_now(), -120)]
+        )
+
+        assert {:ok, {:ok, 1}} =
+                 Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+      end
+
+      schema = if unquote(compact?), do: ConversationRollup, else: ConversationSummary
+
+      assert {:ok, _} =
+               Repo.transaction(fn ->
+                 KnowledgeRetention.prune_in_transaction(3600)
+               end)
+
+      assert Repo.one!(schema).state == %{"retention" => "pruned"}
+    end
+
+    test "a #{if compact?, do: "rollup", else: "summary"} cannot launder knowledge from a withdrawn source" do
+      joined!("T123", "CSOURCE")
+      joined!("T123", "CTARGET")
+      work = open_work!("summary-lineage", "slack:T123:CTARGET", nil, "responder")
+      destination = %{work.claim.episode | destination_conversation_ref: "slack:T123:CSOURCE"}
+      {source, document} = KnowledgeFixtures.learn!(destination, "responder")
+      assert :ok = KnowledgeSnapshot.expose(work.claim, [document])
+      assert {:ok, _} = Continuity.stage(work.state_token, state(document["summary"]))
+      accept!(work)
+
+      if unquote(compact?) do
+        Repo.update_all(ConversationSummary,
+          set: [updated_at: DateTime.add(DateTime.utc_now(), -120)]
+        )
+
+        assert {:ok, {:ok, 1}} =
+                 Repo.transaction(fn -> Continuity.compact_in_transaction(60, 3600) end)
+      end
+
+      KnowledgeFixtures.revoke!(source)
+      context = Continuity.model_context(work.claim.episode, "responder")
+      assert context["current"] == nil
+      assert context["related"] == []
+      assert context["rollups"] == []
+
+      assert Continuity.search_context(
+               work.claim.episode,
+               "responder",
+               "draft-ai-suggestions",
+               "workspace",
+               20
+             ) == []
+    end
+  end
 
   test "shadow work can publish derived summaries without creating a visible result" do
     # Observe-only work used to be unable to save its own conversation summary.

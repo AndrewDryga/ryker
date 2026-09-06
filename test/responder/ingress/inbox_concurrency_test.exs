@@ -6,6 +6,7 @@ defmodule Responder.Ingress.InboxConcurrencyTest do
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
+  alias Responder.State.ConversationObservation
 
   test "simultaneous Slack retries converge on one inbox record" do
     Sandbox.unboxed_run(Repo, fn ->
@@ -47,7 +48,7 @@ defmodule Responder.Ingress.InboxConcurrencyTest do
       after
         send(blocker.pid, :release)
         stop_tasks([blocker | contenders])
-        Repo.delete_all(from(entry in Entry, where: entry.event_ref == ^event_ref))
+        delete_inputs!([event_ref])
       end
     end)
   end
@@ -87,7 +88,7 @@ defmodule Responder.Ingress.InboxConcurrencyTest do
         assert idle == 1
       after
         stop_tasks(contenders)
-        Repo.delete_all(from(stored in Entry, where: stored.event_ref == ^event_ref))
+        delete_inputs!([event_ref])
       end
     end)
   end
@@ -141,9 +142,20 @@ defmodule Responder.Ingress.InboxConcurrencyTest do
         assert Enum.count(results, &(&1 == {:ok, nil})) == 1
       after
         stop_tasks(contenders)
-        Repo.delete_all(from(entry in Entry, where: entry.event_ref in ^refs))
+        delete_inputs!(refs)
       end
     end)
+  end
+
+  defp delete_inputs!(refs) do
+    inputs = from(entry in Entry, where: entry.event_ref in ^refs)
+    ids = from(entry in inputs, select: entry.id)
+
+    Repo.delete_all(
+      from(note in ConversationObservation, where: note.source_input_id in subquery(ids))
+    )
+
+    Repo.delete_all(inputs)
   end
 
   defp input!(event_ref) do

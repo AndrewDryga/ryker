@@ -98,6 +98,20 @@ defmodule Responder.ControlPlane.EpisodePage do
           </ul>
         </details>
       </section>
+      <section
+        :if={(@snapshot.trace[:follow_through] || []) != []}
+        class="episode-follow-through"
+        aria-label="Current follow-up status"
+      >
+        <h2>Follow-up status <small>Current</small></h2>
+        <ul>
+          <li :for={item <- @snapshot.trace.follow_through}>
+            <div><strong>{item.title}</strong><span>{item.state}</span></div>
+            <p :if={item.error}>Error: {item.error}</p>
+            <a :if={item.href} href={item.href}>{item.link_label} →</a>
+          </li>
+        </ul>
+      </section>
       <p :if={@requests}><.link patch={base(@snapshot)}>← Back to the episode timeline</.link></p>
       <details :if={@requests} open class="specific-request">
         <summary>Selected request · exact retained artifact</summary>
@@ -238,7 +252,12 @@ defmodule Responder.ControlPlane.EpisodePage do
         @message[:status]
       }>{@message.status}</span>
     </div>
-    <div class="case-message-text markdown-preview">{message_text(@message)}</div>
+    <p :if={@message[:response_reference]} class="response-reference">
+      <a href={@message.response_reference}>View response ↑</a>
+    </p>
+    <div :if={!@message[:response_reference]} class="case-message-text markdown-preview">
+      {message_text(@message)}
+    </div>
     """
   end
 
@@ -376,7 +395,7 @@ defmodule Responder.ControlPlane.EpisodePage do
           id: "story-message-#{message.id}",
           at: message.at,
           kind: :message,
-          message: message,
+          message: Map.put(message, :response_reference, response_reference(message, requests)),
           band: if(message.actor == "Responder", do: :outcome, else: :input)
         }
       end)
@@ -391,7 +410,25 @@ defmodule Responder.ControlPlane.EpisodePage do
       end)
 
     # Stable sort preserves the trace's numeric sequence/lifecycle ordering on ties.
-    Enum.sort_by(messages ++ steps ++ requests, &unix(&1.at))
+    Enum.sort_by(messages ++ steps ++ requests, &unix(&1.at || &1[:sort_at]))
+  end
+
+  # A receipt may point back to this turn's exact response; a changed, missing or
+  # truncated candidate must never hide what actually reached the conversation.
+  defp response_reference(message, requests) do
+    if delivered_message?(message) do
+      id = "request-#{message.id}-result"
+
+      with %{sections: sections} <- Enum.find(requests, &(&1.id == id)),
+           %{artifact: %{state: :retained, truncated: false, text: text}} <-
+             Enum.find(sections, &(&1.id == "candidate")),
+           {:ok, %{"message" => body}} when is_binary(body) <- Jason.decode(text),
+           true <- body == message.text do
+        "##{id}"
+      else
+        _ -> nil
+      end
+    end
   end
 
   defp visible_copies(steps, messages, requests) do
@@ -429,15 +466,16 @@ defmodule Responder.ControlPlane.EpisodePage do
   defp redundant_step?(%{state: "result accepted"} = step, copies),
     do: step[:result_ref] in copies.result_refs
 
-  defp redundant_step?(%{stage: "Delivery"} = step, copies),
-    do: step[:delivery_ref] in copies.delivery_refs
+  defp redundant_step?(%{stage: "Delivery", state: state} = step, copies)
+       when state in ["delivered", "delivery confirmed"],
+       do: step[:delivery_ref] in copies.delivery_refs
 
   defp redundant_step?(step, copies),
     do:
       String.ends_with?(step.id, "-prepared") &&
         String.replace(step.id, ~r/^turn-(.*)-prepared$/, "request-\\1") in copies.briefing_ids
 
-  defp unix(nil), do: 0
+  defp unix(nil), do: 9_223_372_036_854_775_807
   defp unix(%NaiveDateTime{} = at), do: at |> DateTime.from_naive!("Etc/UTC") |> unix()
   defp unix(at), do: DateTime.to_unix(at, :microsecond)
   defp clock_time(nil), do: "Not recorded"
@@ -489,7 +527,10 @@ defmodule Responder.ControlPlane.EpisodePage do
 
   defp elapsed(snapshot) do
     latest =
-      Enum.max([unix(snapshot.episode.updated_at) | Enum.map(snapshot.trace.steps, &unix(&1.at))])
+      [snapshot.episode.updated_at | Enum.map(snapshot.trace.steps, & &1.at)]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&unix/1)
+      |> Enum.max(fn -> unix(snapshot.trace.received_at) end)
 
     seconds = max(div(latest - unix(snapshot.trace.received_at), 1_000_000), 0)
 

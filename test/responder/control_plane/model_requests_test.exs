@@ -231,6 +231,20 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
     assert result = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}-result"))
     assert result.at == nil
     assert Enum.any?(result.sections, &(&1.artifact.text && &1.artifact.text =~ "rejected"))
+    {:ok, snapshot} = Projection.episode(episode.key)
+
+    html =
+      render_component(&EpisodePage.render/1,
+        snapshot: snapshot,
+        timeline: timeline,
+        requests: nil,
+        params: %{},
+        csrf_token: "test"
+      )
+
+    {briefing, _} = :binary.match(html, "id=\"request-#{turn.id}\"")
+    {response, _} = :binary.match(html, "id=\"request-#{turn.id}-result\"")
+    assert response > briefing
   end
 
   test "timeline retains each admission generation and marks missing older requests honestly" do

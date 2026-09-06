@@ -91,6 +91,10 @@ defmodule Responder.AdmissionConcurrencyTest do
 
         Repo.delete_all(from(inbox in Entry, where: inbox.id == ^entry.id))
 
+        Repo.delete_all(
+          from(note in ConversationObservation, where: note.source_input_id == ^entry.id)
+        )
+
         case Repo.one(from(episode in Episode, where: episode.key == ^episode_key)) do
           nil -> :ok
           episode -> Repo.delete_all(from(event in Event, where: event.episode_id == ^episode.id))
@@ -178,6 +182,11 @@ defmodule Responder.AdmissionConcurrencyTest do
         send(blocker.pid, :release)
         stop_tasks([blocker, context_task, creator])
         Repo.delete_all(from(inbox in Entry, where: inbox.id == ^entry.id))
+
+        Repo.delete_all(
+          from(note in ConversationObservation, where: note.source_input_id == ^entry.id)
+        )
+
         Repo.delete_all(from(event in Event, where: event.episode_id == ^episode_id))
         Repo.delete_all(from(episode in Episode, where: episode.id == ^episode_id))
       end
@@ -325,6 +334,10 @@ defmodule Responder.AdmissionConcurrencyTest do
         send(blocker.pid, :release)
         stop_tasks([blocker, reopener, commit])
         Repo.delete_all(from(inbox in Entry, where: inbox.id == ^entry.id))
+
+        Repo.delete_all(
+          from(note in ConversationObservation, where: note.source_input_id == ^entry.id)
+        )
 
         case Repo.one(
                from(episode in Episode, where: episode.key == ^"ingress-input:#{entry.id}")

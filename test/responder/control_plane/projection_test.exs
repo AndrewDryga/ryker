@@ -6,12 +6,13 @@ defmodule Responder.ControlPlane.ProjectionTest do
 
   alias Responder.CanonicalJSON
   alias Responder.ControlPlane.Activity
+  alias Responder.ControlPlane.EpisodePage
   alias Responder.ControlPlane.HTML
   alias Responder.ControlPlane.Projection
   alias Responder.ControlPlane.RequestFilters
   alias Responder.ControlPlane.UsageProjection
   alias Responder.CoopFleet.{Event, Placement, Worker}
-  alias Responder.Delivery.PlatformActionCustody
+  alias Responder.Delivery.{PlatformAction, PlatformActionCustody}
   alias Responder.Episodes
   alias Responder.Episodes.Command
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
@@ -19,11 +20,13 @@ defmodule Responder.ControlPlane.ProjectionTest do
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Ingress.Input, as: GenericInput
   alias Responder.Publication.Changeset, as: PublicationChangeset
+  alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.Retention.Custody, as: RetentionCustody
 
   alias Responder.Slack.{
     ChannelConfigurationChangeset,
+    IncidentRoom,
     IncidentRoomChangeset,
     IncidentRoomLifecycleEventChangeset
   }
@@ -33,6 +36,7 @@ defmodule Responder.ControlPlane.ProjectionTest do
   alias Responder.State.{
     EventSubscriptionChangeset,
     Records,
+    Schedule,
     ScheduleChangeset,
     ScheduleOccurrenceChangeset
   }
@@ -953,8 +957,19 @@ defmodule Responder.ControlPlane.ProjectionTest do
     )
 
     assert {:ok, pending} = Projection.episode(episode.key)
-    assert Enum.any?(pending.trace.steps, &(&1.title == "Reply delivery pending"))
-    assert Enum.any?(pending.trace.steps, &(&1.summary =~ "waiting for transport"))
+    assert queued = Enum.find(pending.trace.steps, &(&1.title == "Response queued for delivery"))
+    refute Enum.any?(pending.trace.case_file.conversation, &(&1.actor == "Responder"))
+    # Retrying delivery must not rewrite or move the earlier queue event.
+    Repo.update_all(from(saved in Responder.Work.Turn, where: saved.id == ^turn.id),
+      set: [
+        delivery_attempt_count: 2,
+        last_error_code: "temporary_unavailable",
+        updated_at: DateTime.add(accepted_at, 20)
+      ]
+    )
+
+    assert {:ok, retried} = Projection.episode(episode.key)
+    assert Enum.find(retried.trace.steps, &(&1.id == queued.id)) == queued
     accepted = Enum.find(pending.trace.steps, &(&1.title == "Turn 1 result accepted"))
     accepted_details = Map.new(accepted.details, &{&1.label, &1.value})
     assert accepted.summary == "Responder accepted this response for delivery."
@@ -990,8 +1005,36 @@ defmodule Responder.ControlPlane.ProjectionTest do
 
     assert settled.turn.status == :settled
     assert {:ok, delivered} = Projection.episode(episode.key)
-    assert Enum.any?(delivered.trace.steps, &(&1.title == "Reply delivered"))
-    assert Enum.any?(delivered.trace.steps, &(&1.summary =~ "exact destination"))
+    assert Enum.find(delivered.trace.steps, &(&1.id == queued.id)) == queued
+    assert Enum.any?(delivered.trace.steps, &(&1.title == "Delivery confirmed"))
+
+    assert Enum.any?(
+             delivered.trace.case_file.conversation,
+             &(&1.actor == "Responder" && &1.status == "Response sent")
+           )
+  end
+
+  test "missing validation does not claim a candidate passed checks" do
+    turn = measured_turn!("unvalidated", "codex:gpt-5.6-terra/medium", DateTime.utc_now())
+
+    Repo.update_all(from(saved in Responder.Work.Turn, where: saved.id == ^turn.id),
+      set: [
+        status: :blocked,
+        validation_intent: nil,
+        validation_intent_fingerprint: nil,
+        validation_receipt: nil,
+        result_ref: nil,
+        accepted_at: nil,
+        continuation: nil,
+        validation_history: [],
+        candidate_attempt: 1
+      ]
+    )
+
+    assert {:ok, detail} = Projection.episode(episode_key!(turn.episode_id))
+    assert candidate = Enum.find(detail.trace.steps, &(&1.title == "Response recorded"))
+    assert candidate.tone == nil
+    refute Enum.any?(detail.trace.steps, &(&1.title == "Answer validated"))
   end
 
   test "episode trace tolerates nonliteral runtime config shapes while redacting replies" do
@@ -1978,10 +2021,59 @@ defmodule Responder.ControlPlane.ProjectionTest do
     refute inspect(repository) =~ "must-not-render"
 
     assert {:ok, episode_detail} = Projection.episode(source.episode.key)
-    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Operator incident"))
-    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Operator publication"))
-    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Newer operator publication"))
-    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Operator schedule"))
+    # Completion/retry state used to rewrite cards at their original creation time.
+    frozen_ids = [
+      "incident-#{room.id}",
+      "schedule-#{schedule.id}",
+      "publication-#{publication.id}",
+      "platform-action-#{post_action.id}"
+    ]
+
+    frozen = Enum.filter(episode_detail.trace.steps, &(&1.id in frozen_ids))
+
+    Repo.update_all(from(saved in IncidentRoom, where: saved.id == ^room.id),
+      set: [attempt_count: 5, last_error_code: "later-error", channel_ref: "COTHER"]
+    )
+
+    Repo.update_all(from(saved in Schedule, where: saved.id == ^schedule.id),
+      set: [failure_count: 5, next_occurrence_at: DateTime.add(now, 7200)]
+    )
+
+    Repo.update_all(from(saved in Publication, where: saved.id == ^publication.id),
+      set: [attempt_count: 5, last_error_code: "later-error"]
+    )
+
+    Repo.update_all(from(saved in PlatformAction, where: saved.id == ^post_action.id),
+      set: [status: :blocked, attempt_count: 5, last_error_code: "later-error"]
+    )
+
+    assert {:ok, later} = Projection.episode(source.episode.key)
+    assert Enum.filter(later.trace.steps, &(&1.id in frozen_ids)) == frozen
+    # Freezing history must not hide a failure that the operator can act on now.
+    assert %{state: "Blocked", error: "later-error", href: action_href} =
+             Enum.find(
+               later.trace.follow_through,
+               &(&1.id == "platform-action-#{post_action.id}")
+             )
+
+    assert action_href == "/failures/delivery/" <> URI.encode_www_form(post_action.action_ref)
+
+    assert %{state: "Review pending", error: "later-error"} =
+             Enum.find(later.trace.follow_through, &(&1.id == "publication-#{publication.id}"))
+
+    html =
+      Phoenix.LiveViewTest.render_component(&EpisodePage.render/1,
+        snapshot: later,
+        requests: nil,
+        params: %{}
+      )
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(html, ".episode-follow-through") |> LazyHTML.text() =~ "later-error"
+    assert LazyHTML.query(html, ".case-timeline .episode-follow-through") |> Enum.empty?()
+    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Incident requested"))
+    assert Enum.count(episode_detail.trace.steps, &(&1.title == "Publication requested")) == 2
+    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Schedule created"))
     assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Worker · turn"))
     assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Worker · candidate"))
     assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Additional message"))

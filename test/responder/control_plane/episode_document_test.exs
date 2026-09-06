@@ -153,6 +153,54 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
     refute html =~ "Validation history"
   end
 
+  test "unchanged delivery links to the response while real transformations keep both versions" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+    at = snapshot.trace.received_at
+    text = "The check is **partial**"
+
+    request = %{
+      id: "request-turn-result",
+      at: at,
+      kind: :request,
+      source_kind: :work,
+      phase: :result,
+      band: :answer,
+      target: nil,
+      title: "Result",
+      status: :settled,
+      coverage: "Retained",
+      href: "requests",
+      timing: [],
+      sections: [section("candidate", "Response", %{"message" => text})]
+    }
+
+    message = %{
+      id: "turn",
+      at: DateTime.add(at, 1),
+      actor: "Responder",
+      text: text,
+      available: true,
+      status: "Response sent",
+      delivered: true,
+      delivery_ref: "delivery:turn"
+    }
+
+    for transformed <- [false, true] do
+      sent = if transformed, do: %{message | text: "A corrected response"}, else: message
+      page = put_in(snapshot, [:trace, :case_file, :conversation], [sent])
+      document = render_episode(page, [request]) |> LazyHTML.from_fragment()
+      previews = LazyHTML.query(document, ".markdown-preview") |> Enum.map(&LazyHTML.text/1)
+      assert Enum.count(previews, &String.contains?(&1, "The check is partial")) == 1
+
+      assert LazyHTML.query(document, ".response-reference a") |> Enum.count() ==
+               if(transformed, do: 0, else: 1)
+
+      if transformed,
+        do: assert(Enum.any?(previews, &String.contains?(&1, "A corrected response")))
+    end
+  end
+
   test "routing shows its briefing and decision separately at their real times" do
     # A one-word greeting looked like two executions with tiny repeated phases.
     # Routing is one model execution, but its input and result have distinct times.
@@ -501,9 +549,25 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
     assert LazyHTML.query(document, ".episode-metrics") |> LazyHTML.text() =~ "1m 24s"
 
     assert LazyHTML.query(document, "#story-message-accepted-reply .case-message-text")
-           |> LazyHTML.text() == "Hi! How can I help?"
+           |> LazyHTML.text()
+           |> String.trim() == "Hi! How can I help?"
 
     refute html =~ "End of retained execution"
+  end
+
+  test "untimed historical events do not inflate elapsed time" do
+    # Unknown timestamps must sort last without turning elapsed time into centuries.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+    [step | _] = snapshot.trace.steps
+
+    snapshot =
+      snapshot
+      |> put_in([:trace, :steps], [%{step | at: nil}])
+      |> put_in([:episode, :updated_at], DateTime.add(snapshot.trace.received_at, 84))
+
+    document = render_episode(snapshot, []) |> LazyHTML.from_fragment()
+    assert LazyHTML.query(document, ".episode-metrics") |> LazyHTML.text() =~ "1m 24s"
   end
 
   test "model labels separate the saved profile without guessing a missing target" do

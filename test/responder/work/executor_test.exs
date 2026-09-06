@@ -7,8 +7,10 @@ defmodule Responder.Work.ExecutorTest do
   alias Responder.Artifacts.Outputs
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Responder.Repo
-  alias Responder.State.{Record, Records}
+  alias Responder.State.{ConversationKnowledge, KnowledgeSnapshot, Record, Records}
+  alias Responder.StateTools.FixedTools
   alias Responder.TestSupport.FakeWorkCoopAPI, as: FakeAPI
 
   alias Responder.Work.{
@@ -24,6 +26,163 @@ defmodule Responder.Work.ExecutorTest do
   }
 
   @now ~U[2026-08-28 12:00:00.000000Z]
+
+  test "a follow-up cannot reuse knowledge hidden in the previous native session" do
+    # Empty current recall does not erase the transcript of a warm provider session.
+    claim = claim_with_bound_empty_session!("withdrawn-session-knowledge")
+    {source, document} = KnowledgeFixtures.learn!(claim.episode)
+    assert :ok = KnowledgeSnapshot.expose(claim, [document])
+    KnowledgeFixtures.revoke!(source)
+    {:ok, fake} = fake_for(claim, [reply("Continue without withdrawn memory.")])
+
+    create_session = fn fallback ->
+      FakeAPI.update(fake, fn state ->
+        %{state | session: Map.put(state.session, "id", "remote:knowledge-replacement")}
+      end)
+
+      fallback.()
+    end
+
+    assert {:ok, %{status: :accepted}} =
+             Executor.run(claim, protocol_options(fake, %{create_session: create_session}))
+
+    turn = Repo.get!(Responder.Work.Turn, claim.turn.id)
+    refute turn.session_id == claim.session.id
+    assert turn.submission["context"]["mode"] == "full"
+
+    assert get_in(turn.submission, ["context", "operator_context", "continuity", "knowledge"]) in [
+             nil,
+             []
+           ]
+  end
+
+  for memory_kind <- [:knowledge, :observation] do
+    test "tool-recalled #{memory_kind} is rechecked even when absent from the frozen briefing" do
+      claim = accepted_intent_turn!("withdrawn-tool-knowledge")
+      {source, _document} = KnowledgeFixtures.learn!(claim.episode)
+      if unquote(memory_kind) == :observation, do: Repo.delete_all(ConversationKnowledge)
+      binding = Map.put(claim, :state_token, "test-token")
+
+      expected_kind = "conversation_#{unquote(memory_kind)}"
+
+      assert {:ok, %{"memories" => [%{"kind" => ^expected_kind}]}} =
+               FixedTools.call(
+                 "search_memory",
+                 %{
+                   "query" => "draft-ai-suggestions",
+                   "scope" => "current_channel",
+                   "limit" => 10,
+                   "kinds" => ["continuity"],
+                   "cursor" => nil
+                 },
+                 %{binding: binding}
+               )
+
+      KnowledgeFixtures.revoke!(source)
+
+      result =
+        Custody.accept_result(
+          claim.episode.id,
+          claim.episode.key,
+          claim.turn.turn_ref,
+          claim.lease_ref,
+          claim.turn.candidate_sha256,
+          claim.turn.candidate_attempt,
+          "validation:tool-memory"
+        )
+
+      assert Repo.get!(Responder.Work.Turn, claim.turn.id).result_ref == nil
+      assert {:error, :work_knowledge_context_stale} = result
+    end
+  end
+
+  test "a source withdrawn by the final session read never reaches model submission" do
+    # The early check passed, then the remote revision read raced source deletion.
+    claim = claim_with_bound_empty_session!("late-knowledge-revocation")
+    {source, _document} = KnowledgeFixtures.learn!(claim.episode)
+    {:ok, submission} = SubmissionBuilder.build(claim)
+
+    {:ok, turn} =
+      Custody.freeze_submission(
+        claim.episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        submission
+      )
+
+    claim = %{claim | turn: turn}
+    {:ok, fake} = fake_for(claim, [reply("Must not use withdrawn memory.")])
+    counter = make_ref()
+
+    get_session = fn fallback ->
+      reads = Process.get(counter, 0) + 1
+      Process.put(counter, reads)
+      if reads == 2, do: KnowledgeFixtures.revoke!(source)
+      fallback.()
+    end
+
+    result = Executor.run(claim, protocol_options(fake, %{get_session: get_session}))
+    assert FakeAPI.state(fake).submissions == []
+    assert {:error, :work_knowledge_context_stale} = result
+    assert Process.get(counter) >= 2
+  end
+
+  test "withdrawn frozen knowledge cannot reach the model" do
+    # A queued retry can outlive the source that supplied its briefing.
+    claim = claim_with_bound_empty_session!("withdrawn-knowledge")
+    {:ok, submission} = SubmissionBuilder.build(claim)
+
+    context =
+      put_in(submission["context"], ["operator_context", "continuity", "knowledge"], [
+        %{"source_ref" => "knowledge:#{Ecto.UUID.generate()}", "version" => 1}
+      ])
+
+    submission = %{submission | "context" => context}
+
+    {:ok, turn} =
+      Custody.freeze_submission(
+        claim.episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        submission
+      )
+
+    claim = %{claim | turn: turn}
+    {:ok, fake} = fake_for(claim, [reply("Must not use withdrawn memory.")])
+    assert {:error, :work_knowledge_context_stale} = Executor.run(claim, options(fake))
+    assert FakeAPI.state(fake).submissions == []
+  end
+
+  test "withdrawn knowledge is rechecked inside result acceptance before delivery is created" do
+    # Provider execution may finish after a source is withdrawn; acceptance is a separate fence.
+    claim = accepted_intent_turn!("withdrawn-acceptance")
+
+    context =
+      Map.put(claim.turn.submission["context"], "operator_context", %{
+        "continuity" => %{
+          "knowledge" => [%{"source_ref" => "knowledge:#{Ecto.UUID.generate()}", "version" => 1}]
+        }
+      })
+
+    claim.turn
+    |> Ecto.Changeset.change(submission: %{claim.turn.submission | "context" => context})
+    |> Repo.update!()
+
+    assert {:error, :work_knowledge_context_stale} =
+             Custody.accept_result(
+               claim.episode.id,
+               claim.episode.key,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               claim.turn.candidate_sha256,
+               claim.turn.candidate_attempt,
+               "validation:withdrawn"
+             )
+
+    unchanged = Repo.get!(Responder.Work.Turn, claim.turn.id)
+    assert unchanged.status == claim.turn.status
+    assert unchanged.result_ref == nil
+  end
 
   defmodule ProtocolAPI do
     @moduledoc false

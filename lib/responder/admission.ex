@@ -17,7 +17,7 @@ defmodule Responder.Admission do
   alias Responder.Ingress.{Inbox, Input}
   alias Responder.Ingress.Inbox.{Entry, EntryChangeset}
   alias Responder.Repo
-  alias Responder.State.{Behaviors, Observations, Records}
+  alias Responder.State.{Behaviors, Knowledge, LearningSources, Observations, Records}
   alias Responder.Work.Custody
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
@@ -100,8 +100,16 @@ defmodule Responder.Admission do
         conversation_episode_count: conversation_episode_count(input, entry.execution_mode),
         input: input,
         input_entry: entry,
-        observations: Observations.context(entry, entry.repository_ref, "", 5)
+        observations: Observations.context(entry, entry.repository_ref, "", 5),
+        knowledge:
+          Knowledge.context(
+            entry,
+            entry.repository_ref,
+            {:related, input.content["text"] || Responder.CanonicalJSON.encode!(input.content)},
+            8
+          )
       }
+      |> LearningSources.freeze()
     else
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -459,7 +467,16 @@ defmodule Responder.Admission do
        ) do
     case apply_episode(context, entry, selection) do
       {:ok, transitions, episode} ->
-        with :ok <- maybe_pin_episode(episode, work_policy),
+        sources = LearningSources.authorize_context(context, entry)
+        knowledge = if is_list(sources), do: decision.knowledge
+
+        with :ok <-
+               Knowledge.reauthorize(
+                 entry,
+                 entry.repository_ref,
+                 context.knowledge
+               ),
+             :ok <- maybe_pin_episode(episode, work_policy),
              {:ok, episode} <-
                maybe_resume_blocked_episode(episode, admitted_input_ref(transitions)),
              {:ok, decided} <- persist_decision(entry, decision, decision_ref, episode),
@@ -467,7 +484,15 @@ defmodule Responder.Admission do
                Observations.record_in_transaction(
                  decided,
                  decision.observation,
-                 decision_ref
+                 decision_ref,
+                 sources
+               ),
+             :ok <-
+               Knowledge.record_in_transaction(
+                 decided,
+                 knowledge,
+                 context.knowledge,
+                 context.knowledge_omissions
                ),
              :ok <-
                finalize_assignment_runs(entry, decision, decision_ref, episode, :decided) do

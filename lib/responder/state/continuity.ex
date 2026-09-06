@@ -20,6 +20,9 @@ defmodule Responder.State.Continuity do
     ConversationSummary,
     ConversationSummaryDraft,
     ConversationSummaryState,
+    Knowledge,
+    KnowledgeSnapshot,
+    LearningSources,
     Observations
   }
 
@@ -173,6 +176,8 @@ defmodule Responder.State.Continuity do
     case destination_context(episode, repository_ref) do
       {:ok, context} ->
         result = recall_context(context)
+        knowledge = Knowledge.context(episode, repository_ref)
+        result = if knowledge == [], do: result, else: Map.put(result, "knowledge", knowledge)
 
         case Observations.context(episode, repository_ref) do
           [] -> result
@@ -193,7 +198,8 @@ defmodule Responder.State.Continuity do
              is_binary(scope) and is_integer(limit) and limit in 1..50 do
     case destination_context(episode, repository_ref) do
       {:ok, context} ->
-        (Observations.context(episode, repository_ref, query, limit, scope) ++
+        (Knowledge.context(episode, repository_ref, query, limit, scope) ++
+           Observations.context(episode, repository_ref, query, limit, scope) ++
            search_context(context, query, scope, limit))
         |> Enum.take(limit)
 
@@ -253,7 +259,7 @@ defmodule Responder.State.Continuity do
 
     Repo.all(
       from(summary in ConversationSummary,
-        where: summary.updated_at < ^before,
+        where: summary.updated_at < ^before and summary.state != ^%{"retention" => "pruned"},
         order_by: [asc: summary.updated_at, asc: summary.id],
         limit: @maximum_compaction,
         lock: "FOR UPDATE"
@@ -268,6 +274,7 @@ defmodule Responder.State.Continuity do
     Enum.reduce_while(groups, {:ok, 0}, fn {_identity, sources}, {:ok, count} ->
       case compact_group(sources, rollup_retention_seconds) do
         :ok -> {:cont, {:ok, count + length(sources)}}
+        :skipped -> {:cont, {:ok, count}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
@@ -280,6 +287,14 @@ defmodule Responder.State.Continuity do
     delete_channel_summaries(scoped_workspace_ref, conversation_ref)
     delete_channel_drafts(conversation_ref)
     delete_channel_rollups(scoped_workspace_ref, conversation_ref, workspace_ref, channel_ref)
+
+    Repo.delete_all(
+      from(item in Responder.State.ConversationKnowledge,
+        where:
+          item.workspace_ref == ^scoped_workspace_ref and
+            item.conversation_ref == ^conversation_ref
+      )
+    )
 
     Repo.delete_all(
       from(note in Responder.State.ConversationObservation,
@@ -515,6 +530,7 @@ defmodule Responder.State.Continuity do
       source_message_ref: List.last(episode.active_input_refs),
       source_result_ref: result_ref,
       source_turn_id: turn.id,
+      source_dependencies: KnowledgeSnapshot.session_sources(turn.session_id),
       state: draft.state,
       state_fingerprint: draft.state_fingerprint,
       thread_ref: context.thread_ref,
@@ -523,9 +539,18 @@ defmodule Responder.State.Continuity do
       workspace_ref: context.workspace_ref
     }
 
+    if is_nil(attributes.source_dependencies) do
+      # Optional learning must not preserve prose after dropping its source fences.
+      :ok
+    else
+      persist_summary(attributes, context.identity_key)
+    end
+  end
+
+  defp persist_summary(attributes, identity_key) do
     case Repo.one(
            from(summary in ConversationSummary,
-             where: summary.identity_key == ^context.identity_key,
+             where: summary.identity_key == ^identity_key,
              lock: "FOR UPDATE"
            )
          ) do
@@ -563,6 +588,7 @@ defmodule Responder.State.Continuity do
       :source_message_ref,
       :source_result_ref,
       :source_turn_id,
+      :source_dependencies,
       :state,
       :state_fingerprint,
       :thread_ref,
@@ -597,6 +623,7 @@ defmodule Responder.State.Continuity do
       Repo.one(
         from(summary in ConversationSummary, where: summary.identity_key == ^context.identity_key)
       )
+      |> learning_visible(context)
 
     related = related_summaries(context)
     rollups = related_rollups(context)
@@ -617,6 +644,7 @@ defmodule Responder.State.Continuity do
       Repo.one(
         from(summary in ConversationSummary, where: summary.identity_key == ^context.identity_key)
       )
+      |> learning_visible(context)
 
     candidates =
       ([current] |> Enum.reject(&is_nil/1) |> Enum.map(&{:summary, &1})) ++
@@ -673,9 +701,10 @@ defmodule Responder.State.Continuity do
       )
     )
     |> Enum.filter(fn summary ->
-      summary.conversation_ref == context.conversation_ref or
-        (context.visibility == :public and summary.visibility == :public and
-           public_source_visible?(summary))
+      (summary.conversation_ref == context.conversation_ref or
+         (context.visibility == :public and summary.visibility == :public and
+            public_source_visible?(summary))) and
+        LearningSources.valid?(summary.source_dependencies, context)
     end)
     |> Enum.sort_by(&summary_rank(&1, context))
     |> Enum.take(@maximum_related)
@@ -685,7 +714,9 @@ defmodule Responder.State.Continuity do
     context
     |> related_rollups_query()
     |> Repo.all()
-    |> Enum.filter(&rollup_visible?(&1, context))
+    |> Enum.filter(
+      &(rollup_visible?(&1, context) and LearningSources.valid?(&1.source_dependencies, context))
+    )
     |> Enum.take(@maximum_rollups)
   end
 
@@ -714,6 +745,11 @@ defmodule Responder.State.Continuity do
       limit: @maximum_candidates
     )
   end
+
+  defp learning_visible(nil, _context), do: nil
+
+  defp learning_visible(item, context),
+    do: if(LearningSources.valid?(item.source_dependencies, context), do: item)
 
   defp public_source_visible?(%ConversationSummary{
          transport: "slack",
@@ -833,12 +869,13 @@ defmodule Responder.State.Continuity do
     {workspace_ref, scope_kind, scope_ref, period_start} = rollup_identity(first)
 
     existing = locked_rollup(workspace_ref, scope_kind, scope_ref, period_start)
+    retained = if existing && existing.state != %{"retention" => "pruned"}, do: existing
 
     attributes =
       rollup_attributes(
         first,
         sources,
-        existing,
+        retained,
         retention_seconds,
         {workspace_ref, scope_kind, scope_ref, period_start}
       )
@@ -881,6 +918,11 @@ defmodule Responder.State.Continuity do
         existing_source_count(existing) + Enum.count(new_refs, &(&1 not in existing_refs)),
       source_refs: bounded_source_refs(existing_refs, new_refs),
       source_scopes: merged_source_scopes(existing, sources),
+      source_dependencies:
+        LearningSources.merge([
+          if(existing, do: existing.source_dependencies, else: [])
+          | Enum.map(sources, & &1.source_dependencies)
+        ]),
       state: state,
       state_fingerprint: CanonicalJSON.digest(state),
       visibility: rollup_visibility(scope_kind, first),
@@ -923,6 +965,8 @@ defmodule Responder.State.Continuity do
 
   defp rollup_repository_ref(:repository, scope_ref, _first), do: scope_ref
   defp rollup_repository_ref(_scope_kind, _scope_ref, first), do: first.repository_ref
+
+  defp complete_compaction(_existing, _sources, %{source_dependencies: nil}), do: :skipped
 
   defp complete_compaction(existing, sources, attributes) do
     if DateTime.after?(attributes.expires_at, database_now!()) do
@@ -985,6 +1029,7 @@ defmodule Responder.State.Continuity do
       :source_count,
       :source_refs,
       :source_scopes,
+      :source_dependencies,
       :state,
       :state_fingerprint,
       :visibility,

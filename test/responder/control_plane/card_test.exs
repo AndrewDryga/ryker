@@ -1,12 +1,30 @@
 defmodule Responder.ControlPlane.CardTest do
   use ExUnit.Case, async: true
 
-  alias Responder.ControlPlane.Card
+  alias Responder.ControlPlane.{Card, HTML}
   alias Responder.Publication.Publication
   alias Responder.State.{Record, RecordPayload}
 
   @digest String.duplicate("a", 64)
   @git String.duplicate("b", 40)
+
+  test "a completed goal transition never displays the record storage status as Open" do
+    # Harvested from Lab bd9abb20: a successful acceptance still showed GOAL STATE OPEN.
+    payload = %{
+      "detail" =>
+        "Read README.md and /etc/os-release successfully (both exit 0); called Emisar list_packs exactly once, which returned ok:true and isError:false. No repository, infrastructure, or communication-platform changes performed.",
+      "goal_id" => "read-only-acceptance",
+      "state" => "completed"
+    }
+
+    assert {:ok, card} = Card.project(record("goal_state", payload))
+    assert card.title == "Completed"
+    assert Card.display_status(card) == nil
+    assert card.label == "Goal updated"
+    html = HTML.lab_message_extras(%{cards: [card]}) |> IO.iodata_to_binary()
+    assert html =~ "Completed"
+    refute html =~ ">open<"
+  end
 
   test "publication review and result cards expose only typed host actions" do
     publication = %Publication{
@@ -222,7 +240,7 @@ defmodule Responder.ControlPlane.CardTest do
          "requested_outcome" => "Verify background-worker health",
          "required" => true
        }, "Goal", nil},
-      {"goal_state", %{"goal_id" => "verify-workers", "state" => "blocked"}, "Goal state", nil},
+      {"goal_state", %{"goal_id" => "verify-workers", "state" => "blocked"}, "Goal updated", nil},
       {"alert_assessment",
        %{
          "immediate_action" => "Inspect a current worker signal.",
