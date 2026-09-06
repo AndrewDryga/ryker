@@ -3,16 +3,21 @@ defmodule Responder.ControlPlane.EpisodeRequest do
   use Phoenix.Component
 
   alias Responder.ControlPlane.Components
-  alias Responder.ControlPlane.RequestPage
+  alias Responder.ControlPlane.RequestContextHTML
 
   def render(assigns) do
     request = assigns.request
+    routing_result = request[:routing_result]
+    display = routing_result || request
 
     assigns =
       assigns
       |> assign(:model, model(request.target))
-      |> assign(:headline, headline(request))
-      |> assign(:explanation, explanation(request))
+      |> assign(:headline, if(routing_result, do: "Routing decision", else: headline(request)))
+      |> assign(:explanation, explanation(display))
+      |> assign(:routing_result, routing_result)
+      |> assign(:routing_label, if(routing_result, do: headline(routing_result)))
+      |> assign(:timing, display.timing)
       |> assign(:result?, request.phase == :result)
       |> assign(:applied, applied_context(request))
       |> assign(
@@ -33,6 +38,12 @@ defmodule Responder.ControlPlane.EpisodeRequest do
         </div>
       </div>
       <p :if={@explanation} class="request-explanation">{@explanation}</p>
+      <div :if={@routing_result} id={@routing_result.id} class="routing-outcome">
+        <strong>{@routing_label}</strong>
+        <time :if={@routing_result.at} title={Components.timestamp(@routing_result.at)}>
+          Decided {Calendar.strftime(@routing_result.at, "%H:%M:%S")}
+        </time>
+      </div>
       <section
         :if={@applied != []}
         class="applied-context"
@@ -48,24 +59,30 @@ defmodule Responder.ControlPlane.EpisodeRequest do
           <a href={group.href}>Manage {group.manage} →</a>
         </div>
       </section>
-      <dl :if={@request.timing != []} class="request-timing">
-        <div :for={metric <- @request.timing} :if={metric.value != "Not recorded"}>
+      <dl :if={@timing != []} class="request-timing">
+        <div :for={metric <- @timing} :if={metric.value != "Not recorded"}>
           <dt>{timing_label(metric.label)}</dt><dd>{metric.value}</dd>
         </div>
       </dl>
-      <div :if={!@result?} class="request-input-parts">
-        <details
-          :for={section <- @input_sections}
-          class="request-evidence"
-          id={"#{@request.id}-#{section.id}-disclosure"}
-        >
-          <summary>
-            <span>{section_title(section.id, section.title)}</span><small>{availability(
-              section.artifact
-            )}</small>
-          </summary>
-          <RequestPage.artifact section={section} prefix={@request.id} expanded_source={true} />
-        </details>
+      <div
+        :if={!@result? && @input_sections != []}
+        class="prompt-assembly"
+        aria-label="Briefing sources"
+      >
+        <h4 class="sr-only">Briefing sources</h4>
+        <%= for section <- @input_sections do %>
+          {Phoenix.HTML.raw(assembly(section, @request))}
+          <details
+            :if={unavailable_assembly?(section)}
+            class="briefing-unavailable"
+            id={"#{@request.id}-#{section.id}-unavailable"}
+          >
+            <summary>
+              {section.title} <span>{availability(section.artifact) || "Unstructured record"}</span>
+            </summary>
+            <.artifact_text section={section} />
+          </details>
+        <% end %>
       </div>
       <details
         :if={@result?}
@@ -73,24 +90,55 @@ defmodule Responder.ControlPlane.EpisodeRequest do
         id={"#{@request.id}-evidence"}
       >
         <summary>Response & validation records</summary>
-        <RequestPage.artifact
+        <.artifact_text
           :for={section <- @request.sections}
           section={section}
-          prefix={@request.id}
         />
       </details>
       <details class="request-provenance" id={"#{@request.id}-provenance"}>
         <summary>Request record</summary>
         <p>{@request.coverage}</p>
         <a href={@request.href}>Open full request record →</a>
-        <RequestPage.artifact
+        <.artifact_text
           :for={section <- @technical_sections}
           :if={!@result?}
           section={section}
-          prefix={@request.id}
+        />
+        <.artifact_text
+          :for={section <- (@routing_result && @routing_result.sections) || []}
+          section={section}
         />
       </details>
     </div>
+    """
+  end
+
+  defp assembly(%{id: "instructions", artifact: artifact}, request),
+    do: RequestContextHTML.assembly_instructions(artifact, request.id)
+
+  defp assembly(%{id: "context", artifact: artifact}, request),
+    do: RequestContextHTML.assembly(artifact, context_root(request), request.id)
+
+  defp context_root(%{source_kind: :admission}), do: "$.context"
+  defp context_root(_), do: "$.work"
+
+  defp unavailable_assembly?(%{id: "instructions", artifact: artifact}),
+    do: artifact.state != :retained
+
+  defp unavailable_assembly?(section),
+    do:
+      section.artifact.state != :retained || section.artifact.truncated ||
+        not is_map(document(%{sections: [section]}, "context"))
+
+  # The main timeline uses a single disclosure for raw evidence. Identity and
+  # artifact-level inspection remain on the linked full request record.
+  defp artifact_text(assigns) do
+    ~H"""
+    <section class={"timeline-artifact artifact-#{@section.id}"}>
+      <h4>{@section.title}</h4>
+      <p :if={availability(@section.artifact)}>{availability(@section.artifact)}</p>
+      <pre :if={@section.artifact.state == :retained}>{@section.artifact.text}</pre>
+    </section>
     """
   end
 
@@ -179,7 +227,7 @@ defmodule Responder.ControlPlane.EpisodeRequest do
   defp preference_entries(_), do: []
 
   defp headline(%{phase: :submission, source_kind: :admission}), do: "Routing input"
-  defp headline(%{phase: :submission}), do: "Model input"
+  defp headline(%{phase: :submission}), do: "Model briefing"
 
   defp headline(%{source_kind: :admission} = request) do
     case document(request, "candidate") do
@@ -210,7 +258,7 @@ defmodule Responder.ControlPlane.EpisodeRequest do
         "Continue with the new messages and the saved conversation context."
 
       _ ->
-        "Instructions, conversation context, and available tools supplied to this call."
+        nil
     end
   end
 
@@ -251,8 +299,6 @@ defmodule Responder.ControlPlane.EpisodeRequest do
     end
   end
 
-  defp section_title("instructions", _), do: "Responder instructions"
-  defp section_title("context", _), do: "Conversation & context"
   defp availability(%{state: :expired}), do: "Expired"
   defp availability(%{state: :not_recorded}), do: "Not recorded"
   defp availability(%{truncated: true}), do: "Partial display"

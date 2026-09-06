@@ -84,4 +84,52 @@ defmodule Responder.ControlPlane.RequestContextHTMLTest do
       assert artifact |> RequestContextHTML.render() |> IO.iodata_to_binary() |> is_binary()
     end
   end
+
+  test "the flat briefing retains empty runtime fields and escapes unfamiliar paths" do
+    # Flattening the prompt inventory must not erase less common retained fields.
+    artifact =
+      InspectionRedactor.artifact(%{
+        "operator_context" => %{"guidance" => [], "memory" => []},
+        "future.<script>" => "<script>opaque</script>",
+        "offer_confirmation_supported" => false
+      })
+
+    html = artifact |> RequestContextHTML.assembly("$.work", "request-1") |> IO.iodata_to_binary()
+    assert html =~ "Runtime context"
+    assert html =~ "$.work.operator_context.guidance"
+    assert html =~ "$.work.operator_context.memory"
+    assert html =~ "$.work.offer_confirmation_supported"
+    assert html =~ "false"
+    assert html =~ "&lt;script&gt;opaque&lt;/script&gt;"
+    refute html =~ "<script>"
+    assert RequestContextHTML.assembly(%{artifact | truncated: true}, "$.work", "request-1") == []
+
+    empty_context = InspectionRedactor.artifact(%{"operator_context" => %{}})
+
+    assert empty_context
+           |> RequestContextHTML.assembly("$.work", "request-1")
+           |> IO.iodata_to_binary() =~ "$.work.operator_context"
+
+    assert RequestContextHTML.assembly(
+             InspectionRedactor.artifact(nil, expired: true),
+             "$.work",
+             "request-1"
+           ) == []
+  end
+
+  test "an incomplete instruction is labelled before its source disclosure opens" do
+    # A shortened policy otherwise looked complete in the visible source list.
+    artifact = InspectionRedactor.artifact("Host-authored retained instructions", max_bytes: 10)
+
+    document =
+      artifact
+      |> RequestContextHTML.assembly_instructions("partial")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    assert document |> LazyHTML.query(".prompt-source > summary") |> LazyHTML.text() =~
+             "Partial display"
+
+    assert Enum.empty?(LazyHTML.query(document, ".prompt-source[open]"))
+  end
 end

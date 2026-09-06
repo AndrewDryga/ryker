@@ -81,6 +81,104 @@ defmodule Responder.ControlPlane.RequestContextHTML do
 
   def render(_artifact, _root, _prefix), do: []
 
+  @doc "A flat source inventory for the timeline, without a parent disclosure."
+  def assembly(%{state: :retained, truncated: false, text: text}, root, prefix) do
+    case Jason.decode(text) do
+      {:ok, context} when is_map(context) -> assemble_context(context, root, prefix)
+      _ -> []
+    end
+  end
+
+  def assembly(_, _, _), do: []
+
+  defp assemble_context(context, root, prefix) do
+    parts =
+      context
+      |> Enum.sort_by(fn {key, _} -> {Enum.find_index(@order, &(&1 == key)) || 100, key} end)
+      |> Enum.flat_map(fn
+        {"operator_context", value} when is_map(value) and map_size(value) > 0 ->
+          Enum.map(Enum.sort(value), fn {key, value} ->
+            {key, value, root <> ".operator_context"}
+          end)
+
+        {key, value} ->
+          [{key, value, root}]
+      end)
+
+    # Keep exact runtime fields and empty values, without giving every scalar
+    # flag its own prompt component.
+    {components, scope} =
+      Enum.split_with(parts, fn {key, value, parent} ->
+        {_, origin, _, _} = metadata(key, parent)
+        origin not in ["runtime", "other"] && value not in [nil, [], %{}, ""]
+      end)
+
+    [
+      Enum.map(components, fn {key, value, parent} ->
+        path = field_path(parent, key)
+
+        source(
+          key,
+          path,
+          value,
+          metadata(key, parent),
+          body(key, value, path, prefix),
+          false,
+          prefix
+        )
+      end),
+      runtime_context(scope, root, prefix)
+    ]
+  end
+
+  defp runtime_context([], _, _), do: []
+
+  defp runtime_context(scope, root, prefix) do
+    source(
+      "scope",
+      root,
+      scope,
+      {"Runtime context", "runtime", "Bound scope and remaining fields",
+       "The remaining fields retained with this request."},
+      Enum.map(scope, fn {key, value, parent} ->
+        {title, _, owner, _} = metadata(key, parent)
+
+        [
+          "<section class=\"prompt-runtime-field\"><h4>",
+          escape(title),
+          "</h4><p>",
+          escape(owner),
+          " · <code>",
+          escape(field_path(parent, key)),
+          "</code></p>",
+          fields(value, 0),
+          "</section>"
+        ]
+      end),
+      false,
+      prefix
+    )
+  end
+
+  def assembly_instructions(%{state: :retained, text: text} = artifact, prefix) do
+    source(
+      "instructions",
+      "$.instructions",
+      text,
+      {"Responder instructions", "policy", "Host-authored instructions",
+       if(artifact.truncated,
+         do: "Partial display of the retained instruction field.",
+         else: "The instruction field saved with this request."
+       )},
+      ["<pre class=\"model-document-text\">", escape(text), "</pre>"],
+      false,
+      prefix,
+      if(artifact.truncated, do: "Partial display")
+    )
+  end
+
+  def assembly_instructions(_, _), do: []
+
   def instructions(artifact, kind, prefix \\ "instructions", open \\ false)
 
   def instructions(%{state: :retained, text: text}, kind, prefix, open) do
@@ -167,13 +265,19 @@ defmodule Responder.ControlPlane.RequestContextHTML do
 
   defp body(_key, value, _path, _prefix), do: fields(value, 0)
 
-  defp source(key, path, value, {title, origin, owner, description}, body, open, prefix) do
-    state = if value in [nil, [], %{}, ""], do: "Empty in request", else: "Retained input"
+  defp source(key, path, value, metadata, body, open, prefix, state_override \\ nil) do
+    {title, origin, owner, description} = metadata
+
+    state =
+      state_override ||
+        if value in [nil, [], %{}, ""], do: "Empty in request", else: "Retained input"
 
     [
       "<details id=\"",
       escape(prefix <> "-source-" <> Base.url_encode64(path, padding: false)),
-      "\" class=\"prompt-source\" data-source=\"",
+      "\" class=\"prompt-source",
+      if(state_override, do: " prompt-source-partial", else: ""),
+      "\" data-source=\"",
       escape(key),
       "\" data-origin=\"",
       origin,
@@ -188,7 +292,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       "</span>",
       "<span class=\"prompt-source-location\">",
       escape(owner),
-      " · <code>",
+      " <code>· ",
       escape(path),
       "</code></span></summary>",
       "<div class=\"prompt-source-body\"><p>",
