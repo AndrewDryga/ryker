@@ -3,6 +3,7 @@ defmodule Responder.StateTools.FixedTools do
 
   import Ecto.Query
 
+  alias Responder.Artifacts.Outputs
   alias Responder.CanonicalJSON
   alias Responder.Delivery.{PlatformActionCustody, Presentation}
   alias Responder.Episodes.Event
@@ -609,8 +610,7 @@ defmodule Responder.StateTools.FixedTools do
 
   defp validation_context(binding, artifact_refs) do
     %{
-      "artifact_delivery_supported" =>
-        binding.episode.destination_transport in ["github", "slack"],
+      "artifact_delivery_supported" => Outputs.delivery_supported?(binding.episode),
       "artifact_metadata" => Enum.map(artifact_refs, &%{"id" => &1, "name" => &1}),
       "artifact_refs" => artifact_refs,
       "execution_mode" => Atom.to_string(binding.episode.execution_mode),

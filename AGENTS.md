@@ -1,5 +1,13 @@
 # Responder Development
 
+## Pre-v1 replacements are clean cuts
+
+Remove superseded routes and implementations and update every caller, link, test,
+and document in the same change. Do not add redirects, compatibility aliases,
+legacy fallbacks, temporary dual paths, or staged compatibility migrations.
+Preserve user data; removing an old interface does not authorize deleting history.
+
+
 Use the narrowest validation that proves the current edit while iterating:
 
 1. Run the owning package or named test after each code change, for example

@@ -74,8 +74,14 @@ defmodule Responder.RuntimeConfigurationTest do
     assert configuration.publication.worker_ref == "responder-a:publication"
     assert configuration.retention.worker_ref == "responder-a:retention"
     assert configuration.retention.closed_session_grace_seconds == 900
-    assert configuration.retention.operational_data_seconds == 86_400
-    assert configuration.retention.closed_work_seconds == 604_800
+    # A September 3 request became an empty timeline the next day because its
+    # content expired weeks before the episode listed in the console did.
+    assert configuration.retention.operational_data_seconds ==
+             configuration.retention.episode_history_seconds
+
+    assert configuration.retention.closed_work_seconds ==
+             configuration.retention.episode_history_seconds
+
     assert configuration.retention.episode_history_seconds == 2_592_000
     assert configuration.retention.audit_data_seconds == 2_592_000
 

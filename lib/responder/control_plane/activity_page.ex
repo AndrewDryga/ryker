@@ -191,7 +191,8 @@ defmodule Responder.ControlPlane.ActivityPage do
           Map.merge(
             Map.take(
               UsageProjection.link_params(params),
-              ~w(q mode target repository state) ++ UsageProjection.filter_keys()
+              ~w(q mode target repository state conversation thread transport) ++
+                UsageProjection.filter_keys()
             ),
             %{"filter" => filter}
           )
@@ -205,7 +206,8 @@ defmodule Responder.ControlPlane.ActivityPage do
           Map.put(
             Map.take(
               UsageProjection.link_params(params),
-              ~w(q mode filter target repository state) ++ UsageProjection.filter_keys()
+              ~w(q mode filter target repository state conversation thread transport) ++
+                UsageProjection.filter_keys()
             ),
             "page",
             page
@@ -214,7 +216,10 @@ defmodule Responder.ControlPlane.ActivityPage do
 
   defp filtered?(params),
     do:
-      Enum.any?(~w(q target repository state), &(params[&1] not in [nil, ""])) or
+      Enum.any?(
+        ~w(q target repository state conversation thread transport),
+        &(params[&1] not in [nil, ""])
+      ) or
         params["filter"] not in [nil, "all"] or UsageProjection.filtered?(params)
 
   defp worker_attention?(%{fleet: %{unavailable: true}}), do: true

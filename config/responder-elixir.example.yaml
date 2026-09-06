@@ -114,9 +114,10 @@ retention:
   retry_base_seconds: 5
   retry_max_seconds: 300
   closed_session_grace_seconds: 900
-  operational_data_seconds: 86400
+  # Keep prompts, replies, and tool activity readable for the episode's lifetime.
+  operational_data_seconds: 2592000
   conversation_memory_seconds: 7776000
-  closed_work_seconds: 604800
+  closed_work_seconds: 2592000
   episode_history_seconds: 2592000
   audit_data_seconds: 2592000
 

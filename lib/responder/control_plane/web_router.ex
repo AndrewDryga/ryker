@@ -28,7 +28,6 @@ defmodule Responder.ControlPlane.WebRouter do
     live("/card-lab/:card/:state", Responder.ControlPlane.WorkbenchLive)
     live("/episodes/:ref", Responder.ControlPlane.WorkbenchLive)
     live("/episodes/:ref/requests", Responder.ControlPlane.WorkbenchLive)
-    live("/admission/:id", Responder.ControlPlane.WorkbenchLive)
     live("/incidents/:ref", Responder.ControlPlane.WorkbenchLive)
     live("/schedules/:ref", Responder.ControlPlane.WorkbenchLive)
     live("/channels/:workspace/:channel", Responder.ControlPlane.WorkbenchLive)

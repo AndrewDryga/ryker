@@ -577,8 +577,13 @@ defmodule Responder.Ingress.Inbox do
   end
 
   defp reconcile(input, nil, settings) do
+    # Work acceptance uses the database clock. Mixing that with application
+    # timestamps can place a follow-up before the answer it follows in the Lab.
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
     input
     |> EntryChangeset.insert(Ecto.UUID.generate(), settings.execution_mode, settings.work_profile)
+    |> Ecto.Changeset.change(inserted_at: now, updated_at: now)
     |> Repo.insert()
     |> case do
       {:ok, entry} -> {:ok, %{entry: entry, status: :recorded}}

@@ -255,7 +255,7 @@ defmodule Responder.ControlPlane.LiveTest do
     for path <- [
           "/episodes/missing",
           "/card-lab/missing/state",
-          "/admission/#{Ecto.UUID.generate()}"
+          "/episodes/ingress-input%3A#{Ecto.UUID.generate()}"
         ] do
       {:ok, missing, _} = live(conn, path)
       assert has_element?(missing, "a", "Back to activity")
@@ -386,6 +386,7 @@ defmodule Responder.ControlPlane.LiveTest do
     assert has_element?(view, ".lab-chat", "Ready for your message")
     assert has_element?(view, ".lab-runtime", "No request yet")
     assert has_element?(view, ".lab-native-composer[phx-update=ignore]")
+
     refute has_element?(view, ".lab-runtime", "Awaiting admission")
 
     {:ok, profile} =
@@ -416,6 +417,20 @@ defmodule Responder.ControlPlane.LiveTest do
     assert has_element?(view, ".lab-directory-list a", "Inspect the request behind this answer")
     assert has_element?(view, ".lab-message-controls", "Edit")
     assert has_element?(view, ".lab-native-composer[phx-update=ignore]")
+
+    {:ok, _} =
+      ConversationLab.send_message(id, "**Evidence** [Run](https://example.invalid/run)", profile)
+
+    render_hook(view, "refresh", %{})
+    assert has_element?(view, ".chat-message-text strong", "Evidence")
+    assert has_element?(view, ".chat-message-text a[href='https://example.invalid/run']", "Run")
+    refute has_element?(view, ".story-byline", "Decided")
+
+    assert has_element?(
+             view,
+             "a[href*='conversation=control-plane%3Alab%3A#{id}']",
+             "All requests"
+           )
   end
 
   test "presentation always follows durable updates and remounts with current data", %{
@@ -468,7 +483,7 @@ defmodule Responder.ControlPlane.LiveTest do
   test "refreshing admission never changes the execution the operator is reading" do
     {entry, _id} = lab_input!()
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _} = live(conn, "/admission/#{entry.id}")
+    {:ok, view, _} = live(conn, "/episodes/ingress-input%3A#{entry.id}")
     assert has_element?(view, ".request-reader-heading", "Admission · execution 1")
     entry |> Ecto.Changeset.change(execution_generation: 2) |> Repo.update!()
     render_hook(view, "refresh", %{})
@@ -478,6 +493,30 @@ defmodule Responder.ControlPlane.LiveTest do
     assert has_element?(view, ".artifact-context", "Frozen admission context")
 
     assert has_element?(view, ".request-reader .ui-pagination", "1 / 2")
+
+    # Assignment used to erase the reader's pinned routing attempt mid-inspection.
+    {:ok, %{episode: episode}} =
+      Responder.Episodes.apply(Responder.Fixtures.Episodes.admit_input())
+
+    Repo.get!(Responder.Ingress.Inbox.Entry, entry.id)
+    |> Ecto.Changeset.change(
+      episode_id: episode.id,
+      status: :decided,
+      decision_action: :start_episode,
+      decision_ref: "decision:reader-assignment",
+      decision_fingerprint: String.duplicate("a", 64),
+      decision_document: %{"action" => "start_episode", "episode_ref" => episode.key}
+    )
+    |> Repo.update!()
+
+    render_hook(view, "refresh", %{})
+    assert has_element?(view, ".request-reader[data-generation='1']")
+    assert has_element?(view, ".request-reader .ui-pagination", "1 / 2")
+
+    {:ok, reopened, _} =
+      live(conn, "/episodes/ingress-input%3A#{entry.id}?generation=1")
+
+    assert has_element?(reopened, ".request-reader[data-generation='1']")
   end
 
   test "a blocked admission shows its recovery reason and a correctly bound confirmation" do
@@ -488,7 +527,7 @@ defmodule Responder.ControlPlane.LiveTest do
     |> Repo.update!()
 
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _} = live(conn, "/admission/#{entry.id}")
+    {:ok, view, _} = live(conn, "/episodes/ingress-input%3A#{entry.id}")
     assert has_element?(view, ".admission-recovery", "Provider unavailable")
     href = "/actions/admission/#{URI.encode_www_form(Inbox.ref(entry))}/rearm"
     refute has_element?(view, "a[href='#{href}']")

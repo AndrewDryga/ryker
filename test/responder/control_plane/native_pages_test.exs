@@ -137,7 +137,7 @@ defmodule Responder.ControlPlane.NativePagesTest do
         href: "/failures/delivery/example",
         attempted: ["Reconciled the previous request"]
       })
-      |> Map.put(:steps, [%{step | href: "/admission/example"}])
+      |> Map.put(:steps, [%{step | href: "/episodes/ingress-input%3Aexample"}])
       |> Map.update!(:case_file, fn file ->
         %{file | conversation: [message], repository: "responder", reply: message.text}
       end)

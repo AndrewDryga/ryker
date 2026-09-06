@@ -65,7 +65,7 @@ defmodule Responder.ControlPlane.AdmissionProgress do
         generation: row.generation,
         claims: row.claims,
         retry_at: row.retry_at,
-        href: "/admission/#{row.id}"
+        href: "/episodes/ingress-input%3A#{row.id}"
       }
     end)
   end

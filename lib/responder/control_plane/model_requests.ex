@@ -63,18 +63,23 @@ defmodule Responder.ControlPlane.ModelRequests do
 
   def project(_ref, _params), do: :not_found
 
-  def admission_destination(ref, _id, nil), do: "/episodes/" <> URI.encode_www_form(ref)
-
-  def admission_destination(ref, id, generation) do
-    "/episodes/" <>
-      URI.encode_www_form(ref) <>
-      "/requests?" <>
-      URI.encode_query(%{"kind" => "admission", "attempt" => id, "generation" => generation})
+  # Input identities address a specific incoming message, including messages
+  # routed into an existing conversation rather than starting a new episode.
+  def episode_ref("ingress-input:" <> id = ref) do
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         %Entry{episode_id: episode_id} when not is_nil(episode_id) <- Repo.get(Entry, id),
+         %Episode{key: key} <- Repo.get(Episode, episode_id) do
+      key
+    else
+      _ -> ref
+    end
   end
+
+  def episode_ref(ref), do: ref
 
   @doc "A bounded chronological document, with bulk-loaded custody and no per-request tool queries."
   def timeline(ref, _params) do
-    case Repo.get_by(Episode, key: ref) do
+    case Repo.get_by(Episode, key: episode_ref(ref)) do
       nil -> :not_found
       episode -> timeline_for(episode)
     end

@@ -41,7 +41,7 @@ defmodule Responder.ControlPlane.FailurePage do
 
       <div :if={@row.kind == "admission" && !@row[:episode_ref]} class="failure-request">
         <span>Original input</span>
-        <a href={"/admission/" <> URI.encode_www_form(String.replace_prefix(@row.ref, "ingress-input:", ""))}>Open message and routing</a>
+        <a href={"/episodes/" <> URI.encode_www_form(@row.ref)}>Open message and routing</a>
       </div>
 
       <div class="failure-explanation">

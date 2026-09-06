@@ -2201,7 +2201,7 @@ defmodule Responder.Work.Executor do
        |> Map.put("execution_mode", Atom.to_string(claim.episode.execution_mode))
        |> Map.put_new(
          "artifact_delivery_supported",
-         artifact_delivery_supported?(claim.episode)
+         Outputs.delivery_supported?(claim.episode)
        )
        |> Map.put_new("open_required_goals", Records.open_required_goals(claim.episode.id))
        |> Map.put("slack_mentions", Mentions.authority(claim.episode))
@@ -2213,7 +2213,7 @@ defmodule Responder.Work.Executor do
     context = claim.turn.submission["context"]
 
     %{
-      "artifact_delivery_supported" => artifact_delivery_supported?(claim.episode),
+      "artifact_delivery_supported" => Outputs.delivery_supported?(claim.episode),
       "artifact_metadata" => [],
       "artifact_refs" => [],
       "execution_mode" => Atom.to_string(claim.episode.execution_mode),
@@ -2224,11 +2224,6 @@ defmodule Responder.Work.Executor do
         claim.episode.execution_mode == :live and visible_reply_required?(context),
       "workspace" => nil
     }
-  end
-
-  defp artifact_delivery_supported?(episode) do
-    episode.execution_mode == :live and
-      episode.destination_transport in ["slack", "control_plane"]
   end
 
   defp validation_records(episode_id, turn_id) do

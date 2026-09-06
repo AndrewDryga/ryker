@@ -81,7 +81,7 @@ defmodule Responder.ControlPlane.ConversationLabTest do
     assert {:ok, queued} = Projection.lab_conversation(@conversation_id)
     assert [waiting] = queued.admission_progress
     assert waiting.phase =~ "Queued"
-    assert waiting.href == "/admission/#{entry.id}"
+    assert waiting.href == "/episodes/ingress-input%3A#{entry.id}"
     assert queued.episodes == []
 
     now = DateTime.utc_now()

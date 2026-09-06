@@ -18,6 +18,12 @@ defmodule Responder.Artifacts.Outputs do
   @fields ~w(bytes id media_type name sha256)
   @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
 
+  @spec delivery_supported?(map()) :: boolean()
+  def delivery_supported?(episode) do
+    episode.execution_mode == :live and
+      episode.destination_transport in ["slack", "control_plane"]
+  end
+
   @spec prepare_metadata(term()) :: {:ok, [map()]} | {:error, term()}
   def prepare_metadata(values) when is_list(values) and length(values) <= @maximum_artifacts do
     with {:ok, prepared} <- prepare_metadata_items(values),

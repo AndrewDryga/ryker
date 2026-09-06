@@ -4,13 +4,13 @@ defmodule Responder.ControlPlane.WorkbenchLive do
   require Logger
 
   alias Responder.ControlPlane.{
+    Activity,
     ActivityPage,
     CardLab,
     CardLabPage,
     Endpoint,
     EpisodePage,
     LabPage,
-    ModelRequests,
     Navigation,
     RequestFilters,
     RequestPage,
@@ -153,7 +153,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
       Map.merge(
         Map.take(
           UsageProjection.link_params(socket.assigns.params),
-          ~w(filter target repository state) ++
+          ~w(filter target repository state conversation thread transport) ++
             UsageProjection.filter_keys()
         ),
         Map.take(UsageProjection.link_params(params), ~w(q mode))
@@ -263,7 +263,9 @@ defmodule Responder.ControlPlane.WorkbenchLive do
       activity: Map.delete(activity, :items),
       filter_values:
         if(reset,
-          do: options.projection.usage_filter_options.(),
+          do:
+            Activity.conversation_filter_options() ++
+              options.projection.usage_filter_options.(),
           else: socket.assigns.filter_values
         ),
       overview: options.projection.overview.(),
@@ -278,7 +280,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
 
   defp load_detail(socket, options, ["episodes", _ref | _rest]) do
     with {:ok, episode} <- options.projection.episode.(socket.assigns.params["ref"]),
-         {:ok, requests} <- episode_requests(socket, options),
+         {:ok, requests} <- episode_requests(socket, options, episode.episode.ref),
          {:ok, timeline} <- options.projection.model_timeline.(socket.assigns.params["ref"], %{}) do
       assign(socket,
         native: :episode,
@@ -289,7 +291,7 @@ defmodule Responder.ControlPlane.WorkbenchLive do
         request_selection: request_selection(requests)
       )
     else
-      :not_found -> assign(socket, native: :not_found, page_title: "Not found")
+      :not_found -> load_unassigned_input(socket, options)
     end
   end
 
@@ -344,47 +346,51 @@ defmodule Responder.ControlPlane.WorkbenchLive do
     end
   end
 
-  defp load_detail(socket, options, ["admission", _id]) do
-    case options.projection.admission_request.(
-           socket.assigns.params["id"],
-           inspection_params(socket)
-         ) do
-      {:ok, %{episode_ref: ref}} when is_binary(ref) ->
-        push_navigate(socket,
-          to:
-            ModelRequests.admission_destination(
-              ref,
-              socket.assigns.params["id"],
-              socket.assigns.params["generation"]
-            )
-        )
-
-      {:ok, requests} ->
-        assign(socket,
-          native: :request,
-          page_title: "Message routing",
-          requests: requests,
-          request_selection: request_selection(requests)
-        )
-
-      :not_found ->
-        assign(socket, native: :not_found, page_title: "Not found")
-    end
-  end
-
   defp load_detail(socket, options, _segments) do
     page = Router.snapshot(socket.assigns.path, socket.assigns.query, options)
     if page.status >= 500, do: throw({:projection_unavailable, :secondary})
     assign(socket, native: nil, body: page.body, page_title: page.title)
   end
 
-  defp episode_requests(socket, options) do
-    if String.ends_with?(socket.assigns.path, "/requests"),
-      do:
-        options.projection.model_requests.(
-          socket.assigns.params["ref"],
-          inspection_params(socket)
-        ),
+  defp load_unassigned_input(
+         %{assigns: %{params: %{"ref" => "ingress-input:" <> id}}} = socket,
+         options
+       ) do
+    case options.projection.admission_request.(
+           id,
+           inspection_params(socket)
+         ) do
+      {:ok, %{episode_ref: nil} = requests} ->
+        assign(socket,
+          native: :request,
+          page_title: "Request",
+          requests: requests,
+          request_selection: request_selection(requests)
+        )
+
+      _ ->
+        assign(socket, native: :not_found, page_title: "Not found")
+    end
+  end
+
+  defp load_unassigned_input(socket, _options),
+    do: assign(socket, native: :not_found, page_title: "Not found")
+
+  defp episode_requests(socket, options, episode_ref) do
+    params = inspection_params(socket)
+
+    selection =
+      case socket.assigns.params["ref"] do
+        "ingress-input:" <> id = input_ref
+        when input_ref != episode_ref or is_map_key(params, "generation") ->
+          Map.merge(params, %{"kind" => "admission", "attempt" => id})
+
+        _ ->
+          params
+      end
+
+    if String.ends_with?(socket.assigns.path, "/requests") or selection["kind"] == "admission",
+      do: options.projection.model_requests.(episode_ref, selection),
       else: {:ok, nil}
   end
 

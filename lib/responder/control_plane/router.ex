@@ -14,7 +14,6 @@ defmodule Responder.ControlPlane.Router do
     CardLabSlackHTML,
     CSRF,
     HTML,
-    ModelRequests,
     ModelRequestsHTML
   }
 
@@ -91,7 +90,7 @@ defmodule Responder.ControlPlane.Router do
 
   defp snapshot_path?(["lab", "new"]), do: false
   defp snapshot_path?(["episodes", _, "requests"]), do: true
-  defp snapshot_path?([page, _ref]), do: page in ~w(lab admission episodes incidents schedules)
+  defp snapshot_path?([page, _ref]), do: page in ~w(lab episodes incidents schedules)
   defp snapshot_path?([page, _, _]), do: page in ~w(card-lab channels failures)
   defp snapshot_path?(_path), do: false
 
@@ -614,26 +613,6 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
-  defp route(%Plug.Conn{method: "GET", path_info: ["admission", id]} = conn, options) do
-    conn = fetch_query_params(conn)
-
-    case options.projection.admission_request.(id, Map.take(conn.query_params, ~w(generation))) do
-      {:ok, %{episode_ref: ref}} when is_binary(ref) ->
-        conn
-        |> put_resp_header(
-          "location",
-          ModelRequests.admission_destination(ref, id, conn.query_params["generation"])
-        )
-        |> send_resp(303, "")
-
-      {:ok, view} ->
-        html(conn, 200, "Message routing", ModelRequestsHTML.render(view))
-
-      _missing ->
-        html(conn, 404, "Not found", HTML.generic("Admission request", []))
-    end
-  end
-
   defp route(%Plug.Conn{method: "GET", path_info: ["incidents"]} = conn, options) do
     conn = fetch_query_params(conn)
     snapshot = options.projection.incidents.(Map.take(conn.query_params, ["q", "status"]))
@@ -924,10 +903,25 @@ defmodule Responder.ControlPlane.Router do
   defp render_episode(conn, options, episode_ref) do
     case options.projection.episode.(episode_ref) do
       {:ok, detail} -> html(conn, 200, "Episode", HTML.episode(detail))
-      :not_found -> html(conn, 404, "Not found", HTML.generic("Episode", []))
+      :not_found -> render_unassigned_input(conn, options, episode_ref)
       {:error, _reason} -> html(conn, 503, "Unavailable", HTML.generic("Episode", []))
     end
   end
+
+  defp render_unassigned_input(conn, options, "ingress-input:" <> id) do
+    conn = fetch_query_params(conn)
+
+    case options.projection.admission_request.(id, Map.take(conn.query_params, ~w(generation))) do
+      {:ok, %{episode_ref: nil} = view} ->
+        html(conn, 200, "Request", ModelRequestsHTML.render(view))
+
+      _ ->
+        html(conn, 404, "Not found", HTML.generic("Request", []))
+    end
+  end
+
+  defp render_unassigned_input(conn, _options, _ref),
+    do: html(conn, 404, "Not found", HTML.generic("Request", []))
 
   defp render_incident(conn, options, incident_ref) do
     case options.projection.incident.(incident_ref) do

@@ -12,6 +12,15 @@ defmodule Responder.ArtifactsTest do
 
   @png <<137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0>>
 
+  test "image delivery is supported only by live Slack and Lab destinations" do
+    for transport <- ~w(slack control_plane github), mode <- [:live, :shadow] do
+      assert Outputs.delivery_supported?(%{
+               execution_mode: mode,
+               destination_transport: transport
+             }) == (mode == :live and transport in ~w(slack control_plane))
+    end
+  end
+
   test "one source file owns one immutable content-addressed artifact" do
     attributes = %{
       data: @png,

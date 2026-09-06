@@ -32,6 +32,25 @@ defmodule Responder.ControlPlane.EpisodePage do
           <span :if={@snapshot.trace.case_file.repository}>{@snapshot.trace.case_file.repository}</span>
           <time>{timestamp(@snapshot.trace.received_at)}</time>
           <a :if={@snapshot.trace.source} href={@snapshot.trace.source.href} rel="noopener noreferrer">{@snapshot.trace.source.label} →</a>
+          <a
+            :if={@snapshot.episode[:conversation_ref]}
+            href={
+              Responder.ControlPlane.Activity.conversation_path(
+                @snapshot.episode.transport,
+                @snapshot.episode.conversation_ref
+              )
+            }
+          >All requests in this conversation →</a>
+          <a
+            :if={@snapshot.episode[:transport] == "slack" && @snapshot.episode[:thread_ref]}
+            href={
+              Responder.ControlPlane.Activity.conversation_path(
+                @snapshot.episode.transport,
+                @snapshot.episode.conversation_ref,
+                @snapshot.episode.thread_ref
+              )
+            }
+          >This Slack thread →</a>
         </p>
       </div>
       <dl class="episode-metrics">
@@ -50,6 +69,12 @@ defmodule Responder.ControlPlane.EpisodePage do
           <dt>Tool calls</dt><dd>{metric(@snapshot.trace.metrics, "Tool calls")}</dd>
         </div>
       </dl>
+      <section :if={@snapshot.trace.case_file[:expired_at]} class="story-stop">
+        <h2>Older request details expired</h2>
+        <p>
+          Saved content was removed by retention on {timestamp(@snapshot.trace.case_file.expired_at)}. The remaining timeline still shows when the request ran and finished.
+        </p>
+      </section>
       <nav class="case-actions" aria-label="Execution actions">
         <a href={outcome_anchor(@snapshot)}>Jump to latest outcome ↓</a>
         <.action_button

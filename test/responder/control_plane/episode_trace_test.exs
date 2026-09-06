@@ -46,6 +46,24 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
     assert metric.value == "2.3m"
   end
 
+  test "expired request content names its expiry instead of looking like a deleted episode" do
+    {entry, episode} = admitted_input!()
+
+    Repo.update_all(from(i in Entry, where: i.id == ^entry.id),
+      set: [content: %{"retention" => "pruned"}, operational_pruned_at: @received]
+    )
+
+    {:ok, detail} = Projection.episode(episode.key)
+    assert detail.trace.case_file.expired_at == @received
+  end
+
+  test "an input request addresses the episode it joined without a redirect" do
+    {entry, episode} = admitted_input!()
+    {:ok, detail} = Projection.episode("ingress-input:#{entry.id}")
+    assert detail.episode.ref == episode.key
+    assert {:ok, _} = ModelRequests.timeline("ingress-input:#{entry.id}", %{})
+  end
+
   test "preparing an input question is work, not proof a question was sent" do
     # The real infrastructure trace jumped answer -> work -> answer before its first delivery.
     {_entry, episode} = admitted_input!()

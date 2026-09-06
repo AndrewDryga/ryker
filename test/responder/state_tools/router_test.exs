@@ -537,6 +537,33 @@ defmodule Responder.StateTools.RouterTest do
              )
   end
 
+  test "Lab images pass the same destination checks as final execution" do
+    # A generated cat was discarded after preflight incorrectly told the model
+    # that Conversation Lab could not deliver images; the final executor could.
+    claim =
+      claim!("lab-image-preflight", %{
+        destination: %{
+          conversation_ref: "control-plane:lab:images",
+          thread_ref: "control-plane:lab:images",
+          transport: "control_plane"
+        }
+      })
+
+    candidate = %{
+      "decision_reason" => nil,
+      "delivery" => "reply",
+      "message" => "Here is the cat image.",
+      "outcome" => %{
+        "artifact_refs" => ["artifact_bd0541dddfe6910a3a3d8ff6"],
+        "record_refs" => [],
+        "state" => "complete"
+      }
+    }
+
+    assert {:ok, %{"accepted" => true, "candidate" => ^candidate}} =
+             Tools.call("validate_final", %{"candidate" => candidate}, bound_options(claim))
+  end
+
   test "automation proposals normalize every supported time trigger without executing it" do
     claim = claim!("fixed-automation-triggers")
     options = bound_options(claim)
