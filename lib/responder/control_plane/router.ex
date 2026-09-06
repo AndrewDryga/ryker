@@ -4,8 +4,18 @@ defmodule Responder.ControlPlane.Router do
 
   import Plug.Conn
 
+  alias Phoenix.HTML.Safe
   alias Plug.Conn.Query
-  alias Responder.ControlPlane.{CardLab, CardLabSlackHTML, CSRF, HTML, ModelRequestsHTML}
+
+  alias Responder.ControlPlane.{
+    BehaviorLibrary,
+    BehaviorPage,
+    CardLab,
+    CardLabSlackHTML,
+    CSRF,
+    HTML,
+    ModelRequestsHTML
+  }
 
   @behaviour Plug
   @maximum_form_bytes 4_096
@@ -76,7 +86,7 @@ defmodule Responder.ControlPlane.Router do
 
   defp snapshot_path?([page]),
     do:
-      page in ~w(lab card-lab episodes incidents schedules subscriptions channels repositories failures workspaces decisions findings memory calibration usage configuration manual-tests)
+      page in ~w(lab card-lab episodes incidents schedules subscriptions channels repositories failures workspaces decisions findings memory rules preferences guidance calibration usage configuration manual-tests)
 
   defp snapshot_path?(["lab", "new"]), do: false
   defp snapshot_path?(["episodes", _, "requests"]), do: true
@@ -647,7 +657,7 @@ defmodule Responder.ControlPlane.Router do
     snapshot =
       options.projection.subscriptions.(Map.take(conn.query_params, ["q", "status"]))
 
-    html(conn, 200, "Subscriptions", HTML.subscriptions(snapshot, conn.query_params))
+    html(conn, 200, "Event waits", HTML.subscriptions(snapshot, conn.query_params))
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["channels"]} = conn, options) do
@@ -693,9 +703,22 @@ defmodule Responder.ControlPlane.Router do
     html(
       conn,
       200,
-      "Memory and schedules",
+      "Memory",
       HTML.memory(options.projection.memory.(), options.csrf_secret)
     )
+  end
+
+  defp route(%Plug.Conn{method: "GET", path_info: [page]} = conn, options)
+       when page in ~w(rules preferences guidance) do
+    conn = fetch_query_params(conn)
+    kind = BehaviorLibrary.kind(page)
+    snapshot = options.projection.behaviors.(kind, conn.query_params)
+
+    body =
+      BehaviorPage.render(%{__changed__: nil, view: snapshot})
+      |> Safe.to_iodata()
+
+    html(conn, 200, BehaviorPage.title(kind), body)
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["configuration"]} = conn, options) do
@@ -849,7 +872,13 @@ defmodule Responder.ControlPlane.Router do
         conn,
         200,
         title,
-        HTML.confirmation(title, explanation, path, token, action_return_path(kind, resource_ref))
+        HTML.confirmation(
+          title,
+          explanation,
+          path,
+          token,
+          action_return_path(kind, resource_ref, options)
+        )
       )
     else
       {:error, _reason} -> html(conn, 404, "Not found", HTML.generic("Action", []))
@@ -865,9 +894,10 @@ defmodule Responder.ControlPlane.Router do
            confirmation(kind, resource_ref, action, options),
          {:ok, token, conn} <- form_token(conn),
          true <- CSRF.valid?(options.csrf_secret, canonical_action, resource_ref, token),
+         return_path <- action_return_path(kind, resource_ref, options),
          {:ok, _resource} <- perform(kind, resource_ref, action, options.actions) do
       conn
-      |> put_resp_header("location", action_return_path(kind, resource_ref))
+      |> put_resp_header("location", return_path)
       |> send_resp(303, "")
       |> halt()
     else
@@ -1330,18 +1360,28 @@ defmodule Responder.ControlPlane.Router do
 
   defp confirmation("behavior", resource_ref, action, options)
        when action in ["active", "disabled", "deleted"] do
-    snapshot = options.projection.memory.()
+    case options.projection.behavior.(resource_ref) do
+      {:ok, %{status: status} = behavior} when status in ["active", "disabled"] ->
+        {verb, explanation} =
+          case action do
+            "active" ->
+              {"Resume",
+               "This saved instruction will apply again within its existing scope until it expires."}
 
-    case Enum.find(
-           snapshot.behaviors,
-           &(&1.ref == resource_ref and &1.status in [:active, :disabled])
-         ) do
-      nil ->
+            "disabled" ->
+              {"Pause",
+               "Future requests will not use this instruction. Work already started is unchanged. You can resume it later."}
+
+            "deleted" ->
+              {"Delete",
+               "This instruction will no longer apply. Its history is retained. To use it again, ask Responder to propose a new one."}
+          end
+
+        subject = BehaviorPage.subject(behavior)
+        {:ok, "#{verb} #{subject}?", explanation, "behavior:#{action}"}
+
+      _unavailable ->
         {:error, :not_found}
-
-      behavior ->
-        {:ok, "Change #{behavior.subject}?",
-         "The typed behavior lifecycle will change to #{action}.", "behavior:#{action}"}
     end
   end
 
@@ -1360,18 +1400,13 @@ defmodule Responder.ControlPlane.Router do
 
   defp confirmation("schedule", resource_ref, action, options)
        when action in ["active", "paused", "deleted"] do
-    snapshot = options.projection.memory.()
-
-    case Enum.find(
-           snapshot.schedules,
-           &(&1.ref == resource_ref and &1.status in [:active, :paused])
-         ) do
-      nil ->
-        {:error, :not_found}
-
-      schedule ->
+    case options.projection.schedule.(resource_ref) do
+      {:ok, %{schedule: %{status: status} = schedule}} when status in [:active, :paused] ->
         {:ok, "Change #{schedule.title}?", "The schedule lifecycle will change to #{action}.",
          "schedule:#{action}"}
+
+      _unavailable ->
+        {:error, :not_found}
     end
   end
 
@@ -1568,6 +1603,16 @@ defmodule Responder.ControlPlane.Router do
        do: "/failures"
 
   defp action_return_path(_kind, _resource_ref), do: "/memory"
+
+  defp action_return_path("behavior", resource_ref, options) do
+    case options.projection.behavior.(resource_ref) do
+      {:ok, %{kind: kind}} -> BehaviorLibrary.path(kind)
+      _unavailable -> "/memory"
+    end
+  end
+
+  defp action_return_path(kind, resource_ref, _options),
+    do: action_return_path(kind, resource_ref)
 
   defp failure_kinds,
     do: ~w(admission delivery emisar retention slack_incident slack_interaction work)

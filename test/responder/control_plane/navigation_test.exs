@@ -3,6 +3,22 @@ defmodule Responder.ControlPlane.NavigationTest do
   import Phoenix.LiveViewTest
   alias Responder.ControlPlane.{Layouts, Navigation}
 
+  test "standing rules preferences and guidance have named desktop and mobile destinations" do
+    # These working capabilities were only discoverable in a generic Behaviors table.
+    for live <- [true, false], component <- [&Navigation.sidebar/1, &Navigation.mobile/1] do
+      html = render_component(component, path: "/rules", live: live)
+      document = LazyHTML.from_fragment(html)
+
+      for {path, title} <- [
+            {"/rules", "Standing rules"},
+            {"/preferences", "Preferences"},
+            {"/guidance", "Guidance"}
+          ] do
+        assert document |> LazyHTML.query("a[href='#{path}']") |> LazyHTML.text() == title
+      end
+    end
+  end
+
   test "the removed audit page is absent from live and HTTP navigation" do
     # The standalone audit feed duplicated request history without useful actions.
     for live <- [true, false], component <- [&Navigation.sidebar/1, &Navigation.mobile/1] do

@@ -489,8 +489,9 @@ replacement, not the older Go dashboard or the intended final design above.
 | Decisions | Live, read-only |
 | Model calibration | Live, read-only and bounded by time window, with admitted work class, effective provider/model/effort, repair rounds, tokens, reported cost, and provider/queue/host timing |
 | Findings | Live, read-only |
-| Audit | Live, read-only and bounded |
-| Memory | Live for memory, behaviors, and schedules, with native confirmed mutations |
+| Standing rules | Live, with active/paused/expired counts, searchable scope/status filters, paginated confirmed instructions, original conversation, expiry, recent matches, and confirmed pause/resume/delete |
+| Preferences and Guidance | Separate live libraries with visible scope, effective expiry, full guidance, provenance, history filters, and confirmed lifecycle controls |
+| Memory | Operational mappings and stale/duplicate reviews, with confirmed keep/merge/edit/forget; rules, guidance, preferences, and schedules have their own pages |
 | Configuration | Live for an explicit allowlist of effective runtime values, source provenance, MCP/host/tool grant names, and repository-topology linkage; secrets, endpoints, callbacks, and raw policy documents are omitted |
 | Usage | Live for accepted Work turns, with provider coverage, tokens, reported cost, timings, daily trend, and target/channel/repository drill-downs |
 | Test journeys | Live, configuration-aware manual qualification for the Lab, Slack, GitHub, webhooks, state tools, and recovery |
@@ -500,6 +501,18 @@ writes its store transition and audit row in the same act, attributed to
 `control-plane@localhost`. A Conversation Lab message is intentionally a
 single CSRF-protected POST: it is an ordinary user input, not an administrative
 state mutation or a shortcut to the model.
+
+Conversation Lab's **What you can do** guide links every card family to its
+workflow and owning controls: tasks/diffs/PRs, investigations, rules, schedules,
+preferences/guidance, memory and continuity, questions/event waits, governed
+operations, Slack setup/posts, and App Home. Preview links are read-only; new
+instructions still go through the existing conversation and confirmed-offer
+workflow. No legacy rules are implicitly imported or activated.
+
+Episode model inputs summarize standing rules, preferences, guidance, and
+memory from the complete sanitized **retained request**, not today's library.
+Missing or partial archives do not acquire reconstructed rule matches. The
+original source-aware context remains available inline for inspection.
 
 An unwired panel says exactly why it is empty and what would make it work, and
 says it about the right thing: once a gap is filled, a panel still tagged "not

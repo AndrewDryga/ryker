@@ -8,6 +8,7 @@ defmodule Responder.State.BehaviorsTest do
   alias Responder.Admission
   alias Responder.Admission.Decision
   alias Responder.CanonicalJSON
+  alias Responder.ControlPlane.{BehaviorLibrary, Projection, Router}
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.{Inbox, Input}
@@ -18,6 +19,7 @@ defmodule Responder.State.BehaviorsTest do
     BehaviorChangeset,
     Behaviors,
     Record,
+    RecordPayload,
     Records,
     StandingAssignmentRun
   }
@@ -25,6 +27,156 @@ defmodule Responder.State.BehaviorsTest do
   alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
+
+  test "visible instructions remain actionable beyond the memory listing limit" do
+    # Paused instructions do not consume active capacity. A capped listing must
+    # not strand their lifecycle controls when the library has more history.
+    fixture = delivered_offers!("older-ui-actions")
+    {:ok, confirmed} = Behaviors.confirm(confirmation(fixture, fixture.guidance, "guidance"))
+    insert_unrelated_guidance!(fixture.guidance, 500)
+
+    Repo.update_all(from(b in Behavior, where: b.id != ^confirmed.behavior.id),
+      set: [status: :disabled]
+    )
+
+    refute Enum.any?(Projection.memory().behaviors, &(&1.ref == confirmed.behavior.ref))
+
+    assert Enum.any?(
+             BehaviorLibrary.list(:guidance, %{"page" => "21"}).items,
+             &(&1.ref == confirmed.behavior.ref)
+           )
+
+    options =
+      Router.init(%{
+        actions: %{},
+        observability: %{},
+        projection: Projection.callbacks(),
+        csrf_secret: String.duplicate("x", 32)
+      })
+
+    path = "/actions/behavior/#{URI.encode_www_form(confirmed.behavior.ref)}/disabled"
+
+    response =
+      Plug.Test.conn(:get, path)
+      |> Map.put(:host, "localhost")
+      |> Router.call(options)
+
+    assert response.status == 200
+    assert response.resp_body =~ "href=\"/guidance\""
+
+    confirmed.behavior
+    |> BehaviorChangeset.update(%{expires_at: DateTime.add(DateTime.utc_now(), -1)})
+    |> Repo.update!()
+
+    response =
+      Plug.Test.conn(:get, path)
+      |> Map.put(:host, "localhost")
+      |> Router.call(options)
+
+    assert response.status == 404
+  end
+
+  test "valid expanding event conditions cannot break the instruction library" do
+    # A small valid JSON filter can exceed the inspector display limit after
+    # indentation. One such confirmed rule must not take down the whole page.
+    fixture = delivered_offers!("expanding-ui-filter")
+
+    {:ok, confirmed} =
+      Behaviors.confirm(confirmation(fixture, fixture.source_event_assignment, "rule"))
+
+    filter =
+      Enum.reduce(1..29, List.duplicate(0, 8_500), fn _, nested -> %{"nested" => nested} end)
+
+    payload = Map.put(confirmed.behavior.payload, "filter", filter)
+
+    assert {:ok, _} =
+             RecordPayload.prepare(
+               "standing_assignment_offer",
+               payload,
+               "record:filter"
+             )
+
+    confirmed.behavior |> BehaviorChangeset.update(%{payload: payload}) |> Repo.update!()
+
+    assert %{items: [item]} =
+             BehaviorLibrary.list(:standing_assignment, %{})
+
+    assert item.payload["title"] == payload["title"]
+
+    assert item.payload["filter"] ==
+             "Too large to display. Open the original conversation to inspect these conditions."
+  end
+
+  test "indefinite behaviors remain visible and manageable in the control plane" do
+    # Indefinite standing rules worked at runtime but disappeared from the UI,
+    # making operators believe the feature had been removed.
+    fixture = delivered_offers!("indefinite-ui")
+    {:ok, confirmed} = Behaviors.confirm(confirmation(fixture, fixture.guidance, "guidance"))
+    confirmed.behavior |> BehaviorChangeset.update(%{expires_at: nil}) |> Repo.update!()
+
+    assert Enum.any?(
+             Projection.memory().behaviors,
+             &(&1.ref == confirmed.behavior.ref)
+           )
+  end
+
+  test "the instruction library separates kinds expiry scopes and history without mutating them" do
+    fixture = delivered_offers!("instruction-library")
+
+    {:ok, rule} =
+      Behaviors.confirm(confirmation(fixture, fixture.source_event_assignment, "rule"))
+
+    {:ok, preference} =
+      Behaviors.confirm(confirmation(fixture, fixture.workspace_preference, "preference"))
+
+    {:ok, guidance} = Behaviors.confirm(confirmation(fixture, fixture.guidance, "guidance"))
+    {:ok, _paused} = Behaviors.set_status(preference.behavior.ref, :disabled)
+
+    guidance.behavior
+    |> BehaviorChangeset.update(%{expires_at: DateTime.add(DateTime.utc_now(), -1)})
+    |> Repo.update!()
+
+    assert {:ok, 1} =
+             Behaviors.observe_input(
+               github_review_input("slack:T123:C456", "submitted", "changes_requested"),
+               "input:library"
+             )
+
+    assert %{items: [item], runs: [run], counts: %{"active" => 1}} =
+             BehaviorLibrary.list(:standing_assignment, %{})
+
+    assert item.ref == rule.behavior.ref
+    assert run.rule_ref == item.ref
+    assert run.outcome == :pending
+    assert item.payload["filter"] != nil
+    assert BehaviorLibrary.list(:standing_assignment, %{"scope" => "repository"}).items == []
+    assert BehaviorLibrary.list(:standing_assignment, %{"q" => "%"}).items == []
+    assert BehaviorLibrary.list(:standing_assignment, %{"q" => "github"}).total == 1
+
+    assert BehaviorLibrary.list(:standing_assignment, %{"status" => "nonsense", "page" => "-20"}).page ==
+             1
+
+    assert BehaviorLibrary.list(:standing_assignment, %{"page" => "oops"}).page == 1
+    assert BehaviorLibrary.list(:standing_assignment, %{"status" => "archived"}).items == []
+    assert %{items: [%{status: "disabled"}]} = BehaviorLibrary.list(:preference, %{})
+    assert %{items: [], counts: %{"expired" => 1}} = BehaviorLibrary.list(:guidance, %{})
+
+    assert %{items: [%{status: "expired"}]} =
+             BehaviorLibrary.list(:guidance, %{"status" => "expired"})
+
+    assert %{items: [%{status: "expired"}]} =
+             BehaviorLibrary.list(:guidance, %{"status" => "all"})
+
+    assert Repo.get!(Behavior, guidance.behavior.id).status == :active
+
+    insert_unrelated_guidance!(fixture.guidance, 27)
+    first = BehaviorLibrary.list(:guidance, %{})
+    second = BehaviorLibrary.list(:guidance, %{"page" => "2"})
+    assert first.total == 27
+    assert length(first.items) == 25
+    assert length(second.items) == 2
+    assert MapSet.disjoint?(MapSet.new(first.items, & &1.ref), MapSet.new(second.items, & &1.ref))
+  end
 
   test "operator-confirmed preferences and guidance resolve by exact scope and precedence" do
     fixture = delivered_offers!("memory")

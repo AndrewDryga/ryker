@@ -1421,7 +1421,9 @@ defmodule Responder.ControlPlane.ProjectionTest do
 
     assert Projection.decisions(%{}) == []
     assert Projection.findings(%{}) == []
-    assert map_size(Projection.callbacks()) == 38
+    assert map_size(Projection.callbacks()) == 40
+    assert is_function(Projection.callbacks().behavior, 1)
+    assert is_function(Projection.callbacks().behaviors, 2)
     refute Map.has_key?(Projection.callbacks(), :audit)
     assert is_function(Projection.callbacks().usage_filter_options, 0)
     assert is_function(Projection.callbacks().model_timeline, 2)

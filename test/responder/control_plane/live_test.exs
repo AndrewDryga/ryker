@@ -80,6 +80,31 @@ defmodule Responder.ControlPlane.LiveTest do
     assert has_element?(view, "[data-active-count]", "7")
   end
 
+  test "instruction libraries are live navigable and keep visible filters after reconciliation" do
+    for {path, title} <- [
+          {"/rules", "Standing rules"},
+          {"/preferences", "Preferences"},
+          {"/guidance", "Guidance"}
+        ] do
+      {:ok, view, html} =
+        live(
+          build_conn() |> Map.put(:host, "localhost"),
+          path <> "?q=emisar&status=all&scope=repository"
+        )
+
+      assert html =~ title
+      assert has_element?(view, "input[name=q][value=emisar]")
+      assert has_element?(view, "select[name=status] option[value=all][selected]")
+      send(view.pid, :reconcile)
+      assert has_element?(view, "input[name=q][value=emisar]")
+      assert has_element?(view, "select[name=scope] option[value=repository][selected]")
+    end
+
+    {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/rules?q[x]=1&page[x]=2")
+    assert has_element?(view, ".behavior-library")
+    refute has_element?(view, ".document-unavailable")
+  end
+
   test "malformed usage filters cannot crash navigation or search links" do
     # Nested URL values reached URI.encode_query as maps instead of scalars.
     for query <- [

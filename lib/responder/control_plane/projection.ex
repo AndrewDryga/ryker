@@ -10,6 +10,7 @@ defmodule Responder.ControlPlane.Projection do
   import Ecto.Query
 
   alias Responder.ControlPlane.{Activity, AdmissionProgress, InspectionRedactor, UsageProjection}
+  alias Responder.ControlPlane.BehaviorLibrary
   alias Responder.ControlPlane.CurrentInputs
   alias Responder.ControlPlane.ModelRequests
 
@@ -41,6 +42,8 @@ defmodule Responder.ControlPlane.Projection do
   def callbacks do
     %{
       activity: &Activity.list/1,
+      behavior: &BehaviorLibrary.fetch/1,
+      behaviors: &BehaviorLibrary.list/2,
       admission: &admission/1,
       calibration: &calibration/1,
       card_lab_feedback: &CardLabFeedback.list/2,
@@ -805,14 +808,24 @@ defmodule Responder.ControlPlane.Projection do
       behaviors:
         Repo.all(
           from(behavior in Behavior,
-            where: behavior.status in [:active, :disabled] and behavior.expires_at > ^now,
+            where:
+              behavior.status in [:active, :disabled] and
+                (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
             order_by: [desc: behavior.updated_at, desc: behavior.id],
-            limit: 100,
+            limit: 500,
             select: %{
               kind: behavior.kind,
               ref: behavior.ref,
               status: behavior.status,
-              subject: behavior.identity_key
+              subject:
+                fragment(
+                  "COALESCE(?::jsonb->>'title', ?::jsonb->>'subject', ?::jsonb->>'key', ?::jsonb->>'task', ?)",
+                  behavior.payload,
+                  behavior.payload,
+                  behavior.payload,
+                  behavior.payload,
+                  behavior.identity_key
+                )
             }
           )
         ),
