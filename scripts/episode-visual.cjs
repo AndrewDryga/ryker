@@ -39,13 +39,20 @@ assert(routes.length && routes.every(route => /^\/episodes\/[^/?#]+$/.test(route
             width: document.documentElement.scrollWidth, height: document.body.scrollHeight,
             rails: [...document.querySelectorAll('.case-entry-body')].filter(e => e.getBoundingClientRect().height > 0).map(e => e.getBoundingClientRect().left)
           }));
+          // Two retained image-request episodes expanded a 390px page to 1124px:
+          // long action titles and failure tokens escaped their otherwise aligned cards.
+          for (const action of await page.locator('.action-card').all()) {
+            if (!await action.isVisible()) continue;
+            const size = await action.evaluate(e => ({width:e.clientWidth, content:e.scrollWidth}));
+            assert(size.content <= size.width + 1, 'Tool titles and failure reasons must wrap inside their action card');
+          }
           assert(result.layout.width <= width, 'The page must not overflow horizontally');
           assert(result.layout.rails.every(left => Math.abs(left - result.layout.rails[0]) < 1), 'Every timeline entry must share one aligned rail');
           assert.equal(await page.locator('.case-timeline pre:visible').count(), 0, 'Raw protocol data must not dominate the default timeline');
           assert.equal(await page.locator('.case-receipt-group, .case-system-event').count(), 0, 'Actions must not be hidden inside nested receipt groups');
           assert.equal(await page.locator('.case-timeline details details details').count(), 0, 'Timeline evidence must not have three disclosure levels');
           const phases = await page.locator('.chapter-heading h3').allTextContents();
-          assert(phases.every(title => ['Getting ready', 'Routing', 'The work', 'The answer'].includes(title)));
+          assert(phases.every(title => ['Getting ready', 'New input received', 'Routing', 'The work', 'The answer'].includes(title)));
           assert.equal(await page.locator('.chapter-description > p:not(.turn-divider-label):visible').count(), phases.length);
           assert.equal(await page.locator('.case-timeline').evaluate(e => getComputedStyle(e).backgroundColor), 'rgba(0, 0, 0, 0)', 'The timeline is a sequence of action cards, not one white panel');
           assert.equal(await page.getByText('Inspect admission', {exact: true}).count(), 0);
@@ -61,7 +68,7 @@ assert(routes.length && routes.every(route => /^\/episodes\/[^/?#]+$/.test(route
             await capture('followup');
             assert(await followup.locator('.turn-divider-label').isVisible());
           }
-          const instructions = page.locator('.prompt-assembly > details[data-source="instructions"]').first();
+          const instructions = page.locator('.prompt-assembly .prompt-source[data-source="instructions"]').first();
           if (await instructions.count()) {
             await instructions.locator(':scope > summary').click();
             // One click should expose the instructions, including their actual source.
@@ -73,7 +80,7 @@ assert(routes.length && routes.every(route => /^\/episodes\/[^/?#]+$/.test(route
             assert(await instructions.locator('.prompt-source-body pre').isVisible(), 'Live updates must preserve open evidence');
             await instructions.locator(':scope > summary').click();
           }
-          const context = page.locator('.prompt-assembly > details[data-origin="conversation"]').first();
+          const context = page.locator('.prompt-assembly .prompt-source[data-origin="conversation"]').first();
           if (await context.count()) {
             await context.locator(':scope > summary').click();
             assert(await context.locator('.prompt-source-location').first().isVisible(), 'Context must explain where each component came from');
@@ -86,11 +93,15 @@ assert(routes.length && routes.every(route => /^\/episodes\/[^/?#]+$/.test(route
             await work.scrollIntoViewIfNeeded();
             await capture('work');
           }
-          const prompt = page.locator('.phase-work .final-prompt').first();
+          const prompt = page.locator('.final-prompt').first();
           if (await prompt.count()) {
             await prompt.locator(':scope > summary').click();
-            await prompt.locator('.submitted-prompt').waitFor({state: 'visible'});
-            assert(await prompt.locator('.prompt-fragment[title][data-source]').count() > 0, 'The submitted prompt must identify its actual sources');
+            const submittedText = prompt.locator('.prompt-source[data-source="request"]');
+            await submittedText.locator(':scope > summary').click();
+            await submittedText.locator('.submitted-prompt').waitFor({state: 'visible'});
+            assert.equal(await prompt.locator('.prompt-source[data-source="contract"][open]').count(), 0, 'The output contract must start collapsed');
+            assert(await prompt.locator('.prompt-fragment[data-source-label][data-source]').count() > 0, 'The submitted prompt must identify its actual sources');
+            await prompt.locator('.prompt-fragment').first().focus();
             await prompt.scrollIntoViewIfNeeded();
             assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'The full prompt must not overflow the page');
             await capture('full-prompt');

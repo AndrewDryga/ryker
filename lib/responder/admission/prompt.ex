@@ -6,9 +6,12 @@ defmodule Responder.Admission.Prompt do
   output without duplicating the schema inside natural-language instructions.
   """
 
-  alias Responder.Admission.Context
+  alias Responder.Admission.{Candidate, Context}
+  alias Responder.CanonicalJSON
 
   @max_encoded_bytes 65_536
+  @max_snapshot_bytes 98_304
+  @baseline_preview_bytes 256
 
   @instructions """
   Decide how Responder should handle this incoming event. Interpret the event itself; the host does not
@@ -105,14 +108,13 @@ defmodule Responder.Admission.Prompt do
   @spec build(Context.t()) :: map()
   def build(%Context{} = context) do
     request =
-      %{
-        "context" => Context.for_model(context),
-        "instructions" => @instructions
-      }
+      context
+      |> fit()
+      |> request()
       |> fit_memory("conversation_observations")
       |> fit_memory("conversation_knowledge")
 
-    case Responder.CanonicalJSON.validate(request, max_bytes: @max_encoded_bytes) do
+    case CanonicalJSON.validate(request, max_bytes: @max_encoded_bytes) do
       :ok ->
         request
 
@@ -121,10 +123,73 @@ defmodule Responder.Admission.Prompt do
     end
   end
 
+  @doc "Fit new context once, before either its frozen snapshot or submitted request is retained."
+  @spec fit(Context.t()) :: Context.t()
+  def fit(%Context{fitted?: true} = context), do: context
+
+  def fit(%Context{} = context) do
+    if length(context.candidates) > 20,
+      do: raise(ArgumentError, "admission prompt exceeds its bound: more than 20 candidates")
+
+    captured = context.candidates
+
+    baseline =
+      context
+      |> with_previews(captured, @baseline_preview_bytes)
+      |> fit_context_memory(:observations)
+      |> fit_context_memory(:knowledge)
+
+    unless fits?(baseline),
+      do:
+        raise(
+          ArgumentError,
+          "admission prompt exceeds its bound: required context or source receipts do not fit"
+        )
+
+    fitted =
+      expand_previews(baseline, captured, @baseline_preview_bytes, Candidate.preview_limit())
+
+    %{fitted | fitted?: true}
+  end
+
+  # Fitted and restored contexts never reread or refit their candidate strings.
+  # The marker is lifecycle state, not another field in the saved document.
+  defp request(context),
+    do: %{"context" => Context.for_model(context), "instructions" => @instructions}
+
+  defp fits?(context) do
+    byte_size(CanonicalJSON.encode!(request(context))) <= @max_encoded_bytes and
+      byte_size(CanonicalJSON.encode!(Context.snapshot(context))) <= @max_snapshot_bytes
+  end
+
+  defp fit_context_memory(context, key) do
+    notes = Map.fetch!(context, key)
+
+    if notes != [] and not fits?(context),
+      do: fit_context_memory(Map.put(context, key, Enum.drop(notes, -1)), key),
+      else: context
+  end
+
+  defp with_previews(context, captured, limit),
+    do: %{context | candidates: Enum.map(captured, &Candidate.with_preview_limit(&1, limit))}
+
+  defp expand_previews(context, [], _lower, _upper), do: context
+
+  defp expand_previews(context, captured, limit, limit),
+    do: with_previews(context, captured, limit)
+
+  defp expand_previews(context, captured, lower, upper) do
+    middle = div(lower + upper + 1, 2)
+
+    if fits?(with_previews(context, captured, middle)),
+      do: expand_previews(context, captured, middle, upper),
+      else: expand_previews(context, captured, lower, middle - 1)
+  end
+
   defp fit_memory(request, key) do
     notes = get_in(request, ["context", key]) || []
 
-    if notes != [] and byte_size(Responder.CanonicalJSON.encode!(request)) > @max_encoded_bytes do
+    if notes != [] and byte_size(CanonicalJSON.encode!(request)) > @max_encoded_bytes do
       request
       |> put_in(["context", key], Enum.drop(notes, -1))
       |> fit_memory(key)

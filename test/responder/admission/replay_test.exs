@@ -6,12 +6,14 @@ defmodule Responder.Admission.ReplayTest do
   import Ecto.Query
 
   alias Responder.Admission
-  alias Responder.Admission.Decision
+  alias Responder.Admission.{Context, Decision, Executor, Prompt}
+  alias Responder.CanonicalJSON
   alias Responder.Episodes
   alias Responder.Episodes.Command
   alias Responder.Ingress.{Inbox, Input}
   alias Responder.Repo
   alias Responder.Slack.Input, as: SlackInput
+  alias Responder.TestSupport.FakeCoopAPI, as: FakeAPI
 
   @fixtures Path.wildcard(Path.expand("fixtures/*.json", __DIR__))
 
@@ -42,10 +44,94 @@ defmodule Responder.Admission.ReplayTest do
                  candidate_limit: 8
                )
 
+      if Path.basename(@fixture_path) in [
+           "new_cycle_links_history_only.json",
+           "resolved_card_continues_active_episode.json",
+           "terraform_lifecycle_continues_episode.json"
+         ] do
+        # The 256-byte preview hid the harvested Grafana start identity while the
+        # prompt told the model to compare it. Routing success alone missed that loss.
+        source =
+          fixture["seed"]["input"]
+          |> Map.take(~w(actor content event_kind))
+          |> CanonicalJSON.encode!()
+
+        assert byte_size(source) <= 4_096
+        request = Prompt.build(context)
+        offered = Enum.find(context.candidates, &(&1.episode.id == seed.id))
+
+        candidate =
+          Enum.find(request["context"]["candidates"], &(&1["episode_ref"] == offered.ref))
+
+        assert candidate["first_input"]["content_preview"] == source
+        refute candidate["first_input"]["truncated"]
+        assert byte_size(CanonicalJSON.encode!(request)) <= 65_536
+      end
+
       decision = decision!(fixture["decision"], context, seed)
       decision_ref = "fixture-decision:#{entry.id}"
       assert {:ok, result} = Admission.commit(context, decision, decision_ref)
       assert actual(result, seed) == fixture["expected"]
+    end
+
+    if Path.basename(fixture_path) in [
+         "new_cycle_links_history_only.json",
+         "resolved_card_continues_active_episode.json",
+         "terraform_lifecycle_continues_episode.json"
+       ] do
+      test "submitted and frozen source context agree for #{Path.basename(fixture_path, ".json")}" do
+        fixture = @fixture_path |> File.read!() |> Jason.decode!()
+        seed = seed_episode(fixture["seed"])
+        input = input!(fixture["input"])
+        now = datetime!(fixture["now"])
+        assert {:ok, %{entry: entry}} = Inbox.record(input)
+
+        assert {:ok, %{entry: claimed, lease_ref: lease}} =
+                 Inbox.claim_next("candidate-source-test", now, 300)
+
+        assert claimed.id == entry.id
+
+        context_options = [
+          now: now,
+          lease_ref: lease,
+          candidate_limit: 20,
+          continuation_window: fixture["continuation_window_seconds"],
+          history_window: fixture["history_window_seconds"]
+        ]
+
+        assert {:ok, context} = Admission.context(Inbox.ref(entry), context_options)
+        decision = decision!(fixture["decision"], context, seed)
+        {:ok, fake} = FakeAPI.start_link([decision |> Decision.document() |> Jason.encode!()])
+
+        options =
+          Keyword.merge(context_options,
+            api: FakeAPI,
+            client: fake,
+            now: fn -> now end,
+            policy: "admission-read-only",
+            policy_digest: String.duplicate("a", 64),
+            max_polls: 10,
+            poll_interval_ms: 0,
+            renew_lease: fn -> :ok end,
+            sleep: fn _milliseconds -> :ok end
+          )
+
+        assert {:ok, execution} = Executor.run(Inbox.ref(entry), options)
+        submitted = FakeAPI.state(fake).submitted_prompt
+        assert submitted == CanonicalJSON.encode!(Prompt.build(context))
+        assert execution.result.entry.admission_context == Context.snapshot(context)
+        assert Jason.decode!(submitted)["context"] == Context.for_model(context)
+
+        source =
+          fixture["seed"]["input"]
+          |> Map.take(~w(actor content event_kind))
+          |> CanonicalJSON.encode!()
+
+        assert [%{"first_input" => %{"content_preview" => ^source, "truncated" => false}}] =
+                 Jason.decode!(submitted)["context"]["candidates"]
+
+        assert actual(execution.result, seed) == fixture["expected"]
+      end
     end
   end
 

@@ -10,7 +10,7 @@ defmodule Responder.Admission do
 
   alias Responder.Admission.Attempts
 
-  alias Responder.Admission.{Candidate, Context, Decision}
+  alias Responder.Admission.{Candidate, Context, Decision, Prompt}
   alias Responder.Delivery.ReactionCustody
   alias Responder.Episodes
   alias Responder.Episodes.{Command, ConversationLock, Episode, Event}
@@ -111,6 +111,7 @@ defmodule Responder.Admission do
           )
       }
       |> LearningSources.freeze()
+      |> Prompt.fit()
     else
       {:error, reason} -> Repo.rollback(reason)
     end

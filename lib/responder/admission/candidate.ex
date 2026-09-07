@@ -10,7 +10,7 @@ defmodule Responder.Admission.Candidate do
   alias Responder.CanonicalJSON
   alias Responder.Episodes.Episode
 
-  @preview_limit 256
+  @preview_limit 4_096
 
   @enforce_keys [
     :allowed_relations,
@@ -99,6 +99,20 @@ defmodule Responder.Admission.Candidate do
       "latest_input" => candidate.latest_input_preview,
       "same_thread" => candidate.same_thread,
       "state" => candidate.model_state
+    }
+  end
+
+  @doc false
+  def preview_limit, do: @preview_limit
+
+  @doc "Narrow captured source text without rereading an episode or inventing omitted bytes."
+  @spec with_preview_limit(t(), pos_integer()) :: t()
+  def with_preview_limit(%__MODULE__{} = candidate, limit)
+      when is_integer(limit) and limit > 0 and limit <= @preview_limit do
+    %{
+      candidate
+      | first_input_preview: narrow_preview(candidate.first_input_preview, limit),
+        latest_input_preview: narrow_preview(candidate.latest_input_preview, limit)
     }
   end
 
@@ -243,6 +257,18 @@ defmodule Responder.Admission.Candidate do
   end
 
   defp preview(_endpoint), do: nil
+
+  defp narrow_preview(nil, _limit), do: nil
+
+  defp narrow_preview(preview, limit) do
+    text = preview["content_preview"]
+
+    %{
+      preview
+      | "content_preview" => String.byte_slice(text, 0, limit),
+        "truncated" => preview["truncated"] or byte_size(text) > limit
+    }
+  end
 
   defp preview_payload(payload) when is_map(payload), do: payload
   defp preview_payload(payload), do: %{"content" => payload}

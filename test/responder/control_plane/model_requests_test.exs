@@ -3,7 +3,7 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
   import Phoenix.LiveViewTest
   alias Responder.Admission.Attempt
   alias Responder.ControlPlane.ConversationLab
-  alias Responder.ControlPlane.{EpisodePage, InspectionRedactor, Projection}
+  alias Responder.ControlPlane.{EpisodePage, EpisodeRequest, InspectionRedactor, Projection}
   alias Responder.ControlPlane.{ModelRequests, RequestPage}
   alias Responder.Ingress.WorkProfile
   alias Responder.Work.{Custody, Submission, Turn}
@@ -43,7 +43,14 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
           path: "/episodes/#{URI.encode_www_form(episode.key)}/requests"
         )
 
-      assert native =~ section.title
+      expected_title =
+        case section.id do
+          "request" -> "Full submitted request"
+          "validation" -> "Response checks"
+          _ -> section.title
+        end
+
+      assert native =~ expected_title
       # Existing "Inspect accepted answer" links must open the requested artifact,
       # not bury it below instructions and raw submissions after removing the tabs.
       assert native
@@ -62,6 +69,188 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
     {episode, _turn, _prompt} = frozen_turn!()
     assert :not_found == ModelRequests.project(episode.key, %{"attempt" => Ecto.UUID.generate()})
     assert :not_found == ModelRequests.project(episode.key, %{"attempt" => "not-a-uuid"})
+  end
+
+  test "the full submitted request groups exact prompt text and output contract as collapsed components" do
+    # The full-request disclosure previously left the contract as an unrelated
+    # open block, while the technical inspector showed only the prompt text.
+    {episode, turn, _original} = frozen_turn!()
+    {:ok, view} = ModelRequests.project(episode.key, %{})
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+    request = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}"))
+    prompt = Enum.find(request.sections, &(&1.id == "request")).artifact.text
+    contract = Enum.find(request.sections, &(&1.id == "contract")).artifact.text
+
+    for html <- [
+          render_component(&EpisodeRequest.render/1, request: request),
+          render_component(&RequestPage.render/1,
+            view: view,
+            params: %{},
+            path: "/episodes/#{URI.encode_www_form(episode.key)}/requests"
+          )
+        ] do
+      document = LazyHTML.from_document(html)
+      full = LazyHTML.query(document, ".final-prompt")
+      assert Enum.count(full) == 1
+
+      assert full |> LazyHTML.query("summary") |> Enum.at(0) |> LazyHTML.text() =~
+               "Full submitted request"
+
+      assert Enum.empty?(LazyHTML.query(full, "details[open]"))
+
+      for {id, title, text} <- [
+            {"request", "Prompt text", prompt},
+            {"contract", "Output contract", contract}
+          ] do
+        component = LazyHTML.query(full, ".prompt-source[data-source='#{id}']")
+        assert Enum.count(component) == 1
+        assert LazyHTML.query(component, "summary") |> LazyHTML.text() =~ title
+        assert LazyHTML.query(component, "summary") |> LazyHTML.text() =~ "estimated tokens"
+        assert LazyHTML.query(component, ".submitted-prompt code") |> LazyHTML.text() == text
+      end
+
+      assert LazyHTML.text(full) =~ "alongside"
+      assert LazyHTML.text(full) =~ "provider"
+      ids = LazyHTML.query(document, "[id]") |> LazyHTML.attribute("id")
+      assert ids == Enum.uniq(ids)
+      refute html =~ "xoxb-recorded-credential"
+    end
+  end
+
+  test "validation history shows each recorded check and its violations without inventing response bodies" do
+    # Same host-history fields recorded by Custody.prepare_validation. The
+    # response bodies are deliberately absent; a history receipt is not a body.
+    {episode, turn, _original} = frozen_turn!()
+
+    rejected = %{
+      "candidate_attempt" => 1,
+      "candidate_sha256" => String.duplicate("a", 64),
+      "intent_fingerprint" => String.duplicate("b", 64),
+      "parse" => "JSON object",
+      "response_bytes" => 100,
+      "verdict" => "reject",
+      "violations" => ["not ready", "<script>unsafe violation text</script>"],
+      "recorded_at" => DateTime.to_iso8601(turn.inserted_at)
+    }
+
+    accepted = %{
+      rejected
+      | "candidate_attempt" => 2,
+        "candidate_sha256" => String.duplicate("c", 64),
+        "verdict" => "accept",
+        "violations" => []
+    }
+
+    turn |> Ecto.Changeset.change(validation_history: [rejected, accepted]) |> Repo.update!()
+    {:ok, view} = ModelRequests.project(episode.key, %{})
+
+    html =
+      render_component(&RequestPage.render/1,
+        view: view,
+        params: %{},
+        path: "/episodes/#{URI.encode_www_form(episode.key)}/requests"
+      )
+
+    document = LazyHTML.from_document(html)
+    attempts = LazyHTML.query(document, ".validation-attempt")
+    assert LazyHTML.attribute(attempts, "data-candidate-attempt") == ["1", "2"]
+    assert LazyHTML.text(Enum.at(attempts, 0)) =~ "Attempt 1 needs correction"
+    assert LazyHTML.text(Enum.at(attempts, 0)) =~ "not ready"
+    assert LazyHTML.text(Enum.at(attempts, 1)) =~ "Attempt 2 passed checks"
+    assert LazyHTML.text(attempts) =~ "Response body not retained for this attempt"
+    refute LazyHTML.text(attempts) =~ rejected["candidate_sha256"]
+    refute html =~ "<script>"
+    refute LazyHTML.text(attempts) =~ "Response sent"
+    assert Enum.count(LazyHTML.query(document, ".artifact-validation[open]")) == 1
+    assert Enum.empty?(LazyHTML.query(document, ".validation-raw[open]"))
+    raw = Enum.find(view.selected.sections, &(&1.id == "validation")).artifact.text
+    assert LazyHTML.query(document, ".validation-raw pre") |> LazyHTML.text() == raw
+    assert Repo.get!(Turn, turn.id).validation_history == [rejected, accepted]
+  end
+
+  test "partial or malformed validation records do not become confident verdicts" do
+    for artifact <- [
+          InspectionRedactor.artifact(nil, expired: true),
+          InspectionRedactor.artifact(%{"history" => "unavailable"}),
+          InspectionRedactor.artifact(%{"history" => [nil]}),
+          InspectionRedactor.artifact(%{
+            "history" => [
+              %{"candidate_attempt" => 1, "verdict" => "accept", "violations" => ["not ready"]}
+            ]
+          }),
+          InspectionRedactor.artifact(%{
+            "history" => [
+              %{"candidate_attempt" => 1, "verdict" => "reject", "violations" => "not a list"}
+            ]
+          }),
+          InspectionRedactor.artifact(
+            %{"history" => [%{"candidate_attempt" => 1, "verdict" => "accept"}]},
+            max_bytes: 30
+          )
+        ] do
+      html =
+        render_component(&RequestPage.artifact/1,
+          section: %{
+            id: "validation",
+            title: "Host validation and repair history",
+            artifact: artifact
+          },
+          prefix: "unavailable"
+        )
+
+      refute html =~ "passed checks"
+      refute html =~ "Response sent"
+      assert html =~ "Validation details" or html =~ "This artifact has expired"
+    end
+  end
+
+  test "a validation receipt links only the exact retained response attempt" do
+    # Reuse the harvested Airflow response. Even identical response text does
+    # not prove an older attempt's body remains in the latest-candidate slot.
+    candidate =
+      "test/responder/evals/fixtures/airflow_after_observation_window.json"
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.fetch!("candidate")
+      |> InspectionRedactor.artifact()
+
+    history =
+      for attempt <- [1, 2] do
+        %{
+          "candidate_attempt" => attempt,
+          "candidate_sha256" => candidate.sha256,
+          "verdict" => "accept",
+          "violations" => []
+        }
+      end
+
+    for retained <- [
+          candidate,
+          %{candidate | truncated: true},
+          %{candidate | sha256: String.duplicate("d", 64)}
+        ] do
+      validation = %{
+        id: "validation",
+        title: "Host validation and repair history",
+        artifact: InspectionRedactor.artifact(%{"history" => history, "candidate_attempt" => 2})
+      }
+
+      document =
+        render_component(&RequestPage.artifact/1,
+          section: validation,
+          sections: [validation, %{id: "candidate", artifact: retained}],
+          prefix: "checks"
+        )
+        |> LazyHTML.from_document()
+
+      attempts = LazyHTML.query(document, ".validation-attempt")
+      assert Enum.count(attempts) == 2
+      assert Enum.empty?(LazyHTML.query(Enum.at(attempts, 0), "a"))
+
+      expected = if retained.sha256 == candidate.sha256, do: ["#checks-candidate"], else: []
+
+      assert Enum.at(attempts, 1) |> LazyHTML.query("a") |> LazyHTML.attribute("href") == expected
+    end
   end
 
   test "prompt provenance uses submitted work fields rather than an adjacent context copy" do

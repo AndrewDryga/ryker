@@ -22,7 +22,8 @@ defmodule Responder.Admission.Context do
                 knowledge: [],
                 knowledge_omissions: [],
                 source_dependencies: nil,
-                slack_addressing: nil
+                slack_addressing: nil,
+                fitted?: false
               ]
 
   @type t :: %__MODULE__{
@@ -116,6 +117,7 @@ defmodule Responder.Admission.Context do
          conversation_episode_count: snapshot["conversation_episode_count"],
          input: input,
          input_entry: entry,
+         fitted?: true,
          slack_addressing: slack_addressing,
          observations: observations,
          knowledge: knowledge,

@@ -3,7 +3,6 @@ defmodule Responder.ControlPlane.EpisodeRequest do
   use Phoenix.Component
 
   alias Responder.ControlPlane.Components
-  alias Responder.ControlPlane.PromptDocument
   alias Responder.ControlPlane.RequestContextHTML
 
   def render(assigns) do
@@ -92,18 +91,9 @@ defmodule Responder.ControlPlane.EpisodeRequest do
             @prompt_section.artifact.truncated
           }>Partial display</span>
         </summary>
-        <p :if={@prompt_section.artifact.state == :retained} class="prompt-legend">
-          Prompt text, including its messages and context. Point to or focus a highlight to identify its component.
-        </p>
-        <p :if={@prompt_section.artifact.state != :retained}>
-          {if @prompt_section.artifact.state == :expired, do: "Expired", else: "Not recorded"}
-        </p>
-        {Phoenix.HTML.raw(PromptDocument.render(@prompt_section.artifact))}
-        <section :if={@contract_section} class="submitted-contract">
-          <h4>Output contract</h4>
-          <p>Supplied with the prompt as the required response format.</p>
-          {Phoenix.HTML.raw(PromptDocument.render(@contract_section.artifact))}
-        </section>
+        {Phoenix.HTML.raw(
+          RequestContextHTML.submitted(@request.sections, @request.id <> "-submitted")
+        )}
       </details>
       <section :if={is_map(@response)} class="response-review">
         <div :if={is_binary(@response["message"])} class="markdown-preview">
