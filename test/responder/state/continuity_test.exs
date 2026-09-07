@@ -912,7 +912,7 @@ defmodule Responder.State.ContinuityTest do
       |> HTML.memory("test-secret")
       |> IO.iodata_to_binary()
 
-    assert html =~ "Conversation summaries"
+    assert html =~ "Conversation memory"
     assert html =~ "Verify production delivery"
 
     recalled = Continuity.model_context(work.claim.episode, "responder")

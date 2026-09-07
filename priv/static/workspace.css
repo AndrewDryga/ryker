@@ -885,7 +885,8 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .context-message header strong, .context-message-body, .context-message details { color:#29352b; }
 .context-message header span { color:#52604f; }
 .context-message header { position:static; background:transparent; padding:0; border:0; }
-.conversation-recall { max-width:80ch; margin:0; }
+.conversation-recall { max-width:80ch; margin:0; overflow-wrap:anywhere; }
+.conversation-recall + .conversation-recall { margin-top:20px; padding-top:16px; border-top:1px solid var(--stroke); }
 .conversation-recall h4 { font-size:16px; margin:0 0 14px; color:var(--ink); }
 .conversation-recall > div { margin:12px 0; }
 .conversation-recall h5 { font:600 13px/1.4 var(--font-sans); color:#53604f; margin:0 0 4px; }

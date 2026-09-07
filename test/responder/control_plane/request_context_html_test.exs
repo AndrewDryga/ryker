@@ -94,7 +94,7 @@ defmodule Responder.ControlPlane.RequestContextHTMLTest do
     assert html =~ "Additional retained field"
     assert html =~ "Empty in request"
     assert html =~ "$.work.operator_context.memory"
-    assert html =~ "Conversation summaries"
+    assert html =~ "Conversation memory"
     assert html =~ "&lt;script&gt;opaque&lt;/script&gt;"
     refute html =~ "<script>"
   end
@@ -200,6 +200,62 @@ defmodule Responder.ControlPlane.RequestContextHTMLTest do
     assert html =~ "Track recovery"
     assert html =~ "&lt;extra&gt;"
     assert html =~ "Exact component"
+  end
+
+  test "retained source notes are readable even when no conversation summary was selected" do
+    # Harvested unchanged from the September 6 Livebook request's retained
+    # briefing. All three browser widths exposed only an Exact component JSON
+    # disclosure: the readable view silently ignored the only recalled memory.
+    memory =
+      "testdata/learning/retained-livebook-briefing-memory.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    document = recall_document(memory)
+    note = LazyHTML.query(document, ".conversation-recall[data-memory-kind=observation]")
+    assert LazyHTML.text(note) =~ hd(memory["observations"])["summary"]
+    assert LazyHTML.text(note) =~ "Source note"
+    assert LazyHTML.text(note) =~ "intended infrastructure configuration"
+    assert Enum.empty?(LazyHTML.query(note, "details, pre"))
+    assert LazyHTML.text(document) =~ "Conversation memory"
+    assert LazyHTML.text(document) =~ "Exact component"
+    assert Enum.empty?(LazyHTML.query(document, "details[open]"))
+  end
+
+  test "malformed retained memory remains inspectable without crashing readable recall" do
+    for memory <- [
+          %{"current" => %{"state" => "malformed"}},
+          %{"observations" => [nil, "malformed", %{"summary" => "<script>note</script>"}]},
+          %{"knowledge" => [nil, %{"title" => "<topic>", "summary" => "<script>fact</script>"}]}
+        ] do
+      document = recall_document(memory)
+      assert LazyHTML.text(document) =~ "Exact component"
+      assert Enum.empty?(LazyHTML.query(document, "script"))
+    end
+  end
+
+  test "maintained topics expose their retained title and summary without opening raw JSON" do
+    # Exact topic state harvested from the private replay, September 7. Topic
+    # knowledge shared the source-note omission in the compact briefing view.
+    topic =
+      "testdata/learning/retained-blitz-release-knowledge.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    document = recall_document(%{"knowledge" => [topic]})
+    knowledge = LazyHTML.query(document, ".conversation-recall[data-memory-kind=knowledge]")
+    assert LazyHTML.text(knowledge) =~ topic["title"]
+    assert LazyHTML.text(knowledge) =~ topic["summary"]
+    assert LazyHTML.text(knowledge) =~ "Maintained topic"
+    assert Enum.empty?(LazyHTML.query(knowledge, "details, pre"))
+  end
+
+  defp recall_document(memory) do
+    %{"operator_context" => %{"continuity" => memory}}
+    |> InspectionRedactor.artifact()
+    |> RequestContextHTML.assembly("$.work", "recall")
+    |> IO.iodata_to_binary()
+    |> LazyHTML.from_fragment()
   end
 
   test "attachment-only messages are readable in the briefing as well as the timeline" do
