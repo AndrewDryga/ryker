@@ -159,7 +159,7 @@ defmodule Responder.State.Learning do
     raw = entries |> Enum.map(&LearningSources.for_entry/1) |> LearningSources.merge()
     unless is_list(raw), do: Repo.rollback(:learning_source_stale)
     inputs = Enum.map(entries, &input_document/1)
-    {prompt, knowledge, omissions, dependencies} = fit_prompt!(inputs, knowledge, [], raw)
+    {prompt, knowledge, omissions, dependencies} = fit_prompt!(inputs, knowledge, raw)
     unless LearningSources.valid?(dependencies, scope), do: Repo.rollback(:learning_source_stale)
 
     Repo.insert!(%LearningRun{
@@ -186,33 +186,37 @@ defmodule Responder.State.Learning do
     end
   end
 
-  defp fit_prompt!(inputs, knowledge, omissions, raw) do
-    dependencies =
-      LearningSources.merge([raw | Enum.map(knowledge, &LearningSources.document_sources/1)])
+  defp fit_prompt!(inputs, knowledge, raw) do
+    prompt = learning_prompt(inputs, [])
+    if byte_size(prompt) > @max_prompt, do: Repo.rollback(:learning_capacity_exceeded)
 
-    prompt =
+    # A saturated first topic must not hide affordable subjects after it.
+    # Preserve priority while keeping every root of each disclosed item.
+    Enum.reduce(knowledge, {prompt, [], [], raw}, fn item,
+                                                     {prompt, selected, omissions, sources} ->
+      dependencies = LearningSources.merge([sources, LearningSources.document_sources(item)])
+      candidate = learning_prompt(inputs, selected ++ [item])
+
+      if is_list(dependencies) and byte_size(candidate) <= @max_prompt do
+        {candidate, selected ++ [item], omissions, dependencies}
+      else
+        omission =
+          item
+          |> Map.take(~w(source_ref version topic_key conversation_ref repository_ref))
+          |> Map.put("reason", "source_capacity")
+
+        {prompt, selected, omissions ++ [omission], sources}
+      end
+    end)
+  end
+
+  defp learning_prompt(inputs, knowledge),
+    do:
       CanonicalJSON.encode!(%{
         "instructions" => @instructions,
         "inputs" => inputs,
         "knowledge" => knowledge
       })
-
-    cond do
-      is_list(dependencies) and byte_size(prompt) <= @max_prompt ->
-        {prompt, knowledge, omissions, dependencies}
-
-      knowledge != [] ->
-        omission =
-          List.last(knowledge)
-          |> Map.take(~w(source_ref version topic_key conversation_ref repository_ref))
-          |> Map.put("reason", "source_capacity")
-
-        fit_prompt!(inputs, Enum.drop(knowledge, -1), omissions ++ [omission], raw)
-
-      true ->
-        Repo.rollback(:learning_capacity_exceeded)
-    end
-  end
 
   defp load_inputs!(ids) do
     unless Enum.uniq(ids) == ids and Enum.all?(ids, &(Ecto.UUID.cast(&1) == {:ok, &1})),
