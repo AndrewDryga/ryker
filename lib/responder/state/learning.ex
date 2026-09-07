@@ -440,17 +440,37 @@ defmodule Responder.State.Learning do
   defp transaction(fun), do: Repo.transaction(fun)
 
   def prune_in_transaction(seconds) do
+    # Unknown receipt age is not permission to erase a retained attempt. Guard
+    # both JSON shape and the shared UTC clock domain before casting so one
+    # malformed row cannot roll back cleanup of unrelated, genuinely due copies.
     Repo.query!(
       """
       WITH candidates AS (
         SELECT l.id FROM conversation_learning_runs l
         WHERE l.pruned_at IS NULL AND (EXISTS (
-          SELECT 1 FROM jsonb_array_elements(l.source_dependencies::jsonb) receipt
-          WHERE (receipt->>'retained_at')::timestamptz < clock_timestamp() - ($1 * interval '1 second')
+          SELECT 1 FROM jsonb_array_elements(
+            CASE WHEN pg_input_is_valid(l.source_dependencies, 'jsonb') THEN
+              CASE WHEN jsonb_typeof(l.source_dependencies::jsonb) = 'array'
+                THEN l.source_dependencies::jsonb ELSE '[]'::jsonb END
+              ELSE '[]'::jsonb END
+          ) receipt
+          WHERE CASE WHEN receipt->>'retained_at' ~ $2
+            AND pg_input_is_valid(replace(receipt->>'retained_at', ',', '.'), 'timestamptz') THEN
+            replace(receipt->>'retained_at', ',', '.')::timestamptz < clock_timestamp() - ($1 * interval '1 second')
+            ELSE false END
         ) OR EXISTS (
-          SELECT 1 FROM jsonb_array_elements(l.inputs::jsonb) source
-          LEFT JOIN ingress_inbox_entries i ON i.id::text = source->>'source_input_id'
-          WHERE i.id IS NULL OR i.operational_pruned_at IS NOT NULL
+          SELECT 1 FROM jsonb_array_elements(
+            CASE WHEN pg_input_is_valid(l.inputs, 'jsonb') THEN
+              CASE WHEN jsonb_typeof(l.inputs::jsonb) = 'array'
+                THEN l.inputs::jsonb ELSE '[]'::jsonb END
+              ELSE '[]'::jsonb END
+          ) source
+          LEFT JOIN ingress_inbox_entries i ON i.id =
+            CASE WHEN pg_input_is_valid(source->>'source_input_id', 'uuid')
+              THEN (source->>'source_input_id')::uuid ELSE NULL END
+          WHERE jsonb_typeof(source->'source_input_id') = 'string'
+            AND pg_input_is_valid(source->>'source_input_id', 'uuid')
+            AND (i.id IS NULL OR i.operational_pruned_at IS NOT NULL)
         ))
         ORDER BY l.id LIMIT 100 FOR UPDATE SKIP LOCKED
       )
@@ -459,7 +479,7 @@ defmodule Responder.State.Learning do
           pruned_at = clock_timestamp(), updated_at = clock_timestamp()
       FROM candidates c WHERE l.id = c.id
       """,
-      [seconds]
+      [seconds, LearningSources.utc_timestamp_pattern()]
     ).num_rows
   end
 
