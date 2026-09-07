@@ -342,6 +342,9 @@ defmodule Responder.ControlPlane.RequestContextHTML do
          "This field was present in the retained request. More specific provenance was not recorded by this viewer."}
       )
 
+  def source_label("$.inputs"), do: "Source messages · Retained conversation inputs"
+  def source_label("$.knowledge"), do: "Prior knowledge · Frozen topic versions"
+
   def source_label(path) do
     parts = String.split(path, ".")
     key = List.last(parts)

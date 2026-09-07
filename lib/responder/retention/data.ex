@@ -11,7 +11,7 @@ defmodule Responder.Retention.Data do
   """
 
   alias Responder.Repo
-  alias Responder.State.{Continuity, KnowledgeRetention, Memories}
+  alias Responder.State.{Continuity, KnowledgeRetention, Learning, Memories}
 
   @advisory_lock 7_152_019_552_843_111
   @terminal_episode_states ~w(complete cancelled)
@@ -400,6 +400,8 @@ defmodule Responder.Retention.Data do
         [~w(decided superseded), cutoff]
       )
 
+    learning_artifacts = Learning.prune_in_transaction(settings.conversation_memory_seconds)
+
     _admission_artifacts =
       execute_count("""
       WITH candidates AS (
@@ -542,6 +544,7 @@ defmodule Responder.Retention.Data do
     %{
       result
       | configuration_sessions: configuration_sessions,
+        conversation_memory: result.conversation_memory + learning_artifacts,
         delivery_reactions: reactions,
         input_artifacts: input_artifacts,
         operational_inputs: operational_inputs,

@@ -19,6 +19,12 @@ defmodule Responder.Retention.Policy do
 
   @policies [
     %{
+      table: "conversation_learning_runs",
+      class: :conversation_memory,
+      why:
+        "learning prompts and results expire with inherited sources; batch outcome receipts remain"
+    },
+    %{
       table: "conversation_knowledge",
       class: :conversation_memory,
       why:

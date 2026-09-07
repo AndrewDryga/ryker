@@ -90,6 +90,21 @@
 .knowledge-history li::before { content:""; position:absolute; width:8px; height:8px; border-radius:50%; left:-25px; top:8px; background:#60795f; }
 .knowledge-history header { display:flex; justify-content:space-between; gap:16px; position:static; padding:0; background:none; border:0; }
 .knowledge-history time, .knowledge-history small { color:var(--muted); font-size:13px; }
+.knowledge-history li > a { display:inline-block; margin:8px 16px 0 0; font-size:14px; }
+.learning-receipt { margin:32px 0; padding:24px; border:1px solid var(--stroke); border-top:3px solid #60795f; border-radius:6px; background:var(--panel); min-width:0; overflow-wrap:anywhere; scroll-margin-top:24px; }
+.learning-receipt-heading h2 { margin:6px 0 8px; font-size:24px; }
+.learning-receipt-heading > p, .learning-estimate { color:var(--muted); font-size:13px; }
+.learning-reason { font-size:17px; line-height:1.6; max-width:80ch; }
+.learning-part { padding:16px 0; border-top:1px solid var(--stroke); }
+.learning-part > summary { cursor:pointer; }
+.learning-part > summary strong { font-size:16px; }
+.learning-part > summary span { color:var(--muted); font-size:12px; margin-left:12px; display:inline-block; }
+.learning-part > p { color:var(--muted); font-size:14px; }
+.learning-source { padding:16px 0; border-top:1px solid var(--stroke); min-width:0; }
+.learning-source-heading { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; }
+.learning-source-heading time, .learning-source-heading span { color:var(--muted); font-size:12px; }
+.learning-source details, .learning-part > details { font-size:13px; }
+@media(max-width:700px) { .learning-receipt { padding:16px; } .learning-part > summary span { display:block; margin:6px 0 0 18px; } }
 @media(max-width:700px) { .memory-card { padding:16px; } .memory-card header { display:block; } .memory-totals a { align-items:flex-start; flex-direction:column; padding:12px; gap:6px; } }
 .responder-app .usage-page .usage-people-table { min-width:0; }
 .responder-app .usage-people-table th:first-child { width:46%; }

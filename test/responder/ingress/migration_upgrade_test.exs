@@ -37,7 +37,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     20_260_905_000_500,
     20_260_906_001_000,
     20_260_906_002_000,
-    20_260_906_004_000
+    20_260_906_004_000,
+    20_260_907_000_100
   ]
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
@@ -1032,7 +1033,11 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                SQL.query!(repo, "SELECT count(*) FROM #{prefix}.conversation_knowledge", [])
 
       assert_raise Postgrex.Error, ~r/conversation learning has data/, fn ->
-        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+        Ecto.Migrator.run(repo, @migrations_path, :down,
+          to: 20_260_906_004_000,
+          prefix: prefix,
+          log: false
+        )
       end
 
       assert %{rows: [[^sources]]} =

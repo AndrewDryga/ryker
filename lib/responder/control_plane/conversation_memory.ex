@@ -1,7 +1,7 @@
 defmodule Responder.ControlPlane.ConversationMemory do
   @moduledoc "Searchable, source-linked operator view of learned conversation context."
   import Ecto.Query
-  alias Responder.ControlPlane.{Activity, InspectionRedactor, SlackNames}
+  alias Responder.ControlPlane.{Activity, InspectionRedactor, LearningReceipt, SlackNames}
   alias Responder.Episodes.Episode
   alias Responder.Repo
 
@@ -83,6 +83,8 @@ defmodule Responder.ControlPlane.ConversationMemory do
       history: history.items,
       history_page: history.page,
       history_pages: history.pages,
+      learning:
+        if(kind == "knowledge", do: LearningReceipt.project(selected, params["update"], secrets)),
       items:
         Enum.map(items, fn row ->
           rendered = item(row, episodes, secrets)
@@ -299,6 +301,7 @@ defmodule Responder.ControlPlane.ConversationMemory do
           source_at: revision.source_at,
           text: knowledge_text(state),
           source_input_id: revision.source_input_id,
+          learning_path: LearningReceipt.path(revision),
           source:
             source_message(%{
               transport: transport,
