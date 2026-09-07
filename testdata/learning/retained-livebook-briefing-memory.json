@@ -1,0 +1,23 @@
+{
+  "current": null,
+  "observations": [
+    {
+      "actor_ref": "local-operator",
+      "conversation_ref": "control-plane:lab:e85071d4-760d-436d-ac66-7840b9083257",
+      "kind": "conversation_observation",
+      "occurred_at": "2026-09-06T23:04:43.758583Z",
+      "source_input_id": "c158a2c9-994c-46dd-853d-0c0e7aa91034",
+      "source_message_ref": "control-plane-item:912ba78b-d23f-4e7b-8614-10341e609f1c",
+      "source_ref": "observation:c158a2c9-994c-46dd-853d-0c0e7aa91034",
+      "summary": "The operator reports that a health report flagged \"Livebook has zero instances\" and asks whether repository configuration supports calling it an infrastructure issue. They require concise code citations, separation of checked-in intent from live deployment evidence, and read-only local work with no external communications.",
+      "topics": [
+        "Livebook",
+        "health report validation",
+        "intended infrastructure configuration",
+        "read-only local acceptance"
+      ]
+    }
+  ],
+  "related": [],
+  "rollups": []
+}

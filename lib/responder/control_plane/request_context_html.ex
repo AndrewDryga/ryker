@@ -357,8 +357,8 @@ defmodule Responder.ControlPlane.RequestContextHTML do
        when root in ["$.work.operator_context", "$.context.operator_context"] do
     case key do
       "continuity" ->
-        {"Conversation summaries", "memory", "Conversation memory and rollups",
-         "Current, related and rolled-up conversation summaries selected for this request. Derived history can be stale and is not fresh evidence."}
+        {"Conversation memory", "memory", "Selected notes, topics and earlier work",
+         "Source notes, maintained topics and conversation summaries selected for this request. These describe what was known then, not verified current state."}
 
       "preferences" ->
         {"Operator preferences", "memory", "Confirmed behavior settings",
@@ -426,41 +426,57 @@ defmodule Responder.ControlPlane.RequestContextHTML do
   defp body(_key, value, _path, _prefix), do: fields(value, 0)
 
   defp recall(value) do
-    Enum.map(~w(current related rollups), fn group ->
+    Enum.map(~w(current related rollups observations knowledge), fn group ->
       value[group]
       |> List.wrap()
       |> Enum.filter(&is_map/1)
       |> Enum.map(fn item ->
-        state = item["state"] || item
-
         [
-          "<section class=\"conversation-recall\"><h4 title=\"",
+          "<section class=\"conversation-recall\" data-memory-kind=\"",
+          if(group == "observations", do: "observation", else: group),
+          "\"><h4 title=\"",
           escape(item["source_ref"]),
           "\">",
-          escape(if(group == "current", do: "This conversation", else: human(group))),
+          escape(recall_title(group)),
           "</h4>",
-          Enum.map(
-            [
-              {"goal", "Goal"},
-              {"situation", "Last known situation"},
-              {"open_loops", "Still open"},
-              {"decisions", "Decisions"},
-              {"unresolved_questions", "Questions"},
-              {"active_topics", "Topics"},
-              {"topology", "Systems"},
-              {"participants", "People"}
-            ],
-            fn {key, title} ->
-              if state[key] in [nil, "", [], %{}],
-                do: [],
-                else: ["<div><h5>", title, "</h5>", fields(state[key], 0), "</div>"]
-            end
-          ),
+          recall_fields(Map.get(item, "state", item)),
           "</section>"
         ]
       end)
     end)
   end
+
+  defp recall_title("current"), do: "This conversation"
+  defp recall_title("observations"), do: "Source note"
+  defp recall_title("knowledge"), do: "Maintained topic"
+  defp recall_title(group), do: human(group)
+
+  defp recall_fields(state) when is_map(state) do
+    Enum.map(
+      [
+        {"title", "Subject"},
+        {"summary", "Summary"},
+        {"goal", "Goal"},
+        {"situation", "Last known situation"},
+        {"open_loops", "Still open"},
+        {"decisions", "Decisions"},
+        {"unresolved_questions", "Questions"},
+        {"active_topics", "Topics"},
+        {"topics", "Topics"},
+        {"topology", "Systems"},
+        {"participants", "People"}
+      ],
+      fn {key, title} ->
+        if state[key] in [nil, "", [], %{}],
+          do: [],
+          else: ["<div><h5>", title, "</h5>", fields(state[key], 0), "</div>"]
+      end
+    )
+  end
+
+  defp recall_fields(_),
+    do:
+      "<p>Saved summary is not structured. Its retained value is in the exact component below.</p>"
 
   defp source(key, path, value, metadata, body, open, prefix, state_override \\ nil) do
     {title, origin, owner, description} = metadata
