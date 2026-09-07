@@ -247,9 +247,24 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
       assert Enum.count(attempts) == 2
       assert Enum.empty?(LazyHTML.query(Enum.at(attempts, 0), "a"))
 
-      expected = if retained.sha256 == candidate.sha256, do: ["#checks-candidate"], else: []
+      expected = if retained.sha256 == candidate.sha256, do: ["#checks-candidate-body"], else: []
 
       assert Enum.at(attempts, 1) |> LazyHTML.query("a") |> LazyHTML.attribute("href") == expected
+
+      # Chromium scrolls to a closed details element without opening it. The
+      # link must target its retained body so native fragment navigation reveals it.
+      rendered_candidate =
+        render_component(&RequestPage.artifact/1,
+          section: %{id: "candidate", title: "Response to validate", artifact: retained},
+          prefix: "checks"
+        )
+        |> LazyHTML.from_document()
+
+      assert Enum.empty?(LazyHTML.query(rendered_candidate, "#checks-candidate[open]"))
+
+      assert Enum.count(
+               LazyHTML.query(rendered_candidate, "#checks-candidate #checks-candidate-body")
+             ) == 1
     end
   end
 

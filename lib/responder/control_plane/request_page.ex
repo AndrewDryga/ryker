@@ -161,7 +161,10 @@ defmodule Responder.ControlPlane.RequestPage do
           do: "This artifact has expired",
           else: "This artifact was not recorded"}. No reconstructed substitute is shown.
       </p>
-      <div :if={@section.artifact.state == :retained}>
+      <div
+        :if={@section.artifact.state == :retained}
+        id={if @section.id == "candidate", do: "#{@prefix}-candidate-body"}
+      >
         <.validation_checks
           :if={@section.id == "validation"}
           steps={@validation_steps}
@@ -210,7 +213,7 @@ defmodule Responder.ControlPlane.RequestPage do
         </ul>
         <p :if={step.attempt && step.violations == []}>No violations recorded.</p>
         <p :if={step.response_retained}>
-          <a href={"##{@prefix}-candidate"}>View the retained response for this attempt →</a>
+          <a href={"##{@prefix}-candidate-body"}>View the retained response for this attempt →</a>
         </p>
         <p :if={step.attempt && !step.response_retained}>
           Response body not retained for this attempt. Its check receipt is preserved here.
