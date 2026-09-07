@@ -177,13 +177,23 @@ defmodule Responder.State.KnowledgeSnapshot do
   end
 
   defp submission_documents(submission) do
-    context = get_in(submission || %{}, ["context", "operator_context", "continuity"]) || %{}
+    briefing = (submission || %{})["context"] || %{}
+    context = get_in(briefing, ["operator_context", "continuity"]) || %{}
 
-    ([context["current"]] ++
-       (context["related"] || []) ++
-       (context["rollups"] || []) ++
-       (context["knowledge"] || []) ++ (context["observations"] || []))
+    memory =
+      [context["current"]] ++
+        Enum.flat_map(~w(related rollups knowledge observations), &(context[&1] || []))
+
+    (work_input_documents(briefing) ++ memory)
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp work_input_documents(briefing) do
+    ((get_in(briefing, ["inputs", "items"]) || []) ++
+       (get_in(briefing, ["current_inputs", "items"]) || []) ++
+       [get_in(briefing, ["continuity", "first_input"])])
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&%{"kind" => "work_input", "input" => &1})
   end
 
   defp valid_exposure?(exposure, scope) do

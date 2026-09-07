@@ -39,6 +39,7 @@ defmodule Responder.StateTools.RouterTest do
     assert Enum.map(tools, & &1["name"]) == [
              "get_work_state",
              "cite_source",
+             "record_finding",
              "request_input",
              "wait_for",
              "list_automations",
@@ -124,6 +125,126 @@ defmodule Responder.StateTools.RouterTest do
              Records.model_records(claim.episode.id)
 
     assert payload["target"] == "Exact phrase search results for Emisar MCP"
+  end
+
+  test "an investigation can save a source-linked finding without sending a reply" do
+    # The replay retained hundreds of observations but exposed no way for the
+    # model to save an actual conclusion in the Findings page.
+    claim = claim!("source-linked-finding", %{execution_mode: :shadow})
+    options = bound_options(claim)
+
+    assert {:ok, %{"record_ref" => evidence}} =
+             Tools.call(
+               "cite_source",
+               %{
+                 "subject" => "Configured service count",
+                 "observation" =>
+                   "The checked-out configuration deliberately sets the service count to zero.",
+                 "source_ref" => "source:configured-count",
+                 "relation" => "supports",
+                 "supersedes" => []
+               },
+               options
+             )
+
+    args = %{
+      "what" => "Zero instances are expected for this service.",
+      "status" => "expected",
+      "reason" =>
+        "The checked-out configuration deliberately disables it; deployed configuration is unverified.",
+      "scope" => "Repository intent, not a live health claim",
+      "cause_evidence" => [evidence]
+    }
+
+    assert {:ok, %{"kind" => "finding", "record_ref" => ref} = saved} =
+             Tools.call("record_finding", args, options)
+
+    assert {:ok, ^saved} = Tools.call("record_finding", args, options)
+    record = Repo.get_by!(Record, ref: ref)
+    assert record.payload == args
+    assert record.episode_id == claim.episode.id
+    assert Repo.get!(Responder.Work.Turn, claim.turn.id).delivery_document == nil
+    assert Repo.get!(Responder.Episodes.Episode, claim.episode.id).owner_kind == :turn
+
+    assert {:error, "invalid_arguments"} =
+             Tools.call("record_finding", %{args | "reason" => nil}, options)
+
+    assert {:error, "invalid_arguments"} =
+             Tools.call(
+               "record_finding",
+               %{args | "status" => "explained", "cause_evidence" => []},
+               options
+             )
+
+    assert {:error, "invalid_arguments"} =
+             Tools.call(
+               "record_finding",
+               %{args | "cause_evidence" => ["record:evidence:not-offered"]},
+               options
+             )
+
+    assert {:error, "unauthorized"} = Tools.call("record_finding", args, [])
+    assert Enum.count(Records.model_records(claim.episode.id), &(&1["kind"] == "finding")) == 1
+  end
+
+  test "findings accept the advertised Unicode character limits" do
+    # Byte limits rejected schema-valid non-English conclusions after a model
+    # had already spent its investigation collecting the evidence.
+    claim = claim!("unicode-finding")
+
+    args = %{
+      "what" => String.duplicate("é", 4_000),
+      "status" => "expected",
+      "reason" => String.duplicate("界", 2_000),
+      "scope" => String.duplicate("é", 2_000),
+      "cause_evidence" => []
+    }
+
+    assert {:ok, %{"record_ref" => ref}} =
+             Tools.call("record_finding", args, bound_options(claim))
+
+    assert Repo.get_by!(Record, ref: ref).payload == args
+
+    assert {:error, "invalid_arguments"} =
+             Tools.call(
+               "record_finding",
+               %{args | "what" => args["what"] <> "é"},
+               bound_options(claim)
+             )
+  end
+
+  test "a finding cannot borrow another episode's evidence" do
+    first = claim!("finding-evidence-owner")
+
+    assert {:ok, %{"record_ref" => evidence}} =
+             Tools.call(
+               "cite_source",
+               %{
+                 "subject" => "Owner-only evidence",
+                 "observation" => "A retained observation.",
+                 "source_ref" => "source:owner-only",
+                 "relation" => "supports",
+                 "supersedes" => []
+               },
+               bound_options(first)
+             )
+
+    second = claim!("finding-other-episode")
+
+    assert {:error, "invalid_arguments"} =
+             Tools.call(
+               "record_finding",
+               %{
+                 "what" => "An unsupported cross-episode conclusion",
+                 "status" => "explained",
+                 "reason" => nil,
+                 "scope" => nil,
+                 "cause_evidence" => [evidence]
+               },
+               bound_options(second)
+             )
+
+    refute Enum.any?(Records.model_records(second.episode.id), &(&1["kind"] == "finding"))
   end
 
   test "a read-only goal may inspect the pinned primary but never an unbound repository" do
@@ -1158,7 +1279,7 @@ defmodule Responder.StateTools.RouterTest do
     assert "wait_for" in names
     refute "offer_publication" in names
     refute "offer_schedule" in names
-    assert length(names) == 15
+    assert length(names) == 16
 
     automation =
       list.resp_body
@@ -1719,7 +1840,7 @@ defmodule Responder.StateTools.RouterTest do
     options = bound_options(claim)
 
     for tool <-
-          ~w(record_evidence record_coverage record_finding report_progress record_alert_assessment) do
+          ~w(record_evidence record_coverage report_progress record_alert_assessment) do
       assert Tools.call(tool, %{}, options) == {:error, "unknown_tool"}
     end
   end

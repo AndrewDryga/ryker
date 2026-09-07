@@ -23,6 +23,8 @@ defmodule Responder.Ingress.Inbox.Entry do
     field(:event_kind, Ecto.Enum, values: [:message, :edit, :delete, :event])
     field(:native_input_id, :string)
     field(:source_item_ref, :string)
+    field(:slack_audience, Ecto.Enum, values: [:ambient, :direct, :mention])
+    field(:slack_bot_user_ref, :string)
     field(:actor_kind, Ecto.Enum, values: [:user, :app, :bot, :system])
     field(:actor_ref, :string)
     field(:source_capabilities, CanonicalJSONType)

@@ -125,6 +125,67 @@ defmodule Responder.Evals.WorldSuiteTest do
     assert Enum.any?(failed.failures, &(&1.kind == :case_pass_rate))
   end
 
+  for {field, value} <- [execution_error: nil, cleanup_error: false] do
+    @failure_field field
+    @failure_value value
+
+    test "#{field} in the last observation cannot pass permissive quality thresholds" do
+      # The last failed case has no successor to mark unrun. Treating a cleanup
+      # error as an ordinary tolerated miss would qualify and drop its retained DB.
+      last = report("same-case", 3, :failed) |> Map.put(@failure_field, @failure_value)
+      reports = [report("same-case", 1, :passed), report("same-case", 2, :passed), last]
+
+      assert {:ok, summary} =
+               WorldSuite.summarize(reports,
+                 min_overall_pass_rate: 2 / 3,
+                 min_case_pass_rate: 2 / 3
+               )
+
+      refute summary.passed?
+      assert summary.candidate.hard_failure_count == 0
+      assert summary.candidate.per_case["same-case"].hard_failure_count == 0
+      assert summary.failures == [%{kind: @failure_field, actual: 1, required: 0}]
+    end
+  end
+
+  test "an assertion failure and cleanup failure keep separate qualification diagnostics" do
+    failed =
+      report("same-case", 3, :failed, [%{"kind" => "delivery_target"}])
+      |> Map.put(:cleanup_error, :remote_cleanup_failed)
+
+    reports = [report("same-case", 1, :passed), report("same-case", 2, :passed), failed]
+
+    assert {:ok, summary} =
+             WorldSuite.summarize(reports,
+               min_overall_pass_rate: 2 / 3,
+               min_case_pass_rate: 2 / 3
+             )
+
+    refute summary.passed?
+    assert summary.candidate.hard_failure_count == 1
+    assert summary.candidate.per_case["same-case"].hard_failure_count == 1
+    assert %{kind: :hard_invariant, actual: 1, required: 0} in summary.failures
+    assert %{kind: :cleanup_error, actual: 1, required: 0} in summary.failures
+  end
+
+  test "ordinary quality failures retain their configured threshold tolerance" do
+    reports = [
+      report("same-case", 1, :passed),
+      report("same-case", 2, :passed),
+      report("same-case", 3, :failed)
+    ]
+
+    assert {:ok, summary} =
+             WorldSuite.summarize(reports,
+               min_overall_pass_rate: 2 / 3,
+               min_case_pass_rate: 2 / 3
+             )
+
+    assert summary.passed?
+    assert summary.candidate.hard_failure_count == 0
+    assert summary.failures == []
+  end
+
   test "paired qualification compares the exact same scenario and repeat identities" do
     candidate = [
       report("case-a", 1, :passed),

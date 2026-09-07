@@ -56,6 +56,14 @@ defmodule Responder.ControlPlane.MemoryPage do
           </header>
           <p class="memory-source"><a href={item.conversation_path}>{item.conversation}</a>
             <span :if={item.repository}>{item.repository}</span></p>
+          <p
+            :if={Map.get(item, :recall_warning) in [:missing_source_history, :invalid_source_history]}
+            class="memory-unavailable"
+          >
+            Not used for recall · {if item.recall_warning == :missing_source_history,
+              do: "No complete source history was saved.",
+              else: "Source history is invalid."} Kept for inspection.
+          </p>
           <p :if={Map.get(item, :available) == false} class="memory-unavailable">
             Not used for recall · a supporting source changed, was removed, or expired.
             A new source can rebuild this topic; its history remains below.
@@ -76,9 +84,7 @@ defmodule Responder.ControlPlane.MemoryPage do
             </a>
             <a :if={item.source} href={item.source} rel="noopener noreferrer">Source message →</a>
             <a :if={item.request_path} href={item.request_path}>Source request →</a>
-            <span class="memory-expiry">Retention: {if item.expires_at,
-              do: "until " <> Calendar.strftime(item.expires_at, "%d %b %Y"),
-              else: "automatic expiry is not configured"}</span>
+            <span class="memory-expiry">Retention: {retention_label(item)}</span>
           </footer>
         </article>
       </div>
@@ -132,6 +138,17 @@ defmodule Responder.ControlPlane.MemoryPage do
           "item" => view.selected,
           "history_page" => page
         })
+
+  defp retention_label(%{recall_warning: :missing_source_history}),
+    do: "kept for inspection; no automatic expiry"
+
+  defp retention_label(%{recall_warning: :invalid_source_history}),
+    do: "unknown: source history is invalid"
+
+  defp retention_label(%{expires_at: %DateTime{} = expires_at}),
+    do: "until " <> Calendar.strftime(expires_at, "%d %b %Y")
+
+  defp retention_label(_item), do: "automatic expiry is not configured"
 
   defp preview(text, workspace) do
     # Attribution commonly arrives as a bare Slack user ID in model summaries.

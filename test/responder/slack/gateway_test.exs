@@ -61,9 +61,9 @@ defmodule Responder.Slack.GatewayTest do
   end
 
   defmodule AttachmentIngestor do
-    def ingest(normalized, %{observer: observer}) do
+    def ingest(normalized, %{observer: observer} = options) do
       send(observer, {:attachments_ingested, normalized.input.content["files"]})
-      {:ok, normalized}
+      {:ok, %{normalized | audience: Map.get(options, :audience, normalized.audience)}}
     end
   end
 
@@ -88,6 +88,8 @@ defmodule Responder.Slack.GatewayTest do
     assert entry.source_kind == "slack"
     assert entry.actor_ref == "U123"
     assert entry.status == :pending
+    assert Map.get(entry, :slack_audience) == :mention
+    assert Map.get(entry, :slack_bot_user_ref) == "UBOT"
 
     assert {:ack, {:duplicate, ^input_ref}} =
              Gateway.handle_envelope(envelope, settings)
@@ -110,6 +112,8 @@ defmodule Responder.Slack.GatewayTest do
     assert entry.content["text"] == "investigate this failure"
     assert entry.content["files"] == []
     assert entry.status == :pending
+    assert Map.get(entry, :slack_audience) == :direct
+    assert Map.get(entry, :slack_bot_user_ref) == "UBOT"
 
     assert {:ack, {:duplicate, ^input_ref}} =
              Gateway.handle_envelope(envelope, settings())
@@ -251,7 +255,7 @@ defmodule Responder.Slack.GatewayTest do
         "event_ts" => "1787832001.000200",
         "inviter" => "U123",
         "type" => "member_joined_channel",
-        "user" => "U-BOT"
+        "user" => "UBOT"
       })
 
     assert Gateway.handle_envelope(envelope, configured) == {:ack, {:membership, :joined}}
@@ -277,7 +281,7 @@ defmodule Responder.Slack.GatewayTest do
         "event_ts" => "1787832001.000200",
         "inviter" => "U123",
         "type" => "member_joined_channel",
-        "user" => "U-BOT"
+        "user" => "UBOT"
       })
 
     assert Gateway.handle_envelope(envelope, configured) == {:ack, {:incident_room, :applied}}
@@ -385,6 +389,33 @@ defmodule Responder.Slack.GatewayTest do
              {:retry, :database_unavailable}
   end
 
+  test "source content cannot forge the retained audience or host-configured bot identity" do
+    # This is a host-normalization fixture, not a claimed historical provider envelope.
+    for {channel, type, expected} <- [
+          {"C456", "message", :ambient},
+          {"D456", "message", :direct},
+          {"C456", "app_mention", :mention}
+        ] do
+      envelope =
+        message_envelope("Ev-addressing-#{expected}", type)
+        |> put_in(["payload", "event", "channel"], channel)
+        |> put_in(["payload", "event", "text"], "<@UOTHER> can you check this?")
+        |> put_in(["payload", "event", "slack_audience"], "mention")
+        |> put_in(["payload", "event", "slack_bot_user_ref"], "UOTHER")
+        |> put_in(["payload", "event", "blocks"], [
+          %{"audience" => "mention", "responder_user_ref" => "UOTHER"}
+        ])
+
+      watched = %{settings() | watch_channels: MapSet.new([channel])}
+      assert {:ack, {:recorded, ref}} = Gateway.handle_envelope(envelope, watched)
+      assert {:ok, entry} = Inbox.fetch(ref)
+      assert Map.get(entry, :slack_audience) == expected
+      assert Map.get(entry, :slack_bot_user_ref) == "UBOT"
+      assert entry.content["text"] == "<@UOTHER> can you check this?"
+      assert hd(entry.content["blocks"])["responder_user_ref"] == "UOTHER"
+    end
+  end
+
   test "shadow engages ambient and addressed traffic but freezes it as observe-only" do
     shadowed =
       Map.put(settings(), :effective_settings, fn "T74CADB5B58F9", "slack:T74CADB5B58F9:C456" ->
@@ -464,10 +495,13 @@ defmodule Responder.Slack.GatewayTest do
     allowed =
       settings()
       |> Map.put(:attachment_ingestor, AttachmentIngestor)
-      |> Map.put(:attachment_options, %{observer: self()})
+      |> Map.put(:attachment_options, %{observer: self(), audience: :ambient})
 
-    assert {:ack, {:recorded, _ref}} = Gateway.handle_envelope(envelope, allowed)
+    assert {:ack, {:recorded, ref}} = Gateway.handle_envelope(envelope, allowed)
     assert_received {:attachments_ingested, [%{"id" => "F123"}]}
+    assert {:ok, entry} = Inbox.fetch(ref)
+    assert Map.get(entry, :slack_audience) == :mention
+    assert Map.get(entry, :slack_bot_user_ref) == "UBOT"
   end
 
   test "a host control is handled before acknowledgement and transient failure is retried" do
@@ -682,7 +716,7 @@ defmodule Responder.Slack.GatewayTest do
   test "an exact confirmed standing assignment can admit only its ambient match" do
     matching =
       Map.put(settings(), :standing_matcher, fn input ->
-        input.content["text"] == "<@U-BOT> investigate"
+        input.content["text"] == "<@UBOT> investigate"
       end)
 
     assert {:ack, {:recorded, _ref}} =
@@ -698,7 +732,7 @@ defmodule Responder.Slack.GatewayTest do
     %{
       client: %{allowed: MapSet.new(["U123"])},
       directory: Directory,
-      identity: %{bot_ref: "B-BOT", bot_user_ref: "U-BOT", workspace_ref: "T74CADB5B58F9"},
+      identity: %{bot_ref: "B-BOT", bot_user_ref: "UBOT", workspace_ref: "T74CADB5B58F9"},
       inbox: Inbox,
       interaction_handler: Responder.Slack.InteractionHandler,
       interaction_options: %{},
@@ -710,7 +744,7 @@ defmodule Responder.Slack.GatewayTest do
     event = %{
       "channel" => "C456",
       "event_ts" => "1787832001.000200",
-      "text" => "<@U-BOT> investigate",
+      "text" => "<@UBOT> investigate",
       "ts" => "1787832001.000200",
       "type" => type,
       "user" => "U123"
@@ -740,7 +774,7 @@ defmodule Responder.Slack.GatewayTest do
             "ts" => "1787832000.000100",
             "type" => "message"
           },
-          "item_user" => "U-BOT",
+          "item_user" => "UBOT",
           "reaction" => "eyes",
           "type" => "reaction_added",
           "user" => "U123"

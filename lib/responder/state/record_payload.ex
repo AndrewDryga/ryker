@@ -4,6 +4,7 @@ defmodule Responder.State.RecordPayload do
   alias Responder.CanonicalJSON
   alias Responder.Emisar.ApprovalContract
   alias Responder.Slack.SourceRef
+  alias Responder.State.EventWaitTiming
   alias Responder.State.InvestigationPayload
   alias Responder.State.ScheduleRecurrence
 
@@ -371,8 +372,7 @@ defmodule Responder.State.RecordPayload do
 
     with true <- required -- Map.keys(trigger) == [] and Map.keys(trigger) -- allowed == [],
          :ok <- json_object(trigger["match"], :event_matcher),
-         :ok <- optional_json_object(trigger["cursor"], :event_matcher),
-         :ok <- optional_reference(trigger["source_kind"], :event_matcher),
+         :ok <- source_wait_bounds(trigger),
          :ok <- text(trigger["on_timeout"], 2_000, :event_matcher),
          {:ok, poll_after} <- utc_datetime(trigger["poll_after"]),
          true <- DateTime.compare(poll_after, deadline) in [:lt, :eq] do
@@ -383,10 +383,52 @@ defmodule Responder.State.RecordPayload do
     end
   end
 
-  defp event_wait_matcher(_legacy_or_timer, _deadline), do: :ok
+  defp event_wait_matcher(%{"type" => "after"} = trigger, _deadline) do
+    with :ok <- exact_fields(trigger, ~w(delay on_timeout type)),
+         :ok <- text(trigger["on_timeout"], 2_000, :event_matcher),
+         {:ok, _delay} <- EventWaitTiming.delay_microseconds(trigger["delay"]) do
+      :ok
+    else
+      _invalid -> {:error, {:invalid_state_record, :event_matcher}}
+    end
+  end
 
-  defp optional_json_object(nil, _field), do: :ok
-  defp optional_json_object(value, field), do: json_object(value, field)
+  defp event_wait_matcher(%{"type" => "at"} = trigger, deadline) do
+    with :ok <- exact_fields(trigger, ~w(at on_timeout type)),
+         :ok <- text(trigger["on_timeout"], 2_000, :event_matcher),
+         {:ok, at} <- utc_datetime(trigger["at"]),
+         :lt <- DateTime.compare(at, deadline) do
+      :ok
+    else
+      _invalid -> {:error, {:invalid_state_record, :event_matcher}}
+    end
+  end
+
+  defp event_wait_matcher(_untyped_matcher, _deadline), do: :ok
+
+  @doc false
+  def source_wait_bounds(%{"type" => "source_event"} = trigger) do
+    with :ok <- source_kind_bound(trigger["source_kind"]) do
+      cursor_bound(trigger["cursor"])
+    end
+  end
+
+  def source_wait_bounds(_trigger), do: :ok
+
+  defp source_kind_bound(value) do
+    if optional_reference(value, :source_kind) == :ok and
+         (is_nil(value) or byte_size(value) <= 120),
+       do: :ok,
+       else: {:error, :source_kind}
+  end
+
+  defp cursor_bound(nil), do: :ok
+
+  defp cursor_bound(value) do
+    if is_map(value) and CanonicalJSON.validate(value, max_bytes: 16_384) == :ok,
+      do: :ok,
+      else: {:error, :cursor}
+  end
 
   defp task_repository("engineering", value), do: reference(value, :repository)
   defp task_repository("incident", nil), do: :ok

@@ -89,7 +89,7 @@ elixir-test:
 
 elixir-check:
 	bash scripts/test-release-build-isolation.sh
-	scripts/elixir-test.sh --check
+	RESPONDER_TEST_ISOLATED=1 scripts/elixir-test.sh --check
 
 elixir-release:
 	@version=$$(scripts/elixir-release-version.sh); \

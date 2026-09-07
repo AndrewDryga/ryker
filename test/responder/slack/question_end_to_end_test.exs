@@ -204,7 +204,7 @@ defmodule Responder.Slack.QuestionEndToEndTest do
       client: :directory,
       continuation: &Engagement.continuation?/1,
       directory: Directory,
-      identity: %{bot_ref: "B-BOT", bot_user_ref: "U-BOT", workspace_ref: "TQUESTIONENDTOEND"},
+      identity: %{bot_ref: "B-BOT", bot_user_ref: "UBOT", workspace_ref: "TQUESTIONENDTOEND"},
       inbox: Inbox,
       interaction_handler: InteractionHandler,
       interaction_options: %{},
@@ -226,7 +226,7 @@ defmodule Responder.Slack.QuestionEndToEndTest do
       "Ev-slack-question-initial",
       "1788264001.000200",
       nil,
-      "<@U-BOT> help me choose a safe rollout percentage"
+      "<@UBOT> help me choose a safe rollout percentage"
     )
   end
 

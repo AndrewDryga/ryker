@@ -37,6 +37,11 @@ defmodule Responder.ControlPlane.LiveTest do
           activity: fn params ->
             %{items: [], total: 0, page: 1, pages: 1, mode: params["mode"] || "live"}
           end,
+          episode: fn ref ->
+            if Agent.get(counters, & &1[:episode_fail]),
+              do: {:error, :database_unavailable},
+              else: Projection.episode(ref)
+          end,
           schedules: fn _params -> [] end
         })
     }
@@ -380,6 +385,35 @@ defmodule Responder.ControlPlane.LiveTest do
     view |> element("a", "Back to the episode timeline") |> render_click()
     assert_patch(view, path)
     assert has_element?(view, "#execution-timeline", "Input admitted")
+
+    # Direct inspector entry must use the same native reader as in-page navigation.
+    {:ok, direct, _} = live(build_conn() |> Map.put(:host, "localhost"), path <> "/requests")
+    assert has_element?(direct, ".model-inspector", "What the model received")
+    refute has_element?(direct, ".request-workbench")
+    refute has_element?(direct, "#execution-timeline")
+  end
+
+  test "native episode details distinguish missing records from unavailable projections", %{
+    counters: counters
+  } do
+    conn = build_conn() |> Map.put(:host, "localhost")
+
+    for ref <- ["missing", String.duplicate("a", 3_073)] do
+      {:ok, missing, _} = live(conn, "/episodes/" <> ref)
+      assert has_element?(missing, ".document-unavailable", "This record is unavailable")
+      refute has_element?(missing, ".app-warning", "This view could not refresh")
+    end
+
+    Agent.update(counters, &Map.put(&1, :episode_fail, true))
+    {:ok, unavailable, _} = live(conn, "/episodes/unavailable")
+
+    assert has_element?(
+             unavailable,
+             ".document-unavailable",
+             "This view is temporarily unavailable"
+           )
+
+    assert has_element?(unavailable, ".app-warning", "This view could not refresh")
   end
 
   test "the native Lab never claims admission before a message exists and streams committed messages" do

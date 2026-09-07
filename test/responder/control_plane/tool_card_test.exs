@@ -37,6 +37,35 @@ defmodule Responder.ControlPlane.ToolCardTest do
     assert Enum.empty?(html |> LazyHTML.from_fragment() |> LazyHTML.query(".action-observation"))
   end
 
+  test "a finding tool shows the conclusion and reason with a meaningful action name" do
+    payload = %{
+      "input" => %{
+        "server" => "responder-state",
+        "tool" => "record_finding",
+        "arguments" => %{
+          "what" => "Zero instances are intentional",
+          "status" => "expected",
+          "reason" => "The checked-out configuration disables the service.",
+          "scope" => "Repository intent"
+        }
+      }
+    }
+
+    html = render_component(&ToolCard.render/1, step: step(payload))
+    assert html =~ "Finding recorded"
+    assert html =~ "Zero instances are intentional"
+    assert html =~ "checked-out configuration disables"
+    refute html =~ "Call metadata"
+
+    failed =
+      render_component(&ToolCard.render/1,
+        step: %{step(payload) | state: "failed", summary: "invalid_arguments"}
+      )
+
+    assert failed =~ "Record a finding"
+    refute failed =~ "Finding recorded"
+  end
+
   test "failed state tool does not claim evidence was recorded" do
     payload = %{
       "input" => %{

@@ -197,10 +197,10 @@ defmodule Responder.State.Continuity do
       when (is_binary(repository_ref) or is_nil(repository_ref)) and is_binary(query) and
              is_binary(scope) and is_integer(limit) and limit in 1..50 do
     case destination_context(episode, repository_ref) do
-      {:ok, context} ->
+      {:ok, _context} ->
         (Knowledge.context(episode, repository_ref, query, limit, scope) ++
            Observations.context(episode, repository_ref, query, limit, scope) ++
-           search_context(context, query, scope, limit))
+           search_continuity_context(episode, repository_ref, query, scope, limit))
         |> Enum.take(limit)
 
       {:error, _reason} ->
@@ -247,24 +247,35 @@ defmodule Responder.State.Continuity do
     end
   end
 
-  defp search_context(context, query, scope, limit) do
-    case Repo.transaction(fn -> search_locked(context, query, scope, limit) end) do
+  defp search_continuity_context(episode, repository_ref, query, scope, limit) do
+    case Repo.transaction(fn ->
+           search_authorized(episode, repository_ref, query, scope, limit)
+         end) do
       {:ok, entries} -> entries
       {:error, _reason} -> []
+    end
+  end
+
+  defp search_authorized(episode, repository_ref, query, scope, limit) do
+    case Observations.locked_scope(episode, repository_ref) do
+      {:ok, context} -> search_locked(context, query, scope, limit)
+      _ -> []
     end
   end
 
   defp compact_locked(summary_age_seconds, rollup_retention_seconds) do
     before = DateTime.add(database_now!(), -summary_age_seconds, :second)
 
-    Repo.all(
-      from(summary in ConversationSummary,
-        where: summary.updated_at < ^before and summary.state != ^%{"retention" => "pruned"},
-        order_by: [asc: summary.updated_at, asc: summary.id],
-        limit: @maximum_compaction,
-        lock: "FOR UPDATE"
-      )
+    from(summary in ConversationSummary,
+      as: :summary,
+      where: summary.updated_at < ^before and summary.state != ^%{"retention" => "pruned"},
+      order_by: [asc: summary.updated_at, asc: summary.id],
+      limit: @maximum_compaction,
+      lock: "FOR UPDATE"
     )
+    |> LearningSources.sourced()
+    |> without_unsourced_rollup()
+    |> Repo.all()
     |> Enum.group_by(&rollup_identity/1)
     |> Enum.sort_by(fn {identity, _items} -> identity end)
     |> compact_groups(rollup_retention_seconds)
@@ -278,6 +289,73 @@ defmodule Responder.State.Continuity do
         {:error, _reason} = error -> {:halt, error}
       end
     end)
+  end
+
+  defp without_unsourced_rollup(query) do
+    # Match rollup_identity/1 before LIMIT so preserved history cannot monopolize
+    # every maintenance pass. The locked group check remains authoritative.
+    repository_scope = repository_rollup_scope_query()
+
+    matching_scope =
+      dynamic(
+        [rollup],
+        (^repository_scope and rollup.scope_kind == :repository and
+           rollup.scope_ref == parent_as(:summary).repository_ref) or
+          (not (^repository_scope) and rollup.scope_kind == :conversation and
+             rollup.scope_ref == parent_as(:summary).conversation_ref)
+      )
+
+    blocked =
+      from(rollup in ConversationRollup,
+        where: rollup.workspace_ref == parent_as(:summary).workspace_ref,
+        where: rollup.state != ^%{"retention" => "pruned"},
+        where:
+          fragment(
+            "CASE WHEN jsonb_typeof(?::jsonb) = 'array' THEN ?::jsonb = '[]'::jsonb ELSE true END",
+            rollup.source_dependencies,
+            rollup.source_dependencies
+          ),
+        where:
+          rollup.period_start <= parent_as(:summary).updated_at and
+            fragment(
+              "? < ? + interval '7 days'",
+              parent_as(:summary).updated_at,
+              rollup.period_start
+            ),
+        where: ^matching_scope
+      )
+
+    from(summary in query, where: not exists(subquery(blocked)))
+  end
+
+  defp repository_rollup_scope_query do
+    memberships =
+      from(membership in ChannelMembership,
+        # The host splits a conversation into exactly transport/workspace/channel.
+        # Colons can belong to the channel suffix, never the workspace component.
+        where: fragment("position(':' in ?) = 0", membership.workspace_ref),
+        where:
+          fragment(
+            "? = 'slack:' || ?",
+            parent_as(:summary).workspace_ref,
+            membership.workspace_ref
+          ),
+        where:
+          fragment(
+            "? = 'slack:' || ? || ':' || ?",
+            parent_as(:summary).conversation_ref,
+            membership.workspace_ref,
+            membership.channel_ref
+          ),
+        where:
+          membership.status == :joined and not membership.private and
+            not membership.external_shared
+      )
+
+    dynamic(
+      parent_as(:summary).transport == "slack" and parent_as(:summary).visibility == :public and
+        not is_nil(parent_as(:summary).repository_ref) and exists(subquery(memberships))
+    )
   end
 
   defp delete_slack_channel_locked(workspace_ref, channel_ref) do
@@ -539,11 +617,11 @@ defmodule Responder.State.Continuity do
       workspace_ref: context.workspace_ref
     }
 
-    if is_nil(attributes.source_dependencies) do
+    if LearningSources.sourced?(attributes.source_dependencies) do
+      persist_summary(attributes, context.identity_key)
+    else
       # Optional learning must not preserve prose after dropping its source fences.
       :ok
-    else
-      persist_summary(attributes, context.identity_key)
     end
   end
 
@@ -640,6 +718,8 @@ defmodule Responder.State.Continuity do
   end
 
   defp search_locked(context, query, scope, limit) do
+    query = String.slice(String.trim(query), 0, 200)
+
     current =
       Repo.one(
         from(summary in ConversationSummary, where: summary.identity_key == ^context.identity_key)
@@ -648,18 +728,15 @@ defmodule Responder.State.Continuity do
 
     candidates =
       ([current] |> Enum.reject(&is_nil/1) |> Enum.map(&{:summary, &1})) ++
-        Enum.map(related_summaries(context), &{:summary, &1}) ++
-        Enum.map(related_rollups(context), &{:rollup, &1})
+        search_summaries(context, query, scope, limit) ++
+        search_rollups(context, query, scope, limit)
 
     selected =
       candidates
       |> Enum.filter(fn candidate ->
         continuity_search_scope?(candidate, scope, context) and
-          candidate
-          |> continuity_search_document()
-          |> CanonicalJSON.encode!()
-          |> String.downcase()
-          |> String.contains?(String.downcase(query))
+          continuity_search_state_matches?(candidate, query) and
+          continuity_search_candidate_visible?(candidate, context)
       end)
       |> Enum.take(limit)
 
@@ -671,6 +748,142 @@ defmodule Responder.State.Continuity do
 
     Enum.map(selected, &continuity_search_document/1)
   end
+
+  defp search_summaries(context, query, scope, limit) do
+    context
+    |> searchable_summaries_query(scope)
+    |> LearningSources.sourced()
+    |> LearningSources.eligible(context)
+    |> state_matching(query)
+    |> order_by(
+      [summary],
+      asc:
+        fragment(
+          "CASE WHEN ? = ? THEN 0 ELSE 1 END",
+          summary.conversation_ref,
+          ^context.conversation_ref
+        ),
+      asc:
+        fragment(
+          "CASE WHEN ? = ? THEN 0 ELSE 1 END",
+          summary.repository_ref,
+          ^context.repository_ref
+        ),
+      desc: summary.updated_at,
+      asc: summary.ref
+    )
+    |> limit(^limit)
+    |> Repo.all()
+    |> Enum.map(&{:summary, &1})
+  end
+
+  defp searchable_summaries_query(context, scope) do
+    from(summary in ConversationSummary,
+      where:
+        summary.workspace_ref == ^context.workspace_ref and
+          summary.identity_key != ^context.identity_key,
+      where: ^Observations.visible_conversations(context),
+      where: summary.conversation_ref == ^context.conversation_ref or summary.transport == "slack"
+    )
+    |> summaries_within_scope(context, scope)
+  end
+
+  defp summaries_within_scope(query, context, "current_channel"),
+    do: from(summary in query, where: summary.conversation_ref == ^context.conversation_ref)
+
+  defp summaries_within_scope(query, %{repository_ref: repository_ref}, "repository")
+       when is_binary(repository_ref),
+       do: from(summary in query, where: summary.repository_ref == ^repository_ref)
+
+  defp summaries_within_scope(query, _context, "workspace"), do: query
+  defp summaries_within_scope(query, _context, _scope), do: from(summary in query, where: false)
+
+  defp search_rollups(context, query, scope, limit) do
+    context
+    |> searchable_rollups_query(scope)
+    |> LearningSources.sourced()
+    |> LearningSources.eligible(context)
+    |> state_matching(query)
+    |> order_by([rollup], desc: rollup.period_end, desc: rollup.id)
+    |> limit(^limit)
+    |> Repo.all()
+    |> Enum.map(&{:rollup, &1})
+  end
+
+  defp searchable_rollups_query(context, scope) do
+    context
+    |> rollups_for_context_query()
+    |> rollups_visible_query(context)
+    |> rollups_within_scope(context, scope)
+  end
+
+  defp rollups_within_scope(query, context, "current_channel"),
+    do:
+      from(rollup in query,
+        where:
+          rollup.scope_kind == :conversation and rollup.scope_ref == ^context.conversation_ref
+      )
+
+  defp rollups_within_scope(query, %{repository_ref: repository_ref}, "repository")
+       when is_binary(repository_ref),
+       do: from(rollup in query, where: rollup.repository_ref == ^repository_ref)
+
+  defp rollups_within_scope(query, _context, "workspace"), do: query
+  defp rollups_within_scope(query, _context, _scope), do: from(rollup in query, where: false)
+
+  defp rollups_visible_query(
+         query,
+         %{visibility: :public, repository_ref: repository_ref} = context
+       )
+       when is_binary(repository_ref) do
+    public_sources = public_rollup_sources_query()
+
+    visible =
+      dynamic(
+        [rollup],
+        (rollup.scope_kind == :conversation and rollup.scope_ref == ^context.conversation_ref) or
+          (rollup.scope_kind == :repository and rollup.repository_ref == ^repository_ref and
+             rollup.visibility == :public and ^public_sources)
+      )
+
+    from(rollup in query, where: ^visible)
+  end
+
+  defp rollups_visible_query(query, context) do
+    from(rollup in query,
+      where: rollup.scope_kind == :conversation and rollup.scope_ref == ^context.conversation_ref
+    )
+  end
+
+  defp public_rollup_sources_query do
+    dynamic(
+      [rollup],
+      fragment(
+        """
+        NOT EXISTS (
+          SELECT 1 FROM jsonb_array_elements(COALESCE(?::jsonb, '[]'::jsonb)) source_scope
+          LEFT JOIN slack_channel_memberships membership
+            ON membership.workspace_ref = source_scope->>'workspace_ref'
+           AND membership.channel_ref = source_scope->>'channel_ref'
+          WHERE source_scope->>'transport' IS DISTINCT FROM 'slack'
+             OR membership.workspace_ref IS NULL
+             OR membership.status IS DISTINCT FROM 'joined'
+             OR membership.private IS DISTINCT FROM false
+             OR membership.external_shared IS DISTINCT FROM false
+        )
+        """,
+        rollup.source_scopes
+      )
+    )
+  end
+
+  defp state_matching(query, search) when is_binary(search) do
+    from(item in query,
+      where: fragment("position(lower(?) in lower(?)) > 0", ^search, item.state)
+    )
+  end
+
+  defp state_matching(query, _search), do: query
 
   defp continuity_search_scope?({:summary, summary}, "current_channel", context),
     do: summary.conversation_ref == context.conversation_ref
@@ -684,6 +897,21 @@ defmodule Responder.State.Continuity do
   defp continuity_search_scope?({_kind, _item}, "workspace", _context), do: true
   defp continuity_search_scope?(_candidate, _scope, _context), do: false
 
+  defp continuity_search_state_matches?({_kind, item}, query) do
+    item.state
+    |> CanonicalJSON.encode!()
+    |> String.downcase()
+    |> String.contains?(String.downcase(query))
+  end
+
+  defp continuity_search_candidate_visible?({:summary, summary}, context),
+    do: summary_visible?(summary, context)
+
+  defp continuity_search_candidate_visible?({:rollup, rollup}, context),
+    do:
+      rollup_visible?(rollup, context) and
+        derived_sources_valid?(rollup, context)
+
   defp continuity_search_document({:summary, summary}),
     do: summary |> summary_document() |> Map.put("kind", "continuity")
 
@@ -691,20 +919,15 @@ defmodule Responder.State.Continuity do
     do: rollup |> rollup_document() |> Map.put("kind", "continuity")
 
   defp related_summaries(context) do
-    Repo.all(
-      from(summary in ConversationSummary,
-        where:
-          summary.workspace_ref == ^context.workspace_ref and
-            summary.identity_key != ^context.identity_key,
-        order_by: [desc: summary.updated_at, desc: summary.id],
-        limit: @maximum_candidates
-      )
-    )
+    context
+    |> searchable_summaries_query("workspace")
+    |> order_by([summary], desc: summary.updated_at, desc: summary.id)
+    |> limit(@maximum_candidates)
+    |> LearningSources.sourced()
+    |> LearningSources.eligible(context)
+    |> Repo.all()
     |> Enum.filter(fn summary ->
-      (summary.conversation_ref == context.conversation_ref or
-         (context.visibility == :public and summary.visibility == :public and
-            public_source_visible?(summary))) and
-        LearningSources.valid?(summary.source_dependencies, context)
+      summary_visible?(summary, context)
     end)
     |> Enum.sort_by(&summary_rank(&1, context))
     |> Enum.take(@maximum_related)
@@ -713,14 +936,29 @@ defmodule Responder.State.Continuity do
   defp related_rollups(context) do
     context
     |> related_rollups_query()
+    |> rollups_visible_query(context)
+    |> LearningSources.sourced()
+    |> LearningSources.eligible(context)
     |> Repo.all()
-    |> Enum.filter(
-      &(rollup_visible?(&1, context) and LearningSources.valid?(&1.source_dependencies, context))
-    )
+    |> Enum.filter(&(rollup_visible?(&1, context) and derived_sources_valid?(&1, context)))
     |> Enum.take(@maximum_rollups)
   end
 
-  defp related_rollups_query(%{repository_ref: repository_ref} = context)
+  defp summary_visible?(summary, context) do
+    (summary.conversation_ref == context.conversation_ref or
+       (context.visibility == :public and summary.visibility == :public and
+          public_source_visible?(summary))) and
+      derived_sources_valid?(summary, context)
+  end
+
+  defp related_rollups_query(context) do
+    context
+    |> rollups_for_context_query()
+    |> order_by([rollup], desc: rollup.period_end, desc: rollup.id)
+    |> limit(@maximum_candidates)
+  end
+
+  defp rollups_for_context_query(%{repository_ref: repository_ref} = context)
        when is_binary(repository_ref) do
     from(rollup in ConversationRollup,
       where:
@@ -728,28 +966,29 @@ defmodule Responder.State.Continuity do
           rollup.expires_at > fragment("clock_timestamp()") and
           ((rollup.scope_kind == :conversation and
               rollup.scope_ref == ^context.conversation_ref) or
-             (rollup.scope_kind == :repository and rollup.repository_ref == ^repository_ref)),
-      order_by: [desc: rollup.period_end, desc: rollup.id],
-      limit: @maximum_candidates
+             (rollup.scope_kind == :repository and rollup.repository_ref == ^repository_ref))
     )
   end
 
-  defp related_rollups_query(context) do
+  defp rollups_for_context_query(context) do
     from(rollup in ConversationRollup,
       where:
         rollup.workspace_ref == ^context.workspace_ref and
           rollup.expires_at > fragment("clock_timestamp()") and
           rollup.scope_kind == :conversation and
-          rollup.scope_ref == ^context.conversation_ref,
-      order_by: [desc: rollup.period_end, desc: rollup.id],
-      limit: @maximum_candidates
+          rollup.scope_ref == ^context.conversation_ref
     )
   end
 
   defp learning_visible(nil, _context), do: nil
 
   defp learning_visible(item, context),
-    do: if(LearningSources.valid?(item.source_dependencies, context), do: item)
+    do: if(derived_sources_valid?(item, context), do: item)
+
+  defp derived_sources_valid?(item, context),
+    do:
+      LearningSources.sourced?(item.source_dependencies) and
+        LearningSources.valid?(item.source_dependencies, context)
 
   defp public_source_visible?(%ConversationSummary{
          transport: "slack",
@@ -866,18 +1105,34 @@ defmodule Responder.State.Continuity do
   end
 
   defp compact_group([first | _rest] = sources, retention_seconds) do
-    {workspace_ref, scope_kind, scope_ref, period_start} = rollup_identity(first)
+    identity = rollup_identity(first)
+    {workspace_ref, scope_kind, scope_ref, period_start} = identity
 
     existing = locked_rollup(workspace_ref, scope_kind, scope_ref, period_start)
     retained = if existing && existing.state != %{"retention" => "pruned"}, do: existing
 
+    if retained && not LearningSources.sourced?(retained.source_dependencies) do
+      # Preserve historical prose; a later sourced summary cannot retroactively attribute it.
+      :skipped
+    else
+      compact_sourced_group(sources, retained, existing, retention_seconds, identity)
+    end
+  end
+
+  defp compact_sourced_group(
+         [first | _rest] = sources,
+         retained,
+         existing,
+         retention_seconds,
+         identity
+       ) do
     attributes =
       rollup_attributes(
         first,
         sources,
         retained,
         retention_seconds,
-        {workspace_ref, scope_kind, scope_ref, period_start}
+        identity
       )
 
     complete_compaction(existing, sources, attributes)

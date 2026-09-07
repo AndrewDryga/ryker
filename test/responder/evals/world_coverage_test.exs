@@ -1,9 +1,37 @@
 defmodule Responder.Evals.WorldCoverageTest do
   use ExUnit.Case, async: true
 
-  alias Responder.Evals.WorldCoverage
+  alias Responder.Evals.{WorldCase, WorldCoverage}
 
   @scenario_root "testdata/scenarios"
+
+  test "reconnect credit names the source-matched replay rather than the retained unreachable fault" do
+    # Terraform's retained invalid matcher stops before its second-turn fault is installed;
+    # naming the scenario used to hide the missing reconnect qualification.
+    assert {:ok, report} = WorldCoverage.report(@scenario_root)
+    assert report.failure_axes["reconnect"] == ["terraform-run-update-stays-in-one-session"]
+    assert {:ok, scenario} = WorldCase.fetch("terraform-run-update-stays-in-one-session")
+    [initial, continuation] = scenario.host_replay["model_events"]
+    assert hd(initial["calls"])["arguments"]["trigger"]["source_kind"] == "slack"
+    assert continuation["faults"] == ["lose_submit_response"]
+
+    negative =
+      "test/responder/evals/fixtures/terraform_invalid_source_matcher.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    assert get_in(negative, [
+             "model_events",
+             Access.at(0),
+             "calls",
+             Access.at(0),
+             "arguments",
+             "trigger",
+             "source_kind"
+           ]) == "terraform"
+
+    refute "negative-invalid-matcher" in scenario.tags
+  end
 
   test "the required product matrix names every covered scenario and keeps every gap visible" do
     assert {:ok, %{complete?: true}} = WorldCoverage.report()

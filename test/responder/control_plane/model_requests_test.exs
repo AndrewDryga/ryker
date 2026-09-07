@@ -4,7 +4,7 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
   alias Responder.Admission.Attempt
   alias Responder.ControlPlane.ConversationLab
   alias Responder.ControlPlane.{EpisodePage, InspectionRedactor, Projection}
-  alias Responder.ControlPlane.{ModelRequests, ModelRequestsHTML, RequestPage}
+  alias Responder.ControlPlane.{ModelRequests, RequestPage}
   alias Responder.Ingress.WorkProfile
   alias Responder.Work.{Custody, Submission, Turn}
 
@@ -20,7 +20,14 @@ defmodule Responder.ControlPlane.ModelRequestsTest do
     raw = Enum.find(view.selected.sections, &(&1.id == "request"))
     assert raw.artifact.sha256 == :crypto.hash(:sha256, original) |> Base.encode16(case: :lower)
     assert view.selected.coverage =~ "Coop wrapper"
-    html = view |> ModelRequestsHTML.render() |> IO.iodata_to_binary()
+
+    html =
+      render_component(&RequestPage.render/1,
+        view: view,
+        params: %{},
+        path: "/episodes/#{URI.encode_www_form(episode.key)}/requests"
+      )
+
     assert html =~ "$.work.inputs"
     assert html =~ "&lt;script&gt;"
     refute html =~ "<script>"

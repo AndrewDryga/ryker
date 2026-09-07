@@ -29,6 +29,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @event_subscriptions_version 20_260_904_000_700
   @work_activity_version 20_260_904_000_800
   @card_lab_feedback_version 20_260_904_000_900
+  @timer_resolution_version 20_260_907_000_200
+  @wait_scheduling_errors_version 20_260_907_000_300
+  @slack_addressing_version 20_260_907_000_400
   @workspace_versions [
     20_260_905_000_100,
     20_260_905_000_200,
@@ -38,7 +41,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     20_260_906_001_000,
     20_260_906_002_000,
     20_260_906_004_000,
-    20_260_907_000_100
+    20_260_907_000_100,
+    @timer_resolution_version,
+    @wait_scheduling_errors_version,
+    @slack_addressing_version
   ]
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
@@ -853,6 +859,305 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     end
   end
 
+  test "timer resolution migration preserves polling custody and refuses to erase timer history" do
+    # Timer wake-ups need a distinct resolution; rollback must not relabel them as source events.
+    repo = start_migration_repo!()
+    prefix = "timer_resolution_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      ids = insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: 20_260_907_000_100,
+        prefix: prefix,
+        log: false
+      )
+
+      insert_wait_migration_rows!(repo, prefix, ids)
+      snapshot_query = "SELECT * FROM #{prefix}.episode_event_subscriptions"
+      original = SQL.query!(repo, snapshot_query, []).rows
+
+      timer_query =
+        "UPDATE #{prefix}.episode_event_subscriptions SET status = 'resolved', resolution_kind = 'timer'"
+
+      assert_raise Postgrex.Error, ~r/episode_event_subscription_valid/, fn ->
+        SQL.query!(repo, timer_query, [])
+      end
+
+      for direction <- [:up, :down, :up] do
+        assert Ecto.Migrator.run(repo, @migrations_path, direction,
+                 step: 1,
+                 prefix: prefix,
+                 log: false
+               ) == [@timer_resolution_version]
+
+        assert SQL.query!(repo, snapshot_query, []).rows == original
+      end
+
+      for {status, resolution} <- [
+            {"resolved", "input"},
+            {"resolved", "poll_fallback"},
+            {"timed_out", "deadline"},
+            {"cancelled", "cancelled"}
+          ] do
+        assert %{num_rows: 1} =
+                 SQL.query!(
+                   repo,
+                   "UPDATE #{prefix}.episode_event_subscriptions SET status = $1, resolution_kind = $2",
+                   [status, resolution]
+                 )
+      end
+
+      assert %{num_rows: 1} = SQL.query!(repo, timer_query, [])
+      timer_history = SQL.query!(repo, snapshot_query, []).rows
+
+      for {status, resolution} <- [
+            {"active", "timer"},
+            {"timed_out", "timer"},
+            {"cancelled", "timer"},
+            {"resolved", "deadline"},
+            {"resolved", "unknown"}
+          ] do
+        assert_raise Postgrex.Error, ~r/episode_event_subscription_valid/, fn ->
+          SQL.query!(
+            repo,
+            "UPDATE #{prefix}.episode_event_subscriptions SET status = $1, resolution_kind = $2",
+            [status, resolution]
+          )
+        end
+      end
+
+      assert_raise Postgrex.Error,
+                   ~r/timer resolution history cannot be rolled back safely/,
+                   fn ->
+                     Ecto.Migrator.run(repo, @migrations_path, :down,
+                       step: 1,
+                       prefix: prefix,
+                       log: false
+                     )
+                   end
+
+      assert SQL.query!(repo, snapshot_query, []).rows == timer_history
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @timer_resolution_version,
+               prefix: prefix,
+               log: false
+             ) == []
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  test "wait scheduling diagnostics are bounded and survive refused rollback without changing records" do
+    # A down migration must not turn a retained scheduling failure into an unexplained wait.
+    repo = start_migration_repo!()
+    prefix = "wait_diagnostics_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      ids = insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @timer_resolution_version,
+        prefix: prefix,
+        log: false
+      )
+
+      insert_wait_migration_rows!(repo, prefix, ids)
+
+      snapshot_query =
+        "SELECT id, episode_id, turn_id, payload, payload_fingerprint, status, inserted_at FROM #{prefix}.episode_state_records"
+
+      original = SQL.query!(repo, snapshot_query, []).rows
+
+      for direction <- [:up, :down, :up] do
+        assert Ecto.Migrator.run(repo, @migrations_path, direction,
+                 step: 1,
+                 prefix: prefix,
+                 log: false
+               ) == [@wait_scheduling_errors_version]
+
+        assert column_exists?(repo, prefix, "episode_state_records", "wait_error") ==
+                 (direction == :up)
+
+        assert SQL.query!(repo, snapshot_query, []).rows == original
+      end
+
+      assert %{rows: [[nil]]} =
+               SQL.query!(repo, "SELECT wait_error FROM #{prefix}.episode_state_records", [])
+
+      for error <- ~w(deadline poll_after timer_deadline source_kind cursor) do
+        assert %{num_rows: 1} =
+                 SQL.query!(repo, "UPDATE #{prefix}.episode_state_records SET wait_error = $1", [
+                   error
+                 ])
+
+        assert %{rows: [[^error]]} =
+                 SQL.query!(repo, "SELECT wait_error FROM #{prefix}.episode_state_records", [])
+      end
+
+      for query <- [
+            "UPDATE #{prefix}.episode_state_records SET wait_error = 'unknown'",
+            "UPDATE #{prefix}.episode_state_records SET wait_error = ''",
+            "UPDATE #{prefix}.episode_state_records SET kind = 'finding'"
+          ] do
+        assert_raise Postgrex.Error, ~r/episode_state_record_wait_error_valid/, fn ->
+          SQL.query!(repo, query, [])
+        end
+      end
+
+      assert SQL.query!(repo, snapshot_query, []).rows == original
+
+      assert_raise Postgrex.Error,
+                   ~r/wait scheduling diagnostics cannot be rolled back safely/,
+                   fn ->
+                     Ecto.Migrator.run(repo, @migrations_path, :down,
+                       step: 1,
+                       prefix: prefix,
+                       log: false
+                     )
+                   end
+
+      assert SQL.query!(repo, snapshot_query, []).rows == original
+
+      assert %{rows: [["cursor"]]} =
+               SQL.query!(repo, "SELECT wait_error FROM #{prefix}.episode_state_records", [])
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @wait_scheduling_errors_version,
+               prefix: prefix,
+               log: false
+             ) == []
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  test "Slack addressing migration preserves absent history and refuses to discard present metadata" do
+    # Old receipts cannot acquire a guessed bot identity; recorded addressing must survive rollback.
+    repo = start_migration_repo!()
+    prefix = "slack_addressing_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @wait_scheduling_errors_version,
+        prefix: prefix,
+        log: false
+      )
+
+      snapshot_query =
+        "SELECT id, event_fingerprint, content, admission_context, inserted_at FROM #{prefix}.ingress_inbox_entries"
+
+      original = SQL.query!(repo, snapshot_query, []).rows
+
+      for direction <- [:up, :down, :up] do
+        assert Ecto.Migrator.run(repo, @migrations_path, direction,
+                 step: 1,
+                 prefix: prefix,
+                 log: false
+               ) == [@slack_addressing_version]
+
+        assert column_exists?(repo, prefix, "ingress_inbox_entries", "slack_audience") ==
+                 (direction == :up)
+
+        assert SQL.query!(repo, snapshot_query, []).rows == original
+      end
+
+      assert %{rows: [[nil, nil]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT slack_audience, slack_bot_user_ref FROM #{prefix}.ingress_inbox_entries",
+                 []
+               )
+
+      for {audience, user_ref} <- [
+            {"mention", nil},
+            {nil, "UBOT"},
+            {"unknown", "UBOT"},
+            {"", "UBOT"},
+            {"direct", ""},
+            {"ambient", "UBOT\n"},
+            {"ambient", " U1"},
+            {"ambient", "ÜBOT"},
+            {"mention", String.duplicate("U", 257)}
+          ] do
+        assert_raise Postgrex.Error, ~r/ingress_inbox_slack_addressing_valid/, fn ->
+          SQL.query!(
+            repo,
+            "UPDATE #{prefix}.ingress_inbox_entries SET slack_audience = $1, slack_bot_user_ref = $2",
+            [audience, user_ref]
+          )
+        end
+      end
+
+      for audience <- ~w(ambient direct mention) do
+        assert %{num_rows: 1} =
+                 SQL.query!(
+                   repo,
+                   "UPDATE #{prefix}.ingress_inbox_entries SET slack_audience = $1, slack_bot_user_ref = $2",
+                   [audience, String.duplicate("U", 256)]
+                 )
+      end
+
+      assert_raise Postgrex.Error, ~r/ingress_inbox_slack_addressing_valid/, fn ->
+        SQL.query!(
+          repo,
+          "UPDATE #{prefix}.ingress_inbox_entries SET source_kind = 'webhook', source_capabilities = '{}'",
+          []
+        )
+      end
+
+      assert_raise Postgrex.Error,
+                   ~r/Slack addressing history cannot be rolled back safely/,
+                   fn ->
+                     Ecto.Migrator.run(repo, @migrations_path, :down,
+                       step: 1,
+                       prefix: prefix,
+                       log: false
+                     )
+                   end
+
+      assert SQL.query!(repo, snapshot_query, []).rows == original
+
+      assert %{rows: [["mention", user_ref]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT slack_audience, slack_bot_user_ref FROM #{prefix}.ingress_inbox_entries",
+                 []
+               )
+
+      assert byte_size(user_ref) == 256
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
+               []
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
   test "work activity migration refuses to discard durable narration on rollback" do
     repo = start_migration_repo!()
     prefix = "work_activity_rollback_#{System.unique_integer([:positive])}"
@@ -1051,6 +1356,42 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
+  end
+
+  defp insert_wait_migration_rows!(repo, prefix, ids) do
+    record_id = Ecto.UUID.generate()
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.episode_state_records (
+        id, episode_id, turn_id, ref, operation_id, kind, status, payload,
+        payload_fingerprint, sequence, inserted_at, updated_at
+      ) VALUES (
+        $1::text::uuid, $2::text::uuid, $3::text::uuid,
+        'record:event-wait:timer-migration', 'wait-migration', 'event_wait', 'open',
+        '{"deadline_at":"2099-01-01T01:00:00Z","event_matcher":{},"kind":"source_event","verification":"verify"}',
+        repeat('d', 64), 1, clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [record_id, ids.episode_id, ids.turn_id]
+    )
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.episode_event_subscriptions (
+        id, episode_id, record_id, ref, status, source_kind, matcher, cursor,
+        poll_after, deadline_at, revision, inserted_at, updated_at
+      ) VALUES (
+        $1::text::uuid, $2::text::uuid, $3::text::uuid,
+        'event-subscription:timer-migration', 'active', 'github', '{"state":"healthy"}',
+        '{"revision":"abc123"}', '2099-01-01T00:30:00Z', '2099-01-01T01:00:00Z',
+        1, clock_timestamp(), clock_timestamp()
+      )
+      """,
+      [Ecto.UUID.generate(), ids.episode_id, record_id]
+    )
   end
 
   defp rollback_card_lab_feedback!(repo, prefix) do

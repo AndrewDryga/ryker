@@ -2,16 +2,195 @@ defmodule Responder.Cutover.ImporterTest do
   use Responder.DataCase, async: false
 
   import Ecto.Query
+  import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias Responder.CanonicalJSON
+  alias Responder.ControlPlane.{EpisodePage, EpisodeTrace, Projection}
   alias Responder.Cutover.{Importer, Item, Ledger, LegacySchema, Rollback, Run}
   alias Responder.Episodes.Episode
   alias Responder.Repo
-  alias Responder.State.{Behavior, MemoryEntry, Record, Schedule}
+
+  alias Responder.State.{
+    Behavior,
+    EventSubscription,
+    EventSubscriptions,
+    EventWaits,
+    MemoryEntry,
+    Record,
+    Schedule
+  }
+
   alias Responder.Work.Session
 
   @cutover_at ~U[2026-08-30 12:00:00.000000Z]
   @policy_digest String.duplicate("d", 64)
+
+  for {field, invalid_value} <- [
+        {"source_kind", String.duplicate("a", 121)},
+        {"cursor", %{"value" => String.duplicate("x", 16_373)}}
+      ] do
+    test "a retained source wait with oversized #{field} cannot block healthy registration" do
+      # Both shapes passed the actual importer but violated subscription CHECK
+      # limits, rolling back reconciliation for every unrelated waiting episode.
+      records = import_timer_waits!(1, %{})
+
+      imported =
+        Enum.find(records, &(&1.payload["event_matcher"]["match"]["run_id"] == "run-oversized"))
+
+      # Restore the exact fields the importer accepted before validation was
+      # aligned. Newly submitted imports are now tested separately below.
+      payload =
+        put_in(
+          imported.payload,
+          ["event_matcher", unquote(field)],
+          unquote(Macro.escape(invalid_value))
+        )
+
+      Repo.update_all(from(record in Record, where: record.id == ^imported.id),
+        set: [payload: payload, payload_fingerprint: CanonicalJSON.digest(payload)]
+      )
+
+      invalid = Repo.get!(Record, imported.id)
+      healthy = Enum.find(records, &(&1.id != invalid.id))
+
+      assert {:ok, 1} = EventSubscriptions.reconcile()
+      assert Repo.get_by!(EventSubscription, record_id: healthy.id).status == :active
+      saved = Repo.get!(Record, invalid.id)
+      assert saved.wait_error == unquote(field)
+      assert saved.payload == invalid.payload
+      assert saved.payload_fingerprint == invalid.payload_fingerprint
+      assert {:ok, %{record: resumed}} = EventWaits.resume_due()
+      assert resumed.id == healthy.id
+      assert {:ok, 0} = EventSubscriptions.reconcile()
+      assert {:ok, detail} = Projection.episode(Repo.get!(Episode, invalid.episode_id).key)
+      warning = Enum.find(detail.trace.steps, &(&1.record_ref == invalid.ref)).current_warning
+      assert warning =~ "Wait scheduling failed"
+      refute warning =~ inspect(unquote(Macro.escape(invalid_value)))
+      episode = Repo.get!(Episode, invalid.episode_id)
+
+      assert EventWaits.resume_at(
+               invalid.id,
+               episode.id,
+               DateTime.add(episode.owner_deadline_at, -1, :microsecond)
+             ) == {:error, :event_wait_not_due}
+
+      assert {:ok, %{record: timed_out}} =
+               EventWaits.resume_at(invalid.id, episode.id, episode.owner_deadline_at)
+
+      assert timed_out.status == :answered
+      assert timed_out.wait_error == unquote(field)
+      assert Repo.get_by(EventSubscription, record_id: invalid.id) == nil
+    end
+
+    test "a new imported source wait with oversized #{field} is rejected atomically" do
+      run = prepare_timer_waits!(1, %{unquote(field) => unquote(Macro.escape(invalid_value))})
+
+      assert Importer.apply(run.id, work_profiles: work_profiles()) ==
+               {:error, {:invalid_state_record, :event_matcher}}
+
+      assert Repo.aggregate(Record, :count) == 0
+      assert Repo.aggregate(Episode, :count) == 0
+    end
+  end
+
+  test "an imported impossible timer cannot stop healthy waits and retains its deadline failure" do
+    # A reviewed import can clamp an expired deadline to cutover + 1s while
+    # retaining after:10m. One such record previously rolled back every wakeup.
+    records = import_timer_waits!(1)
+    invalid = Enum.find(records, &(&1.payload["event_matcher"]["type"] == "after"))
+    healthy = Enum.find(records, &(&1.payload["event_matcher"]["type"] == "source_event"))
+    episode = Repo.get!(Episode, invalid.episode_id)
+
+    assert {:ok, 1} = EventSubscriptions.reconcile()
+    assert Repo.get_by(EventSubscription, record_id: healthy.id)
+    assert Repo.get_by(EventSubscription, record_id: invalid.id) == nil
+    saved = Repo.get!(Record, invalid.id)
+    assert saved.wait_error == "timer_deadline"
+    assert saved.payload == invalid.payload
+    assert saved.payload_fingerprint == invalid.payload_fingerprint
+    assert saved.status == :open
+
+    events = Responder.Episodes.list_events(episode.key)
+
+    before =
+      EpisodeTrace.project(episode, events, [invalid]).steps
+      |> Enum.find(&(&1.record_ref == invalid.ref))
+
+    after_error =
+      EpisodeTrace.project(episode, events, [saved]).steps
+      |> Enum.find(&(&1.record_ref == invalid.ref))
+
+    assert Map.take(after_error, [:at, :title, :summary]) ==
+             Map.take(before, [:at, :title, :summary])
+
+    assert after_error.current_warning =~ "cannot run before its deadline"
+    assert {:ok, detail} = Projection.episode(episode.key)
+
+    html =
+      render_component(&EpisodePage.render/1,
+        snapshot: detail,
+        selected_step: nil,
+        requests: nil,
+        params: %{}
+      )
+
+    warning =
+      html |> LazyHTML.from_document() |> LazyHTML.query(".action-error") |> LazyHTML.text()
+
+    assert warning =~ "Current scheduling status:"
+    assert warning =~ "Timer scheduling failed"
+    assert warning =~ invalid.payload["deadline_at"]
+
+    assert EventWaits.resume_at(
+             invalid.id,
+             episode.id,
+             DateTime.add(episode.owner_deadline_at, -1, :microsecond)
+           ) ==
+             {:error, :event_wait_not_due}
+
+    assert {:ok, %{record: _} = resumed} = EventWaits.resume_due()
+    assert resumed.record.id == healthy.id
+    assert {:ok, %{record: _} = timed_out} = EventWaits.resume_due()
+    assert timed_out.record.id == invalid.id
+    assert timed_out.record.wait_error == "timer_deadline"
+    assert timed_out.record.status == :answered
+
+    after_timeout =
+      EpisodeTrace.project(
+        timed_out.episode,
+        Responder.Episodes.list_events(episode.key),
+        [timed_out.record]
+      ).steps
+      |> Enum.find(&(&1.record_ref == invalid.ref))
+
+    assert after_timeout.at == before.at
+    assert after_timeout.current_warning == after_error.current_warning
+
+    wakeup =
+      Responder.Episodes.list_events(episode.key)
+      |> Enum.find(&(&1.kind == :input_admitted and &1.sequence > 1))
+
+    assert wakeup.payload["payload"]["content"]["kind"] == "deadline_elapsed"
+    assert EventWaits.resume_due() == {:ok, :idle}
+  end
+
+  test "a backlog larger than the reconciliation batch cannot starve healthy registration" do
+    records = import_timer_waits!(101)
+    healthy = Enum.find(records, &(&1.payload["event_matcher"]["type"] == "source_event"))
+
+    assert {:ok, 0} = EventSubscriptions.reconcile()
+    assert {:ok, 1} = EventSubscriptions.reconcile()
+    assert Repo.get_by!(EventSubscription, record_id: healthy.id).status == :active
+
+    assert Repo.aggregate(
+             from(record in Record, where: record.wait_error == "timer_deadline"),
+             :count
+           ) == 101
+
+    assert {:ok, 0} = EventSubscriptions.reconcile()
+    assert {:ok, %{record: _} = resumed} = EventWaits.resume_due()
+    assert resumed.record.id == healthy.id
+  end
 
   test "reviewed necessary live state is imported once with explicit cutover provenance" do
     envelope = envelope()
@@ -529,6 +708,90 @@ defmodule Responder.Cutover.ImporterTest do
         repository_ref: "responder"
       }
     }
+  end
+
+  defp import_timer_waits!(invalid_count, source_overrides \\ nil) do
+    run = prepare_timer_waits!(invalid_count, source_overrides)
+    assert {:ok, %{status: :applied}} = Importer.apply(run.id, work_profiles: work_profiles())
+    Repo.all(from(record in Record, where: not is_nil(record.cutover_item_id)))
+  end
+
+  defp prepare_timer_waits!(invalid_count, source_overrides) do
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
+    items =
+      Enum.flat_map(0..invalid_count, fn index ->
+        episode_id = "timer-episode-#{index}"
+        wait_id = "timer-wait-#{index}"
+
+        trigger =
+          if index == invalid_count,
+            do: %{
+              "type" => "source_event",
+              "source_kind" => "github",
+              "match" => %{"run_id" => "run-healthy"},
+              "poll_after" => DateTime.to_iso8601(DateTime.add(now, -1, :second)),
+              "on_timeout" => "Report verification gap."
+            },
+            else: %{
+              "type" => "after",
+              "delay" => "10m",
+              "on_timeout" => "Report verification gap."
+            }
+
+        deadline =
+          if index == invalid_count,
+            do: DateTime.to_iso8601(DateTime.add(now, 3_600, :second)),
+            else: "2020-01-01T00:00:00Z"
+
+        {trigger, deadline} =
+          if source_overrides && index != invalid_count do
+            {%{
+               "type" => "source_event",
+               "source_kind" => "github",
+               "match" => %{"run_id" => "run-oversized"},
+               "poll_after" => DateTime.to_iso8601(DateTime.add(now, -2, :second)),
+               "on_timeout" => "Report verification gap."
+             }
+             |> Map.merge(source_overrides),
+             DateTime.to_iso8601(DateTime.add(now, 1_800, :second))}
+          else
+            {trigger, deadline}
+          end
+
+        [
+          item(
+            "episode",
+            episode_id,
+            "work_episodes",
+            "review",
+            Map.put(episode(), "id", episode_id)
+          ),
+          item(
+            "wait",
+            wait_id,
+            "episode_wakeups",
+            "review",
+            Map.merge(wait(), %{
+              "id" => wait_id,
+              "episode_id" => episode_id,
+              "deadline" => deadline,
+              "event_matcher_json" => trigger,
+              "kind" => trigger["type"]
+            })
+          )
+        ]
+      end)
+
+    manifest =
+      envelope()["manifest"]
+      |> Map.put("items", Enum.sort_by(items, & &1["id"]))
+      |> Map.put("summary", %{"episode" => invalid_count + 1, "wait" => invalid_count + 1})
+
+    envelope = %{"manifest" => manifest, "sha256" => CanonicalJSON.digest(manifest)}
+    review = review(envelope) |> Map.put("decisions", Map.new(items, &{&1["id"], "import"}))
+    assert {:ok, %{run: run}} = Ledger.prepare(envelope, review)
+    run
   end
 
   defp envelope do

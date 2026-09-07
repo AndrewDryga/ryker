@@ -1,0 +1,68 @@
+{
+  "model_events": [
+    {
+      "calls": [
+        {
+          "arguments": {
+            "deadline": "2099-08-27T16:30:00.000000Z",
+            "on_timeout": "Report that Terraform run run-okjyXsDYXyMqqBYY did not reach a terminal state.",
+            "trigger": {
+              "match": {
+                "run_id": "run-okjyXsDYXyMqqBYY",
+                "state": "applied"
+              },
+              "poll_after": "2099-08-27T16:10:00.000000Z",
+              "source_kind": "terraform",
+              "type": "source_event"
+            },
+            "verification": "Resume when this exact Terraform run reaches its terminal state."
+          },
+          "kind": "state",
+          "tool": "wait_for"
+        }
+      ],
+      "candidates": [
+        {
+          "document": {
+            "decision_reason": null,
+            "delivery": "reply",
+            "message": "I will keep this run in the same conversation and report when it reaches a terminal state.",
+            "outcome": {
+              "artifact_refs": [],
+              "record_refs": [
+                "$call:0:record_ref"
+              ],
+              "state": "waiting_for_event"
+            }
+          },
+          "kind": "final"
+        }
+      ],
+      "input_index": 1,
+      "preflight_candidate_index": 1
+    },
+    {
+      "calls": [],
+      "faults": [
+        "lose_submit_response"
+      ],
+      "candidates": [
+        {
+          "document": {
+            "decision_reason": null,
+            "delivery": "reply",
+            "message": "Terraform run run-okjyXsDYXyMqqBYY applied successfully in workspace va1-postgres.",
+            "outcome": {
+              "artifact_refs": [],
+              "record_refs": [],
+              "state": "complete"
+            }
+          },
+          "kind": "final"
+        }
+      ],
+      "input_index": 2,
+      "preflight_candidate_index": 1
+    }
+  ]
+}

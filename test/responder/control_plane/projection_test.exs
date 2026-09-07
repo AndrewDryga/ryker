@@ -146,8 +146,8 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Map.has_key?(overview.fleet, :eligible_workers)
     assert length(overview.needs_attention) <= 20
 
-    page = Projection.episodes(%{"page" => "1", "q" => "100%_", "state" => "waiting_for_input"})
-    assert Enum.map(page.items, & &1.ref) == [target.episode.key]
+    page = Activity.list(%{"page" => "1", "q" => "100%_", "state" => "waiting_for_input"})
+    assert Enum.map(page.items, & &1.id) == [target.episode.id]
     assert page.pages == 1
 
     assert {:ok, detail} = Projection.episode(target.episode.key)
@@ -527,9 +527,12 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert [%{attempts: 2, measured: 1}] = snapshot.days
 
     assert [target_episode] =
-             Projection.episodes(%{"target" => "claude:opus/high@work"}).items
+             Activity.list(%{"target" => "claude:opus/high@work"}).items
 
-    assert target_episode.ref == episode_key!(measured.episode_id)
+    assert target_episode.id == measured.episode_id
+
+    assert target_episode.href ==
+             "/episodes/#{URI.encode_www_form(episode_key!(measured.episode_id))}"
   end
 
   test "cost and power-user totals follow each triggering input without double counting" do
@@ -1432,11 +1435,14 @@ defmodule Responder.ControlPlane.ProjectionTest do
 
     assert working_ref == working.episode.key
 
-    assert %{next_action: "operator_recovery"} = listed_episode(working.episode.key)
-    assert %{next_action: "external_event"} = listed_episode(waiting_event.episode.key)
-    assert %{next_action: "deliver_result"} = listed_episode(delivery.episode.key)
-    assert %{next_action: "complete"} = listed_episode(complete.episode.key)
-    assert %{next_action: "cancelled"} = listed_episode(cancelled.episode.key)
+    assert %{state: "blocked", bucket: "attention"} = listed_request(working.episode.id)
+
+    assert %{state: "waiting_for_event", bucket: "running"} =
+             listed_request(waiting_event.episode.id)
+
+    assert %{state: "delivery_pending", bucket: "running"} = listed_request(delivery.episode.id)
+    assert %{state: "complete", bucket: "done"} = listed_request(complete.episode.id)
+    assert %{state: "cancelled", bucket: "done"} = listed_request(cancelled.episode.id)
 
     assert {:ok, waiting_detail} = Projection.episode(waiting_event.episode.key)
     assert waiting_detail.trace.stopped.headline == "Waiting for an external event"
@@ -1501,8 +1507,9 @@ defmodule Responder.ControlPlane.ProjectionTest do
     assert Projection.episode(:invalid) == :not_found
     assert Projection.episode("missing") == :not_found
 
-    assert Projection.findings(%{}) == []
-    assert map_size(Projection.callbacks()) == 38
+    assert Projection.findings(%{}) == %{items: [], total: 0, page: 1, pages: 1}
+    assert map_size(Projection.callbacks()) == 37
+    refute Map.has_key?(Projection.callbacks(), :episodes)
     assert is_function(Projection.callbacks().behavior, 1)
     assert is_function(Projection.callbacks().behaviors, 2)
     refute Map.has_key?(Projection.callbacks(), :audit)
@@ -2224,26 +2231,6 @@ defmodule Responder.ControlPlane.ProjectionTest do
     refute inspect(snapshot) =~ "private schema"
   end
 
-  test "episode paging and filters fail closed to bounded defaults" do
-    target = start_episode!("paging")
-
-    assert %{page: 1, pages: 1} = Projection.episodes(%{"page" => "0"})
-    assert %{page: 1} = Projection.episodes(%{"page" => "not-a-number"})
-    assert %{page: 1} = Projection.episodes([])
-    assert %{items: []} = Projection.episodes(%{"state" => "complete"})
-    assert %{items: []} = Projection.episodes(%{"state" => "cancelled"})
-    assert %{items: []} = Projection.episodes(%{"state" => "waiting_for_event"})
-
-    assert %{items: [%{ref: invalid_search_ref}]} =
-             Projection.episodes(%{"q" => String.duplicate("x", 121)})
-
-    assert invalid_search_ref == target.episode.key
-    assert %{items: [%{ref: ref}]} = Projection.episodes(%{"q" => "paging"})
-    assert ref == target.episode.key
-
-    assert %{items: [%{ref: ^ref}]} = Projection.episodes(%{"state" => "working"})
-  end
-
   test "memory projection returns every bounded operator-owned collection" do
     assert %{behaviors: behaviors, memories: memories, schedules: schedules} = Projection.memory()
     assert is_list(behaviors)
@@ -2409,10 +2396,10 @@ defmodule Responder.ControlPlane.ProjectionTest do
     transition
   end
 
-  defp listed_episode(ref) do
-    Projection.episodes(%{})
+  defp listed_request(id) do
+    Activity.list(%{"mode" => "all"})
     |> Map.fetch!(:items)
-    |> Enum.find(&(&1.ref == ref))
+    |> Enum.find(&(&1.id == id))
   end
 
   defp record_activity!(episode_id, session_id, sequence, kind, payload) do

@@ -3,8 +3,9 @@ defmodule Responder.ControlPlane.RouterTest do
 
   import Plug.Conn
   import Plug.Test
+  import Phoenix.LiveViewTest
 
-  alias Responder.ControlPlane.{CSRF, HTML, Router}
+  alias Responder.ControlPlane.{CSRF, EpisodePage, HTML, Router}
 
   @secret String.duplicate("s", 32)
 
@@ -35,8 +36,7 @@ defmodule Responder.ControlPlane.RouterTest do
           "/failures/delivery/delivery%3Aone",
           "/workspaces",
           "/memory",
-          "/schedules/schedule%3Aone",
-          "/episodes/episode%3Aone"
+          "/schedules/schedule%3Aone"
         ] do
       conn = request(:get, path)
       assert conn.status == 200
@@ -873,25 +873,47 @@ defmodule Responder.ControlPlane.RouterTest do
     refute guide.resp_body =~ "token="
   end
 
-  test "lists bounded episodes and renders one whitelisted detail record" do
-    list = request(:get, "/episodes?state=working&page=2")
-    assert list.status == 200
-    assert list.resp_body =~ "episode:one"
-    assert list.resp_body =~ "working"
+  test "the native episode renders recovery and confirmed action controls without exposing extra fields" do
+    {:ok, detail} = options().projection.episode.("episode:one")
 
-    detail = request(:get, "/episodes/episode%3Aone")
-    assert detail.status == 200
-    assert detail.resp_body =~ "Execution trace"
-    assert detail.resp_body =~ "What came in"
-    assert detail.resp_body =~ "trace-step"
-    assert detail.resp_body =~ "input admitted"
-    assert detail.resp_body =~ "Why it stopped"
-    assert detail.resp_body =~ "3 candidate attempts"
-    assert detail.resp_body =~ "/failures/work/episode%3Aone"
-    assert detail.resp_body =~ "Open source message · Slack"
-    assert detail.resp_body =~ "/actions/episode/episode%3Aone/resolve"
-    assert detail.resp_body =~ "/actions/episode/episode%3Aone/review"
-    refute detail.resp_body =~ "raw-secret-value"
+    trace =
+      Map.merge(detail.trace, %{
+        case_file: %{
+          title: "Episode one",
+          repository: nil,
+          conversation: [],
+          awaiting_reply: false
+        },
+        received_at: detail.episode.created_at,
+        history: %{truncated: false},
+        steps: Enum.map(hd(detail.trace.chapters).steps, &Map.put(&1, :band, :input))
+      })
+
+    html =
+      render_component(&EpisodePage.render/1,
+        snapshot: %{detail | trace: trace},
+        requests: nil,
+        params: %{}
+      )
+
+    assert html =~ "Execution timeline"
+    assert html =~ "Input admitted"
+    assert html =~ "Work needs operator recovery"
+    assert html =~ "3 candidate attempts"
+    assert html =~ "/failures/work/episode%3Aone"
+    assert html =~ "Open source message"
+    assert html =~ "https://slack.com/archives/C456/p1787832000001000"
+    assert html =~ "/actions/episode/episode%3Aone/resolve"
+    assert html =~ "/actions/episode/episode%3Aone/review"
+    refute html =~ "raw-secret-value"
+    document = LazyHTML.from_document(html)
+    assert LazyHTML.query(document, "a[href^='/actions/']") |> LazyHTML.to_tree() == []
+
+    assert LazyHTML.query(
+             document,
+             "form[method='get'][action^='/actions/'] button[type='submit']"
+           )
+           |> Enum.count() == 2
   end
 
   test "episode resolution and review use exact confirmed local actions" do
@@ -1192,7 +1214,7 @@ defmodule Responder.ControlPlane.RouterTest do
           {"/incidents/incident%3Aone", "Room lifecycle"},
           {"/schedules", "Recurring and one-shot work"},
           {"/schedules/schedule%3Aone", "Execution history"},
-          {"/subscriptions", "External event subscriptions"},
+          {"/subscriptions", "Wait subscriptions"},
           {"/channels", "Slack conversation roster"},
           {"/channels/T123/C456", "Conversation continuity"},
           {"/repositories", "Where Responder can work"},
@@ -1326,18 +1348,13 @@ defmodule Responder.ControlPlane.RouterTest do
     assert request(:get, "/", "::1", {0, 0, 0, 0, 0, 0, 0, 1}).status == 200
   end
 
-  test "episode details distinguish missing and unavailable projections" do
-    assert request(:get, "/episodes/missing").status == 404
-
-    unavailable =
-      options()
-      |> put_in([:projection, :episode], fn _ref -> {:error, :database_unavailable} end)
-      |> then(&request_with_options(:get, "/episodes/episode%3Aone", nil, &1))
-
-    assert unavailable.status == 503
-
-    invalid_ref = "/episodes/" <> String.duplicate("a", 3_073)
-    assert request(:get, invalid_ref).status == 404
+  test "native episode pages have no parallel static routes or snapshots" do
+    for path <- ["/episodes", "/episodes/episode%3Aone", "/episodes/episode%3Aone/requests"] do
+      response = request(:get, path)
+      assert response.status == 404
+      assert get_resp_header(response, "location") == []
+      assert Router.snapshot(path, "", options()).status == 404
+    end
   end
 
   test "usage rendering distinguishes missing prices measurements and destination ownership" do
@@ -1868,23 +1885,6 @@ defmodule Responder.ControlPlane.RouterTest do
           _ref ->
             :not_found
         end,
-        episodes: fn params ->
-          send(parent, {:episode_filters, params})
-
-          %{
-            items: [
-              %{
-                destination: "slack:T123:C456",
-                next_action: "continue_work",
-                ref: "episode:one",
-                state: :working,
-                updated_at: ~U[2026-08-28 12:00:00Z]
-              }
-            ],
-            page: 2,
-            pages: 2
-          }
-        end,
         failures: fn _params ->
           {:ok,
            [
@@ -1948,7 +1948,7 @@ defmodule Responder.ControlPlane.RouterTest do
              }
            ]}
         end,
-        findings: fn _params -> [] end,
+        findings: fn _params -> %{items: [], total: 0, page: 1, pages: 1} end,
         incidents: fn _params ->
           [
             %{
@@ -2463,6 +2463,7 @@ defmodule Responder.ControlPlane.RouterTest do
               revision: 1,
               source_kind: "github",
               status: :active,
+              trigger_type: "source_event",
               updated_at: ~U[2026-08-28 12:00:00Z]
             }
           ]

@@ -8,6 +8,9 @@ defmodule Responder.ControlPlane.RequestContextHTML do
     "input" =>
       {"Messages supplied to this request", "conversation", "Incoming message",
        "The message that started this routing call."},
+    "slack_addressing" =>
+      {"Who this Slack message addresses", "conversation", "Slack addressing at receipt",
+       "The audience and host-configured Responder user reference saved on the first receipt. This context does not grant authority."},
     "inputs" =>
       {"Messages supplied to this request", "conversation", "Episode input history",
        "Messages selected for this work turn, in their retained order. Any recorded budget omissions are shown below."},
@@ -69,7 +72,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       {"Previous submission", "memory", "Work continuation",
        "The retained parent submission reference for this continuing turn."}
   }
-  @order ~w(input inputs current_inputs continuity operator_context records related_outcomes prior_outcome candidates responder_state_tools source_and_action_tools workspace repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
+  @order ~w(input slack_addressing inputs current_inputs continuity operator_context records related_outcomes prior_outcome candidates responder_state_tools source_and_action_tools workspace repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
 
   @doc "The complete submitted components, grouped for reading without hiding source labels."
   def briefing(sections, kind, prefix) do

@@ -607,7 +607,12 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     |> Enum.with_index(1)
     |> Enum.map(fn {record, index} ->
       card =
-        case Card.project(%{record | status: :open, updated_at: record.inserted_at}) do
+        case Card.project(%{
+               record
+               | status: :open,
+                 updated_at: record.inserted_at,
+                 wait_error: nil
+             }) do
           {:ok, projected} -> projected
           :ignore -> nil
         end
@@ -625,6 +630,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
           state: "",
           summary: record_summary(record, card),
           title: record_title(record, card),
+          current_warning: Card.wait_warning(record),
           tone: nil
         }
       )
@@ -1553,6 +1559,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
       result_ref: Map.get(attributes, :result_ref),
       delivery_ref: Map.get(attributes, :delivery_ref),
       artifacts: Map.get(attributes, :artifacts, []),
+      current_warning: Map.get(attributes, :current_warning),
       at: at,
       band: band,
       details: Map.fetch!(attributes, :details),
@@ -1611,7 +1618,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   defp kernel_summary(:result_accepted), do: "Responder accepted the host-validated result."
 
   defp kernel_summary(:delivery_confirmed),
-    do: "The bound transport confirmed the visible result."
+    do: "Delivery was confirmed."
 
   defp kernel_summary(:episode_cancelled), do: "The episode reached a durable cancelled state."
 

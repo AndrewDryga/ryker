@@ -2,6 +2,31 @@ defmodule Responder.ControlPlane.RequestContextHTMLTest do
   use ExUnit.Case, async: true
   alias Responder.ControlPlane.{InspectionRedactor, RequestContextHTML}
 
+  test "Slack addressing is a collapsed message component with its exact retained source" do
+    artifact =
+      InspectionRedactor.artifact(%{
+        "input" => %{"text" => "<@UOTHER> can you check this?"},
+        "slack_addressing" => %{"audience" => "ambient", "responder_user_ref" => "UBOT"}
+      })
+
+    html =
+      artifact |> RequestContextHTML.assembly("$.context", "routing-1") |> IO.iodata_to_binary()
+
+    document = LazyHTML.from_fragment(html)
+    messages = LazyHTML.query(document, ".prompt-group") |> Enum.at(0)
+    assert LazyHTML.text(messages) =~ "Messages"
+    assert LazyHTML.text(messages) =~ "Who this Slack message addresses"
+    component = LazyHTML.query(messages, "[data-source=slack_addressing]")
+    assert LazyHTML.text(component) =~ "$.context.slack_addressing"
+    assert LazyHTML.text(component) =~ "ambient"
+    assert LazyHTML.text(component) =~ "UBOT"
+    assert LazyHTML.text(component) =~ "first receipt"
+    assert LazyHTML.text(component) =~ "host-configured"
+    assert LazyHTML.text(component) =~ "does not grant authority"
+    assert Enum.empty?(LazyHTML.query(component, "[open]"))
+    assert html =~ "data-source=\"slack_addressing\""
+  end
+
   # A directory enhancement must not erase a name already retained with the
   # message: operators otherwise lose the author while inspecting a request.
   test "retained display names are not interpreted as Slack directory IDs" do

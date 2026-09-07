@@ -36,9 +36,9 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
     )
   end
 
-  @spec insert(Input.t(), Ecto.UUID.t(), :live | :shadow, Responder.Ingress.WorkProfile.t() | nil) ::
+  @spec insert(Input.t(), Ecto.UUID.t(), :live | :shadow, WorkProfile.t() | nil, map()) ::
           Ecto.Changeset.t()
-  def insert(%Input{} = input, id, execution_mode, work_profile)
+  def insert(%Input{} = input, id, execution_mode, work_profile, slack_addressing)
       when execution_mode in [:live, :shadow] do
     fields = %{
       actor_kind: input.actor.kind,
@@ -61,6 +61,8 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
       source_capabilities: input.source_capabilities,
       source_ref: input.source.ref,
       source_item_ref: input.source_item_ref,
+      slack_audience: slack_addressing.audience,
+      slack_bot_user_ref: slack_addressing.bot_user_ref,
       status: :pending,
       work_profile: work_profile && WorkProfile.document(work_profile),
       work_policy: work_profile && work_profile.policy,
@@ -69,19 +71,24 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
     }
 
     %Entry{}
-    |> cast(fields, Map.keys(fields))
+    |> cast(fields, Map.keys(fields) -- [:slack_audience, :slack_bot_user_ref])
+    # An explicitly empty identifier is malformed, not an old receipt with no metadata.
+    |> cast(fields, [:slack_audience, :slack_bot_user_ref], empty_values: [])
     |> validate_required(
       Map.keys(fields) --
         [
           :destination_thread_ref,
           :repository_ref,
           :source_item_ref,
+          :slack_audience,
+          :slack_bot_user_ref,
           :work_profile,
           :work_policy,
           :work_policy_digest
         ]
     )
     |> unique_constraint(:dedupe_key)
+    |> check_constraint(:slack_audience, name: :ingress_inbox_slack_addressing_valid)
     |> check_constraint(:execution_mode, name: :ingress_inbox_execution_mode_valid)
     |> check_constraint(:work_profile, name: :ingress_inbox_work_class_profile_valid)
     |> check_constraint(:work_policy, name: :ingress_inbox_work_profile_valid)
@@ -188,6 +195,10 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
   def block(%Entry{} = entry, attributes) do
     entry
     |> cast(attributes, [
+      :admission_context,
+      :admission_context_fingerprint,
+      :execution_generation,
+      :validation_generation,
       :last_error_code,
       :last_error_detail,
       :lease_expires_at,
@@ -197,6 +208,8 @@ defmodule Responder.Ingress.Inbox.EntryChangeset do
       :status
     ])
     |> validate_required([:last_error_code, :last_error_detail, :status])
+    |> validate_number(:execution_generation, greater_than_or_equal_to: 1)
+    |> validate_number(:validation_generation, greater_than_or_equal_to: 1)
     |> validate_length(:last_error_code, max: 128)
     |> validate_length(:last_error_detail, max: 4_096)
     |> check_constraint(:status, name: :ingress_inbox_decision_matches_status)

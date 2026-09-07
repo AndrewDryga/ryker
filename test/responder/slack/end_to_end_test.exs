@@ -104,7 +104,7 @@ defmodule Responder.Slack.EndToEndTest do
     assert [current] = execution.turn.submission["context"]["inputs"]["items"]
 
     assert current["content"]["content"]["text"] ==
-             "<@U-BOT> investigate checkout errors"
+             "<@UBOT> investigate checkout errors"
 
     {:ok, slack} = SlackAPI.start_link(self())
 
@@ -265,7 +265,7 @@ defmodule Responder.Slack.EndToEndTest do
       client: :directory,
       continuation: &Engagement.continuation?/1,
       directory: Directory,
-      identity: %{bot_ref: "B-BOT", bot_user_ref: "U-BOT", workspace_ref: "TSLACKENDTOEND"},
+      identity: %{bot_ref: "B-BOT", bot_user_ref: "UBOT", workspace_ref: "TSLACKENDTOEND"},
       inbox: Inbox,
       interaction_handler: InteractionHandler,
       interaction_options: %{},
@@ -288,7 +288,7 @@ defmodule Responder.Slack.EndToEndTest do
         "event" => %{
           "channel" => "C456",
           "event_ts" => "1787832001.000200",
-          "text" => "<@U-BOT> investigate checkout errors",
+          "text" => "<@UBOT> investigate checkout errors",
           "ts" => "1787832001.000200",
           "type" => "app_mention",
           "user" => "U123"

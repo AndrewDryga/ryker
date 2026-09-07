@@ -10,6 +10,7 @@ defmodule Responder.Evals.WorldCase do
 
   alias Responder.CanonicalJSON
   alias Responder.Evals.WorldMatch
+  alias Responder.Ingress.Input
 
   @root "testdata/scenarios"
   @maximum_scenario_bytes 512 * 1_024
@@ -36,7 +37,12 @@ defmodule Responder.Evals.WorldCase do
   @output_artifact_fields ~w(bytes data_base64 id media_type name sha256)
   @raw_candidate_fields ~w(bytes kind)
   @final_candidate_fields ~w(document kind)
-  @actor_fields ~w(actor_ref authority kind)
+  @input_event_fields ~w(actor_ref destination kind occurred_at payload)
+  @input_event_optional_fields ~w(source_item_ref)
+  @destination_fields ~w(conversation_ref thread_ref transport)
+  @wait_wakeup_fields ~w(kind occurred_at)
+  @actor_fields ~w(actor_ref authority input_profile kind)
+  @input_profile_fields ~w(actor event_kind occurred_at_source source source_capabilities)
   @actor_authorities ~w(
     operator read_only repository_feedback repository_write_offer schedule_offer source_event
   )
@@ -175,7 +181,7 @@ defmodule Responder.Evals.WorldCase do
          :ok <- provenance(scenario["provenance"]),
          :ok <- clock(scenario["clock"]),
          :ok <- actors(scenario["actors"]),
-         :ok <- object_list(scenario["events"], 2_048, :events),
+         :ok <- events(scenario["events"], scenario["actors"]),
          :ok <- world(scenario["world"], directory),
          :ok <- tags(scenario["tags"]),
          :ok <- host_replay(scenario["host_replay"], scenario["tags"]),
@@ -314,11 +320,100 @@ defmodule Responder.Evals.WorldCase do
 
   defp actors(_values), do: {:error, :actors}
 
-  defp actor(%{"actor_ref" => actor_ref, "authority" => authority, "kind" => kind} = actor) do
+  defp events(values, actors) do
+    with :ok <- object_list(values, 2_048, :events) do
+      Enum.reduce_while(values, :ok, fn value, :ok ->
+        validation_step(event(value, actors))
+      end)
+    end
+  end
+
+  defp event(%{"kind" => "input"} = value, actors) do
+    with :ok <- exact_fields(value, @input_event_fields, @input_event_optional_fields, :events),
+         :ok <- reference(value["actor_ref"], :events),
+         %{"input_profile" => profile} <-
+           Enum.find(actors, &(&1["actor_ref"] == value["actor_ref"])),
+         :ok <- destination(value["destination"]),
+         :ok <- optional_reference(value["source_item_ref"], :events),
+         :ok <- source_item_authority(profile, value["source_item_ref"]),
+         {:ok, _occurred_at, 0} <- DateTime.from_iso8601(value["occurred_at"]),
+         true <- is_map(value["payload"]) and map_size(value["payload"]) > 0 do
+      :ok
+    else
+      _invalid -> {:error, :events}
+    end
+  end
+
+  defp event(%{"kind" => "semantic_correction"} = value, _actors) do
+    with :ok <- exact_fields(value, ~w(actor_ref kind occurred_at payload), :events),
+         :ok <- reference(value["actor_ref"], :events),
+         {:ok, _occurred_at, 0} <- DateTime.from_iso8601(value["occurred_at"]),
+         true <- is_map(value["payload"]) and map_size(value["payload"]) > 0 do
+      :ok
+    else
+      _invalid -> {:error, :events}
+    end
+  end
+
+  defp event(_value, _actors), do: {:error, :events}
+
+  defp source_item_authority(
+         %{
+           "source" => %{"kind" => "github"},
+           "source_capabilities" => %{"react" => _capability}
+         },
+         source_item_ref
+       )
+       when is_binary(source_item_ref) do
+    case String.split(source_item_ref, ":", parts: 3) do
+      ["github", kind, id] when kind in ["issue_comment", "pull_request_review_comment"] ->
+        case Integer.parse(id) do
+          {id, ""} when id > 0 -> :ok
+          _invalid -> {:error, :events}
+        end
+
+      _invalid ->
+        {:error, :events}
+    end
+  end
+
+  defp source_item_authority(
+         %{
+           "source" => %{"kind" => "github"},
+           "source_capabilities" => %{"react" => _capability}
+         },
+         _source_item_ref
+       ),
+       do: {:error, :events}
+
+  defp source_item_authority(_profile, _source_item_ref), do: :ok
+
+  defp destination(%{} = value) do
+    with :ok <- exact_fields(value, @destination_fields, :events),
+         :ok <- reference(value["conversation_ref"], :events),
+         true <- is_nil(value["thread_ref"]) or reference(value["thread_ref"], :events) == :ok,
+         true <- value["transport"] in ~w(control_plane github slack) do
+      :ok
+    else
+      _invalid -> {:error, :events}
+    end
+  end
+
+  defp destination(_value), do: {:error, :events}
+
+  defp actor(
+         %{
+           "actor_ref" => actor_ref,
+           "authority" => authority,
+           "input_profile" => input_profile,
+           "kind" => kind
+         } = actor
+       ) do
     with :ok <- exact_fields(actor, @actor_fields, :actors),
          :ok <- reference(actor_ref, :actors),
          true <- authority in @actor_authorities,
-         true <- kind in @actor_kinds do
+         true <- kind in @actor_kinds,
+         :ok <- input_profile(actor_ref, input_profile) do
       :ok
     else
       _invalid -> {:error, :actors}
@@ -327,13 +422,105 @@ defmodule Responder.Evals.WorldCase do
 
   defp actor(_actor), do: {:error, :actors}
 
+  defp input_profile(
+         actor_ref,
+         %{
+           "actor" => %{"kind" => actor_kind, "ref" => actor_identity},
+           "event_kind" => event_kind,
+           "occurred_at_source" => occurred_at_source,
+           "source" => %{"kind" => source_kind, "ref" => source_ref},
+           "source_capabilities" => source_capabilities
+         } = profile
+       ) do
+    with :ok <- exact_fields(profile, @input_profile_fields, :actors),
+         {:ok, actor_kind} <- profile_atom(actor_kind, :actor),
+         {:ok, event_kind} <- profile_atom(event_kind, :event_kind),
+         {:ok, occurred_at_source} <- profile_atom(occurred_at_source, :occurred_at_source),
+         {:ok, input} <-
+           Input.new(%{
+             actor: %{kind: actor_kind, ref: actor_identity},
+             content: %{"kind" => "world_case_profile"},
+             destination: profile_destination(profile),
+             event_kind: event_kind,
+             event_ref: "world-case-profile",
+             native_input_id: "world-case-profile",
+             occurred_at: ~U[2026-01-01 00:00:00.000000Z],
+             occurred_at_source: occurred_at_source,
+             revision: 1,
+             source: %{kind: source_kind, ref: source_ref},
+             source_capabilities: source_capabilities,
+             source_item_ref: profile_source_item_ref(source_capabilities)
+           }),
+         true <- Input.actor_ref(input) == actor_ref do
+      :ok
+    else
+      _invalid -> {:error, :actors}
+    end
+  end
+
+  defp input_profile(_actor_ref, _profile), do: {:error, :actors}
+
+  defp profile_destination(%{
+         "source" => %{"kind" => "control_plane", "ref" => "local"},
+         "source_capabilities" => %{
+           "post_slack_message" => %{"destination_refs" => [conversation_ref]}
+         }
+       }) do
+    %{
+      conversation_ref: conversation_ref,
+      thread_ref: conversation_ref,
+      transport: "control_plane"
+    }
+  end
+
+  defp profile_destination(_profile) do
+    %{conversation_ref: "slack:TEVAL:CEVAL", thread_ref: "1788019200.000100", transport: "slack"}
+  end
+
+  defp profile_source_item_ref(capabilities) when map_size(capabilities) == 0, do: nil
+  defp profile_source_item_ref(_capabilities), do: "1788019200.000100"
+
+  defp profile_atom("app", :actor), do: {:ok, :app}
+  defp profile_atom("bot", :actor), do: {:ok, :bot}
+  defp profile_atom("system", :actor), do: {:ok, :system}
+  defp profile_atom("user", :actor), do: {:ok, :user}
+  defp profile_atom("message", :event_kind), do: {:ok, :message}
+  defp profile_atom("edit", :event_kind), do: {:ok, :edit}
+  defp profile_atom("delete", :event_kind), do: {:ok, :delete}
+  defp profile_atom("event", :event_kind), do: {:ok, :event}
+  defp profile_atom("source", :occurred_at_source), do: {:ok, :source}
+  defp profile_atom("ingress", :occurred_at_source), do: {:ok, :ingress}
+  defp profile_atom(_value, _field), do: {:error, :actors}
+
   defp world(value, directory) do
     with :ok <- exact_fields(value, @world_fields, :world),
          :ok <- repositories(value["repositories"], directory),
          :ok <- tool_rules(value["tool_rules"]) do
-      object_list(value["scheduled_events"], 2_048, :scheduled_events)
+      wait_wakeups(value["scheduled_events"])
     end
   end
+
+  defp wait_wakeups(values) do
+    with :ok <- object_list(values, 2_048, :scheduled_events) do
+      Enum.reduce_while(values, :ok, fn value, :ok ->
+        validation_step(wait_wakeup(value))
+      end)
+    end
+  end
+
+  defp validation_step(:ok), do: {:cont, :ok}
+  defp validation_step({:error, _field} = error), do: {:halt, error}
+
+  defp wait_wakeup(%{"kind" => "wait_wakeup"} = value) do
+    with :ok <- exact_fields(value, @wait_wakeup_fields, :scheduled_events),
+         {:ok, _occurred_at, 0} <- DateTime.from_iso8601(value["occurred_at"]) do
+      :ok
+    else
+      _invalid -> {:error, :scheduled_events}
+    end
+  end
+
+  defp wait_wakeup(_value), do: {:error, :scheduled_events}
 
   defp repositories(repositories, directory)
        when is_list(repositories) and length(repositories) <= 16 do
@@ -775,6 +962,17 @@ defmodule Responder.Evals.WorldCase do
 
   defp exact_fields(_value, _fields, field), do: {:error, field}
 
+  defp exact_fields(value, required, optional, _field) when is_map(value) do
+    fields = Map.keys(value)
+    allowed = MapSet.new(required ++ optional)
+
+    if Enum.all?(required, &(&1 in fields)) and MapSet.subset?(MapSet.new(fields), allowed),
+      do: :ok,
+      else: {:error, :fields}
+  end
+
+  defp exact_fields(_value, _required, _optional, field), do: {:error, field}
+
   defp canonical(value, maximum, field) do
     case CanonicalJSON.validate(value, max_bytes: maximum) do
       :ok -> :ok
@@ -793,6 +991,9 @@ defmodule Responder.Evals.WorldCase do
   end
 
   defp reference(_value, field), do: {:error, field}
+
+  defp optional_reference(nil, _field), do: :ok
+  defp optional_reference(value, field), do: reference(value, field)
 
   defp unique(cases) do
     ids = Enum.map(cases, & &1.id)

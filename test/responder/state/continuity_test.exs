@@ -8,6 +8,8 @@ defmodule Responder.State.ContinuityTest do
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
+  alias Responder.Fixtures.Learning, as: LearningFixtures
+  alias Responder.Ingress.{Inbox, Input}
   alias Responder.Repo
   alias Responder.Slack.{ChannelConfigurations, ChannelMembership}
 
@@ -25,9 +27,585 @@ defmodule Responder.State.ContinuityTest do
     SourceExposure
   }
 
-  alias Responder.Work.{Custody, FinalPreflight, Result, Submission}
+  alias Responder.Work.{Custody, FinalPreflight, Result, Submission, SubmissionBuilder}
 
   @now ~U[2026-09-04 12:00:00.000000Z]
+
+  for compact? <- [false, true], missing <- [[], nil, %{}] do
+    test "a #{inspect(missing)}-sourced #{if compact?, do: "rollup", else: "summary"} remains history, not model context" do
+      # Retained replay summaries defaulted to [] and could reintroduce prose with no revocable source.
+      {_entry, work, submission} = raw_work!()
+      assert {:ok, _} = Continuity.stage(work.state_token, state("website/haproxy-edge OOM"))
+      accept!(work, submission)
+
+      if unquote(compact?) do
+        Repo.update_all(ConversationSummary,
+          set: [updated_at: DateTime.add(DateTime.utc_now(), -120)]
+        )
+
+        assert {:ok, {:ok, 1}} =
+                 Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+      end
+
+      schema = if unquote(compact?), do: ConversationRollup, else: ConversationSummary
+      original = Repo.one!(schema)
+      context = Continuity.model_context(work.episode, "blitz-infra")
+      document = if unquote(compact?), do: hd(context["rollups"]), else: context["current"]
+
+      Repo.update!(
+        Ecto.Changeset.change(original, source_dependencies: unquote(Macro.escape(missing)))
+      )
+
+      current = Continuity.model_context(work.episode, "blitz-infra")
+      assert current["current"] == nil
+      assert current["related"] == []
+      assert current["rollups"] == []
+
+      assert Continuity.search_context(work.episode, "blitz-infra", "haproxy", "workspace", 20) ==
+               []
+
+      frozen = %{
+        "context" => %{"operator_context" => %{"continuity" => %{"related" => [document]}}}
+      }
+
+      assert {:error, :work_knowledge_context_stale} =
+               KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", frozen)
+
+      assert {:error, :work_knowledge_context_stale} =
+               KnowledgeSnapshot.expose(work.claim, [document])
+
+      preserved = Repo.get!(schema, original.id)
+      assert preserved.state == original.state
+      assert preserved.state_fingerprint == original.state_fingerprint
+      assert preserved.source_dependencies == unquote(Macro.escape(missing))
+    end
+  end
+
+  test "a source-free Work result does not publish a reusable conversation summary" do
+    # Kernel tasks may run without ingress, but their lack of receipts must not become reusable prose.
+    work =
+      open_work!(
+        "source-free",
+        "control-plane:lab:source-free",
+        nil,
+        "responder",
+        "control_plane",
+        :live,
+        false
+      )
+
+    assert KnowledgeSnapshot.session_sources(work.claim.session.id) == []
+    assert {:ok, _} = Continuity.stage(work.state_token, state("Unattributed retained prose"))
+    assert %{turn: %{result_ref: result}} = accept!(work)
+    assert is_binary(result)
+    assert Repo.aggregate(ConversationSummary, :count) == 0
+    assert Repo.aggregate(ConversationSummaryDraft, :count) == 0
+  end
+
+  test "receiptless summaries cannot consume recall or compaction slots ahead of healthy sources" do
+    {_entry, work, submission} = raw_work!()
+    assert {:ok, _} = Continuity.stage(work.state_token, state("website/haproxy-edge OOM"))
+    accept!(work, submission)
+    original = Repo.one!(ConversationSummary)
+    old = DateTime.add(DateTime.utc_now(), -300)
+    Repo.update!(Ecto.Changeset.change(original, updated_at: old))
+
+    # The old compaction window was 100 rows, and automatic related recall was 64.
+    for index <- 1..101 do
+      id = Ecto.UUID.generate()
+
+      Repo.insert!(%{
+        original
+        | id: id,
+          identity_key: CanonicalJSON.digest(id),
+          ref: "continuity:#{id}",
+          thread_ref: "receiptless-#{index}",
+          source_dependencies: [],
+          updated_at: DateTime.add(old, index),
+          inserted_at: DateTime.add(old, index)
+      })
+    end
+
+    reader = %{work.episode | destination_thread_ref: "reader-thread"}
+    assert [related] = Continuity.model_context(reader, "blitz-infra")["related"]
+    assert related["source_ref"] == original.ref
+
+    assert [match] = Continuity.search_context(reader, "blitz-infra", "haproxy", "workspace", 1)
+    assert match["source_ref"] == original.ref
+
+    # Recall sorts newest first; compaction sorts oldest first. Exercise both full windows.
+    Repo.update_all(from(item in ConversationSummary, where: item.id != ^original.id),
+      set: [updated_at: DateTime.add(old, -120)]
+    )
+
+    assert {:ok, {:ok, 1}} =
+             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+
+    rollup = Repo.one!(ConversationRollup)
+    assert rollup.source_refs == [original.ref]
+    assert rollup.source_count == 1
+    assert rollup.state == original.state
+    assert Repo.aggregate(ConversationSummary, :count) == 101
+    assert Repo.all(ConversationSummary) |> Enum.all?(&(&1.source_dependencies == []))
+  end
+
+  for scope <- [
+        :public,
+        :private,
+        :private_membership,
+        :external_shared,
+        :left,
+        :other_transport,
+        :ambiguous_workspace,
+        :colon_channel,
+        :without_repository
+      ] do
+    test "an unsourced #{scope} rollup cannot absorb sourced prose or block another compaction group" do
+      {_entry, work, submission} = raw_work!()
+      assert {:ok, _} = Continuity.stage(work.state_token, state("website/haproxy-edge OOM"))
+      accept!(work, submission)
+      {summary, scope_kind} = compaction_scope!(Repo.one!(ConversationSummary), unquote(scope))
+      old = DateTime.add(DateTime.utc_now(), -8 * 86_400)
+      summary = Repo.update!(Ecto.Changeset.change(summary, updated_at: old))
+
+      assert {:ok, {:ok, 1}} =
+               Repo.transaction(fn -> Continuity.compact_in_transaction(60, 14 * 86_400) end)
+
+      rollup = Repo.one!(ConversationRollup)
+      assert rollup.scope_kind == scope_kind
+      rollup = Repo.update!(Ecto.Changeset.change(rollup, source_dependencies: []))
+      Repo.insert!(summary)
+
+      blocked =
+        for index <- 1..99 do
+          id = Ecto.UUID.generate()
+
+          Repo.insert!(%{
+            summary
+            | id: id,
+              identity_key: CanonicalJSON.digest(id),
+              ref: "continuity:#{id}",
+              thread_ref: "blocked-#{index}"
+          })
+        end
+
+      healthy_id = Ecto.UUID.generate()
+
+      healthy =
+        Repo.insert!(%{
+          summary
+          | id: healthy_id,
+            identity_key: CanonicalJSON.digest(healthy_id),
+            ref: "continuity:#{healthy_id}",
+            thread_ref: "healthy-independent",
+            updated_at: DateTime.add(old, 7 * 86_400)
+        })
+
+      assert {:ok, {:ok, 1}} =
+               Repo.transaction(fn -> Continuity.compact_in_transaction(60, 14 * 86_400) end)
+
+      assert Repo.get!(ConversationRollup, rollup.id) == rollup
+      assert Repo.get!(ConversationSummary, summary.id) == summary
+      assert Enum.all?(blocked, &(Repo.get!(ConversationSummary, &1.id) == &1))
+      assert Repo.get(ConversationSummary, healthy.id) == nil
+
+      assert [%ConversationRollup{source_refs: [ref]}] =
+               Repo.all(from(item in ConversationRollup, where: item.id != ^rollup.id))
+
+      assert ref == healthy.ref
+    end
+  end
+
+  defp compaction_scope!(summary, scope) do
+    # Storage fixtures vary only host scope metadata. Their state and receipts remain
+    # the same captured-input-derived data; this checks query/locked classifier parity.
+    {changes, kind} = compaction_scope_changes(scope)
+
+    {Repo.update!(Ecto.Changeset.change(summary, changes)), kind}
+  end
+
+  defp compaction_scope_changes(:public), do: {[], :repository}
+  defp compaction_scope_changes(:private), do: {[visibility: :private], :conversation}
+  defp compaction_scope_changes(:other_transport), do: {[transport: "webhook"], :conversation}
+  defp compaction_scope_changes(:without_repository), do: {[repository_ref: nil], :conversation}
+
+  defp compaction_scope_changes(:private_membership) do
+    Repo.update_all(ChannelMembership, set: [private: true])
+    {[], :conversation}
+  end
+
+  defp compaction_scope_changes(:external_shared) do
+    Repo.update_all(ChannelMembership, set: [external_shared: true])
+    {[], :conversation}
+  end
+
+  defp compaction_scope_changes(:left) do
+    Repo.update_all(ChannelMembership, set: [status: :left, left_at: @now])
+    {[], :conversation}
+  end
+
+  defp compaction_scope_changes(:ambiguous_workspace) do
+    joined!("T:extra", "CANY")
+    {[workspace_ref: "slack:T:extra", conversation_ref: "slack:T:extra:CANY"], :conversation}
+  end
+
+  defp compaction_scope_changes(:colon_channel) do
+    joined!("TANY", "C:extra")
+    {[workspace_ref: "slack:TANY", conversation_ref: "slack:TANY:C:extra"], :repository}
+  end
+
+  test "raw Work inputs establish source receipts even when admission learned no note" do
+    # Actual replay messages with nil observation notes still enter Work. Without
+    # raw receipts their facts survived deletion when copied into a later summary.
+    {entry, work, _submission} = raw_work!()
+    receipts = KnowledgeSnapshot.session_sources(work.claim.session.id)
+    assert Enum.any?(receipts, &(&1["source_input_id"] == entry.id))
+  end
+
+  for event_kind <- [:edit, :delete] do
+    test "a #{event_kind} to raw input withdraws its summary without requiring prior knowledge" do
+      {entry, work, submission} = raw_work!()
+      situation = "Grafana reported website/haproxy-edge OOM on nomad-hvn01."
+      assert {:ok, _} = Continuity.stage(work.state_token, state(situation))
+      accept!(work, submission)
+      assert Continuity.model_context(work.episode, "blitz-infra")["current"] != nil
+
+      changed = %{
+        entry
+        | id: Ecto.UUID.generate(),
+          revision: entry.revision + 1,
+          event_kind: unquote(event_kind),
+          event_fingerprint: String.duplicate("f", 64)
+      }
+
+      assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(changed) end)
+      assert Continuity.model_context(work.episode, "blitz-infra")["current"] == nil
+
+      assert Continuity.search_context(
+               work.episode,
+               "blitz-infra",
+               "nomad-hvn01",
+               "workspace",
+               20
+             ) == []
+    end
+  end
+
+  for field <- ["source_event_id", "source_dependencies"] do
+    test "raw Work authorization rejects missing #{field} instead of treating it as unsourced" do
+      {_entry, work, submission} = raw_work!()
+
+      changed =
+        update_in(submission, ["context", "inputs", "items"], fn [input] ->
+          [Map.delete(input, unquote(field))]
+        end)
+
+      assert {:error, :work_knowledge_context_stale} =
+               KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", changed)
+    end
+  end
+
+  test "raw Work authorization rejects erased and falsified host receipts" do
+    {_entry, work, submission} = raw_work!()
+
+    for replacement <- [[], [%{"fingerprint" => String.duplicate("f", 64)}], nil] do
+      changed =
+        update_in(submission, ["context", "inputs", "items"], fn [input] ->
+          [Map.put(input, "source_dependencies", replacement)]
+        end)
+
+      assert {:error, :work_knowledge_context_stale} =
+               KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", changed)
+    end
+  end
+
+  test "payload receipt fields cannot replace the host's raw input lineage" do
+    {entry, work, submission} = raw_work!()
+    [item] = get_in(submission, ["context", "inputs", "items"])
+    event = Repo.get!(Responder.Episodes.Event, item["source_event_id"])
+    payload = Map.put(event.payload["payload"], "source_dependencies", [])
+
+    Repo.update!(
+      Ecto.Changeset.change(event, payload: Map.put(event.payload, "payload", payload))
+    )
+
+    assert {:ok, rebuilt} = SubmissionBuilder.build(work.claim)
+    [item] = get_in(rebuilt, ["context", "inputs", "items"])
+    assert item["content"]["source_dependencies"] == []
+    assert Enum.any?(item["source_dependencies"], &(&1["source_input_id"] == entry.id))
+    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", rebuilt)
+  end
+
+  test "historical truncation retains exact raw lineage and malformed ingress fails closed" do
+    {entry, work, _submission} = raw_work!()
+    claim = %{work.claim | episode: %{work.episode | active_input_refs: []}}
+    assert {:ok, rebuilt} = SubmissionBuilder.build(claim)
+    [historical] = get_in(rebuilt, ["context", "inputs", "items"])
+    assert historical["content"]["truncated"]
+    assert Enum.any?(historical["source_dependencies"], &(&1["source_input_id"] == entry.id))
+    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", rebuilt)
+
+    event = Repo.get!(Responder.Episodes.Event, historical["source_event_id"])
+    payload = Map.delete(event.payload["payload"], "native_input_id")
+
+    Repo.update!(
+      Ecto.Changeset.change(event, payload: Map.put(event.payload, "payload", payload))
+    )
+
+    assert {:ok, malformed} = SubmissionBuilder.build(work.claim)
+
+    assert {:error, :work_knowledge_context_stale} =
+             KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", malformed)
+  end
+
+  test "withdrawn historical inputs become no-prose tombstones but active requests fail closed" do
+    {entry, work, _submission} = raw_work!()
+    withdraw_raw!(entry)
+
+    assert {:ok, active} = SubmissionBuilder.build(work.claim)
+    [active_input] = get_in(active, ["context", "inputs", "items"])
+    assert active_input["current"]
+    assert active_input["source_dependencies"] == nil
+
+    assert {:error, :work_knowledge_context_stale} =
+             KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", active)
+
+    claim = %{work.claim | episode: %{work.episode | active_input_refs: []}}
+    assert {:ok, rebuilt} = SubmissionBuilder.build(claim)
+    [historical] = get_in(rebuilt, ["context", "inputs", "items"])
+    assert historical["content"] == %{"unavailable" => "source_not_current"}
+    refute Jason.encode!(historical) =~ "nomad-hvn01"
+    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", rebuilt)
+  end
+
+  test "a delta's withdrawn first input cannot reintroduce its original prose" do
+    {entry, work, submission} = raw_work!()
+    accepted = accept!(work, submission)
+    withdraw_raw!(entry)
+
+    claim = %{
+      work.claim
+      | episode: accepted.episode,
+        turn: %{work.claim.turn | id: Ecto.UUID.generate()}
+    }
+
+    assert {:ok, delta} = SubmissionBuilder.build(claim)
+    assert delta["context"]["mode"] == "continuation"
+    first = get_in(delta, ["context", "continuity", "first_input"])
+    assert first["content"] == %{"unavailable" => "source_not_current"}
+    refute Jason.encode!(first) =~ "nomad-hvn01"
+    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", delta)
+
+    assert {:error, :work_knowledge_context_stale} =
+             KnowledgeSnapshot.authorize_session(work.episode, work.claim.session)
+  end
+
+  test "a current delete envelope cannot reintroduce the retained body it withdraws" do
+    {entry, work, submission} = raw_work!()
+
+    deleted = %{
+      entry
+      | id: Ecto.UUID.generate(),
+        revision: entry.revision + 1,
+        event_kind: :delete,
+        dedupe_key: entry.dedupe_key <> ":deleted",
+        decision_ref: entry.decision_ref <> ":deleted"
+    }
+
+    Repo.insert!(deleted)
+    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(deleted) end)
+    [original] = get_in(submission, ["context", "inputs", "items"])
+    event = Repo.get!(Responder.Episodes.Event, original["source_event_id"])
+
+    envelope =
+      original["content"]
+      |> Map.put("revision", deleted.revision)
+      |> Map.put("event_kind", "delete")
+
+    assert Jason.encode!(envelope) =~ "nomad-hvn01"
+
+    Repo.update!(
+      Ecto.Changeset.change(event, payload: Map.put(event.payload, "payload", envelope))
+    )
+
+    assert LearningSources.for_work_input(envelope) == nil
+
+    raw =
+      put_in(submission, ["context", "inputs", "items"], [%{original | "content" => envelope}])
+
+    assert {:error, :work_knowledge_context_stale} =
+             KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", raw)
+
+    assert {:ok, current} = SubmissionBuilder.build(work.claim)
+    [notice] = get_in(current, ["context", "inputs", "items"])
+    assert notice["content"] == %{"event_kind" => "delete", "unavailable" => "source_deleted"}
+    refute Jason.encode!(current) =~ "nomad-hvn01"
+    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", current)
+
+    assert {:error, :work_knowledge_context_stale} =
+             KnowledgeSnapshot.authorize_session(work.episode, work.claim.session)
+
+    claim = %{work.claim | episode: %{work.episode | active_input_refs: []}}
+    assert {:ok, historical} = SubmissionBuilder.build(claim)
+    [tombstone] = get_in(historical, ["context", "inputs", "items"])
+    assert tombstone["content"] == notice["content"]
+    refute Jason.encode!(tombstone) =~ "nomad-hvn01"
+  end
+
+  for {kind, source_ref, actor_ref, content_kind} <- [
+        {"schedule", "schedule:01993d45-d400-7000-8000-000000000001", "schedule",
+         "scheduled_task"},
+        {"system", "responder", "event-wait-deadline", "deadline_elapsed"},
+        {"system", "emisar", "emisar-approval-monitor", "emisar_approval_terminal"},
+        {"system", "publication-lifecycle", "publication-lifecycle", "publication_lifecycle"}
+      ] do
+    test "host-origin #{source_ref} work does not require a nonexistent ingress receipt" do
+      # These are the source contracts authored by Schedules, EventWaits, Approvals
+      # and Followups. They use Input.document but deliberately bypass the inbox.
+      work =
+        open_work!(
+          unquote(content_kind),
+          "control-plane:lab:host-input",
+          nil,
+          nil,
+          "control_plane",
+          :live,
+          false
+        )
+
+      assert {:ok, input} =
+               Input.new(%{
+                 actor: %{kind: :system, ref: unquote(actor_ref)},
+                 content: %{"kind" => unquote(content_kind)},
+                 destination: %{
+                   transport: "control_plane",
+                   conversation_ref: work.episode.destination_conversation_ref,
+                   thread_ref: nil
+                 },
+                 event_kind: :event,
+                 event_ref: "host-event:#{work.episode.id}",
+                 native_input_id: "host-input:#{work.episode.id}",
+                 occurred_at: @now,
+                 occurred_at_source: :source,
+                 revision: 1,
+                 source: %{kind: unquote(kind), ref: unquote(source_ref)},
+                 source_capabilities: %{},
+                 source_item_ref: nil
+               })
+
+      event = Repo.get_by!(Responder.Episodes.Event, episode_id: work.episode.id)
+
+      Repo.update!(
+        Ecto.Changeset.change(event,
+          payload: Map.put(event.payload, "payload", Input.document(input))
+        )
+      )
+
+      assert Repo.aggregate(ConversationObservation, :count) == 0
+      assert {:ok, submission} = SubmissionBuilder.build(work.claim)
+      [item] = get_in(submission, ["context", "inputs", "items"])
+      assert item["content"]["content"]["kind"] == unquote(content_kind)
+      assert item["source_dependencies"] == []
+      claim = %{work.claim | turn: %{work.claim.turn | submission: submission}}
+      assert :ok = KnowledgeSnapshot.expose_submission(claim)
+    end
+  end
+
+  defp withdraw_raw!(entry) do
+    changed = %{
+      entry
+      | id: Ecto.UUID.generate(),
+        revision: entry.revision + 1,
+        event_kind: :delete,
+        event_fingerprint: String.duplicate("f", 64)
+    }
+
+    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(changed) end)
+  end
+
+  defp raw_work! do
+    [entry | _] = LearningFixtures.inputs!()
+    ["slack", workspace, channel] = String.split(entry.destination_conversation_ref, ":")
+    joined!(workspace, channel)
+    episode = Repo.get!(Responder.Episodes.Episode, entry.episode_id)
+
+    assert {:ok, input} =
+             Input.new(%{
+               actor: %{kind: entry.actor_kind, ref: entry.actor_ref},
+               content: entry.content,
+               destination: %{
+                 transport: entry.destination_transport,
+                 conversation_ref: entry.destination_conversation_ref,
+                 thread_ref: entry.destination_thread_ref
+               },
+               event_kind: entry.event_kind,
+               event_ref: entry.event_ref,
+               native_input_id: entry.native_input_id,
+               occurred_at: entry.occurred_at,
+               occurred_at_source: entry.occurred_at_source,
+               revision: entry.revision,
+               source: %{kind: entry.source_kind, ref: entry.source_ref},
+               source_capabilities: entry.source_capabilities,
+               source_item_ref: entry.source_item_ref
+             })
+
+    # The retained fixture seeds the kernel with content only. Production admission
+    # submits the authenticated envelope; retain its exact harvested content here.
+    event =
+      Repo.one!(
+        from(event in Responder.Episodes.Event,
+          where: event.episode_id == ^episode.id and event.kind == :input_admitted
+        )
+      )
+
+    Repo.update!(
+      Ecto.Changeset.change(event,
+        payload: Map.put(event.payload, "payload", Input.document(input))
+      )
+    )
+
+    assert {:ok, _} =
+             Custody.pin_episode(
+               episode.id,
+               "responder-read",
+               String.duplicate("a", 64),
+               "blitz-infra"
+             )
+
+    assert {:ok, claim} = Custody.claim_next("raw-source-review", 60, :work)
+    assert claim.episode.id == episode.id
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+
+    assert Enum.any?(
+             get_in(submission, ["context", "inputs", "items"]),
+             &(&1["content"] == Input.document(input))
+           )
+
+    assert get_in(submission, ["context", "operator_context", "continuity", "knowledge"]) in [
+             nil,
+             []
+           ]
+
+    assert {:ok, turn} =
+             Custody.freeze_submission(
+               episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission
+             )
+
+    claim = %{claim | turn: turn}
+    assert :ok = KnowledgeSnapshot.expose_submission(claim)
+
+    work = %{
+      claim: claim,
+      episode: episode,
+      state_token: "state:#{turn.id}",
+      suffix: "raw-source-review"
+    }
+
+    {entry, work, submission}
+  end
 
   for boundary <- [:count, :bytes] do
     test "#{boundary} source overflow cannot publish a summary without its expiry receipts" do
@@ -761,7 +1339,19 @@ defmodule Responder.State.ContinuityTest do
 
   test "channel deletion removes staged continuity and fences every later write" do
     joined!("T123", "CDELETED")
-    work = open_work!("deleted-channel", "slack:T123:CDELETED", nil, "responder")
+    # This kernel-only acceptance checks the deleted-channel write fence, independently
+    # of the source-disclosure fence that rejects a stale Slack model submission.
+    work =
+      open_work!(
+        "deleted-channel",
+        "slack:T123:CDELETED",
+        nil,
+        "responder",
+        "slack",
+        :live,
+        false
+      )
+
     summary = state("Delete before acceptance")
 
     assert {:ok, _draft} = Continuity.stage(work.state_token, summary)
@@ -922,27 +1512,29 @@ defmodule Responder.State.ContinuityTest do
          thread_ref,
          repository_ref,
          transport \\ "slack",
-         mode \\ :live
+         mode \\ :live,
+         source? \\ true
        ) do
     episode_id = Ecto.UUID.generate()
     turn_ref = "turn:continuity:#{suffix}:#{episode_id}"
 
-    assert {:ok, transition} =
-             Episodes.apply(
-               EpisodeFixtures.admit_input(%{
-                 destination: %{
-                   conversation_ref: conversation_ref,
-                   thread_ref: thread_ref,
-                   transport: transport
-                 },
-                 episode_id: episode_id,
-                 execution_mode: mode,
-                 episode_key: "continuity:#{suffix}:#{episode_id}",
-                 native_input_id: "slack-message:continuity:#{suffix}:#{episode_id}",
-                 occurred_at: @now,
-                 turn_ref: turn_ref
-               })
-             )
+    command =
+      EpisodeFixtures.admit_input(%{
+        destination: %{
+          conversation_ref: conversation_ref,
+          thread_ref: thread_ref,
+          transport: transport
+        },
+        episode_id: episode_id,
+        execution_mode: mode,
+        episode_key: "continuity:#{suffix}:#{episode_id}",
+        native_input_id: "slack-message:continuity:#{suffix}:#{episode_id}",
+        occurred_at: @now,
+        turn_ref: turn_ref
+      })
+
+    command = if source?, do: received_command!(command), else: command
+    assert {:ok, transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
              Custody.pin_episode(
@@ -953,36 +1545,57 @@ defmodule Responder.State.ContinuityTest do
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:continuity:#{suffix}", 60, :work)
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
 
     %{
       claim: claim,
       episode: transition.episode,
+      submission: submission,
       state_token: "state:#{claim.turn.id}",
       suffix: suffix
     }
   end
 
-  defp accept!(work) do
+  defp received_command!(command) do
+    # These positive summary tests model a real input that the host received and later
+    # disclosed, rather than attributing synthetic kernel-only work to an unrelated note.
+    assert {:ok, input} =
+             Input.new(%{
+               actor: %{kind: :user, ref: "U1"},
+               content: command.payload,
+               destination: command.destination,
+               event_kind: :message,
+               event_ref: command.native_input_id,
+               native_input_id: command.native_input_id,
+               occurred_at: command.occurred_at,
+               occurred_at_source: :source,
+               revision: command.revision,
+               source: %{kind: command.destination.transport, ref: "continuity-test"},
+               source_capabilities: %{},
+               source_item_ref: command.native_input_id
+             })
+
+    assert {:ok, _receipt} = Inbox.record(input, execution_mode: command.execution_mode)
+    %{command | payload: Input.document(input)}
+  end
+
+  defp accept!(work, submission \\ nil) do
     candidate = ~s({"delivery":"none","decision_reason":"continuity updated"})
     sha256 = digest(candidate)
 
-    assert {:ok, submission} =
-             Submission.new(
-               %{"episode_id" => work.episode.id},
-               "Update continuity.",
-               %{"type" => "object"},
-               "work-final-v1"
-             )
+    submission = submission || work.submission
 
     claim = work.claim
 
-    assert {:ok, _turn} =
+    assert {:ok, frozen} =
              Custody.freeze_submission(
                work.episode.id,
                claim.turn.turn_ref,
                claim.lease_ref,
                submission
              )
+
+    assert :ok = KnowledgeSnapshot.expose_submission(%{claim | turn: frozen})
 
     assert {:ok, session} =
              Custody.bind_session(

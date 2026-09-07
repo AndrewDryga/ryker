@@ -3,6 +3,22 @@ defmodule Responder.State.InvestigationPayloadTest do
 
   alias Responder.State.InvestigationPayload
 
+  test "a fully sized Unicode finding leaves room for every advertised evidence reference" do
+    payload = %{
+      "what" => String.duplicate("🟢", 4_000),
+      "reason" => String.duplicate("🟢", 2_000),
+      "scope" => String.duplicate("🟢", 2_000),
+      "status" => "expected",
+      "cause_evidence" =>
+        Enum.map(
+          1..10,
+          &(String.duplicate("a", 253) <> String.pad_leading(to_string(&1), 3, "0"))
+        )
+    }
+
+    assert {:ok, ^payload} = InvestigationPayload.prepare("finding", payload)
+  end
+
   test "accepts the conditional finding, authority, and assessment shapes" do
     assert {:ok, _finding} =
              InvestigationPayload.prepare("finding", %{

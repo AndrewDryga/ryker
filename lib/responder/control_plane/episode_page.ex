@@ -281,6 +281,9 @@ defmodule Responder.ControlPlane.EpisodePage do
       <p :if={@step.summary && @step.summary != event_title(@step)} class="case-event-summary">
         {@step.summary}
       </p>
+      <p :if={@step[:current_warning]} class="action-error">
+        <strong>Current scheduling status:</strong> {@step.current_warning}
+      </p>
       <div :if={(@step[:artifacts] || []) != []} class="tool-evidence">
         <details
           :for={{item, index} <- Enum.with_index(@step.artifacts)}
@@ -439,6 +442,11 @@ defmodule Responder.ControlPlane.EpisodePage do
           delivered_message?(message),
           do: message.delivery_ref
 
+    confirmed_delivery_refs =
+      for %{id: "turn-" <> _, stage: "Delivery", state: "delivered", delivery_ref: ref} <- steps,
+          is_binary(ref) && ref != "",
+          do: ref
+
     briefing_ids =
       for %{phase: :submission, source_kind: :work} = item <- requests, do: item.id
 
@@ -451,6 +459,7 @@ defmodule Responder.ControlPlane.EpisodePage do
       input_ids: input_ids,
       result_refs: result_refs,
       delivery_refs: delivery_refs,
+      confirmed_delivery_refs: confirmed_delivery_refs,
       briefing_ids: briefing_ids
     }
   end
@@ -466,9 +475,16 @@ defmodule Responder.ControlPlane.EpisodePage do
   defp redundant_step?(%{state: "result accepted"} = step, copies),
     do: step[:result_ref] in copies.result_refs
 
-  defp redundant_step?(%{stage: "Delivery", state: state} = step, copies)
-       when state in ["delivered", "delivery confirmed"],
-       do: step[:delivery_ref] in copies.delivery_refs
+  # The message body can expire independently of its delivery receipt. Keep the
+  # exact turn receipt and hide only its matching kernel lifecycle confirmation.
+  defp redundant_step?(%{stage: "Delivery", state: "delivery confirmed"} = step, copies),
+    do:
+      step[:delivery_ref] in copies.delivery_refs ||
+        (String.starts_with?(step.id, "kernel-") &&
+           step[:delivery_ref] in copies.confirmed_delivery_refs)
+
+  defp redundant_step?(%{stage: "Delivery", state: "delivered"} = step, copies),
+    do: step[:delivery_ref] in copies.delivery_refs
 
   defp redundant_step?(step, copies),
     do:

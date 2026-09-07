@@ -9,6 +9,7 @@ defmodule Responder.GitHub.RouterTest do
   alias Responder.GitHub.{Auth, Binding, Router}
   alias Responder.Ingress.Inbox
   alias Responder.Publication.{Followup, Followups, LifecycleEvent}
+  alias Responder.State.{ConversationObservation, KnowledgeSnapshot, LearningSources}
   alias Responder.Work.{Custody, SubmissionBuilder}
 
   @secret String.duplicate("s", 32)
@@ -297,6 +298,250 @@ defmodule Responder.GitHub.RouterTest do
     assert current["content"]["content"]["payload"] == payload()
   end
 
+  for event_name <- ~w(issue_comment pull_request_review pull_request_review_comment) do
+    test "equivalent signed #{event_name} feedback preserves one wakeup and its original source receipt" do
+      # Re-encoding the same comment used to create two lifecycle receipts with
+      # one native revision: the second wakeup retried an idempotency conflict forever.
+      %{episode: episode, publication: publication} =
+        PublicationFixture.published!("github-feedback-equivalent-json-#{unquote(event_name)}",
+          github_repository: "octo/example",
+          pull_request_number: 42
+        )
+
+      payload =
+        case unquote(event_name) do
+          "issue_comment" -> payload()
+          "pull_request_review" -> review_payload()
+          "pull_request_review_comment" -> review_comment_payload()
+        end
+
+      compact = Jason.encode!(payload)
+      pretty = Jason.encode!(payload, pretty: true)
+      assert compact != pretty
+      assert Jason.decode!(compact) == Jason.decode!(pretty)
+
+      original =
+        request(compact,
+          delivery_ref: "original-feedback-delivery",
+          event_name: unquote(event_name)
+        )
+
+      assert original.status == 202
+      first_ref = Jason.decode!(original.resp_body)["publication_event_ref"]
+      first = Repo.get_by!(LifecycleEvent, ref: first_ref)
+      source = Repo.get_by!(ConversationObservation, source_input_id: first.id)
+
+      equivalent =
+        request(pretty,
+          delivery_ref: "equivalent-feedback-delivery",
+          event_name: unquote(event_name)
+        )
+
+      assert equivalent.status == 202
+
+      assert Jason.decode!(equivalent.resp_body) == %{
+               "publication_event_ref" => first_ref,
+               "status" => "duplicate"
+             }
+
+      assert Repo.get!(LifecycleEvent, first.id) == first
+      assert Repo.get!(ConversationObservation, source.id) == source
+      assert first.observation["content"]["delivery_ref"] == "original-feedback-delivery"
+
+      assert {:ok, claim} = Followups.claim_delivery("equivalent-feedback", 60)
+      assert claim.event.id == first.id
+      assert {:ok, admitted} = Followups.admit_wakeup(first.ref, claim.lease_ref)
+      assert admitted.wakeup_state == :admitted
+
+      retry =
+        request(pretty, delivery_ref: "feedback-after-admission", event_name: unquote(event_name))
+
+      assert Jason.decode!(retry.resp_body) == %{
+               "publication_event_ref" => first_ref,
+               "status" => "duplicate"
+             }
+
+      assert Repo.get!(LifecycleEvent, first.id) == admitted
+      assert Repo.get!(ConversationObservation, source.id) == source
+
+      assert Repo.aggregate(
+               from(event in LifecycleEvent, where: event.publication_id == ^publication.id),
+               :count
+             ) == 1
+
+      [wake] =
+        Repo.all(
+          from(event in Responder.Episodes.Event,
+            where:
+              event.episode_id == ^episode.id and event.kind == :input_admitted and
+                fragment(
+                  "?::jsonb ->> 'turn_ref' = ?",
+                  event.payload,
+                  ^"turn:publication-feedback:#{first.id}"
+                )
+          )
+        )
+
+      assert [receipt] = LearningSources.for_work_input(wake.payload["payload"])
+      assert receipt["source_input_id"] == first.id
+      assert {:ok, resumed} = Responder.Episodes.fetch_by_key(episode.key)
+      assert resumed.owner_ref == "turn:publication-feedback:#{first.id}"
+    end
+  end
+
+  test "equivalent original GitHub redelivery cannot restore superseded learning custody" do
+    # A transport retry of old content must reuse its original receipt without
+    # replacing the newer edit's learning source or adding a competing wakeup.
+    %{publication: publication} =
+      PublicationFixture.published!("github-feedback-stale-redelivery",
+        github_repository: "octo/example",
+        pull_request_number: 42
+      )
+
+    original_payload = payload()
+    original_body = Jason.encode!(original_payload)
+    original = request(original_body, delivery_ref: "original-before-edit")
+    assert original.status == 202
+    first_ref = Jason.decode!(original.resp_body)["publication_event_ref"]
+    first = Repo.get_by!(LifecycleEvent, ref: first_ref)
+    source = Repo.get_by!(ConversationObservation, source_input_id: first.id)
+
+    assert {:ok, claim} = Followups.claim_delivery("stale-feedback", 60)
+    assert claim.event.id == first.id
+    assert {:ok, first} = Followups.admit_wakeup(first.ref, claim.lease_ref)
+
+    edited_payload =
+      original_payload
+      |> put_in(["action"], "edited")
+      |> put_in(["comment", "body"], "Please handle this edge case.")
+      |> put_in(["comment", "updated_at"], "2026-08-28T12:01:00Z")
+
+    edit_response = request(Jason.encode!(edited_payload), delivery_ref: "newer-edit")
+    assert edit_response.status == 202
+    assert Jason.decode!(edit_response.resp_body)["status"] == "recorded"
+    edit_ref = Jason.decode!(edit_response.resp_body)["publication_event_ref"]
+    assert edit_ref != first_ref
+    edit = Repo.get_by!(LifecycleEvent, ref: edit_ref)
+    current = Repo.get!(ConversationObservation, source.id)
+    assert current.revision > source.revision
+    assert current.source_input_id == edit.id
+    assert [current_receipt] = LearningSources.for_work_input(edit.observation)
+    assert LearningSources.for_work_input(first.observation) == nil
+
+    retry_body = Jason.encode!(original_payload, pretty: true)
+    assert retry_body != original_body
+    redelivery = request(retry_body, delivery_ref: "original-after-edit")
+    assert redelivery.status == 202
+
+    assert Jason.decode!(redelivery.resp_body) == %{
+             "publication_event_ref" => first_ref,
+             "status" => "duplicate"
+           }
+
+    assert Repo.aggregate(
+             from(event in LifecycleEvent, where: event.publication_id == ^publication.id),
+             :count
+           ) == 2
+
+    assert Repo.get!(LifecycleEvent, first.id) == first
+    assert first.observation["content"]["delivery_ref"] == "original-before-edit"
+    assert Repo.get!(ConversationObservation, source.id) == current
+    assert LearningSources.for_work_input(first.observation) == nil
+    assert LearningSources.for_work_input(edit.observation) == [current_receipt]
+  end
+
+  for {event_name, action} <- [
+        {"issue_comment", "deleted"},
+        {"pull_request_review_comment", "deleted"},
+        {"pull_request_review", "dismissed"}
+      ] do
+    test "fresh Work consumes only an authenticated #{event_name} #{action} notice" do
+      # GitHub retains the original body in deletion webhooks. Blocking that body
+      # must not also make the authenticated withdrawal impossible to process.
+      PublicationFixture.published!("withdrawal-#{unquote(event_name)}",
+        github_repository: "octo/example",
+        pull_request_number: 42
+      )
+
+      deleted = feedback_payload(unquote(event_name)) |> Map.put("action", unquote(action))
+      original_body = get_in(deleted, [feedback_item(unquote(event_name)), "body"])
+      event = record_feedback!(deleted, unquote(event_name), "withdrawal")
+      claim = claim_feedback!(event)
+      assert KnowledgeSnapshot.session_sources(claim.session.id) == []
+      assert {:ok, submission} = SubmissionBuilder.build(claim)
+      assert [notice] = submission["context"]["current_inputs"]["items"]
+
+      assert notice["content"] == %{
+               "event_kind" => "delete",
+               "unavailable" => "source_deleted"
+             }
+
+      assert notice["current"] == true
+      assert is_binary(notice["source_event_id"])
+      assert [receipt] = notice["source_dependencies"]
+      assert receipt["source_input_id"] == event.id
+      refute Jason.encode!(submission) =~ original_body
+
+      assert get_in(Repo.get!(LifecycleEvent, event.id).observation, ["content", "payload"]) ==
+               deleted
+
+      assert :ok =
+               KnowledgeSnapshot.authorize_submission(
+                 claim.episode,
+                 claim.session.repository_ref,
+                 submission
+               )
+
+      for invalid <- [
+            Map.delete(notice, "source_event_id"),
+            Map.put(notice, "source_event_id", Ecto.UUID.generate()),
+            Map.delete(notice, "source_dependencies"),
+            Map.put(notice, "source_dependencies", []),
+            put_in(notice, ["content", "body"], original_body)
+          ] do
+        tampered = put_in(submission, ["context", "current_inputs", "items"], [invalid])
+
+        assert {:error, :work_knowledge_context_stale} =
+                 KnowledgeSnapshot.authorize_submission(
+                   claim.episode,
+                   claim.session.repository_ref,
+                   tampered
+                 )
+      end
+
+      assert :ok =
+               KnowledgeSnapshot.expose_submission(%{
+                 claim
+                 | turn: %{claim.turn | submission: submission}
+               })
+    end
+
+    test "a #{event_name} #{action} notice never rehabilitates a session exposed to its body" do
+      PublicationFixture.published!("withdrawal-warm-#{unquote(event_name)}",
+        github_repository: "octo/example",
+        pull_request_number: 42
+      )
+
+      original = feedback_payload(unquote(event_name))
+      event = record_feedback!(original, unquote(event_name), "original")
+      claim = claim_feedback!(event)
+      assert {:ok, submission} = SubmissionBuilder.build(claim)
+      claim = %{claim | turn: %{claim.turn | submission: submission}}
+      assert :ok = KnowledgeSnapshot.expose_submission(claim)
+      assert [_receipt] = KnowledgeSnapshot.session_sources(claim.session.id)
+
+      deleted = Map.put(original, "action", unquote(action))
+      deletion = record_feedback!(deleted, unquote(event_name), "deleted")
+      assert deletion.id != event.id
+
+      assert {:error, :work_knowledge_context_stale} =
+               KnowledgeSnapshot.authorize_session(claim.episode, claim.session)
+
+      assert {:error, :work_knowledge_context_stale} =
+               KnowledgeSnapshot.expose_submission(claim)
+    end
+  end
+
   test "pull request reviews and review-thread comments use the publication subscription" do
     %{publication: publication} =
       PublicationFixture.published!("github-review-kinds-router",
@@ -535,6 +780,30 @@ defmodule Responder.GitHub.RouterTest do
       )
     end
   end
+
+  defp record_feedback!(payload, event_name, delivery_ref) do
+    response = request(Jason.encode!(payload), event_name: event_name, delivery_ref: delivery_ref)
+    assert response.status == 202
+
+    assert %{"publication_event_ref" => ref, "status" => "recorded"} =
+             Jason.decode!(response.resp_body)
+
+    Repo.get_by!(LifecycleEvent, ref: ref)
+  end
+
+  defp claim_feedback!(event) do
+    assert {:ok, delivery} = Followups.claim_delivery("withdrawal-followup", 60)
+    assert delivery.event.id == event.id
+    assert {:ok, _} = Followups.admit_wakeup(event.ref, delivery.lease_ref)
+    assert {:ok, claim} = Custody.claim_next("withdrawal-work", 60, :work)
+    claim
+  end
+
+  defp feedback_payload("issue_comment"), do: payload()
+  defp feedback_payload("pull_request_review_comment"), do: review_comment_payload()
+  defp feedback_payload("pull_request_review"), do: review_payload()
+  defp feedback_item("pull_request_review"), do: "review"
+  defp feedback_item(_), do: "comment"
 
   defp request(body, options) do
     event_name = Keyword.get(options, :event_name, "issue_comment")

@@ -196,7 +196,7 @@ defmodule Responder.Work.Validator do
       violations
     else
       [
-        "Set delivery to reply and answer the user, or reference one delivered reaction that fully answers the social message: an explicit human request cannot be silently discarded."
+        "Set delivery to reply and answer the user, or reference a delivered reaction addition covering the exact sole current human source item: an explicit human request cannot be silently discarded. Reaction removals, reactions to another item, and one reaction for multiple human inputs do not count."
         | violations
       ]
     end
@@ -225,8 +225,19 @@ defmodule Responder.Work.Validator do
   defp delivered_reaction_referenced?(final, context) do
     Enum.any?(final.record_refs, fn ref ->
       case context.records[ref] do
-        %{action_kind: :reaction, kind: "platform_action", status: :delivered} -> true
-        _other -> false
+        %{
+          action: :add,
+          action_kind: :reaction,
+          current_human_inputs: [%{source_item_ref: source_item_ref}],
+          kind: "platform_action",
+          source_item_ref: source_item_ref,
+          status: :delivered
+        }
+        when is_binary(source_item_ref) ->
+          true
+
+        _other ->
+          false
       end
     end)
   end
@@ -560,23 +571,32 @@ defmodule Responder.Work.Validator do
   defp prepare_record(
          ref,
          %{
+           "action" => action,
            "action_kind" => action_kind,
            "continuation" => nil,
+           "current_human_inputs" => current_human_inputs,
            "kind" => "platform_action",
+           "source_item_ref" => source_item_ref,
            "status" => status,
            "tool" => tool
          } = record
        )
-       when map_size(record) == 5 do
+       when map_size(record) == 8 do
     with true <- reference?(ref),
          {:ok, action_kind} <- platform_action_kind(action_kind),
+         {:ok, action, source_item_ref} <-
+           prepare_platform_action_identity(action_kind, action, source_item_ref),
+         {:ok, current_human_inputs} <- prepare_current_human_inputs(current_human_inputs),
          {:ok, status} <- platform_action_status(status),
          true <- tool in ~w(set_slack_reaction post_slack_message set_github_reaction) do
       {:ok,
        %{
+         action: action,
          action_kind: action_kind,
          continuation: nil,
+         current_human_inputs: current_human_inputs,
          kind: "platform_action",
+         source_item_ref: source_item_ref,
          status: status,
          tool: tool
        }}
@@ -591,6 +611,54 @@ defmodule Responder.Work.Validator do
   defp platform_action_kind("message"), do: {:ok, :message}
   defp platform_action_kind("reaction"), do: {:ok, :reaction}
   defp platform_action_kind(_kind), do: {:error, :kind}
+
+  defp prepare_platform_action_identity(:message, nil, nil), do: {:ok, nil, nil}
+
+  defp prepare_platform_action_identity(:reaction, action, source_item_ref)
+       when action in ["add", "remove"] do
+    if bounded_text?(source_item_ref, 1_024),
+      do: {:ok, String.to_existing_atom(action), source_item_ref},
+      else: {:error, :source_item_ref}
+  end
+
+  defp prepare_platform_action_identity(_kind, _action, _source_item_ref),
+    do: {:error, :identity}
+
+  defp prepare_current_human_inputs(inputs) when is_list(inputs) and length(inputs) <= 64 do
+    Enum.reduce_while(inputs, {:ok, []}, fn input, {:ok, prepared} ->
+      case prepare_current_human_input(input) do
+        {:ok, input} -> {:cont, {:ok, [input | prepared]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, prepared} ->
+        prepared = Enum.reverse(prepared)
+
+        if Enum.uniq_by(prepared, & &1.input_ref) == prepared,
+          do: {:ok, prepared},
+          else: {:error, :current_human_inputs}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp prepare_current_human_inputs(_inputs), do: {:error, :current_human_inputs}
+
+  defp prepare_current_human_input(
+         %{"input_ref" => input_ref, "source_item_ref" => source_item_ref} = input
+       )
+       when map_size(input) == 2 do
+    if reference?(input_ref) and
+         (is_nil(source_item_ref) or bounded_text?(source_item_ref, 1_024)) do
+      {:ok, %{input_ref: input_ref, source_item_ref: source_item_ref}}
+    else
+      {:error, :current_human_input}
+    end
+  end
+
+  defp prepare_current_human_input(_input), do: {:error, :current_human_input}
 
   defp platform_action_status("pending"), do: {:ok, :pending}
   defp platform_action_status("blocked"), do: {:ok, :blocked}

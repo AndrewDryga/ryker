@@ -1,0 +1,34 @@
+{
+  "provenance": {
+    "artifact": "airflow-verification-arms-wait-1788782569746.json",
+    "turn_id": "a3b3dee7-5ba6-46a5-b7a5-d4c6b1a3de9e"
+  },
+  "record": {
+    "kind": "event_wait",
+    "payload": {
+      "deadline_at": "2026-09-07T12:18:24Z",
+      "event_matcher": {
+        "delay": "10m",
+        "on_timeout": "Run the same verification at the deadline; if deployment, backend health, or monitoring evidence is unavailable, report the precise verification gap in this same bound conversation without claiming success.",
+        "type": "after"
+      },
+      "kind": "after",
+      "verification": "After the 10-minute observation window, verify Airflow revision 99183465ac95a33f1312a4f4973b66b736a55606 for Terraform run run-vMEdeDLHwpWZsBYH using gcp.deployment in production, gcp.backend_health for airflow in production, and monitoring.query for Airflow errors and health over the observation window. Compare deployed revision and observed health against intended GCP topology. Supplied repository excerpts say Airflow intentionally stays in GCP and was not ported to VA1 because its admin UI relies on IAP and it orchestrates Dataproc; do not classify its VA1 absence as a fault. Preserve current source observations with cite_source, record substantive findings, and report the verification result in this exact conversation/thread. If unhealthy, describe evidence without making infrastructure changes."
+    },
+    "ref": "record:event_wait:6f97a9a75a0a744b435119de9d731b87",
+    "status": "open",
+    "turn_id": "a3b3dee7-5ba6-46a5-b7a5-d4c6b1a3de9e"
+  },
+  "candidate": {
+    "decision_reason": null,
+    "delivery": "reply",
+    "message": "Verification is scheduled after a 10-minute observation window for Airflow revision 99183465. I’ll check the GCP deployment, backend health, and monitoring, then report here. The fallback deadline is 12:18 UTC; health is not yet verified.",
+    "outcome": {
+      "artifact_refs": [],
+      "record_refs": [
+        "record:event_wait:6f97a9a75a0a744b435119de9d731b87"
+      ],
+      "state": "waiting_for_event"
+    }
+  }
+}

@@ -6,6 +6,44 @@ defmodule Responder.Admission.PromptTest do
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Ingress.Input
   alias Responder.Slack.Input, as: SlackInput
+  alias Responder.State.Observations
+
+  test "addressing remains visible outside a truncated input and does not grant authority" do
+    input =
+      input!(%{
+        "text" => String.duplicate("x", 25_000),
+        "attachments" => [%{"text" => String.duplicate("y", 23_000)}],
+        "slack_addressing" => %{"audience" => "mention", "responder_user_ref" => "UFORGED"}
+      })
+
+    addressing = %{"audience" => "ambient", "responder_user_ref" => "UBOT"}
+
+    context =
+      %Context{
+        active_episode_fingerprint: Responder.CanonicalJSON.digest([]),
+        built_at: ~U[2026-08-27 12:00:01.000000Z],
+        candidates: [],
+        conversation_episode_count: 0,
+        input: input,
+        input_entry: %Entry{id: Ecto.UUID.generate()}
+      }
+      |> Map.put(:slack_addressing, addressing)
+
+    request = Prompt.build(context)
+    assert request["context"]["slack_addressing"] == addressing
+    assert request["context"]["input"]["content"]["truncated"]
+    assert byte_size(Responder.CanonicalJSON.encode!(request)) <= 65_536
+    assert request["instructions"] =~ "host-configured"
+    assert request["instructions"] =~ "another human is not automatically an assignment"
+
+    assert request["instructions"] =~
+             "An ambient audience does not mean\nResponder was not addressed"
+
+    assert request["instructions"] =~ "does not grant mutation authority"
+    assert request["instructions"] =~ "Preserve explicit requests to Responder"
+    assert request["instructions"] =~ "active-work continuations"
+    assert request["instructions"] =~ "useful independent investigation"
+  end
 
   test "gives every provider the same generic decision instructions without duplicating its schema" do
     input = input!()
@@ -70,7 +108,7 @@ defmodule Responder.Admission.PromptTest do
     }
 
     candidates =
-      for _index <- 1..8 do
+      for _index <- 1..20 do
         episode = %Episode{
           destination_thread_ref: "older-thread",
           id: Ecto.UUID.generate(),
@@ -120,8 +158,10 @@ defmodule Responder.Admission.PromptTest do
     refute "react" in request["context"]["allowed_actions"]
   end
 
-  test "the prompt bound includes worst-case JSON escaping" do
-    input = input!(%{"text" => String.duplicate("\\", 22_000)})
+  test "the full candidate limit and escaped memory fit without dropping Slack addressing" do
+    # The host admits 20 candidates; testing only eight missed its real budget boundary.
+    # These are generated size-boundary strings, not claimed model answers or source fixtures.
+    input = input!(%{"text" => String.duplicate("\\", 24_570)})
 
     endpoint = %{
       occurred_at: ~U[2026-08-27 11:00:00.000000Z],
@@ -135,7 +175,7 @@ defmodule Responder.Admission.PromptTest do
     }
 
     candidates =
-      for _index <- 1..8 do
+      for _index <- 1..20 do
         episode = %Episode{
           destination_thread_ref: "older-thread",
           id: Ecto.UUID.generate(),
@@ -152,16 +192,37 @@ defmodule Responder.Admission.PromptTest do
         )
       end
 
+    note = %{
+      "summary" => String.duplicate("\\", 1_200),
+      "topics" => Enum.map(1..8, &(String.duplicate("\\", 79) <> Integer.to_string(&1)))
+    }
+
+    assert {:ok, ^note} = Observations.prepare(note)
+    addressing = %{"audience" => "ambient", "responder_user_ref" => String.duplicate("U", 256)}
+
     context = %Context{
       active_episode_fingerprint: Responder.CanonicalJSON.digest([]),
       built_at: ~U[2026-08-27 12:00:01.000000Z],
       candidates: candidates,
-      conversation_episode_count: 0,
+      conversation_episode_count: 20,
       input: input,
-      input_entry: %Entry{id: Ecto.UUID.generate()}
+      input_entry: %Entry{id: Ecto.UUID.generate()},
+      slack_addressing: addressing,
+      observations: List.duplicate(note, 5),
+      knowledge: List.duplicate(Map.put(note, "title", String.duplicate("\\", 160)), 8)
     }
 
-    assert Prompt.build(context) |> Jason.encode!() |> byte_size() <= 65_536
+    request = Prompt.build(context)
+    unfitted = %{request | "context" => Context.for_model(context)}
+
+    assert byte_size(Responder.CanonicalJSON.encode!(unfitted)) > 65_536
+    assert byte_size(Responder.CanonicalJSON.encode!(request)) <= 65_536
+    assert request["context"]["slack_addressing"] == addressing
+    assert request["context"]["input"]["content"]["truncated"]
+    assert request["context"]["candidates"] == Enum.map(candidates, &Candidate.for_model/1)
+
+    assert length(request["context"]["conversation_observations"]) +
+             length(request["context"]["conversation_knowledge"]) < 13
   end
 
   test "an impossible unbounded host context fails before reaching Coop" do

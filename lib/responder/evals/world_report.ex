@@ -38,21 +38,24 @@ defmodule Responder.Evals.WorldReport do
          report.lane in [:baseline, :candidate] and
          report.repeat_index in 1..10 do
       {:ok,
-       %{
-         "deliveries" => json_value(report.deliveries),
-         "episode_id" => report.episode_id,
-         "failures" => json_value(report.failures),
-         "lane" => Atom.to_string(report.lane),
-         "quality" => json_value(report.quality),
-         "record_history" => json_value(report.record_history),
-         "records" => json_value(report.records),
-         "repeat_index" => report.repeat_index,
-         "runtime" => json_value(report.runtime),
-         "scenario_id" => report.scenario_id,
-         "source_calls" => json_value(report.source_calls),
-         "status" => Atom.to_string(report.status),
-         "turn_id" => report.turn_id
-       }}
+       Map.merge(
+         %{
+           "deliveries" => json_value(report.deliveries),
+           "episode_id" => report.episode_id,
+           "failures" => json_value(report.failures),
+           "lane" => Atom.to_string(report.lane),
+           "quality" => json_value(report.quality),
+           "record_history" => json_value(report.record_history),
+           "records" => json_value(report.records),
+           "repeat_index" => report.repeat_index,
+           "runtime" => json_value(report.runtime),
+           "scenario_id" => report.scenario_id,
+           "source_calls" => json_value(report.source_calls),
+           "status" => Atom.to_string(report.status),
+           "turn_id" => report.turn_id
+         },
+         report |> Map.take([:execution_error, :cleanup_error]) |> json_value()
+       )}
     else
       {:error, :report}
     end

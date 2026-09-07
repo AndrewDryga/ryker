@@ -3,11 +3,37 @@ defmodule Responder.ControlPlane.OperatorUsabilityTest do
   use ExUnit.Case, async: true
   alias Responder.ControlPlane.HTML
 
-  test "findings explain their scope and do not invent an unsupported creation control" do
-    html = HTML.generic("Findings", []) |> IO.iodata_to_binary()
+  test "timer subscriptions show their scheduled wake without pretending to watch any source" do
+    html =
+      HTML.subscriptions([
+        %{
+          cursor_digest: nil,
+          deadline_at: ~U[2026-09-07 12:15:00Z],
+          episode_ref: "episode:timer",
+          last_observed_at: nil,
+          matcher_digest: "matcher-digest",
+          poll_after: ~U[2026-09-07 12:10:00Z],
+          ref: "subscription:timer",
+          resolution_kind: nil,
+          source_kind: nil,
+          status: :active,
+          trigger_type: "after"
+        }
+      ])
+      |> IO.iodata_to_binary()
+
+    assert html =~ "Wait subscriptions"
+    assert html =~ "Next wake-up"
+    assert html =~ "Timer"
+    refute html =~ ">any<"
+    refute html =~ "External event subscriptions"
+  end
+
+  test "findings explain their scope and supported creation workflow" do
+    html = HTML.findings(%{items: [], total: 0, page: 1, pages: 1}) |> IO.iodata_to_binary()
     assert html =~ "What was found"
     assert html =~ "not a second list of episodes"
-    assert html =~ "does not currently expose a tool"
+    assert html =~ "Ask Responder to investigate"
     refute html =~ "Create finding"
   end
 

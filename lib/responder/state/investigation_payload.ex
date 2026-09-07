@@ -81,14 +81,14 @@ defmodule Responder.State.InvestigationPayload do
 
   defp finding(%{} = payload) do
     with :ok <- fields(payload, ~w(status what), ~w(alternatives cause_evidence reason scope)),
-         :ok <- text(payload["what"], 4_000, :what),
-         :ok <- optional_text(payload, "scope", 2_000, :scope),
+         :ok <- finding_text(payload["what"], 4_000, :what),
+         :ok <- optional_finding_text(payload, "scope", 2_000, :scope),
          :ok <- enum(payload["status"], ~w(unexplained explained expected out_of_scope), :status),
          :ok <- optional_references(payload, "cause_evidence", 10, :cause_evidence),
          :ok <- alternatives(Map.get(payload, "alternatives", [])),
-         :ok <- optional_text(payload, "reason", 2_000, :reason),
+         :ok <- optional_finding_text(payload, "reason", 2_000, :reason),
          :ok <- finding_claim(payload),
-         :ok <- canonical(payload) do
+         :ok <- canonical(payload, 64 * 1_024) do
       {:ok, payload}
     end
   end
@@ -200,9 +200,27 @@ defmodule Responder.State.InvestigationPayload do
   defp finding_claim(%{"status" => "explained"}), do: invalid(:cause_evidence)
 
   defp finding_claim(%{"status" => status} = payload) when status in ~w(expected out_of_scope),
-    do: text(payload["reason"], 2_000, :reason)
+    do: finding_text(payload["reason"], 2_000, :reason)
 
   defp finding_claim(_payload), do: :ok
+
+  # JSON Schema maxLength counts Unicode codepoints, not UTF-8 bytes. Keep a
+  # byte bound before counting so these human conclusions remain bounded.
+  defp finding_text(value, maximum, field) do
+    with :ok <- text(value, maximum * 4, field),
+         true <- length(String.codepoints(value)) <= maximum do
+      :ok
+    else
+      _ -> invalid(field)
+    end
+  end
+
+  defp optional_finding_text(payload, key, maximum, field) do
+    case Map.get(payload, key) do
+      nil -> :ok
+      value -> finding_text(value, maximum, field)
+    end
+  end
 
   defp alternatives(values) when is_list(values) and length(values) <= 5 do
     if Enum.all?(values, &(alternative(&1) == :ok)), do: :ok, else: invalid(:alternatives)
@@ -433,8 +451,8 @@ defmodule Responder.State.InvestigationPayload do
 
   defp normalize_datetime(_value, field), do: invalid(field)
 
-  defp canonical(payload) do
-    case CanonicalJSON.validate(payload, max_bytes: @maximum_payload_bytes) do
+  defp canonical(payload, maximum_bytes \\ @maximum_payload_bytes) do
+    case CanonicalJSON.validate(payload, max_bytes: maximum_bytes) do
       :ok -> :ok
       {:error, _reason} -> invalid(:payload)
     end

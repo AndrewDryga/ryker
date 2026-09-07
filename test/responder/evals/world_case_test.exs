@@ -7,6 +7,26 @@ defmodule Responder.Evals.WorldCaseTest do
   @scenario_root "testdata/scenarios"
   @health_scenario "va1-health-review-repairs-and-finishes"
 
+  test "Airflow verification includes its pinned GCP scope before asking for live observations" do
+    # The real model refused to guess an environment that the old scenario had
+    # removed, and its Nomad facade contradicted the original GCP repository.
+    assert {:ok, scenario} = WorldCase.fetch("airflow-verification-arms-wait")
+    payload = hd(scenario.events)["payload"]
+    assert [production, va1] = payload["repository_excerpts"]
+    assert production["commit"] == "99183465ac95a33f1312a4f4973b66b736a55606"
+    assert production["path"] == "terraform/environments/production/app_datalake.tf"
+    assert production["text"] =~ "module \"airflow\""
+    assert production["text"] =~ "google-cloud/container"
+    assert va1["text"] =~ "deliberately NOT ported"
+    assert va1["text"] =~ "stays in GCP"
+    assert payload["source_message"]["text"] =~ "run-vMEdeDLHwpWZsBYH"
+    tools = WorldCase.fabricated_tools(scenario) |> Enum.map(& &1["name"])
+    assert "gcp.deployment" in tools
+    assert "gcp.backend_health" in tools
+    refute Enum.any?(tools, &String.starts_with?(&1, "nomad."))
+    assert Enum.any?(scenario.expect["hard"], &(&1["tool"] == "record_finding"))
+  end
+
   test "compiles the versioned model-world scenario matrix" do
     assert {:ok, scenarios} = WorldCase.all(@scenario_root)
     assert length(scenarios) == 19
@@ -71,15 +91,35 @@ defmodule Responder.Evals.WorldCaseTest do
     assert length(scenario.world["scheduled_events"]) == 2
     assert length(scenario.host_replay["model_events"]) == 3
 
+    assert Enum.all?(scenario.world["scheduled_events"], fn event ->
+             event["kind"] == "wait_wakeup" and
+               Enum.sort(Map.keys(event)) == ~w(kind occurred_at)
+           end)
+
+    assert Enum.find(scenario.actors, &(&1["authority"] == "source_event"))["actor_ref"] ==
+             "slack:bot:B08N64XSHNU"
+
+    refute Enum.any?(scenario.actors, &(&1["input_profile"]["source"]["kind"] == "system"))
+
     assert MapSet.new(scenario.world["tool_rules"], & &1["tool"]) ==
-             MapSet.new(["monitoring.query", "nomad.deployments", "nomad.service_health"])
+             MapSet.new(["monitoring.query", "gcp.deployment", "gcp.backend_health"])
 
     assert {:ok, cassette} = WorldCassette.start_link(scenario)
     on_exit(fn -> if Process.alive?(cassette), do: GenServer.stop(cassette) end)
 
+    # Wrong-scope reads must not receive production health from the cassette.
+    for tool <- ["gcp.deployment", "gcp.backend_health", "monitoring.query"] do
+      assert {:error, %{"code" => "unmatched_fabricated_tool_call"}} =
+               WorldCassette.call(cassette, tool, %{
+                 "environment" => "va1",
+                 "service" => "airflow",
+                 "query" => "airflow revision 99183465"
+               })
+    end
+
     for {tool, arguments} <- [
-          {"nomad.deployments", %{"environment" => "production"}},
-          {"nomad.service_health", %{"environment" => "production", "service" => "airflow"}},
+          {"gcp.deployment", %{"environment" => "production"}},
+          {"gcp.backend_health", %{"environment" => "production", "service" => "airflow"}},
           {"monitoring.query",
            %{
              "environment" => "production",
@@ -93,6 +133,123 @@ defmodule Responder.Evals.WorldCaseTest do
       assert {:ok, first_at, 0} = DateTime.from_iso8601(first["observed_at"])
       assert {:ok, second_at, 0} = DateTime.from_iso8601(second["observed_at"])
       assert DateTime.compare(first_at, second_at) == :lt
+    end
+  end
+
+  test "scheduled wakeups cannot supply a source actor or external authority" do
+    invalid_actors = [
+      %{
+        "actor_ref" => "slack:user:U-operator",
+        "authority" => "operator",
+        "input_profile" => %{
+          "actor" => %{"kind" => "user", "ref" => "U-operator"},
+          "event_kind" => "message",
+          "occurred_at_source" => "source",
+          "source" => %{"kind" => "slack", "ref" => "TEVAL"},
+          "source_capabilities" => %{"react" => %{"emoji_names" => nil}}
+        },
+        "kind" => "human"
+      },
+      %{
+        "actor_ref" => "slack:bot:B-automation",
+        "authority" => "source_event",
+        "input_profile" => %{
+          "actor" => %{"kind" => "bot", "ref" => "B-automation"},
+          "event_kind" => "message",
+          "occurred_at_source" => "source",
+          "source" => %{"kind" => "slack", "ref" => "TEVAL"},
+          "source_capabilities" => %{"react" => %{"emoji_names" => nil}}
+        },
+        "kind" => "automation"
+      },
+      %{
+        "actor_ref" => "github:user:501",
+        "authority" => "repository_write_offer",
+        "input_profile" => %{
+          "actor" => %{"kind" => "user", "ref" => "501"},
+          "event_kind" => "message",
+          "occurred_at_source" => "source",
+          "source" => %{"kind" => "github", "ref" => "eval"},
+          "source_capabilities" => %{"react" => %{"emoji_names" => ["+1"]}}
+        },
+        "kind" => "human"
+      }
+    ]
+
+    Enum.each(invalid_actors, fn invalid_actor ->
+      {fixture, case_id, scenario_path} =
+        copy_scenario_fixture!("airflow-verification-arms-wait")
+
+      on_exit(fn -> File.rm_rf!(fixture) end)
+
+      scenario = scenario_path |> File.read!() |> Jason.decode!()
+      source_actor = hd(scenario["actors"])
+
+      scenario =
+        scenario
+        |> Map.put("actors", [source_actor, invalid_actor])
+        |> update_in(["world", "scheduled_events"], fn events ->
+          Enum.map(events, &Map.put(&1, "actor_ref", invalid_actor["actor_ref"]))
+        end)
+
+      File.write!(scenario_path, Jason.encode!(scenario))
+
+      assert {:error, {:invalid_world_case, ^case_id, :scheduled_events}} =
+               WorldCase.all(fixture)
+    end)
+  end
+
+  test "scheduled wakeups reject the replaced poll fallback shape and injected envelopes" do
+    for injected <- [
+          %{"kind" => "poll_fallback"},
+          %{"actor_ref" => "system:system:event-wait-timer"},
+          %{"authority" => "operator"},
+          %{"payload" => %{"kind" => "timer_due"}},
+          %{"input_profile" => %{"source" => %{"kind" => "system", "ref" => "responder"}}}
+        ] do
+      {fixture, case_id, scenario_path} =
+        copy_scenario_fixture!("airflow-verification-arms-wait")
+
+      on_exit(fn -> File.rm_rf!(fixture) end)
+
+      scenario = scenario_path |> File.read!() |> Jason.decode!()
+
+      event =
+        Map.merge(
+          %{"kind" => "wait_wakeup", "occurred_at" => "2026-08-27T20:28:13Z"},
+          injected
+        )
+
+      scenario = put_in(scenario, ["world", "scheduled_events"], [event])
+      File.write!(scenario_path, Jason.encode!(scenario))
+
+      assert {:error, {:invalid_world_case, ^case_id, :scheduled_events}} =
+               WorldCase.all(fixture)
+    end
+  end
+
+  test "GitHub reaction authority requires an exact top-level fixture item" do
+    for mutate <- [
+          fn scenario ->
+            update_in(scenario, ["events", Access.at(0)], &Map.delete(&1, "source_item_ref"))
+          end,
+          fn scenario ->
+            put_in(
+              scenario,
+              ["events", Access.at(0), "source_item_ref"],
+              "github:issue_comment:not-an-id"
+            )
+          end
+        ] do
+      {fixture, case_id, scenario_path} =
+        copy_scenario_fixture!("github-pr-review-remains-in-thread")
+
+      on_exit(fn -> File.rm_rf!(fixture) end)
+
+      scenario = scenario_path |> File.read!() |> Jason.decode!() |> mutate.()
+      File.write!(scenario_path, Jason.encode!(scenario))
+
+      assert {:error, {:invalid_world_case, ^case_id, :events}} = WorldCase.all(fixture)
     end
   end
 
@@ -272,6 +429,19 @@ defmodule Responder.Evals.WorldCaseTest do
       {fn scenario -> Map.put(scenario, "clock", %{}) end, :clock},
       {fn scenario -> Map.put(scenario, "actors", "operator") end, :actors},
       {fn scenario -> Map.put(scenario, "actors", ["operator"]) end, :actors},
+      {fn scenario ->
+         update_in(scenario, ["actors", Access.at(0)], &Map.delete(&1, "input_profile"))
+       end, :actors},
+      {fn scenario ->
+         put_in(scenario, ["actors", Access.at(0), "input_profile", "actor", "ref"], "other")
+       end, :actors},
+      {fn scenario ->
+         put_in(
+           scenario,
+           ["actors", Access.at(0), "input_profile", "source_capabilities", "react"],
+           %{"emoji_names" => []}
+         )
+       end, :actors},
       {fn scenario -> put_in(scenario, ["actors", Access.at(0), "authority"], "root") end,
        :actors},
       {fn scenario ->
@@ -279,7 +449,19 @@ defmodule Responder.Evals.WorldCaseTest do
          Map.update!(scenario, "actors", &(&1 ++ [duplicate]))
        end, :actors},
       {fn scenario -> Map.put(scenario, "events", ["not-an-event"]) end, :object_list},
+      {fn scenario ->
+         update_in(scenario, ["events", Access.at(0)], &Map.delete(&1, "destination"))
+       end, :events},
       {fn scenario -> put_in(scenario, ["world", "repositories"], %{}) end, :repositories},
+      {fn scenario ->
+         put_in(scenario, ["world", "scheduled_events"], [
+           %{
+             "actor_ref" => "system:system:event-wait-poll_fallback",
+             "kind" => "source_event",
+             "occurred_at" => "2026-08-15T15:30:00Z"
+           }
+         ])
+       end, :scheduled_events},
       {fn scenario -> put_in(scenario, ["world", "tool_rules"], %{}) end, :tool_rules},
       {fn scenario ->
          put_in(
@@ -461,11 +643,10 @@ defmodule Responder.Evals.WorldCaseTest do
     assert {:error, {:invalid_world_cases, :empty}} = WorldCase.fetch("missing", empty)
   end
 
-  defp copy_scenario_fixture! do
+  defp copy_scenario_fixture!(case_id \\ @health_scenario) do
     fixture =
       Path.join(System.tmp_dir!(), "responder-world-case-#{System.unique_integer([:positive])}")
 
-    case_id = "va1-health-review-repairs-and-finishes"
     scenario_dir = Path.join(fixture, case_id)
     source = Path.join(@scenario_root, case_id)
     File.mkdir_p!(scenario_dir)

@@ -4,8 +4,9 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
   use Responder.DataCase, async: true
 
   import Ecto.Query
+  import Phoenix.LiveViewTest
 
-  alias Responder.ControlPlane.HTML
+  alias Responder.ControlPlane.EpisodePage
   alias Responder.Work.Custody
   alias Responder.Work.Turn
 
@@ -19,6 +20,19 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
   alias Responder.Slack.Input
 
   @received ~U[2026-09-04 22:51:44.000000Z]
+
+  test "kernel-only delivery history does not infer a transport from the current destination" do
+    # Historical kernel events retain the delivery identity, not an external
+    # receipt. A Slack destination alone cannot distinguish delivery from replay.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, _} = Episodes.apply(EpisodeFixtures.accept_result())
+    {:ok, _} = Episodes.apply(EpisodeFixtures.confirm_delivery())
+    {:ok, detail} = Projection.episode(episode.key)
+    receipt = Enum.find(detail.trace.steps, &(&1.state == "delivery confirmed"))
+    assert receipt.summary == "Delivery was confirmed."
+    refute receipt.summary =~ "Slack"
+    refute receipt.summary =~ "bound transport"
+  end
 
   # The reported Lab greeting hid 57 seconds of admission behind a 1.4-minute
   # elapsed label and could not link its source because command and inbox hashes
@@ -66,6 +80,49 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
     assert earlier.(before.trace) == earlier.(after_update.trace)
     input_step = Enum.find(before.trace.steps, &(&1.stage == "Input"))
     refute Enum.any?(input_step.details, &(&1.label in ["Admission", "Decision"]))
+  end
+
+  for error <- ~w(timer_deadline poll_after),
+      {shape, deadline} <- [
+        {"string", "password=retained-secret<script>"},
+        {"object", %{"password" => "retained-secret"}}
+      ] do
+    test "the episode safely renders a #{error} warning with a malformed #{shape} deadline" do
+      # The Lab fallback validated this field, but the timeline's direct warning
+      # path leaked retained text and crashed the whole page on JSON objects.
+      {_entry, episode} = admitted_input!()
+      {:ok, detail} = Projection.episode(episode.key)
+
+      record = %Responder.State.Record{
+        id: Ecto.UUID.generate(),
+        ref: "record:event_wait:malformed-deadline",
+        kind: "event_wait",
+        status: :open,
+        inserted_at: @received,
+        wait_error: unquote(error),
+        payload: %{"deadline_at" => unquote(Macro.escape(deadline))}
+      }
+
+      trace = EpisodeTrace.project(episode, [], [record])
+      step = Enum.find(trace.steps, &(&1.record_ref == record.ref))
+      assert step.current_warning == "Wait scheduling failed: its saved deadline is invalid."
+      assert step.title == "Wait prepared"
+      assert step.at == @received
+      refute inspect(step) =~ "retained-secret"
+
+      html =
+        render_component(&EpisodePage.render/1,
+          snapshot: %{detail | trace: trace},
+          requests: nil,
+          params: %{}
+        )
+
+      assert html =~ "Current scheduling status:"
+      assert html =~ "saved deadline is invalid"
+      assert html =~ "Wait prepared"
+      refute html =~ "retained-secret"
+      refute html =~ "<script>"
+    end
   end
 
   test "expired request content names its expiry instead of looking like a deleted episode" do
@@ -286,11 +343,13 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
     assert {:ok, detail} = Projection.episode(episode.key)
     assert detail.trace.case_file.title =~ "Investigate"
     refute detail.trace.case_file.title =~ "ghp_abcdefghijklmnopqrstuvwxyz"
-    html = detail |> HTML.episode() |> IO.iodata_to_binary()
-    assert html =~ "case-conversation"
+    html = render_component(&EpisodePage.render/1, snapshot: detail, requests: nil, params: %{})
+    assert html =~ "execution-timeline"
     assert html =~ "Investigate &lt;script&gt;"
-    assert html =~ "Identity and timestamps"
-    assert html =~ "Inspect admission request"
+    assert html =~ "All model requests"
+    assert html =~ "Technical record"
+    assert html =~ "Created"
+    assert html =~ URI.encode_www_form(episode.key)
     refute html =~ "<script>steal()"
     refute html =~ "ghp_abcdefghijklmnopqrstuvwxyz"
   end

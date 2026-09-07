@@ -2,7 +2,9 @@ defmodule Responder.State.Observations do
   @moduledoc "Source-linked conversation notes, independent of the decision to respond."
   import Ecto.Query
   alias Responder.{CanonicalJSON, Repo}
+  alias Responder.Episodes.Episode
   alias Responder.Ingress.Inbox.Entry
+  alias Responder.Publication.{LifecycleEvent, Publication}
   alias Responder.Slack.{ChannelFence, ChannelMembership}
   alias Responder.State.{Continuity, ConversationObservation, Knowledge, LearningSources}
 
@@ -52,6 +54,58 @@ defmodule Responder.State.Observations do
   @doc "Revoke previous facts immediately when authenticated source custody advances."
   def receive_in_transaction(%Entry{} = entry), do: write_source(entry, nil, nil, nil)
 
+  @doc "Retain matched review feedback's immutable custody without creating an Admission input."
+  def record_publication_feedback_in_transaction(
+        %LifecycleEvent{id: id},
+        %Publication{id: publication_id, episode_id: episode_id, repository: repository}
+      ) do
+    with true <- Repo.in_transaction?(),
+         %Publication{episode_id: ^episode_id, repository: ^repository} <-
+           Repo.get(Publication, publication_id),
+         %LifecycleEvent{
+           kind: "review_feedback",
+           publication_id: ^publication_id,
+           episode_id: ^episode_id,
+           observation:
+             %{
+               "source" => %{"kind" => "github", "ref" => source_ref},
+               "native_input_id" => native,
+               "revision" => revision,
+               "actor" => %{"kind" => actor_kind, "ref" => actor_ref}
+             } = document
+         } = event <- Repo.get(LifecycleEvent, id),
+         %Episode{} = episode <- Repo.get(Episode, episode_id) do
+      source = %{
+        id: event.id,
+        source_kind: "github",
+        source_ref: source_ref,
+        native_input_id: native,
+        revision: revision,
+        event_kind: if(document["event_kind"] == "delete", do: :delete, else: :event),
+        event_fingerprint: CanonicalJSON.digest(document),
+        content: document["content"],
+        source_item_ref: document["source_item_ref"],
+        actor_ref: "github:#{actor_kind}:#{actor_ref}",
+        occurred_at: event.occurred_at,
+        episode_id: episode.id,
+        execution_mode: episode.execution_mode,
+        destination_transport: episode.destination_transport,
+        destination_conversation_ref: episode.destination_conversation_ref,
+        destination_thread_ref: episode.destination_thread_ref,
+        repository_ref: repository
+      }
+
+      # The PR may be private even when the engineering task lives in a public
+      # Slack channel. Routing grants this conversation, not workspace-wide recall.
+      write_source(source, nil, "publication-feedback:#{event.id}", :source_only,
+        visibility: :private,
+        received_at: event.inserted_at
+      )
+    else
+      _ -> {:error, :publication_feedback_source_invalid}
+    end
+  end
+
   @doc false
   def source_identity(entry) do
     CanonicalJSON.digest(%{
@@ -61,7 +115,7 @@ defmodule Responder.State.Observations do
     })
   end
 
-  defp write_source(entry, note, result_ref, sources) do
+  defp write_source(entry, note, result_ref, sources, options \\ []) do
     with true <- Repo.in_transaction?(),
          {:ok, note} <- prepare(note),
          :ok <-
@@ -70,7 +124,8 @@ defmodule Responder.State.Observations do
              entry.destination_conversation_ref
            ),
          {:ok, scope} <- Continuity.destination_context(entry, entry.repository_ref) do
-      now = DateTime.utc_now()
+      now = Keyword.get_lazy(options, :received_at, &DateTime.utc_now/0)
+      scope = Map.put(scope, :visibility, Keyword.get(options, :visibility, scope.visibility))
 
       # Keep a revision tombstone even when an edit has nothing to remember. A
       # slower classifier for the previous revision must never resurrect it.
@@ -104,7 +159,7 @@ defmodule Responder.State.Observations do
       }
 
       fields =
-        ~w(repository_ref thread_ref visibility source_input_id source_episode_id source_message_ref source_result_ref source_fingerprint actor_ref execution_mode revision occurred_at note source_dependencies updated_at)a
+        ~w(transport workspace_ref conversation_ref repository_ref thread_ref visibility source_input_id source_episode_id source_message_ref source_result_ref source_fingerprint actor_ref execution_mode revision occurred_at note source_dependencies updated_at)a
 
       updates = Enum.map(fields, &{&1, Map.fetch!(record, &1)})
 
@@ -113,7 +168,7 @@ defmodule Responder.State.Observations do
              conflict_target: [:identity_key],
              allow_stale: true
            ) do
-        {:ok, _} -> :ok
+        {:ok, _} -> quarantine_conflicting_revision(entry)
         {:error, reason} -> {:error, reason}
       end
     else
@@ -122,6 +177,65 @@ defmodule Responder.State.Observations do
       {:error, _} = error -> error
     end
   end
+
+  defp quarantine_conflicting_revision(entry) do
+    identity = source_identity(entry)
+
+    # Check after the upsert, while holding the row lock. Even two concurrent
+    # first deliveries must not leave either text authoritative after a tie.
+    current =
+      Repo.one!(
+        from(o in ConversationObservation, where: o.identity_key == ^identity, lock: "FOR UPDATE")
+      )
+
+    if current.revision == entry.revision and current.source_input_id != entry.id and
+         not source_conflicted?(current) and
+         retained_content(current) != normalized_content(entry.content, entry.source_kind) do
+      fingerprint =
+        CanonicalJSON.digest(%{
+          "source" => identity,
+          "revision" => entry.revision,
+          "state" => "conflict"
+        })
+
+      Repo.update_all(from(o in ConversationObservation, where: o.id == ^current.id),
+        set: [
+          source_result_ref: "source-conflict:#{identity}:#{entry.revision}",
+          source_fingerprint: fingerprint,
+          source_dependencies: nil,
+          note: nil
+        ]
+      )
+    end
+
+    :ok
+  end
+
+  defp source_conflicted?(%{source_result_ref: "source-conflict:" <> _}), do: true
+  defp source_conflicted?(_), do: false
+
+  defp retained_content(%{source_input_id: id, source_result_ref: "publication-feedback:" <> id}) do
+    case Repo.get(LifecycleEvent, id) do
+      %LifecycleEvent{kind: "review_feedback", observation: %{"content" => content}} ->
+        normalized_content(content, "github")
+
+      _ ->
+        :missing
+    end
+  end
+
+  defp retained_content(source) do
+    case Repo.get(Entry, source.source_input_id) do
+      %Entry{content: content, source_kind: kind} -> normalized_content(content, kind)
+      _ -> :missing
+    end
+  end
+
+  defp normalized_content(content, "github") when is_map(content),
+    do: Map.delete(content, "delivery_ref")
+
+  defp normalized_content(content, _) when is_map(content), do: content
+  defp normalized_content(_, _), do: :missing
 
   defp monotonic_source_update(updates) do
     updates = Keyword.delete(updates, :updated_at)

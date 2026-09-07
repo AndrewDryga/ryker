@@ -17,17 +17,36 @@
     {
       "actor_ref": "slack:user:U-andrew",
       "authority": "repository_write_offer",
+      "input_profile": {
+        "actor": {"kind": "user", "ref": "U-andrew"},
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {"kind": "slack", "ref": "TEVAL"},
+        "source_capabilities": {"react": {"emoji_names": null}}
+      },
       "kind": "human"
     },
     {
       "actor_ref": "slack:user:U-bruno",
       "authority": "repository_feedback",
+      "input_profile": {
+        "actor": {"kind": "user", "ref": "U-bruno"},
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {"kind": "slack", "ref": "TEVAL"},
+        "source_capabilities": {"react": {"emoji_names": null}}
+      },
       "kind": "human"
     }
   ],
   "events": [
     {
       "actor_ref": "slack:user:U-andrew",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:C08MMETA3U3",
+        "thread_ref": "1786978800.742289",
+        "transport": "slack"
+      },
       "kind": "input",
       "occurred_at": "2026-08-21T02:21:46Z",
       "payload": {
@@ -36,6 +55,11 @@
     },
     {
       "actor_ref": "slack:user:U-bruno",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:C08MMETA3U3",
+        "thread_ref": "1786978800.742289",
+        "transport": "slack"
+      },
       "kind": "input",
       "occurred_at": "2026-08-21T20:44:43Z",
       "payload": {
@@ -44,6 +68,11 @@
     },
     {
       "actor_ref": "slack:user:U-andrew",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:C08MMETA3U3",
+        "thread_ref": "1786978800.742289",
+        "transport": "slack"
+      },
       "kind": "input",
       "occurred_at": "2026-08-21T20:44:50Z",
       "payload": {

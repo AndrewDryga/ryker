@@ -114,3 +114,22 @@ defmodule Responder.Evals.GitHubDeliveryPublisher do
   @impl true
   def publish_reaction(request, agent), do: DeliveryPublisher.publish(:reaction, request, agent)
 end
+
+defmodule Responder.Evals.LabDeliveryPublisher do
+  @moduledoc false
+
+  @behaviour Responder.Delivery.Platform
+  @behaviour Responder.Delivery.MessagePublisher
+  @behaviour Responder.Delivery.ReactionPublisher
+
+  alias Responder.Evals.DeliveryPublisher
+
+  @impl true
+  def transport, do: "control_plane"
+
+  @impl true
+  def publish_message(request, agent), do: DeliveryPublisher.publish(:message, request, agent)
+
+  @impl true
+  def publish_reaction(request, agent), do: DeliveryPublisher.publish(:reaction, request, agent)
+end

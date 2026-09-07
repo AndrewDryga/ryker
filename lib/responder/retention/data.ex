@@ -708,7 +708,8 @@ defmodule Responder.Retention.Data do
         SELECT 1 FROM episode_state_records record
         WHERE record.episode_id = episode.id
           AND (
-            record.status = 'open'
+            (record.status = 'open' AND record.kind NOT IN
+              ('evidence', 'coverage', 'finding', 'progress', 'goal_state', 'alert_assessment'))
             OR record.updated_at >= clock_timestamp() - ($2 * interval '1 second')
           )
       )
@@ -853,7 +854,12 @@ defmodule Responder.Retention.Data do
     )
 
     execute_count(
-      "DELETE FROM episode_state_records WHERE episode_id IN (SELECT unnest($1::text[])::uuid) AND status <> 'open'",
+      """
+      DELETE FROM episode_state_records
+      WHERE episode_id IN (SELECT unnest($1::text[])::uuid)
+        AND (status <> 'open' OR kind IN
+          ('evidence', 'coverage', 'finding', 'progress', 'goal_state', 'alert_assessment'))
+      """,
       params
     )
 

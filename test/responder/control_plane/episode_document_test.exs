@@ -100,6 +100,51 @@ defmodule Responder.ControlPlane.EpisodeDocumentTest do
     refute html =~ "Result accepted"
   end
 
+  test "a retained delivery receipt appears once even when response text is unavailable" do
+    # Pruned response bodies left the same delivery repeated as a kernel receipt
+    # and a turn receipt. The receipt must remain visible without repeating it.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = Projection.episode(episode.key)
+    [base | _] = snapshot.trace.steps
+
+    kernel =
+      Map.merge(base, %{
+        id: "kernel-2",
+        stage: "Delivery",
+        title: "Delivery confirmed",
+        summary: "Delivery was confirmed.",
+        state: "delivery confirmed",
+        delivery_ref: "delivery:one"
+      })
+
+    turn =
+      Map.merge(kernel, %{
+        id: "turn-one-delivery-confirmed",
+        state: "delivered",
+        summary: "Slack transport confirmed the delivery."
+      })
+
+    snapshot = put_in(snapshot, [:trace, :case_file, :conversation], [])
+    html = snapshot |> put_in([:trace, :steps], [kernel, turn]) |> render_episode([])
+    assert html =~ "Slack transport confirmed the delivery."
+    refute html =~ "Delivery was confirmed."
+    assert length(Regex.scan(~r/Delivery confirmed/, html)) == 1
+
+    # A different delivery and a receipt with no exact identity are not copies.
+    for reference <- ["delivery:other", nil] do
+      html =
+        snapshot
+        |> put_in([:trace, :steps], [%{kernel | delivery_ref: reference}, turn])
+        |> render_episode([])
+
+      assert html =~ "Delivery was confirmed."
+      assert html =~ "Slack transport confirmed the delivery."
+    end
+
+    html = snapshot |> put_in([:trace, :steps], [kernel]) |> render_episode([])
+    assert html =~ "Delivery was confirmed."
+  end
+
   test "briefing groups all inputs and contract with token estimates and immediate source labels" do
     html =
       render_request(:admission, :submission, [

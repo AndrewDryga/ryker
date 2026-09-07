@@ -7,7 +7,15 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
 
   alias Responder.Admission.Dispatcher, as: AdmissionDispatcher
   alias Responder.CanonicalJSON
-  alias Responder.ControlPlane.{Actions, CapabilityTools, ConversationLab, Projection, Publisher}
+
+  alias Responder.ControlPlane.{
+    Actions,
+    CapabilityTools,
+    ConversationLab,
+    HTML,
+    Projection,
+    Publisher
+  }
 
   alias Responder.Delivery.{
     Adapters,
@@ -19,11 +27,12 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
   alias Responder.Episodes.Episode
   alias Responder.Ingress.WorkProfile
   alias Responder.Repo
-  alias Responder.State.Records
+  alias Responder.State.{Record, Records}
   alias Responder.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
 
   alias Responder.Work.{
     Custody,
+    Executor,
     Result,
     Session,
     SubmissionBuilder,
@@ -38,6 +47,81 @@ defmodule Responder.ControlPlane.ConversationLabEndToEndTest do
   @capability_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83eb"
   @now ~U[2026-08-30 18:00:00.000000Z]
   @digest String.duplicate("a", 64)
+
+  for {field, value, phrase} <- [
+        {"source_kind", String.duplicate("x", 121), "source identifier"},
+        {"cursor", %{"value" => String.duplicate("x", 16_373)}, "16 KiB"}
+      ] do
+    test "Lab retains a non-actionable scheduling diagnostic for an invalid saved #{field}" do
+      # The reconciler retained the error, but Card.project silently hid it from Lab.
+      assert {:ok, %{status: :recorded}} =
+               send_message(@first_event_id, @now, "Wait for the run.")
+
+      {:ok, admission} = FakeCoopAPI.start_link([decision(:start_episode, nil)])
+
+      assert {:ok, {:decided, _admitted}} =
+               AdmissionDispatcher.run_once(admission_options(admission, @now))
+
+      assert {:ok, claim} = Custody.claim_next("lab-retained-wait", 60, :work)
+
+      assert {:ok, record} =
+               Records.create(Records.token(claim.turn), "lab-wait", "event_wait", %{
+                 "deadline_at" => "2099-09-07T12:26:12Z",
+                 "event_matcher" => %{
+                   "type" => "source_event",
+                   "source_kind" => "slack",
+                   "match" => %{"run_id" => "run-okjyXsDYXyMqqBYY"},
+                   "poll_after" => "2099-09-07T12:01:12Z",
+                   "on_timeout" => "Report the unverified outcome."
+                 },
+                 "kind" => "source_event",
+                 "verification" =>
+                   "Verify the next lifecycle update for this exact Terraform run."
+               })
+
+      # Accepted first-turn reply harvested from Terraform capture 1788782169504;
+      # only the record reference is rebound to this isolated Lab fixture.
+      candidate =
+        "I’m waiting for the next update on Terraform run run-okjyXsDYXyMqqBYY (va1-postgres). I’ll check again by 12:01 UTC and report any unverified outcome at the 12:26 UTC deadline."
+        |> work_reply()
+        |> Jason.decode!()
+        |> put_in(["outcome", "record_refs"], [record.ref])
+        |> put_in(["outcome", "state"], "waiting_for_event")
+        |> Jason.encode!()
+
+      {:ok, work} = FakeWorkCoopAPI.start_link([candidate])
+
+      assert {:ok, %{status: :accepted}} =
+               Executor.run(claim, work_options(work, "wait")[:executor_options])
+
+      assert {:ok, {:delivered, :message, _delivery_ref}} =
+               Responder.Delivery.Dispatcher.run_once(delivery_options("wait"))
+
+      # Restore a formerly accepted shape and its current host scheduling error.
+      payload =
+        put_in(record.payload, ["event_matcher", unquote(field)], unquote(Macro.escape(value)))
+
+      Repo.update_all(from(saved in Record, where: saved.id == ^record.id),
+        set: [
+          payload: payload,
+          payload_fingerprint: CanonicalJSON.digest(payload),
+          wait_error: unquote(field)
+        ]
+      )
+
+      assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+      assert [%{cards: [card]}] = Enum.filter(conversation.messages, &(&1.actor == :responder))
+      assert card.ref == record.ref
+      assert card.wait_warning =~ unquote(phrase)
+      assert card.action == nil
+      html = HTML.lab_message_extras(%{cards: [card]}) |> IO.iodata_to_binary()
+      assert html =~ "Current scheduling status:"
+      assert html =~ unquote(phrase)
+      refute html =~ "Verify the next lifecycle update"
+      refute html =~ String.duplicate("x", 121)
+      refute html =~ "<form"
+    end
+  end
 
   test "a local conversation uses the complete durable product path and continues one session" do
     assert {:ok, %{status: :recorded}} =

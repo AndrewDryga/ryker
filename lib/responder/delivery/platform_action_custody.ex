@@ -11,7 +11,7 @@ defmodule Responder.Delivery.PlatformActionCustody do
 
   alias Responder.CanonicalJSON
   alias Responder.Delivery.{PlatformAction, Request}
-  alias Responder.Episodes.Episode
+  alias Responder.Episodes.{Episode, Event}
   alias Responder.Repo
   alias Responder.State.Record
   alias Responder.Work.{DeliveryReceipt, Turn}
@@ -245,18 +245,65 @@ defmodule Responder.Delivery.PlatformActionCustody do
 
     query = if turn_id, do: from(action in query, where: action.turn_id == ^turn_id), else: query
 
-    Repo.all(query)
+    actions = Repo.all(query)
+    current_human_inputs = current_human_inputs(episode_id)
+
+    actions
     |> Map.new(fn action ->
       {action.action_ref,
        %{
+         "action" => platform_action_operation(action),
          "action_kind" => Atom.to_string(action.kind),
          "continuation" => nil,
+         "current_human_inputs" => current_human_inputs,
          "kind" => "platform_action",
+         "source_item_ref" => action.source_item_ref,
          "status" => Atom.to_string(action.status),
          "tool" => Atom.to_string(action.tool)
        }}
     end)
   end
+
+  defp platform_action_operation(%PlatformAction{kind: :reaction, document: document}),
+    do: Map.fetch!(document, "action")
+
+  defp platform_action_operation(%PlatformAction{}), do: nil
+
+  defp current_human_inputs(episode_id) do
+    case Repo.get(Episode, episode_id) do
+      %Episode{active_input_refs: active_input_refs} ->
+        episode_id
+        |> active_input_events(active_input_refs)
+        |> Enum.filter(&human_input?/1)
+        |> Enum.map(fn event ->
+          %{
+            "input_ref" => event.dedupe_key,
+            "source_item_ref" => get_in(event.payload, ["payload", "source_item_ref"])
+          }
+        end)
+
+      nil ->
+        []
+    end
+  end
+
+  defp active_input_events(_episode_id, []), do: []
+
+  defp active_input_events(episode_id, active_input_refs) do
+    Repo.all(
+      from(event in Event,
+        where:
+          event.episode_id == ^episode_id and event.kind == :input_admitted and
+            event.dedupe_key in ^Enum.uniq(active_input_refs),
+        order_by: [asc: event.sequence]
+      )
+    )
+  end
+
+  defp human_input?(%Event{payload: %{"actor_ref" => actor_ref}}) when is_binary(actor_ref),
+    do: String.contains?(actor_ref, ":user:")
+
+  defp human_input?(_event), do: false
 
   @spec model_actions(Ecto.UUID.t()) :: [map()]
   def model_actions(episode_id) do

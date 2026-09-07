@@ -223,7 +223,7 @@ defmodule Responder.Work.ValidatorTest do
     assert Enum.any?(violations, &String.contains?(&1, "artifact:missing"))
   end
 
-  test "finalization waits for platform actions and one delivered reaction may fully answer socially" do
+  test "finalization waits for unresolved platform actions" do
     pending_ref = "platform-action:pending"
 
     assert {:reject, [violation]} =
@@ -242,8 +242,12 @@ defmodule Responder.Work.ValidatorTest do
 
     assert violation =~ "platform actions are unresolved"
     assert violation =~ pending_ref
+  end
 
+  test "a reaction-only final requires a delivered add covering the sole current human input" do
     delivered_ref = "platform-action:delivered"
+    source_item_ref = "1787832000.000100"
+    current_input = current_human_input("input:current", source_item_ref)
 
     reaction_only =
       Jason.encode!(%{
@@ -261,13 +265,55 @@ defmodule Responder.Work.ValidatorTest do
              Validator.validate(
                reaction_only,
                context(
-                 records: %{delivered_ref => platform_action("reaction", "delivered")},
+                 records: %{
+                   delivered_ref =>
+                     platform_action("reaction", "delivered",
+                       action: "add",
+                       current_human_inputs: [current_input],
+                       source_item_ref: source_item_ref
+                     )
+                 },
                  visible_reply_required: true
                ),
                @now
              )
 
     assert accepted.result.delivery == :none
+
+    non_answers = [
+      platform_action("reaction", "delivered",
+        action: "remove",
+        current_human_inputs: [current_input],
+        source_item_ref: source_item_ref
+      ),
+      platform_action("reaction", "delivered",
+        action: "add",
+        current_human_inputs: [current_input],
+        source_item_ref: "1787832000.000200"
+      ),
+      platform_action("reaction", "delivered",
+        action: "add",
+        current_human_inputs: [
+          current_input,
+          current_human_input("input:second", "1787832000.000200")
+        ],
+        source_item_ref: source_item_ref
+      )
+    ]
+
+    Enum.each(non_answers, fn action ->
+      assert {:reject, violations} =
+               Validator.validate(
+                 reaction_only,
+                 context(
+                   records: %{delivered_ref => action},
+                   visible_reply_required: true
+                 ),
+                 @now
+               )
+
+      assert Enum.any?(violations, &String.contains?(&1, "explicit human request"))
+    end)
   end
 
   test "a waiting result must reference exactly one matching durable wait" do
@@ -577,13 +623,25 @@ defmodule Responder.Work.ValidatorTest do
   defp record(kind, continuation \\ nil),
     do: %{"continuation" => continuation, "kind" => kind}
 
-  defp platform_action(kind, status) do
+  defp platform_action(kind, status, overrides \\ []) do
+    overrides = Map.new(overrides)
+
     %{
+      "action" => Map.get(overrides, :action, "add"),
       "action_kind" => kind,
       "continuation" => nil,
+      "current_human_inputs" =>
+        Map.get(overrides, :current_human_inputs, [
+          current_human_input("input:current", "1787832000.000100")
+        ]),
       "kind" => "platform_action",
+      "source_item_ref" => Map.get(overrides, :source_item_ref, "1787832000.000100"),
       "status" => status,
       "tool" => "set_slack_reaction"
     }
+  end
+
+  defp current_human_input(input_ref, source_item_ref) do
+    %{"input_ref" => input_ref, "source_item_ref" => source_item_ref}
   end
 end

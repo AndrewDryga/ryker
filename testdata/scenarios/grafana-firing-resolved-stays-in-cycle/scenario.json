@@ -15,6 +15,13 @@
     {
       "actor_ref": "slack:app:grafana",
       "authority": "source_event",
+      "input_profile": {
+        "actor": {"kind": "app", "ref": "grafana"},
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {"kind": "slack", "ref": "TEVAL"},
+        "source_capabilities": {"react": {"emoji_names": null}}
+      },
       "kind": "automation"
     }
   ],
