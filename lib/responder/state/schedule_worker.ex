@@ -6,6 +6,7 @@ defmodule Responder.State.ScheduleWorker do
   require Logger
 
   alias Responder.Observability.Progress
+  alias Responder.Polling
   alias Responder.State.ScheduleDispatcher
 
   def start_link(options), do: GenServer.start_link(__MODULE__, options, name: __MODULE__)
@@ -26,13 +27,18 @@ defmodule Responder.State.ScheduleWorker do
 
   @impl GenServer
   def handle_info(:poll, state) do
-    case ScheduleDispatcher.run_once(state.dispatcher_options) do
-      {:ok, _result} -> :ok
-      {:error, reason} -> Logger.error("schedule dispatcher failed: #{inspect(reason)}")
-    end
+    delay =
+      Polling.run(:schedule, state.poll_interval_ms, fn ->
+        case ScheduleDispatcher.run_once(state.dispatcher_options) do
+          {:ok, _result} -> :ok
+          {:error, reason} -> Logger.error("schedule dispatcher failed: #{inspect(reason)}")
+        end
 
-    _ = Progress.beat(:schedule)
-    Process.send_after(self(), :poll, state.poll_interval_ms)
+        _ = Progress.beat(:schedule)
+        state.poll_interval_ms
+      end)
+
+    Process.send_after(self(), :poll, delay)
     {:noreply, state}
   end
 end

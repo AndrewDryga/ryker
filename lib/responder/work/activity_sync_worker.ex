@@ -10,6 +10,7 @@ defmodule Responder.Work.ActivitySyncWorker do
 
   require Logger
 
+  alias Responder.Polling
   alias Responder.Work.Activity
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -31,12 +32,17 @@ defmodule Responder.Work.ActivitySyncWorker do
 
   @impl GenServer
   def handle_info(:poll, state) do
-    case Activity.retry_once(state.api, state.client) do
-      {:ok, _result} -> :ok
-      {:error, reason} -> Logger.warning("Coop activity sync deferred: #{inspect(reason)}")
-    end
+    delay =
+      Polling.run(:activity_sync, state.poll_interval_ms, fn ->
+        case Activity.retry_once(state.api, state.client) do
+          {:ok, _result} -> :ok
+          {:error, reason} -> Logger.warning("Coop activity sync deferred: #{inspect(reason)}")
+        end
 
-    Process.send_after(self(), :poll, state.poll_interval_ms)
+        state.poll_interval_ms
+      end)
+
+    Process.send_after(self(), :poll, delay)
     {:noreply, state}
   end
 end

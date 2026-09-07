@@ -352,7 +352,34 @@ defmodule Responder.State.KnowledgeTest do
     end
 
     next = input!(129, @resolved)
-    frozen = context!(next)
+    handler = "saturated-recall:" <> Ecto.UUID.generate()
+    reference = make_ref()
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:responder, :repo, :query],
+        &__MODULE__.record_recall_query/4,
+        {self(), reference}
+      )
+
+    frozen =
+      try do
+        context!(next)
+      after
+        :telemetry.detach(handler)
+      end
+
+    assert_receive {^reference, query, params}
+
+    %{rows: [[[explanation]]]} =
+      Repo.query!("EXPLAIN (ANALYZE, FORMAT JSON) " <> query, params, log: false)
+
+    # A full gate timed out after 60 seconds: the actual plan revalidated this
+    # one topic 128 times (16,384 inherited-root visits) before excluding notes.
+    # Assert the work performed, not a machine-dependent elapsed-time budget.
+    assert knowledge_scan_loops(explanation["Plan"]) == 1
     assert frozen.knowledge == []
     assert {:ok, restored} = Context.restore(Context.snapshot(frozen), frozen.input, next, %{})
 
@@ -714,6 +741,25 @@ defmodule Responder.State.KnowledgeTest do
 
     assert {:ok, %{entry: %{status: :decided}}} =
              Admission.commit(context!(entry), decision, "learn:#{entry.id}")
+  end
+
+  def record_recall_query(_event, _measurements, %{query: query, params: params}, {owner, ref}) do
+    source = query |> String.split(" FROM ", parts: 2) |> List.last()
+
+    if self() == owner && String.starts_with?(query, "SELECT") &&
+         String.starts_with?(source, "\"conversation_observations\"") &&
+         String.contains?(query, "conversation_knowledge") do
+      send(owner, {ref, query, params})
+    end
+  end
+
+  defp knowledge_scan_loops(plan) do
+    own =
+      if plan["Relation Name"] == "conversation_knowledge",
+        do: plan["Actual Loops"],
+        else: 0
+
+    own + Enum.sum(Enum.map(plan["Plans"] || [], &knowledge_scan_loops/1))
   end
 
   defp decision!(note, item \\ nil) do

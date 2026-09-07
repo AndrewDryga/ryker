@@ -10,6 +10,7 @@ defmodule Responder.Slack.ThreadStatusWorker do
   require Logger
 
   alias Responder.Observability.Progress
+  alias Responder.Polling
   alias Responder.Slack.ThreadStatuses
 
   @default_interval_ms 1_000
@@ -37,18 +38,23 @@ defmodule Responder.Slack.ThreadStatusWorker do
 
   @impl GenServer
   def handle_info(:work, options) do
-    outcome =
-      case run_once(options) do
-        {:ok, outcome} ->
-          outcome
+    delay =
+      Polling.run(:slack_status, options.interval_ms, fn ->
+        outcome =
+          case run_once(options) do
+            {:ok, outcome} ->
+              outcome
 
-        {:error, reason} ->
-          Logger.warning("Slack thread-status worker failed: #{inspect(reason)}")
-          %{failed: 1, written: 0}
-      end
+            {:error, reason} ->
+              Logger.warning("Slack thread-status worker failed: #{inspect(reason)}")
+              %{failed: 1, written: 0}
+          end
 
-    _ = Progress.beat(:slack_status, if(outcome.failed == 0, do: :cycle, else: :error))
-    Process.send_after(self(), :work, options.interval_ms)
+        _ = Progress.beat(:slack_status, if(outcome.failed == 0, do: :cycle, else: :error))
+        options.interval_ms
+      end)
+
+    Process.send_after(self(), :work, delay)
     {:noreply, options}
   end
 

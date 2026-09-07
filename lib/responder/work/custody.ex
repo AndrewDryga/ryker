@@ -18,6 +18,7 @@ defmodule Responder.Work.Custody do
 
   alias Responder.Work.{
     Cancellation,
+    CandidateResponse,
     DeliveryReceipt,
     FinalPreflight,
     Measurement,
@@ -1935,6 +1936,8 @@ defmodule Responder.Work.Custody do
            candidate_attempt
          ) do
       %Turn{} = staged ->
+        record_candidate_response!(staged)
+
         case Continuity.candidate_staged_in_transaction(
                staged,
                candidate_sha256,
@@ -1943,6 +1946,38 @@ defmodule Responder.Work.Custody do
           :ok -> staged
           {:error, reason} -> Repo.rollback(reason)
         end
+    end
+  end
+
+  defp record_candidate_response!(%Turn{operational_pruned_at: pruned}) when not is_nil(pruned),
+    do: Repo.rollback(:work_candidate_response_pruned)
+
+  defp record_candidate_response!(turn) do
+    # The lease check holds the owning turn lock, also used by operational
+    # pruning. Record only these supplied bytes, never backfill an older cursor.
+    identity = [turn_id: turn.id, candidate_attempt: turn.candidate_attempt]
+    bytes = byte_size(turn.candidate)
+
+    case Repo.get_by(CandidateResponse, identity) do
+      nil ->
+        Repo.insert!(%CandidateResponse{
+          turn_id: turn.id,
+          candidate_attempt: turn.candidate_attempt,
+          body: turn.candidate,
+          sha256: turn.candidate_sha256,
+          byte_size: bytes,
+          recorded_at: database_now!()
+        })
+
+      %CandidateResponse{operational_pruned_at: pruned} when not is_nil(pruned) ->
+        Repo.rollback(:work_candidate_response_pruned)
+
+      %CandidateResponse{body: body, sha256: sha256, byte_size: ^bytes}
+      when body == turn.candidate and sha256 == turn.candidate_sha256 ->
+        :ok
+
+      %CandidateResponse{} ->
+        Repo.rollback({:work_candidate_response_conflict, turn.candidate_attempt})
     end
   end
 

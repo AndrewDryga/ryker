@@ -7,6 +7,7 @@ defmodule Responder.Emisar.ApprovalWorker do
 
   alias Responder.Emisar.ApprovalDispatcher
   alias Responder.Observability.Progress
+  alias Responder.Polling
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do
@@ -33,9 +34,14 @@ defmodule Responder.Emisar.ApprovalWorker do
 
   @impl GenServer
   def handle_info(:poll, state) do
-    process_once(state.dispatcher_options)
-    _ = Progress.beat(:emisar_approval)
-    Process.send_after(self(), :poll, state.poll_interval_ms)
+    delay =
+      Polling.run(:emisar_approval, state.poll_interval_ms, fn ->
+        process_once(state.dispatcher_options)
+        _ = Progress.beat(:emisar_approval)
+        state.poll_interval_ms
+      end)
+
+    Process.send_after(self(), :poll, delay)
     {:noreply, state}
   end
 

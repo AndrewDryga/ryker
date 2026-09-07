@@ -8,10 +8,11 @@ defmodule Responder.ControlPlane.ModelRequests do
   alias Responder.Ingress.Inbox
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
-  alias Responder.Work.{ActivityEvent, Session, Turn}
+  alias Responder.Work.{ActivityEvent, CandidateResponse, Session, Turn}
 
   @page_size 20
   @tool_page_size 30
+  @response_page_size 10
   @tool_kinds ~w(tool.started tool.completed permission.decided activity.elided provider.backoff)
 
   def project(ref, params) when is_binary(ref) and byte_size(ref) <= 1_024 and is_map(params) do
@@ -42,7 +43,9 @@ defmodule Responder.ControlPlane.ModelRequests do
             :not_found
 
           selected ->
-            options = [secrets: Redactor.configured_secrets()]
+            options =
+              [secrets: Redactor.configured_secrets(), episode_ref: episode.key]
+              |> with_responses(List.wrap(selected), params)
 
             {:ok,
              %{
@@ -121,13 +124,15 @@ defmodule Responder.ControlPlane.ModelRequests do
       Repo.all(from(s in Session, where: s.episode_id == ^episode.id and s.id in ^session_ids))
       |> Map.new(&{&1.id, &1})
 
-    options = [
-      secrets: Redactor.configured_secrets(),
-      max_bytes: 2 * 1_024 * 1_024,
-      timeline: true,
-      episode_ref: episode.key,
-      sessions: sessions
-    ]
+    options =
+      [
+        secrets: Redactor.configured_secrets(),
+        max_bytes: 2 * 1_024 * 1_024,
+        timeline: true,
+        episode_ref: episode.key,
+        sessions: sessions
+      ]
+      |> with_responses(Enum.take(turns, 20), %{})
 
     work =
       Enum.flat_map(Enum.take(turns, 20), fn turn ->
@@ -330,19 +335,7 @@ defmodule Responder.ControlPlane.ModelRequests do
         unless(expired, do: turn.candidate),
         options
       ),
-      section(
-        "validation",
-        "Host validation and repair history",
-        unless(expired,
-          do: %{
-            "verdict" => turn.validation_intent,
-            "history" => turn.validation_history,
-            "candidate_attempt" => turn.candidate_attempt,
-            "accepted_at" => iso(turn.accepted_at)
-          }
-        ),
-        options
-      ),
+      validation_section(turn, options),
       section(
         "delivery",
         "Validated response",
@@ -403,6 +396,193 @@ defmodule Responder.ControlPlane.ModelRequests do
         |> Enum.map(&Map.put(&1, :source_kind, :admission)),
       tools: admission_tool_page(entry, generation, params, options)
     }
+  end
+
+  defp with_responses(options, rows, params) do
+    turns = Enum.filter(rows, &match?(%Turn{}, &1))
+    windows = Map.new(turns, &{&1.id, response_window(&1, params, options[:timeline])})
+
+    predicate =
+      Enum.reduce(turns, dynamic(false), fn turn, predicate ->
+        attempts =
+          for %{"candidate_attempt" => attempt} <- windows[turn.id].entries,
+              is_integer(attempt),
+              do: attempt
+
+        if is_nil(turn.operational_pruned_at) && attempts != [],
+          do:
+            dynamic(
+              [response],
+              ^predicate or
+                (response.turn_id == ^turn.id and response.candidate_attempt in ^attempts)
+            ),
+          else: predicate
+      end)
+
+    rows =
+      Repo.all(
+        from(response in CandidateResponse,
+          join: owner in Turn,
+          on: owner.id == response.turn_id,
+          where: ^predicate,
+          where: is_nil(owner.operational_pruned_at),
+          order_by: [
+            desc: response.recorded_at,
+            desc: response.turn_id,
+            desc: response.candidate_attempt
+          ],
+          limit: @response_page_size,
+          select: response
+        )
+      )
+
+    Keyword.merge(options,
+      response_windows: windows,
+      responses: Map.new(rows, &{{&1.turn_id, &1.candidate_attempt}, &1}),
+      responses_limited: options[:timeline] && length(rows) == @response_page_size
+    )
+  end
+
+  defp response_window(turn, params, timeline?) do
+    history = if is_list(turn.validation_history), do: turn.validation_history, else: []
+    total = length(history)
+    pages = max(1, ceil(total / @response_page_size))
+    selected = if timeline?, do: pages, else: 1
+
+    page =
+      if params["responses_page"], do: min(page(params["responses_page"]), pages), else: selected
+
+    offset =
+      if timeline?,
+        do: max(total - @response_page_size, 0),
+        else: (page - 1) * @response_page_size
+
+    %{
+      entries: Enum.slice(history, offset, @response_page_size),
+      page: page,
+      pages: pages,
+      total: total,
+      first: min(offset + 1, total),
+      last: min(offset + @response_page_size, total)
+    }
+  end
+
+  defp validation_section(turn, options) do
+    window = Keyword.fetch!(options, :response_windows)[turn.id]
+    expired = options[:expired]
+
+    responses =
+      for %{"candidate_attempt" => attempt} <- window.entries,
+          is_integer(attempt),
+          into: %{},
+          do: {attempt, response_artifact(turn, attempt, options)}
+
+    section(
+      "validation",
+      "Host validation and repair history",
+      unless(expired,
+        do: %{
+          "verdict" => turn.validation_intent,
+          "history" => window.entries,
+          "candidate_attempt" => turn.candidate_attempt,
+          "accepted_at" => iso(turn.accepted_at)
+        }
+      ),
+      options
+    )
+    |> Map.merge(%{
+      responses: responses,
+      response_page:
+        Map.merge(Map.delete(window, :entries), %{
+          previous: response_page_link(turn, window.page - 1, window.pages, options),
+          next: response_page_link(turn, window.page + 1, window.pages, options)
+        }),
+      response_links: response_links(turn, responses, options)
+    })
+  end
+
+  defp response_artifact(turn, attempt, options) do
+    case Keyword.fetch!(options, :responses)[{turn.id, attempt}] do
+      %{body: body, sha256: digest, byte_size: bytes, operational_pruned_at: pruned_at} ->
+        expired = options[:expired] || not is_nil(pruned_at)
+
+        artifact =
+          Redactor.artifact(unless(expired, do: body), Keyword.put(options, :expired, expired))
+
+        if expired || (artifact.sha256 == digest && artifact.bytes == bytes),
+          do: artifact,
+          else: Redactor.artifact(nil, options)
+
+      nil ->
+        absent_response(options)
+    end
+  end
+
+  defp absent_response(options) do
+    artifact = Redactor.artifact(nil, options)
+
+    if options[:responses_limited] && !options[:expired],
+      do: %{artifact | state: :not_loaded},
+      else: artifact
+  end
+
+  defp response_links(turn, responses, options) do
+    for {%{"candidate_attempt" => attempt, "candidate_sha256" => digest}, index} <-
+          Enum.with_index(turn.validation_history || []),
+        is_integer(attempt),
+        into: %{} do
+      artifact = responses[attempt]
+
+      current? =
+        artifact && artifact.state == :not_recorded && current_response?(turn, attempt, digest)
+
+      artifact = linked_response(artifact, digest, current?)
+
+      page = div(index, @response_page_size) + 1
+
+      {"turn-#{turn.id}-validation-#{attempt}",
+       %{
+         attempt: attempt,
+         prefix: "turn-#{turn.id}",
+         artifact: artifact,
+         href:
+           if(current?,
+             do:
+               response_request_path(turn, options, %{section: "candidate"}) <>
+                 "#selected-#{turn.id}-candidate-body",
+             else:
+               response_page_link(turn, page, page, options) <>
+                 "#selected-#{turn.id}-response-#{attempt}-body"
+           )
+       }}
+    end
+  end
+
+  defp linked_response(artifact, digest, current?) do
+    if artifact && !current? && artifact.state != :not_loaded &&
+         (artifact.state != :retained || artifact.sha256 == digest),
+       do: artifact
+  end
+
+  defp current_response?(
+         %{operational_pruned_at: nil, candidate_attempt: attempt, candidate: body},
+         attempt,
+         digest
+       )
+       when is_binary(body),
+       do: :crypto.hash(:sha256, body) |> Base.encode16(case: :lower) == digest
+
+  defp current_response?(_turn, _attempt, _digest), do: false
+
+  defp response_page_link(_turn, page, pages, _options) when page < 1 or page > pages, do: nil
+
+  defp response_page_link(turn, page, _pages, options) do
+    response_request_path(turn, options, %{responses_page: page, section: "validation"})
+  end
+
+  defp response_request_path(turn, options, params) do
+    "/episodes/#{URI.encode_www_form(options[:episode_ref])}/requests?" <>
+      URI.encode_query(Map.put(params, :attempt, turn.id))
   end
 
   defp admission_recovery(%{status: :blocked} = entry) do

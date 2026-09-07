@@ -55,6 +55,15 @@ defmodule Responder.ControlPlane.ReadabilityTest do
     assert tooltip =~ "calc(100vw - 32px)"
   end
 
+  test "candidate evidence cannot squeeze event reasons into a side column" do
+    # Full-page Chromium screenshots caught unreadably narrow rejection text
+    # despite a passing page-overflow check; geometry is also browser-tested.
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    assert [_, rule] = Regex.run(~r/\.candidate-evidence \{([^}]+)\}/, css)
+    assert rule =~ "grid-column:1 / -1"
+    assert rule =~ "min-width:0"
+  end
+
   test "chapters preserve late follow-ups and tied activity in execution order" do
     now = ~U[2026-09-05 12:00:00Z]
 

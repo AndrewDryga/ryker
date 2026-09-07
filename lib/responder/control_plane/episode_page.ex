@@ -284,6 +284,29 @@ defmodule Responder.ControlPlane.EpisodePage do
       <p :if={@step[:current_warning]} class="action-error">
         <strong>Current scheduling status:</strong> {@step.current_warning}
       </p>
+      <div :if={@step[:candidate_response]} class="candidate-evidence">
+        <Responder.ControlPlane.RequestPage.candidate_response
+          :if={
+            @step.candidate_response.artifact &&
+              @step.candidate_response.artifact.state in [:retained, :expired]
+          }
+          response={@step.candidate_response.artifact}
+          attempt={@step.candidate_response.attempt}
+          prefix={@step.candidate_response.prefix}
+        />
+        <p :if={!@step.candidate_response.artifact}>
+          <a href={@step.candidate_response.href}>Inspect response for attempt {@step.candidate_response.attempt} →</a>
+        </p>
+        <p
+          :if={
+            @step.candidate_response.artifact &&
+              @step.candidate_response.artifact.state == :not_recorded
+          }
+          class="artifact-unavailable"
+        >
+          Response body not retained for this attempt. Its check receipt is preserved here.
+        </p>
+      </div>
       <div :if={(@step[:artifacts] || []) != []} class="tool-evidence">
         <details
           :for={{item, index} <- Enum.with_index(@step.artifacts)}
@@ -405,11 +428,24 @@ defmodule Responder.ControlPlane.EpisodePage do
 
     copies = visible_copies(snapshot.trace.steps, messages, timeline.items)
 
+    responses =
+      for request <- requests,
+          section <- request.sections,
+          {id, response} <- section[:response_links] || %{},
+          into: %{},
+          do: {id, response}
+
     steps =
       snapshot.trace.steps
       |> Enum.reject(&redundant_step?(&1, copies))
       |> Enum.map(fn step ->
-        %{id: "event-#{step.id}", at: step.at, kind: :event, step: step, band: step.band}
+        %{
+          id: "event-#{step.id}",
+          at: step.at,
+          kind: :event,
+          step: Map.put(step, :candidate_response, responses[step.id]),
+          band: step.band
+        }
       end)
 
     # Stable sort preserves the trace's numeric sequence/lifecycle ordering on ties.

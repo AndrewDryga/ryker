@@ -4,6 +4,7 @@ defmodule Responder.ControlPlane.CardLabWorker do
   require Logger
 
   alias Responder.ControlPlane.CardLabDelivery
+  alias Responder.Polling
 
   def start_link(options), do: GenServer.start_link(__MODULE__, options)
 
@@ -15,13 +16,18 @@ defmodule Responder.ControlPlane.CardLabWorker do
 
   @impl true
   def handle_info(:poll, options) do
-    case CardLabDelivery.run_once() do
-      {:ok, _} -> :ok
-      {:error, :card_lab_slack_not_configured} -> :ok
-      {:error, _} -> Logger.warning("Card Lab delivery custody could not advance")
-    end
+    delay =
+      Polling.run(:card_lab, 1_000, fn ->
+        case CardLabDelivery.run_once() do
+          {:ok, _} -> :ok
+          {:error, :card_lab_slack_not_configured} -> :ok
+          {:error, _} -> Logger.warning("Card Lab delivery custody could not advance")
+        end
 
-    Process.send_after(self(), :poll, 1_000)
+        1_000
+      end)
+
+    Process.send_after(self(), :poll, delay)
     {:noreply, options}
   end
 end

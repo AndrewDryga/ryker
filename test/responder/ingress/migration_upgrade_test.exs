@@ -32,6 +32,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @timer_resolution_version 20_260_907_000_200
   @wait_scheduling_errors_version 20_260_907_000_300
   @slack_addressing_version 20_260_907_000_400
+  @candidate_responses_version 20_260_907_000_500
   @workspace_versions [
     20_260_905_000_100,
     20_260_905_000_200,
@@ -44,7 +45,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     20_260_907_000_100,
     @timer_resolution_version,
     @wait_scheduling_errors_version,
-    @slack_addressing_version
+    @slack_addressing_version,
+    @candidate_responses_version
   ]
   @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
@@ -140,6 +142,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert table_exists?(repo, prefix, "memory_review_items")
       assert table_exists?(repo, prefix, "episode_work_activity")
       assert table_exists?(repo, prefix, "card_lab_feedback")
+      assert table_exists?(repo, prefix, "work_candidate_responses")
       assert column_exists?(repo, prefix, "episode_work_sessions", "activity_cursor")
 
       assert constraint_definition(
@@ -1150,6 +1153,89 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                )
 
       assert byte_size(user_ref) == 256
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
+               [@candidate_responses_version]
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  test "candidate response history survives refused rollback after an empty migration round trip" do
+    # Missing older response bytes made repair history impossible to inspect. Rolling back
+    # must not recreate that loss; this is host setup using an actually retained raw candidate.
+    repo = start_migration_repo!()
+    prefix = "candidate_responses_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      ids = insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @slack_addressing_version,
+        prefix: prefix,
+        log: false
+      )
+
+      owner_query = "SELECT * FROM #{prefix}.episode_work_turns"
+      owner = SQL.query!(repo, owner_query, []).rows
+
+      for direction <- [:up, :down, :up] do
+        assert Ecto.Migrator.run(repo, @migrations_path, direction,
+                 step: 1,
+                 prefix: prefix,
+                 log: false
+               ) == [@candidate_responses_version]
+
+        assert table_exists?(repo, prefix, "work_candidate_responses") == (direction == :up)
+        assert SQL.query!(repo, owner_query, []).rows == owner
+      end
+
+      [_, response] =
+        __DIR__
+        |> Path.join("../work/fixtures/airflow_candidate_responses.json")
+        |> File.read!()
+        |> Jason.decode!()
+        |> Map.fetch!("responses")
+
+      %{"body" => body, "sha256" => sha256, "bytes" => bytes} = response
+
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.work_candidate_responses
+          (turn_id, candidate_attempt, body, sha256, byte_size, recorded_at)
+        VALUES ($1::text::uuid, 1, $2, $3, $4, clock_timestamp())
+        """,
+        [ids.turn_id, body, sha256, bytes]
+      )
+
+      response_query = "SELECT * FROM #{prefix}.work_candidate_responses"
+      original = SQL.query!(repo, response_query, []).rows
+
+      assert_raise Postgrex.Error, ~r/export candidate response history before rollback/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down,
+          step: 1,
+          prefix: prefix,
+          log: false
+        )
+      end
+
+      assert SQL.query!(repo, response_query, []).rows == original
+      assert SQL.query!(repo, owner_query, []).rows == owner
+
+      assert %{rows: [[^body, ^sha256, ^bytes, nil]]} =
+               SQL.query!(
+                 repo,
+                 "SELECT body, sha256, byte_size, operational_pruned_at FROM #{prefix}.work_candidate_responses",
+                 []
+               )
 
       assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
                []

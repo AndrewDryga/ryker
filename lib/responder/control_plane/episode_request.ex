@@ -4,9 +4,11 @@ defmodule Responder.ControlPlane.EpisodeRequest do
 
   alias Responder.ControlPlane.Components
   alias Responder.ControlPlane.RequestContextHTML
+  alias Responder.ControlPlane.RequestPage
 
   def render(assigns) do
     request = assigns.request
+    archived = RequestPage.latest_archived_response(request.sections)
 
     assigns =
       assigns
@@ -15,9 +17,10 @@ defmodule Responder.ControlPlane.EpisodeRequest do
       |> assign(:explanation, explanation(request))
       |> assign(:timing, request.timing)
       |> assign(:result?, request.phase == :result)
+      |> assign(:archived_response, archived)
       |> assign(
         :response,
-        if(request.phase == :result && request.source_kind == :work,
+        if(request.phase == :result && request.source_kind == :work && !archived,
           do: document(request, "candidate")
         )
       )
@@ -111,8 +114,13 @@ defmodule Responder.ControlPlane.EpisodeRequest do
           </ul>
         </div>
       </section>
+      <p :if={@archived_response} class="response-reference">
+        <a href={"#turn-#{String.replace_prefix(@request.id, "request-", "") |> String.replace_suffix("-result", "")}-response-#{@archived_response.attempt}-body"}>
+          View response with attempt {@archived_response.attempt}'s checks ↑
+        </a>
+      </p>
       <details
-        :if={@result?}
+        :if={@result? && !@archived_response}
         class="request-evidence request-result-evidence"
         id={"#{@request.id}-evidence"}
       >

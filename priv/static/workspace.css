@@ -814,6 +814,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .case-message-text { font-size:17px; line-height:1.6; color:#253329; white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0 0; max-width:90ch; }
 .case-event-content { display:grid; grid-template-columns:minmax(0,1fr) auto; column-gap:16px; align-items:start; }
 .case-event-heading, .case-event-summary { grid-column:1; }
+.candidate-evidence { grid-column:1 / -1; min-width:0; }
 .case-event-content > .case-event-details { grid-column:1 / -1; grid-row:auto; margin-top:8px; }
 .case-event-content > .case-event-details > summary { padding:2px 0; }
 .case-event-content > .case-event-details[open] { grid-column:1 / -1; grid-row:auto; }

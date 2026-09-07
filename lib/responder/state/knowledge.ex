@@ -177,11 +177,19 @@ defmodule Responder.State.Knowledge do
 
   @doc false
   def current_source_ids_query(scope) do
+    eligible =
+      valid_query()
+      |> LearningSources.eligible(scope)
+      |> select([k], %{id: k.id, source_generation: k.source_generation})
+
+    # Flattening this join made PostgreSQL validate one topic's 128 roots once
+    # per source row. Evaluate eligibility once, in this same statement snapshot.
     from(s in KnowledgeSource,
-      join: k in subquery(LearningSources.eligible(valid_query(), scope)),
+      join: k in "eligible_conversation_knowledge",
       on: k.id == s.knowledge_id and k.source_generation == s.generation,
       select: s.observation_id
     )
+    |> with_cte("eligible_conversation_knowledge", as: ^eligible, materialized: true)
   end
 
   @doc false

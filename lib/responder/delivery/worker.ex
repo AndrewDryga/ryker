@@ -12,6 +12,7 @@ defmodule Responder.Delivery.Worker do
 
   alias Responder.Delivery.Dispatcher
   alias Responder.Observability.Progress
+  alias Responder.Polling
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do
@@ -38,9 +39,14 @@ defmodule Responder.Delivery.Worker do
 
   @impl GenServer
   def handle_info(:poll, state) do
-    process_once(state.dispatcher_options)
-    _ = Progress.beat(:delivery)
-    Process.send_after(self(), :poll, state.poll_interval_ms)
+    delay =
+      Polling.run(:delivery, state.poll_interval_ms, fn ->
+        process_once(state.dispatcher_options)
+        _ = Progress.beat(:delivery)
+        state.poll_interval_ms
+      end)
+
+    Process.send_after(self(), :poll, delay)
     {:noreply, state}
   end
 
