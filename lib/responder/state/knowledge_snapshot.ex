@@ -267,6 +267,7 @@ defmodule Responder.State.KnowledgeSnapshot do
                lock: "FOR SHARE"
              )
            ),
+         true <- revision.state["retention"] != "pruned",
          true <- revision.state == Map.take(document, ~w(title summary topics)),
          true <- LearningSources.valid?(revision.source_dependencies, scope) do
       sources =
@@ -313,10 +314,8 @@ defmodule Responder.State.KnowledgeSnapshot do
   defp source_valid?(_source, nil, _head), do: false
 
   defp source_valid?(source, observation, head) do
-    not is_nil(source.source_note) and not is_nil(observation.note) and
-      source.source_revision == observation.revision and
+    source.source_revision == observation.revision and
       source.source_fingerprint == observation.source_fingerprint and
-      source.source_note == observation.note and
       observation.conversation_ref == head.conversation_ref and
       observation.workspace_ref == head.workspace_ref and
       observation.repository_ref == head.repository_ref and

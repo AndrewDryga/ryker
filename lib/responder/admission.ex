@@ -14,7 +14,7 @@ defmodule Responder.Admission do
   alias Responder.Delivery.ReactionCustody
   alias Responder.Episodes
   alias Responder.Episodes.{Command, ConversationLock, Episode, Event}
-  alias Responder.Ingress.{Inbox, Input}
+  alias Responder.Ingress.{Inbox, Input, RecallText}
   alias Responder.Ingress.Inbox.{Entry, EntryChangeset}
   alias Responder.Repo
   alias Responder.State.{Behaviors, Knowledge, LearningSources, Observations, Records}
@@ -105,7 +105,7 @@ defmodule Responder.Admission do
           Knowledge.context(
             entry,
             entry.repository_ref,
-            {:related, input.content["text"] || Responder.CanonicalJSON.encode!(input.content)},
+            {:related, RecallText.from(input.content)},
             8
           )
       }

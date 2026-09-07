@@ -644,12 +644,14 @@ defmodule Responder.State.ContinuityTest do
 
     # Term-order sorting ranked microseconds before the actual clock time,
     # letting an older conversation replace the newest situation in a rollup.
-    now = DateTime.utc_now()
+    # At Monday 00:02:30 these offsets straddled the weekly bucket boundary.
+    # Anchor both in the preceding hour, with a horizon covering that hour.
+    now = DateTime.from_unix!(div(DateTime.to_unix(DateTime.utc_now()), 3600) * 3600)
     first_time = %{DateTime.add(now, -180, :second) | microsecond: {900_000, 6}}
     Repo.update_all(ConversationSummary, set: [inserted_at: first_time, updated_at: first_time])
 
     assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 3_600) end)
+             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7_200) end)
 
     first_rollup = Repo.one!(ConversationRollup)
 
@@ -664,7 +666,7 @@ defmodule Responder.State.ContinuityTest do
     Repo.update_all(ConversationSummary, set: [inserted_at: second_time, updated_at: second_time])
 
     assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 3_600) end)
+             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7_200) end)
 
     rollup = Repo.one!(ConversationRollup)
     assert rollup.id == first_rollup.id

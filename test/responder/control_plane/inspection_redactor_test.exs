@@ -1,6 +1,40 @@
 defmodule Responder.ControlPlane.InspectionRedactorTest do
   use ExUnit.Case, async: true
   alias Responder.ControlPlane.InspectionRedactor
+  alias Responder.ControlPlane.SlackMarkdown
+
+  test "redacting a Slack alert URL preserves its complete readable label" do
+    # The retained HAProxy alert lost 'Open' and displayed a long URL instead.
+    [source | _] =
+      File.read!("testdata/learning/retained-haproxy-lifecycle.json")
+      |> Jason.decode!()
+      |> Map.fetch!("inputs")
+
+    text = hd(source["content"]["attachments"])["text"]
+    artifact = InspectionRedactor.artifact(text, secrets: [])
+    html = SlackMarkdown.render(artifact.text) |> IO.iodata_to_binary()
+    assert html =~ ">Open in Grafana</a>"
+    assert html =~ ">Create silence</a>"
+    refute artifact.text =~ "orgId=1"
+
+    sanitized =
+      InspectionRedactor.artifact(
+        "<https://user:password@example.test/view?token=unpublished#secret|Open in Grafana>",
+        secrets: []
+      )
+
+    assert sanitized.text == "<https://example.test/view|Open in Grafana>"
+    refute sanitized.text =~ "unpublished"
+    refute sanitized.text =~ "password"
+
+    # A pipe in an ordinary URL is still query data, not a Slack label.
+    for link <- [
+          "https://example.test/view?token=first|second",
+          "[Open](https://example.test/view?token=first|second)"
+        ] do
+      refute InspectionRedactor.artifact(link, secrets: []).text =~ "second"
+    end
+  end
 
   test "redacting URL credentials preserves the closing punctuation of Markdown links" do
     # The real OOM memory's ?orgId=1 link swallowed its closing parenthesis,
@@ -25,6 +59,18 @@ defmodule Responder.ControlPlane.InspectionRedactorTest do
       refute artifact.text =~ "hidden-value"
       refute artifact.text =~ "hidd\\u0065n"
       assert artifact.text =~ "safe"
+    end
+  end
+
+  test "an incomplete angle link cannot expose a pipe-delimited URL credential" do
+    for text <- [
+          "<https://example.test/view?signature=first|opaque-unconfigured-secret",
+          "<https://example.test/view?signature=first|opaque-unconfigured-secret\n>",
+          "<https://example.test/view?signature=first|opaque-unconfigured-secret<broken>"
+        ] do
+      artifact = InspectionRedactor.artifact(text, secrets: [])
+      refute artifact.text =~ "opaque-unconfigured-secret"
+      refute artifact.text =~ "signature="
     end
   end
 

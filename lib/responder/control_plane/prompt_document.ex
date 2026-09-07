@@ -96,7 +96,7 @@ defmodule Responder.ControlPlane.PromptDocument do
   end
 
   defp annotate(html, path) do
-    if path == "$.instructions" ||
+    if path in ~w($.instructions $.inputs $.knowledge) ||
          Regex.match?(
            ~r/^\$\.(work|context)\.((?!operator_context$)[^.\[\]]+|operator_context\.[^.\[\]]+)$/,
            path

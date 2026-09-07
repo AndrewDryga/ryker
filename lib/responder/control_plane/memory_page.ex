@@ -99,6 +99,7 @@ defmodule Responder.ControlPlane.MemoryPage do
             <div class="markdown-preview">{Phoenix.HTML.raw(preview(revision.text, nil))}</div>
             <small>Source message · {Calendar.strftime(revision.source_at, "%d %b %Y, %H:%M UTC")}</small>
             <a :if={revision.source} href={revision.source} rel="noopener noreferrer">Open source →</a>
+            <a :if={revision.learning_path} href={revision.learning_path}>How this was learned →</a>
           </li>
         </ol>
         <nav :if={@view.history_pages > 1} class="pagination" aria-label="Update history pages">
@@ -110,6 +111,7 @@ defmodule Responder.ControlPlane.MemoryPage do
           >Older updates →</a>
         </nav>
       </section>
+      <Responder.ControlPlane.LearningReceipt.render :if={@view.learning} receipt={@view.learning} />
       <nav :if={@view.pages > 1} class="pagination" aria-label="Memory pages">
         <a :if={@view.page > 1} href={path(@view, @view.kind, @view.page - 1)}>← Previous</a>
         <span>Page {@view.page} of {@view.pages}</span>

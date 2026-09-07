@@ -285,29 +285,59 @@ defmodule Responder.State.KnowledgeTest do
     assert length(Knowledge.history(before["source_ref"])) == 2
   end
 
-  test "relevant older topics are selected before the bounded recent context" do
-    first = input!(1, @resolved)
-    learn!(first, @resolved)
+  for boundary <- [:text, :attachments, :batch] do
+    test "#{boundary} recalls a relevant older topic ahead of unrelated recent knowledge" do
+      first = input!(1, @resolved)
+      learn!(first, @resolved)
 
-    for n <- 2..12 do
-      note = %{
-        "summary" => "An unrelated project discussion #{n}.",
-        "topics" => ["Other project #{n}"]
-      }
+      for n <- 2..12 do
+        note = %{
+          "summary" => "An unrelated project discussion #{n}.",
+          "topics" => ["Other project #{n}"]
+        }
 
-      entry = input!(n, note)
-      decision = decision!(note)
-      decision = %{decision | knowledge: Map.put(decision.knowledge, "topic_key", "other-#{n}")}
-      assert {:ok, _} = Admission.commit(context!(entry), decision, "unrelated:#{n}")
+        entry = input!(n, note)
+        decision = decision!(note)
+        decision = %{decision | knowledge: Map.put(decision.knowledge, "topic_key", "other-#{n}")}
+        assert {:ok, _} = Admission.commit(context!(entry), decision, "unrelated:#{n}")
+      end
+
+      items =
+        case unquote(boundary) do
+          :text ->
+            Knowledge.context(
+              first,
+              "blitz-infra",
+              {:related, "What happened to HAProxy OOM?"},
+              8
+            )
+
+          :batch ->
+            Knowledge.context(
+              first,
+              "blitz-infra",
+              {:related,
+               [
+                 String.duplicate("An unrelated project discussion. ", 200),
+                 "What happened to HAProxy OOM?"
+               ]},
+              8
+            )
+
+          :attachments ->
+            [raw | _] =
+              File.read!("testdata/learning/retained-haproxy-lifecycle.json")
+              |> Jason.decode!()
+              |> Map.fetch!("inputs")
+
+            entry = input!(20, @resolved, content: raw["content"])
+            assert entry.content["text"] == ""
+            context!(entry).knowledge
+        end
+
+      assert Enum.any?(items, &(&1["topic_key"] == "website-haproxy-oom"))
+      if unquote(boundary) == :text, do: assert(hd(items)["topic_key"] == "website-haproxy-oom")
     end
-
-    assert [%{"topic_key" => "website-haproxy-oom"} | _] =
-             Knowledge.context(
-               first,
-               "blitz-infra",
-               {:related, "What happened to HAProxy OOM?"},
-               8
-             )
   end
 
   test "a saturated topic advances from newly supplied sources without blocking the inbox" do
@@ -331,6 +361,22 @@ defmodule Responder.State.KnowledgeTest do
 
     assert [%{"version" => 129, "source_count" => 1}] = Knowledge.context(next, "blitz-infra")
     assert Repo.aggregate(KnowledgeRevision, :count) == 129
+  end
+
+  test "retry topic keys do not widen the authorized update conversation" do
+    joined!("C1")
+    joined!("C2")
+    first = input!(1, @firing, channel: "C1")
+    second = input!(2, @firing, channel: "C2")
+    learn!(first, @firing)
+    learn!(second, @firing)
+    assert length(Knowledge.context(first, "blitz-infra")) == 2
+
+    assert [item] =
+             Knowledge.context(first, "blitz-infra", {:topic_keys, ["website-haproxy-oom"]}, 16)
+
+    assert item["conversation_ref"] == first.destination_conversation_ref
+    assert item["can_update"]
   end
 
   test "an inherited-only withdrawal permits a fresh same-key generation" do
@@ -707,7 +753,7 @@ defmodule Responder.State.KnowledgeTest do
         revision: revision,
         event_kind: Keyword.get(options, :kind, :message),
         occurred_at: DateTime.add(@now, n * 600),
-        content: %{"text" => note["summary"]}
+        content: Keyword.get(options, :content, %{"text" => note["summary"]})
       })
 
     {:ok, %{entry: entry}} =

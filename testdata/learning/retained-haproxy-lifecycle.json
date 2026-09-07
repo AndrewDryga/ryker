@@ -1,0 +1,119 @@
+{
+  "source": "Private Blitz replay; exact retained firing/resolved source inputs, no generated messages.",
+  "inputs": [
+    {
+      "source_input_id": "bec3eb2b-4b2d-4ba0-843a-84fe1ef62666",
+      "content": {
+        "attachments": [
+          {
+            "color": "daa038",
+            "fallback": "[VA1 FIRING:1] WARNING | Host OOM kills",
+            "id": 1,
+            "text": "*FIRING - 1 alert*\n\n*Kernel OOM-killed website/haproxy-edge (haproxy) on nomad-hvn01*\nOOM constraint CONSTRAINT_MEMCG. CONSTRAINT_MEMCG means the workload cgroup reached its limit; it does not by itself mean the host ran out of RAM.\n*Nomad job:* `website`\n*Allocation:* `311e38f3-a17c-7d1b-1235-05c256ba3c39`\n*Task:* `haproxy-edge`\n*Process:* `haproxy`\n*OOM constraint:* `CONSTRAINT_MEMCG`\n*Instance:* `nomad-hvn01`\n*Started:* <!date^1788628730^{date_short_pretty} at {time_secs}|2026-09-05 17:18:50 UTC>\n*Alert:* <https://grafana.tail7c930.ts.net/alerting/grafana/va1-host-oom/view?orgId=1|Open in Grafana>\n*Silence:* <https://grafana.tail7c930.ts.net/alerting/silence/new?alertmanager=grafana&amp;matcher=__alert_rule_uid__%3Dva1-host-oom&amp;matcher=alloc_id%3D311e38f3-a17c-7d1b-1235-05c256ba3c39&amp;matcher=constraint%3DCONSTRAINT_MEMCG&amp;matcher=exported_job%3Dwebsite&amp;matcher=instance%3Dnomad-hvn01&amp;matcher=process%3Dhaproxy&amp;matcher=severity%3Dwarning&amp;matcher=task%3Dhaproxy-edge&amp;orgId=1|Create silence>",
+            "title": "[VA1 FIRING:1] WARNING | Host OOM kills",
+            "title_link": "https://grafana.tail7c930.ts.net/alerting/grafana/va1-host-oom/view?orgId=1",
+            "ts": 1788628764
+          }
+        ],
+        "blocks": [],
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": "bot_message",
+        "text": ""
+      },
+      "source_kind": "slack",
+      "source_ref": "T01J1LW4DF1",
+      "native_input_id": "slack-message:03f1d3dd707fe94a125249972db4087ed8963c7130d46fc8e00630742a9fa35a",
+      "source_item_ref": "1788628764.248029",
+      "revision": 7154515056992116,
+      "occurred_at": "2026-09-05T17:19:24.248029",
+      "destination_transport": "slack",
+      "destination_conversation_ref": "slack:T01J1LW4DF1:C08MMETA3U3",
+      "destination_thread_ref": "1788628764.248029",
+      "actor_kind": "bot",
+      "actor_ref": "B0910HETYAH",
+      "event_kind": "message",
+      "event_fingerprint": "c789a3197f8789593b4d2f9bed86b8ee980cb0b1b783eb034fbec669042225c6",
+      "repository_ref": "blitz-infra",
+      "id": "bec3eb2b-4b2d-4ba0-843a-84fe1ef62666",
+      "dedupe_key": "ingress-event:b514cf0ca0ad0f98f763220df36e1babc56b7256704e23b07fedde7f0a89373b",
+      "event_ref": "blitz-backfill:20260906:C08MMETA3U3:1788628764.248029",
+      "occurred_at_source": "source",
+      "source_capabilities": {
+        "react": {
+          "emoji_names": null
+        }
+      },
+      "decision_action": "start_episode",
+      "decision_document": {
+        "action": "start_episode",
+        "episode_ref": null,
+        "reaction": null,
+        "reason": "New firing alert reports a cgroup-limit OOM kill of website/haproxy-edge on nomad-hvn01. Investigate allocation recovery, memory usage and limits, and service impact. None of the offered episodes matches this alert lifecycle.",
+        "relation": "unrelated",
+        "work_class": "standard"
+      },
+      "decision_ref": "coop-admission:turn_312ff6640aa8b5b0d8216edc64fb888a:f987ba1a8444da47aef3325a1e7d421ed037902d6c9ad1389fb6a2a40bee5278",
+      "decision_fingerprint": "6cfd968d0be0d1eada1504e8584a4d70f40e218405ffa7d79e664b2cb6b3d150",
+      "work_policy": "blitz-replay-conversation-v1",
+      "work_policy_digest": "535a8566d33cadc50bfce8c1410e4fa0652c3745b428925791e5a489f5703679"
+    },
+    {
+      "source_input_id": "62a54f69-bf24-4c3c-b576-a127cbce4bab",
+      "content": {
+        "attachments": [
+          {
+            "color": "2eb886",
+            "fallback": "[VA1 RESOLVED:1] WARNING | Host OOM kills",
+            "id": 1,
+            "text": "*RESOLVED - 1 alert*\n\n*Kernel OOM-killed website/haproxy-edge (haproxy) on nomad-hvn01*\nOOM constraint CONSTRAINT_MEMCG. CONSTRAINT_MEMCG means the workload cgroup reached its limit; it does not by itself mean the host ran out of RAM.\n*Nomad job:* `website`\n*Allocation:* `311e38f3-a17c-7d1b-1235-05c256ba3c39`\n*Task:* `haproxy-edge`\n*Process:* `haproxy`\n*OOM constraint:* `CONSTRAINT_MEMCG`\n*Instance:* `nomad-hvn01`\n*Started:* <!date^1788628730^{date_short_pretty} at {time_secs}|2026-09-05 17:18:50 UTC>\n*Resolved:* <!date^1788629330^{date_short_pretty} at {time_secs}|2026-09-05 17:28:50 UTC>\n*Alert:* <https://grafana.tail7c930.ts.net/alerting/grafana/va1-host-oom/view?orgId=1|Open in Grafana>",
+            "title": "[VA1 RESOLVED:1] WARNING | Host OOM kills",
+            "title_link": "https://grafana.tail7c930.ts.net/alerting/grafana/va1-host-oom/view?orgId=1",
+            "ts": 1788629364
+          }
+        ],
+        "blocks": [],
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": "bot_message",
+        "text": ""
+      },
+      "source_kind": "slack",
+      "source_ref": "T01J1LW4DF1",
+      "native_input_id": "slack-message:542234f8f830f85fadb6333adcce3c8948c9c9efeccb444b44d9ba02f6e045cb",
+      "source_item_ref": "1788629364.235999",
+      "revision": 7154517456943996,
+      "occurred_at": "2026-09-05T17:29:24.235999",
+      "destination_transport": "slack",
+      "destination_conversation_ref": "slack:T01J1LW4DF1:C08MMETA3U3",
+      "destination_thread_ref": "1788629364.235999",
+      "actor_kind": "bot",
+      "actor_ref": "B0910HETYAH",
+      "event_kind": "message",
+      "event_fingerprint": "9e746559e21676c717fcfb3459806dab9523341883dd547f3971099ab17c17e4",
+      "repository_ref": "blitz-infra",
+      "id": "62a54f69-bf24-4c3c-b576-a127cbce4bab",
+      "dedupe_key": "ingress-event:499f43438eaf055a69d69232a2ba1c6714e456ca3b84d390dd6141057bd042bd",
+      "event_ref": "blitz-backfill:20260906:C08MMETA3U3:1788629364.235999",
+      "occurred_at_source": "source",
+      "source_capabilities": {
+        "react": {
+          "emoji_names": null
+        }
+      },
+      "decision_action": "start_episode",
+      "decision_document": {
+        "action": "start_episode",
+        "episode_ref": "candidate:16cf965329815069f3f9ed77f1f8b019342efc07053c148c8bba78be334ed1ad",
+        "reaction": null,
+        "reason": "This recovery matches the workload and host in the active OOM alert and should inform incident closure. The candidate permits only history_only, so start linked work to reconcile the resolution; alert recovery alone does not establish that the memory-limit cause was fixed.",
+        "relation": "history_only",
+        "work_class": "standard"
+      },
+      "decision_ref": "coop-admission:turn_3316ae138bd771b8819720a2b3472dcc:f2db8d33a15846deaa76cc20ac1c0c91db03dc7e8d4844fa7174fc80c8a8ba73",
+      "decision_fingerprint": "0d55f4c83f91e9193db3f44c903541e20b88f37f824979dde44af52e79ca88ba",
+      "work_policy": "blitz-replay-conversation-v1",
+      "work_policy_digest": "535a8566d33cadc50bfce8c1410e4fa0652c3745b428925791e5a489f5703679"
+    }
+  ]
+}

@@ -85,7 +85,13 @@ defmodule Responder.State.Knowledge do
          {:ok, proposal} <- KnowledgeUpdate.prepare(proposal),
          {:ok, scope} <- Observations.locked_scope(entry, entry.repository_ref),
          %ConversationObservation{} = source <- current_source(entry) do
-      apply_update(scope, source, proposal, offered, omissions)
+      apply_update(
+        scope,
+        Map.put(Map.from_struct(source), :direct_sources, [source]),
+        proposal,
+        offered,
+        omissions
+      )
     else
       :superseded -> :ok
       _ -> @stale
@@ -93,6 +99,69 @@ defmodule Responder.State.Knowledge do
   end
 
   def record_in_transaction(_, _, _, _), do: @stale
+
+  @doc "Learn from retained raw inputs without changing their earlier observations or decisions."
+  def record_sources_in_transaction(entries, proposal, offered, %{
+        result_ref: result_ref,
+        source_dependencies: dependencies,
+        omissions: omissions
+      })
+      when is_list(entries) and length(entries) in 1..16 and is_binary(result_ref) and
+             byte_size(result_ref) in 1..512 do
+    entry = hd(entries)
+
+    with true <- Repo.in_transaction?(),
+         true <- Enum.all?(entries, &same_source_scope?(&1, entry)),
+         {:ok, proposal} when not is_nil(proposal) <- KnowledgeUpdate.prepare(proposal),
+         {:ok, scope} <- Observations.locked_scope(entry, entry.repository_ref),
+         {:ok, source} <- raw_sources(entries, dependencies, result_ref, scope, offered),
+         :ok <- reauthorize(entry, entry.repository_ref, offered) do
+      apply_update(scope, source, proposal, offered, omissions)
+    else
+      _ -> @stale
+    end
+  end
+
+  def record_sources_in_transaction(_, _, _, _), do: @stale
+
+  defp same_source_scope?(%Entry{status: :decided} = source, %Entry{} = entry) do
+    source.destination_transport == entry.destination_transport and
+      source.destination_conversation_ref == entry.destination_conversation_ref and
+      source.repository_ref == entry.repository_ref
+  end
+
+  defp same_source_scope?(_, _), do: false
+
+  defp raw_sources(entries, dependencies, result_ref, scope, offered) do
+    sources = entries |> Enum.sort_by(& &1.id) |> Enum.map(&current_source/1)
+
+    roots =
+      LearningSources.merge(
+        Enum.map(entries, &LearningSources.for_entry/1) ++
+          Enum.map(offered, &LearningSources.document_sources/1)
+      )
+
+    with true <- Enum.all?(sources, &match?(%ConversationObservation{}, &1)),
+         true <- LearningSources.valid?(dependencies, scope),
+         ^dependencies <- LearningSources.merge([dependencies, roots]) do
+      primary =
+        Enum.max_by(
+          sources,
+          &{DateTime.to_unix(&1.occurred_at, :microsecond), &1.source_input_id}
+        )
+
+      {:ok,
+       Map.merge(Map.from_struct(primary), %{
+         # Raw learning never disclosed old derived notes. Do not copy their
+         # prose into this generation without their inherited retention roots.
+         direct_sources: Enum.map(sources, &%{&1 | note: nil}),
+         source_dependencies: dependencies,
+         source_result_ref: result_ref
+       })}
+    else
+      _ -> @stale
+    end
+  end
 
   def history(reference) do
     case id(reference) do
@@ -156,16 +225,16 @@ defmodule Responder.State.Knowledge do
 
     from(k in ConversationKnowledge,
       as: :knowledge,
-      where: exists(subquery(any)) and not exists(subquery(invalid))
+      where: exists(subquery(any)) and not exists(subquery(invalid)),
+      where: fragment(~s(?::jsonb <> '{"retention":"pruned"}'::jsonb), k.state)
     )
   end
 
   defp changed_source do
     dynamic(
       [s, o],
-      is_nil(s.source_note) or is_nil(o.note) or
-        o.revision != s.source_revision or o.source_fingerprint != s.source_fingerprint or
-        o.note != s.source_note
+      is_nil(o.id) or o.revision != s.source_revision or
+        o.source_fingerprint != s.source_fingerprint
     )
   end
 
@@ -185,50 +254,48 @@ defmodule Responder.State.Knowledge do
     |> LearningSources.eligible(scope)
   end
 
-  defp select_items(query, scope, {:related, text}, limit) when is_binary(text) do
-    terms =
-      Regex.scan(~r/[\p{L}\p{N}]{3,80}/u, String.slice(text, 0, 4000))
-      |> List.flatten()
-      |> Enum.map(&String.downcase/1)
-      |> Enum.uniq()
-      |> Enum.reject(
-        &(&1 in ~w(the and that this what when where why how you are was were with from for can could would should))
+  defp select_items(query, scope, {:related, text}, limit) when is_binary(text),
+    do: select_items(query, scope, {:related, [text]}, limit)
+
+  defp select_items(query, scope, {:related, texts}, limit) when is_list(texts) do
+    groups =
+      texts
+      |> Enum.filter(&is_binary/1)
+      |> Enum.take(16)
+      |> Enum.map(&related_items(query, scope, &1, limit))
+
+    # Give every input a relevant hit before taking its second hit. A large
+    # first message must not monopolize the bounded context of a later one.
+    matched =
+      0..(limit - 1)
+      |> Enum.flat_map(fn rank -> Enum.map(groups, &Enum.at(&1, rank)) end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq_by(& &1.id)
+      |> Enum.take(limit)
+
+    ids = Enum.map(matched, & &1.id)
+    remaining = limit - length(matched)
+
+    matched ++
+      if remaining == 0,
+        do: [],
+        else: select_items(from(k in query, where: k.id not in ^ids), scope, "", remaining)
+  end
+
+  defp select_items(query, scope, {:topic_keys, keys}, limit) when is_list(keys) do
+    # A failed judgment may name an existing but unoffered subject. The fresh
+    # attempt can offer that head only inside the same authorized update scope.
+    keys = keys |> Enum.filter(&is_binary/1) |> Enum.take(16)
+
+    Repo.all(
+      from(k in query,
+        where: k.topic_key in ^keys and k.conversation_ref == ^scope.conversation_ref,
+        where: fragment("? IS NOT DISTINCT FROM ?", k.repository_ref, ^scope.repository_ref),
+        order_by: [asc: k.id],
+        limit: ^limit,
+        lock: "FOR SHARE"
       )
-      |> Enum.take(24)
-      |> Enum.join(" | ")
-
-    if terms == "" do
-      select_items(query, scope, "", limit)
-    else
-      matched =
-        Repo.all(
-          from(k in query,
-            where:
-              fragment("to_tsvector('simple', ?) @@ to_tsquery('simple', ?)", k.state, ^terms),
-            order_by: [
-              desc:
-                fragment(
-                  "ts_rank_cd(to_tsvector('simple', ?), to_tsquery('simple', ?))",
-                  k.state,
-                  ^terms
-                ),
-              desc: k.conversation_ref == ^scope.conversation_ref,
-              desc: k.latest_source_at,
-              asc: k.id
-            ],
-            limit: ^limit,
-            lock: "FOR SHARE"
-          )
-        )
-
-      ids = Enum.map(matched, & &1.id)
-      remaining = limit - length(matched)
-
-      matched ++
-        if remaining == 0,
-          do: [],
-          else: select_items(from(k in query, where: k.id not in ^ids), scope, "", remaining)
-    end
+    )
   end
 
   defp select_items(query, scope, _, limit) do
@@ -245,6 +312,42 @@ defmodule Responder.State.Knowledge do
     )
   end
 
+  defp related_items(query, scope, text, limit) do
+    terms =
+      Regex.scan(~r/[\p{L}\p{N}]{3,80}/u, String.slice(text, 0, 4000))
+      |> List.flatten()
+      |> Enum.map(&String.downcase/1)
+      |> Enum.uniq()
+      |> Enum.reject(
+        &(&1 in ~w(the and that this what when where why how you are was were with from for can could would should))
+      )
+      |> Enum.take(24)
+      |> Enum.join(" | ")
+
+    if terms == "" do
+      []
+    else
+      Repo.all(
+        from(k in query,
+          where: fragment("to_tsvector('simple', ?) @@ to_tsquery('simple', ?)", k.state, ^terms),
+          order_by: [
+            desc:
+              fragment(
+                "ts_rank_cd(to_tsvector('simple', ?), to_tsquery('simple', ?))",
+                k.state,
+                ^terms
+              ),
+            desc: k.conversation_ref == ^scope.conversation_ref,
+            desc: k.latest_source_at,
+            asc: k.id
+          ],
+          limit: ^limit,
+          lock: "FOR SHARE"
+        )
+      )
+    end
+  end
+
   defp current_source(entry) do
     identity = Observations.source_identity(entry)
 
@@ -257,16 +360,22 @@ defmodule Responder.State.Knowledge do
       source && source.revision > entry.revision ->
         :superseded
 
-      entry.event_kind == :delete ->
+      entry.event_kind == :delete or not is_nil(entry.operational_pruned_at) ->
         :superseded
 
-      source && source.source_input_id == entry.id && source.revision == entry.revision &&
-          not is_nil(source.note) ->
+      current_identity?(source, entry) ->
         source
 
       true ->
         nil
     end
+  end
+
+  defp current_identity?(nil, _entry), do: false
+
+  defp current_identity?(source, entry) do
+    source.source_input_id == entry.id and source.revision == entry.revision and
+      source.source_fingerprint == entry.event_fingerprint
   end
 
   defp apply_update(scope, source, proposal, offered, omissions) do
@@ -422,20 +531,22 @@ defmodule Responder.State.Knowledge do
         else:
           Repo.insert!(struct!(ConversationKnowledge, Map.put(attrs, :id, Ecto.UUID.generate())))
 
-    Repo.insert!(
-      %KnowledgeSource{
-        knowledge_id: item.id,
-        generation: generation,
-        observation_id: source.id,
-        source_revision: source.revision,
-        source_fingerprint: source.source_fingerprint,
-        source_note: source.note,
-        retained_at: source.updated_at,
-        introduced_version: version
-      },
-      on_conflict: :nothing,
-      conflict_target: [:knowledge_id, :observation_id, :generation]
-    )
+    Enum.each(source.direct_sources, fn direct ->
+      Repo.insert!(
+        %KnowledgeSource{
+          knowledge_id: item.id,
+          generation: generation,
+          observation_id: direct.id,
+          source_revision: direct.revision,
+          source_fingerprint: direct.source_fingerprint,
+          source_note: direct.note,
+          retained_at: direct.updated_at,
+          introduced_version: version
+        },
+        on_conflict: :nothing,
+        conflict_target: [:knowledge_id, :observation_id, :generation]
+      )
+    end)
 
     if Repo.exists?(from(k in valid_query(), where: k.id == ^item.id)) do
       Repo.insert!(%KnowledgeRevision{

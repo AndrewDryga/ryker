@@ -207,7 +207,13 @@ defmodule Responder.State.KnowledgeConcurrencyTest do
                     do: Repo.delete_all(from(o in ConversationObservation, where: o.id == ^id)),
                     else:
                       Repo.update_all(from(o in ConversationObservation, where: o.id == ^id),
-                        set: [note: nil]
+                        # An authenticated edit advances the raw revision fence.
+                        # Clearing only a derived note is not a source edit.
+                        set: [
+                          note: nil,
+                          revision: 2,
+                          source_fingerprint: String.duplicate("b", 64)
+                        ]
                       )
               end
             end)

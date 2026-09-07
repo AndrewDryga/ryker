@@ -161,16 +161,20 @@ defmodule Responder.ControlPlane.InspectionRedactor do
   end
 
   defp scrub_urls(value) do
-    Regex.replace(~r/https?:\/\/[^\s<>"']+/, value, fn url ->
-      # Prose and Markdown delimiters are not part of a signed URL. Scrub the
-      # complete URL before generic token assignments can consume its closing ).
-      resource = String.replace(url, ~r/[).,;!?]+$/, "")
-      suffix = binary_part(url, byte_size(resource), byte_size(url) - byte_size(resource))
-      uri = URI.parse(resource)
-      # Signed links and opaque query parameters are not inspection credentials.
-      # Preserve the useful resource path; omit query and fragment wholesale.
-      URI.to_string(%{uri | userinfo: nil, query: nil, fragment: nil}) <> suffix
-    end)
+    Regex.replace(
+      ~r/(?<=<)https?:\/\/[^\s<>"'|]+(?=\|[^<>\r\n]*>)|https?:\/\/[^\s<>"']+/,
+      value,
+      fn url ->
+        # Prose and Markdown delimiters are not part of a signed URL. Scrub the
+        # complete URL before generic token assignments can consume its closing ).
+        resource = String.replace(url, ~r/[).,;!?]+$/, "")
+        suffix = binary_part(url, byte_size(resource), byte_size(url) - byte_size(resource))
+        uri = URI.parse(resource)
+        # Signed links and opaque query parameters are not inspection credentials.
+        # Preserve the useful resource path; omit query and fragment wholesale.
+        URI.to_string(%{uri | userinfo: nil, query: nil, fragment: nil}) <> suffix
+      end
+    )
   end
 
   defp utf8_prefix(text, maximum), do: text |> binary_part(0, maximum) |> valid_prefix()
