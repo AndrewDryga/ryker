@@ -8,7 +8,18 @@
   },
   "clock": {"start": "2026-08-30T16:20:00Z"},
   "actors": [
-    {"actor_ref": "slack:user:U-operator", "authority": "operator", "kind": "human"}
+    {
+      "actor_ref": "slack:user:U-operator",
+      "authority": "operator",
+      "input_profile": {
+        "actor": {"kind": "user", "ref": "U-operator"},
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {"kind": "slack", "ref": "TEVAL"},
+        "source_capabilities": {"react": {"emoji_names": null}}
+      },
+      "kind": "human"
+    }
   ],
   "events": [
     {

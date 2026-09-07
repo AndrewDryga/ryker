@@ -13,7 +13,7 @@ defmodule Responder.State.EventWaits do
   alias Responder.Episodes.{Command, Episode}
   alias Responder.Ingress.Input
   alias Responder.Repo
-  alias Responder.State.{EventSubscriptions, Record, RecordChangeset}
+  alias Responder.State.{EventSubscription, EventSubscriptions, Record, RecordChangeset}
 
   @spec resume_due() :: {:ok, :idle | map()} | {:error, term()}
   def resume_due do
@@ -23,11 +23,8 @@ defmodule Responder.State.EventWaits do
         nil ->
           {:ok, :idle}
 
-        %{episode_id: episode_id, record_id: record_id, subscription_id: subscription_id} ->
-          resume(record_id, episode_id, now, :poll_fallback, subscription_id)
-
         %{episode_id: episode_id, record_id: record_id} ->
-          resume(record_id, episode_id, now, :deadline, nil)
+          resume_at(record_id, episode_id, now)
       end
     end
   end
@@ -37,10 +34,22 @@ defmodule Responder.State.EventWaits do
       from(episode in Episode,
         join: record in Record,
         on: record.episode_id == episode.id and record.ref == episode.owner_ref,
+        left_join: subscription in EventSubscription,
+        on: subscription.record_id == record.id,
+        where: episode.state == :waiting_for_event and episode.owner_kind == :event,
+        where: episode.owner_deadline_at <= ^now,
+        where: record.kind == "event_wait" and record.status == :open,
         where:
-          episode.state == :waiting_for_event and episode.owner_kind == :event and
-            episode.owner_deadline_at <= ^now and record.kind == "event_wait" and
-            record.status == :open,
+          fragment(
+            "CASE WHEN pg_input_is_valid(?::jsonb->>'deadline_at', 'timestamptz') THEN (?::jsonb->>'deadline_at')::timestamptz = ? ELSE false END",
+            record.payload,
+            record.payload,
+            episode.owner_deadline_at
+          ),
+        where:
+          is_nil(subscription.id) or
+            (subscription.status == :active and subscription.episode_id == episode.id and
+               subscription.deadline_at == episode.owner_deadline_at),
         order_by: [asc: episode.owner_deadline_at, asc: episode.id],
         limit: 1,
         select: %{episode_id: episode.id, record_id: record.id}
@@ -48,17 +57,56 @@ defmodule Responder.State.EventWaits do
     )
   end
 
-  defp resume(record_id, episode_id, now, resolution_kind, subscription_id) do
+  @doc false
+  @spec resume_at(Ecto.UUID.t(), Ecto.UUID.t(), DateTime.t()) ::
+          {:ok, :idle | map()} | {:error, term()}
+  def resume_at(record_id, episode_id, %DateTime{} = now)
+      when is_binary(record_id) and is_binary(episode_id) do
     Repo.transaction(fn ->
-      resume_locked(record_id, episode_id, now, resolution_kind, subscription_id)
+      with %Episode{} = initial <- Repo.get(Episode, episode_id),
+           {:ok, snapshot} <- Episodes.lock_current_in_transaction(initial.key),
+           %Record{} = record <-
+             Repo.one(from(value in Record, where: value.id == ^record_id, lock: "FOR UPDATE")),
+           {:ok, resolution_kind, subscription} <- resolution(snapshot, record, now) do
+        resume_locked(snapshot, record, now, resolution_kind, subscription)
+      else
+        nil -> Repo.rollback(:event_wait_not_found)
+        {:error, reason} -> Repo.rollback(reason)
+      end
     end)
     |> transaction_result()
   end
 
-  defp resume_locked(record_id, episode_id, now, resolution_kind, subscription_id) do
-    with %Episode{} = snapshot <- Repo.get(Episode, episode_id),
-         %Record{} = record <- Repo.get(Record, record_id),
-         :ok <- due_snapshot(snapshot, record, now, resolution_kind, subscription_id),
+  defp resolution(_episode, record, now) do
+    subscription =
+      Repo.one(
+        from(value in EventSubscription,
+          where: value.record_id == ^record.id,
+          lock: "FOR UPDATE"
+        )
+      )
+
+    case subscription do
+      %EventSubscription{status: :active, deadline_at: deadline} ->
+        kind =
+          cond do
+            DateTime.compare(deadline, now) in [:lt, :eq] -> :deadline
+            record.payload["event_matcher"]["type"] == "source_event" -> :poll_fallback
+            true -> :timer
+          end
+
+        {:ok, kind, subscription}
+
+      nil ->
+        {:ok, :deadline, nil}
+
+      _inactive ->
+        {:error, :event_wait_already_resumed}
+    end
+  end
+
+  defp resume_locked(snapshot, record, now, resolution_kind, subscription) do
+    with :ok <- due_snapshot(snapshot, record, now, resolution_kind, subscription),
          {:ok, input} <- wakeup_input(snapshot, record, now, resolution_kind),
          admit <- admit_command(snapshot, input, record),
          resume <- resume_command(snapshot, admit, record, now),
@@ -90,19 +138,22 @@ defmodule Responder.State.EventWaits do
            kind: "event_wait",
            ref: wait_ref,
            status: :open
-         },
+         } = record,
          now,
          :deadline,
          nil
        ) do
-    if DateTime.compare(deadline, now) in [:lt, :eq],
-      do: :ok,
-      else: {:error, :event_wait_not_due}
+    cond do
+      not saved_deadline?(record, deadline) -> {:error, :event_wait_already_resumed}
+      DateTime.compare(deadline, now) in [:lt, :eq] -> :ok
+      true -> {:error, :event_wait_not_due}
+    end
   end
 
   defp due_snapshot(
          %Episode{
            id: episode_id,
+           owner_deadline_at: deadline,
            owner_kind: :event,
            owner_ref: wait_ref,
            state: :waiting_for_event
@@ -113,31 +164,45 @@ defmodule Responder.State.EventWaits do
            kind: "event_wait",
            ref: wait_ref,
            status: :open
-         },
+         } = record,
          now,
-         :poll_fallback,
-         subscription_id
-       ) do
-    case Repo.get(Responder.State.EventSubscription, subscription_id) do
-      %Responder.State.EventSubscription{
-        episode_id: ^episode_id,
-        record_id: ^record_id,
-        status: :active,
-        poll_after: poll_after,
-        deadline_at: deadline
-      } ->
-        if DateTime.compare(poll_after, now) in [:lt, :eq] and
-             DateTime.compare(deadline, now) == :gt,
-           do: :ok,
-           else: {:error, :event_wait_not_due}
+         kind,
+         %EventSubscription{
+           episode_id: episode_id,
+           record_id: record_id,
+           status: :active,
+           poll_after: poll_after,
+           deadline_at: deadline
+         }
+       )
+       when kind in [:poll_fallback, :timer, :deadline] do
+    due? =
+      if kind == :deadline,
+        do: DateTime.compare(deadline, now) in [:lt, :eq],
+        else:
+          DateTime.compare(poll_after, now) in [:lt, :eq] and
+            DateTime.compare(deadline, now) == :gt
 
-      _stale ->
-        {:error, :event_wait_already_resumed}
+    cond do
+      not saved_deadline?(record, deadline) -> {:error, :event_wait_already_resumed}
+      kind != :deadline and not is_nil(record.wait_error) -> {:error, :event_wait_not_due}
+      due? -> :ok
+      true -> {:error, :event_wait_not_due}
     end
   end
 
   defp due_snapshot(_episode, _record, _now, _kind, _subscription_id),
     do: {:error, :event_wait_already_resumed}
+
+  defp saved_deadline?(%Record{payload: %{"deadline_at" => value}}, deadline)
+       when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, saved, 0} -> DateTime.compare(saved, deadline) == :eq
+      _invalid -> false
+    end
+  end
+
+  defp saved_deadline?(_record, _deadline), do: false
 
   defp wakeup_input(episode, record, now, resolution_kind) do
     trigger = record.payload["event_matcher"]
@@ -170,6 +235,7 @@ defmodule Responder.State.EventWaits do
   end
 
   defp wakeup_kind(:poll_fallback), do: "poll_fallback_due"
+  defp wakeup_kind(:timer), do: "timer_due"
   defp wakeup_kind(:deadline), do: "deadline_elapsed"
 
   defp admit_command(episode, input, record) do

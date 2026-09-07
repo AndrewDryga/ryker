@@ -7,6 +7,9 @@ defmodule Responder.ControlPlane.ToolCard do
   @tools %{
     "cite_source" =>
       {"Record evidence", "Evidence recorded", "Keeps a source-linked observation for this work."},
+    "record_finding" =>
+      {"Record a finding", "Finding recorded",
+       "Saves a conclusion and its supporting evidence without sending a message or opening an incident."},
     "plan_goal" =>
       {"Create a plan", "Plan recorded", "Defines the goals Responder will track while working."},
     "update_goal" =>
@@ -167,6 +170,12 @@ defmodule Responder.ControlPlane.ToolCard do
 
   defp readable_text("cite_source", args), do: string(args["observation"])
 
+  defp readable_text("record_finding", args),
+    do:
+      [string(args["what"]), string(args["reason"])]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("\n\n")
+
   defp readable_text("update_conversation_summary", %{"state" => state}) when is_map(state),
     do: string(state["situation"])
 
@@ -204,6 +213,9 @@ defmodule Responder.ControlPlane.ToolCard do
     case tool do
       "cite_source" ->
         [{"subject", "Subject"}, {"relation", "Relation"}, {"source_ref", "Source"}]
+
+      "record_finding" ->
+        [{"status", "Conclusion"}, {"scope", "Scope"}]
 
       "plan_goal" ->
         [

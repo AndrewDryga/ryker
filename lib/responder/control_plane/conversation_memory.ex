@@ -224,24 +224,36 @@ defmodule Responder.ControlPlane.ConversationMemory do
   defp item(%ConversationSummary{} = summary, episodes, secrets) do
     state = sanitized(summary.state, secrets)
     title = List.first(state["active_topics"] || []) || state["purpose"] || "Conversation summary"
+    warning = summary_history_warning(summary.source_dependencies)
+    view = base(summary, episodes)
 
-    groups =
-      for {key, label} <- [
-            {"decisions", "Decisions"},
-            {"open_loops", "Open work"},
-            {"unresolved_questions", "Open questions"}
-          ],
-          values = state[key],
-          is_list(values) and values != [],
-          do: {label, values}
-
-    base(summary, episodes)
-    |> Map.merge(%{
+    Map.merge(view, %{
       title: title,
       text: state["situation"] || state["goal"] || "",
-      groups: groups,
-      source: nil
+      groups: summary_groups(state),
+      source: nil,
+      expires_at: if(is_nil(warning), do: view.expires_at),
+      recall_warning: warning
     })
+  end
+
+  defp summary_groups(state) do
+    for {key, label} <- [
+          {"decisions", "Decisions"},
+          {"open_loops", "Open work"},
+          {"unresolved_questions", "Open questions"}
+        ],
+        values = state[key],
+        is_list(values) and values != [],
+        do: {label, values}
+  end
+
+  defp summary_history_warning(sources) do
+    cond do
+      not LearningSources.sourced?(sources) -> :missing_source_history
+      LearningSources.merge([sources]) != sources -> :invalid_source_history
+      true -> nil
+    end
   end
 
   defp source_counts([]), do: %{}

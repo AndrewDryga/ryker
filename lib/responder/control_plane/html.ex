@@ -1,8 +1,8 @@
 defmodule Responder.ControlPlane.HTML do
-  alias Responder.Accounting.Pricing
   alias Responder.ControlPlane.Card
   alias Responder.ControlPlane.Components
   alias Responder.ControlPlane.FailurePage
+  alias Responder.ControlPlane.FindingsPage
   alias Responder.ControlPlane.SlackNames
   alias Responder.ControlPlane.UsagePage
   alias Responder.ControlPlane.UsageProjection
@@ -14,7 +14,6 @@ defmodule Responder.ControlPlane.HTML do
 
   @spec page(String.t(), iodata()) :: binary()
   alias Phoenix.HTML.Safe
-  alias Responder.ControlPlane.CaseFile
   alias Responder.ControlPlane.ConfigurationHelp
   alias Responder.ControlPlane.Layouts
   alias Responder.ControlPlane.MemoryPage
@@ -683,294 +682,6 @@ defmodule Responder.ControlPlane.HTML do
     """
   end
 
-  def episodes(%{items: items, page: page, pages: pages}) do
-    rows =
-      Enum.map(items, fn item ->
-        [
-          "<tr><td><a href=\"/episodes/",
-          segment(item.ref),
-          "\">",
-          escape(item.ref),
-          "</a></td><td>",
-          escape(item.state),
-          "</td><td>",
-          escape(item.next_action),
-          "</td><td>",
-          escape(item.destination),
-          "</td><td>",
-          timestamp(item.updated_at),
-          "</td></tr>"
-        ]
-      end)
-
-    [
-      table(["Episode", "State", "Next action", "Destination", "Updated"], rows),
-      "<p class=\"pagination\">Page ",
-      escape(page),
-      " of ",
-      escape(pages),
-      "</p>"
-    ]
-  end
-
-  def episode(%{episode: episode, trace: trace} = snapshot) do
-    [
-      CaseFile.render(%{
-        episode: episode,
-        case_file:
-          Map.get(trace, :case_file, %{
-            title: "Episode case file",
-            messages: [],
-            repository: nil,
-            reply: nil,
-            reply_status: nil
-          })
-      })
-      |> Safe.to_iodata(),
-      episode_operator_strip(trace),
-      "<p class=\"episode-inspect-link\"><a class=\"button\" href=\"/episodes/",
-      segment(episode.ref),
-      "/requests\">Inspect model requests →</a><span>Instructions, messages, tools, candidates, and delivery</span></p>",
-      "<section class=\"episode-metrics\" aria-label=\"Episode measurements\">",
-      Enum.map(trace.metrics, &episode_metric/1),
-      "</section>",
-      accounting_summary(Map.get(snapshot, :accounting)),
-      episode_stopped(trace.stopped),
-      "<section class=\"episode-context\">",
-      definition_list([
-        {"Destination", episode.destination},
-        {"Started", episode.created_at},
-        {"Latest change", episode.updated_at}
-      ]),
-      "</section><section class=\"trace-shell\"><header class=\"trace-heading\"><div>",
-      "<p class=\"eyebrow\">Execution trace</p><h2>What happened, in order</h2>",
-      "<p>Durable host decisions, worker activity, and visible side effects. Open the request inspector for retained instructions, context, and results.</p>",
-      episode_history_notice(Map.get(trace, :history)),
-      "</div><div class=\"trace-stats\">",
-      Enum.map(trace.stats, &trace_stat/1),
-      "</div></header>",
-      episode_chapters(trace.chapters),
-      "</section>"
-    ]
-  end
-
-  defp episode_operator_strip(trace) do
-    source = Map.get(trace, :source)
-    actions = Map.get(trace, :actions, [])
-    review = Map.get(trace, :review, %{})
-
-    if source || actions != [] || review[:at] do
-      [
-        "<section class=\"episode-actions\" aria-label=\"Episode actions\"><div class=\"episode-action-copy\">",
-        episode_review_status(review),
-        "</div><div class=\"episode-action-buttons\">",
-        source_action(source),
-        Enum.map(actions, &episode_action/1),
-        "</div></section>"
-      ]
-    else
-      ""
-    end
-  end
-
-  defp episode_review_status(%{at: %DateTime{} = at, current: current} = review) do
-    status = if current, do: "Current ending reviewed", else: "Earlier ending reviewed"
-
-    [
-      "<span class=\"eyebrow\">Operator review</span><strong>",
-      escape(status),
-      "</strong><small>",
-      timestamp(at),
-      if(review[:actor_ref], do: [" · ", escape(review.actor_ref)], else: ""),
-      "</small>"
-    ]
-  end
-
-  defp episode_review_status(%{awaiting: true}) do
-    "<span class=\"eyebrow\">Operator review</span><strong>Awaiting review</strong><small>This exact ending has not been acknowledged.</small>"
-  end
-
-  defp episode_review_status(_review) do
-    "<span class=\"eyebrow\">Source and recovery</span><strong>Episode controls</strong><small>Every mutation opens an explicit confirmation.</small>"
-  end
-
-  defp source_action(%{href: href, label: label, transport: transport}) do
-    external = String.starts_with?(href, ["http://", "https://"])
-
-    [
-      "<a class=\"button secondary\" href=\"",
-      escape(href),
-      "\"",
-      if(external, do: " target=\"_blank\" rel=\"noopener noreferrer\"", else: ""),
-      ">",
-      escape(label),
-      " · ",
-      escape(transport),
-      "</a>"
-    ]
-  end
-
-  defp source_action(_source), do: ""
-
-  defp episode_action(action) do
-    Components.action_button(action.href, action.label, action.tone)
-  end
-
-  defp episode_metric(metric) do
-    [
-      "<article class=\"episode-metric ",
-      tone_class(metric.tone),
-      "\"><span>",
-      escape(metric.label),
-      "</span><strong>",
-      escape(metric.value),
-      "</strong><small>",
-      escape(metric.detail),
-      "</small></article>"
-    ]
-  end
-
-  defp episode_stopped(nil), do: ""
-
-  defp episode_stopped(stopped) do
-    [
-      "<section class=\"episode-stop\" role=\"status\"><div class=\"stop-signal\" aria-hidden=\"true\">!</div><div>",
-      "<p class=\"eyebrow\">Why it stopped</p><h2>",
-      escape(stopped.headline),
-      "</h2><p>",
-      escape(stopped.reason),
-      "</p>",
-      attempted(stopped.attempted),
-      "<div class=\"stop-action\"><span>Do this next</span><strong>",
-      escape(stopped.action),
-      "</strong>",
-      if(stopped.href,
-        do: ["<a class=\"button\" href=\"", escape(stopped.href), "\">Open recovery</a>"],
-        else: ""
-      ),
-      "</div></div></section>"
-    ]
-  end
-
-  defp attempted([]), do: ""
-
-  defp attempted(items) do
-    [
-      "<div class=\"stop-attempted\"><span>Already attempted</span><ul>",
-      Enum.map(items, &["<li>", escape(&1), "</li>"]),
-      "</ul></div>"
-    ]
-  end
-
-  defp episode_chapters([]) do
-    "<p class=\"trace-empty\">No durable activity has been recorded for this episode yet.</p>"
-  end
-
-  defp episode_chapters(chapters) do
-    chapters
-    |> Enum.with_index(1)
-    |> Enum.map(fn {chapter, index} ->
-      [
-        "<section class=\"trace-chapter\" data-chapter=\"",
-        integer(index),
-        "\"><header class=\"chapter-heading\"><span class=\"chapter-number\">",
-        String.pad_leading(integer(index), 2, "0"),
-        "</span><div><h3>",
-        escape(chapter.title),
-        "</h3><p>",
-        escape(chapter.blurb),
-        "</p></div><span class=\"chapter-span\">",
-        escape(chapter.span || "sequence only"),
-        "</span></header><div class=\"trace-rail\">",
-        Enum.map(chapter.steps, &trace_step/1),
-        "</div></section>"
-      ]
-    end)
-  end
-
-  defp trace_step(step) do
-    [
-      "<article id=\"",
-      escape(step.id),
-      "\" class=\"trace-step ",
-      tone_class(step.tone),
-      "\" data-stage=\"",
-      escape(step.stage),
-      "\" data-state=\"",
-      escape(step.state),
-      "\"><span class=\"trace-marker\" aria-hidden=\"true\"></span><div class=\"trace-card\">",
-      "<header class=\"trace-card-head\"><div class=\"trace-labels\"><span class=\"trace-stage\">",
-      escape(step.stage),
-      "</span><span class=\"trace-state\">",
-      escape(step.state),
-      "</span></div><div class=\"trace-time\"><span>",
-      timestamp(step.at),
-      "</span>",
-      trace_duration(step.duration_ms),
-      "</div></header><h4>",
-      trace_title(step),
-      "</h4><p>",
-      escape(step.summary || "No bounded summary was recorded."),
-      "</p><div class=\"trace-byline\">",
-      escape(step.actor),
-      "</div>",
-      trace_details(step.details),
-      "</div></article>"
-    ]
-  end
-
-  defp trace_title(%{href: href, title: title}) when is_binary(href),
-    do: ["<a href=\"", escape(href), "\">", escape(title), "</a>"]
-
-  defp trace_title(step), do: escape(step.title)
-
-  defp trace_duration(nil), do: ""
-  defp trace_duration(milliseconds), do: ["<span>", duration(milliseconds), "</span>"]
-
-  defp trace_details([]), do: ""
-
-  defp trace_details(details) do
-    [
-      "<details class=\"trace-details\"><summary>Inspect recorded details</summary><dl>",
-      Enum.map(details, fn detail ->
-        ["<dt>", escape(detail.label), "</dt><dd>", escape(detail.value), "</dd>"]
-      end),
-      "</dl></details>"
-    ]
-  end
-
-  defp trace_stat(stat) do
-    ["<span><strong>", escape(stat.value), "</strong>", escape(stat.label), "</span>"]
-  end
-
-  defp episode_history_notice(%{truncated: true, windows: windows}) do
-    truncated = Enum.filter(windows, & &1.truncated)
-
-    [
-      "<p class=\"trace-notice\"><strong>Bounded history:</strong> ",
-      truncated
-      |> Enum.map(fn window ->
-        [
-          "latest ",
-          integer(window.shown),
-          " of ",
-          integer(window.total),
-          " ",
-          escape(window.label)
-        ]
-      end)
-      |> Enum.intersperse(" · "),
-      ". Older rows remain durable but are outside this page.</p>"
-    ]
-  end
-
-  defp episode_history_notice(_history), do: ""
-
-  defp tone_class(:good), do: "tone-good"
-  defp tone_class(:warn), do: "tone-warn"
-  defp tone_class(:bad), do: "tone-bad"
-  defp tone_class(_tone), do: "tone-neutral"
-
   def incidents(items, params \\ %{}) do
     rows =
       Enum.map(items, fn item ->
@@ -1212,7 +923,9 @@ defmodule Responder.ControlPlane.HTML do
           "<tr><td><code>",
           escape(item.ref),
           "</code></td><td>",
-          escape(item.source_kind || "any"),
+          escape(
+            if(item.trigger_type in ["after", "at"], do: "Timer", else: item.source_kind || "any")
+          ),
           "</td><td>",
           escape(item.status),
           " / ",
@@ -1235,8 +948,8 @@ defmodule Responder.ControlPlane.HTML do
 
     [
       workbench_intro(
-        "External event subscriptions",
-        "Inspect durable webhook-first waits, their polling fallback, hard deadline, cursor custody, and terminal resolution without exposing source payloads."
+        "Wait subscriptions",
+        "Inspect timers and external-event waits: when they next wake, their hard deadline, and how they finished. Timers run at their scheduled time; external events can arrive before the polling fallback."
       ),
       search_form(
         "/subscriptions",
@@ -1247,9 +960,9 @@ defmodule Responder.ControlPlane.HTML do
       table(
         [
           "Subscription",
-          "Source",
+          "Trigger / source",
           "State",
-          "Poll fallback",
+          "Next wake-up",
           "Deadline",
           "Episode",
           "Matcher digest",
@@ -1741,14 +1454,10 @@ defmodule Responder.ControlPlane.HTML do
         _ -> Enum.map(rows, &generic_row/1)
       end
 
-    ["<section><h2>", escape(title), "</h2>", generic_help(title), body, "</section>"]
+    ["<section><h2>", escape(title), "</h2>", body, "</section>"]
   end
 
-  defp generic_help("Findings"),
-    do:
-      "<div class=\"page-help\"><h3>What was found</h3><p>Findings are saved conclusions about an investigation: what was observed, whether it is explained or expected, and which evidence supports it. This is not a second list of episodes, nor does each Slack alert automatically become a finding.</p><p>This page reads retained investigation records. The current model tool catalog does not currently expose a tool to create findings, and this page has no create or edit control. Evidence and conversation summaries are available in the source episode and Memory; this missing creation workflow is a product gap, not proof that no issues were found.</p></div>"
-
-  defp generic_help(_), do: []
+  def findings(view), do: FindingsPage.render(%{view: view}) |> Safe.to_iodata()
 
   def configuration(%{rows: rows, grants: grants, source: source}) do
     configuration_rows =
@@ -1816,24 +1525,6 @@ defmodule Responder.ControlPlane.HTML do
 
   def usage(snapshot),
     do: UsagePage.render(snapshot)
-
-  defp accounting_summary(nil), do: ""
-
-  defp accounting_summary(totals) do
-    [
-      "<section class=\"case-accounting\" aria-label=\"Execution cost\"><div><span>Cost (USD)</span><strong>",
-      Pricing.amount(totals),
-      "</strong></div><p>",
-      integer(totals.costed),
-      " reported · ",
-      integer(Map.get(totals, :estimated, 0)),
-      " estimated / ",
-      integer(totals.attempts),
-      " execution requests · ",
-      escape(coverage(totals.usage_measured, totals.attempts)),
-      " with token telemetry<br><small>Includes admission and unsuccessful executions linked to this episode. Child-task cost and historical missing telemetry are not included. <a href=\"/usage#cost-method\">Cost method and estimate limits</a>.</small></p></section>"
-    ]
-  end
 
   def css, do: base_css() <> @native_slack_css
 
@@ -2147,6 +1838,14 @@ defmodule Responder.ControlPlane.HTML do
       escape(card.title),
       "</h3>",
       if(card.summary, do: ["<p>", escape(card.summary), "</p>"], else: ""),
+      if(card[:wait_warning],
+        do: [
+          "<p class=\"action-error\"><strong>Current scheduling status:</strong> ",
+          escape(card.wait_warning),
+          "</p>"
+        ],
+        else: ""
+      ),
       if(details == [], do: "", else: ["<dl>", details, "</dl>"]),
       if(choices == [], do: "", else: ["<div class=\"choice-list\">", choices, "</div>"]),
       if(controls == [],
@@ -2654,9 +2353,6 @@ defmodule Responder.ControlPlane.HTML do
   defp readable_time(nil), do: "Time not recorded"
 
   defp segment(value), do: value |> to_string() |> URI.encode(&URI.char_unreserved?/1)
-
-  defp coverage(_measured, 0), do: "0 of 0"
-  defp coverage(measured, attempts), do: "#{measured} of #{attempts}"
 
   defp duration(nil), do: "unmeasured"
 

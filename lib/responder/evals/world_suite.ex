@@ -280,10 +280,14 @@ defmodule Responder.Evals.WorldSuite do
   defp invariant_failures(reports) do
     unrun = Enum.count(reports, &(&1.status == :unrun))
     hard = Enum.sum(Enum.map(reports, &length(&1.failures)))
+    execution = Enum.count(reports, &Map.has_key?(&1, :execution_error))
+    cleanup = Enum.count(reports, &Map.has_key?(&1, :cleanup_error))
 
     []
     |> maybe_failure(unrun > 0, %{actual: unrun, kind: :unrun, required: 0})
     |> maybe_failure(hard > 0, %{actual: hard, kind: :hard_invariant, required: 0})
+    |> maybe_failure(execution > 0, %{actual: execution, kind: :execution_error, required: 0})
+    |> maybe_failure(cleanup > 0, %{actual: cleanup, kind: :cleanup_error, required: 0})
   end
 
   defp threshold_failures(candidate, settings) do

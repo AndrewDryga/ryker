@@ -2,7 +2,9 @@ defmodule Responder.State.LearningSources do
   @moduledoc "Bounded, host-owned source receipts carried across derived conversation memory."
   import Ecto.Query
   alias Responder.{CanonicalJSON, Repo}
+  alias Responder.Episodes.Event
   alias Responder.Ingress.Inbox.Entry
+  alias Responder.Publication.LifecycleEvent
 
   alias Responder.State.{
     ConversationObservation,
@@ -15,6 +17,14 @@ defmodule Responder.State.LearningSources do
   @maximum_sources 128
   @maximum_bytes 65_536
   @receipt_fields ~w(observation_id source_input_id revision fingerprint transport workspace_ref conversation_ref repository_ref visibility retained_at)
+  @utc_timestamp_pattern ~S/\A[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])[T ]([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.,][0-9]+)?(Z|[+]00(:?00)?|-00(00)?)\Z/
+
+  # PostgreSQL also accepts relative times, infinity and non-UTC offsets. The
+  # SQL prefilter must reject those before a malformed receipt spends a slot.
+  # Calendar validity is still checked before casting; the locked host check
+  # remains authoritative for the complete receipt.
+  @doc false
+  def utc_timestamp_pattern, do: @utc_timestamp_pattern
 
   def merge(groups) do
     with true <- Enum.all?(groups, &is_list/1),
@@ -38,7 +48,8 @@ defmodule Responder.State.LearningSources do
   end
 
   def oldest(sources, fallback \\ nil) do
-    dates = for source <- sources || [], valid_shape?(source), do: retained_at(source)
+    sources = if is_list(sources), do: sources, else: []
+    dates = for source <- sources, valid_shape?(source), do: retained_at(source)
     dates = if fallback, do: [fallback | dates], else: dates
     Enum.min(dates, DateTime, fn -> nil end)
   end
@@ -48,17 +59,36 @@ defmodule Responder.State.LearningSources do
     date
   end
 
+  @doc "Derived prose requires at least one source; source-free host tasks do not."
+  def sourced?([_ | _]), do: true
+  def sourced?(_), do: false
+
+  @doc "Exclude receiptless derived prose before bounded recall and compaction selection."
+  def sourced(query) do
+    from(item in query,
+      where:
+        fragment(
+          "jsonb_typeof(?::jsonb) = 'array' AND ?::jsonb <> '[]'::jsonb",
+          item.source_dependencies,
+          item.source_dependencies
+        )
+    )
+  end
+
   @doc "Filter inherited source eligibility before recall limits; locked validation still follows."
   def eligible(query, scope) do
     seconds = retention_seconds()
 
     from(item in query,
       where: not is_nil(item.source_dependencies),
+      where: fragment("jsonb_typeof(?::jsonb) = 'array'", item.source_dependencies),
       where:
         fragment(
           """
           NOT EXISTS (
-            SELECT 1 FROM jsonb_array_elements(COALESCE(?, '[]')::jsonb) r
+            SELECT 1 FROM jsonb_array_elements(
+              CASE WHEN jsonb_typeof(?::jsonb) = 'array' THEN ?::jsonb ELSE '[]'::jsonb END
+            ) r
             LEFT JOIN conversation_observations o ON o.id::text = r->>'observation_id'
             WHERE o.id IS NULL OR o.source_input_id::text IS DISTINCT FROM r->>'source_input_id'
               OR o.revision::text IS DISTINCT FROM r->>'revision'
@@ -68,7 +98,10 @@ defmodule Responder.State.LearningSources do
               OR o.transport IS DISTINCT FROM r->>'transport'
               OR o.conversation_ref IS DISTINCT FROM r->>'conversation_ref'
               OR o.repository_ref IS DISTINCT FROM r->>'repository_ref'
-              OR (?::bigint IS NOT NULL AND (r->>'retained_at')::timestamptz <= clock_timestamp() - (? * interval '1 second'))
+              OR CASE WHEN r->>'retained_at' ~ ?
+                AND pg_input_is_valid(replace(r->>'retained_at', ',', '.'), 'timestamptz') THEN
+                (?::bigint IS NOT NULL AND replace(r->>'retained_at', ',', '.')::timestamptz <= clock_timestamp() - (? * interval '1 second'))
+                ELSE true END
               OR NOT (
                 o.conversation_ref = ? OR (? AND o.visibility = 'public' AND EXISTS (
                   SELECT 1 FROM slack_channel_memberships m
@@ -79,7 +112,9 @@ defmodule Responder.State.LearningSources do
           )
           """,
           item.source_dependencies,
+          item.source_dependencies,
           ^scope.workspace_ref,
+          ^@utc_timestamp_pattern,
           ^seconds,
           ^seconds,
           ^scope.conversation_ref,
@@ -121,6 +156,9 @@ defmodule Responder.State.LearningSources do
     source = Repo.one(from(o in ConversationObservation, where: o.identity_key == ^identity))
 
     case source do
+      %{source_result_ref: "source-conflict:" <> _} ->
+        nil
+
       %{source_input_id: id, revision: revision}
       when id == entry.id and revision == entry.revision ->
         [receipt(source)]
@@ -214,12 +252,17 @@ defmodule Responder.State.LearningSources do
   defp candidate_sources(candidate),
     do: candidate.source_documents |> Enum.map(&input_sources/1) |> merge()
 
-  defp input_sources(%{
-         "source" => %{"kind" => kind, "ref" => ref},
-         "native_input_id" => native,
-         "revision" => revision,
-         "content" => content
-       }) do
+  defp input_sources(%{"event_kind" => "delete"}), do: nil
+  defp input_sources(document), do: matching_input_sources(document)
+
+  defp matching_input_sources(
+         %{
+           "source" => %{"kind" => kind, "ref" => ref},
+           "native_input_id" => native,
+           "revision" => revision,
+           "content" => content
+         } = document
+       ) do
     identity =
       CanonicalJSON.digest(%{
         "source_kind" => kind,
@@ -230,14 +273,177 @@ defmodule Responder.State.LearningSources do
     with %{} = source <-
            Repo.one(from(o in ConversationObservation, where: o.identity_key == ^identity)),
          true <- source.revision == revision,
-         %Entry{content: ^content} <- Repo.get(Entry, source.source_input_id) do
+         true <- source_payload_matches?(source, document, content) do
       [receipt(source)]
     else
       _ -> nil
     end
   end
 
-  defp input_sources(_), do: nil
+  defp matching_input_sources(_), do: nil
+
+  defp source_payload_matches?(
+         %{source_input_id: id, source_result_ref: "publication-feedback:" <> id},
+         document,
+         _content
+       ) do
+    case get_uuid(LifecycleEvent, id) do
+      %LifecycleEvent{kind: "review_feedback", observation: observation} ->
+        fields = ~w(source native_input_id revision event_kind content)
+        Map.take(observation, fields) == Map.take(document, fields)
+
+      _ ->
+        false
+    end
+  end
+
+  defp source_payload_matches?(%{source_result_ref: "publication-feedback:" <> _}, _, _),
+    do: false
+
+  defp source_payload_matches?(%{source_result_ref: "source-conflict:" <> _}, _, _),
+    do: false
+
+  defp source_payload_matches?(source, document, content) do
+    case Repo.get(Entry, source.source_input_id) do
+      %Entry{content: ^content, event_kind: kind} ->
+        Atom.to_string(kind) == document["event_kind"]
+
+      _ ->
+        false
+    end
+  end
+
+  @doc "Resolve raw Work ingress before its content is shortened for a briefing."
+  def for_work_input(%{"event_kind" => "delete", "source" => %{}}), do: nil
+
+  # These source type/ref pairs are authored only by host producers. The shipped
+  # Slack, GitHub and webhook adapters fix their own outer source kinds; content
+  # nested inside their envelopes can never select this no-ingress path.
+  def for_work_input(%{
+        "source" => %{"kind" => "system", "ref" => ref},
+        "actor" => %{"kind" => "system"},
+        "native_input_id" => native,
+        "revision" => revision,
+        "content" => content
+      })
+      when ref in ["responder", "emisar", "publication-lifecycle"] and
+             is_binary(native) and native != "" and is_integer(revision) and revision > 0 and
+             is_map(content),
+      do: []
+
+  def for_work_input(%{
+        "source" => %{"kind" => "schedule", "ref" => "schedule:" <> id},
+        "actor" => %{"kind" => "system", "ref" => "schedule"},
+        "native_input_id" => native,
+        "revision" => revision,
+        "content" => content
+      })
+      when is_binary(native) and native != "" and is_integer(revision) and revision > 0 and
+             is_map(content) do
+    if Ecto.UUID.cast(id) == {:ok, id}, do: []
+  end
+
+  def for_work_input(payload) when is_map(payload) do
+    if Enum.any?(
+         ~w(source native_input_id source_capabilities occurred_at_source),
+         &Map.has_key?(payload, &1)
+       ) do
+      unexpired_input_sources(payload)
+    else
+      # Kernel-originated schedules and tasks need not originate in ingress.
+      []
+    end
+  end
+
+  def for_work_input(_), do: nil
+
+  defp unexpired_input_sources(payload) do
+    payload |> input_sources() |> unexpired_sources()
+  end
+
+  defp unexpired_sources(sources) do
+    if is_list(sources) and Enum.all?(sources, &unexpired?(&1["retained_at"])),
+      do: sources
+  end
+
+  @doc "An authenticated deletion discloses its current receipt and event pointer, never its body."
+  def deleted_work_input(
+        %Event{
+          kind: :input_admitted,
+          payload: %{"payload" => %{"event_kind" => "delete"} = input}
+        } =
+          event,
+        current
+      )
+      when is_boolean(current) do
+    case input |> matching_input_sources() |> unexpired_sources() do
+      [_ | _] = sources ->
+        %{
+          "content" => %{"event_kind" => "delete", "unavailable" => "source_deleted"},
+          "current" => current,
+          "revision" => input["revision"],
+          "source_ref" => event.dedupe_key,
+          "source_event_id" => event.id,
+          "source_dependencies" => sources
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  def deleted_work_input(_, _), do: nil
+
+  defp exact_deletion_sources(document, event) do
+    case deleted_work_input(event, document["current"]) do
+      ^document -> document["source_dependencies"]
+      _ -> nil
+    end
+  end
+
+  defp unavailable_work_sources(document, event) do
+    if document == withdrawn_work_input(event) do
+      []
+    else
+      exact_deletion_sources(document, event)
+    end
+  end
+
+  @doc "A withdrawn historical input keeps an audit pointer, never its old prose."
+  def withdrawn_work_input(%Event{} = event) do
+    %{
+      "content" => %{"unavailable" => "source_not_current"},
+      "current" => false,
+      "source_ref" => event.dedupe_key,
+      "source_event_id" => event.id,
+      "source_dependencies" => []
+    }
+  end
+
+  defp work_document_sources(
+         %{"source_event_id" => id, "source_dependencies" => _sources} = document
+       ) do
+    case get_uuid(Event, id) do
+      %Event{kind: :input_admitted} = event ->
+        exact_work_sources(document, event, for_work_input(event.payload["payload"]))
+
+      _ ->
+        nil
+    end
+  end
+
+  defp work_document_sources(_), do: nil
+
+  defp exact_work_sources(document, event, nil), do: unavailable_work_sources(document, event)
+
+  defp exact_work_sources(%{"source_dependencies" => sources}, _event, sources)
+       when is_list(sources),
+       do: sources
+
+  defp exact_work_sources(_, _, _), do: nil
+
+  def document_sources(%{"kind" => "work_input", "input" => document}),
+    do: work_document_sources(document)
 
   def document_sources(%{"source_ref" => "observation:" <> id} = document) do
     case get_uuid(ConversationObservation, id) do
@@ -268,8 +474,10 @@ defmodule Responder.State.LearningSources do
 
   defp get_uuid(schema, id), do: if(Ecto.UUID.cast(id) == {:ok, id}, do: Repo.get(schema, id))
 
-  defp summary_sources(%{state: state, source_dependencies: sources}, %{"state" => state}),
-    do: sources
+  defp summary_sources(%{state: state, source_dependencies: [_ | _] = sources}, %{
+         "state" => state
+       }),
+       do: sources
 
   defp summary_sources(_, _), do: nil
 
@@ -296,6 +504,9 @@ defmodule Responder.State.LearningSources do
   def valid?(_, _), do: false
 
   defp valid_receipt?(_receipt, nil, _scope), do: false
+
+  defp valid_receipt?(_receipt, %{source_result_ref: "source-conflict:" <> _}, _scope),
+    do: false
 
   defp valid_receipt?(receipt, source, scope) do
     source.source_input_id == receipt["source_input_id"] and

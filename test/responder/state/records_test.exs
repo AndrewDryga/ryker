@@ -10,6 +10,52 @@ defmodule Responder.State.RecordsTest do
   @now ~U[2026-08-28 12:00:00.000000Z]
   @policy_digest String.duplicate("a", 64)
 
+  test "a relative timer that cannot precede its deadline leaves no record" do
+    # A real Airflow run promised a ten-minute verification, but no timer was
+    # scheduled. Reject impossible promises at the tool, before final acceptance.
+    claim = claim!("timer-deadline")
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
+    payload = %{
+      "deadline_at" => now |> DateTime.add(300, :second) |> DateTime.to_iso8601(),
+      "event_matcher" => %{
+        "delay" => "10m",
+        "on_timeout" => "Report the verification gap.",
+        "type" => "after"
+      },
+      "kind" => "after",
+      "verification" => "Verify Airflow after the observation window."
+    }
+
+    assert {:error, {:invalid_state_record, :timer_deadline}} =
+             Records.create(Records.token(claim.turn), "impossible-timer", "event_wait", payload)
+
+    assert Records.model_records(claim.episode.id) == []
+  end
+
+  test "retrying a timer creation retains its original record and timing anchor" do
+    claim = claim!("timer-idempotence")
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
+    payload = %{
+      "deadline_at" => now |> DateTime.add(900, :second) |> DateTime.to_iso8601(),
+      "event_matcher" => %{
+        "delay" => "10m",
+        "on_timeout" => "Report the verification gap.",
+        "type" => "after"
+      },
+      "kind" => "after",
+      "verification" => "Verify Airflow after the observation window."
+    }
+
+    token = Records.token(claim.turn)
+    assert {:ok, original} = Records.create(token, "timer", "event_wait", payload)
+    assert {:ok, retried} = Records.create(token, "timer", "event_wait", payload)
+    assert retried.id == original.id
+    assert retried.inserted_at == original.inserted_at
+    assert retried.payload == original.payload
+  end
+
   test "a source-event wait resumes only for its typed recursive matcher" do
     claim = claim!("source-event-matcher")
 

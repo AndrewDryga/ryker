@@ -69,6 +69,104 @@ defmodule Responder.Admission.DispatcherTest do
     assert String.valid?(deferred.last_error_detail)
   end
 
+  test "a poisoned input exhausts its retry budget and releases later messages in its channel" do
+    # One permanently failing input previously retried forever and muted every
+    # later human request in the same channel, without appearing in Failures.
+    first = record_input!("Ev-poisoned-input")
+
+    second =
+      record_input!("Ev-after-poisoned-input",
+        message_ref: "1787832001.000100",
+        occurred_at: DateTime.add(@now, 1, :second)
+      )
+
+    {:ok, stub} = ExecutorStub.start_link(:fail)
+    first_ref = Inbox.ref(first)
+
+    for attempt <- 1..7 do
+      at = DateTime.add(@now, (attempt - 1) * 61, :second)
+
+      assert {:ok, {:deferred, ^first_ref, {:coop_unavailable, :simulated}}} =
+               Dispatcher.run_once(Keyword.put(options(stub), :now, fn -> at end))
+    end
+
+    at = DateTime.add(@now, 7 * 61, :second)
+
+    assert {:ok, {:blocked, ^first_ref, {:coop_unavailable, :simulated}}} =
+             Dispatcher.run_once(Keyword.put(options(stub), :now, fn -> at end))
+
+    assert {:ok, blocked} = Inbox.fetch(first_ref)
+    assert blocked.status == :blocked
+    assert blocked.attempt_count == 8
+    assert blocked.last_error_code == "coop_unavailable"
+    assert blocked.lease_ref == nil
+    assert blocked.next_attempt_at == nil
+
+    ExecutorStub.succeed(stub)
+
+    assert {:ok, {:decided, execution}} =
+             Dispatcher.run_once(Keyword.put(options(stub), :now, fn -> at end))
+
+    assert execution.result.entry.id == second.id
+
+    # Manual retry retains occurrence keys and can reconcile the original input;
+    # exhausting automatic retries must not erase it or invent a new generation.
+    assert {:ok, rearmed} = Inbox.rearm(first_ref)
+    assert rearmed.execution_generation == first.execution_generation
+    assert rearmed.validation_generation == first.validation_generation
+
+    assert {:ok, {:decided, retried}} =
+             Dispatcher.run_once(Keyword.put(options(stub), :now, fn -> at end))
+
+    assert retried.result.entry.id == first.id
+  end
+
+  test "persistent routing overflow eventually releases its conversation without calling a model" do
+    entry = record_input!("Ev-admission-overflow")
+    reason = {:admission_context_overflow, required: 21, limit: 20}
+    {:ok, stub} = ExecutorStub.start_link({:fail, reason})
+    input_ref = Inbox.ref(entry)
+
+    for attempt <- 1..8 do
+      at = DateTime.add(@now, (attempt - 1) * 61, :second)
+      expected = if attempt == 8, do: :blocked, else: :deferred
+
+      assert {:ok, {^expected, ^input_ref, ^reason}} =
+               Dispatcher.run_once(Keyword.put(options(stub), :now, fn -> at end))
+    end
+
+    assert {:ok, blocked} = Inbox.fetch(input_ref)
+    assert blocked.status == :blocked
+    assert blocked.attempt_count == 8
+  end
+
+  for {wrapper, field} <- [
+        {:admission_generation_spent, :execution_generation},
+        {:admission_validation_generation_spent, :validation_generation}
+      ] do
+    test "exhausted #{field} retries keep the next safe occurrence for operator recovery" do
+      # A terminal occurrence cannot be reused. Merely blocking at the budget
+      # would trap every operator retry on that same already-finished occurrence.
+      entry = record_input!("Ev-exhausted-#{unquote(field)}")
+      input_ref = Inbox.ref(entry)
+      reason = {:coop_unavailable, :confirmed_terminal_failure}
+      {:ok, stub} = ExecutorStub.start_link({:fail, {unquote(wrapper), reason}})
+
+      for attempt <- 1..8 do
+        at = DateTime.add(@now, (attempt - 1) * 61, :second)
+        expected = if attempt == 8, do: :blocked, else: :deferred
+
+        assert {:ok, {^expected, ^input_ref, ^reason}} =
+                 Dispatcher.run_once(Keyword.put(options(stub), :now, fn -> at end))
+      end
+
+      assert {:ok, blocked} = Inbox.fetch(input_ref)
+      assert Map.fetch!(blocked, unquote(field)) == 9
+      assert {:ok, rearmed} = Inbox.rearm(input_ref)
+      assert Map.fetch!(rearmed, unquote(field)) == 9
+    end
+  end
+
   test "retry delay starts when execution fails rather than when its lease was claimed" do
     entry = record_input!("Ev-dispatch-slow-failure")
     {:ok, stub} = ExecutorStub.start_link(:fail)
@@ -457,7 +555,8 @@ defmodule Responder.Admission.DispatcherTest do
                result_ref: "result-original-frozen-context"
              })
 
-    entry = record_input!("Ev-lost-turn-frozen-context")
+    addressing_options = [slack_audience: :ambient, slack_bot_user_ref: "UBOT"]
+    entry = record_input!("Ev-lost-turn-frozen-context", [], addressing_options)
 
     assert {:ok, initial_context} =
              Admission.context(Inbox.ref(entry),
@@ -501,6 +600,20 @@ defmodule Responder.Admission.DispatcherTest do
     assert {:ok, frozen} = Inbox.fetch(input_ref)
     assert frozen.admission_context_fingerprint
     assert frozen.execution_generation == 1
+    addressing = %{"audience" => "ambient", "responder_user_ref" => "UBOT"}
+    assert frozen.admission_context["slack_addressing"] == addressing
+    submitted_prompt = FakeAPI.state(fake).submitted_prompt
+    assert Jason.decode!(submitted_prompt)["context"]["slack_addressing"] == addressing
+
+    # A later host configuration change cannot rewrite the first receipt or its frozen request.
+    retried_entry =
+      record_input!("Ev-lost-turn-frozen-context", [],
+        slack_audience: :mention,
+        slack_bot_user_ref: "UNEWBOT"
+      )
+
+    assert retried_entry.slack_audience == :ambient
+    assert retried_entry.slack_bot_user_ref == "UBOT"
 
     assert {:ok, reopened} =
              Episodes.apply(%Command.AdmitInput{
@@ -530,12 +643,16 @@ defmodule Responder.Admission.DispatcherTest do
     assert reclassified.execution_generation == 2
     assert reclassified.admission_context == nil
     assert FakeAPI.state(fake).submit_count == 1
+    assert FakeAPI.state(fake).submitted_prompt == submitted_prompt
 
     assert {:ok, {:decided, execution}} =
              Dispatcher.run_once(real_options(fake, DateTime.add(@now, 4, :second)))
 
     assert execution.result.episode.id == episode_id
     assert FakeAPI.state(fake).submit_count == 2
+
+    assert Jason.decode!(FakeAPI.state(fake).submitted_prompt)["context"]["slack_addressing"] ==
+             addressing
   end
 
   test "candidate overflow waits without a model turn and recovers when capacity returns" do
@@ -642,7 +759,7 @@ defmodule Responder.Admission.DispatcherTest do
     ]
   end
 
-  defp record_input!(event_ref, overrides \\ []) do
+  defp record_input!(event_ref, overrides \\ [], record_options \\ []) do
     assert {:ok, input} =
              [
                actor: %{kind: :user, ref: "U123"},
@@ -659,7 +776,7 @@ defmodule Responder.Admission.DispatcherTest do
              |> Keyword.merge(overrides)
              |> Input.new()
 
-    assert {:ok, %{entry: entry}} = Inbox.record(input)
+    assert {:ok, %{entry: entry}} = Inbox.record(input, record_options)
     entry
   end
 

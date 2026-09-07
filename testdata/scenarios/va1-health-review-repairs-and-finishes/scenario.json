@@ -13,14 +13,26 @@
   },
   "actors": [
     {
-      "actor_ref": "schedule:whole-platform-health-review",
+      "actor_ref": "schedule:system:schedule",
       "authority": "read_only",
+      "input_profile": {
+        "actor": {"kind": "system", "ref": "schedule"},
+        "event_kind": "event",
+        "occurred_at_source": "source",
+        "source": {"kind": "schedule", "ref": "schedule:00000000-0000-0000-0000-000000000001"},
+        "source_capabilities": {}
+      },
       "kind": "automation"
     }
   ],
   "events": [
     {
-      "actor_ref": "schedule:whole-platform-health-review",
+      "actor_ref": "schedule:system:schedule",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1788019200.000100",
+        "transport": "slack"
+      },
       "kind": "input",
       "occurred_at": "2026-08-15T15:00:01Z",
       "payload": {

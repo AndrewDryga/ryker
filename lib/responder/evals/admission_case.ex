@@ -20,6 +20,7 @@ defmodule Responder.Evals.AdmissionCase do
   @manifest_fields ~w(context_fixture reason)
 
   @enforce_keys [
+    :accepted_alternatives,
     :eval_id,
     :expectation,
     :fixture_path,
@@ -31,6 +32,7 @@ defmodule Responder.Evals.AdmissionCase do
   defstruct @enforce_keys
 
   @type t :: %__MODULE__{
+          accepted_alternatives: [Decision.t()],
           eval_id: String.t(),
           expectation: map(),
           fixture_path: Path.t(),
@@ -64,9 +66,17 @@ defmodule Responder.Evals.AdmissionCase do
          {:ok, candidate} <-
            candidate(fixture["seed"], input.destination.thread_ref, now, fixture),
          context <- context(input, candidate, now),
-         {:ok, expectation} <- expectation(fixture["decision"], context, candidate) do
+         {:ok, expectation} <- expectation(fixture["decision"], context, candidate),
+         {:ok, accepted_alternatives} <-
+           accepted_alternatives(
+             fixture["accepted_alternatives"],
+             context,
+             candidate,
+             expectation
+           ) do
       {:ok,
        %__MODULE__{
+         accepted_alternatives: accepted_alternatives,
          eval_id: eval_id,
          expectation: expectation,
          fixture_path: descriptor["context_fixture"],
@@ -83,6 +93,7 @@ defmodule Responder.Evals.AdmissionCase do
   @spec document(t()) :: map()
   def document(%__MODULE__{} = eval) do
     %{
+      "accepted_alternatives" => Enum.map(eval.accepted_alternatives, &Decision.document/1),
       "eval_id" => eval.eval_id,
       "expectation" => eval.expectation,
       "fixture_path" => eval.fixture_path,
@@ -97,7 +108,7 @@ defmodule Responder.Evals.AdmissionCase do
   def assess(%__MODULE__{} = eval, candidate_document) do
     with {:ok, decision} <- Decision.parse(candidate_document),
          submitted <- comparable(Decision.document(decision)),
-         true <- submitted == eval.expectation do
+         true <- accepted?(eval, submitted) do
       {:ok, decision}
     else
       false ->
@@ -212,21 +223,69 @@ defmodule Responder.Evals.AdmissionCase do
   end
 
   defp expectation(%{} = document, context, candidate) do
-    document =
-      if document["episode_ref"] == "$seed" and candidate do
-        Map.put(document, "episode_ref", candidate.ref)
-      else
-        document
-      end
-
-    with {:ok, decision} <- Decision.parse(document),
-         {:ok, _selection} <- Admission.validate(context, decision) do
-      {:ok, comparable(Decision.document(decision))}
-    end
+    with {:ok, decision} <- fixture_decision(document, context, candidate),
+         do: {:ok, comparable(Decision.document(decision))}
   end
 
   defp expectation(_document, _context, _candidate),
     do: {:error, {:invalid_admission_eval, :decision}}
+
+  defp accepted_alternatives(nil, _context, _candidate, _expectation), do: {:ok, []}
+
+  defp accepted_alternatives(documents, context, candidate, expectation)
+       when is_list(documents) do
+    documents
+    |> Enum.reduce_while({:ok, []}, fn document, {:ok, alternatives} ->
+      case fixture_decision(document, context, candidate) do
+        {:ok, decision} -> {:cont, {:ok, [decision | alternatives]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, alternatives} ->
+        alternatives = Enum.reverse(alternatives)
+
+        if unique_alternatives?(alternatives, expectation),
+          do: {:ok, alternatives},
+          else: {:error, {:invalid_admission_eval, :accepted_alternatives}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp accepted_alternatives(_documents, _context, _candidate, _expectation),
+    do: {:error, {:invalid_admission_eval, :accepted_alternatives}}
+
+  defp fixture_decision(%{} = document, context, candidate) do
+    document = resolve_seed(document, candidate)
+
+    with {:ok, decision} <- Decision.parse(document),
+         {:ok, _selection} <- Admission.validate(context, decision) do
+      {:ok, decision}
+    end
+  end
+
+  defp fixture_decision(_document, _context, _candidate),
+    do: {:error, {:invalid_admission_eval, :accepted_alternatives}}
+
+  defp resolve_seed(document, candidate) do
+    if document["episode_ref"] == "$seed" and candidate,
+      do: Map.put(document, "episode_ref", candidate.ref),
+      else: document
+  end
+
+  defp unique_alternatives?(alternatives, expectation) do
+    comparisons = Enum.map(alternatives, &comparable(Decision.document(&1)))
+    expectation not in comparisons and Enum.uniq(comparisons) == comparisons
+  end
+
+  defp accepted?(eval, submitted) do
+    submitted == eval.expectation or
+      Enum.any?(eval.accepted_alternatives, fn alternative ->
+        submitted == comparable(Decision.document(alternative))
+      end)
+  end
 
   defp comparable(%{} = document) do
     Map.take(document, ~w(action episode_ref reaction relation work_class))

@@ -6,6 +6,7 @@ defmodule Responder.Slack.IncidentRoomsTest do
   alias Responder.Delivery.JSONClient
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.Ingress.{Inbox, Input}
   alias Responder.Repo
 
   alias Responder.Slack.{
@@ -22,8 +23,8 @@ defmodule Responder.Slack.IncidentRoomsTest do
     WorkTarget
   }
 
-  alias Responder.State.{Record, Records}
-  alias Responder.Work.{Custody, DeliveryReceipt, Result, Session, Submission, Turn}
+  alias Responder.State.{KnowledgeSnapshot, Record, Records}
+  alias Responder.Work.{Custody, DeliveryReceipt, Result, Session, SubmissionBuilder, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @policy_digest String.duplicate("b", 64)
@@ -142,6 +143,27 @@ defmodule Responder.Slack.IncidentRoomsTest do
     def user_group_members(agent, group_ref, "T123") do
       Agent.get(agent, &{:ok, Map.fetch!(&1.groups, group_ref)})
     end
+  end
+
+  test "incident offer Work carries source receipts that a source deletion revokes" do
+    # Incident behavior tests must pass through the same raw-input custody as
+    # production; a handcrafted source-looking prompt bypasses that boundary.
+    fixture = delivered_offer!()
+    assert [receipt] = KnowledgeSnapshot.session_sources(fixture.session.id)
+    assert receipt["source_input_id"] == fixture.input_entry.id
+    assert :ok = KnowledgeSnapshot.authorize_session(fixture.episode, fixture.session)
+
+    deleted = %{
+      fixture.input
+      | event_ref: fixture.input.event_ref <> ":deleted",
+        event_kind: :delete,
+        revision: fixture.input.revision + 1
+    }
+
+    assert {:ok, _} = Inbox.record(deleted)
+
+    assert {:error, :work_knowledge_context_stale} =
+             KnowledgeSnapshot.authorize_session(fixture.episode, fixture.session)
   end
 
   test "a delivered incident offer provisions one usable room before starting linked work" do
@@ -1143,6 +1165,24 @@ defmodule Responder.Slack.IncidentRoomsTest do
         turn_ref: "turn:incident-offer:#{episode_id}"
       })
 
+    assert {:ok, input} =
+             Input.new(%{
+               actor: %{kind: actor_kind, ref: if(actor_kind == :app, do: "A123", else: "U123")},
+               content: command.payload,
+               destination: command.destination,
+               event_kind: :message,
+               event_ref: "incident-offer-source:#{episode_id}",
+               native_input_id: command.native_input_id,
+               occurred_at: command.occurred_at,
+               occurred_at_source: :source,
+               revision: command.revision,
+               source: %{kind: "slack", ref: "T123"},
+               source_capabilities: %{},
+               source_item_ref: "1787832000.000100"
+             })
+
+    assert {:ok, source} = Inbox.record(input)
+    command = %{command | payload: Input.document(input)}
     assert {:ok, transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
@@ -1160,40 +1200,17 @@ defmodule Responder.Slack.IncidentRoomsTest do
     assert {:ok, record} =
              Records.create(Records.token(claim.turn), "incident-offer", "task_offer", payload)
 
-    assert {:ok, submission} =
-             Submission.new(
-               %{
-                 "episode_id" => episode_id,
-                 "inputs" => %{
-                   "items" => [
-                     %{
-                       "actor_ref" => actor_ref,
-                       "content" => %{
-                         "actor" => %{
-                           "kind" => Atom.to_string(actor_kind),
-                           "ref" => if(actor_kind == :app, do: "A123", else: "U123")
-                         },
-                         "source" => %{"kind" => "slack", "ref" => "T123"}
-                       },
-                       "current" => true
-                     }
-                   ],
-                   "omitted_count" => 0
-                 },
-                 "mode" => "full"
-               },
-               "Handle the incident offer source.",
-               %{"type" => "object"},
-               "work-final-v1"
-             )
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
 
-    assert {:ok, _turn} =
+    assert {:ok, frozen_turn} =
              Custody.freeze_submission(
                episode_id,
                claim.turn.turn_ref,
                claim.lease_ref,
                submission
              )
+
+    assert :ok = KnowledgeSnapshot.expose_submission(%{claim | turn: frozen_turn})
 
     assert {:ok, session} =
              Custody.bind_session(
@@ -1284,6 +1301,13 @@ defmodule Responder.Slack.IncidentRoomsTest do
                receipt
              )
 
-    %{episode: settled.episode, receipt: receipt, record: record}
+    %{
+      episode: settled.episode,
+      input: input,
+      input_entry: source.entry,
+      receipt: receipt,
+      record: record,
+      session: session
+    }
   end
 end

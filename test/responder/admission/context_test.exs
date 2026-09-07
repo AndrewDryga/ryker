@@ -16,6 +16,66 @@ defmodule Responder.Admission.ContextTest do
   @now ~U[2026-08-27 12:00:00.000000Z]
   @current_thread "1787832000.000100"
 
+  test "addressing is frozen from the receipt and restored independently of current entry metadata" do
+    assert {:ok, %{entry: entry}} =
+             Inbox.record(input!([]), slack_audience: :ambient, slack_bot_user_ref: "UBOT")
+
+    assert {:ok, context} = build_context(entry)
+    expected = %{"audience" => "ambient", "responder_user_ref" => "UBOT"}
+    assert Context.for_model(context)["slack_addressing"] == expected
+    snapshot = Context.snapshot(context)
+    assert snapshot["slack_addressing"] == expected
+
+    changed_entry =
+      entry |> Map.put(:slack_audience, :mention) |> Map.put(:slack_bot_user_ref, "UNEWBOT")
+
+    assert {:ok, restored} = Context.restore(snapshot, context.input, changed_entry, %{})
+    assert Context.for_model(restored) == Context.for_model(context)
+    assert Context.snapshot(restored) == snapshot
+
+    absent = Map.delete(snapshot, "slack_addressing")
+    assert {:ok, old} = Context.restore(absent, context.input, changed_entry, %{})
+    refute Map.has_key?(Context.for_model(old), "slack_addressing")
+    assert Context.snapshot(old) == absent
+  end
+
+  test "malformed present addressing snapshots cannot be silently treated as absent" do
+    assert {:ok, context} = build_context(record_input!())
+    snapshot = Context.snapshot(context)
+
+    for invalid <- [
+          nil,
+          %{},
+          %{"audience" => "mention"},
+          %{"audience" => "mention", "responder_user_ref" => nil},
+          %{"audience" => "unknown", "responder_user_ref" => "UBOT"},
+          %{"audience" => "direct", "responder_user_ref" => "U-bot"},
+          %{"audience" => "direct", "responder_user_ref" => String.duplicate("U", 257)},
+          %{"audience" => "mention", "responder_user_ref" => "UBOT", "authority" => "write"}
+        ] do
+      assert {:error, {:invalid_admission_context_snapshot, :slack_addressing}} =
+               Context.restore(
+                 Map.put(snapshot, "slack_addressing", invalid),
+                 context.input,
+                 context.input_entry,
+                 %{}
+               )
+    end
+
+    other_input = %{context.input | source: %{kind: "webhook", ref: "other"}}
+
+    assert {:error, {:invalid_admission_context_snapshot, :slack_addressing}} =
+             Context.restore(
+               Map.put(snapshot, "slack_addressing", %{
+                 "audience" => "ambient",
+                 "responder_user_ref" => "UBOT"
+               }),
+               other_input,
+               context.input_entry,
+               %{}
+             )
+  end
+
   test "offers generic same-work and history candidates without inspecting provider text" do
     current = record_input!(content: %{"text" => "A custom app changed state"})
 

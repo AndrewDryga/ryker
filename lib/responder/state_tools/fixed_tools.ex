@@ -29,6 +29,7 @@ defmodule Responder.StateTools.FixedTools do
   @names ~w(
     get_work_state
     cite_source
+    record_finding
     request_input
     wait_for
     list_automations
@@ -57,6 +58,7 @@ defmodule Responder.StateTools.FixedTools do
     [
       get_work_state_tool(),
       cite_source_tool(),
+      record_finding_tool(),
       request_input_tool(),
       if(:event_waits in capabilities, do: wait_for_tool()),
       list_automations_tool(),
@@ -150,6 +152,9 @@ defmodule Responder.StateTools.FixedTools do
 
     create_record(binding, "request_input", arguments, "input_request", payload)
   end
+
+  defp dispatch("record_finding", arguments, binding),
+    do: create_record(binding, "record_finding", arguments, "finding", arguments)
 
   defp dispatch("wait_for", arguments, binding) do
     trigger = Map.put(arguments["trigger"], "on_timeout", arguments["on_timeout"])
@@ -1010,18 +1015,65 @@ defmodule Responder.StateTools.FixedTools do
     )
   end
 
+  defp record_finding_tool do
+    tool(
+      "record_finding",
+      "Save a useful investigation conclusion, not one record per alert. This does not send a message, change infrastructure or open an incident. Use cause_evidence refs returned by cite_source in this episode. Explained requires evidence; expected and out_of_scope require a reason. Distinguish checked-out intent from verified deployed state.",
+      %{
+        "what" => text(4_000),
+        "status" => enum(~w(unexplained explained expected out_of_scope)),
+        "cause_evidence" => array(reference(256), 0, 10),
+        "reason" => nullable(text(2_000)),
+        "scope" => nullable(text(2_000))
+      },
+      ~w(what status cause_evidence reason scope)
+    )
+  end
+
   defp wait_for_tool do
     trigger = %{
       "additionalProperties" => false,
       "oneOf" => [
-        object(%{"delay" => text(64), "type" => const("after")}, ~w(delay type)),
-        object(%{"at" => timestamp(), "type" => const("at")}, ~w(at type)),
+        object(
+          %{
+            "delay" =>
+              Map.put(
+                text(64),
+                "description",
+                "Positive duration using s, m and h, for example 10m, 1h30m or 1.5h; exact microsecond precision, maximum 365 days. Measured from this wait record's original creation, not the final reply or a retry. The scheduled wake must be strictly before deadline."
+              ),
+            "type" => const("after")
+          },
+          ~w(delay type)
+        ),
+        object(
+          %{
+            "at" =>
+              Map.put(
+                timestamp(),
+                "description",
+                "Explicit UTC timestamp strictly before deadline. This is the scheduled wake; deadline is only the hard timeout."
+              ),
+            "type" => const("at")
+          },
+          ~w(at type)
+        ),
         object(
           %{
             "cursor" => nullable(%{"additionalProperties" => true, "type" => "object"}),
-            "match" => %{"additionalProperties" => true, "type" => "object"},
+            "match" => %{
+              "additionalProperties" => true,
+              "description" =>
+                "Recursive subset of input.content (the raw event payload), using exact values for stable lifecycle identity (for example run_id). In work.inputs.items or work.current_inputs.items, the raw payload is item.content.content, below the ingress envelope. Do not wrap match in content. If that payload contains run_id and status, match only run_id, not {content: {run_id: ...}}. Preserve any nesting within the raw payload. This is not JSONPath or a query language. Do not match a transient status that the next update will change.",
+              "type" => "object"
+            },
             "poll_after" => timestamp(),
-            "source_kind" => nullable(reference(120)),
+            "source_kind" =>
+              Map.put(
+                nullable(reference(120)),
+                "description",
+                "Exact input envelope's source.kind for the expected event, not a vendor name inside input.content. In a Work input item, read item.content.source.kind. A Terraform or Grafana Slack notification uses slack, even if its content says terraform or grafana. Null leaves the source kind unconstrained."
+              ),
             "type" => const("source_event")
           },
           ~w(match poll_after type)
@@ -1031,7 +1083,7 @@ defmodule Responder.StateTools.FixedTools do
 
     tool(
       "wait_for",
-      "Create one durable event wait. A source_event must include a poll_after at or before the hard deadline and may carry an opaque cursor; matching webhooks resume it first, while the poll fallback forces verification if an event is lost.",
+      "Create one durable wait. after and at schedule a timer before the hard deadline. A source_event must include a poll_after at or before the hard deadline and may carry an opaque cursor; matching webhooks resume it first, while the poll fallback forces verification if an event is lost.",
       %{
         "deadline" => timestamp(),
         "on_timeout" => text(2_000),

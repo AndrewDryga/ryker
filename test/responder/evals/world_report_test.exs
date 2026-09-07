@@ -128,7 +128,11 @@ defmodule Responder.Evals.WorldReportTest do
       {:coop_error, 503, "session_cleanup_error",
        "session runtime cleanup is temporarily unavailable"}
 
-    report = put_in(valid_report(), [:quality, :reason], reason)
+    report =
+      valid_report()
+      |> put_in([:quality, :reason], reason)
+      |> Map.put(:execution_error, {:world_eval_failed, :event_wait_not_matched})
+      |> Map.put(:cleanup_error, reason)
 
     assert :ok = WorldReport.write(path, [report])
 
@@ -136,6 +140,11 @@ defmodule Responder.Evals.WorldReportTest do
 
     assert get_in(document, ["results", Access.at(0), "quality", "reason"]) ==
              inspect(reason)
+
+    assert get_in(document, ["results", Access.at(0), "execution_error"]) ==
+             inspect(report.execution_error)
+
+    assert get_in(document, ["results", Access.at(0), "cleanup_error"]) == inspect(reason)
   end
 
   defp valid_report do

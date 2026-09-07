@@ -6,9 +6,21 @@ defmodule Responder.Publication.FollowupsTest do
   alias Responder.Episodes
   alias Responder.Episodes.{Event, EventChangeset}
   alias Responder.Fixtures.Publication, as: PublicationFixture
-  alias Responder.Ingress.Input
+  alias Responder.Ingress.{Inbox, Input}
+  alias Responder.Ingress.Inbox.Entry
   alias Responder.Publication.{Custody, Followup, Followups, LifecycleEvent, Publication}
+
+  alias Responder.State.{
+    Continuity,
+    ConversationObservation,
+    KnowledgeSnapshot,
+    LearningSources,
+    Observations
+  }
+
+  alias Responder.Work.Custody, as: WorkCustody
   alias Responder.Work.DeliveryReceipt
+  alias Responder.Work.SubmissionBuilder
 
   @now ~U[2026-08-28 12:10:00.000000Z]
 
@@ -228,6 +240,283 @@ defmodule Responder.Publication.FollowupsTest do
 
     assert get_in(admitted.payload, ["payload", "actor", "kind"]) == "bot"
     assert get_in(admitted.payload, ["payload", "event_kind"]) == "edit"
+  end
+
+  for changed_field <- [
+        :actor,
+        :source,
+        :destination,
+        :event_kind,
+        :revision,
+        :native_input_id,
+        :source_item_ref,
+        :source_capabilities,
+        :occurred_at,
+        :occurred_at_source,
+        :content
+      ] do
+    test "GitHub feedback changing #{changed_field} is not an equivalent receipt" do
+      # Coalescing transport retries must not hide a changed actor, scope, source
+      # revision or document; integer and float JSON values also remain distinct.
+      suffix = "feedback-distinct-#{unquote(changed_field)}"
+
+      PublicationFixture.published!(suffix,
+        github_repository: "octo/feedback-equivalence",
+        pull_request_number: 74
+      )
+
+      input = feedback_input(suffix)
+      assert {:ok, %{event: first, status: :recorded}} = Followups.observe_github_feedback(input)
+
+      alternatives = %{
+        actor: %{kind: :bot, ref: "another-actor"},
+        source: %{kind: "github", ref: "another-app"},
+        destination: %{input.destination | thread_ref: "another-thread"},
+        event_kind: :edit,
+        revision: input.revision + 1,
+        native_input_id: input.native_input_id <> ":another",
+        source_item_ref: "github:issue_comment:another",
+        source_capabilities: %{"react" => %{"emoji_names" => ["eyes"]}},
+        occurred_at: DateTime.add(input.occurred_at, 1, :second),
+        occurred_at_source: :ingress,
+        content: Map.put(input.content, "numeric_value", 1.0)
+      }
+
+      changed =
+        input
+        |> Map.put(:event_ref, input.event_ref <> ":changed")
+        |> Map.put(unquote(changed_field), Map.fetch!(alternatives, unquote(changed_field)))
+
+      assert {:ok, %{event: second, status: :recorded}} =
+               Followups.observe_github_feedback(changed)
+
+      assert second.id != first.id
+      assert Repo.get!(LifecycleEvent, first.id) == first
+
+      if unquote(changed_field) == :content do
+        assert first.observation["content"]["numeric_value"] === 1
+        assert second.observation["content"]["numeric_value"] === 1.0
+      end
+    end
+  end
+
+  for malformed <- [:not_a_map, :missing_content, :bad_content, :missing_identity, :bad_identity] do
+    test "a #{malformed} historical feedback document cannot become duplicate authority" do
+      # A malformed retained observation must neither crash a valid retry nor
+      # silently inherit its authority by deleting the malformed fields.
+      suffix = "feedback-malformed-#{unquote(malformed)}"
+
+      PublicationFixture.published!(suffix,
+        github_repository: "octo/feedback-equivalence",
+        pull_request_number: 74
+      )
+
+      input = feedback_input(suffix)
+      assert {:ok, %{event: first}} = Followups.observe_github_feedback(input)
+
+      malformed =
+        case unquote(malformed) do
+          :not_a_map -> []
+          :missing_content -> Map.delete(first.observation, "content")
+          :bad_content -> Map.put(first.observation, "content", nil)
+          :missing_identity -> Map.delete(first.observation, "event_ref")
+          :bad_identity -> Map.put(first.observation, "event_ref", "")
+        end
+
+      Repo.update_all(from(event in LifecycleEvent, where: event.id == ^first.id),
+        set: [observation: malformed]
+      )
+
+      retry = %{input | event_ref: input.event_ref <> ":retry"}
+      assert {:ok, %{event: fresh, status: :recorded}} = Followups.observe_github_feedback(retry)
+      assert fresh.id != first.id
+      assert Repo.get!(LifecycleEvent, first.id).observation == malformed
+    end
+  end
+
+  for event_kind <- [:edit, :delete],
+      route <- [:matched, :closed, :tied, :reopened],
+      event_kind == :edit or route != :tied do
+    test "matched GitHub feedback stays private and a later #{route} #{event_kind} invalidates its warm session" do
+      # Signed review feedback bypasses Admission. Without independent source
+      # custody it either blocks useful Work or leaves its copied facts irrevocable.
+      %{episode: episode, publication: publication} =
+        PublicationFixture.published!("review-lineage-#{unquote(event_kind)}",
+          conversation_ref: "slack:TREVIEW:C456",
+          github_repository: "octo/private-review",
+          pull_request_number: 74
+        )
+
+      for channel <- ["C456", "COTHER"] do
+        Repo.insert!(%Responder.Slack.ChannelMembership{
+          id: Ecto.UUID.generate(),
+          generation: 1,
+          workspace_ref: "TREVIEW",
+          channel_ref: channel,
+          status: :joined,
+          private: false,
+          external_shared: false,
+          joined_at: @now
+        })
+      end
+
+      base = lifecycle_input_with(:user, %{}, "review-lineage")
+
+      input = %{
+        base
+        | source: %{kind: "github", ref: "responder-app"},
+          destination: %{
+            transport: "github",
+            conversation_ref: "github:responder-app:octo/private-review:pull:74",
+            thread_ref: nil
+          },
+          event_kind: if(unquote(route) == :tied, do: unquote(event_kind), else: :message),
+          content: %{
+            "event_name" => "issue_comment",
+            "payload" => %{
+              "issue" => %{"number" => 74, "pull_request" => %{}},
+              "repository" => %{"full_name" => "octo/private-review"}
+            }
+          }
+      }
+
+      {input, previous_source} =
+        if unquote(route) == :reopened do
+          Repo.update_all(from(f in Followup, where: f.publication_id == ^publication.id),
+            set: [pr_state: "closed"]
+          )
+
+          assert {:ok, :unmatched} = Followups.observe_github_feedback(input)
+
+          assert {:ok, inbox} =
+                   Inbox.record(input, revision_ties: :receipt_order)
+
+          assert [receipt] = LearningSources.for_entry(inbox.entry)
+          assert {:ok, scope} = Continuity.destination_context(inbox.entry, nil)
+
+          Repo.update_all(from(f in Followup, where: f.publication_id == ^publication.id),
+            set: [pr_state: "open"]
+          )
+
+          {%{input | revision: input.revision + 1, event_ref: input.event_ref <> ":reopened"},
+           {receipt, scope}}
+        else
+          {input, nil}
+        end
+
+      assert {:ok, %{event: event}} = Followups.observe_github_feedback(input)
+      source = Repo.get_by(ConversationObservation, source_input_id: event.id)
+      assert source != nil
+      assert source.visibility == :private
+      assert source.source_result_ref == "publication-feedback:#{event.id}"
+      assert source.conversation_ref == episode.destination_conversation_ref
+
+      if previous_source do
+        {previous, previous_scope} = previous_source
+
+        assert {:ok, false} =
+                 Repo.transaction(fn -> LearningSources.valid?([previous], previous_scope) end)
+
+        assert Repo.aggregate(Entry, :count) == 1
+      else
+        assert Repo.aggregate(Entry, :count) == 0
+      end
+
+      assert {:ok, %{event: duplicate, status: :duplicate}} =
+               Followups.observe_github_feedback(input)
+
+      assert duplicate.id == event.id
+      assert Repo.get!(ConversationObservation, source.id) == source
+
+      assert {:ok, {:error, :publication_feedback_source_invalid}} =
+               Repo.transaction(fn ->
+                 Observations.record_publication_feedback_in_transaction(
+                   event,
+                   %{publication | episode_id: Ecto.UUID.generate()}
+                 )
+               end)
+
+      assert {:ok, delivery} = Followups.claim_delivery("review-lineage", 60)
+      assert {:ok, _} = Followups.admit_wakeup(event.ref, delivery.lease_ref)
+      assert {:ok, claim} = WorkCustody.claim_next("review-lineage", 60, :work)
+      assert {:ok, submission} = SubmissionBuilder.build(claim)
+      claim = %{claim | turn: %{claim.turn | submission: submission}}
+      assert :ok = KnowledgeSnapshot.expose_submission(claim)
+      assert [receipt] = KnowledgeSnapshot.session_sources(claim.session.id)
+      assert receipt["source_input_id"] == event.id
+
+      assert {:ok, scope} = Continuity.destination_context(episode, publication.repository)
+      assert scope.visibility == :public
+      assert {:ok, true} = Repo.transaction(fn -> LearningSources.valid?([receipt], scope) end)
+      other_scope = %{scope | conversation_ref: "slack:TREVIEW:COTHER"}
+
+      assert {:ok, false} =
+               Repo.transaction(fn -> LearningSources.valid?([receipt], other_scope) end)
+
+      changed = %{
+        input
+        | event_ref: input.event_ref <> ":changed",
+          revision: if(unquote(route) == :tied, do: input.revision, else: input.revision + 1),
+          event_kind: unquote(event_kind),
+          content: Map.put(input.content, "revision_marker", "changed")
+      }
+
+      if unquote(route) != :closed do
+        assert {:ok, %{event: replacement}} = Followups.observe_github_feedback(changed)
+        assert replacement.id != event.id
+      else
+        Repo.update_all(from(f in Followup, where: f.publication_id == ^publication.id),
+          set: [pr_state: "closed"]
+        )
+
+        assert {:ok, :unmatched} = Followups.observe_github_feedback(changed)
+
+        assert {:ok, inbox} =
+                 Inbox.record(changed, revision_ties: :receipt_order)
+
+        assert [current] = LearningSources.for_entry(inbox.entry)
+        assert {:ok, canonical_scope} = Continuity.destination_context(inbox.entry, nil)
+
+        assert {:ok, true} =
+                 Repo.transaction(fn -> LearningSources.valid?([current], canonical_scope) end)
+      end
+
+      assert {:error, :work_knowledge_context_stale} =
+               KnowledgeSnapshot.authorize_session(episode, claim.session)
+
+      assert LearningSources.for_work_input(Input.document(input)) == nil
+
+      if unquote(route) == :tied do
+        quarantined = Repo.get!(ConversationObservation, source.id)
+        assert quarantined.updated_at == source.updated_at
+        assert String.starts_with?(quarantined.source_result_ref, "source-conflict:")
+        assert LearningSources.for_work_input(Input.document(changed)) == nil
+        assert {:ok, %{status: :duplicate}} = Followups.observe_github_feedback(input)
+        assert Repo.get!(ConversationObservation, source.id) == quarantined
+
+        newer = %{
+          changed
+          | revision: changed.revision + 1,
+            event_ref: changed.event_ref <> ":newer"
+        }
+
+        assert {:ok, %{event: recovered}} = Followups.observe_github_feedback(newer)
+        assert [current] = LearningSources.for_work_input(Input.document(newer))
+        assert current["source_input_id"] == recovered.id
+      else
+        current = Repo.get!(ConversationObservation, source.id)
+
+        assert {:ok, :ok} =
+                 Repo.transaction(fn ->
+                   Observations.record_publication_feedback_in_transaction(
+                     event,
+                     publication
+                   )
+                 end)
+
+        assert Repo.get!(ConversationObservation, source.id) == current
+      end
+    end
   end
 
   test "every supported GitHub lifecycle envelope nudges only its exact pull request" do
@@ -884,6 +1173,23 @@ defmodule Responder.Publication.FollowupsTest do
       })
 
     input
+  end
+
+  defp feedback_input(suffix) do
+    base = lifecycle_input_with(:user, %{}, suffix)
+
+    %{
+      base
+      | source: %{kind: "github", ref: "responder-app"},
+        content: %{
+          "event_name" => "issue_comment",
+          "numeric_value" => 1,
+          "payload" => %{
+            "issue" => %{"number" => 74, "pull_request" => %{}},
+            "repository" => %{"full_name" => "octo/feedback-equivalence"}
+          }
+        }
+    }
   end
 
   defp lifecycle_input_with(actor_kind, content, suffix) do

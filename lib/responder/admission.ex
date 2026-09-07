@@ -100,6 +100,7 @@ defmodule Responder.Admission do
         conversation_episode_count: conversation_episode_count(input, entry.execution_mode),
         input: input,
         input_entry: entry,
+        slack_addressing: slack_addressing(entry),
         observations: Observations.context(entry, entry.repository_ref, "", 5),
         knowledge:
           Knowledge.context(
@@ -113,6 +114,15 @@ defmodule Responder.Admission do
     else
       {:error, reason} -> Repo.rollback(reason)
     end
+  end
+
+  defp slack_addressing(%Entry{slack_audience: nil, slack_bot_user_ref: nil}), do: nil
+
+  defp slack_addressing(%Entry{} = entry) do
+    %{
+      "audience" => Atom.to_string(entry.slack_audience),
+      "responder_user_ref" => entry.slack_bot_user_ref
+    }
   end
 
   @spec validate(Context.t(), Decision.t()) ::

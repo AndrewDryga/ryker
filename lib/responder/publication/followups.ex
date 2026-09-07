@@ -27,6 +27,7 @@ defmodule Responder.Publication.Followups do
 
   alias Responder.Publication.Changeset, as: PublicationChangeset
   alias Responder.Repo
+  alias Responder.State.Observations
   alias Responder.Work.{Custody, DeliveryReceipt}
 
   @default_deadline_seconds 30 * 24 * 60 * 60
@@ -710,17 +711,58 @@ defmodule Responder.Publication.Followups do
         :unmatched
 
       [%Publication{} = publication] ->
-        event = lifecycle_event(publication, github_feedback_event(input, publication))
+        {status, stored} = record_github_feedback(input, publication)
 
-        case insert_lifecycle_event(event) do
-          {:ok, stored} -> %{event: stored, status: :recorded}
-          {:duplicate, stored} -> %{event: stored, status: :duplicate}
+        case Observations.record_publication_feedback_in_transaction(stored, publication) do
+          :ok -> %{event: stored, status: if(status == :ok, do: :recorded, else: :duplicate)}
+          {:error, reason} -> Repo.rollback(reason)
         end
 
       [_first, _second] ->
         Repo.rollback(:publication_review_feedback_ambiguous)
     end
   end
+
+  defp record_github_feedback(input, publication) do
+    # The publication lock serializes equivalent deliveries. Preserve the first
+    # receipt: another serialization must not create a competing wakeup for the
+    # same native revision, nor replace the source receipt used by warm Work.
+    # READ COMMITTED is required so the lookup after a lock wait sees the
+    # preceding transaction's committed receipt.
+    document = input |> Input.document() |> feedback_document()
+
+    existing =
+      Repo.all(
+        from(event in LifecycleEvent,
+          where:
+            event.publication_id == ^publication.id and event.kind == "review_feedback" and
+              event.occurred_at == ^input.occurred_at,
+          order_by: [asc: event.inserted_at, asc: event.id]
+        )
+      )
+      |> Enum.find(&(not is_nil(document) and feedback_document(&1.observation) == document))
+
+    case existing do
+      nil ->
+        publication
+        |> lifecycle_event(github_feedback_event(input, publication))
+        |> insert_lifecycle_event()
+
+      event ->
+        {:duplicate, event}
+    end
+  end
+
+  defp feedback_document(%{"content" => %{}, "event_ref" => ref} = document) do
+    if reference(ref, :event_ref) == :ok do
+      document
+      |> Map.delete("event_ref")
+      |> update_in(["content"], &Map.delete(&1, "delivery_ref"))
+      |> CanonicalJSON.encode!()
+    end
+  end
+
+  defp feedback_document(_document), do: nil
 
   defp github_feedback_publications(repository, pull_request_number) do
     Repo.all(

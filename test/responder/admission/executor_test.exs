@@ -2,11 +2,12 @@ defmodule Responder.Admission.ExecutorTest do
   use Responder.DataCase, async: true
 
   import Ecto.Query
+  import Phoenix.LiveViewTest
 
   @moduletag isolation: "REPEATABLE READ"
 
   alias Responder.ControlPlane.ModelRequests
-  alias Responder.ControlPlane.ModelRequestsHTML
+  alias Responder.ControlPlane.RequestPage
 
   alias Responder.Admission.Executor
   alias Responder.Ingress.Inbox
@@ -72,7 +73,14 @@ defmodule Responder.Admission.ExecutorTest do
     request = Enum.find(inspector.selected.sections, &(&1.id == "request"))
     assert request.artifact.state == :retained
     assert request.artifact.text =~ "Please investigate the unfamiliar failure"
-    html = inspector |> ModelRequestsHTML.render() |> IO.iodata_to_binary()
+
+    html =
+      render_component(&RequestPage.render/1,
+        view: inspector,
+        params: %{},
+        path: "/episodes/ingress-input%3A#{entry.id}"
+      )
+
     assert html =~ "Observed execution milestones"
     assert html =~ "frozen Responder admission submission"
   end

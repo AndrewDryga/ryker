@@ -209,6 +209,8 @@ defmodule Responder.ControlPlane.OperatorProjection do
       from(subscription in EventSubscription,
         left_join: episode in Episode,
         on: episode.id == subscription.episode_id,
+        join: record in Record,
+        on: record.id == subscription.record_id,
         order_by: [asc: subscription.status, asc: subscription.poll_after, desc: subscription.id],
         limit: @list_limit,
         select: %{
@@ -224,6 +226,7 @@ defmodule Responder.ControlPlane.OperatorProjection do
           revision: subscription.revision,
           source_kind: subscription.source_kind,
           status: subscription.status,
+          trigger_type: fragment("?::jsonb -> 'event_matcher' ->> 'type'", record.payload),
           updated_at: subscription.updated_at
         }
       )

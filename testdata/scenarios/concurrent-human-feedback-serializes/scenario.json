@@ -17,11 +17,25 @@
     {
       "actor_ref": "slack:user:U-andrew",
       "authority": "repository_write_offer",
+      "input_profile": {
+        "actor": {"kind": "user", "ref": "U-andrew"},
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {"kind": "slack", "ref": "TEVAL"},
+        "source_capabilities": {"react": {"emoji_names": null}}
+      },
       "kind": "human"
     },
     {
       "actor_ref": "slack:user:U-bruno",
       "authority": "repository_feedback",
+      "input_profile": {
+        "actor": {"kind": "user", "ref": "U-bruno"},
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {"kind": "slack", "ref": "TEVAL"},
+        "source_capabilities": {"react": {"emoji_names": null}}
+      },
       "kind": "human"
     }
   ],

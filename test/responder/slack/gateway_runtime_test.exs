@@ -295,7 +295,7 @@ defmodule Responder.Slack.GatewayRuntimeTest do
     %{
       client: :client,
       directory: Directory,
-      identity: %{bot_ref: "B-BOT", bot_user_ref: "U-BOT", workspace_ref: "T123"},
+      identity: %{bot_ref: "B-BOT", bot_user_ref: "UBOT", workspace_ref: "T123"},
       inbox: Inbox,
       interaction_handler: Responder.Slack.InteractionHandler,
       interaction_options: %{},
@@ -310,7 +310,7 @@ defmodule Responder.Slack.GatewayRuntimeTest do
         "event" => %{
           "channel" => "C456",
           "event_ts" => "1787832001.000200",
-          "text" => "<@U-BOT> investigate",
+          "text" => "<@UBOT> investigate",
           "ts" => "1787832001.000200",
           "type" => "app_mention",
           "user" => "U123"

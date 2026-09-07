@@ -14,7 +14,15 @@ defmodule Responder.State.Records do
   alias Responder.Episodes.Episode
   alias Responder.Ingress.Input
   alias Responder.Repo
-  alias Responder.State.{EventSubscriptions, Record, RecordChangeset, RecordPayload}
+
+  alias Responder.State.{
+    EventSubscriptions,
+    EventWaitTiming,
+    Record,
+    RecordChangeset,
+    RecordPayload
+  }
+
   alias Responder.Work.Turn
 
   @operation_id ~r/\A[A-Za-z0-9_.:-]{1,80}\z/
@@ -74,12 +82,32 @@ defmodule Responder.State.Records do
              prepared,
              parallel_goal_limit
            ),
+         :ok <- validate_timer(record),
          :ok <- Approvals.ensure_registered_in_transaction(record) do
       record
     else
       {:error, reason} -> Repo.rollback(reason)
     end
   end
+
+  defp validate_timer(%Record{
+         kind: "event_wait",
+         inserted_at: inserted_at,
+         payload: %{"event_matcher" => %{"type" => type} = trigger, "deadline_at" => deadline}
+       })
+       when type in ["after", "at"] do
+    # Use the saved record, including on idempotent retries. Anchoring a delay
+    # to acceptance or reconciliation would silently move its promised wakeup.
+    with {:ok, due_at} <- EventWaitTiming.due_at(trigger, inserted_at),
+         {:ok, deadline_at, 0} <- DateTime.from_iso8601(deadline),
+         :lt <- DateTime.compare(due_at, deadline_at) do
+      :ok
+    else
+      _invalid -> {:error, {:invalid_state_record, :timer_deadline}}
+    end
+  end
+
+  defp validate_timer(_record), do: :ok
 
   @spec validation_records(Ecto.UUID.t()) :: map()
   def validation_records(episode_id) do

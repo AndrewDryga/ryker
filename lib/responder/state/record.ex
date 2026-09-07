@@ -21,6 +21,7 @@ defmodule Responder.State.Record do
     field(:operation_id, :string)
     field(:kind, :string)
     field(:status, Ecto.Enum, values: [:open, :confirmed, :answered, :dismissed, :superseded])
+    field(:wait_error, :string)
     field(:subject_ref, :string)
     field(:payload, Responder.CanonicalJSON.Type)
     field(:payload_fingerprint, :string)
@@ -42,6 +43,7 @@ defmodule Responder.State.Record do
           operation_id: String.t() | nil,
           kind: String.t() | nil,
           status: :open | :confirmed | :answered | :dismissed | :superseded | nil,
+          wait_error: String.t() | nil,
           subject_ref: String.t() | nil,
           payload: map() | nil,
           payload_fingerprint: String.t() | nil,

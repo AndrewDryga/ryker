@@ -1,6 +1,7 @@
 defmodule Responder.State.KnowledgeRetention do
   @moduledoc false
   alias Responder.{CanonicalJSON, Repo}
+  alias Responder.State.LearningSources
 
   # An aggregate depends on all sources in its generation. Expiring one source
   # withdraws that generation's copied text, but preserves revision receipts.
@@ -41,7 +42,7 @@ defmodule Responder.State.KnowledgeRetention do
         UPDATE conversation_knowledge k SET state = '{"retention":"pruned"}'
         FROM expired e WHERE k.id = e.knowledge_id AND k.source_generation = e.generation
         """,
-        [seconds]
+        [seconds, LearningSources.utc_timestamp_pattern()]
       )
 
     count + prune_observations(seconds) +
@@ -62,7 +63,7 @@ defmodule Responder.State.KnowledgeRetention do
       UPDATE conversation_observations o SET note = NULL
       FROM candidates c WHERE o.id = c.id
       """,
-      [seconds]
+      [seconds, LearningSources.utc_timestamp_pattern()]
     ).num_rows
   end
 
@@ -76,18 +77,28 @@ defmodule Responder.State.KnowledgeRetention do
         WHERE m.state::jsonb <> '{"retention":"pruned"}'::jsonb AND #{expired_sources("m")}
         ORDER BY m.id LIMIT 100 FOR UPDATE SKIP LOCKED
       )
-      UPDATE #{table} m SET state = '{"retention":"pruned"}', state_fingerprint = $2
+      UPDATE #{table} m SET state = '{"retention":"pruned"}', state_fingerprint = $3
       FROM candidates c WHERE m.id = c.id
       """,
-      [seconds, CanonicalJSON.digest(%{"retention" => "pruned"})]
+      [
+        seconds,
+        LearningSources.utc_timestamp_pattern(),
+        CanonicalJSON.digest(%{"retention" => "pruned"})
+      ]
     ).num_rows
   end
 
   defp expired_sources(binding) do
     """
     EXISTS (
-      SELECT 1 FROM jsonb_array_elements(COALESCE(#{binding}.source_dependencies, '[]')::jsonb) receipt
-      WHERE (receipt->>'retained_at')::timestamptz < clock_timestamp() - ($1 * interval '1 second')
+      SELECT 1 FROM jsonb_array_elements(
+        CASE WHEN jsonb_typeof(#{binding}.source_dependencies::jsonb) = 'array'
+          THEN #{binding}.source_dependencies::jsonb ELSE '[]'::jsonb END
+      ) receipt
+      WHERE CASE WHEN receipt->>'retained_at' ~ $2
+        AND pg_input_is_valid(replace(receipt->>'retained_at', ',', '.'), 'timestamptz') THEN
+        replace(receipt->>'retained_at', ',', '.')::timestamptz < clock_timestamp() - ($1 * interval '1 second')
+        ELSE false END
     )
     """
   end

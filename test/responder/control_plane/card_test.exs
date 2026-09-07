@@ -8,6 +8,158 @@ defmodule Responder.ControlPlane.CardTest do
   @digest String.duplicate("a", 64)
   @git String.duplicate("b", 40)
 
+  test "an unschedulable wait explains its failure and hard deadline without presenting success" do
+    payload = %{
+      "deadline_at" => "2026-09-07T12:00:00Z",
+      "event_matcher" => %{
+        "type" => "after",
+        "delay" => "10m",
+        "on_timeout" => "Report verification gap."
+      },
+      "kind" => "after",
+      "verification" => "Check Airflow health."
+    }
+
+    source = record("event_wait", payload) |> Map.put(:wait_error, "timer_deadline")
+    assert {:ok, card} = Card.project(source)
+    assert card.wait_warning =~ "cannot run before its deadline"
+    assert card.wait_warning =~ "2026-09-07T12:00:00Z"
+    assert card.summary == nil
+    html = HTML.lab_message_extras(%{cards: [card]}) |> IO.iodata_to_binary()
+    assert html =~ "Timer scheduling failed"
+    assert html =~ "Current scheduling status:"
+    refute html =~ "timer_deadline"
+  end
+
+  test "a scheduling diagnostic never prints an invalid retained deadline as diagnostic prose" do
+    warning =
+      Card.wait_warning(%Record{
+        kind: "event_wait",
+        wait_error: "deadline",
+        payload: %{"deadline_at" => "password=retained-secret"}
+      })
+
+    assert warning =~ "deadline is invalid"
+    refute warning =~ "retained-secret"
+  end
+
+  test "every wait warning validates its deadline before producing diagnostic prose" do
+    # Lab's diagnostic fallback was safe, but the episode called this shared
+    # formatter directly, leaking malformed strings or crashing on JSON objects.
+    for error <- ~w(timer_deadline poll_after),
+        deadline <- [nil, 42, "password=retained-secret", %{"password" => "retained-secret"}] do
+      source = record("event_wait", %{"deadline_at" => deadline}) |> Map.put(:wait_error, error)
+      assert Card.wait_warning(source) == "Wait scheduling failed: its saved deadline is invalid."
+    end
+  end
+
+  test "only supported wait errors on event waits produce scheduling warnings" do
+    for {kind, error} <- [
+          {"event_wait", nil},
+          {"event_wait", "unknown-secret"},
+          {"finding", "poll_after"},
+          {"finding", "deadline"},
+          {"finding", "source_kind"},
+          {"finding", "cursor"},
+          {"finding", "timer_deadline"}
+        ] do
+      source =
+        record(kind, %{"deadline_at" => "2099-09-07T12:00:00Z"})
+        |> Map.put(:wait_error, error)
+
+      assert Card.wait_warning(source) == nil
+    end
+  end
+
+  test "valid UTC deadlines retain their specific timer or polling explanation" do
+    for {error, phrase} <- [
+          {"timer_deadline", "cannot run before its deadline"},
+          {"poll_after", "polling time is invalid"}
+        ] do
+      source =
+        record("event_wait", %{"deadline_at" => "2099-09-07T12:00:00Z"})
+        |> Map.put(:wait_error, error)
+
+      warning = Card.wait_warning(source)
+      assert warning =~ phrase
+      assert warning =~ "2099-09-07T12:00:00Z"
+    end
+  end
+
+  for {error, phrase} <- [
+        {"source_kind", "source identifier is invalid or exceeds 120 bytes"},
+        {"cursor", "cursor is invalid or exceeds 16 KiB"},
+        {"deadline", "deadline is invalid"},
+        {"timer_deadline", "cannot run before its deadline"},
+        {"poll_after", "polling time is invalid"}
+      ] do
+    test "a retained invalid wait still shows its bounded #{error} diagnostic without raw data" do
+      # Revalidating retained payloads hid scheduling failures from Lab entirely.
+      source =
+        record("event_wait", %{
+          "deadline_at" => "2099-09-07T12:00:00Z",
+          "verification" => "unvalidated-verification",
+          "event_matcher" => %{"cursor" => "unvalidated-cursor"}
+        })
+        |> Map.put(:wait_error, unquote(error))
+
+      assert {:ok, card} = Card.project(source)
+      assert card.wait_warning =~ unquote(phrase)
+      assert card.action == nil
+      assert card.choices == []
+      assert card.url == nil
+      assert {"Hard deadline", "2099-09-07T12:00:00Z"} in card.details
+      refute inspect(card) =~ "unvalidated-"
+
+      html = HTML.lab_message_extras(%{cards: [card]}) |> IO.iodata_to_binary()
+      assert html =~ "Current scheduling status:"
+      assert html =~ unquote(phrase)
+      refute html =~ "unvalidated-"
+      refute html =~ "<form"
+    end
+  end
+
+  test "an invalid diagnostic card never renders a malformed deadline or an unknown error" do
+    for deadline <- [nil, 42, "password=retained-secret"] do
+      source =
+        record("event_wait", %{"deadline_at" => deadline})
+        |> Map.put(:wait_error, "timer_deadline")
+
+      assert {:ok, card} = Card.project(source)
+      refute inspect(card) =~ "retained-secret"
+      refute {"Deadline", deadline} in card.details
+    end
+
+    for {kind, error} <- [
+          {"event_wait", nil},
+          {"event_wait", "unknown-secret"},
+          {"finding", "source_kind"}
+        ] do
+      assert :ignore = Card.project(record(kind, %{}) |> Map.put(:wait_error, error))
+    end
+  end
+
+  test "finding cards redact all prose before either Lab or timeline rendering" do
+    # Findings has more than one presentation sink; escaping HTML is not secret redaction.
+    payload = %{
+      "what" => "Diagnosis password=finding-body-secret",
+      "status" => "expected",
+      "reason" => "Expected because password=finding-reason-secret",
+      "scope" => "Scoped password=finding-scope-secret"
+    }
+
+    source = record("finding", payload)
+    assert {:ok, card} = Card.project(source)
+
+    for secret <- ~w(finding-body-secret finding-reason-secret finding-scope-secret) do
+      refute inspect(card) =~ secret
+      refute HTML.lab_message_extras(%{cards: [card]}) |> IO.iodata_to_binary() =~ secret
+    end
+
+    assert source.payload == payload
+    assert card.ref == source.ref
+  end
+
   test "a completed goal transition never displays the record storage status as Open" do
     # Harvested from Lab bd9abb20: a successful acceptance still showed GOAL STATE OPEN.
     payload = %{

@@ -1,8 +1,50 @@
 defmodule Responder.State.LearningSourcesTest do
   use Responder.DataCase, async: true
+  import Ecto.Query
+  alias Responder.{CanonicalJSON, Repo}
   alias Responder.Episodes.Episode
   alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
-  alias Responder.State.LearningSources
+  alias Responder.State.{ConversationSummary, LearningSources}
+
+  test "generic source eligibility rejects non-array history without rejecting source-free host data" do
+    scope = %{
+      workspace_ref: "slack:T123",
+      conversation_ref: "slack:T123:C123",
+      visibility: :public,
+      transport: "slack"
+    }
+
+    rows =
+      for sources <- [[], %{}, "unavailable", nil] do
+        id = Ecto.UUID.generate()
+
+        summary =
+          Repo.insert!(%ConversationSummary{
+            id: id,
+            ref: "continuity:#{id}",
+            identity_key: CanonicalJSON.digest(id),
+            transport: scope.transport,
+            workspace_ref: scope.workspace_ref,
+            conversation_ref: scope.conversation_ref,
+            visibility: scope.visibility,
+            state: %{},
+            state_fingerprint: CanonicalJSON.digest(%{}),
+            source_dependencies: sources || [],
+            source_result_ref: "result:#{id}"
+          })
+
+        if is_nil(sources),
+          do: Repo.update!(Ecto.Changeset.change(summary, source_dependencies: nil)),
+          else: summary
+      end
+
+    [source_free | _] = rows
+    ids = Enum.map(rows, & &1.id)
+    query = from(item in ConversationSummary, where: item.id in ^ids)
+    assert [eligible] = query |> LearningSources.eligible(scope) |> Repo.all()
+    assert eligible.id == source_free.id
+    assert LearningSources.valid?([], scope)
+  end
 
   test "multiple paths to one source retain its earliest expiry without spending two receipts" do
     {entry, _} =

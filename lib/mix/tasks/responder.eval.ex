@@ -143,9 +143,33 @@ defmodule Mix.Tasks.Responder.Eval do
   end
 
   defp run_world_plan(plan, configuration, eval_policies, eval_client) do
-    Enum.map(plan, fn observation ->
-      run_world_observation(observation, configuration, eval_policies, eval_client)
-    end)
+    run_world_plan(
+      plan,
+      &run_world_observation(&1, configuration, eval_policies, eval_client),
+      fn observation, stopped ->
+        unrun_report(
+          observation,
+          observation_policy(eval_policies, observation.lane),
+          {:world_campaign_stopped,
+           Map.take(stopped, [:scenario_id, :lane, :repeat_index, :status])}
+        )
+      end
+    )
+  end
+
+  @doc false
+  def run_world_plan(plan, run_observation, skip_observation) do
+    {reports, _stopped} =
+      Enum.map_reduce(plan, nil, fn
+        observation, nil ->
+          report = run_observation.(observation)
+          {report, if(report.status == :passed, do: nil, else: report)}
+
+        observation, stopped ->
+          {skip_observation.(observation, stopped), stopped}
+      end)
+
+    reports
   end
 
   defp run_world_observation(observation, configuration, eval_policies, eval_client) do

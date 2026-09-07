@@ -41,7 +41,8 @@ defmodule Responder.Ingress.Inbox do
   @spec record_many([Input.t()], keyword()) :: {:ok, [receipt()]} | {:error, term()}
   def record_many(inputs, options \\ []) do
     with {:ok, settings} <- record_options(options),
-         {:ok, inputs} <- prepare_inputs(inputs) do
+         {:ok, inputs} <- prepare_inputs(inputs),
+         :ok <- slack_addressing_sources(inputs, settings.slack_addressing) do
       Repo.transaction(fn -> record_batch_locked(inputs, settings) end)
       |> transaction_result()
     end
@@ -161,24 +162,35 @@ defmodule Responder.Ingress.Inbox do
   Moves an input out of the automatic retry queue when safe replay is impossible.
 
   The stored error names the exact reconciliation, policy, or operator boundary.
+  Confirmed terminal occurrences may advance their generation atomically with
+  blocking; ambiguous outcomes must retain the same occurrence for reconciliation.
   """
   @spec block(String.t(), String.t(), String.t(), String.t()) ::
           {:ok, Entry.t()} | {:error, term()}
-  def block(input_ref, lease_ref, error_code, error_detail) do
+  @spec block(String.t(), String.t(), String.t(), String.t(), :same | :execution | :validation) ::
+          {:ok, Entry.t()} | {:error, term()}
+  def block(input_ref, lease_ref, error_code, error_detail, generation \\ :same) do
     with {:ok, id} <- input_id(input_ref),
          :ok <- bounded_reference(lease_ref, :lease_ref),
          :ok <- bounded_text(error_code, 128, :error_code),
-         :ok <- bounded_text(error_detail, 4_096, :error_detail) do
-      Repo.transaction(fn -> block_locked(id, lease_ref, error_code, error_detail) end)
+         :ok <- bounded_text(error_detail, 4_096, :error_detail),
+         :ok <- block_generation(generation) do
+      Repo.transaction(fn ->
+        block_locked(id, lease_ref, error_code, error_detail, generation)
+      end)
       |> transaction_result()
     end
   end
 
+  defp block_generation(generation) when generation in [:same, :execution, :validation], do: :ok
+  defp block_generation(_), do: {:error, {:invalid_ingress_execution, :generation}}
+
   @doc """
   Rearms one exact operator-inspected blocked admission.
 
-  The frozen context and Coop operation generations are retained so the next
-  claimant reconciles the same decision rather than silently reclassifying it.
+  Preserve the context and operation generations left by the blocked attempt.
+  Ambiguous operations reconcile the same keys; confirmed terminal operations
+  have already advanced their generation and may have cleared the old context.
   """
   @spec rearm(String.t()) :: {:ok, Entry.t()} | {:error, term()}
   def rearm(input_ref) do
@@ -388,7 +400,7 @@ defmodule Responder.Ingress.Inbox do
     end
   end
 
-  defp block_locked(id, lease_ref, error_code, error_detail) do
+  defp block_locked(id, lease_ref, error_code, error_detail, generation) do
     case Repo.one(from(entry in Entry, where: entry.id == ^id, lock: "FOR UPDATE")) do
       nil ->
         Repo.rollback({:ingress_block_failed, :input_not_found})
@@ -397,15 +409,21 @@ defmodule Responder.Ingress.Inbox do
         entry
 
       %Entry{status: :pending, lease_ref: ^lease_ref} = entry ->
-        attributes = %{
-          last_error_code: error_code,
-          last_error_detail: error_detail,
-          lease_expires_at: nil,
-          lease_owner: nil,
-          lease_ref: nil,
-          next_attempt_at: nil,
-          status: :blocked
-        }
+        {execution_generation, validation_generation} = next_generations(entry, generation)
+
+        attributes =
+          %{
+            execution_generation: execution_generation,
+            validation_generation: validation_generation,
+            last_error_code: error_code,
+            last_error_detail: error_detail,
+            lease_expires_at: nil,
+            lease_owner: nil,
+            lease_ref: nil,
+            next_attempt_at: nil,
+            status: :blocked
+          }
+          |> maybe_clear_context(generation)
 
         case entry |> EntryChangeset.block(attributes) |> Repo.update() do
           {:ok, blocked} ->
@@ -589,7 +607,12 @@ defmodule Responder.Ingress.Inbox do
     %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
 
     input
-    |> EntryChangeset.insert(Ecto.UUID.generate(), settings.execution_mode, settings.work_profile)
+    |> EntryChangeset.insert(
+      Ecto.UUID.generate(),
+      settings.execution_mode,
+      settings.work_profile,
+      settings.slack_addressing
+    )
     |> Ecto.Changeset.change(inserted_at: now, updated_at: now)
     |> Repo.insert()
     |> case do
@@ -668,18 +691,22 @@ defmodule Responder.Ingress.Inbox do
 
   defp record_options(options) when is_list(options) do
     if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options) and
-         Keyword.keys(options) -- [:execution_mode, :revision_ties, :work_profile] == [] do
+         Keyword.keys(options) --
+           [:execution_mode, :revision_ties, :work_profile, :slack_audience, :slack_bot_user_ref] ==
+           [] do
       revision_ties = Keyword.get(options, :revision_ties, :exact)
       execution_mode = Keyword.get(options, :execution_mode, :live)
       work_profile = Keyword.get(options, :work_profile)
 
       with true <- revision_ties in [:exact, :receipt_order, :receipt_order_unbounded],
            true <- execution_mode in [:live, :shadow],
-           {:ok, work_profile} <- WorkProfile.prepare(work_profile) do
+           {:ok, work_profile} <- WorkProfile.prepare(work_profile),
+           {:ok, slack_addressing} <- slack_addressing_options(options) do
         {:ok,
          %{
            execution_mode: execution_mode,
            revision_ties: revision_ties,
+           slack_addressing: slack_addressing,
            work_profile: work_profile
          }}
       else
@@ -692,6 +719,27 @@ defmodule Responder.Ingress.Inbox do
   end
 
   defp record_options(_options), do: {:error, {:invalid_ingress_execution, :record_options}}
+
+  defp slack_addressing_options(options) do
+    audience = Keyword.get(options, :slack_audience)
+    bot_user_ref = Keyword.get(options, :slack_bot_user_ref)
+
+    if (is_nil(audience) and is_nil(bot_user_ref)) or
+         (audience in [:ambient, :direct, :mention] and is_binary(bot_user_ref) and
+            byte_size(bot_user_ref) <= 256 and Regex.match?(~r/\A[A-Z0-9]+\z/, bot_user_ref)) do
+      {:ok, %{audience: audience, bot_user_ref: bot_user_ref}}
+    else
+      {:error, {:invalid_ingress_execution, :slack_addressing}}
+    end
+  end
+
+  defp slack_addressing_sources(_inputs, %{audience: nil, bot_user_ref: nil}), do: :ok
+
+  defp slack_addressing_sources(inputs, _addressing) do
+    if Enum.all?(inputs, &(&1.source.kind == "slack")),
+      do: :ok,
+      else: {:error, {:invalid_ingress_execution, :slack_addressing}}
+  end
 
   defp non_negative_integer(value, _field) when is_integer(value) and value >= 0, do: :ok
 

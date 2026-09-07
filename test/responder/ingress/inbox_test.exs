@@ -5,12 +5,106 @@ defmodule Responder.Ingress.InboxTest do
 
   alias Responder.ControlPlane.Projection
   alias Responder.Ingress.Inbox
-  alias Responder.Ingress.Inbox.Entry
+  alias Responder.Ingress.Inbox.{Entry, EntryChangeset}
   alias Responder.Ingress.WorkProfile
   alias Responder.Slack.Input, as: SlackInput
   alias Responder.Slack.SourceRef
 
   @occurred_at ~U[2026-08-27 12:00:00Z]
+
+  test "Slack addressing belongs to the first receipt without changing source identity" do
+    # Admission could see a human mention but not which user was Responder.
+    input = input!()
+    fingerprint = Responder.Ingress.Input.fingerprint(input)
+
+    assert {:ok, %{entry: first}} =
+             Inbox.record(input, slack_audience: :mention, slack_bot_user_ref: "UBOT")
+
+    assert Map.get(first, :slack_audience) == :mention
+    assert Map.get(first, :slack_bot_user_ref) == "UBOT"
+    assert first.event_fingerprint == fingerprint
+
+    assert {:ok, %{status: :duplicate, entry: duplicate}} =
+             Inbox.record(input, slack_audience: :ambient, slack_bot_user_ref: "UNEWBOT")
+
+    assert duplicate == first
+    assert {:ok, %{status: :duplicate, entry: ^first}} = Inbox.record(input)
+    assert Responder.Ingress.Input.fingerprint(input) == fingerprint
+    refute Map.has_key?(Responder.Ingress.Input.document(input), "slack_addressing")
+  end
+
+  test "an old receipt with no addressing cannot be backfilled by a retry" do
+    input = input!()
+    assert {:ok, %{entry: original}} = Inbox.record(input)
+
+    assert {:ok, %{status: :duplicate, entry: duplicate}} =
+             Inbox.record(input, slack_audience: :direct, slack_bot_user_ref: "UBOT")
+
+    assert duplicate == original
+    assert Map.get(duplicate, :slack_audience) == nil
+    assert Map.get(duplicate, :slack_bot_user_ref) == nil
+  end
+
+  test "invalid or partial Slack addressing is rejected before any batch input is retained" do
+    slack = input!()
+    other = %{slack | source: %{kind: "webhook", ref: "other"}, source_capabilities: %{}}
+
+    for options <- [
+          [slack_audience: :mention],
+          [slack_bot_user_ref: "UBOT"],
+          [slack_audience: :unknown, slack_bot_user_ref: "UBOT"],
+          [slack_audience: :mention, slack_bot_user_ref: ""],
+          [slack_audience: :mention, slack_bot_user_ref: " UBOT"],
+          [slack_audience: :mention, slack_bot_user_ref: "U-bot"],
+          [slack_audience: :mention, slack_bot_user_ref: String.duplicate("U", 257)]
+        ] do
+      assert {:error, {:invalid_ingress_execution, :slack_addressing}} =
+               Inbox.record(slack, options)
+    end
+
+    assert {:error, {:invalid_ingress_execution, :slack_addressing}} =
+             Inbox.record_many([slack, other],
+               slack_audience: :ambient,
+               slack_bot_user_ref: "UBOT"
+             )
+
+    assert Repo.aggregate(Entry, :count) == 0
+
+    assert {:ok, %{entry: maximum}} =
+             Inbox.record(slack,
+               slack_audience: :ambient,
+               slack_bot_user_ref: String.duplicate("U", 256)
+             )
+
+    assert byte_size(Map.get(maximum, :slack_bot_user_ref)) == 256
+  end
+
+  for {name, kind, audience, user_ref} <- [
+        {"missing identity", "slack", :mention, nil},
+        {"missing audience", "slack", nil, "UBOT"},
+        {"empty identity without audience", "slack", nil, ""},
+        {"invalid identity", "slack", :ambient, "UBOT\n"},
+        {"non-Slack source", "webhook", :direct, "UBOT"}
+      ] do
+    test "direct receipt insertion cannot bypass the addressing constraint: #{name}" do
+      input = %{
+        input!()
+        | source: %{kind: unquote(kind), ref: "source"},
+          source_capabilities: %{}
+      }
+
+      changeset =
+        EntryChangeset.insert(input, Ecto.UUID.generate(), :live, nil, %{
+          audience: unquote(audience),
+          bot_user_ref: unquote(user_ref)
+        })
+
+      assert {:error, rejected} = Repo.insert(changeset)
+      {_message, constraint} = rejected.errors[:slack_audience]
+      assert constraint[:constraint_name] == "ingress_inbox_slack_addressing_valid"
+      assert Repo.aggregate(Entry, :count) == 0
+    end
+  end
 
   test "incoming messages and model answers share the database clock" do
     # A 28 ms app/database clock skew reordered Lab follow-ups before their answers.

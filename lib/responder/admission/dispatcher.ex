@@ -11,6 +11,7 @@ defmodule Responder.Admission.Dispatcher do
   alias Responder.Ingress.Inbox
 
   @maximum_error_detail_bytes 4_096
+  @maximum_attempts 8
 
   @spec run_once(keyword()) ::
           {:ok,
@@ -53,14 +54,22 @@ defmodule Responder.Admission.Dispatcher do
         block(claim, input_ref, reason)
 
       {:error, reason} ->
-        defer(claim, input_ref, reason, settings, settings.now.())
+        if claim.entry.attempt_count >= @maximum_attempts do
+          # A pending predecessor prevents every later input in its conversation
+          # from running. Preserve reconciliation keys in operator custody rather
+          # than retrying forever or silently discarding the offending input.
+          {reported_reason, generation} = retry_reason(reason)
+          block(claim, input_ref, reported_reason, generation)
+        else
+          defer(claim, input_ref, reason, settings, settings.now.())
+        end
     end
   end
 
-  defp block(claim, input_ref, reason) do
+  defp block(claim, input_ref, reason, generation \\ :same) do
     {error_code, error_detail} = describe_error(reason)
 
-    case Inbox.block(input_ref, claim.lease_ref, error_code, error_detail) do
+    case Inbox.block(input_ref, claim.lease_ref, error_code, error_detail, generation) do
       {:ok, _entry} ->
         {:ok, {:blocked, input_ref, reason}}
 

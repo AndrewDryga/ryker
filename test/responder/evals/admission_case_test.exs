@@ -18,7 +18,7 @@ defmodule Responder.Evals.AdmissionCaseTest do
       document = AdmissionCase.document(eval)
 
       assert Map.keys(document) |> Enum.sort() ==
-               ~w(eval_id expectation fixture_path prompt reason schema source)
+               ~w(accepted_alternatives eval_id expectation fixture_path prompt reason schema source)
 
       assert document["prompt"]["instructions"] =~ "Interpret the event itself"
       assert document["schema"]["title"] == "Responder admission decision"
@@ -54,6 +54,74 @@ defmodule Responder.Evals.AdmissionCaseTest do
 
     assert expected == eval.expectation
     assert submitted_comparison["action"] == "start_episode"
+  end
+
+  test "a harvested human-thread fixture admits only its explicit conversational same-work reply" do
+    assert {:ok, cases} = AdmissionCase.all()
+
+    eval =
+      Enum.find(cases, &(&1.eval_id == "human_thread_reply_continues_existing_episode"))
+
+    alternate = %{
+      "action" => "reply",
+      "episode_ref" => eval.expectation["episode_ref"],
+      "reaction" => nil,
+      "relation" => "same_work",
+      "reason" =>
+        "This is a direct follow-up to the ads.txt redirect discussion. Whether www is needed can be answered conversationally, while distinguishing general guidance from unverified domain configuration.",
+      "work_class" => "conversational"
+    }
+
+    assert {:ok, %{action: :reply, relation: :same_work, work_class: :conversational}} =
+             AdmissionCase.assess(eval, alternate)
+
+    for submitted <- [
+          %{alternate | "episode_ref" => "candidate:unoffered"},
+          %{alternate | "relation" => "history_only"},
+          %{
+            "action" => "start_episode",
+            "episode_ref" => eval.expectation["episode_ref"],
+            "reaction" => nil,
+            "relation" => "history_only",
+            "reason" => "Treat the earlier episode only as background.",
+            "work_class" => "standard"
+          }
+        ] do
+      assert {:error,
+              {:admission_eval_mismatch, expected: expected, submitted: submitted_comparison}} =
+               AdmissionCase.assess(eval, submitted)
+
+      assert expected == eval.expectation
+
+      assert submitted_comparison ==
+               Map.take(submitted, ~w(action episode_ref reaction relation work_class))
+    end
+
+    assert {:error, {:invalid_decision, :work_class}} =
+             AdmissionCase.assess(eval, %{alternate | "work_class" => "deep"})
+
+    non_human_eval =
+      Enum.find(
+        cases,
+        &(&1.fixture_path ==
+            "test/responder/admission/fixtures/terraform_lifecycle_continues_episode.json")
+      )
+
+    non_human_submitted = %{
+      alternate
+      | "episode_ref" => non_human_eval.expectation["episode_ref"],
+        "reason" => "Reply directly to a lifecycle update."
+    }
+
+    assert {:error,
+            {:admission_eval_mismatch,
+             expected: non_human_expected, submitted: non_human_submitted_comparison}} =
+             AdmissionCase.assess(non_human_eval, non_human_submitted)
+
+    assert non_human_expected == non_human_eval.expectation
+
+    assert non_human_submitted_comparison ==
+             Map.take(non_human_submitted, ~w(action episode_ref reaction relation work_class))
   end
 
   test "assessment scores the abstract work class independently of lifecycle prose" do

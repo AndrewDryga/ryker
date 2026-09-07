@@ -1,6 +1,7 @@
 defmodule Responder.ControlPlane.Card do
   @moduledoc false
 
+  alias Responder.ControlPlane.InspectionRedactor
   alias Responder.Publication.Card, as: PublicationCard
   alias Responder.Publication.Publication
   alias Responder.Slack.TaskCardProjection
@@ -23,9 +24,38 @@ defmodule Responder.ControlPlane.Card do
         end
 
       {:error, _reason} ->
-        :ignore
+        diagnostic_card(record)
     end
   end
+
+  defp diagnostic_card(%Record{kind: "event_wait", wait_error: error} = record)
+       when error in ~w(deadline poll_after timer_deadline source_kind cursor) do
+    deadline = diagnostic_deadline(record.payload)
+
+    card =
+      record
+      |> common(
+        "Wait",
+        "Scheduling failed",
+        nil,
+        optional_detail([], "Hard deadline", deadline),
+        nil
+      )
+      |> Map.put(:wait_warning, wait_warning(record))
+
+    {:ok, card}
+  end
+
+  defp diagnostic_card(_record), do: :ignore
+
+  defp diagnostic_deadline(%{"deadline_at" => value}) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, deadline, 0} -> DateTime.to_iso8601(deadline)
+      _invalid -> nil
+    end
+  end
+
+  defp diagnostic_deadline(_payload), do: nil
 
   @spec project_publication(Publication.t(), String.t()) :: {:ok, map()} | :ignore
   def project_publication(%Publication{status: status} = publication, record_ref)
@@ -270,10 +300,13 @@ defmodule Responder.ControlPlane.Card do
       record,
       "Waiting for event",
       payload["verification"],
-      "Responder will resume when the exact trigger matches or the deadline elapses.",
+      if(is_nil(record.wait_error),
+        do: "Responder will resume when the exact trigger matches or the deadline elapses."
+      ),
       [{"Deadline", payload["deadline_at"]}, {"Trigger", payload["kind"]}],
       nil
     )
+    |> Map.put(:wait_warning, wait_warning(record))
   end
 
   defp card(%Record{kind: "emisar_approval"} = record, payload) do
@@ -315,12 +348,20 @@ defmodule Responder.ControlPlane.Card do
   end
 
   defp card(%Record{kind: "finding"} = record, payload) do
+    secrets = InspectionRedactor.configured_secrets()
+
+    prose = fn value ->
+      InspectionRedactor.artifact(value, secrets: secrets).text
+    end
+
     common(
       record,
       "Finding",
       humanize(payload["status"]),
-      payload["what"],
-      optional_detail([], "Scope", payload["scope"]),
+      prose.(payload["what"]),
+      []
+      |> optional_detail("Why", prose.(payload["reason"]))
+      |> optional_detail("Scope", prose.(payload["scope"])),
       nil
     )
   end
@@ -380,6 +421,32 @@ defmodule Responder.ControlPlane.Card do
   end
 
   defp card(_record, _payload), do: nil
+
+  @doc false
+  def wait_warning(%Record{kind: "event_wait", wait_error: "deadline"}),
+    do: "Wait scheduling failed: its saved deadline is invalid."
+
+  def wait_warning(%Record{kind: "event_wait", wait_error: "source_kind"}),
+    do: "Wait scheduling failed: the saved source identifier is invalid or exceeds 120 bytes."
+
+  def wait_warning(%Record{kind: "event_wait", wait_error: "cursor"}),
+    do: "Wait scheduling failed: the saved cursor is invalid or exceeds 16 KiB."
+
+  def wait_warning(%Record{kind: "event_wait", wait_error: error} = record)
+      when error in ~w(timer_deadline poll_after) do
+    case diagnostic_deadline(record.payload) do
+      nil -> wait_warning(%{record | wait_error: "deadline"})
+      deadline -> wait_time_warning(error, deadline)
+    end
+  end
+
+  def wait_warning(_record), do: nil
+
+  defp wait_time_warning("timer_deadline", deadline),
+    do: "Timer scheduling failed: the saved timer cannot run before its deadline (#{deadline})."
+
+  defp wait_time_warning("poll_after", deadline),
+    do: "Wait scheduling failed: the saved polling time is invalid. Hard deadline: #{deadline}."
 
   defp confirmed_task(record, task) do
     details =

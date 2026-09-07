@@ -353,6 +353,44 @@ defmodule Responder.Retention.DataTest do
     assert Repo.get(Turn, eligible.turn.id) == nil
   end
 
+  test "an inert finding follows history expiry while an unanswered question still pins custody" do
+    # Findings are facts, not unresolved offers: the new tool must not turn one
+    # conclusion into permanent retention of the entire settled investigation.
+    fact = settled_work!("finding-expiry") |> discard_session!()
+    question = settled_work!("question-expiry") |> discard_session!()
+    insert_open_record!(fact)
+
+    Repo.query!("UPDATE episode_state_records SET sequence = 2 WHERE episode_id = $1", [
+      uuid!(fact.episode.id)
+    ])
+
+    insert_open_record!(question)
+
+    Repo.query!("UPDATE episode_state_records SET kind = 'finding' WHERE episode_id = $1", [
+      uuid!(fact.episode.id)
+    ])
+
+    backdate_history!(fact, 120)
+    backdate_history!(question, 120)
+
+    assert {:ok, result} =
+             Data.prune(settings(episode_history_seconds: 60, audit_data_seconds: 600))
+
+    assert result.episode_histories == 1
+    assert %DateTime{} = Repo.get!(Responder.Episodes.Episode, fact.episode.id).history_pruned_at
+    assert Repo.get!(Responder.Episodes.Episode, question.episode.id).history_pruned_at == nil
+
+    assert Repo.aggregate(
+             from(r in Responder.State.Record, where: r.episode_id == ^fact.episode.id),
+             :count
+           ) == 0
+
+    assert Repo.aggregate(
+             from(r in Responder.State.Record, where: r.episode_id == ^question.episode.id),
+             :count
+           ) == 1
+  end
+
   test "old transport, memory, and audit rows prune without touching unresolved custody" do
     delivered = insert_reaction!("delivered", "delivered")
     blocked = insert_reaction!("blocked", "blocked")

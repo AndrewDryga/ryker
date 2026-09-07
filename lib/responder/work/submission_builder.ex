@@ -14,7 +14,7 @@ defmodule Responder.Work.SubmissionBuilder do
   alias Responder.GitHub.SourceRef, as: GitHubSourceRef
   alias Responder.Repo
   alias Responder.Slack.SourceRef, as: SlackSourceRef
-  alias Responder.State.{Behaviors, Continuity, Memories, Outcomes, Records}
+  alias Responder.State.{Behaviors, Continuity, LearningSources, Memories, Outcomes, Records}
   alias Responder.StateTools.FixedTools
   alias Responder.StateTools.ToolVisibility
   alias Responder.Work.{Final, Prompt, Session, Submission, Turn}
@@ -458,20 +458,24 @@ defmodule Responder.Work.SubmissionBuilder do
   defp input_document(event, episode) do
     command = event.payload
     current = event.dedupe_key in episode.active_input_refs
+    sources = LearningSources.for_work_input(command["payload"])
 
-    %{
-      "actor_ref" => command["actor_ref"],
-      "content" =>
-        if(current,
-          do: command["payload"],
-          else: compact_value(command["payload"], @input_content_bytes)
-        ),
-      "current" => current,
-      "occurred_at" => DateTime.to_iso8601(event.occurred_at),
-      "revision" => command["revision"]
-    }
-    |> put_source_ref(command["payload"])
-    |> Map.put_new("source_ref", event.dedupe_key)
+    document =
+      %{
+        "actor_ref" => command["actor_ref"],
+        "content" =>
+          if(current,
+            do: command["payload"],
+            else: compact_value(command["payload"], @input_content_bytes)
+          ),
+        "current" => current,
+        "occurred_at" => DateTime.to_iso8601(event.occurred_at),
+        "revision" => command["revision"]
+      }
+      |> put_source_ref(command["payload"])
+      |> Map.put_new("source_ref", event.dedupe_key)
+
+    source_linked_input(event, document, sources, not current)
   end
 
   defp put_source_ref(
@@ -524,13 +528,37 @@ defmodule Responder.Work.SubmissionBuilder do
   defp continuity_input(nil), do: nil
 
   defp continuity_input(event) do
-    %{
-      "actor_ref" => event.payload["actor_ref"],
-      "content" => compact_value(event.payload["payload"], @continuity_content_bytes),
-      "occurred_at" => DateTime.to_iso8601(event.occurred_at)
-    }
-    |> put_source_ref(event.payload["payload"])
-    |> Map.put_new("source_ref", event.dedupe_key)
+    sources = LearningSources.for_work_input(event.payload["payload"])
+
+    document =
+      %{
+        "actor_ref" => event.payload["actor_ref"],
+        "content" => compact_value(event.payload["payload"], @continuity_content_bytes),
+        "occurred_at" => DateTime.to_iso8601(event.occurred_at)
+      }
+      |> put_source_ref(event.payload["payload"])
+      |> Map.put_new("source_ref", event.dedupe_key)
+
+    source_linked_input(event, document, sources, true)
+  end
+
+  defp source_linked_input(event, document, nil, historical?) do
+    case LearningSources.deleted_work_input(event, not historical?) do
+      %{} = notice -> notice
+      nil when historical? -> LearningSources.withdrawn_work_input(event)
+      nil -> put_work_sources(event, document, nil)
+    end
+  end
+
+  defp source_linked_input(event, document, sources, _historical?),
+    do: put_work_sources(event, document, sources)
+
+  defp put_work_sources(event, document, sources) do
+    # Active work with an unavailable source keeps a nil receipt so authorization
+    # rejects it. Only historical context may become a no-prose tombstone.
+    document
+    |> Map.put("source_event_id", event.id)
+    |> Map.put("source_dependencies", sources)
   end
 
   defp destination(episode) do

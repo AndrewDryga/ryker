@@ -3,6 +3,107 @@ defmodule Responder.State.RecordPayloadTest do
 
   alias Responder.State.RecordPayload
 
+  test "source wait validation matches the durable subscription byte limits" do
+    trigger = %{
+      "type" => "source_event",
+      "source_kind" => "github",
+      "match" => %{"run_id" => "run-one"},
+      "cursor" => nil,
+      "poll_after" => "2026-09-07T12:00:00Z",
+      "on_timeout" => "Report verification gap."
+    }
+
+    payload = %{
+      "deadline_at" => "2026-09-07T13:00:00Z",
+      "event_matcher" => trigger,
+      "kind" => "source_event",
+      "verification" => "Verify the deployment."
+    }
+
+    for {field, oversized} <- [
+          {"source_kind", String.duplicate("a", 121)},
+          {"cursor", %{"value" => String.duplicate("x", 16_373)}},
+          {"cursor", %{"value" => String.duplicate("é", 8_187)}},
+          {"cursor", %{"value" => String.duplicate("\n", 8_187)}}
+        ] do
+      invalid = put_in(payload, ["event_matcher", field], oversized)
+
+      assert RecordPayload.prepare("event_wait", invalid, "record:source:1") ==
+               {:error, {:invalid_state_record, :event_matcher}}
+    end
+
+    for cursor <- [
+          %{"value" => String.duplicate("x", 16_372)},
+          %{"value" => String.duplicate("é", 8_186)},
+          %{"value" => String.duplicate("\n", 8_186)}
+        ] do
+      assert byte_size(Responder.CanonicalJSON.encode!(cursor)) == 16_384
+    end
+
+    for source <- [nil, String.duplicate("a", 120)],
+        cursor <- [
+          nil,
+          %{},
+          %{"value" => String.duplicate("x", 16_372)},
+          %{"value" => String.duplicate("é", 8_186)},
+          %{"value" => String.duplicate("\n", 8_186)}
+        ] do
+      valid =
+        payload
+        |> put_in(["event_matcher", "source_kind"], source)
+        |> put_in(["event_matcher", "cursor"], cursor)
+
+      assert {:ok, _prepared} = RecordPayload.prepare("event_wait", valid, "record:source:1")
+    end
+  end
+
+  test "timer waits reject malformed schedules before they become durable promises" do
+    for trigger <- [
+          %{"type" => "after", "delay" => "ten minutes"},
+          %{"type" => "after", "delay" => "0s"},
+          %{"type" => "after", "delay" => "-1m"},
+          %{"type" => "after", "delay" => "1d"},
+          %{"type" => "after", "delay" => "1m trailing"},
+          %{"type" => "after", "delay" => "0.0000001s"},
+          %{"type" => "after", "delay" => "8761h"},
+          %{"type" => "after", "delay" => String.duplicate("9", 63) <> "h"},
+          %{"type" => "after", "delay" => "1m", "at" => "2026-09-07T12:00:00Z"},
+          %{"type" => "at", "at" => "tomorrow"},
+          %{"type" => "at", "at" => "2026-09-07T12:00:00+01:00"},
+          %{"type" => "at", "at" => "2026-09-07T13:00:00Z"},
+          %{"type" => "at", "at" => "2026-09-07T14:00:00Z"}
+        ] do
+      payload = %{
+        "deadline_at" => "2026-09-07T13:00:00Z",
+        "event_matcher" => Map.put(trigger, "on_timeout", "Report the verification gap."),
+        "kind" => trigger["type"],
+        "verification" => "Verify the deployment after observation."
+      }
+
+      assert RecordPayload.prepare("event_wait", payload, "record:timer:1") ==
+               {:error, {:invalid_state_record, :event_matcher}},
+             "accepted invalid timer #{inspect(trigger)}"
+    end
+  end
+
+  test "timer delays accept exact positive compound and fractional s m h durations" do
+    for delay <- ["10m", "1h30m", "1.5h", ".5s", "1.s", "+1m", "0.000001s", "8760h"] do
+      payload = %{
+        "deadline_at" => "2027-09-08T13:00:00Z",
+        "event_matcher" => %{
+          "type" => "after",
+          "delay" => delay,
+          "on_timeout" => "Report the verification gap."
+        },
+        "kind" => "after",
+        "verification" => "Verify after observation."
+      }
+
+      assert {:ok, %{payload: ^payload}} =
+               RecordPayload.prepare("event_wait", payload, "record:timer:1")
+    end
+  end
+
   test "rejects non-object records and unsafe repository or matcher values" do
     assert RecordPayload.prepare("unknown", %{}, "record:1") ==
              {:error, {:invalid_state_record, :kind}}

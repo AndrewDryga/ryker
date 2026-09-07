@@ -15,6 +15,17 @@
     {
       "actor_ref": "github:user:501",
       "authority": "repository_write_offer",
+      "input_profile": {
+        "actor": {"kind": "user", "ref": "501"},
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {"kind": "github", "ref": "eval"},
+        "source_capabilities": {
+          "react": {
+            "emoji_names": ["+1", "-1", "confused", "eyes", "heart", "hooray", "laugh", "rocket"]
+          }
+        }
+      },
       "kind": "human"
     }
   ],
@@ -28,6 +39,7 @@
       },
       "kind": "input",
       "occurred_at": "2026-08-30T12:00:00Z",
+      "source_item_ref": "github:pull_request_review_comment:9003",
       "payload": {
         "action": "created",
         "body": "Please handle the nil case and add focused coverage before merge.",

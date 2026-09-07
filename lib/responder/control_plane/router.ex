@@ -13,8 +13,7 @@ defmodule Responder.ControlPlane.Router do
     CardLab,
     CardLabSlackHTML,
     CSRF,
-    HTML,
-    ModelRequestsHTML
+    HTML
   }
 
   @behaviour Plug
@@ -86,11 +85,10 @@ defmodule Responder.ControlPlane.Router do
 
   defp snapshot_path?([page]),
     do:
-      page in ~w(lab card-lab episodes incidents schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance usage configuration manual-tests)
+      page in ~w(lab card-lab incidents schedules subscriptions channels repositories failures workspaces findings memory rules preferences guidance usage configuration manual-tests)
 
   defp snapshot_path?(["lab", "new"]), do: false
-  defp snapshot_path?(["episodes", _, "requests"]), do: true
-  defp snapshot_path?([page, _ref]), do: page in ~w(lab episodes incidents schedules)
+  defp snapshot_path?([page, _ref]), do: page in ~w(lab incidents schedules)
   defp snapshot_path?([page, _, _]), do: page in ~w(card-lab channels failures)
   defp snapshot_path?(_path), do: false
 
@@ -577,42 +575,6 @@ defmodule Responder.ControlPlane.Router do
     )
   end
 
-  defp route(%Plug.Conn{method: "GET", path_info: ["episodes"]} = conn, options) do
-    conn = fetch_query_params(conn)
-
-    snapshot =
-      options.projection.episodes.(
-        Map.take(conn.query_params, ["page", "state", "q", "target", "repository"])
-      )
-
-    html(conn, 200, "Episodes", HTML.episodes(snapshot))
-  end
-
-  defp route(
-         %Plug.Conn{method: "GET", path_info: ["episodes", episode_ref, "requests"]} = conn,
-         options
-       ) do
-    conn = fetch_query_params(conn)
-
-    with {:ok, ref} <- path_ref(episode_ref),
-         {:ok, view} <-
-           options.projection.model_requests.(
-             ref,
-             Map.take(conn.query_params, ~w(kind page attempt tools_page generation))
-           ) do
-      html(conn, 200, "Model request inspector", ModelRequestsHTML.render(view))
-    else
-      _not_found -> html(conn, 404, "Not found", HTML.generic("Model request", []))
-    end
-  end
-
-  defp route(%Plug.Conn{method: "GET", path_info: ["episodes", episode_ref]} = conn, options) do
-    case path_ref(episode_ref) do
-      {:ok, episode_ref} -> render_episode(conn, options, episode_ref)
-      {:error, :path_ref} -> html(conn, 404, "Not found", HTML.generic("Episode", []))
-    end
-  end
-
   defp route(%Plug.Conn{method: "GET", path_info: ["incidents"]} = conn, options) do
     conn = fetch_query_params(conn)
     snapshot = options.projection.incidents.(Map.take(conn.query_params, ["q", "status"]))
@@ -765,7 +727,7 @@ defmodule Responder.ControlPlane.Router do
     callback = Map.fetch!(options.projection, String.to_existing_atom(page))
     rows = callback.(conn.query_params)
 
-    body = HTML.generic("Findings", rows)
+    body = HTML.findings(rows)
 
     html(conn, 200, String.capitalize(page), body)
   end
@@ -892,29 +854,6 @@ defmodule Responder.ControlPlane.Router do
     do: html(conn, 404, "Not found", HTML.generic("Page", []))
 
   defp route(conn, _options), do: text(conn, 405, "Method not allowed")
-
-  defp render_episode(conn, options, episode_ref) do
-    case options.projection.episode.(episode_ref) do
-      {:ok, detail} -> html(conn, 200, "Episode", HTML.episode(detail))
-      :not_found -> render_unassigned_input(conn, options, episode_ref)
-      {:error, _reason} -> html(conn, 503, "Unavailable", HTML.generic("Episode", []))
-    end
-  end
-
-  defp render_unassigned_input(conn, options, "ingress-input:" <> id) do
-    conn = fetch_query_params(conn)
-
-    case options.projection.admission_request.(id, Map.take(conn.query_params, ~w(generation))) do
-      {:ok, %{episode_ref: nil} = view} ->
-        html(conn, 200, "Request", ModelRequestsHTML.render(view))
-
-      _ ->
-        html(conn, 404, "Not found", HTML.generic("Request", []))
-    end
-  end
-
-  defp render_unassigned_input(conn, _options, _ref),
-    do: html(conn, 404, "Not found", HTML.generic("Request", []))
 
   defp render_incident(conn, options, incident_ref) do
     case options.projection.incident.(incident_ref) do

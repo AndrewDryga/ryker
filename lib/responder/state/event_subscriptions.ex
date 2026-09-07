@@ -1,10 +1,11 @@
 defmodule Responder.State.EventSubscriptions do
   @moduledoc """
-  Durable custody for one active source-event wait per episode.
+  Durable custody for one active event or timer wait per episode.
 
   Webhooks remain the low-latency path through generic ingress. The stored
   poll cursor and fallback time ensure a lost webhook still wakes the exact
-  episode for verification before its hard deadline.
+  episode for verification before its hard deadline. Timers share that indexed
+  wakeup time, anchored to the original record rather than each reconciliation.
   """
 
   import Ecto.Query
@@ -15,7 +16,9 @@ defmodule Responder.State.EventSubscriptions do
   alias Responder.State.{
     EventSubscription,
     EventSubscriptionChangeset,
-    Record
+    EventWaitTiming,
+    Record,
+    RecordPayload
   }
 
   @reconcile_limit 100
@@ -42,21 +45,45 @@ defmodule Responder.State.EventSubscriptions do
     episodes =
       Repo.all(
         from(episode in Episode,
+          join: record in Record,
+          on: record.episode_id == episode.id and record.ref == episode.owner_ref,
           left_join: subscription in EventSubscription,
-          on: subscription.episode_id == episode.id and subscription.status == :active,
+          on: subscription.record_id == record.id,
+          where: episode.state == :waiting_for_event and episode.owner_kind == :event,
+          where: record.kind == "event_wait" and record.status == :open,
+          where: is_nil(record.wait_error),
+          where: is_nil(subscription.id),
           where:
-            episode.state == :waiting_for_event and episode.owner_kind == :event and
-              is_nil(subscription.id),
+            fragment("?::jsonb->'event_matcher'->>'type'", record.payload) in [
+              "after",
+              "at",
+              "source_event"
+            ],
           order_by: [asc: episode.owner_deadline_at, asc: episode.id],
-          limit: @reconcile_limit
+          limit: @reconcile_limit,
+          select: %{episode: episode, record_id: record.id}
         )
       )
 
-    Enum.reduce_while(episodes, cancelled, fn episode, count ->
+    Enum.reduce(episodes, cancelled, fn %{episode: episode, record_id: record_id}, count ->
       case ensure_locked(episode) do
-        {:ok, :not_source_event} -> {:cont, count}
-        {:ok, %EventSubscription{}} -> {:cont, count + 1}
-        {:error, reason} -> Repo.rollback(reason)
+        {:ok, :not_source_event} ->
+          count
+
+        {:ok, %EventSubscription{}} ->
+          count + 1
+
+        {:error, {:invalid_event_subscription, field}}
+        when field in [:deadline, :poll_after, :timer_deadline, :source_kind, :cursor] ->
+          Repo.update_all(
+            from(record in Record, where: record.id == ^record_id and record.status == :open),
+            set: [wait_error: Atom.to_string(field), updated_at: database_now!()]
+          )
+
+          count
+
+        {:error, reason} ->
+          Repo.rollback(reason)
       end
     end)
   end
@@ -110,7 +137,7 @@ defmodule Responder.State.EventSubscriptions do
   @spec resolve_wait_in_transaction(String.t(), atom()) :: :ok | {:error, term()}
   def resolve_wait_in_transaction(wait_ref, resolution_kind)
       when is_binary(wait_ref) and
-             resolution_kind in [:input, :poll_fallback, :deadline, :cancelled] do
+             resolution_kind in [:input, :poll_fallback, :timer, :deadline, :cancelled] do
     if Repo.in_transaction?() do
       now = database_now!()
       {status, observation} = resolution(resolution_kind, wait_ref)
@@ -152,9 +179,18 @@ defmodule Responder.State.EventSubscriptions do
         on: record.id == subscription.record_id,
         where:
           subscription.status == :active and subscription.poll_after <= ^now and
-            subscription.deadline_at > ^now and episode.state == :waiting_for_event and
-            episode.owner_kind == :event and episode.owner_ref == record.ref and
-            record.status == :open,
+            subscription.deadline_at > ^now,
+        where: episode.state == :waiting_for_event and episode.owner_kind == :event,
+        where: episode.owner_ref == record.ref and record.episode_id == episode.id,
+        where: record.status == :open and is_nil(record.wait_error),
+        where: subscription.deadline_at == episode.owner_deadline_at,
+        where:
+          fragment(
+            "CASE WHEN pg_input_is_valid(?::jsonb->>'deadline_at', 'timestamptz') THEN (?::jsonb->>'deadline_at')::timestamptz = ? ELSE false END",
+            record.payload,
+            record.payload,
+            episode.owner_deadline_at
+          ),
         order_by: [asc: subscription.poll_after, asc: subscription.id],
         limit: 1,
         select: %{
@@ -184,8 +220,11 @@ defmodule Responder.State.EventSubscriptions do
 
   defp ensure_locked(%Episode{}), do: {:ok, :not_source_event}
 
+  defp ensure_record(_episode, %Record{wait_error: error}) when not is_nil(error),
+    do: {:ok, :not_source_event}
+
   defp ensure_record(episode, %Record{payload: %{"event_matcher" => trigger}} = record) do
-    if trigger["type"] == "source_event" do
+    if trigger["type"] in ["source_event", "after", "at"] do
       case Repo.get_by(EventSubscription, record_id: record.id) do
         %EventSubscription{} = subscription ->
           {:ok, subscription}
@@ -201,8 +240,9 @@ defmodule Responder.State.EventSubscriptions do
   defp ensure_record(_episode, _record), do: {:ok, :not_source_event}
 
   defp insert(episode, record, trigger) do
-    with {:ok, deadline} <- datetime(record.payload["deadline_at"], :deadline),
-         {:ok, poll_after} <- poll_after(trigger["poll_after"], deadline),
+    with :ok <- source_bounds(trigger),
+         {:ok, deadline} <- datetime(record.payload["deadline_at"], :deadline),
+         {:ok, poll_after} <- wakeup_at(record, trigger, deadline),
          :ok <- ordered(poll_after, deadline) do
       id = Ecto.UUID.generate()
 
@@ -211,7 +251,7 @@ defmodule Responder.State.EventSubscriptions do
         deadline_at: deadline,
         episode_id: episode.id,
         id: id,
-        matcher: trigger["match"],
+        matcher: Map.get(trigger, "match", %{}),
         poll_after: poll_after,
         record_id: record.id,
         ref: "event-subscription:#{id}",
@@ -228,6 +268,25 @@ defmodule Responder.State.EventSubscriptions do
         {:error, changeset} ->
           {:error, {:event_subscription_persistence_failed, changeset.errors}}
       end
+    end
+  end
+
+  defp source_bounds(trigger) do
+    case RecordPayload.source_wait_bounds(trigger) do
+      :ok -> :ok
+      {:error, field} -> {:error, {:invalid_event_subscription, field}}
+    end
+  end
+
+  defp wakeup_at(_record, %{"type" => "source_event"} = trigger, deadline),
+    do: poll_after(trigger["poll_after"], deadline)
+
+  defp wakeup_at(record, trigger, deadline) do
+    with {:ok, due_at} <- EventWaitTiming.due_at(trigger, record.inserted_at),
+         :lt <- DateTime.compare(due_at, deadline) do
+      {:ok, due_at}
+    else
+      _invalid -> {:error, {:invalid_event_subscription, :timer_deadline}}
     end
   end
 

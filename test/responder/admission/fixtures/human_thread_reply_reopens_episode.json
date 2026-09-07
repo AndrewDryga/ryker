@@ -7,7 +7,8 @@
       "slack_message_8d2c2744294eb88e0c186974bca38b5f"
     ],
     "run_ids": ["run_d119be46910eb2c8b37c45430fc83902", "run_985fa6ff24b7fd057cfed7a8eeea5b7e"],
-    "reason": "Two human messages in one Slack thread became separate legacy episodes instead of one serialized conversation."
+    "reason": "Two human messages in one Slack thread became separate legacy episodes instead of one serialized conversation.",
+    "session_turn_invariant": "A same-work reply retains the seed episode and any pinned session; reopening installs the next turn on that episode rather than creating a second episode."
   },
   "now": "2026-08-28T00:10:21.000000Z",
   "continuation_window_seconds": 1800,
@@ -50,6 +51,16 @@
     "relation": "same_work",
     "reason": "This is a new instruction in the exact same Slack thread."
   },
+  "accepted_alternatives": [
+    {
+      "action": "reply",
+      "episode_ref": "$seed",
+      "reaction": null,
+      "work_class": "conversational",
+      "relation": "same_work",
+      "reason": "This is a direct follow-up to the ads.txt redirect discussion. Whether www is needed can be answered conversationally, while distinguishing general guidance from unverified domain configuration."
+    }
+  ],
   "expected": {
     "active_inputs": 1,
     "decision_action": "continue_episode",

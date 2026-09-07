@@ -32,7 +32,7 @@ defmodule Responder.ControlPlane.Projection do
   alias Responder.State.{Behavior, Memories, MemoryEntry, Record, Schedule}
   alias Responder.Work.{Session, Turn}
 
-  @page_size 50
+  @episode_record_limit 500
   @maximum_page 10_000
   @active_states [:working, :waiting_for_input, :waiting_for_event]
   @lab_prefix "control-plane:lab:"
@@ -58,7 +58,6 @@ defmodule Responder.ControlPlane.Projection do
       model_requests: &ModelRequests.project/2,
       model_timeline: &ModelRequests.timeline/2,
       admission_request: &ModelRequests.project_input/2,
-      episodes: &episodes/1,
       failures: &failures/1,
       findings: &findings/1,
       incident: &incident/1,
@@ -395,86 +394,6 @@ defmodule Responder.ControlPlane.Projection do
     end
   end
 
-  def episodes(params) when is_map(params) do
-    page = page(params["page"])
-    query = episode_query(params)
-
-    total = count(query)
-    items = episode_page(query, page)
-
-    %{items: items, page: page, pages: max(div(total + @page_size - 1, @page_size), 1)}
-  end
-
-  def episodes(_params), do: episodes(%{})
-
-  defp episode_query(params) do
-    from(episode in Episode)
-    |> filter_episode_state(state(params["state"]))
-    |> filter_episode_target(target(params["target"]))
-    |> filter_episode_repository(repository(params["repository"]))
-    |> filter_episode_search(search(params["q"]))
-  end
-
-  defp filter_episode_state(query, nil), do: query
-
-  defp filter_episode_state(query, state),
-    do: from(episode in query, where: episode.state == ^state)
-
-  defp filter_episode_target(query, nil), do: query
-
-  defp filter_episode_target(query, target) do
-    episode_ids =
-      from(turn in Turn, where: turn.execution_target == ^target, select: turn.episode_id)
-
-    from(episode in query, where: episode.id in subquery(episode_ids))
-  end
-
-  defp filter_episode_repository(query, nil), do: query
-
-  defp filter_episode_repository(query, repository_ref) do
-    episode_ids =
-      from(session in Session,
-        where: session.repository_ref == ^repository_ref,
-        select: session.episode_id
-      )
-
-    from(episode in query, where: episode.id in subquery(episode_ids))
-  end
-
-  defp filter_episode_search(query, nil), do: query
-
-  defp filter_episode_search(query, search) do
-    pattern = "%#{escape_like(search)}%"
-
-    from(episode in query,
-      where: ilike(episode.key, ^pattern) or ilike(episode.destination_conversation_ref, ^pattern)
-    )
-  end
-
-  defp episode_page(query, page) do
-    Repo.all(
-      from(episode in query,
-        left_join: turn in Turn,
-        on:
-          turn.episode_id == episode.id and episode.owner_kind == :turn and
-            turn.turn_ref == episode.owner_ref,
-        order_by: [desc: episode.updated_at, desc: episode.id],
-        offset: ^((page - 1) * @page_size),
-        limit: @page_size,
-        select: {episode, turn.status, turn.coop_turn_id}
-      )
-    )
-    |> Enum.map(fn {episode, turn_status, coop_turn_id} ->
-      %{
-        destination: destination(episode),
-        next_action: next_action(episode, turn_status, coop_turn_id),
-        ref: episode.key,
-        state: episode.state,
-        updated_at: episode.updated_at
-      }
-    end)
-  end
-
   def episode(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     ref = ModelRequests.episode_ref(ref)
 
@@ -507,7 +426,7 @@ defmodule Responder.ControlPlane.Projection do
             from(record in Record,
               where: record.episode_id == ^episode.id,
               order_by: [desc: record.sequence, desc: record.id],
-              limit: 500
+              limit: @episode_record_limit
             )
           )
           |> Enum.reverse()
@@ -750,21 +669,126 @@ defmodule Responder.ControlPlane.Projection do
 
   def workspace(_ref), do: :not_found
 
-  def findings(_params) do
-    Repo.all(
+  def findings(params) do
+    query = from(record in Record, where: record.kind == "finding")
+    total = Repo.aggregate(query, :count)
+    pages = max(div(total + 29, 30), 1)
+    page = min(page(params["page"]), pages)
+
+    rows =
+      Repo.all(
+        from(record in query,
+          join: episode in Episode,
+          on: episode.id == record.episode_id,
+          order_by: [desc: record.inserted_at, desc: record.id],
+          limit: 30,
+          offset: ^((page - 1) * 30),
+          select: {record, episode.key}
+        )
+      )
+
+    secrets = InspectionRedactor.configured_secrets()
+
+    refs =
+      Enum.flat_map(rows, fn {record, _} -> Map.get(record.payload, "cause_evidence", []) end)
+
+    episode_ids = Enum.map(rows, fn {record, _} -> record.episode_id end)
+    visible_records = visible_episode_records(episode_ids)
+
+    evidence =
+      Repo.all(
+        from(record in Record,
+          where:
+            record.kind == "evidence" and record.ref in ^refs and
+              record.episode_id in ^episode_ids
+        )
+      )
+      |> Map.new(&{{&1.episode_id, &1.ref}, &1})
+
+    %{
+      total: total,
+      page: page,
+      pages: pages,
+      items: Enum.map(rows, &finding_item(&1, evidence, visible_records, secrets))
+    }
+  end
+
+  defp visible_episode_records(episode_ids) do
+    ranked =
       from(record in Record,
-        where: record.kind == "finding",
-        order_by: [desc: record.inserted_at, desc: record.id],
-        limit: 100,
+        where: record.episode_id in ^episode_ids,
         select: %{
-          kind: record.kind,
-          ref: record.ref,
-          status: record.status,
-          summary: record.payload_fingerprint,
-          updated_at: record.inserted_at
+          id: record.id,
+          position:
+            over(row_number(),
+              partition_by: record.episode_id,
+              order_by: [desc: record.sequence, desc: record.id]
+            )
         }
       )
+
+    Repo.all(
+      from(record in subquery(ranked),
+        where: record.position <= @episode_record_limit,
+        select: record.id
+      )
     )
+    |> MapSet.new()
+  end
+
+  defp finding_record_path(path, record_id, visible_records) do
+    if MapSet.member?(visible_records, record_id),
+      do: path <> "#event-record-" <> record_id,
+      else: path
+  end
+
+  defp finding_item({record, episode_key}, evidence, visible_records, secrets) do
+    payload = finding_payload(record.payload, secrets)
+    path = "/episodes/" <> URI.encode_www_form(episode_key)
+    refs = Map.get(record.payload, "cause_evidence", [])
+
+    %{
+      id: record.id,
+      at: record.inserted_at,
+      what: payload["what"] || "Finding content is unavailable",
+      classification: payload["status"],
+      reason: payload["reason"],
+      scope: payload["scope"],
+      path: finding_record_path(path, record.id, visible_records),
+      evidence:
+        Enum.map(refs, fn ref ->
+          case Map.get(evidence, {record.episode_id, ref}) do
+            nil ->
+              %{text: "Supporting evidence is no longer available.", path: nil, label: nil}
+
+            item ->
+              %{
+                text:
+                  finding_payload(item.payload, secrets)["observation"] ||
+                    "Evidence content is unavailable.",
+                path: finding_record_path(path, item.id, visible_records),
+                label:
+                  if(MapSet.member?(visible_records, item.id),
+                    do: "View recorded evidence",
+                    else: "Open source investigation"
+                  )
+              }
+          end
+        end)
+    }
+  end
+
+  defp finding_payload(payload, secrets) do
+    case InspectionRedactor.artifact(payload, secrets: secrets).text do
+      text when is_binary(text) ->
+        case Jason.decode(text) do
+          {:ok, %{} = value} -> value
+          _ -> %{}
+        end
+
+      _ ->
+        %{}
+    end
   end
 
   defp with_request_titles(rows) do
@@ -1911,36 +1935,6 @@ defmodule Responder.ControlPlane.Projection do
   end
 
   defp page(_value), do: 1
-
-  defp state("working"), do: :working
-  defp state("waiting_for_input"), do: :waiting_for_input
-  defp state("waiting_for_event"), do: :waiting_for_event
-  defp state("complete"), do: :complete
-  defp state("cancelled"), do: :cancelled
-  defp state(_state), do: nil
-
-  defp search(value) when is_binary(value) do
-    value = String.trim(value)
-    if value != "" and String.valid?(value) and byte_size(value) <= 120, do: value
-  end
-
-  defp search(_value), do: nil
-
-  defp target(value) when is_binary(value) do
-    value = String.trim(value)
-    if value != "" and String.valid?(value) and byte_size(value) <= 512, do: value
-  end
-
-  defp target(_value), do: nil
-
-  defp repository(value) when is_binary(value) do
-    value = String.trim(value)
-    if value != "" and String.valid?(value) and byte_size(value) <= 1_024, do: value
-  end
-
-  defp repository(_value), do: nil
-
-  defp escape_like(value), do: String.replace(value, ["%", "_", "\\"], &"\\#{&1}")
 
   defp count(query), do: Repo.aggregate(query, :count, :id)
 

@@ -34,6 +34,54 @@ defmodule Responder.Evals.MixTaskTest do
     end
   end
 
+  test "a failed world observation stops later model calls but accounts for the whole plan" do
+    # A failed observation now preserves its DB; another model must not run
+    # against that failed case's surviving custody or get counted as completed.
+    parent = self()
+    plan = Enum.map(1..3, &%{scenario_id: "retained-world", lane: :candidate, repeat_index: &1})
+
+    reports =
+      Eval.run_world_plan(
+        plan,
+        fn observation ->
+          send(parent, {:model_called, observation.repeat_index})
+
+          Map.put(
+            observation,
+            :status,
+            if(observation.repeat_index == 1, do: :passed, else: :failed)
+          )
+        end,
+        fn observation, stopped ->
+          observation |> Map.put(:status, :unrun) |> Map.put(:stopped_after, stopped.repeat_index)
+        end
+      )
+
+    assert Enum.map(reports, & &1.status) == [:passed, :failed, :unrun]
+    assert List.last(reports).stopped_after == 2
+    assert_received {:model_called, 1}
+    assert_received {:model_called, 2}
+    refute_received {:model_called, 3}
+  end
+
+  test "an unrun observation also prevents further model calls in the preserved database" do
+    parent = self()
+
+    reports =
+      Eval.run_world_plan(
+        [1, 2],
+        fn index ->
+          send(parent, {:model_called, index})
+          %{status: :unrun}
+        end,
+        fn index, _stopped -> %{status: :unrun, skipped: index} end
+      )
+
+    assert [%{status: :unrun}, %{status: :unrun, skipped: 2}] = reports
+    assert_received {:model_called, 1}
+    refute_received {:model_called, 2}
+  end
+
   defp assert_pack(command, case_module) do
     assert {:ok, cases} = case_module.all()
 

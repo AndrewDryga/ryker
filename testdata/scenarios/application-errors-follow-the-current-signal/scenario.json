@@ -15,12 +15,24 @@
     {
       "actor_ref": "slack:user:U-operator",
       "authority": "read_only",
+      "input_profile": {
+        "actor": {"kind": "user", "ref": "U-operator"},
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {"kind": "slack", "ref": "TEVAL"},
+        "source_capabilities": {"react": {"emoji_names": null}}
+      },
       "kind": "human"
     }
   ],
   "events": [
     {
       "actor_ref": "slack:user:U-operator",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1788019200.000100",
+        "transport": "slack"
+      },
       "kind": "input",
       "occurred_at": "2026-08-30T14:30:00Z",
       "payload": {

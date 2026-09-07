@@ -40,9 +40,13 @@ commands do not publish Slack or GitHub messages and do not mutate Emisar.
 model. `eval-world-smoke` runs eight representative scenarios once at a 100% floor.
 `eval-world` runs the complete corpus three times for both the candidate and baseline policies against
 the exact same deterministic worlds. It requires at least 90% aggregate success, at least two of three
-passes per case, no more than 10% paired baseline regressions, and zero hard-invariant or `UNRUN`
-candidate observations. Baseline failures remain visible comparison evidence but cannot veto a
-candidate that fixes them. Both are interactive product lanes: they use the real episode kernel, Work executor,
+passes per case, no more than 10% paired baseline regressions, and zero hard-invariant, execution,
+cleanup, or `UNRUN` candidate failures. Hard-invariant counts include only scenario assertions;
+execution and cleanup errors are reported separately and always block qualification.
+The runner stops at the first failed or unrun observation to preserve its database. Remaining
+repeats and lanes are explicitly reported as unrun, without further model calls. This includes
+baseline failures: run the remaining cases in a new isolated invocation after inspection.
+Both are interactive product lanes: they use the real episode kernel, Work executor,
 lease-scoped Responder state tools, semantic repair, and an inert evaluation delivery adapter. Only
 external source systems are served by the checked-in deterministic cassette. A second isolated Coop
 session judges the human-language rubric after all hard and trajectory checks pass; an unrun rubric
@@ -57,6 +61,24 @@ disposable Coop sandbox; never point this command at a production database or pl
 Each invocation creates its own database. A successful run drops it; a failed run preserves and names
 it for custody inspection. Detailed reports are atomically written mode `0600` and include every
 repeat, lane, runtime identity, threshold, and paired verdict.
+
+Scheduled `wait_wakeup` checkpoints are bounded opportunities, not required model
+turns. Once the preceding accepted turn has settled delivery and its episode is
+complete, remaining checkpoints appear in `runtime.skipped_checkpoints` with the
+original scenario index and timestamp, not as fabricated inputs or executions.
+Noncomplete episodes still require the exact open wait and active subscription.
+The Airflow cassette retains historical source timestamps while its ingress
+clock is rebased; passing timer mechanics does not qualify fresh health or decide
+whether an inconclusive completion was sufficiently persistent.
+
+The world matrix's Terraform `reconnect` credit is tied to a harvested positive
+Slack-source continuation that actually reaches an injected second-turn submit
+response loss. The host regression requires one session, two remote submits,
+exact operation-journal reconciliation, accepted validation, and settled inert
+delivery. The older invalid-matcher sequence is preserved separately as a
+negative test: it cannot reach that fault and earns no credit. This is controlled
+host fault injection, not a claim that a real network reconnect was observed in
+the harvested model run. Loading a scenario alone is not execution evidence.
 
 `make eval-host-replay` runs the deterministic side of those same scenario bundles. The bundle owns
 the recorded tool calls, invalid candidates, semantic repairs, and final candidates, so the replay

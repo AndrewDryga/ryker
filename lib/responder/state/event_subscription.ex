@@ -20,7 +20,9 @@ defmodule Responder.State.EventSubscription do
     field(:last_observation, Responder.CanonicalJSON.Type)
     field(:last_observed_at, :utc_datetime_usec)
 
-    field(:resolution_kind, Ecto.Enum, values: [:input, :poll_fallback, :deadline, :cancelled])
+    field(:resolution_kind, Ecto.Enum,
+      values: [:input, :poll_fallback, :timer, :deadline, :cancelled]
+    )
 
     field(:revision, :integer, default: 1)
     timestamps(type: :utc_datetime_usec)

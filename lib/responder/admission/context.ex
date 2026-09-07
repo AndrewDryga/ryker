@@ -17,7 +17,13 @@ defmodule Responder.Admission.Context do
     :input_entry
   ]
   defstruct @enforce_keys ++
-              [observations: [], knowledge: [], knowledge_omissions: [], source_dependencies: nil]
+              [
+                observations: [],
+                knowledge: [],
+                knowledge_omissions: [],
+                source_dependencies: nil,
+                slack_addressing: nil
+              ]
 
   @type t :: %__MODULE__{
           active_episode_fingerprint: String.t(),
@@ -38,6 +44,7 @@ defmodule Responder.Admission.Context do
     }
     |> put_observations(context.observations)
     |> put_knowledge(context.knowledge)
+    |> put_slack_addressing(context.slack_addressing)
   end
 
   @doc false
@@ -53,6 +60,7 @@ defmodule Responder.Admission.Context do
     }
     |> put_observations(context.observations)
     |> put_knowledge(context.knowledge)
+    |> put_slack_addressing(context.slack_addressing)
   end
 
   @doc false
@@ -82,11 +90,13 @@ defmodule Responder.Admission.Context do
                    "conversation_observations",
                    "conversation_knowledge",
                    "source_dependencies",
-                   "knowledge_omissions"
+                   "knowledge_omissions",
+                   "slack_addressing"
                  ])
                )
              ) ==
                Enum.sort(fields),
+         {:ok, slack_addressing} <- restore_slack_addressing(snapshot, input),
          observations when is_list(observations) <-
            Map.get(snapshot, "conversation_observations", []),
          true <- length(observations) <= 5,
@@ -106,6 +116,7 @@ defmodule Responder.Admission.Context do
          conversation_episode_count: snapshot["conversation_episode_count"],
          input: input,
          input_entry: entry,
+         slack_addressing: slack_addressing,
          observations: observations,
          knowledge: knowledge,
          knowledge_omissions: omissions,
@@ -119,6 +130,32 @@ defmodule Responder.Admission.Context do
 
   def restore(_snapshot, _input, _entry, _episodes),
     do: {:error, {:invalid_admission_context_snapshot, :document}}
+
+  defp put_slack_addressing(document, nil), do: document
+
+  defp put_slack_addressing(document, addressing),
+    do: Map.put(document, "slack_addressing", addressing)
+
+  defp restore_slack_addressing(snapshot, input) do
+    case Map.fetch(snapshot, "slack_addressing") do
+      :error -> {:ok, nil}
+      {:ok, addressing} -> validate_slack_addressing(addressing, input.source.kind)
+    end
+  end
+
+  defp validate_slack_addressing(
+         %{"audience" => audience, "responder_user_ref" => ref} = addressing,
+         "slack"
+       )
+       when map_size(addressing) == 2 and audience in ["ambient", "direct", "mention"] and
+              is_binary(ref) and byte_size(ref) <= 256 do
+    if Regex.match?(~r/\A[A-Z0-9]+\z/, ref),
+      do: {:ok, addressing},
+      else: {:error, {:invalid_admission_context_snapshot, :slack_addressing}}
+  end
+
+  defp validate_slack_addressing(_addressing, _source),
+    do: {:error, {:invalid_admission_context_snapshot, :slack_addressing}}
 
   defp put_observations(document, []), do: document
 

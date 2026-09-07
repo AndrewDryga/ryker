@@ -296,6 +296,8 @@ defmodule Responder.Slack.Gateway do
          {:ok, receipt} <-
            settings.inbox.record(enriched.input,
              execution_mode: execution_mode,
+             slack_audience: normalized.audience,
+             slack_bot_user_ref: settings.identity.bot_user_ref,
              work_profile: work_profile
            ),
          :ok <- remember_action_token(enriched, settings) do

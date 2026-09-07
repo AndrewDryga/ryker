@@ -13,14 +13,21 @@
   },
   "actors": [
     {
-      "actor_ref": "webhook:vendor-unknown",
+      "actor_ref": "webhook:system:vendor-unknown",
       "authority": "source_event",
+      "input_profile": {
+        "actor": {"kind": "system", "ref": "vendor-unknown"},
+        "event_kind": "event",
+        "occurred_at_source": "ingress",
+        "source": {"kind": "webhook", "ref": "vendor-unknown"},
+        "source_capabilities": {}
+      },
       "kind": "automation"
     }
   ],
   "events": [
     {
-      "actor_ref": "webhook:vendor-unknown",
+      "actor_ref": "webhook:system:vendor-unknown",
       "destination": {
         "conversation_ref": "slack:TEVAL:CEVAL",
         "thread_ref": null,

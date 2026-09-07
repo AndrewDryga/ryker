@@ -1,7 +1,8 @@
 defmodule Responder.ControlPlane.ActivityTest do
   use Responder.DataCase, async: false
   import Ecto.Query
-  alias Responder.ControlPlane.{Activity, HTML, Projection}
+  import Phoenix.LiveViewTest
+  alias Responder.ControlPlane.{Activity, ActivityPage, HTML, Projection}
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: Fixtures
   alias Responder.Ingress.Inbox
@@ -153,6 +154,62 @@ defmodule Responder.ControlPlane.ActivityTest do
 
     {:ok, _session} = Custody.pin_episode(episode.id, "label-test", String.duplicate("a", 64))
     assert [%{request_title: "Inspect the slow admission request"}] = Projection.workspaces(%{})
+
+    # The native list shows source text; moving off the metadata-only listing
+    # must retain HTML escaping and never surface credentials or raw artifacts.
+    Repo.update_all(from(e in Entry, where: e.id == ^entry.id),
+      set: [
+        content: %{
+          "text" => "Investigate <script>steal()</script> token=ghp_abcdefghijklmnopqrstuvwxyz",
+          "internal_artifact" => "raw-secret-value"
+        }
+      ]
+    )
+
+    activity = Activity.list(%{})
+    [item] = activity.items
+    refute inspect(item) =~ "ghp_abcdefghijklmnopqrstuvwxyz"
+    refute inspect(item) =~ "raw-secret-value"
+    refute Map.has_key?(item, :content)
+
+    html =
+      render_component(&ActivityPage.render/1,
+        activity: activity,
+        overview: %{counts: %{}},
+        params: %{},
+        path: "/episodes",
+        now: DateTime.utc_now(),
+        stream: [{"request-#{item.id}", item}],
+        new_items: 0,
+        schedules: []
+      )
+
+    assert html =~ "Investigate &lt;script&gt;"
+    refute html =~ "<script>steal()"
+    refute html =~ "ghp_abcdefghijklmnopqrstuvwxyz"
+    refute html =~ "raw-secret-value"
+  end
+
+  test "native activity paging and state filters stay bounded on malformed query values" do
+    {:ok, %{episode: episode}} = Episodes.apply(Fixtures.admit_input(%{episode_key: "paging"}))
+
+    for value <- [nil, "0", "-1", "not-a-number", %{"nested" => "1"}, [], "100000000000000000000"] do
+      assert %{page: 1, pages: 1, total: 1, items: [item]} = Activity.list(%{"page" => value})
+      assert item.id == episode.id
+    end
+
+    for state <- ~w(complete cancelled waiting_for_event) do
+      assert %{items: [], total: 0} = Activity.list(%{"state" => state})
+    end
+
+    assert %{items: [item]} = Activity.list(%{"state" => "working", "q" => "paging"})
+    assert item.id == episode.id
+    assert item.href == "/episodes/paging"
+
+    # The native search keeps its own 200-character bound, not the removed
+    # listing's behavior of silently ignoring any query over 120 bytes.
+    assert %{items: [], total: 0} = Activity.list(%{"q" => String.duplicate("x", 1_000)})
+    assert %{total: 1} = Activity.list(%{"q" => %{"nested" => "value"}})
   end
 
   test "conversation history includes every page without requiring usage measurements" do
