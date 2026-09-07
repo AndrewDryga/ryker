@@ -168,7 +168,12 @@ defmodule Responder.Delivery.Dispatcher do
       end)
 
     cadence_ms = max(div(settings.lease_seconds * 1_000, 3), 1)
-    await_publish(result_ref, publisher, monitor, claim, settings, cadence_ms)
+
+    try do
+      await_publish(result_ref, publisher, monitor, claim, settings, cadence_ms)
+    after
+      stop_publish(result_ref, publisher, monitor)
+    end
   end
 
   defp supervise_publish(caller, result_ref, request, adapters) do
@@ -188,16 +193,39 @@ defmodule Responder.Delivery.Dispatcher do
         send(owner, {:delivery_provider_result, self(), result})
       end)
 
+    try do
+      receive do
+        {:delivery_provider_result, ^provider, result} ->
+          send(caller, {result_ref, result})
+
+        {:EXIT, ^provider, reason} ->
+          send(caller, {result_ref, {:error, {:delivery_publisher_exit, reason}}})
+
+        {:DOWN, ^caller_monitor, :process, ^caller, _reason} ->
+          :ok
+
+        {:cancel_publish, ^caller, ^result_ref} ->
+          :ok
+      end
+    after
+      provider_monitor = Process.monitor(provider)
+      Process.exit(provider, :kill)
+      receive do: ({:DOWN, ^provider_monitor, :process, ^provider, _reason} -> :ok)
+    end
+  end
+
+  defp stop_publish(result_ref, publisher, monitor) do
+    # Polling may rescue a renewal exception without exiting the caller. Reap the
+    # supervisor only after its linked provider has stopped, then drain our mail.
+    cleanup_monitor = Process.monitor(publisher)
+    send(publisher, {:cancel_publish, self(), result_ref})
+    receive do: ({:DOWN, ^cleanup_monitor, :process, ^publisher, _reason} -> :ok)
+    Process.demonitor(monitor, [:flush])
+
     receive do
-      {:delivery_provider_result, ^provider, result} ->
-        send(caller, {result_ref, result})
-
-      {:EXIT, ^provider, reason} ->
-        send(caller, {result_ref, {:error, {:delivery_publisher_exit, reason}}})
-
-      {:DOWN, ^caller_monitor, :process, ^caller, _reason} ->
-        Process.exit(provider, :kill)
-        receive do: ({:EXIT, ^provider, _reason} -> :ok)
+      {^result_ref, _result} -> :ok
+    after
+      0 -> :ok
     end
   end
 
@@ -220,8 +248,6 @@ defmodule Responder.Delivery.Dispatcher do
             await_publish(result_ref, publisher, monitor, claim, settings, cadence_ms)
 
           {:error, _reason} = error ->
-            Process.exit(publisher, :kill)
-            receive do: ({:DOWN, ^monitor, :process, ^publisher, _reason} -> :ok)
             error
         end
     end

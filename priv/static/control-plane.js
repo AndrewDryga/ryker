@@ -70,8 +70,16 @@ const PreserveReadingState = {
       }
     }
     this.el.addEventListener("keydown", this.onKeydown)
+    this.onHashChange = () => {
+      this.fragmentURL = null
+      this.revealFragment()
+    }
+    window.addEventListener("hashchange", this.onHashChange)
+    this.revealFragment()
   },
   beforeUpdate() {
+    this.readingURL = location.href
+    this.focusedID = this.el.contains(document.activeElement) ? document.activeElement.id : null
     this.expanded = Array.from(this.el.querySelectorAll("details")).map((node, index) => ({
       key: node.id || `${index}:${node.querySelector("summary")?.textContent}`, open: node.open
     }))
@@ -85,11 +93,36 @@ const PreserveReadingState = {
       if (expanded.has(key)) node.open = expanded.get(key)
     })
     this.restoreDrafts()
+    // LiveView restores input focus, but a replaced response body is not an
+    // input. Restore only a focus the patch dropped, never a newer selection.
+    if (this.readingURL === location.href && this.focusedID && document.activeElement === document.body) {
+      const focused = document.getElementById(this.focusedID)
+      if (this.el.contains(focused)) focused.focus({preventScroll: true})
+    }
+    if (this.revealFragment(document.activeElement === document.body)) return
     if (this.following && location.pathname.startsWith("/lab/")) {
       window.scrollTo({top: document.documentElement.scrollHeight, behavior: "instant"})
     } else if (Number.isFinite(this.scroll)) {
       window.scrollTo({top: this.scroll, behavior: "instant"})
     }
+  },
+  revealFragment(moveFocus = true) {
+    if (!location.hash || this.fragmentURL === location.href) return false
+    let id
+    try { id = decodeURIComponent(location.hash.slice(1)) } catch (_) { return false }
+    const target = document.getElementById(id)
+    if (!target || !this.el.contains(target)) return false
+    // A connected patch can replace the native browser's initially opened
+    // disclosure. Resolve once when this exact target exists, not every refresh.
+    for (let node = target; node && node !== this.el; node = node.parentElement) {
+      if (node.tagName === "DETAILS") node.open = true
+    }
+    this.fragmentURL = location.href
+    if (moveFocus) {
+      target.focus({preventScroll: true})
+      target.scrollIntoView({block: "start"})
+    }
+    return moveFocus
   },
   restoreDrafts() {
     this.el.querySelectorAll("textarea, input[type=text], input[type=search]").forEach(element => {
@@ -109,6 +142,7 @@ const PreserveReadingState = {
     this.el.removeEventListener("submit", this.onSubmit)
     this.el.removeEventListener("click", this.onClick)
     this.el.removeEventListener("keydown", this.onKeydown)
+    window.removeEventListener("hashchange", this.onHashChange)
   }
 }
 

@@ -88,7 +88,12 @@ defmodule Responder.Publication.FollowupExecutor do
       end)
 
     cadence_ms = max(div(settings.lease_seconds * 1_000, 3), 1)
-    await_call(result_ref, pid, monitor, claim, phase, settings, cadence_ms)
+
+    try do
+      await_call(result_ref, pid, monitor, claim, phase, settings, cadence_ms)
+    after
+      finish_call(pid, monitor, result_ref)
+    end
   end
 
   defp await_call(result_ref, pid, monitor, claim, phase, settings, cadence_ms) do
@@ -110,10 +115,23 @@ defmodule Responder.Publication.FollowupExecutor do
             await_call(result_ref, pid, monitor, claim, phase, settings, cadence_ms)
 
           {:error, _reason} = error ->
-            Process.exit(pid, :kill)
-            receive do: ({:DOWN, ^monitor, :process, ^pid, _reason} -> :ok)
             error
         end
+    end
+  end
+
+  defp finish_call(pid, monitor, result_ref) do
+    # Renewal can raise while this caller survives. Reap the callback before
+    # unwinding; await_call may already have consumed the original monitor.
+    cleanup_monitor = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    receive do: ({:DOWN, ^cleanup_monitor, :process, ^pid, _reason} -> :ok)
+    Process.demonitor(monitor, [:flush])
+
+    receive do
+      {^result_ref, _result} -> :ok
+    after
+      0 -> :ok
     end
   end
 

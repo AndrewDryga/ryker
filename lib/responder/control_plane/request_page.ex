@@ -169,6 +169,7 @@ defmodule Responder.ControlPlane.RequestPage do
           :if={@section.id == "validation"}
           steps={@validation_steps}
           prefix={@prefix}
+          page={@section[:response_page]}
         />
         <div :if={@readable_context != ""} class="readable-model-context">
           {Phoenix.HTML.raw(@readable_context)}
@@ -196,6 +197,11 @@ defmodule Responder.ControlPlane.RequestPage do
 
   defp validation_checks(assigns) do
     ~H"""
+    <nav :if={@page && @page.pages > 1} class="ui-pagination" aria-label="Response checks">
+      <span>Checks {@page.first}–{@page.last} of {@page.total}</span>
+      <a :if={@page.previous} href={@page.previous}>Earlier attempts</a>
+      <a :if={@page.next} href={@page.next}>Later attempts</a>
+    </nav>
     <p :if={@steps == []} class="artifact-unavailable">
       Validation details are unavailable. The retained record below is not a substitute for a complete check receipt.
     </p>
@@ -212,10 +218,16 @@ defmodule Responder.ControlPlane.RequestPage do
           <li :for={violation <- step.violations}>{violation}</li>
         </ul>
         <p :if={step.attempt && step.violations == []}>No violations recorded.</p>
-        <p :if={step.response_retained}>
+        <.candidate_response
+          :if={step.response}
+          response={step.response}
+          attempt={step.attempt}
+          prefix={@prefix}
+        />
+        <p :if={!step.response && step.response_retained}>
           <a href={"##{@prefix}-candidate-body"}>View the retained response for this attempt →</a>
         </p>
-        <p :if={step.attempt && !step.response_retained}>
+        <p :if={step.attempt && !step.response && !step.response_retained}>
           Response body not retained for this attempt. Its check receipt is preserved here.
         </p>
       </section>
@@ -224,12 +236,13 @@ defmodule Responder.ControlPlane.RequestPage do
   end
 
   defp validation_steps(
-         %{id: "validation", artifact: %{state: :retained, truncated: false, text: text}},
+         %{id: "validation", artifact: %{state: :retained, truncated: false, text: text}} =
+           section,
          sections
        ) do
     case Jason.decode(text) do
       {:ok, %{"history" => history} = document} when is_list(history) ->
-        Enum.map(history, &validation_step(&1, document, sections))
+        Enum.map(history, &validation_step(&1, document, sections, section[:responses] || %{}))
 
       _ ->
         []
@@ -242,7 +255,8 @@ defmodule Responder.ControlPlane.RequestPage do
          %{"candidate_attempt" => attempt, "verdict" => verdict, "violations" => violations} =
            entry,
          document,
-         sections
+         sections,
+         responses
        )
        when is_integer(attempt) and attempt > 0 and verdict in ["accept", "reject"] and
               is_list(violations) do
@@ -253,6 +267,7 @@ defmodule Responder.ControlPlane.RequestPage do
           "Attempt #{attempt} #{if verdict == "accept", do: "passed checks", else: "needs correction"}",
         violations: violations,
         at: validation_time(entry["recorded_at"]),
+        response: exact_response(entry, responses),
         response_retained: retained_response?(entry, document, sections)
       }
     else
@@ -260,7 +275,7 @@ defmodule Responder.ControlPlane.RequestPage do
     end
   end
 
-  defp validation_step(_entry, _document, _sections), do: unavailable_validation()
+  defp validation_step(_entry, _document, _sections, _responses), do: unavailable_validation()
 
   defp unavailable_validation,
     do: %{
@@ -268,8 +283,82 @@ defmodule Responder.ControlPlane.RequestPage do
       title: "Validation details unavailable",
       violations: [],
       at: nil,
+      response: nil,
       response_retained: false
     }
+
+  defp exact_response(entry, responses) do
+    case responses[entry["candidate_attempt"]] do
+      %{state: :retained, sha256: digest} = artifact ->
+        if digest == entry["candidate_sha256"], do: artifact
+
+      %{state: :expired} = artifact ->
+        artifact
+
+      _ ->
+        nil
+    end
+  end
+
+  def candidate_response(assigns) do
+    assigns = assign(assigns, :document, candidate_document(assigns.response))
+
+    ~H"""
+    <details
+      :if={@response.state == :retained}
+      class="candidate-response inspector-document"
+      id={"#{@prefix}-response-#{@attempt}"}
+    >
+      <summary>
+        Response for attempt {@attempt}
+        <span :if={@response.redacted}> · Secrets redacted</span>
+        <span :if={@response.truncated}> · Display truncated</span>
+      </summary>
+      <div id={"#{@prefix}-response-#{@attempt}-body"} tabindex="-1">
+        <div :if={@document && is_binary(@document["message"])} class="markdown-preview">
+          {Phoenix.HTML.raw(Responder.ControlPlane.SlackMarkdown.preview(@document["message"]))}
+        </div>
+        <p :if={@document && is_binary(@document["decision_reason"])}>
+          {@document["decision_reason"]}
+        </p>
+        <details :if={@document} id={"#{@prefix}-response-#{@attempt}-json"}>
+          <summary>Full response document</summary>
+          <pre class="model-document-text" tabindex="0">{@response.text}</pre>
+        </details>
+        <pre :if={!@document} class="model-document-text" tabindex="0">{@response.text}</pre>
+        <p><a href={"##{@prefix}-response-#{@attempt}-body"}>Link to this response</a></p>
+      </div>
+    </details>
+    <p :if={@response.state == :expired} class="artifact-unavailable">
+      Response body expired for this attempt. Its check receipt is preserved here.
+    </p>
+    """
+  end
+
+  defp candidate_document(%{state: :retained, truncated: false, text: text}) do
+    case Jason.decode(text) do
+      {:ok, %{} = document} -> document
+      _ -> nil
+    end
+  end
+
+  defp candidate_document(_), do: nil
+
+  def latest_archived_response(sections) do
+    with %{artifact: %{state: :retained, sha256: digest}} <-
+           Enum.find(sections, &(&1.id == "candidate")),
+         %{artifact: %{state: :retained, truncated: false, text: text}, responses: responses} <-
+           Enum.find(sections, &(&1.id == "validation")),
+         {:ok, %{"candidate_attempt" => attempt, "history" => history}} when is_list(history) <-
+           Jason.decode(text),
+         %{"candidate_sha256" => ^digest} <-
+           Enum.find(history, &(is_map(&1) && &1["candidate_attempt"] == attempt)),
+         %{state: :retained, sha256: ^digest} = artifact <- responses[attempt] do
+      %{attempt: attempt, artifact: artifact}
+    else
+      _ -> nil
+    end
+  end
 
   defp validation_time(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
@@ -344,8 +433,15 @@ defmodule Responder.ControlPlane.RequestPage do
     do: assign(assigns, :sections, [])
 
   defp assign_sections(assigns) do
+    sections = assigns.view.selected.sections
+
+    sections =
+      if assigns.params["section"] != "candidate" && latest_archived_response(sections),
+        do: Enum.reject(sections, &(&1.id == "candidate")),
+        else: sections
+
     {focused, rest} =
-      Enum.split_with(assigns.view.selected.sections, &(&1.id == assigns.params["section"]))
+      Enum.split_with(sections, &(&1.id == assigns.params["section"]))
 
     assign(assigns, :sections, focused ++ rest)
   end
@@ -356,7 +452,7 @@ defmodule Responder.ControlPlane.RequestPage do
         "?" <>
         URI.encode_query(
           Map.merge(
-            Map.take(params, ~w(kind attempt page generation section tools_page)),
+            Map.take(params, ~w(kind attempt page generation section tools_page responses_page)),
             Map.new(changes, fn {key, value} -> {to_string(key), value} end)
           )
         )

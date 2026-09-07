@@ -8,6 +8,7 @@ defmodule Responder.Slack.InteractionFeedbackWorker do
   require Logger
 
   alias Responder.Observability.Progress
+  alias Responder.Polling
 
   alias Responder.Slack.{InteractionAudits, InteractionRepaint}
 
@@ -31,19 +32,24 @@ defmodule Responder.Slack.InteractionFeedbackWorker do
   @impl GenServer
   def handle_info(:work, options) do
     delay =
-      case run_once(options) do
-        {:ok, :idle} ->
-          options.interval_ms
+      Polling.run(:slack_interactions, options.interval_ms, fn ->
+        delay =
+          case run_once(options) do
+            {:ok, :idle} ->
+              options.interval_ms
 
-        {:ok, _result} ->
-          0
+            {:ok, _result} ->
+              0
 
-        {:error, reason} ->
-          Logger.warning("Slack interaction repaint worker failed: #{inspect(reason)}")
-          options.interval_ms
-      end
+            {:error, reason} ->
+              Logger.warning("Slack interaction repaint worker failed: #{inspect(reason)}")
+              options.interval_ms
+          end
 
-    _ = Progress.beat(:slack_interactions)
+        _ = Progress.beat(:slack_interactions)
+        delay
+      end)
+
     Process.send_after(self(), :work, delay)
     {:noreply, options}
   end

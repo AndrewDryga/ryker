@@ -434,7 +434,7 @@ defmodule Responder.Retention.Data do
       execute_count(
         """
         WITH candidates AS (
-          SELECT turn.id
+          SELECT turn.id, clock_timestamp() AS pruned_at
           FROM episode_work_turns AS turn
           JOIN episode_work_sessions AS session ON session.id = turn.session_id
           WHERE turn.operational_pruned_at IS NULL
@@ -444,6 +444,13 @@ defmodule Responder.Retention.Data do
           ORDER BY turn.updated_at, turn.id
           LIMIT 100
           FOR UPDATE OF turn SKIP LOCKED
+        ), response_bodies AS (
+          UPDATE work_candidate_responses AS response
+          SET body = NULL, operational_pruned_at = candidates.pruned_at
+          FROM candidates
+          WHERE response.turn_id = candidates.id
+            AND response.operational_pruned_at IS NULL
+          RETURNING response.turn_id
         )
         UPDATE episode_work_turns AS turn
         SET submission = CASE WHEN submission IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
@@ -452,7 +459,7 @@ defmodule Responder.Retention.Data do
             cancellation_intent = CASE WHEN cancellation_intent IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
             delivery_document = CASE WHEN delivery_document IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
             continuation = CASE WHEN continuation IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
-            operational_pruned_at = clock_timestamp()
+            operational_pruned_at = candidates.pruned_at
         FROM candidates
         WHERE turn.id = candidates.id
         """,

@@ -5,6 +5,7 @@ defmodule Responder.ControlPlane.WebRouter do
   import Phoenix.LiveView.Router
 
   pipeline :browser do
+    plug(:fetch_query_params)
     plug(:accepts, ["html"])
     plug(:fetch_session)
     plug(:fetch_live_flash)

@@ -12,6 +12,7 @@ defmodule Responder.Slack.IncidentRoomWorker do
   require Logger
 
   alias Responder.Observability.Progress
+  alias Responder.Polling
 
   alias Responder.Episodes.Episode
   alias Responder.Repo
@@ -39,19 +40,24 @@ defmodule Responder.Slack.IncidentRoomWorker do
   @impl GenServer
   def handle_info(:work, options) do
     delay =
-      case run_once(options) do
-        {:ok, :idle} ->
-          options.interval_ms
+      Polling.run(:slack_incidents, options.interval_ms, fn ->
+        delay =
+          case run_once(options) do
+            {:ok, :idle} ->
+              options.interval_ms
 
-        {:ok, _result} ->
-          0
+            {:ok, _result} ->
+              0
 
-        {:error, reason} ->
-          Logger.warning("Slack incident-room worker failed: #{inspect(reason)}")
-          options.interval_ms
-      end
+            {:error, reason} ->
+              Logger.warning("Slack incident-room worker failed: #{inspect(reason)}")
+              options.interval_ms
+          end
 
-    _ = Progress.beat(:slack_incidents)
+        _ = Progress.beat(:slack_incidents)
+        delay
+      end)
+
     Process.send_after(self(), :work, delay)
     {:noreply, options}
   end

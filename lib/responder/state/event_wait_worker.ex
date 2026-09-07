@@ -6,6 +6,7 @@ defmodule Responder.State.EventWaitWorker do
   require Logger
 
   alias Responder.Observability.Progress
+  alias Responder.Polling
   alias Responder.State.EventWaits
 
   @spec start_link(keyword() | map()) :: GenServer.on_start()
@@ -21,13 +22,18 @@ defmodule Responder.State.EventWaitWorker do
 
   @impl GenServer
   def handle_info(:poll, state) do
-    case EventWaits.resume_due() do
-      {:ok, _result} -> :ok
-      {:error, reason} -> Logger.error("event wait wakeup failed: #{inspect(reason)}")
-    end
+    delay =
+      Polling.run(:event_waits, state.interval_ms, fn ->
+        case EventWaits.resume_due() do
+          {:ok, _result} -> :ok
+          {:error, reason} -> Logger.error("event wait wakeup failed: #{inspect(reason)}")
+        end
 
-    _ = Progress.beat(:event_waits)
-    Process.send_after(self(), :poll, state.interval_ms)
+        _ = Progress.beat(:event_waits)
+        state.interval_ms
+      end)
+
+    Process.send_after(self(), :poll, delay)
     {:noreply, state}
   end
 

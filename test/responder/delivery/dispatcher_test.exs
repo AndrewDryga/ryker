@@ -22,6 +22,7 @@ defmodule Responder.Delivery.DispatcherTest do
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.Inbox
+  alias Responder.Polling
   alias Responder.Slack.Input
   alias Responder.State.Records
   alias Responder.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
@@ -594,6 +595,77 @@ defmodule Responder.Delivery.DispatcherTest do
     assert [{:message, _request}] = Agent.get(publisher, & &1.calls)
   end
 
+  # A rescued renewal exception keeps the poller alive, so caller-death monitoring
+  # alone leaves a publishing child running beyond the failed custody renewal.
+  test "a rescued database renewal failure reaps the actual provider before polling returns" do
+    accepted = delivery_pending!("renewal-pool-failure")
+    parent = self()
+
+    {worker, worker_monitor} =
+      spawn_monitor(fn ->
+        {:monitors, initial_monitors} = Process.info(self(), :monitors)
+
+        delay =
+          Polling.run(:delivery, 10, fn ->
+            Dispatcher.run_once(
+              dispatcher_options(:message, %{observer: parent}, BlockingPublisher,
+                lease_seconds: 1,
+                worker_ref: "delivery:message:renewal-pool-failure"
+              )
+            )
+
+            :unexpected_delivery_return
+          end)
+
+        receive do
+          {:provider_under_test, provider} ->
+            send(parent, {:poll_returned, self(), delay, Process.alive?(provider)})
+        end
+
+        receive do
+          :inspect_poll_mailbox ->
+            {:monitors, monitors} = Process.info(self(), :monitors)
+            {:messages, messages} = Process.info(self(), :messages)
+            send(parent, {:poll_mailbox, monitors -- initial_monitors, messages})
+        end
+
+        receive do: (:stop_poll_worker -> :ok)
+      end)
+
+    assert_receive {:delivery_publish_started, provider}, 1_000
+    provider_monitor = Process.monitor(provider)
+    send(worker, {:provider_under_test, provider})
+    holder = hold_renewal_connection!()
+
+    try do
+      assert_receive {:poll_returned, ^worker, delay, provider_alive}, 20_000
+      refute provider_alive, "the fake provider outlived the failed lease renewal"
+      assert delay == 1_000
+      assert_receive {:DOWN, ^provider_monitor, :process, ^provider, :killed}, 1_000
+      assert Process.alive?(worker)
+
+      send(holder, :release_renewal_connection)
+      assert_receive {:renewal_connection_released, ^holder}, 1_000
+
+      send(worker, :inspect_poll_mailbox)
+      assert_receive {:poll_mailbox, [], []}, 1_000
+
+      pending = Repo.get!(Turn, accepted.turn.id)
+      assert pending.status == :delivery_pending
+      assert pending.delivery_ref == accepted.turn.delivery_ref
+      assert pending.delivery_document == accepted.turn.delivery_document
+      assert pending.delivery_attempt_count == 1
+      assert is_binary(pending.lease_ref)
+      assert pending.external_receipt == nil
+    after
+      send(holder, :release_renewal_connection)
+      Process.exit(provider, :kill)
+      Process.exit(worker, :kill)
+      Process.demonitor(provider_monitor, [:flush])
+      Process.demonitor(worker_monitor, [:flush])
+    end
+  end
+
   test "malformed dispatcher settings cannot claim delivery custody" do
     invalid = [
       :invalid,
@@ -635,6 +707,32 @@ defmodule Responder.Delivery.DispatcherTest do
       ],
       overrides
     )
+  end
+
+  defp hold_renewal_connection! do
+    parent = self()
+
+    holder =
+      spawn_link(fn ->
+        Repo.checkout(
+          fn ->
+            send(parent, {:renewal_connection_held, self()})
+
+            receive do
+              :release_renewal_connection -> :ok
+            after
+              30_000 -> raise "test did not release its held renewal connection"
+            end
+          end,
+          timeout: 35_000
+        )
+
+        send(parent, {:renewal_connection_released, self()})
+      end)
+
+    on_exit(fn -> send(holder, :release_renewal_connection) end)
+    assert_receive {:renewal_connection_held, ^holder}, 1_000
+    holder
   end
 
   defp delivery_pending!(suffix, options \\ []) do

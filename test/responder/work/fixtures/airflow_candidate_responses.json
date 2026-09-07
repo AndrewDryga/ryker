@@ -1,0 +1,27 @@
+{
+  "provenance": {
+    "failure_artifact": "/private/tmp/responder-adversarial-Vylg4X/airflow-stale-source-1788812652534-2ee0a327121a/public-failure-evidence.json",
+    "failure_artifact_sha256": "d22e52fb19e6efdd8682b4138b0a6b8981021a81207937ab094e8ed8ad5e80ce",
+    "missing_original_attempt": 1,
+    "missing_original_candidate_sha256": "d74421ddcb2f7bd654cc778d2c0b556195f7cb3f698daad0f720340e432f0720",
+    "limitation": "The missing first candidate is not reconstructed. Tests compose two independently retained real model responses into a deterministic host-validation sequence. This does not represent an actual model repair sequence.",
+    "other_candidate_artifact": "test/responder/evals/fixtures/airflow_completes_after_timer.json",
+    "other_candidate_artifact_sha256": "c30fd52aaf9aad4ab1db88c912d1eaec66a0999572215f8ddf0f2b3e0ec88240",
+    "other_candidate_pointer": "turns[0].candidate",
+    "other_candidate_encoding": "JSON.stringify of the exact retained structured object, without text or reference changes; not a claim of original provider byte formatting."
+  },
+  "responses": [
+    {
+      "body": "{\"decision_reason\":null,\"delivery\":\"reply\",\"message\":\"Verification is scheduled after a 10-minute observation window. The available deployment reading predates this apply, so revision 99183465 is not yet verified. I’ll check fresh deployment, backend health, and monitoring data and report here, with a fallback deadline of 13:18 UTC.\",\"outcome\":{\"artifact_refs\":[],\"record_refs\":[\"record:evidence:364542d7588e192334f44536cf7545cd\",\"record:event_wait:6a132975f41f63e6ac4b4ca23b61aaa3\"],\"state\":\"waiting_for_event\"}}",
+      "sha256": "a9322fa3ed13f7e668af90e714b3e912967123a55d1798b29dfb3d3e1bd7e6b7",
+      "bytes": 517,
+      "source": "other retained Airflow candidate"
+    },
+    {
+      "body": "{\"decision_reason\":null,\"delivery\":\"reply\",\"message\":\"Verification remains inconclusive: tool execution is disabled, so I could not obtain fresh deployment or health evidence, register a durable follow-up, or call validate_final. The notification reports the revision applied; its post-apply health is unverified. Automatic output validation rejected the previous response because validate_final had not been called.\",\"outcome\":{\"artifact_refs\":[],\"record_refs\":[],\"state\":\"complete\"}}",
+      "sha256": "a64a85368dc924a590d344d1b918024bf5c66ad0633211483fe0638c83371d6f",
+      "bytes": 485,
+      "source": "exact latest raw failed-trial candidate, actual attempts 2 and 3"
+    }
+  ]
+}

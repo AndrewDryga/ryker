@@ -361,6 +361,12 @@ defmodule Responder.Retention.Policy do
       why: "the account and dedupe receipt of one assignment firing"
     },
     %{
+      table: "work_candidate_responses",
+      class: :operational,
+      why:
+        "exact attempt bodies expire with their owning turn; compact receipts cascade with turn history"
+    },
+    %{
       table: "work_input_artifact_references",
       class: :cascade,
       why: "input-artifact ownership released with the frozen Work transport body"

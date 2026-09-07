@@ -6,6 +6,7 @@ defmodule Responder.Publication.FollowupWorker do
   require Logger
 
   alias Responder.Observability.Progress
+  alias Responder.Polling
   alias Responder.Publication.FollowupDispatcher
 
   def start_link(options), do: GenServer.start_link(__MODULE__, options)
@@ -26,22 +27,27 @@ defmodule Responder.Publication.FollowupWorker do
 
   @impl GenServer
   def handle_info(:poll, state) do
-    case FollowupDispatcher.run_once(state.dispatcher_options) do
-      {:ok, :idle} ->
-        :ok
+    delay =
+      Polling.run(:publication_followup, state.poll_interval_ms, fn ->
+        case FollowupDispatcher.run_once(state.dispatcher_options) do
+          {:ok, :idle} ->
+            :ok
 
-      {:ok, {:executed, _result}} ->
-        :ok
+          {:ok, {:executed, _result}} ->
+            :ok
 
-      {:ok, {:deferred, reason}} ->
-        Logger.warning("publication followup deferred: #{inspect(reason)}")
+          {:ok, {:deferred, reason}} ->
+            Logger.warning("publication followup deferred: #{inspect(reason)}")
 
-      {:error, reason} ->
-        Logger.error("publication followup dispatcher failed: #{inspect(reason)}")
-    end
+          {:error, reason} ->
+            Logger.error("publication followup dispatcher failed: #{inspect(reason)}")
+        end
 
-    _ = Progress.beat(:publication_followup)
-    Process.send_after(self(), :poll, state.poll_interval_ms)
+        _ = Progress.beat(:publication_followup)
+        state.poll_interval_ms
+      end)
+
+    Process.send_after(self(), :poll, delay)
     {:noreply, state}
   end
 end

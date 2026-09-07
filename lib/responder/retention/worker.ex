@@ -6,6 +6,7 @@ defmodule Responder.Retention.Worker do
   require Logger
 
   alias Responder.Observability.Progress
+  alias Responder.Polling
 
   alias Responder.Retention.Dispatcher
 
@@ -46,10 +47,15 @@ defmodule Responder.Retention.Worker do
 
   @impl GenServer
   def handle_info(:poll, state) do
-    _result = process_once(state.dispatcher, state.dispatcher_options)
-    _ = Progress.beat(:retention)
-    _maintenance = maintain_once(state.maintenance, state.maintenance_options)
-    Process.send_after(self(), :poll, state.poll_interval_ms)
+    delay =
+      Polling.run(:retention, state.poll_interval_ms, fn ->
+        _result = process_once(state.dispatcher, state.dispatcher_options)
+        _ = Progress.beat(:retention)
+        _maintenance = maintain_once(state.maintenance, state.maintenance_options)
+        state.poll_interval_ms
+      end)
+
+    Process.send_after(self(), :poll, delay)
     {:noreply, state}
   end
 

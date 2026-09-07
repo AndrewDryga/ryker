@@ -6,6 +6,7 @@ defmodule Responder.Publication.Worker do
   require Logger
 
   alias Responder.Observability.Progress
+  alias Responder.Polling
   alias Responder.Publication.Dispatcher
 
   def start_link(options) do
@@ -32,9 +33,14 @@ defmodule Responder.Publication.Worker do
 
   @impl GenServer
   def handle_info(:poll, state) do
-    process_once(state.dispatcher_options)
-    _ = Progress.beat(:publication)
-    Process.send_after(self(), :poll, state.poll_interval_ms)
+    delay =
+      Polling.run(:publication, state.poll_interval_ms, fn ->
+        process_once(state.dispatcher_options)
+        _ = Progress.beat(:publication)
+        state.poll_interval_ms
+      end)
+
+    Process.send_after(self(), :poll, delay)
     {:noreply, state}
   end
 
