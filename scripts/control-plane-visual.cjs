@@ -147,44 +147,49 @@ async function interactions(page) {
           const response = await page.goto(new URL(route, origin).href, {waitUntil: 'domcontentloaded'});
           result.status = response.status();
           result.version = response.headers()['x-responder-version'];
-          await connected(page);
-          await page.evaluate(() => document.fonts.ready);
-          result.layout = await page.evaluate(() => ({
-            width: document.documentElement.clientWidth,
-            scrollWidth: document.documentElement.scrollWidth,
-            previewTop: document.querySelector('.specimen-canvas')?.getBoundingClientRect().top,
-            composerTop: document.querySelector('.lab-native-composer')?.getBoundingClientRect().top,
-            transcriptBottom: document.querySelector('.lab-transcript')?.getBoundingClientRect().bottom
-          }));
-          assert.equal(result.status, 200);
-          assert.equal(await page.locator('a[href="/audit"]').count(), 0, 'The removed Audit page must not return to navigation');
-          assert.equal(await page.locator('a[href^="/actions/"]').count(), 0, 'Operator actions must be native buttons, not navigation links');
-          for (const label of await page.locator('form[action^="/actions/"] button').allTextContents()) {
-            assert(!/(?:…|\.\.\.)$/.test(label.trim()), 'Action labels must not end in ellipses');
-          }
-          assert(result.layout.scrollWidth <= width, 'Page overflows horizontally');
-          if (name === 'requests' || name === 'episodes') await checkFilterAlignment(page);
-          if (name === 'task-working') {
-            assert(result.layout.previewTop < height - 120, 'Card preview is buried below the first screen');
-            if (width > 1000) {
-              assert(await page.locator('.specimen-catalog').isVisible(), 'Card families belong in the desktop side rail');
-              assert(!await page.locator('#card-family').isVisible(), 'The family dropdown is only for narrow screens');
-              const edges = await page.locator('.specimen-catalog nav small').evaluateAll(es => es.map(e => e.getBoundingClientRect().right));
-              assert(edges.every(x => Math.abs(x - edges[0]) < 1), 'State counts must align in one column');
-            } else {
-              assert(await page.locator('#card-family').isVisible(), 'Keep a compact family picker on narrow screens');
+          if (['decisions', 'calibration'].includes(name)) {
+            assert.equal(result.status, 404, 'Removed pages must return a real 404');
+            assert.equal(response.request().redirectedFrom(), null, 'Removed pages must not acquire compatibility redirects');
+          } else {
+            await connected(page);
+            await page.evaluate(() => document.fonts.ready);
+            result.layout = await page.evaluate(() => ({
+              width: document.documentElement.clientWidth,
+              scrollWidth: document.documentElement.scrollWidth,
+              previewTop: document.querySelector('.specimen-canvas')?.getBoundingClientRect().top,
+              composerTop: document.querySelector('.lab-native-composer')?.getBoundingClientRect().top,
+              transcriptBottom: document.querySelector('.lab-transcript')?.getBoundingClientRect().bottom
+            }));
+            assert.equal(result.status, 200);
+            assert.equal(await page.locator('a[href="/audit"]').count(), 0, 'The removed Audit page must not return to navigation');
+            assert.equal(await page.locator('a[href^="/actions/"]').count(), 0, 'Operator actions must be native buttons, not navigation links');
+            for (const label of await page.locator('form[action^="/actions/"] button').allTextContents()) {
+              assert(!/(?:…|\.\.\.)$/.test(label.trim()), 'Action labels must not end in ellipses');
             }
+            assert(result.layout.scrollWidth <= width, 'Page overflows horizontally');
+            if (name === 'requests' || name === 'episodes') await checkFilterAlignment(page);
+            if (name === 'task-working') {
+              assert(result.layout.previewTop < height - 120, 'Card preview is buried below the first screen');
+              if (width > 1000) {
+                assert(await page.locator('.specimen-catalog').isVisible(), 'Card families belong in the desktop side rail');
+                assert(!await page.locator('#card-family').isVisible(), 'The family dropdown is only for narrow screens');
+                const edges = await page.locator('.specimen-catalog nav small').evaluateAll(es => es.map(e => e.getBoundingClientRect().right));
+                assert(edges.every(x => Math.abs(x - edges[0]) < 1), 'State counts must align in one column');
+              } else {
+                assert(await page.locator('#card-family').isVisible(), 'Keep a compact family picker on narrow screens');
+              }
+            }
+            if (name === 'lab-chat' && width === 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');
+            if (name === 'repositories') {
+              const panels = await page.locator('.repository-card > header').evaluateAll(es => es.map(e => getComputedStyle(e).backgroundColor));
+              assert(panels.every(color => color === 'rgba(0, 0, 0, 0)' || color === 'rgb(255, 255, 255)'), 'Repository headings must not inherit the old dark page banner');
+            }
+            if (name === 'requests') {
+              const titles = await page.locator('.activity-title').allTextContents();
+              assert(titles.every(title => !/<@[UW][A-Z0-9]+>/.test(title)), 'Slack mentions must be readable in request titles');
+            }
+            assert.equal(errors.length, 0, 'Browser or CSP errors');
           }
-          if (name === 'lab-chat' && width === 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');
-          if (name === 'repositories') {
-            const panels = await page.locator('.repository-card > header').evaluateAll(es => es.map(e => getComputedStyle(e).backgroundColor));
-            assert(panels.every(color => color === 'rgba(0, 0, 0, 0)' || color === 'rgb(255, 255, 255)'), 'Repository headings must not inherit the old dark page banner');
-          }
-          if (name === 'requests') {
-            const titles = await page.locator('.activity-title').allTextContents();
-            assert(titles.every(title => !/<@[UW][A-Z0-9]+>/.test(title)), 'Slack mentions must be readable in request titles');
-          }
-          assert.equal(errors.length, 0, 'Browser or CSP errors');
         } catch (error) { result.failure = error.message; }
         await page.screenshot({path: path.join(output, file), animations: 'disabled'});
         await page.screenshot({path: path.join(output, file.replace('.png', '-full.png')), fullPage: true, animations: 'disabled'});

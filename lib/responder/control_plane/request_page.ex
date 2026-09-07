@@ -87,6 +87,7 @@ defmodule Responder.ControlPlane.RequestPage do
                   )
               }
               section={section}
+              sections={@view.selected.sections}
               prefix={"selected-#{@view.selected.id}"}
               expanded_source={@params["section"] == section.id}
             />
@@ -128,20 +129,31 @@ defmodule Responder.ControlPlane.RequestPage do
 
   def artifact(assigns) do
     assigns =
-      assign(
-        assigns,
+      assigns
+      |> assign_new(:sections, fn -> [assigns.section] end)
+      |> assign(:heading, artifact_heading(assigns.section))
+      |> assign(:validation_steps, validation_steps(assigns.section, assigns[:sections] || []))
+      |> assign(
         :readable_context,
-        readable_artifact(assigns.section, assigns.prefix, assigns[:expanded_source] || false)
+        readable_artifact(
+          assigns.section,
+          assigns[:sections] || [assigns.section],
+          assigns.prefix,
+          assigns[:expanded_source] || false
+        )
       )
 
     ~H"""
     <details
-      class={"inspector-document artifact-#{@section.id}"}
+      class={[
+        "inspector-document artifact-#{@section.id}",
+        @section.id == "request" && "final-prompt"
+      ]}
       id={"#{@prefix}-#{@section.id}"}
-      open={assigns[:expanded_source] || false}
+      open={assigns[:expanded_source] || @section.id == "validation"}
     >
       <summary class="document-heading">
-        <h4>{@section.title}</h4><span>{artifact_label(@section.artifact)}{if @section.artifact.truncated,
+        <h4>{@heading}</h4><span>{artifact_label(@section.artifact)}{if @section.artifact.truncated,
           do: " · truncated display"}</span>
       </summary>
       <p :if={@section.artifact.state != :retained} class="artifact-unavailable">
@@ -150,34 +162,156 @@ defmodule Responder.ControlPlane.RequestPage do
           else: "This artifact was not recorded"}. No reconstructed substitute is shown.
       </p>
       <div :if={@section.artifact.state == :retained}>
+        <.validation_checks
+          :if={@section.id == "validation"}
+          steps={@validation_steps}
+          prefix={@prefix}
+        />
         <div :if={@readable_context != ""} class="readable-model-context">
           {Phoenix.HTML.raw(@readable_context)}
         </div>
-        <pre :if={@readable_context == ""} class="model-document-text" tabindex="0">{@section.artifact.text}</pre>
-        <details class="document-provenance" id={"#{@prefix}-#{@section.id}-provenance"}>
+        <pre
+          :if={@readable_context == "" && @section.id != "validation"}
+          class="model-document-text"
+          tabindex="0"
+        >{@section.artifact.text}</pre>
+        <details
+          class={["document-provenance", @section.id == "validation" && "validation-raw"]}
+          id={"#{@prefix}-#{@section.id}-provenance"}
+        >
           <summary>
-            Artifact identity{if @section.artifact.redacted, do: " · redacted display"}
+            {if @section.id == "validation", do: "Raw validation record", else: "Artifact identity"}{if @section.artifact.redacted,
+              do: " · redacted display"}
           </summary>
           <p>Original retained bytes: {@section.artifact.bytes}</p><code>{@section.artifact.sha256}</code>
-          <pre :if={@section.id == "context"} class="model-document-text" tabindex="0">{@section.artifact.text}</pre>
+          <pre :if={@section.id in ["context", "validation"]} class="model-document-text" tabindex="0">{@section.artifact.text}</pre>
         </details>
       </div>
     </details>
     """
   end
 
-  defp readable_artifact(%{id: "context", artifact: artifact} = section, prefix, _open) do
+  defp validation_checks(assigns) do
+    ~H"""
+    <p :if={@steps == []} class="artifact-unavailable">
+      Validation details are unavailable. The retained record below is not a substitute for a complete check receipt.
+    </p>
+    <div :if={@steps != []} class="memory-cards">
+      <section
+        :for={step <- @steps}
+        class="memory-card validation-attempt"
+        data-candidate-attempt={step.attempt}
+      >
+        <header class="case-event-heading">
+          <h3>{step.title}</h3><time :if={step.at}>{timestamp(step.at)}</time>
+        </header>
+        <ul :if={step.violations != []}>
+          <li :for={violation <- step.violations}>{violation}</li>
+        </ul>
+        <p :if={step.attempt && step.violations == []}>No violations recorded.</p>
+        <p :if={step.response_retained}>
+          <a href={"##{@prefix}-candidate"}>View the retained response for this attempt →</a>
+        </p>
+        <p :if={step.attempt && !step.response_retained}>
+          Response body not retained for this attempt. Its check receipt is preserved here.
+        </p>
+      </section>
+    </div>
+    """
+  end
+
+  defp validation_steps(
+         %{id: "validation", artifact: %{state: :retained, truncated: false, text: text}},
+         sections
+       ) do
+    case Jason.decode(text) do
+      {:ok, %{"history" => history} = document} when is_list(history) ->
+        Enum.map(history, &validation_step(&1, document, sections))
+
+      _ ->
+        []
+    end
+  end
+
+  defp validation_steps(_section, _sections), do: []
+
+  defp validation_step(
+         %{"candidate_attempt" => attempt, "verdict" => verdict, "violations" => violations} =
+           entry,
+         document,
+         sections
+       )
+       when is_integer(attempt) and attempt > 0 and verdict in ["accept", "reject"] and
+              is_list(violations) do
+    if Enum.all?(violations, &is_binary/1) && (verdict != "accept" || violations == []) do
+      %{
+        attempt: attempt,
+        title:
+          "Attempt #{attempt} #{if verdict == "accept", do: "passed checks", else: "needs correction"}",
+        violations: violations,
+        at: validation_time(entry["recorded_at"]),
+        response_retained: retained_response?(entry, document, sections)
+      }
+    else
+      unavailable_validation()
+    end
+  end
+
+  defp validation_step(_entry, _document, _sections), do: unavailable_validation()
+
+  defp unavailable_validation,
+    do: %{
+      attempt: nil,
+      title: "Validation details unavailable",
+      violations: [],
+      at: nil,
+      response_retained: false
+    }
+
+  defp validation_time(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, at, _offset} -> at
+      _ -> nil
+    end
+  end
+
+  defp validation_time(_), do: nil
+
+  defp retained_response?(entry, document, sections) do
+    case Enum.find(sections, &(&1.id == "candidate")) do
+      %{artifact: %{state: :retained, sha256: digest}} when is_binary(digest) ->
+        document["candidate_attempt"] == entry["candidate_attempt"] &&
+          entry["candidate_sha256"] == digest
+
+      _ ->
+        false
+    end
+  end
+
+  defp artifact_heading(%{id: "request"}), do: "Full submitted request"
+  defp artifact_heading(%{id: "validation"}), do: "Response checks"
+  defp artifact_heading(section), do: section.title
+
+  defp readable_artifact(%{id: "request"}, sections, prefix, _open),
+    do: IO.iodata_to_binary(RequestContextHTML.submitted(sections, prefix <> "-submitted"))
+
+  defp readable_artifact(%{id: "context", artifact: artifact} = section, _sections, prefix, _open) do
     root = if section[:source_kind] == :work, do: "$.work", else: "$.context"
     IO.iodata_to_binary(RequestContextHTML.render(artifact, root, prefix))
   end
 
-  defp readable_artifact(%{id: "instructions", artifact: artifact} = section, prefix, open),
-    do:
-      IO.iodata_to_binary(
-        RequestContextHTML.instructions(artifact, section[:source_kind], prefix, open)
-      )
+  defp readable_artifact(
+         %{id: "instructions", artifact: artifact} = section,
+         _sections,
+         prefix,
+         open
+       ),
+       do:
+         IO.iodata_to_binary(
+           RequestContextHTML.instructions(artifact, section[:source_kind], prefix, open)
+         )
 
-  defp readable_artifact(_section, _prefix, _open), do: ""
+  defp readable_artifact(_section, _sections, _prefix, _open), do: ""
 
   defp paging(assigns) do
     ~H"""

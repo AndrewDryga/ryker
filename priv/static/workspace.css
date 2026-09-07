@@ -950,6 +950,7 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .prompt-group .prompt-source-location code { display:none; }
 .prompt-source-state { font-variant-numeric:tabular-nums; }
 .submitted-contract { border-top:1px solid var(--stroke); margin-top:20px; padding-top:12px; }
+.action-card { overflow-wrap:anywhere; }
 .action-card > header { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; position:static; background:transparent; color:var(--ink); border:0; padding:0; }
 .action-card h3 { margin:0; font-size:16px; font-weight:650; }
 .action-symbol { color:var(--secondary); font-size:18px; }

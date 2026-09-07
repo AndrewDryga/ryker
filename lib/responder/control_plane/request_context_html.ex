@@ -1,4 +1,5 @@
 defmodule Responder.ControlPlane.RequestContextHTML do
+  alias Responder.ControlPlane.PromptDocument
   alias Responder.ControlPlane.SlackMarkdown
   alias Responder.ControlPlane.SlackNames
   alias Responder.ControlPlane.SourceText
@@ -104,20 +105,60 @@ defmodule Responder.ControlPlane.RequestContextHTML do
     ]
   end
 
-  defp contract(%{state: :retained, text: text}, prefix) do
+  @doc "The retained prompt and separately supplied output format, without rebuilding either."
+  def submitted(sections, prefix) do
+    [
+      "<p class=\"prompt-legend\">Responder's retained submission; provider-owned instructions and wrappers are not recorded here. Point to or focus a highlight to identify its component.</p>",
+      Enum.map(
+        [
+          {"request", "Prompt",
+           "The exact retained prompt text, including its messages and context.", "Prompt text",
+           "$.prompt"},
+          {"contract", "Response format", "Supplied alongside the prompt, not added to its text.",
+           "Output contract", "$.output_schema"}
+        ],
+        fn {id, title, description, component, path} ->
+          case Enum.find(sections, &(&1.id == id)) do
+            nil ->
+              []
+
+            section ->
+              group(
+                title,
+                description,
+                submitted_source(section.artifact, id, component, path, prefix)
+              )
+          end
+        end
+      )
+    ]
+  end
+
+  defp contract(artifact, prefix),
+    do: submitted_source(artifact, "contract", "Output contract", "$.output_schema", prefix)
+
+  defp submitted_source(artifact, id, title, path, prefix) do
+    state = artifact_availability(artifact)
+
     source(
-      "contract",
-      "$.output_schema",
-      text,
-      {"Required output contract", "policy", "Response format",
-       "The structure the model was asked to return."},
-      ["<pre class=\"model-document-text\">", escape(text), "</pre>"],
+      id,
+      path,
+      artifact.text,
+      {title, "policy", "Retained submission", "Sanitized for inspection; secrets are redacted."},
+      if(artifact.state == :retained,
+        do: PromptDocument.render(artifact),
+        else: ["<p>", state, ". No reconstructed substitute is shown.</p>"]
+      ),
       false,
-      prefix
+      prefix,
+      state
     )
   end
 
-  defp contract(_, _), do: "<p>Output contract not recorded.</p>"
+  defp artifact_availability(%{state: :expired}), do: "Expired"
+  defp artifact_availability(%{state: :not_recorded}), do: "Not recorded"
+  defp artifact_availability(%{truncated: true}), do: "Partial display"
+  defp artifact_availability(_), do: nil
 
   defp group(title, description, content),
     do: [
@@ -441,8 +482,7 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       if(open, do: " open", else: ""),
       "><summary>",
       "<span class=\"prompt-source-state\">",
-      if(state_override || value in [nil, [], %{}, ""], do: [state, " · "], else: []),
-      estimated_tokens(value),
+      source_state(value, state, state_override),
       "</span>",
       "<span class=\"prompt-source-title\">",
       escape(title),
@@ -459,6 +499,15 @@ defmodule Responder.ControlPlane.RequestContextHTML do
       "</div></details>"
     ]
   end
+
+  defp source_state(_value, state, unavailable) when unavailable in ["Expired", "Not recorded"],
+    do: state
+
+  defp source_state(value, state, override),
+    do: [
+      if(override || value in [nil, [], %{}, ""], do: [state, " · "], else: []),
+      estimated_tokens(value)
+    ]
 
   # Provider totals are measured separately. Component counts are estimates over
   # the displayed, sanitized text, not fabricated provider tokenizer receipts.
