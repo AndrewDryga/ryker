@@ -20,6 +20,8 @@ defmodule Responder.State.Behaviors do
   alias Responder.State.{
     Behavior,
     BehaviorChangeset,
+    MemorySearchPage,
+    MemorySourceLink,
     Record,
     RecordChangeset,
     StandingAssignmentRun,
@@ -324,22 +326,18 @@ defmodule Responder.State.Behaviors do
   def search_guidance(context, query, scope, limit)
       when is_map(context) and is_binary(query) and is_binary(scope) and is_integer(limit) and
              limit in 1..50 do
-    case retrieval_context(context) do
-      {:ok, context} ->
-        active_for_context(:guidance, context)
-        |> Enum.filter(fn behavior ->
-          guidance_scope?(behavior, scope, context) and
-            behavior
-            |> guidance_document()
-            |> CanonicalJSON.encode!()
-            |> String.downcase()
-            |> String.contains?(String.downcase(query))
-        end)
-        |> Enum.take(limit)
-        |> account_guidance()
-
-      {:error, _reason} ->
-        []
+    with {:ok, context} <- retrieval_context(context),
+         {:ok, documents} <-
+           Repo.transaction(fn ->
+             MemorySearchPage.read(
+               MemorySearchPage.first(query, scope),
+               limit,
+               &search_page(context, &1)
+             )
+           end) do
+      documents
+    else
+      _ -> []
     end
   end
 
@@ -355,20 +353,46 @@ defmodule Responder.State.Behaviors do
   defp account_guidance([]), do: []
 
   defp account_guidance(behaviors) do
-    ids = Enum.map(behaviors, & &1.id)
     now = database_now!()
 
-    Repo.update_all(from(behavior in Behavior, where: behavior.id in ^ids),
-      inc: [use_count: 1],
-      set: [last_used_at: now]
-    )
+    unchanged =
+      Enum.reduce(behaviors, dynamic(false), fn behavior, condition ->
+        dynamic(
+          [current],
+          ^condition or
+            (current.id == ^behavior.id and current.payload == ^behavior.payload and
+               current.revision == ^behavior.revision)
+        )
+      end)
 
-    Enum.map(behaviors, &guidance_document/1)
+    {_count, ids} =
+      Repo.update_all(
+        from(behavior in Behavior,
+          where: ^unchanged,
+          where:
+            behavior.status == :active and
+              (is_nil(behavior.expires_at) or behavior.expires_at > fragment("clock_timestamp()")),
+          select: behavior.id
+        ),
+        inc: [use_count: 1],
+        set: [last_used_at: now]
+      )
+
+    retained = MapSet.new(ids)
+    behaviors |> Enum.filter(&MapSet.member?(retained, &1.id)) |> Enum.map(&guidance_document/1)
   end
 
   defp guidance_document(behavior) do
     %{
       "behavior_ref" => behavior.ref,
+      "confirmed_at" => DateTime.to_iso8601(behavior.confirmed_at),
+      "expires_at" => if(behavior.expires_at, do: DateTime.to_iso8601(behavior.expires_at)),
+      "source_read" =>
+        MemorySourceLink.message(
+          behavior.source_transport,
+          behavior.source_conversation_ref,
+          behavior.source_message_ref
+        ),
       "kind" => "guidance",
       "scope" => Atom.to_string(behavior.scope_kind),
       "subject" => behavior.payload["subject"],
@@ -389,23 +413,66 @@ defmodule Responder.State.Behaviors do
 
   defp put_edit_provenance(document, _behavior), do: document
 
-  defp guidance_scope?(
-         %Behavior{scope_kind: :conversation, scope_ref: ref},
-         "current_channel",
-         context
-       ),
-       do: ref == context.conversation_ref
+  @doc false
+  def search_page(context, page) do
+    case retrieval_context(context) do
+      {:ok, context} -> search_visible_page(context, page)
+      _ -> :done
+    end
+  end
 
-  defp guidance_scope?(%Behavior{scope_kind: :repository, scope_ref: ref}, "repository", context),
-    do: ref == context.repository
+  defp search_visible_page(context, page) do
+    scoped = search_scope(context, page.scope)
+    visible = behavior_visibility_filter(:guidance, context)
 
-  defp guidance_scope?(%Behavior{scope_kind: :workspace, scope_ref: ref}, "workspace", context),
-    do: ref == context.workspace_ref
+    query =
+      from(b in Behavior,
+        where:
+          b.workspace_ref == ^context.workspace_ref and b.kind == :guidance and
+            b.status == :active and
+            (is_nil(b.expires_at) or b.expires_at > fragment("clock_timestamp()")),
+        where: ^scoped,
+        where: ^visible
+      )
 
-  defp guidance_scope?(%Behavior{scope_kind: :operator, scope_ref: ref}, "mine", context),
-    do: ref == context.operator_ref
+    changed =
+      dynamic(
+        [b],
+        type(fragment("COALESCE(?, ?)", b.edited_at, b.confirmed_at), :utc_datetime_usec)
+      )
 
-  defp guidance_scope?(_behavior, _scope, _context), do: false
+    query
+    |> MemorySearchPage.one(
+      page,
+      dynamic([b], b.payload),
+      changed,
+      dynamic([b], b.confirmed_at)
+    )
+    |> account_search_result()
+  end
+
+  defp search_scope(context, "current_channel"),
+    do: dynamic([b], b.scope_kind == :conversation and b.scope_ref == ^context.conversation_ref)
+
+  defp search_scope(%{repository: repository}, "repository") when is_binary(repository),
+    do: dynamic([b], b.scope_kind == :repository and b.scope_ref == ^repository)
+
+  defp search_scope(context, "workspace"),
+    do: dynamic([b], b.scope_kind == :workspace and b.scope_ref == ^context.workspace_ref)
+
+  defp search_scope(%{operator_ref: operator}, "mine") when is_binary(operator),
+    do: dynamic([b], b.scope_kind == :operator and b.scope_ref == ^operator)
+
+  defp search_scope(_context, _scope), do: dynamic([b], false)
+
+  defp account_search_result({:ok, behavior, position}) do
+    case account_guidance([behavior]) do
+      [document] -> {:ok, document, position}
+      [] -> {:skip, position}
+    end
+  end
+
+  defp account_search_result(:done), do: :done
 
   @doc "Returns true only when an active channel assignment matches trusted source identity and event shape."
   @spec standing_match?(Input.t()) :: boolean()
@@ -679,6 +746,7 @@ defmodule Responder.State.Behaviors do
 
   defp insert_behavior(record, episode, attributes, prepared) do
     id = Ecto.UUID.generate()
+    now = database_now!()
 
     prepared
     |> Map.merge(%{
@@ -695,6 +763,8 @@ defmodule Responder.State.Behaviors do
       status: :active
     })
     |> BehaviorChangeset.insert()
+    |> Ecto.Changeset.put_change(:inserted_at, now)
+    |> Ecto.Changeset.put_change(:updated_at, now)
     |> Repo.insert()
     |> case do
       {:ok, behavior} -> {:ok, behavior}

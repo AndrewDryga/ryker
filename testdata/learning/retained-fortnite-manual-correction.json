@@ -1,0 +1,158 @@
+{
+  "source": {
+    "database": "responder_blitz_history_20260906_m8zykx",
+    "snapshot_at": "2026-09-08T14:54:00.462249+00:00",
+    "note": "Exact source fields harvested by a read-only query. These original inputs are not expected model answers; later acknowledgements, testing, and deployment messages in the thread are deliberately excluded."
+  },
+  "inputs": [
+    {
+      "id": "dd741c66-921a-4e6b-88a1-1c3cdf5f3dda",
+      "dedupe_key": "ingress-event:72ef8ce9f083fa0c3569941bfb9c1c08c9ddf70fdc574f5080c542ee582f3dc1",
+      "event_ref": "blitz-backfill:20260906:C04EG373MD5:1788423216.136609",
+      "event_fingerprint": "03bd7afed1bbc8b9fd75759cace9c849da209b02df810d28eaf22ed7a5c4b7e2",
+      "source_kind": "slack",
+      "source_ref": "T01J1LW4DF1",
+      "native_input_id": "slack-message:2f8863ac1f86a8552ffd82d3578e53ba9a967f66b404e185e9eb2823c9df2cb2",
+      "source_item_ref": "1788423216.136609",
+      "actor_ref": "A04FC43DC3F",
+      "actor_kind": "app",
+      "revision": 7153692864546436,
+      "content": {
+        "text": "A new version has been released. *Game:* Fortnite *Publisher:* Epic *Manifest:* DwWOJnYyR2ooRe5E9k22rCpzSQezCQ *Label:* Live-Windows *Version:* ++Fortnite+Release-42.10-CL-57566230-Windows",
+        "files": [],
+        "blocks": [
+          {
+            "text": {
+              "text": "A new version has been released.",
+              "type": "mrkdwn",
+              "verbatim": false
+            },
+            "type": "section",
+            "block_id": "pkX05"
+          },
+          {
+            "text": {
+              "text": "*Game:* Fortnite\n*Publisher:* Epic\n*Manifest:* DwWOJnYyR2ooRe5E9k22rCpzSQezCQ\n*Label:* Live-Windows\n*Version:* ++Fortnite+Release-42.10-CL-57566230-Windows",
+              "type": "mrkdwn",
+              "verbatim": false
+            },
+            "type": "section",
+            "block_id": "BkIki",
+            "accessory": {
+              "type": "image",
+              "alt_text": "Fortnite",
+              "image_url": "http://slack.blitz-server.com.br/images/icon_fortnite.png"
+            }
+          },
+          {
+            "text": {
+              "text": "<!subteam^S01JL54RJ6R|QA Team> <@U01UDEM2QNR> <@U034C9C4LLB> <@U038BLZ9215> ",
+              "type": "mrkdwn",
+              "verbatim": false
+            },
+            "type": "section",
+            "block_id": "1PG3k"
+          }
+        ],
+        "subtype": null,
+        "attachments": [],
+        "slack_event_kind": "message"
+      },
+      "destination_transport": "slack",
+      "destination_conversation_ref": "slack:T01J1LW4DF1:C04EG373MD5",
+      "destination_thread_ref": "1788423216.136609",
+      "repository_ref": "blitz-infra",
+      "event_kind": "message",
+      "occurred_at": "2026-09-03T08:13:36.136609",
+      "execution_mode": "live"
+    },
+    {
+      "id": "d60fa803-de87-49a4-9672-cd7561176f1d",
+      "dedupe_key": "ingress-event:acff1c876223934a0d868f6841060cef7464ff4fdb0e47091c331f559eaae6ea",
+      "event_ref": "blitz-backfill:20260906:C04EG373MD5:1788451965.171559",
+      "event_fingerprint": "12a59305a4eb54fb94ae55cba910d41e80c12da4b2f198e7511f35c2997f3c2d",
+      "source_kind": "slack",
+      "source_ref": "T01J1LW4DF1",
+      "native_input_id": "slack-message:473e93fc430ae56f64fcbdaa345486873a58d5f53836e12ddd42e2415cefe039",
+      "source_item_ref": "1788451965.171559",
+      "actor_ref": "U0B1ZF12S49",
+      "actor_kind": "user",
+      "revision": 7153807860686236,
+      "content": {
+        "text": "It looks like this got stuck.\nI can see the Fortnite services up and running.",
+        "files": [],
+        "blocks": [
+          {
+            "type": "rich_text",
+            "block_id": "Pdqtc",
+            "elements": [
+              {
+                "type": "rich_text_section",
+                "elements": [
+                  {
+                    "text": "It looks like this got stuck.\nI can see the Fortnite services up and running.",
+                    "type": "text"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "subtype": null,
+        "attachments": [],
+        "slack_event_kind": "message"
+      },
+      "destination_transport": "slack",
+      "destination_conversation_ref": "slack:T01J1LW4DF1:C04EG373MD5",
+      "destination_thread_ref": "1788423216.136609",
+      "repository_ref": "blitz-infra",
+      "event_kind": "message",
+      "occurred_at": "2026-09-03T16:12:45.171559",
+      "execution_mode": "live"
+    },
+    {
+      "id": "8a63e905-e066-41aa-b7de-5e58b8313c11",
+      "dedupe_key": "ingress-event:ee7b6eff399bd1ef86fcc3e8173eff5f452acd3b66b086ec7811eb670697b3e8",
+      "event_ref": "blitz-backfill:20260906:C04EG373MD5:1788452069.117399",
+      "event_fingerprint": "ea692bd7c5f3e51bd7fad2f866f9e9ff94dde2a1ba0a084257c0545e10a6c4cd",
+      "source_kind": "slack",
+      "source_ref": "T01J1LW4DF1",
+      "native_input_id": "slack-message:96a1416c4f6f10370d5be45f92840ea2ab41d6aee58f91824b76f1b60c3fe66c",
+      "source_item_ref": "1788452069.117399",
+      "actor_ref": "U034C9C4LLB",
+      "actor_kind": "user",
+      "revision": 7153808276469596,
+      "content": {
+        "text": "Nothing is stuck, this is done manually. Just woke up",
+        "files": [],
+        "blocks": [
+          {
+            "type": "rich_text",
+            "block_id": "qGRGB",
+            "elements": [
+              {
+                "type": "rich_text_section",
+                "elements": [
+                  {
+                    "text": "Nothing is stuck, this is done manually. Just woke up",
+                    "type": "text"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "subtype": null,
+        "attachments": [],
+        "slack_event_kind": "message"
+      },
+      "destination_transport": "slack",
+      "destination_conversation_ref": "slack:T01J1LW4DF1:C04EG373MD5",
+      "destination_thread_ref": "1788423216.136609",
+      "repository_ref": "blitz-infra",
+      "event_kind": "message",
+      "occurred_at": "2026-09-03T16:14:29.117399",
+      "execution_mode": "live"
+    }
+  ]
+}

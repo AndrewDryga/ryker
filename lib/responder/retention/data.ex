@@ -281,13 +281,13 @@ defmodule Responder.Retention.Data do
         [cutoff]
       )
 
-    _admission_sessions =
+    _non_work_sessions =
       execute_count(
         """
         WITH candidates AS (
           SELECT session.id
           FROM episode_work_sessions AS session
-          WHERE session.execution_kind = 'admission'
+          WHERE session.execution_kind IN ('admission', 'learning')
             AND session.cleanup_status = 'discarded'
             AND NOT session.activity_sync_pending
             AND session.updated_at < clock_timestamp() - ($1 * interval '1 second')

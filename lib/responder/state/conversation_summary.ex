@@ -22,6 +22,8 @@ defmodule Responder.State.ConversationSummary do
     field(:source_turn_id, :binary_id)
     field(:source_result_ref, :string)
     field(:source_message_ref, :string)
+    field(:compaction_error_code, :string)
+    field(:compaction_retry_at, :utc_datetime_usec)
     field(:recall_count, :integer, default: 0)
     field(:last_recalled_at, :utc_datetime_usec)
     timestamps(type: :utc_datetime_usec)

@@ -6,6 +6,7 @@ defmodule Responder.ControlPlane.Router do
 
   alias Phoenix.HTML.Safe
   alias Plug.Conn.Query
+  alias Responder.CanonicalJSON
 
   alias Responder.ControlPlane.{
     BehaviorLibrary,
@@ -13,8 +14,12 @@ defmodule Responder.ControlPlane.Router do
     CardLab,
     CardLabSlackHTML,
     CSRF,
-    HTML
+    HTML,
+    LearningActivity,
+    RelearnPanel
   }
+
+  alias Responder.Learning.Operator, as: LearningOperator
 
   @behaviour Plug
   @maximum_form_bytes 4_096
@@ -666,6 +671,105 @@ defmodule Responder.ControlPlane.Router do
       |> Safe.to_iodata()
 
     html(conn, 200, BehaviorPage.title(kind), body)
+  end
+
+  defp route(
+         %Plug.Conn{method: "POST", path_info: ["actions", "learning", id, "retry"]} = conn,
+         options
+       ) do
+    with {:ok, ^id} <- Ecto.UUID.cast(id),
+         {:ok, form, conn} <- learning_retry_form(conn),
+         true <-
+           CSRF.valid?(
+             options.csrf_secret,
+             "learning:retry",
+             LearningActivity.retry_resource(id, form.version),
+             form.token
+           ),
+         {:ok, _receipt} <-
+           LearningOperator.retry(
+             id,
+             form.version,
+             "control-plane:local",
+             "control-plane:learning-retry:#{id}:#{form.version}"
+           ) do
+      conn
+      |> put_resp_header("location", LearningActivity.path(id))
+      |> send_resp(303, "")
+      |> halt()
+    else
+      false -> text(conn, 403, "Invalid confirmation token")
+      :error -> text(conn, 400, "Invalid learning batch")
+      {:error, :form} -> text(conn, 400, "Invalid retry form")
+      {:error, reason} -> text(conn, 409, LearningActivity.error(reason))
+    end
+  end
+
+  defp route(
+         %Plug.Conn{method: "POST", path_info: ["actions", "knowledge", id, "relearn"]} = conn,
+         options
+       ) do
+    with {:ok, ^id} <- Ecto.UUID.cast(id),
+         {:ok, form, conn} <- learning_source_form(conn, [:version, :generation]),
+         true <-
+           CSRF.valid?(
+             options.csrf_secret,
+             "knowledge:relearn",
+             RelearnPanel.resource(id, form.version, form.generation),
+             form.token
+           ),
+         {:ok, %{outcome: %{"batch_id" => batch_id}}} <-
+           LearningOperator.rebuild(
+             id,
+             form.version,
+             form.generation,
+             form.sources,
+             "control-plane:local",
+             "control-plane:knowledge-relearn:#{id}:#{form.version}:#{form.generation}"
+           ) do
+      learning_redirect(conn, batch_id)
+    else
+      false -> text(conn, 403, "Invalid confirmation token")
+      :error -> text(conn, 400, "Invalid knowledge topic")
+      {:error, :form} -> text(conn, 400, RelearnPanel.reason(:form))
+      {:error, reason} -> text(conn, 409, RelearnPanel.reason(reason))
+    end
+  end
+
+  defp route(
+         %Plug.Conn{method: "POST", path_info: ["actions", "learning", id, "reselect"]} = conn,
+         options
+       ) do
+    with {:ok, ^id} <- Ecto.UUID.cast(id),
+         {:ok, form, conn} <- learning_source_form(conn, [:budget_version, :version, :generation]),
+         true <-
+           CSRF.valid?(
+             options.csrf_secret,
+             "learning:reselect",
+             RelearnPanel.reselect_resource(
+               id,
+               form.budget_version,
+               form.version,
+               form.generation
+             ),
+             form.token
+           ),
+         {:ok, %{outcome: %{"batch_id" => batch_id}}} <-
+           LearningOperator.reselect(
+             id,
+             form.budget_version,
+             %{version: form.version, generation: form.generation},
+             form.sources,
+             "control-plane:local",
+             "control-plane:learning-reselect:#{id}:#{form.budget_version}"
+           ) do
+      learning_redirect(conn, batch_id)
+    else
+      false -> text(conn, 403, "Invalid confirmation token")
+      :error -> text(conn, 400, "Invalid learning request")
+      {:error, :form} -> text(conn, 400, RelearnPanel.reason(:form))
+      {:error, reason} -> text(conn, 409, RelearnPanel.reason(reason))
+    end
   end
 
   defp route(%Plug.Conn{method: "GET", path_info: ["configuration"]} = conn, options) do
@@ -1565,6 +1669,97 @@ defmodule Responder.ControlPlane.Router do
     end
   end
 
+  defp learning_retry_form(conn) do
+    with [content_type] <- get_req_header(conn, "content-type"),
+         true <-
+           String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
+         {:ok, body, conn} <- read_form(conn),
+         %{"_token" => token, "budget_version" => version} = form <- Query.decode(body),
+         true <- Enum.sort(Map.keys(form)) == ["_token", "budget_version"],
+         true <- is_binary(token) and is_binary(version),
+         {number, ""} when number in 0..2_147_483_647 <- Integer.parse(version) do
+      {:ok, %{token: token, version: number}, conn}
+    else
+      _ -> {:error, :form}
+    end
+  end
+
+  defp learning_redirect(conn, batch_id) do
+    conn
+    |> put_resp_header("location", LearningActivity.path(batch_id))
+    |> send_resp(303, "")
+    |> halt()
+  end
+
+  defp learning_source_form(conn, fields) do
+    keys = Enum.map(fields, &Atom.to_string/1)
+
+    with [content_type] <- get_req_header(conn, "content-type"),
+         true <-
+           String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
+         {:ok, body, conn} <- read_memory_form(conn),
+         %{"_token" => token, "sources" => sources} = form <- Query.decode(body),
+         true <- Enum.sort(Map.keys(form)) == Enum.sort(["_token", "sources" | keys]),
+         true <- is_binary(token),
+         {:ok, versions} <- learning_source_versions(form, fields),
+         {:ok, sources} <- learning_source_selection(sources) do
+      {:ok, Map.merge(versions, %{token: token, sources: sources}), conn}
+    else
+      _ -> {:error, :form}
+    end
+  rescue
+    Plug.Conn.InvalidQueryError -> {:error, :form}
+  end
+
+  defp learning_source_versions(form, fields) do
+    Enum.reduce_while(fields, {:ok, %{}}, fn field, {:ok, parsed} ->
+      minimum = if field == :budget_version, do: 0, else: 1
+
+      case learning_source_version(form[Atom.to_string(field)], minimum) do
+        number when is_integer(number) -> {:cont, {:ok, Map.put(parsed, field, number)}}
+        nil -> {:halt, {:error, :form}}
+      end
+    end)
+  end
+
+  defp learning_source_version(value, minimum) when is_binary(value) do
+    case Integer.parse(value) do
+      {number, ""} when number >= minimum and number <= 2_147_483_647 -> number
+      _ -> nil
+    end
+  end
+
+  defp learning_source_version(_, _), do: nil
+
+  defp learning_source_selection(values) when is_list(values) and length(values) in 1..16 do
+    sources = Enum.map(values, &decode_learning_source/1)
+
+    if Enum.all?(sources, &is_map/1) and
+         length(Enum.uniq_by(sources, & &1["source_input_id"])) == length(sources),
+       do: {:ok, sources},
+       else: {:error, :form}
+  end
+
+  defp learning_source_selection(_), do: {:error, :form}
+
+  defp decode_learning_source(value) when is_binary(value) and byte_size(value) <= 512 do
+    with {:ok, raw} <- Base.url_decode64(value, padding: false),
+         {:ok,
+          %{"source_input_id" => id, "revision" => revision, "fingerprint" => fingerprint} =
+            source} <- Jason.decode(raw),
+         true <- Enum.sort(Map.keys(source)) == ["fingerprint", "revision", "source_input_id"],
+         {:ok, ^id} <- Ecto.UUID.cast(id),
+         true <- is_integer(revision) and revision >= 1 and revision <= 9_223_372_036_854_775_807,
+         true <- is_binary(fingerprint) and Regex.match?(~r/\A[0-9a-f]{64}\z/, fingerprint),
+         true <- raw == CanonicalJSON.encode!(source) do
+      source
+    else
+      _ -> nil
+    end
+  end
+
+  defp decode_learning_source(_), do: nil
+
   defp memory_review_form(conn) do
     with [content_type] <- get_req_header(conn, "content-type"),
          true <-
@@ -1909,7 +2104,7 @@ defmodule Responder.ControlPlane.Router do
   defp card_lab_feedback_resource(card_id, state_id), do: "#{card_id}:#{state_id}"
 
   defp card_slack_resource(card, state, fields),
-    do: Responder.CanonicalJSON.digest([card, state, fields])
+    do: CanonicalJSON.digest([card, state, fields])
 
   defp card_slack_form(conn, keys) do
     with [content_type] <- get_req_header(conn, "content-type"),

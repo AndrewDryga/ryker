@@ -37,18 +37,14 @@ defmodule Responder.State.KnowledgeSourcesTest do
     assert item["version"] == 1
     assert [revision] = Repo.all(KnowledgeRevision)
     assert revision.source_result_ref == "learning-result:host-contract-test"
-    assert revision.source_dependencies == dependencies
+    assert LearningSources.expand(revision.source_dependencies) == dependencies
     assert revision.source_input_id == List.last(entries).id
     assert :ok = KnowledgeSnapshot.reauthorize(hd(entries), "blitz-infra", [item])
 
     # Filling a derived observation later does not change the raw source.
     assert {:ok, :ok} =
              Repo.transaction(fn ->
-               Observations.record_in_transaction(
-                 hd(entries),
-                 Map.take(proposal(), ~w(summary topics)),
-                 "later-observation"
-               )
+               Observations.record_excerpt_in_transaction(hd(entries))
              end)
 
     assert [^item] = Knowledge.context(hd(entries), "blitz-infra")
@@ -108,21 +104,25 @@ defmodule Responder.State.KnowledgeSourcesTest do
 
     older_roots =
       LearningSources.document_sources(offered)
+      |> LearningSources.expand()
       |> Enum.map(&Map.put(&1, "retained_at", DateTime.to_iso8601(older_at)))
 
     inherited = LearningSources.merge([LearningSources.for_entry(hd(entries)), older_roots])
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Observations.record_in_transaction(
-                 hd(entries),
-                 Map.take(offered, ~w(summary topics)),
-                 "old-derived-note",
-                 inherited
-               )
-             end)
+    # Construct the retired stored shape to prove raw learning never consumes
+    # its model-written prose or silently adopts its unrelated old dependencies.
+    source = Repo.get_by!(ConversationObservation, source_input_id: hd(entries).id)
+
+    source
+    |> Ecto.Changeset.change(
+      note: Map.take(offered, ~w(summary topics)),
+      source_result_ref: "old-derived-note",
+      source_dependencies: inherited
+    )
+    |> Repo.update!()
 
     before = Repo.all(ConversationObservation)
+    assert is_map(Repo.get!(ConversationObservation, hd(entries).id).note)
     raw = entries |> Enum.map(&LearningSources.for_entry/1) |> LearningSources.merge()
 
     assert {:ok, :ok} =
@@ -250,6 +250,7 @@ defmodule Responder.State.KnowledgeSourcesTest do
         "Grafana reported the website/haproxy-edge OOM warning resolved. CONSTRAINT_MEMCG describes a workload memory-limit breach, not host RAM exhaustion. Application recovery remains unverified.",
       "topics" => ["website", "haproxy-edge", "OOM"],
       "target_ref" => nil,
+      "anchors" => [],
       "expected_version" => 0
     }
   end

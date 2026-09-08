@@ -6,7 +6,6 @@ defmodule Responder.Admission.PromptTest do
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Ingress.Input
   alias Responder.Slack.Input, as: SlackInput
-  alias Responder.State.Observations
 
   test "addressing remains visible outside a truncated input and does not grant authority" do
     input =
@@ -197,7 +196,6 @@ defmodule Responder.Admission.PromptTest do
       "topics" => Enum.map(1..8, &(String.duplicate("\\", 79) <> Integer.to_string(&1)))
     }
 
-    assert {:ok, ^note} = Observations.prepare(note)
     addressing = %{"audience" => "ambient", "responder_user_ref" => String.duplicate("U", 256)}
 
     context = %Context{

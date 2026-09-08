@@ -16,6 +16,7 @@ defmodule Responder.Evals.WorldRunnerTest do
     WorldCase,
     WorldCassette,
     WorldCoverage,
+    WorldJudgeCase,
     WorldReport,
     WorldRunner
   }
@@ -412,7 +413,7 @@ defmodule Responder.Evals.WorldRunnerTest do
              Repo.all(Responder.Episodes.Episode)
 
     assert length(episode.queued_input_refs) == 1
-    assert [%{"ref" => ^wait_ref, "status" => "open"}] = Records.model_records(episode.id)
+    assert [%{"ref" => ^wait_ref, "status" => "open"}] = Records.retained_records(episode.id)
 
     assert :ok =
              WorldRunner.run_cleanup(
@@ -502,6 +503,63 @@ defmodule Responder.Evals.WorldRunnerTest do
     assert scenario.id in coverage.failure_axes["reconnect"]
   end
 
+  test "historical source timestamps stay consistent with captured evidence and judge inputs" do
+    # A paid Airflow run was judged wrong after the harness changed an August 27
+    # apply into September 8 but left the source observations and judge on August 27.
+    {:ok, scenario} = WorldCase.fetch("airflow-verification-arms-wait")
+
+    fake =
+      start_supervised!(%{
+        id: FakeWorkCoopAPI,
+        start: {FakeWorkCoopAPI, :start_link, [[]]}
+      })
+
+    cassette = start_supervised!({WorldCassette, scenario})
+    {:ok, before_execute} = WorldHostReplay.before_execute(scenario, fake, cassette: cassette)
+
+    assert {:ok, report} =
+             WorldRunner.run(scenario,
+               api: FakeWorkCoopAPI,
+               before_execute: before_execute,
+               cassette: cassette,
+               client: fake,
+               policy: "world-eval-read-only",
+               policy_digest: @policy_digest,
+               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+               state_tools_secret: "world-eval-state-tools-secret"
+             )
+
+    [initial | wakeups] = report.runtime.turns
+    source_at = hd(scenario.events)["occurred_at"]
+    assert {:ok, expected_at, 0} = DateTime.from_iso8601(source_at)
+    assert {:ok, actual_at, 0} = DateTime.from_iso8601(initial.input_clock.applied_occurred_at)
+    assert DateTime.compare(actual_at, expected_at) == :gt
+    assert initial.input_clock.adjustment == "causal_rebase"
+    assert initial.input_clock.scenario_occurred_at == source_at
+
+    turn = Repo.get!(Turn, initial.turn_id)
+    [submitted] = get_in(turn.submission, ["context", "inputs", "items"])
+    envelope = submitted["content"]
+    assert envelope["occurred_at_source"] == "ingress"
+    clock = envelope["content"]["world_replay_clock"]
+    assert clock["source_occurred_at"] == source_at
+    assert clock["host_received_at"] == initial.input_clock.applied_occurred_at
+    assert clock["scenario_occurred_at_source"] == "source"
+    assert Map.delete(envelope["content"], "world_replay_clock") == hd(scenario.events)["payload"]
+
+    assert {:ok, judge} = WorldJudgeCase.new(scenario, report)
+    judged = Jason.decode!(judge.prompt)["evidence"]
+    assert hd(judged["source_events"])["occurred_at"] == source_at
+    assert hd(judged["input_clocks"])["source_occurred_at"] == source_at
+    assert hd(judged["input_clocks"])["applied_occurred_at"] == clock["host_received_at"]
+    assert judged["source_events"] == scenario.events
+
+    assert Enum.all?(wakeups, fn turn ->
+             turn.input_clock.adjustment == "persisted_wait_due_at" and
+               turn.input_clock.applied_occurred_at != turn.input_clock.scenario_occurred_at
+           end)
+  end
+
   test "a harvested bounded timer resumes through production custody with its actual system identity" do
     # A real Airflow model chose after=10m with a 15-minute deadline. The evaluator
     # required a source-only poll subscription and erased the valid scheduled continuation.
@@ -513,9 +571,8 @@ defmodule Responder.Evals.WorldRunnerTest do
     {:ok, scenario} = WorldCase.fetch("airflow-verification-arms-wait")
     scenario = harvested_timer_scenario(scenario, harvested)
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    {:ok, cassette} = WorldCassette.start_link(scenario)
+    {:ok, cassette} = start_supervised({WorldCassette, scenario})
     on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
-    on_exit(fn -> if Process.alive?(cassette), do: GenServer.stop(cassette) end)
     {:ok, before_execute} = WorldHostReplay.before_execute(scenario, fake, cassette: cassette)
 
     assert {:ok, report} =
@@ -605,9 +662,8 @@ defmodule Responder.Evals.WorldRunnerTest do
 
     {:ok, scenario} = WorldCase.fetch("airflow-verification-arms-wait")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
-    {:ok, cassette} = WorldCassette.start_link(scenario)
+    {:ok, cassette} = start_supervised({WorldCassette, scenario})
     on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
-    on_exit(fn -> if Process.alive?(cassette), do: GenServer.stop(cassette) end)
     before_execute = harvested_completion_replay(harvested, fake, cassette)
 
     assert {:ok, report} =
@@ -723,10 +779,14 @@ defmodule Responder.Evals.WorldRunnerTest do
       # A valid-looking open event_wait is insufficient timer custody: the exact
       # active subscription and its bounded due window must still authorize the wakeup.
       {:ok, scenario} = WorldCase.fetch("airflow-verification-arms-wait")
-      {:ok, fake} = FakeWorkCoopAPI.start_link([])
-      {:ok, cassette} = WorldCassette.start_link(scenario)
-      on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
-      on_exit(fn -> if Process.alive?(cassette), do: GenServer.stop(cassette) end)
+
+      fake =
+        start_supervised!(%{
+          id: FakeWorkCoopAPI,
+          start: {FakeWorkCoopAPI, :start_link, [[]]}
+        })
+
+      cassette = start_supervised!({WorldCassette, scenario})
 
       assert {:ok, before_execute} =
                WorldHostReplay.before_execute(scenario, fake, cassette: cassette)
@@ -1020,10 +1080,9 @@ defmodule Responder.Evals.WorldRunnerTest do
         FakeWorkCoopAPI.start_link([], companions: scenario_companions(scenario))
 
       {:ok, turn_counter} = Agent.start_link(fn -> 0 end)
-      {:ok, cassette} = WorldCassette.start_link(scenario)
+      {:ok, cassette} = start_supervised({WorldCassette, scenario})
       on_exit(fn -> if Process.alive?(fake), do: Agent.stop(fake) end)
       on_exit(fn -> if Process.alive?(turn_counter), do: Agent.stop(turn_counter) end)
-      on_exit(fn -> if Process.alive?(cassette), do: GenServer.stop(cassette) end)
 
       before_execute =
         if scenario.host_replay["model_events"] == [] do
@@ -1411,7 +1470,15 @@ defmodule Responder.Evals.WorldRunnerTest do
         [turn] = turns
         [input] = get_in(turn.submission, ["context", "inputs", "items"])
         envelope = input["content"]
-        assert envelope["content"] == hd(scenario.events)["payload"]
+
+        assert Map.delete(envelope["content"], "world_replay_clock") ==
+                 hd(scenario.events)["payload"]
+
+        assert envelope["content"]["world_replay_clock"]["source_occurred_at"] == nil
+
+        assert envelope["content"]["world_replay_clock"]["scenario_occurred_at_source"] ==
+                 "ingress"
+
         assert envelope["destination"] == hd(scenario.events)["destination"]
         assert envelope["source"] == %{"kind" => "control_plane", "ref" => "local"}
 

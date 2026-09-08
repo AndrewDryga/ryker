@@ -6,7 +6,7 @@ defmodule Responder.State.TaskOffersTest do
   alias Responder.Publication.Changeset
   alias Responder.Repo
   alias Responder.Slack.{TaskCard, TaskCardProjection, TaskCards, TaskCardWorker}
-  alias Responder.State.{Record, Records, TaskOffers}
+  alias Responder.State.{KnowledgeSnapshot, Record, Records, TaskOffers}
   alias Responder.Work.{Custody, DeliveryReceipt, Result, Session, Submission}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -221,7 +221,7 @@ defmodule Responder.State.TaskOffersTest do
 
     stored = Repo.get!(TaskCard, card.id)
     assert stored.card_fingerprint =~ ~r/\A[0-9a-f]{64}\z/
-    assert stored.card_ui_revision == 4
+    assert stored.card_ui_revision == 5
     assert task["progress"] == []
     assert task["goals"] == []
     refute stored.lease_ref
@@ -231,6 +231,7 @@ defmodule Responder.State.TaskOffersTest do
 
     assert {:ok, claim} = Custody.claim_next("task-card-progress", 60, :work)
     assert claim.episode.id == confirmation.episode.id
+    assert :ok = KnowledgeSnapshot.expose(claim, [])
 
     assert {:ok, _progress} =
              Records.create(Records.token(claim.turn), "task-progress", "progress", %{
@@ -269,6 +270,7 @@ defmodule Responder.State.TaskOffersTest do
   test "task cards explain waits, terminal work, and blocked custody from durable state" do
     waiting = confirmed_card!("waiting")
     assert {:ok, waiting_claim} = Custody.claim_next("task-card:waiting", 60, :work)
+    assert :ok = KnowledgeSnapshot.expose(waiting_claim, [])
 
     assert {:ok, question} =
              Records.create(
@@ -541,13 +543,15 @@ defmodule Responder.State.TaskOffersTest do
     assert {:ok, projection} = TaskCardProjection.build(blocked.card)
     task = projection.document["task_card"]
     assert task["status"] == "action_required"
-    assert task["action_needed"] =~ "branch protection"
+    assert task["action_needed"] =~ "operator attention"
+    refute task["action_needed"] =~ "branch protection"
     assert task["publication"]["controls"] == ["update", "discard"]
   end
 
   test "task cards expose event verification and stop-in-progress without losing their thread" do
     event_wait = confirmed_card!("event-record")
     assert {:ok, claim} = Custody.claim_next("task-card:event-record", 60, :work)
+    assert :ok = KnowledgeSnapshot.expose(claim, [])
 
     deadline = ~U[2099-08-28 13:00:00.000000Z]
 
@@ -619,6 +623,10 @@ defmodule Responder.State.TaskOffersTest do
              Custody.pin_episode(episode_id, "responder-read", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:task-offer:#{suffix}", 60, :work)
+
+    # These existing structural task fixtures disclose no external knowledge;
+    # attest that explicitly instead of treating missing lineage as authority.
+    assert :ok = KnowledgeSnapshot.expose(claim, [])
 
     records =
       payloads

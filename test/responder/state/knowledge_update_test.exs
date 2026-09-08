@@ -11,6 +11,7 @@ defmodule Responder.State.KnowledgeUpdateTest do
       "summary" =>
         "U03EPT4RP5M wants to keep `draft-ai-suggestions` and plans to look into it at an unspecified future time.",
       "topics" => ["draft-ai-suggestions"],
+      "anchors" => [],
       "target_ref" => nil,
       "expected_version" => 0
     }
@@ -22,6 +23,9 @@ defmodule Responder.State.KnowledgeUpdateTest do
           %{"title" => " \n\t"},
           %{"summary" => <<0>>},
           %{"topics" => [" "]},
+          %{"anchors" => [" "]},
+          %{"anchors" => ["same", "same"]},
+          %{"anchors" => Enum.map(1..9, &to_string/1)},
           %{
             "target_ref" => "knowledge:------------------------------------",
             "expected_version" => 1
@@ -51,7 +55,10 @@ defmodule Responder.State.KnowledgeUpdateTest do
       assert {:error, _} = JSV.validate(invalid, schema, cast: false)
     end
 
-    valid = Map.put(decision, "observation", Map.take(proposal, ~w(summary topics)))
+    with_note = Map.put(decision, "observation", Map.take(proposal, ~w(summary topics)))
+    assert {:error, _} = Decision.parse(with_note)
+    assert {:error, _} = JSV.validate(with_note, schema, cast: false)
+    valid = Map.delete(decision, "knowledge")
     assert {:ok, _} = Decision.parse(valid)
     assert {:ok, ^valid} = JSV.validate(valid, schema, cast: false)
   end

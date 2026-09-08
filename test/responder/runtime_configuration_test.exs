@@ -24,7 +24,7 @@ defmodule Responder.RuntimeConfigurationTest do
     configuration = RuntimeConfiguration.load!(@example, env_provider: env_provider)
 
     assert Map.keys(configuration) |> Enum.sort() ==
-             ~w(admission control_plane coop_worker_gateway cutover_profiles delivery emisar event_waits github model_evals publication retention runtime_mode schedules slack state_tools webhooks work)a
+             ~w(admission control_plane coop_worker_gateway cutover_profiles delivery emisar event_waits github learning model_evals publication retention runtime_mode schedules slack state_tools webhooks work)a
 
     assert configuration.runtime_mode == :product
     assert configuration.webhooks.routes["universal"].adapter == %{kind: :universal}
@@ -49,6 +49,10 @@ defmodule Responder.RuntimeConfigurationTest do
     assert configuration.admission.worker_ref == "responder-a:admission"
     assert configuration.admission.api == Responder.CoopFleet.Client
     assert configuration.admission.client == configuration.work.client
+    assert configuration.learning.api == Responder.CoopFleet.Client
+    assert configuration.learning.client == configuration.work.client
+    assert configuration.learning.worker_ref == "responder-a:learning"
+    assert configuration.learning.concurrency == 1
     refute Map.has_key?(configuration.admission, :socket)
     assert configuration.model_evals.world_policy == "responder-eval-world-v1"
 

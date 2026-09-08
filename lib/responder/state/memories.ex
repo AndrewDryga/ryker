@@ -22,6 +22,8 @@ defmodule Responder.State.Memories do
     MemoryEntryChangeset,
     MemoryReviewItem,
     MemoryReviewItemChangeset,
+    MemorySearchPage,
+    MemorySourceLink,
     Record,
     RecordChangeset
   }
@@ -1316,6 +1318,7 @@ defmodule Responder.State.Memories do
 
   defp insert_entry(record, episode, attributes, prepared) do
     id = Ecto.UUID.generate()
+    now = database_now!()
 
     prepared
     |> Map.merge(%{
@@ -1332,6 +1335,7 @@ defmodule Responder.State.Memories do
       status: :active
     })
     |> MemoryEntryChangeset.insert()
+    |> Ecto.Changeset.change(inserted_at: now, updated_at: now)
     |> Repo.insert()
     |> case do
       {:ok, entry} -> {:ok, entry}
@@ -1379,23 +1383,64 @@ defmodule Responder.State.Memories do
   end
 
   defp search_locked(context, query, scope, limit) do
-    query = String.downcase(query)
-
-    entries =
-      visible_entries(context)
-      |> Enum.filter(fn entry ->
-        visible?(entry, context) and memory_search_scope?(entry, scope, context) and
-          entry
-          |> document()
-          |> CanonicalJSON.encode!()
-          |> String.downcase()
-          |> String.contains?(query)
-      end)
-      |> Enum.sort_by(&rank/1)
-      |> Enum.take(limit)
-
-    account_memory(entries)
+    MemorySearchPage.read(MemorySearchPage.first(query, scope), limit, &search_page(context, &1))
   end
+
+  @doc false
+  def search_page(context, page) do
+    case retrieval_context(context) do
+      {:ok, context} -> search_visible_page(context, page)
+      _ -> :done
+    end
+  end
+
+  defp search_visible_page(context, page) do
+    scoped = search_scope(context, page.scope)
+
+    query =
+      from(e in MemoryEntry,
+        where:
+          e.workspace_ref == ^context.workspace_ref and
+            e.status == :active and e.expires_at > fragment("clock_timestamp()"),
+        where: ^scoped,
+        where:
+          e.visibility == :workspace or
+            (e.visibility == :conversation and
+               e.source_conversation_ref == ^context.conversation_ref)
+      )
+
+    changed =
+      dynamic(
+        [e],
+        type(fragment("COALESCE(?, ?)", e.edited_at, e.confirmed_at), :utc_datetime_usec)
+      )
+
+    text = dynamic([e], fragment("? || ' ' || ?", e.subject, e.payload))
+
+    query
+    |> MemorySearchPage.one(page, text, changed, dynamic([e], e.confirmed_at))
+    |> account_search_result()
+  end
+
+  defp search_scope(context, "current_channel"),
+    do: dynamic([e], e.scope_kind == :conversation and e.scope_ref == ^context.conversation_ref)
+
+  defp search_scope(%{repository: repository}, "repository") when is_binary(repository),
+    do: dynamic([e], e.scope_kind == :repository and e.scope_ref == ^repository)
+
+  defp search_scope(context, "workspace"),
+    do: dynamic([e], e.scope_kind == :workspace and e.scope_ref == ^context.workspace_ref)
+
+  defp search_scope(_context, _scope), do: dynamic([e], false)
+
+  defp account_search_result({:ok, entry, position}) do
+    case account_memory([entry]) do
+      [document] -> {:ok, document, position}
+      [] -> {:skip, position}
+    end
+  end
+
+  defp account_search_result(:done), do: :done
 
   defp visible_entries(context) do
     now = database_now!()
@@ -1414,41 +1459,34 @@ defmodule Responder.State.Memories do
   defp account_memory(entries) do
     now = database_now!()
 
-    ids = Enum.map(entries, & &1.id)
+    unchanged =
+      Enum.reduce(entries, dynamic(false), fn entry, condition ->
+        dynamic(
+          [current],
+          ^condition or
+            (current.id == ^entry.id and current.payload_fingerprint == ^entry.payload_fingerprint)
+        )
+      end)
 
-    if ids != [] do
-      Repo.update_all(
-        from(entry in MemoryEntry, where: entry.id in ^ids),
-        inc: [recall_count: 1],
-        set: [last_recalled_at: now, updated_at: now]
-      )
-    end
+    # The operator may revoke or edit a row while this UPDATE waits on its lock.
+    # Charge and disclose only the exact still-active content we selected.
+    {_count, ids} =
+      if entries == [],
+        do: {0, []},
+        else:
+          Repo.update_all(
+            from(entry in MemoryEntry,
+              where: ^unchanged,
+              where: entry.status == :active and entry.expires_at > fragment("clock_timestamp()"),
+              select: entry.id
+            ),
+            inc: [recall_count: 1],
+            set: [last_recalled_at: now, updated_at: now]
+          )
 
-    Enum.map(entries, &document/1)
+    retained = MapSet.new(ids)
+    entries |> Enum.filter(&MapSet.member?(retained, &1.id)) |> Enum.map(&document/1)
   end
-
-  defp memory_search_scope?(
-         %MemoryEntry{scope_kind: :conversation, scope_ref: ref},
-         "current_channel",
-         context
-       ),
-       do: ref == context.conversation_ref
-
-  defp memory_search_scope?(
-         %MemoryEntry{scope_kind: :repository, scope_ref: ref},
-         "repository",
-         context
-       ),
-       do: ref == context.repository
-
-  defp memory_search_scope?(
-         %MemoryEntry{scope_kind: :workspace, scope_ref: ref},
-         "workspace",
-         context
-       ),
-       do: ref == context.workspace_ref
-
-  defp memory_search_scope?(_entry, _scope, _context), do: false
 
   defp visible?(%MemoryEntry{visibility: :conversation} = entry, context),
     do: entry.source_conversation_ref == context.conversation_ref and scoped?(entry, context)
@@ -1492,6 +1530,12 @@ defmodule Responder.State.Memories do
         "thread_ref" => entry.source_thread_ref,
         "transport" => entry.source_transport
       },
+      "source_read" =>
+        MemorySourceLink.message(
+          entry.source_transport,
+          entry.source_conversation_ref,
+          entry.source_message_ref
+        ),
       "subject" => entry.subject,
       "value" => entry.payload["value"],
       "visibility" => Atom.to_string(entry.visibility)

@@ -55,6 +55,9 @@ defmodule Responder.Retention.RuntimeTest do
                  poll_interval_ms: 60_000
                )
 
+      # The dispatcher message precedes the persisted progress beat and maintenance.
+      # Wait for the poll callback, not a 100 ms scheduler race under full coverage.
+      assert %{poll_interval_ms: 60_000} = :sys.get_state(pid)
       assert_receive {:retention_dispatch, ^response}
       assert_receive {:retention_maintenance, {:ok, :pruned}}
       assert Process.alive?(pid)
@@ -70,6 +73,7 @@ defmodule Responder.Retention.RuntimeTest do
                poll_interval_ms: 60_000
              )
 
+    assert %{poll_interval_ms: 60_000} = :sys.get_state(nil_maintenance)
     assert_receive {:retention_dispatch, {:ok, :idle}}
     assert Process.alive?(nil_maintenance)
     GenServer.stop(nil_maintenance)
@@ -84,6 +88,7 @@ defmodule Responder.Retention.RuntimeTest do
                  poll_interval_ms: 60_000
                )
 
+      assert %{poll_interval_ms: 60_000} = :sys.get_state(pid)
       assert_receive {:retention_dispatch, {:ok, :idle}}
       assert_receive {:retention_maintenance_failure, ^mode}
       assert Process.alive?(pid)

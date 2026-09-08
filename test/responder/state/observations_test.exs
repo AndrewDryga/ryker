@@ -6,22 +6,39 @@ defmodule Responder.State.ObservationsTest do
   alias Responder.Admission.{Context, Decision, Executor, Prompt}
   alias Responder.ControlPlane.{ConversationMemory, HTML, Projection}
   alias Responder.Episodes.Episode
+  alias Responder.Fixtures.DatabaseClock
   alias Responder.Ingress.Inbox
   alias Responder.Retention.Data
   alias Responder.Slack.{ChannelMembership, Input}
-  alias Responder.State.{Continuity, ConversationObservation, Observations}
+  alias Responder.State.{Continuity, ConversationObservation, MemorySearchPage, Observations}
   alias Responder.TestSupport.FakeCoopAPI, as: FakeAPI
 
   @now ~U[2026-09-06 10:00:00.000000Z]
   # Harvested from the Blitz service-retention discussion, not a synthetic policy.
   @message "`draft-ai-suggestions`\nplanning to look into it at some point, let’s keep it"
   @note %{
-    "summary" =>
-      "U03EPT4RP5M wants to keep `draft-ai-suggestions` and plans to look into it at an unspecified future time.",
-    "topics" => ["draft-ai-suggestions"]
+    "summary" => @message,
+    "topics" => []
   }
 
-  test "Memory shows silently learned notes with sources and visible search controls" do
+  test "original excerpts are immediately searchable when the database clock trails the host" do
+    # The source must not disappear between its successful admission and a
+    # database-clock cursor merely because the host clock is ahead.
+    database_time = DatabaseClock.behind_host!()
+    entry = observe!("database-clock", "C1", @note)
+    page = MemorySearchPage.first("draft-ai-suggestions", "current_channel")
+
+    assert {:ok, {:ok, found, _}} =
+             Repo.transaction(fn -> Observations.search_page(entry, "blitz-infra", page) end)
+
+    assert found["source_input_id"] == entry.id
+    assert found["occurred_at"] == DateTime.to_iso8601(@now)
+    source = Repo.get!(ConversationObservation, entry.id)
+    assert source.inserted_at == database_time
+    assert source.updated_at == database_time
+  end
+
+  test "Memory shows original source excerpts with sources and visible search controls" do
     entry = observe!("visible", "C1", @note)
     # A replay's import time and raw UUID are not the date or substance of the discussion.
     Repo.update_all(from(n in ConversationObservation, where: n.id == ^entry.id),
@@ -36,7 +53,7 @@ defmodule Responder.State.ObservationsTest do
     assert html =~ "draft-ai-suggestions"
     assert html =~ "Source message"
     assert html =~ "name=\"q\""
-    assert html =~ "Conversation notes"
+    assert html =~ "Source excerpts"
   end
 
   test "memory resolves bare people references without corrupting mentions, code or links" do
@@ -169,7 +186,7 @@ defmodule Responder.State.ObservationsTest do
 
     assert source == first.id
 
-    assert [%{"topics" => ["draft-ai-suggestions"]}] =
+    assert [%{"topics" => [], "summary" => @message}] =
              Continuity.search_context(
                destination,
                "blitz-infra",
@@ -274,7 +291,7 @@ defmodule Responder.State.ObservationsTest do
 
     assert {:ok, :ok} =
              Repo.transaction(fn ->
-               Observations.record_in_transaction(first, @note, "delayed")
+               Observations.record_excerpt_in_transaction(first)
              end)
 
     assert Observations.context(updated, nil) == [note]
@@ -324,25 +341,17 @@ defmodule Responder.State.ObservationsTest do
     assert Repo.aggregate(ConversationObservation, :count) == 0
 
     assert {:ok, :ok} =
-             Repo.transaction(fn -> Observations.record_in_transaction(entry, @note, "old") end)
+             Repo.transaction(fn -> Observations.record_excerpt_in_transaction(entry) end)
 
     assert Observations.context(entry, nil) == []
     assert Repo.aggregate(ConversationObservation, :count) == 0
   end
 
-  test "unaccepted decisions and caller-selected source scopes cannot become notes" do
+  test "unaccepted decisions cannot expose even an original source excerpt" do
     entry = input!("pending", "C1")
 
     assert {:error, :observation_source_not_decided} =
-             Observations.record_in_transaction(entry, @note, "bad")
-
-    for invalid <- [
-          Map.put(@note, "conversation_ref", "slack:OTHER:C1"),
-          %{@note | "summary" => " "},
-          %{@note | "topics" => List.duplicate("topic", 9)}
-        ] do
-      assert {:error, {:invalid_decision, :observation}} = Observations.prepare(invalid)
-    end
+             Observations.record_excerpt_in_transaction(entry)
 
     # Receipt custody keeps only a revision fence until classification succeeds.
     assert [%{note: nil, source_result_ref: nil}] = Repo.all(ConversationObservation)
@@ -350,7 +359,8 @@ defmodule Responder.State.ObservationsTest do
   end
 
   defp observe!(event, channel, note, options \\ []) do
-    entry = input!(event, channel, options)
+    # Formatting/cardinality variants are source-text fixtures, not model summaries.
+    entry = input!(event, channel, Keyword.put_new(options, :text, note["summary"]))
     context = context!(entry)
 
     {:ok, decision} =
@@ -360,8 +370,7 @@ defmodule Responder.State.ObservationsTest do
         "reaction" => nil,
         "relation" => "unrelated",
         "reason" => "A conversation decision requires no interruption.",
-        "work_class" => nil,
-        "observation" => note
+        "work_class" => nil
       })
 
     {:ok, %{entry: decided}} = Admission.commit(context, decision, "learned:#{event}")

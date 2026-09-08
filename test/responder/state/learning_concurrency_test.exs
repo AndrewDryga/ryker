@@ -6,6 +6,7 @@ defmodule Responder.State.LearningConcurrencyTest do
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
   alias Responder.State.{ConversationObservation, Learning, LearningRun}
+  alias Responder.Work.Session
 
   @policy %{policy: "recorded-read-only-policy", policy_digest: String.duplicate("a", 64)}
 
@@ -34,7 +35,7 @@ defmodule Responder.State.LearningConcurrencyTest do
         unboxed_task(fn ->
           send(parent, {:accepting, backend_pid()})
 
-          Learning.accept(
+          Responder.Fixtures.Learning.accept(
             run.id,
             Jason.encode!(%{"updates" => [], "reason" => "No new information."}),
             %{}
@@ -51,6 +52,8 @@ defmodule Responder.State.LearningConcurrencyTest do
         assert {:ok, %{status: :applied}} = Learning.prepare(ids, @policy)
       after
         stop_tasks([retry, accept])
+        runs = from(r in LearningRun, where: r.batch_key == ^run.batch_key, select: r.id)
+        Repo.delete_all(from(s in Session, where: s.learning_run_id in subquery(runs)))
         Repo.delete_all(from(r in LearningRun, where: r.batch_key == ^run.batch_key))
         Repo.delete_all(from(o in ConversationObservation, where: o.source_input_id in ^ids))
         Repo.delete_all(from(e in Entry, where: e.id in ^ids))

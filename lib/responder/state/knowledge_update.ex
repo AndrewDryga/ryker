@@ -1,7 +1,6 @@
 defmodule Responder.State.KnowledgeUpdate do
   @moduledoc "Bounded proposal to maintain one topic; the host supplies ownership and sources."
-  alias Responder.State.Observations
-  @fields ~w(topic_key title summary topics target_ref expected_version)
+  @fields ~w(topic_key title summary topics anchors target_ref expected_version)
 
   def prepare(nil), do: {:ok, nil}
 
@@ -11,7 +10,9 @@ defmodule Responder.State.KnowledgeUpdate do
          true <-
            is_binary(value["topic_key"]) and
              Regex.match?(~r/\A[a-z0-9][a-z0-9-]{0,159}\z/, value["topic_key"]),
-         {:ok, _} <- Observations.prepare(Map.take(value, ~w(summary topics))),
+         true <- text?(value["summary"], 1200),
+         true <- topics?(value["topics"]),
+         true <- anchors?(value["anchors"]),
          true <- target?(value["target_ref"], value["expected_version"]) do
       {:ok, value}
     else
@@ -22,7 +23,15 @@ defmodule Responder.State.KnowledgeUpdate do
   def prepare(_), do: {:error, {:invalid_decision, :knowledge}}
 
   def json_schema do
-    note = Observations.json_schema()["anyOf"] |> List.last() |> Map.fetch!("properties")
+    note = %{
+      "summary" => text_schema(1200),
+      "topics" => %{
+        "type" => "array",
+        "maxItems" => 8,
+        "uniqueItems" => true,
+        "items" => text_schema(80)
+      }
+    }
 
     %{
       "anyOf" => [
@@ -40,6 +49,17 @@ defmodule Responder.State.KnowledgeUpdate do
             "title" => Map.put(note["summary"], "maxLength", 160),
             "summary" => note["summary"],
             "topics" => note["topics"],
+            "anchors" => %{
+              "type" => "array",
+              "maxItems" => 8,
+              "uniqueItems" => true,
+              "items" => %{
+                "type" => "string",
+                "minLength" => 1,
+                "maxLength" => 512,
+                "pattern" => "^[!-~]{1,512}$"
+              }
+            },
             "target_ref" => %{
               "anyOf" => [
                 %{"type" => "null"},
@@ -77,6 +97,26 @@ defmodule Responder.State.KnowledgeUpdate do
     do: Ecto.UUID.cast(id) == {:ok, id}
 
   defp target?(_, _), do: false
+
+  defp anchors?(anchors) when is_list(anchors),
+    do:
+      length(anchors) <= 8 and Enum.uniq(anchors) == anchors and
+        Enum.all?(anchors, &(is_binary(&1) and Regex.match?(~r/\A[!-~]{1,512}\z/, &1)))
+
+  defp anchors?(_), do: false
+
+  defp topics?(topics) when is_list(topics),
+    do: length(topics) <= 8 and Enum.uniq(topics) == topics and Enum.all?(topics, &text?(&1, 80))
+
+  defp topics?(_), do: false
+
+  defp text_schema(maximum),
+    do: %{
+      "type" => "string",
+      "minLength" => 1,
+      "maxLength" => maximum,
+      "pattern" => "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
+    }
 
   defp text?(value, max),
     do:

@@ -6,6 +6,7 @@ defmodule Responder.State.ContinuityTest do
   alias Responder.CanonicalJSON
   alias Responder.ControlPlane.{HTML, Projection}
   alias Responder.Episodes
+  alias Responder.Fixtures.DatabaseClock
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Responder.Fixtures.Learning, as: LearningFixtures
@@ -20,9 +21,11 @@ defmodule Responder.State.ContinuityTest do
     ConversationSummary,
     ConversationSummaryDraft,
     ConversationSummaryState,
+    Knowledge,
     KnowledgeRetention,
     KnowledgeSnapshot,
     LearningSources,
+    MemorySearchPage,
     Observations,
     SourceExposure
   }
@@ -30,6 +33,163 @@ defmodule Responder.State.ContinuityTest do
   alias Responder.Work.{Custody, FinalPreflight, Result, Submission, SubmissionBuilder}
 
   @now ~U[2026-09-04 12:00:00.000000Z]
+
+  for kind <- [:summary, :rollup], existing? <- [false, true] do
+    test "#{if existing?, do: "updated", else: "new"} #{kind} is immediately searchable under host clock skew" do
+      assert_searchable_clock_continuity!(unquote(kind), unquote(existing?))
+    end
+  end
+
+  defp assert_searchable_clock_continuity!(kind, existing?) do
+    # Database-cutoff search must see a just-saved summary/rollup, even when
+    # the application host runs ahead. Old snapshots still exclude new writes.
+    {_entry, work, submission} = raw_work!()
+    database_time = DatabaseClock.behind_host!()
+    assert {:ok, _} = Continuity.stage(work.state_token, state("website/haproxy-edge OOM"))
+    accept!(work, submission)
+    old = DateTime.add(database_time, -120, :second)
+    schema = if kind == :summary, do: ConversationSummary, else: ConversationRollup
+
+    if kind == :rollup, do: compact_clock_summary!(old)
+
+    if existing? do
+      Repo.update_all(schema, set: [inserted_at: old, updated_at: old])
+
+      next =
+        open_work!(
+          "database-clock-update",
+          work.episode.destination_conversation_ref,
+          work.episode.destination_thread_ref,
+          "blitz-infra"
+        )
+
+      assert {:ok, _} =
+               Continuity.stage(next.state_token, state("website/haproxy-edge OOM resolution"))
+
+      accept!(next)
+      if kind == :rollup, do: compact_clock_summary!(old)
+    end
+
+    page = MemorySearchPage.first("haproxy", "repository")
+
+    assert {:ok, {:ok, match, _position}} =
+             Repo.transaction(fn ->
+               Continuity.search_page(kind, work.episode, "blitz-infra", page)
+             end)
+
+    saved = Repo.one!(schema)
+    assert match["source_ref"] == saved.ref
+    assert saved.updated_at == database_time
+    assert saved.inserted_at == if(existing?, do: old, else: database_time)
+
+    assert {:ok, :done} =
+             Repo.transaction(fn ->
+               Continuity.search_page(kind, work.episode, "blitz-infra", %{
+                 page
+                 | cutoff: DateTime.add(database_time, -1)
+               })
+             end)
+
+    if kind == :rollup do
+      assert saved.period_end == old
+      assert saved.expires_at == DateTime.add(old, 7200, :second)
+    end
+  end
+
+  defp compact_clock_summary!(old) do
+    Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
+
+    assert {:ok, {:ok, 1}} =
+             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+  end
+
+  test "inherited topic roots do not invalidate a warm session or rewrite earlier attribution" do
+    # Fable found the normalized read counted all roots while the frozen
+    # document counted direct support. Every warm session inheriting a topic
+    # would then fail, despite its original sources remaining authorized.
+    work =
+      open_work!(
+        "inherited-session",
+        "control-plane:lab:inherited-session",
+        nil,
+        "responder",
+        "control_plane"
+      )
+
+    {original, offered} = KnowledgeFixtures.learn!(work.episode, "responder")
+    id = Ecto.UUID.generate()
+    input = %{original | id: id, native_input_id: id, event_fingerprint: CanonicalJSON.digest(id)}
+    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(input) end)
+
+    proposal =
+      offered
+      |> Map.take(~w(title summary topics))
+      |> Map.merge(%{
+        "topic_key" => "separate-context",
+        "target_ref" => nil,
+        "expected_version" => 0,
+        "anchors" => []
+      })
+
+    dependencies =
+      LearningSources.merge([
+        LearningSources.for_entry(input),
+        LearningSources.document_sources(offered)
+      ])
+
+    assert {:ok, :ok} =
+             Repo.transaction(fn ->
+               Responder.State.Knowledge.record_sources_in_transaction(
+                 [input],
+                 proposal,
+                 [offered],
+                 %{
+                   result_ref: "host-inherited-session-fixture",
+                   source_dependencies: dependencies,
+                   omissions: []
+                 }
+               )
+             end)
+
+    topic =
+      Responder.State.Knowledge.context(work.episode, "responder")
+      |> Enum.find(&(&1["topic_key"] == "separate-context"))
+
+    assert topic["source_count"] == 1
+    assert :ok = KnowledgeSnapshot.expose(work.claim, [topic])
+    assert :ok = KnowledgeSnapshot.authorize_session(work.episode, work.claim.session)
+
+    # The inherited root becomes direct support only in revision 2. Revision 1
+    # must keep its one-source attribution and remain valid in the warm session.
+    proposal = %{proposal | "target_ref" => topic["source_ref"], "expected_version" => 1}
+
+    dependencies =
+      LearningSources.merge([
+        LearningSources.for_entry(original),
+        LearningSources.document_sources(topic)
+      ])
+
+    assert {:ok, :ok} =
+             Repo.transaction(fn ->
+               Responder.State.Knowledge.record_sources_in_transaction(
+                 [original],
+                 proposal,
+                 [topic],
+                 %{
+                   result_ref: "host-promoted-source-fixture",
+                   source_dependencies: dependencies,
+                   omissions: []
+                 }
+               )
+             end)
+
+    assert :ok = KnowledgeSnapshot.authorize_session(work.episode, work.claim.session)
+    assert :ok = KnowledgeSnapshot.reauthorize(work.episode, "responder", [topic])
+    KnowledgeFixtures.revoke!(original)
+
+    assert {:error, :work_knowledge_context_stale} =
+             KnowledgeSnapshot.authorize_session(work.episode, work.claim.session)
+  end
 
   for compact? <- [false, true], missing <- [[], nil, %{}] do
     test "a #{inspect(missing)}-sourced #{if compact?, do: "rollup", else: "summary"} remains history, not model context" do
@@ -100,6 +260,9 @@ defmodule Responder.State.ContinuityTest do
     assert is_binary(result)
     assert Repo.aggregate(ConversationSummary, :count) == 0
     assert Repo.aggregate(ConversationSummaryDraft, :count) == 0
+
+    assert Map.get(Repo.get!(Responder.Work.Turn, work.claim.turn.id), :summary_error_code) ==
+             "no_sources"
   end
 
   test "receiptless summaries cannot consume recall or compaction slots ahead of healthy sources" do
@@ -609,7 +772,8 @@ defmodule Responder.State.ContinuityTest do
 
   for boundary <- [:count, :bytes] do
     test "#{boundary} source overflow cannot publish a summary without its expiry receipts" do
-      # A warm session can expose more roots than fit into one derived-memory record.
+      # Reproduce an already-running historical oversized transcript. New
+      # disclosure is now refused by KnowledgeSnapshot before this can happen.
       work =
         open_work!(
           "summary-capacity",
@@ -624,35 +788,58 @@ defmodule Responder.State.ContinuityTest do
       [receipt] = LearningSources.for_entry(entry)
       dependencies = receipt_group(receipt, unquote(boundary))
 
-      for dependency <- dependencies do
-        source =
-          original
-          |> Map.from_struct()
-          |> Map.delete(:__meta__)
-          |> Map.merge(%{
-            id: dependency["observation_id"],
-            identity_key: CanonicalJSON.digest(dependency),
-            source_input_id: dependency["source_input_id"],
-            repository_ref: dependency["repository_ref"],
-            source_dependencies: [dependency]
+      overflow_after_submission = fn ->
+        for dependency <- dependencies do
+          source =
+            original
+            |> Map.from_struct()
+            |> Map.delete(:__meta__)
+            |> Map.merge(%{
+              id: dependency["observation_id"],
+              identity_key: CanonicalJSON.digest(dependency),
+              source_input_id: dependency["source_input_id"],
+              repository_ref: dependency["repository_ref"],
+              source_dependencies: [dependency]
+            })
+
+          Repo.insert!(struct!(ConversationObservation, source))
+
+          Repo.insert!(%SourceExposure{
+            session_id: work.claim.session.id,
+            observation_id: source.id,
+            source_input_id: source.source_input_id,
+            receipt: dependency
           })
+        end
 
-        Repo.insert!(struct!(ConversationObservation, source))
+        assert {:error, :work_knowledge_context_stale} =
+                 KnowledgeSnapshot.authorize_session(work.claim.episode, work.claim.session)
 
-        Repo.insert!(%SourceExposure{
-          session_id: work.claim.session.id,
-          observation_id: source.id,
-          source_input_id: source.source_input_id,
-          receipt: dependency
-        })
+        # The structural historical transcript includes its exact custody
+        # attestation. Unaccounted writes above must still fail closed; the
+        # production disclosure path cannot append this oversized source set.
+        count =
+          Repo.aggregate(
+            from(e in SourceExposure, where: e.session_id == ^work.claim.session.id),
+            :count
+          )
+
+        work.claim.session
+        |> then(&Repo.get!(Responder.Work.Session, &1.id))
+        |> Ecto.Changeset.change(source_exposure_count: count)
+        |> Repo.update!()
+
+        assert KnowledgeSnapshot.session_sources(work.claim.session.id) == nil
+        assert {:ok, _} = Continuity.stage(work.state_token, state(document["summary"]))
       end
 
-      assert KnowledgeSnapshot.session_sources(work.claim.session.id) == nil
-      assert {:ok, _} = Continuity.stage(work.state_token, state(document["summary"]))
-      assert %{turn: %{result_ref: result}} = accept!(work)
+      assert %{turn: %{result_ref: result}} = accept!(work, nil, overflow_after_submission)
       assert is_binary(result)
       assert Repo.aggregate(ConversationSummary, :count) == 0
       assert Repo.aggregate(ConversationSummaryDraft, :count) == 0
+
+      assert Map.get(Repo.get!(Responder.Work.Turn, work.claim.turn.id), :summary_error_code) ==
+               "source_capacity"
     end
 
     test "#{boundary} rollup overflow preserves the source summaries instead of stripping lineage" do
@@ -673,7 +860,7 @@ defmodule Responder.State.ContinuityTest do
 
       {left, right} =
         receipt_group(receipt, unquote(boundary))
-        |> Enum.split(if(unquote(boundary) == :count, do: 65, else: 32))
+        |> then(&Enum.split(&1, div(length(&1), 2)))
 
       assert is_list(LearningSources.merge([left]))
       assert is_list(LearningSources.merge([right]))
@@ -696,7 +883,116 @@ defmodule Responder.State.ContinuityTest do
 
       assert Repo.aggregate(ConversationRollup, :count) == 0
       assert Repo.aggregate(ConversationSummary, :count) == 2
+
+      assert Enum.all?(
+               Repo.all(ConversationSummary),
+               &(Map.get(&1, :compaction_error_code) == "source_capacity")
+             )
     end
+  end
+
+  test "a capacity-blocked oldest window cannot starve a later healthy conversation" do
+    # Structural expansion of retained topic prose: 100 older summaries used to
+    # monopolize every maintenance pass, leaving later conversations untouched.
+    work =
+      open_work!(
+        "compaction-fairness",
+        "control-plane:lab:compaction-fairness",
+        nil,
+        "responder",
+        "control_plane"
+      )
+
+    {entry, document} = KnowledgeFixtures.learn!(work.claim.episode, "responder")
+    assert {:ok, _} = Continuity.stage(work.state_token, state(document["summary"]))
+    accept!(work)
+    summary = Repo.one!(ConversationSummary)
+    [receipt] = LearningSources.for_entry(entry)
+    [extra | rest] = receipt_group(receipt, :count)
+    [first | chunks] = Enum.chunk_every(rest, 100)
+    chunks = [[extra | first] | chunks]
+    assert length(chunks) == 100
+    old = DateTime.add(DateTime.utc_now(), -180)
+
+    Enum.with_index(chunks, fn sources, index ->
+      attrs = %{source_dependencies: sources, updated_at: old}
+
+      if index == 0 do
+        Repo.update!(Ecto.Changeset.change(summary, attrs))
+      else
+        id = Ecto.UUID.generate()
+
+        Repo.insert!(
+          struct!(
+            summary,
+            Map.merge(attrs, %{
+              id: id,
+              ref: "continuity:#{id}",
+              identity_key: CanonicalJSON.digest(id)
+            })
+          )
+        )
+      end
+    end)
+
+    id = Ecto.UUID.generate()
+
+    healthy =
+      Repo.insert!(%{
+        summary
+        | id: id,
+          ref: "continuity:#{id}",
+          identity_key: CanonicalJSON.digest(id),
+          conversation_ref: "control-plane:lab:later-healthy",
+          updated_at: DateTime.add(old, 60)
+      })
+
+    assert {:ok, {:ok, 0}} =
+             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+
+    assert {:ok, {:ok, 1}} =
+             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+
+    assert Repo.get(ConversationSummary, healthy.id) == nil
+    assert Repo.aggregate(ConversationSummary, :count) == 100
+    assert Repo.one!(ConversationRollup).scope_ref == healthy.conversation_ref
+  end
+
+  test "one rollup exceeding its scope budget does not roll back healthy maintenance" do
+    joined!("T123", "CSCOPE")
+    work = open_work!("scope-overflow", "slack:T123:CSCOPE", nil, "responder")
+    assert {:ok, _} = Continuity.stage(work.state_token, state("Scope capacity fixture"))
+    accept!(work)
+    summary = Repo.one!(ConversationSummary)
+    old = DateTime.add(DateTime.utc_now(), -120)
+    Repo.update!(Ecto.Changeset.change(summary, updated_at: old))
+
+    assert {:ok, {:ok, 1}} =
+             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+
+    rollup = Repo.one!(ConversationRollup)
+
+    # Structural expansion of host scope descriptors, never a model response.
+    scopes =
+      for n <- 1..10_000,
+          do: %{"transport" => "slack", "workspace_ref" => "T123", "channel_ref" => "CHIST#{n}"}
+
+    Repo.update!(Ecto.Changeset.change(rollup, source_scopes: scopes))
+    pending = Repo.insert!(%{summary | updated_at: old})
+
+    healthy =
+      open_work!("healthy-scope", "control-plane:lab:healthy-scope", nil, nil, "control_plane")
+
+    assert {:ok, _} = Continuity.stage(healthy.state_token, state("Healthy maintenance"))
+    accept!(healthy)
+    Repo.update_all(ConversationSummary, set: [updated_at: old])
+
+    assert {:ok, {:ok, 1}} =
+             Repo.transaction(fn -> Continuity.compact_in_transaction(60, 7200) end)
+
+    assert %{compaction_error_code: "scope_capacity"} = Repo.get!(ConversationSummary, pending.id)
+    assert Repo.aggregate(ConversationSummary, :count) == 1
+    assert Repo.aggregate(ConversationRollup, :count) == 2
   end
 
   test "a retention-pruned rollup can be rebuilt by later sources in the same week" do
@@ -742,7 +1038,7 @@ defmodule Responder.State.ContinuityTest do
   end
 
   defp receipt_group(receipt, boundary) do
-    count = if boundary == :count, do: 129, else: 64
+    count = if boundary == :count, do: 10_001, else: 8_192
 
     for _ <- 1..count do
       id = Ecto.UUID.generate()
@@ -803,15 +1099,21 @@ defmodule Responder.State.ContinuityTest do
       accept!(work)
       summary = Repo.one!(ConversationSummary)
 
-      dependencies =
-        Enum.map(
-          summary.source_dependencies,
+      # The expiry fault changes terminal receipt lifetimes, never the fields
+      # of a compact topic-generation reference. Keep that reference alongside
+      # the earlier raw receipts so this still exercises inherited custody.
+      earlier =
+        summary.source_dependencies
+        |> LearningSources.expand()
+        |> Enum.map(
           &Map.put(
             &1,
             "retained_at",
             DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), -3601))
           )
         )
+
+      dependencies = LearningSources.merge([summary.source_dependencies, earlier])
 
       Repo.update!(Ecto.Changeset.change(summary, source_dependencies: dependencies))
 
@@ -867,6 +1169,90 @@ defmodule Responder.State.ContinuityTest do
                20
              ) == []
     end
+
+    @tag :summary_generation
+    test "an accepted #{if compact?, do: "rollup", else: "summary"} cannot reintroduce a superseded topic generation" do
+      # A real accepted handover used to retain only raw source receipts. A
+      # later topic rebuild could therefore leave that old understanding usable
+      # through a fresh summary/rollup even though its native session was stale.
+      joined!("T123", "CSOURCE")
+      joined!("T123", "CTARGET")
+      work = open_work!("summary-generation", "slack:T123:CTARGET", nil, "responder")
+      destination = %{work.claim.episode | destination_conversation_ref: "slack:T123:CSOURCE"}
+      {source, document} = KnowledgeFixtures.learn!(destination, "responder")
+      assert :ok = KnowledgeSnapshot.expose(work.claim, [document])
+      assert {:ok, _} = Continuity.stage(work.state_token, state(document["summary"]))
+      accept!(work)
+
+      if unquote(compact?) do
+        Repo.update_all(ConversationSummary,
+          set: [updated_at: DateTime.add(DateTime.utc_now(), -120)]
+        )
+
+        assert {:ok, {:ok, 1}} =
+                 Repo.transaction(fn -> Continuity.compact_in_transaction(60, 3600) end)
+      end
+
+      schema = if unquote(compact?), do: ConversationRollup, else: ConversationSummary
+      saved = Repo.one!(schema)
+      rebuild_topic_after_later_source_withdrawal!(source, document)
+
+      # Only the later root was withdrawn. This raw original is still eligible,
+      # so rejection must come from retaining the original topic generation.
+      assert [%{"version" => 3}] = Knowledge.context(source, source.repository_ref)
+
+      assert {:error, :work_knowledge_context_stale} =
+               KnowledgeSnapshot.authorize_session(work.claim.episode, work.claim.session)
+
+      fresh = open_work!("fresh-generation", "slack:T123:CTARGET", nil, "responder")
+      context = get_in(fresh.submission, ["context", "operator_context", "continuity"])
+      assert context["current"] == nil
+      assert context["related"] == []
+      assert context["rollups"] == []
+      assert Repo.get!(schema, saved.id).state == saved.state
+    end
+  end
+
+  defp rebuild_topic_after_later_source_withdrawal!(source, document) do
+    id = Ecto.UUID.generate()
+
+    # Structural source-membership expansion of the same harvested text, not a
+    # fabricated second model answer. The real writer performs both revisions.
+    later = %{source | id: id, source_ref: "generation-fixture:#{id}", native_input_id: id}
+    proposal = Map.take(document, ~w(topic_key title summary topics anchors))
+
+    update =
+      Map.merge(proposal, %{
+        "target_ref" => document["source_ref"],
+        "expected_version" => document["version"]
+      })
+
+    assert {:ok, :ok} =
+             Repo.transaction(fn ->
+               :ok = Observations.record_excerpt_in_transaction(later)
+               KnowledgeFixtures.record_topic(later, update, [document])
+             end)
+
+    [current] = Knowledge.context(source, source.repository_ref)
+    "knowledge:" <> topic_id = current["source_ref"]
+    KnowledgeFixtures.revoke!(later)
+    assert Knowledge.context(source, source.repository_ref) == []
+    head = Repo.get!(Responder.State.ConversationKnowledge, topic_id)
+
+    context = %{
+      result_ref: "host-rebuild-summary:#{id}",
+      source_dependencies: LearningSources.for_entry(source),
+      omissions: [],
+      rebuild_source_entries: [source],
+      rebuild: %{topic_id: head.id, version: head.version, generation: head.source_generation}
+    }
+
+    create = Map.merge(proposal, %{"target_ref" => nil, "expected_version" => 0})
+
+    assert {:ok, :ok} =
+             Repo.transaction(fn ->
+               Knowledge.rebuild_sources_in_transaction([source], create, [], context)
+             end)
   end
 
   test "shadow work can publish derived summaries without creating a visible result" do
@@ -1579,7 +1965,7 @@ defmodule Responder.State.ContinuityTest do
     %{command | payload: Input.document(input)}
   end
 
-  defp accept!(work, submission \\ nil) do
+  defp accept!(work, submission \\ nil, after_exposure \\ fn -> :ok end) do
     candidate = ~s({"delivery":"none","decision_reason":"continuity updated"})
     sha256 = digest(candidate)
 
@@ -1596,6 +1982,7 @@ defmodule Responder.State.ContinuityTest do
              )
 
     assert :ok = KnowledgeSnapshot.expose_submission(%{claim | turn: frozen})
+    after_exposure.()
 
     assert {:ok, session} =
              Custody.bind_session(

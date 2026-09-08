@@ -33,6 +33,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @wait_scheduling_errors_version 20_260_907_000_300
   @slack_addressing_version 20_260_907_000_400
   @candidate_responses_version 20_260_907_000_500
+  @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100)
   @workspace_versions [
     20_260_905_000_100,
     20_260_905_000_200,
@@ -91,7 +92,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                @event_subscriptions_version,
                @work_activity_version,
                @card_lab_feedback_version
-               | @workspace_versions
+               | @workspace_versions ++ @memory_versions
              ]
 
       refute table_exists?(repo, prefix, "slack_inbox_entries")
@@ -143,6 +144,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert table_exists?(repo, prefix, "episode_work_activity")
       assert table_exists?(repo, prefix, "card_lab_feedback")
       assert table_exists?(repo, prefix, "work_candidate_responses")
+      assert table_exists?(repo, prefix, "conversation_learning_batches")
+      assert table_exists?(repo, prefix, "conversation_learning_inputs")
+      assert column_exists?(repo, prefix, "episode_work_sessions", "learning_run_id")
+      assert column_exists?(repo, prefix, "conversation_knowledge_sources", "receipt")
       assert column_exists?(repo, prefix, "episode_work_sessions", "activity_cursor")
 
       assert constraint_definition(
@@ -169,7 +174,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     end
   end
 
-  test "populated Stage 3 custody survives product upgrade, rollback, and re-upgrade" do
+  test "populated Stage 3 custody survives the reversible product upgrade, rollback, and re-upgrade" do
     repo = start_migration_repo!()
     prefix = "product_schema_round_trip_#{System.unique_integer([:positive])}"
 
@@ -185,7 +190,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       ids = insert_stage3_rows!(repo, prefix)
 
       assert Ecto.Migrator.run(repo, @migrations_path, :up,
-               all: true,
+               to: @candidate_responses_version,
                prefix: prefix,
                log: false
              ) == [
@@ -356,7 +361,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert_stage3_rows!(repo, prefix, ids)
 
       assert Ecto.Migrator.run(repo, @migrations_path, :up,
-               all: true,
+               to: @candidate_responses_version,
                prefix: prefix,
                log: false
              ) == [
@@ -387,13 +392,17 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     end
   end
 
-  test "the release migrator upgrades once and rolls back only the expected latest version" do
+  test "the release migrator rolls back only the expected version of a pinned reversible release" do
+    temporary = migration_temporary_directory!()
     repo = start_migration_repo!()
     prefix = "release_migrator_#{System.unique_integer([:positive])}"
 
     SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
 
-    options = [repo: repo, prefix: prefix, migrations_path: @migrations_path, log: false]
+    # A historical rollback must use that release's exact migration set. Applying
+    # a later, explicitly irreversible memory reset is not historical setup.
+    migrations_path = historical_migrations!(temporary)
+    options = [repo: repo, prefix: prefix, migrations_path: migrations_path, log: false]
 
     try do
       assert Release.migrate(options) == [
@@ -577,7 +586,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       ids = insert_stage3_rows!(repo, prefix)
 
       Ecto.Migrator.run(repo, @migrations_path, :up,
-        all: true,
+        to: @candidate_responses_version,
         prefix: prefix,
         log: false
       )
@@ -665,7 +674,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
     try do
       Ecto.Migrator.run(repo, @migrations_path, :up,
-        all: true,
+        to: @candidate_responses_version,
         prefix: prefix,
         log: false
       )
@@ -736,7 +745,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       ids = insert_stage3_rows!(repo, prefix)
 
       Ecto.Migrator.run(repo, @migrations_path, :up,
-        all: true,
+        to: @candidate_responses_version,
         prefix: prefix,
         log: false
       )
@@ -799,7 +808,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       ids = insert_stage3_rows!(repo, prefix)
 
       Ecto.Migrator.run(repo, @migrations_path, :up,
-        all: true,
+        to: @candidate_responses_version,
         prefix: prefix,
         log: false
       )
@@ -1154,7 +1163,11 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
       assert byte_size(user_ref) == 256
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @candidate_responses_version,
+               prefix: prefix,
+               log: false
+             ) ==
                [@candidate_responses_version]
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
@@ -1237,7 +1250,11 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
                  []
                )
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: @candidate_responses_version,
+               prefix: prefix,
+               log: false
+             ) ==
                []
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
@@ -1260,7 +1277,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       ids = insert_stage3_rows!(repo, prefix)
 
       Ecto.Migrator.run(repo, @migrations_path, :up,
-        all: true,
+        to: @candidate_responses_version,
         prefix: prefix,
         log: false
       )
@@ -1312,7 +1329,7 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
     try do
       Ecto.Migrator.run(repo, @migrations_path, :up,
-        all: true,
+        to: @candidate_responses_version,
         prefix: prefix,
         log: false
       )
@@ -1353,7 +1370,11 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
 
     try do
-      Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false)
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @candidate_responses_version,
+        prefix: prefix,
+        log: false
+      )
 
       SQL.query!(
         repo,
@@ -1401,7 +1422,12 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
 
     try do
-      Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false)
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @candidate_responses_version,
+        prefix: prefix,
+        log: false
+      )
+
       id = Ecto.UUID.generate()
       sources = Jason.encode!([%{"source_input_id" => id, "revision" => 1}])
 
@@ -1442,6 +1468,361 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
+  end
+
+  test "the authorized memory reset preserves source and work custody and recovers from a real backup" do
+    # A clean memory start must not erase episode history or disclosure fences.
+    # These two irreversible cuts require a verified backup, not a fabricated down.
+    temporary = migration_temporary_directory!()
+    repo = start_migration_repo!()
+    prefix = "memory_reset_upgrade_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @work_custody_version,
+        prefix: prefix,
+        log: false
+      )
+
+      ids = insert_stage3_rows!(repo, prefix)
+
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: @candidate_responses_version,
+        prefix: prefix,
+        log: false
+      )
+
+      insert_stale_head_recovery_rows!(repo, prefix, ids)
+      insert_memory_reset_rows!(repo, prefix, ids)
+
+      preserved = reset_preserved_rows(repo, prefix)
+      derived = reset_derived_rows(repo, prefix)
+      assert %{rows: [[1, 1, 1]]} = reset_topic_counts(repo, prefix)
+      backup = backup_schema!(repo, prefix, temporary)
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up, all: true, prefix: prefix, log: false) ==
+               @memory_versions
+
+      # Existing sessions have unknown disclosure custody. New columns must not
+      # falsely attest them as tracked source-free sessions during the upgrade.
+      assert %{rows: [[0]]} =
+               SQL.query!(
+                 repo,
+                 """
+                 SELECT count(*) FROM #{prefix}.episode_work_sessions
+                 WHERE source_exposure_count IS NOT NULL OR knowledge_exposure_count IS NOT NULL
+                 """,
+                 []
+               )
+
+      assert reset_preserved_rows(repo, prefix) == preserved
+      assert %{rows: [[0, 0, 0]]} = reset_topic_counts(repo, prefix)
+      assert_reset_notes(repo, prefix, derived["conversation_observations"])
+
+      # The later indexes, exposure marker and rebuild fields are reversible;
+      # the derived-note reset itself still requires the verified backup.
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 3, prefix: prefix, log: false) ==
+               @memory_versions |> Enum.take(-3) |> Enum.reverse()
+
+      assert_raise RuntimeError, ~r/restore the qualified database backup/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      assert reset_preserved_rows(repo, prefix) == preserved
+      assert_reset_notes(repo, prefix, derived["conversation_observations"])
+
+      restore_schema!(repo, prefix, backup)
+      assert reset_preserved_rows(repo, prefix) == preserved
+      assert reset_derived_rows(repo, prefix) == derived
+      assert %{rows: [[1, 1, 1]]} = reset_topic_counts(repo, prefix)
+
+      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+               to: 20_260_908_000_200,
+               prefix: prefix,
+               log: false
+             ) ==
+               Enum.take(@memory_versions, 2)
+
+      assert_raise RuntimeError, ~r/normalized memory cannot restore reset topic history/, fn ->
+        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+      end
+
+      assert reset_preserved_rows(repo, prefix) == preserved
+
+      restore_schema!(repo, prefix, backup)
+      assert reset_preserved_rows(repo, prefix) == preserved
+      assert reset_derived_rows(repo, prefix) == derived
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  defp insert_memory_reset_rows!(repo, prefix, ids) do
+    captured =
+      File.read!("testdata/learning/retained-draft-ai-suggestions-learning.json")
+      |> Jason.decode!()
+
+    state = captured["result"] |> Jason.decode!() |> Map.fetch!("updates") |> hd()
+    state_json = Jason.encode!(state)
+    note = Jason.encode!(Map.take(state, ~w(summary topics)))
+    knowledge_id = Ecto.UUID.generate()
+    observation_id = Ecto.UUID.generate()
+
+    # Rows are structural migration fixtures; source/model prose is harvested unchanged.
+    for {identity, source_result} <- [
+          {"derived", "result:retained"},
+          {"original", "input:#{ids.ingress_id}"}
+        ] do
+      SQL.query!(
+        repo,
+        """
+        INSERT INTO #{prefix}.conversation_observations
+          (id, identity_key, transport, workspace_ref, conversation_ref, visibility,
+           source_input_id, source_message_ref, source_result_ref, source_fingerprint,
+           actor_ref, execution_mode, revision, occurred_at, note, inserted_at, updated_at)
+        VALUES ($1::text::uuid, $2, 'slack', 'slack:T', 'slack:T:C', 'public',
+                $3::text::uuid, '1787832000.000100', $4, repeat('a',64), 'U',
+                'shadow', 1, clock_timestamp(), $5, clock_timestamp(), clock_timestamp())
+        """,
+        [
+          if(identity == "derived", do: observation_id, else: Ecto.UUID.generate()),
+          identity,
+          ids.ingress_id,
+          source_result,
+          note
+        ]
+      )
+    end
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.conversation_knowledge
+        (id, scope_key, topic_key, transport, workspace_ref, conversation_ref, visibility,
+         state, version, source_generation, source_dependencies, source_input_id,
+         source_episode_id, latest_source_at, inserted_at, updated_at)
+      VALUES ($1::text::uuid, 'reset-scope', 'retained-topic', 'slack', 'slack:T', 'slack:T:C',
+              'public', $2, 1, 1, '[]', $3::text::uuid, $4::text::uuid,
+              clock_timestamp(), clock_timestamp(), clock_timestamp())
+      """,
+      [knowledge_id, state_json, ids.ingress_id, ids.episode_id]
+    )
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.conversation_knowledge_revisions
+        (knowledge_id, version, source_generation, source_dependencies, state,
+         source_input_id, source_result_ref, source_at, inserted_at)
+      VALUES ($1::text::uuid, 1, 1, '[]', $2, $3::text::uuid, 'result:retained',
+              clock_timestamp(), clock_timestamp())
+      """,
+      [knowledge_id, state_json, ids.ingress_id]
+    )
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.conversation_knowledge_sources
+        (knowledge_id, observation_id, generation, source_revision, source_fingerprint,
+         source_note, retained_at, introduced_version)
+      VALUES ($1::text::uuid, $2::text::uuid, 1, 1, repeat('a',64), $3, clock_timestamp(), 1)
+      """,
+      [knowledge_id, observation_id, note]
+    )
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.episode_work_knowledge_exposures
+        (session_id, knowledge_id, version, turn_id, inserted_at)
+      VALUES ($1::text::uuid, $2::text::uuid, 1, $3::text::uuid, clock_timestamp())
+      """,
+      [ids.session_id, knowledge_id, ids.turn_id]
+    )
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO #{prefix}.episode_work_source_exposures
+        (session_id, observation_id, source_input_id, receipt)
+      VALUES ($1::text::uuid, $2::text::uuid, $3::text::uuid, '{}')
+      """,
+      [ids.session_id, observation_id, ids.ingress_id]
+    )
+  end
+
+  defp reset_preserved_rows(repo, prefix) do
+    tables = ~w(ingress_inbox_entries episode_kernel_episodes episode_kernel_events
+      episode_state_records episode_publications episode_work_sessions episode_work_turns
+      episode_work_knowledge_exposures episode_work_source_exposures)
+
+    Map.new(tables, fn table ->
+      %{rows: rows} =
+        SQL.query!(
+          repo,
+          """
+          SELECT to_jsonb(row) - 'learning_run_id' - 'summary_error_code'
+            - 'source_exposure_count' - 'knowledge_exposure_count' AS value
+          FROM #{prefix}.#{table} row ORDER BY 1
+          """,
+          []
+        )
+
+      {table, rows}
+    end)
+  end
+
+  defp reset_derived_rows(repo, prefix) do
+    Map.new(
+      ~w(conversation_knowledge conversation_knowledge_revisions conversation_knowledge_sources conversation_observations),
+      fn table ->
+        %{rows: rows} =
+          SQL.query!(
+            repo,
+            "SELECT to_jsonb(row) FROM #{prefix}.#{table} row ORDER BY to_jsonb(row)::text",
+            []
+          )
+
+        {table, rows}
+      end
+    )
+  end
+
+  defp reset_topic_counts(repo, prefix) do
+    SQL.query!(
+      repo,
+      """
+      SELECT (SELECT count(*) FROM #{prefix}.conversation_knowledge),
+             (SELECT count(*) FROM #{prefix}.conversation_knowledge_revisions),
+             (SELECT count(*) FROM #{prefix}.conversation_knowledge_sources)
+      """,
+      []
+    )
+  end
+
+  defp assert_reset_notes(repo, prefix, original) do
+    expected =
+      Map.new(original, fn [row] ->
+        value =
+          if row["identity_key"] == "derived",
+            do: Map.merge(row, %{"note" => nil, "source_result_ref" => nil}),
+            else: row
+
+        {row["id"], value}
+      end)
+
+    %{rows: rows} =
+      SQL.query!(repo, "SELECT to_jsonb(row) FROM #{prefix}.conversation_observations row", [])
+
+    assert Map.new(rows, fn [row] -> {row["id"], row} end) == expected
+  end
+
+  defp backup_schema!(repo, prefix, temporary) do
+    database = backup_database!(repo)
+    backup = Path.join(temporary, "before-memory-reset.dump")
+    refute File.exists?(backup)
+
+    assert {archive, 0} =
+             System.cmd(
+               "docker",
+               postgres_arguments("pg_dump", [
+                 "--format=custom",
+                 "--schema",
+                 prefix,
+                 "--dbname",
+                 database
+               ]),
+               stderr_to_stdout: true
+             )
+
+    File.write!(backup, archive, [:exclusive])
+    assert {listing, 0} = postgres_from_file("pg_restore", ["--list"], backup)
+    assert listing =~ "SCHEMA - #{prefix}"
+    %{path: backup, digest: :crypto.hash(:sha256, archive), database: database}
+  end
+
+  defp restore_schema!(repo, prefix, backup) do
+    assert :crypto.hash(:sha256, File.read!(backup.path)) == backup.digest
+    SQL.query!(repo, "DROP SCHEMA #{prefix} CASCADE", [])
+
+    assert {_output, 0} =
+             postgres_from_file(
+               "pg_restore",
+               [
+                 "--exit-on-error",
+                 "--no-owner",
+                 "--no-privileges",
+                 "--dbname",
+                 backup.database
+               ],
+               backup.path
+             )
+  end
+
+  defp backup_database!(repo) do
+    # MigrationRepo is started with these runtime options, not app-env config;
+    # its config/0 therefore does not expose the connection passed to start_link.
+    config = Responder.Repo.config()
+    database = Keyword.fetch!(config, :database)
+    assert String.starts_with?(database, "responder_test")
+
+    identity_query =
+      "SELECT current_database() || ':' || system_identifier FROM pg_control_system()"
+
+    assert %{rows: [[identity]]} = SQL.query!(repo, identity_query, [])
+
+    assert {container_identity, 0} =
+             System.cmd(
+               "docker",
+               postgres_arguments("psql", [
+                 "-At",
+                 "--dbname",
+                 database,
+                 "--command",
+                 identity_query
+               ]),
+               stderr_to_stdout: true
+             )
+
+    assert String.trim(container_identity) == identity
+    database
+  end
+
+  defp postgres_arguments(command, arguments) do
+    # Reuse the gate's pinned server clients; a host pg_dump may be older than
+    # PostgreSQL 18 even when every existing development prerequisite is present.
+    [
+      "compose",
+      "--project-name",
+      "responder-kernel",
+      "--file",
+      Path.expand("../../../compose.test.yml", __DIR__),
+      "exec",
+      "-T",
+      "--user",
+      "postgres",
+      "episode-db",
+      command
+      | arguments
+    ]
+  end
+
+  defp postgres_from_file(command, arguments, path) do
+    # Fixed shell code supplies stdin only; all commands and paths remain
+    # separate arguments, including temporary paths containing spaces.
+    System.cmd(
+      "sh",
+      [
+        "-c",
+        "exec \"$@\" < \"$RESPONDER_MIGRATION_BACKUP\"",
+        "memory-reset-backup",
+        "docker" | postgres_arguments(command, arguments)
+      ],
+      env: [{"RESPONDER_MIGRATION_BACKUP", path}],
+      stderr_to_stdout: true
+    )
   end
 
   defp insert_wait_migration_rows!(repo, prefix, ids) do
@@ -1508,6 +1889,33 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
 
     start_supervised!({MigrationRepo, config})
     MigrationRepo
+  end
+
+  defp migration_temporary_directory! do
+    # ExUnit's tmp_dir tag defaults to the checkout. Dumps and copied migrations
+    # must neither dirty the worktree nor become accidental release inputs.
+    directory = Path.join(System.tmp_dir!(), "responder-migration-#{Ecto.UUID.generate()}")
+    repository = Path.expand("../../..", @migrations_path)
+    refute String.starts_with?(Path.expand(directory), repository <> "/")
+    File.mkdir!(directory)
+    on_exit(fn -> File.rm_rf!(directory) end)
+    File.chmod!(directory, 0o700)
+    directory
+  end
+
+  defp historical_migrations!(temporary) do
+    path = Path.join(temporary, "reversible-release-migrations")
+    File.mkdir!(path)
+
+    for source <- Path.wildcard(Path.join(@migrations_path, "*.exs")),
+        {version, _name} = Integer.parse(Path.basename(source)),
+        version <= @candidate_responses_version do
+      target = Path.join(path, Path.basename(source))
+      File.cp!(source, target)
+      assert File.read!(target) == File.read!(source)
+    end
+
+    path
   end
 
   defp table_exists?(repo, prefix, table) do

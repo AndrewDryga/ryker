@@ -12,9 +12,18 @@ defmodule Responder.StateTools.RouterTest do
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Repo
   alias Responder.Slack.ChannelMembership
-  alias Responder.State.{BehaviorChangeset, Record, Records, Schedule, ScheduleChangeset}
+
+  alias Responder.State.{
+    BehaviorChangeset,
+    KnowledgeSnapshot,
+    Record,
+    Records,
+    Schedule,
+    ScheduleChangeset
+  }
+
   alias Responder.StateTools.{FixedTools, Router, Tools, ToolVisibility}
-  alias Responder.Work.{Custody, FinalPreflight}
+  alias Responder.Work.{Custody, FinalPreflight, Prompt, SubmissionBuilder}
 
   @options Router.init(token: "trusted-state-tools-token")
   @emisar_options Router.init(
@@ -93,7 +102,7 @@ defmodule Responder.StateTools.RouterTest do
     assert record_ref =~ "record:task_offer:"
 
     assert [%{"kind" => "task_offer", "payload" => payload}] =
-             Records.model_records(claim.episode.id)
+             Records.retained_records(claim.episode.id)
 
     assert payload["repository"] == "responder"
     assert payload["prompt"] =~ "must not deploy"
@@ -122,7 +131,7 @@ defmodule Responder.StateTools.RouterTest do
     assert String.starts_with?(record_ref, "record:evidence:")
 
     assert [%{"kind" => "evidence", "payload" => payload}] =
-             Records.model_records(claim.episode.id)
+             Records.retained_records(claim.episode.id)
 
     assert payload["target"] == "Exact phrase search results for Emisar MCP"
   end
@@ -184,7 +193,7 @@ defmodule Responder.StateTools.RouterTest do
              )
 
     assert {:error, "unauthorized"} = Tools.call("record_finding", args, [])
-    assert Enum.count(Records.model_records(claim.episode.id), &(&1["kind"] == "finding")) == 1
+    assert Enum.count(Records.retained_records(claim.episode.id), &(&1["kind"] == "finding")) == 1
   end
 
   test "findings accept the advertised Unicode character limits" do
@@ -244,7 +253,7 @@ defmodule Responder.StateTools.RouterTest do
                bound_options(second)
              )
 
-    refute Enum.any?(Records.model_records(second.episode.id), &(&1["kind"] == "finding"))
+    refute Enum.any?(Records.retained_records(second.episode.id), &(&1["kind"] == "finding"))
   end
 
   test "a read-only goal may inspect the pinned primary but never an unbound repository" do
@@ -268,7 +277,7 @@ defmodule Responder.StateTools.RouterTest do
       }
 
       assert {:ok, %{"kind" => "goal"}} = Tools.call("plan_goal", arguments, bound_options(claim))
-      assert Enum.any?(Records.model_records(claim.episode.id), &(&1["kind"] == "goal"))
+      assert Enum.any?(Records.retained_records(claim.episode.id), &(&1["kind"] == "goal"))
 
       assert {:error, "unauthorized"} =
                Tools.call(
@@ -402,7 +411,7 @@ defmodule Responder.StateTools.RouterTest do
     assert String.starts_with?(record_ref, "record:task_offer:")
 
     assert [%{"kind" => "task_offer", "payload" => payload}] =
-             Records.model_records(claim.episode.id)
+             Records.retained_records(claim.episode.id)
 
     assert payload["kind"] == "incident"
     assert payload["repository"] == nil
@@ -410,8 +419,134 @@ defmodule Responder.StateTools.RouterTest do
     assert payload["instruction_ref"] == "input:incident:1"
   end
 
+  test "engineering task repository errors explain the blocker without creating work" do
+    # One recorded GitHub turn spent six calls changing unrelated arguments
+    # because missing repository and an incompatible slug both said invalid_arguments.
+    fixture =
+      "testdata/state_tools/github-task-repository-errors.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    claim =
+      claim!("task-repository-errors", %{
+        destination: %{
+          conversation_ref: "github:eval:repository:99",
+          thread_ref: "github:eval:pull:42",
+          transport: "github"
+        }
+      })
+
+    options = bound_options(claim)
+    assert length(fixture["calls"]) == 6
+
+    errors =
+      for call <- fixture["calls"] do
+        response =
+          rpc(
+            "tools/call",
+            %{"name" => "request_task", "arguments" => call["arguments"]},
+            options
+          )
+
+        result = Jason.decode!(response.resp_body)["result"]
+        assert result["isError"]
+        assert Records.retained_records(claim.episode.id) == []
+        result["structuredContent"]["error"]
+      end
+
+    assert Enum.map(errors, &hd(String.split(&1, ":", parts: 2))) == [
+             "repository_required",
+             "repository_required",
+             "repository_required",
+             "invalid_repository_reference",
+             "repository_required",
+             "repository_required"
+           ]
+
+    for error <- errors do
+      assert error =~ "configured"
+      refute error =~ "octo/example"
+    end
+
+    arguments = hd(fixture["calls"])["arguments"]
+
+    assert {:error, default_error} =
+             Tools.call("request_task", Map.delete(arguments, "kind"), options)
+
+    assert String.starts_with?(default_error, "repository_required:")
+
+    malformed = arguments |> Map.put("repository", "responder") |> Map.delete("title")
+    assert Tools.call("request_task", malformed, options) == {:error, "invalid_arguments"}
+    assert Records.retained_records(claim.episode.id) == []
+  end
+
+  test "task repository documentation distinguishes engineering and incident requirements" do
+    claim = claim!("task-repository-documentation")
+    task = Enum.find(Tools.list(bound_options(claim)), &(&1["name"] == "request_task"))
+    description = get_in(task, ["inputSchema", "properties", "repository", "description"])
+    assert is_binary(description)
+    assert description =~ "engineering"
+    assert description =~ "incident"
+    assert String.downcase(description) =~ "configured"
+  end
+
+  test "task repository guidance names supplied companion targets before asking for configuration" do
+    # The GitHub null-target clarification made a real Rivals turn ask three
+    # unnecessary configuration questions despite its named read-only companion.
+    fixture =
+      "testdata/state_tools/recorded-rivals-repository-context.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    # The captured fields are stored context. Assert the current provider-facing
+    # projection, so documentation cannot accidentally name storage-only paths.
+    prompt = fixture["context"] |> Prompt.build() |> Jason.decode!()
+    assert prompt["work"]["repository_ref"] == nil
+    assert prompt["work"]["workspace"]["primary"]["name"] == "primary"
+
+    assert [%{"name" => "blitz-rivals-scraper", "read_only" => true}] =
+             prompt["work"]["workspace"]["companions"]
+
+    claim = claim!("task-companion-documentation")
+    options = bound_options(claim)
+    task = Enum.find(Tools.list(options), &(&1["name"] == "request_task"))
+    description = get_in(task, ["inputSchema", "properties", "repository", "description"])
+
+    for path <- ["work.repository_ref", "work.workspace.companions[].name"] do
+      assert description =~ path
+    end
+
+    assert task["description"] =~ "inert proposal, not execution"
+    assert description =~ "relevant"
+    assert description =~ "generic primary"
+    assert description =~ "unrelated companion"
+    assert description =~ "unoffered"
+    assert description =~ "only if no matching supplied target exists"
+
+    github_fixture =
+      "testdata/state_tools/github-task-repository-errors.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    assert {:error, error} =
+             Tools.call("request_task", hd(github_fixture["calls"])["arguments"], options)
+
+    assert error =~ "work.repository_ref"
+    assert error =~ "work.workspace.companions[].name"
+    assert error =~ "only if no matching supplied target exists"
+    assert Records.retained_records(claim.episode.id) == []
+  end
+
   test "the fixed protocol reads work and creates each durable proposal kind" do
     claim = claim!("fixed-product-surface")
+    assert {:ok, initial} = SubmissionBuilder.build(claim)
+
+    assert :ok =
+             KnowledgeSnapshot.expose_submission(%{
+               claim
+               | turn: %{claim.turn | submission: initial}
+             })
+
     options = bound_options(claim)
 
     assert {:ok, %{"automations" => [], "cursor" => nil}} =
@@ -582,6 +717,9 @@ defmodule Responder.StateTools.RouterTest do
                  "kinds" => ["guidance", "fact"],
                  "limit" => 20,
                  "query" => "not-yet-confirmed",
+                 "after" => nil,
+                 "before" => nil,
+                 "time_basis" => "changed",
                  "scope" => "current_channel"
                },
                options
@@ -722,7 +860,7 @@ defmodule Responder.StateTools.RouterTest do
 
     recurrences =
       claim.episode.id
-      |> Records.model_records()
+      |> Records.retained_records()
       |> Enum.filter(&(&1["kind"] == "schedule_offer"))
       |> Enum.map(&get_in(&1, ["payload", "recurrence"]))
 
@@ -829,7 +967,7 @@ defmodule Responder.StateTools.RouterTest do
     assert Tools.call("propose_automation", %{"proposals" => proposals}, options) ==
              {:error, "invalid_arguments"}
 
-    assert Records.model_records(claim.episode.id) == []
+    assert Records.retained_records(claim.episode.id) == []
 
     assert Tools.call(
              "wait_for",
@@ -1137,7 +1275,7 @@ defmodule Responder.StateTools.RouterTest do
       assert String.starts_with?(record_ref, "record:")
     end
 
-    records = Records.model_records(claim.episode.id)
+    records = Records.retained_records(claim.episode.id)
     assert Enum.count(records, &(&1["kind"] == "guidance_offer")) == 3
     assert Enum.count(records, &(&1["kind"] == "memory_offer")) == 2
 
@@ -1184,7 +1322,7 @@ defmodule Responder.StateTools.RouterTest do
                )
     end
 
-    assert Enum.all?(Records.model_records(private.episode.id), fn record ->
+    assert Enum.all?(Records.retained_records(private.episode.id), fn record ->
              record["payload"]["scope"] == "conversation" and
                record["payload"]["visibility"] == "conversation" and
                is_nil(record["payload"]["repository"])
@@ -1216,7 +1354,7 @@ defmodule Responder.StateTools.RouterTest do
                bound_options(external)
              )
 
-    assert [external_record] = Records.model_records(external.episode.id)
+    assert [external_record] = Records.retained_records(external.episode.id)
     assert external_record["payload"]["scope"] == "conversation"
     assert external_record["payload"]["visibility"] == "conversation"
     assert is_nil(external_record["payload"]["repository"])
@@ -1245,7 +1383,7 @@ defmodule Responder.StateTools.RouterTest do
                bound_options(unknown)
              )
 
-    assert [record] = Records.model_records(unknown.episode.id)
+    assert [record] = Records.retained_records(unknown.episode.id)
     assert record["payload"]["scope"] == "conversation"
     assert record["payload"]["visibility"] == "conversation"
   end
@@ -1642,7 +1780,7 @@ defmodule Responder.StateTools.RouterTest do
              options
            ) == {:error, "deadline_elapsed"}
 
-    assert Records.model_records(claim.episode.id) == []
+    assert Records.retained_records(claim.episode.id) == []
   end
 
   test "host-derived slots reconcile exact retries and reject a conflicting model retry" do

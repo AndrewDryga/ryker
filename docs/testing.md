@@ -67,9 +67,15 @@ turns. Once the preceding accepted turn has settled delivery and its episode is
 complete, remaining checkpoints appear in `runtime.skipped_checkpoints` with the
 original scenario index and timestamp, not as fabricated inputs or executions.
 Noncomplete episodes still require the exact open wait and active subscription.
-The Airflow cassette retains historical source timestamps while its ingress
-clock is rebased; passing timer mechanics does not qualify fresh health or decide
-whether an inconclusive completion was sufficiently persistent.
+Scenario source bodies and cassette timestamps remain unchanged. Replayed inputs
+label their shifted timestamp as ingress time and include `world_replay_clock`
+metadata with the original scenario/source date and the separate simulated host
+receipt date. The model and judge both receive that distinction; a historical
+apply must not become today's deployment merely because a replay ran today.
+Timers still use the exact persisted due time, and source-event continuations
+still must occur after the live wait began. Passing those mechanics does not
+qualify present-day health or decide whether an inconclusive completion was
+sufficiently persistent.
 
 The world matrix's Terraform `reconnect` credit is tied to a harvested positive
 Slack-source continuation that actually reaches an injected second-turn submit

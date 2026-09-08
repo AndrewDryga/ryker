@@ -92,6 +92,22 @@ defmodule Responder.Delivery.PlatformActionCustodyTest do
            } = PlatformActionCustody.validation_records(claim.episode.id)[action.action_ref]
   end
 
+  test "model action history contains only typed identity and status rather than retained payload" do
+    # Derived-context review checked this sibling read path: adding request or
+    # response text here would need the same producer-source custody as records.
+    claim = claim!()
+    assert {:ok, %{action: action}} = PlatformActionCustody.enqueue(claim, reaction_attributes())
+
+    assert PlatformActionCustody.model_actions(claim.episode.id) == [
+             %{
+               "action_ref" => action.action_ref,
+               "kind" => "reaction",
+               "status" => "pending",
+               "tool" => "set_slack_reaction"
+             }
+           ]
+  end
+
   test "a delivered reaction removal cannot replace the reply to a current human input" do
     # The cost of accepting this is a human request ending with neither a reply nor even the
     # reaction that the final claims answered it, despite every host operation succeeding.

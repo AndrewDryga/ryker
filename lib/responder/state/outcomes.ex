@@ -13,7 +13,7 @@ defmodule Responder.State.Outcomes do
   alias Responder.CanonicalJSON
   alias Responder.Episodes.{Episode, Event}
   alias Responder.Repo
-  alias Responder.State.Record
+  alias Responder.State.{DerivedContext, Record}
   alias Responder.Work.Turn
 
   @maximum_candidates 24
@@ -24,16 +24,21 @@ defmodule Responder.State.Outcomes do
   @record_bytes 2 * 1_024
   @truncation_marker "...<truncated>..."
 
-  @spec recall(Episode.t()) :: [map()]
-  def recall(%Episode{} = current) do
+  @spec recall(Episode.t(), String.t() | nil) :: [map()]
+  def recall(current, repository \\ nil)
+
+  def recall(%Episode{} = current, repository) do
     current
     |> candidate_episodes()
     |> Enum.flat_map(&build_outcome/1)
+    |> Enum.map(&DerivedContext.outcome/1)
+    |> DerivedContext.filter(current, repository)
+    |> Enum.map(& &1["document"])
     |> Enum.sort_by(&sort_key(&1, current), :desc)
     |> Enum.take(@maximum_outcomes)
   end
 
-  def recall(_episode), do: []
+  def recall(_episode, _repository), do: []
 
   defp candidate_episodes(current) do
     Repo.all(
@@ -89,16 +94,24 @@ defmodule Responder.State.Outcomes do
   end
 
   defp document(episode, turn, state) do
-    records = outcome_records(episode.id)
+    records = episode.id |> outcome_records() |> Enum.map(&record_document/1)
+    event = trigger_event(episode.id)
+    projection(turn, event, records, state)
+  end
 
+  @doc false
+  def projection(turn, event, records, state) do
     %{
-      "blocker" => if(state == "blocked", do: turn.last_error_detail),
-      "episode_ref" => episode.id,
-      "finished_at" => finished_at(episode, turn),
-      "records" => Enum.map(records, &record_document/1),
+      "blocker" =>
+        if(state == "blocked", do: get_in(turn.cancellation_intent || %{}, ["reason"])),
+      "episode_ref" => turn.episode_id,
+      "finished_at" => finished_at(turn),
+      "records" => records,
       "result" => compact_value(turn.delivery_document, @result_bytes),
       "state" => state,
-      "trigger" => trigger(episode.id),
+      "source_turn_ref" => turn.id,
+      "source_event_ref" => if(event, do: event.id),
+      "trigger" => if(event, do: compact_value(event.payload["payload"], @trigger_bytes)),
       "verified" => state == "complete" and explicitly_verified?(records)
     }
   end
@@ -117,18 +130,14 @@ defmodule Responder.State.Outcomes do
     |> Enum.reverse()
   end
 
-  defp trigger(episode_id) do
-    case Repo.one(
-           from(event in Event,
-             where: event.episode_id == ^episode_id and event.kind == :input_admitted,
-             order_by: [asc: event.sequence],
-             select: event.payload,
-             limit: 1
-           )
-         ) do
-      %{"payload" => payload} -> compact_value(payload, @trigger_bytes)
-      _missing -> nil
-    end
+  defp trigger_event(episode_id) do
+    Repo.one(
+      from(event in Event,
+        where: event.episode_id == ^episode_id and event.kind == :input_admitted,
+        order_by: [asc: event.sequence],
+        limit: 1
+      )
+    )
   end
 
   defp record_document(record) do
@@ -141,9 +150,9 @@ defmodule Responder.State.Outcomes do
 
   defp explicitly_verified?(records) do
     Enum.any?(records, fn
-      %Record{
-        kind: "alert_assessment",
-        payload: %{"verdict" => verdict, "verification" => verification}
+      %{
+        "kind" => "alert_assessment",
+        "payload" => %{"verdict" => verdict, "verification" => verification}
       }
       when verdict in ["confirmed_issue", "likely_issue"] and is_binary(verification) ->
         String.trim(verification) != ""
@@ -153,8 +162,8 @@ defmodule Responder.State.Outcomes do
     end)
   end
 
-  defp finished_at(episode, turn) do
-    (turn.delivered_at || turn.accepted_at || turn.cancelled_at || episode.updated_at)
+  defp finished_at(turn) do
+    (turn.delivered_at || turn.accepted_at || turn.cancelled_at || turn.inserted_at)
     |> DateTime.to_iso8601()
   end
 

@@ -2,6 +2,7 @@ import {test} from "node:test"
 import assert from "node:assert/strict"
 import {readFileSync} from "node:fs"
 import vm from "node:vm"
+import {createRelearnPicker} from "../../priv/static/relearn-selection.mjs"
 
 const source = readFileSync(new URL("../../priv/static/control-plane.js", import.meta.url), "utf8")
 const retained = JSON.parse(readFileSync(new URL("../responder/work/fixtures/airflow_candidate_responses.json", import.meta.url), "utf8"))
@@ -42,7 +43,7 @@ function fixture(hash = "") {
   // Evaluate the shipped hook itself; browser asset imports and the transport
   // are stubbed. Real LiveView patches are qualified separately in Chromium.
   vm.runInNewContext(source.replace(/^import .*$/gm, ""), {document, window, location,
-    sessionStorage: {getItem() { return null }}, Socket: class {}, keyFor: () => null,
+    sessionStorage: {getItem() { return null }}, Socket: class {}, keyFor: () => null, createRelearnPicker,
     LiveSocket: class { constructor(_path, _socket, options) { hook = options.hooks.PreserveReadingState } connect() {} }})
   const mounted = Object.assign({el: root}, hook)
   return {hook: mounted, document, window, location, root, outer, response, nodes, listeners, scrolled,

@@ -88,6 +88,157 @@ tools own durable records. The generic Delivery module owns external message and
   durable reference with `mix responder.delivery list|show|rearm`; a rearm starts a separately audited
   retry generation with a fresh bounded attempt budget.
 
+## Memory and background learning
+
+PostgreSQL owns memory; a warm Coop session is an execution optimization, not the durable owner.
+The memory pipeline has separate read, learn, and act decisions:
+
+1. Admission returns only `action`, `episode_ref`, `reaction`, `relation`, `reason`, and
+   `work_class`. Its schema has no `observation` or `knowledge` output. Committing a retained input
+   records a bounded original-message excerpt and its exact source receipt, including for silence.
+2. The optional `Responder.Learning.Runtime` coalesces decided input revisions in the same writable
+   scope and execution mode. A revision belongs to one durable batch. Quiet/max-delay clocks start
+   when admission made it eligible, not when the historical source message happened.
+3. `State.Learning` freezes the selected original inputs, eligible existing subjects, prompt,
+   schema, policy digest, and remote operation identities. It is the sole model writer of topic
+   knowledge. The learner can return no change without replying or creating an episode.
+4. Work receives selected authorized knowledge plus recent uncovered source excerpts. Its separate
+   `update_conversation_summary` tool proposes a conversation handover; that handover becomes
+   recallable only when the associated Work candidate is accepted.
+5. Confirmed facts, preferences, guidance, waits, goals, and operational authority retain their
+   existing owners. Learned prose cannot confirm a preference, start an incident, or grant a tool
+   permission. Shadow learning never authorizes live delivery or crosses into live memory scope.
+
+### One subject, several updates
+
+The learning result is `{updates: [...], reason: "..."}`. Every item selects exact offered
+`source_input_ids` and one action:
+
+| Action | Required meaning |
+|---|---|
+| `update` | Copy an offered writable `target_ref`, its `expected_version`, and unchanged `topic_key`; provide the revised `title`, `summary`, `topics`, and `anchors`. |
+| `create` | Propose a distinct subject with those same subject fields, `target_ref: null`, and `expected_version: 0`. |
+| `defer` | Return only the action, source input IDs, and a short reason; retain no new topic. |
+
+An empty updates list is valid. A model-level `defer` is a completed no-change judgment, not a
+failed batch that pauses the conversation. No output quota requires a memory for each message.
+
+Topic identity is its host-issued UUID, not a title or a slug invented again on every message.
+Up to eight exact source-supported identifiers or URLs may serve as matching anchors. The host
+qualifies them to the authorized source scope; an anchor is a retrieval clue, not unique ownership.
+Generic service names cannot merge distinct incidents by themselves. Before accepting `create`,
+the host searches authorized existing subjects. An unoffered plausible match causes a bounded new
+judgment with those alternatives, not a silent merge. Concurrent writes serialize per writable
+scope, and updates must still match the offered exact version. Late source events may correct
+understanding; event-time order alone is not a reason to drop them.
+
+Normalized source membership records retain direct supporting sources separately from inherited
+disclosures. Topic revisions refer to the membership version instead of copying an ever-growing
+source array. Source edits, expiry, deletion, and current membership are checked before disclosure
+and application. A title or excerpt is itself a disclosure. Future queued inputs are excluded even
+when another memory document indirectly refers to them. Reading a source does not renew its lifetime.
+Capacity errors are explicit; the host never silently drops source dependencies to accept a result.
+
+Episode records and recalled answers follow those same source rules. Their exact stored projection
+resolves to its producing turn and session; a new session inherits the producer's retained source
+and knowledge dependencies before receiving the text. Source withdrawal therefore blocks both a
+replacement briefing and acceptance after a tool read. Operator history remains a separate retained
+view. Historical outcomes bind to the named turn, original input, and listed records, not the latest
+mutable episode projection.
+
+Successful disclosure attests the session's source and knowledge row counts, including tracked zero.
+Missing or partially pruned custody is not treated as source-free prose, and later reads cannot heal
+that gap. This covers Responder-accounted disclosures, not untracked native or live-platform reads.
+The producer's accumulated session dependencies are conservative: later disclosures can invalidate
+an earlier record. They do not extend its source lifetime or copy all roots onto every record.
+Producer reads take a nonblocking shared session lock. Busy producers are temporarily unavailable,
+not revoked: frozen work yields and retries without spending a model failure attempt or stopping
+the episode. Optional history can be omitted while that producer is busy.
+
+### Background execution and recovery
+
+The example YAML enables `learning` with a trusted Coop policy/digest, one worker, batches of up
+to 16 inputs, a 10-second quiet delay, and a 60-second maximum coalescing delay. Omitting the
+section disables this runtime. Configuration must use a dedicated empty scratch repository with
+`repository_read_only=true`, `project_env=false`, `project_mcp=false`, no companions, and no
+Responder state/action tools; a returned Responder binding digest is rejected before source
+submission. Coop still owns an execution fork and exposes provider built-in tools. Read-only
+restricts the repository mount, not writable output/scratch or the provider home; network egress
+is not disabled by these policy flags. Instructions prohibit native external actions, but this is
+an integration-free read-only sandbox, not enforced no-tools execution. Production learning uses
+the existing outbound fleet adapter, not an extra local Coop runtime.
+
+Batch states are `queued`, `running`, `applied`, `no_change`, `deferred`, and `superseded`. A
+PostgreSQL lease fences execution and acceptance. Provider calls occur outside database
+transactions. Lost create, submit, or validation responses reconcile the frozen operation key;
+uncertainty never buys a fresh model execution. Before another judgment starts, the previous remote
+turn must have exact stop proof. After twelve rapid unresolved reconciliations, the scope stays
+fenced and only reconciliation retries hourly; unrelated scopes can continue.
+
+Three host starts are allowed initially for one batch, shared by provider failures, semantic
+rejection, and match corrections. Provider-internal attempts have their own pinned-policy limit;
+three host starts are not necessarily three model invocations. Restart, generation changes, source
+invalidation after a start, and receipt pruning do not erase spent starts. An audited operator
+retry grants exactly one additional start against the displayed `budget_version`: its ceiling is
+the lifetime starts already spent plus one. Duplicate or stale requests cannot increase that grant.
+Missing source authority, another active batch, or unresolved older remote work blocks retry.
+Owned sessions use the existing close/plan/discard retention custody, including after failure.
+
+After a host rejects an anchor, create match, or result shape, a fresh frozen prompt includes
+`previous_attempt_error`: a bounded code and static repair instruction. It does not repeat the
+rejected candidate or former source text. Feedback participates in the same prompt-byte limit;
+old submitted bytes, source authorization, and the lifetime start counter remain unchanged.
+Subject anchors must come from message content or an offered target, not sender/routing metadata.
+
+### Recall and original context
+
+`search_memory` is the single model memory-search tool. All fields are required; unused timestamps
+and the first cursor are `null`:
+
+```json
+{
+  "query": "Livebook",
+  "scope": "repository",
+  "kinds": ["fact", "guidance", "continuity"],
+  "limit": 10,
+  "cursor": null,
+  "after": null,
+  "before": null,
+  "time_basis": "source"
+}
+```
+
+`query` may be empty for date browsing. `after` is inclusive and `before` exclusive, both UTC.
+`source` means the original message time for an excerpt, the latest supporting source time for
+derived conversation context, and confirmation time for a confirmed item. `changed` means content
+change/confirmation/edit time, never a retrieval counter. Explicit history keeps source excerpts
+searchable after consolidation, while automatic briefing avoids those covered duplicates.
+
+Pages interleave requested kinds instead of letting facts consume the whole result budget.
+Within each lane, stable content time and identity form a descending keyset. The host-signed cursor
+binds the effective query, filters, scope, active execution binding, effective operator, and cutoff; it expires after an
+hour and carries no caller-selected authority. Access and source eligibility are checked again on
+every page. This is a live traversal, not a frozen database snapshot: changed or withdrawn rows may
+disappear, and new content requires a fresh search. Continue until `exhausted` is true; a final
+empty page is possible. Pages permit 1–20 results, 64 candidate visits, and 64 KiB of result
+documents, with a five-second statement budget and explicit failure codes. Search takes the active
+session lock without waiting, rechecks current turn ownership and lease, then takes the channel
+authorization fence before updating any recall counters. Further lock waits are limited to one
+second. SQL contention and budget failures return `memory_search_budget_exceeded`; they do not
+return a successful empty page or commit partial accounting. Source reauthorization can separately
+reject an invalidated context. Search follows the existing
+session-before-channel order used by Work result acceptance and source exposure.
+
+Retained Slack results can include a `source_read` or `source_reads` descriptor for the existing
+`read_slack_source` tool. That reader independently checks present access. It is not permission to
+search unrelated channels, and a derived summary is never presented as the original quotation.
+An expired source cannot be reconstructed from a summary. Memory supports historical attribution;
+current health, successful deployment, and operational authorization still need their owning evidence.
+
+The implementation decisions and cutover scope are recorded in the
+[memory implementation specification](memory-implementation-spec.md). The schema snapshots and
+model-evaluation obligations are documented in [memory evaluation](memory-evaluation.md).
+
 ## Universal final result
 
 The model returns one small JSON document:

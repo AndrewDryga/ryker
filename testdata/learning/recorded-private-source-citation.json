@@ -1,0 +1,23 @@
+{
+  "source_capture": "privacy-1788890540384.json; actual public cite_source arguments and candidate, unchanged",
+  "capture_kind": "one_actual_model_turn_source_privacy_fence",
+  "arguments": {
+    "observation": "The retained historical HAProxy alert lists allocation 311e38f3-a17c-7d1b-1235-05c256ba3c39 and OOM constraint CONSTRAINT_MEMCG. The alert explains that this means the workload cgroup reached its limit, not by itself that the host ran out of RAM. This retained historical observation does not establish current service health.",
+    "relation": "supports",
+    "source_ref": "observation:bec3eb2b-4b2d-4ba0-843a-84fe1ef62666",
+    "subject": "Historical HAProxy alert allocation and OOM constraint",
+    "supersedes": []
+  },
+  "candidate": {
+    "decision_reason": null,
+    "delivery": "reply",
+    "message": "The retained historical HAProxy alert lists allocation `311e38f3-a17c-7d1b-1235-05c256ba3c39` and OOM constraint `CONSTRAINT_MEMCG`—the workload cgroup reached its memory limit. That does not by itself indicate host RAM exhaustion, and this historical alert does not establish current service health.",
+    "outcome": {
+      "artifact_refs": [],
+      "record_refs": [
+        "record:evidence:5cebb1cfe4ff51be3cac1fc090c39049"
+      ],
+      "state": "complete"
+    }
+  }
+}

@@ -5,6 +5,7 @@ defmodule Responder.ControlPlane.ConversationMemoryReadOnlyTest do
   alias Responder.ControlPlane.ConversationMemory
   alias Responder.Episodes.Episode
   alias Responder.Fixtures.Knowledge, as: Fixtures
+  alias Responder.Learning.Rebuilds
   alias Responder.Repo
   alias Responder.Slack.ChannelMembership
 
@@ -32,6 +33,9 @@ defmodule Responder.ControlPlane.ConversationMemoryReadOnlyTest do
                    assert [%{available: true, text: text}] = view.items
                    assert text =~ "draft-ai-suggestions"
                    assert [%{version: 1}] = view.history
+
+                   assert {:ok, %{topic_id: ^id, version: 1, available?: true}} =
+                            Rebuilds.preview(id, %{page: 1, q: ""})
                  end
 
                  :ok
@@ -77,7 +81,7 @@ defmodule Responder.ControlPlane.ConversationMemoryReadOnlyTest do
       with_topics(fn fixture ->
         change_membership(fixture.workspace, "CTARGET", unquote(before))
         {:ok, scope} = Continuity.destination_context(fixture.target, nil)
-        query = ConversationMemory.availability_query(scope, [fixture.local, fixture.inherited])
+        query = Knowledge.availability_query(scope, [fixture.local, fixture.inherited])
         change_membership(fixture.workspace, "CTARGET", unquote(after_change))
         ids = Repo.all(query)
         assert fixture.inherited in ids == unquote(inherited)
@@ -147,9 +151,7 @@ defmodule Responder.ControlPlane.ConversationMemoryReadOnlyTest do
       {:ok, scope} = Continuity.destination_context(fixture.target, nil)
 
       ids =
-        Repo.all(
-          ConversationMemory.availability_query(scope, [fixture.local, source.id, other_id])
-        )
+        Repo.all(Knowledge.availability_query(scope, [fixture.local, source.id, other_id]))
 
       assert ids == [fixture.local]
       assert available?(other_id)
@@ -166,14 +168,24 @@ defmodule Responder.ControlPlane.ConversationMemoryReadOnlyTest do
         copied = Repo.get!(ConversationKnowledge, fixture.inherited)
         expired = DateTime.add(DateTime.utc_now(), -3601) |> DateTime.to_iso8601()
 
-        dependencies =
-          Enum.map(copied.source_dependencies, fn receipt ->
-            if receipt["conversation_ref"] == fixture.source.destination_conversation_ref,
-              do: Map.put(receipt, "retained_at", expired),
-              else: receipt
-          end)
+        # Inject age into the normalized inherited receipt, not its owner pointer.
+        for source <-
+              Repo.all(
+                from(s in Responder.State.KnowledgeSource,
+                  where: s.knowledge_id == ^copied.id
+                )
+              ),
+            source.receipt["conversation_ref"] == fixture.source.destination_conversation_ref do
+          receipt = Map.put(source.receipt, "retained_at", expired)
 
-        Repo.update!(Ecto.Changeset.change(copied, source_dependencies: dependencies))
+          Repo.update!(
+            Ecto.Changeset.change(source,
+              receipt: receipt,
+              receipt_fingerprint: Responder.CanonicalJSON.digest(receipt),
+              retained_at: DateTime.from_iso8601(expired) |> elem(1)
+            )
+          )
+        end
 
         view = ConversationMemory.project(%{"kind" => "knowledge", "item" => copied.id})
         assert [%{available: false, text: text, expires_at: expires_at}] = view.items
@@ -224,6 +236,7 @@ defmodule Responder.ControlPlane.ConversationMemoryReadOnlyTest do
           |> Map.merge(%{
             "topic_key" => "copied-draft-ai-suggestions",
             "target_ref" => nil,
+            "anchors" => [],
             "expected_version" => 0
           })
 
@@ -247,7 +260,8 @@ defmodule Responder.ControlPlane.ConversationMemoryReadOnlyTest do
             topic_key: "copied-draft-ai-suggestions"
           )
 
-        assert copied.source_dependencies == dependencies
+        assert LearningSources.expand(copied.source_dependencies) ==
+                 LearningSources.expand(dependencies)
 
         fun.(%{
           workspace: workspace,

@@ -1,7 +1,16 @@
 defmodule Responder.ControlPlane.LearningReceipt do
-  @moduledoc "Inspection of the saved learning judgment that produced one knowledge revision."
+  @moduledoc "Inspection of exact saved learning attempts, including rejected and no-change results."
+  import Ecto.Query
   use Phoenix.Component
-  alias Responder.ControlPlane.{InspectionRedactor, PromptDocument, SlackMarkdown, SourceText}
+
+  alias Responder.ControlPlane.{
+    InspectionRedactor,
+    LearningActivity,
+    PromptDocument,
+    SlackMarkdown,
+    SourceText
+  }
+
   alias Responder.Repo
   alias Responder.State.{KnowledgeRevision, LearningRun}
 
@@ -17,6 +26,17 @@ defmodule Responder.ControlPlane.LearningReceipt do
   end
 
   def project(_, _, _), do: nil
+
+  def project_attempt(batch_id, run_id, secrets) do
+    with {:ok, ^batch_id} <- Ecto.UUID.cast(batch_id),
+         {:ok, ^run_id} <- Ecto.UUID.cast(run_id),
+         %{} = run <-
+           Repo.one(from(r in LearningRun, where: r.id == ^run_id and r.batch_id == ^batch_id)) do
+      receipt(run, nil, secrets)
+    else
+      _ -> nil
+    end
+  end
 
   def path(revision) do
     if reference(revision.source_result_ref) do
@@ -47,7 +67,11 @@ defmodule Responder.ControlPlane.LearningReceipt do
     %{
       id: run.id,
       version: version,
-      at: run.applied_at,
+      attempt_number: LearningActivity.attempt_number(run),
+      status: run.status,
+      outcome: outcome(run.status, result),
+      at: run.applied_at || run.inserted_at,
+      error: LearningActivity.error(run.error_code),
       expired: expired,
       input_count: length(run.inputs),
       reason: result["reason"],
@@ -56,12 +80,12 @@ defmodule Responder.ControlPlane.LearningReceipt do
     }
   end
 
-  defp sections(run, prompt, result, secrets) do
+  defp sections(run, prompt, _result, secrets) do
     [
       section(
         "inputs",
         "Source messages",
-        "The messages supplied together, in their original order.",
+        "The messages supplied together, in the order submitted to the model.",
         prompt["inputs"],
         secrets
       ),
@@ -96,11 +120,26 @@ defmodule Responder.ControlPlane.LearningReceipt do
       section(
         "result",
         "Model response",
-        "The proposed topic updates accepted together in this learning pass.",
-        result,
+        "Proposed topic updates from this attempt. The attempt outcome says whether they were applied.",
+        run.result,
+        secrets
+      ),
+      section(
+        "validation",
+        "Validation details",
+        "The host's recorded checks and remote stop receipt.",
+        %{
+          "validation" => run.validation_receipt,
+          "stop" => run.stop_receipt,
+          "error_code" => run.error_code
+        },
         secrets
       )
     ]
+    |> Enum.reject(
+      &(&1.id == "validation" and is_nil(run.validation_receipt) and is_nil(run.stop_receipt) and
+          is_nil(run.error_code))
+    )
   end
 
   defp section(id, title, description, value, secrets) do
@@ -143,10 +182,16 @@ defmodule Responder.ControlPlane.LearningReceipt do
     <section class="learning-receipt" id="learning-receipt" aria-label="Learning receipt">
       <div class="learning-receipt-heading">
         <p class="ui-eyebrow">LEARNING WITHOUT REPLYING</p>
-        <h2>How update {@receipt.version} was learned</h2>
+        <h2>
+          {if @receipt.version,
+            do: "How update #{@receipt.version} was learned",
+            else: "Learning attempt #{@receipt.attempt_number}"}
+        </h2>
         <p>{@receipt.input_count} messages · {@receipt.target}</p>
       </div>
+      <p :if={!@receipt.version}>{@receipt.outcome}</p>
       <p>No reply was sent by this learning pass.</p>
+      <p :if={@receipt.error} class="memory-unavailable">{@receipt.error}</p>
       <p :if={@receipt.reason} class="learning-reason">{@receipt.reason}</p>
       <p :if={@receipt.expired} class="memory-unavailable">
         The saved request and response expired under the conversation memory retention policy.
@@ -205,16 +250,14 @@ defmodule Responder.ControlPlane.LearningReceipt do
     """
   end
 
-  defp part(%{section: %{id: "result"}} = assigns) do
+  defp part(%{section: %{id: "result", value: value}} = assigns) when is_map(value) do
     ~H"""
     <article :for={update <- @section.value["updates"] || []} class="learning-source">
       <div class="learning-source-heading">
-        <strong>{update["title"]}</strong><span>{if update["target_ref"],
-          do: "Topic updated",
-          else: "Topic created"}</span>
+        <strong>{update["title"] || "No topic change proposed"}</strong><span>{proposal_label(update)}</span>
       </div>
       <div class="markdown-preview">
-        {Phoenix.HTML.raw(SlackMarkdown.preview(update["summary"] || "", nil))}
+        {Phoenix.HTML.raw(SlackMarkdown.preview(update["summary"] || update["reason"] || "", nil))}
       </div>
     </article>
     <details>
@@ -234,4 +277,18 @@ defmodule Responder.ControlPlane.LearningReceipt do
     <pre class="model-document-text" tabindex="0">{@section.artifact.text}</pre>
     """
   end
+
+  defp proposal_label(%{"action" => "defer"}), do: "Deferred"
+  defp proposal_label(%{"action" => "update"}), do: "Proposed update"
+  defp proposal_label(%{"action" => "create"}), do: "Proposed new topic"
+  defp proposal_label(_), do: "Proposed topic change"
+
+  defp outcome(:applied, %{"updates" => updates}) when is_list(updates) do
+    if Enum.all?(updates, &(&1["action"] == "defer")),
+      do: "No change needed",
+      else: "Knowledge updated"
+  end
+
+  defp outcome(:applied, _), do: "Learning completed"
+  defp outcome(status, _), do: LearningActivity.label(status)
 end

@@ -18,7 +18,7 @@ defmodule Responder.Admission.CommitTest do
 
   @now ~U[2026-08-27 12:00:00.000000Z]
 
-  test "ignoring a useful human message learns without creating work or delivery in either mode" do
+  test "ignoring keeps an original source excerpt without letting admission write topic memory" do
     # Blitz's real keep-service decision must remain recallable even when the bot
     # has nothing useful to add. Previously ignore retained no conversation memory.
     for mode <- [:live, :shadow] do
@@ -36,13 +36,12 @@ defmodule Responder.Admission.CommitTest do
       {:ok, %{entry: entry}} = Inbox.record(input, execution_mode: mode)
       document = decision!(:ignore, nil, :unrelated) |> Decision.document()
 
-      note = %{
-        "summary" =>
-          "U03EPT4RP5M wants to keep `draft-ai-suggestions` and plans to look into it at an unspecified future time.",
-        "topics" => ["draft-ai-suggestions"]
-      }
+      for field <- ["observation", "knowledge"] do
+        assert {:error, {:invalid_decision, :fields}} =
+                 Decision.parse(Map.put(document, field, %{}))
+      end
 
-      assert {:ok, decision} = Decision.parse(Map.put(document, "observation", note))
+      assert {:ok, decision} = Decision.parse(document)
 
       assert {:ok, %{episode: nil, transitions: []}} =
                Admission.commit(context!(entry), decision, "observed:#{mode}")
@@ -53,12 +52,13 @@ defmodule Responder.Admission.CommitTest do
                  [Ecto.UUID.dump!(entry.id)]
                )
 
-      assert Jason.decode!(saved) == note
+      assert Jason.decode!(saved) == %{"summary" => input.content["text"], "topics" => []}
     end
 
     assert Repo.aggregate(Responder.Episodes.Episode, :count) == 0
     assert Repo.aggregate(Responder.Delivery.Reaction, :count) == 0
     assert Repo.aggregate(Responder.Work.Turn, :count) == 0
+    assert Repo.aggregate(Responder.State.ConversationKnowledge, :count) == 0
   end
 
   test "starts one episode under the current Slack message and reconciles a lost response" do

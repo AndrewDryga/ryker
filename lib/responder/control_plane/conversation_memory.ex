@@ -1,10 +1,18 @@
 defmodule Responder.ControlPlane.ConversationMemory do
   @moduledoc "Searchable, source-linked operator view of learned conversation context."
   import Ecto.Query
-  alias Responder.ControlPlane.{Activity, InspectionRedactor, LearningReceipt, SlackNames}
+
+  alias Responder.ControlPlane.{
+    Activity,
+    InspectionRedactor,
+    LearningActivity,
+    LearningReceipt,
+    SlackNames
+  }
+
   alias Responder.Episodes.Episode
+  alias Responder.Learning.Rebuilds
   alias Responder.Repo
-  alias Responder.Slack.ChannelMembership
 
   alias Responder.State.{
     Continuity,
@@ -72,6 +80,7 @@ defmodule Responder.ControlPlane.ConversationMemory do
     available_ids = if kind == "knowledge", do: available_ids(items), else: MapSet.new()
     sources = source_counts(knowledge_ids)
     history = history(selected, kind, secrets, page_number(params["history_page"]))
+    learning_activity = LearningActivity.project(params)
 
     %{
       counts: counts,
@@ -81,21 +90,36 @@ defmodule Responder.ControlPlane.ConversationMemory do
       pages: pages,
       total: total,
       selected: selected,
+      rebuild: rebuild(selected, kind, available_ids, params),
       history: history.items,
       history_page: history.page,
       history_pages: history.pages,
+      learning_activity: learning_activity,
       learning:
-        if(kind == "knowledge", do: LearningReceipt.project(selected, params["update"], secrets)),
+        if(learning_activity.selected,
+          do:
+            LearningReceipt.project_attempt(
+              learning_activity.selected.id,
+              params["attempt"],
+              secrets
+            ),
+          else:
+            if(kind == "knowledge",
+              do: LearningReceipt.project(selected, params["update"], secrets)
+            )
+        ),
       items:
         Enum.map(items, fn row ->
           rendered = item(row, episodes, secrets)
 
           if kind == "knowledge" do
-            {count, oldest} = Map.get(sources, row.id, {0, nil})
+            {count, direct, oldest} = Map.get(sources, row.id, {0, 0, nil})
 
             Map.merge(rendered, %{
               available: MapSet.member?(available_ids, row.id),
               source_count: count,
+              direct_source_count: direct,
+              inherited_source_count: count - direct,
               version: row.version,
               expires_at:
                 row.source_dependencies |> LearningSources.oldest(oldest) |> expires_at()
@@ -106,6 +130,26 @@ defmodule Responder.ControlPlane.ConversationMemory do
         end)
     }
   end
+
+  defp rebuild(id, "knowledge", available_ids, params) when is_binary(id) do
+    if not MapSet.member?(available_ids, id) do
+      options = %{page: page_number(params["rebuild_page"]), q: search_text(params["rebuild_q"])}
+
+      case Rebuilds.preview(id, options) do
+        {:ok, preview} ->
+          Map.put(
+            preview,
+            :expanded?,
+            Map.has_key?(params, "rebuild_q") or Map.has_key?(params, "rebuild_page")
+          )
+
+        {:error, _} ->
+          nil
+      end
+    end
+  end
+
+  defp rebuild(_, _, _, _), do: nil
 
   # The operator can inspect withdrawn history, but its recall label must apply
   # the same inherited-source visibility and retention fences as model recall.
@@ -128,74 +172,12 @@ defmodule Responder.ControlPlane.ConversationMemory do
 
     case Continuity.destination_context(destination, repository) do
       {:ok, scope} ->
-        scope |> availability_query(ids) |> Repo.all()
+        scope |> Knowledge.availability_query(ids) |> Repo.all()
 
       _ ->
         []
     end
   end
-
-  # An operator label is a current SELECT snapshot, not a submission authority
-  # receipt. Actual model recall still locks and reauthorizes its source rows.
-  # Ignore destination_context's earlier visibility read: both destination and
-  # inherited-source membership must be evaluated in this statement's snapshot.
-  @doc false
-  def availability_query(scope, ids) do
-    base =
-      Knowledge.valid_query()
-      |> where([item], item.id in ^ids)
-      |> where(
-        [item],
-        item.transport == ^scope.transport and item.conversation_ref == ^scope.conversation_ref and
-          fragment("? IS NOT DISTINCT FROM ?", item.repository_ref, ^scope.repository_ref)
-      )
-      |> select([item], item.id)
-
-    local = LearningSources.eligible(base, %{scope | visibility: :conversation})
-
-    case slack_channel(scope) do
-      {:channel, workspace, channel} ->
-        membership =
-          from(m in ChannelMembership,
-            where: m.workspace_ref == ^workspace and m.channel_ref == ^channel,
-            select: 1
-          )
-
-        deleted = where(membership, [m], m.status == :deleted)
-
-        public =
-          where(membership, [m], m.status == :joined and not m.private and not m.external_shared)
-
-        local = where(local, not exists(subquery(deleted)))
-
-        inherited =
-          base
-          |> LearningSources.eligible(%{scope | visibility: :public})
-          |> where(exists(subquery(public)))
-
-        union(local, ^inherited)
-
-      :local ->
-        local
-    end
-  end
-
-  # Match ChannelFence's parsing, including direct messages and suffixes that
-  # contain a colon. Do not broaden channel authorization by concatenation.
-  defp slack_channel(%{transport: "slack", conversation_ref: "slack:" <> rest}) do
-    case String.split(rest, ":", parts: 2) do
-      [_workspace, "D" <> _direct] ->
-        :local
-
-      [workspace, channel] when workspace != "" and channel != "" ->
-        {:channel, workspace, channel}
-
-      _ ->
-        :local
-    end
-  end
-
-  defp slack_channel(_scope), do: :local
 
   defp selected_kind(value, _) when value in ["knowledge", "notes", "summaries"], do: value
 
@@ -251,6 +233,7 @@ defmodule Responder.ControlPlane.ConversationMemory do
       text:
         String.trim_trailing(state["summary"] || "", " Source: message #{note.source_input_id}."),
       at: note.occurred_at,
+      source_at: note.occurred_at,
       groups: [],
       source: source_message(note)
     })
@@ -269,7 +252,8 @@ defmodule Responder.ControlPlane.ConversationMemory do
       text: knowledge_text(state),
       groups: [],
       source: nil,
-      at: knowledge.latest_source_at
+      at: knowledge.updated_at,
+      source_at: knowledge.latest_source_at
     })
   end
 
@@ -285,8 +269,29 @@ defmodule Responder.ControlPlane.ConversationMemory do
       groups: summary_groups(state),
       source: nil,
       expires_at: if(is_nil(warning), do: view.expires_at),
-      recall_warning: warning
+      recall_warning: warning,
+      maintenance_error: LearningActivity.error(summary.compaction_error_code),
+      maintenance_retry_at: summary.compaction_retry_at,
+      source_at: if(is_nil(warning), do: summary_source_at(summary.source_dependencies))
     })
+  end
+
+  defp summary_source_at(dependencies) do
+    # Read original event time only from the exact retained revision. A source
+    # edited since the handover must not substitute today's message timestamp.
+    Repo.one(
+      from(o in ConversationObservation,
+        where:
+          fragment(
+            "EXISTS (SELECT 1 FROM responder_learning_roots(?::text) r WHERE r->>'observation_id' = ?::text AND r->>'revision' = ?::text AND r->>'fingerprint' = ?)",
+            ^Responder.CanonicalJSON.encode!(dependencies),
+            o.id,
+            o.revision,
+            o.source_fingerprint
+          ),
+        select: max(o.occurred_at)
+      )
+    )
   end
 
   defp summary_groups(state) do
@@ -315,11 +320,10 @@ defmodule Responder.ControlPlane.ConversationMemory do
       from(s in KnowledgeSource,
         join: k in ConversationKnowledge,
         on: k.id == s.knowledge_id and k.source_generation == s.generation,
-        left_join: o in ConversationObservation,
-        on: o.id == s.observation_id,
         where: k.id in ^ids,
         group_by: k.id,
-        select: {k.id, {count(s.observation_id), min(o.updated_at)}}
+        select:
+          {k.id, {count(s.observation_id), count(s.direct_support_version), min(s.retained_at)}}
       )
     )
     |> Map.new()
@@ -390,6 +394,8 @@ defmodule Responder.ControlPlane.ConversationMemory do
       workspace: SlackNames.workspace_from_destination(item.conversation_ref),
       conversation_path: Activity.conversation_path(item.transport, item.conversation_ref),
       at: item.updated_at,
+      changed_at: item.updated_at,
+      source_at: nil,
       expires_at:
         item.source_dependencies |> LearningSources.oldest(item.updated_at) |> expires_at(),
       repository: item.repository_ref,
@@ -415,12 +421,13 @@ defmodule Responder.ControlPlane.ConversationMemory do
     end
   end
 
-  defp source_message(%{
-         transport: "slack",
-         conversation_ref: conversation,
-         source_message_ref: ref
-       })
-       when is_binary(conversation) and is_binary(ref) do
+  @doc false
+  def source_message(%{
+        transport: "slack",
+        conversation_ref: conversation,
+        source_message_ref: ref
+      })
+      when is_binary(conversation) and is_binary(ref) do
     case String.split(conversation, ":", parts: 3) do
       ["slack", _, channel] ->
         if Regex.match?(~r/\A[CDG][A-Z0-9]+\z/, channel) and Regex.match?(~r/\A\d+\.\d+\z/, ref),
@@ -432,13 +439,13 @@ defmodule Responder.ControlPlane.ConversationMemory do
     end
   end
 
-  defp source_message(%{
-         transport: "control_plane",
-         conversation_ref: "control-plane:lab:" <> id
-       }),
-       do: "/lab/" <> URI.encode(id, &URI.char_unreserved?/1)
+  def source_message(%{
+        transport: "control_plane",
+        conversation_ref: "control-plane:lab:" <> id
+      }),
+      do: "/lab/" <> URI.encode(id, &URI.char_unreserved?/1)
 
-  defp source_message(_), do: nil
+  def source_message(_), do: nil
 
   defp sanitized(value, secrets) do
     case Jason.decode(InspectionRedactor.artifact(value, secrets: secrets).text || "{}") do

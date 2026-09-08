@@ -1,0 +1,119 @@
+{
+  "source": "Exact original retained Blitz auth/auth resident-memory alert inputs, read-only harvest from responder_blitz_history_20260906_m8zykx on 2026-09-08. The first alert fired at 06:54:40 and resolved at 07:13:40; a genuinely new occurrence began at 07:52:40 on the same allocation. Later resolution messages are deliberately excluded. No generated input or model answer.",
+  "inputs": [
+    {
+      "id": "e42f4e9d-25da-4c6c-ac34-59a1562445b5",
+      "dedupe_key": "ingress-event:241ed60b4469c69edd81d5131e51be0f6066ac2ccf33808854c45a5d5221412b",
+      "event_ref": "blitz-backfill:20260906:C08MMETA3U3:1788332115.217179",
+      "event_fingerprint": "1d4e99797d503bbacfe2fc4099839a55d7974528c26e3277e4b095f67b700e3c",
+      "source_kind": "slack",
+      "source_ref": "T01J1LW4DF1",
+      "native_input_id": "slack-message:6205d7ed1174466bad2af5bc21e2db23df7a00f075b76208d890bef7c131cc0d",
+      "source_item_ref": "1788332115.217179",
+      "actor_kind": "bot",
+      "actor_ref": "B0910HETYAH",
+      "event_kind": "message",
+      "revision": 7153328460868716,
+      "content": {
+        "attachments": [
+          {
+            "color": "daa038",
+            "fallback": "[VA1 FIRING:1] WARNING | Alloc resident memory near limit",
+            "id": 1,
+            "text": "*FIRING - 1 alert*\n\n*auth/auth resident memory and swap exceed 95% of its limit*\nOOM-kill risk after excluding reclaimable file cache; raise the limit or fix the leak.\n*Service:* `cluster`\n*Component:* `nomad-agent`\n*Nomad job:* `auth`\n*Namespace:* `blitz-apps-backend`\n*Allocation:* `4b7ce219-6343-1472-7e6e-322a67253963`\n*Task:* `auth`\n*Metrics job:* `nomad-agent`\n*Instance:* `nomad-hvn02`\n*Started:* <!date^1788332080^{date_short_pretty} at {time_secs}|2026-09-02 06:54:40 UTC>\n*Evaluation:*",
+            "title": "[VA1 FIRING:1] WARNING | Alloc resident memory near limit",
+            "title_link": "https://grafana.tail7c930.ts.net/alerting/grafana/va1-nomad-oom-risk/view?orgId=1",
+            "ts": 1788332115
+          }
+        ],
+        "blocks": [],
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": "bot_message",
+        "text": ""
+      },
+      "destination_transport": "slack",
+      "destination_conversation_ref": "slack:T01J1LW4DF1:C08MMETA3U3",
+      "destination_thread_ref": "1788332115.217179",
+      "repository_ref": "blitz-infra",
+      "occurred_at": "2026-09-02T06:55:15.217179",
+      "execution_mode": "live"
+    },
+    {
+      "id": "229ec9c6-c6c8-4ac3-8c2d-ed26c8308833",
+      "dedupe_key": "ingress-event:e3f29b46f23e73a434bf23f0b14e755c00bb2c93056a4362831decfdd25f24c9",
+      "event_ref": "blitz-backfill:20260906:C08MMETA3U3:1788333315.140469",
+      "event_fingerprint": "389dd0d62204c13203f4058d5a686fc94975c5d623eeddc4bb5fb28eb8f1d179",
+      "source_kind": "slack",
+      "source_ref": "T01J1LW4DF1",
+      "native_input_id": "slack-message:4220a5c8b1f95a75c5ec848bab2ad94e5e6c9fe48da975348c7c90417c490227",
+      "source_item_ref": "1788333315.140469",
+      "actor_kind": "bot",
+      "actor_ref": "B0910HETYAH",
+      "event_kind": "message",
+      "revision": 7153333260561876,
+      "content": {
+        "attachments": [
+          {
+            "color": "2eb886",
+            "fallback": "[VA1 RESOLVED:1] WARNING | Alloc resident memory near limit",
+            "id": 1,
+            "text": "*RESOLVED - 1 alert*\n\n*auth/auth resident memory and swap exceed 95% of its limit*\nOOM-kill risk after excluding reclaimable file cache; raise the limit or fix the leak.\n*Service:* `cluster`\n*Component:* `nomad-agent`\n*Nomad job:* `auth`\n*Namespace:* `blitz-apps-backend`\n*Allocation:* `4b7ce219-6343-1472-7e6e-322a67253963`\n*Task:* `auth`\n*Metrics job:* `nomad-agent`\n*Instance:* `nomad-hvn02`\n*Started:* <!date^1788332080^{date_short_pretty} at {time_secs}|2026-09-02 06:54:40 UTC>\n*Resolved:* <!date^1788333220^{date_short_pretty} at {time_secs}|2026-09-02 07:13:40 UTC>\n*Evaluation:*",
+            "title": "[VA1 RESOLVED:1] WARNING | Alloc resident memory near limit",
+            "title_link": "https://grafana.tail7c930.ts.net/alerting/grafana/va1-nomad-oom-risk/view?orgId=1",
+            "ts": 1788333315
+          }
+        ],
+        "blocks": [],
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": "bot_message",
+        "text": ""
+      },
+      "destination_transport": "slack",
+      "destination_conversation_ref": "slack:T01J1LW4DF1:C08MMETA3U3",
+      "destination_thread_ref": "1788333315.140469",
+      "repository_ref": "blitz-infra",
+      "occurred_at": "2026-09-02T07:15:15.140469",
+      "execution_mode": "live"
+    },
+    {
+      "id": "778d0a01-ce50-4343-bc62-750943805fc7",
+      "dedupe_key": "ingress-event:d4607cc164a97ae0f53ecb4b25e484274064c2bb69199dea049d8d6822a0e1c0",
+      "event_ref": "blitz-backfill:20260906:C08MMETA3U3:1788335595.212519",
+      "event_fingerprint": "7712b69b11b74b4e807affb2a4edb02dd7916c8633022df2a6d47a0cd6ab663a",
+      "source_kind": "slack",
+      "source_ref": "T01J1LW4DF1",
+      "native_input_id": "slack-message:c2b2521de859292b571078bc6ae89da7d80b4df4fc71aa229a13b131e1d0f411",
+      "source_item_ref": "1788335595.212519",
+      "actor_kind": "bot",
+      "actor_ref": "B0910HETYAH",
+      "event_kind": "message",
+      "revision": 7153342380850076,
+      "content": {
+        "attachments": [
+          {
+            "color": "daa038",
+            "fallback": "[VA1 FIRING:1] WARNING | Alloc resident memory near limit",
+            "id": 1,
+            "text": "*FIRING - 1 alert*\n\n*auth/auth resident memory and swap exceed 95% of its limit*\nOOM-kill risk after excluding reclaimable file cache; raise the limit or fix the leak.\n*Service:* `cluster`\n*Component:* `nomad-agent`\n*Nomad job:* `auth`\n*Namespace:* `blitz-apps-backend`\n*Allocation:* `4b7ce219-6343-1472-7e6e-322a67253963`\n*Task:* `auth`\n*Metrics job:* `nomad-agent`\n*Instance:* `nomad-hvn02`\n*Started:* <!date^1788335560^{date_short_pretty} at {time_secs}|2026-09-02 07:52:40 UTC>\n*Evaluation:*",
+            "title": "[VA1 FIRING:1] WARNING | Alloc resident memory near limit",
+            "title_link": "https://grafana.tail7c930.ts.net/alerting/grafana/va1-nomad-oom-risk/view?orgId=1",
+            "ts": 1788335595
+          }
+        ],
+        "blocks": [],
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": "bot_message",
+        "text": ""
+      },
+      "destination_transport": "slack",
+      "destination_conversation_ref": "slack:T01J1LW4DF1:C08MMETA3U3",
+      "destination_thread_ref": "1788335595.212519",
+      "repository_ref": "blitz-infra",
+      "occurred_at": "2026-09-02T07:53:15.212519",
+      "execution_mode": "live"
+    }
+  ]
+}

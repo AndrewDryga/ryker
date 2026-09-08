@@ -1117,15 +1117,13 @@ defmodule Responder.ControlPlane.HTML do
     memory_rows = Enum.map(memories, &memory_row/1)
     review_rows = Enum.map(reviews, &review_row/1)
 
-    _secret_is_intentionally_not_rendered = csrf_secret
-
     [
       "<p class=\"page-description\">What Responder learned from conversations, with the messages and work it came from.</p>",
-      "<details class=\"memory-help\" id=\"memory-help\"><summary>How memory works</summary><div class=\"page-help\"><p>Current knowledge keeps one evolving summary per subject, with source-linked updates. Responder learns useful decisions, intentions and changes from conversations even when it does not reply, including in shadow mode. Related topics are recalled for later routing and work. Notes are individual source observations; conversation summaries describe completed work.</p><p>To create or correct conversation knowledge, explain the fact or change in the original Slack conversation or Conversation Lab. Related updates maintain the same topic. Edits, deletions and expiry invalidate knowledge that depended on the old source; invalidated items remain inspectable but are not recalled. Retention follows the oldest supporting source, so a new update cannot keep an expired fact alive indefinitely.</p><p>For a deliberate saved fact, ask Responder to remember it and confirm the proposal. Those confirmed facts appear under Operational memory; use Forget to remove one. Knowledge is context, not an instruction, permission or proof of current health.</p></div></details>",
+      "<details class=\"memory-help\" id=\"memory-help\"><summary>How memory works</summary><div class=\"page-help\"><p>Current knowledge keeps one evolving summary per subject, with source-linked updates. When background learning is enabled, Responder maintains useful decisions, intentions and changes even when it does not reply, including in shadow mode. Not every message needs a new memory: a learning batch can finish with no change. Related topics are recalled for later routing and work. Source excerpts retain original message text; conversation handovers summarize completed work.</p><p>To create or correct conversation knowledge, explain the fact or change in the original Slack conversation or Conversation Lab. Related updates maintain the same topic. Edits, deletions and expiry invalidate knowledge that depended on the old source; invalidated items remain inspectable but are not recalled. Retention follows the oldest supporting source, so a new update cannot keep an expired fact alive indefinitely.</p><p>Learning activity below shows waiting messages, outcomes and the exact saved attempts. If a batch needs attention, inspect its error before granting one additional model start. A retry does not reset its spent starts or bypass source and execution checks.</p><p>For a deliberate saved fact, ask Responder to remember it and confirm the proposal. Those confirmed facts appear under Operational memory; use Forget to remove one. Knowledge is context, not an instruction, permission or proof of current health.</p></div></details>",
       "<nav class=\"behavior-links\" aria-label=\"Related saved instructions\"><a href=\"/rules\">Standing rules →</a><a href=\"/preferences\">Preferences →</a><a href=\"/guidance\">Guidance →</a></nav>",
       if(snapshot[:conversation_memory],
         do:
-          MemoryPage.render(%{view: snapshot.conversation_memory})
+          MemoryPage.render(%{view: snapshot.conversation_memory, csrf_secret: csrf_secret})
           |> Safe.to_iodata(),
         else: []
       ),

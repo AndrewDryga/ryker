@@ -22,8 +22,8 @@ claim of whole-product parity.
 | Priority | Implemented | Partial | Total |
 |---|---:|---:|---:|
 | P0 | 28 | 0 | 28 |
-| P1 | 15 | 0 | 15 |
-| **All** | **43** | **0** | **43** |
+| P1 | 16 | 0 | 16 |
+| **All** | **44** | **0** | **44** |
 
 ## Implemented behavior
 
@@ -64,7 +64,8 @@ claim of whole-product parity.
 | P1 | `github-bounded-context-and-search` | [`GitHub.CapabilityTools`](../lib/responder/github/capability_tools.ex) | [`github/client_test.exs`](../test/responder/github/client_test.exs) |
 | P1 | `github-confirmation-backed-actions` | [`GitHub.Confirmations`](../lib/responder/github/confirmations.ex) | [`github/confirmations_test.exs`](../test/responder/github/confirmations_test.exs) |
 | P1 | `conversation-summaries-and-rollups` | [`State.Continuity`](../lib/responder/state/continuity.ex) | [`state/continuity_test.exs`](../test/responder/state/continuity_test.exs) |
-| P1 | `privacy-aware-cross-channel-recall` | [`State.Continuity`](../lib/responder/state/continuity.ex) | [`state/continuity_test.exs`](../test/responder/state/continuity_test.exs) |
+| P1 | `learning-without-responding` | [`Learning.Executor`](../lib/responder/learning/executor.ex), [`State.Learning`](../lib/responder/state/learning.ex), and [`State.Knowledge`](../lib/responder/state/knowledge.ex) | [`learning/dispatcher_test.exs`](../test/responder/learning/dispatcher_test.exs), [`state/learning_failure_test.exs`](../test/responder/state/learning_failure_test.exs), and [`state/knowledge_anchors_test.exs`](../test/responder/state/knowledge_anchors_test.exs) |
+| P1 | `privacy-aware-cross-channel-recall` | [`State.MemorySearch`](../lib/responder/state/memory_search.ex), [`State.Continuity`](../lib/responder/state/continuity.ex), and [`State.KnowledgeSnapshot`](../lib/responder/state/knowledge_snapshot.ex) | [`state_tools/memory_search_test.exs`](../test/responder/state_tools/memory_search_test.exs), [`state/continuity_test.exs`](../test/responder/state/continuity_test.exs), and [`state/knowledge_snapshot_capacity_test.exs`](../test/responder/state/knowledge_snapshot_capacity_test.exs) |
 | P1 | `memory-review-controls` | [`Slack.AppHomeEditor`](../lib/responder/slack/app_home_editor.ex) and [`State.Memories`](../lib/responder/state/memories.ex) | [`slack/app_home_editor_test.exs`](../test/responder/slack/app_home_editor_test.exs) and [`state/memories_test.exs`](../test/responder/state/memories_test.exs) |
 | P1 | `app-home-navigation-and-recovery-controls` | [`Slack.AppHomeProjection`](../lib/responder/slack/app_home_projection.ex) and [`Slack.AppHomeControls`](../lib/responder/slack/app_home_controls.ex) | [`slack/app_home_projection_test.exs`](../test/responder/slack/app_home_projection_test.exs) and [`slack/app_home_actions_test.exs`](../test/responder/slack/app_home_actions_test.exs) |
 | P1 | `operator-incident-schedule-repository-views` | [`ControlPlane.OperatorProjection`](../lib/responder/control_plane/operator_projection.ex) | [`control_plane/projection_test.exs`](../test/responder/control_plane/projection_test.exs) and [`control_plane/router_test.exs`](../test/responder/control_plane/router_test.exs) |
@@ -77,6 +78,13 @@ claim of whole-product parity.
 
 There are no remaining P0 or P1 implementation gaps in this contract. Deployment, configured live
 acceptance, and production qualification remain separate evidence boundaries.
+
+For the memory changes, the checked implementation boundary includes independent learning,
+update-or-create identity, source custody, and paged historical recall. It does not assert that a
+configured learning policy is running or that a real model reliably chooses the right topic.
+[The runtime contract](elixir-work-runtime.md#memory-and-background-learning) describes those
+interfaces; [memory evaluation](memory-evaluation.md) separates deterministic regression proof from
+the required harvested, longitudinal model cases and live cleanup qualification.
 
 ## Maintenance rule
 

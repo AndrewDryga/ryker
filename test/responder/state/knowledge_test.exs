@@ -6,7 +6,9 @@ defmodule Responder.State.KnowledgeTest do
   alias Responder.Admission.{Context, Decision, Prompt}
   alias Responder.ControlPlane.{ConversationMemory, HTML, Projection}
   alias Responder.Episodes.Episode
+  alias Responder.Fixtures.DatabaseClock
   alias Responder.Ingress.Inbox
+  alias Responder.Ingress.RecallText
   alias Responder.Retention.Data
   alias Responder.Slack.{ChannelMembership, Input}
 
@@ -20,6 +22,7 @@ defmodule Responder.State.KnowledgeTest do
     KnowledgeSnapshot,
     KnowledgeSource,
     LearningSources,
+    MemorySearchPage,
     Observations
   }
 
@@ -53,6 +56,63 @@ defmodule Responder.State.KnowledgeTest do
     ]
   }
   @now ~U[2026-09-05 17:19:24.248029Z]
+
+  test "saved topic versions are immediately searchable when the database clock trails the host" do
+    # Full-gate confirmation searches exposed mixed host/database timestamps.
+    # Topic creation and later revisions must obey that same cursor cutoff.
+    database_time = DatabaseClock.behind_host!()
+    first = input!(1, @firing)
+    learn!(first, @firing)
+    page = MemorySearchPage.first("haproxy", "current_channel")
+
+    assert {:ok, {:ok, before, _}} =
+             Repo.transaction(fn -> Knowledge.search_page(first, "blitz-infra", page) end)
+
+    assert before["version"] == 1
+
+    second = input!(2, @resolved)
+    learn!(second, @resolved, before)
+
+    assert {:ok, {:ok, after_update, _}} =
+             Repo.transaction(fn ->
+               Knowledge.search_page(
+                 second,
+                 "blitz-infra",
+                 MemorySearchPage.first("haproxy", "current_channel")
+               )
+             end)
+
+    assert after_update["version"] == 2
+    assert after_update["latest_source_at"] == DateTime.to_iso8601(second.occurred_at)
+    assert Repo.one!(ConversationKnowledge).inserted_at == database_time
+    assert Repo.one!(ConversationKnowledge).updated_at == database_time
+    assert Enum.all?(Repo.all(KnowledgeRevision), &(&1.inserted_at == database_time))
+  end
+
+  test "related matching does not disclose unrelated recent topics to fill empty slots" do
+    # In the replay a new topic inherited 114 roots. Filling the candidate
+    # budget with unrelated recent prose spreads those roots into every update.
+    first = input!(1, @firing)
+    learn!(first, @firing)
+
+    assert Knowledge.context(first, "blitz-infra", {:related, "quasar billing subscription"}) ==
+             []
+  end
+
+  test "late supporting input is incorporated without moving the latest source time backward" do
+    # Source event time is not ingestion time. A late message or edit can add
+    # useful evidence to an already newer topic; silently returning :ok loses it.
+    latest = input!(2, @resolved)
+    learn!(latest, @resolved)
+    [before] = Knowledge.context(latest, "blitz-infra")
+    older = input!(1, @resolved)
+    learn!(older, @resolved, before)
+
+    [after_update] = Knowledge.context(latest, "blitz-infra")
+    assert after_update["version"] == before["version"] + 1
+    assert after_update["source_count"] == 2
+    assert after_update["latest_source_at"] == before["latest_source_at"]
+  end
 
   test "silent updates maintain one topic with both sources and immutable revisions" do
     first = input!(1, @firing, mode: :shadow)
@@ -93,10 +153,20 @@ defmodule Responder.State.KnowledgeTest do
         )
       )
 
-    assert Continuity.model_context(destination, "blitz-infra")["knowledge"] == [after_update]
+    assert Continuity.model_context(destination, "blitz-infra", [
+             RecallText.from(second.content)
+           ])["knowledge"] == [after_update]
 
-    assert [^after_update] =
-             Continuity.search_context(destination, "blitz-infra", "haproxy", "workspace", 10)
+    found = Continuity.search_context(destination, "blitz-infra", "haproxy", "workspace", 10)
+    assert Enum.filter(found, &(&1["kind"] == "conversation_knowledge")) == [after_update]
+    # Explicit historical search also keeps both originals reachable after
+    # consolidation; automatic briefing still avoids repeating covered excerpts.
+    assert MapSet.new(
+             for item <- found,
+                 item["kind"] == "conversation_observation",
+                 do: item["source_input_id"]
+           ) ==
+             MapSet.new([first.id, second.id])
   end
 
   test "a stale new-topic proposal cannot overwrite an intervening update" do
@@ -106,7 +176,11 @@ defmodule Responder.State.KnowledgeTest do
     learn!(first, @firing)
 
     assert {:error, {:admission_rejected, :context_stale}} =
-             Admission.commit(stale, decision!(@resolved), "stale-create")
+             Responder.Fixtures.Knowledge.commit_topic(
+               stale,
+               decision!(@resolved),
+               "stale-create"
+             )
 
     assert {:ok, %{status: :pending}} = Inbox.fetch(Inbox.ref(second))
     assert [item] = Knowledge.context(first, "blitz-infra")
@@ -123,21 +197,37 @@ defmodule Responder.State.KnowledgeTest do
     learn!(third, @resolved, item)
 
     assert {:error, {:admission_rejected, :context_stale}} =
-             Admission.commit(stale, decision!(@resolved, item), "stale-update")
+             Responder.Fixtures.Knowledge.commit_topic(
+               stale,
+               decision!(@resolved, item),
+               "stale-update"
+             )
 
     forged = %{item | "source_ref" => "knowledge:" <> Ecto.UUID.generate()}
 
     assert {:error, {:admission_rejected, :context_stale}} =
-             Admission.commit(context!(second), decision!(@resolved, forged), "forged")
+             Responder.Fixtures.Knowledge.commit_topic(
+               context!(second),
+               decision!(@resolved, forged),
+               "forged"
+             )
   end
 
-  test "late old sources are retained but cannot regress the current topic" do
+  test "a late alert can support the current understanding without erasing its resolution" do
     latest = input!(2, @resolved)
     learn!(latest, @resolved)
     [item] = Knowledge.context(latest, "blitz-infra")
     older = input!(1, @firing)
-    learn!(older, @firing, item)
-    assert [^item] = Knowledge.context(latest, "blitz-infra")
+
+    # The host must not infer the proposed summary's meaning from source time.
+    # The learning judgment sees the current resolution and incorporates the
+    # historical firing message. Semantic regression is a model-eval concern.
+    learn!(older, @resolved, item)
+    assert [current] = Knowledge.context(latest, "blitz-infra")
+    assert current["summary"] == item["summary"]
+    assert current["version"] == item["version"] + 1
+    assert current["source_count"] == 2
+    assert current["latest_source_at"] == item["latest_source_at"]
     assert Repo.aggregate(ConversationObservation, :count) == 2
   end
 
@@ -194,7 +284,11 @@ defmodule Responder.State.KnowledgeTest do
     assert [item] = Knowledge.context(target, "blitz-infra")
 
     assert {:error, {:admission_rejected, :context_stale}} =
-             Admission.commit(context!(target), decision!(@resolved, item), "cross-channel-write")
+             Responder.Fixtures.Knowledge.commit_topic(
+               context!(target),
+               decision!(@resolved, item),
+               "cross-channel-write"
+             )
 
     Repo.update_all(from(m in ChannelMembership, where: m.channel_ref == "C1"),
       set: [private: true]
@@ -227,7 +321,12 @@ defmodule Responder.State.KnowledgeTest do
       )
 
       assert Knowledge.context(copy, "blitz-infra") == []
-      assert Observations.context(copy, "blitz-infra") == []
+
+      assert [%{"source_input_id" => id, "summary" => text}] =
+               Observations.context(copy, "blitz-infra")
+
+      assert id == copy.id
+      assert text == copy.content["text"]
     end
   end
 
@@ -237,37 +336,56 @@ defmodule Responder.State.KnowledgeTest do
     copy = input!(2, @resolved)
     decision = decision!(@firing)
     decision = %{decision | knowledge: Map.put(decision.knowledge, "topic_key", "copied-topic")}
-    assert {:ok, _} = Admission.commit(context!(copy), decision, "copied-topic-result")
+
+    assert {:ok, _} =
+             Responder.Fixtures.Knowledge.commit_topic(
+               context!(copy),
+               decision,
+               "copied-topic-result"
+             )
+
     _edit = input!(1, @resolved, revision: 2, kind: :delete)
     assert Knowledge.context(copy, "blitz-infra") == []
-    assert Observations.context(copy, "blitz-infra") == []
+    # The copied derived topic is revoked, but this separate original message
+    # remains an eligible excerpt: it did not inherit the older model prose.
+    assert [%{"source_input_id" => source_id, "summary" => summary}] =
+             Observations.context(copy, "blitz-infra")
+
+    assert source_id == copy.id
+    assert summary == copy.content["text"]
   end
 
   test "learning from an episode input preview keeps that input's withdrawal fence" do
     first = input!(1, @firing)
 
-    decision = %{
-      decision!(@firing)
-      | action: :start_episode,
-        work_class: :standard,
-        observation: nil,
-        knowledge: nil
-    }
+    {:ok, decision} =
+      Decision.parse(%{
+        "action" => "start_episode",
+        "episode_ref" => nil,
+        "reaction" => nil,
+        "relation" => "unrelated",
+        "reason" => "Investigate the reported alert.",
+        "work_class" => "standard"
+      })
 
     assert {:ok, _} = Admission.commit(context!(first), decision, "preview-source-result")
     second = input!(2, @resolved)
     context = context!(second)
     assert length(context.candidates) == 1
-    assert context.observations == []
+    assert [%{"source_input_id" => source_id}] = context.observations
+    assert source_id == first.id
     assert context.knowledge == []
     assert Enum.any?(context.source_dependencies, &(&1["source_input_id"] == first.id))
     learn!(second, @firing)
     _deleted = input!(1, @resolved, revision: 2, kind: :delete)
     assert Knowledge.context(second, "blitz-infra") == []
-    assert Observations.context(second, "blitz-infra") == []
+    assert [%{"source_input_id" => id}] = Observations.context(second, "blitz-infra")
+    assert id == second.id
   end
 
-  test "a fresh source rebuilds invalid knowledge without reviving withdrawn facts" do
+  test "a fresh source cannot silently reset a known unavailable topic" do
+    # Resetting an invalid head hid lost history behind a successful write. A
+    # new input is not permission to discard the earlier topic's dependencies.
     first = input!(1, @firing)
     learn!(first, @firing)
     [before] = Knowledge.context(first, "blitz-infra")
@@ -276,13 +394,16 @@ defmodule Responder.State.KnowledgeTest do
     assert Knowledge.context(first, "blitz-infra") == []
 
     fresh = input!(3, @resolved)
-    learn!(fresh, @resolved)
-    assert [rebuilt] = Knowledge.context(fresh, "blitz-infra")
-    assert rebuilt["source_ref"] == before["source_ref"]
-    assert rebuilt["version"] == 2
-    assert rebuilt["source_count"] == 1
-    assert rebuilt["summary"] == @resolved["summary"]
-    assert length(Knowledge.history(before["source_ref"])) == 2
+
+    assert {:error, :knowledge_target_unavailable} =
+             Responder.Fixtures.Knowledge.commit_topic(
+               context!(fresh),
+               decision!(@resolved),
+               "unavailable-topic"
+             )
+
+    assert Knowledge.context(fresh, "blitz-infra") == []
+    assert length(Knowledge.history(before["source_ref"])) == 1
   end
 
   for boundary <- [:text, :attachments, :batch] do
@@ -299,7 +420,13 @@ defmodule Responder.State.KnowledgeTest do
         entry = input!(n, note)
         decision = decision!(note)
         decision = %{decision | knowledge: Map.put(decision.knowledge, "topic_key", "other-#{n}")}
-        assert {:ok, _} = Admission.commit(context!(entry), decision, "unrelated:#{n}")
+
+        assert {:ok, _} =
+                 Responder.Fixtures.Knowledge.commit_topic(
+                   context!(entry),
+                   decision,
+                   "unrelated:#{n}"
+                 )
       end
 
       items =
@@ -378,16 +505,24 @@ defmodule Responder.State.KnowledgeTest do
 
     # A full gate timed out after 60 seconds: the actual plan revalidated this
     # one topic 128 times (16,384 inherited-root visits) before excluding notes.
-    # Assert the work performed, not a machine-dependent elapsed-time budget.
-    assert knowledge_scan_loops(explanation["Plan"]) == 1
-    assert frozen.knowledge == []
+    # The current-generation fence also reads the head for a compact reference.
+    # Allow a small constant number of head scans, never one per inherited root.
+    # Assert bounded work, not an exact plan shape or elapsed-time budget.
+    assert knowledge_scan_loops(explanation["Plan"]) <= 4
+    assert [current] = frozen.knowledge
     assert {:ok, restored} = Context.restore(Context.snapshot(frozen), frozen.input, next, %{})
 
     assert {:ok, %{entry: %{status: :decided}}} =
-             Admission.commit(restored, decision!(@resolved), "at-capacity")
+             Responder.Fixtures.Knowledge.commit_topic(
+               restored,
+               decision!(@resolved, current),
+               "at-capacity"
+             )
 
-    assert [%{"version" => 129, "source_count" => 1}] = Knowledge.context(next, "blitz-infra")
+    assert [%{"version" => 129, "source_count" => 129}] = Knowledge.context(next, "blitz-infra")
     assert Repo.aggregate(KnowledgeRevision, :count) == 129
+    assert Enum.all?(Repo.all(KnowledgeRevision), &(length(&1.source_dependencies) == 1))
+    assert Repo.aggregate(KnowledgeSource, :count) == 129
   end
 
   test "retry topic keys do not widen the authorized update conversation" do
@@ -406,7 +541,7 @@ defmodule Responder.State.KnowledgeTest do
     assert item["can_update"]
   end
 
-  test "an inherited-only withdrawal permits a fresh same-key generation" do
+  test "an inherited-only withdrawal does not authorize a silent new generation" do
     joined!("C1")
     joined!("C2")
     first = input!(1, @firing)
@@ -420,8 +555,15 @@ defmodule Responder.State.KnowledgeTest do
 
     fresh = input!(3, @resolved, channel: "C2")
     assert context!(fresh).knowledge == []
-    learn!(fresh, @resolved)
-    assert [%{"version" => 2, "source_count" => 1}] = Knowledge.context(fresh, "blitz-infra")
+
+    assert {:error, :knowledge_target_unavailable} =
+             Responder.Fixtures.Knowledge.commit_topic(
+               context!(fresh),
+               decision!(@resolved),
+               "unavailable-inherited-topic"
+             )
+
+    assert Knowledge.context(fresh, "blitz-infra") == []
   end
 
   test "an omitted foreign topic does not reserve the same topic key in this channel" do
@@ -453,13 +595,17 @@ defmodule Responder.State.KnowledgeTest do
     refute Map.has_key?(Context.for_model(restored), "knowledge_omissions")
 
     assert {:ok, %{entry: %{status: :decided}}} =
-             Admission.commit(restored, decision!(@resolved), "foreign-capacity")
+             Responder.Fixtures.Knowledge.commit_topic(
+               restored,
+               decision!(@resolved),
+               "foreign-capacity"
+             )
 
     assert Enum.count(Knowledge.context(second, "blitz-infra"), & &1["can_update"]) == 1
   end
 
   for kind <- [:knowledge, :observation] do
-    test "withdrawn #{kind} does not consume the recall limit ahead of valid older facts" do
+    test "#{kind} recall revokes inherited prose but preserves independent original excerpts" do
       joined!("C1")
       joined!("C2")
       first = input!(1, @firing)
@@ -474,7 +620,11 @@ defmodule Responder.State.KnowledgeTest do
             do: Map.put(decision.knowledge, "topic_key", "copied-#{n}")
 
         assert {:ok, _} =
-                 Admission.commit(context!(copy), %{decision | knowledge: knowledge}, "copy:#{n}")
+                 Responder.Fixtures.Knowledge.commit_topic(
+                   context!(copy),
+                   %{decision | knowledge: knowledge},
+                   "copy:#{n}"
+                 )
       end
 
       # A recorded source-only fact predating those copies remains valid.
@@ -482,11 +632,11 @@ defmodule Responder.State.KnowledgeTest do
 
       {:ok, _} =
         Repo.transaction(fn ->
-          Observations.record_in_transaction(%{old | status: :decided}, @resolved, "source-only")
+          Observations.record_excerpt_in_transaction(%{old | status: :decided})
 
           if unquote(kind) == :knowledge do
             proposal = decision!(@resolved).knowledge |> Map.put("topic_key", "independent")
-            Knowledge.record_in_transaction(%{old | status: :decided}, proposal, [])
+            Responder.Fixtures.Knowledge.record_topic(%{old | status: :decided}, proposal, [])
           end
         end)
 
@@ -496,7 +646,11 @@ defmodule Responder.State.KnowledgeTest do
 
       module = if unquote(kind) == :knowledge, do: Knowledge, else: Observations
       assert [%{"summary" => summary}] = module.context(old, "blitz-infra", "", 1)
-      assert summary == @resolved["summary"]
+      # Topics inherited C1's disclosure and must yield to the older valid fact.
+      # The C2 source excerpts are independent original messages, not copies of
+      # the model's C1 knowledge, so making C1 private must not revoke them.
+      assert summary ==
+               if(unquote(kind) == :knowledge, do: @resolved["summary"], else: @firing["summary"])
     end
   end
 
@@ -518,7 +672,7 @@ defmodule Responder.State.KnowledgeTest do
       |> IO.iodata_to_binary()
 
     assert html =~ "Current knowledge"
-    assert html =~ "2 sources"
+    assert html =~ "Sources: 2 direct · 0 inherited"
     assert html =~ "Update history"
     assert html =~ @firing["summary"] |> String.split(" [Alert]") |> hd()
     refute html =~ "Source result ref"
@@ -606,19 +760,32 @@ defmodule Responder.State.KnowledgeTest do
 
     assert {:ok, :ok} =
              Repo.transaction(fn ->
-               Observations.record_in_transaction(decided, @firing, "old-result")
+               Observations.record_excerpt_in_transaction(decided)
              end)
 
     assert Knowledge.context(first, "blitz-infra") == []
-    learn!(edited, @resolved)
-    assert [%{"summary" => summary}] = Knowledge.context(edited, "blitz-infra")
-    assert summary == @resolved["summary"]
+
+    assert {:error, :knowledge_target_unavailable} =
+             Responder.Fixtures.Knowledge.commit_topic(
+               context!(edited),
+               decision!(@resolved),
+               "edited-unavailable-topic"
+             )
+
+    assert Knowledge.context(edited, "blitz-infra") == []
   end
 
   test "a newer source received before the first classifier prevents resurrection" do
     first = input!(1, @firing)
     _deleted = input!(1, @resolved, revision: 2, kind: :delete)
-    learn!(first, @firing)
+
+    assert {:error, {:admission_rejected, :context_stale}} =
+             Responder.Fixtures.Knowledge.commit_topic(
+               context!(first),
+               decision!(@firing),
+               "stale-first-result"
+             )
+
     assert Observations.context(first, "blitz-infra") == []
     assert Knowledge.context(first, "blitz-infra") == []
     assert [%{revision: 2, note: nil}] = Repo.all(ConversationObservation)
@@ -654,7 +821,7 @@ defmodule Responder.State.KnowledgeTest do
 
     assert {:ok, :ok} =
              Repo.transaction(fn ->
-               Observations.record_in_transaction(decided, @firing, "late-result")
+               Observations.record_excerpt_in_transaction(decided)
              end)
 
     assert Observations.context(first, "blitz-infra") == []
@@ -692,7 +859,13 @@ defmodule Responder.State.KnowledgeTest do
     copy = input!(2, @resolved)
     decision = decision!(@firing)
     decision = %{decision | knowledge: Map.put(decision.knowledge, "topic_key", "copied-topic")}
-    assert {:ok, _} = Admission.commit(context!(copy), decision, "copied-topic-result")
+
+    assert {:ok, _} =
+             Responder.Fixtures.Knowledge.commit_topic(
+               context!(copy),
+               decision,
+               "copied-topic-result"
+             )
 
     previous = Application.get_env(:responder, :retention)
 
@@ -729,7 +902,10 @@ defmodule Responder.State.KnowledgeTest do
            )
 
     assert Enum.all?(Repo.all(KnowledgeSource), &is_nil(&1.source_note))
-    assert Enum.all?(Repo.all(ConversationObservation), &is_nil(&1.note))
+    assert is_nil(Repo.get!(ConversationObservation, first.id).note)
+    # The later original message has its own lifetime; unlike the derived topic,
+    # it did not copy or inherit the expired message's prose.
+    assert Repo.get!(ConversationObservation, copy.id).note["summary"] == @resolved["summary"]
     assert Repo.aggregate(Inbox.Entry, :count) == 2
   end
 
@@ -740,7 +916,11 @@ defmodule Responder.State.KnowledgeTest do
       if Keyword.get(options, :knowledge, true), do: decision, else: %{decision | knowledge: nil}
 
     assert {:ok, %{entry: %{status: :decided}}} =
-             Admission.commit(context!(entry), decision, "learn:#{entry.id}")
+             Responder.Fixtures.Knowledge.commit_topic(
+               context!(entry),
+               decision,
+               "learn:#{entry.id}"
+             )
   end
 
   def record_recall_query(_event, _measurements, %{query: query, params: params}, {owner, ref}) do
@@ -763,26 +943,17 @@ defmodule Responder.State.KnowledgeTest do
   end
 
   defp decision!(note, item \\ nil) do
-    assert {:ok, decision} =
-             Decision.parse(%{
-               "action" => "ignore",
-               "episode_ref" => nil,
-               "reaction" => nil,
-               "relation" => "unrelated",
-               "reason" => "Remember the reported change without interrupting.",
-               "work_class" => nil,
-               "observation" => note,
-               "knowledge" => %{
-                 "topic_key" => "website-haproxy-oom",
-                 "title" => "Website HAProxy memory limits",
-                 "summary" => note["summary"],
-                 "topics" => note["topics"],
-                 "target_ref" => item && item["source_ref"],
-                 "expected_version" => if(item, do: item["version"], else: 0)
-               }
-             })
-
-    decision
+    %{
+      knowledge: %{
+        "topic_key" => "website-haproxy-oom",
+        "title" => "Website HAProxy memory limits",
+        "summary" => note["summary"],
+        "topics" => note["topics"],
+        "target_ref" => item && item["source_ref"],
+        "anchors" => [],
+        "expected_version" => if(item, do: item["version"], else: 0)
+      }
+    }
   end
 
   defp input!(n, note, options \\ []) do

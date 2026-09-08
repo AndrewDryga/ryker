@@ -1,0 +1,5 @@
+{
+  "source": "Exact accepted public model result from isolated live learning replay draft_c, generation 2, 2026-09-08. Input identities are retained in retained-draft-keep-thread.json.",
+  "run_id": "8eaf479d-0cf1-43b8-bf33-0096f0c45edf",
+  "result": {"updates":[{"action":"create","topic_key":"draft-ai-suggestions-retention","title":"draft-ai-suggestions deletion question unresolved","summary":"On September 2, 2026, U089UCBNT38 asked U03U3L56YFL whether draft-ai-suggestions in project blitz-esports, region us-central1, was still needed or could be deleted, referring to it as a cloud function and linking its Cloud Run metrics page. No answer or deletion decision is recorded.","topics":["cloud infrastructure","service retention"],"anchors":["https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=blitz-esports"],"target_ref":null,"expected_version":0,"source_input_ids":["d04b8a6b-dc90-4dc8-ab71-0882e9a10539"]}],"reason":"Preserve the unresolved service retention question without inferring that deletion was approved or performed."}
+}

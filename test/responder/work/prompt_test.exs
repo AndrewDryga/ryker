@@ -3,6 +3,14 @@ defmodule Responder.Work.PromptTest do
 
   alias Responder.Work.Prompt
 
+  test "restating remembered claims keeps their uncertainty and attribution" do
+    # The live draft-keep probe retained a tentative setup attribution in memory,
+    # then described the decider as "the person it was set up for" as if verified.
+    instructions = Prompt.build(%{}) |> Jason.decode!() |> Map.fetch!("instructions")
+    assert instructions =~ "Keep uncertainty attached to the whole claim"
+    assert instructions =~ "do not identify a person through an unverified relationship"
+  end
+
   test "health checks compare infrastructure observations with intended configuration" do
     # Livebook's intentionally parked VM was the first alleged infrastructure
     # problem because the model never checked the available Terraform code.

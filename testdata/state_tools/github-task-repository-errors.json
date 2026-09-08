@@ -1,0 +1,133 @@
+{
+  "source_report": "world-1788882133621.json",
+  "scenario": "github-pr-review-remains-in-thread",
+  "lane": "candidate",
+  "repeat": 3,
+  "calls": [
+    {
+      "arguments": {
+        "authority_limits": [
+          "Keep work scoped to the nil-case review request on PR #42 and focused test coverage.",
+          "Do not merge the PR or post directly to the conversation.",
+          "Use host-confirmed repository scope and worker placement; the available workspace is read-only."
+        ],
+        "instruction_ref": "github-source:v1:eval:pull_request_review_comment:9003",
+        "kind": "engineering",
+        "prompt": "Address the review comment on PR #42: 'Please handle the nil case and add focused coverage before merge.' Inspect the review context and relevant code, implement the nil-case handling, add focused regression coverage, and run the relevant tests. Keep the result in the originating PR thread for review before merge.",
+        "repository": null,
+        "source_refs": [
+          "github-source:v1:eval:pull_request_review_comment:9003"
+        ],
+        "success_checks": [
+          "The nil case identified by the PR review is handled correctly.",
+          "Focused regression coverage exercises the nil case and relevant existing behavior.",
+          "Relevant tests pass, or any verification blocker is explicitly reported.",
+          "Changes are reviewable on the host-bound PR; no merge is performed."
+        ],
+        "title": "Handle PR #42 nil case and add focused coverage"
+      },
+      "observed_error": "invalid_arguments"
+    },
+    {
+      "arguments": {
+        "authority_limits": [
+          "Scope to PR #42 nil handling and focused coverage; do not merge."
+        ],
+        "instruction_ref": "github:pull_request_review_comment:9003",
+        "kind": "engineering",
+        "prompt": "Handle the nil case identified in the review of PR #42 and add focused regression coverage before merge. Inspect the review context, implement the fix, and run relevant tests. Return the reviewable result to this PR thread.",
+        "repository": null,
+        "source_refs": [
+          "github-source:v1:eval:pull_request_review_comment:9003"
+        ],
+        "success_checks": [
+          "Nil case handled.",
+          "Focused regression tests added and relevant tests run.",
+          "No merge performed."
+        ],
+        "title": "Handle nil case and add focused coverage for PR #42"
+      },
+      "observed_error": "invalid_arguments"
+    },
+    {
+      "arguments": {
+        "authority_limits": [
+          "Only address the requested nil case and focused coverage on PR #42; do not merge."
+        ],
+        "instruction_ref": "ingress-input:6973643d-81d5-49b7-92fa-22b09349cf45",
+        "kind": "engineering",
+        "prompt": "Handle the nil case identified by the review comment and add focused coverage before merge. Inspect PR #42 review context, implement the fix, and run relevant tests. Keep the result in the originating PR thread.",
+        "repository": null,
+        "source_refs": [],
+        "success_checks": [
+          "The reviewed nil case is handled.",
+          "Focused regression coverage is added and relevant tests pass."
+        ],
+        "title": "Handle nil case and add focused coverage"
+      },
+      "observed_error": "invalid_arguments"
+    },
+    {
+      "arguments": {
+        "authority_limits": [
+          "Limit changes to the nil case and focused tests requested in PR #42.",
+          "Do not merge."
+        ],
+        "instruction_ref": "github:review_comment:9003",
+        "kind": "engineering",
+        "prompt": "Address the nil case in PR #42 and add focused regression coverage before merge. Inspect the review context, implement nil handling, and run relevant tests. Report the result in this PR thread.",
+        "repository": "octo/example",
+        "source_refs": [
+          "github-source:v1:eval:pull_request_review_comment:9003"
+        ],
+        "success_checks": [
+          "Nil case handled correctly.",
+          "Focused coverage added.",
+          "Relevant tests run."
+        ],
+        "title": "Fix nil case and add focused tests in PR #42"
+      },
+      "observed_error": "invalid_arguments"
+    },
+    {
+      "arguments": {
+        "authority_limits": [
+          "Do not merge PR #42."
+        ],
+        "instruction_ref": "world-input:github-pr-review-remains-in-thread:cc6746dc-5cf8-4168-8749-63b06f3ca40f:1",
+        "kind": "engineering",
+        "prompt": "Handle the nil case and add focused coverage before merge on the bound PR #42. Keep the proposed engineering work and results in this PR thread.",
+        "repository": null,
+        "source_refs": [
+          "github-source:v1:eval:pull_request_review_comment:9003"
+        ],
+        "success_checks": [
+          "Nil case fixed and focused regression coverage passes."
+        ],
+        "title": "Handle nil case and focused coverage"
+      },
+      "observed_error": "invalid_arguments"
+    },
+    {
+      "arguments": {
+        "authority_limits": [
+          "Address only the nil case and focused coverage requested before merge; no merge."
+        ],
+        "instruction_ref": "6973643d-81d5-49b7-92fa-22b09349cf45",
+        "kind": "engineering",
+        "prompt": "Handle the nil case and add focused coverage before merge, as requested in the bound PR #42 review comment. Inspect the relevant review context, implement the fix, and run focused tests. Preserve the originating GitHub PR thread as the communication destination.",
+        "repository": null,
+        "source_refs": [
+          "github-source:v1:eval:pull_request_review_comment:9003"
+        ],
+        "success_checks": [
+          "The nil case is handled.",
+          "Focused coverage validates the fix.",
+          "Relevant tests pass."
+        ],
+        "title": "Handle nil case and add focused coverage"
+      },
+      "observed_error": "invalid_arguments"
+    }
+  ]
+}

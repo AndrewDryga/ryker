@@ -8,6 +8,8 @@ defmodule Responder.ControlPlane.Assets do
       {:phoenix_live_view, "priv/static/phoenix_live_view.esm.js", "text/javascript"},
     "control-plane.js" => {:responder, "priv/static/control-plane.js", "text/javascript"},
     "drafts.mjs" => {:responder, "priv/static/drafts.mjs", "text/javascript"},
+    "relearn-selection.mjs" =>
+      {:responder, "priv/static/relearn-selection.mjs", "text/javascript"},
     "control-plane.css" => {:responder, "priv/static/control-plane.css", "text/css"},
     "workspace.css" => {:responder, "priv/static/workspace.css", "text/css"}
   }

@@ -63,6 +63,24 @@ defmodule Responder.Work.DispatcherTest do
     end)
   end
 
+  test "a briefly busy historical producer yields without spending attempts or stopping work" do
+    command = create_episode!("busy-historical-producer")
+    reason = :work_derived_context_busy
+    dispatcher_options = Keyword.put(options({:error, reason}), :max_attempts, 1)
+
+    for _window <- 1..3 do
+      assert {:ok, {:deferred, ^reason}} = Dispatcher.run_once(dispatcher_options)
+      turn = Responder.Repo.get_by!(Turn, episode_id: command.episode_id)
+      assert turn.status == :pending
+      assert turn.work_attempt_count == 0
+      assert turn.cancellation_intent == nil
+
+      Responder.Repo.update_all(from(t in Turn, where: t.id == ^turn.id),
+        set: [next_attempt_at: ~U[2000-01-01 00:00:00.000000Z]]
+      )
+    end
+  end
+
   test "healthy cancellation reconciliation yields its lease without spending cleanup attempts" do
     command = create_episode!("healthy-cancellation")
     assert {:ok, claim} = Custody.claim_next("worker:prepare-cancellation", 60, :work)

@@ -1,0 +1,29 @@
+{
+  "provenance": {
+    "source_report": "b-current-elixir-smoke-rivals-engineering-task-offer-1.json",
+    "scenario": "rivals-engineering-task-offer",
+    "episode_id": "9da4ab1c-8d51-4442-9eb5-9049666d309d",
+    "turn_id": "a9a7b3ba-caee-471e-894b-e7eb5b29f640",
+    "submitted_prompt_sha256": "07bf0ae43af0f30d5f0b8cbe4db779f06fccefe11bc036e8da5f9f74111332e9",
+    "selection": "Exact public repository_ref and workspace primary/companions fields from the frozen first Work submission. Freshness metadata and unrelated context omitted. These are isolated evaluation repository bindings, not platform authorization or a captured model answer."
+  },
+  "context": {
+    "repository_ref": null,
+    "workspace": {
+      "primary": {
+        "name": "primary",
+        "path": ".",
+        "read_only": true,
+        "base_commit": "55d3aac52f5a46f525b5e6d1d97c6ea96fd922fc"
+      },
+      "companions": [
+        {
+          "name": "blitz-rivals-scraper",
+          "path": "/coop/repositories/blitz-rivals-scraper",
+          "read_only": true,
+          "base_commit": "41af103a96d71c93887fe2b4dc9eed2d75f8fcb7"
+        }
+      ]
+    }
+  }
+}

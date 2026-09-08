@@ -593,6 +593,7 @@ defmodule Responder.Observability do
   defp runtime_status do
     [
       admission: {:admission, {:named, Responder.Admission.Runtime}},
+      learning: {:learning, {:named, Responder.Learning.Runtime}},
       coop_worker_gateway: {:coop_worker_gateway, {:supervised, Responder.CoopFleet.Server}},
       control_plane: {:control_plane, {:supervised, Responder.ControlPlane.Server}},
       delivery: {:delivery, {:named, Responder.Delivery.Runtime}},
@@ -620,6 +621,7 @@ defmodule Responder.Observability do
   defp required_progress_lanes do
     [
       admission: [:admission],
+      learning: [:learning],
       delivery: [:delivery],
       emisar: [:emisar_approval],
       event_waits: [:event_waits],

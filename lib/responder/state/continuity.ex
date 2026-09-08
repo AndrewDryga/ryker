@@ -23,6 +23,8 @@ defmodule Responder.State.Continuity do
     Knowledge,
     KnowledgeSnapshot,
     LearningSources,
+    MemorySearch,
+    MemorySearchPage,
     Observations
   }
 
@@ -113,6 +115,16 @@ defmodule Responder.State.Continuity do
             {:ok, _draft} = Repo.delete(draft)
             :ok
 
+          {:error, {:conversation_summary_unavailable, reason}} ->
+            # Optional memory maintenance must not roll back an accepted reply.
+            # Retain a visible failure on the exact turn, not unsourced prose.
+            Repo.update_all(from(t in Turn, where: t.id == ^turn.id),
+              set: [summary_error_code: reason]
+            )
+
+            Repo.delete!(draft)
+            :ok
+
           false ->
             {:error, :conversation_summary_fingerprint_mismatch}
 
@@ -170,13 +182,16 @@ defmodule Responder.State.Continuity do
     end
   end
 
-  @spec model_context(Episode.t(), String.t() | nil) :: map()
-  def model_context(%Episode{} = episode, repository_ref)
-      when is_binary(repository_ref) or is_nil(repository_ref) do
+  @spec model_context(Episode.t(), String.t() | nil, [String.t()]) :: map()
+  def model_context(episode, repository_ref, input_texts \\ [])
+
+  def model_context(%Episode{} = episode, repository_ref, input_texts)
+      when (is_binary(repository_ref) or is_nil(repository_ref)) and is_list(input_texts) do
     case destination_context(episode, repository_ref) do
       {:ok, context} ->
+        context = LearningSources.with_input_boundary(context, episode)
         result = recall_context(context)
-        knowledge = Knowledge.context(episode, repository_ref)
+        knowledge = Knowledge.context(episode, repository_ref, {:related, input_texts})
         result = if knowledge == [], do: result, else: Map.put(result, "knowledge", knowledge)
 
         case Observations.context(episode, repository_ref) do
@@ -189,22 +204,18 @@ defmodule Responder.State.Continuity do
     end
   end
 
-  def model_context(_episode, _repository_ref), do: empty_context()
+  def model_context(_episode, _repository_ref, _input_texts), do: empty_context()
 
   @spec search_context(Episode.t(), String.t() | nil, String.t(), String.t(), pos_integer()) ::
           [map()]
   def search_context(%Episode{} = episode, repository_ref, query, scope, limit)
       when (is_binary(repository_ref) or is_nil(repository_ref)) and is_binary(query) and
              is_binary(scope) and is_integer(limit) and limit in 1..50 do
-    case destination_context(episode, repository_ref) do
-      {:ok, _context} ->
-        (Knowledge.context(episode, repository_ref, query, limit, scope) ++
-           Observations.context(episode, repository_ref, query, limit, scope) ++
-           search_continuity_context(episode, repository_ref, query, scope, limit))
-        |> Enum.take(limit)
-
-      {:error, _reason} ->
-        []
+    case Repo.transaction(fn ->
+           MemorySearch.continuity(episode, repository_ref, query, scope, limit)
+         end) do
+      {:ok, documents} -> documents
+      _ -> []
     end
   end
 
@@ -247,21 +258,60 @@ defmodule Responder.State.Continuity do
     end
   end
 
-  defp search_continuity_context(episode, repository_ref, query, scope, limit) do
-    case Repo.transaction(fn ->
-           search_authorized(episode, repository_ref, query, scope, limit)
-         end) do
-      {:ok, entries} -> entries
-      {:error, _reason} -> []
+  @doc false
+  def search_page(kind, episode, repository_ref, page) when kind in [:summary, :rollup] do
+    case Observations.locked_scope(episode, repository_ref) do
+      {:ok, context} -> search_visible_page(kind, context, page)
+      _ -> :done
     end
   end
 
-  defp search_authorized(episode, repository_ref, query, scope, limit) do
-    case Observations.locked_scope(episode, repository_ref) do
-      {:ok, context} -> search_locked(context, query, scope, limit)
-      _ -> []
+  defp search_visible_page(kind, context, page) do
+    query =
+      if kind == :summary,
+        do: searchable_summaries_query(context, page.scope),
+        else: searchable_rollups_query(context, page.scope)
+
+    query = query |> LearningSources.sourced() |> LearningSources.eligible(context)
+    query = from(item in query, lock: "FOR SHARE")
+
+    query
+    |> MemorySearchPage.one(
+      page,
+      dynamic([item], item.state),
+      dynamic([item], item.updated_at),
+      search_source_clock()
+    )
+    |> account_search_result(kind, context)
+  end
+
+  defp search_source_clock do
+    # This clock is the latest backing message, not the maintenance job time.
+    dynamic(
+      [item],
+      type(
+        fragment(
+          "(SELECT max(o.occurred_at) FROM responder_learning_roots(?) r JOIN conversation_observations o ON o.id = CASE WHEN pg_input_is_valid(r->>'observation_id', 'uuid') THEN (r->>'observation_id')::uuid ELSE NULL END)",
+          item.source_dependencies
+        ),
+        :utc_datetime_usec
+      )
+    )
+  end
+
+  defp account_search_result({:ok, item, position}, kind, context) do
+    if continuity_search_candidate_visible?({kind, item}, context) do
+      if kind == :summary,
+        do: mark_summaries_recalled([item], database_now!()),
+        else: mark_rollups_recalled([item], database_now!())
+
+      {:ok, continuity_search_document({kind, item}), position}
+    else
+      {:skip, position}
     end
   end
+
+  defp account_search_result(:done, _kind, _context), do: :done
 
   defp compact_locked(summary_age_seconds, rollup_retention_seconds) do
     before = DateTime.add(database_now!(), -summary_age_seconds, :second)
@@ -269,6 +319,9 @@ defmodule Responder.State.Continuity do
     from(summary in ConversationSummary,
       as: :summary,
       where: summary.updated_at < ^before and summary.state != ^%{"retention" => "pruned"},
+      where:
+        is_nil(summary.compaction_retry_at) or
+          summary.compaction_retry_at <= fragment("clock_timestamp()"),
       order_by: [asc: summary.updated_at, asc: summary.id],
       limit: @maximum_compaction,
       lock: "FOR UPDATE"
@@ -600,7 +653,19 @@ defmodule Responder.State.Continuity do
   defp exact_candidate(_draft, _turn), do: {:error, :conversation_summary_candidate_mismatch}
 
   defp upsert_summary(draft, episode, turn, result_ref, context) do
+    case KnowledgeSnapshot.summary_sources(turn.session_id) do
+      {:ok, dependencies} ->
+        persist_staged_summary(draft, episode, turn, result_ref, context, dependencies)
+
+      {:error, reason} ->
+        {:error, {:conversation_summary_unavailable, reason}}
+    end
+  end
+
+  defp persist_staged_summary(draft, episode, turn, result_ref, context, dependencies) do
     attributes = %{
+      compaction_error_code: nil,
+      compaction_retry_at: nil,
       conversation_ref: context.conversation_ref,
       identity_key: context.identity_key,
       repository_ref: context.repository_ref,
@@ -608,7 +673,7 @@ defmodule Responder.State.Continuity do
       source_message_ref: List.last(episode.active_input_refs),
       source_result_ref: result_ref,
       source_turn_id: turn.id,
-      source_dependencies: KnowledgeSnapshot.session_sources(turn.session_id),
+      source_dependencies: dependencies,
       state: draft.state,
       state_fingerprint: draft.state_fingerprint,
       thread_ref: context.thread_ref,
@@ -620,8 +685,7 @@ defmodule Responder.State.Continuity do
     if LearningSources.sourced?(attributes.source_dependencies) do
       persist_summary(attributes, context.identity_key)
     else
-      # Optional learning must not preserve prose after dropping its source fences.
-      :ok
+      {:error, {:conversation_summary_unavailable, "no_sources"}}
     end
   end
 
@@ -639,10 +703,12 @@ defmodule Responder.State.Continuity do
 
   defp insert_summary(attributes) do
     id = Ecto.UUID.generate()
+    now = database_now!()
 
     attributes
     |> Map.merge(%{id: id, ref: "continuity:#{id}"})
     |> summary_changeset(%ConversationSummary{})
+    |> Changeset.change(inserted_at: now, updated_at: now)
     |> Repo.insert()
     |> persistence_result()
   end
@@ -650,6 +716,7 @@ defmodule Responder.State.Continuity do
   defp update_summary(summary, attributes) do
     attributes
     |> summary_changeset(summary)
+    |> Changeset.force_change(:updated_at, database_now!())
     |> Repo.update()
     |> persistence_result()
   end
@@ -657,6 +724,8 @@ defmodule Responder.State.Continuity do
   defp summary_changeset(attributes, summary) do
     summary
     |> Changeset.cast(attributes, [
+      :compaction_error_code,
+      :compaction_retry_at,
       :conversation_ref,
       :id,
       :identity_key,
@@ -717,71 +786,9 @@ defmodule Responder.State.Continuity do
     }
   end
 
-  defp search_locked(context, query, scope, limit) do
-    query = String.slice(String.trim(query), 0, 200)
-
-    current =
-      Repo.one(
-        from(summary in ConversationSummary, where: summary.identity_key == ^context.identity_key)
-      )
-      |> learning_visible(context)
-
-    candidates =
-      ([current] |> Enum.reject(&is_nil/1) |> Enum.map(&{:summary, &1})) ++
-        search_summaries(context, query, scope, limit) ++
-        search_rollups(context, query, scope, limit)
-
-    selected =
-      candidates
-      |> Enum.filter(fn candidate ->
-        continuity_search_scope?(candidate, scope, context) and
-          continuity_search_state_matches?(candidate, query) and
-          continuity_search_candidate_visible?(candidate, context)
-      end)
-      |> Enum.take(limit)
-
-    summaries = for {:summary, summary} <- selected, do: summary
-    rollups = for {:rollup, rollup} <- selected, do: rollup
-    now = database_now!()
-    mark_summaries_recalled(summaries, now)
-    mark_rollups_recalled(rollups, now)
-
-    Enum.map(selected, &continuity_search_document/1)
-  end
-
-  defp search_summaries(context, query, scope, limit) do
-    context
-    |> searchable_summaries_query(scope)
-    |> LearningSources.sourced()
-    |> LearningSources.eligible(context)
-    |> state_matching(query)
-    |> order_by(
-      [summary],
-      asc:
-        fragment(
-          "CASE WHEN ? = ? THEN 0 ELSE 1 END",
-          summary.conversation_ref,
-          ^context.conversation_ref
-        ),
-      asc:
-        fragment(
-          "CASE WHEN ? = ? THEN 0 ELSE 1 END",
-          summary.repository_ref,
-          ^context.repository_ref
-        ),
-      desc: summary.updated_at,
-      asc: summary.ref
-    )
-    |> limit(^limit)
-    |> Repo.all()
-    |> Enum.map(&{:summary, &1})
-  end
-
   defp searchable_summaries_query(context, scope) do
     from(summary in ConversationSummary,
-      where:
-        summary.workspace_ref == ^context.workspace_ref and
-          summary.identity_key != ^context.identity_key,
+      where: summary.workspace_ref == ^context.workspace_ref,
       where: ^Observations.visible_conversations(context),
       where: summary.conversation_ref == ^context.conversation_ref or summary.transport == "slack"
     )
@@ -797,18 +804,6 @@ defmodule Responder.State.Continuity do
 
   defp summaries_within_scope(query, _context, "workspace"), do: query
   defp summaries_within_scope(query, _context, _scope), do: from(summary in query, where: false)
-
-  defp search_rollups(context, query, scope, limit) do
-    context
-    |> searchable_rollups_query(scope)
-    |> LearningSources.sourced()
-    |> LearningSources.eligible(context)
-    |> state_matching(query)
-    |> order_by([rollup], desc: rollup.period_end, desc: rollup.id)
-    |> limit(^limit)
-    |> Repo.all()
-    |> Enum.map(&{:rollup, &1})
-  end
 
   defp searchable_rollups_query(context, scope) do
     context
@@ -877,33 +872,6 @@ defmodule Responder.State.Continuity do
     )
   end
 
-  defp state_matching(query, search) when is_binary(search) do
-    from(item in query,
-      where: fragment("position(lower(?) in lower(?)) > 0", ^search, item.state)
-    )
-  end
-
-  defp state_matching(query, _search), do: query
-
-  defp continuity_search_scope?({:summary, summary}, "current_channel", context),
-    do: summary.conversation_ref == context.conversation_ref
-
-  defp continuity_search_scope?({:rollup, rollup}, "current_channel", context),
-    do: rollup.scope_kind == :conversation and rollup.scope_ref == context.conversation_ref
-
-  defp continuity_search_scope?({_kind, item}, "repository", context),
-    do: is_binary(context.repository_ref) and item.repository_ref == context.repository_ref
-
-  defp continuity_search_scope?({_kind, _item}, "workspace", _context), do: true
-  defp continuity_search_scope?(_candidate, _scope, _context), do: false
-
-  defp continuity_search_state_matches?({_kind, item}, query) do
-    item.state
-    |> CanonicalJSON.encode!()
-    |> String.downcase()
-    |> String.contains?(String.downcase(query))
-  end
-
   defp continuity_search_candidate_visible?({:summary, summary}, context),
     do: summary_visible?(summary, context)
 
@@ -919,28 +887,41 @@ defmodule Responder.State.Continuity do
     do: rollup |> rollup_document() |> Map.put("kind", "continuity")
 
   defp related_summaries(context) do
-    context
-    |> searchable_summaries_query("workspace")
-    |> order_by([summary], desc: summary.updated_at, desc: summary.id)
-    |> limit(@maximum_candidates)
-    |> LearningSources.sourced()
-    |> LearningSources.eligible(context)
-    |> Repo.all()
-    |> Enum.filter(fn summary ->
-      summary_visible?(summary, context)
-    end)
+    query =
+      context
+      |> searchable_summaries_query("workspace")
+      |> where([summary], summary.identity_key != ^context.identity_key)
+      |> order_by([summary], desc: summary.updated_at, desc: summary.id)
+      |> limit(@maximum_candidates)
+      |> LearningSources.sourced()
+      |> LearningSources.eligible(context)
+
+    # Rank small descriptors first. Loading 64 full 8 MiB dependency lists
+    # makes a bounded result count a very unbounded application-memory cost.
+    Repo.all(
+      from(summary in query,
+        select: map(summary, [:id, :conversation_ref, :repository_ref, :updated_at, :ref])
+      )
+    )
     |> Enum.sort_by(&summary_rank(&1, context))
+    |> Stream.map(fn item -> Repo.one(from(summary in query, where: summary.id == ^item.id)) end)
+    |> Stream.reject(&is_nil/1)
+    |> Stream.filter(&summary_visible?(&1, context))
     |> Enum.take(@maximum_related)
   end
 
   defp related_rollups(context) do
-    context
-    |> related_rollups_query()
-    |> rollups_visible_query(context)
-    |> LearningSources.sourced()
-    |> LearningSources.eligible(context)
-    |> Repo.all()
-    |> Enum.filter(&(rollup_visible?(&1, context) and derived_sources_valid?(&1, context)))
+    query =
+      context
+      |> related_rollups_query()
+      |> rollups_visible_query(context)
+      |> LearningSources.sourced()
+      |> LearningSources.eligible(context)
+
+    Repo.all(from(rollup in query, select: rollup.id))
+    |> Stream.map(fn id -> Repo.one(from(rollup in query, where: rollup.id == ^id)) end)
+    |> Stream.reject(&is_nil/1)
+    |> Stream.filter(&(rollup_visible?(&1, context) and derived_sources_valid?(&1, context)))
     |> Enum.take(@maximum_rollups)
   end
 
@@ -1212,7 +1193,7 @@ defmodule Responder.State.Continuity do
     |> Kernel.++(Enum.map(sources, &summary_source_scope/1))
     |> Enum.uniq()
     |> Enum.sort_by(&CanonicalJSON.encode!/1)
-    |> exact_source_scopes!()
+    |> exact_source_scopes()
   end
 
   defp existing_source_scopes(nil), do: []
@@ -1221,7 +1202,11 @@ defmodule Responder.State.Continuity do
   defp rollup_repository_ref(:repository, scope_ref, _first), do: scope_ref
   defp rollup_repository_ref(_scope_kind, _scope_ref, first), do: first.repository_ref
 
-  defp complete_compaction(_existing, _sources, %{source_dependencies: nil}), do: :skipped
+  defp complete_compaction(_existing, sources, %{source_dependencies: nil}),
+    do: defer_compaction(sources, "source_capacity")
+
+  defp complete_compaction(_existing, sources, %{source_scopes: nil}),
+    do: defer_compaction(sources, "scope_capacity")
 
   defp complete_compaction(existing, sources, attributes) do
     if DateTime.after?(attributes.expires_at, database_now!()) do
@@ -1231,6 +1216,17 @@ defmodule Responder.State.Continuity do
       {_count, nil} = delete_compacted_summaries(sources)
       :ok
     end
+  end
+
+  defp defer_compaction(sources, reason) do
+    ids = Enum.map(sources, & &1.id)
+    retry_at = DateTime.add(database_now!(), 3600, :second)
+
+    Repo.update_all(from(s in ConversationSummary, where: s.id in ^ids),
+      set: [compaction_error_code: reason, compaction_retry_at: retry_at]
+    )
+
+    :skipped
   end
 
   defp persist_and_delete_compacted(existing, sources, attributes) do
@@ -1255,10 +1251,12 @@ defmodule Responder.State.Continuity do
 
   defp persist_rollup(nil, attributes) do
     id = Ecto.UUID.generate()
+    now = database_now!()
 
     attributes
     |> Map.merge(%{id: id, ref: "continuity-rollup:#{id}"})
     |> rollup_changeset(%ConversationRollup{})
+    |> Changeset.change(inserted_at: now, updated_at: now)
     |> Repo.insert()
     |> rollup_result()
   end
@@ -1266,6 +1264,7 @@ defmodule Responder.State.Continuity do
   defp persist_rollup(rollup, attributes) do
     attributes
     |> rollup_changeset(rollup)
+    |> Changeset.force_change(:updated_at, database_now!())
     |> Repo.update()
     |> rollup_result()
   end
@@ -1375,11 +1374,10 @@ defmodule Responder.State.Continuity do
     end
   end
 
-  defp exact_source_scopes!(scopes) do
+  defp exact_source_scopes(scopes) do
     if length(scopes) <= @maximum_rollup_source_scopes and
          byte_size(CanonicalJSON.encode!(scopes)) <= @maximum_rollup_source_scope_bytes,
-       do: scopes,
-       else: Repo.rollback(:conversation_rollup_scope_capacity)
+       do: scopes
   end
 
   defp rollup_visibility(:repository, _summary), do: :public

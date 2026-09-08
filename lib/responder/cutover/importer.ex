@@ -1060,7 +1060,17 @@ defmodule Responder.Cutover.Importer do
 
   defp profiles(_profiles), do: {:error, {:invalid_cutover_import, :work_profiles}}
 
-  defp insert(changeset, kind) do
+  defp insert(changeset, kind) when kind in [:memory, :behavior] do
+    with {:ok, now} <- database_now() do
+      changeset
+      |> Ecto.Changeset.change(inserted_at: now, updated_at: now)
+      |> persist(kind)
+    end
+  end
+
+  defp insert(changeset, kind), do: persist(changeset, kind)
+
+  defp persist(changeset, kind) do
     case Repo.insert(changeset) do
       {:ok, value} -> {:ok, value}
       {:error, changeset} -> {:error, {:cutover_persistence_failed, kind, changeset.errors}}

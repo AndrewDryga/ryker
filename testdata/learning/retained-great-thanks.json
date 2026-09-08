@@ -1,0 +1,51 @@
+{
+  "source": "Exact retained acknowledgement, read-only private replay harvest. No generated learning result or answer.",
+  "database": "responder_blitz_history_20260906_m8zykx",
+  "snapshot_at": "2026-09-08 14:18:24 UTC",
+  "inputs": [
+    {
+      "id": "5c15c7df-7c9f-4314-9711-f8768070634b",
+      "content": {
+        "text": "Great thanks",
+        "files": [],
+        "blocks": [
+          {
+            "type": "rich_text",
+            "block_id": "gbmPo",
+            "elements": [
+              {
+                "type": "rich_text_section",
+                "elements": [
+                  {
+                    "text": "Great thanks",
+                    "type": "text"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "subtype": null,
+        "attachments": [],
+        "slack_event_kind": "message"
+      },
+      "revision": 7153841904374516,
+      "actor_ref": "U02H41FRAUR",
+      "event_ref": "blitz-backfill:20260906:C04EG373MD5:1788460476.093629",
+      "actor_kind": "user",
+      "dedupe_key": "ingress-event:714fe5342eb97b14d9182417a0967a042a9f63a1c6144c5c5690528f1ccce559",
+      "event_kind": "message",
+      "source_ref": "T01J1LW4DF1",
+      "occurred_at": "2026-09-03T18:34:36.093629",
+      "source_kind": "slack",
+      "execution_mode": "live",
+      "repository_ref": "blitz-infra",
+      "native_input_id": "slack-message:c89913826c3d48f044ec73a92e0469a58d906445c5faba458f7918d8b4554882",
+      "source_item_ref": "1788460476.093629",
+      "event_fingerprint": "72857ca16d51e7faf8be80d3d8afaf8d121e8f16b50e1536312eec2923ba6587",
+      "destination_transport": "slack",
+      "destination_thread_ref": "1788426097.196639",
+      "destination_conversation_ref": "slack:T01J1LW4DF1:C04EG373MD5"
+    }
+  ]
+}

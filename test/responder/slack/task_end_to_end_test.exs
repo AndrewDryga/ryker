@@ -24,7 +24,7 @@ defmodule Responder.Slack.TaskEndToEndTest do
     WorkControls
   }
 
-  alias Responder.State.{Record, Records, TaskOffers}
+  alias Responder.State.{KnowledgeSnapshot, Record, Records, TaskOffers}
   alias Responder.TestSupport.FakeWorkCoopAPI
   alias Responder.Work.{Custody, Executor, Session, SubmissionBuilder, Turn}
 
@@ -150,6 +150,9 @@ defmodule Responder.Slack.TaskEndToEndTest do
 
   test "an authorized Slack task publishes once despite clock skew and repairs GitHub review in the same session" do
     claim = claim_episode!()
+    # Structural records are installed before the fake provider runs; initialize
+    # their empty external-source custody at the real pre-disclosure boundary.
+    assert :ok = KnowledgeSnapshot.expose(claim, [])
 
     assert {:ok, offer} =
              Records.create(Records.token(claim.turn), "parser-task", "task_offer", %{
@@ -231,6 +234,7 @@ defmodule Responder.Slack.TaskEndToEndTest do
     assert task_claim.episode.id == task_episode.id
     assert task_claim.session.id == task_session.id
     assert task_claim.session.policy == "responder-contributor"
+    assert :ok = KnowledgeSnapshot.expose(task_claim, [])
 
     assert {:ok, {:created, card_ref}} = TaskCardWorker.run_once(card_options(slack_api))
     assert {:ok, {:updated, ^card_ref}} = TaskCardWorker.run_once(card_options(slack_api))

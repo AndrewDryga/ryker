@@ -3,7 +3,8 @@ defmodule Responder.Retention.Custody do
   PostgreSQL custody for exact Coop session cleanup.
 
   Cleanup is eligible only after the owning episode and every local Work turn
-  are terminal and no unpublished publication still depends on the session.
+  are terminal, or the owning learning run has exact remote stop proof, and no
+  unpublished publication still depends on the session.
   Durable state records and episode history may outlive the remote workspace;
   their independent retention rules preserve them. PostgreSQL time and opaque
   leases provide the fleet fence; remote calls never run in these transactions.
@@ -16,13 +17,18 @@ defmodule Responder.Retention.Custody do
   alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.Retention.Plan
+  alias Responder.State.LearningRun
   alias Responder.Work.{Session, Turn}
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
   @terminal_episode_states [:complete, :cancelled]
   @unfinished_turn_statuses [:pending, :cancel_pending, :delivery_pending]
 
-  @type claim :: %{episode: Episode.t(), lease_ref: String.t(), session: Session.t()}
+  @type claim :: %{
+          owner: Episode.t() | LearningRun.t(),
+          lease_ref: String.t(),
+          session: Session.t()
+        }
 
   @spec claim_next(String.t(), pos_integer(), non_neg_integer()) ::
           {:ok, claim() | nil} | {:error, term()}
@@ -238,10 +244,10 @@ defmodule Responder.Retention.Custody do
       nil ->
         nil
 
-      {episode_id, session_id} ->
-        with %Episode{} = episode <- lock_episode(episode_id),
+      {kind, owner_id, session_id} ->
+        with owner when not is_nil(owner) <- lock_owner(kind, owner_id, :skip_locked),
              %Session{} = session <- lock_session(session_id),
-             true <- claimable?(episode, session, now) do
+             true <- claimable?(owner, session, now) do
           session = prepare_phase(session, grace_seconds)
           lease_ref = "retention-lease:#{Ecto.UUID.generate()}"
 
@@ -256,7 +262,7 @@ defmodule Responder.Retention.Custody do
               cleanup_next_attempt_at: nil
             })
 
-          %{episode: episode, lease_ref: lease_ref, session: claimed}
+          %{owner: owner, lease_ref: lease_ref, session: claimed}
         else
           _not_claimable -> nil
         end
@@ -275,14 +281,23 @@ defmodule Responder.Retention.Custody do
     cleanup_status = cleanup_status_filter(now)
 
     from(session in Session,
-      join: episode in Episode,
+      left_join: episode in Episode,
       on: episode.id == session.episode_id,
-      where: episode.state in ^@terminal_episode_states,
+      left_join: learning in LearningRun,
+      on: learning.id == session.learning_run_id,
+      where:
+        (session.execution_kind == :work and episode.state in ^@terminal_episode_states) or
+          (session.execution_kind == :learning and not is_nil(learning.remote_stopped_at)),
       where: session.id not in subquery(unfinished_session_ids),
       where: session.id not in subquery(unpublished_session_ids),
       where: ^cleanup_status,
       order_by: [asc: session.inserted_at, asc: session.id],
-      select: {episode.id, session.id},
+      select:
+        {session.execution_kind,
+         type(
+           fragment("COALESCE(?, ?)", session.episode_id, session.learning_run_id),
+           :binary_id
+         ), session.id},
       limit: 1
     )
   end
@@ -336,25 +351,33 @@ defmodule Responder.Retention.Custody do
     )
   end
 
-  defp lock_episode(episode_id) do
-    Repo.one(
-      from(episode in Episode,
-        where: episode.id == ^episode_id,
-        lock: "FOR UPDATE SKIP LOCKED"
-      )
-    )
-  end
+  defp lock_owner(:work, episode_id, lock),
+    do: lock_owner_query(from(e in Episode, where: e.id == ^episode_id), lock)
+
+  defp lock_owner(:learning, run_id, lock),
+    do: lock_owner_query(from(run in LearningRun, where: run.id == ^run_id), lock)
+
+  defp lock_owner(_, _, _), do: nil
+
+  defp lock_owner_query(query, :skip_locked),
+    do: Repo.one(from(q in query, lock: "FOR UPDATE SKIP LOCKED"))
+
+  defp lock_owner_query(query, :wait), do: Repo.one(from(q in query, lock: "FOR UPDATE"))
 
   defp lock_session(session_id) do
     Repo.one(from(session in Session, where: session.id == ^session_id, lock: "FOR UPDATE"))
   end
 
-  defp claimable?(episode, session, now) do
-    episode.state in @terminal_episode_states and
+  defp claimable?(owner, session, now) do
+    owner_finished?(owner) and
       not unfinished_turn?(session.id) and
       not unpublished_publication?(session.id) and
       claimable_status?(session, now)
   end
+
+  defp owner_finished?(%Episode{state: state}), do: state in @terminal_episode_states
+  defp owner_finished?(%LearningRun{remote_stopped_at: %DateTime{}}), do: true
+  defp owner_finished?(_), do: false
 
   defp claimable_status?(%Session{cleanup_status: :active}, _now), do: true
 
@@ -585,20 +608,32 @@ defmodule Responder.Retention.Custody do
   defp leased!(session_id, lease_ref, statuses) do
     identity =
       Repo.one(
-        from(session in Session, where: session.id == ^session_id, select: session.episode_id)
+        from(session in Session,
+          where: session.id == ^session_id,
+          select:
+            {session.execution_kind,
+             type(
+               fragment("COALESCE(?, ?)", session.episode_id, session.learning_run_id),
+               :binary_id
+             )}
+        )
       )
 
-    if is_nil(identity), do: Repo.rollback(:retention_session_not_found)
+    owner =
+      case identity do
+        {kind, id} when not is_nil(id) -> lock_owner(kind, id, :wait)
+        _ -> nil
+      end
 
-    _episode =
-      Repo.one!(from(episode in Episode, where: episode.id == ^identity, lock: "FOR UPDATE"))
+    if is_nil(owner), do: Repo.rollback(:retention_session_not_found)
 
     session =
       Repo.one!(from(session in Session, where: session.id == ^session_id, lock: "FOR UPDATE"))
 
     now = database_now!()
 
-    if session.cleanup_status in statuses and session.cleanup_lease_ref == lease_ref and
+    if owner_finished?(owner) and session.cleanup_status in statuses and
+         session.cleanup_lease_ref == lease_ref and
          match?(%DateTime{}, session.cleanup_lease_expires_at) and
          DateTime.compare(session.cleanup_lease_expires_at, now) == :gt do
       {session, now}

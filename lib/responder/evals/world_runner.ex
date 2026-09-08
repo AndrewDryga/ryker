@@ -502,7 +502,8 @@ defmodule Responder.Evals.WorldRunner do
          {:ok, actor_kind} <- input_atom(profile["actor"]["kind"], :actor_kind),
          {:ok, event_kind} <- input_atom(profile["event_kind"], :event_kind),
          {:ok, occurred_at_source} <-
-           input_atom(profile["occurred_at_source"], :occurred_at_source) do
+           input_atom(profile["occurred_at_source"], :occurred_at_source),
+         {:ok, content} <- world_replay_content(content, event, occurred_at, occurred_at_source) do
       Input.new(%{
         actor: %{kind: actor_kind, ref: profile["actor"]["ref"]},
         content: content,
@@ -511,7 +512,7 @@ defmodule Responder.Evals.WorldRunner do
         event_ref: "world-event:#{scenario.id}:#{identity}:#{index}",
         native_input_id: "world-input:#{scenario.id}:#{identity}:#{index}",
         occurred_at: occurred_at,
-        occurred_at_source: occurred_at_source,
+        occurred_at_source: :ingress,
         revision: 1,
         source: %{kind: profile["source"]["kind"], ref: profile["source"]["ref"]},
         source_capabilities: profile["source_capabilities"],
@@ -521,6 +522,24 @@ defmodule Responder.Evals.WorldRunner do
       nil -> {:error, {:invalid_world_runner, :input_actor}}
       {:error, _reason} = error -> error
       _invalid -> {:error, {:invalid_world_runner, :input_profile}}
+    end
+  end
+
+  defp world_replay_content(content, event, received_at, occurred_at_source) do
+    if Map.has_key?(content, "world_replay_clock") do
+      {:error, {:invalid_world_runner, :reserved_input_metadata}}
+    else
+      clock = %{
+        "host_received_at" => DateTime.to_iso8601(received_at),
+        "mode" => "simulated",
+        "note" =>
+          "Only receipt timing is rebased to exercise live host waits. Use the original source time for event chronology. Original source content and tool observations retain their historical dates; this replay supplies no present-day health proof.",
+        "scenario_occurred_at" => event["occurred_at"],
+        "scenario_occurred_at_source" => Atom.to_string(occurred_at_source),
+        "source_occurred_at" => if(occurred_at_source == :source, do: event["occurred_at"])
+      }
+
+      {:ok, Map.put(content, "world_replay_clock", clock)}
     end
   end
 
@@ -902,7 +921,7 @@ defmodule Responder.Evals.WorldRunner do
       failures: [],
       quality: %{status: :unrun},
       record_history: if(episode_id, do: record_history(episode_id), else: []),
-      records: if(episode_id, do: Records.model_records(episode_id), else: []),
+      records: if(episode_id, do: Records.retained_records(episode_id), else: []),
       runtime: runtime_evidence(scenario, executions, settings, skipped),
       scenario_id: scenario.id,
       source_calls: if(settings.cassette, do: WorldCassette.calls(settings.cassette), else: []),
@@ -951,14 +970,12 @@ defmodule Responder.Evals.WorldRunner do
     execution
     |> turn_evidence()
     |> Map.put(:input_clock, %{
-      adjustment:
-        if(event["kind"] == "wait_wakeup",
-          do: "persisted_wait_due_at",
-          else: "causal_rebase"
-        ),
+      adjustment: input_clock_adjustment(event, envelope),
       applied_occurred_at: Map.fetch!(input, "occurred_at"),
       mode: "simulated",
-      scenario_occurred_at: event["occurred_at"]
+      scenario_occurred_at: event["occurred_at"],
+      source_occurred_at:
+        get_in(envelope, ["content", "world_replay_clock", "source_occurred_at"])
     })
     |> Map.put(:input_provenance, %{
       actor: Map.fetch!(envelope, "actor"),
@@ -972,6 +989,11 @@ defmodule Responder.Evals.WorldRunner do
     })
     |> Map.put(:routing, execution.world_routing)
   end
+
+  defp input_clock_adjustment(%{"kind" => "wait_wakeup"}, _envelope),
+    do: "persisted_wait_due_at"
+
+  defp input_clock_adjustment(_event, _envelope), do: "causal_rebase"
 
   defp current_submission_input(%{turn: %{submission: %{"context" => context}}}) do
     context |> current_submission_inputs() |> List.last()

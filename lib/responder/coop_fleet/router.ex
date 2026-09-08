@@ -33,6 +33,8 @@ defmodule Responder.CoopFleet.Router do
          {:ok, state_tools} <- Keyword.fetch(options, :state_tools) do
       router_options =
         [token: token, binding: binding, capabilities: state_tools.capabilities]
+        # Never sign history cursors with the caller's active-turn bearer.
+        |> Keyword.put(:cursor_secret, Map.get(state_tools, :token_secret))
         |> maybe_put(:emisar_rpc_url, Map.get(state_tools, :emisar_rpc_url))
         |> maybe_put(:additional_tools, Map.get(state_tools, :additional_tools))
         |> maybe_put(:additional_call, Map.get(state_tools, :additional_call))

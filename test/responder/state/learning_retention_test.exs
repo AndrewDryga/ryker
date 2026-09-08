@@ -2,11 +2,52 @@ defmodule Responder.State.LearningRetentionTest do
   use Responder.DataCase, async: false
 
   alias Responder.CanonicalJSON
+  alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Responder.Fixtures.Learning, as: Fixtures
   alias Responder.State.{Learning, LearningRun}
 
   @policy %{policy: "recorded-read-only-policy", policy_digest: String.duplicate("a", 64)}
   @retention_seconds 3_600
+
+  test "pruning a topic cannot hide expiry of its copies in a frozen learning request" do
+    # Compact references must keep their lifetime after the referenced prose
+    # is pruned, otherwise copied prompts outlive their expired original source.
+    [first, second] = Fixtures.inputs!()
+    {_source, document} = KnowledgeFixtures.learn!(first, first.repository_ref)
+    "knowledge:" <> id = document["source_ref"]
+    head = Repo.get!(Responder.State.ConversationKnowledge, id)
+    assert {:ok, run} = Learning.prepare([first.id], @policy)
+    assert {:ok, current} = Learning.prepare([second.id], @policy)
+
+    saved =
+      Repo.update!(
+        Ecto.Changeset.change(run,
+          source_dependencies: head.source_dependencies,
+          knowledge: [document],
+          prompt: Jason.encode!(%{"knowledge" => [document]})
+        )
+      )
+
+    Repo.query!(
+      """
+      UPDATE conversation_knowledge_sources
+      SET receipt = jsonb_set(receipt::jsonb, '{retained_at}', to_jsonb($2::text))::text,
+        retained_at = $2::timestamptz
+      WHERE knowledge_id = $1::uuid
+      """,
+      [Ecto.UUID.dump!(id), expired_clock()]
+    )
+
+    Repo.query!(
+      """
+      UPDATE conversation_knowledge_revisions SET state = '{"retention":"pruned"}'
+      WHERE knowledge_id = $1::uuid
+      """,
+      [Ecto.UUID.dump!(id)]
+    )
+
+    assert_prunes_only!(saved, current)
+  end
 
   for clock <- [
         nil,

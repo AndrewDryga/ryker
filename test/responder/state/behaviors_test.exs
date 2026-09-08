@@ -10,6 +10,7 @@ defmodule Responder.State.BehaviorsTest do
   alias Responder.CanonicalJSON
   alias Responder.ControlPlane.{BehaviorLibrary, Projection, Router}
   alias Responder.Episodes
+  alias Responder.Fixtures.DatabaseClock
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.{Inbox, Input}
   alias Responder.Slack.AppHomeProjection
@@ -28,11 +29,44 @@ defmodule Responder.State.BehaviorsTest do
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
+  test "confirmed guidance is immediately searchable when the database clock trails the host" do
+    # Two full-gate guidance searches returned [] immediately after successful
+    # confirmation: host-generated insertion times exceeded the database cursor
+    # cutoff. Model text and historical confirmation time are not the failure.
+    fixture = delivered_offers!("database-clock-guidance")
+    database_time = DatabaseClock.behind_host!()
+
+    assert {:ok, confirmed} =
+             Behaviors.confirm(confirmation(fixture, fixture.guidance, "database-clock"))
+
+    context = %{
+      conversation_ref: "slack:T123:C456",
+      operator_ref: "slack:user:U123",
+      repository: nil,
+      workspace_ref: "slack:T123"
+    }
+
+    assert [searched] =
+             Behaviors.search_guidance(context, "availability risk", "current_channel", 20)
+
+    assert searched["behavior_ref"] == confirmed.behavior.ref
+    assert confirmed.behavior.inserted_at == database_time
+    assert confirmed.behavior.confirmed_at == @now
+  end
+
   test "visible instructions remain actionable beyond the memory listing limit" do
     # Paused instructions do not consume active capacity. A capped listing must
     # not strand their lifecycle controls when the library has more history.
     fixture = delivered_offers!("older-ui-actions")
     {:ok, confirmed} = Behaviors.confirm(confirmation(fixture, fixture.guidance, "guidance"))
+
+    # This is deliberately older history. Confirmation uses the database clock;
+    # comparing it with bulk fixtures stamped by the host made this ordering
+    # depend on machine clock skew and put the target back on the first page.
+    Repo.update_all(from(b in Behavior, where: b.id == ^confirmed.behavior.id),
+      set: [updated_at: DateTime.add(confirmed.behavior.updated_at, -86_400, :second)]
+    )
+
     insert_unrelated_guidance!(fixture.guidance, 500)
 
     Repo.update_all(from(b in Behavior, where: b.id != ^confirmed.behavior.id),

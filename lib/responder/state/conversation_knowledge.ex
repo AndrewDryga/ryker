@@ -5,6 +5,7 @@ defmodule Responder.State.ConversationKnowledge do
   schema "conversation_knowledge" do
     field(:scope_key, :string)
     field(:topic_key, :string)
+    field(:anchor_keys, {:array, :string}, default: [])
     field(:transport, :string)
     field(:workspace_ref, :string)
     field(:conversation_ref, :string)

@@ -1,8 +1,61 @@
 defmodule Responder.Fixtures.Knowledge do
   @moduledoc false
+  alias Responder.Admission.Decision
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Repo
-  alias Responder.State.{Knowledge, Observations}
+  alias Responder.State.{Knowledge, LearningSources, Observations}
+
+  @doc "Store-contract fixture, not an admission memory API or a model-result recording."
+  def record_topic(entry, proposal, offered, omissions \\ []) do
+    sources =
+      LearningSources.merge([
+        LearningSources.for_entry(entry)
+        | Enum.map(offered, &LearningSources.document_sources/1)
+      ])
+
+    Knowledge.record_sources_in_transaction([entry], proposal, offered, %{
+      result_ref: "fixture-knowledge:#{entry.id}",
+      source_dependencies: sources,
+      omissions: omissions
+    })
+  end
+
+  @doc "Accept the real routing decision, then exercise the owning topic store under its frozen source context."
+  def commit_topic(context, %{knowledge: proposal}, result_ref) do
+    {:ok, routing} =
+      Decision.parse(%{
+        "action" => "ignore",
+        "episode_ref" => nil,
+        "reaction" => nil,
+        "relation" => "unrelated",
+        "reason" => "No reply is useful.",
+        "work_class" => nil
+      })
+
+    Repo.transaction(fn ->
+      with :ok <-
+             Knowledge.lock_scope_in_transaction(
+               context.input_entry,
+               context.input_entry.repository_ref
+             ),
+           {:ok, receipt} <- Responder.Admission.commit(context, routing, result_ref),
+           :ok <- record_proposal(receipt.entry, proposal, context, result_ref) do
+        receipt
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp record_proposal(_entry, nil, _context, _ref), do: :ok
+
+  defp record_proposal(entry, proposal, context, ref) do
+    Knowledge.record_sources_in_transaction([entry], proposal, context.knowledge, %{
+      result_ref: ref,
+      source_dependencies: context.source_dependencies,
+      omissions: context.knowledge_omissions
+    })
+  end
 
   # Retained Blitz observation: draft-ai-suggestions was to be kept, not deleted.
   @note %{
@@ -32,6 +85,7 @@ defmodule Responder.Fixtures.Knowledge do
             revision: 1,
             event_fingerprint: String.duplicate("a", 64),
             actor_ref: "U03EPT4RP5M",
+            content: %{"text" => @note["summary"]},
             occurred_at: DateTime.utc_now(),
             execution_mode: :shadow,
             repository_ref: repository
@@ -44,13 +98,14 @@ defmodule Responder.Fixtures.Knowledge do
         "topic_key" => "draft-ai-suggestions",
         "title" => "Keep draft-ai-suggestions",
         "target_ref" => nil,
-        "expected_version" => 0
+        "expected_version" => 0,
+        "anchors" => []
       })
 
     {:ok, :ok} =
       Repo.transaction(fn ->
-        :ok = Observations.record_in_transaction(entry, @note, "recorded-result:#{id}")
-        Knowledge.record_in_transaction(entry, proposal, [])
+        :ok = Observations.record_excerpt_in_transaction(entry)
+        record_topic(entry, proposal, [])
       end)
 
     document = Enum.find(Knowledge.context(destination, repository), & &1["can_update"])
@@ -63,7 +118,7 @@ defmodule Responder.Fixtures.Knowledge do
         Observations.receive_in_transaction(%{
           entry
           | id: Ecto.UUID.generate(),
-            revision: 2,
+            revision: entry.revision + 1,
             event_kind: :delete
         })
       end)

@@ -3,13 +3,35 @@ defmodule Responder.Work.SubmissionBuilderTest do
 
   alias Responder.{Artifacts, Episodes}
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Responder.GitHub.SourceRef, as: GitHubSourceRef
   alias Responder.Slack.SourceRef
   alias Responder.State.{BehaviorChangeset, MemoryEntryChangeset, RecordChangeset, Records}
-  alias Responder.State.{Continuity, ConversationObservation, Observations}
+  alias Responder.State.{Continuity, ConversationObservation, KnowledgeSnapshot}
   alias Responder.Work.{Custody, DeliveryReceipt, Final, Result, Submission, SubmissionBuilder}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
+
+  for {text, offered?} <- [
+        {"Why did the quasar billing subscription renew?", false},
+        {"What did we decide about draft-ai-suggestions?", true}
+      ] do
+    test "Work selects knowledge for the active request #{inspect(text)}" do
+      # Unrelated recent topic injection spread source lineage and filled the
+      # memory budget even though the model had no reason to see that subject.
+      claim = claim_episode!("topic-relevance", unquote(text))
+
+      {_source, topic} =
+        KnowledgeFixtures.learn!(claim.episode, claim.session.repository_ref)
+
+      assert {:ok, submission} = SubmissionBuilder.build(claim)
+
+      knowledge =
+        get_in(submission, ["context", "operator_context", "continuity", "knowledge"]) || []
+
+      assert Enum.any?(knowledge, &(&1["source_ref"] == topic["source_ref"])) == unquote(offered?)
+    end
+  end
 
   test "the first turn is a self-contained universal briefing with one attached final schema" do
     initial = String.duplicate("a", 1_500) <> " ORIGINAL_REQUEST_MARKER"
@@ -287,6 +309,13 @@ defmodule Responder.Work.SubmissionBuilderTest do
 
   test "the briefing names the fixed state tools without exposing the session binding" do
     claim = claim_episode!("state-tools", "Please prepare an engineering task.")
+    assert {:ok, initial} = SubmissionBuilder.build(claim)
+
+    assert :ok =
+             KnowledgeSnapshot.expose_submission(%{
+               claim
+               | turn: %{claim.turn | submission: initial}
+             })
 
     assert {:ok, record} =
              Records.create(Records.token(claim.turn), "task-1", "task_offer", %{
@@ -718,8 +747,6 @@ defmodule Responder.Work.SubmissionBuilderTest do
       "topics" => Enum.map(1..8, &(to_string(&1) <> String.duplicate("😀", 79)))
     }
 
-    assert {:ok, _} = Observations.prepare(note)
-
     for _ <- 1..16 do
       id = Ecto.UUID.generate()
 
@@ -1019,6 +1046,8 @@ defmodule Responder.Work.SubmissionBuilderTest do
                claim.lease_ref,
                submission
              )
+
+    assert :ok = KnowledgeSnapshot.expose_submission(%{claim | turn: frozen})
 
     assert {:ok, session} =
              Custody.bind_session(

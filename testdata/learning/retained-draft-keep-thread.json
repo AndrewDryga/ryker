@@ -1,0 +1,91 @@
+{
+  "source": "Exact retained draft-ai-suggestions thread, read-only private replay harvest; original messages, not generated learning results.",
+  "database": "responder_blitz_history_20260906_m8zykx",
+  "snapshot_at": "2026-09-08T13:46:56.121808+00:00",
+  "inputs": [
+    {
+      "id": "d04b8a6b-dc90-4dc8-ab71-0882e9a10539",
+      "content": {
+        "text": "<@U03U3L56YFL> do we need this cloud function or I can delete it? <https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=blitz-esports|console.cloud.google.com/run/detail/…/metrics?project=blitz-esports>",
+        "files": [],
+        "blocks": [{"type": "rich_text", "block_id": "KSGYz", "elements": [{"type": "rich_text_section", "elements": [{"type": "user", "user_id": "U03U3L56YFL"}, {"text": " do we need this cloud function or I can delete it? ", "type": "text"}, {"url": "https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=blitz-esports", "text": "console.cloud.google.com/run/detail/…/metrics?project=blitz-esports", "type": "link", "truncated": true}]}]}],
+        "subtype": null,
+        "attachments": [{"id": 1, "text": "Google Cloud Platform lets you build, deploy, and scale applications, websites, and services on the same infrastructure as Google.", "title": "Google Cloud Platform", "fallback": "Google Cloud Platform", "from_url": "https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=blitz-esports", "title_link": "https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=blitz-esports", "original_url": "https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=blitz-esports", "service_icon": "https://accounts.google.com/favicon.ico", "service_name": "accounts.google.com"}],
+        "slack_event_kind": "message"
+      },
+      "revision": 7153492271189316,
+      "actor_ref": "U089UCBNT38",
+      "event_ref": "blitz-backfill:20260906:C01KJP8SQSZ:1788373067.797329",
+      "actor_kind": "user",
+      "dedupe_key": "ingress-event:4142cd830c215f66e9b574e1b49bced6e689cc850d64ed15f595abe66847c94f",
+      "event_kind": "message",
+      "source_ref": "T01J1LW4DF1",
+      "occurred_at": "2026-09-02T18:17:47.797329",
+      "source_kind": "slack",
+      "execution_mode": "live",
+      "repository_ref": "blitz-infra",
+      "native_input_id": "slack-message:0f63f14d66d92fc75a1d7d895111b7b4d3fd8938ebd95f22e2d82427b8034cc9",
+      "source_item_ref": "1788373067.797329",
+      "event_fingerprint": "196e917971985ff2e555d796091c52e921f5d9a156416f86a9bfb9ef37cb2ad9",
+      "destination_transport": "slack",
+      "destination_thread_ref": "1788373067.797329",
+      "destination_conversation_ref": "slack:T01J1LW4DF1:C01KJP8SQSZ"
+    },
+    {
+      "id": "89a18b70-d9de-46d3-ad5d-8224d3c605bd",
+      "content": {
+        "text": "I think Apinat set it up for <@U03EPT4RP5M> for League AI features he was prototyping",
+        "files": [],
+        "blocks": [{"type": "rich_text", "block_id": "raInc", "elements": [{"type": "rich_text_section", "elements": [{"text": "I think Apinat set it up for ", "type": "text"}, {"type": "user", "user_id": "U03EPT4RP5M"}, {"text": " for League AI features he was prototyping", "type": "text"}]}]}],
+        "subtype": null,
+        "attachments": [],
+        "slack_event_kind": "message"
+      },
+      "revision": 7153524610111756,
+      "actor_ref": "U01JGLNDS59",
+      "event_ref": "blitz-backfill:20260906:C01KJP8SQSZ:1788381152.527939",
+      "actor_kind": "user",
+      "dedupe_key": "ingress-event:9dd49872abf2adc40426c15d4dafb4c8b46d69daf4fbef1648dfd025b105b62d",
+      "event_kind": "message",
+      "source_ref": "T01J1LW4DF1",
+      "occurred_at": "2026-09-02T20:32:32.527939",
+      "source_kind": "slack",
+      "execution_mode": "live",
+      "repository_ref": "blitz-infra",
+      "native_input_id": "slack-message:3aa75f43da2cd590a928c6a6e7b38490d03f33abfb0fcdeb653dd5c89e7b9e6c",
+      "source_item_ref": "1788381152.527939",
+      "event_fingerprint": "9faeee3fceca8e9de24f2d28a1eb162279d090ed29bd5894b5b236c2602275b7",
+      "destination_transport": "slack",
+      "destination_thread_ref": "1788373067.797329",
+      "destination_conversation_ref": "slack:T01J1LW4DF1:C01KJP8SQSZ"
+    },
+    {
+      "id": "ab95c508-0c60-4d33-90c8-e8eea405543e",
+      "content": {
+        "text": "`draft-ai-suggestions`\nplanning to look into it at some point, let’s keep it",
+        "files": [],
+        "blocks": [{"type": "rich_text", "block_id": "sQ0VW", "elements": [{"type": "rich_text_section", "elements": [{"text": "draft-ai-suggestions", "type": "text", "style": {"code": true}}, {"text": "\nplanning to look into it at some point, let’s keep it", "type": "text"}]}]}],
+        "subtype": null,
+        "attachments": [],
+        "slack_event_kind": "message"
+      },
+      "revision": 7153525778916956,
+      "actor_ref": "U03EPT4RP5M",
+      "event_ref": "blitz-backfill:20260906:C01KJP8SQSZ:1788381444.729239",
+      "actor_kind": "user",
+      "dedupe_key": "ingress-event:43b7f108a49ef7e1fed98b91f9057f0b35ae4a255da6477eb7516400a9e3a07e",
+      "event_kind": "message",
+      "source_ref": "T01J1LW4DF1",
+      "occurred_at": "2026-09-02T20:37:24.729239",
+      "source_kind": "slack",
+      "execution_mode": "live",
+      "repository_ref": "blitz-infra",
+      "native_input_id": "slack-message:a701469d92b2351990cf3580cc16ed0c00b3986e78e15da4776b9243e3403eaa",
+      "source_item_ref": "1788381444.729239",
+      "event_fingerprint": "e6d95587f3ce5e58e90e19629f2b76218d4917f3a3fb288d1dc74ffdd768e5d6",
+      "destination_transport": "slack",
+      "destination_thread_ref": "1788373067.797329",
+      "destination_conversation_ref": "slack:T01J1LW4DF1:C01KJP8SQSZ"
+    }
+  ]
+}
