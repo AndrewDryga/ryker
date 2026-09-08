@@ -35,6 +35,18 @@ defmodule Responder.Publication.ExecutorCleanupTest do
     defp unavailable, do: raise(DBConnection.ConnectionError, "held lease renewal unavailable")
   end
 
+  defmodule ImmediateAPI do
+    def get_session(observer, _session_id), do: finish(observer)
+    def get_publication_status(observer, _repository, _number), do: finish(observer)
+    defdelegate get_review_patch(client, session, generation, revision), to: HeldAPI
+    defdelegate run_review(client, session, generation, revision), to: HeldAPI
+
+    defp finish(observer) do
+      send(observer, {:held_callback, self()})
+      {:error, :callback_finished}
+    end
+  end
+
   defmodule QueuedResultCustody do
     def renew(_, _, _), do: raise_after_result()
     def renew_poll(_, _, _), do: raise_after_result()
@@ -55,8 +67,16 @@ defmodule Responder.Publication.ExecutorCleanupTest do
       send(callback, :finish_callback)
       receive do: ({:DOWN, ^monitor, :process, ^callback, _reason} -> :ok)
 
-      # DOWN follows the callback's result signal. Both are now queued while
-      # renewal still owns the caller, independently of scheduler timing.
+      # The guardian forwards independently of callback death. Observe its
+      # actual result, then requeue that exact tuple while renewal owns caller.
+      result =
+        receive do
+          {ref, {:error, :callback_finished}} = result when is_reference(ref) -> result
+        after
+          1_000 -> raise "guardian did not forward the completed callback result"
+        end
+
+      send(self(), result)
       send(self(), {:held_callback, callback})
       RaisingCustody.renew(nil, nil, nil)
     end
@@ -91,6 +111,74 @@ defmodule Responder.Publication.ExecutorCleanupTest do
     assert_callback_reaped(fn ->
       FollowupExecutor.run_poll(followup_claim(), options(custody: QueuedResultCustody))
     end)
+  end
+
+  # A killed poller does not execute its cleanup block. Its leased callback
+  # must stop too, or it can still act after a replacement reclaims the lease.
+  test "a publication callback stops when its lease owner is brutally terminated" do
+    options =
+      options(lease_seconds: 60) ++ [publisher: Publisher, publisher_binding: nil]
+
+    assert_owner_death_stops_callback(fn -> Executor.run(publication_claim(), options) end)
+  end
+
+  test "a followup callback stops when its lease owner is brutally terminated" do
+    options = options(lease_seconds: 60)
+
+    assert_owner_death_stops_callback(fn ->
+      FollowupExecutor.run_poll(followup_claim(), options)
+    end)
+  end
+
+  # These controls enter the result branch before renewal raises, after its
+  # original monitor has been removed. Cleanup must preserve unrelated mail.
+  test "an immediate publication result survives raised renewal without orphaned messages" do
+    options =
+      options(api: ImmediateAPI, lease_seconds: 60) ++
+        [publisher: Publisher, publisher_binding: nil]
+
+    assert_callback_reaped(fn -> Executor.run(publication_claim(), options) end)
+  end
+
+  test "an immediate followup result survives raised renewal without orphaned messages" do
+    assert_callback_reaped(fn ->
+      FollowupExecutor.run_poll(followup_claim(), options(api: ImmediateAPI, lease_seconds: 60))
+    end)
+  end
+
+  defp assert_owner_death_stops_callback(operation) do
+    {owner, owner_monitor} = spawn_monitor(operation)
+
+    try do
+      assert_receive {:held_callback, callback}
+      assert_callback_stops_with_owner(owner, owner_monitor, callback)
+    after
+      stop_process(owner, owner_monitor)
+    end
+  end
+
+  defp assert_callback_stops_with_owner(owner, owner_monitor, callback) do
+    callback_monitor = Process.monitor(callback)
+
+    try do
+      Process.exit(owner, :kill)
+      assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :killed}
+
+      assert_receive {:DOWN, ^callback_monitor, :process, ^callback, _reason},
+                     1_000,
+                     "terminated lease owner left its callback running"
+
+      refute Process.alive?(callback)
+    after
+      stop_process(callback, callback_monitor)
+    end
+  end
+
+  defp stop_process(pid, original_monitor) do
+    cleanup_monitor = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    receive do: ({:DOWN, ^cleanup_monitor, :process, ^pid, _reason} -> :ok)
+    Process.demonitor(original_monitor, [:flush])
   end
 
   defp assert_callback_reaped(operation) do

@@ -2,7 +2,7 @@ defmodule Responder.Publication.FollowupExecutor do
   @moduledoc false
 
   alias Responder.Delivery.Adapters
-  alias Responder.Publication.Followups
+  alias Responder.Publication.{Callback, Followups}
 
   def run_poll(
         %{followup: followup, lease_ref: lease_ref, publication: publication} = claim,
@@ -69,22 +69,18 @@ defmodule Responder.Publication.FollowupExecutor do
   end
 
   defp leased_call(claim, phase, settings, callback) do
-    caller = self()
     result_ref = make_ref()
 
     {pid, monitor} =
-      spawn_monitor(fn ->
-        result =
-          try do
-            callback.()
-          rescue
-            exception ->
-              {:error, {:publication_followup_callback_crashed, Exception.message(exception)}}
-          catch
-            kind, reason -> {:error, {:publication_followup_callback_crashed, kind, reason}}
-          end
-
-        send(caller, {result_ref, result})
+      Callback.start(result_ref, fn ->
+        try do
+          callback.()
+        rescue
+          exception ->
+            {:error, {:publication_followup_callback_crashed, Exception.message(exception)}}
+        catch
+          kind, reason -> {:error, {:publication_followup_callback_crashed, kind, reason}}
+        end
       end)
 
     cadence_ms = max(div(settings.lease_seconds * 1_000, 3), 1)
@@ -92,7 +88,7 @@ defmodule Responder.Publication.FollowupExecutor do
     try do
       await_call(result_ref, pid, monitor, claim, phase, settings, cadence_ms)
     after
-      finish_call(pid, monitor, result_ref)
+      Callback.finish(pid, monitor, result_ref)
     end
   end
 
@@ -117,21 +113,6 @@ defmodule Responder.Publication.FollowupExecutor do
           {:error, _reason} = error ->
             error
         end
-    end
-  end
-
-  defp finish_call(pid, monitor, result_ref) do
-    # Renewal can raise while this caller survives. Reap the callback before
-    # unwinding; await_call may already have consumed the original monitor.
-    cleanup_monitor = Process.monitor(pid)
-    Process.exit(pid, :kill)
-    receive do: ({:DOWN, ^cleanup_monitor, :process, ^pid, _reason} -> :ok)
-    Process.demonitor(monitor, [:flush])
-
-    receive do
-      {^result_ref, _result} -> :ok
-    after
-      0 -> :ok
     end
   end
 

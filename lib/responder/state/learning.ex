@@ -9,6 +9,8 @@ defmodule Responder.State.Learning do
 
   @max_inputs 16
   @max_prompt 65_536
+  @max_execution_failures 3
+  @failure_receipt_fields ~w(session_id turn_id target prompt_sha256 state error_code finished_at)
   # A sixteen-topic response can exceed 32 KiB even within every field limit.
   # Keep a bounded receipt large enough for Unicode and JSON escaping as well.
   @max_result 524_288
@@ -92,6 +94,67 @@ defmodule Responder.State.Learning do
 
   def accept(_, _, _), do: {:error, :invalid_learning_result}
 
+  @doc "Record an owned terminal execution failure without accepting or reconstructing a result."
+  def fail(id, :output_contract_failed, receipt) when is_map(receipt) do
+    with :ok <- CanonicalJSON.validate(receipt, max_bytes: 4096),
+         true <- valid_failure_receipt?(receipt) do
+      transaction(fn -> fail_locked(fetch_run!(id), receipt) end)
+    else
+      _ -> {:error, :invalid_learning_failure}
+    end
+  end
+
+  def fail(_, _, _), do: {:error, :invalid_learning_failure}
+
+  defp valid_failure_receipt?(receipt) do
+    Enum.sort(Map.keys(receipt)) == Enum.sort(@failure_receipt_fields) and
+      Enum.all?(~w(session_id turn_id target), fn field ->
+        is_binary(receipt[field]) and byte_size(receipt[field]) in 1..1024
+      end) and
+      receipt["state"] == "failed" and receipt["error_code"] == "output_contract_failed" and
+      is_binary(receipt["prompt_sha256"]) and
+      Regex.match?(~r/\A[0-9a-f]{64}\z/, receipt["prompt_sha256"]) and
+      is_binary(receipt["finished_at"]) and
+      match?({:ok, _, 0}, DateTime.from_iso8601(receipt["finished_at"]))
+  end
+
+  defp fail_locked(run, receipt) do
+    cond do
+      not is_nil(run.pruned_at) ->
+        Repo.rollback(:learning_source_stale)
+
+      not retained_prompt_matches?(run, receipt) ->
+        Repo.rollback(:invalid_learning_failure)
+
+      result_present?(run) ->
+        Repo.rollback(:learning_attempt_finished)
+
+      run.status == :rejected and run.error_code == "output_contract_failed" ->
+        if run.producer == receipt, do: run, else: Repo.rollback(:learning_failure_conflict)
+
+      run.status != :prepared ->
+        Repo.rollback(:learning_attempt_finished)
+
+      true ->
+        # This closes already disclosed work, even if its source was revoked.
+        # Only prepare/authorize may authorize a fresh model disclosure.
+        Repo.update!(
+          Ecto.Changeset.change(run,
+            status: :rejected,
+            error_code: "output_contract_failed",
+            producer: receipt
+          )
+        )
+    end
+  end
+
+  defp retained_prompt_matches?(run, receipt),
+    do:
+      is_binary(run.prompt) and receipt["prompt_sha256"] == run.prompt_sha256 and
+        CanonicalJSON.digest(run.prompt) == run.prompt_sha256
+
+  defp result_present?(run), do: not is_nil(run.result) or not is_nil(run.result_sha256)
+
   defp prepare_attempt(%{status: :applied} = existing, _, _, _, _), do: existing
 
   defp prepare_attempt(%{status: status} = existing, entries, manifest, key, settings)
@@ -138,6 +201,20 @@ defmodule Responder.State.Learning do
   end
 
   defp new_attempt(entries, manifest, key, generation, settings) do
+    failures =
+      Repo.aggregate(
+        from(r in LearningRun,
+          where:
+            r.batch_key == ^key and r.status == :rejected and
+              r.error_code == "output_contract_failed"
+        ),
+        :count
+      )
+
+    # The batch lock is already held. Pruning retains status/error_code, so a
+    # process restart or expired diagnostic body cannot reset this retry budget.
+    if failures >= @max_execution_failures, do: Repo.rollback(:learning_retry_exhausted)
+
     entry = hd(entries)
     scope = source_scope!(entry)
     search = Enum.map(entries, &RecallText.from(&1.content))

@@ -4,16 +4,17 @@ defmodule Responder.ControlPlane.ConversationMemory do
   alias Responder.ControlPlane.{Activity, InspectionRedactor, LearningReceipt, SlackNames}
   alias Responder.Episodes.Episode
   alias Responder.Repo
+  alias Responder.Slack.ChannelMembership
 
   alias Responder.State.{
+    Continuity,
     ConversationKnowledge,
     ConversationObservation,
     ConversationSummary,
     Knowledge,
     KnowledgeRevision,
     KnowledgeSource,
-    LearningSources,
-    Observations
+    LearningSources
   }
 
   @page_size 30
@@ -125,25 +126,76 @@ defmodule Responder.ControlPlane.ConversationMemory do
 
     ids = Enum.map(items, & &1.id)
 
-    case Repo.transaction(fn -> available_in_scope(destination, repository, ids) end) do
-      {:ok, ids} -> ids
-      _ -> []
-    end
-  end
-
-  defp available_in_scope(destination, repository, ids) do
-    case Observations.locked_scope(destination, repository) do
+    case Continuity.destination_context(destination, repository) do
       {:ok, scope} ->
-        Knowledge.valid_query()
-        |> LearningSources.eligible(scope)
-        |> where([item], item.id in ^ids)
-        |> select([item], item.id)
-        |> Repo.all()
+        scope |> availability_query(ids) |> Repo.all()
 
       _ ->
         []
     end
   end
+
+  # An operator label is a current SELECT snapshot, not a submission authority
+  # receipt. Actual model recall still locks and reauthorizes its source rows.
+  # Ignore destination_context's earlier visibility read: both destination and
+  # inherited-source membership must be evaluated in this statement's snapshot.
+  @doc false
+  def availability_query(scope, ids) do
+    base =
+      Knowledge.valid_query()
+      |> where([item], item.id in ^ids)
+      |> where(
+        [item],
+        item.transport == ^scope.transport and item.conversation_ref == ^scope.conversation_ref and
+          fragment("? IS NOT DISTINCT FROM ?", item.repository_ref, ^scope.repository_ref)
+      )
+      |> select([item], item.id)
+
+    local = LearningSources.eligible(base, %{scope | visibility: :conversation})
+
+    case slack_channel(scope) do
+      {:channel, workspace, channel} ->
+        membership =
+          from(m in ChannelMembership,
+            where: m.workspace_ref == ^workspace and m.channel_ref == ^channel,
+            select: 1
+          )
+
+        deleted = where(membership, [m], m.status == :deleted)
+
+        public =
+          where(membership, [m], m.status == :joined and not m.private and not m.external_shared)
+
+        local = where(local, not exists(subquery(deleted)))
+
+        inherited =
+          base
+          |> LearningSources.eligible(%{scope | visibility: :public})
+          |> where(exists(subquery(public)))
+
+        union(local, ^inherited)
+
+      :local ->
+        local
+    end
+  end
+
+  # Match ChannelFence's parsing, including direct messages and suffixes that
+  # contain a colon. Do not broaden channel authorization by concatenation.
+  defp slack_channel(%{transport: "slack", conversation_ref: "slack:" <> rest}) do
+    case String.split(rest, ":", parts: 2) do
+      [_workspace, "D" <> _direct] ->
+        :local
+
+      [workspace, channel] when workspace != "" and channel != "" ->
+        {:channel, workspace, channel}
+
+      _ ->
+        :local
+    end
+  end
+
+  defp slack_channel(_scope), do: :local
 
   defp selected_kind(value, _) when value in ["knowledge", "notes", "summaries"], do: value
 
