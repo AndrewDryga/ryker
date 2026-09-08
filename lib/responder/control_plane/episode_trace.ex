@@ -15,6 +15,7 @@ defmodule Responder.ControlPlane.EpisodeTrace do
   alias Responder.CanonicalJSON
   alias Responder.ControlPlane.Card
   alias Responder.ControlPlane.CurrentInputs
+  alias Responder.ControlPlane.EvidenceLinks
   alias Responder.ControlPlane.InspectionRedactor
   alias Responder.ControlPlane.SourceText
   alias Responder.CoopFleet.Event, as: CoopEvent
@@ -43,7 +44,12 @@ defmodule Responder.ControlPlane.EpisodeTrace do
     sessions = sessions(episode.id)
     turns = turns(episode.id)
     activity_page = Activity.page_for_episode(episode.id)
-    activity = activity_steps(activity_page.events)
+
+    activity =
+      activity_page.events
+      |> activity_steps()
+      |> EvidenceLinks.attach(activity_page.events, turns, records)
+
     current_turn = List.last(turns)
     totals = totals(episode.id, events, records, sessions, turns)
     review = review_state(episode)

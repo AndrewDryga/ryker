@@ -1072,6 +1072,9 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .behavior-create h2 { color:#35533d; font-size:15px; font-weight:600; margin:0; padding:8px 0; }
 .behavior-create p { margin:8px 0; max-width:68ch; }
 .behavior-links { display:flex; align-items:center; flex-wrap:wrap; gap:10px 20px; }
+.memory-help { margin:0 0 16px; max-width:90ch; }
+.memory-help > summary { cursor:pointer; color:var(--green); font-size:14px; padding:4px 0; }
+.memory-help .page-help { font-size:14px; line-height:1.65; }
 .behavior-links a, .behavior-pagination a, .workflow-guide a, .applied-context a { color:#34563e; }
 .behavior-filters { display:flex; align-items:flex-end; flex-wrap:wrap; gap:12px; padding:18px 0; border-block:1px solid #d9dfd6; margin-bottom:20px; }
 .behavior-filters > div { display:grid; gap:6px; }

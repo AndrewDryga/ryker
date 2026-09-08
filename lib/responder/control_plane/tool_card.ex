@@ -69,6 +69,9 @@ defmodule Responder.ControlPlane.ToolCard do
       <p :if={@action.description && @step.state != "started"} class="action-description">
         {@action.description}
       </p>
+      <p :if={@action.saved_evidence} class="action-evidence-link">
+        <a href={@action.saved_evidence}>View recorded evidence ↑</a>
+      </p>
       <p :if={@action.warning} class="action-warning">⚠ {@action.warning}</p>
       <code :for={path <- @action.paths} class="action-path">{path}</code>
       <p :if={@step.summary && @step.state in ["failed", "cancelled"]} class="action-error">
@@ -122,7 +125,7 @@ defmodule Responder.ControlPlane.ToolCard do
     file = file_path(args, step.title)
     {paths, warning} = display_paths(step[:path_context], file)
 
-    %{
+    action = %{
       title: title,
       description: description,
       kind: kind,
@@ -132,9 +135,30 @@ defmodule Responder.ControlPlane.ToolCard do
       text: readable_text(tool, args),
       facts: facts(tool, args),
       groups: groups(tool, args),
-      diff: string(args["diff"] || args["patch"])
+      diff: string(args["diff"] || args["patch"]),
+      saved_evidence: nil
+    }
+
+    citation_result(action, step, tool)
+  end
+
+  defp citation_result(
+         %{kind: "responder"} = action,
+         %{state: "completed", saved_evidence: link},
+         "cite_source"
+       )
+       when is_binary(link) do
+    %{
+      action
+      | title: "Citation saved",
+        description: nil,
+        text: nil,
+        facts: [],
+        saved_evidence: link
     }
   end
+
+  defp citation_result(action, _step, _tool), do: action
 
   defp common_action(%{tool_kind: "edit"}, _), do: {"Edit files", nil, "edit", "±"}
   defp common_action(%{tool_kind: "read"}, _), do: {"Read file", nil, "read", "↳"}

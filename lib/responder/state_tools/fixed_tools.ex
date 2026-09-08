@@ -51,6 +51,18 @@ defmodule Responder.StateTools.FixedTools do
   @spec known?(term()) :: boolean()
   def known?(name), do: name in @names
 
+  # Inspection uses the same host identity as creation, not matching prose. A
+  # repeated call may refer to an existing citation; this does not name a creator.
+  def citation_record?(%Record{kind: "evidence"} = record, turn, arguments)
+      when is_map(arguments) do
+    record.episode_id == turn.episode_id && record.turn_id == turn.id &&
+      record.operation_id ==
+        operation_id(%{episode: %{id: turn.episode_id}, turn: turn}, "cite_source", arguments) &&
+      record.payload["claim_id"] == subject_ref("citation", arguments)
+  end
+
+  def citation_record?(_record, _turn, _arguments), do: false
+
   @spec list(keyword() | map()) :: [map()]
   def list(options \\ %{}) do
     capabilities = capabilities(options)
