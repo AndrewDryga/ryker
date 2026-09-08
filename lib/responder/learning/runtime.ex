@@ -7,6 +7,16 @@ defmodule Responder.Learning.Runtime do
   @fields ~w(api client socket policy policy_digest worker_ref concurrency batch_size quiet_seconds
     maximum_delay_seconds poll_interval_ms receive_timeout_ms execution_timeout_seconds)a
 
+  @doc "The current host configuration, used only when explicitly requesting new learning work."
+  def configured_options do
+    case Application.get_env(:responder, :learning) do
+      nil -> {:error, :learning_disabled}
+      configuration -> {:ok, options!(configuration)}
+    end
+  rescue
+    ArgumentError -> {:error, :learning_configuration_invalid}
+  end
+
   def child_spec(configuration) do
     options!(configuration)
     %{id: __MODULE__, start: {__MODULE__, :start_link, [configuration]}, type: :supervisor}

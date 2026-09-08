@@ -55,6 +55,23 @@ defmodule Responder.ControlPlane.ReadabilityTest do
     assert tooltip =~ "calc(100vw - 32px)"
   end
 
+  test "expanded request-context source fields remain contained and readable" do
+    # A 3.4kpx source-field JSON line pushed the whole episode page sideways at
+    # 390px; wrapping and a bounded scroll container keep every character
+    # available without widening the document.
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    assert [_, source_fields] =
+             Regex.run(~r/\.prompt-source-body details > pre \{([^}]+)\}/, css)
+
+    assert source_fields =~ "max-width:100%"
+    assert source_fields =~ "box-sizing:border-box"
+    assert source_fields =~ "white-space:pre-wrap"
+    assert source_fields =~ "overflow-wrap:anywhere"
+    assert source_fields =~ "overflow:auto"
+    refute source_fields =~ "overflow:visible"
+  end
+
   test "candidate evidence cannot squeeze event reasons into a side column" do
     # Full-page Chromium screenshots caught unreadably narrow rejection text
     # despite a passing page-overflow check; geometry is also browser-tested.

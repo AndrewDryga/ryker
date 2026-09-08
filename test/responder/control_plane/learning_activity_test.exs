@@ -31,7 +31,14 @@ defmodule Responder.ControlPlane.LearningActivityTest do
 
   setup do
     previous = Application.get_env(:responder, :learning)
-    Application.delete_env(:responder, :learning)
+
+    Application.put_env(:responder, :learning, %{
+      api: __MODULE__,
+      client: %{},
+      worker_ref: "inspection-test",
+      policy: @settings.policy,
+      policy_digest: @settings.policy_digest
+    })
 
     on_exit(fn ->
       if previous,
@@ -43,6 +50,7 @@ defmodule Responder.ControlPlane.LearningActivityTest do
   end
 
   test "disabled learning is explicit and retained waiting messages are visible without claiming knowledge" do
+    Application.delete_env(:responder, :learning)
     inputs!()
     view = LearningActivity.project(%{})
     refute view.enabled
@@ -54,6 +62,50 @@ defmodule Responder.ControlPlane.LearningActivityTest do
     assert html =~ "2 messages waiting"
     assert html =~ "Source excerpts"
     refute html =~ "A new source can rebuild this topic"
+  end
+
+  @tag :learning_count_labels
+  test "a single message and model start use singular labels in learning activity" do
+    # The live learning page showed "1 messages" and "1 model starts" in its
+    # batch list and selected batch, obscuring an otherwise simple progress view.
+    inputs!()
+    assert {:ok, claim} = Batches.claim("inspection-test", %{@settings | batch_size: 1})
+    assert {:ok, run} = Batches.prepare(claim)
+    assert {:ok, _} = Batches.begin_execution(claim, run.id)
+
+    html =
+      HTML.memory(Projection.memory(%{"batch" => claim.batch.id}), String.duplicate("s", 32))
+      |> IO.iodata_to_binary()
+
+    assert html =~ "1 message · 1 model start ·"
+    assert html =~ "1 message · 1 of 3 approved model starts used"
+    refute html =~ "1 messages"
+    refute html =~ "1 model starts"
+  end
+
+  @tag :policy_recovery_ui
+  test "retry explains its current policy and is unavailable when learning has no valid configuration" do
+    inputs!()
+    assert {:ok, claim} = Batches.claim("inspection-test", @settings)
+    assert {:ok, _} = Batches.finish(claim, :deferred, "learning_retry_exhausted")
+    configuration = Application.fetch_env!(:responder, :learning)
+    Application.put_env(:responder, :learning, %{configuration | policy: "available-account"})
+    params = %{"batch" => claim.batch.id}
+
+    html =
+      HTML.memory(Projection.memory(params), String.duplicate("s", 32)) |> IO.iodata_to_binary()
+
+    assert html =~ "current learning policy"
+    assert html =~ "available-account"
+
+    Application.delete_env(:responder, :learning)
+    selected = LearningActivity.project(params).selected
+    refute selected.retry_available
+    assert selected.retry_blocked =~ "Learning is disabled"
+    Application.put_env(:responder, :learning, %{})
+    selected = LearningActivity.project(params).selected
+    refute selected.retry_available
+    assert selected.retry_blocked =~ "configuration"
   end
 
   test "no-change batches and every rejected frozen attempt remain inspectable without a topic revision" do

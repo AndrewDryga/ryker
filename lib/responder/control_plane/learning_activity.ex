@@ -154,11 +154,21 @@ defmodule Responder.ControlPlane.LearningActivity do
     outstanding = outstanding_execution?(row)
     busy = scope_busy?(row)
 
+    {policy, configuration_error} =
+      case Runtime.configured_options() do
+        {:ok, settings} -> {settings.policy, nil}
+        {:error, reason} -> {nil, error(reason)}
+      end
+
     batch(row)
     |> Map.merge(attempts(row, requested_page))
     |> Map.merge(%{
-      retry_available: row.status == :deferred and not outstanding and not busy,
-      retry_blocked: retry_reason(row.status, outstanding, busy)
+      retry_policy: policy,
+      retry_available:
+        row.status == :deferred and not outstanding and not busy and not is_nil(policy),
+      retry_blocked:
+        retry_reason(row.status, outstanding, busy) ||
+          if(row.status == :deferred, do: configuration_error)
     })
   end
 
@@ -339,6 +349,12 @@ defmodule Responder.ControlPlane.LearningActivity do
 
   def error("learning_retry_conflict"),
     do: "This batch changed after the form was opened. Refresh it before retrying."
+
+  def error("learning_disabled"),
+    do: "Learning is disabled. Configure a learning policy before retrying."
+
+  def error("learning_configuration_invalid"),
+    do: "The current learning configuration is invalid. Correct it before retrying."
 
   def error("learning_source_stale"),
     do:

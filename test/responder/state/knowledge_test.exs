@@ -479,6 +479,9 @@ defmodule Responder.State.KnowledgeTest do
     end
 
     next = input!(129, @resolved)
+
+    stale_recall_statistics!()
+
     handler = "saturated-recall:" <> Ecto.UUID.generate()
     reference = make_ref()
     on_exit(fn -> :telemetry.detach(handler) end)
@@ -508,6 +511,11 @@ defmodule Responder.State.KnowledgeTest do
     # The current-generation fence also reads the head for a compact reference.
     # Allow a small constant number of head scans, never one per inherited root.
     # Assert bounded work, not an exact plan shape or elapsed-time budget.
+    # A later full gate chose every historical revision before matching the one
+    # descriptor: 8,256 membership visits for 128 roots, plus 128 head probes.
+    # Eight visits per root allow the separate validity, disclosure and exclusion
+    # scans, but not triangular expansion of every earlier revision's roots.
+    assert membership_scan_work(explanation["Plan"]) <= 128 * 8
     assert knowledge_scan_loops(explanation["Plan"]) <= 4
     assert [current] = frozen.knowledge
     assert {:ok, restored} = Context.restore(Context.snapshot(frozen), frozen.input, next, %{})
@@ -940,6 +948,39 @@ defmodule Responder.State.KnowledgeTest do
         else: 0
 
     own + Enum.sum(Enum.map(plan["Plans"] || [], &knowledge_scan_loops/1))
+  end
+
+  defp membership_scan_work(plan) do
+    own =
+      if plan["Relation Name"] == "conversation_knowledge_sources",
+        do: plan["Actual Rows"] * plan["Actual Loops"],
+        else: 0
+
+    own + Enum.sum(Enum.map(plan["Plans"] || [], &membership_scan_work/1))
+  end
+
+  defp stale_recall_statistics! do
+    # Captured from the failed full gate (seed 872694). PostgreSQL 18's restore
+    # API is pinned by compose.test.yml; Sandbox rollback restores the catalog.
+    # No source/model data or planner switches are changed by this fault seed.
+    for {table, pages} <- [
+          {"conversation_knowledge", 0},
+          {"conversation_knowledge_revisions", 10},
+          {"conversation_knowledge_sources", 0},
+          {"conversation_observations", 1713}
+        ] do
+      assert %{rows: [[true]]} =
+               Repo.query!(
+                 """
+                 SELECT pg_catalog.pg_restore_relation_stats(
+                   'version', current_setting('server_version_num')::integer,
+                   'schemaname', 'public', 'relname', $1::text,
+                   'relpages', $2::integer, 'reltuples', 0::real,
+                   'relallvisible', 0::integer, 'relallfrozen', 0::integer)
+                 """,
+                 [table, pages]
+               )
+    end
   end
 
   defp decision!(note, item \\ nil) do

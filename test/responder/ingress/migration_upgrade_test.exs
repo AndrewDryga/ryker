@@ -2,7 +2,8 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL
-  alias Responder.Release
+  alias Responder.{CanonicalJSON, Release}
+  alias Responder.State.{ConversationKnowledge, KnowledgeRevision, KnowledgeSource}
 
   defmodule MigrationRepo do
     use Ecto.Repo,
@@ -33,7 +34,9 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
   @wait_scheduling_errors_version 20_260_907_000_300
   @slack_addressing_version 20_260_907_000_400
   @candidate_responses_version 20_260_907_000_500
-  @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100)
+  @bounded_sources_version 20_260_909_000_100
+  @memory_versions Enum.to_list(20_260_908_000_100..20_260_908_001_100//100) ++
+                     [@bounded_sources_version]
   @workspace_versions [
     20_260_905_000_100,
     20_260_905_000_200,
@@ -1520,10 +1523,10 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
       assert %{rows: [[0, 0, 0]]} = reset_topic_counts(repo, prefix)
       assert_reset_notes(repo, prefix, derived["conversation_observations"])
 
-      # The later indexes, exposure marker and rebuild fields are reversible;
+      # The later indexes, exposure marker, rebuild fields and resolver are reversible;
       # the derived-note reset itself still requires the verified backup.
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 3, prefix: prefix, log: false) ==
-               @memory_versions |> Enum.take(-3) |> Enum.reverse()
+      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 4, prefix: prefix, log: false) ==
+               @memory_versions |> Enum.take(-4) |> Enum.reverse()
 
       assert_raise RuntimeError, ~r/restore the qualified database backup/, fn ->
         Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
@@ -1556,6 +1559,121 @@ defmodule Responder.Ingress.MigrationUpgradeTest do
     after
       SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
     end
+  end
+
+  test "bounding compact lookups preserves existing topic history and source roots on upgrade and rollback" do
+    repo = start_migration_repo!()
+    prefix = "bounded_sources_upgrade_#{System.unique_integer([:positive])}"
+    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
+
+    try do
+      Ecto.Migrator.run(repo, @migrations_path, :up,
+        to: 20_260_908_001_100,
+        prefix: prefix,
+        log: false
+      )
+
+      {reference, receipt} = insert_normalized_root!(repo, prefix)
+      retained = reset_derived_rows(repo, prefix)
+
+      for direction <- [:up, :down, :up] do
+        assert Ecto.Migrator.run(repo, @migrations_path, direction,
+                 step: 1,
+                 prefix: prefix,
+                 log: false
+               ) == [@bounded_sources_version]
+
+        assert reset_derived_rows(repo, prefix) == retained
+
+        assert %{rows: [[^receipt]]} =
+                 SQL.query!(
+                   repo,
+                   "SELECT #{prefix}.responder_learning_roots($1)",
+                   [Jason.encode!([reference])]
+                 )
+      end
+    after
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
+    end
+  end
+
+  defp insert_normalized_root!(repo, prefix) do
+    # Structural migration setup with unchanged harvested model prose. No live
+    # source authorization is claimed; this checks existing byte preservation.
+    captured =
+      File.read!("testdata/learning/retained-draft-ai-suggestions-learning.json")
+      |> Jason.decode!()
+
+    state = captured["result"] |> Jason.decode!() |> Map.fetch!("updates") |> hd()
+    now = DateTime.utc_now()
+    id = Ecto.UUID.generate()
+
+    reference = %{
+      "kind" => "knowledge_sources",
+      "knowledge_id" => id,
+      "generation" => 1,
+      "through_version" => 1
+    }
+
+    receipt = %{
+      "observation_id" => Ecto.UUID.generate(),
+      "source_input_id" => captured["input"]["id"],
+      "revision" => captured["input"]["revision"],
+      "fingerprint" => captured["input"]["event_fingerprint"],
+      "retained_at" => DateTime.to_iso8601(now)
+    }
+
+    repo.insert!(
+      %ConversationKnowledge{
+        id: id,
+        scope_key: "migration",
+        topic_key: "retained-topic",
+        transport: "slack",
+        workspace_ref: "slack:T",
+        conversation_ref: "slack:T:C",
+        visibility: :public,
+        state: state,
+        version: 1,
+        source_generation: 1,
+        source_dependencies: [reference],
+        source_input_id: receipt["source_input_id"],
+        latest_source_at: now
+      },
+      prefix: prefix
+    )
+
+    repo.insert!(
+      %KnowledgeRevision{
+        knowledge_id: id,
+        version: 1,
+        source_generation: 1,
+        source_dependencies: [reference],
+        state: state,
+        source_input_id: receipt["source_input_id"],
+        source_result_ref: "migration:retained",
+        source_at: now,
+        inserted_at: now
+      },
+      prefix: prefix
+    )
+
+    repo.insert!(
+      %KnowledgeSource{
+        knowledge_id: id,
+        observation_id: receipt["observation_id"],
+        generation: 1,
+        receipt_fingerprint: CanonicalJSON.digest(receipt),
+        receipt: receipt,
+        direct_support_version: 1,
+        source_revision: receipt["revision"],
+        source_fingerprint: receipt["fingerprint"],
+        retained_at: now,
+        introduced_version: 1
+      },
+      prefix: prefix
+    )
+
+    {reference, receipt}
   end
 
   defp insert_memory_reset_rows!(repo, prefix, ids) do

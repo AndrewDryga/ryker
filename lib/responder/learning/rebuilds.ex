@@ -71,7 +71,7 @@ defmodule Responder.Learning.Rebuilds do
   defp preview_reason(_topic, _batch, true, _any_sources), do: :knowledge_available
 
   defp preview_reason(topic, batch, false, any_sources) do
-    case settings() do
+    case Runtime.configured_options() do
       {:error, reason} -> reason
       {:ok, _settings} -> recovery_reason(topic, batch, any_sources)
     end
@@ -272,7 +272,7 @@ defmodule Responder.Learning.Rebuilds do
 
     topic = target!(batch.rebuild_target_id, expected_target.version, expected_target.generation)
     ensure_idle!(topic, batch.id, batch.execution_mode)
-    _settings = settings_or_rollback!()
+    {:ok, settings} = settings_or_rollback!()
     entries = selected!(topic, selected)
     execution_mode = hd(entries).execution_mode
     ensure_idle!(topic, batch.id, execution_mode)
@@ -281,6 +281,8 @@ defmodule Responder.Learning.Rebuilds do
     changed =
       batch
       |> Ecto.Changeset.change(
+        policy: settings.policy,
+        policy_digest: settings.policy_digest,
         rebuild_selection: selected,
         rebuild_target_version: topic.version,
         execution_mode: execution_mode,
@@ -474,17 +476,8 @@ defmodule Responder.Learning.Rebuilds do
     Repo.one(query)
   end
 
-  defp settings do
-    case Application.get_env(:responder, :learning) do
-      nil -> {:error, :learning_disabled}
-      config -> {:ok, Runtime.options!(config)}
-    end
-  rescue
-    ArgumentError -> {:error, :learning_configuration_invalid}
-  end
-
   defp settings_or_rollback! do
-    case settings() do
+    case Runtime.configured_options() do
       {:ok, _} = result -> result
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -517,6 +510,8 @@ defmodule Responder.Learning.Rebuilds do
   defp outcome(batch),
     do: %{
       "batch_id" => batch.id,
+      "policy" => batch.policy,
+      "policy_digest" => batch.policy_digest,
       "status" => Atom.to_string(batch.status),
       "start_count" => batch.start_count,
       "start_limit" => batch.start_limit,

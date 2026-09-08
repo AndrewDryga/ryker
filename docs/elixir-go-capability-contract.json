@@ -394,11 +394,11 @@
       "id": "learning-without-responding",
       "priority": "P1",
       "status": "implemented",
-      "required_behavior": "A separately configured, bounded learning pool maintains source-linked topics from retained decided inputs including silent and shadow inputs. Stable topic identities use explicit update/create/defer judgments, exact offered versions, source-qualified matching anchors, and a host create check. Frozen batches survive restarts and provider uncertainty without duplicating model starts, losing spent budgets, rerouting inputs, or granting operational authority.",
+      "required_behavior": "A separately configured, bounded learning pool maintains source-linked topics from retained decided inputs including silent and shadow inputs. Stable topic identities use explicit update/create/defer judgments, exact offered versions, source-qualified matching anchors, and a host create check. Frozen batches survive restarts and provider uncertainty without duplicating model starts, losing spent budgets, rerouting inputs, or granting operational authority. Explicit operator retry or rebuild reselection uses the current trusted learning policy, audits both policy identities, and preserves prior attempts and spent starts; automatic recovery remains policy-pinned.",
       "design_capabilities": ["cross-channel-memory"],
       "origin_refs": ["docs/memory-implementation-spec.md"],
       "implementation_refs": ["lib/responder/learning/runtime.ex", "lib/responder/learning/batches.ex", "lib/responder/learning/executor.ex", "lib/responder/learning/operator.ex", "lib/responder/state/learning.ex", "lib/responder/state/knowledge.ex", "lib/responder/state/knowledge_anchors.ex", "lib/responder/state/learning_sources.ex"],
-      "proof_refs": ["test/responder/learning/dispatcher_test.exs", "test/responder/learning/operator_test.exs", "test/responder/state/learning_test.exs", "test/responder/state/learning_failure_test.exs", "test/responder/state/knowledge_anchors_test.exs", "test/responder/state/knowledge_concurrency_test.exs", "test/responder/state/learning_work_boundary_test.exs"],
+      "proof_refs": ["test/responder/learning/dispatcher_test.exs", "test/responder/learning/operator_test.exs", "test/responder/learning/rebuilds_test.exs", "test/responder/state/learning_test.exs", "test/responder/state/learning_failure_test.exs", "test/responder/state/knowledge_anchors_test.exs", "test/responder/state/knowledge_concurrency_test.exs", "test/responder/state/learning_work_boundary_test.exs"],
       "gap": null,
       "next_task": null
     },
