@@ -19,6 +19,25 @@ defmodule Responder.ControlPlane.MemorySummaryStatusTest do
     end)
   end
 
+  test "memory help stays available without hiding the working surface on a phone" do
+    # On the retained replay's 390px page, expanded help consumed the entire
+    # first screen before counts, search or a single topic could be reached.
+    document = render_summaries() |> LazyHTML.from_document()
+    introduction = document |> LazyHTML.query(".page-description") |> LazyHTML.text()
+    assert length(String.split(introduction)) <= 32
+
+    help = LazyHTML.query(document, "details.memory-help:not([open])")
+    assert Enum.count(help) == 1
+    assert help |> LazyHTML.query("summary") |> LazyHTML.text() == "How memory works"
+    assert LazyHTML.text(help) =~ "even when it does not reply"
+    assert LazyHTML.text(help) =~ "To create or correct"
+    assert LazyHTML.text(help) =~ "oldest supporting source"
+    assert LazyHTML.text(help) =~ "confirm the proposal"
+    assert Enum.count(LazyHTML.query(document, ".memory-totals")) == 1
+    assert Enum.count(LazyHTML.query(document, "#memory-search")) == 1
+    assert Enum.empty?(LazyHTML.query(help, ".memory-totals, #memory-search"))
+  end
+
   for dependencies <- [[], nil, %{}, "unavailable"] do
     test "a summary with #{inspect(dependencies)} source history remains inspectable with an honest recall label" do
       # The replay retains hundreds of receiptless summaries. Hiding them from

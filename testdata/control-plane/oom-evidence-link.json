@@ -1,0 +1,108 @@
+{
+  "provenance": {
+    "captured_at": "2026-09-08T01:29:50.900918+00:00",
+    "episode": "ingress-input:62a54f69-bf24-4c3c-b576-a127cbce4bab",
+    "snapshot_sha256": "1a01fb4afc7dc9ab34c3547b204050aea774bb4cfae96601374bebfc676d054e",
+    "note": "Retained public cite_source events, owning turn and exact evidence row; no generated model content."
+  },
+  "turn": {
+    "id": "af671447-064e-41fc-b14f-452580e1ac4e",
+    "status": "settled",
+    "turn_ref": "ingress-turn:62a54f69-bf24-4c3c-b576-a127cbce4bab",
+    "episode_id": "62a54f69-bf24-4c3c-b576-a127cbce4bab",
+    "session_id": "93437ca8-e864-48fd-b8b9-76da43c185fe",
+    "updated_at": "2026-09-06T13:04:17.521828",
+    "inserted_at": "2026-09-06T13:03:10.683921",
+    "coop_turn_id": "turn_041123947e7511c0b0ad39b1517f888c",
+    "operational_pruned_at": null
+  },
+  "record": {
+    "id": "1a40264d-6f17-49ca-b87e-d71d9058bc22",
+    "ref": "record:evidence:2ad3285a4df9d793effa7cade7832c1e",
+    "kind": "evidence",
+    "status": "open",
+    "payload": {
+      "claim": "website HAProxy cgroup OOM alert resolution",
+      "target": "website HAProxy cgroup OOM alert resolution",
+      "claim_id": "citation:935e57b9009fe6b4488fffc99bec0158",
+      "relation": "supports",
+      "freshness": null,
+      "source_id": "slack-source:v1:T01J1LW4DF1:C08MMETA3U3:message:1788629364.235999",
+      "confidence": null,
+      "dimensions": {},
+      "scope_note": null,
+      "supersedes": [],
+      "observation": "Grafana notification reports one resolved Host OOM kills alert: kernel OOM-killed haproxy in website/haproxy-edge, allocation 311e38f3-a17c-7d1b-1235-05c256ba3c39 on nomad-hvn01, constraint CONSTRAINT_MEMCG. Alert started September 5 2026 17:18:50 UTC and resolved 17:28:50 UTC. The notification states this constraint indicates the workload cgroup reached its limit and does not by itself establish host RAM exhaustion. It provides no current allocation health or user impact.",
+      "observed_at": null,
+      "source_name": "slack-source:v1:T01J1LW4DF1:C08MMETA3U3:message:1788629364.235999",
+      "source_type": "other",
+      "health_effect": null
+    },
+    "turn_id": "af671447-064e-41fc-b14f-452580e1ac4e",
+    "episode_id": "62a54f69-bf24-4c3c-b576-a127cbce4bab",
+    "updated_at": "2026-09-06T13:03:45.131193",
+    "inserted_at": "2026-09-06T13:03:45.131193",
+    "subject_ref": null,
+    "continuation": null,
+    "operation_id": "host:28c2354dfa2cc47f5642e58f01d2cb17555c1c11feea4bb19797783e558fbb4b",
+    "payload_fingerprint": "07bb489a247515daa4a7e4836ac5e58f8edbc06472568b560569e1cd97dd473b"
+  },
+  "activities": [
+    {
+      "id": "3b46ac23-aa05-4e8c-b19a-3f58e5102a98",
+      "kind": "tool.started",
+      "payload": {
+        "kind": "execute",
+        "input": {
+          "tool": "cite_source",
+          "server": "responder-state",
+          "arguments": {
+            "subject": "website HAProxy cgroup OOM alert resolution",
+            "relation": "supports",
+            "source_ref": "slack-source:v1:T01J1LW4DF1:C08MMETA3U3:message:1788629364.235999",
+            "supersedes": [],
+            "observation": "Grafana notification reports one resolved Host OOM kills alert: kernel OOM-killed haproxy in website/haproxy-edge, allocation 311e38f3-a17c-7d1b-1235-05c256ba3c39 on nomad-hvn01, constraint CONSTRAINT_MEMCG. Alert started September 5 2026 17:18:50 UTC and resolved 17:28:50 UTC. The notification states this constraint indicates the workload cgroup reached its limit and does not by itself establish host RAM exhaustion. It provides no current allocation health or user impact."
+          }
+        },
+        "title": "mcp.responder-state.cite_source",
+        "tool_call_id": "exec-8fff3007-28a2-4cd8-841c-b303c71f5fea",
+        "evidence_version": 1
+      },
+      "version": 1,
+      "sequence": 8,
+      "episode_id": "62a54f69-bf24-4c3c-b576-a127cbce4bab",
+      "session_id": "93437ca8-e864-48fd-b8b9-76da43c185fe",
+      "inserted_at": "2026-09-06T13:03:45.148016",
+      "occurred_at": "2026-09-06T13:03:45.016892",
+      "coop_turn_id": "turn_041123947e7511c0b0ad39b1517f888c",
+      "remote_event_id": "evt_77a36f2a17005aaf52c404dcce5b1bb1",
+      "remote_session_id": "remote_210dfe296ee78313cd8452958030bceb",
+      "payload_fingerprint": "3d40434bb0e49d59a992f774b6accd7a5100939469aef26609f999edce2749d2",
+      "operational_pruned_at": null,
+      "remote_payload_fingerprint": "b30d0f471157c4fa05e12317a83769183a286634298849819d97e011e7c10fc2"
+    },
+    {
+      "id": "322b6f21-8257-4908-9c0f-9c73ae2415f7",
+      "kind": "tool.completed",
+      "payload": {
+        "kind": "execute",
+        "title": "mcp.responder-state.cite_source",
+        "status": "completed",
+        "tool_call_id": "exec-8fff3007-28a2-4cd8-841c-b303c71f5fea",
+        "evidence_version": 1
+      },
+      "version": 1,
+      "sequence": 9,
+      "episode_id": "62a54f69-bf24-4c3c-b576-a127cbce4bab",
+      "session_id": "93437ca8-e864-48fd-b8b9-76da43c185fe",
+      "inserted_at": "2026-09-06T13:03:45.225195",
+      "occurred_at": "2026-09-06T13:03:45.155371",
+      "coop_turn_id": "turn_041123947e7511c0b0ad39b1517f888c",
+      "remote_event_id": "evt_976ea89d80feed5287049402ac432203",
+      "remote_session_id": "remote_210dfe296ee78313cd8452958030bceb",
+      "payload_fingerprint": "1872950a33bcfab9ef1186a90ec342668b174a88ce927be944f3307d51744193",
+      "operational_pruned_at": null,
+      "remote_payload_fingerprint": "37b917d5e374e630fc4d60832fb845e7564a99826c957539108d1468fb6b3acf"
+    }
+  ]
+}

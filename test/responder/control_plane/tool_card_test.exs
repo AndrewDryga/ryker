@@ -3,6 +3,36 @@ defmodule Responder.ControlPlane.ToolCardTest do
   import Phoenix.LiveViewTest
   alias Responder.ControlPlane.{InspectionRedactor, ToolCard}
 
+  test "a completed citation points to the saved observation instead of repeating it" do
+    # The real HAProxy episode repeated a full paragraph in adjacent record and
+    # tool cards, making one saved observation look like two separate findings.
+    fixture = File.read!("testdata/control-plane/oom-evidence-link.json") |> Jason.decode!()
+    payload = hd(fixture["activities"])["payload"]
+    anchor = "#event-record-" <> fixture["record"]["id"]
+    completed = Map.put(step(payload), :saved_evidence, anchor)
+    html = render_component(&ToolCard.render/1, step: completed)
+    doc = LazyHTML.from_fragment(html)
+
+    assert Enum.empty?(LazyHTML.query(doc, ".action-observation"))
+    assert Enum.empty?(LazyHTML.query(doc, ".action-facts"))
+
+    assert LazyHTML.query(doc, ".action-evidence-link a") |> LazyHTML.attribute("href") == [
+             anchor
+           ]
+
+    assert html =~ "Citation saved"
+    assert html =~ "View recorded evidence"
+
+    assert LazyHTML.query(doc, ".action-raw") |> LazyHTML.text() =~
+             payload["input"]["arguments"]["observation"]
+
+    for state <- ["started", "failed", "cancelled"] do
+      other = render_component(&ToolCard.render/1, step: %{completed | state: state})
+      refute other =~ "View recorded evidence"
+      refute other =~ "Citation saved"
+    end
+  end
+
   test "recorded evidence and conversation tools explain the change without a metadata table" do
     # The OOM replay showed an MCP JSON blob, then an unexplained 'Evidence: Open'.
     events =
