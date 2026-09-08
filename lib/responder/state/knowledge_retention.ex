@@ -3,8 +3,8 @@ defmodule Responder.State.KnowledgeRetention do
   alias Responder.{CanonicalJSON, Repo}
   alias Responder.State.LearningSources
 
-  # An aggregate depends on all sources in its generation. Expiring one source
-  # withdraws that generation's copied text, but preserves revision receipts.
+  # An inherited-only root matters just as much as a direct citation. Withdraw
+  # only revisions that actually inherited it; earlier revisions keep their history.
   def prune_in_transaction(seconds) do
     %{num_rows: count} =
       Repo.query!(
@@ -13,23 +13,21 @@ defmodule Responder.State.KnowledgeRetention do
           SELECT k.id FROM conversation_knowledge k
           WHERE EXISTS (
             SELECT 1 FROM conversation_knowledge_sources s
-            WHERE s.knowledge_id = k.id AND s.source_note IS NOT NULL
+            WHERE s.knowledge_id = k.id
               AND s.retained_at < clock_timestamp() - ($1 * interval '1 second')
-          ) OR EXISTS (
-            SELECT 1 FROM conversation_knowledge_revisions r
-            WHERE r.knowledge_id = k.id AND r.state::jsonb <> '{"retention":"pruned"}'::jsonb
-              AND #{expired_sources("r")}
+              AND (s.source_note IS NOT NULL OR EXISTS (
+                SELECT 1 FROM conversation_knowledge_revisions r
+                WHERE r.knowledge_id = s.knowledge_id AND r.source_generation = s.generation
+                  AND r.version >= s.introduced_version
+                  AND r.state::jsonb <> '{"retention":"pruned"}'::jsonb
+              ))
           )
           ORDER BY k.id LIMIT 100 FOR UPDATE SKIP LOCKED
         ), expired AS MATERIALIZED (
-          SELECT DISTINCT s.knowledge_id, s.generation
+          SELECT s.knowledge_id, s.generation, min(s.introduced_version) AS first_version
           FROM conversation_knowledge_sources s JOIN candidates c ON c.id = s.knowledge_id
-          WHERE s.source_note IS NOT NULL
-            AND s.retained_at < clock_timestamp() - ($1 * interval '1 second')
-          UNION
-          SELECT r.knowledge_id, r.source_generation
-          FROM conversation_knowledge_revisions r JOIN candidates c ON c.id = r.knowledge_id
-          WHERE r.state::jsonb <> '{"retention":"pruned"}'::jsonb AND #{expired_sources("r")}
+          WHERE s.retained_at < clock_timestamp() - ($1 * interval '1 second')
+          GROUP BY s.knowledge_id, s.generation
         ), sources AS (
           UPDATE conversation_knowledge_sources s SET source_note = NULL
           FROM expired e WHERE s.knowledge_id = e.knowledge_id AND s.generation = e.generation
@@ -37,12 +35,13 @@ defmodule Responder.State.KnowledgeRetention do
         ), revisions AS (
           UPDATE conversation_knowledge_revisions r SET state = '{"retention":"pruned"}'
           FROM expired e WHERE r.knowledge_id = e.knowledge_id AND r.source_generation = e.generation
+            AND r.version >= e.first_version
           RETURNING r.knowledge_id
         )
         UPDATE conversation_knowledge k SET state = '{"retention":"pruned"}'
         FROM expired e WHERE k.id = e.knowledge_id AND k.source_generation = e.generation
         """,
-        [seconds, LearningSources.utc_timestamp_pattern()]
+        [seconds]
       )
 
     count + prune_observations(seconds) +
@@ -74,10 +73,13 @@ defmodule Responder.State.KnowledgeRetention do
       """
       WITH candidates AS (
         SELECT m.id FROM #{table} m
-        WHERE m.state::jsonb <> '{"retention":"pruned"}'::jsonb AND #{expired_sources("m")}
+        WHERE (m.state::jsonb = '{"retention":"pruned"}'::jsonb AND
+            m.source_dependencies IS DISTINCT FROM '[]') OR
+          (m.state::jsonb <> '{"retention":"pruned"}'::jsonb AND #{expired_sources("m")})
         ORDER BY m.id LIMIT 100 FOR UPDATE SKIP LOCKED
       )
-      UPDATE #{table} m SET state = '{"retention":"pruned"}', state_fingerprint = $3
+      UPDATE #{table} m SET state = '{"retention":"pruned"}', state_fingerprint = $3,
+        source_dependencies = '[]'
       FROM candidates c WHERE m.id = c.id
       """,
       [
@@ -91,10 +93,7 @@ defmodule Responder.State.KnowledgeRetention do
   defp expired_sources(binding) do
     """
     EXISTS (
-      SELECT 1 FROM jsonb_array_elements(
-        CASE WHEN jsonb_typeof(#{binding}.source_dependencies::jsonb) = 'array'
-          THEN #{binding}.source_dependencies::jsonb ELSE '[]'::jsonb END
-      ) receipt
+      SELECT 1 FROM responder_learning_roots(#{binding}.source_dependencies) receipt
       WHERE CASE WHEN receipt->>'retained_at' ~ $2
         AND pg_input_is_valid(replace(receipt->>'retained_at', ',', '.'), 'timestamptz') THEN
         replace(receipt->>'retained_at', ',', '.')::timestamptz < clock_timestamp() - ($1 * interval '1 second')

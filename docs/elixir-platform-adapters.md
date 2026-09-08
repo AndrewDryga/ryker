@@ -156,6 +156,15 @@ GitHub reactions use the distinct issue-comment and pull-request review-comment 
 The supported model choices are exactly `+1`, `-1`, `laugh`, `confused`, `heart`, `hooray`, `rocket`,
 and `eyes`.
 
+An engineering `request_task` proposal requires a non-null configured Responder repository
+reference; an incident proposal may use null. The task interface accepts 1–256 letters, digits,
+underscores, dots, colons, or hyphens. A GitHub `owner/repo` name or local checkout path does not
+automatically provide that reference or authorize a writable task. Missing and incompatible
+references return actionable `repository_required` and `invalid_repository_reference` errors.
+If no usable binding is supplied, explain the requested work and ask for repository configuration;
+do not guess a mapping. Proposals remain inert until their existing confirmation and placement
+checks succeed.
+
 Open engineering-task, schedule, automation, memory, preference, guidance, and standing-assignment
 offers include an exact command such as `/responder confirm record:task_offer:...`. Only a configured
 GitHub actor may submit it, and the host consumes it before generic model admission. Confirmation

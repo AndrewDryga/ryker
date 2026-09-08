@@ -72,6 +72,23 @@ admission:
   poll_interval_ms: 250
   decision_timeout_ms: 30000
 
+# Learning listens even when no reply is useful. Enroll this dedicated policy
+# without project MCP or project environment and with a read-only dedicated
+# empty scratch repository, not a product checkout. No Responder state/action
+# tools are bound. Native tools, writable scratch/output, and network egress are
+# not disabled by these flags; instructions prohibit taking external actions.
+# Coop still owns and cleans up its execution fork. Copy the
+# actual policy digest from Coop; the value below is only an example. Omitting this
+# section explicitly disables background learning.
+learning:
+  policy:
+    name: responder-learning-v2
+    digest: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  concurrency: 1
+  batch_size: 16
+  quiet_seconds: 10
+  maximum_delay_seconds: 60
+
 # Live eval commands refuse to inherit production authority. The no-tools
 # policy drives admission/final-contract cases. Candidate and baseline world
 # policies expose only disposable eval repositories plus the fabricated tool

@@ -11,6 +11,7 @@ defmodule Responder.Observability.Progress do
 
   @lanes ~w(
     admission
+    learning
     delivery
     emisar_approval
     event_waits

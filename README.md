@@ -57,6 +57,10 @@ garbage collection.
 The replacement adapter and delivery boundary is documented in
 [Elixir platform adapters and delivery](docs/elixir-platform-adapters.md).
 
+For memory-system design work, consult the
+[memory research knowledge base](docs/research/memory-systems.md): external evidence, failure
+patterns, pragmatic design decisions, and acceptance criteria. It is research, not a runtime contract.
+
 ## Quick start
 
 The production service is the Elixir/PostgreSQL release. It uses one durable writer deployment;
@@ -474,20 +478,50 @@ message shortcut **Investigate message** starts the same read-only triage for a 
 message even when ordinary proactive listening is off. Long checks keep a native Slack progress
 indicator with semantic milestones until the reply or a clear failure is posted.
 
-Each Slack conversation keeps a compact durable situation: channel purpose, current goal, active
-topics, verified topology, decisions, open loops, unresolved questions, and evidence references.
-Future turns receive the exact conversation summary, recent summaries from other conversations in
-the same channel, and recent summaries from public channels across the workspace. Same-repository
-work is preferred, while private-channel summaries never cross into another channel without a
-membership proof. Responder rotates the underlying per-channel Coop session
-after `coop.watch_session_max_turns` or `coop.watch_session_max_age` while preserving that summary.
-Recent conversation summaries are consolidated into privacy-scoped weekly continuity rollups after
-seven days and expire after
-`retention.conversation_memory`, 90 days by default. The background pass is deterministic: it
-groups and bounds summaries the model already produced, so it adds no second model call. Public
-channel summaries may roll up by repository; private summaries remain scoped to their channel.
-The pass is bounded so routine cleanup cannot monopolize the database.
-This session summary is separate from operator-confirmed durable memory. An operator can ask
+### What Responder remembers
+
+Reading and replying are separate decisions. With `learning` configured, Responder learns from
+retained messages even when admission chooses silence or the bot runs in shadow mode. Admission
+only routes the message; it does not write a model-generated note. A small background learning
+pool groups related inputs and maintains useful subjects such as a rollout decision, an intended
+configuration, or an unresolved problem. Ordinary chatter can produce no memory at all.
+
+A subject has one stable identity and a history of updates. The learner receives relevant existing
+subjects and either updates an exact offered version, proposes a genuinely different subject, or
+explains why it cannot safely decide. Before accepting a new subject, the host checks for an
+existing match. A changed title is not a new identity, and sharing a service name does not make
+two incident occurrences the same incident. Learning changes understanding, never permission to act.
+
+Memory has distinct jobs:
+
+- **Source excerpts** preserve what a retained message actually said, with its source and time.
+  They are available before background learning catches up; they are not another model summary.
+- **Topics** keep the current source-linked understanding of a useful subject, including corrections
+  and uncertainty. Related updates extend that subject instead of producing one note per message.
+- **Conversation handovers** summarize accepted work so a later session can pick it up. Older
+  handovers may be grouped into bounded rollups; that compaction itself does not call a model.
+- **Confirmed facts, preferences, and guidance** retain explicit operator choices. Background
+  learning cannot silently change them or turn them into operational authority.
+
+Future turns receive a small selection of authorized context. The model can use `search_memory`
+to search further, page through results, filter by source or content-change date, and follow a
+retained Slack source into its surrounding conversation. Results are historical context, not proof
+of current health, deployment, or approval. Private-channel context stays in its permitted scope;
+public cross-channel context requires current membership checks. A hot Coop session is not the
+memory database: episodes own execution sessions, while PostgreSQL owns retained knowledge.
+
+Derived conversation memory expires under `retention.conversation_memory_seconds` (90 days in
+the Elixir example configuration). Source edits, deletion, expiry, or lost visibility can make
+derived content unavailable sooner. Reading it again does not renew the original source lifetime.
+The memory pages show the source, change time, and expiry separately. Learning receipts distinguish
+a useful update, a deliberate no-change result, and a failed or deferred batch. If `learning` is
+absent from configuration, background learning is disabled; retaining messages alone is not learning.
+
+The exact matching, retry, and recall boundaries are in
+[the memory runtime contract](docs/elixir-work-runtime.md#memory-and-background-learning) and the
+[implementation specification](docs/memory-implementation-spec.md).
+
+An operator can ask
 Responder to remember an alias, channel-to-repository binding, evidence route, entity relationship
 correction, or open-ended guidance such as `when explaining a fix to me, start with a simple
 summary`. Responder shows the normalized value, scope, and expiry in a confirmation card; nothing

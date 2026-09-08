@@ -51,6 +51,7 @@ defmodule Responder.CapabilityContractTest do
     grafana-lifecycle-webhook-adapter
     incident-rooms-timeline-and-postmortem
     input-attachments-and-screenshots
+    learning-without-responding
     local-control-plane-and-conversation-lab
     mapped-json-webhook-adapters
     memory-review-controls

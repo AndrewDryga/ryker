@@ -7,6 +7,39 @@ defmodule Responder.Evals.WorldCaseTest do
   @scenario_root "testdata/scenarios"
   @health_scenario "va1-health-review-repairs-and-finishes"
 
+  @tag :grafana_scope
+  test "the fabricated Grafana endpoint discloses its scope without rewriting source evidence" do
+    # Three real-model runs correctly refused to guess the missing environment;
+    # the cassette accepted only production/prod. Tool-world setup must disclose
+    # that scope without altering original messages, responses, or expectations.
+    id = "grafana-firing-resolved-stays-in-cycle"
+    assert {:ok, scenario} = WorldCase.fetch(id)
+    assert {:ok, shared} = WorldCase.fetch(@health_scenario)
+    tools = WorldCase.fabricated_tools(scenario)
+    original = WorldCase.fabricated_tools(shared)
+    query = Enum.find(tools, &(&1["name"] == "monitoring.query"))
+    assert query["description"] =~ "scoped to the production environment (alias prod)"
+    assert query["description"] =~ "historical replay observations"
+
+    without_query_description = fn definitions ->
+      Enum.map(definitions, fn
+        %{"name" => "monitoring.query"} = tool -> Map.delete(tool, "description")
+        tool -> tool
+      end)
+    end
+
+    assert without_query_description.(tools) == without_query_description.(original)
+    assert WorldCase.state_tools(scenario) == WorldCase.state_tools(shared)
+
+    refute Enum.find(original, &(&1["name"] == "monitoring.query"))["description"] =~
+             "This fabricated monitoring endpoint"
+
+    source = File.read!(Path.join([@scenario_root, id, "scenario.json"]))
+
+    assert Base.encode16(:crypto.hash(:sha256, source), case: :lower) ==
+             "3cd6f0ace1aa08dfa2cae2ee116536e96442708b34a6408d96d42c9e0829b80f"
+  end
+
   test "Airflow verification includes its pinned GCP scope before asking for live observations" do
     # The real model refused to guess an environment that the old scenario had
     # removed, and its Nomad facade contradicted the original GCP repository.

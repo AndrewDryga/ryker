@@ -3,7 +3,8 @@ defmodule Responder.State.OutcomesTest do
 
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
-  alias Responder.State.{Outcomes, Records}
+  alias Responder.Repo
+  alias Responder.State.{KnowledgeSnapshot, Outcomes, Record, Records}
 
   alias Responder.Work.{
     Cancellation,
@@ -108,7 +109,46 @@ defmodule Responder.State.OutcomesTest do
     refute MapSet.member?(refs, completed.episode.id)
   end
 
-  defp claim_episode!(suffix, text, conversation_ref) do
+  test "frozen outcomes survive unrelated producer metadata and later record additions" do
+    # A source-proven frozen result must not become stale because a sibling
+    # episode receives another audit row or its diagnostics are updated.
+    completed = claim_episode!("frozen-history", "Historical outcome", "conversation:frozen")
+    complete!(completed, "The original retained result.")
+    blocked = claim_episode!("frozen-blocked", "Blocked history", "conversation:frozen")
+    block!(blocked, "The original retained blocker.")
+    probe = claim_episode!("frozen-reader", "Recall prior work", "conversation:frozen", :briefing)
+    submission = probe.turn.submission
+    assert length(submission["context"]["related_outcomes"]) == 2
+    assert :ok = KnowledgeSnapshot.authorize_submission(probe.episode, nil, submission)
+
+    completed.episode
+    |> Ecto.Changeset.change(updated_at: DateTime.add(DateTime.utc_now(), 1, :second))
+    |> Repo.update!()
+
+    blocked.turn
+    |> Ecto.Changeset.change(last_error_detail: "Later unrelated diagnostic.")
+    |> Repo.update!()
+
+    # Structurally append an audit record, not a new captured model answer.
+    payload = %{"observation" => "Later unrelated audit row."}
+
+    Repo.insert!(%Record{
+      id: Ecto.UUID.generate(),
+      episode_id: completed.episode.id,
+      turn_id: completed.turn.id,
+      kind: "evidence",
+      operation_id: "later-audit-row",
+      payload: payload,
+      payload_fingerprint: Responder.CanonicalJSON.digest(payload),
+      ref: "record:evidence:#{Ecto.UUID.generate()}",
+      status: :open
+    })
+
+    assert :ok = KnowledgeSnapshot.authorize_submission(probe.episode, nil, submission)
+    assert %{episode: %{state: :complete}} = complete!(probe, "Historical context remains valid.")
+  end
+
+  defp claim_episode!(suffix, text, conversation_ref, context \\ :fixture) do
     id = Ecto.UUID.generate()
 
     command =
@@ -132,22 +172,11 @@ defmodule Responder.State.OutcomesTest do
              Custody.pin_episode(command.episode_id, "work-read-only", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
-    bind_remote!(claim)
+    bind_remote!(claim, context)
   end
 
-  defp bind_remote!(claim) do
-    assert {:ok, submission} =
-             Submission.new(
-               %{"input" => claim.episode.key},
-               "Investigate the frozen input.",
-               %{
-                 "additionalProperties" => false,
-                 "properties" => %{"message" => %{"type" => "string"}},
-                 "required" => ["message"],
-                 "type" => "object"
-               },
-               "work-final-v1"
-             )
+  defp bind_remote!(claim, context) do
+    submission = submission!(claim, context)
 
     assert {:ok, frozen} =
              Custody.freeze_submission(
@@ -156,6 +185,8 @@ defmodule Responder.State.OutcomesTest do
                claim.lease_ref,
                submission
              )
+
+    assert :ok = KnowledgeSnapshot.expose_submission(%{claim | turn: frozen})
 
     assert {:ok, session} =
              Custody.bind_session(
@@ -178,6 +209,28 @@ defmodule Responder.State.OutcomesTest do
              )
 
     %{claim | session: session, turn: turn}
+  end
+
+  defp submission!(claim, :briefing) do
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    submission
+  end
+
+  defp submission!(claim, :fixture) do
+    assert {:ok, submission} =
+             Submission.new(
+               %{"input" => claim.episode.key},
+               "Investigate the frozen input.",
+               %{
+                 "additionalProperties" => false,
+                 "properties" => %{"message" => %{"type" => "string"}},
+                 "required" => ["message"],
+                 "type" => "object"
+               },
+               "work-final-v1"
+             )
+
+    submission
   end
 
   defp complete!(claim, message) do

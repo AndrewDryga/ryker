@@ -4,7 +4,79 @@ defmodule Responder.State.LearningSourcesTest do
   alias Responder.{CanonicalJSON, Repo}
   alias Responder.Episodes.Episode
   alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
-  alias Responder.State.{ConversationSummary, LearningSources}
+  alias Responder.State.{Continuity, ConversationSummary, LearningSources}
+
+  test "validating normalized knowledge resolves its terminal roots once" do
+    {entry, document} =
+      KnowledgeFixtures.learn!(%Episode{
+        destination_transport: "control_plane",
+        destination_conversation_ref: "control-plane:lab:#{Ecto.UUID.generate()}"
+      })
+
+    sources = LearningSources.document_sources(document)
+    assert {:ok, scope} = Continuity.destination_context(entry, nil)
+    handler = {__MODULE__, make_ref()}
+    reference = make_ref()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:responder, :repo, :query],
+        &__MODULE__.record_expansion/4,
+        {self(), reference}
+      )
+
+    try do
+      assert LearningSources.valid?(sources, scope)
+      assert_receive {^reference, :expanded}
+      refute_receive {^reference, :expanded}, 0
+    after
+      :telemetry.detach(handler)
+    end
+  end
+
+  def record_expansion(_event, _measurements, %{query: query}, {owner, reference}) do
+    if String.contains?(query, "FROM responder_learning_roots($1)"),
+      do: send(owner, {reference, :expanded})
+  end
+
+  test "pruned topic roots remain available to retention but cannot authorize new disclosure" do
+    {entry, document} =
+      KnowledgeFixtures.learn!(%Episode{
+        destination_transport: "control_plane",
+        destination_conversation_ref: "control-plane:lab:#{Ecto.UUID.generate()}"
+      })
+
+    sources = LearningSources.document_sources(document)
+    assert {:ok, scope} = Continuity.destination_context(entry, nil)
+    assert LearningSources.valid?(sources, scope)
+    "knowledge:" <> id = document["source_ref"]
+
+    Repo.update_all(from(r in Responder.State.KnowledgeRevision, where: r.knowledge_id == ^id),
+      set: [state: %{"retention" => "pruned"}]
+    )
+
+    assert [_] = LearningSources.expand(sources)
+    refute LearningSources.valid?(sources, scope)
+    query = from(k in Responder.State.ConversationKnowledge, where: k.id == ^id)
+    assert query |> LearningSources.eligible(scope) |> Repo.all() == []
+  end
+
+  test "missing and malformed knowledge references cannot turn into source-free context" do
+    reference = LearningSources.knowledge_reference(Ecto.UUID.generate(), 1, 1)
+
+    for invalid <- [
+          reference,
+          Map.put(reference, "generation", 0),
+          Map.put(reference, "generation", "1"),
+          Map.put(reference, "through_version", 9_223_372_036_854_775_808),
+          Map.put(reference, "knowledge_id", "invalid"),
+          Map.put(reference, "unexpected", true)
+        ] do
+      assert LearningSources.merge([[invalid]]) == nil
+      refute LearningSources.valid?([invalid], %{})
+    end
+  end
 
   test "generic source eligibility rejects non-array history without rejecting source-free host data" do
     scope = %{

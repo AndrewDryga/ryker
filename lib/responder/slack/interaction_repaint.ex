@@ -9,6 +9,7 @@ defmodule Responder.Slack.InteractionRepaint do
 
   import Ecto.Query
 
+  alias Responder.Episodes.Episode
   alias Responder.Repo
 
   alias Responder.Slack.{
@@ -21,8 +22,8 @@ defmodule Responder.Slack.InteractionRepaint do
     TaskCardProjection
   }
 
-  alias Responder.State.Records
-  alias Responder.Work.Turn
+  alias Responder.State.{DerivedContext, Records}
+  alias Responder.Work.{Session, Turn}
 
   @spec repaint(InteractionAudit.t(), map()) :: :ok | {:error, term()}
   def repaint(%InteractionAudit{} = audit, %{api: api, client: client}) do
@@ -147,9 +148,57 @@ defmodule Responder.Slack.InteractionRepaint do
     turn = query |> maybe_turn_thread(audit.thread_ref) |> Repo.one()
 
     case turn do
-      %Turn{} = turn -> rebuild_turn_document(turn)
+      %Turn{} = turn -> public_turn_document(turn, audit)
       nil -> :not_found
     end
+  end
+
+  defp public_turn_document(turn, audit) do
+    # These are external republications, not retained audit views. Check the
+    # exact projection before HTTP; a later withdrawal is seen on the next repaint.
+    case Repo.transaction(fn -> checked_turn_document(turn, audit) end) do
+      {:ok, result} -> result
+      error -> error
+    end
+  end
+
+  defp checked_turn_document(turn, audit) do
+    with {:ok, document, delivery_ref} = result <- rebuild_turn_document(turn) do
+      if public_turn_sources?(turn, audit, document) do
+        result
+      else
+        {:ok,
+         %{"message" => "This response is unavailable until its source context can be checked."},
+         delivery_ref}
+      end
+    end
+  end
+
+  defp public_turn_sources?(turn, audit, document) do
+    with %Episode{} = episode <- Repo.get(Episode, turn.episode_id),
+         true <- episode.destination_transport == "slack",
+         true <-
+           episode.destination_conversation_ref ==
+             "slack:#{audit.workspace_ref}:#{audit.channel_ref}",
+         %Session{episode_id: owner} = session <- Repo.get(Session, turn.session_id),
+         true <- owner == episode.id,
+         {:ok, _} <-
+           DerivedContext.resolve(
+             repaint_sources(turn, document),
+             episode,
+             session.repository_ref
+           ) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp repaint_sources(turn, document) do
+    [
+      DerivedContext.delivery(DerivedContext.delivery_document(turn))
+      | Enum.map(document["records"] || [], &DerivedContext.record/1)
+    ]
   end
 
   defp rebuild_turn_document(%Turn{delivery_document: %{"message" => message}} = turn)

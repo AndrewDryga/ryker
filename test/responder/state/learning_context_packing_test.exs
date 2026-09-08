@@ -22,11 +22,11 @@ defmodule Responder.State.LearningContextPackingTest do
     # One actual replay batch lost all 25 selected topics because the first
     # needed 130 roots. The affordable auth subject needed only 20; hiding it
     # let the model recreate the same WAL monitor under a different topic key.
-    %{entries: entries, heads: [large, affordable], selected: selected} = setup_topics!(127, 17)
+    %{entries: entries, heads: [large, affordable], selected: selected} = setup_topics!(9_998, 17)
     raw = raw_sources(entries)
     assert LearningSources.merge([raw, large.source_dependencies]) == nil
     expected_sources = LearningSources.merge([raw, affordable.source_dependencies])
-    assert length(expected_sources) == 20
+    assert length(LearningSources.expand(expected_sources)) == 20
 
     assert {:ok, run} = Learning.prepare(Enum.map(entries, & &1.id), @policy)
     assert Enum.map(run.knowledge, & &1["topic_key"]) == [affordable.topic_key]
@@ -47,13 +47,49 @@ defmodule Responder.State.LearningContextPackingTest do
     assert {:ok, run} = Learning.prepare(Enum.map(entries, & &1.id), @policy)
     assert run.knowledge == selected
     assert run.omissions == []
-    assert length(run.source_dependencies) == 30
+    assert length(run.source_dependencies) == 5
+    assert length(LearningSources.expand(run.source_dependencies)) == 30
     assert_prompt_matches!(run, entries)
     assert {:ok, ^run} = Learning.authorize(run.id)
   end
 
+  test "a required create-check match cannot be omitted to buy another blind judgment" do
+    # Same harvested batch, with structural byte padding to fill the prompt.
+    # Model output is not fabricated: this pins the host's matching correction.
+    %{entries: [first | _] = entries, heads: [large, _]} = setup_topics!(10, 17)
+    ids = Enum.map(entries, & &1.id)
+    assert {:ok, baseline} = Learning.prepare(ids, @policy)
+
+    raw_bytes =
+      baseline.prompt
+      |> Jason.decode!()
+      |> Map.put("knowledge", [])
+      |> CanonicalJSON.encode!()
+      |> byte_size()
+
+    Repo.update!(
+      Ecto.Changeset.change(first,
+        content: Map.put(first.content, "padding", String.duplicate("x", 65_536 - raw_bytes - 64))
+      )
+    )
+
+    assert {:ok, run} = Learning.prepare(ids, @policy)
+    assert run.knowledge == []
+
+    Repo.update!(
+      Ecto.Changeset.change(run,
+        status: :rejected,
+        error_code: "learning_match_required",
+        match_refs: ["knowledge:#{large.id}"]
+      )
+    )
+
+    assert {:error, :learning_capacity_exceeded} = Learning.prepare(ids, @policy)
+    assert Repo.aggregate(LearningRun, :count) == 2
+  end
+
   test "an affordable priority topic is not displaced when the next topic exceeds the remaining capacity" do
-    %{entries: entries, heads: [priority, later], selected: selected} = setup_topics!(110, 17)
+    %{entries: entries, heads: [priority, later], selected: selected} = setup_topics!(9_981, 17)
     assert {:ok, run} = Learning.prepare(Enum.map(entries, & &1.id), @policy)
     assert run.knowledge == [hd(selected)]
     assert run.omissions == [omission(later)]
@@ -61,7 +97,8 @@ defmodule Responder.State.LearningContextPackingTest do
     assert run.source_dependencies ==
              LearningSources.merge([raw_sources(entries), priority.source_dependencies])
 
-    assert length(run.source_dependencies) == 113
+    assert length(run.source_dependencies) == 4
+    assert length(LearningSources.expand(run.source_dependencies)) == 9_984
     assert_prompt_matches!(run, entries)
     assert {:ok, ^run} = Learning.authorize(run.id)
   end
@@ -89,7 +126,7 @@ defmodule Responder.State.LearningContextPackingTest do
       |> Enum.with_index()
       |> Enum.map(fn {{topic, count}, index} ->
         entry = Enum.at(entries, index)
-        history = Enum.map(1..count, &historical_source!(entry, index * 128 + &1))
+        history = Enum.map(1..count, &historical_source!(entry, index * 10_001 + &1))
         seed_topic!(topic, history)
       end)
 
@@ -109,6 +146,7 @@ defmodule Responder.State.LearningContextPackingTest do
       Map.merge(topic["state"], %{
         "topic_key" => topic["topic_key"],
         "target_ref" => nil,
+        "anchors" => [],
         "expected_version" => 0
       })
 
@@ -124,8 +162,8 @@ defmodule Responder.State.LearningContextPackingTest do
              end)
 
     head = Repo.get_by!(ConversationKnowledge, topic_key: topic["topic_key"])
-    assert head.state == topic["state"]
-    assert head.source_dependencies == dependencies
+    assert head.state == Map.put(topic["state"], "anchors", [])
+    assert LearningSources.expand(head.source_dependencies) == dependencies
     head
   end
 

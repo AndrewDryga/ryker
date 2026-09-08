@@ -30,7 +30,7 @@ defmodule Responder.State.RecordsTest do
     assert {:error, {:invalid_state_record, :timer_deadline}} =
              Records.create(Records.token(claim.turn), "impossible-timer", "event_wait", payload)
 
-    assert Records.model_records(claim.episode.id) == []
+    assert Records.retained_records(claim.episode.id) == []
   end
 
   test "retrying a timer creation retains its original record and timing anchor" do

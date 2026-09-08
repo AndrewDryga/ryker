@@ -19,6 +19,18 @@ defmodule Responder.Retention.Policy do
 
   @policies [
     %{
+      table: "conversation_learning_batches",
+      class: :kept,
+      why:
+        "Learning.Batches retains content-free start budgets, retry decisions and scope fences so pruning or restart cannot buy new model execution"
+    },
+    %{
+      table: "conversation_learning_inputs",
+      class: :cascade,
+      why:
+        "exclusive input assignment belongs to its Inbox source and learning batch; their foreign keys cascade deletion, while prompt expiry must not permit reprocessing"
+    },
+    %{
       table: "conversation_learning_runs",
       class: :conversation_memory,
       why:

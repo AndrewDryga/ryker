@@ -7,6 +7,7 @@ defmodule Responder.State.LearningSources do
   alias Responder.Publication.LifecycleEvent
 
   alias Responder.State.{
+    ConversationKnowledge,
     ConversationObservation,
     ConversationRollup,
     ConversationSummary,
@@ -14,8 +15,8 @@ defmodule Responder.State.LearningSources do
     Observations
   }
 
-  @maximum_sources 128
-  @maximum_bytes 65_536
+  @maximum_sources 10_000
+  @maximum_bytes 8 * 1_024 * 1_024
   @receipt_fields ~w(observation_id source_input_id revision fingerprint transport workspace_ref conversation_ref repository_ref visibility retained_at)
   @utc_timestamp_pattern ~S/\A[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])[T ]([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.,][0-9]+)?(Z|[+]00(:?00)?|-00(00)?)\Z/
 
@@ -26,19 +27,103 @@ defmodule Responder.State.LearningSources do
   @doc false
   def utc_timestamp_pattern, do: @utc_timestamp_pattern
 
+  @doc false
+  def with_input_boundary(scope, %Responder.Episodes.Episode{id: id} = episode)
+      when is_binary(id),
+      do:
+        Map.put(
+          scope,
+          :input_boundary,
+          {episode.id, episode.next_sequence, episode.queued_input_refs}
+        )
+
+  def with_input_boundary(scope, _destination), do: scope
+
   def merge(groups) do
+    case resolve(groups) do
+      {sources, _roots} -> sources
+      nil -> nil
+    end
+  end
+
+  defp resolve(groups) when is_list(groups) do
     with true <- Enum.all?(groups, &is_list/1),
          sources = List.flatten(groups),
-         true <- Enum.all?(sources, &valid_shape?/1),
-         sources = earliest_receipts(sources),
+         true <- Enum.all?(sources, &(valid_shape?(&1) or reference?(&1))),
+         {references, raw} = Enum.split_with(sources, &reference?/1),
+         sources =
+           Enum.sort_by(Enum.uniq(references) ++ earliest_receipts(raw), &CanonicalJSON.encode!/1),
          true <-
            length(sources) <= @maximum_sources and
-             byte_size(CanonicalJSON.encode!(sources)) <= @maximum_bytes do
-      sources
+             byte_size(CanonicalJSON.encode!(sources)) <= @maximum_bytes,
+         expanded when is_list(expanded) <- expand(sources) do
+      {sources, expanded}
     else
       _ -> nil
     end
   end
+
+  defp resolve(_), do: nil
+
+  @doc "Expand host references to terminal receipts; no recursive dependency graph or truncation."
+  def expand(sources) when is_list(sources) and length(sources) <= @maximum_sources do
+    if Enum.all?(sources, &(valid_shape?(&1) or reference?(&1))) and
+         byte_size(CanonicalJSON.encode!(sources)) <= @maximum_bytes do
+      roots =
+        if Enum.any?(sources, &reference?/1) do
+          Repo.query!(
+            """
+            SELECT DISTINCT ON (CASE WHEN jsonb_typeof(r) = 'object' THEN r - 'retained_at' ELSE r END) r
+            FROM responder_learning_roots($1) r
+            ORDER BY CASE WHEN jsonb_typeof(r) = 'object' THEN r - 'retained_at' ELSE r END,
+              CASE WHEN pg_input_is_valid(r->>'retained_at', 'timestamptz')
+                THEN (r->>'retained_at')::timestamptz ELSE '-infinity'::timestamptz END
+            LIMIT 10001
+            """,
+            [
+              CanonicalJSON.encode!(sources)
+            ]
+          ).rows
+          |> Enum.map(&hd/1)
+        else
+          sources
+        end
+
+      bounded_roots(roots)
+    end
+  end
+
+  def expand(_), do: nil
+
+  defp bounded_roots(roots) do
+    if length(roots) <= @maximum_sources and Enum.all?(roots, &valid_shape?/1) do
+      roots = earliest_receipts(roots)
+      if byte_size(CanonicalJSON.encode!(roots)) <= @maximum_bytes, do: roots
+    end
+  end
+
+  def knowledge_reference(id, generation, version),
+    do: %{
+      "kind" => "knowledge_sources",
+      "knowledge_id" => id,
+      "generation" => generation,
+      "through_version" => version
+    }
+
+  defp reference?(
+         %{
+           "kind" => "knowledge_sources",
+           "knowledge_id" => id,
+           "generation" => generation,
+           "through_version" => version
+         } = reference
+       ) do
+    map_size(reference) == 4 and Ecto.UUID.cast(id) == {:ok, id} and
+      is_integer(generation) and generation in 1..9_223_372_036_854_775_807 and
+      is_integer(version) and version in 1..9_223_372_036_854_775_807
+  end
+
+  defp reference?(_), do: false
 
   defp earliest_receipts(sources) do
     sources
@@ -48,7 +133,7 @@ defmodule Responder.State.LearningSources do
   end
 
   def oldest(sources, fallback \\ nil) do
-    sources = if is_list(sources), do: sources, else: []
+    sources = expand(sources) || []
     dates = for source <- sources, valid_shape?(source), do: retained_at(source)
     dates = if fallback, do: [fallback | dates], else: dates
     Enum.min(dates, DateTime, fn -> nil end)
@@ -79,17 +164,46 @@ defmodule Responder.State.LearningSources do
   def eligible(query, scope) do
     seconds = retention_seconds()
 
+    # Keep source lookups parameterized per receipt. With stale low row estimates,
+    # a flattened outer join materialized the whole source table once per root
+    # (100M comparisons for 10k roots). The lateral OFFSET 0 preserves the PK lookup.
     from(item in query,
       where: not is_nil(item.source_dependencies),
-      where: fragment("jsonb_typeof(?::jsonb) = 'array'", item.source_dependencies),
       where:
         fragment(
           """
           NOT EXISTS (
-            SELECT 1 FROM jsonb_array_elements(
-              CASE WHEN jsonb_typeof(?::jsonb) = 'array' THEN ?::jsonb ELSE '[]'::jsonb END
-            ) r
-            LEFT JOIN conversation_observations o ON o.id::text = r->>'observation_id'
+            SELECT 1 FROM jsonb_array_elements(CASE
+              WHEN pg_input_is_valid(?, 'jsonb') THEN CASE WHEN jsonb_typeof(?::jsonb) = 'array'
+                THEN ?::jsonb ELSE '[null]'::jsonb END ELSE '[null]'::jsonb END) d
+            LEFT JOIN conversation_knowledge_revisions v
+              ON v.knowledge_id = CASE WHEN pg_input_is_valid(d->>'knowledge_id', 'uuid')
+                THEN (d->>'knowledge_id')::uuid ELSE NULL END
+              AND v.source_generation = CASE WHEN pg_input_is_valid(d->>'generation', 'bigint')
+                THEN (d->>'generation')::bigint ELSE NULL END
+              AND v.version = CASE WHEN pg_input_is_valid(d->>'through_version', 'bigint')
+                THEN (d->>'through_version')::bigint ELSE NULL END
+            LEFT JOIN conversation_knowledge head
+              ON head.id = v.knowledge_id AND head.source_generation = v.source_generation
+            WHERE jsonb_exists(d, 'knowledge_id') AND
+              (head.id IS NULL OR v.knowledge_id IS NULL OR v.state::jsonb = '{"retention":"pruned"}'::jsonb)
+          )
+          """,
+          item.source_dependencies,
+          item.source_dependencies,
+          item.source_dependencies
+        ),
+      where:
+        fragment(
+          """
+          NOT EXISTS (
+            SELECT 1 FROM responder_learning_roots(?) r
+            LEFT JOIN LATERAL (
+              SELECT o.* FROM conversation_observations o
+              WHERE o.id = CASE WHEN pg_input_is_valid(r->>'observation_id', 'uuid')
+                THEN (r->>'observation_id')::uuid ELSE NULL END
+              OFFSET 0
+            ) o ON true
             WHERE o.id IS NULL OR o.source_input_id::text IS DISTINCT FROM r->>'source_input_id'
               OR o.revision::text IS DISTINCT FROM r->>'revision'
               OR o.source_fingerprint IS DISTINCT FROM r->>'fingerprint'
@@ -98,6 +212,7 @@ defmodule Responder.State.LearningSources do
               OR o.transport IS DISTINCT FROM r->>'transport'
               OR o.conversation_ref IS DISTINCT FROM r->>'conversation_ref'
               OR o.repository_ref IS DISTINCT FROM r->>'repository_ref'
+              OR (?::bigint IS NOT NULL AND o.updated_at <= clock_timestamp() - (? * interval '1 second'))
               OR CASE WHEN r->>'retained_at' ~ ?
                 AND pg_input_is_valid(replace(r->>'retained_at', ',', '.'), 'timestamptz') THEN
                 (?::bigint IS NOT NULL AND replace(r->>'retained_at', ',', '.')::timestamptz <= clock_timestamp() - (? * interval '1 second'))
@@ -112,8 +227,9 @@ defmodule Responder.State.LearningSources do
           )
           """,
           item.source_dependencies,
-          item.source_dependencies,
           ^scope.workspace_ref,
+          ^seconds,
+          ^seconds,
           ^@utc_timestamp_pattern,
           ^seconds,
           ^seconds,
@@ -121,7 +237,47 @@ defmodule Responder.State.LearningSources do
           ^(scope.visibility == :public and scope.transport == "slack")
         )
     )
+    |> without_future_inputs(scope)
   end
+
+  # A background topic can be newer than the Work input boundary. Both queued
+  # inputs already in the snapshot and arrivals after that snapshot are barred,
+  # including through an inherited topic/summary root. Query the host event
+  # ledger, never model-provided timing or a truncated source excerpt.
+  defp without_future_inputs(query, %{input_boundary: {episode_id, sequence, queued}}) do
+    from(item in query,
+      where:
+        fragment(
+          """
+          NOT EXISTS (
+            SELECT 1 FROM responder_learning_roots(?) root
+            JOIN ingress_inbox_entries i ON i.id = CASE
+              WHEN pg_input_is_valid(root->>'source_input_id', 'uuid')
+              THEN (root->>'source_input_id')::uuid ELSE NULL END
+            JOIN episode_kernel_events e ON e.episode_id = i.episode_id AND e.kind = 'input_admitted'
+              AND coalesce(e.payload::jsonb #>> '{payload,native_input_id}',
+                e.payload::jsonb ->> 'native_input_id') = i.native_input_id
+              AND e.payload::jsonb ->> 'revision' = i.revision::text
+            WHERE i.episode_id = ?::uuid AND (e.sequence >= ? OR e.dedupe_key = ANY(?::text[]))
+          )
+          """,
+          item.source_dependencies,
+          ^Ecto.UUID.dump!(episode_id),
+          ^sequence,
+          ^queued
+        )
+    )
+  end
+
+  defp without_future_inputs(query, _scope), do: query
+
+  defp future_inputs_absent?(roots, %{input_boundary: _} = scope) do
+    from(item in fragment("SELECT ?::text AS source_dependencies", ^CanonicalJSON.encode!(roots)))
+    |> without_future_inputs(scope)
+    |> Repo.exists?()
+  end
+
+  defp future_inputs_absent?(_roots, _scope), do: true
 
   defp valid_shape?(receipt) when is_map(receipt) do
     Enum.sort(Map.keys(receipt)) == Enum.sort(@receipt_fields) and
@@ -445,6 +601,12 @@ defmodule Responder.State.LearningSources do
   def document_sources(%{"kind" => "work_input", "input" => document}),
     do: work_document_sources(document)
 
+  # These require the receiving destination and exact producer ownership.
+  # KnowledgeSnapshot resolves them together, once per producing session.
+  def document_sources(%{"kind" => kind})
+      when kind in ~w(episode_record episode_delivery episode_outcome),
+      do: nil
+
   def document_sources(%{"source_ref" => "observation:" <> id} = document) do
     case get_uuid(ConversationObservation, id) do
       %{note: note, source_dependencies: sources} = source when is_map(note) ->
@@ -470,6 +632,9 @@ defmodule Responder.State.LearningSources do
   def document_sources(%{"source_ref" => "continuity-rollup:" <> _} = document),
     do: summary_sources(Repo.get_by(ConversationRollup, ref: document["source_ref"]), document)
 
+  # A new source-backed document must implement custody before it can be shown.
+  # Confirmed facts/guidance use their own refs and are not raw-source receipts.
+  def document_sources(%{"source_ref" => _}), do: nil
   def document_sources(_), do: []
 
   defp get_uuid(schema, id), do: if(Ecto.UUID.cast(id) == {:ok, id}, do: Repo.get(schema, id))
@@ -481,9 +646,14 @@ defmodule Responder.State.LearningSources do
 
   defp summary_sources(_, _), do: nil
 
-  def valid?(sources, scope) when is_list(sources) do
-    if merge([sources]) == sources do
-      ids = Enum.map(sources, & &1["observation_id"])
+  def valid?(sources, scope), do: match?({:ok, _}, validated_roots(sources, scope))
+
+  @doc "Validate once and return the exact authorized roots for this transaction."
+  def validated_roots(sources, scope) when is_list(sources) do
+    with {^sources, roots} <- resolve([sources]),
+         true <- available_references?(sources),
+         true <- future_inputs_absent?(roots, scope) do
+      ids = roots |> Enum.map(& &1["observation_id"]) |> Enum.uniq()
 
       notes =
         Repo.all(
@@ -495,13 +665,34 @@ defmodule Responder.State.LearningSources do
         )
 
       notes = notes |> Observations.authorized_notes(scope) |> Map.new(&{&1.id, &1})
-      Enum.all?(sources, &valid_receipt?(&1, notes[&1["observation_id"]], scope))
+
+      if Enum.all?(roots, &valid_receipt?(&1, notes[&1["observation_id"]], scope)),
+        do: {:ok, roots},
+        else: :error
     else
-      false
+      _ -> :error
     end
   end
 
-  def valid?(_, _), do: false
+  def validated_roots(_, _), do: :error
+
+  defp available_references?(sources) do
+    sources
+    |> Enum.filter(&reference?/1)
+    |> Enum.all?(fn reference ->
+      Repo.exists?(
+        from(v in KnowledgeRevision,
+          join: head in ConversationKnowledge,
+          on: head.id == v.knowledge_id and head.source_generation == v.source_generation,
+          where:
+            v.knowledge_id == ^reference["knowledge_id"] and
+              v.source_generation == ^reference["generation"] and
+              v.version == ^reference["through_version"],
+          where: fragment(~s(?::jsonb <> '{"retention":"pruned"}'::jsonb), v.state)
+        )
+      )
+    end)
+  end
 
   defp valid_receipt?(_receipt, nil, _scope), do: false
 
@@ -509,15 +700,18 @@ defmodule Responder.State.LearningSources do
     do: false
 
   defp valid_receipt?(receipt, source, scope) do
+    receipt_matches_source?(receipt, source) and source.workspace_ref == scope.workspace_ref and
+      unexpired?(DateTime.to_iso8601(source.updated_at)) and unexpired?(receipt["retained_at"])
+  end
+
+  defp receipt_matches_source?(receipt, source) do
     source.source_input_id == receipt["source_input_id"] and
       source.revision == receipt["revision"] and
       source.source_fingerprint == receipt["fingerprint"] and
-      source.workspace_ref == scope.workspace_ref and
       source.workspace_ref == receipt["workspace_ref"] and
       source.transport == receipt["transport"] and
       source.conversation_ref == receipt["conversation_ref"] and
-      source.repository_ref == receipt["repository_ref"] and
-      unexpired?(receipt["retained_at"])
+      source.repository_ref == receipt["repository_ref"]
   end
 
   defp unexpired?(at) do
@@ -533,7 +727,8 @@ defmodule Responder.State.LearningSources do
     end
   end
 
-  defp retention_seconds do
+  @doc false
+  def retention_seconds do
     settings = Application.get_env(:responder, :retention) || %{}
 
     value =

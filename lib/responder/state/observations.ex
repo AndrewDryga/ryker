@@ -1,55 +1,52 @@
 defmodule Responder.State.Observations do
-  @moduledoc "Source-linked conversation notes, independent of the decision to respond."
+  @moduledoc "Authenticated source custody and bounded original excerpts, never model-written memories."
   import Ecto.Query
   alias Responder.{CanonicalJSON, Repo}
   alias Responder.Episodes.Episode
   alias Responder.Ingress.Inbox.Entry
   alias Responder.Publication.{LifecycleEvent, Publication}
   alias Responder.Slack.{ChannelFence, ChannelMembership}
-  alias Responder.State.{Continuity, ConversationObservation, Knowledge, LearningSources}
 
-  def prepare(nil), do: {:ok, nil}
+  alias Responder.State.{
+    Continuity,
+    ConversationObservation,
+    Knowledge,
+    KnowledgeAnchors,
+    LearningSources,
+    MemorySearchPage,
+    MemorySourceLink
+  }
 
-  def prepare(%{"summary" => summary, "topics" => topics} = note) when map_size(note) == 2 do
+  defp prepare(nil), do: {:ok, nil}
+
+  defp prepare(%{"summary" => summary, "topics" => topics} = note) when map_size(note) == 2 do
     if text?(summary, 1_200) and is_list(topics) and length(topics) <= 8 and
          Enum.all?(topics, &text?(&1, 80)) and length(topics) == length(Enum.uniq(topics)),
        do: {:ok, note},
        else: {:error, {:invalid_decision, :observation}}
   end
 
-  def prepare(_), do: {:error, {:invalid_decision, :observation}}
+  defp prepare(_), do: {:error, {:invalid_decision, :observation}}
 
-  def json_schema do
-    %{
-      "anyOf" => [
-        %{"type" => "null"},
-        %{
-          "type" => "object",
-          "additionalProperties" => false,
-          "required" => ["summary", "topics"],
-          "properties" => %{
-            "summary" => text_schema(1_200),
-            "topics" => %{
-              "type" => "array",
-              "maxItems" => 8,
-              "uniqueItems" => true,
-              "items" => text_schema(80)
-            }
-          }
-        }
-      ]
-    }
+  @doc "Retain a deterministic excerpt of the original input with only that source's receipt."
+  def record_excerpt_in_transaction(%Entry{status: :decided} = entry),
+    do: write_source(entry, excerpt(entry), "input:#{entry.id}", :source_only)
+
+  def record_excerpt_in_transaction(_), do: {:error, :observation_source_not_decided}
+
+  defp excerpt(entry) do
+    text =
+      entry
+      |> List.wrap()
+      |> KnowledgeAnchors.source_texts()
+      |> Enum.join("\n")
+      |> String.trim()
+
+    if text != "" do
+      summary = if String.length(text) > 1200, do: String.slice(text, 0, 1199) <> "…", else: text
+      %{"summary" => summary, "topics" => []}
+    end
   end
-
-  @doc "Persist only after the source decision wins custody, without creating an episode or effect."
-  def record_in_transaction(entry, note, result_ref, sources \\ :source_only)
-
-  def record_in_transaction(%Entry{status: :decided} = entry, note, result_ref, sources)
-      when is_binary(result_ref) and result_ref != "" do
-    write_source(entry, note, result_ref, sources)
-  end
-
-  def record_in_transaction(_, _, _, _), do: {:error, :observation_source_not_decided}
 
   @doc "Revoke previous facts immediately when authenticated source custody advances."
   def receive_in_transaction(%Entry{} = entry), do: write_source(entry, nil, nil, nil)
@@ -124,7 +121,7 @@ defmodule Responder.State.Observations do
              entry.destination_conversation_ref
            ),
          {:ok, scope} <- Continuity.destination_context(entry, entry.repository_ref) do
-      now = Keyword.get_lazy(options, :received_at, &DateTime.utc_now/0)
+      now = Keyword.get_lazy(options, :received_at, &database_now!/0)
       scope = Map.put(scope, :visibility, Keyword.get(options, :visibility, scope.visibility))
 
       # Keep a revision tombstone even when an edit has nothing to remember. A
@@ -342,7 +339,10 @@ defmodule Responder.State.Observations do
       # Under REPEATABLE READ, advisory locks alone do not refresh a snapshot.
       # Locking the actual membership row rejects a snapshot predating revocation.
       lock_memberships([destination.destination_conversation_ref])
-      Continuity.destination_context(destination, repository_ref)
+
+      with {:ok, scope} <- Continuity.destination_context(destination, repository_ref) do
+        {:ok, LearningSources.with_input_boundary(scope, destination)}
+      end
     end
   end
 
@@ -372,6 +372,45 @@ defmodule Responder.State.Observations do
     |> Enum.filter(&LearningSources.valid?(&1.source_dependencies, scope))
     |> Enum.map(&document/1)
   end
+
+  @doc false
+  def search_page(destination, repository_ref, page) do
+    case locked_scope(destination, repository_ref) do
+      {:ok, scope} -> search_visible_page(scope, page)
+      _ -> :done
+    end
+  end
+
+  defp search_visible_page(scope, page) do
+    query =
+      from(note in ConversationObservation,
+        where: note.workspace_ref == ^scope.workspace_ref and not is_nil(note.note),
+        where: ^visible_conversations(scope),
+        lock: "FOR SHARE"
+      )
+      |> LearningSources.eligible(scope)
+      |> within_scope(scope, page.scope)
+
+    # Explicit history search includes originals even after their topic was
+    # consolidated. Otherwise an older source date becomes unreachable.
+    query
+    |> MemorySearchPage.one(
+      page,
+      dynamic([n], n.note),
+      dynamic([n], n.updated_at),
+      dynamic([n], n.occurred_at)
+    )
+    |> authorize_search_result(scope)
+  end
+
+  defp authorize_search_result({:ok, note, position}, scope) do
+    if authorized_notes([note], scope) != [] and
+         LearningSources.valid?(note.source_dependencies, scope),
+       do: {:ok, document(note), position},
+       else: {:skip, position}
+  end
+
+  defp authorize_search_result(:done, _scope), do: :done
 
   @doc false
   def authorized_notes(notes, scope) do
@@ -447,6 +486,12 @@ defmodule Responder.State.Observations do
       "topics" => note.note["topics"],
       "conversation_ref" => note.conversation_ref,
       "source_message_ref" => note.source_message_ref,
+      "source_read" =>
+        MemorySourceLink.message(
+          note.transport,
+          note.conversation_ref,
+          note.source_message_ref
+        ),
       "source_input_id" => note.source_input_id,
       "actor_ref" => note.actor_ref,
       "occurred_at" => DateTime.to_iso8601(note.occurred_at)
@@ -459,11 +504,8 @@ defmodule Responder.State.Observations do
         String.length(value) <= maximum and String.trim(value) != "" and
         not String.contains?(value, <<0>>)
 
-  defp text_schema(maximum),
-    do: %{
-      "type" => "string",
-      "minLength" => 1,
-      "maxLength" => maximum,
-      "pattern" => "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
-    }
+  defp database_now! do
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+    now
+  end
 end

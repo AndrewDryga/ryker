@@ -12,9 +12,20 @@ defmodule Responder.Work.SubmissionBuilder do
   alias Responder.CanonicalJSON
   alias Responder.Episodes.{Episode, Event, Reactions}
   alias Responder.GitHub.SourceRef, as: GitHubSourceRef
+  alias Responder.Ingress.RecallText
   alias Responder.Repo
   alias Responder.Slack.SourceRef, as: SlackSourceRef
-  alias Responder.State.{Behaviors, Continuity, LearningSources, Memories, Outcomes, Records}
+
+  alias Responder.State.{
+    Behaviors,
+    Continuity,
+    DerivedContext,
+    LearningSources,
+    Memories,
+    Outcomes,
+    Records
+  }
+
   alias Responder.StateTools.FixedTools
   alias Responder.StateTools.ToolVisibility
   alias Responder.Work.{Final, Prompt, Session, Submission, Turn}
@@ -23,7 +34,6 @@ defmodule Responder.Work.SubmissionBuilder do
   @maximum_context_bytes 160 * 1_024
   @input_content_bytes 1_024
   @continuity_content_bytes 256
-  @previous_delivery_bytes 2_048
   @record_payload_bytes 2_048
   @default_state_tool_capabilities [:event_waits, :publication, :schedules]
   @state_tool_capabilities [:emisar_approvals, :event_waits, :publication, :schedules]
@@ -42,7 +52,7 @@ defmodule Responder.Work.SubmissionBuilder do
          snapshot <- input_snapshot(episode),
          :ok <- active_inputs_present(snapshot.active, episode.active_input_refs),
          previous <- previous_turn(episode.id, turn.id),
-         records <- Records.model_records(episode.id),
+         records <- Records.model_records(episode, session.repository_ref),
          {:ok, context} <- submission_context(episode, session, turn, snapshot, records, previous),
          context <-
            Map.put(
@@ -216,15 +226,15 @@ defmodule Responder.Work.SubmissionBuilder do
       "offer_confirmation_supported" => offer_confirmation_supported?(episode),
       "records" => Enum.map(records, &record_document/1),
       "repository_ref" => session.repository_ref,
-      "related_outcomes" => Outcomes.recall(episode)
+      "related_outcomes" => Outcomes.recall(episode, session.repository_ref)
     }
 
     context =
       if previous do
-        Map.put(context, "prior_outcome", %{
-          "delivery" => compact_value(previous.delivery_document, @previous_delivery_bytes),
-          "submission_ref" => previous.submission_fingerprint
-        })
+        case historical_delivery(previous, episode, session.repository_ref) do
+          nil -> context
+          delivery -> Map.put(context, "prior_outcome", delivery)
+        end
       else
         context
       end
@@ -258,6 +268,8 @@ defmodule Responder.Work.SubmissionBuilder do
   end
 
   defp continuation_context(episode, session, _turn, snapshot, records, previous) do
+    delivery = historical_delivery(previous, episode, session.repository_ref)
+
     context = %{
       "continuity" => %{
         "first_input" => continuity_input(snapshot.first),
@@ -265,8 +277,8 @@ defmodule Responder.Work.SubmissionBuilder do
           "requested" => previous.continuation,
           "resume_cause" => resume_cause(episode, previous)
         },
-        "previous_delivery" =>
-          compact_value(previous.delivery_document, @previous_delivery_bytes),
+        "previous_delivery" => if(delivery, do: delivery["delivery"]),
+        "previous_turn_ref" => if(delivery, do: delivery["source_turn_ref"]),
         "prior_input_count" => snapshot.total_count
       },
       "current_inputs" => %{
@@ -572,6 +584,9 @@ defmodule Responder.Work.SubmissionBuilder do
   defp operator_context(episode, snapshot, pinned_repository) do
     events = snapshot.active ++ snapshot.historical
     repository = pinned_repository || trusted_repository(events)
+    # Only inputs advanced into this turn may influence its topic selection.
+    # Queued future instructions and unrelated recent topics are not a briefing.
+    input_texts = Enum.map(snapshot.active, &RecallText.from(&1.payload["payload"]))
 
     operator_ref =
       events
@@ -584,7 +599,7 @@ defmodule Responder.Work.SubmissionBuilder do
     episode
     |> Behaviors.model_context(operator_ref, repository)
     |> Map.put("memory", Memories.model_context(episode, repository))
-    |> Map.put("continuity", Continuity.model_context(episode, repository))
+    |> Map.put("continuity", Continuity.model_context(episode, repository, input_texts))
   end
 
   defp trusted_repository(events) do
@@ -627,6 +642,15 @@ defmodule Responder.Work.SubmissionBuilder do
       "ref" => record["ref"],
       "status" => record["status"]
     }
+  end
+
+  defp historical_delivery(turn, episode, repository) do
+    document = DerivedContext.delivery_document(turn)
+
+    case DerivedContext.filter([DerivedContext.delivery(document)], episode, repository) do
+      [_] -> document
+      [] -> nil
+    end
   end
 
   defp compact_value(nil, _maximum), do: nil

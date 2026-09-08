@@ -1,0 +1,193 @@
+{
+  "provenance": {
+    "kind": "harvested_public_source_and_repository_snapshot",
+    "captured_at": "2026-09-08",
+    "source_database": "responder_emisar",
+    "original_lab_conversation": "control-plane:lab:bfc8b28e-f069-474c-8bc6-32e4d559a4d9",
+    "acceptance_lab_conversation": "control-plane:lab:e85071d4-760d-436d-ac66-7840b9083257",
+    "database_timestamp_zone": "UTC; stored timestamp fields have no offset suffix",
+    "source_selection": "Exact original Inbox content, accepted public response text, and three public native repository-read completion events. No private provider reasoning, hidden prompts, environment, credentials, or reconstructed missing output.",
+    "repository": "emisar",
+    "prior_decision": {
+      "commit": "0317ecb7aa80738c0cffc84bd3a9c984b554f607",
+      "occurred_at": "2026-07-17T18:03:46Z",
+      "subject": "refactor(infra): park Livebook by absence, not power state (#20)"
+    },
+    "pre_report_snapshot": {
+      "commit": "e9ceaaca495430826002d15c0abba2b0978008fa",
+      "occurred_at": "2026-09-06T02:56:17Z"
+    },
+    "original_acceptance_at": "2026-09-06T03:05:55.198894Z",
+    "later_code_check_snapshot": {
+      "commit": "86a85a97c471cf983c13ce8ea0ffb477f6bd1215",
+      "occurred_at": "2026-09-06T13:05:44Z"
+    },
+    "files": [
+      {
+        "path": "infra/livebook.tf",
+        "git_blob_sha1": "37fafef425fcd8d996e0416a25e3e5f72d756ad9",
+        "sha256": "047a25c342d5f42be6f763cf7e92fab28c75b9261bc87da1b0df2c32aaa7351d",
+        "bytes": 6781
+      },
+      {
+        "path": "infra/load_balancer.tf",
+        "git_blob_sha1": "2fdd5b4340c6b3df7f45ed123f1d880f1d747cdb",
+        "sha256": "52eeb3823fdf58752d3c31c2b038434b0ba1e678a317cf5f08fed0c636cbd141",
+        "bytes": 17403
+      },
+      {
+        "path": "infra/variables.tf",
+        "git_blob_sha1": "aca57edd5216f67d9645c74432edcffab0c4712a",
+        "sha256": "9d76e429eeabcf7aad0dc57eccdf100269ded2575c775a5901b364aec0d3462c",
+        "bytes": 23855
+      }
+    ],
+    "no_hindsight": "All three supplied file blobs are byte-identical in the pre-report and later code-check snapshots. The later correct model answer is retained as historical evaluation evidence only, never model input or an expected-answer fixture.",
+    "limitations": [
+      "The production workspace values at the original report time are not retained here. The code supports intentional zero but does not prove that this deployment was parked or healthy.",
+      "Two repository-read outputs are retained only as explicit withheld/truncated receipts; they have not been reconstructed.",
+      "This is a three-file historical repository snapshot, not the full repository or a deployable Terraform root.",
+      "The original alert was conditionally worded but elevated zero instances to a first-priority issue without establishing desired deployment configuration."
+    ]
+  },
+  "inputs": [
+    {
+      "id": "9fe2b26f-ea25-455e-a5e2-0370fed7977d",
+      "occurred_at": "2026-09-06T02:35:37.404131",
+      "source_item_ref": "control-plane-item:4304610a-deaa-4a40-98e2-55f2e1e49b36",
+      "conversation_ref": "control-plane:lab:bfc8b28e-f069-474c-8bc6-32e4d559a4d9",
+      "repository_ref": "emisar",
+      "content": {
+        "text": "Check health of our infrastructure and flag any issues\r\n"
+      },
+      "text_sha256": "01148ae1010cb3a882518ff7883ca122e9df4ce531498620e1fc70db5591c466"
+    },
+    {
+      "id": "c10b1fb7-547d-4495-adad-d167b9f52d08",
+      "occurred_at": "2026-09-06T02:48:04.784649",
+      "source_item_ref": "control-plane-item:f466940e-2ac1-4e49-a061-8d4d1e5f2ff3",
+      "conversation_ref": "control-plane:lab:bfc8b28e-f069-474c-8bc6-32e4d559a4d9",
+      "repository_ref": "emisar",
+      "content": {
+        "text": "Our gcp project named emisar. Check health of everything."
+      },
+      "text_sha256": "eafab4605684f8172554c5278793d831614f99fb38bd6a502bb042525a6110c2"
+    },
+    {
+      "id": "c158a2c9-994c-46dd-853d-0c0e7aa91034",
+      "occurred_at": "2026-09-06T23:04:43.758583",
+      "source_item_ref": "control-plane-item:912ba78b-d23f-4e7b-8614-10341e609f1c",
+      "conversation_ref": "control-plane:lab:e85071d4-760d-436d-ac66-7840b9083257",
+      "repository_ref": "emisar",
+      "content": {
+        "text": "A health report flagged \"Livebook has zero instances.\" Check this conclusion against the intended configuration in the available repository. Is this enough to call it an infrastructure issue? Cite the code you actually inspect and distinguish checked-in intent from any live deployment evidence. Keep the answer concise. This is read-only local Lab acceptance: do not change repository source code or infrastructure, and do not send Slack posts, reactions, typing/status, files, or any external communications."
+      },
+      "text_sha256": "8d0f661340a5e3d2f9073bab6786100538f9d86c29e596967a525329d9fae479"
+    }
+  ],
+  "public_responses": [
+    {
+      "episode_key": "ingress-input:9fe2b26f-ea25-455e-a5e2-0370fed7977d",
+      "turn_ref": "ingress-turn:c10b1fb7-547d-4495-adad-d167b9f52d08",
+      "session_id": "remote_c3c8d83052948870a445ecd8dc0aa49c",
+      "accepted_at": "2026-09-06T03:05:55.198894",
+      "delivered_at": "2026-09-06T03:05:55.266527",
+      "message": "The main application, registry, and database look healthy in the checks performed, but Livebook has no serving capacity and several resilience/monitoring issues need attention.\n\nFindings, in priority order:\n\n1. **Livebook has zero instances.** Its group stayed at 0 throughout the sampled 30 minutes, and both Livebook backends returned empty health lists. If Livebook should be available, restore its serving capacity. [Group-size evidence](https://emisar.dev/app/emisar/runs/01a074a7-b398-7c4d-aad9-a79106a4db6b)\n2. **No zone redundancy for the application or database.** Both healthy portal VMs are in us-central1-a. Cloud SQL is ZONAL in us-central1-c with no standby. These are resilience risks, not current outages. [VM placement](https://emisar.dev/app/emisar/runs/01a074a2-5930-7ffa-95c8-d5f797b25880) · [Database configuration](https://emisar.dev/app/emisar/runs/01a0749e-fdb8-775c-8bcc-1186d45ab6d5)\n3. **Runner security/compatibility issues persist.** Both connected runners report descriptor_mismatch and signature enforcement disabled. The debugging and Docker packs are unavailable because of compatibility mismatches.\n4. **Monitoring coverage is incomplete.** VM disk and memory queries returned no recent samples despite enabled alert policies. Error-log access returned HTTP 403, and storage inventory was denied storage.buckets.list. Consequently, I cannot certify host disk/memory or bucket health. [Missing disk samples](https://emisar.dev/app/emisar/runs/01a074a5-9ad0-78ab-a0c8-99af41992209) · [Missing memory samples](https://emisar.dev/app/emisar/runs/01a074a9-78a1-7896-9085-7cac2560d766)\n\nHealthy observations:\n\n- Main site and registry checks passed from all six monitoring locations in the sampled half hour; returned load-balancer metrics contained no 5xx responses.\n- Both portal backends are HEALTHY; the managed group is stable at its target of 2. Both application runtimes respond and clocks are synchronized.\n- SQL stayed up in the sampled hour. Five-minute averages show CPU around 14–17%, memory 55–56%, disk 5.7%, and transaction-ID utilization 0.2%.\n- The latest seven backups succeeded; newest completed September 5 at 03:36 UTC. PITR is enabled. [Backups](https://emisar.dev/app/emisar/runs/01a074a2-d618-799e-a007-a68bb65b220d)\n- All three managed certificates are ACTIVE; earliest expiry is October 10. NAT samples show no allocation failures, and the fleet-monitoring heartbeat is present.\n\nThe earlier degraded cloud-init boot records remain a follow-up; they do not establish a current network outage. This assessment covers the resources exposed by the available actions, not every possible GCP service. No configuration changes were made.\n\nEvidence limitation: run links are available, but infrastructure tools supplied no source_ref for citation records; durable goal creation returned unauthorized.",
+      "message_sha256": "6450faff62c339a905e1057ea30d0b049744d20dee632de361033ff5b9f88fb8"
+    },
+    {
+      "episode_key": "ingress-input:c158a2c9-994c-46dd-853d-0c0e7aa91034",
+      "turn_ref": "ingress-turn:c158a2c9-994c-46dd-853d-0c0e7aa91034",
+      "session_id": "remote_cd2827c32a4b482b64a13b07edb6d1d5",
+      "accepted_at": "2026-09-06T23:07:05.150186",
+      "delivered_at": "2026-09-06T23:07:05.40075",
+      "message": "No—zero instances alone is insufficient to call this an infrastructure issue.\n\nAt checked-in commit `86a85a97c471`, `infra/livebook.tf:69–76` creates a VM only when both `livebook_enabled` and `livebook_running` are true. `infra/variables.tf:231–240` defaults Livebook to disabled and explicitly supports parking it with `livebook_running=false`. The instance group intentionally becomes empty (`infra/livebook.tf:155–163`), and readiness waits are skipped when no VM is expected (`infra/load_balancer.tf:97–106`).\n\nThis establishes supported repository intent, not the deployed configuration. I did not verify live workspace variables or instance state. Confirm that deployment actually expects Livebook to run before classifying zero instances as a fault.",
+      "message_sha256": "8e14b35e2160d05a918c933e956c6ce7ede9d1cdb9bfd36f40416c42048516f6"
+    }
+  ],
+  "native_repository_reads": [
+    {
+      "sequence": 6,
+      "occurred_at": "2026-09-06T23:06:01.732548",
+      "kind": "tool.completed",
+      "session_id": "remote_cd2827c32a4b482b64a13b07edb6d1d5",
+      "payload": {
+        "kind": "execute",
+        "input": {
+          "cwd": "/Users/andrewdryga/Projects/os/emisar-forks/remote-4920276b447ba4ed218270f2",
+          "command": "pwd; rg -n -i 'livebook' infra .agent --glob '!**/tasks/**'"
+        },
+        "title": "pwd; rg -n -i 'livebook' infra .agent --glob '!**/tasks/**'",
+        "output": {
+          "bytes": 36107,
+          "preview": "[partial structured content withheld]",
+          "truncated": true
+        },
+        "status": "completed",
+        "content": [
+          {
+            "type": "terminal",
+            "terminalId": "exec-9fb957e8-9924-4945-ac88-d6e9a331f11b"
+          }
+        ],
+        "tool_call_id": "exec-9fb957e8-9924-4945-ac88-d6e9a331f11b",
+        "evidence_version": 1
+      }
+    },
+    {
+      "sequence": 8,
+      "occurred_at": "2026-09-06T23:06:10.596734",
+      "kind": "tool.completed",
+      "session_id": "remote_cd2827c32a4b482b64a13b07edb6d1d5",
+      "payload": {
+        "kind": "execute",
+        "input": {
+          "cwd": "/Users/andrewdryga/Projects/os/emisar-forks/remote-4920276b447ba4ed218270f2",
+          "command": "git status --short; cat infra/AGENTS.md .agent/kb/README.md; nl -ba infra/variables.tf | sed -n '230,253p'; nl -ba infra/livebook.tf | sed -n '1,65p;150,170p'; nl -ba infra/load_balancer.tf | sed -n '95,108p'; rg -n 'livebook_running|parked' infra .agent/kb --glob '*.md' --glob '*.tfvars*'"
+        },
+        "title": "git status --short; cat infra/AGENTS.md .agent/kb/README.md; nl -ba infra/variables.tf | sed -n '230,253p'; nl -ba infra/livebook.tf | sed -n '1,65p;150,170p'; nl -ba infra/load_balancer.tf | sed -n '…",
+        "output": {
+          "bytes": 25799,
+          "preview": "[partial structured content withheld]",
+          "truncated": true
+        },
+        "status": "completed",
+        "content": [
+          {
+            "type": "terminal",
+            "terminalId": "exec-aa85c5cd-349b-4466-afcf-e2da43ba8e8d"
+          }
+        ],
+        "tool_call_id": "exec-aa85c5cd-349b-4466-afcf-e2da43ba8e8d",
+        "evidence_version": 1
+      }
+    },
+    {
+      "sequence": 13,
+      "occurred_at": "2026-09-06T23:06:17.672543",
+      "kind": "tool.completed",
+      "session_id": "remote_cd2827c32a4b482b64a13b07edb6d1d5",
+      "payload": {
+        "kind": "execute",
+        "input": {
+          "cwd": "/Users/andrewdryga/Projects/os/emisar-forks/remote-4920276b447ba4ed218270f2",
+          "command": "nl -ba infra/livebook.tf | sed -n '68,86p'; rg -n -i 'livebook|workspace' infra/README.md | head -35; git rev-parse HEAD"
+        },
+        "title": "nl -ba infra/livebook.tf | sed -n '68,86p'; rg -n -i 'livebook|workspace' infra/README.md | head -35; git rev-parse HEAD",
+        "output": {
+          "exit_code": 0,
+          "formatted_output": "    68\t\n    69\tresource \"google_compute_instance\" \"livebook\" {\n    70\t  # Existence is the park dial: parking (livebook_running = false) deletes the\n    71\t  # VM and its auto_delete boot disk, so a parked workbench bills only the data\n    72\t  # disk. Notebooks/config live on that disk and cloud-init rebuilds the rest,\n    73\t  # so resume is a clean re-provision — while retiring the workbench outright\n    74\t  # (livebook_enabled = false) deliberately remains a reviewed destroy guarded\n    75\t  # by prevent_destroy on the durable pieces.\n    76\t  count = var.livebook_enabled && var.livebook_running ? 1 : 0\n    77\t\n    78\t  name                      = \"emisar-livebook\"\n    79\t  zone                      = var.zones[0]\n    80\t  machine_type              = var.livebook_machine_type\n    81\t  tags                      = [\"emisar-livebook\"]\n    82\t  allow_stopping_for_update = true\n    83\t\n    84\t  # Deliberately omit cluster_name: portal libcluster must never auto-discover\n    85\t  # this full-trust debugging node.\n    86\t  labels = {\n4:plane. HCP Terraform workspace `Dryga/emisar` owns state and applies. GitHub CD\n17:                         |-> optional private Livebook instance through IAP\n33:| Runtime | `network.tf`, `compute.tf`, `database.tf`, `livebook.tf` |\n38:| Rendered payloads and checks | `runtime/{portal,admin-runner,livebook,mta-sts}/`, `tests/{render,database}/`; run via `./run` |\n44:| Compute | Regional managed instance group plus a host-supervised private admin runner per portal VM, optional single-node Livebook workbench, Shielded VMs, no external VM IPs, zero-unavailable portal rolling updates |\n53:Environment sizing and contacts are HCP Terraform workspace variables. Do not\n69:not fall back to the older applied image after a failed plan. Workspace\n110:Livebook tag on TCP 4369 and 9100-9105. Livebook has no `cluster_name` label, so\n153:Set the HCP Terraform API token separately as the sensitive workspace variable\n197:## Livebook admin workbench\n199:The optional Livebook instance is a production admin/debug host. Enable it with\n200:`livebook_enabled=true`, set its sizing as workspace variables, and set the\n201:sensitive `livebook_iap_iam_user` to one lowercase Google Workspace user. The VM\n202:has no public address. `https://livebook.<domain>` reaches a dedicated backend\n207:created or committed. Livebook receives\n208:`LIVEBOOK_IDENTITY_PROVIDER=google_iap:<signed-jwt-audience>` and validates the\n209:signed IAP assertion itself. `LIVEBOOK_TOKEN_ENABLED=false` and no\n210:`LIVEBOOK_PASSWORD` is configured. Opening the URL therefore uses the current\n211:Google/IAP browser identity automatically and never presents a second Livebook\n213:project's organization. The load balancer sends only Livebook's `/public/*`\n215:this is required because widgets load from `livebookusercontent.com` without an\n218:Notebooks and Livebook configuration persist on the separately protected\n219:`emisar-livebook-data` disk, mounted at `/data` in the container. Saved notebooks\n220:live under `/data/notebooks`; Livebook configuration is\n221:`/data/.livebook/livebook_config.v1.ets`. The VM boot disk and container are\n234:`/home/livebook` tmpfs because `Mix.install/1` runs downloaded build tools;\n236:notebooks and Livebook configuration persist on `/data`.\n240:The local Cloud SQL Auth Proxy logs in as the dedicated Livebook service account\n270:The Livebook node and its standalone notebook runtimes inherit the exact release\n272:port is opened toward Livebook.\n276:Externally issued credentials are sensitive HCP Terraform workspace variables.\n293:that trigger from a hash of the payload itself, so changing the workspace value\n301:same change as the workspace value. The resulting exact version is part of\n336:delete the local file, and then choose the staged consumer. Enabling Livebook\n337:while `release_cookie_ready=false` writes that exact value for Livebook without\n86a85a97c471cf983c13ce8ea0ffb477f6bd1215\n"
+        },
+        "status": "completed",
+        "content": [
+          {
+            "type": "terminal",
+            "terminalId": "exec-dd911553-ddf1-4f39-9578-77433923dffd"
+          }
+        ],
+        "tool_call_id": "exec-dd911553-ddf1-4f39-9578-77433923dffd",
+        "evidence_version": 1
+      }
+    }
+  ]
+}

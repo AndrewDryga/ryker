@@ -72,6 +72,27 @@ defmodule Responder.ControlPlane.MemorySummaryStatusTest do
     refute render_summaries() =~ "No complete source history was saved"
   end
 
+  test "handover maintenance reports capacity without losing its saved text or confusing source time" do
+    [entry | _] = LearningFixtures.inputs!()
+    summary = summary!(LearningSources.for_entry(entry))
+
+    Repo.update!(
+      Ecto.Changeset.change(summary,
+        compaction_error_code: "source_capacity",
+        compaction_retry_at: DateTime.add(DateTime.utc_now(), 3600)
+      )
+    )
+
+    [item] = ConversationMemory.project(%{"kind" => "summaries"}).items
+    assert item.source_at == entry.occurred_at
+    assert item.changed_at != item.source_at
+    html = render_summaries()
+    assert html =~ "source history is too large to combine safely"
+    assert html =~ "Retained summary text for inspection."
+    assert html =~ "Latest source message"
+    assert html =~ "Learned or changed"
+  end
+
   for retained_at <- [nil, "not-a-timestamp"] do
     test "invalid receipt time #{inspect(retained_at)} is not displayed as usable memory with a guessed expiry" do
       # A nonempty array is not proof of usable source history. Do not tell the

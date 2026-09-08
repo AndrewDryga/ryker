@@ -8,13 +8,16 @@ defmodule Responder.Cutover.ImporterTest do
   alias Responder.ControlPlane.{EpisodePage, EpisodeTrace, Projection}
   alias Responder.Cutover.{Importer, Item, Ledger, LegacySchema, Rollback, Run}
   alias Responder.Episodes.Episode
+  alias Responder.Fixtures.DatabaseClock
   alias Responder.Repo
 
   alias Responder.State.{
     Behavior,
+    Behaviors,
     EventSubscription,
     EventSubscriptions,
     EventWaits,
+    Memories,
     MemoryEntry,
     Record,
     Schedule
@@ -24,6 +27,41 @@ defmodule Responder.Cutover.ImporterTest do
 
   @cutover_at ~U[2026-08-30 12:00:00.000000Z]
   @policy_digest String.duplicate("d", 64)
+
+  for kind <- [:memory, :guidance] do
+    test "imported #{kind} is immediately searchable when database time trails the host" do
+      # Cutover is also a memory writer; retaining host timestamps here would
+      # leave imported facts/guidance invisible to the database search cutoff.
+      envelope = envelope()
+      {:ok, %{run: run}} = Ledger.prepare(envelope, review(envelope))
+      database_time = DatabaseClock.behind_host!()
+
+      assert {:ok, %{status: :applied}} =
+               Importer.apply(run.id, work_profiles: work_profiles())
+
+      context = %{
+        conversation_ref: "slack:T123:C456",
+        operator_ref: "slack:user:U123",
+        repository: nil,
+        workspace_ref: "slack:T123"
+      }
+
+      {matches, saved} =
+        if unquote(kind) == :memory do
+          {Memories.search(Map.delete(context, :operator_ref), "payments", "current_channel", 20),
+           Repo.one!(MemoryEntry)}
+        else
+          {Behaviors.search_guidance(context, "concise", "current_channel", 20),
+           Repo.one!(from(b in Behavior, where: b.kind == :guidance))}
+        end
+
+      assert length(matches) == 1
+      assert saved.inserted_at == database_time
+      assert saved.updated_at == database_time
+      assert saved.confirmed_at == run.reviewed_at
+      assert saved.expires_at == ~U[2099-08-30 12:00:00.000000Z]
+    end
+  end
 
   for {field, invalid_value} <- [
         {"source_kind", String.duplicate("a", 121)},

@@ -41,6 +41,7 @@ defmodule Responder.RuntimeConfiguration do
   @maximum_bytes 512 * 1_024
   @managed_application_keys [
     :admission,
+    :learning,
     :control_plane,
     :cutover_profiles,
     :coop_worker_gateway,
@@ -59,7 +60,7 @@ defmodule Responder.RuntimeConfiguration do
     :work
   ]
   @root_required ~w(version mode host_ref coop repositories admission work)
-  @root_optional ~w(control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks model_evals repository_sets)
+  @root_optional ~w(control_plane coop_worker_gateway delivery publication retention state_tools event_waits schedules emisar slack github webhooks model_evals repository_sets learning)
 
   @spec install_from_env!() :: :ok
   def install_from_env! do
@@ -137,6 +138,7 @@ defmodule Responder.RuntimeConfiguration do
     repository_contexts = repository_contexts(repositories, repository_sets)
     work = work!(root["work"], coop, host_ref, mode)
     admission = admission!(root["admission"], coop, host_ref, mode, work)
+    learning = optional(root, "learning", &learning!(&1, coop, host_ref, mode, work))
 
     model_evals =
       optional(
@@ -213,6 +215,7 @@ defmodule Responder.RuntimeConfiguration do
       work: work
     }
     |> put_optional(:emisar, emisar && emisar.runtime)
+    |> put_optional(:learning, learning)
     |> put_optional(:model_evals, model_evals)
     |> put_optional(:slack, slack && slack.runtime)
     |> put_optional(:github, github && github.runtime)
@@ -511,6 +514,37 @@ defmodule Responder.RuntimeConfiguration do
     case mode do
       :product -> Map.merge(configuration, %{api: work.api, client: work.client})
       :component -> Map.put(configuration, :socket, coop.socket)
+    end
+  end
+
+  defp learning!(value, coop, host_ref, mode, work) do
+    object =
+      object!(
+        value,
+        ~w(policy),
+        ~w(concurrency batch_size quiet_seconds maximum_delay_seconds poll_interval_ms execution_timeout_seconds),
+        "learning"
+      )
+
+    policy = policy!(object["policy"], "learning.policy")
+
+    config = %{
+      policy: policy.name,
+      policy_digest: policy.digest,
+      worker_ref: "#{host_ref}:learning",
+      concurrency: integer!(object, "concurrency", 1, 1, 8, "learning"),
+      batch_size: integer!(object, "batch_size", 16, 1, 16, "learning"),
+      quiet_seconds: integer!(object, "quiet_seconds", 10, 0, 300, "learning"),
+      maximum_delay_seconds: integer!(object, "maximum_delay_seconds", 60, 1, 600, "learning"),
+      poll_interval_ms: integer!(object, "poll_interval_ms", 1000, 100, 60_000, "learning"),
+      execution_timeout_seconds:
+        integer!(object, "execution_timeout_seconds", 600, 30, 1800, "learning"),
+      receive_timeout_ms: min(coop.receive_timeout_ms, 30_000)
+    }
+
+    case mode do
+      :product -> Map.merge(config, %{api: work.api, client: work.client})
+      :component -> Map.put(config, :socket, coop.socket)
     end
   end
 
@@ -1837,6 +1871,7 @@ defmodule Responder.RuntimeConfiguration do
 
   defp validate_runtimes!(configuration) do
     Responder.Admission.Runtime.options!(configuration.admission)
+    if configuration[:learning], do: Responder.Learning.Runtime.options!(configuration.learning)
     Responder.Work.Runtime.options!(configuration.work)
 
     validate_platform_runtimes(configuration)

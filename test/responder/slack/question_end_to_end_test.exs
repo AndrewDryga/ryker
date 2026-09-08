@@ -11,7 +11,7 @@ defmodule Responder.Slack.QuestionEndToEndTest do
   alias Responder.Ingress.Inbox
   alias Responder.Repo
   alias Responder.Slack.{Engagement, Gateway, InteractionHandler, Publisher}
-  alias Responder.State.{Record, Records}
+  alias Responder.State.{KnowledgeSnapshot, Record, Records}
   alias Responder.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
   alias Responder.Work.{Custody, Executor, Session, Turn}
 
@@ -75,6 +75,11 @@ defmodule Responder.Slack.QuestionEndToEndTest do
 
     assert {:ok, work_claim} = Custody.claim_next("slack-question-work", 60, :work)
     assert work_claim.episode.id == episode.id
+
+    # This fixture pre-creates a model tool result. Normal Executor exposure
+    # precedes tools; initialize that empty custody before the synthetic record,
+    # never retrospectively attest a transcript that already produced records.
+    assert :ok = KnowledgeSnapshot.expose(work_claim, [])
 
     assert {:ok, request} =
              Records.create(Records.token(work_claim.turn), "rollout-choice", "input_request", %{

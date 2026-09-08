@@ -14,12 +14,37 @@ defmodule Responder.State.KnowledgeRetentionShapeTest do
 
   @retention_seconds 3_600
 
+  test "retention fixtures isolate shared lock identities while retaining both source messages" do
+    # The outer sandbox holds conversation/configuration locks until test exit;
+    # replay tests legitimately acquire those same production locks in other
+    # transactions. Shared captured fixture identities created an artificial cycle.
+    originals =
+      "testdata/learning/retained-haproxy-lifecycle.json"
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.fetch!("inputs")
+
+    entries = retained_inputs!()
+    assert length(entries) == length(originals)
+    assert length(Enum.uniq_by(entries, & &1.destination_conversation_ref)) == 1
+
+    for {entry, raw} <- Enum.zip(entries, originals) do
+      refute entry.id == raw["id"]
+      refute entry.source_ref == raw["source_ref"]
+      refute entry.destination_conversation_ref == raw["destination_conversation_ref"]
+      assert entry.content == raw["content"]
+
+      assert DateTime.to_naive(entry.occurred_at) ==
+               NaiveDateTime.from_iso8601!(raw["occurred_at"])
+    end
+  end
+
   for schema <- [ConversationSummary, ConversationRollup],
       history <- [[], nil, %{}, "unavailable"] do
     test "#{inspect(schema)} history #{inspect(history)} cannot abort expiry of a sourced neighbor" do
       # Receiptless retained history must not crash the maintenance transaction
       # and prevent genuinely expired source prose from being withdrawn.
-      [expired_entry, current_entry] = LearningFixtures.inputs!()
+      [expired_entry, current_entry] = retained_inputs!()
       old = DateTime.add(DateTime.utc_now(), -2 * @retention_seconds, :second)
       source = Repo.get_by!(ConversationObservation, source_input_id: expired_entry.id)
       Repo.update!(Ecto.Changeset.change(source, updated_at: old))
@@ -37,6 +62,9 @@ defmodule Responder.State.KnowledgeRetentionShapeTest do
                end)
 
       assert Repo.get!(schema, expired.id).state == %{"retention" => "pruned"}
+      # Keep the audit identity, not up to 8 MiB of now-unused copied receipts.
+      # Consumers of a handover already inherit terminal roots of their own.
+      assert Repo.get!(schema, expired.id).source_dependencies == []
 
       assert Repo.get!(schema, expired.id).state_fingerprint ==
                CanonicalJSON.digest(%{"retention" => "pruned"})
@@ -61,7 +89,7 @@ defmodule Responder.State.KnowledgeRetentionShapeTest do
       # roll back expiry of unrelated, genuinely expired source prose.
       # PostgreSQL accepts special values and non-UTC formats that are not
       # valid receipt clocks; parsing them is not authority to expire a row.
-      [expired_entry, current_entry] = LearningFixtures.inputs!()
+      [expired_entry, current_entry] = retained_inputs!()
       old = DateTime.add(DateTime.utc_now(), -2 * @retention_seconds, :second)
       source = Repo.get_by!(ConversationObservation, source_input_id: expired_entry.id)
       Repo.update!(Ecto.Changeset.change(source, updated_at: old))
@@ -96,7 +124,7 @@ defmodule Responder.State.KnowledgeRetentionShapeTest do
     test "#{inspect(schema)} expired UTC receipt using #{variant} still expires normally" do
       # Rejecting PostgreSQL-only clocks must not silently disable expiry for
       # equivalent UTC spellings already accepted by the receipt validator.
-      [expired_entry, current_entry] = LearningFixtures.inputs!()
+      [expired_entry, current_entry] = retained_inputs!()
       old = DateTime.add(DateTime.utc_now(), -2 * @retention_seconds, :second)
       source = Repo.get_by!(ConversationObservation, source_input_id: expired_entry.id)
       Repo.update!(Ecto.Changeset.change(source, updated_at: old))
@@ -128,6 +156,8 @@ defmodule Responder.State.KnowledgeRetentionShapeTest do
       assert Repo.get!(schema, current.id) == current
     end
   end
+
+  defp retained_inputs!, do: LearningFixtures.inputs!(isolate: true)
 
   defp retained_text(schema, id) do
     Repo.query!(

@@ -1,10 +1,12 @@
 defmodule Responder.State.LearningFailureTest do
   use Responder.DataCase, async: false
+  import Ecto.Query
 
   alias Responder.CanonicalJSON
   alias Responder.Episodes.{Episode, Event}
   alias Responder.Fixtures.Learning, as: Fixtures
   alias Responder.Ingress.Inbox.Entry
+  alias Responder.Learning.FleetSession
   alias Responder.Repo
   alias Responder.Slack.ChannelMembership
 
@@ -22,15 +24,64 @@ defmodule Responder.State.LearningFailureTest do
   @policy %{policy: "recorded-read-only-policy", policy_digest: String.duplicate("a", 64)}
   @fixture "testdata/learning/retained-output-contract-failure.json"
 
+  test "provider contract exhaustion supplies static feedback without renewing its spending budget" do
+    # The retained batch371 provider failure had no public accepted result. A
+    # fresh start needs the same contract correction as host rejection, not an
+    # identical blind prompt; the three-start bound must still hold.
+    ids = Enum.map(Fixtures.inputs!(), & &1.id)
+    assert {:ok, first} = prepare_with_custody(ids, @policy)
+    assert Jason.decode!(first.prompt)["previous_attempt_error"] == nil
+
+    assert {:ok, failed} =
+             Learning.fail(first.id, :output_contract_failed, failure_receipt(first))
+
+    assert {:ok, second} = prepare_with_custody(ids, @policy)
+    feedback = Jason.decode!(second.prompt)["previous_attempt_error"]
+    assert feedback["code"] == "output_contract_failed"
+    assert feedback["instruction"] =~ "required JSON shape"
+    assert byte_size(second.prompt) <= 65_536
+    assert second.batch_key == first.batch_key
+    assert Repo.get!(LearningRun, first.id) == failed
+
+    assert {:ok, _} = Learning.fail(second.id, :output_contract_failed, failure_receipt(second))
+
+    assert {:ok, third} = prepare_with_custody(ids, @policy)
+    assert {:ok, _} = Learning.fail(third.id, :output_contract_failed, failure_receipt(third))
+    assert {:error, :learning_retry_exhausted} = prepare_with_custody(ids, @policy)
+    assert Repo.aggregate(LearningRun, :count) == 3
+  end
+
+  test "host-rejected model results spend the same durable retry budget as provider failures" do
+    # The replay exhausted contract attempts on batch 371. Counting only Coop's
+    # terminal error lets the same unusable public result buy endless new host
+    # generations instead. Use the unchanged recorded body, not a made-up answer.
+    ids = Enum.map(Fixtures.inputs!(), & &1.id)
+    body = hd(fixture()["public_responses"])["text"]
+
+    for generation <- 1..3 do
+      assert {:ok, run} = prepare_with_custody(ids, @policy)
+      assert run.generation == generation
+
+      assert {:error, :invalid_learning_result} =
+               Responder.Fixtures.Learning.accept(run.id, body, %{})
+
+      assert Repo.get!(LearningRun, run.id).status == :rejected
+    end
+
+    assert {:error, :learning_retry_exhausted} = prepare_with_custody(ids, @policy)
+    assert Repo.aggregate(LearningRun, :count) == 3
+    assert Repo.aggregate(ConversationKnowledge, :count) == 0
+  end
+
   # Batch 371 exhausted Coop's three contract attempts, but stayed prepared and
   # wedged every restart. A fresh host generation must not reset an endless loop.
   test "three durable execution failures deny a fourth generation even after receipt pruning" do
     entries = Fixtures.inputs!()
     ids = Enum.map(entries, & &1.id)
-    assert {:ok, run} = Learning.prepare(ids, @policy)
+    assert {:ok, run} = prepare_with_custody(ids, @policy)
     failures = seed_failures!(run, 3)
 
-    assert {:error, :learning_retry_exhausted} = Learning.prepare(ids, @policy)
+    assert {:error, :learning_retry_exhausted} = prepare_with_custody(ids, @policy)
     assert Repo.aggregate(LearningRun, :count) == 3
 
     expired = DateTime.add(DateTime.utc_now(), -3601) |> DateTime.to_iso8601()
@@ -41,7 +92,7 @@ defmodule Responder.State.LearningFailureTest do
     end
 
     assert {:ok, 3} = Repo.transaction(fn -> Learning.prune_in_transaction(3600) end)
-    assert {:error, :learning_retry_exhausted} = Learning.prepare(ids, @policy)
+    assert {:error, :learning_retry_exhausted} = prepare_with_custody(ids, @policy)
     assert Repo.aggregate(LearningRun, :count) == 3
 
     for failed <- failures do
@@ -82,6 +133,10 @@ defmodule Responder.State.LearningFailureTest do
     assert failed.producer == receipt
     assert failed.result == nil
     assert failed.result_sha256 == nil
+    assert failed.remote_stopped_at != nil
+    assert failed.stop_receipt["id"] == receipt["turn_id"]
+    assert failed.stop_receipt["session_id"] == receipt["session_id"]
+    assert failed.stop_receipt["failure"] == receipt
     assert frozen(failed) == frozen(run)
     assert protected_rows() == before
     assert {:ok, ^failed} = Learning.fail(run.id, :output_contract_failed, receipt)
@@ -89,11 +144,60 @@ defmodule Responder.State.LearningFailureTest do
 
     for response <- fixture()["public_responses"] do
       assert {:error, :learning_attempt_finished} =
-               Learning.accept(run.id, response["text"], receipt)
+               Responder.Fixtures.Learning.accept(run.id, response["text"], receipt)
     end
 
     assert Repo.get!(LearningRun, run.id) == failed
     assert protected_rows() == before
+  end
+
+  test "generic provider failure preserves a previously recorded candidate and its producer" do
+    ids = Enum.map(Fixtures.inputs!(), & &1.id)
+    assert {:ok, run} = prepare_with_custody(ids, @policy)
+    receipt = failure_receipt(run)
+    body = hd(fixture()["public_responses"])["text"]
+    producer = %{"target" => "host-contract-test-provider"}
+
+    candidate = %{
+      "id" => receipt["turn_id"],
+      "session_id" => receipt["session_id"],
+      "candidate" => %{"message" => body, "sha256" => sha256(body), "attempt" => 1}
+    }
+
+    assert {:ok, saved} = Learning.record_candidate(run.id, candidate, producer)
+    assert saved.status == :responded
+
+    # Structural provider-failure variant: missing optional provider metadata
+    # must not erase an already retained public candidate or invent timestamps.
+    generic =
+      Map.merge(receipt, %{
+        "error_code" => "provider_unavailable",
+        "target" => nil,
+        "finished_at" => nil
+      })
+
+    assert {:ok, failed} = Learning.fail(run.id, :learning_provider_failed, generic)
+    assert failed.status == :rejected
+    assert failed.result == saved.result
+    assert failed.result_sha256 == saved.result_sha256
+    assert failed.producer == producer
+    assert failed.stop_receipt["failure"] == generic
+    assert failed.remote_stopped_at != nil
+    assert {:ok, ^failed} = Learning.fail(run.id, :learning_provider_failed, generic)
+    assert Repo.aggregate(KnowledgeRevision, :count) == 0
+  end
+
+  test "a terminal receipt without its bound native session cannot record failure or stop proof" do
+    run = retained_run!()
+    receipt = failure_receipt(run)
+
+    from(s in Responder.Work.Session, where: s.learning_run_id == ^run.id)
+    |> Repo.update_all(set: [coop_session_id: nil])
+
+    assert {:error, :invalid_learning_failure} =
+             Learning.fail(run.id, :output_contract_failed, receipt)
+
+    assert Repo.get!(LearningRun, run.id) == run
   end
 
   for field <- ~w(session_id turn_id target finished_at) do
@@ -212,14 +316,14 @@ defmodule Responder.State.LearningFailureTest do
   test "failure recording after channel deletion is audit-only and cannot authorize another attempt" do
     entries = Fixtures.inputs!()
     ids = Enum.map(entries, & &1.id)
-    assert {:ok, run} = Learning.prepare(ids, @policy)
+    assert {:ok, run} = prepare_with_custody(ids, @policy)
     delete_membership!()
     before = protected_rows()
 
     assert {:ok, failed} = Learning.fail(run.id, :output_contract_failed, failure_receipt(run))
     assert frozen(failed) == frozen(run)
     assert protected_rows() == before
-    assert {:error, :learning_source_stale} = Learning.prepare(ids, @policy)
+    assert {:error, :learning_source_stale} = prepare_with_custody(ids, @policy)
     assert Repo.get!(LearningRun, run.id) == failed
     assert Repo.aggregate(LearningRun, :count) == 1
   end
@@ -228,11 +332,11 @@ defmodule Responder.State.LearningFailureTest do
     test "a retry after #{change} cannot refresh or disclose the old failed batch" do
       entries = Fixtures.inputs!()
       ids = Enum.map(entries, & &1.id)
-      assert {:ok, run} = Learning.prepare(ids, @policy)
+      assert {:ok, run} = prepare_with_custody(ids, @policy)
       assert {:ok, failed} = Learning.fail(run.id, :output_contract_failed, failure_receipt(run))
       change_source!(hd(entries), unquote(change))
 
-      assert {:error, :learning_source_stale} = Learning.prepare(ids, @policy)
+      assert {:error, :learning_source_stale} = prepare_with_custody(ids, @policy)
       assert Repo.get!(LearningRun, run.id) == failed
       assert Repo.aggregate(LearningRun, :count) == 1
     end
@@ -241,7 +345,7 @@ defmodule Responder.State.LearningFailureTest do
   test "only execution failures spend the durable budget and retries get distinct custody identities" do
     entries = Fixtures.inputs!()
     ids = Enum.map(entries, & &1.id)
-    assert {:ok, initial} = Learning.prepare(ids, @policy)
+    assert {:ok, initial} = prepare_with_custody(ids, @policy)
 
     Repo.update!(
       Ecto.Changeset.change(initial, status: :stale, error_code: "learning_context_stale")
@@ -249,7 +353,7 @@ defmodule Responder.State.LearningFailureTest do
 
     generations =
       for generation <- 2..4 do
-        assert {:ok, run} = Learning.prepare(ids, @policy)
+        assert {:ok, run} = prepare_with_custody(ids, @policy)
         assert run.generation == generation
         assert {:ok, ^run} = Learning.authorize(run.id)
         receipt = failure_receipt(run)
@@ -259,8 +363,23 @@ defmodule Responder.State.LearningFailureTest do
       end
 
     assert generations |> Enum.map(& &1.id) |> Enum.uniq() |> length() == 3
-    assert {:error, :learning_retry_exhausted} = Learning.prepare(ids, @policy)
+    assert {:error, :learning_retry_exhausted} = prepare_with_custody(ids, @policy)
     assert Repo.aggregate(LearningRun, :count) == 4
+  end
+
+  defp prepare_with_custody(ids, policy) do
+    case Learning.prepare(ids, policy) do
+      {:ok, %{status: :prepared} = run} -> {:ok, bind_failure_custody(run)}
+      other -> other
+    end
+  end
+
+  defp bind_failure_custody(run) do
+    receipt = failure_receipt(run)
+    {:ok, _} = FleetSession.ensure(run)
+    {:ok, _} = FleetSession.bind(run, receipt["session_id"])
+    {:ok, bound} = Learning.bind_turn(run.id, receipt["session_id"], receipt["turn_id"])
+    bound
   end
 
   defp seed_failures!(initial, count) do
@@ -309,8 +428,27 @@ defmodule Responder.State.LearningFailureTest do
     raw = fixture()["learning_run"]
     assert raw["status"] == "prepared"
 
+    # Matching custody was added after this immutable capture. Its empty host
+    # default is not part of the recorded prompt, result, or producer evidence.
+    captured_fields =
+      LearningRun.__schema__(:fields) --
+        [
+          :match_refs,
+          :batch_id,
+          :batch_budget_version,
+          :rebuild,
+          :started_at,
+          :submit_revision,
+          :coop_turn_id,
+          :candidate_attempt,
+          :validation_receipt,
+          :stop_receipt,
+          :remote_stopped_at,
+          :reconcile_attempt_count
+        ]
+
     attributes =
-      Map.new(LearningRun.__schema__(:fields), fn field ->
+      Map.new(captured_fields, fn field ->
         value = Map.fetch!(raw, Atom.to_string(field))
 
         value =
@@ -331,7 +469,7 @@ defmodule Responder.State.LearningFailureTest do
         {field, value}
       end)
 
-    Repo.insert!(struct!(LearningRun, attributes))
+    struct!(LearningRun, attributes) |> Repo.insert!() |> bind_failure_custody()
   end
 
   defp change_source!(entry, event) when event in [:edit, :delete] do
@@ -416,6 +554,7 @@ defmodule Responder.State.LearningFailureConcurrencyTest do
   alias Responder.Episodes.{Episode, Event}
   alias Responder.Fixtures.Learning, as: Fixtures
   alias Responder.Ingress.Inbox.Entry
+  alias Responder.Learning.FleetSession
   alias Responder.Repo
   alias Responder.State.{ConversationObservation, Learning, LearningRun}
 
@@ -428,7 +567,7 @@ defmodule Responder.State.LearningFailureConcurrencyTest do
       baseline = fixture_counts()
       entries = Fixtures.inputs!()
       ids = Enum.map(entries, & &1.id)
-      assert {:ok, run} = Learning.prepare(ids, @policy)
+      assert {:ok, run} = prepare_with_custody(ids, @policy)
 
       try do
         remote =
@@ -451,6 +590,15 @@ defmodule Responder.State.LearningFailureConcurrencyTest do
         assert_shared_retry!(run, ids)
         assert Repo.get!(LearningRun, run.id) == failed
       after
+        Repo.delete_all(
+          from(s in Responder.Work.Session,
+            where:
+              s.learning_run_id in subquery(
+                from(r in LearningRun, where: r.batch_key == ^run.batch_key, select: r.id)
+              )
+          )
+        )
+
         Repo.delete_all(from(r in LearningRun, where: r.batch_key == ^run.batch_key))
         Repo.delete_all(from(o in ConversationObservation, where: o.source_input_id in ^ids))
         Repo.delete_all(from(e in Entry, where: e.id in ^ids))
@@ -462,6 +610,20 @@ defmodule Responder.State.LearningFailureConcurrencyTest do
     end)
   end
 
+  defp prepare_with_custody(ids, policy) do
+    case Learning.prepare(ids, policy) do
+      {:ok, %{status: :prepared} = run} ->
+        session_id = "host-contract-session:#{run.id}"
+        turn_id = "host-contract-turn:#{run.id}"
+        {:ok, _} = FleetSession.ensure(run)
+        {:ok, _} = FleetSession.bind(run, session_id)
+        Learning.bind_turn(run.id, session_id, turn_id)
+
+      other ->
+        other
+    end
+  end
+
   defp assert_shared_retry!(run, ids) do
     parent = self()
     <<lock::signed-64, _::binary>> = :crypto.hash(:sha256, "learning:" <> run.batch_key)
@@ -471,7 +633,7 @@ defmodule Responder.State.LearningFailureConcurrencyTest do
         Repo.transaction(fn ->
           Repo.query!("SELECT pg_advisory_xact_lock($1)", [lock])
           send(parent, {:retry_locked, backend_pid()})
-          receive do: (:prepare -> Learning.prepare(ids, @policy))
+          receive do: (:prepare -> prepare_with_custody(ids, @policy))
         end)
       end)
 
@@ -479,7 +641,7 @@ defmodule Responder.State.LearningFailureConcurrencyTest do
       unboxed_task(fn ->
         receive do: (:prepare -> :ok)
         send(parent, {:retry_started, backend_pid()})
-        Learning.prepare(ids, @policy)
+        prepare_with_custody(ids, @policy)
       end)
 
     try do

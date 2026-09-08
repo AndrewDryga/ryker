@@ -16,6 +16,7 @@ defmodule Responder.State.Records do
   alias Responder.Repo
 
   alias Responder.State.{
+    DerivedContext,
     EventSubscriptions,
     EventWaitTiming,
     Record,
@@ -124,8 +125,9 @@ defmodule Responder.State.Records do
     end)
   end
 
-  @spec model_records(Ecto.UUID.t()) :: [map()]
-  def model_records(episode_id) do
+  @doc "Read-only retained history for operator projections, not a model disclosure."
+  @spec retained_records(Ecto.UUID.t()) :: [map()]
+  def retained_records(episode_id) do
     Repo.all(
       from(record in Record,
         where:
@@ -144,6 +146,15 @@ defmodule Responder.State.Records do
         "status" => Atom.to_string(record.status)
       }
     end)
+  end
+
+  @spec model_records(Episode.t(), String.t() | nil) :: [map()]
+  def model_records(%Episode{} = destination, repository) do
+    destination.id
+    |> retained_records()
+    |> Enum.map(&DerivedContext.record/1)
+    |> DerivedContext.filter(destination, repository)
+    |> Enum.map(& &1["document"])
   end
 
   @spec open_required_goals(Ecto.UUID.t()) :: [map()]
@@ -165,7 +176,7 @@ defmodule Responder.State.Records do
   def goals(episode_id) when is_binary(episode_id) do
     episode_id
     |> goal_records()
-    |> current_goal_details()
+    |> goals_from_records()
   end
 
   def goals(_episode_id), do: []
@@ -173,7 +184,7 @@ defmodule Responder.State.Records do
   @spec repository_write_goals(Ecto.UUID.t()) :: [map()]
   def repository_write_goals(episode_id) when is_binary(episode_id) do
     goal_records(episode_id)
-    |> current_goal_details()
+    |> goals_from_records()
     |> Enum.filter(&(&1["authority"] == "repository_write"))
     |> Enum.map(&Map.take(&1, ~w(id required state writable_repository)))
   end
@@ -693,7 +704,7 @@ defmodule Responder.State.Records do
 
   defp current_required_goals(records) do
     records
-    |> current_goal_details()
+    |> goals_from_records()
     |> Enum.flat_map(fn goal ->
       if goal["required"] and goal["state"] not in @terminal_goal_states do
         [Map.take(goal, ~w(id requested_outcome state))]
@@ -703,7 +714,8 @@ defmodule Responder.State.Records do
     end)
   end
 
-  defp current_goal_details(records) do
+  @doc false
+  def goals_from_records(records) do
     states =
       records
       |> Enum.filter(&(&1.kind == "goal_state"))

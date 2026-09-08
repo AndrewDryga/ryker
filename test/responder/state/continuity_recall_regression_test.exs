@@ -23,6 +23,39 @@ defmodule Responder.State.ContinuityRecallRegressionTest do
   @now ~U[2026-09-07 12:00:00.000000Z]
 
   for kind <- [:summary, :rollup] do
+    test "automatic #{kind} recall validates only the ranked results it needs" do
+      # Each retained dependency list can reach 8 MiB. Loading and validating
+      # all 64 candidates just to return 4 or 8 causes avoidable memory and I/O.
+      [input | _] = captured_inputs!()
+      memory = captured_memory!(unquote(kind), input, older: false)
+      expand_stale_memory!(unquote(kind), memory)
+      handler = {__MODULE__, make_ref()}
+      reference = make_ref()
+
+      :ok =
+        :telemetry.attach(
+          handler,
+          [:responder, :repo, :query],
+          &__MODULE__.record_validation/4,
+          {self(), reference}
+        )
+
+      try do
+        key = if unquote(kind) == :summary, do: "related", else: "rollups"
+
+        context =
+          Continuity.model_context(
+            target(input.destination_conversation_ref),
+            input.repository_ref
+          )
+
+        assert length(context[key]) == if(unquote(kind) == :summary, do: 8, else: 4)
+        assert count_validations(reference) <= length(context[key]) + 1
+      after
+        :telemetry.detach(handler)
+      end
+    end
+
     test "64 newer withdrawn #{kind} receipts cannot hide healthy older automatic memory" do
       # The automatic 64-row window ran before source reauthorization, making
       # healthy memory disappear after a burst of stale derived records.
@@ -141,6 +174,20 @@ defmodule Responder.State.ContinuityRecallRegressionTest do
         assert Enum.map(context[key], & &1["source_ref"]) == [memory.ref],
                "UTC clock #{inspect(clock)} should remain recallable"
       end
+    end
+  end
+
+  def record_validation(_event, _measurements, %{query: query}, {owner, reference}) do
+    if String.contains?(query, "conversation_observations") and
+         String.contains?(query, "FOR SHARE"),
+       do: send(owner, {reference, :validated})
+  end
+
+  defp count_validations(reference, count \\ 0) do
+    receive do
+      {^reference, :validated} -> count_validations(reference, count + 1)
+    after
+      0 -> count
     end
   end
 

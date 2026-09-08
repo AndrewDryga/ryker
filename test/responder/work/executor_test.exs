@@ -65,7 +65,7 @@ defmodule Responder.Work.ExecutorTest do
 
       expected_kind = "conversation_#{unquote(memory_kind)}"
 
-      assert {:ok, %{"memories" => [%{"kind" => ^expected_kind}]}} =
+      assert {:ok, %{"memories" => memories}} =
                FixedTools.call(
                  "search_memory",
                  %{
@@ -73,10 +73,15 @@ defmodule Responder.Work.ExecutorTest do
                    "scope" => "current_channel",
                    "limit" => 10,
                    "kinds" => ["continuity"],
+                   "after" => nil,
+                   "before" => nil,
+                   "time_basis" => "source",
                    "cursor" => nil
                  },
-                 %{binding: binding}
+                 %{binding: binding, cursor_secret: "work-executor-search-cursor-test"}
                )
+
+      assert Enum.any?(memories, &(&1["kind"] == expected_kind))
 
       KnowledgeFixtures.revoke!(source)
 
@@ -98,9 +103,10 @@ defmodule Responder.Work.ExecutorTest do
 
   test "a source withdrawn by the final session read never reaches model submission" do
     # The early check passed, then the remote revision read raced source deletion.
-    claim = claim_with_bound_empty_session!("late-knowledge-revocation")
+    claim = claim_with_bound_empty_session!("late-knowledge-revocation-draft-ai-suggestions")
     {source, _document} = KnowledgeFixtures.learn!(claim.episode)
     {:ok, submission} = SubmissionBuilder.build(claim)
+    assert [_] = get_in(submission, ["context", "operator_context", "continuity", "knowledge"])
 
     {:ok, turn} =
       Custody.freeze_submission(

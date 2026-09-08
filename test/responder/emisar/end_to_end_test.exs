@@ -7,7 +7,7 @@ defmodule Responder.Emisar.EndToEndTest do
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Repo
   alias Responder.Slack.Publisher
-  alias Responder.State.{Record, Records}
+  alias Responder.State.{KnowledgeSnapshot, Record, Records}
   alias Responder.StateTools.Tools
   alias Responder.TestSupport.FakeWorkCoopAPI
   alias Responder.Work.{Custody, DeliveryReceipt, Executor, Turn}
@@ -60,6 +60,11 @@ defmodule Responder.Emisar.EndToEndTest do
 
   test "a governed action waits for Emisar and resumes the same episode after the exact run terminates" do
     claim = claim_episode!("approval-lifecycle")
+
+    # The fake model's approval record is constructed before Executor runs.
+    # Normal execution exposes its frozen context before any tool call. Preserve
+    # that ordering here; existing records cannot retroactively gain custody.
+    assert :ok = KnowledgeSnapshot.expose(claim, [])
 
     assert {:ok, recorded} =
              Tools.call(

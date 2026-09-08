@@ -22,6 +22,12 @@ defmodule Responder.Evals.AdmissionCaseTest do
 
       assert document["prompt"]["instructions"] =~ "Interpret the event itself"
       assert document["schema"]["title"] == "Responder admission decision"
+
+      assert Enum.sort(document["schema"]["required"]) ==
+               ~w(action episode_ref reaction reason relation work_class)
+
+      refute Map.has_key?(document["schema"]["properties"], "observation")
+      refute Map.has_key?(document["schema"]["properties"], "knowledge")
       refute Jason.encode!(document["prompt"]) =~ "fixture:"
       refute Jason.encode!(document["prompt"]) =~ "01993d45-"
     end

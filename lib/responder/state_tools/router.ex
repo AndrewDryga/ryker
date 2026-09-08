@@ -20,6 +20,7 @@ defmodule Responder.StateTools.Router do
   @impl Plug
   def init(options) do
     token = Keyword.fetch!(options, :token)
+    cursor_secret = Keyword.get(options, :cursor_secret, token)
     binding = Keyword.get(options, :binding)
     emisar_rpc_url = Keyword.get(options, :emisar_rpc_url)
 
@@ -31,6 +32,9 @@ defmodule Responder.StateTools.Router do
 
     unless valid_token?(token),
       do: raise(ArgumentError, "state-tools token must be at least 16 valid UTF-8 bytes")
+
+    unless is_nil(cursor_secret) or valid_token?(cursor_secret),
+      do: raise(ArgumentError, "memory cursor secret must be at least 16 valid UTF-8 bytes")
 
     unless is_nil(emisar_rpc_url) or valid_emisar_rpc_url?(emisar_rpc_url),
       do: raise(ArgumentError, "state-tools Emisar RPC URL must be an HTTPS URL")
@@ -45,6 +49,7 @@ defmodule Responder.StateTools.Router do
       additional_tools: additional_tools,
       binding: binding,
       capabilities: capabilities,
+      cursor_secret: cursor_secret,
       emisar_rpc_url: emisar_rpc_url,
       token: token
     }

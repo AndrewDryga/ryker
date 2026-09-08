@@ -52,6 +52,7 @@ defmodule Responder.Work.Turn do
     field(:usage_provider_ms, :integer)
     field(:usage_host_ms, :integer)
     field(:measurement_error_code, :string)
+    field(:summary_error_code, :string)
     field(:cancellation_intent, Responder.CanonicalJSON.Type)
     field(:cancellation_intent_fingerprint, :string)
     field(:cancellation_receipt, Responder.CanonicalJSON.Type)

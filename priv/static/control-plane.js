@@ -1,13 +1,16 @@
 import {Socket} from "/assets/phoenix.mjs"
 import {LiveSocket} from "/assets/phoenix_live_view.esm.js"
 import {draftKey as keyFor, captureDrafts, acceptDrafts, sendDraft, validateDraft} from "/assets/drafts.mjs"
+import {createRelearnPicker} from "/assets/relearn-selection.mjs"
 const draftKey = element => element.closest?.("form[phx-change]") ? null : keyFor(element, location.pathname)
 
 const PreserveReadingState = {
   mounted() {
     this.active = true
     this.restoreDrafts()
+    this.relearnPicker = createRelearnPicker(this.el, () => sessionStorage)
     this.onInput = event => {
+      this.relearnPicker.change(event)
       if (event.target.form?.matches(".composer")) event.target.form.querySelector("textarea")?.setCustomValidity("")
       const key = draftKey(event.target)
       if (key) {
@@ -59,6 +62,7 @@ const PreserveReadingState = {
     this.el.addEventListener("change", this.onInput)
     this.el.addEventListener("submit", this.onSubmit)
     this.onClick = event => {
+      this.relearnPicker.click(event)
       const choice = event.target.closest?.("#card-state-picker a")
       if (choice) choice.closest("details").open = false
     }
@@ -93,6 +97,7 @@ const PreserveReadingState = {
       if (expanded.has(key)) node.open = expanded.get(key)
     })
     this.restoreDrafts()
+    this.relearnPicker.refresh()
     // LiveView restores input focus, but a replaced response body is not an
     // input. Restore only a focus the patch dropped, never a newer selection.
     if (this.readingURL === location.href && this.focusedID && document.activeElement === document.body) {

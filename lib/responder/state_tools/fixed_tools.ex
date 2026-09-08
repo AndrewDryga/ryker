@@ -6,17 +6,16 @@ defmodule Responder.StateTools.FixedTools do
   alias Responder.Artifacts.Outputs
   alias Responder.CanonicalJSON
   alias Responder.Delivery.{PlatformActionCustody, Presentation}
-  alias Responder.Episodes.Event
   alias Responder.Repo
   alias Responder.Slack.{ChannelMembership, Mentions}
 
   alias Responder.State.{
     Automations,
-    Behaviors,
     Continuity,
     ConversationSummaryState,
+    DerivedContext,
     KnowledgeSnapshot,
-    Memories,
+    MemorySearch,
     Record,
     Records
   }
@@ -100,6 +99,7 @@ defmodule Responder.StateTools.FixedTools do
          {:ok, binding} <- tool_binding(options),
          :ok <- exact_schema(name, arguments, options) do
       binding = Map.put(binding, :capabilities, capabilities(options))
+      binding = Map.put(binding, :cursor_secret, Map.get(Map.new(options), :cursor_secret))
 
       case dispatch(name, arguments, binding) do
         {:ok, _result} = success -> success
@@ -113,21 +113,30 @@ defmodule Responder.StateTools.FixedTools do
   def call(_name, _arguments, _options), do: {:error, "unknown_tool"}
 
   defp dispatch("get_work_state", arguments, binding) do
-    records = Records.model_records(binding.episode.id)
-    platform_actions = PlatformActionCustody.model_actions(binding.episode.id)
     limit = Map.get(arguments, "limit", 100)
 
-    {:ok,
-     %{
-       "cursor" => "episode:#{binding.episode.id}:v#{binding.episode.semantic_version}",
-       "episode" => %{
-         "episode_ref" => binding.episode.key,
-         "owner" => Atom.to_string(binding.episode.owner_kind),
-         "state" => Atom.to_string(binding.episode.state)
-       },
-       "platform_actions" => platform_actions,
-       "records" => Enum.take(records, limit)
-     }}
+    records =
+      Records.model_records(binding.episode, binding.session.repository_ref) |> Enum.take(limit)
+
+    platform_actions = PlatformActionCustody.model_actions(binding.episode.id)
+
+    with :ok <-
+           KnowledgeSnapshot.expose(
+             binding,
+             Enum.map(records, &DerivedContext.record/1)
+           ) do
+      {:ok,
+       %{
+         "cursor" => "episode:#{binding.episode.id}:v#{binding.episode.semantic_version}",
+         "episode" => %{
+           "episode_ref" => binding.episode.key,
+           "owner" => Atom.to_string(binding.episode.owner_kind),
+           "state" => Atom.to_string(binding.episode.state)
+         },
+         "platform_actions" => platform_actions,
+         "records" => records
+       }}
+    end
   end
 
   defp dispatch("cite_source", arguments, binding) do
@@ -249,47 +258,7 @@ defmodule Responder.StateTools.FixedTools do
   end
 
   defp dispatch("search_memory", arguments, binding) do
-    context = %{
-      conversation_ref: binding.episode.destination_conversation_ref,
-      repository: binding.session.repository_ref,
-      workspace_ref:
-        workspace_ref(
-          binding.episode.destination_transport,
-          binding.episode.destination_conversation_ref
-        )
-    }
-
-    operator_ref = latest_operator_ref(binding.episode.id)
-    query = arguments["query"]
-    scope = arguments["scope"]
-    limit = arguments["limit"]
-
-    {memories, left} =
-      append_search_results([], limit, arguments["kinds"], "fact", fn remaining ->
-        Memories.search(context, query, scope, remaining)
-      end)
-
-    behavior_context = Map.put(context, :operator_ref, operator_ref)
-
-    {memories, left} =
-      append_search_results(memories, left, arguments["kinds"], "guidance", fn remaining ->
-        Behaviors.search_guidance(behavior_context, query, scope, remaining)
-      end)
-
-    {memories, _left} =
-      append_search_results(memories, left, arguments["kinds"], "continuity", fn remaining ->
-        Continuity.search_context(
-          binding.episode,
-          binding.session.repository_ref,
-          query,
-          scope,
-          remaining
-        )
-      end)
-
-    with :ok <- KnowledgeSnapshot.expose(binding, memories) do
-      {:ok, %{"cursor" => nil, "memories" => memories}}
-    end
+    MemorySearch.search(binding, arguments, binding.cursor_secret)
   end
 
   defp dispatch("propose_memory", arguments, binding) do
@@ -403,28 +372,6 @@ defmodule Responder.StateTools.FixedTools do
     end
   end
 
-  defp append_search_results(memories, 0, _kinds, _kind, _search), do: {memories, 0}
-
-  defp append_search_results(memories, left, kinds, kind, search) do
-    if kind in kinds do
-      results = search.(left)
-      {memories ++ results, left - length(results)}
-    else
-      {memories, left}
-    end
-  end
-
-  defp latest_operator_ref(episode_id) do
-    Repo.one(
-      from(event in Event,
-        where: event.episode_id == ^episode_id,
-        order_by: [desc: event.sequence],
-        limit: 1,
-        select: fragment("(?::jsonb)->>'actor_ref'", event.payload)
-      )
-    )
-  end
-
   # Feedback may name the one open task offer it is refining. Keep the original
   # trusted instruction as the task identity so the new record supersedes the
   # pending proposal instead of creating a second task. Cross-episode,
@@ -464,6 +411,7 @@ defmodule Responder.StateTools.FixedTools do
     do: {:ok, instruction_ref}
 
   defp task_repository("engineering", value) when is_binary(value), do: :ok
+  defp task_repository("engineering", nil), do: {:error, :task_repository_required}
   defp task_repository("incident", value) when is_nil(value) or is_binary(value), do: :ok
   defp task_repository(_kind, _repository), do: {:error, {:invalid_state_record, :repository}}
 
@@ -699,12 +647,22 @@ defmodule Responder.StateTools.FixedTools do
   defp exact_schema(name, arguments, options) do
     case Enum.find(list(options), &(&1["name"] == name)) do
       %{"inputSchema" => schema} ->
-        if valid_schema_value?(schema, arguments), do: :ok, else: {:error, :invalid_arguments}
+        if valid_schema_value?(schema, arguments),
+          do: :ok,
+          else: schema_error(name, arguments, schema)
 
       nil ->
         {:error, :not_configured}
     end
   end
+
+  defp schema_error("request_task", %{"repository" => repository}, schema) do
+    if valid_schema_value?(schema["properties"]["repository"], repository),
+      do: {:error, :invalid_arguments},
+      else: {:error, :invalid_repository_reference}
+  end
+
+  defp schema_error(_name, _arguments, _schema), do: {:error, :invalid_arguments}
 
   defp valid_schema_value?(%{"anyOf" => schemas}, value),
     do: Enum.any?(schemas, &valid_schema_value?(&1, value))
@@ -943,18 +901,19 @@ defmodule Responder.StateTools.FixedTools do
     end
   end
 
-  defp workspace_ref("slack", "slack:" <> workspace_and_rest),
-    do: "slack:" <> (workspace_and_rest |> String.split(":", parts: 2) |> hd())
-
-  defp workspace_ref("github", "github:" <> binding_and_rest),
-    do: "github:" <> (binding_and_rest |> String.split(":", parts: 2) |> hd())
-
-  defp workspace_ref(transport, conversation_ref), do: transport <> ":" <> conversation_ref
-
   defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
   defp error_code(:unauthorized), do: "unauthorized"
   defp error_code(:invalid_arguments), do: "invalid_arguments"
+
+  defp error_code(:task_repository_required),
+    do:
+      "repository_required: engineering tasks require a non-null configured target. Use work.repository_ref or the relevant supplied work.workspace.companions[].name. This is an inert proposal, not execution. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
+
+  defp error_code(:invalid_repository_reference),
+    do:
+      "invalid_repository_reference: use a configured repository reference supported by this task interface: 1-256 letters, digits, underscores, dots, colons, or hyphens. A GitHub slug or checkout path is not automatically a configured reference."
+
   defp error_code(:not_configured), do: "not_configured"
   defp error_code(:not_found), do: "not_found"
   defp error_code(:deadline_elapsed), do: "deadline_elapsed"
@@ -964,10 +923,16 @@ defmodule Responder.StateTools.FixedTools do
   defp error_code(:automation_status_conflict), do: "operation_conflict"
   defp error_code({:automation_revision_conflict, _revision}), do: "operation_conflict"
   defp error_code(:state_record_unauthorized), do: "unauthorized"
+  defp error_code(:state_tools_binding_not_authorized), do: "unauthorized"
   defp error_code(:state_record_confirmation_unsupported), do: "confirmation_unsupported"
   defp error_code(:state_record_shadow_forbidden), do: "unauthorized"
   defp error_code(:state_record_operation_conflict), do: "operation_conflict"
   defp error_code(:conversation_summary_unauthorized), do: "unauthorized"
+  defp error_code(:invalid_memory_cursor), do: "invalid_memory_cursor"
+  defp error_code(:invalid_memory_time_filter), do: "invalid_memory_time_filter"
+  defp error_code(:memory_search_budget_exceeded), do: "memory_search_budget_exceeded"
+  defp error_code(:memory_search_result_too_large), do: "memory_search_result_too_large"
+  defp error_code(:work_memory_source_capacity_exceeded), do: "memory_source_capacity_exceeded"
   defp error_code({:invalid_schedule, _field}), do: "invalid_arguments"
   defp error_code({:invalid_state_record, _field}), do: "invalid_arguments"
   defp error_code(_reason), do: "temporarily_unavailable"
@@ -1171,13 +1136,18 @@ defmodule Responder.StateTools.FixedTools do
   defp request_task_tool do
     tool(
       "request_task",
-      "Create one inert engineering or incident-task proposal, or refine the exact open task_offer ref, under trusted authority. Kind defaults to engineering for compatible clients.",
+      "Create one inert engineering or incident-task proposal, or refine the exact open task_offer ref, under trusted authority. A supplied read-only repository permits an inert proposal, not execution. Engineering requires a configured target from work.repository_ref or the relevant work.workspace.companions[].name; incident tasks may use null. Kind defaults to engineering.",
       %{
         "authority_limits" => array(text(500), 1, 20),
         "instruction_ref" => reference(256),
         "kind" => enum(~w(engineering incident)),
         "prompt" => text(12_000),
-        "repository" => nullable(reference(256)),
+        "repository" =>
+          nullable(reference(256))
+          |> Map.put(
+            "description",
+            "Configured target: required (non-null) for engineering; null is allowed for incident. Use work.repository_ref or the relevant supplied work.workspace.companions[].name. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
+          ),
         "source_refs" => array(reference(256), 0, 20),
         "success_checks" => array(text(1_000), 1, 20),
         "title" => text(120)
@@ -1220,12 +1190,15 @@ defmodule Responder.StateTools.FixedTools do
   defp search_memory_tool do
     tool(
       "search_memory",
-      "Search permission-filtered historical memory; results never prove current state.",
+      "Search authorized historical memory using words or exact identifiers; an empty query browses by date. Kinds are interleaved so facts cannot hide guidance or conversation history. Follow cursor with the same query/filters; null cursor means exhausted. Times are UTC: after inclusive, before exclusive. source uses original-message time (latest backing message for derived knowledge; confirmation time for confirmed facts/guidance). changed uses content update time, never retrieval time. Expand Slack source references with read_slack_source when exact wording matters. History never proves current health or grants permission.",
       %{
-        "cursor" => nullable(reference(256)),
+        "cursor" => nullable(reference(4096)),
+        "after" => nullable(timestamp()),
+        "before" => nullable(timestamp()),
+        "time_basis" => enum(~w(source changed)),
         "kinds" => array(enum(~w(guidance fact continuity)), 1, 3),
         "limit" => integer(1, 20),
-        "query" => text(1_000),
+        "query" => Map.put(text(1_000), "minLength", 0),
         "scope" => enum(~w(current_channel repository workspace mine))
       }
     )

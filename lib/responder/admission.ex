@@ -479,9 +479,12 @@ defmodule Responder.Admission do
     case apply_episode(context, entry, selection) do
       {:ok, transitions, episode} ->
         sources = LearningSources.authorize_context(context, entry)
-        knowledge = if is_list(sources), do: decision.knowledge
 
-        with :ok <-
+        if is_list(context.source_dependencies) and not is_list(sources),
+          do: Repo.rollback({:admission_rejected, :context_stale})
+
+        with :ok <- Observations.reauthorize(entry, entry.repository_ref, context.observations),
+             :ok <-
                Knowledge.reauthorize(
                  entry,
                  entry.repository_ref,
@@ -491,20 +494,7 @@ defmodule Responder.Admission do
              {:ok, episode} <-
                maybe_resume_blocked_episode(episode, admitted_input_ref(transitions)),
              {:ok, decided} <- persist_decision(entry, decision, decision_ref, episode),
-             :ok <-
-               Observations.record_in_transaction(
-                 decided,
-                 decision.observation,
-                 decision_ref,
-                 sources
-               ),
-             :ok <-
-               Knowledge.record_in_transaction(
-                 decided,
-                 knowledge,
-                 context.knowledge,
-                 context.knowledge_omissions
-               ),
+             :ok <- Observations.record_excerpt_in_transaction(decided),
              :ok <-
                finalize_assignment_runs(entry, decision, decision_ref, episode, :decided) do
           {:ok, %{entry: decided, episode: episode, status: :applied, transitions: transitions}}

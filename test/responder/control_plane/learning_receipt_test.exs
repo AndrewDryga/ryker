@@ -19,7 +19,7 @@ defmodule Responder.ControlPlane.LearningReceiptTest do
     assert view.learning.target == "receipt-test-model"
 
     assert Enum.map(view.learning.sections, & &1.id) ==
-             ~w(inputs knowledge instructions contract prompt result)
+             ~w(inputs knowledge instructions contract prompt result validation)
 
     assert Enum.all?(view.learning.sections, &(!&1.artifact.truncated))
     expected = InspectionRedactor.artifact(run.prompt, preserve_format: true).text
@@ -32,7 +32,7 @@ defmodule Responder.ControlPlane.LearningReceiptTest do
 
     doc = LazyHTML.from_document(html)
     assert doc |> LazyHTML.query(".learning-receipt details[open]") |> LazyHTML.to_tree() == []
-    assert doc |> LazyHTML.query(".learning-receipt > details") |> Enum.count() == 6
+    assert doc |> LazyHTML.query(".learning-receipt > details") |> Enum.count() == 7
     assert html =~ "How update 1 was learned"
     assert html =~ "Source messages"
     assert html =~ "Response format"
@@ -130,12 +130,16 @@ defmodule Responder.ControlPlane.LearningReceiptTest do
             "summary" => "Grafana reported resolution; application recovery remains unverified.",
             "topics" => ["website", "OOM"],
             "target_ref" => nil,
+            "action" => "create",
+            "anchors" => [],
             "expected_version" => 0
           }
         ]
       })
 
-    {:ok, applied} = Learning.accept(run.id, result, %{"model" => "receipt-test-model"})
+    {:ok, applied} =
+      Responder.Fixtures.Learning.accept(run.id, result, %{"model" => "receipt-test-model"})
+
     {applied, Repo.one!(KnowledgeRevision)}
   end
 end

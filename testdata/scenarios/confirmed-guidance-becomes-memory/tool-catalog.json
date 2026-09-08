@@ -319,7 +319,6 @@
                         "type": "string"
                       },
                       "source_kind": {
-                        "description": "Exact input envelope's source.kind for the expected event, not a vendor name inside input.content. In a Work input item, read item.content.source.kind. A Terraform or Grafana Slack notification uses slack, even if its content says terraform or grafana. Null leaves the source kind unconstrained.",
                         "anyOf": [
                           {
                             "maxLength": 120,
@@ -330,7 +329,8 @@
                           {
                             "type": "null"
                           }
-                        ]
+                        ],
+                        "description": "Exact input envelope's source.kind for the expected event, not a vendor name inside input.content. In a Work input item, read item.content.source.kind. A Terraform or Grafana Slack notification uses slack, even if its content says terraform or grafana. Null leaves the source kind unconstrained."
                       },
                       "type": {
                         "const": "source_event",
@@ -898,7 +898,7 @@
           "name": "update_goal"
         },
         {
-          "description": "Create one inert engineering or incident-task proposal, or refine the exact open task_offer ref, under trusted authority. Kind defaults to engineering for compatible clients.",
+          "description": "Create one inert engineering or incident-task proposal, or refine the exact open task_offer ref, under trusted authority. A supplied read-only repository permits an inert proposal, not execution. Engineering requires a configured target from work.repository_ref or the relevant work.workspace.companions[].name; incident tasks may use null. Kind defaults to engineering.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
@@ -942,7 +942,8 @@
                   {
                     "type": "null"
                   }
-                ]
+                ],
+                "description": "Configured target: required (non-null) for engineering; null is allowed for incident. Use work.repository_ref or the relevant supplied work.workspace.companions[].name. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
               },
               "source_refs": {
                 "items": {
@@ -987,14 +988,36 @@
           "name": "request_task"
         },
         {
-          "description": "Search permission-filtered historical memory; results never prove current state.",
+          "description": "Search authorized historical memory using words or exact identifiers; an empty query browses by date. Kinds are interleaved so facts cannot hide guidance or conversation history. Follow cursor with the same query/filters; null cursor means exhausted. Times are UTC: after inclusive, before exclusive. source uses original-message time (latest backing message for derived knowledge; confirmation time for confirmed facts/guidance). changed uses content update time, never retrieval time. Expand Slack source references with read_slack_source when exact wording matters. History never proves current health or grants permission.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
+              "after": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "before": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "cursor": {
                 "anyOf": [
                   {
-                    "maxLength": 256,
+                    "maxLength": 4096,
                     "minLength": 1,
                     "pattern": "^[A-Za-z0-9_.:-]+$",
                     "type": "string"
@@ -1025,7 +1048,7 @@
               },
               "query": {
                 "maxLength": 1000,
-                "minLength": 1,
+                "minLength": 0,
                 "type": "string"
               },
               "scope": {
@@ -1036,14 +1059,24 @@
                   "mine"
                 ],
                 "type": "string"
+              },
+              "time_basis": {
+                "enum": [
+                  "source",
+                  "changed"
+                ],
+                "type": "string"
               }
             },
             "required": [
+              "after",
+              "before",
               "cursor",
               "kinds",
               "limit",
               "query",
-              "scope"
+              "scope",
+              "time_basis"
             ],
             "type": "object"
           },

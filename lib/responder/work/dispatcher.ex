@@ -51,6 +51,9 @@ defmodule Responder.Work.Dispatcher do
       when phase in [:operation, :turn] ->
         yield_progress(claim, reason, settings)
 
+      {:error, :work_derived_context_busy = reason} ->
+        yield_progress(claim, reason, settings)
+
       {:error, reason} ->
         case retry_class(reason) do
           :transient -> retry_or_block(claim, reported_reason(reason), settings)

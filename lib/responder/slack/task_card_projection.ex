@@ -1,6 +1,9 @@
 defmodule Responder.Slack.TaskCardProjection do
   @moduledoc """
   Builds one bounded, host-owned engineering-task card from canonical state.
+
+  TaskCard projections reauthorize their source context before external Slack
+  publication. Record projections are retained operator audit views only.
   """
 
   import Ecto.Query
@@ -10,10 +13,10 @@ defmodule Responder.Slack.TaskCardProjection do
   alias Responder.Publication.Publication
   alias Responder.Repo
   alias Responder.Slack.TaskCard
-  alias Responder.State.{Record, Records}
+  alias Responder.State.{DerivedContext, Record, Records}
   alias Responder.Work.{Session, Turn}
 
-  @ui_revision 4
+  @ui_revision 5
   @goal_priority %{"blocked" => 0, "working" => 1, "waiting" => 2, "ready" => 3}
   @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch)
 
@@ -21,11 +24,11 @@ defmodule Responder.Slack.TaskCardProjection do
           {:ok, %{document: map(), fingerprint: String.t(), ui_revision: pos_integer()}}
           | {:error, term()}
   def build(%TaskCard{} = card) do
-    with %Record{} = record <- Repo.get(Record, card.record_id),
-         %Episode{} = episode <- Repo.get(Episode, card.episode_id) do
-      project(record, episode, card.ref)
-    else
-      nil -> {:error, :task_card_source_not_found}
+    # Snapshot and source checks finish before either caller performs Slack I/O.
+    # A later withdrawal is handled by the next refresh, not a lock over HTTP.
+    case Repo.transaction(fn -> build_public(card) end) do
+      {:ok, result} -> result
+      error -> error
     end
   end
 
@@ -42,21 +45,38 @@ defmodule Responder.Slack.TaskCardProjection do
       )
       when is_binary(episode_id) do
     case Repo.get(Episode, episode_id) do
-      %Episode{} = episode -> project(record, episode, record.ref)
+      %Episode{} = episode -> project(record, episode, record.ref, snapshot(episode))
       nil -> {:error, :task_card_source_not_found}
     end
   end
 
   def build(_card), do: {:error, :invalid_task_card}
 
-  defp project(record, episode, task_ref) do
-    turn = current_turn(episode)
-    session = latest_session(episode.id)
-    publication = latest_publication(episode.id)
-    records = Records.model_records(episode.id)
-    publication_offer = latest_publication_offer(episode.id)
-    goals = Records.goals(episode.id)
-    progress = progress(episode.id)
+  defp build_public(card) do
+    with %Record{} = record <- Repo.get(Record, card.record_id),
+         %Episode{} = episode <- Repo.get(Episode, card.episode_id) do
+      snapshot = snapshot(episode)
+      {:ok, projection} = project(record, episode, card.ref, snapshot)
+
+      if public_sources?(card, record, episode, snapshot),
+        do: {:ok, public_errors(projection, snapshot)},
+        else: {:ok, neutral(projection)}
+    else
+      nil -> {:error, :task_card_source_not_found}
+    end
+  end
+
+  defp project(record, episode, task_ref, snapshot) do
+    %{
+      turn: turn,
+      session: session,
+      publication: publication,
+      records: records,
+      publication_offer: publication_offer
+    } = snapshot
+
+    goals = Records.goals_from_records(snapshot.goal_records)
+    progress = Enum.map(snapshot.progress_records, &progress_detail/1)
 
     projection = %{
       "action_needed" => action_needed(episode, turn, records, publication),
@@ -96,7 +116,30 @@ defmodule Responder.Slack.TaskCardProjection do
      }}
   end
 
-  defp progress(episode_id) do
+  defp snapshot(episode) do
+    %{
+      turn: current_turn(episode),
+      session: latest_session(episode.id),
+      publication: latest_publication(episode.id),
+      records: Records.retained_records(episode.id),
+      publication_offer: latest_publication_offer(episode.id),
+      goal_records: goal_records(episode.id),
+      progress_records: progress_records(episode.id)
+    }
+  end
+
+  defp goal_records(episode_id) do
+    Repo.all(
+      from(record in Record,
+        where:
+          record.episode_id == ^episode_id and record.kind in ["goal", "goal_state"] and
+            record.status in [:open, :confirmed],
+        order_by: [asc: record.sequence]
+      )
+    )
+  end
+
+  defp progress_records(episode_id) do
     Repo.all(
       from(record in Record,
         where:
@@ -108,13 +151,124 @@ defmodule Responder.Slack.TaskCardProjection do
       )
     )
     |> Enum.reverse()
-    |> Enum.map(fn record ->
-      %{
-        "phase" => compact(record.payload["phase"], 60),
-        "summary" => compact(record.payload["summary"], 600),
-        "at" => DateTime.to_iso8601(record.inserted_at)
-      }
-    end)
+  end
+
+  defp progress_detail(record) do
+    %{
+      "phase" => compact(record.payload["phase"], 60),
+      "summary" => compact(record.payload["summary"], 600),
+      "at" => DateTime.to_iso8601(record.inserted_at)
+    }
+  end
+
+  defp public_sources?(card, record, episode, snapshot) do
+    with true <- record.confirmed_episode_id == episode.id,
+         true <- same_destination?(card, episode),
+         {:ok, source_episode, source_session} <- offer_owner(record),
+         true <- same_destination?(card, source_episode),
+         {:ok, _} <-
+           DerivedContext.resolve(
+             [DerivedContext.record(record_document(record))],
+             source_episode,
+             source_session.repository_ref
+           ),
+         %Session{} = session <- snapshot.session,
+         {:ok, _} <-
+           DerivedContext.resolve(
+             snapshot_documents(snapshot),
+             episode,
+             session.repository_ref
+           ) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp offer_owner(record) do
+    with %Episode{} = episode <- Repo.get(Episode, record.episode_id),
+         %Turn{episode_id: episode_id} = turn <- Repo.get(Turn, record.turn_id),
+         true <- episode_id == episode.id,
+         %Session{} = session <- Repo.get(Session, turn.session_id) do
+      {:ok, episode, session}
+    else
+      _ -> {:error, :task_card_source_not_found}
+    end
+  end
+
+  defp same_destination?(card, episode),
+    do:
+      episode.destination_transport == "slack" and
+        episode.destination_conversation_ref == "slack:#{card.workspace_ref}:#{card.channel_ref}"
+
+  defp snapshot_documents(snapshot) do
+    (snapshot.records ++
+       Enum.map(snapshot.goal_records ++ snapshot.progress_records, &record_document/1) ++
+       Enum.reject([snapshot.publication_offer], &is_nil/1))
+    |> Enum.uniq_by(& &1["ref"])
+    |> Enum.map(&DerivedContext.record/1)
+  end
+
+  defp record_document(record),
+    do: %{
+      "kind" => record.kind,
+      "payload" => record.payload,
+      "ref" => record.ref,
+      "status" => Atom.to_string(record.status)
+    }
+
+  defp public_errors(projection, snapshot) do
+    case public_error(snapshot.publication, snapshot.turn) do
+      nil ->
+        projection
+
+      message ->
+        replace_task(
+          projection,
+          Map.put(projection.document["task_card"], "action_needed", message)
+        )
+    end
+  end
+
+  defp public_error(%Publication{status: :blocked}, _turn),
+    do: "Draft pull-request work needs operator attention. Open the episode for details."
+
+  defp public_error(%Publication{last_error_code: code}, _turn) when is_binary(code),
+    do: "Draft pull-request work needs operator attention. Open the episode for details."
+
+  defp public_error(_publication, %Turn{status: :blocked}),
+    do: "Task work is blocked and needs operator attention. Open the episode for details."
+
+  defp public_error(_publication, _turn), do: nil
+
+  defp neutral(projection) do
+    task = projection.document["task_card"]
+
+    safe =
+      task
+      |> Map.take(
+        ~w(confirmed_at confirmed_by episode_state session_generation status task_ref ui_revision updated_at work_state)
+      )
+      |> Map.merge(%{
+        "title" => "Engineering task",
+        "summary" => "Task details are unavailable until their source context can be checked.",
+        "action_needed" => nil,
+        "repository" => "Repository details unavailable",
+        "request" => nil,
+        "progress" => [],
+        "goals" => [],
+        "goals_total" => 0,
+        "goals_completed" => 0,
+        "publication" => nil,
+        "controls" => Enum.filter(task["controls"], &(&1 in ~w(stop close timeline)))
+      })
+
+    projection |> replace_task(safe) |> Map.put(:publication_offer_ref, nil)
+  end
+
+  defp replace_task(projection, task) do
+    document = %{"task_card" => task}
+    %{projection | document: document, fingerprint: CanonicalJSON.digest(document)}
   end
 
   defp card_goal(goal) do

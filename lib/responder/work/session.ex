@@ -9,7 +9,8 @@ defmodule Responder.Work.Session do
   schema "episode_work_sessions" do
     belongs_to(:episode, Responder.Episodes.Episode)
     belongs_to(:admission_input, Responder.Ingress.Inbox.Entry)
-    field(:execution_kind, Ecto.Enum, values: [:work, :admission], default: :work)
+    belongs_to(:learning_run, Responder.State.LearningRun)
+    field(:execution_kind, Ecto.Enum, values: [:work, :admission, :learning], default: :work)
     field(:policy, :string)
     field(:policy_digest, :string)
     field(:authority_digest, :string)
@@ -22,6 +23,8 @@ defmodule Responder.Work.Session do
     field(:activity_cursor, :integer, default: 0)
     field(:activity_sync_pending, :boolean, default: false)
     field(:workspace_task, Responder.CanonicalJSON.Type)
+    field(:source_exposure_count, :integer)
+    field(:knowledge_exposure_count, :integer)
 
     field(:cleanup_status, Ecto.Enum,
       values: [
@@ -71,7 +74,7 @@ defmodule Responder.Work.Session do
   @type t :: %__MODULE__{
           id: Ecto.UUID.t() | nil,
           episode_id: Ecto.UUID.t() | nil,
-          execution_kind: :work | :admission,
+          execution_kind: :work | :admission | :learning,
           policy: String.t() | nil,
           policy_digest: String.t() | nil,
           authority_digest: String.t() | nil,
@@ -84,6 +87,8 @@ defmodule Responder.Work.Session do
           activity_cursor: non_neg_integer(),
           activity_sync_pending: boolean(),
           workspace_task: map() | nil,
+          source_exposure_count: non_neg_integer() | nil,
+          knowledge_exposure_count: non_neg_integer() | nil,
           cleanup_status:
             :active
             | :close_pending

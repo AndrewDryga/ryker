@@ -13,6 +13,7 @@ defmodule Responder.Application do
         {Phoenix.PubSub, name: Responder.ControlPlane.PubSub}
       ] ++
         admission_children() ++
+        learning_children() ++
         work_children() ++
         retention_children() ++
         github_children() ++
@@ -35,6 +36,8 @@ defmodule Responder.Application do
   defp work_children do
     optional_child(:work, Responder.Work.Runtime)
   end
+
+  defp learning_children, do: optional_child(:learning, Responder.Learning.Runtime)
 
   defp retention_children do
     optional_child(:retention, Responder.Retention.Runtime)

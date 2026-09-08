@@ -4,6 +4,7 @@ defmodule Responder.State.MemoriesTest do
   import Ecto.Query
 
   alias Responder.Episodes
+  alias Responder.Fixtures.DatabaseClock
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
 
   alias Responder.Slack.{
@@ -20,6 +21,7 @@ defmodule Responder.State.MemoriesTest do
     Memories,
     MemoryEntry,
     MemoryReviewItem,
+    MemorySearchPage,
     Record,
     Records
   }
@@ -33,6 +35,70 @@ defmodule Responder.State.MemoriesTest do
       send(observer, {:opened_memory_modal, trigger_ref, view})
       :ok
     end
+  end
+
+  test "confirmed facts remain searchable when the database clock trails the host" do
+    # The cursor's database cutoff hid fresh confirmations stamped by Ecto's
+    # ahead-of-database host clock. Historical confirmation and expiry are distinct.
+    fixture = delivered_offers!("database-clock-fact")
+    database_time = DatabaseClock.behind_host!()
+    assert {:ok, confirmed} = Memories.confirm(confirmation(fixture, fixture.first, "clock"))
+
+    context = %{
+      conversation_ref: "slack:T123:C456",
+      repository: nil,
+      workspace_ref: "slack:T123"
+    }
+
+    assert [match] = Memories.search(context, "responder", "current_channel", 20)
+    assert match["memory_ref"] == confirmed.memory.ref
+    assert confirmed.memory.inserted_at == database_time
+    assert confirmed.memory.updated_at == database_time
+    assert confirmed.memory.confirmed_at == @now
+    assert confirmed.memory.expires_at == DateTime.add(@now, 90 * 86_400, :second)
+
+    page = MemorySearchPage.first("responder", "current_channel")
+
+    assert :done =
+             Memories.search_page(context, %{page | cutoff: DateTime.add(database_time, -1)})
+  end
+
+  test "operator fact edits use database time without entering an older search snapshot" do
+    fixture = delivered_offers!("database-clock-edit")
+    assert {:ok, confirmed} = Memories.confirm(confirmation(fixture, fixture.first, "edit-clock"))
+    database_time = DatabaseClock.behind_host!()
+    old = DateTime.add(database_time, -120, :second)
+    Repo.update_all(MemoryEntry, set: [inserted_at: old, updated_at: old])
+    assert {:ok, %{created: 1}} = Memories.refresh_reviews("slack:T123", 60)
+    [review] = Memories.list_reviews("slack:T123")
+
+    assert {:ok, _} =
+             Memories.resolve_review(
+               review["review_ref"],
+               :edit,
+               "slack:user:operator",
+               "slack:T123",
+               %{"subject" => "primary_repository", "value" => "responder-elixir"}
+             )
+
+    context = %{
+      conversation_ref: "slack:T123:C456",
+      repository: nil,
+      workspace_ref: "slack:T123"
+    }
+
+    page = MemorySearchPage.first("responder-elixir", "current_channel")
+
+    assert :done =
+             Memories.search_page(context, %{page | cutoff: DateTime.add(database_time, -1)})
+
+    edited = Repo.get!(MemoryEntry, confirmed.memory.id)
+    assert edited.edited_at == database_time
+    assert edited.inserted_at == old
+    assert edited.confirmed_at == confirmed.memory.confirmed_at
+    assert edited.expires_at == confirmed.memory.expires_at
+    assert {:ok, match, _position} = Memories.search_page(context, page)
+    assert match["memory_ref"] == confirmed.memory.ref
   end
 
   test "confirmed operational memory is scoped, provenance-bearing, replaceable, and forgettable" do
