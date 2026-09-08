@@ -8,7 +8,7 @@ defmodule Responder.Publication.Executor do
   """
 
   alias Responder.Delivery.Adapters
-  alias Responder.Publication.{Custody, Request, Review}
+  alias Responder.Publication.{Callback, Custody, Request, Review}
 
   @review_states ~w(open exhausted)
 
@@ -208,21 +208,17 @@ defmodule Responder.Publication.Executor do
   end
 
   defp leased_call(claim, settings, function) do
-    caller = self()
     result_ref = make_ref()
 
     {pid, monitor} =
-      spawn_monitor(fn ->
-        result =
-          try do
-            function.()
-          rescue
-            exception -> {:error, {:publication_callback_crashed, Exception.message(exception)}}
-          catch
-            kind, reason -> {:error, {:publication_callback_crashed, kind, reason}}
-          end
-
-        send(caller, {result_ref, result})
+      Callback.start(result_ref, fn ->
+        try do
+          function.()
+        rescue
+          exception -> {:error, {:publication_callback_crashed, Exception.message(exception)}}
+        catch
+          kind, reason -> {:error, {:publication_callback_crashed, kind, reason}}
+        end
       end)
 
     cadence_ms = max(div(settings.lease_seconds * 1_000, 3), 1)
@@ -230,7 +226,7 @@ defmodule Responder.Publication.Executor do
     try do
       await_call(result_ref, pid, monitor, claim, settings, cadence_ms)
     after
-      finish_call(pid, monitor, result_ref)
+      Callback.finish(pid, monitor, result_ref)
     end
   end
 
@@ -255,21 +251,6 @@ defmodule Responder.Publication.Executor do
           {:error, _reason} = error ->
             error
         end
-    end
-  end
-
-  defp finish_call(pid, monitor, result_ref) do
-    # Renewal can raise while this caller survives. Reap the callback before
-    # unwinding; await_call may already have consumed the original monitor.
-    cleanup_monitor = Process.monitor(pid)
-    Process.exit(pid, :kill)
-    receive do: ({:DOWN, ^cleanup_monitor, :process, ^pid, _reason} -> :ok)
-    Process.demonitor(monitor, [:flush])
-
-    receive do
-      {^result_ref, _result} -> :ok
-    after
-      0 -> :ok
     end
   end
 
