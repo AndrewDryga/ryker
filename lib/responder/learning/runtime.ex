@@ -91,7 +91,7 @@ defmodule Responder.Learning.Runtime do
     if Map.has_key?(config, :api) or Map.has_key?(config, :client),
       do: raise(ArgumentError, "learning cannot select both local and fleet execution")
 
-    case Client.new(socket: socket, receive_timeout: timeout) do
+    case Client.new(finch: Responder.CoopFinch, socket: socket, receive_timeout: timeout) do
       {:ok, client} -> {Client, client}
       {:error, _} -> raise ArgumentError, "invalid learning Coop socket"
     end
