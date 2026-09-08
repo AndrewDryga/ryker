@@ -37,4 +37,19 @@ defmodule Responder.Learning.RuntimeTest do
       assert_raise ArgumentError, fn -> Runtime.options!(Map.merge(@config, change)) end
     end
   end
+
+  test "local learning uses the application's existing Coop HTTP pool" do
+    # Internal deployment preflight failed before startup: fleet-only tests did
+    # not catch the local adapter omitting Client's required Finch owner.
+    config =
+      @config
+      |> Map.drop([:api, :client])
+      |> Map.put(:socket, "/tmp/responder-learning-test.sock")
+
+    settings = Runtime.options!(config)
+    assert settings.api == Responder.Coop.Client
+    assert settings.client.finch == Responder.CoopFinch
+    assert settings.client.socket == config.socket
+    assert settings.client.receive_timeout == 30_000
+  end
 end

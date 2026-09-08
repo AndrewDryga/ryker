@@ -2,6 +2,7 @@ defmodule Responder.RuntimeConfigurationTest do
   use ExUnit.Case, async: false
 
   alias Responder.Ingress.WorkProfile
+  alias Responder.Learning.Runtime, as: LearningRuntime
   alias Responder.RuntimeConfiguration
   alias Responder.Webhooks.Server
 
@@ -519,6 +520,26 @@ defmodule Responder.RuntimeConfigurationTest do
   defp private_key_pem do
     private_key = :public_key.generate_key({:rsa, 1_024, 65_537})
     :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, private_key)])
+  end
+
+  test "component configuration can enable background learning before startup" do
+    # The real internal config failed its pre-deployment load while product/fleet
+    # config passed; enabling learning must work with the existing local Coop.
+    document =
+      minimal_document() <>
+        """
+
+        learning:
+          policy:
+            name: learning-read
+            digest: #{String.duplicate("d", 64)}
+        """
+
+    configuration = RuntimeConfiguration.from_string!(document)
+    settings = LearningRuntime.options!(configuration.learning)
+    assert settings.api == Responder.Coop.Client
+    assert settings.client.finch == Responder.CoopFinch
+    assert settings.client == configuration.work.client
   end
 
   test "unknown configuration fields fail closed without creating atoms" do
