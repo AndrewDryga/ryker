@@ -8,7 +8,7 @@ defmodule Responder.ControlPlane.MemoryPage do
     <section class="conversation-memory" aria-label="Learned from conversations">
       <div :if={Map.get(@view, :learning_activity)} class="learning-summary">
         <strong>{learning_state(@view.learning_activity)}</strong>
-        <span>{@view.learning_activity.waiting_inputs} messages waiting</span>
+        <span>{count_label(@view.learning_activity.waiting_inputs, "message")} waiting</span>
         <a :if={@view.learning_activity.handover_failures.total > 0} href="#handover-failures">
           Handovers not saved: {@view.learning_activity.handover_failures.total}
         </a>
@@ -185,7 +185,7 @@ defmodule Responder.ControlPlane.MemoryPage do
         Configure the learning worker to process them; existing saved knowledge remains available.
       </p>
       <p class="learning-queue">
-        {@activity.waiting_inputs} messages waiting
+        {count_label(@activity.waiting_inputs, "message")} waiting
         <span :if={@activity.oldest_waiting_at}>
           · oldest waiting {age(@activity.oldest_waiting_at)}
           <time datetime={iso(@activity.oldest_waiting_at)}> (since {date(@activity.oldest_waiting_at)})</time>
@@ -246,7 +246,12 @@ defmodule Responder.ControlPlane.MemoryPage do
         <li :for={batch <- @activity.items}>
           <div>
             <a href={batch.path}><strong>{batch.label}</strong> · {batch.conversation}</a>
-            <p>{batch.input_count} messages · {batch.start_count} model starts · {batch.mode}</p>
+            <p>
+              {count_label(batch.input_count, "message")} · {count_label(
+                batch.start_count,
+                "model start"
+              )} · {batch.mode}
+            </p>
           </div>
           <time datetime={iso(batch.at)}>{date(batch.at)}</time>
         </li>
@@ -263,7 +268,10 @@ defmodule Responder.ControlPlane.MemoryPage do
           <span :if={@activity.selected.repository}> · {@activity.selected.repository}</span>
         </p>
         <p>
-          {@activity.selected.input_count} messages · {@activity.selected.start_count} of {@activity.selected.start_limit} approved model starts used
+          {count_label(@activity.selected.input_count, "message")} · {@activity.selected.start_count} of {count_label(
+            @activity.selected.start_limit,
+            "approved model start"
+          )} used
         </p>
         <p
           :if={@activity.selected.error}
@@ -289,6 +297,10 @@ defmodule Responder.ControlPlane.MemoryPage do
           <summary>Review retry</summary>
           <p>
             Grant exactly one additional model start for these same inputs. Previously spent starts stay recorded. Current source access and earlier executions are checked again before this is allowed.
+          </p>
+          <p>
+            The current learning policy, <code>{@activity.selected.retry_policy}</code>, will be used.
+            Earlier attempts keep their original policy and history.
           </p>
           <form method="post" action={"/actions/learning/" <> @activity.selected.id <> "/retry"}>
             <input type="hidden" name="budget_version" value={@activity.selected.budget_version} />
@@ -354,6 +366,9 @@ defmodule Responder.ControlPlane.MemoryPage do
 
   defp handovers_path(page),
     do: "/memory?" <> URI.encode_query(%{"handover_page" => page}) <> "#handover-failures"
+
+  defp count_label(1, label), do: "1 " <> label
+  defp count_label(count, label), do: "#{count} #{label}s"
 
   defp date(nil), do: "Not recorded"
   defp date(value), do: Calendar.strftime(value, "%d %b %Y, %H:%M UTC")

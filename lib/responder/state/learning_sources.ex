@@ -167,6 +167,8 @@ defmodule Responder.State.LearningSources do
     # Keep source lookups parameterized per receipt. With stale low row estimates,
     # a flattened outer join materialized the whole source table once per root
     # (100M comparisons for 10k roots). The lateral OFFSET 0 preserves the PK lookup.
+    # Pin compact revisions too: joining all historical revisions to their head
+    # before matching one descriptor caused 128 head probes for one topic.
     from(item in query,
       where: not is_nil(item.source_dependencies),
       where:
@@ -176,13 +178,17 @@ defmodule Responder.State.LearningSources do
             SELECT 1 FROM jsonb_array_elements(CASE
               WHEN pg_input_is_valid(?, 'jsonb') THEN CASE WHEN jsonb_typeof(?::jsonb) = 'array'
                 THEN ?::jsonb ELSE '[null]'::jsonb END ELSE '[null]'::jsonb END) d
-            LEFT JOIN conversation_knowledge_revisions v
-              ON v.knowledge_id = CASE WHEN pg_input_is_valid(d->>'knowledge_id', 'uuid')
-                THEN (d->>'knowledge_id')::uuid ELSE NULL END
-              AND v.source_generation = CASE WHEN pg_input_is_valid(d->>'generation', 'bigint')
-                THEN (d->>'generation')::bigint ELSE NULL END
-              AND v.version = CASE WHEN pg_input_is_valid(d->>'through_version', 'bigint')
-                THEN (d->>'through_version')::bigint ELSE NULL END
+            LEFT JOIN LATERAL (
+              SELECT v.knowledge_id, v.source_generation, v.state
+              FROM conversation_knowledge_revisions v
+              WHERE v.knowledge_id = CASE WHEN pg_input_is_valid(d->>'knowledge_id', 'uuid')
+                  THEN (d->>'knowledge_id')::uuid ELSE NULL END
+                AND v.source_generation = CASE WHEN pg_input_is_valid(d->>'generation', 'bigint')
+                  THEN (d->>'generation')::bigint ELSE NULL END
+                AND v.version = CASE WHEN pg_input_is_valid(d->>'through_version', 'bigint')
+                  THEN (d->>'through_version')::bigint ELSE NULL END
+              OFFSET 0
+            ) v ON true
             LEFT JOIN conversation_knowledge head
               ON head.id = v.knowledge_id AND head.source_generation = v.source_generation
             WHERE jsonb_exists(d, 'knowledge_id') AND

@@ -3,7 +3,7 @@ defmodule Responder.Learning.Batches do
   import Ecto.Query
   alias Responder.{CanonicalJSON, Repo}
   alias Responder.Ingress.Inbox.Entry
-  alias Responder.Learning.{Batch, InputMembership, Rebuilds}
+  alias Responder.Learning.{Batch, InputMembership, Rebuilds, Runtime}
 
   alias Responder.State.{
     ConversationObservation,
@@ -248,6 +248,12 @@ defmodule Responder.Learning.Batches do
     valid_ids = retire_unavailable_members!(batch, members)
     if valid_ids == [], do: Repo.rollback(:learning_source_stale)
 
+    settings =
+      case Runtime.configured_options() do
+        {:ok, settings} -> settings
+        {:error, reason} -> Repo.rollback(reason)
+      end
+
     # Never erase spent starts. Each explicit, version-checked operator action
     # allows one more start, not a new batch or an invisible reset of the lifetime
     # bill. Unused starts from a failed grant do not accumulate. The independent
@@ -259,6 +265,8 @@ defmodule Responder.Learning.Batches do
     changed =
       save(batch,
         status: :queued,
+        policy: settings.policy,
+        policy_digest: settings.policy_digest,
         start_limit: batch.start_count + 1,
         budget_version: batch.budget_version + 1,
         next_attempt_at: nil,
@@ -345,6 +353,8 @@ defmodule Responder.Learning.Batches do
   defp retry_document(batch),
     do: %{
       "batch_id" => batch.id,
+      "policy" => batch.policy,
+      "policy_digest" => batch.policy_digest,
       "status" => Atom.to_string(batch.status),
       "start_count" => batch.start_count,
       "start_limit" => batch.start_limit,
@@ -406,6 +416,7 @@ defmodule Responder.Learning.Batches do
           on: b.id == r.batch_id,
           where:
             r.batch_id == ^batch_id and
+              r.policy == b.policy and r.policy_digest == b.policy_digest and
               (is_nil(b.rebuild_target_id) or r.batch_budget_version == b.budget_version),
           order_by: [desc: r.inserted_at, desc: r.id],
           limit: 1

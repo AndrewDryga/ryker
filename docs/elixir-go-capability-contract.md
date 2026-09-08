@@ -85,6 +85,9 @@ configured learning policy is running or that a real model reliably chooses the 
 [The runtime contract](elixir-work-runtime.md#memory-and-background-learning) describes those
 interfaces; [memory evaluation](memory-evaluation.md) separates deterministic regression proof from
 the required harvested, longitudinal model cases and live cleanup qualification.
+Explicit learning retry and rebuild reselection adopt the current host policy without rewriting
+prior attempts or resetting spent starts; automatic recovery keeps its pinned policy. The owning
+operator and rebuild tests cover that distinction and its audit record.
 
 ## Maintenance rule
 

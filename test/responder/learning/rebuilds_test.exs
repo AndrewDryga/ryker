@@ -14,7 +14,15 @@ defmodule Responder.Learning.RebuildsTest do
     Rebuilds
   }
 
-  alias Responder.State.{ConversationKnowledge, KnowledgeRevision, Learning, LearningSources}
+  alias Responder.Operator.Actions
+
+  alias Responder.State.{
+    ConversationKnowledge,
+    KnowledgeRevision,
+    Learning,
+    LearningRun,
+    LearningSources
+  }
 
   @settings %{
     policy: "recorded-read-only-policy",
@@ -130,6 +138,67 @@ defmodule Responder.Learning.RebuildsTest do
                "operator:andrew",
                "rebuild:old-selection"
              )
+  end
+
+  @tag :policy_recovery
+  test "reselecting a rebuild adopts the current policy but preserves its previous execution and spent start" do
+    # Rebuild recovery must not remain pinned to an account whose quota is exhausted.
+    {topic, _old, current} = unavailable_topic!()
+    assert {:ok, _} = rebuild(topic, current, "rebuild:old-policy")
+    assert {:ok, claim} = Batches.claim("rebuild-test", @settings)
+    assert {:ok, first} = Batches.prepare(claim)
+    assert {:ok, _} = Batches.begin_execution(claim, first.id)
+
+    captured =
+      "testdata/learning/recorded-no-change-result.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    assert {:ok, _} =
+             Fixtures.accept(
+               first.id,
+               captured["result"],
+               %{}
+             )
+
+    assert {:ok, _} = stop(first, claim)
+    assert {:ok, _} = Batches.finish(claim, :no_change)
+    previous = Repo.get!(LearningRun, first.id)
+
+    configuration = Application.fetch_env!(:responder, :learning)
+
+    configuration = %{
+      configuration
+      | policy: "available-account",
+        policy_digest: String.duplicate("b", 64)
+    }
+
+    Application.put_env(:responder, :learning, configuration)
+
+    assert {:ok, receipt} =
+             Operator.reselect(
+               claim.batch.id,
+               0,
+               target(topic),
+               [selection(current)],
+               "operator:andrew",
+               "rebuild:new-policy"
+             )
+
+    changed = Repo.get!(Batch, claim.batch.id)
+    assert changed.policy == configuration.policy
+    assert changed.policy_digest == configuration.policy_digest
+    assert {changed.start_count, changed.start_limit, changed.budget_version} == {1, 2, 1}
+    assert receipt.outcome["policy"] == configuration.policy
+    assert {:ok, audit} = Actions.fetch("rebuild:new-policy")
+    assert audit.previous["policy"] == @settings.policy
+    assert Repo.get!(LearningRun, first.id) == previous
+    assert Batches.latest(claim.batch.id) == nil
+    assert {:ok, again} = Batches.claim("rebuild-test", @settings)
+    assert {:ok, next} = Batches.prepare(again)
+    assert next.policy == configuration.policy
+    assert {:ok, _} = Batches.begin_execution(again, next.id)
+    assert Repo.get!(Batch, claim.batch.id).start_count == 2
   end
 
   test "an unresolved old remote blocks reselection before any new budget or source association" do

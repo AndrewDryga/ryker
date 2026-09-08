@@ -8,6 +8,7 @@ defmodule Responder.State.LearningContextPackingTest do
 
   alias Responder.State.{
     ConversationKnowledge,
+    ConversationObservation,
     Knowledge,
     Learning,
     LearningRun,
@@ -126,7 +127,7 @@ defmodule Responder.State.LearningContextPackingTest do
       |> Enum.with_index()
       |> Enum.map(fn {{topic, count}, index} ->
         entry = Enum.at(entries, index)
-        history = Enum.map(1..count, &historical_source!(entry, index * 10_001 + &1))
+        history = historical_sources!(entry, index * 10_001, count)
         seed_topic!(topic, history)
       end)
 
@@ -228,30 +229,73 @@ defmodule Responder.State.LearningContextPackingTest do
              )
   end
 
+  defp historical_sources!(entry, offset, count) do
+    # The covered full gate spent its 60-second deadline in setup. One 9,998-row
+    # history made 89,982 queries before topic creation or packing even started.
+    # Receive one real source, then bulk-copy only the structural identity/time
+    # wrappers. Every source is still read and validated by the real topic owner.
+    # Clones share the template's exact stored retention instant; each keeps its
+    # own source time, identity, message reference and fingerprint.
+    first = historical_source!(entry, offset + 1)
+    template = Repo.get!(ConversationObservation, first.id)
+
+    remaining =
+      for n <- Enum.drop(1..count, 1),
+          do: struct!(Entry, historical_attributes(entry, offset + n))
+
+    sources =
+      Enum.map(remaining, fn historical ->
+        template
+        |> Map.from_struct()
+        |> Map.take(ConversationObservation.__schema__(:fields))
+        |> Map.merge(%{
+          id: historical.id,
+          identity_key: Observations.source_identity(historical),
+          source_input_id: historical.id,
+          source_message_ref: historical.source_item_ref,
+          source_fingerprint: historical.event_fingerprint,
+          occurred_at: historical.occurred_at
+        })
+      end)
+
+    entries = Enum.map(remaining, &Map.take(Map.from_struct(&1), Entry.__schema__(:fields)))
+
+    for {schema, rows} <- [{Entry, entries}, {ConversationObservation, sources}] do
+      rows
+      |> Enum.chunk_every(500)
+      |> Enum.each(fn chunk ->
+        assert {length(chunk), nil} == Repo.insert_all(schema, chunk)
+      end)
+    end
+
+    [first | remaining]
+  end
+
   defp historical_source!(entry, n) do
-    identity = "host-context-packing-#{n}"
-
-    attrs =
-      entry
-      |> Map.from_struct()
-      |> Map.take(Entry.__schema__(:fields))
-      |> Map.merge(%{
-        id: "10000000-0000-4000-8000-#{String.pad_leading(to_string(n), 12, "0")}",
-        dedupe_key: identity,
-        native_input_id: identity,
-        source_item_ref: identity,
-        event_ref: identity,
-        decision_ref: "host-context-packing-decision:#{n}",
-        event_fingerprint: CanonicalJSON.digest(%{"fixture_identity" => identity}),
-        occurred_at: DateTime.add(entry.occurred_at, -n, :second)
-      })
-
-    historical = Repo.insert!(struct!(Entry, attrs))
+    historical = Repo.insert!(struct!(Entry, historical_attributes(entry, n)))
 
     assert {:ok, :ok} =
              Repo.transaction(fn -> Observations.receive_in_transaction(historical) end)
 
     historical
+  end
+
+  defp historical_attributes(entry, n) do
+    identity = "host-context-packing-#{n}"
+
+    entry
+    |> Map.from_struct()
+    |> Map.take(Entry.__schema__(:fields))
+    |> Map.merge(%{
+      id: "10000000-0000-4000-8000-#{String.pad_leading(to_string(n), 12, "0")}",
+      dedupe_key: identity,
+      native_input_id: identity,
+      source_item_ref: identity,
+      event_ref: identity,
+      decision_ref: "host-context-packing-decision:#{n}",
+      event_fingerprint: CanonicalJSON.digest(%{"fixture_identity" => identity}),
+      occurred_at: DateTime.add(entry.occurred_at, -n, :second)
+    })
   end
 
   defp omission(head) do

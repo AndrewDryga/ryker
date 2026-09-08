@@ -184,6 +184,12 @@ the lifetime starts already spent plus one. Duplicate or stale requests cannot i
 Missing source authority, another active batch, or unresolved older remote work blocks retry.
 Owned sessions use the existing close/plan/discard retention custody, including after failure.
 
+Explicit operator retry and rebuild reselection use the current trusted learning policy for the
+next attempt, recording old and new policy identities in the audit. Prior attempts and spent
+starts are immutable. Automatic worker recovery still follows the batch's pinned policy; only
+the operator action selects a replacement. Missing or invalid current configuration blocks a new
+grant, while replaying an already recorded action returns its original receipt without another start.
+
 After a host rejects an anchor, create match, or result shape, a fresh frozen prompt includes
 `previous_attempt_error`: a bounded code and static repair instruction. It does not repeat the
 rejected candidate or former source text. Feedback participates in the same prompt-byte limit;

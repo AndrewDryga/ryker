@@ -1036,7 +1036,8 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .readable-model-context .context-message-body { font-size:16px; line-height:1.6; }
 .readable-model-context .context-message header strong { font-size:15px; }
 .readable-model-context .context-message header span, .readable-model-context .context-message details { font-size:13px; }
-.readable-model-context .request-context-readable pre { font-size:14px; max-height:none; overflow:visible; }
+.readable-model-context .request-context-readable pre,
+.prompt-source-body details > pre { font-size:14px; max-height:none; max-width:100%; box-sizing:border-box; white-space:pre-wrap; overflow-wrap:anywhere; overflow:auto; }
 .readable-model-context .context-omission { color:#765824; background:#fcf3e1; }
 .request-timing { display:flex; flex-wrap:wrap; gap:8px 24px; margin:8px 0; padding:0; }
 .request-timing > div { display:flex; align-items:baseline; gap:8px; }

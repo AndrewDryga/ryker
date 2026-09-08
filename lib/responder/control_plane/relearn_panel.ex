@@ -28,6 +28,10 @@ defmodule Responder.ControlPlane.RelearnPanel do
         Create a fresh understanding of this same topic from messages you choose.
         The learning model receives those current originals, not the unavailable topic or its old summaries. This never sends a reply.
       </p>
+      <p>
+        New requests and explicit retries use the current learning policy.
+        Earlier attempts keep their original policy, results, and spent starts.
+      </p>
       <p :if={@preview.existing_batch} class="relearn-existing">
         A relearning request already exists ·
         <a href={LearningActivity.path(@preview.existing_batch.id)}>Inspect its progress and attempts →</a>

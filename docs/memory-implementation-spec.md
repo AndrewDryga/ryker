@@ -211,6 +211,14 @@ Refuse the grant if source authority has expired, that scope is already active, 
 remote turn lacks stop proof. A still-running remote operation requires custody reconciliation,
 not permission to launch a duplicate.
 
+An explicit operator retry or rebuild reselection adopts the currently configured trusted
+learning policy and digest for the next attempt. Ordinary worker recovery still uses the batch's
+pinned policy. Record both former and selected policies in the operator audit, preserve every old
+LearningRun unchanged, and never resume an old-policy attempt as the new judgment. Reject a new
+grant when learning is disabled or misconfigured. Repeating an already accepted action returns
+its original receipt even if configuration changes again; it grants no further start. Retry UI
+explains this current-policy selection. Account recovery is not permission to reset execution budgets.
+
 Use Coop sessions with no product checkout, project environment, MCP, or Responder action tools.
 The current Coop runtime requires an execution fork even for a read-only model call; pin a
 dedicated empty scratch repository with `repository_read_only=true`, `project_env=false`, and
