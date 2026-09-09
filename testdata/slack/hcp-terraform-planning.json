@@ -1,0 +1,31 @@
+{
+  "type": "message",
+  "subtype": "bot_message",
+  "bot_id": "B0BHPQTBMA7",
+  "channel": "C0BHTRPHXP0",
+  "ts": "1788924002.017229",
+  "text": "",
+  "attachments": [
+    {
+      "id": 1,
+      "footer_icon": "https://app.terraform.io/favicon.ico",
+      "ts": 1788923996,
+      "color": "5c4ee5",
+      "fallback": "Run run-k9CpPp3nWjQrkCMG",
+      "text": "main 3376639b89c540d3742f2b17900dbdd6403bfb4d (@AndrewDryga, gh run 34306095502)",
+      "pretext": "Run notification for <https://app.terraform.io/app/Dryga/emisar|Dryga/emisar>",
+      "title": "Run run-k9CpPp3nWjQrkCMG",
+      "title_link": "https://app.terraform.io/app/Dryga/emisar/runs/run-k9CpPp3nWjQrkCMG",
+      "author_name": "AndrewDryga",
+      "author_icon": "https://www.gravatar.com/avatar/22f0391852216316eab5c09d226ba02a?s=100&d=mm",
+      "footer": "HCP Terraform"
+    },
+    {
+      "id": 2,
+      "ts": 1788924001,
+      "color": "1563ff",
+      "fallback": "Run run-k9CpPp3nWjQrkCMG - Run Planning",
+      "title": "Run Planning"
+    }
+  ]
+}

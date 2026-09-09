@@ -13,7 +13,7 @@ defmodule Responder.State.BehaviorsTest do
   alias Responder.Fixtures.DatabaseClock
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
   alias Responder.Ingress.{Inbox, Input}
-  alias Responder.Slack.AppHomeProjection
+  alias Responder.Slack.{AppHomeProjection, Event}
 
   alias Responder.State.{
     Behavior,
@@ -552,6 +552,58 @@ defmodule Responder.State.BehaviorsTest do
     refute Behaviors.standing_match?(
              github_review_input("slack:T123:C999", "submitted", "changes_requested")
            )
+  end
+
+  test "attachment-only Terraform automation excludes other bots and conversations" do
+    # The live confirmed rule missed a newer deployment. A broad bot-message
+    # filter would wake it for unrelated apps instead of fixing that omission.
+    fixture = delivered_offers!("terraform-bot-filter")
+
+    assert {:ok, confirmed} =
+             Behaviors.confirm(
+               confirmation(fixture, fixture.source_event_assignment, "terraform-bot-filter")
+             )
+
+    message =
+      "testdata/slack/hcp-terraform-planning.json"
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.put("channel", "C456")
+
+    payload =
+      confirmed.behavior.payload
+      |> Map.put("source_kind", "slack")
+      |> Map.put("filter", %{"bot_id" => message["bot_id"]})
+
+    confirmed.behavior |> BehaviorChangeset.update(%{payload: payload}) |> Repo.update!()
+
+    normalize = fn event ->
+      envelope = %{
+        "type" => "events_api",
+        "payload" => %{
+          "type" => "event_callback",
+          "team_id" => "T123",
+          "event_id" => "Ev-terraform-bot-filter",
+          "event" => event
+        }
+      }
+
+      {:ok, %{input: input}} =
+        Event.from_socket(envelope, %{
+          workspace_ref: "T123",
+          bot_ref: "B-RESPONDER",
+          bot_user_ref: "U-RESPONDER"
+        })
+
+      input
+    end
+
+    assert Behaviors.standing_match?(normalize.(message))
+    refute Behaviors.standing_match?(normalize.(Map.put(message, "bot_id", "B-OTHER")))
+    refute Behaviors.standing_match?(normalize.(Map.put(message, "channel", "C999")))
+
+    human = message |> Map.delete("bot_id") |> Map.put("user", "U123")
+    refute Behaviors.standing_match?(normalize.(human))
   end
 
   test "assignment controls are fenced to the exact workspace and conversation" do

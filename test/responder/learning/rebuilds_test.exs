@@ -1,6 +1,7 @@
 defmodule Responder.Learning.RebuildsTest do
   use Responder.DataCase, async: false
   alias Responder.CanonicalJSON
+  alias Responder.Fixtures.DatabaseClock
   alias Responder.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Responder.Fixtures.Learning, as: Fixtures
 
@@ -51,6 +52,19 @@ defmodule Responder.Learning.RebuildsTest do
     end)
 
     :ok
+  end
+
+  test "immediate rebuild fixtures stay eligible when the database clock trails the host" do
+    # Nine unrelated gate failures came from receipt timestamps lying ahead of
+    # PostgreSQL's queue clock, not from the rebuild contract being exercised.
+    DatabaseClock.behind_host!()
+    {_topic, _old, current} = unavailable_topic!()
+    next = additional_input!(current)
+
+    assert {:ok, %{batch: %Batch{}, inputs: [input]}} =
+             Batches.claim("clock-aligned-fixture", @settings)
+
+    assert input.id == next.id
   end
 
   test "explicit rebuilding can select a new original after every old support was withdrawn" do
@@ -654,6 +668,7 @@ defmodule Responder.Learning.RebuildsTest do
 
     topic = Repo.one!(ConversationKnowledge)
     KnowledgeFixtures.revoke!(old)
+    [old, current] = Fixtures.normalize_queue_timestamps!([old, current])
     assert {:ok, claim} = Batches.claim("ack-existing-inputs", @settings)
     assert {:ok, _} = Batches.finish(claim, :no_change)
     {topic, old, current}
@@ -676,6 +691,9 @@ defmodule Responder.Learning.RebuildsTest do
       "occurred_at" => original.occurred_at |> DateTime.to_naive() |> NaiveDateTime.to_iso8601()
     })
     |> Fixtures.retained_input!(@settings)
+    |> List.wrap()
+    |> Fixtures.normalize_queue_timestamps!()
+    |> hd()
   end
 
   defp rebuild(topic, current, action),

@@ -150,6 +150,10 @@ defmodule Responder.Slack.Event do
       "text" => text_or_empty(event["text"])
     }
 
+    # Filters match normalized content. Keep authenticated author IDs so an
+    # attachment-only app notification can be selected without matching all bots.
+    content = Map.merge(content, Map.take(event, ["app_id", "bot_id"]))
+
     if valid_json_collections?(content),
       do: {:ok, content},
       else: {:error, {:invalid_slack_event, :content}}
