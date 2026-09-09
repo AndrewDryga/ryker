@@ -387,7 +387,7 @@ defmodule Responder.CoopFleet.ClientTest do
       "context" => %{"turn_ref" => "turn-7", "input_refs" => ["input-1"]},
       "input_artifact_refs" => [],
       "output_schema" => %{"type" => "object"},
-      "prompt" => "exact frozen prompt"
+      "prompt" => "exact & <frozen> prompt"
     }
 
     key = "responder:work:submit:turn-7:g1"
@@ -418,7 +418,8 @@ defmodule Responder.CoopFleet.ClientTest do
                "token_sha256" => StateBinding.sha256(binding["token"])
              },
              "submission" => submission,
-             "submission_sha256" => CanonicalJSON.digest(submission),
+             "submission_sha256" =>
+               "7b136cbd9b50c9ef8ab2b210cd686990281da74a8329586dcd577284870bb4d2",
              "turn_ref" => "turn-7"
            }
   end
@@ -975,6 +976,61 @@ defmodule Responder.CoopFleet.ClientTest do
     assert command.idempotency_key == key
   end
 
+  test "a worker-local submit rejection settles from its durable receipt", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "remote:worker-local-rejection")
+    key = "responder:work:turn:worker-local-rejection:g1"
+
+    submission = %{
+      "contract_version" => "work-final-v1",
+      "context" => %{"source" => "https://example.test/?first=1&second=2"},
+      "input_artifact_refs" => [],
+      "output_schema" => %{"type" => "object"},
+      "prompt" => "Use the exact frozen input."
+    }
+
+    command =
+      command!(session, "worker-local-rejection",
+        kind: "submit_turn",
+        payload: %{
+          "coop_session_id" => session.coop_session_id,
+          "expected_revision" => 1,
+          "submission" => submission,
+          "submission_sha256" => CanonicalJSON.digest(submission),
+          "turn_ref" => "logical-turn"
+        },
+        key: key
+      )
+
+    complete_command!(command, :failed, nil, %{
+      "code" => "invalid_command",
+      "detail" => "frozen submission digest does not match"
+    })
+
+    # Two live runs reached cancellation after the connector rejected their ampersand-bearing
+    # Slack envelopes before calling Coop, then retried a nonexistent remote operation forever.
+    assert {:ok,
+            %{
+              "error_code" => "invalid_command",
+              "method" => "SubmitTurn",
+              "state" => "failed"
+            }} =
+             Client.fence_frozen_turn(
+               client,
+               session.coop_session_id,
+               key,
+               1,
+               submission,
+               nil,
+               []
+             )
+
+    refute_receive {:fleet_command, _, "reconcile_operation", _, _, _}
+    refute_receive {:fleet_command, _, "fence_operation", _, _, _}
+  end
+
   defp session! do
     episode_id = Ecto.UUID.generate()
 
@@ -1038,11 +1094,11 @@ defmodule Responder.CoopFleet.ClientTest do
     command
   end
 
-  defp complete_command!(command, status, result) do
+  defp complete_command!(command, status, result, command_error \\ nil) do
     error =
       if status == :succeeded,
         do: nil,
-        else: %{"code" => "worker_failed", "detail" => "failed", "status" => 503}
+        else: command_error || %{"code" => "worker_failed", "detail" => "failed", "status" => 503}
 
     command
     |> Ecto.Changeset.change(
