@@ -790,6 +790,62 @@ defmodule Responder.CoopFleet.ControlPlaneTest do
     assert Repo.aggregate(ActivityEvent, :count) == 1
   end
 
+  test "redacted model progress cannot wedge the worker heartbeat" do
+    authorize_and_poll!("worker-a")
+    placement = place!("redacted-model-progress")
+    coop_session_id = "coop-redacted-model-progress"
+
+    {1, nil} =
+      Repo.update_all(
+        from(session in Session, where: session.id == ^placement.session_id),
+        set: [coop_session_id: coop_session_id]
+      )
+
+    now = database_now!() |> DateTime.to_iso8601()
+
+    session_event = fn sequence, id, type, payload ->
+      %{
+        "kind" => "session_event",
+        "payload" => %{
+          "id" => id,
+          "occurred_at" => now,
+          "payload" => payload,
+          "sequence" => sequence,
+          "session_id" => coop_session_id,
+          "turn_id" => "turn-redacted-progress",
+          "type" => type,
+          "version" => 1
+        },
+        "sequence" => sequence
+      }
+    end
+
+    batch = %{
+      "after_sequence" => 0,
+      "events" => [
+        session_event.(1, "evt-session", "session.created", %{}),
+        session_event.(2, "evt-progress", "model.progress", %{})
+      ],
+      "placement_generation" => placement.generation,
+      "session_ref" => placement.session_id
+    }
+
+    # Covers the production worker redacting progress text from two active runs;
+    # one rejected event then returned HTTP 400 for every heartbeat and stopped all work.
+    assert {:ok, response} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:redacted-progress",
+                 event_batches: [batch]
+               )
+             )
+
+    assert [%{"sequence" => 2}] = response["event_acknowledgements"]
+
+    assert [%ActivityEvent{kind: "model.progress", payload: %{"evidence_version" => 1}}] =
+             Repo.all(ActivityEvent)
+  end
+
   test "session creation activity cannot wedge the worker before asynchronous create binding" do
     authorize_and_poll!("worker-a")
     placement = place!("pre-bind-session-created")

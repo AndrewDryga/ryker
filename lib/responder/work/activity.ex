@@ -591,6 +591,9 @@ defmodule Responder.Work.Activity do
 
   defp public_payload("model.thought", _payload), do: {:ok, %{}}
 
+  defp public_payload("model.progress", payload) when map_size(payload) == 0,
+    do: {:ok, %{"evidence_version" => 1}}
+
   defp public_payload("model.progress", payload) do
     with {:ok, text} <- public_text(payload["text"], 65_536, :text) do
       artifact = InspectionRedactor.artifact(text, max_bytes: 16_384)
