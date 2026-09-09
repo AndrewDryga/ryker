@@ -535,6 +535,10 @@ defmodule Responder.CoopFleet.Client do
           operation_result(result)
         end
 
+      %Command{status: :failed, kind: kind, error: %{"code" => "invalid_command"}} = command
+      when kind in ["create_session", "submit_turn"] ->
+        {:ok, worker_rejected_operation(command)}
+
       %Command{} = command ->
         with %Session{} = session <- Repo.get(Session, command.session_id),
              {:ok, result} <-
@@ -574,8 +578,10 @@ defmodule Responder.CoopFleet.Client do
 
   defp fence_durable_operation(client, %Session{id: session_id}, key, kind, payload) do
     case Repo.get_by(Command, idempotency_key: key) do
-      %Command{session_id: ^session_id, kind: ^kind, payload: ^payload} ->
-        operation_by_key(client, key)
+      %Command{session_id: ^session_id, kind: ^kind, payload: durable_payload} ->
+        if durable_payload_match?(kind, durable_payload, payload),
+          do: operation_by_key(client, key),
+          else: {:error, {:coop_worker_command_conflict, key}}
 
       %Command{} ->
         {:error, {:coop_worker_command_conflict, key}}
@@ -844,10 +850,51 @@ defmodule Responder.CoopFleet.Client do
       "coop_session_id" => coop_session_id,
       "expected_revision" => revision,
       "submission" => submission,
-      "submission_sha256" => CanonicalJSON.digest(submission),
+      "submission_sha256" => worker_submission_digest(submission),
       "turn_ref" => submission["context"]["turn_ref"] || "logical-turn"
     }
     |> maybe_put_responder_binding(responder_binding)
+  end
+
+  defp durable_payload_match?("submit_turn", durable, expected)
+       when is_map(durable) and is_map(expected) do
+    submission = durable["submission"]
+
+    Map.delete(durable, "submission_sha256") == Map.delete(expected, "submission_sha256") and
+      durable["submission_sha256"] in [
+        CanonicalJSON.digest(submission),
+        worker_submission_digest(submission)
+      ]
+  end
+
+  defp durable_payload_match?(_kind, durable, expected), do: durable == expected
+
+  defp worker_submission_digest(submission) do
+    submission
+    |> CanonicalJSON.encode!()
+    |> String.replace("&", "\\u0026")
+    |> String.replace("<", "\\u003c")
+    |> String.replace(">", "\\u003e")
+    |> String.replace(<<0x2028::utf8>>, "\\u2028")
+    |> String.replace(<<0x2029::utf8>>, "\\u2029")
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp worker_rejected_operation(command) do
+    method =
+      case command.kind do
+        "create_session" -> "CreateRemoteSession"
+        "submit_turn" -> "SubmitTurn"
+      end
+
+    %{
+      "error_code" => command.error["code"],
+      "error_detail" => command.error["detail"],
+      "id" => "fleet-command:#{command.id}",
+      "method" => method,
+      "state" => "failed"
+    }
   end
 
   defp responder_binding_descriptor(%{"endpoint" => endpoint, "token" => token}) do
