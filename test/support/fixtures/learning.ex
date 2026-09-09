@@ -1,5 +1,7 @@
 defmodule Responder.Fixtures.Learning do
   @moduledoc false
+  import Ecto.Query
+
   alias Responder.Admission.Decision
   alias Responder.CanonicalJSON
   alias Responder.Episodes
@@ -131,6 +133,48 @@ defmodule Responder.Fixtures.Learning do
       end
 
     Enum.map(inputs, &persist!/1)
+  end
+
+  @doc "Align queue timestamps to one captured PostgreSQL clock without changing source data."
+  def normalize_queue_timestamps!(entries) when is_list(entries) do
+    # Queue eligibility compares host-generated receipt timestamps with the
+    # PostgreSQL clock. Only receipt timestamps are normalized; source time and
+    # content are captured and checked below as immutable fixture facts.
+    # Mixing those clocks made immediate zero-delay claims intermittently idle.
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
+    originals =
+      Map.new(entries, fn entry ->
+        {entry.id, {entry.occurred_at, entry.content}}
+      end)
+
+    normalized =
+      Enum.with_index(entries, fn entry, index ->
+        at = DateTime.add(now, index - length(entries), :microsecond)
+
+        case Repo.update_all(
+               from(e in Entry, where: e.id == ^entry.id),
+               set: [inserted_at: at, updated_at: at]
+             ) do
+          {1, _} -> Repo.get!(Entry, entry.id)
+          {count, _} -> raise "expected one queue entry timestamp update, got #{count}"
+        end
+      end)
+
+    timestamps = Enum.map(normalized, & &1.updated_at)
+
+    unless timestamps == Enum.sort(timestamps, DateTime) and
+             Enum.all?(timestamps, &(DateTime.compare(&1, now) != :gt)) do
+      raise "queue timestamps are not ordered at or before the captured database clock"
+    end
+
+    Enum.each(normalized, fn entry ->
+      unless {entry.occurred_at, entry.content} == Map.fetch!(originals, entry.id) do
+        raise "queue timestamp normalization changed source data"
+      end
+    end)
+
+    normalized
   end
 
   defp persist!(raw) do

@@ -16,6 +16,7 @@ defmodule Responder.Work.Activity do
 
   alias Ecto.Changeset
   alias Responder.CanonicalJSON
+  alias Responder.Episodes.Episode
   alias Responder.Repo
   alias Responder.Work.{ActivityEvent, ActivityPaths, Session}
 
@@ -85,9 +86,7 @@ defmodule Responder.Work.Activity do
   def ingest(session_id, events)
       when is_binary(session_id) and is_list(events) and length(events) <= @maximum_page do
     Repo.transaction(fn ->
-      session =
-        Repo.one(from(session in Session, where: session.id == ^session_id, lock: "FOR UPDATE")) ||
-          Repo.rollback(:work_session_not_found)
+      session = lock_ingest_session(session_id)
 
       with {:ok, prepared} <- prepare_page(events, session),
            {:ok, result} <- apply_page(session, prepared) do
@@ -99,6 +98,31 @@ defmodule Responder.Work.Activity do
   end
 
   def ingest(_session_id, _events), do: {:error, {:invalid_coop_activity, :page}}
+
+  defp lock_ingest_session(session_id) do
+    identity = Repo.get(Session, session_id) || Repo.rollback(:work_session_not_found)
+    lock_activity_episode(identity.episode_id)
+
+    session =
+      Repo.one(from(session in Session, where: session.id == ^session_id, lock: "FOR UPDATE")) ||
+        Repo.rollback(:work_session_not_found)
+
+    if session.episode_id != identity.episode_id, do: Repo.rollback(:work_session_not_found)
+    session
+  end
+
+  defp lock_activity_episode(nil), do: :ok
+
+  defp lock_activity_episode(episode_id) do
+    # The activity insert needs this FK lock anyway. Take it before Session so
+    # narration cannot deadlock Work's Episode -> Session ownership/preflight.
+    Repo.one(
+      from(episode in Episode,
+        where: episode.id == ^episode_id,
+        lock: "FOR KEY SHARE"
+      )
+    ) || Repo.rollback(:work_session_not_found)
+  end
 
   @doc false
   @spec ingest_fleet(Ecto.UUID.t(), String.t(), non_neg_integer(), [map()]) ::
