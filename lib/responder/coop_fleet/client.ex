@@ -74,12 +74,7 @@ defmodule Responder.CoopFleet.Client do
              client,
              session,
              "create_session",
-             %{
-               "authority_digest" => session.authority_digest,
-               "external_ref" => task,
-               "policy" => policy,
-               "policy_digest" => session.policy_digest
-             },
+             create_session_payload(session, policy, task, nil),
              key
            ) do
       ensure_workspace(client, session, remote, key)
@@ -99,13 +94,7 @@ defmodule Responder.CoopFleet.Client do
              client,
              session,
              "create_session",
-             %{
-               "authority_digest" => session.authority_digest,
-               "external_ref" => task,
-               "policy" => policy,
-               "policy_digest" => session.policy_digest,
-               "responder_binding" => responder_binding_descriptor(binding)
-             },
+             create_session_payload(session, policy, task, binding),
              key
            ) do
       ensure_workspace(client, session, remote, key)
@@ -177,15 +166,12 @@ defmodule Responder.CoopFleet.Client do
   def fence_create_session(client, key, policy, task) do
     with {:ok, session} <- session_by_task_ref(task),
          true <- session.policy == policy do
-      execute(
+      fence_durable_operation(
         client,
         session,
-        "fence_operation",
-        %{
-          "method" => "CreateRemoteSession",
-          "request" => %{"policy" => policy, "task" => task}
-        },
-        key
+        key,
+        "create_session",
+        create_session_payload(session, policy, task, nil)
       )
     else
       false -> {:error, {:coop_fleet_authority_mismatch, :policy}}
@@ -198,19 +184,12 @@ defmodule Responder.CoopFleet.Client do
     with {:ok, session} <- session_by_task_ref(task),
          true <- session.policy == policy,
          :ok <- optional_responder_binding(binding) do
-      execute(
+      fence_durable_operation(
         client,
         session,
-        "fence_operation",
-        %{
-          "method" => "CreateRemoteSession",
-          "request" => %{
-            "policy" => policy,
-            "task" => task,
-            "responder_binding" => responder_binding_descriptor(binding)
-          }
-        },
-        key
+        key,
+        "create_session",
+        create_session_payload(session, policy, task, binding)
       )
     else
       false -> {:error, {:coop_fleet_authority_mismatch, :policy}}
@@ -364,21 +343,11 @@ defmodule Responder.CoopFleet.Client do
     with {:ok, _artifact_refs} <- exact_input_artifacts(submission, artifacts),
          :ok <- optional_responder_binding(responder_binding),
          {:ok, session} <- session_by_coop_id(coop_session_id) do
-      payload =
-        %{
-          "coop_session_id" => coop_session_id,
-          "expected_revision" => revision,
-          "submission" => submission,
-          "submission_sha256" => CanonicalJSON.digest(submission),
-          "turn_ref" => submission["context"]["turn_ref"] || "logical-turn"
-        }
-        |> maybe_put_responder_binding(responder_binding)
-
       execute(
         client,
         session,
         "submit_turn",
-        payload,
+        submit_turn_payload(coop_session_id, revision, submission, responder_binding),
         key
       )
     end
@@ -419,28 +388,15 @@ defmodule Responder.CoopFleet.Client do
         responder_binding,
         artifacts
       ) do
-    with {:ok, artifact_refs} <- exact_input_artifacts(submission, artifacts),
+    with {:ok, _artifact_refs} <- exact_input_artifacts(submission, artifacts),
          :ok <- optional_responder_binding(responder_binding),
          {:ok, session} <- session_by_coop_id(coop_session_id) do
-      request =
-        %{
-          "expected_revision" => revision,
-          "output_contract" => output_contract(submission["output_schema"]),
-          "prompt" => submission["prompt"],
-          "session_id" => coop_session_id
-        }
-        |> maybe_put_responder_binding(responder_binding)
-
-      execute(
+      fence_durable_operation(
         client,
         session,
-        "fence_operation",
-        %{
-          "input_artifact_refs" => artifact_refs,
-          "method" => "SubmitTurn",
-          "request" => request
-        },
-        key
+        key,
+        "submit_turn",
+        submit_turn_payload(coop_session_id, revision, submission, responder_binding)
       )
     end
   end
@@ -614,6 +570,19 @@ defmodule Responder.CoopFleet.Client do
   defp execute_read(client, session, kind, payload) do
     key = "responder:fleet:read:#{kind}:#{Ecto.UUID.generate()}"
     execute(client, session, kind, payload, key)
+  end
+
+  defp fence_durable_operation(client, %Session{id: session_id}, key, kind, payload) do
+    case Repo.get_by(Command, idempotency_key: key) do
+      %Command{session_id: ^session_id, kind: ^kind, payload: ^payload} ->
+        operation_by_key(client, key)
+
+      %Command{} ->
+        {:error, {:coop_worker_command_conflict, key}}
+
+      nil ->
+        :not_found
+    end
   end
 
   defp database_now! do
@@ -819,19 +788,28 @@ defmodule Responder.CoopFleet.Client do
   defp maybe_put_responder_binding(document, binding),
     do: Map.put(document, "responder_binding", responder_binding_descriptor(binding))
 
-  defp responder_binding_descriptor(%{"endpoint" => endpoint, "token" => token}) do
-    %{"endpoint" => endpoint, "token_sha256" => StateBinding.sha256(token)}
+  defp create_session_payload(session, policy, task, responder_binding) do
+    %{
+      "authority_digest" => session.authority_digest,
+      "external_ref" => task,
+      "policy" => policy,
+      "policy_digest" => session.policy_digest
+    }
+    |> maybe_put_responder_binding(responder_binding)
   end
 
-  defp output_contract(schema) do
+  defp submit_turn_payload(coop_session_id, revision, submission, responder_binding) do
     %{
-      "json_schema" => schema,
-      "require_semantic_validation" => true,
-      "sha256" =>
-        schema
-        |> CanonicalJSON.encode!()
-        |> then(&:crypto.hash(:sha256, &1))
-        |> Base.encode16(case: :lower)
+      "coop_session_id" => coop_session_id,
+      "expected_revision" => revision,
+      "submission" => submission,
+      "submission_sha256" => CanonicalJSON.digest(submission),
+      "turn_ref" => submission["context"]["turn_ref"] || "logical-turn"
     }
+    |> maybe_put_responder_binding(responder_binding)
+  end
+
+  defp responder_binding_descriptor(%{"endpoint" => endpoint, "token" => token}) do
+    %{"endpoint" => endpoint, "token_sha256" => StateBinding.sha256(token)}
   end
 end
