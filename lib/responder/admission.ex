@@ -865,6 +865,7 @@ defmodule Responder.Admission do
             history_cutoff,
             settings.candidate_limit
           )
+          |> prioritize_source_owner(input, cross_thread_relation_scope(input))
         )
 
       endpoints_by_episode = input_event_endpoints(Enum.map(episodes, & &1.id))
@@ -886,10 +887,11 @@ defmodule Responder.Admission do
 
   defp cross_thread_relation_scope(
          %Input{
-           actor: %{kind: :app},
+           actor: %{kind: kind},
            destination: %{conversation_ref: "slack:" <> rest, transport: "slack"}
          } = input
-       ) do
+       )
+       when kind in [:app, :bot] do
     case String.split(rest, ":", parts: 2) do
       [_workspace_ref, "D" <> _direct_message] -> :active_only
       _shared_conversation -> {:same_actor, Input.actor_ref(input)}
@@ -928,6 +930,33 @@ defmodule Responder.Admission do
     if required <= candidate_limit,
       do: :ok,
       else: {:error, {:admission_context_overflow, required: required, limit: candidate_limit}}
+  end
+
+  defp required_candidate_count(
+         %{thread_ref: nil} = destination,
+         native_input_id,
+         execution_mode,
+         {:same_actor, actor_ref}
+       ) do
+    actor_matches = source_actor_matches(actor_ref)
+
+    required =
+      dynamic(
+        [episode],
+        (episode.state in ^@active_states and ^actor_matches) or
+          fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id)
+      )
+
+    Repo.aggregate(
+      from(episode in Episode,
+        where:
+          episode.destination_transport == ^destination.transport and
+            episode.destination_conversation_ref == ^destination.conversation_ref and
+            episode.execution_mode == ^execution_mode,
+        where: ^required
+      ),
+      :count
+    )
   end
 
   defp required_candidate_count(
@@ -1018,6 +1047,35 @@ defmodule Responder.Admission do
             fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id)
       ),
       :count
+    )
+  end
+
+  defp prioritize_source_owner(query, input, {:same_actor, actor_ref}) do
+    actor_matches = source_actor_matches(actor_ref)
+    native_input_id = input.native_input_id
+    thread_ref = input.destination.thread_ref
+
+    required =
+      dynamic(
+        [episode],
+        fragment("(? ->> ?) IS NOT NULL", episode.input_revisions, ^native_input_id) or
+          fragment("coalesce(? = ?, false)", episode.destination_thread_ref, ^thread_ref) or
+          (episode.state in ^@active_states and ^actor_matches)
+      )
+
+    prepend_order_by(query, ^[desc: required])
+  end
+
+  defp prioritize_source_owner(query, _input, _scope), do: query
+
+  defp source_actor_matches(actor_ref) do
+    dynamic(
+      [episode],
+      fragment(
+        "coalesce((SELECT source_event.payload::jsonb ->> 'actor_ref' FROM episode_kernel_events AS source_event WHERE source_event.episode_id = ? AND source_event.kind = 'input_admitted' ORDER BY source_event.occurred_at, source_event.sequence LIMIT 1) = ?, false)",
+        episode.id,
+        ^actor_ref
+      )
     )
   end
 

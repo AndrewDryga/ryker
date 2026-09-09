@@ -345,6 +345,24 @@ defmodule Responder.Admission.ContextTest do
       assert {:ok, with_owner} = build_context(current)
       assert hd(with_owner.candidates).episode.id == owner.id
       assert :same_work in hd(with_owner.candidates).allowed_relations
+
+      if actor.kind == :bot do
+        lifecycle =
+          create_episode!(
+            key: "older-bot-lifecycle",
+            actor: actor,
+            thread_ref: "1787820000.000001",
+            content: %{"text" => "Earlier run from this exact source"},
+            updated_at: DateTime.add(@now, -3600)
+          )
+
+        assert {:ok, with_lifecycle} = build_context(current)
+
+        assert Enum.any?(
+                 with_lifecycle.candidates,
+                 &(&1.episode.id == lifecycle.id and :same_work in &1.allowed_relations)
+               )
+      end
     end
   end
 
