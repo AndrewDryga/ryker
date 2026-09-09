@@ -722,6 +722,54 @@ defmodule Responder.Evals.LearningRunnerTest do
     end
   end
 
+  test "one-off request qualification catches the captured unnecessary topic", %{options: options} do
+    # The first recovered live batch stored a routine acceptance check as an
+    # unresolved topic. Repeating that for ordinary requests recreates a memory
+    # per message. This tests the evaluator; only a fresh model run can prove
+    # that improved learning instructions avoid the captured behavior.
+    [step] = LearningRunner.recorded_sequence("one-off-request")
+    fixture = step.fixture |> File.read!() |> Jason.decode!()
+    failure = fixture["recorded_failure"]
+    assert Responder.CanonicalJSON.digest(failure["prompt"]) == failure["prompt_sha256"]
+    assert Responder.CanonicalJSON.digest(failure["result"]) == failure["result_sha256"]
+    assert step.expectation == :no_change
+    assert [submitted] = Jason.decode!(failure["prompt"])["inputs"]
+    assert submitted["content"] == step.input["content"]
+    assert submitted["source_input_id"] == step.input["id"]
+
+    Agent.update(options.client, &Map.put(&1, :eval_body, failure["result"]))
+    assert {:ok, report} = LearningRunner.run([step], options)
+    refute report.passed
+    assert [observed] = report.steps
+    refute observed.check
+    refute observed.passed
+    assert observed.batch["status"] == "applied"
+    assert length(report.topics) == 1
+    assert hd(report.runs)["result"] == failure["result"]
+  end
+
+  test "the command rejects a one-off request recall probe before any start" do
+    assert_raise Mix.Error, ~r/one-off-request has no learned topic/, fn ->
+      LearningEval.run([
+        "--database",
+        "responder_learning_eval_one_off",
+        "--socket",
+        "/not-opened.sock",
+        "--scratch",
+        "/not-opened",
+        "--policy",
+        "not-used",
+        "--policy-digest",
+        String.duplicate("a", 64),
+        "--results",
+        "/not-created.json",
+        "--scenario",
+        "one-off-request",
+        "--probe"
+      ])
+    end
+  end
+
   test "a runner exception produces a public failure report instead of an empty file" do
     {:ok, io} = StringIO.open("")
 

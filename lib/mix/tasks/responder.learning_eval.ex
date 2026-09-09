@@ -8,7 +8,7 @@ defmodule Mix.Tasks.Responder.LearningEval do
         --policy-digest <sha256> --results /absolute/new-report.json --scenario haproxy
 
   Scenarios: haproxy (default), auth-memory-recurrence, draft-keep, unoffered-draft-match,
-  fortnite-correction, chatter.
+  fortnite-correction, chatter, one-off-request.
   Each needs its own empty database.
 
   Create and migrate the explicitly disposable database first. This task starts
@@ -61,7 +61,7 @@ defmodule Mix.Tasks.Responder.LearningEval do
              keys -- supplied == [] and length(Enum.uniq(supplied)) == length(supplied),
            do:
              Mix.raise(
-               "provide each required flag once: --database --socket --scratch --policy --policy-digest --results; optional --scenario haproxy|auth-memory-recurrence|draft-keep|unoffered-draft-match|fortnite-correction|chatter --probe"
+               "provide each required flag once: --database --socket --scratch --policy --policy-digest --results; optional --scenario haproxy|auth-memory-recurrence|draft-keep|unoffered-draft-match|fortnite-correction|chatter|one-off-request --probe"
              )
 
     options
@@ -74,12 +74,13 @@ defmodule Mix.Tasks.Responder.LearningEval do
              "draft-keep",
              "unoffered-draft-match",
              "fortnite-correction",
-             "chatter"
+             "chatter",
+             "one-off-request"
            ],
            do: Mix.raise("unknown learning scenario")
 
-    if scenario == "chatter" and options[:probe],
-      do: Mix.raise("chatter has no learned topic to probe")
+    if scenario in ["chatter", "one-off-request"] and options[:probe],
+      do: Mix.raise("#{scenario} has no learned topic to probe")
 
     if scenario == "unoffered-draft-match" and options[:probe],
       do: Mix.raise("unoffered-draft-match qualifies retry judgment, not held-out recall")
