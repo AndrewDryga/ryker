@@ -1473,8 +1473,7 @@ defmodule Responder.Work.Executor do
   defp execute_cancellation(claim, settings) do
     key = Cancellation.operation_key(claim.turn.id, claim.turn.cancel_generation)
 
-    with {:ok, claim} <- ensure_state_binding(claim, settings),
-         {:ok, claim} <- reconcile_cancellation_session(claim, settings),
+    with {:ok, claim} <- reconcile_cancellation_session(claim, settings),
          {:ok, claim, remote_turn} <- reconcile_cancellation_turn(claim, settings) do
       continue_cancellation(remote_turn, claim, key, settings)
     end
