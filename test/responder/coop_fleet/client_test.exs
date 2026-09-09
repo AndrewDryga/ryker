@@ -618,10 +618,22 @@ defmodule Responder.CoopFleet.ClientTest do
       "token" => String.duplicate("a", 64) <> String.duplicate("t", 43)
     }
 
-    assert :not_found =
+    # An audited incident retry exhausted into cancellation after placement rejected the create;
+    # without a command row, the outbound-only fleet could prove that nothing reached Coop.
+    assert {:ok,
+            %{
+              "error_code" => "operation_not_enqueued",
+              "method" => "CreateRemoteSession",
+              "state" => "failed"
+            }} =
              Client.fence_create_session(client, "fence-create", @policy, session.external_ref)
 
-    assert :not_found =
+    assert {:ok,
+            %{
+              "error_code" => "operation_not_enqueued",
+              "method" => "CreateRemoteSession",
+              "state" => "failed"
+            }} =
              Client.fence_bound_session(
                client,
                "fence-bound-create",
@@ -652,7 +664,12 @@ defmodule Responder.CoopFleet.ClientTest do
     assert submit["submission"]["prompt"] == "frozen prompt"
     assert submit["submission"]["output_schema"] == schema
 
-    assert :not_found =
+    assert {:ok,
+            %{
+              "error_code" => "operation_not_enqueued",
+              "method" => "SubmitTurn",
+              "state" => "failed"
+            }} =
              Client.fence_submit_turn(
                client,
                session.coop_session_id,
