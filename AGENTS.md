@@ -1,5 +1,19 @@
 # Responder Development
 
+## Ryker identity and rename
+
+The approved target identity is Ryker. Before branding, UI, naming or rename work, read
+`.agent/kb/rules/ryker-brand.md` and the repo-local sources it names. Use supplied artwork and
+Ryker mint, not the umbrella orange. The full code/repository/runtime rename is queued in the
+redesign task; documentation or imported assets alone do not mean it has shipped.
+
+## Slack-card design and review
+
+Before creating or redesigning Slack cards, read
+`.agent/kb/rules/slack-card-design-workflow.md` and `.agent/kb/rules/slack-presentation.md`.
+Reuse the native-payload catalog, validate the exact Builder envelope, and include fresh direct
+Builder links for each card-design change. Keep preview, visual, integration and deployment proof distinct.
+
 ## Pre-v1 replacements are clean cuts
 
 Remove superseded routes and implementations and update every caller, link, test,
