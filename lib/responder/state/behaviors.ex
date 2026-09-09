@@ -24,6 +24,7 @@ defmodule Responder.State.Behaviors do
     MemorySourceLink,
     Record,
     RecordChangeset,
+    SourceEventMatcher,
     StandingAssignmentRun,
     StandingAssignmentRunChangeset
   }
@@ -1066,24 +1067,13 @@ defmodule Responder.State.Behaviors do
   end
 
   defp assignment_matches?(%{"source_kind" => source_kind, "filter" => filter}, input) do
-    source_kind == input.source.kind and partial_match?(filter, input.content)
+    source_kind == input.source.kind and SourceEventMatcher.matches?(filter, input.content)
   end
 
   defp assignment_matches?(payload, input) do
     source_matches?(payload["source_filter"], input.actor.kind) and
       event_matches?(payload["trigger"], input)
   end
-
-  defp partial_match?(expected, actual) when is_map(expected) and is_map(actual) do
-    Enum.all?(expected, fn {key, value} ->
-      case Map.fetch(actual, key) do
-        {:ok, actual_value} -> partial_match?(value, actual_value)
-        :error -> false
-      end
-    end)
-  end
-
-  defp partial_match?(expected, actual), do: expected == actual
 
   defp source_matches?("human", :user), do: true
   defp source_matches?("app", kind) when kind in [:app, :bot, :system], do: true

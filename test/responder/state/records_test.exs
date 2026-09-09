@@ -3,6 +3,7 @@ defmodule Responder.State.RecordsTest do
 
   alias Responder.Episodes
   alias Responder.Fixtures.Episodes, as: EpisodeFixtures
+  alias Responder.Slack.Event
   alias Responder.Slack.Input, as: SlackInput
   alias Responder.State.Records
   alias Responder.Work.{Custody, Validator}
@@ -131,6 +132,64 @@ defmodule Responder.State.RecordsTest do
              })
 
     assert Records.user_resumable_wait?(legacy_wait.ref, input)
+  end
+
+  test "an exact Terraform run wait matches enriched attachments but rejects other runs and bots" do
+    # The recovered live episode saved this partial attachment matcher. Literal
+    # list equality would ignore its next notification and force a fallback poll.
+    claim = claim!("terraform-run-wait")
+    message = "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()
+    run = message["attachments"] |> hd() |> Map.take(["title", "title_link"])
+
+    assert {:ok, wait} =
+             Records.create(Records.token(claim.turn), "terraform-run", "event_wait", %{
+               "deadline_at" => "2099-08-28T13:00:00.000000Z",
+               "event_matcher" => %{
+                 "match" => %{"bot_id" => message["bot_id"], "attachments" => [run]},
+                 "on_timeout" => "Recheck the exact Terraform run; never apply changes.",
+                 "poll_after" => "2099-08-28T12:30:00.000000Z",
+                 "source_kind" => "slack",
+                 "type" => "source_event"
+               },
+               "kind" => "source_event",
+               "verification" => "Monitor the exact Terraform run through its terminal outcome."
+             })
+
+    assert {:ok, %{input: input}} =
+             Event.from_socket(
+               %{
+                 "type" => "events_api",
+                 "payload" => %{
+                   "type" => "event_callback",
+                   "team_id" => "T0BHXKZJVDX",
+                   "event_id" => "Ev-terraform-run-wait",
+                   "event" => message
+                 }
+               },
+               %{
+                 workspace_ref: "T0BHXKZJVDX",
+                 bot_ref: "B-RESPONDER",
+                 bot_user_ref: "U-RESPONDER"
+               }
+             )
+
+    assert Records.user_resumable_wait?(wait.ref, input)
+
+    reordered = Map.update!(input.content, "attachments", &Enum.reverse/1)
+    assert Records.user_resumable_wait?(wait.ref, %{input | content: reordered})
+
+    for wrong <- [
+          Map.put(input.content, "bot_id", "B-OTHER"),
+          Map.put(input.content, "attachments", []),
+          Map.put(input.content, "attachments", [%{run | "title" => "Run another-run"}]),
+          Map.put(input.content, "attachments", [Map.delete(run, "title_link")]),
+          Map.put(input.content, "attachments", [
+            Map.delete(run, "title"),
+            Map.delete(run, "title_link")
+          ])
+        ] do
+      refute Records.user_resumable_wait?(wait.ref, %{input | content: wrong})
+    end
   end
 
   test "one active turn creates inert task, question, and event-wait records idempotently" do

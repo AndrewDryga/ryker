@@ -21,7 +21,8 @@ defmodule Responder.State.Records do
     EventWaitTiming,
     Record,
     RecordChangeset,
-    RecordPayload
+    RecordPayload,
+    SourceEventMatcher
   }
 
   alias Responder.Work.Turn
@@ -258,24 +259,13 @@ defmodule Responder.State.Records do
 
   defp event_wait_matches?(%{"event_matcher" => %{"type" => "source_event"} = trigger}, input) do
     source_matches?(trigger["source_kind"], input.source.kind) and
-      partial_match?(trigger["match"], input.content)
+      SourceEventMatcher.matches?(trigger["match"], input.content)
   end
 
   defp event_wait_matches?(_legacy_or_timer, _input), do: true
 
   defp source_matches?(nil, _actual), do: true
   defp source_matches?(expected, actual), do: expected == actual
-
-  defp partial_match?(expected, actual) when is_map(expected) and is_map(actual) do
-    Enum.all?(expected, fn {key, value} ->
-      case Map.fetch(actual, key) do
-        {:ok, actual_value} -> partial_match?(value, actual_value)
-        :error -> false
-      end
-    end)
-  end
-
-  defp partial_match?(expected, actual), do: expected == actual
 
   defp fetch_records(refs, episode_id) do
     unique = Enum.uniq(refs)
