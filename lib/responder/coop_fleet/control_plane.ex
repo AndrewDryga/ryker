@@ -277,8 +277,20 @@ defmodule Responder.CoopFleet.ControlPlane do
 
       nil ->
         case latest_placement(session_id) do
-          %Placement{generation: generation} ->
-            {:replacement_required, generation}
+          %Placement{generation: generation} = placement ->
+            fail_undelivered_commands(placement, now)
+
+            if cancelling_bound_session?(session) do
+              recover_cancellation_placement(
+                session,
+                placement,
+                requirements,
+                lease_seconds,
+                now
+              )
+            else
+              {:replacement_required, generation}
+            end
 
           nil ->
             insert_placement(session, requirements, lease_seconds, now)
@@ -290,9 +302,12 @@ defmodule Responder.CoopFleet.ControlPlane do
     if DateTime.compare(placement.lease_expires_at, now) == :gt do
       {:replacement_pending, placement.generation, placement.lease_expires_at}
     else
-      placement
-      |> change(%{state: :replaced})
-      |> Repo.update!()
+      replaced =
+        placement
+        |> change(%{state: :replaced})
+        |> Repo.update!()
+
+      fail_undelivered_commands(replaced, now)
 
       {:replacement_required, placement.generation}
     end
@@ -300,6 +315,10 @@ defmodule Responder.CoopFleet.ControlPlane do
 
   defp insert_placement(session, requirements, lease_seconds, now) do
     worker = choose_worker!(session, requirements, now)
+    insert_placement_on_worker(session, worker, requirements, lease_seconds, now)
+  end
+
+  defp insert_placement_on_worker(session, worker, requirements, lease_seconds, now) do
     generation = next_placement_generation(session.id)
     id = Ecto.UUID.generate()
     frozen_requirements = placement_requirements(session, worker, requirements)
@@ -358,6 +377,41 @@ defmodule Responder.CoopFleet.ControlPlane do
     |> check_constraint(:generation, name: :coop_session_placement_identity_valid)
     |> Repo.insert()
     |> unwrap_write()
+  end
+
+  defp cancelling_bound_session?(%Session{id: session_id, coop_session_id: remote_id})
+       when is_binary(remote_id) do
+    Repo.exists?(
+      from(turn in Turn,
+        where: turn.session_id == ^session_id and turn.status == :cancel_pending
+      )
+    )
+  end
+
+  defp cancelling_bound_session?(_session), do: false
+
+  defp recover_cancellation_placement(
+         session,
+         previous,
+         requirements,
+         lease_seconds,
+         now
+       ) do
+    cutoff = DateTime.add(now, -@heartbeat_stale_seconds, :second)
+    worker = locked_worker(previous.worker_id)
+
+    eligible =
+      match?(%Worker{}, worker) and worker.workspace_ref == requirements.workspace_ref and
+        worker.state == :eligible and is_nil(worker.drain_requested_at) and
+        is_nil(worker.revoked_at) and match?(%DateTime{}, worker.last_seen_at) and
+        DateTime.compare(worker.last_seen_at, cutoff) != :lt and
+        worker_eligible?(worker, session, requirements, now) and
+        placement_authority_current?(previous.requirements, worker) and
+        worker_has_capacity?(worker)
+
+    if eligible,
+      do: insert_placement_on_worker(session, worker, requirements, lease_seconds, now),
+      else: rollback({:coop_worker_capacity_unavailable, session.id})
   end
 
   defp enqueue_command_locked(placement_id, kind, payload, idempotency_key) do
@@ -495,8 +549,51 @@ defmodule Responder.CoopFleet.ControlPlane do
             %{state: :revoking}
         end
 
-      placement
-      |> change(attributes)
+      updated =
+        placement
+        |> change(attributes)
+        |> Repo.update!()
+
+      if updated.state == :replaced, do: fail_undelivered_commands(updated, now)
+    end)
+
+    :ok
+  end
+
+  defp fail_undelivered_commands(placement, now) do
+    commands =
+      Repo.all(
+        from(command in Command,
+          where: command.placement_id == ^placement.id and command.status == :queued,
+          lock: "FOR UPDATE"
+        )
+      )
+
+    Enum.each(commands, fn command ->
+      error = %{
+        "code" => "operation_not_enqueued",
+        "detail" => "command never left Responder before its placement ended",
+        "status" => 409
+      }
+
+      fingerprint =
+        CanonicalJSON.digest(%{
+          "command_id" => command.id,
+          "error" => error,
+          "operation_key" => command.idempotency_key,
+          "resource" => nil,
+          "state" => "failed"
+        })
+
+      command
+      |> change(%{
+        completed_at: now,
+        error: error,
+        operation_key: command.idempotency_key,
+        result_fingerprint: fingerprint,
+        status: :failed
+      })
+      |> check_constraint(:status, name: :coop_worker_command_result_valid)
       |> Repo.update!()
     end)
 
