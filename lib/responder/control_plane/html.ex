@@ -1,5 +1,6 @@
 defmodule Responder.ControlPlane.HTML do
   alias Responder.ControlPlane.Card
+  alias Responder.ControlPlane.CodeEditingSetup
   alias Responder.ControlPlane.Components
   alias Responder.ControlPlane.FailurePage
   alias Responder.ControlPlane.FindingsPage
@@ -1517,13 +1518,59 @@ defmodule Responder.ControlPlane.HTML do
       escape(source),
       "</code>.</p><div class=\"configuration-change-note\"><strong>How to change these settings</strong><p>This page is read-only. Edit the host YAML (or application environment in a component setup), validate it, then restart Responder through the normal deployment workflow. Refreshing this page does not reload the file or change running work.</p><p>Configured means the component has configuration, not that its connection or workers are healthy. Defaults below describe the v1 loader; example YAML values are not necessarily defaults. Credentials, URLs, callback values and raw policy documents remain private.</p></div></div><div class=\"configuration-settings\" aria-label=\"Effective values and explanations\">",
       configuration_rows,
-      "</div><section><h2>MCP and tool grants</h2><p class=\"configuration-grants-note\">This is an inventory of configured names, not a live tool-health check. Listing a tool does not grant permission to use it.</p>",
+      "</div>",
+      code_editing_setup(),
+      "<section><h2>MCP and tool grants</h2><p class=\"configuration-grants-note\">This is an inventory of configured names, not a live tool-health check. Listing a tool does not grant permission to use it.</p>",
       table(["Grant kind", "Capability or tool", "Source"], grant_rows),
       "</section><p class=\"muted\">Repository-specific policy topology and serving-worker revisions are shown under <a href=\"/repositories\">Repositories</a>.</p>"
     ]
   end
 
   def configuration(rows), do: generic("Effective host configuration", rows)
+
+  defp code_editing_setup do
+    status =
+      if CodeEditingSetup.checkpoint_supported?(),
+        do:
+          "The running connection supports saving work. This does not prove that a compatible coding worker is online or that its checks can run.",
+        else:
+          "The running connection does not support saving coding work. Repository-editing tasks cannot start with this setup."
+
+    [
+      "<section id=\"code-editing\" class=\"code-editing-setup\"><h2>Set up code editing</h2><p>",
+      escape(status),
+      "</p><p>The coding service must be able to save a recoverable copy of its files before it can change a repository. An administrator must complete these steps:</p><ol>",
+      "<li><strong>Prepare a coding worker.</strong> Use a co:op fleet worker with persistent storage, the intended repository and reviewed execution policy. Install the repository’s build tools inside its coding environment. If the checks require Docker, verify Docker there—not just on the host. Do not grant host Docker access without reviewing that permission.</li>",
+      "<li><strong>Connect the worker.</strong> Configure the authenticated worker gateway, then issue a one-time enrollment token with <code>mix responder.coop_worker enroll WORKER_ID WORKSPACE_REF OPERATOR_REF</code> using the release’s database environment. Keep the token private. Configure the worker’s gateway URL, CA, repository, actual policy digests and capabilities, then run <code>coop worker connect --config /etc/coop/worker.json</code>. Its local co:op session service must already be running under the same OS user. These names and paths are examples, not ready-to-run values.</li>",
+      "<li><strong>Select fleet execution.</strong> In the host configuration shown above, set <code>work.execution</code> to <code>fleet</code> and <code>work.workspace_ref</code> to that worker’s exact workspace. Keep the existing tool grants and policies. Check that the worker provides the required <code>work.capability_names</code> (default: <code>responder-state</code>). Validate the configuration, then restart the host through its deployment workflow.</li>",
+      "<li><strong>Verify before retrying.</strong> Confirm the worker is connected, eligible for this repository and policy, and can save and restore a disposable workspace. Run a small required check in that environment. Then return to the task and retry it. Changing the configuration alone is not a readiness check.</li>",
+      "</ol><p>This page is read-only: it does not enroll workers, change permissions or retry tasks.</p>",
+      code_editing_commands(),
+      "</section>"
+    ]
+  end
+
+  defp code_editing_commands do
+    """
+    <details><summary>Administrator commands and configuration</summary>
+    <p>Replace these example paths and names with your reviewed deployment values. Keep the existing service and its files; do not start a duplicate daemon.</p>
+    <p>Inspect the existing session service and its real policies:</p>
+    <pre><code>coop sessions doctor --socket /var/lib/coop-sessions/control.sock
+    coop sessions policies --policies /etc/coop/session-policies.yaml --json</code></pre>
+    <p>Enrollment requires the running release’s <code>MIX_ENV=prod</code> and <code>DATABASE_URL</code> environment. The enrollment command does not accept <code>--config</code>. Save only the returned token value in a private file with mode <code>0600</code>; do not put it in chat or command arguments.</p>
+    <p>The worker JSON needs the authenticated HTTPS gateway, trusted CA, enrollment-token file, local session socket, actual policy and authority digests, repositories, capabilities and capacity. Its <code>identity_file</code> must initially be absent and its <code>journal_dir</code> persistent and private. Preserve both after enrollment. Use the worker gateway, not the operator control plane, for this connection.</p>
+    <p>Change these settings in the host configuration shown above, preserving its other settings and grants:</p>
+    <pre><code>work:
+      execution: fleet
+      workspace_ref: YOUR_ENROLLED_WORKSPACE
+      capability_names:
+        - responder-state</code></pre>
+    <p>Keep any additional required capabilities. Validate the edited configuration before restarting the host:</p>
+    <pre><code>mix responder.doctor --config /absolute/path/to/responder-elixir.yaml</code></pre>
+    <p>Finally, verify worker eligibility, workspace save/restore and required build tools before retrying. Do not rotate the gateway’s checkpoint encryption key: existing saved work depends on it.</p>
+    </details>
+    """
+  end
 
   def usage(snapshot),
     do: UsagePage.render(snapshot)

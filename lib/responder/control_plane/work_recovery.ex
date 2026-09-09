@@ -1,6 +1,6 @@
 defmodule Responder.ControlPlane.WorkRecovery do
   @moduledoc "A shared recovery brief: host facts and attributed final output, never raw diagnostics or thoughts."
-  alias Responder.ControlPlane.InspectionRedactor
+  alias Responder.ControlPlane.{CodeEditingSetup, InspectionRedactor}
   alias Responder.Work.{Custody, Turn}
 
   @checkpoint_api_errors [
@@ -8,19 +8,22 @@ defmodule Responder.ControlPlane.WorkRecovery do
     "{:invalid_work_executor, :workspace_checkpoint_api}"
   ]
 
-  def project(%Turn{} = turn, workspace_recovery) do
+  def project(
+        %Turn{} = turn,
+        workspace_recovery,
+        checkpoint_supported? \\ CodeEditingSetup.checkpoint_supported?()
+      ) do
     saved = saved_output(turn)
     closed = get_in(turn.cancellation_receipt, ["session_state"]) in ["closed", "discarded"]
     unsupported = turn.last_error_detail in @checkpoint_api_errors
 
-    finalizing =
-      is_map(turn.completion_receipt) and is_nil(turn.result_ref) and is_nil(turn.delivery_ref)
+    finalizing = completion_pending?(turn)
 
     stranded = workspace_recovery == {:error, :work_completed_workspace_recovery_required}
 
     {headline, cause, next_step} = explanation(turn, unsupported, finalizing, closed, saved)
 
-    %{
+    brief = %{
       kind: if(finalizing, do: :completion, else: :execution),
       headline: headline,
       cause: cause,
@@ -33,7 +36,9 @@ defmodule Responder.ControlPlane.WorkRecovery do
           else: "A delivery receipt is recorded; check the conversation before sending again."
         ),
       workspace: workspace_status(unsupported, finalizing, closed),
-      action: if(stranded, do: nil, else: :retry),
+      setup_href: if(unsupported, do: "/configuration#code-editing"),
+      not_started: not_started?(turn),
+      action: recovery_action(stranded, unsupported, checkpoint_supported?),
       action_label: if(finalizing, do: "Resume saving result", else: "Retry work"),
       retry_effect:
         if(finalizing,
@@ -43,7 +48,71 @@ defmodule Responder.ControlPlane.WorkRecovery do
             "Starts a new logical turn after reconciling the stopped worker. Inspect and preserve unfinished changes first."
         )
     }
+
+    startup_explanation(brief, checkpoint_supported?)
   end
+
+  defp completion_pending?(%Turn{completion_receipt: receipt, result_ref: nil, delivery_ref: nil})
+       when is_map(receipt), do: true
+
+  defp completion_pending?(_), do: false
+
+  defp recovery_action(true, _, _), do: nil
+  defp recovery_action(_, true, false), do: nil
+  defp recovery_action(_, _, _), do: :retry
+
+  defp startup_explanation(%{not_started: true} = brief, checkpoint_supported?) do
+    %{
+      brief
+      | headline: "I couldn’t start the code changes",
+        cause:
+          "The code-editing service could not save a recoverable copy of its work. I stopped before editing any files.",
+        next_step:
+          if(checkpoint_supported?,
+            do:
+              "The connection now supports saving work. An administrator should check that a compatible coding worker is available, then retry this task.",
+            else:
+              "An administrator needs to fix the code-editing setup. Retrying before that will fail for the same reason."
+          ),
+        workspace: "No files changed. No checks ran.",
+        delivery: "No task reply was sent.",
+        action_label: "Retry task",
+        retry_effect: "Starts the approved task. No coding work ran in this attempt."
+    }
+  end
+
+  defp startup_explanation(brief, _checkpoint_supported?), do: brief
+
+  def not_started?(%Turn{status: :blocked, last_error_detail: error} = turn)
+      when error in @checkpoint_api_errors, do: retained_absent_submission?(turn)
+
+  def not_started?(_), do: false
+
+  # Absence alone is not evidence: retention also clears submission and result
+  # fields. The explicit absent-session receipt proves no start even after a
+  # close or retry replaces the turn's status and error, but not after pruning.
+  def retained_absent_submission?(%Turn{
+        operational_pruned_at: nil,
+        submission: nil,
+        submission_fingerprint: nil,
+        coop_turn_id: nil,
+        remote_started_at: nil,
+        remote_finished_at: nil,
+        candidate: nil,
+        validation_intent: nil,
+        completion_receipt: nil,
+        result_ref: nil,
+        delivery_ref: nil,
+        external_receipt: nil,
+        cancellation_receipt: %{
+          "kind" => "absent_turn",
+          "remote_session_id" => nil,
+          "submit_operation_ref" => nil
+        }
+      }),
+      do: true
+
+  def retained_absent_submission?(_), do: false
 
   defp explanation(_turn, true, _finalizing, closed, saved) do
     headline =

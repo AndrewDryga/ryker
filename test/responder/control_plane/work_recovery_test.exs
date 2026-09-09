@@ -3,6 +3,59 @@ defmodule Responder.ControlPlane.WorkRecoveryTest do
   alias Responder.ControlPlane.{HTML, WorkRecovery}
   alias Responder.Work.Turn
 
+  test "a confirmed task that never started explains setup without implying lost changes" do
+    # The second runner request showed Working and suggested blind retries even
+    # though the checkpoint guard stopped it before creating a coding session.
+    turn = not_started_turn()
+    brief = WorkRecovery.project(turn, :ok)
+    assert brief.headline == "I couldn’t start the code changes"
+    assert brief.cause =~ "save a recoverable copy"
+    assert brief.next_step =~ "administrator"
+    assert brief.workspace == "No files changed. No checks ran."
+    assert brief.model_output == nil
+    assert brief.action == nil
+    assert brief.setup_href == "/configuration#code-editing"
+    assert WorkRecovery.not_started?(turn)
+  end
+
+  test "missing or expired evidence never proves that code work did not start" do
+    turn = not_started_turn()
+
+    for changed <- [
+          %{turn | cancellation_receipt: nil},
+          %{turn | operational_pruned_at: DateTime.utc_now()},
+          %{turn | submission: %{}},
+          %{turn | coop_turn_id: "remote-turn"},
+          %{turn | remote_started_at: DateTime.utc_now()},
+          %{turn | completion_receipt: %{}}
+        ] do
+      refute WorkRecovery.not_started?(changed)
+      refute WorkRecovery.project(changed, :ok).workspace =~ "No files changed"
+    end
+  end
+
+  test "the setup blocker stops hiding retry only after the running connection is corrected" do
+    turn = not_started_turn()
+    assert WorkRecovery.project(turn, :ok, false).action == nil
+    ready = WorkRecovery.project(turn, :ok, true)
+    assert ready.action == :retry
+    assert ready.action_label == "Retry task"
+    assert ready.next_step =~ "compatible coding worker"
+    assert ready.cause =~ "could not save"
+    refute ready.next_step =~ "will fail for the same reason"
+  end
+
+  defp not_started_turn do
+    source = "testdata/work/hosted-runner-not-started.json" |> File.read!() |> Jason.decode!()
+
+    %Turn{
+      status: :blocked,
+      last_error_code: source["last_error_code"],
+      last_error_detail: source["last_error_detail"],
+      cancellation_receipt: source["cancellation_receipt"]
+    }
+  end
+
   test "recovery explains the host failure separately from the retained worker answer" do
     # The runner's actionable Docker question was hidden behind work_execution_blocked.
     turn = incident_turn()

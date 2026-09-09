@@ -1,0 +1,28 @@
+{
+  "episode_ref": "task-offer:record:task_offer:113a81e7d24c4a68b1541f7bd9071a0e",
+  "title": "Bump the internal hosted runner version",
+  "proposed_at": "2026-09-09T17:08:35.696602Z",
+  "confirmed_at": "2026-09-09T17:09:21.666836Z",
+  "last_error_code": "work_execution_blocked",
+  "last_error_detail": "invalid_work_executor: {:invalid_work_executor, :workspace_checkpoint_api}",
+  "cancellation_intent": {
+    "action": "block",
+    "reason": "invalid_work_executor: {:invalid_work_executor, :workspace_checkpoint_api}",
+    "cancel_ref": null,
+    "new_turn_ref": null,
+    "transfer_ref": null,
+    "required_input_ref": null
+  },
+  "cancellation_receipt": {
+    "kind": "absent_turn",
+    "session_state": null,
+    "remote_session_id": null,
+    "close_operation_ref": null,
+    "create_operation_ref": "responder:work:create:0dfaf003-1e03-4da8-a68a-2d7e4e544b31:g1",
+    "submit_operation_ref": null
+  },
+  "submission": null,
+  "coop_turn_id": null,
+  "candidate": null,
+  "completion_receipt": null
+}

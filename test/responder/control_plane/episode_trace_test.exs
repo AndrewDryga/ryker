@@ -21,6 +21,144 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
 
   @received ~U[2026-09-04 22:51:44.000000Z]
 
+  test "a task stopped before starting shows its request and remedy instead of an empty model briefing" do
+    # Harvested from the second runner request, not the older Docker-blocked task.
+    source = "testdata/work/hosted-runner-not-started.json" |> File.read!() |> Jason.decode!()
+    {:ok, %{episode: parent}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, _} = Custody.pin_episode(parent.id, "trace-test", String.duplicate("a", 64))
+    {:ok, parent_claim} = Custody.claim_next("trace-test", 60, :work)
+    {:ok, _} = Episodes.apply(EpisodeFixtures.accept_result())
+    {:ok, _} = Episodes.apply(EpisodeFixtures.confirm_delivery())
+    id = Ecto.UUID.generate()
+
+    {:ok, %{episode: episode}} =
+      Episodes.apply(
+        EpisodeFixtures.admit_input(%{
+          episode_id: id,
+          episode_key: source["episode_ref"],
+          native_input_id: id,
+          turn_ref: id,
+          linked_episode_id: parent.id
+        })
+      )
+
+    {:ok, session} = Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+    {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
+    payload = %{"title" => source["title"]}
+
+    Repo.insert!(%Responder.State.Record{
+      id: Ecto.UUID.generate(),
+      episode_id: parent.id,
+      turn_id: parent_claim.turn.id,
+      ref: String.replace_prefix(source["episode_ref"], "task-offer:", ""),
+      operation_id: "propose-runner-upgrade",
+      kind: "task_offer",
+      status: :confirmed,
+      payload: payload,
+      payload_fingerprint: CanonicalJSON.digest(payload),
+      confirmed_episode_id: episode.id,
+      confirmation_ref: "confirmation:runner-upgrade",
+      confirmed_by_actor_ref: "slack:user:U1",
+      confirmed_at: DateTime.from_iso8601(source["confirmed_at"]) |> elem(1),
+      inserted_at: DateTime.from_iso8601(source["proposed_at"]) |> elem(1)
+    })
+
+    Repo.update_all(from(s in Responder.Work.Session, where: s.id == ^session.id),
+      set: [workspace_task: %{"title" => source["title"]}, repository_ref: "emisar"]
+    )
+
+    block_before_start!(claim.turn, session, source)
+
+    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+
+    html =
+      render_component(&EpisodePage.render/1,
+        snapshot: detail,
+        timeline: timeline,
+        requests: nil,
+        params: %{}
+      )
+
+    document = LazyHTML.from_document(html)
+    assert LazyHTML.text(LazyHTML.query(document, "h1")) == source["title"]
+
+    assert LazyHTML.text(LazyHTML.query(document, ".episode-title-row .ui-status")) ==
+             "Couldn’t start"
+
+    assert html =~ "No files changed. No checks ran."
+    assert html =~ "No task reply was sent."
+    assert html =~ "View required setup"
+    assert html =~ "What happened"
+    assert html =~ "Your confirmation was received."
+    history = LazyHTML.query(document, ".task-start-history") |> LazyHTML.text()
+    assert history =~ "Task proposed"
+    assert history =~ "Task approved"
+    refute history =~ "Completed"
+    assert Repo.get!(Episode, parent.id).state == :complete
+    refute html =~ "Run again"
+    refute html =~ "Model briefing"
+    refute html =~ "Open recovery"
+    refute html =~ "lacks Docker"
+    assert LazyHTML.query(document, ".episode-metrics") |> Enum.empty?()
+    assert LazyHTML.query(document, ".story-wait") |> Enum.empty?()
+    assert timeline.items == []
+
+    # A later configuration failure must not erase earlier work on this episode.
+    Repo.update_all(from(s in Responder.Work.Session, where: s.id == ^session.id),
+      set: [coop_session_id: "previously-started-session"]
+    )
+
+    {:ok, with_session} = Projection.episode(episode.key)
+    assert with_session.trace.startup == nil
+
+    Repo.update_all(from(s in Responder.Work.Session, where: s.id == ^session.id),
+      set: [coop_session_id: nil]
+    )
+
+    # Real close changes the turn's status and error. It must not invent a model
+    # briefing for this never-submitted attempt, nor show startup recovery again.
+    assert {:ok, %{status: :settled}} =
+             Custody.request_cancel(
+               episode.id,
+               episode.key,
+               claim.turn.turn_ref,
+               "close-runner-request",
+               "No longer needed"
+             )
+
+    assert Repo.get!(Turn, claim.turn.id).status == :superseded
+    {:ok, closed} = Projection.episode(episode.key)
+    assert closed.trace.startup == nil
+    assert closed.trace.stopped.headline == "Episode cancelled"
+    refute Enum.any?(closed.trace.actions, &String.ends_with?(&1.href, "/retry"))
+    {:ok, closed_timeline} = ModelRequests.timeline(episode.key, %{})
+    assert closed_timeline.items == []
+
+    Repo.update_all(from(t in Turn, where: t.id == ^claim.turn.id),
+      set: [operational_pruned_at: DateTime.utc_now()]
+    )
+
+    {:ok, pruned_timeline} = ModelRequests.timeline(episode.key, %{})
+    assert pruned_timeline.items != []
+  end
+
+  test "retrying a task that never started does not invent a briefing for its old attempt" do
+    # Retry replaces the stopped disposition, not the retained proof that no
+    # model was called. The broken projection resurrected a phantom briefing.
+    source = "testdata/work/hosted-runner-not-started.json" |> File.read!() |> Jason.decode!()
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, session} = Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+    {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
+    turn = block_before_start!(claim.turn, session, source)
+
+    assert {:ok, retried} = Custody.retry_blocked(episode.key, Custody.recovery_fingerprint(turn))
+    assert retried.owner_ref != turn.turn_ref
+    assert Repo.get!(Turn, turn.id).status == :superseded
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+    refute Enum.any?(timeline.items, &(&1.id == "request-#{turn.id}"))
+  end
+
   test "kernel-only delivery history does not infer a transport from the current destination" do
     # Historical kernel events retain the delivery identity, not an external
     # receipt. A Slack destination alone cannot distinguish delivery from replay.
@@ -347,7 +485,7 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
     assert html =~ "execution-timeline"
     assert html =~ "Investigate &lt;script&gt;"
     assert html =~ "All model requests"
-    assert html =~ "Technical record"
+    assert html =~ "Technical details"
     assert html =~ "Created"
     assert html =~ URI.encode_www_form(episode.key)
     refute html =~ "<script>steal()"
@@ -370,6 +508,35 @@ defmodule Responder.ControlPlane.EpisodeTraceTest do
     assert html =~ "Correction: backup citation retained."
     assert html =~ "&lt;script&gt;"
     refute html =~ "<script>bad()"
+  end
+
+  defp block_before_start!(turn, session, source) do
+    # Only rebind the harvested receipt's host identity to this test's session.
+    # The absent-session outcome and original configuration failure stay intact.
+    receipt =
+      Map.put(
+        source["cancellation_receipt"],
+        "create_operation_ref",
+        "responder:work:create:#{session.id}:g#{session.create_generation}"
+      )
+
+    Repo.update_all(from(t in Turn, where: t.id == ^turn.id),
+      set: [
+        status: :blocked,
+        last_error_code: source["last_error_code"],
+        last_error_detail: source["last_error_detail"],
+        cancellation_intent: source["cancellation_intent"],
+        cancellation_intent_fingerprint: CanonicalJSON.digest(source["cancellation_intent"]),
+        cancellation_receipt: receipt,
+        cancellation_receipt_fingerprint: CanonicalJSON.digest(receipt),
+        cancelled_at: DateTime.utc_now(),
+        lease_ref: nil,
+        lease_owner: nil,
+        lease_expires_at: nil
+      ]
+    )
+
+    Repo.get!(Turn, turn.id)
   end
 
   defp admitted_input! do
